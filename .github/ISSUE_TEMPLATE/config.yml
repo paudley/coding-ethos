@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+blank_issues_enabled: false
+contact_links:
+  - name: Security policy
+    url: https://github.com/paudley/coding-ethos/blob/main/SECURITY.md
+    about: Report vulnerabilities privately using the process described in SECURITY.md.

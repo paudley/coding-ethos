@@ -44,6 +44,12 @@ dependencies = [
     "PyYAML>=6.0.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/paudley/coding-ethos"
+Repository = "https://github.com/paudley/coding-ethos"
+Issues = "https://github.com/paudley/coding-ethos/issues"
+Changelog = "https://github.com/paudley/coding-ethos/blob/main/CHANGELOG.md"
+
 [project.scripts]
 coding-ethos = "coding_ethos.cli:main"
 
