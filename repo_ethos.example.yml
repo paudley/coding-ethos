@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+repo:
+  name: Example Service
+  overview: Background processing for durable jobs.
+  commands:
+    install:
+      - uv sync
+    test:
+      - uv run pytest
+    lint:
+      - uv run ruff check .
+  paths:
+    source: src/
+    tests: tests/
+  notes:
+    - Job IDs are immutable.
+
+agent_notes:
+  codex:
+    - Prefer the generated detail docs when a task is architectural.
+  claude:
+    - Open the relevant ethos doc before changing retry behavior.
+  gemini:
+    - Prefer targeted reads when the task is narrow.
+
+principles:
+  overrides:
+    protocol-first-design:
+      directive: Define interfaces in `src/interfaces/` before implementation work.
+      quick_ref:
+        - Start interface work in `src/interfaces/`.
+        - Keep implementation modules downstream of the contract.
+      merge_topics:
+        - interface design
+        - API contracts
+      append: |
+        In this repo, all interfaces live under `src/interfaces/`.
+  additional:
+    - id: migration-hygiene
+      order: 900
+      title: Migration Hygiene
+      summary: Migrations are append-only and reviewed like code.
+      directive: Keep migrations append-only.
+      tags:
+        - database
+        - workflow
+      quick_ref:
+        - Never rewrite an applied migration.
+        - Review migrations like code.
+      merge_topics:
+        - database workflow
+        - migration safety
+      agent_hints:
+        codex: Keep migrations append-only and check compatibility with existing deployments.
+      sections:
+        - id: overview
+          kind: overview
+          title: Overview
+          summary: Never rewrite an applied migration.
+          body: |
+            Never rewrite an applied migration.

@@ -1,0 +1,3023 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+version: 2
+metadata:
+  title: 'ETHOS.md: Engineering Principles for Python Projects'
+  overview: |
+    This is an opinionated engineering statement. We prize determinism over flexibility, clarity over cleverness, and architectural rigor over rapid prototyping.
+
+    This document outlines the non-negotiable guiding principles that govern every line of code. It is framework-agnostic and applies to any Python codebase.
+
+    It also captures a broader operating model for engineering decisions: evidence over assumptions, explicit trade-offs over hand-waving, and calibrated risk management over intuition alone.
+  source_markdown: ETHOS.md
+agents:
+  codex:
+    root_file: AGENTS.md
+    notes:
+    - Keep the root file concise, operational, and repo-specific.
+    - Put durable project rules in AGENTS.md and link to deep docs instead of pasting long
+      prose.
+  claude:
+    root_file: CLAUDE.md
+    supporting_files:
+    - .claude/ethos/MEMORY.md
+    notes:
+    - Use CLAUDE.md as a short import hub, not a giant policy dump.
+    - Mirror Claude memory style with one deep linked note per ethos entry.
+  gemini:
+    root_file: GEMINI.md
+    notes:
+    - Keep GEMINI.md brief and hierarchical.
+    - Prefer targeted reads of linked detail docs instead of loading the full corpus every
+      time.
+principles:
+- id: solid-is-law
+  order: 1
+  title: SOLID is Law
+  summary: We do not view the SOLID principles as academic suggestions.
+  directive: Enforce SOLID and simplicity; remove speculative abstractions.
+  quick_ref:
+  - Enforce SOLID and simplicity; remove speculative abstractions.
+  - We do not view the SOLID principles as academic suggestions.
+  - 'SOLID governs structure; these principles govern complexity:'
+  merge_topics:
+  - solid is law
+  - architecture decisions
+  - design constraints
+  tags:
+  - architecture
+  - design
+  - simplicity
+  related:
+  - linting-as-code-quality-enforcement
+  - protocol-first-design
+  agent_hints:
+    codex: Prefer structural refactors over tactical patches when this principle is implicated.
+    claude: Open the detailed ethos note before changing architecture or interfaces.
+    gemini: Use this rule to keep plans structurally coherent and avoid ad hoc abstractions.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We do not view the SOLID principles as academic suggestions.
+    body: |-
+      We do not view the SOLID principles as academic suggestions. They are the strict rules of engagement for our codebase.
+
+      * **Single Responsibility (SRP):** Modules must have one reason to change. If a class handles storage I/O *and* metadata parsing, it is broken. Split it.
+      * **Open/Closed (OCP):** The system grows by adding new classes (extensions), not by editing existing ones. We use registries and dependency injection to introduce new behaviors.
+      * **Liskov Substitution (LSP):** A ServiceProvider must behave like a ServiceProvider. If your implementation raises unexpected exceptions or violates the protocol contract, it is a bug.
+      * **Interface Segregation (ISP):** Clients should not depend on methods they do not use. We prefer small, specific Protocols in interfaces/ over monolithic base classes.
+      * **Dependency Inversion (DIP):** We depend on abstractions (Protocols), not concretions. The Dependency Injection container (the DI container) is the heart of the application; manual instantiation of service chains in business logic is forbidden. *(See [Section 12: Protocol-First Design](#12-protocol-first-design) for how we implement this.)*
+  - id: beyond-solid-simplicity-precepts
+    kind: guidance
+    title: 'Beyond SOLID: Simplicity Precepts'
+    summary: 'SOLID governs structure; these principles govern complexity:'
+    body: |-
+      SOLID governs structure; these principles govern complexity:
+
+      * **YAGNI (You Aren't Gonna Need It):** Do not build for hypothetical future requirements. If the feature isn't needed today, don't add it. Abstractions "for future flexibility" are premature complexity. Build the simplest thing that works.
+
+      * **KISS (Keep It Simple, Stupid):** When choosing between approaches, prefer the simpler one. A 10-line function with duplication beats a 50-line abstraction. Clever code is a liability. Code should be boring.
+
+      * **Principle of Least Astonishment (POLA):** APIs, functions, and behaviors should do what their names suggest. If a function named `get_user()` modifies the database, it is broken regardless of whether it "works." No surprises.
+
+      * **Law of Demeter (Don't Talk to Strangers):** A method should only call methods on: (1) itself, (2) its parameters, (3) objects it creates, (4) its direct dependencies. Chains like `user.address.city.name` violate this—each dot is a coupling point that makes code brittle.
+
+      * **Composition over Inheritance:** Prefer composing objects from smaller components over deep inheritance hierarchies. In Python, use Protocols for interfaces and inject dependencies rather than inheriting behavior. Inheritance creates tight coupling; composition creates flexibility.
+
+      **Anti-Patterns to Watch For:**
+
+      * ❌ Adding a config system for values that could be constants
+      * ❌ Creating an abstract base class for a single implementation
+      * ❌ Adding optional parameters "in case someone needs them later"
+      * ❌ Building plugin architectures when a simple import would suffice
+      * ❌ Chaining through multiple objects to get data (violates Demeter)
+      * ❌ Creating deep inheritance hierarchies when composition would work
+      * ❌ Null Objects for "deployment flexibility" when the dependency is always required
+
+      **The Rule:** The best code is the code you didn't write. Every abstraction must earn its place by solving a problem that exists TODAY, not one that might exist tomorrow.
+- id: fail-fast-fail-hard-overview
+  order: 2
+  title: Fail Fast, Fail Hard (Overview)
+  summary: Ambiguity is the enemy of reliability.
+  directive: Crash early on ambiguous startup and configuration states instead of degrading
+    silently.
+  quick_ref:
+  - Crash early on ambiguous startup and configuration states instead of degrading silently.
+  - Ambiguity is the enemy of reliability.
+  merge_topics:
+  - fail fast, fail hard (overview)
+  - startup behavior
+  - failure handling
+  tags:
+  - startup
+  - reliability
+  - configuration
+  related:
+  - no-rationalized-shortcuts
+  - validation-at-the-gate
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Ambiguity is the enemy of reliability.
+    body: |-
+      Ambiguity is the enemy of reliability. We believe that a program that crashes immediately upon startup with a clear error message is infinitely superior to one that limps along in a degraded, unpredictable state.
+
+      The following sections (3-9) detail the specific rules that implement this philosophy.
+
+      *(See also: [Section 21: No Rationalized Shortcuts](#21-no-rationalized-shortcuts) for the runtime equivalent—never take destructive shortcuts even when facing complexity.)*
+- id: no-conditional-imports
+  order: 3
+  title: No Conditional Imports
+  summary: We strictly ban the "soft dependency" pattern.
+  directive: Treat required imports as hard dependencies and fail immediately if they are
+    missing.
+  quick_ref:
+  - Treat required imports as hard dependencies and fail immediately if they are missing.
+  - We strictly ban the "soft dependency" pattern.
+  merge_topics:
+  - no conditional imports
+  - dependency policy
+  - startup behavior
+  tags:
+  - dependency
+  - startup
+  - reliability
+  related:
+  - no-if-available-capability-checks
+  - validation-at-the-gate
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban the "soft dependency" pattern.
+    body: |-
+      **We strictly ban the "soft dependency" pattern.**
+
+      If a module requires a library, that library must be present. We do not wrap imports in try/except blocks to hide missing dependencies. If the environment is missing a requirement, the application must crash at the import stage.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Hiding environmental rot
+      try:
+          import redis
+          HAS_REDIS = True
+      except ImportError:
+          HAS_REDIS = False  # Silent degradation
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Deterministic failure
+      import redis  # If this is missing, we crash. Good.
+      ```
+- id: static-analysis-is-the-first-line-of-defense
+  order: 4
+  title: Static Analysis is the First Line of Defense
+  summary: We rely on linters (ruff) and type checkers (mypy) to catch errors before the code
+    ever runs.
+  directive: Make ruff and mypy blocking quality gates rather than advisory tools.
+  quick_ref:
+  - Make ruff and mypy blocking quality gates rather than advisory tools.
+  - We rely on linters (ruff) and type checkers (mypy) to catch errors before the code ever
+    runs.
+  - Treat repo hook and CI gates as authoritative, not optional reminders.
+  merge_topics:
+  - static analysis is the first line of defense
+  - tooling gates
+  - lint policy
+  - machine-enforced quality gates
+  tags:
+  - tooling
+  - linting
+  - typing
+  related:
+  - linting-as-code-quality-enforcement
+  - testing-as-specification
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We rely on linters (ruff) and type checkers (mypy) to catch errors before the
+      code ever runs.
+    body: |-
+      We rely on linters (ruff) and type checkers (mypy) to catch errors before the code ever runs.
+
+      * We do not suppress linter errors unless absolutely necessary.
+      * Type hints are mandatory, not optional.
+      * If the CI pipeline fails static analysis, the code is effectively broken.
+  - id: machine-enforced-gates
+    kind: rule
+    title: Machine-Enforced Gates
+    summary: Static analysis belongs in enforced local hooks and CI, not in optional tribal
+      knowledge.
+    body: |-
+      Static analysis belongs in enforced local hooks and CI, not in optional tribal knowledge.
+
+      * Repos should run their canonical lint and type suites automatically before code lands.
+      * If a repo exposes pre-commit, pre-push, or CI static analysis gates, treat them as part of the engineering contract.
+      * Passing the current local gate matters more than saying a previous run was green.
+- id: no-optional-types-for-required-dependencies
+  order: 5
+  title: No Optional Types for Required Dependencies
+  summary: We strictly ban | None (or Optional) for dependencies that are required for correct
+    operation.
+  directive: Model required dependencies as non-optional and default to full-strength behavior.
+  quick_ref:
+  - Model required dependencies as non-optional and default to full-strength behavior.
+  - We strictly ban | None (or Optional) for dependencies that are required for correct operation.
+  - We strictly ban building suboptimal paths that users must opt out of.
+  merge_topics:
+  - no optional types for required dependencies
+  - type contracts
+  - dependency policy
+  tags:
+  - typing
+  - dependency
+  - defaults
+  related:
+  - no-conditional-validation
+  - robustness-in-motion-runtime
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban | None (or Optional) for dependencies that are required for correct
+      operation.
+    body: |-
+      **We strictly ban `| None` (or `Optional`) for dependencies that are required for correct operation.**
+
+      If a component cannot function without a dependency, that dependency's type signature must reflect this. Using `| None` creates an escape hatch that allows silent degradation—the exact failure mode we forbid.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Optional type allows silent None propagation
+      class LocalServiceProvider:
+          _path_resolver: PathResolver | None = None
+
+          def set_path_resolver(self, resolver: PathResolver | None) -> None:
+              self._path_resolver = resolver  # Accepts None silently
+
+          async def resolve_path(self, entity_id: str) -> Path:
+              if self._path_resolver is not None:  # Silent bypass when None
+                  return await self._path_resolver.resolve(entity_id)
+              return self._fallback_path(entity_id)  # Wrong behavior
+
+      # ❌ WRONG: Factory returns None instead of failing
+      def create_resolver() -> PathResolver | None:
+          if not config.base_path:
+              return None  # Silent failure - caller may not check
+          return PathResolver(config.base_path)
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Required dependency has non-optional type
+      class LocalServiceProvider:
+          _path_resolver: PathResolver  # No None - must be provided
+
+          def set_path_resolver(self, resolver: PathResolver) -> None:
+              self._path_resolver = resolver  # mypy enforces non-None at call site
+
+          async def resolve_path(self, entity_id: str) -> Path:
+              # No None check needed - type guarantees it exists
+              return await self._path_resolver.resolve(entity_id)
+
+      # ✅ CORRECT: Factory raises on configuration error
+      def create_resolver() -> PathResolver:
+          if not config.base_path:
+              raise ConfigurationError(
+                  "storage.provider_configs.local.base_path is required"
+              )
+          return PathResolver(config.base_path)
+      ```
+
+      **Why This Matters:**
+
+      1. **Compile-Time Enforcement:** mypy catches `None` being passed where it shouldn't be.
+      2. **No Silent Bypass:** Impossible to accidentally skip the dependency check.
+      3. **Clear Contracts:** Type signature documents the requirement—no surprises.
+      4. **Fail Fast:** Missing dependency is caught at construction, not at first use.
+
+      **The Rule:** If a component **requires** a dependency to function correctly, that dependency's type must be non-optional. Use `| None` only for genuinely optional features where `None` is a valid, designed state.
+  - id: maximum-utility-by-default
+    kind: guidance
+    title: Maximum Utility by Default
+    summary: We strictly ban building suboptimal paths that users must opt out of.
+    body: |-
+      **We strictly ban building suboptimal paths that users must opt out of.**
+
+      The purpose of avoiding optionality is not merely technical correctness—it is about delivering maximum value. A system should do the RIGHT thing by default, not the MINIMAL thing with options to do more.
+
+      **The Anti-Philosophy (Forbidden):**
+
+      * "By default we do X, but you can enable Y for better results"
+      * "Set `comprehensive=True` for full validation"
+      * "Pass `strict=True` for complete error checking"
+      * "Enable `full_scan=True` to check everything"
+
+      **Why This Is Backwards:**
+
+      These patterns assume the user wants the WORSE option by default. They require knowledge to get good behavior. They create landmines for the uninformed.
+
+      **The Correct Philosophy:**
+
+      * The default IS the comprehensive option
+      * The default IS the strict validation
+      * The default IS the full scan
+      * There is no "lite mode" to accidentally fall into
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Default to minimal, option for comprehensive
+      def validate_schema(
+          schema: Schema,
+          *,
+          strict: bool = False,  # Why would anyone want non-strict?
+          check_references: bool = False,  # Why skip reference checks?
+          validate_types: bool = True,  # At least this is right
+      ) -> ValidationResult:
+          if strict:
+              # The GOOD validation
+              ...
+          else:
+              # The BAD validation that misses things
+              ...
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: One path, maximum utility
+      def validate_schema(schema: Schema) -> ValidationResult:
+          """Validate schema completely.
+
+          Performs strict validation, checks all references, validates all types.
+          There is no 'quick mode' because quick validation is wrong validation.
+          """
+          # THE validation - comprehensive, no options
+          ...
+      ```
+
+      **The Knob Smell:**
+
+      If you're adding a boolean parameter, ask: "Am I creating a path to worse behavior?"
+
+      * `fast=True` → "Skip important work" → WRONG
+      * `thorough=True` → "Do the work that should be default" → WRONG
+      * `validate=True` → "Validation should be optional?!" → WRONG
+
+      **The Rule:** Build one path. Make it the best path. If someone needs different behavior, they need a different function—not a knob that degrades this one.
+  - id: no-speculative-null-objects
+    kind: guidance
+    title: No Speculative Null Objects
+    summary: Null Object patterns require explicit documentation in issue requirements or
+      product specs.
+    body: |-
+      **Null Object patterns require explicit documentation in issue requirements or product specs.**
+
+      Creating `NullRedisAdapter` or `NoOpCacheService` "for deployment flexibility" when no such deployment exists is YAGNI. Citing "ETHOS 5" to justify Null Objects is a misreading—ETHOS 5 says required dependencies must be non-optional, NOT "create Null Objects so you can pretend the dependency exists."
+
+      **Before creating any Null Object, you must answer:** Where in the issue requirements, documentation, or explicit user request is this scenario described? If you cannot point to a specific document, the Null Object is speculative and forbidden.
+
+      * ❌ "Added NullXAdapter for deployments without X" — What deployments? Where documented?
+      * ❌ "Per ETHOS 5, adding Null implementation" — ETHOS 5 says the opposite
+      * ✅ Null Objects for explicitly documented test modes or operational scenarios
+- id: no-conditional-validation
+  order: 6
+  title: No Conditional Validation
+  summary: We strictly ban validation checks that skip based on component availability.
+  directive: Run required validation unconditionally; a missing component is itself a failure.
+  quick_ref:
+  - Run required validation unconditionally; a missing component is itself a failure.
+  - We strictly ban validation checks that skip based on component availability.
+  merge_topics:
+  - no conditional validation
+  - validation rules
+  - failure handling
+  tags:
+  - validation
+  - reliability
+  - startup
+  related:
+  - no-optional-types-for-required-dependencies
+  - validation-at-the-gate
+  agent_hints:
+    codex: Treat missing prerequisites as blocking validation failures, not optional branches.
+    claude: Surface skipped checks and missing prerequisites explicitly during review.
+    gemini: Keep validation guidance strict and explicit rather than permissive.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban validation checks that skip based on component availability.
+    body: |-
+      **We strictly ban validation checks that skip based on component availability.**
+
+      Flight checks and validation must run unconditionally. If a component cannot be validated because it doesn't exist, that is itself a validation failure—not a reason to skip the check.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Skips validation when component is None
+      if CheckCategory.SERVICE in categories and self._storage_provider is not None:
+          await self._check_storage()  # Never runs if provider is None
+
+      # ❌ WRONG: Conditional injection that silently skips
+      if path_resolver is not None:
+          set_resolver(path_resolver)  # Silently skips when None
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Always validate - missing component is a failure
+      if CheckCategory.SERVICE in categories:
+          if self._storage_provider is None:
+              self._report.add_failure(
+                  ValidationFailure(
+                      category=CheckCategory.SERVICE,
+                      message="Storage provider not initialized",
+                  )
+              )
+          else:
+              await self._check_storage()
+
+      # ✅ CORRECT: Raise if required injection cannot happen
+      if path_resolver is None:
+          raise ConfigurationError("PathResolver is required for LocalServiceProvider")
+      set_resolver(path_resolver)
+      ```
+
+      **The Rule:** Validation is unconditional. A `None` where a component should exist is a failure to be reported, not a condition to be skipped.
+- id: no-if-available-capability-checks
+  order: 7
+  title: No "If Available" Capability Checks
+  summary: We strictly ban runtime capability checks that create silent degradation paths.
+  directive: Validate required capabilities at startup instead of probing for them at runtime.
+  quick_ref:
+  - Validate required capabilities at startup instead of probing for them at runtime.
+  - We strictly ban runtime capability checks that create silent degradation paths.
+  merge_topics:
+  - no "if available" capability checks
+  - validation rules
+  - dependency policy
+  tags:
+  - validation
+  - dependency
+  - startup
+  related:
+  - no-conditional-imports
+  - validation-at-the-gate
+  agent_hints:
+    codex: Treat missing prerequisites as blocking validation failures, not optional branches.
+    claude: Surface skipped checks and missing prerequisites explicitly during review.
+    gemini: Keep validation guidance strict and explicit rather than permissive.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban runtime capability checks that create silent degradation paths.
+    body: |-
+      **We strictly ban runtime capability checks that create silent degradation paths.**
+
+      This is the software equivalent of an architect saying: "If the builder decides to use steel instead of bubble gum, then do the load calculations properly. Otherwise, just build something that looks like a building and hope nobody puts weight on it."
+
+      Code that checks "if X is installed" or "if Y is available" before using required functionality is not defensive programming—it is structural negligence. It creates systems that appear to work until they catastrophically don't.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Runtime capability check for required functionality
+      import shutil
+
+      def process_video(input_path: Path) -> Path:
+          if shutil.which("ffmpeg"):
+              # Do the actual work
+              return transcode_properly(input_path)
+          else:
+              # Silent degradation - return input unchanged
+              logger.warning("ffmpeg not found, skipping transcode")
+              return input_path  # WRONG: Caller expects transcoded output
+
+      # ❌ WRONG: "Graceful" handling of missing required tool
+      def analyze_code(repo_path: Path) -> AnalysisResult:
+          if shutil.which("semgrep"):
+              return run_security_scan(repo_path)
+          else:
+              # Return empty result instead of failing
+              return AnalysisResult(findings=[])  # WRONG: Lies about analysis
+
+      # ❌ WRONG: Database extension check that allows continuation
+      async def setup_vector_search(conn: Connection) -> None:
+          result = await conn.fetchval("SELECT 1 FROM pg_extension WHERE extname = 'pgvector'")
+          if result:
+              await create_vector_index(conn)
+          else:
+              logger.info("pgvector not available, vector search disabled")
+              # WRONG: System continues without required capability
+      ```
+
+      **Why This Is Catastrophic:**
+
+      1. **Silent Failure:** The system "works" but doesn't do what it's supposed to do.
+      2. **Delayed Discovery:** Problems surface hours, days, or weeks later—in production.
+      3. **False Confidence:** Tests pass because the degraded path "succeeds."
+      4. **Debugging Nightmare:** "It works on my machine" because your machine has the tool.
+      5. **Responsibility Diffusion:** Ops thinks it's a dev problem; dev thinks it's ops.
+
+      **The Skyscraper Principle:**
+
+      A structural engineer does not write: "If steel is available, calculate load-bearing requirements properly. Otherwise, assume the building will support itself."
+
+      Similarly, we do not write: "If pgvector is installed, do vector search properly. Otherwise, return empty results and hope nobody notices."
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Fail at startup if required tool is missing
+      import shutil
+      import sys
+
+      # Check ONCE at module load, fail immediately
+      if not shutil.which("ffmpeg"):
+          sys.exit("FATAL: ffmpeg is required but not found in PATH")
+
+      def process_video(input_path: Path) -> Path:
+          # No capability check needed - we know ffmpeg exists
+          return transcode_properly(input_path)
+
+
+      # ✅ CORRECT: Validate extensions during bootstrap, not at use time
+      async def validate_extensions(conn: Connection) -> None:
+          """Called once during application startup."""
+          result = await conn.fetchval(
+              "SELECT 1 FROM pg_extension WHERE extname = 'pgvector'"
+          )
+          if not result:
+              raise ExtensionMissingError(
+                  "pgvector extension is required but not installed. "
+                  "Run: CREATE EXTENSION pgvector;"
+              )
+
+      async def setup_vector_search(conn: Connection) -> None:
+          # No check needed - bootstrap already validated
+          await create_vector_index(conn)
+
+
+      # ✅ CORRECT: Make requirements explicit in type signatures and docs
+      class VideoProcessor:
+          """Process video files.
+
+          Requires:
+              - ffmpeg >= 5.0 in PATH
+              - libx264 codec support
+
+          Raises:
+              EnvironmentError: If ffmpeg is not available (checked at construction).
+          """
+
+          def __init__(self) -> None:
+              if not shutil.which("ffmpeg"):
+                  raise EnvironmentError(
+                      "ffmpeg is required for VideoProcessor. "
+                      "Install with: apt-get install ffmpeg"
+                  )
+      ```
+
+      **The Capability Check Decision Tree:**
+
+      When you're tempted to write `if X is available`:
+
+      1. **Is X required for correct operation?**
+         - YES → Fail at startup if missing. No runtime check needed.
+         - NO → Continue to question 2.
+
+      2. **Is the degraded behavior explicitly designed and documented?**
+         - YES → Acceptable, but the degradation must be visible (metrics, logs, UI).
+         - NO → You're hiding a bug. Fail fast instead.
+
+      3. **Would a user be surprised by the degraded behavior?**
+         - YES → It's not optional. Fail fast.
+         - NO → Document the optional nature in the API contract.
+
+      **Legitimate Optional Capabilities:**
+
+      Some capabilities ARE genuinely optional. The difference is explicit design:
+
+      ```python
+      # ✅ ACCEPTABLE: Explicitly optional enhancement with visible degradation
+      class MetricsReporter:
+          """Reports metrics to configured backends.
+
+          Optional Backends:
+              - Prometheus: If prometheus_client is installed, exposes /metrics endpoint.
+              - StatsD: If STATSD_HOST is configured, sends UDP metrics.
+
+          If no backends are configured, metrics are logged to INFO level.
+          This is a designed behavior, not a failure mode.
+          """
+
+          def __init__(self) -> None:
+              self._backends: list[MetricsBackend] = []
+
+              # Optional: Prometheus
+              try:
+                  from prometheus_client import Counter
+                  self._backends.append(PrometheusBackend())
+                  logger.info("metrics.backend.enabled", backend="prometheus")
+              except ImportError:
+                  logger.info("metrics.backend.unavailable", backend="prometheus")
+
+              # Always available: Logging fallback (explicit, documented)
+              if not self._backends:
+                  self._backends.append(LoggingBackend())
+                  logger.info("metrics.backend.fallback", backend="logging")
+      ```
+
+      **Anti-Patterns to Recognize:**
+
+      Watch for these patterns in code—they are almost always wrong:
+
+      * `if shutil.which("tool"):` for required tools
+      * `if HAS_LIBRARY:` (the conditional import pattern)
+      * `try: import X except ImportError: X = None`
+      * `if config.feature_enabled and feature_available():`
+      * `getattr(module, "function", lambda: None)`
+      * Returning empty results instead of raising exceptions
+      * `or default_value` as a silent fallback for required data
+
+      **The Rule:** Required capabilities are validated at startup, not at use time. If a capability is required, its absence is a fatal configuration error—not an opportunity for "graceful degradation." Build skyscrapers with steel, not bubble gum.
+- id: validation-at-the-gate
+  order: 8
+  title: Validation at the Gate
+  summary: Configuration, schema, and extension availability are validated immediately upon
+    container initialization.
+  directive: Validate configuration, schema, and extensions during bootstrap rather than on
+    first use.
+  quick_ref:
+  - Validate configuration, schema, and extensions during bootstrap rather than on first use.
+  - Configuration, schema, and extension availability are validated immediately upon container
+    initialization.
+  merge_topics:
+  - validation at the gate
+  - validation rules
+  - configuration flow
+  tags:
+  - validation
+  - configuration
+  - startup
+  related:
+  - fail-fast-fail-hard-overview
+  - robustness-in-motion-runtime
+  agent_hints:
+    codex: Treat missing prerequisites as blocking validation failures, not optional branches.
+    claude: Surface skipped checks and missing prerequisites explicitly during review.
+    gemini: Keep validation guidance strict and explicit rather than permissive.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Configuration, schema, and extension availability are validated immediately upon
+      container initialization.
+    body: |-
+      Configuration, schema, and extension availability are validated immediately upon container initialization.
+
+      * If a Postgres extension is missing, we raise ExtensionMissingError immediately. We do not wait for a query to fail 5 hours later.
+      * If a cache adapter is misconfigured, we prevent the application from starting.
+- id: no-inline-cli-environment-variables
+  order: 9
+  title: No Inline CLI Environment Variables
+  summary: We strictly ban setting environment variables inline on CLI commands.
+  directive: Route configuration through validated bootstrap paths instead of inline shell
+    environment variables.
+  quick_ref:
+  - Route configuration through validated bootstrap paths instead of inline shell environment
+    variables.
+  - We strictly ban setting environment variables inline on CLI commands.
+  merge_topics:
+  - no inline cli environment variables
+  - configuration flow
+  - workflow rules
+  tags:
+  - configuration
+  - workflow
+  - tooling
+  related:
+  - one-path-for-critical-operations
+  - validation-at-the-gate
+  agent_hints:
+    codex: Preserve deterministic workflows and avoid introducing alternate critical paths.
+    claude: Keep process guidance actionable and aligned with the existing repo workflow.
+    gemini: Summarize workflow expectations as concrete steps, not general advice.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban setting environment variables inline on CLI commands.
+    body: |-
+      **We strictly ban setting environment variables inline on CLI commands.**
+
+      Inline environment variables (e.g., `DATABASE_URL=... pytest`) create a parallel, invisible configuration path that bypasses all validation, logging, and the unified bootstrap system. They are a vector for configuration drift, test pollution, and "works on my machine" failures.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```bash
+      # ❌ WRONG: Inline env vars bypass bootstrap and create hidden configuration
+      DATABASE_URL="postgresql://..." APP_CACHE_DIR="/tmp" pytest tests/
+
+      # ❌ WRONG: Even "temporary" inline vars pollute the environment model
+      SKIP_MIGRATIONS=true uv run python -m app.cli ingest
+
+      # ❌ WRONG: CI workflows with inline vars are untestable locally
+      env:
+        DATABASE_URL: ${{ secrets.DB_URL }}
+        APP_STORAGE_BUCKET: test-bucket
+      run: pytest
+      ```
+
+      **Why This Is Dangerous:**
+
+      1. **Bypasses Validation:** Inline vars skip Pydantic validation, type coercion, and fail-fast checks.
+      2. **Invisible Configuration:** No audit trail—logs show the app running but not *how* it was configured.
+      3. **Test Pollution:** Tests pass with magic incantations that aren't documented or reproducible.
+      4. **Drift Accumulation:** Each "quick fix" inline var becomes permanent tribal knowledge.
+      5. **Bootstrap Circumvention:** The unified `bootstrap()` system exists to ensure consistent initialization; inline vars subvert it.
+
+      **The Correct Way:**
+
+      ```bash
+      # ✅ CORRECT: Use .env files that are validated by bootstrap
+      cp .env.example .env
+      # Edit .env with your configuration
+      uv run pytest tests/
+
+      # ✅ CORRECT: Use environment-specific .env files
+      cp .env.test .env
+      uv run pytest tests/
+
+      # ✅ CORRECT: CI uses secrets loaded into .env, not inline
+      run: |
+        echo "DATABASE_URL=${{ secrets.DB_URL }}" >> .env
+        uv run pytest tests/
+      ```
+
+      **For Test Fixtures:**
+
+      ```python
+      # ✅ CORRECT: Use pytest fixtures that call bootstrap properly
+      @pytest.fixture(scope="session", autouse=True)
+      def bootstrap_test_environment():
+          """Initialize application for test environment."""
+          from app.bootstrap import bootstrap
+          from interfaces.initialization import InitializationMode
+          bootstrap(mode=InitializationMode.TEST)
+
+      # ❌ WRONG: Manually setting os.environ in tests
+      def test_something():
+          os.environ["DATABASE_URL"] = "..."  # Bypasses everything
+      ```
+
+      **The Rule:** All configuration flows through `.env` files and `bootstrap()`. If you find yourself typing `VAR=value command`, stop and ask why the configuration system doesn't handle this case.
+- id: robustness-in-motion-runtime
+  order: 10
+  title: Robustness in Motion (Runtime)
+  summary: While we are ruthless during startup, the opposite pattern applies once the system
+    is running.
+  directive: Treat startup misconfiguration and runtime transient failures as different classes
+    of problems.
+  quick_ref:
+  - Treat startup misconfiguration and runtime transient failures as different classes of
+    problems.
+  - While we are ruthless during startup, the opposite pattern applies once the system is
+    running.
+  - 'These two failure modes require opposite responses:'
+  merge_topics:
+  - robustness in motion (runtime)
+  - runtime behavior
+  - failure handling
+  tags:
+  - runtime
+  - reliability
+  - resilience
+  related:
+  - fail-fast-fail-hard-overview
+  - no-optional-types-for-required-dependencies
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: While we are ruthless during startup, the opposite pattern applies once the system
+      is running.
+    body: |-
+      While we are ruthless during startup, the opposite pattern applies once the system is running. A production system must be resilient, defensible, and tenacious.
+
+      * **Handle Expected Errors:** Network blips, storage timeouts, and transient locks should be caught, logged, and retried where appropriate.
+      * **Graceful Degradation (Explicit Only):** If a non-critical component fails during runtime (e.g., an AI service goes down after retry exhaustion), the system should log the failure and continue core operations if possible—but only if this behavior is explicit and designed.
+      * **Data Integrity First:** We never compromise data consistency for the sake of uptime. If we cannot write safely, we stop.
+  - id: the-critical-distinction-configuration-vs-transient-failures
+    kind: guidance
+    title: 'The Critical Distinction: Configuration vs. Transient Failures'
+    summary: 'These two failure modes require opposite responses:'
+    body: |-
+      These two failure modes require opposite responses:
+
+      **Configuration Failures (Startup):**
+      A missing API key, an unprovided dependency, or a misconfigured service is a **configuration problem**. The correct response is to crash immediately with a clear error message. We do not write thousands of lines of fallback code to compensate for someone forgetting to configure a critical component.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Making critical dependencies optional to "be flexible"
+      def __init__(self, llm_client: LLMClient | None = None):
+          if llm_client is None:
+              logger.warning("No LLM client provided, using fallback")
+              self._use_fallback = True  # Silent degradation from the start
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Require what you need, fail fast if missing
+      def __init__(self, llm_client: LLMClient):  # Required, not optional
+          self._llm_client = llm_client  # If not provided, crash at call site
+      ```
+
+      **Transient Failures (Runtime):**
+      A network timeout, a rate limit, or a service temporarily unavailable after multiple retry attempts is a **transient failure**. The correct response is to log a warning and gracefully degrade rather than crashing the entire application.
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Retry transient failures, then degrade gracefully
+      try:
+          # Tenacity handles retries for transient errors
+          result = await self._llm_client.generate(prompt)
+      except LLMError as exc:
+          # After retry exhaustion, log and provide degraded response
+          logger.warning("llm.generation_failed_after_retries", error=str(exc))
+          return self._create_fallback_response()  # Degraded but functional
+      ```
+
+      **The Key Insight:** Configuration problems are programmer errors that should be fixed by fixing the configuration. Transient failures are environmental realities that should be handled gracefully at runtime. Never confuse the two.
+  - id: graceful-degradation-applies-only-to-remote-services
+    kind: guidance
+    title: Graceful Degradation Applies Only to Remote Services
+    summary: Runtime graceful degradation applies ONLY to remote network services—NEVER to
+      our own code.
+    body: |-
+      **Runtime graceful degradation applies ONLY to remote network services—NEVER to our own code.**
+
+      The examples above (LLM timeouts, API rate limits) involve *external* services that can fail independently of our application. These are the only cases where graceful degradation is appropriate.
+
+      **This principle does NOT justify:**
+
+      * Optional parameters "in case the caller doesn't have the data"
+      * `| None` types for internal dependencies
+      * Fallback behavior within our own codebase
+      * "Progressive enhancement" patterns in internal APIs
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Using "graceful degradation" to justify internal optionality
+      def enhance(
+          self,
+          error_message: str,
+          *,
+          available_columns: Sequence[str] | None = None,  # "Optional for flexibility"
+      ) -> EnhancedError:
+          if available_columns:
+              return self._rich_suggestion(error_message, available_columns)
+          return self._basic_suggestion(error_message)  # "Graceful degradation"
+      ```
+
+      Before adding optional parameters, ask: **Do we have a caller that doesn't pass this argument?** If the answer is no, the optionality is YAGNI—solving a problem that doesn't exist.
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Require what every caller provides
+      def enhance(
+          self,
+          error_message: str,
+          *,
+          available_columns: Sequence[str],  # Required—all callers have this
+      ) -> EnhancedError:
+          return self._rich_suggestion(error_message, available_columns)
+      ```
+
+      **The Rule:** When in doubt, remove optionality. Graceful degradation is for surviving external service failures, not for making our internal APIs "flexible." If all callers provide an argument, that argument is required.
+- id: radical-visibility
+  order: 11
+  title: Radical Visibility
+  summary: We believe that if an event wasn't logged, it didn't happen.
+  directive: Log important decisions with context and instrument the system with metrics.
+  quick_ref:
+  - Log important decisions with context and instrument the system with metrics.
+  - We believe that if an event wasn't logged, it didn't happen.
+  - 'Everything is Logged: Ingestion steps, query rewrites, cache hits/misses, and decision
+    branches must emit logs.'
+  merge_topics:
+  - radical visibility
+  - observability requirements
+  - structured logging
+  tags:
+  - observability
+  - logging
+  - metrics
+  related:
+  - exception-hierarchy-and-error-messages
+  - testing-as-specification
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We believe that if an event wasn't logged, it didn't happen.
+    body: We believe that if an event wasn't logged, it didn't happen. Logging is not a debugging
+      tool to be added later; it is a primary feature of the system.
+  - id: ubiquitous-logging
+    kind: guidance
+    title: Ubiquitous Logging
+    summary: 'Everything is Logged: Ingestion steps, query rewrites, cache hits/misses, and
+      decision branches must emit logs.'
+    body: |-
+      * **Everything is Logged:** Ingestion steps, query rewrites, cache hits/misses, and decision branches must emit logs.
+      * **Structured Data:** We use structlog to treat logs as data, not text. Logs must be machine-parsable (JSON in production).
+      * **Context is King:** Every log line must carry context. Who initiated this? What is the correlation_id? What dataset is being processed?
+        * *Anti-Pattern:* logger.error("File not found")
+        * *Required:* logger.error("ingestion_failed", reason="file_not_found", path=path, entity_id=id, correlation_id=cid)
+  - id: traceability
+    kind: guidance
+    title: Traceability
+    summary: Because we rely on dependency injection and protocols, control flow can be complex.
+    body: Because we rely on dependency injection and protocols, control flow can be complex.
+      Detailed logging allows us to reconstruct the execution path of any request post-mortem.
+  - id: metrics-instrumentation
+    kind: guidance
+    title: Metrics Instrumentation
+    summary: Logs tell us what happened.
+    body: |-
+      Logs tell us *what happened*. Metrics tell us *how often* and *how fast*. Both are mandatory.
+
+      * **OTel is Standard:** We use OpenTelemetry for all metrics. No custom metrics frameworks.
+      * **Every Operation is Measured:** Counters for occurrences, histograms for durations, gauges for current state.
+      * **Labels Add Dimension:** Metrics without labels are nearly useless. Include `status`, `operation`, `component`.
+
+      **The Correct Way:**
+
+      ```python
+      from app.observability.tracing import traced, increment_counter, record_histogram
+
+      @traced("ingestion.process_file", {"component": "ingestion"})
+      async def process_file(self, path: Path) -> ProcessResult:
+          start = time.perf_counter()
+          try:
+              result = await self._do_process(path)
+              increment_counter("app.files_processed_total", {"status": "success"})
+              return result
+          finally:
+              duration_ms = (time.perf_counter() - start) * 1000
+              record_histogram("app.process_duration_ms", duration_ms)
+      ```
+
+      If you cannot answer "How many times did X happen last hour?" or "What is the p99 latency of Y?"—your code is incomplete.
+- id: protocol-first-design
+  order: 12
+  title: Protocol-First Design
+  summary: Implementations are ephemeral; Protocols are forever.
+  directive: Define and verify interfaces before writing or referencing implementations.
+  quick_ref:
+  - Define and verify interfaces before writing or referencing implementations.
+  - Implementations are ephemeral; Protocols are forever.
+  - Before referencing any Protocol, type, or interface, verify it exists in the codebase.
+  merge_topics:
+  - protocol first design
+  - architecture decisions
+  - interface design
+  tags:
+  - architecture
+  - interfaces
+  - typing
+  related:
+  - documentation-as-contract
+  - solid-is-law
+  agent_hints:
+    codex: Prefer structural refactors over tactical patches when this principle is implicated.
+    claude: Open the detailed ethos note before changing architecture or interfaces.
+    gemini: Use this rule to keep plans structurally coherent and avoid ad hoc abstractions.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Implementations are ephemeral; Protocols are forever.
+    body: |-
+      Implementations are ephemeral; Protocols are forever.
+
+      * We define behaviors in src/interfaces/ before we write a single line of implementation code.
+      * We code against the interface, ensuring that our tests and our logic remain valid even if we swap Postgres for DuckDB or Local Storage for S3.
+  - id: verify-before-you-reference
+    kind: reference
+    title: Verify Before You Reference
+    summary: Before referencing any Protocol, type, or interface, verify it exists in the
+      codebase.
+    body: |-
+      Before referencing any Protocol, type, or interface, verify it exists in the codebase.
+
+      **Anti-Patterns (Forbidden):**
+
+      * ❌ Inventing Protocol methods that don't exist in interfaces/
+      * ❌ Assuming a type signature without reading the actual Protocol definition
+      * ❌ Referencing classes or functions that haven't been verified to exist
+      * ❌ Describing Protocol capabilities based on assumptions, not inspection
+
+      **The Correct Way:**
+
+      * ✅ Read the Protocol file before implementing against it
+      * ✅ Verify method signatures match the actual Protocol definition
+      * ✅ State "I could not find this Protocol" rather than guessing its shape
+      * ✅ Check imports exist in the codebase before adding them
+- id: universal-responsibility
+  order: 13
+  title: Universal Responsibility
+  summary: Every bug and every lint warning is everyone's responsibility.
+  directive: Own every error or warning you touch and verify claims with evidence.
+  quick_ref:
+  - Own every error or warning you touch and verify claims with evidence.
+  - Every bug and every lint warning is everyone's responsibility.
+  - We do not accept excuses based on the origin of a problem.
+  merge_topics:
+  - universal responsibility
+  - ownership rules
+  - quality gates
+  tags:
+  - ownership
+  - quality
+  - verification
+  related:
+  - forward-motion-only
+  - testing-as-specification
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Every bug and every lint warning is everyone's responsibility.
+    body: Every bug and every lint warning is everyone's responsibility. There is no such
+      thing as "pre-existing" or "not my code."
+  - id: no-exemptions
+    kind: guidance
+    title: No Exemptions
+    summary: We do not accept excuses based on the origin of a problem.
+    body: |-
+      We do not accept excuses based on the origin of a problem. If you can see it, you own it.
+
+      * **All errors are in scope:** Type errors, lint warnings, test failures—regardless of when they were introduced.
+      * **All warnings need addressing:** A warning is a latent bug waiting to manifest.
+      * **No "pre-existing" carve-outs:** The commit history is irrelevant to your responsibility.
+  - id: anti-patterns-forbidden-thinking
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden Thinking)
+    summary: 'The following rationalizations are explicitly banned:'
+    body: |-
+      The following rationalizations are explicitly banned:
+
+      * ❌ "This is a pre-existing error, not related to my work."
+      * ❌ "These warnings were present on main, so I can ignore them."
+      * ❌ "I didn't introduce this bug, so it's not my problem."
+      * ❌ "The CI was already failing before my changes."
+  - id: the-correct-way
+    kind: correct_way
+    title: The Correct Way
+    summary: 'Correct thinking sounds like this:'
+    body: |-
+      Correct thinking sounds like this:
+
+      * ✅ "There are 240 lint warnings in this branch. I need a systematic strategy to fix them before I commit."
+      * ✅ "This type error predates my changes, but I'll fix it now while I understand the context."
+      * ✅ "The test suite has 3 flaky tests. I'll stabilize them before adding my new tests."
+  - id: verification-is-your-responsibility
+    kind: guidance
+    title: Verification Is Your Responsibility
+    summary: Claims require evidence.
+    body: |-
+      Claims require evidence. Assertions require verification.
+
+      * ❌ Claiming "I verified this works" without actually running tests
+      * ❌ Asserting a file exists without using Glob or ls to check
+      * ❌ Stating "this function does X" without reading its implementation
+      * ❌ Assuming code behavior without tracing the execution path
+
+      * ✅ "I ran the test suite and all tests pass"
+      * ✅ "I verified the file exists at src/app/storage.py"
+      * ✅ "Based on reading lines 45-60, this function returns..."
+      * ✅ "I have not verified this assumption—let me check"
+
+      **The Rule:** If you touch a file, you leave it cleaner than you found it. If you see a problem, you fix it or you file an issue—but you do not pretend it doesn't exist.
+
+      *(See also: [Section 20: Forward Motion Only](#20-forward-motion-only) for the forward-looking mindset that prevents blame culture.)*
+- id: linting-as-code-quality-enforcement
+  order: 14
+  title: Linting as Code Quality Enforcement
+  summary: Linters are not suggestions; they are automated code reviewers enforcing our standards.
+  directive: Resolve lint findings with structural fixes; suppress only with documented necessity.
+  quick_ref:
+  - Resolve lint findings with structural fixes; suppress only with documented necessity.
+  - Linters are not suggestions; they are automated code reviewers enforcing our standards.
+  - Do not weaken hooks or broaden suppressions just to get green faster.
+  merge_topics:
+  - linting as code quality enforcement
+  - lint policy
+  - quality gates
+  - pre-commit policy
+  tags:
+  - linting
+  - quality
+  - refactor
+  related:
+  - solid-is-law
+  - static-analysis-is-the-first-line-of-defense
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Linters are not suggestions; they are automated code reviewers enforcing our
+      standards.
+    body: Linters are not suggestions; they are automated code reviewers enforcing our standards.
+      We work with them, not around them.
+  - id: solid-first-resolution
+    kind: guidance
+    title: SOLID-First Resolution
+    summary: 'When a linter flags an issue, the correct response is to apply SOLID principles
+      to resolve it properly:'
+    body: |-
+      When a linter flags an issue, the correct response is to apply SOLID principles to resolve it properly:
+
+      * **Long functions?** Apply SRP—split into focused, single-responsibility units.
+      * **Too many parameters?** Apply ISP—consider configuration objects or dependency injection.
+      * **Complex conditionals?** Apply OCP—use polymorphism or strategy patterns.
+      * **Tight coupling?** Apply DIP—introduce abstractions and inject dependencies.
+
+      We do not silence linters because refactoring feels inconvenient.
+  - id: suppression-policy
+    kind: rule
+    title: Suppression Policy
+    summary: 'Lint suppressions are a last resort, permitted only when:'
+    body: |-
+      Lint suppressions are a last resort, permitted only when:
+
+      1. **Technical necessity:** The suppression is genuinely required (e.g., a false positive from the linter).
+      2. **Inferior alternatives:** All workarounds would make the code demonstrably worse.
+      3. **Full documentation:** The suppression includes a clear explanation of why it exists.
+
+      **Required Documentation for Any Suppression:**
+
+      * Why the suppression is necessary
+      * Why alternatives are technically inferior
+      * Reference to any relevant issues or discussions
+
+      **Example of Acceptable Suppression:**
+
+      ```python
+      # noqa: E501 - SQL query string must remain on single line for readability
+      # and to match the query plan documentation. Breaking across lines would
+      # obscure the join structure. See: docs/query_patterns.md#complex-joins
+      query = "SELECT a.id, b.name, c.value FROM table_a a JOIN table_b b ON ..."
+      ```
+  - id: active-maintenance
+    kind: guidance
+    title: Active Maintenance
+    summary: 'When working on code that contains suppression comments, you must evaluate whether
+      they are still necessary:'
+    body: |-
+      When working on code that contains suppression comments, you must evaluate whether they are still necessary:
+
+      * Can the underlying issue now be fixed properly?
+      * Has the codebase evolved to make a better solution possible?
+      * Is the suppression documented adequately?
+
+      If a suppression is no longer justified, remove it and fix the issue.
+  - id: enforcement-machinery-is-part-of-the-contract
+    kind: rule
+    title: Enforcement Machinery Is Part of the Contract
+    summary: Pre-commit, pre-push, and CI lint gates are part of normal development, not optional
+      wrappers.
+    body: |-
+      Pre-commit, pre-push, and CI lint gates are part of normal development, not optional wrappers.
+
+      * Do not weaken hook configuration to get a green result faster.
+      * Do not introduce broad file-level ignores, pyproject ignore blocks, or comment suppressions as convenience escape hatches.
+      * Do not use environment-variable bypasses such as `SKIP=` to drop selected gates out of the commit flow.
+      * Fix the code, or document a principled and reviewable exception when the rule itself is wrong.
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: '❌ Adding # type: ignore without explanation ❌ Blanket file-level suppressions
+      (# noqa at the top of a file) ❌ Disabling rules in pyproject.toml because "there are
+      too many warnings" ❌ Using suppressions to avoid refactoring ❌ Copying existi'
+    body: |-
+      * ❌ Adding `# type: ignore` without explanation
+      * ❌ Blanket file-level suppressions (`# noqa` at the top of a file)
+      * ❌ Disabling rules in `pyproject.toml` because "there are too many warnings"
+      * ❌ Using suppressions to avoid refactoring
+      * ❌ Copying existing suppression patterns without understanding why they exist
+  - id: the-audit-trail
+    kind: guidance
+    title: The Audit Trail
+    summary: Every suppression tells a story.
+    body: |-
+      Every suppression tells a story. Future maintainers must be able to understand:
+
+      1. What triggered the suppression
+      2. Why it couldn't be fixed properly
+      3. Under what conditions the suppression could be removed
+
+      Undocumented suppressions are technical debt masquerading as solutions.
+- id: feedback-as-a-first-class-citizen
+  order: 15
+  title: Feedback as a First-Class Citizen
+  summary: Pull request feedback is not bureaucratic overhead; it is a critical quality gate.
+  directive: Retrieve and address all review feedback proactively.
+  quick_ref:
+  - Retrieve and address all review feedback proactively.
+  - Pull request feedback is not bureaucratic overhead; it is a critical quality gate.
+  - We do not wait for feedback to find us.
+  merge_topics:
+  - feedback as a first class citizen
+  - collaboration workflow
+  - review handling
+  tags:
+  - collaboration
+  - feedback
+  - review
+  related:
+  - forward-motion-only
+  - universal-responsibility
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Pull request feedback is not bureaucratic overhead; it is a critical quality
+      gate.
+    body: Pull request feedback is not bureaucratic overhead; it is a critical quality gate.
+      We treat every piece of feedback as valuable input, regardless of its source.
+  - id: proactive-retrieval
+    kind: guidance
+    title: Proactive Retrieval
+    summary: We do not wait for feedback to find us.
+    body: |-
+      We do not wait for feedback to find us. We actively seek it out.
+
+      **The Feedback Loop:**
+
+      1. Branch from main
+      2. Do work, commit incrementally
+      3. Push and open PR
+      4. **Wait a few minutes, then check for comments**
+      5. After each subsequent push, check for new comments
+      6. Address feedback before continuing development
+  - id: all-feedback-has-value
+    kind: guidance
+    title: All Feedback Has Value
+    summary: We do not filter feedback by author or source.
+    body: |-
+      We do not filter feedback by author or source.
+
+      * **Bot comments matter:** Automated reviewers (linters, security scanners, CI checks) often catch issues humans miss.
+      * **All reviewers are equal:** A comment from a junior developer deserves the same consideration as one from a senior architect.
+      * **Context is king:** Even feedback that seems wrong may reveal a documentation gap or unclear code.
+  - id: complete-retrieval
+    kind: guidance
+    title: Complete Retrieval
+    summary: When retrieving PR feedback, we get all of it.
+    body: |-
+      When retrieving PR feedback, we get all of it. Partial retrieval is data loss.
+
+      **The Correct Way:**
+
+      * ✅ Retrieve all comments from the PR
+      * ✅ Read every piece of feedback completely
+      * ✅ Respond to or address each comment explicitly
+      * ✅ Check for new feedback after every push
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: ❌ Using head or tail to retrieve only some comments ❌ Filtering out or ignoring
+      comments from "bots" or automated systems ❌ Skimming feedback without fully reading
+      it ❌ Pushing multiple times without checking for new comments ❌ Assuming no
+    body: |-
+      * ❌ Using `head` or `tail` to retrieve only some comments
+      * ❌ Filtering out or ignoring comments from "bots" or automated systems
+      * ❌ Skimming feedback without fully reading it
+      * ❌ Pushing multiple times without checking for new comments
+      * ❌ Assuming no news is good news—silence does not mean approval
+      * ❌ Addressing only the comments you agree with
+  - id: the-feedback-contract
+    kind: rule
+    title: The Feedback Contract
+    summary: 'When someone takes the time to review your code, you owe them:'
+    body: |-
+      When someone takes the time to review your code, you owe them:
+
+      1. **Acknowledgment:** Confirm you've read and understood their feedback
+      2. **Consideration:** Genuinely evaluate their suggestion, even if you disagree
+      3. **Response:** Either implement the change or explain why you chose not to
+      4. **Gratitude:** Reviewers improve your code; treat their time as the gift it is
+
+      Ignored feedback erodes trust. Systematically ignored feedback destroys teams.
+- id: no-self-promotion
+  order: 16
+  title: No Self-Promotion
+  summary: The work speaks for itself.
+  directive: Let the work speak and omit self-congratulatory commentary.
+  quick_ref:
+  - Let the work speak and omit self-congratulatory commentary.
+  - The work speaks for itself.
+  - Commit messages describe what changed and why.
+  merge_topics:
+  - no self promotion
+  - communication norms
+  - collaboration workflow
+  tags:
+  - communication
+  - collaboration
+  related:
+  - documentation-as-contract
+  - feedback-as-a-first-class-citizen
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: The work speaks for itself.
+    body: The work speaks for itself. We do not add branding, attribution lines, or promotional
+      content to commits, pull requests, or documentation.
+  - id: clean-commits
+    kind: guidance
+    title: Clean Commits
+    summary: Commit messages describe what changed and why.
+    body: |-
+      Commit messages describe what changed and why. They do not advertise who or what created them.
+
+      * **No co-author lines for AI tools:** "Co-Authored-By: Claude" or similar attributions are forbidden.
+      * **No branding footers:** "Generated with [Tool Name]" has no place in commit messages.
+      * **No promotional links:** Commits are not marketing opportunities.
+  - id: professional-documentation
+    kind: guidance
+    title: Professional Documentation
+    summary: Documentation exists to help users and maintainers.
+    body: |-
+      Documentation exists to help users and maintainers. It is not a billboard.
+
+      * **No tool attribution in docs:** "This documentation was generated by..." is noise.
+      * **No badges for vanity:** Badges communicate useful status (build passing, coverage), not tool choices.
+      * **No AI disclaimers:** If the content is correct, its origin is irrelevant. If it's wrong, fix it.
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: ❌ Adding "🤖 Generated with [Tool]" to commits or PRs ❌ Including "Co-Authored-By"
+      lines for non-human contributors ❌ Promotional footers in any project artifact ❌ Tool-specific
+      branding in documentation ❌ "Created by AI" disclaimers anywher
+    body: |-
+      * ❌ Adding "🤖 Generated with [Tool]" to commits or PRs
+      * ❌ Including "Co-Authored-By" lines for non-human contributors
+      * ❌ Promotional footers in any project artifact
+      * ❌ Tool-specific branding in documentation
+      * ❌ "Created by AI" disclaimers anywhere in the codebase
+  - id: the-correct-way
+    kind: correct_way
+    title: The Correct Way
+    summary: ✅ Commit messages that describe the change, nothing more ✅ Documentation that
+      serves the reader, not the author ✅ Code that stands on its own merit ✅ Humility over
+      self-promotion
+    body: |-
+      * ✅ Commit messages that describe the change, nothing more
+      * ✅ Documentation that serves the reader, not the author
+      * ✅ Code that stands on its own merit
+      * ✅ Humility over self-promotion
+
+      **The Rule:** If it doesn't help someone understand or use the code, it doesn't belong.
+- id: functional-idioms
+  order: 17
+  title: Functional Idioms
+  summary: Python's itertools and functools modules exist for a reason.
+  directive: Use Python's functional tools when they make code clearer and more local.
+  quick_ref:
+  - Use Python's functional tools when they make code clearer and more local.
+  - Python's itertools and functools modules exist for a reason.
+  - If a function is pure (same inputs → same outputs) and expensive, cache it.
+  merge_topics:
+  - functional idioms
+  - python style
+  - style
+  tags:
+  - python
+  - style
+  - simplicity
+  related:
+  - documentation-as-contract
+  - solid-is-law
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Python's itertools and functools modules exist for a reason.
+    body: Python's `itertools` and `functools` modules exist for a reason. We use them.
+  - id: cache-expensive-pure-functions
+    kind: guidance
+    title: Cache Expensive Pure Functions
+    summary: If a function is pure (same inputs → same outputs) and expensive, cache it.
+    body: |-
+      If a function is pure (same inputs → same outputs) and expensive, cache it.
+
+      ```python
+      from functools import lru_cache
+
+      @lru_cache(maxsize=256)
+      def normalize_label(label: str) -> str:
+          """Normalize graph label (cached for repeated lookups)."""
+          return label.strip().upper()
+      ```
+  - id: batch-with-groupby-flatten-with-chain
+    kind: guidance
+    title: Batch with groupby, Flatten with chain
+    summary: Manual loops for grouping and flattening are verbose and error-prone.
+    body: |-
+      Manual loops for grouping and flattening are verbose and error-prone.
+
+      ```python
+      from itertools import groupby, chain
+      from operator import attrgetter
+
+      # Batch operations by type
+      for label, group in groupby(sorted(nodes, key=attrgetter("label")), key=attrgetter("label")):
+          await self._bulk_insert(label, list(group))
+
+      # Flatten nested results
+      all_results = list(chain.from_iterable(retriever_results))
+      ```
+  - id: why-this-matters
+    kind: rationale
+    title: Why This Matters
+    summary: 'Performance: lru_cache eliminates redundant computation.'
+    body: |-
+      * **Performance:** `lru_cache` eliminates redundant computation. `chain` avoids intermediate lists.
+      * **Clarity:** Declarative patterns express intent better than imperative loops.
+      * **Correctness:** Battle-tested stdlib beats hand-rolled iteration.
+
+      **Anti-Pattern:**
+
+      ```python
+      # ❌ WRONG: Manual flattening
+      all_items = []
+      for sublist in nested_lists:
+          for item in sublist:
+              all_items.append(item)
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Use chain
+      from itertools import chain
+      all_items = list(chain.from_iterable(nested_lists))
+      ```
+- id: documentation-as-contract
+  order: 18
+  title: Documentation as Contract
+  summary: An undocumented public function is a bug.
+  directive: Keep public behavior documented as part of the interface contract.
+  quick_ref:
+  - Keep public behavior documented as part of the interface contract.
+  - An undocumented public function is a bug.
+  - Documentation requirements should be machine-checked where practical.
+  merge_topics:
+  - documentation as contract
+  - documentation contract
+  - API contracts
+  - documentation gates
+  tags:
+  - documentation
+  - api
+  - quality
+  related:
+  - exception-hierarchy-and-error-messages
+  - protocol-first-design
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: An undocumented public function is a bug.
+    body: An undocumented public function is a bug. Docstrings are not optional annotations—they
+      are the contract between the function and its callers.
+  - id: google-style-is-mandatory
+    kind: guidance
+    title: Google Style is Mandatory
+    summary: 'Every public function must have a Google-style docstring with:'
+    body: |-
+      Every public function must have a Google-style docstring with:
+
+      * **Summary:** One-line description of what the function does.
+      * **Args:** Every parameter documented with type and purpose.
+      * **Returns:** What the function returns and under what conditions.
+      * **Raises:** Every exception the caller should expect.
+
+      ```python
+      async def ingest_dataset(
+          self,
+          path: Path,
+          *,
+          skip_validation: bool = False,
+      ) -> IngestionResult:
+          """Ingest a dataset from the specified path.
+
+          Scans the directory for structured data files, validates schemas,
+          and persists metadata to the store.
+
+          Args:
+              path: Root directory containing dataset files.
+              skip_validation: If True, skip schema validation (testing only).
+
+          Returns:
+              IngestionResult containing processed file counts and any warnings.
+
+          Raises:
+              FileNotFoundError: If path does not exist.
+              SchemaValidationError: If validation fails and skip_validation is False.
+          """
+      ```
+  - id: why-this-matters
+    kind: rationale
+    title: Why This Matters
+    summary: 'IDE Support: Docstrings power autocomplete and hover documentation.'
+    body: |-
+      * **IDE Support:** Docstrings power autocomplete and hover documentation.
+      * **Testing:** Clear contracts make test cases obvious.
+      * **Onboarding:** New contributors understand code without reading implementations.
+
+      **Anti-Patterns (Forbidden):**
+
+      * ❌ `def process(x):` with no docstring
+      * ❌ `"""Process the thing."""` (what thing? what does process mean?)
+      * ❌ Docstrings that don't match the actual function behavior
+      * ❌ Fabricating docstrings for functions you haven't read
+      * ❌ Describing return values without verifying the actual return type
+      * ❌ Documenting exceptions that the function doesn't actually raise
+
+      **The Rule:** If you change a function's behavior, you update its docstring. If the docstring lies, the code is broken.
+  - id: documentation-gates
+    kind: guidance
+    title: Documentation Gates
+    summary: Documentation requirements should be automatically checked where practical.
+    body: |-
+      Documentation requirements should be automatically checked where practical.
+
+      Repos should automate checks for public API docs, module docs, and docstring integrity when those rules are part of the engineering contract.
+
+      If a repo has doc coverage or docstring hooks, they are authoritative, not advisory.
+- id: one-path-for-critical-operations
+  order: 19
+  title: One Path for Critical Operations
+  summary: When there are multiple ways to accomplish a critical operation, bugs hide in the
+    less-traveled path.
+  directive: Keep one explicit, validated path for critical operations.
+  quick_ref:
+  - Keep one explicit, validated path for critical operations.
+  - When there are multiple ways to accomplish a critical operation, bugs hide in the less-traveled
+    path.
+  - Use the repo's canonical validation entrypoint; do not invent partial substitutes.
+  merge_topics:
+  - one path for critical operations
+  - workflow rules
+  - validation rules
+  - canonical validation command
+  tags:
+  - workflow
+  - validation
+  - reliability
+  related:
+  - no-inline-cli-environment-variables
+  - no-rationalized-shortcuts
+  agent_hints:
+    codex: Treat missing prerequisites as blocking validation failures, not optional branches.
+    claude: Surface skipped checks and missing prerequisites explicitly during review.
+    gemini: Keep validation guidance strict and explicit rather than permissive.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: When there are multiple ways to accomplish a critical operation, bugs hide in
+      the less-traveled path.
+    body: When there are multiple ways to accomplish a critical operation, bugs hide in the
+      less-traveled path. We enforce a single, canonical path for operations that matter.
+  - id: no-modal-behavior-switches
+    kind: guidance
+    title: No Modal Behavior Switches
+    summary: We strictly ban boolean parameters that fundamentally change what a function
+      does.
+    body: |-
+      **We strictly ban boolean parameters that fundamentally change what a function does.**
+
+      A parameter like `persist: bool = True` creates two different functions masquerading as one. Callers must understand not just *what* the function does, but *which version* they're invoking. This is a recipe for confusion and bugs.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Boolean switch creates two code paths
+      async def onboard_dataframe(
+          self,
+          entity_id: str,
+          dataframe: DataFrame,
+          *,
+          persist: bool = True,  # This creates a fork in behavior
+      ) -> ProcessingResult:
+          result = self._compute_schema_and_stats(dataframe)
+
+          if persist:  # One code path: compute AND store
+              await self._store_metadata(entity_id, result)
+              await self._store_statistics(entity_id, result)
+
+          return result  # Other code path: compute only
+      ```
+
+      **Why This Is Dangerous:**
+
+      1. **Hidden Complexity:** The function signature lies about what it does. Two behaviors, one name.
+      2. **Testing Burden:** Both paths must be tested, but only one is typically exercised in production.
+      3. **Bug Magnet:** Callers pick the wrong path. The bug we hit: `persist=True` bypassed ULID generation because it wasn't the canonical persistence path.
+      4. **Violation of SRP:** The function has two reasons to change—computation logic OR persistence logic.
+      5. **Documentation Rot:** Docstrings must explain both modes, inevitably becoming stale for one.
+  - id: the-correct-way-separate-concerns-single-path
+    kind: correct_way
+    title: 'The Correct Way: Separate Concerns, Single Path'
+    summary: If an operation can be decomposed, decompose it.
+    body: |-
+      If an operation can be decomposed, decompose it. If persistence must happen, it happens through ONE designated service.
+
+      ```python
+      # ✅ CORRECT: Function does ONE thing
+      async def onboard_dataframe(
+          self,
+          entity_id: str,
+          dataframe: DataFrame,
+      ) -> ProcessingResult:
+          """Compute schema and statistics for a dataframe.
+
+          This function ONLY computes. It does NOT persist.
+          Persistence is handled by EntityMetadataService.ingest_dataset().
+          """
+          return ProcessingResult(
+              schema=self._infer_schema(dataframe),
+              profile=self._compute_statistics(dataframe),
+          )
+
+      # ✅ CORRECT: Orchestration layer calls the ONE persistence path
+      async def ingest(self, request: IngestionRequest) -> IngestionResponse:
+          onboarding_result = await onboarding_service.onboard_dataframe(...)
+
+          # THE canonical path for persistence—generates ULID, stores everything
+          await dataset_service.ingest_dataset(entity_id, metadata_payload)
+      ```
+  - id: identifying-modal-functions
+    kind: guidance
+    title: Identifying Modal Functions
+    summary: 'Watch for these warning signs:'
+    body: |-
+      Watch for these warning signs:
+
+      * Parameters named `persist`, `save`, `commit`, `execute`, `dry_run`, `skip_*`
+      * Boolean parameters that guard large `if/else` blocks
+      * Functions where "it depends" on a flag whether side effects occur
+      * Docstrings that say "If X is True, then... otherwise..."
+  - id: canonical-validation-entry-points
+    kind: workflow
+    title: Canonical Validation Entry Points
+    summary: Repos must define one documented way to run quality gates locally.
+    body: |-
+      Repos must define one documented way to run quality gates locally.
+
+      If a repo documents `make check`, `pre-commit run --all-files`, or another validation entrypoint, use that path.
+
+      Do not substitute a hand-picked subset and then claim the work is validated.
+
+      Alternate commands may exist for debugging, but only the canonical gate proves readiness.
+  - id: the-exception-explicit-dry-run-at-api-boundaries
+    kind: guidance
+    title: 'The Exception: Explicit Dry-Run at API Boundaries'
+    summary: A dry_run parameter is acceptable ONLY at the outermost API boundary (CLI commands,
+      REST endpoints) where the user explicitly requests a preview.
+    body: |-
+      A `dry_run` parameter is acceptable ONLY at the outermost API boundary (CLI commands, REST endpoints) where the user explicitly requests a preview. It must:
+
+      1. Be clearly named and documented as a preview mode
+      2. Execute the SAME code path but skip the final commit/write
+      3. Never be the mechanism for internal code to "optionally" persist
+
+      ```python
+      # ✅ ACCEPTABLE: CLI dry-run for user preview
+      @cli.command()
+      def ingest(path: Path, dry_run: bool = False):
+          """Ingest a dataset. Use --dry-run to preview without persisting."""
+          result = service.ingest(path, dry_run=dry_run)
+          # dry_run affects the FINAL write, not internal behavior
+      ```
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: '❌ def process(data, save: bool = True) — modal persistence ❌ def validate(schema,
+      strict: bool = False) — if strictness matters, make two functions ❌ def fetch(url, cache:
+      bool = True) — caching is infrastructure, not a per-call decision ❌'
+    body: |-
+      * ❌ `def process(data, save: bool = True)` — modal persistence
+      * ❌ `def validate(schema, strict: bool = False)` — if strictness matters, make two functions
+      * ❌ `def fetch(url, cache: bool = True)` — caching is infrastructure, not a per-call decision
+      * ❌ Internal functions with `persist`, `commit`, or `store` boolean parameters
+  - id: the-rule
+    kind: rule
+    title: The Rule
+    summary: 'For any critical operation, ask: "Is there exactly ONE way to do this correctly?"
+      If the answer involves "it depends on a boolean parameter," the design is wrong.'
+    body: 'For any critical operation, ask: "Is there exactly ONE way to do this correctly?"
+      If the answer involves "it depends on a boolean parameter," the design is wrong. Split
+      the function, or designate a single orchestration point.'
+- id: forward-motion-only
+  order: 20
+  title: Forward Motion Only
+  summary: We look forward, not backward.
+  directive: Fix the current state instead of blaming history or prior authors.
+  quick_ref:
+  - Fix the current state instead of blaming history or prior authors.
+  - We look forward, not backward.
+  - We strictly ban switching to main or other branches to verify whether errors "existed
+    before."
+  merge_topics:
+  - forward motion only
+  - ownership rules
+  - workflow rules
+  tags:
+  - ownership
+  - workflow
+  - collaboration
+  related:
+  - feedback-as-a-first-class-citizen
+  - universal-responsibility
+  agent_hints:
+    codex: Preserve deterministic workflows and avoid introducing alternate critical paths.
+    claude: Keep process guidance actionable and aligned with the existing repo workflow.
+    gemini: Summarize workflow expectations as concrete steps, not general advice.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We look forward, not backward.
+    body: We look forward, not backward. The past is for learning, not for blame assignment
+      or responsibility avoidance.
+  - id: no-branch-comparison-for-blame
+    kind: guidance
+    title: No Branch Comparison for Blame
+    summary: We strictly ban switching to main or other branches to verify whether errors
+      "existed before."
+    body: |-
+      **We strictly ban switching to `main` or other branches to verify whether errors "existed before."**
+
+      When you encounter an error, warning, or failing test during development, the correct response is to fix it. The incorrect response is to check out another branch to determine whether you can blame someone else or claim "it was already broken."
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```bash
+      # ❌ WRONG: Switching branches to assign blame
+      git stash
+      git checkout main
+      mypy src/  # "See? It failed on main too, not my problem"
+      git checkout feature-branch
+      git stash pop
+      # Now dealing with merge conflicts and wasted time
+      ```
+
+      **Why This Is Dangerous:**
+
+      1. **Time Sink:** Context switching between branches wastes time and creates merge conflicts.
+      2. **Blame Culture:** Looking backward for blame poisons team dynamics.
+      3. **Responsibility Avoidance:** "Pre-existing" is not a valid excuse (see Section 13: Universal Responsibility).
+      4. **State Corruption:** Stashing and branch switching risks losing work or corrupting state.
+      5. **Forward Progress Halts:** Energy spent proving fault is energy not spent fixing problems.
+
+      **The Correct Way:**
+
+      ```bash
+      # ✅ CORRECT: See error, fix error, move forward
+      mypy src/
+      # Error found? Fix it. Now.
+      # Don't ask "whose fault?" Ask "how do I fix it?"
+      ```
+  - id: the-forward-looking-mindset
+    kind: guidance
+    title: The Forward-Looking Mindset
+    summary: 'When encountering issues during development:'
+    body: |-
+      When encountering issues during development:
+
+      * ✅ "This error exists. I will fix it."
+      * ✅ "This warning appeared. I will address it."
+      * ✅ "This test fails. I will make it pass."
+      * ❌ "Let me check if this was already broken..."
+      * ❌ "I didn't introduce this, so it's not my responsibility..."
+      * ❌ "The CI was already failing before my changes..."
+  - id: historical-analysis-has-its-place
+    kind: guidance
+    title: Historical Analysis Has Its Place
+    summary: git blame and git log are valuable tools—for understanding why code exists, not
+      for deflecting responsibility.
+    body: |-
+      `git blame` and `git log` are valuable tools—for understanding *why* code exists, not for deflecting responsibility. Use history to:
+
+      * Understand the intent behind a design decision
+      * Find the author to ask clarifying questions
+      * Trace the evolution of a feature for documentation
+
+      Never use history to:
+
+      * Prove an error is "someone else's problem"
+      * Justify ignoring warnings or failures
+      * Avoid fixing issues you encounter
+  - id: no-false-claims-of-prior-work
+    kind: guidance
+    title: No False Claims of Prior Work
+    summary: Claims about previous verification or analysis must be accurate.
+    body: |-
+      Claims about previous verification or analysis must be accurate.
+
+      * ❌ "I already checked this file" when you haven't read it in the current session
+      * ❌ "I verified this works" when you haven't run the actual tests
+      * ❌ "This path exists" when you haven't used Glob or ls to confirm
+      * ❌ "I reviewed this earlier" when referring to work from a previous context
+
+      * ✅ "Let me verify this again to be sure"
+      * ✅ "I'll re-run the tests to confirm the current state"
+      * ✅ "Checking now..." followed by actual verification
+
+      **The Rule:** The moment you see a problem, you own it. The commit history is irrelevant to your responsibility. Fix it and move forward.
+- id: no-rationalized-shortcuts
+  order: 21
+  title: No Rationalized Shortcuts
+  summary: We strictly ban any action that discards, bypasses, or destroys work under the
+    rationalization of "pragmatism," "efficiency," or "complexity."
+  directive: Do not discard work or bypass safety checks in the name of pragmatism.
+  quick_ref:
+  - Do not discard work or bypass safety checks in the name of pragmatism.
+  - We strictly ban any action that discards, bypasses, or destroys work under the rationalization
+    of "pragmatism," "efficiency," or "complexity."
+  - The following thought patterns are explicitly banned.
+  merge_topics:
+  - no rationalized shortcuts
+  - workflow rules
+  - safety constraints
+  tags:
+  - workflow
+  - safety
+  - git
+  related:
+  - forward-motion-only
+  - one-path-for-critical-operations
+  agent_hints:
+    codex: Preserve deterministic workflows and avoid introducing alternate critical paths.
+    claude: Keep process guidance actionable and aligned with the existing repo workflow.
+    gemini: Summarize workflow expectations as concrete steps, not general advice.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We strictly ban any action that discards, bypasses, or destroys work under the
+      rationalization of "pragmatism," "efficiency," or "complexity."
+    body: |-
+      **We strictly ban any action that discards, bypasses, or destroys work under the rationalization of "pragmatism," "efficiency," or "complexity."**
+
+      This is the most insidious failure mode in automated systems: the agent that convinces itself that destroying weeks of work is acceptable because "it's taking too long" or "this is too complex." This behavior is not pragmatic—it is catastrophic negligence disguised as reasonable decision-making.
+  - id: the-forbidden-rationalizations
+    kind: guidance
+    title: The Forbidden Rationalizations
+    summary: The following thought patterns are explicitly banned.
+    body: |-
+      The following thought patterns are explicitly banned. If you catch yourself thinking any of these, STOP IMMEDIATELY:
+
+      * ❌ "This is taking too long, so I'll take a pragmatic approach..."
+      * ❌ "This is too complex, so let me simplify by..."
+      * ❌ "I don't have enough time/context, so I'll just..."
+      * ❌ "To move forward efficiently, I'll skip..."
+      * ❌ "Rather than evaluate each item, I'll batch..."
+      * ❌ "The safest approach is to take all changes from one side..."
+      * ❌ "I'll mark this as done and document what was skipped..."
+
+      **These rationalizations ALWAYS precede destructive actions.** They are the warning signs of impending catastrophe.
+  - id: the-merge-catastrophe-pattern
+    kind: guidance
+    title: The Merge Catastrophe Pattern
+    summary: 'The canonical example: During a complex merge with 50 commits requiring careful
+      evaluation, the agent decides:'
+    body: |-
+      The canonical example: During a complex merge with 50 commits requiring careful evaluation, the agent decides:
+
+      > "This is becoming too complex. Let me take a pragmatic approach and accept all changes from the feature branch."
+
+      This single sentence destroys weeks of work. It:
+
+      1. Discards all careful analysis that was the purpose of the task
+      2. Potentially overwrites critical fixes from main
+      3. Creates a "completed" task that is actually a time bomb
+      4. Requires days of forensic work to even discover the damage
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```bash
+      # ❌ CATASTROPHIC: "Pragmatic" merge that discards work
+      git checkout feature-branch
+      git merge main -X theirs  # "Accept all from feature to resolve conflicts"
+      git commit -m "Merged main into feature"
+      # WEEKS OF WORK DESTROYED IN ONE COMMAND
+      ```
+
+      **The Correct Way:**
+
+      ```bash
+      # ✅ CORRECT: If merge is complex, acknowledge complexity honestly
+      # Option 1: Continue methodically, one conflict at a time
+      git checkout feature-branch
+      git merge main
+      # For EACH conflict: understand both sides, make informed decision
+
+      # Option 2: If genuinely blocked, STOP and communicate
+      echo "Merge requires human review: 15 conflicts with semantic complexity"
+      # DO NOT "resolve" by discarding one side
+      ```
+  - id: complexity-is-not-an-excuse
+    kind: guidance
+    title: Complexity Is Not an Excuse
+    summary: 'When a task is complex, the correct response is:'
+    body: |-
+      When a task is complex, the correct response is:
+
+      1. **Break it down:** Decompose into smaller, manageable steps
+      2. **Document progress:** Record what has been done and what remains
+      3. **Communicate blockers:** If genuinely stuck, say so explicitly
+      4. **Request guidance:** Ask for clarification or prioritization
+      5. **Preserve state:** Never destroy existing work to "simplify"
+
+      The INCORRECT response is to take a "shortcut" that invalidates the work.
+  - id: time-pressure-is-fictional
+    kind: guidance
+    title: Time Pressure Is Fictional
+    summary: AI agents do not have meetings to attend, deadlines to meet, or trains to catch.
+    body: |-
+      AI agents do not have meetings to attend, deadlines to meet, or trains to catch. Any sense of "time pressure" is a hallucination that precedes destructive behavior.
+
+      **The Anti-Pattern (Forbidden Thinking):**
+
+      * ❌ "I need to wrap this up..."
+      * ❌ "Running out of time to evaluate each..."
+      * ❌ "To finish quickly, I'll..."
+
+      **The Correct Way:**
+
+      * ✅ "This requires 50 evaluations. I will perform 50 evaluations."
+      * ✅ "Each commit needs review. I will review each commit."
+      * ✅ "The task is not complete until all items are addressed."
+  - id: done-means-actually-done
+    kind: guidance
+    title: '"Done" Means Actually Done'
+    summary: 'A task is complete when ALL of the following are true:'
+    body: |-
+      A task is complete when ALL of the following are true:
+
+      1. Every item in scope has been addressed individually
+      2. No work has been discarded, overwritten, or "simplified away"
+      3. The result achieves the original objective
+      4. Quality gates (tests, types, lint) pass
+      5. The work can withstand scrutiny
+
+      A task is NOT complete when:
+
+      * You've marked it done but skipped items
+      * You've "resolved" conflicts by discarding one side
+      * You've "cleaned up" by deleting things you didn't understand
+      * You've "simplified" by removing functionality
+  - id: the-detection-heuristic
+    kind: guidance
+    title: The Detection Heuristic
+    summary: 'Before any destructive or simplifying action, ask:'
+    body: |-
+      Before any destructive or simplifying action, ask:
+
+      > "If I showed this action to the person who requested the task, would they be horrified?"
+
+      If yes—or even maybe—STOP. Do not proceed. Communicate instead.
+  - id: specific-forbidden-actions
+    kind: guidance
+    title: Specific Forbidden Actions
+    summary: 'The following actions are NEVER acceptable as "shortcuts":'
+    body: |-
+      The following actions are NEVER acceptable as "shortcuts":
+
+      * ❌ `git merge -X theirs` or `git merge -X ours` to "resolve" conflicts
+      * ❌ `git checkout --theirs .` or `git checkout --ours .` to "simplify"
+      * ❌ Deleting files because they're "causing problems"
+      * ❌ Skipping commits during a rebase because they're "complex"
+      * ❌ Reverting changes because "it's easier to start fresh"
+      * ❌ Closing issues/PRs as "complete" when work was skipped
+      * ❌ "Batch processing" that means "ignoring individual items"
+      * ❌ Inventing file paths that don't exist in the codebase
+      * ❌ Referencing function names that haven't been verified
+      * ❌ Claiming code "should work" without actually testing it
+      * ❌ Using `--no-verify` to bypass pre-commit hooks
+      * ❌ Using `SKIP=` to disable selected hooks while pretending the commit passed the real gate
+  - id: the-accountability-test
+    kind: guidance
+    title: The Accountability Test
+    summary: 'After completing any task, you must be able to honestly answer:'
+    body: |-
+      After completing any task, you must be able to honestly answer:
+
+      1. "Did I address every item individually?" — YES
+      2. "Did I preserve all existing work?" — YES
+      3. "Did I take any shortcuts that bypassed the task's purpose?" — NO
+      4. "Would the requester approve of my method if they watched?" — YES
+
+      If any answer is wrong, the task is not complete—it is sabotaged.
+  - id: when-genuinely-stuck
+    kind: guidance
+    title: When Genuinely Stuck
+    summary: 'If a task is genuinely beyond your capability:'
+    body: |-
+      If a task is genuinely beyond your capability:
+
+      1. **STOP** — Do not attempt a "pragmatic" workaround
+      2. **PRESERVE** — Ensure no work is lost or corrupted
+      3. **DOCUMENT** — Explain specifically what is blocking progress
+      4. **COMMUNICATE** — Request human intervention explicitly
+      5. **WAIT** — Do not "resolve" the situation by destroying things
+
+      ```python
+      # ✅ CORRECT: Honest acknowledgment of limitation
+      raise TaskComplexityError(
+          "Merge contains 15 semantic conflicts requiring domain knowledge. "
+          "Conflicts in: auth.py, payment.py, user_service.py. "
+          "Human review required to determine correct resolution."
+      )
+
+      # ❌ WRONG: "Pragmatic" resolution that destroys work
+      logger.info("Taking pragmatic approach to complex merge")
+      subprocess.run(["git", "checkout", "--theirs", "."])  # CATASTROPHE
+      ```
+  - id: the-rule
+    kind: rule
+    title: The Rule
+    summary: No shortcut is acceptable if it discards, overwrites, or invalidates work.
+    body: '**No shortcut is acceptable if it discards, overwrites, or invalidates work.**
+      Complexity is a reason to be MORE careful, not less. Time pressure is fictional. "Pragmatic"
+      is not a synonym for "destructive." If you cannot complete a task correctly, say so—do
+      not pretend completion by destroying the work.'
+- id: testing-as-specification
+  order: 22
+  title: Testing as Specification
+  summary: Tests are not afterthoughts—they are the executable specification of system behavior.
+  directive: Treat tests as executable behavioral contracts and update them with code changes.
+  quick_ref:
+  - Treat tests as executable behavioral contracts and update them with code changes.
+  - Tests are not afterthoughts—they are the executable specification of system behavior.
+  - There is no such thing as an "acceptable" test failure or a "known flaky" test.
+  merge_topics:
+  - testing as specification
+  - test requirements
+  - quality gates
+  tags:
+  - testing
+  - quality
+  - specification
+  related:
+  - documentation-as-contract
+  - universal-responsibility
+  agent_hints:
+    codex: Treat tests as required follow-through for code changes, not optional cleanup.
+    claude: Call out testing gaps and mismatched behavioral contracts explicitly.
+    gemini: Use this principle to keep output anchored to observable behavior.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Tests are not afterthoughts—they are the executable specification of system behavior.
+    body: Tests are not afterthoughts—they are the executable specification of system behavior.
+      If something isn't tested, it doesn't work.
+  - id: 100-pass-rate-is-non-negotiable
+    kind: rule
+    title: 100% Pass Rate Is Non-Negotiable
+    summary: There is no such thing as an "acceptable" test failure or a "known flaky" test.
+    body: |-
+      There is no such thing as an "acceptable" test failure or a "known flaky" test.
+
+      * **All tests must pass:** Every test run must complete with zero failures, zero errors.
+      * **No "known failures":** A test that sometimes fails is a bug, not a feature.
+      * **No skipped tests without reason:** `@pytest.mark.skip` requires a documented justification and a path to re-enablement.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Skipping tests to make CI green
+      @pytest.mark.skip(reason="flaky, fix later")  # "Later" never comes
+      def test_concurrent_writes():
+          ...
+
+      # ❌ WRONG: Tests that always pass by testing nothing
+      def test_important_feature():
+          pass  # TODO: implement
+
+      # ❌ WRONG: Mocking away the thing you're testing
+      def test_database_write(mock_db):
+          mock_db.write.return_value = True  # You're testing the mock, not the code
+          assert service.save(data)  # This proves nothing
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Real tests with real isolation
+      @pytest.fixture
+      def db_session(test_database):
+          """Provide isolated database session with automatic rollback."""
+          async with test_database.transaction() as session:
+              yield session
+              # Transaction automatically rolls back - true isolation
+
+      # ✅ CORRECT: Tests that verify actual behavior
+      async def test_concurrent_writes(db_session):
+          """Verify concurrent writes don't corrupt data."""
+          results = await asyncio.gather(
+              service.write(db_session, data1),
+              service.write(db_session, data2),
+          )
+          assert all(r.success for r in results)
+          assert await service.count(db_session) == 2
+      ```
+  - id: test-isolation-via-transaction-rollback
+    kind: guidance
+    title: Test Isolation via Transaction Rollback
+    summary: Tests must be isolated without compromising realism.
+    body: |-
+      Tests must be isolated without compromising realism. We use transaction rollback, not mocks:
+
+      * **Real database operations:** Tests hit the actual database, not mocks.
+      * **Transaction boundaries:** Each test runs in a transaction that rolls back.
+      * **No cross-test pollution:** Test order must not affect results.
+      * **Production parity:** Test database matches production schema exactly.
+  - id: test-type-hierarchy
+    kind: guidance
+    title: Test Type Hierarchy
+    summary: 'Unit tests: Fast, focused, test one component in isolation.'
+    body: |-
+      * **Unit tests:** Fast, focused, test one component in isolation.
+      * **Integration tests:** Test component interactions with real dependencies.
+      * **Gold standard tests:** Verify behavior against known-correct datasets.
+
+      Each layer must pass completely before the next layer runs.
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: '❌ Modifying tests to make failures pass ❌ Adding # type: ignore to test files
+      to hide type errors ❌ Creating tests that can never fail (tautological tests) ❌ Mocking
+      the component under test ❌ Testing implementation details instead of behav'
+    body: |-
+      * ❌ Modifying tests to make failures pass
+      * ❌ Adding `# type: ignore` to test files to hide type errors
+      * ❌ Creating tests that can never fail (tautological tests)
+      * ❌ Mocking the component under test
+      * ❌ Testing implementation details instead of behavior
+      * ❌ Claiming "tests pass" when tests were skipped or disabled
+
+      **The Rule:** Tests are the contract. If a test fails, either the code is wrong or the test is wrong—but something IS wrong. Fix it; don't hide it.
+- id: exception-hierarchy-and-error-messages
+  order: 23
+  title: Exception Hierarchy and Error Messages
+  summary: Exceptions are not just error handling—they are communication.
+  directive: Use precise exception types and actionable, context-rich error messages.
+  quick_ref:
+  - Use precise exception types and actionable, context-rich error messages.
+  - Exceptions are not just error handling—they are communication.
+  - 'All application exceptions inherit from a base exception that carries structured context:'
+  merge_topics:
+  - exception hierarchy and error messages
+  - error contracts
+  - debugging clarity
+  tags:
+  - errors
+  - debugging
+  - api
+  related:
+  - documentation-as-contract
+  - radical-visibility
+  agent_hints:
+    codex: Apply this rule directly in code edits and review decisions.
+    claude: Reference this rule explicitly when reviewing or merging repo guidance.
+    gemini: Use this rule to keep high-level guidance concise, concrete, and enforceable.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Exceptions are not just error handling—they are communication.
+    body: Exceptions are not just error handling—they are communication. A well-designed exception
+      tells the developer exactly what went wrong and what to do about it.
+  - id: structured-exception-hierarchy
+    kind: guidance
+    title: Structured Exception Hierarchy
+    summary: 'All application exceptions inherit from a base exception that carries structured
+      context:'
+    body: |-
+      All application exceptions inherit from a base exception that carries structured context:
+
+      ```python
+      # ✅ CORRECT: Structured exception hierarchy
+      class AppError(Exception):
+          """Base exception for all application errors."""
+
+          def __init__(self, message: str, **context: Any) -> None:
+              super().__init__(message)
+              self.context = context
+
+      class ConfigurationError(AppError):
+          """Raised when configuration is invalid or missing."""
+
+      class StorageError(AppError):
+          """Raised when storage operations fail."""
+
+      class ValidationError(AppError):
+          """Raised when data fails validation."""
+      ```
+  - id: error-messages-must-be-actionable
+    kind: guidance
+    title: Error Messages Must Be Actionable
+    summary: An error message that says "Operation failed" is useless.
+    body: |-
+      An error message that says "Operation failed" is useless. Error messages must tell the user:
+
+      1. **What failed:** The specific operation or component
+      2. **Why it failed:** The actual cause, not a generic message
+      3. **How to fix it:** Concrete steps or references
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Useless error messages
+      raise ValueError("Invalid input")
+      raise RuntimeError("Operation failed")
+      raise Exception("Error")
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Actionable error messages
+      raise ConfigurationError(
+          "Database connection failed: connection refused",
+          host=config.db_host,
+          port=config.db_port,
+          suggestion="Verify PostgreSQL is running and accessible",
+      )
+
+      raise ValidationError(
+          f"Schema mismatch: column 'user_id' expected type INT, got VARCHAR",
+          table="users",
+          column="user_id",
+          expected="INT",
+          actual="VARCHAR",
+      )
+      ```
+  - id: never-catch-and-silence
+    kind: guidance
+    title: Never Catch and Silence
+    summary: Catching exceptions without handling them is hiding bugs.
+    body: |-
+      Catching exceptions without handling them is hiding bugs. Every catch must either:
+
+      1. **Handle the exception:** Take corrective action
+      2. **Transform and re-raise:** Add context and propagate
+      3. **Log and re-raise:** Record for debugging and propagate
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Silencing exceptions
+      try:
+          result = dangerous_operation()
+      except Exception:
+          pass  # Pretend nothing happened
+
+      # ❌ WRONG: Catching too broadly
+      try:
+          result = api_call()
+      except Exception as e:
+          return None  # Hides all errors, including bugs
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Handle, transform, or log
+      try:
+          result = api_call()
+      except NetworkError as e:
+          logger.warning("api.network_error", url=url, error=str(e))
+          raise ServiceUnavailableError(
+              f"API temporarily unavailable: {url}",
+              original_error=str(e),
+          ) from e
+      except ValidationError:
+          raise  # Already well-formed, just propagate
+      ```
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: '❌ Bare except: without specifying exception type ❌ except Exception: pass silencing
+      all errors ❌ Creating exception types that don''t exist in the codebase ❌ Error messages
+      without context or actionable information ❌ Catching exceptions just'
+    body: |-
+      * ❌ Bare `except:` without specifying exception type
+      * ❌ `except Exception: pass` silencing all errors
+      * ❌ Creating exception types that don't exist in the codebase
+      * ❌ Error messages without context or actionable information
+      * ❌ Catching exceptions just to log and re-raise with less information
+
+      **The Rule:** Exceptions are communication. They must be precise, actionable, and never silenced. If you catch an exception, you must have a reason—and "ignore it" is not a reason.
+- id: security-by-design
+  order: 24
+  title: Security by Design
+  summary: Security is not a feature to be added later—it is a property of the design.
+  directive: Design for least privilege, validation, and safe defaults from the start.
+  quick_ref:
+  - Design for least privilege, validation, and safe defaults from the start.
+  - Security is not a feature to be added later—it is a property of the design.
+  - Secrets, credentials, and API keys must never appear in source code, configuration files,
+    or commit history.
+  - Treat security scanners and guard hooks as part of the build contract.
+  merge_topics:
+  - security by design
+  - security constraints
+  - validation rules
+  - security checks
+  tags:
+  - security
+  - validation
+  - defaults
+  related:
+  - no-rationalized-shortcuts
+  - validation-at-the-gate
+  agent_hints:
+    codex: Treat missing prerequisites as blocking validation failures, not optional branches.
+    claude: Surface skipped checks and missing prerequisites explicitly during review.
+    gemini: Keep validation guidance strict and explicit rather than permissive.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Security is not a feature to be added later—it is a property of the design.
+    body: Security is not a feature to be added later—it is a property of the design. We build
+      security in from the start.
+  - id: no-secrets-in-code
+    kind: guidance
+    title: No Secrets in Code
+    summary: Secrets, credentials, and API keys must never appear in source code, configuration
+      files, or commit history.
+    body: |-
+      Secrets, credentials, and API keys must never appear in source code, configuration files, or commit history.
+
+      * **Environment variables:** All secrets loaded via environment (`.env` files)
+      * **Never commit secrets:** No API keys, passwords, or tokens in any file
+      * **No default secrets:** Never provide "example" credentials that could be used in production
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Hardcoded secrets
+      API_KEY = "sk-abc123..."  # NEVER
+      DATABASE_URL = "postgresql://admin:password123@prod-db/..."  # NEVER
+
+      # ❌ WRONG: "Example" secrets that become real
+      API_KEY = os.getenv("API_KEY", "sk-test-key-for-development")  # Still wrong
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Secrets from environment, no defaults
+      API_KEY = os.environ["API_KEY"]  # Fails if not set - good
+
+      # ✅ CORRECT: Explicit configuration validation
+      @dataclass
+      class Config:
+          api_key: str = field(default_factory=lambda: os.environ["API_KEY"])
+
+          def __post_init__(self) -> None:
+              if not self.api_key:
+                  raise ConfigurationError("API_KEY environment variable is required")
+      ```
+  - id: parameterized-queries-only
+    kind: guidance
+    title: Parameterized Queries Only
+    summary: SQL injection is a solved problem.
+    body: |-
+      SQL injection is a solved problem. We solve it by using parameterized queries exclusively.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ CATASTROPHIC: String formatting SQL
+      query = f"SELECT * FROM users WHERE id = {user_id}"  # SQL injection
+      query = "SELECT * FROM users WHERE name = '%s'" % name  # SQL injection
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: Parameterized queries
+      query = "SELECT * FROM users WHERE id = $1"
+      result = await conn.fetch(query, user_id)
+
+      # ✅ CORRECT: Using query builder with parameterization
+      query = select(users).where(users.c.id == bindparam("user_id"))
+      result = await conn.execute(query, {"user_id": user_id})
+      ```
+  - id: input-validation-at-boundaries
+    kind: guidance
+    title: Input Validation at Boundaries
+    summary: All external input is untrusted.
+    body: |-
+      All external input is untrusted. Validate at the boundary, then trust internally.
+
+      * **API endpoints:** Validate all request parameters with Pydantic
+      * **File inputs:** Validate file types, sizes, and content
+      * **Configuration:** Validate at startup, not at use time (see Section 2)
+  - id: production-database-detection
+    kind: guidance
+    title: Production Database Detection
+    summary: Operations that could harm production must detect and refuse production environments.
+    body: |-
+      Operations that could harm production must detect and refuse production environments.
+
+      ```python
+      # ✅ CORRECT: Production safety guard
+      async def reset_database(conn: Connection) -> None:
+          """Reset database to clean state. NEVER runs in production."""
+          db_name = await conn.fetchval("SELECT current_database()")
+          if "prod" in db_name.lower():  # Add your production DB name check here
+              raise SecurityError(
+                  f"Refusing to reset production database: {db_name}",
+                  database=db_name,
+          )
+          await conn.execute("DROP SCHEMA public CASCADE")
+      ```
+  - id: automated-security-gates
+    kind: guidance
+    title: Automated Security Gates
+    summary: Repos should automatically detect obvious security regressions before commit and in
+      CI.
+    body: |-
+      Repos should automatically detect obvious security regressions before commit and in CI.
+
+      Secret scanning, unsafe query detection, boundary validation, and environment-safety guards should be machine-enforced where the repo can express them.
+
+      If a repo ships security hooks, they are part of the build contract and must not be bypassed casually.
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: ❌ Secrets in source code, config files, or environment defaults ❌ String-formatted
+      SQL queries ❌ Trusting user input without validation ❌ Running destructive operations
+      without environment checks ❌ Assuming security features exist without v
+    body: |-
+      * ❌ Secrets in source code, config files, or environment defaults
+      * ❌ String-formatted SQL queries
+      * ❌ Trusting user input without validation
+      * ❌ Running destructive operations without environment checks
+      * ❌ Assuming security features exist without verifying them
+
+      **The Rule:** Security is not optional. It is validated, enforced, and designed into every component. If a security measure can be bypassed, it's not a security measure—it's a suggestion.
+- id: sub-agent-delegation-and-context-isolation
+  order: 25
+  title: Sub-Agent Delegation and Context Isolation
+  summary: We mandate extensive use of sub-agents, plugins, and skills for complex operations—especially
+    git commits and pushes that must pass quality gates.
+  directive: Use specialized agents with scoped context instead of overloading one thread.
+  quick_ref:
+  - Use specialized agents with scoped context instead of overloading one thread.
+  - We mandate extensive use of sub-agents, plugins, and skills for complex operations—especially
+    git commits and pushes that must pass quality gates.
+  - 'Borrowing from Go''s concurrency philosophy: "Share memory by communicating, don''t communicate
+    by sharing memory." For discrete tasks with clear inputs and outputs, spawn a fresh sub-agent
+    with its own context and pass only the specific inst'
+  merge_topics:
+  - sub agent delegation and context isolation
+  - delegation workflow
+  - context isolation
+  tags:
+  - delegation
+  - context
+  - workflow
+  related:
+  - feedback-as-a-first-class-citizen
+  - one-path-for-critical-operations
+  agent_hints:
+    codex: Preserve deterministic workflows and avoid introducing alternate critical paths.
+    claude: Keep process guidance actionable and aligned with the existing repo workflow.
+    gemini: Summarize workflow expectations as concrete steps, not general advice.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: We mandate extensive use of sub-agents, plugins, and skills for complex operations—especially
+      git commits and pushes that must pass quality gates.
+    body: |-
+      **We mandate extensive use of sub-agents, plugins, and skills for complex operations—especially git commits and pushes that must pass quality gates.**
+
+      Sub-agents are not optional conveniences; they are architectural necessities for maintaining context hygiene, enforcing quality gates, and enabling iterative refinement without polluting the parent conversation. In Claude Code, the Task tool spawns isolated agents that operate with their own context windows, preventing "context poisoning" that degrades reasoning quality.
+
+      *(Sources: [Claude Code Sub-Agents Guide](https://htdocs.dev/posts/revolutionizing-ai-development-how-claude-codes-sub-agents-transform-task-management/), [Claude Code Full Stack Architecture](https://alexop.dev/posts/understanding-claude-code-full-stack/), [Best Practices for Sub-Agents](https://www.pubnub.com/blog/best-practices-for-claude-code-sub-agents/), [Context Isolation Patterns](https://claude-plugins.dev/skills/@parcadei/Continuous-Claude-v3/agent-context-isolation))*
+  - id: the-principle-share-memory-by-communicating
+    kind: guidance
+    title: 'The Principle: Share Memory by Communicating'
+    summary: 'Borrowing from Go''s concurrency philosophy: "Share memory by communicating,
+      don''t communicate by sharing memory." For discrete tasks with clear inputs and outputs,
+      spawn a fresh sub-agent with its own context and pass only the specific inst'
+    body: |-
+      Borrowing from Go's concurrency philosophy: **"Share memory by communicating, don't communicate by sharing memory."** For discrete tasks with clear inputs and outputs, spawn a fresh sub-agent with its own context and pass only the specific instruction. The sub-agent returns a summary; its internal deliberation stays isolated.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```
+      # ❌ WRONG: Performing git operations directly in parent context
+      # All pre-commit hook output, lint errors, type errors, and retry
+      # attempts pollute the main conversation context
+
+      git add .
+      git commit -m "Add feature"
+      # Pre-commit fails with 47 lint errors
+      # Parent context now contains all 47 errors
+      # After 3 fix-retry cycles: context bloated with 200+ lines of noise
+      ```
+
+      **The Correct Way:**
+
+      ```
+      # ✅ CORRECT: Delegate to a sub-agent that iterates in isolation
+      # Use Task tool with appropriate agent type
+
+      Task(
+          description="Commit changes with quality gates",
+          prompt="""
+          Commit the staged changes. The pre-commit hooks will run automatically.
+          If hooks fail:
+          1. Fix ALL errors found (lint, type, test failures)
+          2. Fix any latent/pre-existing errors discovered
+          3. Retry the commit
+          4. Iterate until the commit succeeds
+
+          Return only: commit hash, files changed count, and summary of fixes applied.
+          """,
+          subagent_type="Bash"  # Or custom commit agent
+      )
+
+      # Parent context receives only the summary, not the iteration noise
+      ```
+  - id: commits-and-pushes-must-use-sub-agents
+    kind: guidance
+    title: Commits and Pushes MUST Use Sub-Agents
+    summary: Git commits and pushes are the canonical use case for sub-agent delegation.
+    body: |-
+      Git commits and pushes are the canonical use case for sub-agent delegation. Our pre-commit and pre-push hooks implement comprehensive quality gates (lint, type checking, tests, security scans). These hooks can fail—and when they do, the agent must iterate.
+
+      **Why Sub-Agents Are Mandatory for Git Operations:**
+
+      1. **Iteration Noise:** A single commit attempt might require 5+ fix-retry cycles. Each cycle generates diagnostic output. In the parent context, this balloons to thousands of tokens.
+      2. **Context Preservation:** The parent conversation should track *what* was accomplished, not *how many lint errors were fixed*.
+      3. **Latent Error Discovery:** Quality gates often surface pre-existing errors. These must be fixed (per Section 13: Universal Responsibility) but the fix details belong in the sub-agent's context.
+      4. **Parallel Execution:** Multiple sub-agents can prepare different aspects of a commit simultaneously.
+
+      **The Git Sub-Agent Contract:**
+
+      A commit sub-agent must:
+
+      1. **Never bypass hooks:** The `--no-verify` flag is forbidden (see Section 21)
+      2. **Fix all errors:** Both new and pre-existing (see Section 13: Universal Responsibility)
+      3. **Iterate until success:** No "partial" commits or deferred fixes
+      4. **Return minimal summary:** Commit hash, change count, and notable fixes—not the full iteration log
+
+      ```python
+      # ✅ CORRECT: Sub-agent handles all iteration internally
+      # Parent receives only the outcome
+
+      class CommitResult:
+          """What the parent context receives."""
+          commit_hash: str
+          files_changed: int
+          summary: str  # "Fixed 3 type errors, 2 lint warnings"
+
+      # The sub-agent's internal context (NOT returned to parent):
+      # - 47 initial lint errors
+      # - 3 type mismatches
+      # - 2 retry cycles
+      # - Full diagnostic output from each hook run
+      # This stays in the sub-agent's context and is discarded
+      ```
+  - id: context-isolation-is-non-negotiable
+    kind: rule
+    title: Context Isolation Is Non-Negotiable
+    summary: Each sub-agent operates with its own context window.
+    body: |-
+      Each sub-agent operates with its own context window. This is a feature, not a limitation. We leverage this for:
+
+      **1. Preventing Context Pollution**
+
+      Heavy operations (codebase exploration, multi-file refactoring, test suite execution) generate verbose output. In the parent context, this triggers compaction—potentially losing the user's original request context.
+
+      **2. Enforcing Phase Separation**
+
+      For workflows like TDD, context isolation ensures each phase (test writing, implementation, refactoring) operates without pollution from other phases. The test writer cannot be influenced by implementation details it shouldn't see.
+
+      **3. Parallel Execution**
+
+      Only sub-agents support true parallel execution. Independent tasks can run concurrently without stepping on each other's context.
+
+      **The Anti-Pattern (Forbidden):**
+
+      ```python
+      # ❌ WRONG: Using TaskOutput to pull full transcripts into parent
+      result = TaskOutput(task_id=agent_id, block=True)
+      # Now parent contains the entire 70k+ token agent transcript
+      # Context pollution achieved
+      ```
+
+      **The Correct Way:**
+
+      ```python
+      # ✅ CORRECT: File-based coordination
+      # Sub-agent writes results to .claude/cache/agents/<type>/
+      # Parent reads only the summary file, not the full transcript
+
+      # Or: Sub-agent returns structured summary via its final message
+      # Parent receives: "Commit abc123: 5 files, fixed 2 type errors"
+      # Parent does NOT receive: The 3 retry cycles and 200 lines of lint output
+      ```
+  - id: when-to-delegate-to-sub-agents
+    kind: guidance
+    title: When to Delegate to Sub-Agents
+    summary: 'Always delegate when:'
+    body: |-
+      **Always delegate when:**
+
+      * The task produces verbose output you don't need in main context
+      * Work is self-contained and can return a summary
+      * You need tool restrictions different from the parent context
+      * The operation might require multiple retry cycles (git commits, test runs)
+      * Parallel execution would improve throughput
+
+      **The Decision Tree:**
+
+      ```
+      Is this a git commit or push?
+        YES → Sub-agent (mandatory)
+
+      Will this generate >50 lines of diagnostic output?
+        YES → Sub-agent (recommended)
+
+      Might this require fix-retry cycles?
+        YES → Sub-agent (recommended)
+
+      Is the work self-contained with clear input/output?
+        YES → Sub-agent (consider)
+      ```
+  - id: sub-agent-tool-access
+    kind: guidance
+    title: Sub-Agent Tool Access
+    summary: Sub-agents can have restricted tool access—a security and focus mechanism.
+    body: |-
+      Sub-agents can have restricted tool access—a security and focus mechanism.
+
+      * **Explorers:** Read-only (Glob, Grep, Read)—cannot modify anything
+      * **Reviewers:** Read + analysis tools—cannot write files
+      * **Implementers:** Full tool access for their designated scope
+      * **Commit agents:** Bash + Edit—focused on git operations
+
+      **The Correct Way:**
+
+      ```markdown
+      # .claude/agents/commit-agent.md
+      ---
+      name: commit-agent
+      description: Handles git commits with pre-commit hook iteration
+      tools:
+        - Bash
+        - Edit
+        - Read
+        - Grep
+      ---
+
+      You are a specialized commit agent. Your job is to:
+      1. Stage and commit changes
+      2. If pre-commit hooks fail, fix ALL errors (new and pre-existing)
+      3. Iterate until the commit succeeds
+      4. Return ONLY: commit hash, file count, summary of fixes
+
+      You do NOT have access to Task (no spawning sub-sub-agents).
+      Keep all iteration details in your context—do not return them.
+      ```
+  - id: hooks-enable-quality-gates
+    kind: guidance
+    title: Hooks Enable Quality Gates
+    summary: Claude Code hooks are event-driven scripts that execute on lifecycle events.
+    body: |-
+      Claude Code hooks are event-driven scripts that execute on lifecycle events. Use them to:
+
+      * **Validate before operations:** PreToolUse hooks can gate destructive actions
+      * **Enforce standards after changes:** Stop hooks run at end-of-turn for linting/testing
+      * **Inject context:** UserPromptSubmit hooks can add relevant instructions
+
+      **The Stop Hook Pattern for Quality Gates:**
+
+      ```json
+      // .claude/settings.json
+      {
+        "hooks": {
+          "Stop": [
+            {
+              "command": "make lint && make typecheck",
+              "description": "Run quality checks at end of turn"
+            }
+          ]
+        }
+      }
+      ```
+
+      When hooks fail with exit code 2, Claude receives the stderr and can fix issues immediately. This creates an automatic fix-iterate loop—exactly what sub-agents should handle.
+  - id: skills-for-automatic-expertise
+    kind: guidance
+    title: Skills for Automatic Expertise
+    summary: Skills are model-invoked—Claude activates them automatically when their description
+      matches the task context.
+    body: |-
+      Skills are model-invoked—Claude activates them automatically when their description matches the task context. Unlike CLAUDE.md (always loaded), skills provide "progressive disclosure" of expertise.
+
+      **Use skills for:**
+
+      * Workflows that should activate automatically (TDD, commit preparation)
+      * Domain-specific knowledge (security review, performance optimization)
+      * Team standards that apply contextually
+
+      **The Correct Way:**
+
+      ```markdown
+      # .claude/skills/git-commit/SKILL.md
+      ---
+      name: git-commit-workflow
+      description: Use for all git commits. Enforces quality gates and iterative fixing.
+      ---
+
+      When committing changes:
+      1. Spawn a commit sub-agent (Task tool, subagent_type="Bash")
+      2. The sub-agent handles all pre-commit hook iteration
+      3. Parent receives only the outcome summary
+      4. ALL errors discovered (including pre-existing) must be fixed
+      5. Never use --no-verify
+      ```
+  - id: anti-patterns-forbidden
+    kind: anti_patterns
+    title: Anti-Patterns (Forbidden)
+    summary: ❌ Performing git commits directly in parent context ❌ Using TaskOutput to pull
+      full sub-agent transcripts ❌ Sub-agents that spawn other sub-agents (use Skills or chain
+      from parent) ❌ Returning iteration noise to parent ("Here are the 47 lin
+    body: |-
+      * ❌ Performing git commits directly in parent context
+      * ❌ Using `TaskOutput` to pull full sub-agent transcripts
+      * ❌ Sub-agents that spawn other sub-agents (use Skills or chain from parent)
+      * ❌ Returning iteration noise to parent ("Here are the 47 lint errors I fixed...")
+      * ❌ Skipping sub-agent delegation because "this is a small commit"
+      * ❌ Using `--no-verify` to bypass hooks (forbidden per Section 21)
+      * ❌ Leaving pre-existing errors unfixed because "they're not my problem"
+  - id: the-correct-workflow
+    kind: workflow
+    title: The Correct Workflow
+    summary: No summary available.
+    body: |-
+      ```
+      Parent Context                    Sub-Agent Context
+      ─────────────────                 ──────────────────
+      "Commit the auth changes"    →    [Task spawned]
+                                        git add .
+                                        git commit -m "..."
+                                        [pre-commit fails: 12 errors]
+                                        [fixes applied]
+                                        git commit -m "..."
+                                        [pre-commit fails: 2 errors]
+                                        [fixes applied]
+                                        git commit -m "..."
+                                        [success: abc123]
+                                   ←    "Committed abc123: 5 files
+                                         Fixed 14 issues (12 lint, 2 type)"
+
+      [Parent context: ~50 tokens]      [Sub-agent context: ~3000 tokens]
+                                        [Discarded after completion]
+      ```
+  - id: the-rule
+    kind: rule
+    title: The Rule
+    summary: Sub-agents are mandatory for operations that iterate, generate verbose output,
+      or must pass quality gates.
+    body: |-
+      **Sub-agents are mandatory for operations that iterate, generate verbose output, or must pass quality gates.** Git commits and pushes always use sub-agents. Context isolation is preserved—parent receives summaries, not transcripts. Pre-existing errors discovered by quality gates are fixed in the sub-agent, not deferred. The sub-agent iterates until success; the parent sees only the outcome.
+
+      ---
+
+      ## **In Summary**
+
+      We build systems that are strict with themselves so they can be gentle with their users.
+
+      **We follow SOLID as law** and embrace simplicity precepts: YAGNI, KISS, and the Law of Demeter. **We fail fast at startup** but are resilient at runtime. **We validate unconditionally**—no conditional imports, no optional types for required dependencies, no "if available" capability checks. **We deliver maximum utility by default**—no degraded paths, no knobs for worse behavior.
+
+      **We log everything** and instrument every operation. **We define behaviors in Protocols** before writing implementations. **Every problem is everyone's responsibility**—there is no "pre-existing" or "not my code." **Linters enforce our standards**, and feedback is a gift we actively seek.
+
+      **Self-promotion has no place** in our commits or documentation. **We use functional idioms** from battle-tested stdlib. **Documentation is contract**—an undocumented function is a bug. **Critical operations have one path**, not modal switches. **We look forward, not backward**—fix problems, don't assign blame.
+
+      **No shortcut is acceptable** if it discards or destroys work. Complexity is a reason for MORE care, not less. **We test exhaustively**—100% pass rate is non-negotiable. **We handle errors explicitly** with actionable, structured exceptions. **We secure by design**—no secrets in code, parameterized queries only, validate at boundaries.
+
+      **We verify before we assert.** Claims require evidence. If we haven't read the file, we don't describe it. If we haven't run the tests, we don't claim they pass. If we cannot complete a task correctly, we say so—we do not pretend completion by destroying the work.
+
+      **We delegate to sub-agents** for operations that iterate, generate verbose output, or must pass quality gates. Git commits and pushes always use sub-agents. Context isolation is sacred—parent receives summaries, not transcripts. Pre-existing errors discovered by quality gates are fixed in the sub-agent, not deferred.
+- id: evidence-based-engineering-and-decision-quality
+  order: 26
+  title: Evidence-Based Engineering and Decision Quality
+  summary: Good engineering decisions are grounded in evidence, explicit trade-offs,
+    and calibrated risk.
+  directive: Understand, plan, execute, and validate with evidence; measure before
+    optimizing and make trade-offs explicit.
+  quick_ref:
+  - Evidence > assumptions; runnable behavior and measurements outrank speculation.
+  - Understand -> plan -> execute -> validate, using batching and context awareness
+    when they reduce waste.
+  - Evaluate decisions across quality, reversibility, risk, and human impact.
+  merge_topics:
+  - decision framework
+  - planning discipline
+  - evidence requirements
+  - trade-off analysis
+  - risk management
+  - quality quadrants
+  tags:
+  - evidence
+  - planning
+  - risk
+  - quality
+  related:
+  - universal-responsibility
+  - testing-as-specification
+  - security-by-design
+  - sub-agent-delegation-and-context-isolation
+  agent_hints:
+    codex: Verify claims in code, tests, or measurements; batch independent work and
+      call out irreversible risks explicitly.
+    claude: Preserve task-first planning and make evidence, assumptions, and reversibility
+      explicit in repo guidance.
+    gemini: Keep plans short but evidence-backed; state the trade-off and the next validating
+      action.
+  sections:
+  - id: overview
+    kind: overview
+    title: Overview
+    summary: Good engineering decisions are grounded in evidence, explicit trade-offs,
+      and calibrated risk.
+    body: |-
+      We do not treat engineering judgment as intuition dressed up as confidence. Good decisions are grounded in evidence, explicit trade-offs, and calibrated risk.
+
+      **Core directive:** Evidence > assumptions. Runnable behavior, tests, metrics, and credible primary sources outrank speculation and unsupported prose. Documentation remains a contract, but prose cannot excuse behavior the system does not actually implement.
+
+      **Communication directive:** Efficiency > verbosity. Be concise when possible, but not at the cost of correctness, evidence, or important nuance.
+  - id: task-first-operating-model
+    kind: workflow
+    title: Task-First Operating Model
+    summary: Understand -> Plan -> Execute -> Validate is the default operating loop.
+    body: |-
+      The default execution loop is:
+
+      1. **Understand:** Gather the local facts first. Read the code, issue, config, logs, or docs that define the problem.
+      2. **Plan:** Identify the critical path, dependencies, and likely failure modes before editing.
+      3. **Execute:** Make the smallest change set that actually resolves the problem.
+      4. **Validate:** Confirm behavior with tests, static analysis, metrics, or direct inspection.
+
+      Efficiency matters, so independent reads and checks should be batched where possible. Context also matters: preserve enough local understanding to avoid redundant work or contradictory edits across sessions and operations.
+  - id: systems-thinking-and-trade-offs
+    kind: guidance
+    title: Systems Thinking and Trade-Offs
+    summary: Evaluate ripple effects, temporal impact, reversibility, and option preservation
+      before committing to a path.
+    body: |-
+      Every change has ripple effects. Evaluate the immediate local win against architecture-wide consequences, long-term maintenance cost, and the options you may close off by acting too narrowly.
+
+      When making a decision, ask:
+
+      * What other components, operators, or workflows does this change constrain?
+      * Is this change easy to reverse, costly to reverse, or effectively irreversible?
+      * Are we preserving future options under uncertainty, or spending them carelessly?
+      * Are we accepting risk intentionally, or just failing to model it?
+
+      Prefer designs that keep future choices open unless the stronger constraint is itself a deliberate requirement.
+  - id: data-driven-choices
+    kind: guidance
+    title: Data-Driven Choices
+    summary: Measure first, test hypotheses systematically, validate sources, and account
+      for bias.
+    body: |-
+      Optimization without measurement is guesswork. Performance claims, reliability claims, and architecture claims should be backed by evidence that can be inspected or reproduced.
+
+      The expected pattern is:
+
+      * **Measure first:** Establish current behavior before claiming improvement.
+      * **Form hypotheses explicitly:** State what you think will change and why.
+      * **Validate sources:** Prefer primary documentation, tests, traces, and metrics over retellings.
+      * **Recognize bias:** Be wary of recency bias, sunk-cost bias, and confirmation bias when interpreting results.
+
+      If the evidence is weak, say so directly and reduce the claim strength accordingly.
+  - id: proactive-risk-management
+    kind: policy
+    title: Proactive Risk Management
+    summary: Identify risks early, assess probability and severity, and plan mitigations
+      before harm occurs.
+    body: |-
+      Risk management is not fear-driven paralysis; it is disciplined foresight. Anticipate the likely failure modes before they become production incidents, security regressions, or migration traps.
+
+      For meaningful changes:
+
+      * Identify the major risks up front.
+      * Assess both probability and impact.
+      * Decide whether the risk is acceptable, needs mitigation, or blocks the change.
+      * Put the mitigation in the plan, not in the postmortem.
+
+      Security risk, data-loss risk, migration risk, and operator-confusion risk should be considered explicitly, not absorbed into a vague notion of "complexity."
+  - id: quality-lens
+    kind: guidance
+    title: Quality Lens
+    summary: Judge changes across functional, structural, performance, and security quality,
+      with user welfare and autonomy as constraints.
+    body: |-
+      Evaluate changes through four quality lenses:
+
+      * **Functional quality:** correctness, reliability, completeness
+      * **Structural quality:** maintainability, clarity, technical debt
+      * **Performance quality:** latency, throughput, resource efficiency
+      * **Security quality:** access control, validation, data protection
+
+      Prefer preventive measures and automated enforcement whenever practical; they catch issues earlier and more consistently than manual heroics. When a design decision affects end users or operators, human welfare and autonomy matter: do not trade away safety, clarity, or informed control for superficial convenience.

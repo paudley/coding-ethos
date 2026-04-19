@@ -1,0 +1,64 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coding-ethos"
+version = "0.1.0"
+description = "Generate Codex, Claude Code, and Gemini instruction files from a shared coding ethos."
+readme = "README.md"
+license = { text = "MIT License" }
+authors = [
+    { name = "Blackcat Informatics® Inc.", email = "paudley@blackcat.ca" },
+]
+maintainers = [
+    { name = "Blackcat Informatics® Inc.", email = "paudley@blackcat.ca" },
+]
+keywords = [
+    "ai",
+    "agent-instructions",
+    "codex",
+    "gemini",
+    "claude",
+    "llm",
+    "prompt-engineering",
+    "yaml",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Markup",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6.0.2",
+]
+
+[project.scripts]
+coding-ethos = "coding_ethos.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["coding_ethos"]
+
+[tool.uv]
+managed = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
