@@ -1,0 +1,684 @@
+# Lefthook hooks for coding-ethos code quality.
+# Install: lefthook install
+# Run manually: lefthook run pre-commit
+# Hook bypass is forbidden: do not use LEFTHOOK=0 or --no-verify.
+#
+# External tool requirements:
+#   - lefthook: go install github.com/evilmartians/lefthook@v1.13.6
+#   - shellcheck: apt/brew install shellcheck
+#   - hadolint: brew install hadolint (or Docker)
+#   - actionlint: brew install actionlint (or go install github.com/rhysd/actionlint/cmd/actionlint@latest)
+#   - golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#
+# Formatting and generic auto-edit hooks run on the working tree, stage their
+# fixed files with Lefthook's stage_fixed option, and do not use git stash.
+
+min_version: 1.13.6
+skip_lfs: true
+output:
+  - failure
+  - execution_out
+templates:
+  hook_env: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && HOOKS_PROJECT="${BUNDLE_DIR}/hooks" && HOOKS_PYPROJECT="${HOOKS_PROJECT}/pyproject.toml" && REPO_RUFF_CONFIG="ruff.toml" && REPO_YAMLLINT_CONFIG=".yamllint.yml" && uv run --quiet --project "${HOOKS_PROJECT}"
+  go_hook: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && "${BUNDLE_DIR}/hooks/run-go-hook.sh"
+  yaml_env: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && HOOKS_PROJECT="${BUNDLE_DIR}/hooks" && REPO_YAMLLINT_CONFIG=".yamllint.yml" && uv run --quiet --project "${HOOKS_PROJECT}" --with yamllint
+
+pre-commit:
+  parallel: false
+  fail_on_changes: never
+  jobs:
+    - name: Fix text endings and whitespace
+      run: "{go_hook} fix-text {staged_files}"
+      stage_fixed: true
+
+    - name: Ruff format
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "**/*.py"
+        - "**/*.pyi"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "**/vulture_whitelist.py"
+      run: '{hook_env} ruff format --config "${REPO_RUFF_CONFIG}" --quiet {staged_files} >/dev/null 2>&1 || true'
+      stage_fixed: true
+
+    - name: Ruff autofix
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "**/*.py"
+        - "**/*.pyi"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "**/vulture_whitelist.py"
+      run: >-
+        {hook_env} ruff check --config "${REPO_RUFF_CONFIG}" --fix --quiet --ignore-noqa
+        {staged_files}
+        >/dev/null 2>&1 || true
+      stage_fixed: true
+
+    - name: Ruff lint
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "**/*.py"
+        - "**/*.pyi"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "**/vulture_whitelist.py"
+      run: >-
+        {hook_env} ruff check --config "${REPO_RUFF_CONFIG}" --quiet --ignore-noqa
+        {staged_files}
+
+    - name: Go format
+      glob: "**/*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+
+    - name: Validate YAML/TOML/JSON syntax
+      glob:
+        - "*.yaml"
+        - "*.yml"
+        - "*.toml"
+        - "*.json"
+        - "**/*.yaml"
+        - "**/*.yml"
+        - "**/*.toml"
+        - "**/*.json"
+      run: "{go_hook} check-syntax {staged_files}"
+
+    - name: Check merge conflicts
+      run: "{go_hook} check-merge-conflict {staged_files}"
+
+    - name: Check shebangs and executable bits
+      run: "{go_hook} check-shebangs {staged_files}"
+
+    - name: Detect private keys
+      run: "{go_hook} detect-private-key {staged_files}"
+
+    - name: Check added large files
+      run: "{go_hook} check-large-files {staged_files}"
+
+    - name: Lint YAML files
+      glob:
+        - "*.yaml"
+        - "*.yml"
+        - "**/*.yaml"
+        - "**/*.yml"
+      run: "{yaml_env} yamllint -c \"${REPO_YAMLLINT_CONFIG}\" --strict {staged_files}"
+
+    - name: ShellCheck
+      run: "{go_hook} shellcheck {staged_files}"
+
+    - name: Hadolint Dockerfiles
+      glob:
+        - "Dockerfile*"
+        - "**/Dockerfile*"
+      run: >-
+        command -v hadolint >/dev/null 2>&1 ||
+        { echo "FATAL: hadolint is required. Install: brew install hadolint"; exit 1; };
+        hadolint {staged_files}
+
+    - name: Ban | None type annotations
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_optional_returns.py
+        {staged_files}
+
+    - name: Ban comment-based lint suppressions
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_comment_suppressions.py
+        {staged_files}
+
+    - name: Ban direct internal imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_direct_imports.py
+        {staged_files}
+
+    - name: Ban direct utility imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+        - "pre-commit/hooks/**"
+        - ".claude/hooks/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_util_centralization.py
+        {staged_files}
+
+    - name: Type checking
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "docker/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/parallel_type_check.py
+        {staged_files}
+
+    - name: Check shell best practices
+      run: "{go_hook} check-shell-best-practices {staged_files}"
+
+    - name: File size limits
+      glob:
+        - "*.py"
+        - "*.sh"
+        - "*.bash"
+        - "**/*.py"
+        - "**/*.sh"
+        - "**/*.bash"
+      run: "{go_hook} check-line-limits {staged_files}"
+
+    - name: Ban forbidden markers
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "docs/**"
+        - "**/docs/**"
+        - "*.md"
+        - "**/*.md"
+        - "pre-commit/**"
+      run: "{go_hook} check-forbidden-strings {staged_files}"
+
+    - name: Ban linter file ignores in pyproject
+      glob:
+        - "pyproject.toml"
+        - "**/pyproject.toml"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_pyproject_ignores.py
+        {staged_files}
+
+    - name: Security pattern enforcement
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_security_patterns.py
+        {staged_files}
+
+    - name: Ban catch-and-silence patterns
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_catch_and_silence.py
+        {staged_files}
+
+    - name: Ban conditional imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_conditional_imports.py
+        {staged_files}
+
+    - name: Ban TYPE_CHECKING and future annotations
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_type_checking_imports.py
+        {staged_files}
+
+    - name: Enforce structured logging
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_structured_logging.py
+        {staged_files}
+
+    - name: Ban SQL strings outside configured SQL module
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+        - "pre-commit/hooks/**"
+        - "**/alembic/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_sql_centralization.py
+        {staged_files}
+
+    - name: Docstring coverage
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_docstring_coverage.py"
+
+    - name: Module documentation check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_init_docs.py"
+
+    - name: File-level docstring check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_file_docstrings.py
+        {staged_files}
+
+    - name: Validate manifest.yaml
+      glob: "**/manifest.yaml"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/validate_manifest.py"
+
+    - name: Gemini AI code checks
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "*.sh"
+        - "*.bash"
+        - "*.go"
+        - "**/*.py"
+        - "**/*.pyi"
+        - "**/*.sh"
+        - "**/*.bash"
+        - "**/*.go"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "scripts/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/gemini_orchestrator.py
+        {staged_files}
+
+    - name: GitHub Actions workflow validation
+      glob:
+        - ".github/workflows/*.yaml"
+        - ".github/workflows/*.yml"
+        - ".github/workflows/**/*.yaml"
+        - ".github/workflows/**/*.yml"
+      run: >-
+        command -v actionlint >/dev/null 2>&1 ||
+        { echo "FATAL: actionlint is required. Install: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; };
+        actionlint
+
+    - name: Cyclomatic complexity check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_complexity.py
+        {staged_files}
+
+    - name: Maintainability index check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_maintainability.py"
+
+    - name: Dead code detection
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_vulture.py"
+
+    - name: Plan completion verification
+      glob: "**/metadata.yaml"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_plan_completion.py"
+
+    - name: Go vet
+      glob: "**/*.go"
+      run: >-
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && go vet ./...
+
+    - name: Go tests
+      glob: "**/*.go"
+      run: >-
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && go test ./...
+
+    - name: golangci-lint
+      glob: "**/*.go"
+      run: >-
+        command -v golangci-lint >/dev/null 2>&1 ||
+        { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && golangci-lint run
+
+pre-push:
+  parallel: false
+  jobs:
+    - name: Ban comment-based lint suppressions
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_comment_suppressions.py
+        {push_files}
+
+    - name: Ban direct internal imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_direct_imports.py
+        {push_files}
+
+    - name: Ban direct utility imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+        - "pre-commit/hooks/**"
+        - ".claude/hooks/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_util_centralization.py
+        {push_files}
+
+    - name: Type checking
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "docker/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/parallel_type_check.py
+        {push_files}
+
+    - name: Check shell best practices
+      run: "{go_hook} check-shell-best-practices {push_files}"
+
+    - name: File size limits
+      glob:
+        - "*.py"
+        - "*.sh"
+        - "*.bash"
+        - "**/*.py"
+        - "**/*.sh"
+        - "**/*.bash"
+      run: "{go_hook} check-line-limits {push_files}"
+
+    - name: Security pattern enforcement
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_security_patterns.py
+        {push_files}
+
+    - name: Ban catch-and-silence patterns
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_catch_and_silence.py
+        {push_files}
+
+    - name: Ban conditional imports
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_conditional_imports.py
+        {push_files}
+
+    - name: Ban TYPE_CHECKING and future annotations
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_type_checking_imports.py
+        {push_files}
+
+    - name: Enforce structured logging
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_structured_logging.py
+        {push_files}
+
+    - name: Ban SQL strings outside configured SQL module
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+        - "pre-commit/hooks/**"
+        - "**/alembic/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_sql_centralization.py
+        {push_files}
+
+    - name: Docstring coverage
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_docstring_coverage.py"
+
+    - name: Module documentation check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_init_docs.py"
+
+    - name: File-level docstring check
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "tests/**"
+        - "**/tests/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/check_file_docstrings.py
+        {push_files}
+
+    - name: Validate manifest.yaml
+      glob: "**/manifest.yaml"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/validate_manifest.py"
+
+    - name: Gemini AI code checks
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "*.sh"
+        - "*.bash"
+        - "*.go"
+        - "**/*.py"
+        - "**/*.pyi"
+        - "**/*.sh"
+        - "**/*.bash"
+        - "**/*.go"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "scripts/**"
+      run: >-
+        {hook_env} python ${BUNDLE_DIR}/hooks/gemini_orchestrator.py
+        --full-check
+
+    - name: GitHub Actions workflow validation
+      glob:
+        - ".github/workflows/*.yaml"
+        - ".github/workflows/*.yml"
+        - ".github/workflows/**/*.yaml"
+        - ".github/workflows/**/*.yml"
+      run: >-
+        command -v actionlint >/dev/null 2>&1 ||
+        { echo "FATAL: actionlint is required. Install: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; };
+        actionlint
+
+    - name: Plan completion verification
+      glob: "**/metadata.yaml"
+      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_plan_completion.py"
+
+    - name: Go vet
+      glob: "**/*.go"
+      run: >-
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && go vet ./...
+
+    - name: Go format check
+      glob: "**/*.go"
+      run: >-
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" &&
+        test -z "$(gofmt -l .)" ||
+        (gofmt -l . && exit 1)
+
+    - name: Go tests
+      glob: "**/*.go"
+      run: >-
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && go test ./...
+
+    - name: golangci-lint
+      glob: "**/*.go"
+      run: >-
+        command -v golangci-lint >/dev/null 2>&1 ||
+        { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
+        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+        GO_WORKTREE="$(
+          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
+        )" &&
+        cd "${GO_WORKTREE}" && golangci-lint run
+
+commit-msg:
+  parallel: false
+  jobs:
+    - name: Lint commit message
+      run: "{go_hook} commitlint {1}"
+
+    - name: Block AI attribution in commits
+      run: "{go_hook} commit-attribution {1}"

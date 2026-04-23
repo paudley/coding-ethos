@@ -42,6 +42,7 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     "PyYAML>=6.0.2",
+    "pytest>=8.0",
 ]
 
 [project.urls]
@@ -55,7 +56,6 @@ coding-ethos = "coding_ethos.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -63,6 +63,9 @@ packages = ["coding_ethos"]
 
 [tool.uv]
 managed = true
+
+[tool.uv.workspace]
+members = ["pre-commit/hooks"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

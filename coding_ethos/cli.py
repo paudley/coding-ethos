@@ -32,6 +32,7 @@ from coding_ethos.renderers import (
     required_root_imports,
     render_shared_ethos_index,
 )
+from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
 
 
 def _write_file(path: Path, content: str) -> None:
@@ -59,6 +60,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repo-ethos",
         type=Path,
         help="Optional repo-specific ethos YAML. Defaults to <repo>/repo_ethos.yml.",
+    )
+    parser.add_argument(
+        "--repo-config",
+        type=Path,
+        help="Optional repo-specific enforcement config YAML. Defaults to <repo>/repo_config.yml or .yaml.",
     )
     parser.add_argument(
         "--seed-from-markdown",
@@ -103,6 +109,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--codex-model",
         help="Deprecated alias for --merge-model when --merge-engine=codex.",
+    )
+    parser.add_argument(
+        "--sync-tool-configs",
+        action="store_true",
+        help="Generate pyrightconfig.json, mypy.ini, ruff.toml, and .yamllint.yml into --repo.",
+    )
+    parser.add_argument(
+        "--check-tool-configs",
+        action="store_true",
+        help="Fail if generated tool config files in --repo are missing or out of sync.",
     )
     return parser
 
@@ -237,6 +253,25 @@ def main(argv: list[str] | None = None) -> int:
         if merge_model is None:
             merge_model = args.codex_model
 
+    repo_root = args.repo.expanduser().resolve() if args.repo is not None else None
+
+    if (args.sync_tool_configs or args.check_tool_configs) and repo_root is None:
+        parser.error("--sync-tool-configs and --check-tool-configs require --repo.")
+
+    if args.sync_tool_configs and repo_root is not None:
+        repo_root.mkdir(parents=True, exist_ok=True)
+        written = sync_tool_configs(repo_root, args.repo_config)
+        print("\n".join(str(path) for path in written))
+
+    if args.check_tool_configs and repo_root is not None:
+        mismatched = check_tool_configs(repo_root, args.repo_config)
+        if mismatched:
+            print("\n".join(str(path) for path in mismatched))
+            return 1
+
+    if args.sync_tool_configs or args.check_tool_configs:
+        return 0
+
     primary_path = _resolve_primary_path(args.primary)
     if args.seed_from_markdown:
         source_path = args.seed_from_markdown.expanduser()
@@ -249,10 +284,9 @@ def main(argv: list[str] | None = None) -> int:
             "Use --seed-from-markdown to generate it first."
         )
 
-    if args.repo is None:
+    if repo_root is None:
         return 0
 
-    repo_root = args.repo.expanduser().resolve()
     repo_root.mkdir(parents=True, exist_ok=True)
     repo_ethos_path = _resolve_repo_ethos(repo_root, args.repo_ethos)
     bundle = _load_bundle(primary_path, repo_ethos_path)

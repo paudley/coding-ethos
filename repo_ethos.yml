@@ -1,0 +1,132 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+repo:
+  name: coding-ethos
+  overview: >-
+    Python CLI for generating ETHOS.md, AGENTS.md, CLAUDE.md, GEMINI.md, and
+    supporting agent context files from a shared YAML ethos plus an optional
+    repo-specific overlay.
+  commands:
+    install:
+      - make install
+    test:
+      - make test
+    check:
+      - make check
+    validate:
+      - make validate
+    install-hooks:
+      - make install-hooks
+    sync-tool-configs:
+      - make sync-tool-configs
+    check-tool-configs:
+      - make check-tool-configs
+    pre-commit-all:
+      - make pre-commit-all
+    generate:
+      - make generate
+    merge-existing:
+      - make generate-merge
+    help:
+      - make help
+  paths:
+    makefile: Makefile
+    source: coding_ethos/
+    cli: coding_ethos/cli.py
+    loaders: coding_ethos/loaders.py
+    renderers: coding_ethos/renderers.py
+    markdown_seed: coding_ethos/markdown_seed.py
+    merge_logic: coding_ethos/merging.py
+    presets: coding_ethos/presets.py
+    models: coding_ethos/models.py
+    tests: tests/test_cli.py
+    primary_ethos: coding_ethos.yml
+    repo_overlay: repo_ethos.yml
+    overlay_example: repo_ethos.example.yml
+    precommit_bundle: pre-commit/
+  notes:
+    - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
+    - The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs.
+    - The bundled ETHOS pre-commit enforcement package lives under pre-commit/, with a root lefthook.yml symlink for local validation.
+    - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
+    - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
+    - This repo currently exposes uv run pytest as its canonical automated verification command.
+
+agent_notes:
+  codex:
+    - Prefer changing the narrow module that owns the behavior instead of spreading logic across cli.py and multiple helpers.
+    - After changing coding_ethos.yml, repo_ethos.yml, or renderer behavior, regenerate this repo's checked-in agent files before finishing.
+    - Treat generated markdown files as derived artifacts; hand-edit them only when the task is explicitly about the generated output itself.
+  claude:
+    - Open the matching detail doc before changing output structure, merge rules, or YAML validation behavior.
+    - Use CLAUDE.md as a thin import hub; keep repo-specific operational detail in the shared generated docs.
+  gemini:
+    - Prefer targeted reads of the module that owns the behavior rather than summarizing the whole repo at once.
+    - When discussing generated outputs, anchor the explanation in the source YAML and renderer pipeline.
+
+principles:
+  overrides:
+    static-analysis-is-the-first-line-of-defense:
+      append: |
+        This repo currently documents `uv run pytest` as its canonical automated gate.
+
+        If lint or type-check tooling is introduced, wire it into the documented workflow, update the repo commands, and treat it as part of the contract instead of a local preference.
+    one-path-for-critical-operations:
+      append: |
+        Keep generation routed through `coding_ethos.cli.main()` and the shared rendering pipeline instead of adding ad hoc writers for individual root files.
+
+        If output behavior changes, update the source YAML, renderer logic, and tests together rather than patching only one layer.
+    documentation-as-contract:
+      append: |
+        In this repo, documentation is part of the product surface.
+
+        If CLI flags, output filenames, import conventions, or generated directory layout changes, update `README.md` and the checked-in generated outputs in the same change.
+    testing-as-specification:
+      append: |
+        `tests/test_cli.py` is the executable contract for rendering coverage, inject-mode merges, symlink replacement, and LLM merge dispatch.
+
+        Extend the tests whenever output structure, merge semantics, or CLI flow changes.
+  additional:
+    - id: generated-files-are-derived-artifacts
+      order: 900
+      title: Generated Files Are Derived Artifacts
+      summary: Root agent files in this repository are generated outputs, not the primary authoring surface.
+      directive: Edit the source ethos or renderer code first, then regenerate the checked-in agent files.
+      tags:
+        - documentation
+        - workflow
+        - testing
+      related:
+        - documentation-as-contract
+        - one-path-for-critical-operations
+        - testing-as-specification
+      quick_ref:
+        - Treat coding_ethos.yml and repo_ethos.yml as the source inputs for checked-in agent docs.
+        - Regenerate AGENTS.md, CLAUDE.md, GEMINI.md, ETHOS.md, and supporting docs after changing ethos inputs or renderers.
+        - Review generated diffs instead of hand-editing derived markdown files.
+      merge_topics:
+        - generated file workflow
+        - derived artifact policy
+        - regeneration discipline
+      agent_hints:
+        codex: Prefer changing source YAML or renderer logic over hand-editing generated markdown outputs.
+        claude: Check whether a requested doc edit belongs in the source ethos files before editing generated docs directly.
+        gemini: Summarize generated-file changes in terms of source inputs and regeneration, not manual markdown edits.
+      sections:
+        - id: overview
+          kind: overview
+          title: Overview
+          summary: Root agent files in this repo are generated artifacts.
+          body: |
+            `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`, `.claude/ethos/MEMORY.md`, `.agents/ethos/*`, and `.agent-context/prompt-addons/*` are generated artifacts in this repository.
+
+            When requested behavior changes, prefer updating `coding_ethos.yml`, `repo_ethos.yml`, or the renderer and loader code that defines the output shape, then regenerate the files and review the diff.
+        - id: workflow
+          kind: workflow
+          title: Workflow
+          summary: Change source inputs first, then regenerate and verify.
+          body: |
+            For repo-local guidance changes, edit `repo_ethos.yml`. For shared contract changes, edit `coding_ethos.yml`. For output shape changes, edit the renderer or loader code and update tests.
+
+            After any of those changes, regenerate the repo outputs with `uv run python main.py --repo .` and run `uv run pytest`.

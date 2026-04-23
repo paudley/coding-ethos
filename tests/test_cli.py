@@ -10,9 +10,12 @@ from unittest.mock import patch
 
 import yaml
 
-from coding_ethos.cli import main
-from coding_ethos.loaders import load_primary_bundle
-from coding_ethos.markdown_seed import parse_ethos_markdown, seed_primary_from_markdown
+from coding_ethos import (
+    load_primary_bundle,
+    main,
+    parse_ethos_markdown,
+    seed_primary_from_markdown,
+)
 
 
 class MarkdownSeedTests(unittest.TestCase):
@@ -470,6 +473,62 @@ class CliRenderTests(unittest.TestCase):
             self.assertEqual(merge_mock.call_args.kwargs["binary"], "/fake/gemini")
             self.assertEqual(merge_mock.call_args.kwargs["timeout_seconds"], 42)
             self.assertEqual(merge_mock.call_args.kwargs["merge_topics"][:3], ["repo commands", "key paths", "repo operating notes"])
+
+    def test_cli_sync_tool_configs_generates_repo_root_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            (repo_root / "repo_config.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "style": {"line_length": 100},
+                        "python": {
+                            "source_paths": ["lib/python/lbox", "pre-commit/hooks"],
+                            "test_paths": ["lib/python/tests", "integration/tests"],
+                            "stub_paths": ["lib/python/stubs"],
+                            "extra_paths": ["lib/python", "scripts", "pre-commit/hooks"],
+                            "venv_path": "..",
+                            "venv": ".venv",
+                            "sql_centralization": {
+                                "enabled": True,
+                                "central_paths": ["lib/python/lbox/sql.py"],
+                            },
+                        },
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+
+            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
+            self.assertEqual(exit_code, 0)
+
+            pyright = yaml.safe_load((repo_root / "pyrightconfig.json").read_text(encoding="utf-8"))
+            mypy_ini = (repo_root / "mypy.ini").read_text(encoding="utf-8")
+            ruff_toml = (repo_root / "ruff.toml").read_text(encoding="utf-8")
+            yamllint = yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8"))
+
+            self.assertEqual(pyright["include"], ["lib/python/lbox", "pre-commit/hooks"])
+            self.assertEqual(pyright["stubPath"], "lib/python/stubs")
+            self.assertEqual(pyright["extraPaths"], ["lib/python", "scripts", "pre-commit/hooks"])
+            self.assertEqual(pyright["venvPath"], "..")
+            self.assertIn("files = lib/python/lbox, pre-commit/hooks", mypy_ini)
+            self.assertIn("mypy_path = lib/python/stubs", mypy_ini)
+            self.assertIn("line-length = 100", ruff_toml)
+            self.assertIn('"lib/python/tests/**"', ruff_toml)
+            self.assertIn('"integration/tests/**"', ruff_toml)
+            self.assertIn('"lib/python/lbox/sql.py" = ["S608"]', ruff_toml)
+            self.assertEqual(yamllint["rules"]["line-length"]["max"], 100)
+
+    def test_cli_check_tool_configs_detects_out_of_sync_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
+            self.assertEqual(exit_code, 0)
+
+            (repo_root / "ruff.toml").write_text("line-length = 120\n", encoding="utf-8")
+
+            drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
+            self.assertEqual(drift_exit_code, 1)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,62 @@
+style:
+  line_length: 100
+
+python:
+  source_paths:
+    - lib/python/project
+    - pre-commit/hooks
+  test_paths:
+    - lib/python/tests
+    - integration/tests
+  stub_paths:
+    - lib/python/stubs
+  extra_paths:
+    - lib/python
+    - scripts
+    - pre-commit/hooks
+  venv_path: ..
+  venv: .venv
+  direct_imports:
+    packages:
+      - project
+
+  util_centralization:
+    enabled: true
+    banned_modules:
+      - module: requests
+        alternative: Use `project.http` instead.
+        exempt_paths:
+          - src/project/http.py
+
+  sql_centralization:
+    enabled: true
+    module_name: project.sql
+    central_paths:
+      - src/project/sql.py
+
+  plan_completion:
+    enabled: true
+    metadata_filename: metadata.yaml
+    root_markers:
+      - docs/plans/
+
+  pytest_gate:
+    enabled: true
+    test_command:
+      - uv
+      - run
+      - pytest
+      - lib/python/tests
+      - integration/tests
+      - --strict-markers
+
+  docstring_coverage:
+    enabled: true
+    check_paths:
+      - lib/python/project
+
+tooling:
+  pyright:
+    include:
+      - lib/python/project
+      - pre-commit/hooks

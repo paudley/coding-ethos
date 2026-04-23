@@ -59,7 +59,8 @@ Feature requests are welcome. Good enhancement reports usually include:
 ```bash
 git clone https://github.com/<your-username>/<repo-name>.git
 cd <repo-name>
-uv sync --group dev
+uv sync --group dev --all-packages
+make help
 ```
 
 ## Project-specific guidance
@@ -74,6 +75,8 @@ uv sync --group dev
 Before requesting review, make sure you:
 
 - [ ] ran `uv run pytest`
+- [ ] ran `make check-tool-configs` after changing `config.yaml`, `repo_config.example.yaml`, or tool-config generation logic
+- [ ] ran `make validate` after changing files under `pre-commit/`
 - [ ] updated tests for any behavioral change
 - [ ] updated `README.md` if usage, flags, or outputs changed
 - [ ] updated `repo_ethos.example.yml` if repo overlay behavior changed

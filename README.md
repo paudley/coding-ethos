@@ -294,8 +294,43 @@ principles:
 Install dependencies:
 
 ```bash
-uv sync --group dev
+uv sync --group dev --all-packages
 ```
+
+Repo-local convenience commands:
+
+```bash
+make help
+make install
+make test
+make sync-tool-configs
+make validate
+make generate
+```
+
+The `Makefile` is a thin wrapper around the documented `uv` workflow above. The raw `uv` commands remain the portable interface for using `coding-ethos` outside this repository.
+
+The repo also ships a bundled Lefthook-based pre-commit package in
+`pre-commit/`. From the repo root you can validate or install it with:
+
+```bash
+make sync-tool-configs
+make check-tool-configs
+make validate
+make install-hooks
+```
+
+Backward-compatible aliases like `make hooks-validate` and
+`make hooks-install` still work.
+
+`make sync-tool-configs` generates repo-root `pyrightconfig.json`, `mypy.ini`,
+`ruff.toml`, and `.yamllint.yml` from the shared [config.yaml](config.yaml)
+plus an optional consuming-repo `repo_config.yaml`. `install-hooks` runs that
+sync step automatically before installing Git hook shims.
+
+The root `pyproject.toml` still includes `pre-commit/hooks` as a `uv` workspace
+member for the hook toolchain environment, but Lefthook now reads Ruff,
+mypy, pyright, and yamllint settings from the generated repo-root config files.
 
 Run tests:
 
