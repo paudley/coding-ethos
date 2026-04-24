@@ -31,6 +31,23 @@ pre-commit:
       run: "{go_hook} fix-text {staged_files}"
       stage_fixed: true
 
+    - name: Pyupgrade autofix
+      glob:
+        - "*.py"
+        - "*.pyi"
+        - "**/*.py"
+        - "**/*.pyi"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+        - "**/vulture_whitelist.py"
+      run: >-
+        PY_VER="$({go_hook} config-get style.python_version 3.13)" &&
+        PYUPGRADE_FLAG="--py$(printf '%s' "${PY_VER}" | tr -d .)-plus" &&
+        {hook_env} pyupgrade "${PYUPGRADE_FLAG}" {staged_files}
+        >/dev/null 2>&1 || true
+      stage_fixed: true
+
     - name: Ruff format
       glob:
         - "*.py"
@@ -130,9 +147,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_optional_returns.py
-        {staged_files}
+      run: "{go_hook} check-optional-returns {staged_files}"
 
     - name: Ban comment-based lint suppressions
       glob:
@@ -141,9 +156,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_comment_suppressions.py
-        {staged_files}
+      run: "{go_hook} check-comment-suppressions {staged_files}"
 
     - name: Ban direct internal imports
       glob:
@@ -152,9 +165,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_direct_imports.py
-        {staged_files}
+      run: "{go_hook} check-direct-imports {staged_files}"
 
     - name: Ban direct utility imports
       glob:
@@ -167,9 +178,7 @@ pre-commit:
         - "**/tests/**"
         - "pre-commit/hooks/**"
         - ".claude/hooks/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_util_centralization.py
-        {staged_files}
+      run: "{go_hook} check-util-centralization {staged_files}"
 
     - name: Type checking
       glob:
@@ -179,9 +188,10 @@ pre-commit:
         - ".venv/**"
         - "**/.venv/**"
         - "docker/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/parallel_type_check.py
-        {staged_files}
+      run: "{go_hook} check-type-checkers {staged_files}"
+
+    - name: Check Python version consistency
+      run: "{go_hook} check-python-version-consistency"
 
     - name: Check shell best practices
       run: "{go_hook} check-shell-best-practices {staged_files}"
@@ -211,9 +221,7 @@ pre-commit:
       glob:
         - "pyproject.toml"
         - "**/pyproject.toml"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_pyproject_ignores.py
-        {staged_files}
+      run: "{go_hook} check-pyproject-ignores {staged_files}"
 
     - name: Security pattern enforcement
       glob:
@@ -222,9 +230,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_security_patterns.py
-        {staged_files}
+      run: "{go_hook} check-security-patterns {staged_files}"
 
     - name: Ban catch-and-silence patterns
       glob:
@@ -235,9 +241,7 @@ pre-commit:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_catch_and_silence.py
-        {staged_files}
+      run: "{go_hook} check-catch-and-silence {staged_files}"
 
     - name: Ban conditional imports
       glob:
@@ -248,9 +252,7 @@ pre-commit:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_conditional_imports.py
-        {staged_files}
+      run: "{go_hook} check-conditional-imports {staged_files}"
 
     - name: Ban TYPE_CHECKING and future annotations
       glob:
@@ -261,9 +263,7 @@ pre-commit:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_type_checking_imports.py
-        {staged_files}
+      run: "{go_hook} check-type-checking-imports {staged_files}"
 
     - name: Enforce structured logging
       glob:
@@ -274,9 +274,7 @@ pre-commit:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_structured_logging.py
-        {staged_files}
+      run: "{go_hook} check-structured-logging {staged_files}"
 
     - name: Ban SQL strings outside configured SQL module
       glob:
@@ -289,9 +287,7 @@ pre-commit:
         - "**/tests/**"
         - "pre-commit/hooks/**"
         - "**/alembic/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_sql_centralization.py
-        {staged_files}
+      run: "{go_hook} check-sql-centralization {staged_files}"
 
     - name: Docstring coverage
       glob:
@@ -300,7 +296,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_docstring_coverage.py"
+      run: "{go_hook} check-docstring-coverage"
 
     - name: Module documentation check
       glob:
@@ -309,7 +305,7 @@ pre-commit:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_init_docs.py"
+      run: "{go_hook} check-module-docs"
 
     - name: File-level docstring check
       glob:
@@ -320,13 +316,20 @@ pre-commit:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_file_docstrings.py
-        {staged_files}
+      run: "{go_hook} check-file-docstrings {staged_files}"
 
     - name: Validate manifest.yaml
       glob: "**/manifest.yaml"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/validate_manifest.py"
+      run: "{go_hook} validate-manifest"
+
+    - name: Pytest gate
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{go_hook} check-pytest-gate {staged_files}"
 
     - name: Gemini AI code checks
       glob:
@@ -388,24 +391,20 @@ pre-commit:
 
     - name: Plan completion verification
       glob: "**/metadata.yaml"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_plan_completion.py"
+      run: "{go_hook} check-plan-completion {staged_files}"
 
     - name: Go vet
       glob: "**/*.go"
       run: >-
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && go vet ./...
 
     - name: Go tests
       glob: "**/*.go"
       run: >-
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && go test ./...
 
     - name: golangci-lint
@@ -414,9 +413,7 @@ pre-commit:
         command -v golangci-lint >/dev/null 2>&1 ||
         { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && golangci-lint run
 
 pre-push:
@@ -429,9 +426,7 @@ pre-push:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_comment_suppressions.py
-        {push_files}
+      run: "{go_hook} check-comment-suppressions {push_files}"
 
     - name: Ban direct internal imports
       glob:
@@ -440,9 +435,7 @@ pre-push:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_direct_imports.py
-        {push_files}
+      run: "{go_hook} check-direct-imports {push_files}"
 
     - name: Ban direct utility imports
       glob:
@@ -455,9 +448,7 @@ pre-push:
         - "**/tests/**"
         - "pre-commit/hooks/**"
         - ".claude/hooks/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_util_centralization.py
-        {push_files}
+      run: "{go_hook} check-util-centralization {push_files}"
 
     - name: Type checking
       glob:
@@ -467,9 +458,10 @@ pre-push:
         - ".venv/**"
         - "**/.venv/**"
         - "docker/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/parallel_type_check.py
-        {push_files}
+      run: "{go_hook} check-type-checkers {push_files}"
+
+    - name: Check Python version consistency
+      run: "{go_hook} check-python-version-consistency"
 
     - name: Check shell best practices
       run: "{go_hook} check-shell-best-practices {push_files}"
@@ -491,9 +483,7 @@ pre-push:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_security_patterns.py
-        {push_files}
+      run: "{go_hook} check-security-patterns {push_files}"
 
     - name: Ban catch-and-silence patterns
       glob:
@@ -504,9 +494,7 @@ pre-push:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_catch_and_silence.py
-        {push_files}
+      run: "{go_hook} check-catch-and-silence {push_files}"
 
     - name: Ban conditional imports
       glob:
@@ -517,9 +505,7 @@ pre-push:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_conditional_imports.py
-        {push_files}
+      run: "{go_hook} check-conditional-imports {push_files}"
 
     - name: Ban TYPE_CHECKING and future annotations
       glob:
@@ -530,9 +516,7 @@ pre-push:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_type_checking_imports.py
-        {push_files}
+      run: "{go_hook} check-type-checking-imports {push_files}"
 
     - name: Enforce structured logging
       glob:
@@ -543,9 +527,7 @@ pre-push:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_structured_logging.py
-        {push_files}
+      run: "{go_hook} check-structured-logging {push_files}"
 
     - name: Ban SQL strings outside configured SQL module
       glob:
@@ -558,9 +540,7 @@ pre-push:
         - "**/tests/**"
         - "pre-commit/hooks/**"
         - "**/alembic/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_sql_centralization.py
-        {push_files}
+      run: "{go_hook} check-sql-centralization {push_files}"
 
     - name: Docstring coverage
       glob:
@@ -569,7 +549,7 @@ pre-push:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_docstring_coverage.py"
+      run: "{go_hook} check-docstring-coverage"
 
     - name: Module documentation check
       glob:
@@ -578,7 +558,7 @@ pre-push:
       exclude:
         - ".venv/**"
         - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_init_docs.py"
+      run: "{go_hook} check-module-docs"
 
     - name: File-level docstring check
       glob:
@@ -589,13 +569,20 @@ pre-push:
         - "**/.venv/**"
         - "tests/**"
         - "**/tests/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_file_docstrings.py
-        {push_files}
+      run: "{go_hook} check-file-docstrings {push_files}"
 
     - name: Validate manifest.yaml
       glob: "**/manifest.yaml"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/validate_manifest.py"
+      run: "{go_hook} validate-manifest"
+
+    - name: Pytest gate
+      glob:
+        - "*.py"
+        - "**/*.py"
+      exclude:
+        - ".venv/**"
+        - "**/.venv/**"
+      run: "{go_hook} check-pytest-gate {push_files}"
 
     - name: Gemini AI code checks
       glob:
@@ -628,24 +615,20 @@ pre-push:
 
     - name: Plan completion verification
       glob: "**/metadata.yaml"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_plan_completion.py"
+      run: "{go_hook} check-plan-completion {push_files}"
 
     - name: Go vet
       glob: "**/*.go"
       run: >-
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && go vet ./...
 
     - name: Go format check
       glob: "**/*.go"
       run: >-
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" &&
         test -z "$(gofmt -l .)" ||
         (gofmt -l . && exit 1)
@@ -654,9 +637,7 @@ pre-push:
       glob: "**/*.go"
       run: >-
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && go test ./...
 
     - name: golangci-lint
@@ -665,9 +646,7 @@ pre-push:
         command -v golangci-lint >/dev/null 2>&1 ||
         { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
         BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$(
-          uv run --quiet --project "${BUNDLE_DIR}/hooks" python -c 'from hook_config import get_str; print(get_str("go.worktree", "go"))'
-        )" &&
+        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
         cd "${GO_WORKTREE}" && golangci-lint run
 
 commit-msg:

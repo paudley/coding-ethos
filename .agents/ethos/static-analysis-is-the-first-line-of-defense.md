@@ -32,12 +32,15 @@ Make ruff and mypy blocking quality gates rather than advisory tools.
 
 ## Repo Context
 - Repo: `coding-ethos`
-- Overview: Python CLI for generating ETHOS.md, AGENTS.md, CLAUDE.md, GEMINI.md, and supporting agent context files from a shared YAML ethos plus an optional repo-specific overlay.
+- Overview: Python CLI plus bundled ETHOS enforcement package for generating ETHOS.md, AGENTS.md, CLAUDE.md, GEMINI.md, and supporting agent context files from a shared YAML ethos plus an optional repo-specific overlay.
 - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
-- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs and the generated Gemini prompt pack.
+- config.yaml is the bundle-wide enforcement source of truth; consuming repos refine it with repo_config.yaml-style overrides at their own repo root.
+- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs, the generated Gemini prompt pack, and the repo-local Lefthook binary.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/, with a root lefthook.yml symlink for local validation.
+- style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, and ruff.toml.
+- Most hook runtime and policy enforcement now lives in pre-commit/hooks/go-hooks/; the remaining Python hook files are third-party analysis wrappers rather than bespoke policy engines.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
-- Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the hook runtime should consume generated prompt packs rather than hard-coded prompt constants whenever possible.
+- Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
 - This repo currently exposes uv run pytest as its canonical automated verification command.
 

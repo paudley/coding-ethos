@@ -4,10 +4,10 @@ Lefthook hooks for coding-ethos bundles.
 
 ## Included Hooks
 
-- **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit attribution, shared hook policy, and the active Gemini AI review runner
-- **check_pyproject_ignores.py** - Blocks adding linter file-ignore config in pyproject.toml
-- **parallel_type_check.py** - Parallel type checking
-- **validate_manifest.py** - Manifest validation
+- **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit attribution, direct-import enforcement, utility and SQL centralization, file and module doc checks, type-check orchestration, pytest gating, pyproject ignore enforcement, repo-root Python version consistency checks, shared hook policy, and the active Gemini AI review runner
+- **check_complexity.py** - Cyclomatic complexity checks via Radon
+- **check_maintainability.py** - Maintainability index checks via Radon
+- **check_vulture.py** - Dead-code detection via Vulture
 
 ## Installation
 
@@ -15,7 +15,7 @@ Install Lefthook from the repository root that exposes `lefthook.yml`:
 
 ```bash
 cd /path/to/repo
-make -C code-ethos/pre-commit install-hooks
+make -C code-ethos install-hooks
 ```
 
 ## Dependencies
@@ -25,5 +25,6 @@ make -C code-ethos/pre-commit install-hooks
 
 ## Development
 
-Tool configurations are inherited from the repository root unless a consuming
-repo overrides them.
+Bundle policy now comes from the repo-root `config.yaml` plus an optional
+consumer-root `repo_config.yaml`. Generated tool configs live at the consumer
+repo root, and the Go hook runner reads that merged policy directly.

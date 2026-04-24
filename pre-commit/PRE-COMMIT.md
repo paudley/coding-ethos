@@ -139,7 +139,7 @@ environment. Parent `uv` workspace membership is optional, not required.
 
 Important configurable areas:
 
-- `style.*` - shared cross-cutting settings like Python version and line length
+- `style.*` - shared cross-cutting settings like Python version and line length; `style.python_version` also drives `pyupgrade`, generated tool configs, and repo-root version consistency checks
 - `python.source_paths`, `python.test_paths`, `python.stub_paths`, `python.extra_paths` - shared repository layout inputs for generated tool configs
 - `python.direct_imports` - public-package import enforcement
 - `python.util_centralization` - banned direct utility imports and exemptions
@@ -147,7 +147,8 @@ Important configurable areas:
 - `python.manifest_validation` - candidate manifest paths and required sections
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command
-- `python.type_check` - checker commands and enablement
+- `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
+- `python.type_check` - checker commands, hook-project execution, config injection, and enablement
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
@@ -163,6 +164,7 @@ Typical consuming-repo overrides include:
 - `python.source_paths`, `python.test_paths`, and `python.stub_paths` for nested layouts like `lib/python/tests`
 - `python.direct_imports.packages` for the repo's public package names
 - `python.pytest_gate.test_command` for nonstandard test roots like `lib/python/tests`
+- `python.file_docstrings.min_sentences` for stricter module-level docstring requirements
 - `python.docstring_coverage.check_paths` for nested source trees
 - `python.sql_centralization` and `python.util_centralization` for repo-specific wrapper modules
 - `gemini.modal_allowlist_files` for repo-configured file-level modal waivers instead of inline source comments
@@ -175,10 +177,12 @@ consumer-repo override file.
 Pre-commit includes:
 
 - formatting and whitespace normalization
+- pyupgrade autofix using the configured `style.python_version`
 - syntax validation for YAML, TOML, and JSON
 - merge-conflict, shebang, private-key, and large-file checks
 - shell linting and shell best-practice enforcement
 - direct-import, utility-centralization, SQL-centralization, and type-policy checks
+- repo-root Python version consistency checks for `.python-version`, `pyproject.toml`, `mypy.ini`, `pyrightconfig.json`, and `ruff.toml`
 - security, logging, dead-code, complexity, maintainability, and docstring checks
 - optional manifest and plan workflow validation
 - optional Gemini-powered ETHOS review
@@ -186,6 +190,10 @@ Pre-commit includes:
 
 Pre-push re-runs the higher-signal checks over the pushed diff, including full
 Gemini review when enabled.
+
+Most hook runtime and policy enforcement now lives in `hooks/go-hooks/`. The
+remaining Python hook files are wrappers around external analyzers like Radon
+and Vulture rather than bespoke policy implementations.
 
 Commit-message hooks enforce:
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -129,6 +130,444 @@ func TestParseGeminiCLIOptionsRejectsUnknownFlag(t *testing.T) {
 	_, err := parseGeminiCLIOptions([]string{"--nope"})
 	if err == nil {
 		t.Fatal("parseGeminiCLIOptions() unexpectedly accepted unknown flag")
+	}
+}
+
+func TestRootConfigValue(t *testing.T) {
+	root := map[string]any{
+		"go": map[string]any{
+			"worktree": "lib/go",
+		},
+		"python": map[string]any{
+			"manifest_validation": map[string]any{
+				"enabled": true,
+			},
+		},
+	}
+
+	value, ok := rootConfigValue(root, "go.worktree")
+	if !ok {
+		t.Fatal("rootConfigValue() did not find go.worktree")
+	}
+	if value != "lib/go" {
+		t.Fatalf("value = %#v, want %q", value, "lib/go")
+	}
+
+	_, ok = rootConfigValue(root, "python.missing")
+	if ok {
+		t.Fatal("rootConfigValue() unexpectedly found python.missing")
+	}
+}
+
+func TestValidateManifestData(t *testing.T) {
+	settings := manifestValidationSettings{
+		RequiredStringFields: []string{"version"},
+		RequiredListSections: map[string]manifestValidationListSpec{
+			"symlinks": {
+				Required:             true,
+				RequiredStringFields: []string{"source", "target"},
+			},
+			"repositories": {
+				Required:             false,
+				RequiredStringFields: []string{"name", "url"},
+				OptionalStringFields: []string{"branch"},
+			},
+		},
+	}
+
+	valid := map[string]any{
+		"version": "1",
+		"symlinks": []any{
+			map[string]any{"source": "a", "target": "b"},
+		},
+		"repositories": []any{
+			map[string]any{"name": "repo", "url": "https://example.com", "branch": "main"},
+		},
+	}
+	if errors := validateManifestData(valid, settings); len(errors) != 0 {
+		t.Fatalf("validateManifestData(valid) = %#v, want no errors", errors)
+	}
+
+	invalid := map[string]any{
+		"version": 1,
+		"symlinks": []any{
+			map[string]any{"source": "a"},
+		},
+		"repositories": []any{
+			map[string]any{"name": "repo", "url": 123},
+		},
+	}
+	errors := validateManifestData(invalid, settings)
+	if len(errors) == 0 {
+		t.Fatal("validateManifestData(invalid) returned no errors")
+	}
+}
+
+func TestFindPlanMetadataFiles(t *testing.T) {
+	settings := planCompletionSettings{
+		MetadataFilename: "metadata.yaml",
+		RootMarkers:      []string{"docs/plans/"},
+	}
+	files := []string{
+		"docs/plans/feature-a/metadata.yaml",
+		"docs/plans/feature-a/notes.md",
+		"other/metadata.yaml",
+	}
+
+	matches := findPlanMetadataFiles(files, settings)
+	if !reflect.DeepEqual(matches, []string{"docs/plans/feature-a/metadata.yaml"}) {
+		t.Fatalf("matches = %#v", matches)
+	}
+}
+
+func TestCheckPlanCompletionErrors(t *testing.T) {
+	tempDir := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() failed: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(previous); chdirErr != nil {
+			t.Fatalf("restore working directory failed: %v", chdirErr)
+		}
+	})
+
+	mustWriteTestFile(t, "docs/plans/feature-a/metadata.yaml", "status: review\n")
+	mustWriteTestFile(t, "docs/plans/feature-a/tasks.md", "- [ ] unfinished\n- [x] done\n")
+
+	errors, err := checkPlanCompletionErrors(
+		"docs/plans/feature-a/metadata.yaml",
+		planCompletionSettings{
+			CompletedStatusValues: []string{"review", "complete"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("checkPlanCompletionErrors() returned error: %v", err)
+	}
+	if len(errors) == 0 {
+		t.Fatal("checkPlanCompletionErrors() returned no errors")
+	}
+	if !strings.Contains(strings.Join(errors, "\n"), "PLAN COMPLETION FRAUD DETECTED") {
+		t.Fatalf("unexpected error output: %#v", errors)
+	}
+
+	mustWriteTestFile(t, "docs/plans/feature-b/metadata.yaml", "status: in_progress\n")
+	mustWriteTestFile(t, "docs/plans/feature-b/tasks.md", "- [ ] unfinished\n")
+	errors, err = checkPlanCompletionErrors(
+		"docs/plans/feature-b/metadata.yaml",
+		planCompletionSettings{
+			CompletedStatusValues: []string{"review", "complete"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("checkPlanCompletionErrors() returned error: %v", err)
+	}
+	if len(errors) != 0 {
+		t.Fatalf("checkPlanCompletionErrors(in_progress) = %#v, want no errors", errors)
+	}
+}
+
+func TestExtractAndFilterPyprojectFindings(t *testing.T) {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "pyproject.toml")
+	mustWriteTestFile(
+		t,
+		path,
+		strings.TrimSpace(`
+[tool.ruff]
+exclude = [".venv", "generated"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+"pkg/**" = ["F401"]
+
+[tool.mypy]
+exclude = ["build"]
+
+[[tool.mypy.overrides]]
+module = ["external_pkg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["internal_pkg.*"]
+ignore_missing_imports = true
+disable_error_code = ["attr-defined"]
+
+[tool.pyright]
+ignore = ["vendor/**"]
+
+[tool.pylint.main]
+ignore-paths = ["generated"]
+`)+"\n",
+	)
+
+	config, err := loadPyprojectConfig(path)
+	if err != nil {
+		t.Fatalf("loadPyprojectConfig() returned error: %v", err)
+	}
+	findings := filterAllowedPyprojectFindings(
+		extractPyprojectFindings(config),
+		pyprojectIgnoreSettings{
+			AllowedIgnorePatterns:    []string{"tests/**"},
+			AllowedExcludePatterns:   []string{".venv", "build"},
+			AllowedMypyMissingImport: []string{"external_pkg.*"},
+		},
+	)
+
+	rendered := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		rendered = append(rendered, finding.render())
+	}
+
+	if slicesContains(rendered, "ruff per-file-ignores: tests/** -> S101") {
+		t.Fatalf("allowed test ignore unexpectedly reported: %#v", rendered)
+	}
+	if slicesContains(rendered, "mypy override.ignore_missing_imports: external_pkg.*") {
+		t.Fatalf("allowed external mypy import ignore unexpectedly reported: %#v", rendered)
+	}
+	expected := []string{
+		"ruff exclude: generated",
+		"ruff per-file-ignores: pkg/** -> F401",
+		"mypy override.disable_error_code: internal_pkg.* -> attr-defined",
+		"mypy override.ignore_missing_imports: internal_pkg.*",
+		"pyright ignore: vendor/**",
+		"pylint ignore-paths: generated",
+	}
+	for _, want := range expected {
+		if !slicesContains(rendered, want) {
+			t.Fatalf("missing finding %q from %#v", want, rendered)
+		}
+	}
+}
+
+func TestCheckPyprojectIgnoresCommand(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pyproject_ignores:
+    enabled: true
+    allowed_ignore_patterns:
+      - tests/**
+    allowed_exclude_patterns:
+      - .venv
+    allowed_mypy_missing_imports:
+      - external_pkg.*
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+	mustWriteTestFile(
+		t,
+		pyprojectPath,
+		strings.TrimSpace(`
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["F401"]
+`)+"\n",
+	)
+
+	output := captureStderr(t, func() {
+		if got := checkPyprojectIgnoresCommand(Config{}, []string{pyprojectPath}); got != 1 {
+			t.Fatalf("checkPyprojectIgnoresCommand() = %d, want 1", got)
+		}
+	})
+
+	if !strings.Contains(output, "contains forbidden linter file ignores") {
+		t.Fatalf("unexpected output: %q", output)
+	}
+	if !strings.Contains(output, "ruff per-file-ignores: src/** -> F401") {
+		t.Fatalf("missing rendered finding in output: %q", output)
+	}
+}
+
+func TestFindCommentSuppressionsIgnoresStrings(t *testing.T) {
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "module.py")
+	mustWriteTestFile(
+		t,
+		path,
+		strings.TrimSpace(`
+"""
+Module docstring mentioning # noqa should not count.
+"""
+
+text = "# type: ignore inside a string"
+
+value = 1  # noqa: F401
+`)+"\n",
+	)
+
+	patterns, err := compileCommentSuppressionPatterns(commentSuppressionSettings{
+		Patterns: []commentSuppressionPattern{
+			{Regex: `#\s*noqa\b`, Label: "noqa"},
+			{Regex: `#\s*type:\s*ignore\b`, Label: "type: ignore"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("compileCommentSuppressionPatterns() returned error: %v", err)
+	}
+	violations, err := findCommentSuppressions(path, patterns)
+	if err != nil {
+		t.Fatalf("findCommentSuppressions() returned error: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("len(violations) = %d, want 1 (%#v)", len(violations), violations)
+	}
+	if violations[0].Label != "noqa" {
+		t.Fatalf("Label = %q, want %q", violations[0].Label, "noqa")
+	}
+}
+
+func TestCheckCommentSuppressionsCommandUsesConfigPatterns(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  comment_suppressions:
+    enabled: true
+    patterns:
+      - regex: '#\s*custom:\s*bypass\b'
+        label: custom bypass
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	pythonPath := filepath.Join(tempDir, "module.py")
+	mustWriteTestFile(
+		t,
+		pythonPath,
+		"result = 1  # custom: bypass\n",
+	)
+
+	output := captureStderr(t, func() {
+		if got := checkCommentSuppressionsCommand(Config{}, []string{pythonPath}); got != 1 {
+			t.Fatalf("checkCommentSuppressionsCommand() = %d, want 1", got)
+		}
+	})
+
+	if !strings.Contains(output, "COMMENT-BASED LINT SUPPRESSION DETECTED") {
+		t.Fatalf("unexpected output: %q", output)
+	}
+	if !strings.Contains(output, "[custom bypass] # custom: bypass") {
+		t.Fatalf("missing configured label in output: %q", output)
+	}
+}
+
+func TestExtractModuleDocstring(t *testing.T) {
+	docstring, err := extractModuleDocstring(strings.TrimSpace(`
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# leading comment
+
+"""Package docs.
+
+See Also:
+    PKG.md: Main package notes.
+"""
+
+import os
+`))
+	if err != nil {
+		t.Fatalf("extractModuleDocstring() returned error: %v", err)
+	}
+	if !strings.Contains(docstring, "See Also:") {
+		t.Fatalf("docstring = %q, want See Also content", docstring)
+	}
+
+	empty, err := extractModuleDocstring("import os\n")
+	if err != nil {
+		t.Fatalf("extractModuleDocstring(import) returned error: %v", err)
+	}
+	if empty != "" {
+		t.Fatalf("extractModuleDocstring(import) = %q, want empty string", empty)
+	}
+}
+
+func TestCollectModuleDocsViolations(t *testing.T) {
+	tempDir := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd() failed: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(previous); chdirErr != nil {
+			t.Fatalf("restore working directory failed: %v", chdirErr)
+		}
+	})
+
+	mustWriteTestFile(
+		t,
+		"docs/SOURCE_DOCS.md",
+		"| `pkg/` | `PKG.md` | Main package docs |\n",
+	)
+	mustWriteTestFile(
+		t,
+		"pkg/__init__.py",
+		strings.TrimSpace(`
+"""Package docs.
+
+See Also:
+    PKG.md: Main package notes.
+    missing.md: Missing doc reference.
+    subdir/OTHER.md: Bad path reference.
+"""
+`)+"\n",
+	)
+	mustWriteTestFile(t, "pkg/PKG.md", "# Package docs\n")
+	mustWriteTestFile(t, "pkg/README.md", "# Wrong name\n")
+	mustWriteTestFile(t, "other/conftest.py", "")
+
+	violations, err := collectModuleDocsViolations(
+		[]string{"pkg/__init__.py", "other/conftest.py"},
+		moduleDocsSettings{
+			Enabled:            true,
+			SourceDocsPath:     "docs/SOURCE_DOCS.md",
+			CheckFilenames:     []string{"__init__.py", "conftest.py"},
+			ExcludedDirs:       []string{".git", ".venv", "__pycache__"},
+			BannedDocFilenames: []string{"README.md", "readme.md"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("collectModuleDocsViolations() returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(violations.MissingDocstring, []string{"other/conftest.py"}) {
+		t.Fatalf("MissingDocstring = %#v", violations.MissingDocstring)
+	}
+	if !reflect.DeepEqual(violations.MissingMarkdown, []string{"other/conftest.py"}) {
+		t.Fatalf("MissingMarkdown = %#v", violations.MissingMarkdown)
+	}
+	if len(violations.MissingRefs) != 1 ||
+		violations.MissingRefs[0].PythonFile != "pkg/__init__.py" ||
+		!reflect.DeepEqual(violations.MissingRefs[0].Markdown, []string{"pkg/README.md"}) {
+		t.Fatalf("MissingRefs = %#v", violations.MissingRefs)
+	}
+	if !reflect.DeepEqual(violations.MissingIndex, []string{"pkg/README.md"}) {
+		t.Fatalf("MissingIndex = %#v", violations.MissingIndex)
+	}
+	if len(violations.PathPrefixed) != 1 ||
+		!reflect.DeepEqual(violations.PathPrefixed[0].Refs, []string{"subdir/OTHER.md"}) {
+		t.Fatalf("PathPrefixed = %#v", violations.PathPrefixed)
+	}
+	if len(violations.NonexistentRefs) != 1 ||
+		!reflect.DeepEqual(violations.NonexistentRefs[0].Refs, []string{"missing.md"}) {
+		t.Fatalf("NonexistentRefs = %#v", violations.NonexistentRefs)
+	}
+	if !reflect.DeepEqual(violations.BannedFilenames, []string{"pkg/README.md"}) {
+		t.Fatalf("BannedFilenames = %#v", violations.BannedFilenames)
 	}
 }
 
@@ -509,6 +948,73 @@ func mustWriteTestFile(t *testing.T, path string, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%q) failed: %v", path, err)
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() failed: %v", err)
+	}
+	os.Stderr = writer
+	t.Cleanup(func() {
+		os.Stderr = original
+	})
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close() failed: %v", err)
+	}
+	os.Stderr = original
+
+	var buffer bytes.Buffer
+	if _, err := buffer.ReadFrom(reader); err != nil {
+		t.Fatalf("buffer.ReadFrom() failed: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("reader.Close() failed: %v", err)
+	}
+	return buffer.String()
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() failed: %v", err)
+	}
+	os.Stdout = writer
+	t.Cleanup(func() {
+		os.Stdout = original
+	})
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close() failed: %v", err)
+	}
+	os.Stdout = original
+
+	var buffer bytes.Buffer
+	if _, err := buffer.ReadFrom(reader); err != nil {
+		t.Fatalf("buffer.ReadFrom() failed: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("reader.Close() failed: %v", err)
+	}
+	return buffer.String()
+}
+
+func slicesContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func mustJSON(t *testing.T, value any) string {

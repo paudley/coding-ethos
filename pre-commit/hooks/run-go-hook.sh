@@ -23,7 +23,11 @@ elif find "$SRC_DIR" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum"
 fi
 
 if [[ "$needs_build" == true ]]; then
-    go build -C "$SRC_DIR" -o "$BIN" .
+    TMP_BIN="${BIN}.tmp.$$"
+    trap 'rm -f "$TMP_BIN"' EXIT
+    go build -C "$SRC_DIR" -o "$TMP_BIN" .
+    mv -f "$TMP_BIN" "$BIN"
+    trap - EXIT
 fi
 
 exec "$BIN" "$@"

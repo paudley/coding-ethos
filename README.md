@@ -34,6 +34,7 @@ This project fixes that by treating the ethos as structured source data instead 
 
 - One structured source of truth in `coding_ethos.yml`
 - Optional repo-specific overlay from `repo_ethos.yml`
+- Bundled ETHOS enforcement package under `pre-commit/` with repo-local Lefthook install and Go-backed policy hooks
 - Markdown seeding from an existing ethos document
 - Validation for ids, ordering, directives, related links, and section kinds
 - Safe merge mode for existing `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`
@@ -332,7 +333,11 @@ that cached binary for both manual runs and installed Git hook shims.
 
 `make sync-tool-configs` generates repo-root `pyrightconfig.json`, `mypy.ini`,
 `ruff.toml`, and `.yamllint.yml` from the shared [config.yaml](config.yaml)
-plus an optional consuming-repo `repo_config.yaml`.
+plus an optional consuming-repo `repo_config.yaml`. The same
+`style.python_version` value also drives the `pyupgrade` autofix target and
+the hook-level version consistency checks for files like `.python-version`
+and `pyproject.toml`. In other words, `config.yaml` is the enforcement source
+of truth; `pre-commit/` is the execution bundle, not a second policy surface.
 
 `make sync-gemini-prompts` generates
 `.code-ethos/gemini/prompt-pack.json`, a grounded Gemini prompt pack derived
@@ -352,7 +357,9 @@ The root `pyproject.toml` still includes `pre-commit/hooks` as a `uv` workspace
 member for the hook toolchain environment, but Lefthook now reads Ruff,
 mypy, pyright, and yamllint settings from the generated repo-root config files,
 and Gemini review prefers the generated prompt pack over legacy hard-coded
-prompt constants.
+prompt text. Most hook runtime and policy logic now lives in
+`pre-commit/hooks/go-hooks/`; the remaining Python hook files are wrappers
+around external analysis tools.
 
 Run tests:
 

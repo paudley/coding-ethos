@@ -63,6 +63,48 @@ python:
   venv_path: .
   venv: .venv
 
+  comment_suppressions:
+    enabled: true
+    patterns:
+      - regex: '#\s*ruff:\s*noqa\b'
+        label: 'ruff: noqa (file-level)'
+      - regex: '#\s*mypy:\s*ignore-errors\b'
+        label: 'mypy: ignore-errors (file-level)'
+      - regex: '#\s*noqa\b'
+        label: 'noqa'
+      - regex: '#\s*type:\s*ignore\b'
+        label: 'type: ignore'
+      - regex: '#\s*pragma:\s*no\s*cover\b'
+        label: 'pragma: no cover'
+      - regex: '#\s*pylint:\s*disable'
+        label: 'pylint: disable'
+      - regex: '#\s*noinspection\b'
+        label: 'noinspection'
+      - regex: '#\s*fmt:\s*(off|on|skip)\b'
+        label: 'fmt: off/on/skip'
+      - regex: '#\s*isort:\s*(skip|skip_file)\b'
+        label: 'isort: skip'
+      - regex: '#\s*pyright:\s*ignore\b'
+        label: 'pyright: ignore'
+
+  module_docs:
+    enabled: true
+    source_docs_path: docs/SOURCE_DOCS.md
+    check_filenames:
+      - __init__.py
+      - conftest.py
+    excluded_dirs:
+      - .venv
+      - .lint-cache
+      - .mypy_cache
+      - .ruff_cache
+      - __pycache__
+      - node_modules
+      - .git
+    banned_doc_filenames:
+      - README.md
+      - readme.md
+
   direct_imports:
     enabled: true
     packages:
@@ -72,6 +114,76 @@ python:
     enabled: false
     banned_modules: []
 
+  structured_logging:
+    enabled: true
+    methods:
+      - debug
+      - info
+      - warning
+      - error
+      - critical
+    logger_names:
+      - logger
+      - _logger
+      - log
+      - _log
+    exempt_kwargs:
+      - exc_info
+      - stack_info
+      - stacklevel
+
+  conditional_imports:
+    enabled: true
+    exception_names:
+      - ImportError
+      - ModuleNotFoundError
+    capability_prefix: HAS_
+
+  type_checking_imports:
+    enabled: true
+    type_checking_names:
+      - TYPE_CHECKING
+    future_import_name: annotations
+
+  catch_and_silence:
+    enabled: true
+
+  optional_returns:
+    enabled: true
+    exempt_method_names:
+      - __exit__
+      - __aexit__
+
+  security_patterns:
+    enabled: true
+    sql_keywords:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - DROP
+      - CREATE
+      - ALTER
+      - TRUNCATE
+      - EXECUTE
+      - EXEC
+    secret_patterns:
+      - sk-
+      - pk-
+      - api_
+      - key_
+      - token_
+      - secret_
+      - password
+      - passwd
+      - credential
+    test_file_markers:
+      - tests
+      - conftest
+      - test_
+      - _test.py
+    min_getenv_args_with_default: 2
+
   sql_centralization:
     enabled: false
     module_name: project.sql
@@ -79,6 +191,13 @@ python:
     migration_markers:
       - alembic
       - migrations
+    min_string_length: 15
+    error_context_keywords:
+      - suggestion
+      - reason
+      - message
+      - match
+      - extra
 
   manifest_validation:
     enabled: false
@@ -123,9 +242,19 @@ python:
       - tests
       - --strict-markers
 
+  file_docstrings:
+    enabled: true
+    min_sentences: 3
+    exempt_filenames:
+      - __init__.py
+      - conftest.py
+
   docstring_coverage:
     enabled: true
     threshold: 90
+    command:
+      - interrogate
+    use_hook_project: true
     check_paths:
       - coding_ethos
       - pre-commit/hooks
@@ -135,6 +264,9 @@ python:
       - tests
       - .*_test\.py$
       - test_.*\.py$
+
+  version_consistency:
+    enabled: true
 
   pyproject_ignores:
     enabled: true
@@ -169,10 +301,21 @@ python:
         command:
           - pyright
         pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --project
+          - -p
+        repo_config: pyrightconfig.json
+        fallback_bundle_config: hooks/pyproject.toml
       - name: mypy
         command:
           - mypy
         pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config-file
+        repo_config: mypy.ini
+        fallback_bundle_config: hooks/pyproject.toml
 
 tooling:
   pyright:
