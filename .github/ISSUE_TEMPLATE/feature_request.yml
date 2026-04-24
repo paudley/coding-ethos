@@ -3,15 +3,15 @@
 
 name: Feature request
 description: Propose an enhancement to coding-ethos.
-title: "[feature] "
+title: '[feature] '
 labels:
   - enhancement
 body:
   - type: markdown
     attributes:
-      value: |
-        Thanks for suggesting an improvement. Focus on the concrete user or maintainer problem you want to solve.
-
+      value: |-
+        Thanks for suggesting an improvement. Focus on the concrete user or
+        maintainer problem you want to solve.
   - type: checkboxes
     id: checks
     attributes:
@@ -19,7 +19,6 @@ body:
       options:
         - label: I searched existing issues first.
           required: true
-
   - type: textarea
     id: problem
     attributes:
@@ -27,7 +26,6 @@ body:
       description: What workflow or limitation are you trying to address?
     validations:
       required: true
-
   - type: textarea
     id: proposal
     attributes:
@@ -35,21 +33,19 @@ body:
       description: Describe the behavior you want.
     validations:
       required: true
-
   - type: textarea
     id: examples
     attributes:
       label: Examples or prior art
       description: Links, mock output, CLI examples, or comparable tools.
-
   - type: textarea
     id: alternatives
     attributes:
       label: Alternatives considered
       description: Workarounds or other solutions you evaluated.
-
   - type: textarea
     id: context
     attributes:
       label: Additional context
-      description: Any implementation constraints, risks, or repo-specific considerations.
+      description: Any implementation constraints, risks, or repo-specific
+        considerations.

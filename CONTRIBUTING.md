@@ -51,7 +51,7 @@ Feature requests are welcome. Good enhancement reports usually include:
 ### Prerequisites
 
 - Git
-- Python 3.11+
+- Python 3.13+
 - `uv`
 
 ### Local setup
@@ -59,7 +59,8 @@ Feature requests are welcome. Good enhancement reports usually include:
 ```bash
 git clone https://github.com/<your-username>/<repo-name>.git
 cd <repo-name>
-uv sync --group dev
+uv sync --group dev --all-packages
+make help
 ```
 
 ## Project-specific guidance
@@ -68,12 +69,17 @@ uv sync --group dev
 - If CLI behavior changes, update [README.md](README.md).
 - If repo-overlay behavior changes, update [repo_ethos.example.yml](repo_ethos.example.yml).
 - If output structure changes, update tests to cover the new contract.
+- If `repo_ethos.yml` or renderer behavior changes, regenerate the checked-in agent docs.
 
 ## Verification
 
 Before requesting review, make sure you:
 
 - [ ] ran `uv run pytest`
+- [ ] ran `make check-tool-configs` after changing `config.yaml`, `repo_config.example.yaml`, or tool-config generation logic
+- [ ] ran `make check-gemini-prompts` after changing Gemini prompts, `coding_ethos.yml`, `repo_ethos.yml`, `config.yaml`, or `repo_config.example.yaml`
+- [ ] ran `make validate` after changing files under `pre-commit/`
+- [ ] ran `make generate` after changing `coding_ethos.yml`, `repo_ethos.yml`, or generated-doc rendering behavior
 - [ ] updated tests for any behavioral change
 - [ ] updated `README.md` if usage, flags, or outputs changed
 - [ ] updated `repo_ethos.example.yml` if repo overlay behavior changed

@@ -1,0 +1,168 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+style:
+  line_length: 100
+
+python:
+  source_paths:
+    - lib/python/project
+    - pre-commit/hooks
+  test_paths:
+    - lib/python/tests
+    - integration/tests
+  stub_paths:
+    - lib/python/stubs
+  extra_paths:
+    - lib/python
+    - scripts
+    - pre-commit/hooks
+  venv_path: ..
+  venv: .venv
+  comment_suppressions:
+    patterns:
+      - regex: '#\s*custom:\s*bypass\b'
+        label: custom bypass
+  module_docs:
+    source_docs_path: docs/SOURCE_DOCS.md
+    banned_doc_filenames:
+      - README.md
+  direct_imports:
+    packages:
+      - project
+
+  util_centralization:
+    enabled: true
+    banned_modules:
+      - module: requests
+        alternative: Use `project.http` instead.
+        exempt_paths:
+          - src/project/http.py
+
+  sql_centralization:
+    enabled: true
+    module_name: project.sql
+    central_paths:
+      - src/project/sql.py
+    min_string_length: 15
+
+  structured_logging:
+    logger_names:
+      - logger
+      - audit_log
+    exempt_kwargs:
+      - exc_info
+      - stack_info
+      - trace_id
+
+  conditional_imports:
+    capability_prefix: FEATURE_
+
+  type_checking_imports:
+    type_checking_names:
+      - TYPE_CHECKING
+
+  catch_and_silence:
+    enabled: true
+
+  optional_returns:
+    exempt_method_names:
+      - __exit__
+      - __aexit__
+      - maybe_cleanup
+
+  security_patterns:
+    secret_patterns:
+      - sk-
+      - hf_
+      - token_
+    test_file_markers:
+      - tests
+      - smoke_tests
+
+  plan_completion:
+    enabled: true
+    metadata_filename: metadata.yaml
+    root_markers:
+      - docs/plans/
+
+  pytest_gate:
+    enabled: true
+    test_command:
+      - uv
+      - run
+      - pytest
+      - lib/python/tests
+      - integration/tests
+      - --strict-markers
+
+  file_docstrings:
+    min_sentences: 4
+
+  type_check:
+    enabled: true
+    excluded_path_fragments:
+      - /docker/
+      - vulture_whitelist
+    checkers:
+      - name: pyright
+        command:
+          - pyright
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --project
+          - -p
+        repo_config: pyrightconfig.json
+      - name: mypy
+        command:
+          - mypy
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config-file
+        repo_config: mypy.ini
+
+  docstring_coverage:
+    enabled: true
+    check_paths:
+      - lib/python/project
+    ignore_private: false
+    ignore_nested_classes: false
+
+  version_consistency:
+    enabled: true
+
+tooling:
+  pyright:
+    include:
+      - lib/python/project
+      - pre-commit/hooks
+  golangci_lint:
+    linters:
+      enable:
+        - ginkgolinter
+      exclusions:
+        rules:
+          - path: internal/generated/
+            linters:
+              - lll
+              - misspell
+
+gemini:
+  model: gemini-2.5-flash
+  model_overrides:
+    code_ethos: gemini-2.5-pro
+  service_tier: standard
+  service_tier_overrides:
+    shell_review: flex
+  cache:
+    enabled: true
+    ttl_seconds: 86400
+    api_enabled: true
+    api_ttl_seconds: 1800
+  modal_allowlist_files:
+    - scripts/bootstrap.sh
+
+go:
+  worktree: go

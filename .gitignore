@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-# Python bytecode and extension artifacts
+# Python bytecode and native extension artifacts
 __pycache__/
 *.py[oc]
 *.pyd
 *.so
+*$py.class
 
-# Packaging and build outputs
+# Build, packaging, and distribution outputs
 build/
 dist/
 site/
@@ -16,11 +17,17 @@ wheels/
 .eggs/
 pip-wheel-metadata/
 
-# Virtual environments
+# Virtual environments and local Python state
 .venv/
 venv/
+ENV/
+env/
 .env
 .env.*
+*.local
+!.env.example
+!.env.sample
+!.env.template
 .python_history
 
 # Test and coverage artifacts
@@ -28,22 +35,65 @@ venv/
 .coverage.*
 coverage.xml
 htmlcov/
+*.cover
+.coverprofile
+coverage.out
 .pytest_cache/
 .hypothesis/
 
-# Type checker and linter caches
+# Type checker, linter, and test runner caches
 .mypy_cache/
+.dmypy.json
+dmypy.json
 .pyre/
+.pyright/
+.pytype/
 .ruff_cache/
+.tox/
+.nox/
 
 # Local tooling state
 .cache/
+.pre-commit-cache/
+.uv/
+.lint-cache
 .codex
 .codex/
+logs/
+*.log
+*.tmp
+*.temp
+*.orig
+*.rej
+*~
 
 # Editor and OS noise
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
 .idea/
 .vscode/
+.zed/
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 *.swp
 *.swo
+
+# Generated repo-root markdown and tool config files are intentionally versioned.
+# Do not ignore:
+#   AGENTS.md
+#   CLAUDE.md
+#   ETHOS.md
+#   GEMINI.md
+#   pyrightconfig.json
+#   mypy.ini
+#   ruff.toml
+#   .yamllint.yml
+#   .code-ethos/gemini/prompt-pack.json

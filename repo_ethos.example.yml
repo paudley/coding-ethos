@@ -53,7 +53,8 @@ principles:
         - database workflow
         - migration safety
       agent_hints:
-        codex: Keep migrations append-only and check compatibility with existing deployments.
+        codex: Keep migrations append-only and check compatibility with existing
+          deployments.
       sections:
         - id: overview
           kind: overview

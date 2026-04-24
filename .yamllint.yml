@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+extends: default
+rules:
+  comments: disable
+  comments-indentation: disable
+  document-start: disable
+  line-length:
+    allow-non-breakable-inline-mappings: true
+    allow-non-breakable-words: true
+    max: 88
+  truthy:
+    allowed-values:
+      - 'true'
+      - 'false'
+    check-keys: false

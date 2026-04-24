@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+target-version = "py313"
+line-length = 88
+exclude = [".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "*.egg-info", ".eggs", "build", "dist", "node_modules"]
+
+[lint]
+select = ["ALL"]
+ignore = ["COM812", "ISC001", "D203", "D213", "S603", "S607", "T201", "TC", "TC001", "TC002", "TC003", "TC004"]
+
+[lint.pylint]
+max-args = 6
+
+[lint.per-file-ignores]
+"tests/**" = ["ANN401", "ARG001", "ARG002", "B017", "D", "E501", "EM101", "EM102", "PERF401", "PLR0913", "PLR2004", "PT011", "PT012", "RUF012", "S101", "S105", "S106", "SIM117", "SLF001", "TC003", "TRY003"]
+
+[lint.flake8-tidy-imports.banned-api]
+"dateutil.tz" = { msg = "Use `zoneinfo` instead." }
+"importlib" = { msg = "banned, use standard imports" }

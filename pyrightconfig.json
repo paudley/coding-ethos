@@ -1,0 +1,20 @@
+{
+    "typeCheckingMode": "strict",
+    "include": [
+        "coding_ethos",
+        "pre-commit/hooks"
+    ],
+    "exclude": [
+        "**/tests/**",
+        "**/*_test.py",
+        "**/test_*.py",
+        "**/.venv/**"
+    ],
+    "extraPaths": [
+        ".",
+        "pre-commit/hooks"
+    ],
+    "venvPath": ".",
+    "venv": ".venv",
+    "pythonVersion": "3.13"
+}

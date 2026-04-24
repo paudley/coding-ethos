@@ -1,0 +1,676 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+version: 1
+
+project:
+  name: coding-ethos
+  review_context: Shared ETHOS generation and enforcement tooling.
+  ethos_candidates:
+    - ETHOS.md
+    - code-ethos/ETHOS.md
+
+gemini:
+  enabled: false
+  model: gemini-2.5-flash
+  model_overrides: {}
+  service_tier: standard
+  service_tier_overrides: {}
+  thinking_budget_overrides: {}
+  repo_name: coding-ethos
+  repo_context: shared repository automation and engineering tooling
+  max_retries: 3
+  timeout_seconds: 300
+  initial_backoff_seconds: 1.0
+  max_concurrent_api_calls: 10
+  disable_safety_filters: true
+  cache:
+    enabled: true
+    ttl_seconds: 604800
+    dirname: gemini-cache
+    api_enabled: true
+    api_ttl_seconds: 3600
+  modal_allowlist_files: []
+
+style:
+  python_version: "3.13"
+  line_length: 88
+
+bundle:
+  local_bin_dirname: coding-ethos-hooks
+  bundle_dir_candidates:
+    - pre-commit
+    - code-ethos/pre-commit
+  consumer_override_candidates:
+    - repo_config.yaml
+    - repo_config.yml
+    - code-ethos.repo.yaml
+    - code-ethos.repo.yml
+    - coding-ethos.repo.yaml
+    - coding-ethos.repo.yml
+    - code-ethos.pre-commit.yaml
+    - code-ethos.pre-commit.yml
+    - coding-ethos.pre-commit.yaml
+    - coding-ethos.pre-commit.yml
+
+python:
+  source_paths:
+    - coding_ethos
+    - pre-commit/hooks
+  test_paths:
+    - tests
+  stub_paths: []
+  extra_paths:
+    - .
+    - pre-commit/hooks
+  venv_path: .
+  venv: .venv
+
+  comment_suppressions:
+    enabled: true
+    patterns:
+      - regex: '#\s*ruff:\s*noqa\b'
+        label: 'ruff: noqa (file-level)'
+      - regex: '#\s*mypy:\s*ignore-errors\b'
+        label: 'mypy: ignore-errors (file-level)'
+      - regex: '#\s*noqa\b'
+        label: 'noqa'
+      - regex: '#\s*type:\s*ignore\b'
+        label: 'type: ignore'
+      - regex: '#\s*pragma:\s*no\s*cover\b'
+        label: 'pragma: no cover'
+      - regex: '#\s*pylint:\s*disable'
+        label: 'pylint: disable'
+      - regex: '#\s*noinspection\b'
+        label: 'noinspection'
+      - regex: '#\s*fmt:\s*(off|on|skip)\b'
+        label: 'fmt: off/on/skip'
+      - regex: '#\s*isort:\s*(skip|skip_file)\b'
+        label: 'isort: skip'
+      - regex: '#\s*pyright:\s*ignore\b'
+        label: 'pyright: ignore'
+
+  module_docs:
+    enabled: true
+    source_docs_path: docs/SOURCE_DOCS.md
+    check_filenames:
+      - __init__.py
+      - conftest.py
+    excluded_dirs:
+      - .venv
+      - .lint-cache
+      - .mypy_cache
+      - .ruff_cache
+      - __pycache__
+      - node_modules
+      - .git
+    banned_doc_filenames:
+      - README.md
+      - readme.md
+
+  direct_imports:
+    enabled: true
+    packages:
+      - coding_ethos
+
+  util_centralization:
+    enabled: false
+    banned_modules: []
+
+  structured_logging:
+    enabled: true
+    methods:
+      - debug
+      - info
+      - warning
+      - error
+      - critical
+    logger_names:
+      - logger
+      - _logger
+      - log
+      - _log
+    exempt_kwargs:
+      - exc_info
+      - stack_info
+      - stacklevel
+
+  conditional_imports:
+    enabled: true
+    exception_names:
+      - ImportError
+      - ModuleNotFoundError
+    capability_prefix: HAS_
+
+  type_checking_imports:
+    enabled: true
+    type_checking_names:
+      - TYPE_CHECKING
+    future_import_name: annotations
+
+  catch_and_silence:
+    enabled: true
+
+  optional_returns:
+    enabled: true
+    exempt_method_names:
+      - __exit__
+      - __aexit__
+
+  security_patterns:
+    enabled: true
+    sql_keywords:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - DROP
+      - CREATE
+      - ALTER
+      - TRUNCATE
+      - EXECUTE
+      - EXEC
+    secret_patterns:
+      - sk-
+      - pk-
+      - api_
+      - key_
+      - token_
+      - secret_
+      - password
+      - passwd
+      - credential
+    test_file_markers:
+      - tests
+      - conftest
+      - test_
+      - _test.py
+    min_getenv_args_with_default: 2
+
+  sql_centralization:
+    enabled: false
+    module_name: project.sql
+    central_paths: []
+    migration_markers:
+      - alembic
+      - migrations
+    min_string_length: 15
+    error_context_keywords:
+      - suggestion
+      - reason
+      - message
+      - match
+      - extra
+
+  manifest_validation:
+    enabled: false
+    candidate_paths:
+      - manifest.yaml
+      - code-ethos/manifest.yaml
+    required_string_fields:
+      - version
+    required_list_sections:
+      symlinks:
+        required: true
+        required_string_fields:
+          - source
+          - target
+      repositories:
+        required: false
+        required_string_fields:
+          - name
+          - url
+        optional_string_fields:
+          - branch
+
+  plan_completion:
+    enabled: false
+    metadata_filename: metadata.yaml
+    root_markers:
+      - docs/plans/
+    completed_status_values:
+      - review
+      - complete
+
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - uv
+      - run
+      - --frozen
+      - pytest
+      - tests
+      - --strict-markers
+
+  file_docstrings:
+    enabled: true
+    min_sentences: 3
+    exempt_filenames:
+      - __init__.py
+      - conftest.py
+
+  docstring_coverage:
+    enabled: true
+    threshold: 90
+    command:
+      - interrogate
+    use_hook_project: true
+    verbose: true
+    ignore_init_method: true
+    ignore_init_module: true
+    ignore_magic: true
+    ignore_private: true
+    ignore_semiprivate: true
+    ignore_property_decorators: true
+    ignore_nested_functions: true
+    ignore_nested_classes: true
+    check_paths:
+      - coding_ethos
+      - pre-commit/hooks
+    exclude_patterns:
+      - __pycache__
+      - \.venv
+      - tests
+      - .*_test\.py$
+      - test_.*\.py$
+
+  version_consistency:
+    enabled: true
+
+  pyproject_ignores:
+    enabled: true
+    allowed_ignore_patterns:
+      - tests/**
+      - tests/*
+      - '**/tests/**'
+      - '**/tests/*'
+      - test_*.py
+      - '*_test.py'
+      - stubs/**
+      - stubs/*
+      - '**/stubs/**'
+      - '**/stubs/*'
+    allowed_exclude_patterns:
+      - .git
+      - .venv
+      - .mypy_cache
+      - .ruff_cache
+      - __pycache__
+      - '*.egg-info'
+      - .eggs
+      - build
+      - dist
+      - node_modules
+    allowed_mypy_missing_imports: []
+
+  type_check:
+    enabled: false
+    excluded_path_fragments:
+      - /docker/
+      - vulture_whitelist
+    checkers:
+      - name: pyright
+        command:
+          - pyright
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --project
+          - -p
+        repo_config: pyrightconfig.json
+        fallback_bundle_config: hooks/pyproject.toml
+      - name: mypy
+        command:
+          - mypy
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config-file
+        repo_config: mypy.ini
+        fallback_bundle_config: hooks/pyproject.toml
+
+tooling:
+  pyright:
+    enabled: true
+    type_checking_mode: strict
+    include: []
+    exclude:
+      - "**/tests/**"
+      - "**/*_test.py"
+      - "**/test_*.py"
+      - "**/.venv/**"
+    extra_paths: []
+    venv_path: ""
+    venv: ""
+    stub_path: ""
+
+  mypy:
+    enabled: true
+    strict: true
+    warn_unused_configs: true
+    plugins:
+      - pydantic.mypy
+    files: []
+    mypy_path: ""
+    exclude_patterns:
+      - (^|/)tests/
+      - (^|/).*_test\.py$
+      - (^|/)test_.*\.py$
+      - (^|/)\.venv/
+
+  ruff:
+    enabled: true
+    target_version: py313
+    select:
+      - ALL
+    ignore:
+      - COM812
+      - ISC001
+      - D203
+      - D213
+      - S603
+      - S607
+      - T201
+      - TC
+      - TC001
+      - TC002
+      - TC003
+      - TC004
+    exclude:
+      - .git
+      - .venv
+      - .mypy_cache
+      - .ruff_cache
+      - __pycache__
+      - '*.egg-info'
+      - .eggs
+      - build
+      - dist
+      - node_modules
+    max_args: 6
+    stub_per_file_ignores:
+      - A001
+      - A002
+      - ANN401
+      - D
+      - FBT001
+      - FBT002
+      - N801
+      - N803
+      - PYI020
+      - RUF100
+      - TCH
+      - UP037
+    test_per_file_ignores:
+      - ANN401
+      - ARG001
+      - ARG002
+      - B017
+      - D
+      - E501
+      - EM101
+      - EM102
+      - PERF401
+      - PLR0913
+      - PLR2004
+      - PT011
+      - PT012
+      - RUF012
+      - S101
+      - S105
+      - S106
+      - SIM117
+      - SLF001
+      - TC003
+      - TRY003
+    sql_per_file_ignores:
+      - S608
+    extra_per_file_ignores: {}
+    banned_api:
+      dateutil.tz: Use `zoneinfo` instead.
+      importlib: banned, use standard imports
+
+  yamllint:
+    enabled: true
+    extends: default
+    rules:
+      comments: disable
+      comments-indentation: disable
+      document-start: disable
+      line-length:
+        allow-non-breakable-inline-mappings: true
+        allow-non-breakable-words: true
+      truthy:
+        allowed-values:
+          - "true"
+          - "false"
+        check-keys: false
+
+  golangci_lint:
+    version: "2"
+    run:
+      tests: true
+    issues:
+      max-issues-per-linter: 0
+      max-same-issues: 0
+    linters:
+      default: standard
+      enable:
+        - asasalint
+        - asciicheck
+        - bidichk
+        - bodyclose
+        - canonicalheader
+        - containedctx
+        - contextcheck
+        - copyloopvar
+        - cyclop
+        - decorder
+        - dogsled
+        - dupword
+        - durationcheck
+        - embeddedstructfieldcheck
+        - err113
+        - errcheck
+        - errchkjson
+        - errname
+        - errorlint
+        - exhaustive
+        - fatcontext
+        - forbidigo
+        - forcetypeassert
+        - funcorder
+        - funlen
+        - gocheckcompilerdirectives
+        - gochecknoglobals
+        - gochecknoinits
+        - gocognit
+        - goconst
+        - gocritic
+        - gocyclo
+        - godot
+        - godox
+        - govet
+        - grouper
+        - iface
+        - importas
+        - inamedparam
+        - interfacebloat
+        - intrange
+        - iotamixing
+        - lll
+        - loggercheck
+        - maintidx
+        - makezero
+        - misspell
+        - mnd
+        - musttag
+        - nakedret
+        - nestif
+        - nilerr
+        - nilnil
+        - nlreturn
+        - noctx
+        - noinlineerr
+        - nolintlint
+        - nonamedreturns
+        - nosprintfhostport
+        - perfsprint
+        - prealloc
+        - predeclared
+        - reassign
+        - recvcheck
+        - revive
+        - rowserrcheck
+        - sloglint
+        - spancheck
+        - sqlclosecheck
+        - staticcheck
+        - tagalign
+        - tagliatelle
+        - testableexamples
+        - testifylint
+        - thelper
+        - tparallel
+        - unconvert
+        - unparam
+        - unused
+        - usestdlibvars
+        - varnamelen
+        - wastedassign
+        - whitespace
+        - wrapcheck
+        - zerologlint
+      exclusions:
+        generated: strict
+        warn-unused: true
+        presets:
+          - comments
+          - common-false-positives
+          - legacy
+          - std-error-handling
+        rules:
+          - path: _test\.go
+            linters:
+              - cyclop
+              - funlen
+              - gocognit
+              - gocyclo
+              - lll
+              - maintidx
+              - mnd
+              - varnamelen
+      settings:
+        cyclop:
+          max-complexity: 12
+        errcheck:
+          check-blank: true
+          check-type-assertions: true
+        funlen:
+          lines: 80
+          statements: 60
+        gocognit:
+          min-complexity: 20
+        gocyclo:
+          min-complexity: 12
+        govet:
+          enable-all: true
+        lll:
+          tab-width: 1
+        nestif:
+          min-complexity: 4
+        revive:
+          severity: error
+
+go:
+  enabled: false
+  worktree: pre-commit/hooks/go-hooks
+  commitlint:
+    allowed_types:
+      - chore
+      - docs
+      - feat
+      - fix
+      - perf
+      - refactor
+      - test
+    ignored_prefixes:
+      - 'Merge '
+      - 'Revert '
+      - 'fixup! '
+      - 'squash! '
+    max_header_length: 150
+  commit_attribution:
+    blocked_names:
+      - claude
+      - anthropic
+      - gpt
+      - chatgpt
+      - openai
+      - copilot
+      - github copilot
+      - ai assistant
+      - ai agent
+      - llm
+      - large language model
+      - gemini
+      - bard
+      - cursor
+  text:
+    forbidden_strings:
+      - PLC0415
+    large_file_exclude_prefixes: []
+    large_file_suffixes:
+      - .bash
+      - .json
+      - .py
+      - .pyi
+      - .sh
+      - .toml
+      - .yaml
+      - .yml
+    max_large_file_kb: 500
+  line_limits:
+    python_hard: 1000
+    python_warn: 800
+    shell_hard: 500
+    shell_warn: 400
+  shell:
+    require_common_for_prefixes:
+      - scripts/
+  quiet_filter:
+    ansi_regex: \x1b\[[0-9;]*m
+    passed_regex: \.{3,}Passed$
+    skipped_regex: (\.{3,}Skipped$|\(no files to check\)Skipped$)
+    failed_regex: \.{3,}Failed$
+    status_regex: \.{3,}(Failed|Passed|Skipped)$
+    preexisting_regex: ^\s*\[Pre-existing \([0-9]+\)\]$
+    separator_regex: ^={50,}$
+    banner_width: 70
+    metadata_prefixes:
+      - '- hook id:'
+      - '- duration:'
+      - '- files were modified'
+    suppress_exact:
+      - All checks passed!
+      - Analyzing diff for changed lines...
+    suppress_prefixes:
+      - '- files were modified'
+      - Both GOOGLE_API_KEY and GEMINI_API_KEY
+      - '[WARNING] Unstaged'
+      - '  Failed to get diff for'
+    suppress_regexes:
+      - '^[0-9]+ files? already formatted$'
+      - '^[0-9].*files? already formatted$'
+      - '^\[INFO\] (Stashing|Restored)'
+      - '^  (Rate limited|Timeout|Service unavailable|Error), waiting'
+      - '^  Skipping .* \(>[0-9]+KB\)'
+      - '^Running [0-9]+ check types in parallel'
+      - '^OK .*: PASS \([0-9]+ms\)$'
+      - '^Summary: [0-9]+ passed'
+      - '^Total time: [0-9]+ms'
+      - '^\[.*\] Processing [0-9]+ files'
+      - '^\[.*\] Batch error:'

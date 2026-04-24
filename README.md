@@ -34,6 +34,7 @@ This project fixes that by treating the ethos as structured source data instead 
 
 - One structured source of truth in `coding_ethos.yml`
 - Optional repo-specific overlay from `repo_ethos.yml`
+- Bundled ETHOS enforcement package under `pre-commit/` with repo-local Lefthook install and Go-backed policy hooks
 - Markdown seeding from an existing ethos document
 - Validation for ids, ordering, directives, related links, and section kinds
 - Safe merge mode for existing `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md`
@@ -294,8 +295,77 @@ principles:
 Install dependencies:
 
 ```bash
-uv sync --group dev
+uv sync --group dev --all-packages
 ```
+
+Repo-local convenience commands:
+
+```bash
+make help
+make install
+make test
+make sync-tool-configs
+make sync-gemini-prompts
+make validate
+make generate
+```
+
+The `Makefile` is a thin wrapper around the documented `uv` workflow above. The raw `uv` commands remain the portable interface for using `coding-ethos` outside this repository.
+
+The repo also ships a bundled Lefthook-based pre-commit package in
+`pre-commit/`. From the repo root you can validate or install it with:
+
+```bash
+make sync-tool-configs
+make check-tool-configs
+make sync-gemini-prompts
+make check-gemini-prompts
+make validate
+make install-hooks
+```
+
+Backward-compatible aliases like `make hooks-validate` and
+`make hooks-install` still work.
+
+`make install-hooks` keeps Lefthook repo-local. It installs the pinned
+binary into `.git/coding-ethos-hooks/` with `GOBIN=... go install` and uses
+that cached binary for both manual runs and installed Git hook shims. The
+version now comes from `pre-commit/lefthook.version`, so the shell shim and
+`Makefile` share one source of truth. The runtime path uses
+`lefthook run --no-auto-install` so manual runs and Git
+pushes do not let Lefthook overwrite the custom `coding-ethos` hook shims
+inside `.git/hooks/`.
+
+`make sync-tool-configs` generates repo-root `pyrightconfig.json`, `mypy.ini`,
+`ruff.toml`, `.yamllint.yml`, and `.golangci.yml` from the shared
+[config.yaml](config.yaml) plus an optional consuming-repo `repo_config.yaml`.
+The same
+`style.python_version` value also drives the `pyupgrade` autofix target and
+the hook-level version consistency checks for files like `.python-version`
+and `pyproject.toml`. In other words, `config.yaml` is the enforcement source
+of truth; `pre-commit/` is the execution bundle, not a second policy surface.
+
+`make sync-gemini-prompts` generates
+`.code-ethos/gemini/prompt-pack.json`, a grounded Gemini prompt pack derived
+from `coding_ethos.yml`, optional `repo_ethos.yml`, and the merged
+`config.yaml` plus `repo_config.yaml` policy model. The pack includes both
+rendered prompt text and per-check runtime metadata such as file scope and
+batch sizing. `install` and
+`install-hooks` run both sync steps automatically, and the active Lefthook
+Gemini job now consumes that pack through the Go hook runner. The Go runner
+also honors `gemini.max_concurrent_api_calls`, repo-local response caching in
+`.git/coding-ethos-hooks/gemini-cache/`, per-check `model_overrides` and
+`service_tier_overrides`, explicit Gemini `cachedContents` reuse for batch
+corpora that are reviewed by multiple prompts, and
+`disable_safety_filters: true` for code-review requests.
+
+The root `pyproject.toml` still includes `pre-commit/hooks` as a `uv` workspace
+member for the hook toolchain environment, but Lefthook now reads Ruff,
+mypy, pyright, and yamllint settings from the generated repo-root config files,
+and Gemini review prefers the generated prompt pack over legacy hard-coded
+prompt text. Most hook runtime and policy logic now lives in
+`pre-commit/hooks/go-hooks/`; the remaining Python hook files are wrappers
+around external analysis tools.
 
 Run tests:
 
