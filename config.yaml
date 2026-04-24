@@ -258,6 +258,15 @@ python:
     command:
       - interrogate
     use_hook_project: true
+    verbose: true
+    ignore_init_method: true
+    ignore_init_module: true
+    ignore_magic: true
+    ignore_private: true
+    ignore_semiprivate: true
+    ignore_property_decorators: true
+    ignore_nested_functions: true
+    ignore_nested_classes: true
     check_paths:
       - coding_ethos
       - pre-commit/hooks
@@ -299,6 +308,9 @@ python:
 
   type_check:
     enabled: false
+    excluded_path_fragments:
+      - /docker/
+      - vulture_whitelist
     checkers:
       - name: pyright
         command:

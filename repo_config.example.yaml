@@ -101,6 +101,9 @@ python:
 
   type_check:
     enabled: true
+    excluded_path_fragments:
+      - /docker/
+      - vulture_whitelist
     checkers:
       - name: pyright
         command:
@@ -124,6 +127,8 @@ python:
     enabled: true
     check_paths:
       - lib/python/project
+    ignore_private: false
+    ignore_nested_classes: false
 
   version_consistency:
     enabled: true

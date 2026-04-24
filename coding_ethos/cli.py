@@ -461,11 +461,11 @@ def _generate_outputs(
     return 0
 
 
-def main(argv: object = "") -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run the coding-ethos command-line interface.
 
     Args:
-        argv: Optional argument vector for tests or embedding. When omitted,
+        argv: Optional argument vector for tests or embedding. When ``None``,
             arguments are read from ``sys.argv`` through ``argparse``.
 
     Returns:
@@ -474,7 +474,7 @@ def main(argv: object = "") -> int:
 
     """
     parser = _build_parser()
-    args = parser.parse_args(argv if isinstance(argv, list) else None)
+    args = parser.parse_args(argv)
     merge_settings = _resolve_merge_settings(args)
 
     tool_result = _run_tool_config_actions(args)

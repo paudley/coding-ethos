@@ -80,6 +80,23 @@ func TestNormalizeTypeCheckFiles(t *testing.T) {
 
 	files := normalizeTypeCheckFiles(
 		[]string{pythonFile, dockerFile, venvFile, whitelist, pythonFile},
+		[]string{"/docker/", "vulture_whitelist"},
+	)
+	if len(files) != 1 || files[0] != pythonFile {
+		t.Fatalf("normalizeTypeCheckFiles() = %#v, want [%q]", files, pythonFile)
+	}
+}
+
+func TestNormalizeTypeCheckFilesHonorsConfiguredExcludedPathFragments(t *testing.T) {
+	tempDir := t.TempDir()
+	pythonFile := filepath.Join(tempDir, "pkg", "module.py")
+	generatedFile := filepath.Join(tempDir, "pkg", "generated", "script.py")
+	mustWriteTestFile(t, pythonFile, "value = 1\n")
+	mustWriteTestFile(t, generatedFile, "value = 1\n")
+
+	files := normalizeTypeCheckFiles(
+		[]string{pythonFile, generatedFile},
+		[]string{"/generated/"},
 	)
 	if len(files) != 1 || files[0] != pythonFile {
 		t.Fatalf("normalizeTypeCheckFiles() = %#v, want [%q]", files, pythonFile)

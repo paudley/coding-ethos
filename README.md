@@ -330,7 +330,9 @@ Backward-compatible aliases like `make hooks-validate` and
 `make install-hooks` keeps Lefthook repo-local. It installs the pinned
 binary into `.git/coding-ethos-hooks/` with `GOBIN=... go install` and uses
 that cached binary for both manual runs and installed Git hook shims. The
-runtime path uses `lefthook run --no-auto-install` so manual runs and Git
+version now comes from `pre-commit/lefthook.version`, so the shell shim and
+`Makefile` share one source of truth. The runtime path uses
+`lefthook run --no-auto-install` so manual runs and Git
 pushes do not let Lefthook overwrite the custom `coding-ethos` hook shims
 inside `.git/hooks/`.
 

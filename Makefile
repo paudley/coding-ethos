@@ -19,7 +19,8 @@ LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 LOCAL_LEFTHOOK := $(LOCAL_BIN_DIR)/lefthook
 LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
 GIT_HOOKS := pre-commit pre-push commit-msg
-LEFTHOOK_VERSION := v1.13.6
+LEFTHOOK_VERSION_FILE := $(PRECOMMIT_DIR)lefthook.version
+LEFTHOOK_VERSION := $(strip $(shell cat "$(LEFTHOOK_VERSION_FILE)"))
 
 UV ?= uv
 PYTHON ?= python

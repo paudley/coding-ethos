@@ -10,7 +10,7 @@ It is the schema boundary between raw YAML and the rest of the application.
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import yaml
 
@@ -41,7 +41,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _error(source: str, message: str) -> None:
+def _error(source: str, message: str) -> NoReturn:
     msg = f"Invalid ethos YAML at {source}: {message}"
     raise ValueError(msg)
 
@@ -212,10 +212,8 @@ def _require_principle_order(
 ) -> int:
     try:
         return int(item["order"])
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError):
         _error(source, f"principle `{principle_id}` must define an integer `order`.")
-        msg = "unreachable"
-        raise AssertionError(msg) from exc
 
 
 def _require_principle_sections(

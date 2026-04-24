@@ -41,7 +41,8 @@ The bundle does not install Lefthook into the host system and does not rely on
 `lefthook` from `PATH`. It bootstraps the pinned binary with:
 
 ```bash
-GOBIN=.git/coding-ethos-hooks go install github.com/evilmartians/lefthook@v1.13.6
+GOBIN=.git/coding-ethos-hooks go install \
+  github.com/evilmartians/lefthook@$(cat pre-commit/lefthook.version)
 ```
 
 Installed Git hooks use that repo-local binary only. If the binary is missing
@@ -101,7 +102,8 @@ Hook bypass is forbidden. Do not use `LEFTHOOK=0` or `--no-verify`.
 Primary files:
 
 - `lefthook.yml` - hook stages, globs, excludes, and command templates
-- `../Makefile` - root-level hook entry points and pinned Lefthook version
+- `../Makefile` - root-level hook entry points and repo-local Lefthook bootstrap
+- `lefthook.version` - single source of truth for the pinned Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
 - `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool configs
 - `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini prompt pack with rendered prompts and per-check runtime metadata
@@ -153,7 +155,8 @@ Important configurable areas:
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command
 - `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
-- `python.type_check` - checker commands, hook-project execution, config injection, and enablement
+- `python.type_check` - checker commands, hook-project execution, config injection, enablement, and excluded path fragments
+- `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
@@ -171,6 +174,8 @@ Typical consuming-repo overrides include:
 - `python.pytest_gate.test_command` for nonstandard test roots like `lib/python/tests`
 - `python.file_docstrings.min_sentences` for stricter module-level docstring requirements
 - `python.docstring_coverage.check_paths` for nested source trees
+- `python.docstring_coverage.ignore_private` / `ignore_nested_classes` when a repo wants stricter coverage
+- `python.type_check.excluded_path_fragments` for generated or container-specific Python trees
 - `python.sql_centralization` and `python.util_centralization` for repo-specific wrapper modules
 - `gemini.modal_allowlist_files` for repo-configured file-level modal waivers instead of inline source comments
 
@@ -209,7 +214,7 @@ Commit-message hooks enforce:
 
 To update Lefthook:
 
-1. Change `LEFTHOOK_VERSION` in `Makefile`.
+1. Change `pre-commit/lefthook.version`.
 2. Change `min_version` in `pre-commit/lefthook.yml`.
 3. Run:
 

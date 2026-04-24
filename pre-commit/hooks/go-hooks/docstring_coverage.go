@@ -20,15 +20,24 @@ var errDocstringCoverageCommandEmpty = errors.New(
 )
 
 type docstringCoverageSettings struct {
-	BundleRoot      string
-	ConsumerRoot    string
-	HooksProject    string
-	CheckPaths      []string
-	ExcludePatterns []string
-	Command         []string
-	Threshold       int
-	Enabled         bool
-	UseHookProject  bool
+	BundleRoot               string
+	ConsumerRoot             string
+	HooksProject             string
+	CheckPaths               []string
+	ExcludePatterns          []string
+	Command                  []string
+	Threshold                int
+	Enabled                  bool
+	UseHookProject           bool
+	Verbose                  bool
+	IgnoreInitMethod         bool
+	IgnoreInitModule         bool
+	IgnoreMagic              bool
+	IgnorePrivate            bool
+	IgnoreSemiprivate        bool
+	IgnorePropertyDecorators bool
+	IgnoreNestedFunctions    bool
+	IgnoreNestedClasses      bool
 }
 
 func configSectionFieldPresent(
@@ -92,6 +101,7 @@ func applyDocstringCoverageDefaults(
 	if len(settings.Command) == 0 {
 		settings.Command = []string{"interrogate"}
 	}
+	applyDocstringCoverageFlagDefaults(settings, rootConfig)
 	if settings.UseHookProject {
 		return
 	}
@@ -104,22 +114,47 @@ func applyDocstringCoverageDefaults(
 	}
 }
 
+func applyDocstringCoverageFlagDefaults(
+	settings *docstringCoverageSettings,
+	rootConfig map[string]any,
+) {
+	defaultTrueIfUnset(rootConfig, "verbose", &settings.Verbose)
+	defaultTrueIfUnset(rootConfig, "ignore_init_method", &settings.IgnoreInitMethod)
+	defaultTrueIfUnset(rootConfig, "ignore_init_module", &settings.IgnoreInitModule)
+	defaultTrueIfUnset(rootConfig, "ignore_magic", &settings.IgnoreMagic)
+	defaultTrueIfUnset(rootConfig, "ignore_private", &settings.IgnorePrivate)
+	defaultTrueIfUnset(rootConfig, "ignore_semiprivate", &settings.IgnoreSemiprivate)
+	defaultTrueIfUnset(
+		rootConfig,
+		"ignore_property_decorators",
+		&settings.IgnorePropertyDecorators,
+	)
+	defaultTrueIfUnset(
+		rootConfig,
+		"ignore_nested_functions",
+		&settings.IgnoreNestedFunctions,
+	)
+	defaultTrueIfUnset(
+		rootConfig,
+		"ignore_nested_classes",
+		&settings.IgnoreNestedClasses,
+	)
+}
+
+func defaultTrueIfUnset(rootConfig map[string]any, field string, target *bool) {
+	if !configSectionFieldPresent(rootConfig, "python.docstring_coverage", field) {
+		*target = true
+	}
+}
+
 func buildDocstringCoverageCommand(settings docstringCoverageSettings) []string {
 	command := append([]string{}, settings.Command...)
 	command = append(
 		command,
 		"--fail-under",
 		strconv.Itoa(settings.Threshold),
-		"--verbose",
-		"--ignore-init-method",
-		"--ignore-init-module",
-		"--ignore-magic",
-		"--ignore-private",
-		"--ignore-semiprivate",
-		"--ignore-property-decorators",
-		"--ignore-nested-functions",
-		"--ignore-nested-classes",
 	)
+	command = appendDocstringCoverageFlags(command, settings)
 	for _, pattern := range settings.ExcludePatterns {
 		command = append(command, "--ignore-regex", pattern)
 	}
@@ -129,6 +164,55 @@ func buildDocstringCoverageCommand(settings docstringCoverageSettings) []string 
 			[]string{"uv", "run", "--quiet", "--project", settings.HooksProject},
 			command...,
 		)
+	}
+
+	return command
+}
+
+func appendDocstringCoverageFlags(
+	command []string,
+	settings docstringCoverageSettings,
+) []string {
+	command = appendFlagIfEnabled(command, settings.Verbose, "--verbose")
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnoreInitMethod,
+		"--ignore-init-method",
+	)
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnoreInitModule,
+		"--ignore-init-module",
+	)
+	command = appendFlagIfEnabled(command, settings.IgnoreMagic, "--ignore-magic")
+	command = appendFlagIfEnabled(command, settings.IgnorePrivate, "--ignore-private")
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnoreSemiprivate,
+		"--ignore-semiprivate",
+	)
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnorePropertyDecorators,
+		"--ignore-property-decorators",
+	)
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnoreNestedFunctions,
+		"--ignore-nested-functions",
+	)
+	command = appendFlagIfEnabled(
+		command,
+		settings.IgnoreNestedClasses,
+		"--ignore-nested-classes",
+	)
+
+	return command
+}
+
+func appendFlagIfEnabled(command []string, enabled bool, flag string) []string {
+	if enabled {
+		return append(command, flag)
 	}
 
 	return command

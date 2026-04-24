@@ -6,7 +6,6 @@
 
 set -euo pipefail
 
-LEFTHOOK_VERSION="v1.13.6"
 HOOK_NAME="$(basename "$0")"
 ROOT="$(git rev-parse --show-toplevel)"
 GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
@@ -20,6 +19,12 @@ else
     echo "FATAL: could not locate pre-commit bundle under ${ROOT}" >&2
     exit 127
 fi
+LEFTHOOK_VERSION_FILE="${BUNDLE_ROOT}/lefthook.version"
+if [[ ! -f "${LEFTHOOK_VERSION_FILE}" ]]; then
+    echo "FATAL: missing Lefthook version file at ${LEFTHOOK_VERSION_FILE}" >&2
+    exit 127
+fi
+LEFTHOOK_VERSION="$(<"${LEFTHOOK_VERSION_FILE}")"
 REPO_LEFTHOOK="${GIT_COMMON_DIR}/coding-ethos-hooks/lefthook"
 REPO_LEFTHOOK_VERSION="${GIT_COMMON_DIR}/coding-ethos-hooks/lefthook.version"
 REPO_LEFTHOOK_DIR="$(dirname "${REPO_LEFTHOOK}")"

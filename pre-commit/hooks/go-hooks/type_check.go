@@ -26,11 +26,12 @@ type typeCheckerConfig struct {
 }
 
 type typeCheckSettings struct {
-	BundleRoot   string
-	ConsumerRoot string
-	HooksProject string
-	Checkers     []typeCheckerConfig
-	Enabled      bool
+	BundleRoot            string
+	ConsumerRoot          string
+	HooksProject          string
+	Checkers              []typeCheckerConfig
+	ExcludedPathFragments []string
+	Enabled               bool
 }
 
 type typeCheckResult struct {
@@ -78,6 +79,14 @@ func loadTypeCheckSettings() (typeCheckSettings, error) {
 	settings.HooksProject = filepath.Join(bundleRoot, "hooks")
 	if len(settings.Checkers) == 0 {
 		settings.Checkers = defaultTypeCheckers()
+	}
+	if len(settings.ExcludedPathFragments) == 0 &&
+		!configSectionFieldPresent(
+			rootConfig,
+			"python.type_check",
+			"excluded_path_fragments",
+		) {
+		settings.ExcludedPathFragments = []string{"/docker/", "vulture_whitelist"}
 	}
 	for checkerIndex := range settings.Checkers {
 		applyTypeCheckerDefaults(&settings.Checkers[checkerIndex], rootConfig)
@@ -237,24 +246,36 @@ func appendTypeCheckerConfig(
 	return command
 }
 
-func isCheckablePythonFile(path string) bool {
-	return path != "" &&
-		strings.HasSuffix(path, ".py") &&
-		!strings.HasPrefix(path, ".venv/") &&
-		!strings.Contains(
+func isCheckablePythonFile(path string, excludedPathFragments []string) bool {
+	if path == "" || !strings.HasSuffix(path, ".py") {
+		return false
+	}
+	if strings.HasPrefix(path, ".venv/") ||
+		strings.Contains(
 			path,
 			string(filepath.Separator)+".venv"+string(filepath.Separator),
-		) &&
-		!strings.Contains(path, "/docker/") &&
-		!strings.Contains(path, "vulture_whitelist")
+		) {
+		return false
+	}
+	for _, fragment := range excludedPathFragments {
+		if fragment != "" && strings.Contains(path, fragment) {
+			return false
+		}
+	}
+
+	return true
 }
 
-func normalizeTypeCheckFiles(paths []string) []string {
+func normalizeTypeCheckFiles(
+	paths []string,
+	excludedPathFragments []string,
+) []string {
 	seen := map[string]bool{}
 	files := make([]string, 0, len(paths))
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
-		if path == "" || seen[path] || !isCheckablePythonFile(path) {
+		if path == "" || seen[path] ||
+			!isCheckablePythonFile(path, excludedPathFragments) {
 			continue
 		}
 		_, err := os.Stat(path)
@@ -268,7 +289,7 @@ func normalizeTypeCheckFiles(paths []string) []string {
 	return files
 }
 
-func stagedTypeCheckFiles() ([]string, error) {
+func stagedTypeCheckFiles(settings typeCheckSettings) ([]string, error) {
 	cmd := exec.CommandContext(
 		context.Background(),
 		"git",
@@ -294,6 +315,7 @@ func stagedTypeCheckFiles() ([]string, error) {
 
 	return normalizeTypeCheckFiles(
 		strings.Split(strings.TrimSpace(string(output)), "\n"),
+		settings.ExcludedPathFragments,
 	), nil
 }
 
@@ -411,11 +433,15 @@ func configuredTypeCheckers(settings typeCheckSettings) []typeCheckerConfig {
 }
 
 func loadFilesForTypeCheck(args []string) ([]string, error) {
+	settings, err := loadTypeCheckSettings()
+	if err != nil {
+		return nil, err
+	}
 	if len(args) != 0 {
-		return normalizeTypeCheckFiles(args), nil
+		return normalizeTypeCheckFiles(args, settings.ExcludedPathFragments), nil
 	}
 
-	return stagedTypeCheckFiles()
+	return stagedTypeCheckFiles(settings)
 }
 
 func runConfiguredTypeCheckers(

@@ -12,12 +12,21 @@ import (
 func TestBuildDocstringCoverageCommand(t *testing.T) {
 	command := buildDocstringCoverageCommand(
 		docstringCoverageSettings{
-			Threshold:       95,
-			CheckPaths:      []string{"pkg", "pre-commit/hooks"},
-			ExcludePatterns: []string{`tests`, `\.venv`},
-			Command:         []string{"interrogate"},
-			UseHookProject:  true,
-			HooksProject:    "/tmp/hooks",
+			Threshold:                95,
+			CheckPaths:               []string{"pkg", "pre-commit/hooks"},
+			ExcludePatterns:          []string{`tests`, `\.venv`},
+			Command:                  []string{"interrogate"},
+			UseHookProject:           true,
+			HooksProject:             "/tmp/hooks",
+			Verbose:                  true,
+			IgnoreInitMethod:         true,
+			IgnoreInitModule:         true,
+			IgnoreMagic:              true,
+			IgnorePrivate:            true,
+			IgnoreSemiprivate:        true,
+			IgnorePropertyDecorators: true,
+			IgnoreNestedFunctions:    true,
+			IgnoreNestedClasses:      true,
 		},
 	)
 
@@ -49,6 +58,32 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 	if !slicesContains(command, "--ignore-regex") || !slicesContains(command, "pkg") ||
 		!slicesContains(command, "pre-commit/hooks") {
 		t.Fatalf("command missing expected flags or paths: %#v", command)
+	}
+}
+
+func TestBuildDocstringCoverageCommandHonorsConfigurableFlags(t *testing.T) {
+	command := buildDocstringCoverageCommand(
+		docstringCoverageSettings{
+			Threshold:                95,
+			CheckPaths:               []string{"pkg"},
+			Command:                  []string{"interrogate"},
+			Verbose:                  false,
+			IgnoreInitMethod:         true,
+			IgnoreInitModule:         true,
+			IgnoreMagic:              true,
+			IgnorePrivate:            false,
+			IgnoreSemiprivate:        false,
+			IgnorePropertyDecorators: true,
+			IgnoreNestedFunctions:    true,
+			IgnoreNestedClasses:      false,
+		},
+	)
+
+	if slicesContains(command, "--verbose") ||
+		slicesContains(command, "--ignore-private") ||
+		slicesContains(command, "--ignore-semiprivate") ||
+		slicesContains(command, "--ignore-nested-classes") {
+		t.Fatalf("command contains disabled flags: %#v", command)
 	}
 }
 
