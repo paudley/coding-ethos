@@ -88,6 +88,7 @@ type pytestGateSettings struct {
 }
 
 type directImportsSettings struct {
+	ExemptPaths  []string
 	ConsumerRoot string
 	Packages     []string
 	SourcePaths  []string
@@ -1729,6 +1730,9 @@ func checkDirectImportsCommand(_ Config, args []string) int {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+		if isDirectImportExempt(path, settings) {
+			continue
+		}
 		found, err := findDirectImportViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
@@ -1757,6 +1761,19 @@ func checkDirectImportsCommand(_ Config, args []string) int {
 	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
 
 	return 1
+}
+
+func isDirectImportExempt(path string, settings directImportsSettings) bool {
+	normalizedPath := filepath.ToSlash(filepath.Clean(path))
+	for _, marker := range settings.ExemptPaths {
+		normalizedMarker := filepath.ToSlash(filepath.Clean(strings.TrimSpace(marker)))
+		if normalizedMarker != "." && normalizedMarker != "" &&
+			strings.Contains(normalizedPath, normalizedMarker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func checkUtilCentralizationCommand(_ Config, args []string) int {
