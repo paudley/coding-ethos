@@ -67,6 +67,70 @@ func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
 	}
 }
 
+func TestResolveTypeCheckerCommandPrefersConsumerWorkspace(t *testing.T) {
+	tempDir := t.TempDir()
+	consumerRoot := filepath.Join(tempDir, "repo")
+	hooksProject := filepath.Join(consumerRoot, "coding-ethos", "pre-commit", "hooks")
+	mustWriteTestFile(
+		t,
+		filepath.Join(consumerRoot, "pyproject.toml"),
+		strings.TrimSpace(`
+[tool.uv.workspace]
+members = [
+    "lbox-platform/lib/python",
+    "coding-ethos/pre-commit/hooks",
+]
+`)+"\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(hooksProject, "pyproject.toml"),
+		"[tool.mypy]\n",
+	)
+
+	command := resolveTypeCheckerCommand(
+		typeCheckerConfig{
+			Name:            "mypy",
+			Command:         []string{"mypy"},
+			PassFilesAsArgs: true,
+			UseHookProject:  true,
+			ConfigFlags:     []string{"--config-file"},
+			RepoConfig:      "mypy.ini",
+		},
+		typeCheckSettings{
+			ConsumerRoot: consumerRoot,
+			HooksProject: hooksProject,
+		},
+	)
+
+	wantPrefix := []string{
+		"uv",
+		"run",
+		"--quiet",
+		"--project",
+		consumerRoot,
+		"mypy",
+	}
+	if len(command) < len(wantPrefix) {
+		t.Fatalf(
+			"resolveTypeCheckerCommand() = %#v, want prefix %#v",
+			command,
+			wantPrefix,
+		)
+	}
+	for i := range wantPrefix {
+		if command[i] != wantPrefix[i] {
+			t.Fatalf(
+				"command[%d] = %q, want %q (%#v)",
+				i,
+				command[i],
+				wantPrefix[i],
+				command,
+			)
+		}
+	}
+}
+
 func TestNormalizeTypeCheckFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	pythonFile := filepath.Join(tempDir, "pkg", "module.py")
