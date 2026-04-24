@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 type typeCheckerConfig struct {
@@ -212,12 +214,103 @@ func resolveTypeCheckerCommand(
 	command := append([]string{}, checker.Command...)
 	command = appendTypeCheckerConfig(command, checker, settings)
 	if checker.UseHookProject {
+		projectRoot := preferredTypeCheckerProjectRoot(settings)
 		command = append(
-			[]string{"uv", "run", "--quiet", "--project", settings.HooksProject},
+			[]string{"uv", "run", "--quiet", "--project", projectRoot},
 			command...)
 	}
 
 	return command
+}
+
+func preferredTypeCheckerProjectRoot(settings typeCheckSettings) string {
+	if consumerWorkspaceIncludesHooksProject(settings) {
+		return settings.ConsumerRoot
+	}
+
+	return settings.HooksProject
+}
+
+func consumerWorkspaceIncludesHooksProject(settings typeCheckSettings) bool {
+	pyprojectPath := filepath.Join(settings.ConsumerRoot, "pyproject.toml")
+	content, err := os.ReadFile(pyprojectPath)
+	if err != nil {
+		return false
+	}
+
+	var pyproject map[string]any
+	if err := toml.Unmarshal(content, &pyproject); err != nil {
+		return false
+	}
+
+	members := uvWorkspaceMembers(pyproject)
+	if len(members) == 0 {
+		return false
+	}
+
+	for _, member := range members {
+		if workspaceMemberMatchesHooksProject(member, settings) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func uvWorkspaceMembers(pyproject map[string]any) []string {
+	tool, ok := pyproject["tool"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	uv, ok := tool["uv"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	workspace, ok := uv["workspace"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return normalizeStringList(workspace["members"])
+}
+
+func workspaceMemberMatchesHooksProject(member string, settings typeCheckSettings) bool {
+	normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(member)))
+	if normalized == "." || normalized == "" {
+		return false
+	}
+
+	hooksRel, err := filepath.Rel(settings.ConsumerRoot, settings.HooksProject)
+	if err == nil && normalized == filepath.ToSlash(filepath.Clean(hooksRel)) {
+		return true
+	}
+
+	memberAbs := filepath.Join(settings.ConsumerRoot, filepath.FromSlash(normalized))
+	if samePath(memberAbs, settings.HooksProject) {
+		return true
+	}
+
+	return sameRealPath(memberAbs, settings.HooksProject)
+}
+
+func samePath(left string, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return filepath.Clean(left) == filepath.Clean(right)
+	}
+
+	return filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
+}
+
+func sameRealPath(left string, right string) bool {
+	leftReal, leftErr := filepath.EvalSymlinks(left)
+	rightReal, rightErr := filepath.EvalSymlinks(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+
+	return samePath(leftReal, rightReal)
 }
 
 func appendTypeCheckerConfig(
