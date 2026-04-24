@@ -44,7 +44,10 @@ PRINCIPLE_PRESETS: dict[str, PrinciplePreset] = {
     "no-conditional-validation": {
         "directive": "Run required validation unconditionally; a missing component is itself a failure.",
         "tags": ["validation", "reliability", "startup"],
-        "related": ["validation-at-the-gate", "no-optional-types-for-required-dependencies"],
+        "related": [
+            "validation-at-the-gate",
+            "no-optional-types-for-required-dependencies",
+        ],
     },
     "no-if-available-capability-checks": {
         "directive": "Validate required capabilities at startup instead of probing for them at runtime.",
@@ -64,12 +67,18 @@ PRINCIPLE_PRESETS: dict[str, PrinciplePreset] = {
     "robustness-in-motion-runtime": {
         "directive": "Treat startup misconfiguration and runtime transient failures as different classes of problems.",
         "tags": ["runtime", "reliability", "resilience"],
-        "related": ["fail-fast-fail-hard-overview", "no-optional-types-for-required-dependencies"],
+        "related": [
+            "fail-fast-fail-hard-overview",
+            "no-optional-types-for-required-dependencies",
+        ],
     },
     "radical-visibility": {
         "directive": "Log important decisions with context and instrument the system with metrics.",
         "tags": ["observability", "logging", "metrics"],
-        "related": ["exception-hierarchy-and-error-messages", "testing-as-specification"],
+        "related": [
+            "exception-hierarchy-and-error-messages",
+            "testing-as-specification",
+        ],
     },
     "protocol-first-design": {
         "directive": "Define and verify interfaces before writing or referencing implementations.",
@@ -139,7 +148,10 @@ PRINCIPLE_PRESETS: dict[str, PrinciplePreset] = {
     "sub-agent-delegation-and-context-isolation": {
         "directive": "Use specialized agents with scoped context instead of overloading one thread.",
         "tags": ["delegation", "context", "workflow"],
-        "related": ["one-path-for-critical-operations", "feedback-as-a-first-class-citizen"],
+        "related": [
+            "one-path-for-critical-operations",
+            "feedback-as-a-first-class-citizen",
+        ],
     },
 }
 

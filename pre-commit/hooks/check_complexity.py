@@ -21,7 +21,6 @@ from typing import Final
 
 from radon_utils import run_radon
 
-
 # Configuration
 COMPLEXITY_THRESHOLD: Final[int] = 15
 TARGET_PATH: Final[str] = "."

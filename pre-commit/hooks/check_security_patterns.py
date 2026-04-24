@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-
 MIN_REQUIRED_ARGS: Final[int] = 2
 _MIN_GETENV_ARGS_WITH_DEFAULT: Final[int] = 2
 

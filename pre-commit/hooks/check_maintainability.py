@@ -23,7 +23,6 @@ from typing import Final
 
 from radon_utils import run_radon
 
-
 # Configuration
 MI_THRESHOLD: Final[int] = 50
 TARGET_PATH: Final[str] = "."

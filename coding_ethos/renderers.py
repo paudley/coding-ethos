@@ -57,7 +57,9 @@ def _principle_lines(principles: list[Principle]) -> list[str]:
                 f"[tags: {', '.join(principle.tags)}]"
             )
         else:
-            lines.append(f"- `{principle.order:02d}. {principle.title}`: {primary_line}")
+            lines.append(
+                f"- `{principle.order:02d}. {principle.title}`: {primary_line}"
+            )
         if principle.quick_ref:
             lines.append(f"  Quick ref: {_format_quick_ref(principle.quick_ref)}")
     return lines
@@ -86,7 +88,9 @@ def render_agents_md(bundle: EthosBundle, repo_root: Path) -> str:
         lines.extend(["", "## Key Paths", *path_lines])
 
     if bundle.repo.notes:
-        lines.extend(["", "## Repo Notes", *[f"- {note}" for note in bundle.repo.notes]])
+        lines.extend(
+            ["", "## Repo Notes", *[f"- {note}" for note in bundle.repo.notes]]
+        )
 
     lines.extend(
         [
@@ -143,7 +147,9 @@ def render_shared_ethos_index(bundle: EthosBundle, repo_root: Path) -> str:
     ]
     for principle in bundle.principles:
         summary = principle.directive or principle.summary
-        lines.append(f"- [{principle.order:02d}. {principle.title}]({principle.id}.md) - {summary}")
+        lines.append(
+            f"- [{principle.order:02d}. {principle.title}]({principle.id}.md) - {summary}"
+        )
     return _join_lines(lines)
 
 
@@ -181,7 +187,9 @@ def render_ethos_md(bundle: EthosBundle, repo_root: Path) -> str:
             lines.extend(["### Directive", principle.directive, ""])
 
         if principle.quick_ref:
-            lines.extend(["### Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""])
+            lines.extend(
+                ["### Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""]
+            )
 
         if principle.tags:
             lines.extend(["### Tags", f"- {', '.join(principle.tags)}", ""])
@@ -192,7 +200,9 @@ def render_ethos_md(bundle: EthosBundle, repo_root: Path) -> str:
     return _join_lines(lines)
 
 
-def render_principle_detail(bundle: EthosBundle, principle: Principle, repo_root: Path) -> str:
+def render_principle_detail(
+    bundle: EthosBundle, principle: Principle, repo_root: Path
+) -> str:
     lines = [
         GENERATED_NOTICE,
         f"# {principle.order:02d}. {principle.title}",
@@ -206,20 +216,37 @@ def render_principle_detail(bundle: EthosBundle, principle: Principle, repo_root
         lines.extend(["## Directive", principle.directive, ""])
 
     if principle.quick_ref:
-        lines.extend(["## Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""])
+        lines.extend(
+            ["## Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""]
+        )
 
     if principle.merge_topics:
-        lines.extend(["## Merge Topics", *[f"- {item}" for item in principle.merge_topics], ""])
+        lines.extend(
+            ["## Merge Topics", *[f"- {item}" for item in principle.merge_topics], ""]
+        )
 
     if principle.tags:
         lines.extend(["## Tags", f"- {', '.join(principle.tags)}", ""])
 
     if principle.related:
-        lines.extend(["## Related", *[f"- [{related}]({related}.md)" for related in principle.related], ""])
+        lines.extend(
+            [
+                "## Related",
+                *[f"- [{related}]({related}.md)" for related in principle.related],
+                "",
+            ]
+        )
 
     if principle.agent_hints:
         lines.extend(
-            ["## Agent Hints", *[f"- `{agent}`: {hint}" for agent, hint in sorted(principle.agent_hints.items())], ""]
+            [
+                "## Agent Hints",
+                *[
+                    f"- `{agent}`: {hint}"
+                    for agent, hint in sorted(principle.agent_hints.items())
+                ],
+                "",
+            ]
         )
 
     if bundle.repo.name or bundle.repo.overview or bundle.repo.notes:
@@ -276,7 +303,9 @@ def render_claude_addendum(bundle: EthosBundle, repo_root: Path) -> str:
     repo_notes = bundle.repo.agent_notes.get("claude", [])
     if repo_notes:
         lines.extend(["", "### Claude Notes", *[f"- {note}" for note in repo_notes]])
-    lines.extend(["", "### High-Priority Principles", *_principle_lines(bundle.principles[:5])])
+    lines.extend(
+        ["", "### High-Priority Principles", *_principle_lines(bundle.principles[:5])]
+    )
     return _join_lines(lines)
 
 
@@ -289,7 +318,9 @@ def render_claude_memory(bundle: EthosBundle, repo_root: Path) -> str:
     ]
     for principle in bundle.principles:
         summary = principle.directive or principle.summary
-        lines.append(f"- [{principle.title}](../../.agents/ethos/{principle.id}.md) - {summary}")
+        lines.append(
+            f"- [{principle.title}](../../.agents/ethos/{principle.id}.md) - {summary}"
+        )
     return _join_lines(lines)
 
 
@@ -311,7 +342,9 @@ def render_gemini_md(bundle: EthosBundle, repo_root: Path) -> str:
                 "- Prefer targeted reads of `.agents/ethos/README.md` and individual detail docs instead of inlining the full corpus.",
             ]
         )
-    lines.append("- Keep repo-specific conventions in `repo_ethos.yml`; regenerate after updating it.")
+    lines.append(
+        "- Keep repo-specific conventions in `repo_ethos.yml`; regenerate after updating it."
+    )
     lines.extend(f"- {note}" for note in bundle.repo.agent_notes.get("gemini", []))
     return _join_lines(lines)
 
@@ -328,7 +361,9 @@ def render_gemini_addendum(bundle: EthosBundle, repo_root: Path) -> str:
     repo_notes = bundle.repo.agent_notes.get("gemini", [])
     if repo_notes:
         lines.extend(["", "### Gemini Notes", *[f"- {note}" for note in repo_notes]])
-    lines.extend(["", "### High-Priority Principles", *_principle_lines(bundle.principles[:5])])
+    lines.extend(
+        ["", "### High-Priority Principles", *_principle_lines(bundle.principles[:5])]
+    )
     return _join_lines(lines)
 
 
@@ -352,9 +387,12 @@ def render_prompt_addon(bundle: EthosBundle, agent: str, repo_root: Path) -> str
         "Core principles:",
     ]
     lines.extend(
-        f"- {principle.title}: {principle.directive or principle.summary}" for principle in top_principles
+        f"- {principle.title}: {principle.directive or principle.summary}"
+        for principle in top_principles
     )
     for principle in top_principles:
         if principle.quick_ref:
-            lines.append(f"- {principle.title} quick ref: {_format_quick_ref(principle.quick_ref, limit=2)}")
+            lines.append(
+                f"- {principle.title} quick ref: {_format_quick_ref(principle.quick_ref, limit=2)}"
+            )
     return _join_lines(lines)

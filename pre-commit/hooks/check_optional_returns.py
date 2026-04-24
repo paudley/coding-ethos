@@ -28,7 +28,6 @@ import sys
 from pathlib import Path
 from typing import Final, NamedTuple
 
-
 MIN_REQUIRED_ARGS: Final[int] = 2
 
 

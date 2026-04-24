@@ -60,3 +60,18 @@ tooling:
     include:
       - lib/python/project
       - pre-commit/hooks
+
+gemini:
+  model: gemini-2.5-flash
+  model_overrides:
+    code_ethos: gemini-2.5-pro
+  service_tier: standard
+  service_tier_overrides:
+    shell_review: flex
+  cache:
+    enabled: true
+    ttl_seconds: 86400
+    api_enabled: true
+    api_ttl_seconds: 1800
+  modal_allowlist_files:
+    - scripts/bootstrap.sh

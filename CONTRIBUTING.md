@@ -76,6 +76,7 @@ Before requesting review, make sure you:
 
 - [ ] ran `uv run pytest`
 - [ ] ran `make check-tool-configs` after changing `config.yaml`, `repo_config.example.yaml`, or tool-config generation logic
+- [ ] ran `make check-gemini-prompts` after changing Gemini prompts, `coding_ethos.yml`, `repo_ethos.yml`, `config.yaml`, or `repo_config.example.yaml`
 - [ ] ran `make validate` after changing files under `pre-commit/`
 - [ ] updated tests for any behavioral change
 - [ ] updated `README.md` if usage, flags, or outputs changed

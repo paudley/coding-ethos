@@ -7,6 +7,28 @@ project:
     - ETHOS.md
     - code-ethos/ETHOS.md
 
+gemini:
+  enabled: false
+  model: gemini-2.5-flash
+  model_overrides: {}
+  service_tier: standard
+  service_tier_overrides: {}
+  thinking_budget_overrides: {}
+  repo_name: coding-ethos
+  repo_context: shared repository automation and engineering tooling
+  max_retries: 3
+  timeout_seconds: 300
+  initial_backoff_seconds: 1.0
+  max_concurrent_api_calls: 10
+  disable_safety_filters: true
+  cache:
+    enabled: true
+    ttl_seconds: 604800
+    dirname: gemini-cache
+    api_enabled: true
+    api_ttl_seconds: 3600
+  modal_allowlist_files: []
+
 style:
   python_version: "3.13"
   line_length: 88
@@ -268,16 +290,6 @@ tooling:
           - "true"
           - "false"
         check-keys: false
-
-gemini:
-  enabled: false
-  repo_name: coding-ethos
-  repo_context: Shared ETHOS generation and enforcement tooling.
-  model: gemini-2.5-flash
-  max_concurrent_api_calls: 10
-  timeout_seconds: 300
-  max_retries: 3
-  initial_backoff_seconds: 1.0
 
 go:
   enabled: false

@@ -47,7 +47,8 @@ def find_plan_metadata_files(staged_files: list[Path]) -> list[Path]:
     return [
         f
         for f in staged_files
-        if f.name == metadata_filename and any(marker in str(f) for marker in root_markers)
+        if f.name == metadata_filename
+        and any(marker in str(f) for marker in root_markers)
     ]
 
 

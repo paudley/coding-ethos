@@ -6,6 +6,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from coding_ethos.gemini_prompt_pack import (
+    check_gemini_prompt_pack,
+    sync_gemini_prompt_pack,
+)
 from coding_ethos.loaders import load_primary_bundle, merge_repo_ethos
 from coding_ethos.markdown_seed import seed_primary_from_markdown
 from coding_ethos.merging import (
@@ -19,18 +23,18 @@ from coding_ethos.merging import (
 )
 from coding_ethos.models import SUPPORTED_AGENTS
 from coding_ethos.renderers import (
-    render_agents_md,
     render_agents_addendum,
-    render_claude_md,
+    render_agents_md,
     render_claude_addendum,
+    render_claude_md,
     render_claude_memory,
     render_ethos_md,
-    render_gemini_md,
     render_gemini_addendum,
+    render_gemini_md,
     render_principle_detail,
     render_prompt_addon,
-    required_root_imports,
     render_shared_ethos_index,
+    required_root_imports,
 )
 from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
 
@@ -120,10 +124,22 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail if generated tool config files in --repo are missing or out of sync.",
     )
+    parser.add_argument(
+        "--sync-gemini-prompts",
+        action="store_true",
+        help="Generate the grounded Gemini prompt pack into --repo/.code-ethos/gemini/.",
+    )
+    parser.add_argument(
+        "--check-gemini-prompts",
+        action="store_true",
+        help="Fail if the generated Gemini prompt pack in --repo is missing or out of sync.",
+    )
     return parser
 
 
-def _resolve_repo_ethos(repo_root: Path, explicit_repo_ethos: Path | None) -> Path | None:
+def _resolve_repo_ethos(
+    repo_root: Path, explicit_repo_ethos: Path | None
+) -> Path | None:
     if explicit_repo_ethos is not None:
         return explicit_repo_ethos
     for name in ("repo_ethos.yml", "repo_ethos.yaml"):
@@ -136,7 +152,12 @@ def _resolve_repo_ethos(repo_root: Path, explicit_repo_ethos: Path | None) -> Pa
 def _resolve_primary_path(explicit_primary: Path | None) -> Path:
     if explicit_primary is not None:
         return explicit_primary.resolve()
-    for name in ("coding_ethos.yml", "coding_ethos.yaml", "code_ethos.yml", "code_ethos.yaml"):
+    for name in (
+        "coding_ethos.yml",
+        "coding_ethos.yaml",
+        "code_ethos.yml",
+        "code_ethos.yaml",
+    ):
         candidate = Path(name)
         if candidate.exists():
             return candidate.resolve()
@@ -158,10 +179,14 @@ def _render_contents(bundle, repo_root: Path) -> dict[str, str]:
     }
 
     for principle in bundle.principles:
-        rendered[f".agents/ethos/{principle.id}.md"] = render_principle_detail(bundle, principle, repo_root)
+        rendered[f".agents/ethos/{principle.id}.md"] = render_principle_detail(
+            bundle, principle, repo_root
+        )
 
     for agent in SUPPORTED_AGENTS:
-        rendered[f".agent-context/prompt-addons/{agent}.md"] = render_prompt_addon(bundle, agent, repo_root)
+        rendered[f".agent-context/prompt-addons/{agent}.md"] = render_prompt_addon(
+            bundle, agent, repo_root
+        )
 
     return rendered
 
@@ -172,9 +197,13 @@ def _merge_topics_for_target(bundle, relative_path: str) -> list[str]:
     if relative_path == "AGENTS.md":
         topics.extend(["repo commands", "key paths", "repo operating notes"])
     elif relative_path == "CLAUDE.md":
-        topics.extend(["Claude imports", "memory links", "Claude-specific workflow notes"])
+        topics.extend(
+            ["Claude imports", "memory links", "Claude-specific workflow notes"]
+        )
     elif relative_path == "GEMINI.md":
-        topics.extend(["Gemini root guidance", "linked detail docs", "repo operating notes"])
+        topics.extend(
+            ["Gemini root guidance", "linked detail docs", "repo operating notes"]
+        )
 
     for principle in bundle.principles:
         for topic in principle.merge_topics:
@@ -202,7 +231,11 @@ def _write_outputs(
     for relative_path, content in rendered.items():
         absolute_path = repo_root / relative_path
         final_content = content
-        if merge_existing and should_merge_existing(relative_path) and absolute_path.exists():
+        if (
+            merge_existing
+            and should_merge_existing(relative_path)
+            and absolute_path.exists()
+        ):
             existing_content = absolute_path.read_text(encoding="utf-8")
             if merge_strategy == "inject":
                 if relative_path == "AGENTS.md":
@@ -255,8 +288,16 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = args.repo.expanduser().resolve() if args.repo is not None else None
 
-    if (args.sync_tool_configs or args.check_tool_configs) and repo_root is None:
-        parser.error("--sync-tool-configs and --check-tool-configs require --repo.")
+    if (
+        args.sync_tool_configs
+        or args.check_tool_configs
+        or args.sync_gemini_prompts
+        or args.check_gemini_prompts
+    ) and repo_root is None:
+        parser.error(
+            "--sync-tool-configs, --check-tool-configs, --sync-gemini-prompts, "
+            "and --check-gemini-prompts require --repo."
+        )
 
     if args.sync_tool_configs and repo_root is not None:
         repo_root.mkdir(parents=True, exist_ok=True)
@@ -269,7 +310,46 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(str(path) for path in mismatched))
             return 1
 
-    if args.sync_tool_configs or args.check_tool_configs:
+    if args.sync_gemini_prompts or args.check_gemini_prompts:
+        primary_path = _resolve_primary_path(args.primary)
+        if not primary_path.exists():
+            parser.error(
+                f"Primary YAML not found at {primary_path}. "
+                "Use --seed-from-markdown to generate it first."
+            )
+        repo_ethos_path = (
+            _resolve_repo_ethos(repo_root, args.repo_ethos)
+            if repo_root is not None
+            else None
+        )
+
+        if args.sync_gemini_prompts and repo_root is not None:
+            repo_root.mkdir(parents=True, exist_ok=True)
+            written = sync_gemini_prompt_pack(
+                repo_root=repo_root,
+                primary_path=primary_path,
+                repo_ethos_path=repo_ethos_path,
+                repo_config_path=args.repo_config,
+            )
+            print("\n".join(str(path) for path in written))
+
+        if args.check_gemini_prompts and repo_root is not None:
+            mismatched = check_gemini_prompt_pack(
+                repo_root=repo_root,
+                primary_path=primary_path,
+                repo_ethos_path=repo_ethos_path,
+                repo_config_path=args.repo_config,
+            )
+            if mismatched:
+                print("\n".join(str(path) for path in mismatched))
+                return 1
+
+    if (
+        args.sync_tool_configs
+        or args.check_tool_configs
+        or args.sync_gemini_prompts
+        or args.check_gemini_prompts
+    ):
         return 0
 
     primary_path = _resolve_primary_path(args.primary)

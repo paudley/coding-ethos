@@ -27,7 +27,6 @@ _DEFAULT_OVERRIDE_CANDIDATES = (
 
 def _deep_merge(base: Any, override: Any) -> Any:
     """Recursively merge dictionaries and replace other values."""
-
     if isinstance(base, dict) and isinstance(override, dict):
         merged = dict(base)
         for key, value in override.items():
@@ -53,7 +52,6 @@ def _script_bundle_root() -> Path:
 
 def _git_output(*args: str) -> str:
     """Run a git command and return stripped stdout or an empty string."""
-
     try:
         result = subprocess.run(
             list(args),
@@ -72,7 +70,6 @@ def _is_bundle_root(path: Path) -> bool:
 
 def bundle_root() -> Path:
     """Return the active hook bundle root."""
-
     env_root = os.environ.get("CODE_ETHOS_PRECOMMIT_ROOT", "").strip()
     if env_root:
         candidate = Path(env_root).expanduser().resolve()
@@ -88,13 +85,11 @@ def bundle_root() -> Path:
 
 def ethos_root() -> Path:
     """Return the coding-ethos repository root."""
-
     return bundle_root().parent
 
 
 def consumer_root() -> Path:
     """Return the consuming repository root for override discovery."""
-
     ethos = ethos_root()
     super_root = _git_output(
         "git",
@@ -128,7 +123,6 @@ def _override_candidates(config: dict[str, Any]) -> list[Path]:
 @lru_cache
 def load_config() -> dict[str, Any]:
     """Load the default hook config with an optional root-level override."""
-
     base_path = ethos_root() / "config.yaml"
     config = _load_yaml(base_path)
 
@@ -145,7 +139,6 @@ def load_config() -> dict[str, Any]:
 
 def get(path: str, default: Any = None) -> Any:
     """Read a dotted config path."""
-
     current: Any = load_config()
     for segment in path.split("."):
         if not isinstance(current, dict) or segment not in current:

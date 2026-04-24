@@ -17,12 +17,12 @@ from typing import Any, Final
 
 from hook_config import get_bool, get_list
 
-
 # Type alias for TOML dict structures
 TOMLDict = dict[str, Any]
 
 
 MIN_REQUIRED_ARGS: Final[int] = 2
+
 
 # Patterns that are allowed to have per-file ignores.
 # Tests: relaxed rules for pytest fixtures, assertions, etc.
@@ -38,6 +38,7 @@ def _allowed_ignore_patterns() -> frozenset[str]:
         )
         if str(item).strip()
     )
+
 
 # Build/cache directories that are legitimately excluded from linting
 def _allowed_exclude_patterns() -> frozenset[str]:
@@ -61,6 +62,7 @@ def _allowed_exclude_patterns() -> frozenset[str]:
         if str(item).strip()
     )
 
+
 # External package patterns for mypy ignore_missing_imports (no type stubs)
 def _allowed_mypy_missing_imports() -> frozenset[str]:
     return frozenset(
@@ -71,6 +73,7 @@ def _allowed_mypy_missing_imports() -> frozenset[str]:
         )
         if str(item).strip()
     )
+
 
 RUFF_PER_FILE_IGNORE_KEYS: Final[tuple[str, ...]] = (
     "per-file-ignores",

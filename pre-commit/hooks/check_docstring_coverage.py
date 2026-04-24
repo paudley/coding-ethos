@@ -15,7 +15,6 @@ Exit codes:
 import shutil
 import subprocess
 import sys
-from typing import Final
 
 from hook_config import get_bool, get_list
 

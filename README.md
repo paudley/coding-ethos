@@ -304,6 +304,7 @@ make help
 make install
 make test
 make sync-tool-configs
+make sync-gemini-prompts
 make validate
 make generate
 ```
@@ -316,6 +317,8 @@ The repo also ships a bundled Lefthook-based pre-commit package in
 ```bash
 make sync-tool-configs
 make check-tool-configs
+make sync-gemini-prompts
+make check-gemini-prompts
 make validate
 make install-hooks
 ```
@@ -323,14 +326,33 @@ make install-hooks
 Backward-compatible aliases like `make hooks-validate` and
 `make hooks-install` still work.
 
+`make install-hooks` keeps Lefthook repo-local. It installs the pinned
+binary into `.git/coding-ethos-hooks/` with `GOBIN=... go install` and uses
+that cached binary for both manual runs and installed Git hook shims.
+
 `make sync-tool-configs` generates repo-root `pyrightconfig.json`, `mypy.ini`,
 `ruff.toml`, and `.yamllint.yml` from the shared [config.yaml](config.yaml)
-plus an optional consuming-repo `repo_config.yaml`. `install-hooks` runs that
-sync step automatically before installing Git hook shims.
+plus an optional consuming-repo `repo_config.yaml`.
+
+`make sync-gemini-prompts` generates
+`.code-ethos/gemini/prompt-pack.json`, a grounded Gemini prompt pack derived
+from `coding_ethos.yml`, optional `repo_ethos.yml`, and the merged
+`config.yaml` plus `repo_config.yaml` policy model. The pack includes both
+rendered prompt text and per-check runtime metadata such as file scope and
+batch sizing. `install` and
+`install-hooks` run both sync steps automatically, and the active Lefthook
+Gemini job now consumes that pack through the Go hook runner. The Go runner
+also honors `gemini.max_concurrent_api_calls`, repo-local response caching in
+`.git/coding-ethos-hooks/gemini-cache/`, per-check `model_overrides` and
+`service_tier_overrides`, explicit Gemini `cachedContents` reuse for batch
+corpora that are reviewed by multiple prompts, and
+`disable_safety_filters: true` for code-review requests.
 
 The root `pyproject.toml` still includes `pre-commit/hooks` as a `uv` workspace
 member for the hook toolchain environment, but Lefthook now reads Ruff,
-mypy, pyright, and yamllint settings from the generated repo-root config files.
+mypy, pyright, and yamllint settings from the generated repo-root config files,
+and Gemini review prefers the generated prompt pack over legacy hard-coded
+prompt constants.
 
 Run tests:
 

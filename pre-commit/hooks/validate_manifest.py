@@ -20,9 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from hook_config import get, get_bool, get_list
-
 
 # Type alias for YAML dict structures
 YAMLDict = dict[str, Any]
@@ -184,13 +182,13 @@ def validate_manifest(data: YAMLDict) -> list[str]:
             entry_dict = typing.cast("YAMLDict", entry)
             for field_name in required_fields:
                 if field_name not in entry_dict:
-                    errors.append(
-                        f"{section_name}[{i}]: Missing '{field_name}' field"
-                    )
+                    errors.append(f"{section_name}[{i}]: Missing '{field_name}' field")
                 elif not isinstance(entry_dict[field_name], str):
                     errors.append(f"{section_name}[{i}].{field_name}: Expected string")
             for field_name in optional_fields:
-                if field_name in entry_dict and not isinstance(entry_dict[field_name], str):
+                if field_name in entry_dict and not isinstance(
+                    entry_dict[field_name], str
+                ):
                     errors.append(f"{section_name}[{i}].{field_name}: Expected string")
 
     return errors

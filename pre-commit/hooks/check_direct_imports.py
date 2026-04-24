@@ -39,12 +39,12 @@ from typing import Final, NamedTuple
 
 from hook_config import get_bool, get_list
 
-
 # Minimum number of args (script name + at least one file)
 MIN_ARGS: Final[int] = 2
 
 # Minimum parts in an import path to be checkable.
 MIN_IMPORT_PARTS: Final[int] = 2
+
 
 class ImportViolation(NamedTuple):
     """Record of a direct import violation."""

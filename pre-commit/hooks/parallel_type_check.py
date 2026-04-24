@@ -20,7 +20,6 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
 
 from hook_config import bundle_root, get_bool, get_list
 
@@ -43,9 +42,7 @@ def _configured_checkers() -> list[TypeCheckerConfig]:
             continue
         name = str(raw.get("name", "")).strip()
         command = [
-            str(item).strip()
-            for item in raw.get("command", [])
-            if str(item).strip()
+            str(item).strip() for item in raw.get("command", []) if str(item).strip()
         ]
         if name and command:
             checkers.append(
@@ -94,12 +91,16 @@ def _resolved_command(config: TypeCheckerConfig) -> list[str]:
     mypy_config = _repo_config("mypy.ini")
 
     if config.name == "pyright" and not _has_option(command, "--project", "-p"):
-        project_path = pyright_config or (hooks_pyproject if hooks_pyproject.exists() else None)
+        project_path = pyright_config or (
+            hooks_pyproject if hooks_pyproject.exists() else None
+        )
         if project_path is not None:
             command.extend(["--project", str(project_path)])
 
     if config.name == "mypy" and not _has_option(command, "--config-file"):
-        config_path = mypy_config or (hooks_pyproject if hooks_pyproject.exists() else None)
+        config_path = mypy_config or (
+            hooks_pyproject if hooks_pyproject.exists() else None
+        )
         if config_path is not None:
             command.extend(["--config-file", str(config_path)])
 
@@ -196,9 +197,7 @@ async def run_checker(
 
     resolved_command = _resolved_command(config)
     command = (
-        [*resolved_command, *files]
-        if config.pass_files_as_args
-        else resolved_command
+        [*resolved_command, *files] if config.pass_files_as_args else resolved_command
     )
 
     try:

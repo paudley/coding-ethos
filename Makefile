@@ -14,11 +14,13 @@ GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
 LEFTHOOK_RUNNER := $(PRECOMMIT_DIR)hooks/run-lefthook.sh
 LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 LOCAL_LEFTHOOK := $(LOCAL_BIN_DIR)/lefthook
+LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
 GIT_HOOKS := pre-commit pre-push commit-msg
 LEFTHOOK_VERSION := v1.13.6
 
 UV ?= uv
 PYTHON ?= python
+GO ?= go
 REPO ?= $(LOCAL_REPO_ROOT)
 TOOL_CONFIG_REPO ?= $(HOOK_CONSUMER_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
@@ -32,7 +34,6 @@ MERGE_TIMEOUT_SECONDS ?= 300
 SEED_FROM ?=
 
 APP ?= $(UV) run $(PYTHON) $(LOCAL_REPO_ROOT)/main.py
-LEFTHOOK_BIN := $(shell command -v lefthook 2>/dev/null)
 
 ifeq ($(strip $(REPO_ETHOS)),)
 ifeq ($(abspath $(REPO)),$(LOCAL_REPO_ROOT))
@@ -52,6 +53,7 @@ endif
 
 COMMON_GENERATE_FLAGS := --repo "$(REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG)
 TOOL_CONFIG_FLAGS := --repo "$(TOOL_CONFIG_REPO)" $(REPO_CONFIG_FLAG)
+GEMINI_PROMPT_FLAGS := --repo "$(TOOL_CONFIG_REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG) $(REPO_CONFIG_FLAG)
 MERGE_FLAGS = --merge-existing --merge-strategy "$(MERGE_STRATEGY)" --merge-engine "$(MERGE_ENGINE)" --merge-timeout-seconds "$(MERGE_TIMEOUT_SECONDS)"
 
 ifneq ($(strip $(MERGE_BIN)),)
@@ -62,13 +64,7 @@ ifneq ($(strip $(MERGE_MODEL)),)
 MERGE_FLAGS += --merge-model "$(MERGE_MODEL)"
 endif
 
-ifneq ($(wildcard $(LOCAL_LEFTHOOK)),)
 LEFTHOOK := $(LOCAL_LEFTHOOK)
-else ifneq ($(LEFTHOOK_BIN),)
-LEFTHOOK := $(LEFTHOOK_BIN)
-else
-LEFTHOOK := go run github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION)
-endif
 
 ifneq ($(strip $(TERM)),dumb)
 COLOR_RESET := \033[0m
@@ -118,6 +114,8 @@ endef
 	clean-cache \
 	sync-tool-configs \
 	check-tool-configs \
+	sync-gemini-prompts \
+	check-gemini-prompts \
 	hooks-validate \
 	hooks-install \
 	hooks-go-test \
@@ -127,6 +125,7 @@ endef
 	generate-merge-llm \
 	clean \
 	ensure-uv \
+	ensure-lefthook \
 	check-root-config \
 	guard-%
 
@@ -158,6 +157,7 @@ help: ## Show the available targets and the most useful overrides.
 	@printf '  make validate\n'
 	@printf '  make install-hooks\n'
 	@printf '  make sync-tool-configs\n'
+	@printf '  make sync-gemini-prompts\n'
 	@printf '  make generate\n'
 	@printf '  make generate REPO=/tmp/example\n'
 	@printf '  make seed SEED_FROM=/tmp/ETHOS.md\n'
@@ -169,7 +169,9 @@ status: ## Print the resolved tool and generation configuration.
 	@printf '  %-24s %s\n' "HOOK_CONSUMER_ROOT" "$(HOOK_CONSUMER_ROOT)"
 	@printf '  %-24s %s\n' "UV" "$(UV)"
 	@printf '  %-24s %s\n' "PYTHON" "$(PYTHON)"
+	@printf '  %-24s %s\n' "GO" "$(GO)"
 	@printf '  %-24s %s\n' "APP" "$(APP)"
+	@printf '  %-24s %s\n' "LOCAL_LEFTHOOK" "$(LOCAL_LEFTHOOK)"
 	@printf '  %-24s %s\n' "REPO" "$(REPO)"
 	@printf '  %-24s %s\n' "TOOL_CONFIG_REPO" "$(TOOL_CONFIG_REPO)"
 	@printf '  %-24s %s\n' "PRIMARY" "$(PRIMARY)"
@@ -188,22 +190,36 @@ ensure-uv:
 		exit 1; \
 	}
 
+ensure-lefthook: check-root-config
+	@mkdir -p "$(LOCAL_BIN_DIR)"
+	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] || [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] || [ "$$(cat "$(LOCAL_LEFTHOOK_VERSION_FILE)" 2>/dev/null)" != "$(LEFTHOOK_VERSION)" ]; then \
+		command -v "$(GO)" >/dev/null 2>&1 || { \
+			printf '$(COLOR_WARN)go is required to install the repo-local Lefthook binary.$(COLOR_RESET)\n' >&2; \
+			exit 1; \
+		}; \
+		$(call print_step,Installing repo-local Lefthook $(LEFTHOOK_VERSION)); \
+		GOBIN="$(LOCAL_BIN_DIR)" "$(GO)" install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION); \
+		printf '%s\n' "$(LEFTHOOK_VERSION)" > "$(LOCAL_LEFTHOOK_VERSION_FILE)"; \
+	fi
+
 install: ensure-uv ## Sync the repo's development dependencies.
 	@$(call print_step,Syncing development dependencies)
 	@$(UV) sync --group dev --all-packages
 	@$(MAKE) sync-tool-configs
+	@$(MAKE) sync-gemini-prompts
 
 install-runtime: ensure-uv ## Sync only the runtime dependencies.
 	@$(call print_step,Syncing runtime dependencies)
 	@$(UV) sync --all-packages
 	@$(MAKE) sync-tool-configs
+	@$(MAKE) sync-gemini-prompts
 
 ##@ Quality
 test: ensure-uv ## Run the current automated test suite.
 	@$(call print_step,Running pytest)
 	@$(UV) run pytest
 
-check: test check-tool-configs ## Run the repo's current verification gate.
+check: test check-tool-configs check-gemini-prompts ## Run the repo's current verification gate.
 
 ##@ Hooks
 check-root-config:
@@ -223,10 +239,19 @@ check-tool-configs: ensure-uv ## Fail if repo-root generated tool configs are ou
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --check-tool-configs
 
-install-hooks: sync-tool-configs check-root-config ## Install the bundled Lefthook shims into .git/hooks.
-	@$(call print_step,Installing repo-local Lefthook $(LEFTHOOK_VERSION))
-	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@GOBIN="$(LOCAL_BIN_DIR)" go install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION)
+sync-gemini-prompts: ensure-uv ## Generate the grounded Gemini prompt pack for hook runtime.
+	@$(call print_step,Syncing grounded Gemini prompt pack)
+	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
+	@$(call print_info,primary: $(PRIMARY))
+	@$(APP) $(GEMINI_PROMPT_FLAGS) --sync-gemini-prompts
+
+check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is out of sync.
+	@$(call print_step,Checking grounded Gemini prompt pack)
+	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
+	@$(call print_info,primary: $(PRIMARY))
+	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
+
+install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install the bundled Lefthook shims into .git/hooks.
 	@$(call print_step,Installing Git hook shims)
 	@mkdir -p "$(HOOKS_DIR)"
 	@for hook in $(GIT_HOOKS); do \
@@ -238,19 +263,19 @@ install-hooks: sync-tool-configs check-root-config ## Install the bundled Leftho
 	fi
 	@$(call print_info,installed: $(LOCAL_LEFTHOOK))
 
-pre-commit: check-root-config ## Run bundled pre-commit hooks on staged files.
+pre-commit: ensure-lefthook ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Lefthook pre-commit on staged files)
 	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-commit 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
-pre-commit-all: check-root-config ## Run bundled pre-commit hooks on all files.
+pre-commit-all: ensure-lefthook ## Run bundled pre-commit hooks on all files.
 	@$(call print_step,Running Lefthook pre-commit on all files)
 	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-commit --all-files 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
-pre-push: check-root-config ## Run bundled pre-push hooks.
+pre-push: ensure-lefthook ## Run bundled pre-push hooks.
 	@$(call print_step,Running Lefthook pre-push)
 	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-push 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
-commit-msg: check-root-config ## Run commit-message hooks against MSG=/path/to/file.
+commit-msg: ensure-lefthook ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
 	@printf '$(COLOR_WARN)Usage: make commit-msg MSG=/path/to/commit-message-file$(COLOR_RESET)\n' >&2
 	@exit 2
@@ -259,7 +284,7 @@ else
 	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run commit-msg "$(MSG)" 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 endif
 
-validate: check-root-config ## Validate the bundled Lefthook configuration.
+validate: ensure-lefthook ## Validate the bundled Lefthook configuration.
 	@$(call print_step,Validating bundled pre-commit hooks)
 	@cd "$(HOOK_CONSUMER_ROOT)" && $(LEFTHOOK) validate
 

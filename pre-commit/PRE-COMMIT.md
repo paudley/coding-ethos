@@ -24,8 +24,9 @@ When `code-ethos/` is a submodule, the root `Makefile` resolves the parent
 repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook shims are installed, `make install-hooks` also generates the
-consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, and
-`.yamllint.yml` from `config.yaml` plus any `repo_config.yaml` override.
+consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`,
+`.yamllint.yml`, and `.code-ethos/gemini/prompt-pack.json` from the shared
+bundle inputs plus any consuming-repo overrides.
 
 `make install-hooks` installs a pinned repo-local Lefthook binary to:
 
@@ -33,13 +34,16 @@ consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, and
 .git/coding-ethos-hooks/lefthook
 ```
 
-Installed Git hooks resolve Lefthook in this order:
+The bundle does not install Lefthook into the host system and does not rely on
+`lefthook` from `PATH`. It bootstraps the pinned binary with:
 
-1. Repo-local `.git/coding-ethos-hooks/lefthook`
-2. `lefthook` from `PATH`
-3. `go run github.com/evilmartians/lefthook@v1.13.6`
+```bash
+GOBIN=.git/coding-ethos-hooks go install github.com/evilmartians/lefthook@v1.13.6
+```
 
-If none of those work, the hook fails and blocks the Git operation.
+Installed Git hooks use that repo-local binary only. If the binary is missing
+or the cached version is stale, the hook shim rebuilds it into the same local
+path and then runs it.
 
 Required tools:
 
@@ -92,16 +96,26 @@ Hook bypass is forbidden. Do not use `LEFTHOOK=0` or `--no-verify`.
 Primary files:
 
 - `lefthook.yml` - hook stages, globs, excludes, and command templates
-- `Makefile` - local hook entry points and pinned Lefthook version
+- `../Makefile` - root-level hook entry points and pinned Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
 - `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.yamllint.yml` - generated consumer-repo tool configs
+- `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini prompt pack with rendered prompts and per-check runtime metadata
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `hooks/run-go-hook.sh` - cached Go helper build and execution wrapper
 - `hooks/run-lefthook.sh` - repo hook shim used for installed Git hooks
-- `hooks/go-hooks/main.go` - Go-backed hook commands
+- `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
+
+The active Go Gemini runner now executes file batches concurrently, applies
+repo-local response caching under `.git/coding-ethos-hooks/gemini-cache/`,
+supports per-check `model_overrides` and `service_tier_overrides`, reuses
+Gemini `cachedContents` entries when the same batch corpus is reviewed by
+multiple prompts, and can run `standard`, `flex`, or `priority` requests from
+merged `config.yaml` plus `repo_config.yaml`.
 
 The cached Go helper binary lives in `.git/coding-ethos-hooks/`. It rebuilds
 when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
+The Lefthook binary is cached there as well, with a small version stamp file so
+the bundle can refresh it locally when the pinned version changes.
 
 ## Configuration
 
@@ -135,7 +149,7 @@ Important configurable areas:
 - `python.pytest_gate` - banned markers and pytest command
 - `python.type_check` - checker commands and enablement
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint` - generated repo-root tool config defaults
-- `gemini.*` - AI review enablement, model, concurrency, timeout, and repo context
+- `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
 
 For this repo, many project-specific checks are disabled by default because the
@@ -151,6 +165,7 @@ Typical consuming-repo overrides include:
 - `python.pytest_gate.test_command` for nonstandard test roots like `lib/python/tests`
 - `python.docstring_coverage.check_paths` for nested source trees
 - `python.sql_centralization` and `python.util_centralization` for repo-specific wrapper modules
+- `gemini.modal_allowlist_files` for repo-configured file-level modal waivers instead of inline source comments
 
 See [../repo_config.example.yaml](../repo_config.example.yaml) for a minimal
 consumer-repo override file.

@@ -151,11 +151,17 @@ def _build_merge_command(
     model: str | None,
 ) -> list[str]:
     if engine == "codex":
-        return _build_codex_command(binary=binary, temp_root=temp_root, prompt=prompt, model=model)
+        return _build_codex_command(
+            binary=binary, temp_root=temp_root, prompt=prompt, model=model
+        )
     if engine == "gemini":
-        return _build_gemini_command(binary=binary, temp_root=temp_root, prompt=prompt, model=model)
+        return _build_gemini_command(
+            binary=binary, temp_root=temp_root, prompt=prompt, model=model
+        )
     if engine == "claude":
-        return _build_claude_command(binary=binary, temp_root=temp_root, prompt=prompt, model=model)
+        return _build_claude_command(
+            binary=binary, temp_root=temp_root, prompt=prompt, model=model
+        )
     raise ValueError(f"Unsupported merge engine: {engine}")
 
 
@@ -246,16 +252,23 @@ def merge_with_engine(
         if not merged_path.exists():
             output = _format_process_output(stdout, stderr)
             details = f"\n\n{output}" if output else ""
-            raise RuntimeError(f"{engine.title()} merge did not produce merged.md for {target_name}.{details}")
+            raise RuntimeError(
+                f"{engine.title()} merge did not produce merged.md for {target_name}.{details}"
+            )
         return merged_path.read_text(encoding="utf-8")
 
 
 def _block_markers(target_name: str, block_name: str) -> tuple[str, str]:
     token = f"{block_name} {target_name}"
-    return (f"<!-- coding-ethos:begin {token} -->", f"<!-- coding-ethos:end {token} -->")
+    return (
+        f"<!-- coding-ethos:begin {token} -->",
+        f"<!-- coding-ethos:end {token} -->",
+    )
 
 
-def _remove_managed_block(content: str, begin_marker: str, end_marker: str) -> tuple[str, bool]:
+def _remove_managed_block(
+    content: str, begin_marker: str, end_marker: str
+) -> tuple[str, bool]:
     start = content.find(begin_marker)
     if start == -1:
         return content, False
@@ -282,7 +295,9 @@ def _build_managed_block(begin_marker: str, end_marker: str, body: str) -> str:
     return f"{begin_marker}\n{body.rstrip()}\n{end_marker}"
 
 
-def _append_managed_block(content: str, *, target_name: str, block_name: str, body: str) -> str:
+def _append_managed_block(
+    content: str, *, target_name: str, block_name: str, body: str
+) -> str:
     begin_marker, end_marker = _block_markers(target_name, block_name)
     base_content, _ = _remove_managed_block(content, begin_marker, end_marker)
     block = _build_managed_block(begin_marker, end_marker, body)
@@ -292,7 +307,9 @@ def _append_managed_block(content: str, *, target_name: str, block_name: str, bo
     return base_content.rstrip() + "\n\n" + block + "\n"
 
 
-def _prepend_managed_block(content: str, *, target_name: str, block_name: str, body: str) -> str:
+def _prepend_managed_block(
+    content: str, *, target_name: str, block_name: str, body: str
+) -> str:
     begin_marker, end_marker = _block_markers(target_name, block_name)
     base_content, _ = _remove_managed_block(content, begin_marker, end_marker)
     block = _build_managed_block(begin_marker, end_marker, body)
@@ -312,7 +329,9 @@ def inject_import_block(
         return existing_content
 
     begin_marker, end_marker = _block_markers(target_name, "imports")
-    content_without_block, _ = _remove_managed_block(existing_content, begin_marker, end_marker)
+    content_without_block, _ = _remove_managed_block(
+        existing_content, begin_marker, end_marker
+    )
     present_lines = {line.strip() for line in content_without_block.splitlines()}
     missing_imports = [line for line in import_lines if line not in present_lines]
     if not missing_imports:
@@ -341,7 +360,9 @@ def inject_addendum_block(
 
 def strip_managed_blocks(content: str) -> str:
     stripped = content
-    pattern = re.compile(r"<!-- coding-ethos:begin .*?<!-- coding-ethos:end .*?-->", re.DOTALL)
+    pattern = re.compile(
+        r"<!-- coding-ethos:begin .*?<!-- coding-ethos:end .*?-->", re.DOTALL
+    )
     while True:
         updated = pattern.sub("", stripped)
         if updated == stripped:

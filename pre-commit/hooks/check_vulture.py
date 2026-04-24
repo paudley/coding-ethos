@@ -18,7 +18,6 @@ import sys
 from pathlib import Path
 from typing import Final
 
-
 # Configuration
 MIN_CONFIDENCE: Final[int] = 80
 EXCLUDE_PATTERNS: Final[list[str]] = [

@@ -33,7 +33,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-
 # Configuration
 SOURCE_DOCS_PATH: Final[Path] = Path("docs/SOURCE_DOCS.md")
 

@@ -10,21 +10,28 @@ from typing import Any
 import yaml
 
 from coding_ethos.models import (
+    SECTION_KINDS,
+    SUPPORTED_AGENTS,
     AgentProfile,
     EthosBundle,
     Principle,
     PrincipleSection,
     RepoContext,
-    SECTION_KINDS,
-    SUPPORTED_AGENTS,
 )
-from coding_ethos.presets import AGENT_PROFILES, build_agent_hints, build_merge_topics, build_quick_ref
+from coding_ethos.presets import (
+    AGENT_PROFILES,
+    build_agent_hints,
+    build_merge_topics,
+    build_quick_ref,
+)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
-        raise ValueError(f"Invalid ethos YAML at {path}: expected a mapping at the document root.")
+        raise ValueError(
+            f"Invalid ethos YAML at {path}: expected a mapping at the document root."
+        )
     return payload
 
 
@@ -56,7 +63,9 @@ def _normalize_agent_notes(raw: dict[str, Any] | None) -> dict[str, list[str]]:
         return notes
     unknown_agents = sorted(agent for agent in raw if agent not in SUPPORTED_AGENTS)
     if unknown_agents:
-        raise ValueError(f"agent_notes contains unsupported agents: {', '.join(unknown_agents)}")
+        raise ValueError(
+            f"agent_notes contains unsupported agents: {', '.join(unknown_agents)}"
+        )
     for agent in SUPPORTED_AGENTS:
         notes[agent] = _normalize_lines(raw.get(agent))
     return notes
@@ -69,7 +78,9 @@ def _normalize_agent_hints(raw: dict[str, Any] | None) -> dict[str, str]:
         raise ValueError("agent_hints must be a mapping.")
     unknown_agents = sorted(agent for agent in raw if agent not in SUPPORTED_AGENTS)
     if unknown_agents:
-        raise ValueError(f"agent_hints contains unsupported agents: {', '.join(unknown_agents)}")
+        raise ValueError(
+            f"agent_hints contains unsupported agents: {', '.join(unknown_agents)}"
+        )
     return {
         agent: str(value).strip()
         for agent, value in raw.items()
@@ -88,7 +99,9 @@ def _normalize_section_kind(raw_kind: Any) -> str:
     return kind
 
 
-def _sections_from_payload(item: dict[str, Any], *, source: str) -> list[PrincipleSection]:
+def _sections_from_payload(
+    item: dict[str, Any], *, source: str
+) -> list[PrincipleSection]:
     raw_sections = item.get("sections", [])
     sections: list[PrincipleSection] = []
     if not raw_sections:
@@ -98,7 +111,8 @@ def _sections_from_payload(item: dict[str, Any], *, source: str) -> list[Princip
                 PrincipleSection(
                     id="overview",
                     title="Overview",
-                    summary=str(item.get("summary", "")).strip() or body.splitlines()[0].strip(),
+                    summary=str(item.get("summary", "")).strip()
+                    or body.splitlines()[0].strip(),
                     body=body,
                     kind="overview",
                 )
@@ -132,7 +146,8 @@ def _sections_from_payload(item: dict[str, Any], *, source: str) -> list[Princip
             PrincipleSection(
                 id=section_id,
                 title=title,
-                summary=str(raw_section.get("summary", "")).strip() or body.splitlines()[0].strip(),
+                summary=str(raw_section.get("summary", "")).strip()
+                or body.splitlines()[0].strip(),
                 body=body,
                 kind=section_kind,
             )
@@ -143,7 +158,10 @@ def _sections_from_payload(item: dict[str, Any], *, source: str) -> list[Princip
 def _normalize_string_list(raw: Any, *, source: str, field_name: str) -> list[str]:
     values = _normalize_lines(raw)
     if raw is not None and not values:
-        _error(source, f"`{field_name}` must contain at least one non-empty string when provided.")
+        _error(
+            source,
+            f"`{field_name}` must contain at least one non-empty string when provided.",
+        )
     return values
 
 
@@ -164,17 +182,28 @@ def _principle_from_item(item: dict[str, Any], *, source: str) -> Principle:
 
     sections = _sections_from_payload(item, source=source)
     if not sections:
-        _error(source, f"principle `{principle_id}` must include at least one section or inline `body`.")
+        _error(
+            source,
+            f"principle `{principle_id}` must include at least one section or inline `body`.",
+        )
 
     body = "\n\n".join(section.body for section in sections).rstrip()
     summary = str(item.get("summary", "")).strip() or sections[0].summary
     directive = str(item.get("directive", summary)).strip()
     if not directive:
-        _error(source, f"principle `{principle_id}` must define a non-empty `directive`.")
+        _error(
+            source, f"principle `{principle_id}` must define a non-empty `directive`."
+        )
 
     tags = [str(tag).strip() for tag in item.get("tags", []) if str(tag).strip()]
-    related = [str(related).strip() for related in item.get("related", []) if str(related).strip()]
-    quick_ref = _normalize_string_list(item.get("quick_ref"), source=source, field_name="quick_ref")
+    related = [
+        str(related).strip()
+        for related in item.get("related", [])
+        if str(related).strip()
+    ]
+    quick_ref = _normalize_string_list(
+        item.get("quick_ref"), source=source, field_name="quick_ref"
+    )
     if not quick_ref:
         quick_ref = build_quick_ref(
             summary=summary,
@@ -182,7 +211,9 @@ def _principle_from_item(item: dict[str, Any], *, source: str) -> Principle:
             section_summaries=[section.summary for section in sections],
         )
 
-    merge_topics = _normalize_string_list(item.get("merge_topics"), source=source, field_name="merge_topics")
+    merge_topics = _normalize_string_list(
+        item.get("merge_topics"), source=source, field_name="merge_topics"
+    )
     if not merge_topics:
         merge_topics = build_merge_topics(title=title, tags=tags)
 
@@ -220,7 +251,9 @@ def _validate_primary_payload(payload: dict[str, Any], primary_path: Path) -> No
     for index, item in enumerate(principles, start=1):
         if not isinstance(item, dict):
             _error(source, f"principles[{index}] must be a mapping.")
-        normalized_principles.append(_principle_from_item(item, source=f"{source} principles[{index}]"))
+        normalized_principles.append(
+            _principle_from_item(item, source=f"{source} principles[{index}]")
+        )
     _validate_principle_collection(normalized_principles, source)
 
 
@@ -247,11 +280,17 @@ def _validate_principle_collection(principles: list[Principle], source: str) -> 
             )
 
 
-def _principles_from_payload(payload: dict[str, Any], *, source: str) -> list[Principle]:
+def _principles_from_payload(
+    payload: dict[str, Any], *, source: str
+) -> list[Principle]:
     principles: list[Principle] = []
     for index, item in enumerate(payload.get("principles", []), start=1):
-        principles.append(_principle_from_item(item, source=f"{source} principles[{index}]"))
-    return sorted(principles, key=lambda principle: (principle.order, principle.title.lower()))
+        principles.append(
+            _principle_from_item(item, source=f"{source} principles[{index}]")
+        )
+    return sorted(
+        principles, key=lambda principle: (principle.order, principle.title.lower())
+    )
 
 
 def _agent_profiles_from_payload(payload: dict[str, Any]) -> dict[str, AgentProfile]:
@@ -263,7 +302,11 @@ def _agent_profiles_from_payload(payload: dict[str, Any]) -> dict[str, AgentProf
         profiles[agent] = AgentProfile(
             name=agent,
             root_file=str(raw.get("root_file", "")).strip(),
-            supporting_files=[str(item).strip() for item in raw.get("supporting_files", []) if str(item).strip()],
+            supporting_files=[
+                str(item).strip()
+                for item in raw.get("supporting_files", [])
+                if str(item).strip()
+            ],
             notes=_normalize_lines(raw.get("notes")),
         )
     return profiles
@@ -290,12 +333,17 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
     payload = _load_yaml(repo_ethos_path)
     repo_payload = payload.get("repo", {})
     if repo_payload and not isinstance(repo_payload, dict):
-        raise ValueError(f"Invalid ethos YAML at {repo_ethos_path}: `repo` must be a mapping.")
+        raise ValueError(
+            f"Invalid ethos YAML at {repo_ethos_path}: `repo` must be a mapping."
+        )
     merged.repo = RepoContext(
         name=str(repo_payload.get("name", "")).strip(),
         overview=str(repo_payload.get("overview", "")).strip(),
         commands=_normalize_commands(repo_payload.get("commands")),
-        paths={str(key): str(value) for key, value in (repo_payload.get("paths") or {}).items()},
+        paths={
+            str(key): str(value)
+            for key, value in (repo_payload.get("paths") or {}).items()
+        },
         notes=_normalize_lines(repo_payload.get("notes")),
         agent_notes=_normalize_agent_notes(payload.get("agent_notes")),
     )
@@ -303,12 +351,18 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
     principles_by_id = {principle.id: principle for principle in merged.principles}
     principle_section = payload.get("principles", {})
     if principle_section and not isinstance(principle_section, dict):
-        raise ValueError(f"Invalid ethos YAML at {repo_ethos_path}: `principles` must be a mapping.")
+        raise ValueError(
+            f"Invalid ethos YAML at {repo_ethos_path}: `principles` must be a mapping."
+        )
     overrides = principle_section.get("overrides", {}) or {}
     if overrides and not isinstance(overrides, dict):
-        raise ValueError(f"Invalid ethos YAML at {repo_ethos_path}: `principles.overrides` must be a mapping.")
+        raise ValueError(
+            f"Invalid ethos YAML at {repo_ethos_path}: `principles.overrides` must be a mapping."
+        )
     unknown_override_ids = sorted(
-        principle_id for principle_id in overrides if str(principle_id) not in principles_by_id
+        principle_id
+        for principle_id in overrides
+        if str(principle_id) not in principles_by_id
     )
     if unknown_override_ids:
         raise ValueError(
@@ -333,11 +387,15 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
             principle.directive = str(override["directive"]).strip()
             recalc_quick_ref = True
         if "tags" in override:
-            principle.tags = [str(tag).strip() for tag in override["tags"] if str(tag).strip()]
+            principle.tags = [
+                str(tag).strip() for tag in override["tags"] if str(tag).strip()
+            ]
             recalc_merge_topics = True
             recalc_agent_hints = True
         if "related" in override:
-            principle.related = [str(item).strip() for item in override["related"] if str(item).strip()]
+            principle.related = [
+                str(item).strip() for item in override["related"] if str(item).strip()
+            ]
         if "quick_ref" in override:
             principle.quick_ref = _normalize_string_list(
                 override["quick_ref"],
@@ -379,7 +437,9 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
                 ),
             )
             recalc_quick_ref = True
-        principle.body = "\n\n".join(section.body for section in principle.sections).rstrip()
+        principle.body = "\n\n".join(
+            section.body for section in principle.sections
+        ).rstrip()
         if recalc_quick_ref and "quick_ref" not in override:
             principle.quick_ref = build_quick_ref(
                 summary=principle.summary,
@@ -387,7 +447,9 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
                 section_summaries=[section.summary for section in principle.sections],
             )
         if recalc_merge_topics and "merge_topics" not in override:
-            principle.merge_topics = build_merge_topics(title=principle.title, tags=principle.tags)
+            principle.merge_topics = build_merge_topics(
+                title=principle.title, tags=principle.tags
+            )
         if recalc_agent_hints and "agent_hints" not in override:
             principle.agent_hints = build_agent_hints(tags=principle.tags)
         elif recalc_agent_hints and explicit_agent_hints:
@@ -398,10 +460,14 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
     additional_ids: set[str] = set()
     additional = principle_section.get("additional", []) or []
     if additional and not isinstance(additional, list):
-        raise ValueError(f"Invalid ethos YAML at {repo_ethos_path}: `principles.additional` must be a list.")
+        raise ValueError(
+            f"Invalid ethos YAML at {repo_ethos_path}: `principles.additional` must be a list."
+        )
     for item in additional:
         if not isinstance(item, dict):
-            raise ValueError(f"Invalid ethos YAML at {repo_ethos_path}: each additional principle must be a mapping.")
+            raise ValueError(
+                f"Invalid ethos YAML at {repo_ethos_path}: each additional principle must be a mapping."
+            )
         principle = _principle_from_item(
             item,
             source=f"{repo_ethos_path} additional[{len(additional_ids) + 1}]",
@@ -413,6 +479,8 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path | None) -> Ethos
         additional_ids.add(principle.id)
         merged.principles.append(principle)
 
-    merged.principles.sort(key=lambda principle: (principle.order, principle.title.lower()))
+    merged.principles.sort(
+        key=lambda principle: (principle.order, principle.title.lower())
+    )
     _validate_principle_collection(merged.principles, str(repo_ethos_path))
     return merged

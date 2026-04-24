@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-
 MIN_REQUIRED_ARGS: Final[int] = 2
 
 # Exception types that indicate a conditional import pattern.

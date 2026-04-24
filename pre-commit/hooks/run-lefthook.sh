@@ -18,6 +18,8 @@ else
     exit 127
 fi
 REPO_LEFTHOOK="${GIT_COMMON_DIR}/coding-ethos-hooks/lefthook"
+REPO_LEFTHOOK_VERSION="${GIT_COMMON_DIR}/coding-ethos-hooks/lefthook.version"
+REPO_LEFTHOOK_DIR="$(dirname "${REPO_LEFTHOOK}")"
 QUIET_FILTER="${BUNDLE_ROOT}/hooks/run-go-hook.sh"
 HOOK_ARGS=("$@")
 
@@ -40,20 +42,43 @@ run_lefthook() {
     exec "${command[@]}" run "$HOOK_NAME" "${HOOK_ARGS[@]}"
 }
 
+ensure_repo_lefthook() {
+    mkdir -p "${REPO_LEFTHOOK_DIR}"
+
+    if [[ -x "${REPO_LEFTHOOK}" ]] &&
+        [[ -f "${REPO_LEFTHOOK_VERSION}" ]] &&
+        [[ "$(<"${REPO_LEFTHOOK_VERSION}")" == "${LEFTHOOK_VERSION}" ]]; then
+        return
+    fi
+
+    if ! command -v go >/dev/null 2>&1; then
+        cat >&2 <<EOF
+FATAL: cannot install the repo-local Lefthook binary.
+
+Expected:
+  ${REPO_LEFTHOOK}
+
+Fix:
+  1. install Go
+  2. run: cd ${BUNDLE_ROOT%/pre-commit} && make install-hooks
+EOF
+        exit 127
+    fi
+
+    GOBIN="${REPO_LEFTHOOK_DIR}" go install "github.com/evilmartians/lefthook@${LEFTHOOK_VERSION}"
+    printf '%s\n' "${LEFTHOOK_VERSION}" > "${REPO_LEFTHOOK_VERSION}"
+}
+
+ensure_repo_lefthook
+
 if [[ -x "$REPO_LEFTHOOK" ]]; then
     run_lefthook "$REPO_LEFTHOOK"
-elif command -v lefthook >/dev/null 2>&1; then
-    run_lefthook lefthook
-elif command -v go >/dev/null 2>&1; then
-    run_lefthook go run "github.com/evilmartians/lefthook@${LEFTHOOK_VERSION}"
 else
     cat >&2 <<EOF
 FATAL: cannot run Lefthook.
 
-Tried:
-  1. ${REPO_LEFTHOOK}
-  2. lefthook from PATH
-  3. go run github.com/evilmartians/lefthook@${LEFTHOOK_VERSION}
+Expected:
+  ${REPO_LEFTHOOK}
 
 Run:
   cd ${BUNDLE_ROOT}

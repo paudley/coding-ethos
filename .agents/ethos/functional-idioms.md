@@ -33,9 +33,10 @@ Use Python's functional tools when they make code clearer and more local.
 - Repo: `coding-ethos`
 - Overview: Python CLI for generating ETHOS.md, AGENTS.md, CLAUDE.md, GEMINI.md, and supporting agent context files from a shared YAML ethos plus an optional repo-specific overlay.
 - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
-- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs.
+- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs and the generated Gemini prompt pack.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/, with a root lefthook.yml symlink for local validation.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
+- Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the hook runtime should consume generated prompt packs rather than hard-coded prompt constants whenever possible.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
 - This repo currently exposes uv run pytest as its canonical automated verification command.
 

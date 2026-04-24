@@ -72,6 +72,7 @@ _SUMMARY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?:.*?(?P<errors>\d+) error)?"
 )
 
+
 def _banned_markers() -> frozenset[str]:
     markers = [
         str(item).strip()

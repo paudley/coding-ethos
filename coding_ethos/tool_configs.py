@@ -38,7 +38,9 @@ def _ethos_root() -> Path:
 def _load_yaml(path: Path) -> dict[str, Any]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
-        raise ValueError(f"Invalid config YAML at {path}: expected a mapping at the document root.")
+        raise ValueError(
+            f"Invalid config YAML at {path}: expected a mapping at the document root."
+        )
     return payload
 
 
@@ -72,7 +74,9 @@ def _string_list(value: Any) -> list[str]:
     return [stripped] if stripped else []
 
 
-def _configured_list(config: dict[str, Any], path: str, fallback: list[str]) -> list[str]:
+def _configured_list(
+    config: dict[str, Any], path: str, fallback: list[str]
+) -> list[str]:
     values = _string_list(_get(config, path, []))
     return values or list(fallback)
 
@@ -158,7 +162,9 @@ def load_enforcement_config(
     )
     if resolved_repo_config is None or not resolved_repo_config.exists():
         return base_config, resolved_repo_config
-    return _deep_merge(base_config, _load_yaml(resolved_repo_config)), resolved_repo_config
+    return _deep_merge(
+        base_config, _load_yaml(resolved_repo_config)
+    ), resolved_repo_config
 
 
 def _toml_string(value: str) -> str:
@@ -169,7 +175,13 @@ def _toml_list(values: list[Any]) -> str:
     if not values:
         return "[]"
     rendered = ", ".join(
-        "true" if value is True else "false" if value is False else str(value) if isinstance(value, int) else _toml_string(str(value))
+        "true"
+        if value is True
+        else "false"
+        if value is False
+        else str(value)
+        if isinstance(value, int)
+        else _toml_string(str(value))
         for value in values
     )
     return f"[{rendered}]"
@@ -191,12 +203,16 @@ def _path_patterns(paths: list[str]) -> list[str]:
 def _sql_ignore_patterns(config: dict[str, Any]) -> dict[str, list[str]]:
     if not bool(_get(config, "python.sql_centralization.enabled", False)):
         return {}
-    ignore_codes = _string_list(_get(config, "tooling.ruff.sql_per_file_ignores", ["S608"]))
+    ignore_codes = _string_list(
+        _get(config, "tooling.ruff.sql_per_file_ignores", ["S608"])
+    )
     if not ignore_codes:
         return {}
 
     patterns: dict[str, list[str]] = {}
-    for raw in _string_list(_get(config, "python.sql_centralization.central_paths", [])):
+    for raw in _string_list(
+        _get(config, "python.sql_centralization.central_paths", [])
+    ):
         path = raw.strip().strip("/")
         if not path:
             continue
@@ -230,7 +246,9 @@ def render_pyrightconfig(config: dict[str, Any]) -> str:
             _get(config, "tooling.pyright.type_checking_mode", "strict")
         )
         or "strict",
-        "include": _configured_list(config, "tooling.pyright.include", _source_paths(config)),
+        "include": _configured_list(
+            config, "tooling.pyright.include", _source_paths(config)
+        ),
         "exclude": _string_list(
             _get(
                 config,
@@ -238,9 +256,19 @@ def render_pyrightconfig(config: dict[str, Any]) -> str:
                 ["**/tests/**", "**/*_test.py", "**/test_*.py", "**/.venv/**"],
             )
         ),
-        "extraPaths": _configured_list(config, "tooling.pyright.extra_paths", _extra_paths(config)),
-        "venvPath": _configured_string(config, "tooling.pyright.venv_path", _truthy_string(_get(config, "python.venv_path", "."))),
-        "venv": _configured_string(config, "tooling.pyright.venv", _truthy_string(_get(config, "python.venv", ".venv"))),
+        "extraPaths": _configured_list(
+            config, "tooling.pyright.extra_paths", _extra_paths(config)
+        ),
+        "venvPath": _configured_string(
+            config,
+            "tooling.pyright.venv_path",
+            _truthy_string(_get(config, "python.venv_path", ".")),
+        ),
+        "venv": _configured_string(
+            config,
+            "tooling.pyright.venv",
+            _truthy_string(_get(config, "python.venv", ".venv")),
+        ),
         "pythonVersion": _python_version(config),
     }
 
@@ -260,7 +288,12 @@ def _mypy_exclude_regex(config: dict[str, Any]) -> str:
         _get(
             config,
             "tooling.mypy.exclude_patterns",
-            [r"(^|/)tests/", r"(^|/).*_test\.py$", r"(^|/)test_.*\.py$", r"(^|/)\.venv/"],
+            [
+                r"(^|/)tests/",
+                r"(^|/).*_test\.py$",
+                r"(^|/)test_.*\.py$",
+                r"(^|/)\.venv/",
+            ],
         )
     )
     return "|".join(patterns)
@@ -270,7 +303,9 @@ def render_mypy_ini(config: dict[str, Any]) -> str:
     parser = configparser.ConfigParser()
     parser.optionxform = str
     parser["mypy"] = {
-        "strict": "True" if bool(_get(config, "tooling.mypy.strict", True)) else "False",
+        "strict": "True"
+        if bool(_get(config, "tooling.mypy.strict", True))
+        else "False",
         "warn_unused_configs": "True"
         if bool(_get(config, "tooling.mypy.warn_unused_configs", True))
         else "False",
@@ -285,7 +320,9 @@ def render_mypy_ini(config: dict[str, Any]) -> str:
     if plugins:
         parser["mypy"]["plugins"] = ", ".join(plugins)
 
-    mypy_path = _configured_string(config, "tooling.mypy.mypy_path", ",".join(_stub_paths(config)))
+    mypy_path = _configured_string(
+        config, "tooling.mypy.mypy_path", ",".join(_stub_paths(config))
+    )
     if mypy_path:
         parser["mypy"]["mypy_path"] = mypy_path
 
@@ -319,7 +356,18 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
         _get(
             config,
             "tooling.ruff.exclude",
-            [".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "*.egg-info", ".eggs", "build", "dist", "node_modules"],
+            [
+                ".git",
+                ".venv",
+                ".mypy_cache",
+                ".ruff_cache",
+                "__pycache__",
+                "*.egg-info",
+                ".eggs",
+                "build",
+                "dist",
+                "node_modules",
+            ],
         )
     )
     if exclude:
@@ -341,7 +389,9 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
     if per_file_ignores:
         lines.extend(["", "[lint.per-file-ignores]"])
         for pattern in sorted(per_file_ignores):
-            lines.append(f"{_toml_string(pattern)} = {_toml_list(per_file_ignores[pattern])}")
+            lines.append(
+                f"{_toml_string(pattern)} = {_toml_list(per_file_ignores[pattern])}"
+            )
 
     banned_api = _get(config, "tooling.ruff.banned_api", {}) or {}
     if banned_api and not isinstance(banned_api, dict):
@@ -351,14 +401,17 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
         for module_name in sorted(banned_api):
             message = _truthy_string(banned_api[module_name])
             if message:
-                lines.append(f'{_toml_string(module_name)} = {{ msg = {_toml_string(message)} }}')
+                lines.append(
+                    f"{_toml_string(module_name)} = {{ msg = {_toml_string(message)} }}"
+                )
 
     return "\n".join(lines).rstrip() + "\n"
 
 
 def render_yamllint_config(config: dict[str, Any]) -> str:
     payload: dict[str, Any] = {
-        "extends": _truthy_string(_get(config, "tooling.yamllint.extends", "default")) or "default",
+        "extends": _truthy_string(_get(config, "tooling.yamllint.extends", "default"))
+        or "default",
         "rules": _get(config, "tooling.yamllint.rules", {}),
     }
     if not isinstance(payload["rules"], dict):
@@ -382,7 +435,9 @@ def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def sync_tool_configs(repo_root: Path, repo_config_path: Path | None = None) -> list[Path]:
+def sync_tool_configs(
+    repo_root: Path, repo_config_path: Path | None = None
+) -> list[Path]:
     config, _ = load_enforcement_config(repo_root, repo_config_path)
     rendered = render_tool_configs(config)
     written: list[Path] = []
@@ -393,13 +448,19 @@ def sync_tool_configs(repo_root: Path, repo_config_path: Path | None = None) -> 
     return written
 
 
-def check_tool_configs(repo_root: Path, repo_config_path: Path | None = None) -> list[Path]:
+def check_tool_configs(
+    repo_root: Path, repo_config_path: Path | None = None
+) -> list[Path]:
     config, _ = load_enforcement_config(repo_root, repo_config_path)
     rendered = render_tool_configs(config)
     mismatched: list[Path] = []
     for relative_path, expected in rendered.items():
         absolute_path = repo_root / relative_path
-        current = absolute_path.read_text(encoding="utf-8") if absolute_path.exists() else None
+        current = (
+            absolute_path.read_text(encoding="utf-8")
+            if absolute_path.exists()
+            else None
+        )
         if current != expected:
             mismatched.append(absolute_path)
     return mismatched

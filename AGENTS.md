@@ -13,6 +13,8 @@
 - `install-hooks`: `make install-hooks`
 - `sync-tool-configs`: `make sync-tool-configs`
 - `check-tool-configs`: `make check-tool-configs`
+- `sync-gemini-prompts`: `make sync-gemini-prompts`
+- `check-gemini-prompts`: `make check-gemini-prompts`
 - `pre-commit-all`: `make pre-commit-all`
 - `generate`: `make generate`
 - `merge-existing`: `make generate-merge`
@@ -26,6 +28,7 @@
 - `renderers`: `coding_ethos/renderers.py`
 - `markdown_seed`: `coding_ethos/markdown_seed.py`
 - `merge_logic`: `coding_ethos/merging.py`
+- `gemini_prompt_pack`: `coding_ethos/gemini_prompt_pack.py`
 - `presets`: `coding_ethos/presets.py`
 - `models`: `coding_ethos/models.py`
 - `tests`: `tests/test_cli.py`
@@ -36,9 +39,10 @@
 
 ## Repo Notes
 - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
-- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs.
+- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs and the generated Gemini prompt pack.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/, with a root lefthook.yml symlink for local validation.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
+- Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the hook runtime should consume generated prompt packs rather than hard-coded prompt constants whenever possible.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
 - This repo currently exposes uv run pytest as its canonical automated verification command.
 

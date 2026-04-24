@@ -1,0 +1,34 @@
+{% macro render_repo_grounding(repo_overview, repo_commands, repo_paths, repo_notes, gemini_notes, enforcement_notes) -%}
+## Repo Grounding
+{% if repo_overview -%}
+- Repo overview: {{ repo_overview }}
+{% endif -%}
+{% for command in repo_commands -%}
+- Command `{{ command.name }}`: {{ command.examples | join(" | ") }}
+{% endfor -%}
+{% for path in repo_paths -%}
+- Path `{{ path.name }}`: {{ path.path }}
+{% endfor -%}
+{% for note in repo_notes -%}
+- Repo note: {{ note }}
+{% endfor -%}
+{% for note in gemini_notes -%}
+- Gemini note: {{ note }}
+{% endfor -%}
+{% for note in enforcement_notes -%}
+- Enforcement: {{ note }}
+{% endfor -%}
+{% endmacro %}
+
+{% macro render_principles(principles) -%}
+## ETHOS Grounding
+{% for principle in principles -%}
+- {{ "%02d"|format(principle.order) }}. {{ principle.title }}: {{ principle.directive }}
+{% if principle.quick_ref -%}
+  Quick ref: {{ principle.quick_ref | join("; ") }}
+{% endif -%}
+{% if principle.agent_hint -%}
+  Gemini hint: {{ principle.agent_hint }}
+{% endif -%}
+{% endfor -%}
+{% endmacro %}

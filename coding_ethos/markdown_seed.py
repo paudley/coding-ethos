@@ -99,13 +99,32 @@ def _infer_section_kind(title: str, *, is_intro: bool = False) -> str:
     ):
         if marker in normalized:
             return "anti_patterns"
-    for marker in ("right way", "correct way", "preferred way", "do this instead", "good way"):
+    for marker in (
+        "right way",
+        "correct way",
+        "preferred way",
+        "do this instead",
+        "good way",
+    ):
         if marker in normalized:
             return "correct_way"
-    for marker in ("rule", "rules", "policy", "practical rule", "non negotiable", "contract"):
+    for marker in (
+        "rule",
+        "rules",
+        "policy",
+        "practical rule",
+        "non negotiable",
+        "contract",
+    ):
         if marker in normalized:
             return "rule"
-    for marker in ("workflow", "process", "procedure", "steps", "operational implication"):
+    for marker in (
+        "workflow",
+        "process",
+        "procedure",
+        "steps",
+        "operational implication",
+    ):
         if marker in normalized:
             return "workflow"
     for marker in ("example", "examples"):
@@ -150,7 +169,11 @@ def _split_sections(body: str) -> list[dict[str, str]]:
     for index, match in enumerate(matches):
         title = _clean_heading(match.group(1))
         section_start = match.end()
-        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(cleaned_body)
+        section_end = (
+            matches[index + 1].start()
+            if index + 1 < len(matches)
+            else len(cleaned_body)
+        )
         section_body = trim_terminal_rule(cleaned_body[section_start:section_end])
         sections.append(
             {
@@ -165,7 +188,9 @@ def _split_sections(body: str) -> list[dict[str, str]]:
     return sections
 
 
-def _extract_related(principle_id: str, body: str, preset_related: list[str]) -> list[str]:
+def _extract_related(
+    principle_id: str, body: str, preset_related: list[str]
+) -> list[str]:
     related = {item for item in preset_related if item != principle_id}
     related.update(match for match in RELATED_RE.findall(body) if match != principle_id)
     return sorted(related)
@@ -193,7 +218,9 @@ def parse_ethos_markdown(markdown: str) -> dict[str, Any]:
 
         principle_id = slugify(raw_title)
         section_start = match.end()
-        section_end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
+        section_end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
+        )
         body = trim_terminal_rule(markdown[section_start:section_end])
         preset = PRINCIPLE_PRESETS.get(principle_id, {})
         sections = _split_sections(body)
@@ -214,7 +241,9 @@ def parse_ethos_markdown(markdown: str) -> dict[str, Any]:
                 ),
                 "merge_topics": build_merge_topics(title=raw_title, tags=tags),
                 "tags": tags,
-                "related": _extract_related(principle_id, body, preset.get("related", [])),
+                "related": _extract_related(
+                    principle_id, body, preset.get("related", [])
+                ),
                 "agent_hints": build_agent_hints(tags=tags),
                 "sections": sections,
             }

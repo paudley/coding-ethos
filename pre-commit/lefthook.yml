@@ -4,7 +4,7 @@
 # Hook bypass is forbidden: do not use LEFTHOOK=0 or --no-verify.
 #
 # External tool requirements:
-#   - lefthook: go install github.com/evilmartians/lefthook@v1.13.6
+#   - lefthook: bootstrapped repo-locally with GOBIN=.git/coding-ethos-hooks
 #   - shellcheck: apt/brew install shellcheck
 #   - hadolint: brew install hadolint (or Docker)
 #   - actionlint: brew install actionlint (or go install github.com/rhysd/actionlint/cmd/actionlint@latest)
@@ -344,9 +344,7 @@ pre-commit:
         - ".venv/**"
         - "**/.venv/**"
         - "scripts/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/gemini_orchestrator.py
-        {staged_files}
+      run: "{go_hook} gemini-check {staged_files}"
 
     - name: GitHub Actions workflow validation
       glob:
@@ -615,9 +613,7 @@ pre-push:
         - ".venv/**"
         - "**/.venv/**"
         - "scripts/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/gemini_orchestrator.py
-        --full-check
+      run: "{go_hook} gemini-check --full-check"
 
     - name: GitHub Actions workflow validation
       glob:

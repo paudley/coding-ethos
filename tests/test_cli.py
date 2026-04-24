@@ -49,7 +49,9 @@ Because correctness matters.
         self.assertTrue(payload["principles"][0]["quick_ref"])
         self.assertTrue(payload["principles"][0]["merge_topics"])
         self.assertIn("codex", payload["principles"][0]["agent_hints"])
-        self.assertEqual(payload["principles"][1]["summary"], "Never do the wrong thing.")
+        self.assertEqual(
+            payload["principles"][1]["summary"], "Never do the wrong thing."
+        )
 
     def test_seed_primary_keeps_section_bodies_inline(self) -> None:
         markdown = """# **Sample Ethos**
@@ -74,8 +76,13 @@ Do the first thing. Always.
             self.assertEqual(payload["version"], 2)
             self.assertIn("agents", payload)
             self.assertEqual(payload["metadata"]["source_markdown"], "ETHOS.md")
-            self.assertEqual(payload["principles"][0]["sections"][0]["kind"], "overview")
-            self.assertEqual(payload["principles"][0]["sections"][0]["body"], "Do the first thing. Always.")
+            self.assertEqual(
+                payload["principles"][0]["sections"][0]["kind"], "overview"
+            )
+            self.assertEqual(
+                payload["principles"][0]["sections"][0]["body"],
+                "Do the first thing. Always.",
+            )
             self.assertFalse((tmp_path / "ethos").exists())
 
 
@@ -88,7 +95,10 @@ class LoaderValidationTests(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "version": 2,
-                        "metadata": {"title": "Test Ethos", "overview": "Shared overview."},
+                        "metadata": {
+                            "title": "Test Ethos",
+                            "overview": "Shared overview.",
+                        },
                         "principles": [
                             {
                                 "id": "first",
@@ -144,9 +154,14 @@ class CliRenderTests(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "version": 2,
-                        "metadata": {"title": "Test Ethos", "overview": "Shared overview."},
+                        "metadata": {
+                            "title": "Test Ethos",
+                            "overview": "Shared overview.",
+                        },
                         "agents": {
-                            "claude": {"notes": ["Use CLAUDE.md as a short import hub."]},
+                            "claude": {
+                                "notes": ["Use CLAUDE.md as a short import hub."]
+                            },
                         },
                         "principles": [
                             {
@@ -159,10 +174,15 @@ class CliRenderTests(unittest.TestCase):
                                     "Favor simple, explicit designs.",
                                     "Remove speculative abstractions.",
                                 ],
-                                "merge_topics": ["architecture decisions", "design constraints"],
+                                "merge_topics": [
+                                    "architecture decisions",
+                                    "design constraints",
+                                ],
                                 "tags": ["architecture"],
                                 "related": [],
-                                "agent_hints": {"codex": "Prefer structural refactors."},
+                                "agent_hints": {
+                                    "codex": "Prefer structural refactors."
+                                },
                                 "sections": [
                                     {
                                         "id": "overview",
@@ -180,7 +200,10 @@ class CliRenderTests(unittest.TestCase):
                                 "summary": "Tests define expected behavior.",
                                 "directive": "Treat tests as the behavioral contract.",
                                 "quick_ref": ["Update tests with code changes."],
-                                "merge_topics": ["test requirements", "behavioral specification"],
+                                "merge_topics": [
+                                    "test requirements",
+                                    "behavioral specification",
+                                ],
                                 "tags": ["testing"],
                                 "related": [],
                                 "agent_hints": {"codex": "Keep tests aligned."},
@@ -213,8 +236,12 @@ class CliRenderTests(unittest.TestCase):
                             "notes": ["Widget IDs are immutable."],
                         },
                         "agent_notes": {
-                            "claude": ["Open the matching ethos doc before changing API contracts."],
-                            "gemini": ["Prefer targeted reads when the task is narrow."],
+                            "claude": [
+                                "Open the matching ethos doc before changing API contracts."
+                            ],
+                            "gemini": [
+                                "Prefer targeted reads when the task is narrow."
+                            ],
                         },
                         "principles": {
                             "overrides": {
@@ -236,8 +263,12 @@ class CliRenderTests(unittest.TestCase):
             claude_md = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
             ethos_md = (repo_root / "ETHOS.md").read_text(encoding="utf-8")
             gemini_md = (repo_root / "GEMINI.md").read_text(encoding="utf-8")
-            detail_doc = (repo_root / ".agents/ethos/solid-is-law.md").read_text(encoding="utf-8")
-            memory_index = (repo_root / ".claude/ethos/MEMORY.md").read_text(encoding="utf-8")
+            detail_doc = (repo_root / ".agents/ethos/solid-is-law.md").read_text(
+                encoding="utf-8"
+            )
+            memory_index = (repo_root / ".claude/ethos/MEMORY.md").read_text(
+                encoding="utf-8"
+            )
 
             self.assertIn("Widget Service", agents_md)
             self.assertIn("Processes widgets.", agents_md)
@@ -256,7 +287,9 @@ class CliRenderTests(unittest.TestCase):
             self.assertIn("## Agent Hints", detail_doc)
             self.assertIn("## Repo Addendum", detail_doc)
             self.assertIn("../../.agents/ethos/solid-is-law.md", memory_index)
-            self.assertTrue((repo_root / ".agent-context/prompt-addons/codex.md").exists())
+            self.assertTrue(
+                (repo_root / ".agent-context/prompt-addons/codex.md").exists()
+            )
 
     def test_cli_merge_existing_injects_managed_blocks_for_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -268,7 +301,10 @@ class CliRenderTests(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "version": 2,
-                        "metadata": {"title": "Test Ethos", "overview": "Shared overview."},
+                        "metadata": {
+                            "title": "Test Ethos",
+                            "overview": "Shared overview.",
+                        },
                         "principles": [
                             {
                                 "id": "solid-is-law",
@@ -280,7 +316,9 @@ class CliRenderTests(unittest.TestCase):
                                 "merge_topics": ["architecture decisions"],
                                 "tags": ["architecture"],
                                 "related": [],
-                                "agent_hints": {"codex": "Prefer structural refactors."},
+                                "agent_hints": {
+                                    "codex": "Prefer structural refactors."
+                                },
                                 "sections": [
                                     {
                                         "id": "overview",
@@ -299,9 +337,15 @@ class CliRenderTests(unittest.TestCase):
             )
 
             repo_root.mkdir()
-            (repo_root / "ETHOS.md").write_text("# Old ethos\n\nStale content.\n", encoding="utf-8")
-            (repo_root / "AGENTS.md").write_text("# Existing agents\n\nKeep this.\n", encoding="utf-8")
-            (repo_root / "CLAUDE.md").write_text("# Existing claude\n\nLocal workflow notes.\n", encoding="utf-8")
+            (repo_root / "ETHOS.md").write_text(
+                "# Old ethos\n\nStale content.\n", encoding="utf-8"
+            )
+            (repo_root / "AGENTS.md").write_text(
+                "# Existing agents\n\nKeep this.\n", encoding="utf-8"
+            )
+            (repo_root / "CLAUDE.md").write_text(
+                "# Existing claude\n\nLocal workflow notes.\n", encoding="utf-8"
+            )
 
             exit_code = main(
                 [
@@ -346,9 +390,18 @@ class CliRenderTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             rerun_agents_md = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
             rerun_claude_md = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
-            self.assertEqual(rerun_agents_md.count("<!-- coding-ethos:begin managed AGENTS.md -->"), 1)
-            self.assertEqual(rerun_claude_md.count("<!-- coding-ethos:begin imports CLAUDE.md -->"), 1)
-            self.assertEqual(rerun_claude_md.count("<!-- coding-ethos:begin managed CLAUDE.md -->"), 1)
+            self.assertEqual(
+                rerun_agents_md.count("<!-- coding-ethos:begin managed AGENTS.md -->"),
+                1,
+            )
+            self.assertEqual(
+                rerun_claude_md.count("<!-- coding-ethos:begin imports CLAUDE.md -->"),
+                1,
+            )
+            self.assertEqual(
+                rerun_claude_md.count("<!-- coding-ethos:begin managed CLAUDE.md -->"),
+                1,
+            )
 
     def test_cli_replaces_existing_ethos_symlink_with_generated_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -360,7 +413,10 @@ class CliRenderTests(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "version": 2,
-                        "metadata": {"title": "Test Ethos", "overview": "Shared overview."},
+                        "metadata": {
+                            "title": "Test Ethos",
+                            "overview": "Shared overview.",
+                        },
                         "principles": [
                             {
                                 "id": "solid-is-law",
@@ -372,7 +428,9 @@ class CliRenderTests(unittest.TestCase):
                                 "merge_topics": ["architecture decisions"],
                                 "tags": ["architecture"],
                                 "related": [],
-                                "agent_hints": {"codex": "Prefer structural refactors."},
+                                "agent_hints": {
+                                    "codex": "Prefer structural refactors."
+                                },
                                 "sections": [
                                     {
                                         "id": "overview",
@@ -413,7 +471,10 @@ class CliRenderTests(unittest.TestCase):
                 yaml.safe_dump(
                     {
                         "version": 2,
-                        "metadata": {"title": "Test Ethos", "overview": "Shared overview."},
+                        "metadata": {
+                            "title": "Test Ethos",
+                            "overview": "Shared overview.",
+                        },
                         "principles": [
                             {
                                 "id": "solid-is-law",
@@ -425,7 +486,9 @@ class CliRenderTests(unittest.TestCase):
                                 "merge_topics": ["architecture decisions"],
                                 "tags": ["architecture"],
                                 "related": [],
-                                "agent_hints": {"codex": "Prefer structural refactors."},
+                                "agent_hints": {
+                                    "codex": "Prefer structural refactors."
+                                },
                                 "sections": [
                                     {
                                         "id": "overview",
@@ -444,9 +507,14 @@ class CliRenderTests(unittest.TestCase):
             )
 
             repo_root.mkdir()
-            (repo_root / "AGENTS.md").write_text("# Existing agents\n\nKeep this.\n", encoding="utf-8")
+            (repo_root / "AGENTS.md").write_text(
+                "# Existing agents\n\nKeep this.\n", encoding="utf-8"
+            )
 
-            with patch("coding_ethos.cli.merge_with_engine", return_value="# Merged agents\n\nKeep this and add ethos.\n") as merge_mock:
+            with patch(
+                "coding_ethos.cli.merge_with_engine",
+                return_value="# Merged agents\n\nKeep this and add ethos.\n",
+            ) as merge_mock:
                 exit_code = main(
                     [
                         "--repo",
@@ -466,13 +534,19 @@ class CliRenderTests(unittest.TestCase):
                 )
 
             self.assertEqual(exit_code, 0)
-            self.assertEqual((repo_root / "AGENTS.md").read_text(encoding="utf-8"), "# Merged agents\n\nKeep this and add ethos.\n")
+            self.assertEqual(
+                (repo_root / "AGENTS.md").read_text(encoding="utf-8"),
+                "# Merged agents\n\nKeep this and add ethos.\n",
+            )
             merge_mock.assert_called_once()
             self.assertEqual(merge_mock.call_args.kwargs["engine"], "gemini")
             self.assertEqual(merge_mock.call_args.kwargs["target_name"], "AGENTS.md")
             self.assertEqual(merge_mock.call_args.kwargs["binary"], "/fake/gemini")
             self.assertEqual(merge_mock.call_args.kwargs["timeout_seconds"], 42)
-            self.assertEqual(merge_mock.call_args.kwargs["merge_topics"][:3], ["repo commands", "key paths", "repo operating notes"])
+            self.assertEqual(
+                merge_mock.call_args.kwargs["merge_topics"][:3],
+                ["repo commands", "key paths", "repo operating notes"],
+            )
 
     def test_cli_sync_tool_configs_generates_repo_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -485,7 +559,11 @@ class CliRenderTests(unittest.TestCase):
                             "source_paths": ["lib/python/lbox", "pre-commit/hooks"],
                             "test_paths": ["lib/python/tests", "integration/tests"],
                             "stub_paths": ["lib/python/stubs"],
-                            "extra_paths": ["lib/python", "scripts", "pre-commit/hooks"],
+                            "extra_paths": [
+                                "lib/python",
+                                "scripts",
+                                "pre-commit/hooks",
+                            ],
                             "venv_path": "..",
                             "venv": ".venv",
                             "sql_centralization": {
@@ -502,14 +580,22 @@ class CliRenderTests(unittest.TestCase):
             exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
             self.assertEqual(exit_code, 0)
 
-            pyright = yaml.safe_load((repo_root / "pyrightconfig.json").read_text(encoding="utf-8"))
+            pyright = yaml.safe_load(
+                (repo_root / "pyrightconfig.json").read_text(encoding="utf-8")
+            )
             mypy_ini = (repo_root / "mypy.ini").read_text(encoding="utf-8")
             ruff_toml = (repo_root / "ruff.toml").read_text(encoding="utf-8")
-            yamllint = yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8"))
+            yamllint = yaml.safe_load(
+                (repo_root / ".yamllint.yml").read_text(encoding="utf-8")
+            )
 
-            self.assertEqual(pyright["include"], ["lib/python/lbox", "pre-commit/hooks"])
+            self.assertEqual(
+                pyright["include"], ["lib/python/lbox", "pre-commit/hooks"]
+            )
             self.assertEqual(pyright["stubPath"], "lib/python/stubs")
-            self.assertEqual(pyright["extraPaths"], ["lib/python", "scripts", "pre-commit/hooks"])
+            self.assertEqual(
+                pyright["extraPaths"], ["lib/python", "scripts", "pre-commit/hooks"]
+            )
             self.assertEqual(pyright["venvPath"], "..")
             self.assertIn("files = lib/python/lbox, pre-commit/hooks", mypy_ini)
             self.assertIn("mypy_path = lib/python/stubs", mypy_ini)
@@ -525,7 +611,9 @@ class CliRenderTests(unittest.TestCase):
             exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
             self.assertEqual(exit_code, 0)
 
-            (repo_root / "ruff.toml").write_text("line-length = 120\n", encoding="utf-8")
+            (repo_root / "ruff.toml").write_text(
+                "line-length = 120\n", encoding="utf-8"
+            )
 
             drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
             self.assertEqual(drift_exit_code, 1)

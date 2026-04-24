@@ -4,9 +4,8 @@ Lefthook hooks for coding-ethos bundles.
 
 ## Included Hooks
 
-- **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit attribution, and shared hook policy
+- **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit attribution, shared hook policy, and the active Gemini AI review runner
 - **check_pyproject_ignores.py** - Blocks adding linter file-ignore config in pyproject.toml
-- **gemini_orchestrator.py** - Gemini AI orchestration for code review
 - **parallel_type_check.py** - Parallel type checking
 - **validate_manifest.py** - Manifest validation
 
@@ -21,7 +20,6 @@ make -C code-ethos/pre-commit install-hooks
 
 ## Dependencies
 
-- google-genai >= 1.0.0
 - pyyaml >= 6.0
 - go >= 1.26
 
