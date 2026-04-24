@@ -113,6 +113,19 @@ func TestFindDirectImportViolations(t *testing.T) {
 	}
 }
 
+func TestIsDirectImportExemptMatchesConfiguredPath(t *testing.T) {
+	settings := directImportsSettings{
+		ExemptPaths: []string{"lib/python/tests"},
+	}
+
+	if !isDirectImportExempt("repo/lib/python/tests/test_module.py", settings) {
+		t.Fatal("expected test path to be exempt")
+	}
+	if isDirectImportExempt("repo/lib/python/project/module.py", settings) {
+		t.Fatal("source path should not be exempt")
+	}
+}
+
 func TestFindUtilityViolations(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "module.py")
