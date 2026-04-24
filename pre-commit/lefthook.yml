@@ -1,32 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 # Lefthook hooks for coding-ethos code quality.
 # Install: lefthook install
-# Run manually: lefthook run pre-commit
+# Run manually: lefthook run --no-auto-install pre-commit
 # Hook bypass is forbidden: do not use LEFTHOOK=0 or --no-verify.
 #
 # External tool requirements:
 #   - lefthook: bootstrapped repo-locally with GOBIN=.git/coding-ethos-hooks
 #   - shellcheck: apt/brew install shellcheck
 #   - hadolint: brew install hadolint (or Docker)
-#   - actionlint: brew install actionlint (or go install github.com/rhysd/actionlint/cmd/actionlint@latest)
-#   - golangci-lint: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#   - actionlint: brew install actionlint
+#                 or go install github.com/rhysd/actionlint/cmd/actionlint@latest
+#   - golangci-lint: go install
+#                    github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 #
 # Formatting and generic auto-edit hooks run on the working tree, stage their
 # fixed files with Lefthook's stage_fixed option, and do not use git stash.
 
 min_version: 1.13.6
 skip_lfs: true
+colors: true
 output:
   - failure
   - execution_out
 templates:
-  hook_env: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && HOOKS_PROJECT="${BUNDLE_DIR}/hooks" && HOOKS_PYPROJECT="${HOOKS_PROJECT}/pyproject.toml" && REPO_RUFF_CONFIG="ruff.toml" && REPO_YAMLLINT_CONFIG=".yamllint.yml" && uv run --quiet --project "${HOOKS_PROJECT}"
-  go_hook: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && "${BUNDLE_DIR}/hooks/run-go-hook.sh"
-  yaml_env: BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" && HOOKS_PROJECT="${BUNDLE_DIR}/hooks" && REPO_YAMLLINT_CONFIG=".yamllint.yml" && uv run --quiet --project "${HOOKS_PROJECT}" --with yamllint
+  hook_env: >-
+    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
+    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+    HOOKS_PROJECT="${BUNDLE_DIR}/hooks" &&
+    HOOKS_PYPROJECT="${HOOKS_PROJECT}/pyproject.toml" &&
+    REPO_RUFF_CONFIG="ruff.toml" &&
+    REPO_YAMLLINT_CONFIG=".yamllint.yml" &&
+    uv run --quiet --project "${HOOKS_PROJECT}"
+  go_hook: >-
+    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
+    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+    "${BUNDLE_DIR}/hooks/run-go-hook.sh"
+  yaml_env: >-
+    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
+    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+    HOOKS_PROJECT="${BUNDLE_DIR}/hooks" &&
+    REPO_YAMLLINT_CONFIG=".yamllint.yml" &&
+    uv run --quiet --project "${HOOKS_PROJECT}" --with yamllint
+  go_worktree_env: >-
+    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
+    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
+    GO_WORKTREE="$("${BUNDLE_DIR}/hooks/run-go-hook.sh" config-get go.worktree go)" &&
+    [ -d "${GO_WORKTREE}" ] ||
+    { echo "FATAL: go.worktree is set to '${GO_WORKTREE}', but that directory
+    does not exist. Update config.yaml or repo_config.yaml."; exit 1; } &&
+    cd "${GO_WORKTREE}"
+  require_actionlint: >-
+    command -v actionlint >/dev/null 2>&1 ||
+    { echo "FATAL: actionlint is required. Install: brew install actionlint or
+    go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; }
+  require_golangci_lint: >-
+    command -v golangci-lint >/dev/null 2>&1 ||
+    { echo "FATAL: golangci-lint is required. Install: go install
+    github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; }
+  go_lint_env: >-
+    REPO_GOLANGCI_CONFIG="$(git rev-parse --show-toplevel)/.golangci.yml" &&
+    [ -f "${REPO_GOLANGCI_CONFIG}" ] ||
+    { echo "FATAL: missing ${REPO_GOLANGCI_CONFIG}. Run: make
+    sync-tool-configs"; exit 1; }
 
 pre-commit:
   parallel: false
   fail_on_changes: never
   jobs:
+    - name: Fail on active git stash
+      run: |-
+        if git stash list | grep -q .; then
+          echo "FATAL: git stash entries are forbidden while running pre-commit." >&2
+          echo >&2
+          echo "Clear the stash before retrying:" >&2
+          echo "  git stash list" >&2
+          echo "  git stash pop" >&2
+          echo "  # or: git stash apply && git stash drop" >&2
+          echo >&2
+          echo "Active stash entries:" >&2
+          git stash list >&2
+          exit 1
+        fi
+
     - name: Fix text endings and whitespace
       run: "{go_hook} fix-text {staged_files}"
       stage_fixed: true
@@ -58,7 +115,9 @@ pre-commit:
         - ".venv/**"
         - "**/.venv/**"
         - "**/vulture_whitelist.py"
-      run: '{hook_env} ruff format --config "${REPO_RUFF_CONFIG}" --quiet {staged_files} >/dev/null 2>&1 || true'
+      run: >-
+        {hook_env} ruff format --config "${REPO_RUFF_CONFIG}" --quiet
+        {staged_files} >/dev/null 2>&1 || true
       stage_fixed: true
 
     - name: Ruff autofix
@@ -356,8 +415,7 @@ pre-commit:
         - ".github/workflows/**/*.yaml"
         - ".github/workflows/**/*.yml"
       run: >-
-        command -v actionlint >/dev/null 2>&1 ||
-        { echo "FATAL: actionlint is required. Install: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; };
+        {require_actionlint} &&
         actionlint
 
     - name: Cyclomatic complexity check
@@ -396,29 +454,41 @@ pre-commit:
     - name: Go vet
       glob: "**/*.go"
       run: >-
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && go vet ./...
+        {go_worktree_env} &&
+        go vet ./...
 
     - name: Go tests
       glob: "**/*.go"
       run: >-
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && go test ./...
+        {go_worktree_env} &&
+        go test ./...
 
     - name: golangci-lint
       glob: "**/*.go"
       run: >-
-        command -v golangci-lint >/dev/null 2>&1 ||
-        { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && golangci-lint run
+        {require_golangci_lint} &&
+        {go_worktree_env} &&
+        {go_lint_env} &&
+        golangci-lint run --config "${REPO_GOLANGCI_CONFIG}"
 
 pre-push:
   parallel: false
   jobs:
+    - name: Fail on active git stash
+      run: |-
+        if git stash list | grep -q .; then
+          echo "FATAL: git stash entries are forbidden while running pre-push." >&2
+          echo >&2
+          echo "Clear the stash before retrying:" >&2
+          echo "  git stash list" >&2
+          echo "  git stash pop" >&2
+          echo "  # or: git stash apply && git stash drop" >&2
+          echo >&2
+          echo "Active stash entries:" >&2
+          git stash list >&2
+          exit 1
+        fi
+
     - name: Ban comment-based lint suppressions
       glob:
         - "*.py"
@@ -609,8 +679,7 @@ pre-push:
         - ".github/workflows/**/*.yaml"
         - ".github/workflows/**/*.yml"
       run: >-
-        command -v actionlint >/dev/null 2>&1 ||
-        { echo "FATAL: actionlint is required. Install: go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; };
+        {require_actionlint} &&
         actionlint
 
     - name: Plan completion verification
@@ -620,34 +689,29 @@ pre-push:
     - name: Go vet
       glob: "**/*.go"
       run: >-
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && go vet ./...
+        {go_worktree_env} &&
+        go vet ./...
 
     - name: Go format check
       glob: "**/*.go"
       run: >-
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" &&
+        {go_worktree_env} &&
         test -z "$(gofmt -l .)" ||
         (gofmt -l . && exit 1)
 
     - name: Go tests
       glob: "**/*.go"
       run: >-
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && go test ./...
+        {go_worktree_env} &&
+        go test ./...
 
     - name: golangci-lint
       glob: "**/*.go"
       run: >-
-        command -v golangci-lint >/dev/null 2>&1 ||
-        { echo "FATAL: golangci-lint is required. Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; };
-        BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] && printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-        GO_WORKTREE="$({go_hook} config-get go.worktree go)" &&
-        cd "${GO_WORKTREE}" && golangci-lint run
+        {require_golangci_lint} &&
+        {go_worktree_env} &&
+        {go_lint_env} &&
+        golangci-lint run --config "${REPO_GOLANGCI_CONFIG}"
 
 commit-msg:
   parallel: false

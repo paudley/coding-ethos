@@ -12,9 +12,9 @@ from pathlib import Path
 
 import yaml
 
-from coding_ethos.cli import main
-from coding_ethos.gemini_prompt_pack import (
+from coding_ethos import (
     check_gemini_prompt_pack,
+    main,
     render_gemini_prompt_pack,
     sync_gemini_prompt_pack,
 )
@@ -164,11 +164,11 @@ class GeminiPromptPackTests(unittest.TestCase):
 
             assert payload["project"]["name"] == "Widget Service"
             assert payload["project"]["context"] == "Processes widgets."
-            assert payload["checks"]["code_ethos"]["file_scope"] == "code"
-            assert payload["checks"]["code_ethos"]["batch_size"] == 3
-            assert payload["checks"]["code_ethos"]["max_file_size_kb"] == 50
+            assert payload["checks"]["code_ethos"]["fileScope"] == "code"
+            assert payload["checks"]["code_ethos"]["batchSize"] == 3
+            assert payload["checks"]["code_ethos"]["maxFileSizeKb"] == 50
             assert payload["checks"]["code_ethos"]["selector"] == {
-                "include_extensions": [
+                "includeExtensions": [
                     ".py",
                     ".pyi",
                     ".sh",
@@ -178,7 +178,7 @@ class GeminiPromptPackTests(unittest.TestCase):
                     ".ts",
                     ".js",
                 ],
-                "exclude_substrings": [
+                "excludeSubstrings": [
                     "test_",
                     "_test.",
                     ".test.",
@@ -191,14 +191,14 @@ class GeminiPromptPackTests(unittest.TestCase):
                     "/venv/",
                     "/migrations/",
                 ],
-                "exclude_prefixes": [
+                "excludePrefixes": [
                     ".venv/",
                     "venv/",
                     "__pycache__/",
                     "node_modules/",
                 ],
-                "allow_extensionless_in_scripts": False,
-                "shebang_markers": ["python", "bash", "sh"],
+                "allowExtensionlessInScripts": False,
+                "shebangMarkers": ["python", "bash", "sh"],
             }
             assert (
                 "Shared line length is 100 characters."

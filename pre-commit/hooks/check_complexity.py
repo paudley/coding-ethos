@@ -16,6 +16,9 @@ Exit codes:
     1: One or more functions exceed threshold
 """
 
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 import sys
 from typing import Final
 

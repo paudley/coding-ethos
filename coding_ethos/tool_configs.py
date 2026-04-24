@@ -1,7 +1,12 @@
+"""Generate repo-root linter and type-checker config files from policy YAML.
+
+This module merges bundle defaults with optional consumer overrides and renders
+deterministic tool config files for editors, hooks, and local CLI workflows.
+It keeps cross-tool settings like Python version and line length synchronized.
+"""
+
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
-
-from __future__ import annotations
 
 import configparser
 import json
@@ -10,11 +15,14 @@ from typing import Any
 
 import yaml
 
+from coding_ethos.yaml_utils import render_yaml
+
 GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
     "pyrightconfig.json",
     "mypy.ini",
     "ruff.toml",
     ".yamllint.yml",
+    ".golangci.yml",
 )
 
 _DEFAULT_REPO_CONFIG_NAMES: tuple[str, ...] = (
@@ -29,6 +37,11 @@ _DEFAULT_REPO_CONFIG_NAMES: tuple[str, ...] = (
     "coding-ethos.pre-commit.yaml",
     "coding-ethos.pre-commit.yml",
 )
+HASH_SPDX_HEADER = (
+    "# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. "
+    "<paudley@blackcat.ca>\n"
+    "# SPDX-License-Identifier: MIT\n\n"
+)
 
 
 def _ethos_root() -> Path:
@@ -38,13 +51,16 @@ def _ethos_root() -> Path:
 def _load_yaml(path: Path) -> dict[str, Any]:
     payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
-        raise ValueError(
-            f"Invalid config YAML at {path}: expected a mapping at the document root."
-        )
+        msg = f"Invalid config YAML at {path}: expected a mapping at the document root."
+        raise TypeError(msg)
     return payload
 
 
-def _deep_merge(base: Any, override: Any) -> Any:
+def _with_hash_spdx_header(content: str) -> str:
+    return f"{HASH_SPDX_HEADER}{content.lstrip()}"
+
+
+def _deep_merge(base: object, override: object) -> object:
     if isinstance(base, dict) and isinstance(override, dict):
         merged = dict(base)
         for key, value in override.items():
@@ -56,8 +72,8 @@ def _deep_merge(base: Any, override: Any) -> Any:
     return override
 
 
-def _get(config: dict[str, Any], path: str, default: Any = None) -> Any:
-    current: Any = config
+def _get(config: dict[str, Any], path: str, default: object = "") -> object:
+    current: object = config
     for segment in path.split("."):
         if not isinstance(current, dict) or segment not in current:
             return default
@@ -65,7 +81,7 @@ def _get(config: dict[str, Any], path: str, default: Any = None) -> Any:
     return current
 
 
-def _string_list(value: Any) -> list[str]:
+def _string_list(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
@@ -86,8 +102,12 @@ def _configured_string(config: dict[str, Any], path: str, fallback: str) -> str:
     return configured or fallback
 
 
-def _truthy_string(value: Any) -> str:
+def _truthy_string(value: object) -> str:
     return str(value).strip()
+
+
+def _bool_setting(config: dict[str, Any], path: str, *, default: bool) -> bool:
+    return bool(_get(config, path, default))
 
 
 def _python_version(config: dict[str, Any]) -> str:
@@ -126,14 +146,19 @@ def _extra_paths(config: dict[str, Any]) -> list[str]:
 
 def resolve_repo_config(
     repo_root: Path,
-    explicit_repo_config: Path | None = None,
+    explicit_repo_config: object = "",
     *,
-    base_config: dict[str, Any] | None = None,
-) -> Path | None:
-    if explicit_repo_config is not None:
+    base_config: object = "",
+) -> Path:
+    """Resolve the optional consumer override config path for a repo root."""
+    if isinstance(explicit_repo_config, Path):
         return explicit_repo_config.expanduser().resolve()
 
-    resolved_base = base_config or _load_yaml(_ethos_root() / "config.yaml")
+    resolved_base = (
+        base_config
+        if isinstance(base_config, dict)
+        else _load_yaml(_ethos_root() / "config.yaml")
+    )
     configured_names = _string_list(
         _get(
             resolved_base,
@@ -147,13 +172,23 @@ def resolve_repo_config(
         candidate = repo_root / name
         if candidate.exists():
             return candidate.resolve()
-    return None
+    return repo_root / candidate_names[0]
 
 
 def load_enforcement_config(
     repo_root: Path,
-    repo_config_path: Path | None = None,
-) -> tuple[dict[str, Any], Path | None]:
+    repo_config_path: object = "",
+) -> tuple[dict[str, Any], Path]:
+    """Load merged enforcement policy for one repo root.
+
+    Args:
+        repo_root: Consumer repo where generated configs will be written.
+        repo_config_path: Optional explicit override YAML path.
+
+    Returns:
+        The merged config mapping and the resolved repo override path, if any.
+
+    """
     base_config = _load_yaml(_ethos_root() / "config.yaml")
     resolved_repo_config = resolve_repo_config(
         repo_root,
@@ -201,7 +236,7 @@ def _path_patterns(paths: list[str]) -> list[str]:
 
 
 def _sql_ignore_patterns(config: dict[str, Any]) -> dict[str, list[str]]:
-    if not bool(_get(config, "python.sql_centralization.enabled", False)):
+    if not _bool_setting(config, "python.sql_centralization.enabled", default=False):
         return {}
     ignore_codes = _string_list(
         _get(config, "tooling.ruff.sql_per_file_ignores", ["S608"])
@@ -226,7 +261,8 @@ def _ruff_per_file_ignores(config: dict[str, Any]) -> dict[str, list[str]]:
     test_codes = _string_list(_get(config, "tooling.ruff.test_per_file_ignores", []))
     configured = _get(config, "tooling.ruff.extra_per_file_ignores", {}) or {}
     if configured and not isinstance(configured, dict):
-        raise ValueError("tooling.ruff.extra_per_file_ignores must be a mapping.")
+        msg = "tooling.ruff.extra_per_file_ignores must be a mapping."
+        raise TypeError(msg)
 
     ignores: dict[str, list[str]] = {}
     for pattern in _path_patterns(_stub_paths(config)):
@@ -241,6 +277,7 @@ def _ruff_per_file_ignores(config: dict[str, Any]) -> dict[str, list[str]]:
 
 
 def render_pyrightconfig(config: dict[str, Any]) -> str:
+    """Render `pyrightconfig.json` from merged policy."""
     payload: dict[str, Any] = {
         "typeCheckingMode": _truthy_string(
             _get(config, "tooling.pyright.type_checking_mode", "strict")
@@ -300,14 +337,15 @@ def _mypy_exclude_regex(config: dict[str, Any]) -> str:
 
 
 def render_mypy_ini(config: dict[str, Any]) -> str:
+    """Render `mypy.ini` from merged policy."""
     parser = configparser.ConfigParser()
     parser.optionxform = str
     parser["mypy"] = {
         "strict": "True"
-        if bool(_get(config, "tooling.mypy.strict", True))
+        if _bool_setting(config, "tooling.mypy.strict", default=True)
         else "False",
         "warn_unused_configs": "True"
-        if bool(_get(config, "tooling.mypy.warn_unused_configs", True))
+        if _bool_setting(config, "tooling.mypy.warn_unused_configs", default=True)
         else "False",
         "python_version": _python_version(config),
     }
@@ -343,10 +381,13 @@ def render_mypy_ini(config: dict[str, Any]) -> str:
         for key, value in parser[section].items():
             lines.append(f"{key} = {value}")
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    return _with_hash_spdx_header("\n".join(lines).rstrip() + "\n")
 
 
 def render_ruff_toml(config: dict[str, Any]) -> str:
+    """Render `ruff.toml` from merged policy."""
+    select_codes = _string_list(_get(config, "tooling.ruff.select", ["ALL"]))
+    ignore_codes = _string_list(_get(config, "tooling.ruff.ignore", []))
     lines = [
         f'target-version = "{_ruff_target_version(config)}"',
         f"line-length = {_line_length(config)}",
@@ -377,8 +418,8 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
         [
             "",
             "[lint]",
-            f"select = {_toml_list(_string_list(_get(config, 'tooling.ruff.select', ['ALL'])))}",
-            f"ignore = {_toml_list(_string_list(_get(config, 'tooling.ruff.ignore', [])))}",
+            f"select = {_toml_list(select_codes)}",
+            f"ignore = {_toml_list(ignore_codes)}",
             "",
             "[lint.pylint]",
             f"max-args = {int(_get(config, 'tooling.ruff.max_args', 6))}",
@@ -388,14 +429,15 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
     per_file_ignores = _ruff_per_file_ignores(config)
     if per_file_ignores:
         lines.extend(["", "[lint.per-file-ignores]"])
-        for pattern in sorted(per_file_ignores):
-            lines.append(
-                f"{_toml_string(pattern)} = {_toml_list(per_file_ignores[pattern])}"
-            )
+        lines.extend(
+            f"{_toml_string(pattern)} = {_toml_list(per_file_ignores[pattern])}"
+            for pattern in sorted(per_file_ignores)
+        )
 
     banned_api = _get(config, "tooling.ruff.banned_api", {}) or {}
     if banned_api and not isinstance(banned_api, dict):
-        raise ValueError("tooling.ruff.banned_api must be a mapping.")
+        msg = "tooling.ruff.banned_api must be a mapping."
+        raise TypeError(msg)
     if banned_api:
         lines.extend(["", "[lint.flake8-tidy-imports.banned-api]"])
         for module_name in sorted(banned_api):
@@ -405,17 +447,19 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
                     f"{_toml_string(module_name)} = {{ msg = {_toml_string(message)} }}"
                 )
 
-    return "\n".join(lines).rstrip() + "\n"
+    return _with_hash_spdx_header("\n".join(lines).rstrip() + "\n")
 
 
 def render_yamllint_config(config: dict[str, Any]) -> str:
+    """Render `.yamllint.yml` from merged policy."""
     payload: dict[str, Any] = {
         "extends": _truthy_string(_get(config, "tooling.yamllint.extends", "default"))
         or "default",
         "rules": _get(config, "tooling.yamllint.rules", {}),
     }
     if not isinstance(payload["rules"], dict):
-        raise ValueError("tooling.yamllint.rules must be a mapping.")
+        msg = "tooling.yamllint.rules must be a mapping."
+        raise TypeError(msg)
 
     rules = dict(payload["rules"])
     line_length = dict(rules.get("line-length", {}))
@@ -423,21 +467,53 @@ def render_yamllint_config(config: dict[str, Any]) -> str:
     rules["line-length"] = line_length
     payload["rules"] = rules
 
-    return yaml.safe_dump(payload, sort_keys=False)
+    return _with_hash_spdx_header(render_yaml(payload))
+
+
+def render_golangci_config(config: dict[str, Any]) -> str:
+    """Render `.golangci.yml` from merged policy."""
+    configured = _get(config, "tooling.golangci_lint", {})
+    payload = _deep_merge({}, configured)
+    if not isinstance(payload, dict):
+        msg = "tooling.golangci_lint must be a mapping."
+        raise TypeError(msg)
+
+    payload["version"] = str(payload.get("version", "2"))
+
+    linters = payload.get("linters", {})
+    if not isinstance(linters, dict):
+        msg = "tooling.golangci_lint.linters must be a mapping."
+        raise TypeError(msg)
+
+    settings = linters.get("settings", {})
+    if not isinstance(settings, dict):
+        msg = "tooling.golangci_lint.linters.settings must be a mapping."
+        raise TypeError(msg)
+
+    lll = settings.get("lll", {})
+    if not isinstance(lll, dict):
+        msg = "tooling.golangci_lint.linters.settings.lll must be a mapping."
+        raise TypeError(msg)
+    lll["line-length"] = _line_length(config)
+    settings["lll"] = lll
+    linters["settings"] = settings
+    payload["linters"] = linters
+    return _with_hash_spdx_header(render_yaml(payload))
 
 
 def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
+    """Render all supported repo-root tool config files."""
     return {
         "pyrightconfig.json": render_pyrightconfig(config),
         "mypy.ini": render_mypy_ini(config),
         "ruff.toml": render_ruff_toml(config),
         ".yamllint.yml": render_yamllint_config(config),
+        ".golangci.yml": render_golangci_config(config),
     }
 
 
-def sync_tool_configs(
-    repo_root: Path, repo_config_path: Path | None = None
-) -> list[Path]:
+def sync_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Path]:
+    """Write the generated tool configs into a repo root."""
     config, _ = load_enforcement_config(repo_root, repo_config_path)
     rendered = render_tool_configs(config)
     written: list[Path] = []
@@ -448,9 +524,8 @@ def sync_tool_configs(
     return written
 
 
-def check_tool_configs(
-    repo_root: Path, repo_config_path: Path | None = None
-) -> list[Path]:
+def check_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Path]:
+    """Return generated tool config paths that are missing or out of sync."""
     config, _ = load_enforcement_config(repo_root, repo_config_path)
     rendered = render_tool_configs(config)
     mismatched: list[Path] = []

@@ -1,6 +1,10 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,8 +37,16 @@ requires-python = ">=3.11"
 python_version = 3.12
 `)+"\n",
 	)
-	mustWriteTestFile(t, filepath.Join(tempDir, "pyrightconfig.json"), "{\n  \"pythonVersion\": \"3.14\"\n}\n")
-	mustWriteTestFile(t, filepath.Join(tempDir, "ruff.toml"), "target-version = \"py312\"\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pyrightconfig.json"),
+		"{\n  \"pythonVersion\": \"3.14\"\n}\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "ruff.toml"),
+		"target-version = \"py312\"\n",
+	)
 
 	issues, err := collectPythonVersionIssues("3.13", tempDir)
 	if err != nil {
@@ -58,8 +70,13 @@ python:
     enabled: true
 `)+"\n",
 	)
-	mustWriteTestFile(t, filepath.Join(tempDir, "pre-commit", "lefthook.yml"), "min_version: 1.13.6\n")
-	if err := os.MkdirAll(filepath.Join(tempDir, "pre-commit", "hooks"), 0o755); err != nil {
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pre-commit", "lefthook.yml"),
+		"min_version: 1.13.6\n",
+	)
+	err := os.MkdirAll(filepath.Join(tempDir, "pre-commit", "hooks"), 0o755)
+	if err != nil {
 		t.Fatalf("os.MkdirAll() failed: %v", err)
 	}
 
@@ -80,18 +97,28 @@ requires-python = ">=3.11"
 python_version = 3.12
 `)+"\n",
 	)
-	mustWriteTestFile(t, filepath.Join(tempDir, "pyrightconfig.json"), "{\n  \"pythonVersion\": \"3.13\"\n}\n")
-	mustWriteTestFile(t, filepath.Join(tempDir, "ruff.toml"), "target-version = \"py313\"\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pyrightconfig.json"),
+		"{\n  \"pythonVersion\": \"3.13\"\n}\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "ruff.toml"),
+		"target-version = \"py313\"\n",
+	)
 
 	previous, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
@@ -117,9 +144,10 @@ python_version = 3.12
 
 func TestCheckPythonVersionConsistencyCommandUsesConsumerRoot(t *testing.T) {
 	tempDir := t.TempDir()
-	cmd := exec.Command("git", "init")
+	cmd := exec.CommandContext(context.Background(), "git", "init")
 	cmd.Dir = tempDir
-	if output, err := cmd.CombinedOutput(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Fatalf("git init failed: %v\n%s", err, string(output))
 	}
 	mustWriteTestFile(
@@ -138,7 +166,11 @@ python:
 		filepath.Join(tempDir, "code-ethos", "pre-commit", "lefthook.yml"),
 		"min_version: 1.13.6\n",
 	)
-	if err := os.MkdirAll(filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks"), 0o755); err != nil {
+	err = os.MkdirAll(
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks"),
+		0o755,
+	)
+	if err != nil {
 		t.Fatalf("os.MkdirAll() failed: %v", err)
 	}
 
@@ -151,42 +183,63 @@ python:
 requires-python = ">=3.13"
 `)+"\n",
 	)
-	mustWriteTestFile(t, filepath.Join(tempDir, "mypy.ini"), "[mypy]\npython_version = 3.13\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "mypy.ini"),
+		"[mypy]\npython_version = 3.13\n",
+	)
 	mustWriteTestFile(
 		t,
 		filepath.Join(tempDir, "pyrightconfig.json"),
 		"{\n  \"pythonVersion\": \"3.13\"\n}\n",
 	)
-	mustWriteTestFile(t, filepath.Join(tempDir, "ruff.toml"), "target-version = \"py313\"\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "ruff.toml"),
+		"target-version = \"py313\"\n",
+	)
 
 	previous, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
 
-	output := captureStderr(t, func() {
+	stderrOutput := captureStderr(t, func() {
 		if got := checkPythonVersionConsistencyCommand(Config{}, nil); got != 1 {
 			t.Fatalf("checkPythonVersionConsistencyCommand() = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(output, ".python-version [version]") {
-		t.Fatalf("expected consumer-root .python-version mismatch, got %q", output)
+	if !strings.Contains(stderrOutput, ".python-version [version]") {
+		t.Fatalf(
+			"expected consumer-root .python-version mismatch, got %q",
+			stderrOutput,
+		)
 	}
 }
 
 func TestCollectPythonVersionIssuesReportsMissingValues(t *testing.T) {
 	tempDir := t.TempDir()
-	mustWriteTestFile(t, filepath.Join(tempDir, "pyproject.toml"), "[project]\nname = \"demo\"\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pyproject.toml"),
+		"[project]\nname = \"demo\"\n",
+	)
 	mustWriteTestFile(t, filepath.Join(tempDir, "mypy.ini"), "[mypy]\nstrict = True\n")
-	mustWriteTestFile(t, filepath.Join(tempDir, "pyrightconfig.json"), "{\n  \"include\": [\"src\"]\n}\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pyrightconfig.json"),
+		"{\n  \"include\": [\"src\"]\n}\n",
+	)
 	mustWriteTestFile(t, filepath.Join(tempDir, "ruff.toml"), "line-length = 88\n")
 
 	issues, err := collectPythonVersionIssues("3.13", tempDir)
@@ -198,7 +251,12 @@ func TestCollectPythonVersionIssuesReportsMissingValues(t *testing.T) {
 	}
 	for _, issue := range issues {
 		if issue.Found != "<missing>" {
-			t.Fatalf("issue %s[%s] found = %q, want <missing>", issue.Path, issue.Field, issue.Found)
+			t.Fatalf(
+				"issue %s[%s] found = %q, want <missing>",
+				issue.Path,
+				issue.Field,
+				issue.Found,
+			)
 		}
 	}
 }

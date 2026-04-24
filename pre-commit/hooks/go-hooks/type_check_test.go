@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -10,7 +13,11 @@ func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	bundleRoot := filepath.Join(tempDir, "pre-commit")
 	consumerRoot := filepath.Join(tempDir, "repo")
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "pyproject.toml"), "[tool.mypy]\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "hooks", "pyproject.toml"),
+		"[tool.mypy]\n",
+	)
 	mustWriteTestFile(t, filepath.Join(consumerRoot, "pyrightconfig.json"), "{}\n")
 
 	command := resolveTypeCheckerCommand(
@@ -30,13 +37,32 @@ func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
 		},
 	)
 
-	wantPrefix := []string{"uv", "run", "--quiet", "--project", filepath.Join(bundleRoot, "hooks"), "pyright", "--project", filepath.Join(consumerRoot, "pyrightconfig.json")}
+	wantPrefix := []string{
+		"uv",
+		"run",
+		"--quiet",
+		"--project",
+		filepath.Join(bundleRoot, "hooks"),
+		"pyright",
+		"--project",
+		filepath.Join(consumerRoot, "pyrightconfig.json"),
+	}
 	if len(command) < len(wantPrefix) {
-		t.Fatalf("resolveTypeCheckerCommand() = %#v, want prefix %#v", command, wantPrefix)
+		t.Fatalf(
+			"resolveTypeCheckerCommand() = %#v, want prefix %#v",
+			command,
+			wantPrefix,
+		)
 	}
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
-			t.Fatalf("command[%d] = %q, want %q (%#v)", i, command[i], wantPrefix[i], command)
+			t.Fatalf(
+				"command[%d] = %q, want %q (%#v)",
+				i,
+				command[i],
+				wantPrefix[i],
+				command,
+			)
 		}
 	}
 }
@@ -52,7 +78,9 @@ func TestNormalizeTypeCheckFiles(t *testing.T) {
 	mustWriteTestFile(t, venvFile, "value = 1\n")
 	mustWriteTestFile(t, whitelist, "value\n")
 
-	files := normalizeTypeCheckFiles([]string{pythonFile, dockerFile, venvFile, whitelist, pythonFile})
+	files := normalizeTypeCheckFiles(
+		[]string{pythonFile, dockerFile, venvFile, whitelist, pythonFile},
+	)
 	if len(files) != 1 || files[0] != pythonFile {
 		t.Fatalf("normalizeTypeCheckFiles() = %#v, want [%q]", files, pythonFile)
 	}
@@ -96,8 +124,17 @@ python:
 				t.Fatalf("checkTypeCheckersCommand() = %d, want 1", got)
 			}
 		})
-		if !strings.Contains(stderr, "Type checking failed") {
+		if !strings.Contains(
+			stderr,
+			"type checking failed in one or more configured checkers",
+		) {
 			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+		if !strings.Contains(
+			stderr,
+			"Fix the reported checker output above and run the hook again.",
+		) {
+			t.Fatalf("missing remediation guidance in stderr: %q", stderr)
 		}
 	})
 	if !strings.Contains(stdout, "TYPE CHECKING (PARALLEL)") {

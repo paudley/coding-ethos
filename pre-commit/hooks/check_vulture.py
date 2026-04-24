@@ -12,6 +12,9 @@ Exit codes:
     1: Dead code detected or error
 """
 
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 import shutil
 import subprocess
 import sys
@@ -49,13 +52,10 @@ TARGET_PATH: Final[str] = "."
 
 
 def find_whitelist() -> Path:
-    """Find the vulture whitelist file.
+    """Find the optional vulture whitelist file.
 
     Returns:
-        Path to whitelist file.
-
-    Raises:
-        FileNotFoundError: If whitelist file cannot be found.
+        Path to the most likely whitelist file location.
 
     """
     # Try relative to script location first
@@ -69,8 +69,7 @@ def find_whitelist() -> Path:
     if whitelist.exists():
         return whitelist
 
-    msg = "vulture_whitelist.py not found"
-    raise FileNotFoundError(msg)
+    return script_dir / "vulture_whitelist.py"
 
 
 def main() -> int:
@@ -89,11 +88,8 @@ def main() -> int:
     command = [vulture_path, TARGET_PATH]
 
     # Add whitelist if found
-    try:
-        whitelist = find_whitelist()
-    except FileNotFoundError:
-        pass
-    else:
+    whitelist = find_whitelist()
+    if whitelist.exists():
         command.append(str(whitelist))
 
     # Add confidence threshold

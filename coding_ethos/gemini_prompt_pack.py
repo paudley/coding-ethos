@@ -1,9 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-"""Generate grounded Gemini prompt packs from ethos and repo policy."""
+"""Generate grounded Gemini prompt packs from ethos and repo policy.
 
-from __future__ import annotations
+This module renders the prompt text and runtime metadata consumed by the active
+Go Gemini hook runner.
+It keeps prompt authoring in templates while preserving a deterministic output.
+
+"""
 
 import json
 from pathlib import Path
@@ -21,11 +25,11 @@ GENERATED_GEMINI_PROMPT_FILES: tuple[str, ...] = (
 
 _CHECK_SPECS: dict[str, dict[str, object]] = {
     "code_ethos": {
-        "file_scope": "code",
-        "batch_size": 3,
-        "max_file_size_kb": 50,
+        "fileScope": "code",
+        "batchSize": 3,
+        "maxFileSizeKb": 50,
         "selector": {
-            "include_extensions": [
+            "includeExtensions": [
                 ".py",
                 ".pyi",
                 ".sh",
@@ -35,7 +39,7 @@ _CHECK_SPECS: dict[str, dict[str, object]] = {
                 ".ts",
                 ".js",
             ],
-            "exclude_substrings": [
+            "excludeSubstrings": [
                 "test_",
                 "_test.",
                 ".test.",
@@ -48,74 +52,74 @@ _CHECK_SPECS: dict[str, dict[str, object]] = {
                 "/venv/",
                 "/migrations/",
             ],
-            "exclude_prefixes": [
+            "excludePrefixes": [
                 ".venv/",
                 "venv/",
                 "__pycache__/",
                 "node_modules/",
             ],
-            "allow_extensionless_in_scripts": False,
-            "shebang_markers": ["python", "bash", "sh"],
+            "allowExtensionlessInScripts": False,
+            "shebangMarkers": ["python", "bash", "sh"],
         },
     },
     "shell_review": {
-        "file_scope": "shell",
-        "batch_size": 5,
-        "max_file_size_kb": 50,
+        "fileScope": "shell",
+        "batchSize": 5,
+        "maxFileSizeKb": 50,
         "selector": {
-            "include_extensions": [".sh", ".bash"],
-            "exclude_substrings": [],
-            "exclude_prefixes": [],
-            "allow_extensionless_in_scripts": True,
-            "shebang_markers": ["bash", "sh"],
+            "includeExtensions": [".sh", ".bash"],
+            "excludeSubstrings": [],
+            "excludePrefixes": [],
+            "allowExtensionlessInScripts": True,
+            "shebangMarkers": ["bash", "sh"],
         },
     },
     "shell_ethos": {
-        "file_scope": "shell",
-        "batch_size": 5,
-        "max_file_size_kb": 30,
+        "fileScope": "shell",
+        "batchSize": 5,
+        "maxFileSizeKb": 30,
         "selector": {
-            "include_extensions": [".sh", ".bash"],
-            "exclude_substrings": [],
-            "exclude_prefixes": [],
-            "allow_extensionless_in_scripts": True,
-            "shebang_markers": ["bash", "sh"],
+            "includeExtensions": [".sh", ".bash"],
+            "excludeSubstrings": [],
+            "excludePrefixes": [],
+            "allowExtensionlessInScripts": True,
+            "shebangMarkers": ["bash", "sh"],
         },
     },
     "shell_documentation": {
-        "file_scope": "shell",
-        "batch_size": 5,
-        "max_file_size_kb": 50,
+        "fileScope": "shell",
+        "batchSize": 5,
+        "maxFileSizeKb": 50,
         "selector": {
-            "include_extensions": [".sh", ".bash"],
-            "exclude_substrings": [],
-            "exclude_prefixes": [],
-            "allow_extensionless_in_scripts": True,
-            "shebang_markers": ["bash", "sh"],
+            "includeExtensions": [".sh", ".bash"],
+            "excludeSubstrings": [],
+            "excludePrefixes": [],
+            "allowExtensionlessInScripts": True,
+            "shebangMarkers": ["bash", "sh"],
         },
     },
     "shellcheck_suppression": {
-        "file_scope": "shell",
-        "batch_size": 8,
-        "max_file_size_kb": 50,
+        "fileScope": "shell",
+        "batchSize": 8,
+        "maxFileSizeKb": 50,
         "selector": {
-            "include_extensions": [".sh", ".bash"],
-            "exclude_substrings": [],
-            "exclude_prefixes": [],
-            "allow_extensionless_in_scripts": True,
-            "shebang_markers": ["bash", "sh"],
+            "includeExtensions": [".sh", ".bash"],
+            "excludeSubstrings": [],
+            "excludePrefixes": [],
+            "allowExtensionlessInScripts": True,
+            "shebangMarkers": ["bash", "sh"],
         },
     },
     "shell_placeholder": {
-        "file_scope": "shell",
-        "batch_size": 10,
-        "max_file_size_kb": 50,
+        "fileScope": "shell",
+        "batchSize": 10,
+        "maxFileSizeKb": 50,
         "selector": {
-            "include_extensions": [".sh", ".bash"],
-            "exclude_substrings": [],
-            "exclude_prefixes": [],
-            "allow_extensionless_in_scripts": True,
-            "shebang_markers": ["bash", "sh"],
+            "includeExtensions": [".sh", ".bash"],
+            "excludeSubstrings": [],
+            "excludePrefixes": [],
+            "allowExtensionlessInScripts": True,
+            "shebangMarkers": ["bash", "sh"],
         },
     },
 }
@@ -134,17 +138,15 @@ def _ethos_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def resolve_repo_ethos(
-    repo_root: Path, explicit_repo_ethos: Path | None = None
-) -> Path | None:
+def resolve_repo_ethos(repo_root: Path, explicit_repo_ethos: object = "") -> Path:
     """Resolve the optional repo-specific ethos overlay for a target repo."""
-    if explicit_repo_ethos is not None:
+    if isinstance(explicit_repo_ethos, Path):
         return explicit_repo_ethos.expanduser().resolve()
     for name in ("repo_ethos.yml", "repo_ethos.yaml"):
         candidate = repo_root / name
         if candidate.exists():
             return candidate.resolve()
-    return None
+    return (repo_root / "repo_ethos.yml").resolve()
 
 
 def _jinja_environment() -> Environment:
@@ -163,8 +165,8 @@ def _jinja_environment() -> Environment:
     )
 
 
-def _relative_path(path: Path | None, *, relative_to: Path) -> str:
-    if path is None:
+def _relative_path(path: object, *, relative_to: Path) -> str:
+    if not isinstance(path, Path):
         return ""
     try:
         return str(path.relative_to(relative_to))
@@ -435,17 +437,17 @@ def _render_prompts(context: dict[str, Any]) -> dict[str, str]:
 def _render_check_specs() -> dict[str, dict[str, object]]:
     return {
         name: {
-            "file_scope": str(spec["file_scope"]),
-            "batch_size": int(spec["batch_size"]),
-            "max_file_size_kb": int(spec["max_file_size_kb"]),
+            "fileScope": str(spec["fileScope"]),
+            "batchSize": int(spec["batchSize"]),
+            "maxFileSizeKb": int(spec["maxFileSizeKb"]),
             "selector": {
-                "include_extensions": list(spec["selector"]["include_extensions"]),
-                "exclude_substrings": list(spec["selector"]["exclude_substrings"]),
-                "exclude_prefixes": list(spec["selector"]["exclude_prefixes"]),
-                "allow_extensionless_in_scripts": bool(
-                    spec["selector"]["allow_extensionless_in_scripts"]
+                "includeExtensions": list(spec["selector"]["includeExtensions"]),
+                "excludeSubstrings": list(spec["selector"]["excludeSubstrings"]),
+                "excludePrefixes": list(spec["selector"]["excludePrefixes"]),
+                "allowExtensionlessInScripts": bool(
+                    spec["selector"]["allowExtensionlessInScripts"]
                 ),
-                "shebang_markers": list(spec["selector"]["shebang_markers"]),
+                "shebangMarkers": list(spec["selector"]["shebangMarkers"]),
             },
         }
         for name, spec in _CHECK_SPECS.items()
@@ -455,8 +457,8 @@ def _render_check_specs() -> dict[str, dict[str, object]]:
 def render_gemini_prompt_pack(
     repo_root: Path,
     primary_path: Path,
-    repo_ethos_path: Path | None = None,
-    repo_config_path: Path | None = None,
+    repo_ethos_path: Path,
+    repo_config_path: object = "",
 ) -> str:
     """Render the deterministic Gemini prompt pack for a target repo."""
     bundle = merge_repo_ethos(load_primary_bundle(primary_path), repo_ethos_path)
@@ -497,8 +499,8 @@ def _prompt_pack_paths(repo_root: Path) -> list[Path]:
 def sync_gemini_prompt_pack(
     repo_root: Path,
     primary_path: Path,
-    repo_ethos_path: Path | None = None,
-    repo_config_path: Path | None = None,
+    repo_ethos_path: Path,
+    repo_config_path: object = "",
 ) -> list[Path]:
     """Write the rendered Gemini prompt pack into the target repo."""
     rendered = render_gemini_prompt_pack(
@@ -518,8 +520,8 @@ def sync_gemini_prompt_pack(
 def check_gemini_prompt_pack(
     repo_root: Path,
     primary_path: Path,
-    repo_ethos_path: Path | None = None,
-    repo_config_path: Path | None = None,
+    repo_ethos_path: Path,
+    repo_config_path: object = "",
 ) -> list[Path]:
     """Return generated prompt-pack paths that are missing or out of sync."""
     expected = render_gemini_prompt_pack(

@@ -329,11 +329,15 @@ Backward-compatible aliases like `make hooks-validate` and
 
 `make install-hooks` keeps Lefthook repo-local. It installs the pinned
 binary into `.git/coding-ethos-hooks/` with `GOBIN=... go install` and uses
-that cached binary for both manual runs and installed Git hook shims.
+that cached binary for both manual runs and installed Git hook shims. The
+runtime path uses `lefthook run --no-auto-install` so manual runs and Git
+pushes do not let Lefthook overwrite the custom `coding-ethos` hook shims
+inside `.git/hooks/`.
 
 `make sync-tool-configs` generates repo-root `pyrightconfig.json`, `mypy.ini`,
-`ruff.toml`, and `.yamllint.yml` from the shared [config.yaml](config.yaml)
-plus an optional consuming-repo `repo_config.yaml`. The same
+`ruff.toml`, `.yamllint.yml`, and `.golangci.yml` from the shared
+[config.yaml](config.yaml) plus an optional consuming-repo `repo_config.yaml`.
+The same
 `style.python_version` value also drives the `pyupgrade` autofix target and
 the hook-level version consistency checks for files like `.python-version`
 and `pyproject.toml`. In other words, `config.yaml` is the enforcement source

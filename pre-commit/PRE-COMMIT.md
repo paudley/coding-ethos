@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
+
 # Pre-Commit Hooks
 
 This bundle provides ETHOS-oriented Git hooks built on
@@ -25,7 +28,7 @@ repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook shims are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`,
-`.yamllint.yml`, and `.code-ethos/gemini/prompt-pack.json` from the shared
+`.yamllint.yml`, `.golangci.yml`, and `.code-ethos/gemini/prompt-pack.json` from the shared
 bundle inputs plus any consuming-repo overrides.
 
 `make install-hooks` installs a pinned repo-local Lefthook binary to:
@@ -43,7 +46,9 @@ GOBIN=.git/coding-ethos-hooks go install github.com/evilmartians/lefthook@v1.13.
 
 Installed Git hooks use that repo-local binary only. If the binary is missing
 or the cached version is stale, the hook shim rebuilds it into the same local
-path and then runs it.
+path and then runs it. The bundle always executes Lefthook with
+`--no-auto-install` so runtime hook execution cannot replace the custom
+`coding-ethos` shims in `.git/hooks/` with Lefthook's stock launcher.
 
 Required tools:
 
@@ -76,8 +81,8 @@ Run a single job directly:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-.git/coding-ethos-hooks/lefthook run pre-commit --jobs "Ruff lint"
-.git/coding-ethos-hooks/lefthook run pre-commit --all-files --jobs "Validate YAML/TOML/JSON syntax"
+.git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --jobs "Ruff lint"
+.git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --all-files --jobs "Validate YAML/TOML/JSON syntax"
 ```
 
 Run commit-message checks directly:
@@ -98,7 +103,7 @@ Primary files:
 - `lefthook.yml` - hook stages, globs, excludes, and command templates
 - `../Makefile` - root-level hook entry points and pinned Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
-- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.yamllint.yml` - generated consumer-repo tool configs
+- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool configs
 - `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini prompt pack with rendered prompts and per-check runtime metadata
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `hooks/run-go-hook.sh` - cached Go helper build and execution wrapper
@@ -149,7 +154,7 @@ Important configurable areas:
 - `python.pytest_gate` - banned markers and pytest command
 - `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
 - `python.type_check` - checker commands, hook-project execution, config injection, and enablement
-- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint` - generated repo-root tool config defaults
+- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
 

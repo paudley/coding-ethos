@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 style:
   line_length: 100
 
@@ -130,6 +133,16 @@ tooling:
     include:
       - lib/python/project
       - pre-commit/hooks
+  golangci_lint:
+    linters:
+      enable:
+        - ginkgolinter
+      exclusions:
+        rules:
+          - path: internal/generated/
+            linters:
+              - lll
+              - misspell
 
 gemini:
   model: gemini-2.5-flash
@@ -145,3 +158,6 @@ gemini:
     api_ttl_seconds: 1800
   modal_allowlist_files:
     - scripts/bootstrap.sh
+
+go:
+  worktree: go

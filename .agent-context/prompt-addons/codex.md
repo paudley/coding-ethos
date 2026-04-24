@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
+
 # Codex prompt addon
 
 You are working in `coding-ethos`.
@@ -13,5 +16,7 @@ Core principles:
 - SOLID is Law quick ref: Enforce SOLID and simplicity; remove speculative abstractions. | We do not view the SOLID principles as academic suggestions.
 - Fail Fast, Fail Hard (Overview) quick ref: Crash early on ambiguous startup and configuration states instead of degrading silently. | Ambiguity is the enemy of reliability.
 - No Conditional Imports quick ref: Treat required imports as hard dependencies and fail immediately if they are missing. | We strictly ban the "soft dependency" pattern.
-- Static Analysis is the First Line of Defense quick ref: Make ruff and mypy blocking quality gates rather than advisory tools. | We rely on linters (ruff) and type checkers (mypy) to catch errors before the code ever runs.
-- No Optional Types for Required Dependencies quick ref: Model required dependencies as non-optional and default to full-strength behavior. | We strictly ban | None (or Optional) for dependencies that are required for correct operation.
+- Static Analysis is the First Line of Defense quick ref: Make ruff and mypy blocking quality gates rather than advisory tools. | We rely on linters (ruff) and type checkers (mypy) to catch errors
+before the code ever runs.
+- No Optional Types for Required Dependencies quick ref: Model required dependencies as non-optional and default to full-strength behavior. | We strictly ban | None (or Optional) for dependencies that are
+required for correct operation.

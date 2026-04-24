@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -18,16 +21,33 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 		},
 	)
 
-	wantPrefix := []string{"uv", "run", "--quiet", "--project", "/tmp/hooks", "interrogate", "--fail-under", "95", "--verbose"}
+	wantPrefix := []string{
+		"uv",
+		"run",
+		"--quiet",
+		"--project",
+		"/tmp/hooks",
+		"interrogate",
+		"--fail-under",
+		"95",
+		"--verbose",
+	}
 	if len(command) < len(wantPrefix) {
 		t.Fatalf("command = %#v, want prefix %#v", command, wantPrefix)
 	}
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
-			t.Fatalf("command[%d] = %q, want %q (%#v)", i, command[i], wantPrefix[i], command)
+			t.Fatalf(
+				"command[%d] = %q, want %q (%#v)",
+				i,
+				command[i],
+				wantPrefix[i],
+				command,
+			)
 		}
 	}
-	if !slicesContains(command, "--ignore-regex") || !slicesContains(command, "pkg") || !slicesContains(command, "pre-commit/hooks") {
+	if !slicesContains(command, "--ignore-regex") || !slicesContains(command, "pkg") ||
+		!slicesContains(command, "pre-commit/hooks") {
 		t.Fatalf("command missing expected flags or paths: %#v", command)
 	}
 }

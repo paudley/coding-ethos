@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 SHELL := bash
 
 .DEFAULT_GOAL := help
@@ -229,7 +232,7 @@ check-root-config:
 		exit 1; \
 	fi
 
-sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, and yamllint configs.
+sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, yamllint, and golangci-lint configs.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
@@ -265,15 +268,15 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install 
 
 pre-commit: ensure-lefthook ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Lefthook pre-commit on staged files)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-commit 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install --no-stage-fixed pre-commit 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
 pre-commit-all: ensure-lefthook ## Run bundled pre-commit hooks on all files.
 	@$(call print_step,Running Lefthook pre-commit on all files)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-commit --all-files 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install --no-stage-fixed pre-commit --all-files 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
 pre-push: ensure-lefthook ## Run bundled pre-push hooks.
 	@$(call print_step,Running Lefthook pre-push)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run pre-push 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install pre-push 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 
 commit-msg: ensure-lefthook ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
@@ -281,7 +284,7 @@ ifndef MSG
 	@exit 2
 else
 	@$(call print_step,Running Lefthook commit-msg)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run commit-msg "$(MSG)" 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install commit-msg "$(MSG)" 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
 endif
 
 validate: ensure-lefthook ## Validate the bundled Lefthook configuration.

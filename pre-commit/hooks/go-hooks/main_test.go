@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -83,11 +86,11 @@ func TestLoadGeminiPromptPackParsesGeneratedContract(t *testing.T) {
 	if len(codeEthos.Selector.IncludeExtensions) == 0 {
 		t.Fatal("code_ethos selector has no include_extensions")
 	}
-	if codeEthos.Selector.IncludeExtensions[0] != ".py" {
+	if codeEthos.Selector.IncludeExtensions[0] != extPy {
 		t.Fatalf(
 			"code_ethos first include extension = %q, want %q",
 			codeEthos.Selector.IncludeExtensions[0],
-			".py",
+			extPy,
 		)
 	}
 	if codeEthos.Selector.AllowExtensionlessInScripts {
@@ -159,6 +162,48 @@ func TestRootConfigValue(t *testing.T) {
 	}
 }
 
+func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	bundleRoot := filepath.Join(tempDir, "pre-commit")
+	err := os.MkdirAll(filepath.Join(bundleRoot, "hooks"), 0o755)
+	if err != nil {
+		t.Fatalf("os.MkdirAll(%q) failed: %v", bundleRoot, err)
+	}
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "lefthook.yml"),
+		"min_version: 1.13.6\n",
+	)
+	configPath := filepath.Join(tempDir, "config.yaml")
+	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - PLC0415\n")
+	otherPath := filepath.Join(tempDir, "other.txt")
+	mustWriteTestFile(t, otherPath, "PLC0415\n")
+
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	cfg := Config{}
+	cfg.Text.ForbiddenStrings = []string{"PLC0415"}
+
+	if got := checkForbiddenStrings(
+		cfg,
+		[]string{configPath},
+	); got != 0 {
+		t.Fatalf("checkForbiddenStrings(bundle config) = %d, want 0", got)
+	}
+
+	stderr := captureStderr(t, func() {
+		if got := checkForbiddenStrings(
+			cfg,
+			[]string{otherPath},
+		); got != 1 {
+			t.Fatalf("checkForbiddenStrings(non-config) = %d, want 1", got)
+		}
+	})
+	if !strings.Contains(stderr, `contains forbidden string "PLC0415"`) {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+}
+
 func TestValidateManifestData(t *testing.T) {
 	settings := manifestValidationSettings{
 		RequiredStringFields: []string{"version"},
@@ -181,7 +226,11 @@ func TestValidateManifestData(t *testing.T) {
 			map[string]any{"source": "a", "target": "b"},
 		},
 		"repositories": []any{
-			map[string]any{"name": "repo", "url": "https://example.com", "branch": "main"},
+			map[string]any{
+				"name":   "repo",
+				"url":    "https://example.com",
+				"branch": "main",
+			},
 		},
 	}
 	if errors := validateManifestData(valid, settings); len(errors) != 0 {
@@ -226,17 +275,23 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
 
 	mustWriteTestFile(t, "docs/plans/feature-a/metadata.yaml", "status: review\n")
-	mustWriteTestFile(t, "docs/plans/feature-a/tasks.md", "- [ ] unfinished\n- [x] done\n")
+	mustWriteTestFile(
+		t,
+		"docs/plans/feature-a/tasks.md",
+		"- [ ] unfinished\n- [x] done\n",
+	)
 
 	errors, err := checkPlanCompletionErrors(
 		"docs/plans/feature-a/metadata.yaml",
@@ -325,8 +380,14 @@ ignore-paths = ["generated"]
 	if slicesContains(rendered, "ruff per-file-ignores: tests/** -> S101") {
 		t.Fatalf("allowed test ignore unexpectedly reported: %#v", rendered)
 	}
-	if slicesContains(rendered, "mypy override.ignore_missing_imports: external_pkg.*") {
-		t.Fatalf("allowed external mypy import ignore unexpectedly reported: %#v", rendered)
+	if slicesContains(
+		rendered,
+		"mypy override.ignore_missing_imports: external_pkg.*",
+	) {
+		t.Fatalf(
+			"allowed external mypy import ignore unexpectedly reported: %#v",
+			rendered,
+		)
 	}
 	expected := []string{
 		"ruff exclude: generated",
@@ -499,11 +560,13 @@ func TestCollectModuleDocsViolations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
@@ -552,14 +615,20 @@ See Also:
 	}
 	if len(violations.MissingRefs) != 1 ||
 		violations.MissingRefs[0].PythonFile != "pkg/__init__.py" ||
-		!reflect.DeepEqual(violations.MissingRefs[0].Markdown, []string{"pkg/README.md"}) {
+		!reflect.DeepEqual(
+			violations.MissingRefs[0].Markdown,
+			[]string{"pkg/README.md"},
+		) {
 		t.Fatalf("MissingRefs = %#v", violations.MissingRefs)
 	}
 	if !reflect.DeepEqual(violations.MissingIndex, []string{"pkg/README.md"}) {
 		t.Fatalf("MissingIndex = %#v", violations.MissingIndex)
 	}
 	if len(violations.PathPrefixed) != 1 ||
-		!reflect.DeepEqual(violations.PathPrefixed[0].Refs, []string{"subdir/OTHER.md"}) {
+		!reflect.DeepEqual(
+			violations.PathPrefixed[0].Refs,
+			[]string{"subdir/OTHER.md"},
+		) {
 		t.Fatalf("PathPrefixed = %#v", violations.PathPrefixed)
 	}
 	if len(violations.NonexistentRefs) != 1 ||
@@ -574,9 +643,9 @@ See Also:
 func TestResolveGeminiRequestSettingsUsesOverrides(t *testing.T) {
 	thinkingBudget := 512
 	settings := GeminiSettings{
-		Model:                "gemini-2.5-flash",
+		Model:                geminiDefaultModel,
 		ModelOverrides:       map[string]string{"code_ethos": "gemini-2.5-pro"},
-		ServiceTier:          "standard",
+		ServiceTier:          geminiServiceTierNormal,
 		ServiceTierOverrides: map[string]string{"code_ethos": "flex"},
 		ThinkingBudget:       &thinkingBudget,
 		ThinkingBudgetOverrides: map[string]int{
@@ -589,14 +658,11 @@ func TestResolveGeminiRequestSettingsUsesOverrides(t *testing.T) {
 		},
 	}
 
-	resolved, err := resolveGeminiRequestSettings(
+	resolved := resolveGeminiRequestSettings(
 		settings,
 		"code_ethos",
 		"/tmp/gemini-cache",
 	)
-	if err != nil {
-		t.Fatalf("resolveGeminiRequestSettings() returned error: %v", err)
-	}
 	if resolved.Model != "gemini-2.5-pro" {
 		t.Fatalf("Model = %q, want %q", resolved.Model, "gemini-2.5-pro")
 	}
@@ -646,11 +712,13 @@ func TestMatchesGeminiSelector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
@@ -694,11 +762,13 @@ func TestPrepareGeminiChecksBuildsBatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Getwd() failed: %v", err)
 	}
-	if err := os.Chdir(tempDir); err != nil {
+	err = os.Chdir(tempDir)
+	if err != nil {
 		t.Fatalf("os.Chdir(%q) failed: %v", tempDir, err)
 	}
 	t.Cleanup(func() {
-		if chdirErr := os.Chdir(previous); chdirErr != nil {
+		chdirErr := os.Chdir(previous)
+		if chdirErr != nil {
 			t.Fatalf("restore working directory failed: %v", chdirErr)
 		}
 	})
@@ -729,8 +799,8 @@ func TestPrepareGeminiChecksBuildsBatches(t *testing.T) {
 		[]string{"a.py", "b.py", "c.py", "large.py"},
 		"",
 		GeminiSettings{
-			Model:       "gemini-2.5-flash",
-			ServiceTier: "standard",
+			Model:       geminiDefaultModel,
+			ServiceTier: geminiServiceTierNormal,
 			Cache: GeminiCacheSettings{
 				Enabled: true,
 			},
@@ -744,7 +814,10 @@ func TestPrepareGeminiChecksBuildsBatches(t *testing.T) {
 		t.Fatalf("len(prepared) = %d, want 1", len(prepared))
 	}
 	plan := prepared[0].Plan
-	if !reflect.DeepEqual(plan.SelectedFiles, []string{"a.py", "b.py", "c.py", "large.py"}) {
+	if !reflect.DeepEqual(
+		plan.SelectedFiles,
+		[]string{"a.py", "b.py", "c.py", "large.py"},
+	) {
 		t.Fatalf("SelectedFiles = %#v", plan.SelectedFiles)
 	}
 	if !reflect.DeepEqual(plan.IncludedFiles, []string{"a.py", "b.py", "c.py"}) {
@@ -762,11 +835,11 @@ func TestPrepareGeminiChecksBuildsBatches(t *testing.T) {
 	if !reflect.DeepEqual(plan.Batches[1].Files, []string{"c.py"}) {
 		t.Fatalf("second batch files = %#v", plan.Batches[1].Files)
 	}
-	if plan.Model != "gemini-2.5-flash" {
-		t.Fatalf("Model = %q, want %q", plan.Model, "gemini-2.5-flash")
+	if plan.Model != geminiDefaultModel {
+		t.Fatalf("Model = %q, want %q", plan.Model, geminiDefaultModel)
 	}
-	if plan.ServiceTier != "standard" {
-		t.Fatalf("ServiceTier = %q, want %q", plan.ServiceTier, "standard")
+	if plan.ServiceTier != geminiServiceTierNormal {
+		t.Fatalf("ServiceTier = %q, want %q", plan.ServiceTier, geminiServiceTierNormal)
 	}
 	if !plan.CacheEnabled {
 		t.Fatal("CacheEnabled = false, want true")
@@ -775,7 +848,10 @@ func TestPrepareGeminiChecksBuildsBatches(t *testing.T) {
 		t.Fatal("first batch ExplicitAPIKey is empty")
 	}
 	if !strings.Contains(prepared[0].Batches[0].CachedPrompt, "cached content") {
-		t.Fatalf("CachedPrompt = %q, want cached-content guidance", prepared[0].Batches[0].CachedPrompt)
+		t.Fatalf(
+			"CachedPrompt = %q, want cached-content guidance",
+			prepared[0].Batches[0].CachedPrompt,
+		)
 	}
 }
 
@@ -875,7 +951,8 @@ func TestGeminiCacheRoundTrip(t *testing.T) {
 		TTL:     time.Hour,
 	}
 	key := "abc123"
-	if err := writeGeminiCache(cache, key, "{\"ok\":true}"); err != nil {
+	err := writeGeminiCache(cache, key, "{\"ok\":true}")
+	if err != nil {
 		t.Fatalf("writeGeminiCache() returned error: %v", err)
 	}
 	text, ok, err := readGeminiCache(cache, key)
@@ -912,7 +989,8 @@ func TestReadGeminiCacheExpiresEntries(t *testing.T) {
 	if ok {
 		t.Fatal("readGeminiCache() returned hit for expired entry")
 	}
-	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+	_, statErr := os.Stat(path)
+	if !os.IsNotExist(statErr) {
 		t.Fatalf("expired cache file still exists: %v", statErr)
 	}
 }
@@ -925,7 +1003,8 @@ func TestGeminiExplicitCacheRoundTrip(t *testing.T) {
 	}
 	key := "explicit"
 	expire := time.Now().Add(time.Hour)
-	if err := writeGeminiExplicitCache(cache, key, "cachedContents/123", expire); err != nil {
+	err := writeGeminiExplicitCache(cache, key, "cachedContents/123", expire)
+	if err != nil {
 		t.Fatalf("writeGeminiExplicitCache() returned error: %v", err)
 	}
 	name, ok, err := readGeminiExplicitCache(cache, key)
@@ -942,10 +1021,12 @@ func TestGeminiExplicitCacheRoundTrip(t *testing.T) {
 
 func mustWriteTestFile(t *testing.T, path string, contents string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
 		t.Fatalf("os.MkdirAll(%q) failed: %v", path, err)
 	}
-	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+	err = os.WriteFile(path, []byte(contents), 0o644)
+	if err != nil {
 		t.Fatalf("os.WriteFile(%q) failed: %v", path, err)
 	}
 }
@@ -964,18 +1045,22 @@ func captureStderr(t *testing.T, fn func()) string {
 
 	fn()
 
-	if err := writer.Close(); err != nil {
+	err = writer.Close()
+	if err != nil {
 		t.Fatalf("writer.Close() failed: %v", err)
 	}
 	os.Stderr = original
 
 	var buffer bytes.Buffer
-	if _, err := buffer.ReadFrom(reader); err != nil {
+	_, err = buffer.ReadFrom(reader)
+	if err != nil {
 		t.Fatalf("buffer.ReadFrom() failed: %v", err)
 	}
-	if err := reader.Close(); err != nil {
+	err = reader.Close()
+	if err != nil {
 		t.Fatalf("reader.Close() failed: %v", err)
 	}
+
 	return buffer.String()
 }
 
@@ -993,18 +1078,22 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	fn()
 
-	if err := writer.Close(); err != nil {
+	err = writer.Close()
+	if err != nil {
 		t.Fatalf("writer.Close() failed: %v", err)
 	}
 	os.Stdout = original
 
 	var buffer bytes.Buffer
-	if _, err := buffer.ReadFrom(reader); err != nil {
+	_, err = buffer.ReadFrom(reader)
+	if err != nil {
 		t.Fatalf("buffer.ReadFrom() failed: %v", err)
 	}
-	if err := reader.Close(); err != nil {
+	err = reader.Close()
+	if err != nil {
 		t.Fatalf("reader.Close() failed: %v", err)
 	}
+
 	return buffer.String()
 }
 
@@ -1014,6 +1103,7 @@ func slicesContains(values []string, target string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1023,5 +1113,6 @@ func mustJSON(t *testing.T, value any) string {
 	if err != nil {
 		t.Fatalf("json.Marshal() failed: %v", err)
 	}
+
 	return string(data)
 }

@@ -3,7 +3,11 @@
 
 Provides a common interface for running radon commands and parsing the JSON
 output for use by complexity and maintainability checkers.
+It keeps the individual hook scripts thin and consistent.
 """
+
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
 
 import json
 import shutil

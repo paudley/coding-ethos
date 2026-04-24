@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -79,8 +82,16 @@ python:
 func TestFindDirectImportViolations(t *testing.T) {
 	tempDir := t.TempDir()
 	mustWriteTestFile(t, filepath.Join(tempDir, "project", "__init__.py"), "")
-	mustWriteTestFile(t, filepath.Join(tempDir, "project", "internal.py"), "def helper():\n    return 1\n")
-	mustWriteTestFile(t, filepath.Join(tempDir, "scripts", "consumer.py"), "from project.internal import helper\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "project", "internal.py"),
+		"def helper():\n    return 1\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "scripts", "consumer.py"),
+		"from project.internal import helper\n",
+	)
 
 	violations, err := findDirectImportViolations(
 		filepath.Join(tempDir, "scripts", "consumer.py"),
@@ -278,7 +289,10 @@ except ValueError:
 `)+"\n",
 	)
 
-	violations, err := findCatchSilenceViolations(filePath, catchSilenceSettings{Enabled: true})
+	violations, err := findCatchSilenceViolations(
+		filePath,
+		catchSilenceSettings{Enabled: true},
+	)
 	if err != nil {
 		t.Fatalf("findCatchSilenceViolations() returned error: %v", err)
 	}
@@ -345,10 +359,36 @@ def build_query(table: str) -> str:
 	violations, err := findSecurityViolations(
 		filePath,
 		securityPatternsSettings{
-			Enabled:                  true,
-			SQLKeywords:              []string{"SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "EXECUTE", "EXEC"},
-			SecretPatterns:           []string{"sk-", "pk-", "api_", "key_", "token_", "secret_", "password", "passwd", "credential"},
-			TestFileMarkers:          []string{"tests", "conftest", "test_", "_test.py"},
+			Enabled: true,
+			SQLKeywords: []string{
+				"SELECT",
+				"INSERT",
+				"UPDATE",
+				"DELETE",
+				"DROP",
+				"CREATE",
+				"ALTER",
+				"TRUNCATE",
+				"EXECUTE",
+				"EXEC",
+			},
+			SecretPatterns: []string{
+				"sk-",
+				"pk-",
+				"api_",
+				"key_",
+				"token_",
+				"secret_",
+				"password",
+				"passwd",
+				"credential",
+			},
+			TestFileMarkers: []string{
+				"tests",
+				"conftest",
+				"test_",
+				"_test.py",
+			},
 			MinGetenvArgsWithDefault: 2,
 		},
 	)

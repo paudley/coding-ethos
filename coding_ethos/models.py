@@ -1,7 +1,12 @@
+"""Typed models shared across ethos loading, rendering, and merge flows.
+
+These dataclasses define the stable in-memory contract for the structured
+ethos bundle so generators and hook tooling can share one vocabulary.
+They keep serialization concerns out of the renderer and CLI layers.
+"""
+
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 
@@ -23,6 +28,8 @@ SECTION_KINDS = (
 
 @dataclass(slots=True)
 class PrincipleSection:
+    """One rendered section within a principle detail document."""
+
     id: str
     title: str
     summary: str
@@ -32,6 +39,8 @@ class PrincipleSection:
 
 @dataclass(slots=True)
 class Principle:
+    """One normalized ethos principle with summary, detail, and hints."""
+
     id: str
     order: int
     title: str
@@ -48,6 +57,8 @@ class Principle:
 
 @dataclass(slots=True)
 class AgentProfile:
+    """Agent-specific root-file and note configuration."""
+
     name: str
     root_file: str = ""
     supporting_files: list[str] = field(default_factory=list)
@@ -56,6 +67,8 @@ class AgentProfile:
 
 @dataclass(slots=True)
 class RepoContext:
+    """Repo-local commands, paths, and additive notes for generated outputs."""
+
     name: str = ""
     overview: str = ""
     commands: dict[str, list[str]] = field(default_factory=dict)
@@ -66,6 +79,8 @@ class RepoContext:
 
 @dataclass(slots=True)
 class EthosBundle:
+    """Complete normalized ethos payload used by all renderers and generators."""
+
     title: str
     overview: str
     principles: list[Principle]

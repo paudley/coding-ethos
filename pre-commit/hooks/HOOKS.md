@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
+
 # coding-ethos-hooks
 
 Lefthook hooks for coding-ethos bundles.

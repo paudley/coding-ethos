@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 # Run Lefthook with repository-local resolution before system fallbacks.
 
 set -euo pipefail
@@ -30,16 +33,21 @@ fi
 
 run_lefthook() {
     local -a command=("$@")
+    local -a run_args=("run" "--no-auto-install")
+
+    if [[ "$HOOK_NAME" == "pre-commit" ]]; then
+        run_args+=("--no-stage-fixed")
+    fi
 
     if [[ -x "$QUIET_FILTER" ]]; then
         set +e
-        "${command[@]}" run "$HOOK_NAME" "${HOOK_ARGS[@]}" 2>&1 | "$QUIET_FILTER" quiet-filter
+        "${command[@]}" "${run_args[@]}" "$HOOK_NAME" "${HOOK_ARGS[@]}" 2>&1 | "$QUIET_FILTER" quiet-filter
         local status=${PIPESTATUS[0]}
         set -e
         exit "$status"
     fi
 
-    exec "${command[@]}" run "$HOOK_NAME" "${HOOK_ARGS[@]}"
+    exec "${command[@]}" "${run_args[@]}" "$HOOK_NAME" "${HOOK_ARGS[@]}"
 }
 
 ensure_repo_lefthook() {
