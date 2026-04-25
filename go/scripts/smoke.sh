@@ -115,6 +115,26 @@ if [[ "$hook_status" -ne 2 ]]; then
   exit 1
 fi
 
+printf '==> validating git wrapper detects false successful commit\n'
+fake_git="$tmp_root/fake-git"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_git"
+chmod +x "$fake_git"
+set +e
+(
+  cd "$git_repo"
+  "$git_bin" \
+    --bundle "$policy_dir/policy-bundle.json" \
+    --real-git "$fake_git" \
+    commit -m "false-success" >/tmp/coding-ethos-git-smoke.out 2>&1
+)
+git_status=$?
+set -e
+if [[ "$git_status" -ne 2 ]]; then
+  printf 'expected git wrapper exit 2 for false successful commit, got %s:\n' "$git_status" >&2
+  cat /tmp/coding-ethos-git-smoke.out >&2
+  exit 1
+fi
+
 printf 'y\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
 

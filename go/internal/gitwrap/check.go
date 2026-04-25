@@ -37,7 +37,7 @@ func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluator
 		if !ok {
 			return Result{}, fmt.Errorf("git dispatch %q references unknown policy %q", operation, policyID)
 		}
-		evaluated, err := evaluateGitPolicy(policyDef, argv, options.Cwd, registry)
+		evaluated, err := evaluateGitPolicy(policyDef, argv, options.Cwd, "", registry)
 		if err != nil {
 			return Result{}, err
 		}
@@ -56,9 +56,10 @@ func evaluateGitPolicy(
 	policyDef policy.Policy,
 	argv []string,
 	cwd string,
+	scope string,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
-	context := evaluators.Context{Argv: append([]string(nil), argv...), Cwd: cwd}
+	context := evaluators.Context{Argv: append([]string(nil), argv...), Cwd: cwd, Scope: scope}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {

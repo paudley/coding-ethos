@@ -59,12 +59,29 @@ func main() {
 		return
 	}
 
-	if err := gitwrap.Execute(*realGit, argv); err != nil {
+	options := gitwrap.Options{Argv: argv, Cwd: cwd}
+	if err := gitwrap.PreparePost(bundle, options); err != nil {
+		exitErr(err)
+	}
+	if err := gitwrap.Execute(*realGit, options); err != nil {
 		var exitError gitwrap.ExitCodeError
 		if errors.As(err, &exitError) {
 			os.Exit(exitError.Code)
 		}
 		exitErr(err)
+	}
+	postResult, err := gitwrap.VerifyPost(bundle, options)
+	if err != nil {
+		exitErr(err)
+	}
+	if *jsonOutput {
+		if err := gitwrap.EncodeResult(os.Stdout, postResult); err != nil {
+			exitErr(err)
+		}
+	}
+	if postResult.Blocked() {
+		printBlocked(postResult)
+		os.Exit(2)
 	}
 }
 
