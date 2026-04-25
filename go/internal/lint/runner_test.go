@@ -55,3 +55,28 @@ func TestRunRejectsUnknownScope(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRunUsesRegisteredEvaluator(t *testing.T) {
+	result, err := Run(policy.ExampleBundle(), Options{
+		Scope: ScopeStaged,
+		Argv:  []string{"git", "commit", "--no-verify", "-m", "test"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	var found bool
+	for _, decision := range result.Decisions {
+		if decision.PolicyID == "git.hook_bypass" {
+			found = true
+			if decision.Decision != "block" {
+				t.Fatalf("hook bypass decision mismatch: %#v", decision)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("missing git.hook_bypass decision: %#v", result.Decisions)
+	}
+	if result.Status != "blocked" {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+}

@@ -17,6 +17,7 @@ func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
+	argvRaw := flags.String("argv", "", "Command argv to evaluate, separated by NUL when possible or spaces for simple cases")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	scope := scopeFlagSet(flags)
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -37,6 +38,7 @@ func main() {
 	result, err := lint.Run(bundle, lint.Options{
 		Scope: scope.Value(),
 		Files: parseFiles(*filesRaw),
+		Argv:  parseArgv(*argvRaw),
 	})
 	if err != nil {
 		exitErr(err)
@@ -73,6 +75,27 @@ func parseFiles(raw string) []string {
 		}
 	}
 	return files
+}
+
+func parseArgv(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	if strings.Contains(raw, "\x00") {
+		return splitNonEmpty(raw, "\x00")
+	}
+	return strings.Fields(raw)
+}
+
+func splitNonEmpty(raw string, separator string) []string {
+	parts := strings.Split(raw, separator)
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
 }
 
 func printHuman(result lint.Result) {

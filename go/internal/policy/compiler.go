@@ -335,7 +335,7 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 
 	linter := map[string][]string{
 		"files":  existingPolicyIDs(policies, "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
-		"staged": existingPolicyIDs(policies, "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
+		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
 		"full":   existingPolicyIDs(policies, "pytest.gate", "generated_config.freshness"),
 	}
 	if _, ok := policies["pytest.gate"]; ok {

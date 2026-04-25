@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -20,10 +21,15 @@ const (
 
 type Options struct {
 	Files []string
+	Argv  []string
 	Scope string
 }
 
 func Run(bundle policy.Bundle, options Options) (Result, error) {
+	return RunWithRegistry(bundle, options, evaluators.DefaultRegistry())
+}
+
+func RunWithRegistry(bundle policy.Bundle, options Options, registry evaluators.Registry) (Result, error) {
 	scope := options.Scope
 	if scope == "" {
 		scope = ScopeFiles
@@ -39,23 +45,70 @@ func Run(bundle policy.Bundle, options Options) (Result, error) {
 		if !ok {
 			return Result{}, fmt.Errorf("scope %q references unknown policy %q", scope, policyID)
 		}
-		decision := policy.NewDecision("record", policyDef)
-		decision.Severity = "record"
-		decision.Evidence = map[string]any{
-			"scope": scope,
+		evaluated, err := evaluatePolicy(policyDef, scope, options, registry)
+		if err != nil {
+			return Result{}, err
 		}
-		if len(options.Files) > 0 {
-			decision.Evidence["files"] = append([]string(nil), options.Files...)
-		}
-		decisions = append(decisions, decision)
+		decisions = append(decisions, evaluated...)
 	}
 
 	return Result{
 		Scope:     scope,
 		Files:     append([]string(nil), options.Files...),
-		Status:    "resolved",
+		Status:    resultStatus(decisions),
 		Decisions: decisions,
 	}, nil
+}
+
+func evaluatePolicy(
+	policyDef policy.Policy,
+	scope string,
+	options Options,
+	registry evaluators.Registry,
+) ([]policy.Decision, error) {
+	context := evaluators.Context{
+		Scope: scope,
+		Files: append([]string(nil), options.Files...),
+		Argv:  append([]string(nil), options.Argv...),
+	}
+	for _, evaluatorSpec := range policyDef.Evaluators {
+		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
+		if !ok {
+			continue
+		}
+		decisions, err := evaluator.Evaluate(policyDef, context)
+		if err != nil {
+			return nil, err
+		}
+		if len(decisions) > 0 {
+			return decisions, nil
+		}
+	}
+	return []policy.Decision{recordDecision(policyDef, scope, options)}, nil
+}
+
+func recordDecision(policyDef policy.Policy, scope string, options Options) policy.Decision {
+	decision := policy.NewDecision("record", policyDef)
+	decision.Severity = "record"
+	decision.Evidence = map[string]any{
+		"scope": scope,
+	}
+	if len(options.Files) > 0 {
+		decision.Evidence["files"] = append([]string(nil), options.Files...)
+	}
+	if len(options.Argv) > 0 {
+		decision.Evidence["argv"] = append([]string(nil), options.Argv...)
+	}
+	return decision
+}
+
+func resultStatus(decisions []policy.Decision) string {
+	for _, decision := range decisions {
+		if decision.Decision == "block" || decision.Severity == "block" {
+			return "blocked"
+		}
+	}
+	return "resolved"
 }
 
 func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {
