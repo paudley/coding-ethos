@@ -158,6 +158,7 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
+	go-tools-smoke \
 	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
@@ -398,6 +399,12 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 		"$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
+
+go-tools-smoke: ## Smoke test shared Go tools using only temporary runtime state.
+	@$(call print_step,Smoke testing shared Go tools)
+	@tmp_bin="$$(mktemp -d)"; \
+		$(MAKE) --no-print-directory go-tools-install GO_TOOLS_BIN_DIR="$$tmp_bin"; \
+		"$(GO_TOOLS_DIR)/scripts/smoke.sh" "$(LOCAL_REPO_ROOT)" "$$tmp_bin"
 
 go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
 	@$(call print_step,Removing shared Go tool build outputs)
