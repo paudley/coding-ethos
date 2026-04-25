@@ -18,6 +18,7 @@ func main() {
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
 	argvRaw := flags.String("argv", "", "Command argv to evaluate, separated by NUL when possible or spaces for simple cases")
+	command := flags.String("command", "", "Raw shell command to evaluate")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	scope := scopeFlagSet(flags)
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -36,9 +37,10 @@ func main() {
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
-		Scope: scope.Value(),
-		Files: parseFiles(*filesRaw),
-		Argv:  parseArgv(*argvRaw),
+		Scope:   scope.Value(),
+		Files:   parseFiles(*filesRaw),
+		Argv:    parseArgv(*argvRaw),
+		Command: *command,
 	})
 	if err != nil {
 		exitErr(err)

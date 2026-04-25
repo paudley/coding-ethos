@@ -25,6 +25,8 @@ func DefaultRegistry() Registry {
 	registry.Register("git.destructive_worktree", EvaluatorFunc(EvaluateGitDestructiveWorktree))
 	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
 	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
+	registry.Register("shell.dangerous_command", EvaluatorFunc(EvaluateShellDangerousCommand))
+	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
 	return registry
 }
 

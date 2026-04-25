@@ -4,7 +4,8 @@
 package evaluators
 
 type Context struct {
-	Files []string
-	Argv  []string
-	Scope string
+	Files   []string
+	Argv    []string
+	Command string
+	Scope   string
 }

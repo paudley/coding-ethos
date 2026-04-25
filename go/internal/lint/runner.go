@@ -20,9 +20,10 @@ const (
 )
 
 type Options struct {
-	Files []string
-	Argv  []string
-	Scope string
+	Files   []string
+	Argv    []string
+	Command string
+	Scope   string
 }
 
 func Run(bundle policy.Bundle, options Options) (Result, error) {
@@ -67,9 +68,10 @@ func evaluatePolicy(
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	context := evaluators.Context{
-		Scope: scope,
-		Files: append([]string(nil), options.Files...),
-		Argv:  append([]string(nil), options.Argv...),
+		Scope:   scope,
+		Files:   append([]string(nil), options.Files...),
+		Argv:    append([]string(nil), options.Argv...),
+		Command: options.Command,
 	}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
@@ -98,6 +100,9 @@ func recordDecision(policyDef policy.Policy, scope string, options Options) poli
 	}
 	if len(options.Argv) > 0 {
 		decision.Evidence["argv"] = append([]string(nil), options.Argv...)
+	}
+	if options.Command != "" {
+		decision.Evidence["command"] = options.Command
 	}
 	return decision
 }

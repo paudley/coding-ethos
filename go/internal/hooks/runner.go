@@ -51,8 +51,9 @@ func evaluateHookPolicy(
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	context := evaluators.Context{
-		Scope: event.HookEventName,
-		Argv:  commandArgv(event.Command()),
+		Scope:   event.HookEventName,
+		Argv:    commandArgv(event.Command()),
+		Command: event.Command(),
 	}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)

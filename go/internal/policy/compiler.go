@@ -356,6 +356,32 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.staged_admin_files"}},
 	}
+	policies["shell.dangerous_command"] = Policy{
+		ID:              "shell.dangerous_command",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.dangerous_command"},
+		PrincipleIDs:    principleRefs(principles, "security-by-design", "no-rationalized-shortcuts"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Dangerous shell commands are forbidden.",
+		Suggestion:      "Use reviewed, explicit commands instead of broad destructive or pipe-to-shell patterns.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:       AppliesTo{Commands: []string{"rm", "curl", "wget", "chmod"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "shell", Name: "shell.dangerous_command"}},
+	}
+	policies["shell.background_git"] = Policy{
+		ID:              "shell.background_git",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.background_git"},
+		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality", "one-path-for-critical-operations"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "git commit and git push must not run in the background or under timeout.",
+		Suggestion:      "Run git commit or git push in the foreground so hooks and results are visible.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", "git_state"),
+		AppliesTo:       AppliesTo{Commands: []string{"git commit", "git push"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "shell", Name: "shell.background_git"}},
+	}
 	policies["git.commit_head_advanced"] = Policy{
 		ID:              "git.commit_head_advanced",
 		Category:        "git",
@@ -417,6 +443,8 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 		"git.destructive_worktree",
 		"git.change_dir_flag",
 		"git.stash_blocked",
+		"shell.dangerous_command",
+		"shell.background_git",
 	} {
 		if _, ok := policies[id]; ok {
 			ensureHookTool(hooks, "PreToolUse", "Bash")
@@ -455,7 +483,7 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 
 	linter := map[string][]string{
 		"files":  existingPolicyIDs(policies, "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
-		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.destructive_command", "git.merge_strategy_shortcut", "git.force_push_protected_branch", "git.checkout_protected_branch", "git.destructive_worktree", "git.change_dir_flag", "git.stash_blocked", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
+		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.destructive_command", "git.merge_strategy_shortcut", "git.force_push_protected_branch", "git.checkout_protected_branch", "git.destructive_worktree", "git.change_dir_flag", "git.stash_blocked", "shell.dangerous_command", "shell.background_git", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
 		"full":   existingPolicyIDs(policies, "pytest.gate", "generated_config.freshness"),
 	}
 	if _, ok := policies["pytest.gate"]; ok {
