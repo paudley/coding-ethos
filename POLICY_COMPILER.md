@@ -746,9 +746,19 @@ Current package layout:
 ```text
 go/
   cmd/
+    coding-ethos-git/
+      main.go
+    coding-ethos-hook/
+      main.go
+    coding-ethos-lint/
+      main.go
     coding-ethos-policy/
       main.go
   internal/
+    evaluators/
+    gitwrap/
+    hooks/
+    lint/
     policy/
       bundle.go
       compiler.go
@@ -763,17 +773,41 @@ go/
 Current command surface:
 
 ```bash
-go run ./cmd/coding-ethos-policy compile \
-  --primary ../coding_ethos.yml \
-  --config ../config.yaml \
+make go-tools-test
+make go-tools-build
+make go-tools-install
+```
+
+`GO_TOOLS_BIN_DIR` is overrideable. Use that override when testing install
+behavior without touching a parent repo's `.git/coding-ethos-hooks/bin`:
+
+```bash
+make go-tools-install GO_TOOLS_BIN_DIR=/tmp/coding-ethos-tools-bin
+```
+
+The installed tools can then be exercised against a temporary policy bundle:
+
+```bash
+/tmp/coding-ethos-tools-bin/coding-ethos-policy compile \
+  --primary coding_ethos.yml \
+  --config config.yaml \
   --out-dir /tmp/coding-ethos-policy
 
-go run ./cmd/coding-ethos-policy validate \
-  --bundle /tmp/coding-ethos-policy/policy-bundle.json
-
-go run ./cmd/coding-ethos-policy explain \
+/tmp/coding-ethos-tools-bin/coding-ethos-lint \
   --bundle /tmp/coding-ethos-policy/policy-bundle.json \
-  git.hook_bypass
+  --staged \
+  --argv "git commit --no-verify -m test" \
+  --json
+
+/tmp/coding-ethos-tools-bin/coding-ethos-hook \
+  --bundle /tmp/coding-ethos-policy/policy-bundle.json \
+  --json
+
+/tmp/coding-ethos-tools-bin/coding-ethos-git \
+  --bundle /tmp/coding-ethos-policy/policy-bundle.json \
+  --check-only \
+  --json \
+  commit --no-verify -m test
 ```
 
 The initial compiler reads:

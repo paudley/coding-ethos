@@ -66,6 +66,7 @@ logs/
 *.orig
 *.rej
 *~
+go/bin/
 
 # Editor and OS noise
 .DS_Store

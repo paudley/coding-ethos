@@ -12,6 +12,7 @@ LOCAL_REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))
 PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
 HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
 GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
+GO_TOOLS_DIR := $(LOCAL_REPO_ROOT)/go
 
 define resolve_hook_consumer_root
 super="$$(git -C "$(LOCAL_REPO_ROOT)" rev-parse \
@@ -35,6 +36,12 @@ LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
 GIT_HOOKS := pre-commit pre-push commit-msg
 LEFTHOOK_VERSION_FILE := $(PRECOMMIT_DIR)lefthook.version
 LEFTHOOK_VERSION := $(strip $(shell cat "$(LEFTHOOK_VERSION_FILE)"))
+GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
+GO_TOOL_CMDS := \
+	coding-ethos-policy \
+	coding-ethos-lint \
+	coding-ethos-hook \
+	coding-ethos-git
 
 UV ?= uv
 PYTHON ?= python
@@ -148,6 +155,10 @@ endef
 	go-tidy \
 	go-fmt \
 	fmt \
+	go-tools-test \
+	go-tools-build \
+	go-tools-install \
+	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
 	check-tool-configs \
@@ -367,6 +378,30 @@ go-fmt: ensure-gofmt ## Format the bundled Go hook helper.
 	@"$(GOFMT)" -w $(GO_HOOK_SOURCES)
 
 fmt: go-fmt ## Format repo-owned generated helper source files.
+
+go-tools-test: ensure-go ## Run the shared Go tool tests.
+	@$(call print_step,Running shared Go tool tests)
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test ./...
+
+go-tools-build: ensure-go ## Build shared Go tools into go/bin.
+	@$(call print_step,Building shared Go tools)
+	@mkdir -p "$(GO_TOOLS_DIR)/bin"
+	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
+		"$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
+	done
+	@$(call print_info,built: $(GO_TOOLS_DIR)/bin)
+
+go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook bin directory.
+	@$(call print_step,Installing shared Go tools)
+	@mkdir -p "$(GO_TOOLS_BIN_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
+		"$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
+	done
+	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
+
+go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
+	@$(call print_step,Removing shared Go tool build outputs)
+	@rm -rf "$(GO_TOOLS_DIR)/bin"
 
 clean-cache: ## Remove cached bundled hook binaries from .git.
 	@$(call print_step,Removing cached bundled hook binaries)
