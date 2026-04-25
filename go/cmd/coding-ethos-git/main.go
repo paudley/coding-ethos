@@ -35,7 +35,11 @@ func main() {
 	}
 
 	argv := flags.Args()
-	result, err := gitwrap.Check(bundle, gitwrap.Options{Argv: argv})
+	cwd, err := os.Getwd()
+	if err != nil {
+		exitErr(fmt.Errorf("get cwd: %w", err))
+	}
+	result, err := gitwrap.Check(bundle, gitwrap.Options{Argv: argv, Cwd: cwd})
 	if err != nil {
 		exitErr(err)
 	}

@@ -54,6 +54,7 @@ func evaluateHookPolicy(
 		Scope:   event.HookEventName,
 		Argv:    commandArgv(event.Command()),
 		Command: event.Command(),
+		Cwd:     event.Cwd,
 	}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)

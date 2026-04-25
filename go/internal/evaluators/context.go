@@ -7,5 +7,6 @@ type Context struct {
 	Files   []string
 	Argv    []string
 	Command string
+	Cwd     string
 	Scope   string
 }

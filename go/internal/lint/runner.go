@@ -23,6 +23,7 @@ type Options struct {
 	Files   []string
 	Argv    []string
 	Command string
+	Cwd     string
 	Scope   string
 }
 
@@ -72,6 +73,7 @@ func evaluatePolicy(
 		Files:   append([]string(nil), options.Files...),
 		Argv:    append([]string(nil), options.Argv...),
 		Command: options.Command,
+		Cwd:     options.Cwd,
 	}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)

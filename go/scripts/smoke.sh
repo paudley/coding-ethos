@@ -103,6 +103,28 @@ first_head="$(git -C "$git_repo" rev-parse HEAD)"
 printf 'y\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
 
+printf '==> validating git wrapper blocks staged admin files\n'
+printf '[project]\nname = "blocked"\n' > "$git_repo/pyproject.toml"
+git -C "$git_repo" add pyproject.toml
+set +e
+(
+  cd "$git_repo"
+  "$git_bin" \
+    --bundle "$policy_dir/policy-bundle.json" \
+    --check-only \
+    --json \
+    commit -m "admin" >/tmp/coding-ethos-git-smoke.out 2>&1
+)
+git_status=$?
+set -e
+if [[ "$git_status" -ne 2 ]]; then
+  printf 'expected git wrapper exit 2 for staged admin files, got %s:\n' "$git_status" >&2
+  cat /tmp/coding-ethos-git-smoke.out >&2
+  exit 1
+fi
+git -C "$git_repo" reset -q
+git -C "$git_repo" add file.txt
+
 printf '==> validating git wrapper blocks bypass commit\n'
 set +e
 (

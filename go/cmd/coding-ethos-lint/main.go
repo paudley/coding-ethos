@@ -19,6 +19,7 @@ func main() {
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
 	argvRaw := flags.String("argv", "", "Command argv to evaluate, separated by NUL when possible or spaces for simple cases")
 	command := flags.String("command", "", "Raw shell command to evaluate")
+	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	scope := scopeFlagSet(flags)
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -41,6 +42,7 @@ func main() {
 		Files:   parseFiles(*filesRaw),
 		Argv:    parseArgv(*argvRaw),
 		Command: *command,
+		Cwd:     *cwd,
 	})
 	if err != nil {
 		exitErr(err)

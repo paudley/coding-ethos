@@ -12,6 +12,7 @@ import (
 
 type Options struct {
 	Argv []string
+	Cwd  string
 }
 
 func Check(bundle policy.Bundle, options Options) (Result, error) {
@@ -36,7 +37,7 @@ func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluator
 		if !ok {
 			return Result{}, fmt.Errorf("git dispatch %q references unknown policy %q", operation, policyID)
 		}
-		evaluated, err := evaluateGitPolicy(policyDef, argv, registry)
+		evaluated, err := evaluateGitPolicy(policyDef, argv, options.Cwd, registry)
 		if err != nil {
 			return Result{}, err
 		}
@@ -54,9 +55,10 @@ func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluator
 func evaluateGitPolicy(
 	policyDef policy.Policy,
 	argv []string,
+	cwd string,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
-	context := evaluators.Context{Argv: append([]string(nil), argv...)}
+	context := evaluators.Context{Argv: append([]string(nil), argv...), Cwd: cwd}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
