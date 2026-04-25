@@ -33,6 +33,9 @@ func TestEncodeDecodeBundleRoundTrips(t *testing.T) {
 	if _, ok := decoded.Policies["git.hook_bypass"]; !ok {
 		t.Fatalf("decoded bundle missing git.hook_bypass policy")
 	}
+	if decoded.Policies["git.hook_bypass"].DefenseLayers.Mediate != "wrapper" {
+		t.Fatalf("decoded bundle missing git wrapper defense layer: %#v", decoded.Policies["git.hook_bypass"].DefenseLayers)
+	}
 }
 
 func TestValidateRejectsUnknownDispatchPolicy(t *testing.T) {

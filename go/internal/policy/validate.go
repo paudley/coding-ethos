@@ -97,6 +97,15 @@ func validatePolicy(id string, policy Policy, principles map[string]Principle) [
 	if policy.Message == "" {
 		errs = append(errs, fmt.Errorf("policy %q message is required", id))
 	}
+	if !policy.DefenseLayers.Persuade && !policy.DefenseLayers.Record &&
+		policy.DefenseLayers.Intercept == "" &&
+		policy.DefenseLayers.Mediate == "" &&
+		policy.DefenseLayers.Detect == "" &&
+		policy.DefenseLayers.Enforce == "" &&
+		policy.DefenseLayers.Verify == "" &&
+		policy.DefenseLayers.Notify == "" {
+		errs = append(errs, fmt.Errorf("policy %q must define at least one defense layer", id))
+	}
 	if len(policy.Evaluators) == 0 {
 		errs = append(errs, fmt.Errorf("policy %q must define at least one evaluator", id))
 	}

@@ -156,6 +156,7 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 			DefaultSeverity: "block",
 			SupportedModes:  []string{"block", "record"},
 			Message:         "blocked",
+			DefenseLayers:   policy.GitDefenseLayers("block", "wrapper", "block", "", ""),
 			Evaluators:      []policy.Evaluator{{Kind: "argv", Name: policyID}},
 		}
 	}

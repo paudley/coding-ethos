@@ -158,6 +158,16 @@ Example:
       "supported_modes": ["block", "ask", "advise", "annotate", "record"],
       "message": "Required dependencies should fail immediately; ImportError fallback creates a soft dependency path.",
       "suggestion": "Remove the conditional import or configure an explicit exemption.",
+      "defense_layers": {
+        "persuade": true,
+        "intercept": "advise",
+        "mediate": "",
+        "detect": "block",
+        "enforce": "pre_commit",
+        "verify": "",
+        "record": true,
+        "notify": "on_failure"
+      },
       "applies_to": {
         "languages": ["python"],
         "file_patterns": ["**/*.py"]
@@ -183,6 +193,7 @@ Required fields:
 - `supported_modes`
 - `message`
 - `suggestion`
+- `defense_layers`
 - `applies_to`
 - `evaluators`
 

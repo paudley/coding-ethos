@@ -167,6 +167,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message:         "Required dependencies should fail immediately; ImportError fallback creates a soft dependency path.",
 		Suggestion:      "Remove the conditional import or configure an explicit exemption.",
+		DefenseLayers:   CodeDefenseLayers(),
 		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
 		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.conditional_imports"}},
 	})
@@ -179,6 +180,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message:         "Required values should not be modeled as optional returns unless explicitly exempted.",
 		Suggestion:      "Use a required return type or configure a narrow exemption.",
+		DefenseLayers:   CodeDefenseLayers(),
 		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
 		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.optional_returns"}},
 	})
@@ -191,6 +193,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message:         "Silent exception handling hides failures and violates fail-fast behavior.",
 		Suggestion:      "Handle the exception explicitly or let it fail with useful context.",
+		DefenseLayers:   CodeDefenseLayers(),
 		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
 		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.catch_and_silence"}},
 	})
@@ -203,6 +206,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message:         "Logging should preserve structured context instead of formatting it away.",
 		Suggestion:      "Use structured logging fields according to the repo policy.",
+		DefenseLayers:   CodeDefenseLayers(),
 		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
 		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.structured_logging"}},
 	})
@@ -215,6 +219,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message:         "Direct imports from protected packages bypass the intended public interface.",
 		Suggestion:      "Import through the package public API or configure an exempt path.",
+		DefenseLayers:   CodeDefenseLayers(),
 		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
 		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.direct_imports"}},
 	})
@@ -227,6 +232,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "prepare", "annotate", "record"},
 		Message:         "The configured pytest gate must pass before claiming readiness.",
 		Suggestion:      "Run the configured pytest gate and address failures.",
+		DefenseLayers:   PytestDefenseLayers(),
 		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "external", Name: "pytest.gate"}},
 	})
@@ -240,6 +246,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Hook bypass is forbidden.",
 		Suggestion:      "Run the configured gate and fix the underlying failure.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "pre_commit", "git_state"),
 		AppliesTo:       AppliesTo{Commands: []string{"git commit", "git push"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
 	}
@@ -252,6 +259,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Destructive git commands are forbidden.",
 		Suggestion:      "Preserve work and resolve the current state explicitly.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git reset", "git clean", "git checkout", "git restore"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_command"}},
 	}
@@ -264,6 +272,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "git merge -X theirs/ours destroys conflict evidence.",
 		Suggestion:      "Resolve each conflict explicitly instead of using blanket merge strategies.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git merge"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.merge_strategy_shortcut"}},
 	}
@@ -276,6 +285,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Force push to protected branches is forbidden.",
 		Suggestion:      "Use the repository's normal review and merge path.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "pre_push", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git push"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.force_push_protected_branch"}},
 	}
@@ -288,6 +298,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "advise", "record"},
 		Message:         "Switching to main/master to check history is forbidden in managed workflows.",
 		Suggestion:      "Inspect history with git fetch, git show, or git diff without switching branches.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git checkout", "git switch"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.checkout_protected_branch"}},
 	}
@@ -300,6 +311,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Destructive git worktree operations are forbidden.",
 		Suggestion:      "Inspect worktree state and remove or move worktrees only through explicit safe steps.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git worktree"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_worktree"}},
 	}
@@ -312,6 +324,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "record"},
 		Message:         "git -C hides the working directory context.",
 		Suggestion:      "Change to the intended directory explicitly, then run git there.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.change_dir_flag"}},
 	}
@@ -325,6 +338,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 			SupportedModes:  []string{"block", "record"},
 			Message:         "git stash hides working state and is forbidden when the stash ethos is active.",
 			Suggestion:      "Keep changes visible in the worktree or commit them through the normal validated path.",
+			DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 			AppliesTo:       AppliesTo{Commands: []string{"git stash"}, Tools: []string{"Bash"}},
 			Evaluators:      []Evaluator{{Kind: "argv", Name: "git.stash_blocked"}},
 		}
@@ -338,6 +352,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "ask", "record"},
 		Message:         "Administrative staged files require explicit handling before commit.",
 		Suggestion:      "Confirm the policy/config change is intentional or move it to a separate admin commit.",
+		DefenseLayers:   GitDefenseLayers("ask", "wrapper", "block", "pre_commit", "git_state"),
 		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.staged_admin_files"}},
 	}
@@ -350,6 +365,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"annotate", "record"},
 		Message:         "Commit success must be verified by checking that HEAD advanced.",
 		Suggestion:      "Compare pre-commit and post-commit HEAD before reporting success.",
+		DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
 		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
 	}
@@ -362,6 +378,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		SupportedModes:  []string{"block", "ask", "advise", "annotate", "record"},
 		Message:         "Generated tool configuration must match coding-ethos source policy.",
 		Suggestion:      "Run the configured tool-config sync/check command.",
+		DefenseLayers:   GeneratedConfigDefenseLayers(),
 		AppliesTo:       AppliesTo{Paths: []string{"ruff.toml", "mypy.ini", "pyrightconfig.json", ".yamllint.yml"}},
 		Evaluators:      []Evaluator{{Kind: "config", Name: "generated_config.freshness"}},
 	}

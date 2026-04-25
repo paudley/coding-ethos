@@ -37,16 +37,28 @@ type Principle struct {
 }
 
 type Policy struct {
-	Source          SourceRef   `json:"source"`
-	AppliesTo       AppliesTo   `json:"applies_to,omitempty"`
-	Evaluators      []Evaluator `json:"evaluators"`
-	PrincipleIDs    []string    `json:"principle_ids,omitempty"`
-	SupportedModes  []string    `json:"supported_modes"`
-	Category        string      `json:"category"`
-	DefaultSeverity string      `json:"default_severity"`
-	ID              string      `json:"id"`
-	Message         string      `json:"message"`
-	Suggestion      string      `json:"suggestion,omitempty"`
+	Source          SourceRef     `json:"source"`
+	AppliesTo       AppliesTo     `json:"applies_to,omitempty"`
+	DefenseLayers   DefenseLayers `json:"defense_layers"`
+	Evaluators      []Evaluator   `json:"evaluators"`
+	PrincipleIDs    []string      `json:"principle_ids,omitempty"`
+	SupportedModes  []string      `json:"supported_modes"`
+	Category        string        `json:"category"`
+	DefaultSeverity string        `json:"default_severity"`
+	ID              string        `json:"id"`
+	Message         string        `json:"message"`
+	Suggestion      string        `json:"suggestion,omitempty"`
+}
+
+type DefenseLayers struct {
+	Enforce   string `json:"enforce,omitempty"`
+	Intercept string `json:"intercept,omitempty"`
+	Mediate   string `json:"mediate,omitempty"`
+	Detect    string `json:"detect,omitempty"`
+	Notify    string `json:"notify,omitempty"`
+	Verify    string `json:"verify,omitempty"`
+	Persuade  bool   `json:"persuade"`
+	Record    bool   `json:"record"`
 }
 
 type SourceRef struct {
@@ -130,6 +142,7 @@ func ExampleBundle() Bundle {
 				SupportedModes:  []string{"block", "advise", "annotate", "record"},
 				Message:         "Required dependencies should fail immediately; ImportError fallback creates a soft dependency path.",
 				Suggestion:      "Remove the conditional import or configure an explicit exemption.",
+				DefenseLayers:   CodeDefenseLayers(),
 				AppliesTo: AppliesTo{
 					Languages:    []string{"python"},
 					FilePatterns: []string{"**/*.py"},
@@ -145,6 +158,7 @@ func ExampleBundle() Bundle {
 				SupportedModes:  []string{"block", "record"},
 				Message:         "Hook bypass is forbidden.",
 				Suggestion:      "Run the configured gate and fix the underlying failure.",
+				DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "pre_commit", "git_state"),
 				AppliesTo: AppliesTo{
 					Commands: []string{"git commit", "git push"},
 					Tools:    []string{"Bash"},

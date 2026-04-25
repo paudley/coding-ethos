@@ -38,6 +38,9 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if _, ok := bundle.Policies["pytest.gate"]; !ok {
 		t.Fatalf("missing compiled pytest gate policy")
 	}
+	if bundle.Policies["git.hook_bypass"].DefenseLayers.Notify != "on_block" {
+		t.Fatalf("missing notify defense layer: %#v", bundle.Policies["git.hook_bypass"].DefenseLayers)
+	}
 	if _, ok := bundle.Policies["python.structured_logging"]; ok {
 		t.Fatalf("structured logging policy should be disabled by fixture config")
 	}

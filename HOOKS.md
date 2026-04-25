@@ -44,6 +44,93 @@ The hook system should not duplicate every linter or pre-commit rule. Instead,
 hooks should steer agents toward the unified linter, decide when it is required,
 and interpret its output in terms of ethos and repo policy.
 
+## Defense-In-Depth Model
+
+Agent policy should be treated as a cyber-defense problem. No single layer is
+trusted to catch every violation.
+
+For every rule, `coding-ethos` should ask:
+
+- Can we persuade the agent not to attempt the action?
+- Can we intercept the tool call before it runs?
+- Can we mediate the operation through a policy-aware wrapper?
+- Can we detect the resulting bad state?
+- Can we enforce the rule before commit or push?
+- Can we verify the claimed outcome?
+- Can we record evidence for future actions and compaction?
+- Can we notify the agent or user when the runtime supports notifications?
+
+The layers are:
+
+```text
+1. Persuade
+   Agent guidance, ethos docs, prompt packs, and UserPromptSubmit advice.
+
+2. Intercept
+   PreToolUse hooks block, ask, or advise before a tool runs.
+
+3. Mediate
+   Binary wrappers and PATH shims route risky tools through policy-aware
+   executables.
+
+4. Detect
+   Unified lint identifies violations in worktree, staged, command, and runtime
+   state.
+
+5. Enforce
+   Pre-commit and pre-push gates prevent bad state from entering history or
+   leaving the repo.
+
+6. Verify
+   PostToolUse hooks and state checks verify that claimed outcomes actually
+   happened.
+
+7. Record
+   Hook, linter, and wrapper state preserves evidence for later decisions.
+
+8. Notify
+   Agent notification hooks surface important policy events when the runtime
+   supports notification channels.
+```
+
+Example for `git.hook_bypass`:
+
+```text
+Persuade:
+  ETHOS, AGENTS, CLAUDE, and prompt packs say bypasses are forbidden.
+
+Intercept:
+  coding-ethos-hook blocks Bash tool calls containing bypass intent.
+
+Mediate:
+  PATH shims and rewritten git calls route through coding-ethos-git.
+
+Detect:
+  coding-ethos-lint detects bypass intent from argv and reports a block
+  decision.
+
+Enforce:
+  Git hooks and pre-commit remain mandatory quality gates.
+
+Verify:
+  PostToolUse checks confirm whether a commit actually landed.
+
+Record:
+  agent-state records the bypass attempt and policy ID.
+
+Notify:
+  Notification-capable agents can surface repeated bypass attempts, failed
+  gates, or verified state mismatches without waiting for the next tool call.
+```
+
+This overlap is intentional. Hooks are the interaction layer. Wrappers are the
+execution boundary. Linters are the detection layer. Pre-commit is the history
+gate. Post-action checks are the evidence layer.
+
+The compiler should eventually attach defense-layer metadata to every policy so
+tooling can report which layers currently protect a rule, which layers notify,
+and which layers are still missing.
+
 ## Unified Linter Layer
 
 `coding-ethos` should provide a unified linter that runs the relevant subset of
