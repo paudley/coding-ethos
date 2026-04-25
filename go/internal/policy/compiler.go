@@ -243,6 +243,92 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		AppliesTo:       AppliesTo{Commands: []string{"git commit", "git push"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
 	}
+	policies["git.destructive_command"] = Policy{
+		ID:              "git.destructive_command",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.destructive_command"},
+		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Destructive git commands are forbidden.",
+		Suggestion:      "Preserve work and resolve the current state explicitly.",
+		AppliesTo:       AppliesTo{Commands: []string{"git reset", "git clean", "git checkout", "git restore"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_command"}},
+	}
+	policies["git.merge_strategy_shortcut"] = Policy{
+		ID:              "git.merge_strategy_shortcut",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.merge_strategy_shortcut"},
+		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "git merge -X theirs/ours destroys conflict evidence.",
+		Suggestion:      "Resolve each conflict explicitly instead of using blanket merge strategies.",
+		AppliesTo:       AppliesTo{Commands: []string{"git merge"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.merge_strategy_shortcut"}},
+	}
+	policies["git.force_push_protected_branch"] = Policy{
+		ID:              "git.force_push_protected_branch",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.force_push_protected_branch"},
+		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts", "one-path-for-critical-operations"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Force push to protected branches is forbidden.",
+		Suggestion:      "Use the repository's normal review and merge path.",
+		AppliesTo:       AppliesTo{Commands: []string{"git push"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.force_push_protected_branch"}},
+	}
+	policies["git.checkout_protected_branch"] = Policy{
+		ID:              "git.checkout_protected_branch",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.checkout_protected_branch"},
+		PrincipleIDs:    principleRefs(principles, "forward-motion-only"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "advise", "record"},
+		Message:         "Switching to main/master to check history is forbidden in managed workflows.",
+		Suggestion:      "Inspect history with git fetch, git show, or git diff without switching branches.",
+		AppliesTo:       AppliesTo{Commands: []string{"git checkout", "git switch"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.checkout_protected_branch"}},
+	}
+	policies["git.destructive_worktree"] = Policy{
+		ID:              "git.destructive_worktree",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.destructive_worktree"},
+		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Destructive git worktree operations are forbidden.",
+		Suggestion:      "Inspect worktree state and remove or move worktrees only through explicit safe steps.",
+		AppliesTo:       AppliesTo{Commands: []string{"git worktree"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_worktree"}},
+	}
+	policies["git.change_dir_flag"] = Policy{
+		ID:              "git.change_dir_flag",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.change_dir_flag"},
+		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "git -C hides the working directory context.",
+		Suggestion:      "Change to the intended directory explicitly, then run git there.",
+		AppliesTo:       AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.change_dir_flag"}},
+	}
+	if _, ok := principles["no-rationalized-shortcuts"]; ok {
+		policies["git.stash_blocked"] = Policy{
+			ID:              "git.stash_blocked",
+			Category:        "git",
+			Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts"},
+			PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "git stash hides working state and is forbidden when the stash ethos is active.",
+			Suggestion:      "Keep changes visible in the worktree or commit them through the normal validated path.",
+			AppliesTo:       AppliesTo{Commands: []string{"git stash"}, Tools: []string{"Bash"}},
+			Evaluators:      []Evaluator{{Kind: "argv", Name: "git.stash_blocked"}},
+		}
+	}
 	policies["git.staged_admin_files"] = Policy{
 		ID:              "git.staged_admin_files",
 		Category:        "git",
@@ -307,6 +393,23 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 		})
 	}
 	for _, id := range []string{
+		"git.destructive_command",
+		"git.merge_strategy_shortcut",
+		"git.force_push_protected_branch",
+		"git.checkout_protected_branch",
+		"git.destructive_worktree",
+		"git.change_dir_flag",
+		"git.stash_blocked",
+	} {
+		if _, ok := policies[id]; ok {
+			ensureHookTool(hooks, "PreToolUse", "Bash")
+			hooks["PreToolUse"]["Bash"] = append(hooks["PreToolUse"]["Bash"], HookDispatchEntry{
+				PolicyID: id,
+				Mode:     "block",
+			})
+		}
+	}
+	for _, id := range []string{
 		"python.conditional_imports",
 		"python.optional_returns",
 		"python.catch_and_silence",
@@ -335,7 +438,7 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 
 	linter := map[string][]string{
 		"files":  existingPolicyIDs(policies, "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
-		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
+		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.destructive_command", "git.merge_strategy_shortcut", "git.force_push_protected_branch", "git.checkout_protected_branch", "git.destructive_worktree", "git.change_dir_flag", "git.stash_blocked", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
 		"full":   existingPolicyIDs(policies, "pytest.gate", "generated_config.freshness"),
 	}
 	if _, ok := policies["pytest.gate"]; ok {
@@ -351,7 +454,34 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 				Post: existingPolicyIDs(policies, "git.commit_head_advanced"),
 			},
 			"push": {
-				Pre: existingPolicyIDs(policies, "git.hook_bypass"),
+				Pre: existingPolicyIDs(policies, "git.hook_bypass", "git.force_push_protected_branch"),
+			},
+			"-C": {
+				Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
+			},
+			"reset": {
+				Pre: existingPolicyIDs(policies, "git.destructive_command"),
+			},
+			"clean": {
+				Pre: existingPolicyIDs(policies, "git.destructive_command"),
+			},
+			"checkout": {
+				Pre: existingPolicyIDs(policies, "git.destructive_command", "git.checkout_protected_branch"),
+			},
+			"switch": {
+				Pre: existingPolicyIDs(policies, "git.checkout_protected_branch"),
+			},
+			"restore": {
+				Pre: existingPolicyIDs(policies, "git.destructive_command"),
+			},
+			"merge": {
+				Pre: existingPolicyIDs(policies, "git.merge_strategy_shortcut"),
+			},
+			"worktree": {
+				Pre: existingPolicyIDs(policies, "git.destructive_worktree"),
+			},
+			"stash": {
+				Pre: existingPolicyIDs(policies, "git.stash_blocked"),
 			},
 		},
 	}

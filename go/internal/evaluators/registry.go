@@ -18,6 +18,13 @@ func NewRegistry() Registry {
 func DefaultRegistry() Registry {
 	registry := NewRegistry()
 	registry.Register("git.hook_bypass", EvaluatorFunc(EvaluateGitHookBypass))
+	registry.Register("git.destructive_command", EvaluatorFunc(EvaluateGitDestructiveCommand))
+	registry.Register("git.merge_strategy_shortcut", EvaluatorFunc(EvaluateGitMergeStrategyShortcut))
+	registry.Register("git.force_push_protected_branch", EvaluatorFunc(EvaluateGitForcePushProtectedBranch))
+	registry.Register("git.checkout_protected_branch", EvaluatorFunc(EvaluateGitCheckoutProtectedBranch))
+	registry.Register("git.destructive_worktree", EvaluatorFunc(EvaluateGitDestructiveWorktree))
+	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
+	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
 	return registry
 }
 

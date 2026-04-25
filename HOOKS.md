@@ -1318,6 +1318,27 @@ Recommended flow for `Bash` tool calls:
 7. `PostToolUse` asks the wrapper or git state verifier to annotate the result.
 8. Hook state records the verified outcome.
 
+Ordering matters because git policy has multiple enforcement points.
+
+The intended managed-flow order is:
+
+1. Hook receives the raw tool call.
+2. Hook classifies the command and blocks obvious hard violations immediately.
+3. Hook rewrites simple git invocations to `coding-ethos-git` or relies on a
+   repo-local PATH shim that maps `git` to the wrapper.
+4. `coding-ethos-git` loads the same policy bundle and re-evaluates git policy.
+5. Allowed commands pass through to the real git executable.
+6. Post-action hooks verify state and record outcomes.
+
+This means the hook and wrapper intentionally overlap. The hook is the
+per-action routing and user-interaction layer. The wrapper is the executable
+boundary that still protects the repo if a git command reaches the shell.
+
+Hooks should not silently rewrite complex shell commands. For complex commands,
+the hook should either block a known violation or advise the agent to use
+`coding-ethos-git` explicitly. Only simple single git invocations should be
+rewritten automatically.
+
 ### CLI Shape
 
 The wrapper should eventually move behind the main `coding-ethos` CLI:

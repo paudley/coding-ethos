@@ -104,4 +104,45 @@ if [[ "$first_head" != "$second_head" ]]; then
   exit 1
 fi
 
+printf '==> validating git wrapper blocks git safety policies\n'
+blocked_git_cases=(
+  "reset --hard"
+  "clean -fd"
+  "merge -X theirs feature"
+  "push --force origin main"
+  "checkout main"
+  "worktree prune"
+  "stash"
+)
+for git_case in "${blocked_git_cases[@]}"; do
+  set +e
+  # shellcheck disable=SC2086 # intentional argv splitting for smoke fixtures
+  "$git_bin" \
+    --bundle "$policy_dir/policy-bundle.json" \
+    --check-only \
+    --json \
+    $git_case >/tmp/coding-ethos-git-smoke.out 2>&1
+  git_status=$?
+  set -e
+  if [[ "$git_status" -ne 2 ]]; then
+    printf 'expected git wrapper exit 2 for `%s`, got %s:\n' "$git_case" "$git_status" >&2
+    cat /tmp/coding-ethos-git-smoke.out >&2
+    exit 1
+  fi
+done
+
+set +e
+"$git_bin" \
+  --bundle "$policy_dir/policy-bundle.json" \
+  --check-only \
+  --json \
+  -- -C "$git_repo" status >/tmp/coding-ethos-git-smoke.out 2>&1
+git_status=$?
+set -e
+if [[ "$git_status" -ne 2 ]]; then
+  printf 'expected git wrapper exit 2 for git -C, got %s:\n' "$git_status" >&2
+  cat /tmp/coding-ethos-git-smoke.out >&2
+  exit 1
+fi
+
 printf 'go tools smoke passed\n'
