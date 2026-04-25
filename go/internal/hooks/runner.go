@@ -34,6 +34,9 @@ func RunWithRegistry(bundle policy.Bundle, options Options, registry evaluators.
 			return Result{}, err
 		}
 		decisions = append(decisions, evaluated...)
+		if resultStatus(decisions) == "blocked" {
+			break
+		}
 	}
 
 	return Result{
@@ -50,6 +53,9 @@ func evaluateHookPolicy(
 	event Event,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
+	if !matchesCommandPatterns(event.Command(), entry.CommandPatterns) {
+		return nil, nil
+	}
 	context := evaluators.Context{
 		Scope:   event.HookEventName,
 		Argv:    commandArgv(event.Command()),
@@ -89,6 +95,18 @@ func commandArgv(command string) []string {
 		return nil
 	}
 	return strings.Fields(command)
+}
+
+func matchesCommandPatterns(command string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	for _, pattern := range patterns {
+		if pattern != "" && strings.Contains(command, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 func resultStatus(decisions []policy.Decision) string {

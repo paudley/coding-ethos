@@ -388,7 +388,7 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		Source:          SourceRef{File: "config.yaml", Path: "git.commit_head_advanced"},
 		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
 		DefaultSeverity: "annotate",
-		SupportedModes:  []string{"annotate", "record"},
+		SupportedModes:  []string{"annotate", "record", "block"},
 		Message:         "Commit success must be verified by checking that HEAD advanced.",
 		Suggestion:      "Compare pre-commit and post-commit HEAD before reporting success.",
 		DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
@@ -478,6 +478,20 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 			PolicyID:        "pytest.gate",
 			Mode:            "annotate",
 			CommandPatterns: []string{"pytest", "make check", "lefthook"},
+		})
+	}
+	if _, ok := policies["git.commit_head_advanced"]; ok {
+		ensureHookTool(hooks, "PreToolUse", "Bash")
+		hooks["PreToolUse"]["Bash"] = append(hooks["PreToolUse"]["Bash"], HookDispatchEntry{
+			PolicyID:        "git.commit_head_advanced",
+			Mode:            "record",
+			CommandPatterns: []string{"git commit"},
+		})
+		ensureHookTool(hooks, "PostToolUse", "Bash")
+		hooks["PostToolUse"]["Bash"] = append(hooks["PostToolUse"]["Bash"], HookDispatchEntry{
+			PolicyID:        "git.commit_head_advanced",
+			Mode:            "annotate",
+			CommandPatterns: []string{"git commit"},
 		})
 	}
 

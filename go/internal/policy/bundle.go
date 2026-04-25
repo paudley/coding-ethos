@@ -165,6 +165,22 @@ func ExampleBundle() Bundle {
 				},
 				Evaluators: []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
 			},
+			"git.commit_head_advanced": {
+				ID:              "git.commit_head_advanced",
+				Category:        "git",
+				Source:          SourceRef{File: "config.yaml", Path: "git.commit_head_advanced"},
+				PrincipleIDs:    []string{"one-path-for-critical-operations"},
+				DefaultSeverity: "annotate",
+				SupportedModes:  []string{"annotate", "record", "block"},
+				Message:         "Commit success must be verified by checking that HEAD advanced.",
+				Suggestion:      "Compare pre-commit and post-commit HEAD before reporting success.",
+				DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
+				AppliesTo: AppliesTo{
+					Commands: []string{"git commit"},
+					Tools:    []string{"Bash"},
+				},
+				Evaluators: []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
+			},
 		},
 		Dispatch: Dispatch{
 			Hooks: map[string]map[string][]HookDispatchEntry{
@@ -175,6 +191,11 @@ func ExampleBundle() Bundle {
 							Mode:            "block",
 							CommandPatterns: []string{"--no-verify", "SKIP=", "git commit -n"},
 						},
+						{
+							PolicyID:        "git.commit_head_advanced",
+							Mode:            "record",
+							CommandPatterns: []string{"git commit"},
+						},
 					},
 					"Write": {
 						{
@@ -184,14 +205,24 @@ func ExampleBundle() Bundle {
 						},
 					},
 				},
+				"PostToolUse": {
+					"Bash": {
+						{
+							PolicyID:        "git.commit_head_advanced",
+							Mode:            "annotate",
+							CommandPatterns: []string{"git commit"},
+						},
+					},
+				},
 			},
 			Linter: map[string][]string{
 				"files":  {"python.conditional_imports"},
-				"staged": {"git.hook_bypass", "python.conditional_imports"},
+				"staged": {"git.hook_bypass", "git.commit_head_advanced", "python.conditional_imports"},
 			},
 			Git: map[string]GitOperationDispatch{
 				"commit": {
-					Pre: []string{"git.hook_bypass"},
+					Pre:  []string{"git.hook_bypass"},
+					Post: []string{"git.commit_head_advanced"},
 				},
 			},
 		},

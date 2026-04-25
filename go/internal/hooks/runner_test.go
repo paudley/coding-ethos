@@ -4,6 +4,9 @@
 package hooks
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,12 +38,38 @@ func TestRunBlocksGitHookBypass(t *testing.T) {
 }
 
 func TestRunAllowsNormalGitCommit(t *testing.T) {
+	repo := initHookRepo(t)
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m test",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != "allowed" {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", result.Decisions)
+	}
+	if result.Decisions[0].PolicyID != "git.commit_head_advanced" || result.Decisions[0].Decision != "record" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunAllowsNormalNonCommitGitCommand(t *testing.T) {
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": "git commit -m test",
+				"command": "git status",
 			},
 		},
 	})
@@ -69,5 +98,30 @@ func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 	}
 	if event.Command() != "git status" {
 		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func initHookRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	runHookGit(t, repo, "init")
+	runHookGit(t, repo, "config", "user.email", "test@example.com")
+	runHookGit(t, repo, "config", "user.name", "Test User")
+	runHookGit(t, repo, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runHookGit(t, repo, "add", "file.txt")
+	runHookGit(t, repo, "commit", "-m", "initial")
+	return repo
+}
+
+func runHookGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 }

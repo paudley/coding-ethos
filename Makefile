@@ -47,6 +47,7 @@ UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
+GO_TOOLS_CACHE_DIR ?= $(GO_TOOLS_DIR)/.cache/go-build
 REPO ?= $(LOCAL_REPO_ROOT)
 TOOL_CONFIG_REPO ?= $(HOOK_CONSUMER_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
@@ -382,21 +383,24 @@ fmt: go-fmt ## Format repo-owned generated helper source files.
 
 go-tools-test: ensure-go ## Run the shared Go tool tests.
 	@$(call print_step,Running shared Go tool tests)
-	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test ./...
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" test ./...
 
 go-tools-build: ensure-go ## Build shared Go tools into go/bin.
 	@$(call print_step,Building shared Go tools)
 	@mkdir -p "$(GO_TOOLS_DIR)/bin"
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		"$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
+		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,built: $(GO_TOOLS_DIR)/bin)
 
 go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook bin directory.
 	@$(call print_step,Installing shared Go tools)
 	@mkdir -p "$(GO_TOOLS_BIN_DIR)"
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		"$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
+		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 
@@ -408,7 +412,7 @@ go-tools-smoke: ## Smoke test shared Go tools using only temporary runtime state
 
 go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
 	@$(call print_step,Removing shared Go tool build outputs)
-	@rm -rf "$(GO_TOOLS_DIR)/bin"
+	@rm -rf "$(GO_TOOLS_DIR)/bin" "$(GO_TOOLS_DIR)/.cache"
 
 clean-cache: ## Remove cached bundled hook binaries from .git.
 	@$(call print_step,Removing cached bundled hook binaries)

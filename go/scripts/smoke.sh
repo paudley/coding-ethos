@@ -87,6 +87,7 @@ printf '==> creating disposable git repo\n'
 git init "$git_repo" >/dev/null
 git -C "$git_repo" config user.email test@example.com
 git -C "$git_repo" config user.name Test
+git -C "$git_repo" config commit.gpgsign false
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
 
@@ -99,6 +100,20 @@ printf '==> validating git wrapper allows normal commit\n'
     commit -m "test" >/dev/null
 )
 first_head="$(git -C "$git_repo" rev-parse HEAD)"
+
+printf '==> validating hook detects unchanged commit HEAD\n'
+pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m noop"}}))' "$git_repo")"
+post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m noop"}}))' "$git_repo")"
+printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out
+set +e
+printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out 2>&1
+hook_status=$?
+set -e
+if [[ "$hook_status" -ne 2 ]]; then
+  printf 'expected hook exit 2 for unchanged commit HEAD, got %s:\n' "$hook_status" >&2
+  cat /tmp/coding-ethos-hook-smoke.out >&2
+  exit 1
+fi
 
 printf 'y\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
