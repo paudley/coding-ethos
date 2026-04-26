@@ -2,14 +2,28 @@
 # SPDX-License-Identifier: MIT
 
 SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
 
 .DEFAULT_GOAL := help
 .SUFFIXES:
+.DELETE_ON_ERROR:
 
 LOCAL_REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
 HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
-HOOK_CONSUMER_ROOT := $(shell super="$$(git -C "$(LOCAL_REPO_ROOT)" rev-parse --show-superproject-working-tree 2>/dev/null)"; if [ -n "$$super" ]; then printf '%s' "$$super"; else git -C "$(LOCAL_REPO_ROOT)" rev-parse --show-toplevel; fi)
+GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
+
+define resolve_hook_consumer_root
+super="$$(git -C "$(LOCAL_REPO_ROOT)" rev-parse \
+	--show-superproject-working-tree 2>/dev/null)"; \
+if [ -n "$$super" ]; then \
+	printf '%s' "$$super"; \
+else \
+	git -C "$(LOCAL_REPO_ROOT)" rev-parse --show-toplevel; \
+fi
+endef
+
+HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
 HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
 ROOT_LEFTHOOK := $(HOOK_CONSUMER_ROOT)/lefthook.yml
@@ -25,6 +39,7 @@ LEFTHOOK_VERSION := $(strip $(shell cat "$(LEFTHOOK_VERSION_FILE)"))
 UV ?= uv
 PYTHON ?= python
 GO ?= go
+GOFMT ?= gofmt
 REPO ?= $(LOCAL_REPO_ROOT)
 TOOL_CONFIG_REPO ?= $(HOOK_CONSUMER_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
@@ -58,7 +73,11 @@ endif
 COMMON_GENERATE_FLAGS := --repo "$(REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG)
 TOOL_CONFIG_FLAGS := --repo "$(TOOL_CONFIG_REPO)" $(REPO_CONFIG_FLAG)
 GEMINI_PROMPT_FLAGS := --repo "$(TOOL_CONFIG_REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG) $(REPO_CONFIG_FLAG)
-MERGE_FLAGS = --merge-existing --merge-strategy "$(MERGE_STRATEGY)" --merge-engine "$(MERGE_ENGINE)" --merge-timeout-seconds "$(MERGE_TIMEOUT_SECONDS)"
+MERGE_FLAGS = \
+	--merge-existing \
+	--merge-strategy "$(MERGE_STRATEGY)" \
+	--merge-engine "$(MERGE_ENGINE)" \
+	--merge-timeout-seconds "$(MERGE_TIMEOUT_SECONDS)"
 
 ifneq ($(strip $(MERGE_BIN)),)
 MERGE_FLAGS += --merge-bin "$(MERGE_BIN)"
@@ -98,9 +117,22 @@ define print_warn
 printf '  $(COLOR_WARN)!$(COLOR_RESET) %s\n' "$(1)"
 endef
 
+define print_kv
+printf '  $(COLOR_ACCENT)%-24s$(COLOR_RESET) %s\n' "$(1)" "$(2)"
+endef
+
+define run_lefthook
+cd "$(HOOK_CONSUMER_ROOT)" && { \
+	$(LEFTHOOK) run --no-auto-install $(1) 2>&1 \
+		| "$(GO_HOOK)" quiet-filter; \
+	exit "$${PIPESTATUS[0]}"; \
+}
+endef
+
 .PHONY: \
 	help \
 	status \
+	doctor \
 	install \
 	install-runtime \
 	test \
@@ -115,6 +147,7 @@ endef
 	go-test \
 	go-tidy \
 	go-fmt \
+	fmt \
 	clean-cache \
 	sync-tool-configs \
 	check-tool-configs \
@@ -129,6 +162,8 @@ endef
 	generate-merge-llm \
 	clean \
 	ensure-uv \
+	ensure-go \
+	ensure-gofmt \
 	ensure-lefthook \
 	check-root-config \
 	guard-%
@@ -136,7 +171,8 @@ endef
 ##@ Help
 help: ## Show the available targets and the most useful overrides.
 	@printf '\n$(COLOR_BOLD)coding-ethos$(COLOR_RESET)\n'
-	@printf 'Pretty repo-local workflow for the existing uv-based commands.\n\n'
+	@printf 'Repo-local workflow for generation, hooks, and verification.\n'
+	@printf 'Run `make status` for resolved paths and `make doctor` for tool checks.\n\n'
 	@awk 'BEGIN { FS = ":.*## "; section = "" } \
 		/^##@/ { \
 			section = substr($$0, 5); \
@@ -152,11 +188,13 @@ help: ## Show the available targets and the most useful overrides.
 	@printf '  PRIMARY=/path/to/coding_ethos.yml\n'
 	@printf '  REPO_ETHOS=/path/to/repo_ethos.yml\n'
 	@printf '  REPO_CONFIG=/path/to/repo_config.yml\n'
+	@printf '  GO=/path/to/go GOFMT=/path/to/gofmt UV=/path/to/uv PYTHON=/path/to/python\n'
 	@printf '  SEED_FROM=/path/to/ETHOS.md\n'
 	@printf '  MERGE_STRATEGY=inject|llm MERGE_ENGINE=codex|gemini|claude\n'
 	@printf '  MERGE_BIN=/path/to/engine MERGE_MODEL=model-name MERGE_TIMEOUT_SECONDS=300\n'
 	@printf '\n$(COLOR_BOLD)Examples$(COLOR_RESET)\n'
 	@printf '  make install\n'
+	@printf '  make doctor\n'
 	@printf '  make test\n'
 	@printf '  make validate\n'
 	@printf '  make install-hooks\n'
@@ -169,23 +207,33 @@ help: ## Show the available targets and the most useful overrides.
 
 status: ## Print the resolved tool and generation configuration.
 	@$(call print_step,Resolved configuration)
-	@printf '  %-24s %s\n' "LOCAL_REPO_ROOT" "$(LOCAL_REPO_ROOT)"
-	@printf '  %-24s %s\n' "HOOK_CONSUMER_ROOT" "$(HOOK_CONSUMER_ROOT)"
-	@printf '  %-24s %s\n' "UV" "$(UV)"
-	@printf '  %-24s %s\n' "PYTHON" "$(PYTHON)"
-	@printf '  %-24s %s\n' "GO" "$(GO)"
-	@printf '  %-24s %s\n' "APP" "$(APP)"
-	@printf '  %-24s %s\n' "LOCAL_LEFTHOOK" "$(LOCAL_LEFTHOOK)"
-	@printf '  %-24s %s\n' "REPO" "$(REPO)"
-	@printf '  %-24s %s\n' "TOOL_CONFIG_REPO" "$(TOOL_CONFIG_REPO)"
-	@printf '  %-24s %s\n' "PRIMARY" "$(PRIMARY)"
-	@printf '  %-24s %s\n' "REPO_ETHOS" "$(if $(strip $(REPO_ETHOS)),$(REPO_ETHOS),<auto>)"
-	@printf '  %-24s %s\n' "REPO_CONFIG" "$(if $(strip $(REPO_CONFIG)),$(REPO_CONFIG),<auto>)"
-	@printf '  %-24s %s\n' "MERGE_STRATEGY" "$(MERGE_STRATEGY)"
-	@printf '  %-24s %s\n' "MERGE_ENGINE" "$(MERGE_ENGINE)"
-	@printf '  %-24s %s\n' "MERGE_BIN" "$(if $(strip $(MERGE_BIN)),$(MERGE_BIN),<default>)"
-	@printf '  %-24s %s\n' "MERGE_MODEL" "$(if $(strip $(MERGE_MODEL)),$(MERGE_MODEL),<default>)"
-	@printf '  %-24s %s\n' "MERGE_TIMEOUT_SECONDS" "$(MERGE_TIMEOUT_SECONDS)"
+	@$(call print_kv,LOCAL_REPO_ROOT,$(LOCAL_REPO_ROOT))
+	@$(call print_kv,HOOK_CONSUMER_ROOT,$(HOOK_CONSUMER_ROOT))
+	@$(call print_kv,UV,$(UV))
+	@$(call print_kv,PYTHON,$(PYTHON))
+	@$(call print_kv,GO,$(GO))
+	@$(call print_kv,GOFMT,$(GOFMT))
+	@$(call print_kv,APP,$(APP))
+	@$(call print_kv,LOCAL_LEFTHOOK,$(LOCAL_LEFTHOOK))
+	@$(call print_kv,REPO,$(REPO))
+	@$(call print_kv,TOOL_CONFIG_REPO,$(TOOL_CONFIG_REPO))
+	@$(call print_kv,PRIMARY,$(PRIMARY))
+	@$(call print_kv,REPO_ETHOS,$(if $(strip $(REPO_ETHOS)),$(REPO_ETHOS),<auto>))
+	@$(call print_kv,REPO_CONFIG,$(if $(strip $(REPO_CONFIG)),$(REPO_CONFIG),<auto>))
+	@$(call print_kv,MERGE_STRATEGY,$(MERGE_STRATEGY))
+	@$(call print_kv,MERGE_ENGINE,$(MERGE_ENGINE))
+	@$(call print_kv,MERGE_BIN,$(if $(strip $(MERGE_BIN)),$(MERGE_BIN),<default>))
+	@$(call print_kv,MERGE_MODEL,$(if $(strip $(MERGE_MODEL)),$(MERGE_MODEL),<default>))
+	@$(call print_kv,MERGE_TIMEOUT_SECONDS,$(MERGE_TIMEOUT_SECONDS))
+
+doctor: ensure-uv ensure-go ensure-gofmt check-root-config ## Check local tools and important resolved paths.
+	@$(call print_step,Checking local development environment)
+	@$(call print_info,uv: $$(command -v "$(UV)"))
+	@$(call print_info,python: $$("$(PYTHON)" --version))
+	@$(call print_info,go: $$("$(GO)" version))
+	@$(call print_info,gofmt: $$(command -v "$(GOFMT)"))
+	@$(call print_info,lefthook config: $(ROOT_LEFTHOOK))
+	@$(call print_info,hook consumer root: $(HOOK_CONSUMER_ROOT))
 
 ##@ Setup
 ensure-uv:
@@ -194,13 +242,23 @@ ensure-uv:
 		exit 1; \
 	}
 
-ensure-lefthook: check-root-config
+ensure-go:
+	@command -v "$(GO)" >/dev/null 2>&1 || { \
+		printf '$(COLOR_WARN)go is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
+		exit 1; \
+	}
+
+ensure-gofmt:
+	@command -v "$(GOFMT)" >/dev/null 2>&1 || { \
+		printf '$(COLOR_WARN)gofmt is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
+		exit 1; \
+	}
+
+ensure-lefthook: check-root-config ensure-go
 	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] || [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] || [ "$$(cat "$(LOCAL_LEFTHOOK_VERSION_FILE)" 2>/dev/null)" != "$(LEFTHOOK_VERSION)" ]; then \
-		command -v "$(GO)" >/dev/null 2>&1 || { \
-			printf '$(COLOR_WARN)go is required to install the repo-local Lefthook binary.$(COLOR_RESET)\n' >&2; \
-			exit 1; \
-		}; \
+	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] \
+		|| [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] \
+		|| [ "$$(cat "$(LOCAL_LEFTHOOK_VERSION_FILE)" 2>/dev/null)" != "$(LEFTHOOK_VERSION)" ]; then \
 		$(call print_step,Installing repo-local Lefthook $(LEFTHOOK_VERSION)); \
 		GOBIN="$(LOCAL_BIN_DIR)" "$(GO)" install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION); \
 		printf '%s\n' "$(LEFTHOOK_VERSION)" > "$(LOCAL_LEFTHOOK_VERSION_FILE)"; \
@@ -255,29 +313,31 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install the bundled Lefthook shims into .git/hooks.
+install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install Git hook shims.
 	@$(call print_step,Installing Git hook shims)
 	@mkdir -p "$(HOOKS_DIR)"
 	@for hook in $(GIT_HOOKS); do \
 		cp "$(LEFTHOOK_RUNNER)" "$(HOOKS_DIR)/$$hook"; \
 		chmod +x "$(HOOKS_DIR)/$$hook"; \
 	done
-	@if [ -f "$(HOOKS_DIR)/prepare-commit-msg" ] && grep -q 'call_lefthook run "prepare-commit-msg"' "$(HOOKS_DIR)/prepare-commit-msg"; then \
+	@if [ -f "$(HOOKS_DIR)/prepare-commit-msg" ] \
+		&& grep -q 'call_lefthook run "prepare-commit-msg"' \
+			"$(HOOKS_DIR)/prepare-commit-msg"; then \
 		rm -f "$(HOOKS_DIR)/prepare-commit-msg"; \
 	fi
 	@$(call print_info,installed: $(LOCAL_LEFTHOOK))
 
 pre-commit: ensure-lefthook ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Lefthook pre-commit on staged files)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install --no-stage-fixed pre-commit 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@$(call run_lefthook,--no-stage-fixed pre-commit)
 
 pre-commit-all: ensure-lefthook ## Run bundled pre-commit hooks on all files.
 	@$(call print_step,Running Lefthook pre-commit on all files)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install --no-stage-fixed pre-commit --all-files 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@$(call run_lefthook,--no-stage-fixed pre-commit --all-files)
 
 pre-push: ensure-lefthook ## Run bundled pre-push hooks.
 	@$(call print_step,Running Lefthook pre-push)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install pre-push 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@$(call run_lefthook,pre-push)
 
 commit-msg: ensure-lefthook ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
@@ -285,7 +345,7 @@ ifndef MSG
 	@exit 2
 else
 	@$(call print_step,Running Lefthook commit-msg)
-	@cd "$(HOOK_CONSUMER_ROOT)" && { $(LEFTHOOK) run --no-auto-install commit-msg "$(MSG)" 2>&1 | "$(GO_HOOK)" quiet-filter; exit "$${PIPESTATUS[0]}"; }
+	@$(call run_lefthook,commit-msg "$(MSG)")
 endif
 
 validate: ensure-lefthook ## Validate the bundled Lefthook configuration.
@@ -294,18 +354,19 @@ validate: ensure-lefthook ## Validate the bundled Lefthook configuration.
 
 lefthook-validate: validate
 
-go-test: ## Run the bundled Go helper tests.
+go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
-	@cd "$(HOOKS_GO_DIR)" && go test ./...
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" test ./...
 
-go-tidy: ## Tidy and format the bundled Go hook helper.
+go-tidy: ensure-go go-fmt ## Tidy and format the bundled Go hook helper.
 	@$(call print_step,Tidying bundled Go hook helper)
-	@cd "$(HOOKS_GO_DIR)" && go mod tidy
-	@cd "$(HOOKS_GO_DIR)" && gofmt -w main.go
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" mod tidy
 
-go-fmt: ## Format the bundled Go hook helper.
+go-fmt: ensure-gofmt ## Format the bundled Go hook helper.
 	@$(call print_step,Formatting bundled Go hook helper)
-	@cd "$(HOOKS_GO_DIR)" && gofmt -w main.go
+	@"$(GOFMT)" -w $(GO_HOOK_SOURCES)
+
+fmt: go-fmt ## Format repo-owned generated helper source files.
 
 clean-cache: ## Remove cached bundled hook binaries from .git.
 	@$(call print_step,Removing cached bundled hook binaries)
