@@ -1,0 +1,157 @@
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
+
+# Repository Analysis
+
+`coding-ethos` is a Python CLI and bundled ETHOS enforcement package. Its core
+job is to keep generated agent documentation, generated tool configuration, and
+hook prompt grounding aligned with a shared structured ethos.
+
+## System responsibilities
+
+- `coding_ethos/cli.py`: CLI argument parsing and top-level workflow
+  orchestration.
+- `coding_ethos/loaders.py`: primary ethos validation and repo overlay merge
+  semantics.
+- `coding_ethos/models.py`: typed in-memory contract shared by renderers and
+  generators.
+- `coding_ethos/renderers.py`: deterministic Markdown output for agent-facing
+  files.
+- `coding_ethos/markdown_seed.py`: Markdown-to-YAML seeding.
+- `coding_ethos/merging.py`: managed-block injection and external LLM merge
+  orchestration.
+- `coding_ethos/tool_configs.py`: generated Pyright, mypy, Ruff, yamllint, and
+  golangci-lint configs.
+- `coding_ethos/gemini_prompt_pack.py`: generated Gemini hook prompt pack.
+- `pre-commit/prompts/`: prompt templates for Gemini review checks.
+- `pre-commit/hooks/go-hooks/`: active hook runtime and policy checks.
+- `pre-commit/hooks/check_*.py`: remaining Python hook wrappers around
+  external analyzers.
+
+The CLI is intentionally thin. New behavior should usually land in one of the
+narrow modules above, with `cli.py` limited to wiring and exit-code handling.
+
+## Source-of-truth files
+
+`coding_ethos.yml` is the shared documentation contract. It defines the
+principle list, agent profiles, quick references, merge topics, and detailed
+section prose. `repo_ethos.yml` is the repo-local refinement layer used when
+generating this repository's checked-in agent files.
+
+`config.yaml` is the bundle-wide enforcement contract. It controls generated
+tool configs and hook policy. Consumer repositories refine those defaults with
+`repo_config.yaml` or `repo_config.yml`.
+
+`pre-commit/prompts/` contains Jinja templates used to render
+`.code-ethos/gemini/prompt-pack.json`. The prompt pack is generated from ethos
+content, repo context, enforcement settings, and template text.
+
+## Generated artifacts
+
+Agent-facing generated artifacts:
+
+- `ETHOS.md`
+- `AGENTS.md`
+- `CLAUDE.md`
+- `GEMINI.md`
+- `.agents/ethos/*.md`
+- `.claude/ethos/MEMORY.md`
+- `.agent-context/prompt-addons/*.md`
+
+Enforcement generated artifacts:
+
+- `pyrightconfig.json`
+- `mypy.ini`
+- `ruff.toml`
+- `.yamllint.yml`
+- `.golangci.yml`
+- `.code-ethos/gemini/prompt-pack.json`
+
+Generated Markdown files should not be hand-edited unless the task is
+explicitly about the generated output itself. Change the ethos YAML or renderer
+logic, regenerate, and review the derived diff.
+
+## Runtime flow
+
+For agent document generation, the CLI resolves the target repo, primary ethos
+YAML, and optional repo overlay. It loads and validates the primary bundle,
+applies the overlay when present, renders all deterministic output, and writes
+files into the target repo. With `--merge-existing`, only `AGENTS.md`,
+`CLAUDE.md`, and `GEMINI.md` are merge-preserved.
+
+For tool-config sync, the CLI loads `config.yaml`, applies an optional
+consumer repo config, renders the supported tool config files, and either
+writes them or reports drift.
+
+For Gemini prompt-pack sync, the CLI merges ethos context and enforcement
+config, renders every prompt template, attaches check selectors and runtime
+metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
+
+For hooks, the Makefile installs repo-local Lefthook shims that call the pinned
+Lefthook binary under `.git/coding-ethos-hooks/`. Most policy checks execute
+through the Go helper in `pre-commit/hooks/go-hooks/`.
+
+## Validation boundaries
+
+The primary ethos loader rejects malformed schema versions, empty principle
+lists, duplicate principle ids, duplicate orders, unknown related principle
+ids, unsupported agents, malformed sections, and empty required fields.
+
+The repo overlay rejects non-mapping repo payloads, unsupported agent notes,
+unknown principle override ids, malformed override sections, duplicate
+additional principle ids, and invalid final principle collections.
+
+The generated config path treats missing or out-of-sync generated files as
+verification failures rather than silently tolerating drift.
+
+## Change impact guide
+
+- CLI flags or Makefile workflow: update `README.md`, `CONTRIBUTING.md`, and
+  tests.
+- Primary ethos schema or output layout: update `README.md`,
+  `repo_ethos.example.yml`, and `tests/test_cli.py`.
+- Repo overlay semantics: update `README.md`, `repo_ethos.example.yml`, and
+  loader tests.
+- Tool-config rendering: update `README.md`, `repo_config.example.yaml`, and
+  `tests/test_cli.py`.
+- Gemini prompt-pack rendering: update `README.md`, prompt templates, and
+  `tests/test_gemini_prompt_pack.py`.
+- Hook runtime behavior: update `pre-commit/PRE-COMMIT.md`,
+  `pre-commit/hooks/HOOKS.md`, and Go tests.
+- Public package exports: update `coding_ethos/CODING_ETHOS.md` and tests.
+
+## Verification contract
+
+The canonical test command is:
+
+```bash
+make test
+```
+
+The local toolchain and hook-path check is:
+
+```bash
+make doctor
+```
+
+The current repository gate is:
+
+```bash
+make check
+```
+
+Hook changes should also run:
+
+```bash
+make validate
+make go-test
+```
+
+Generated artifacts must be synced before finishing changes that affect their
+source inputs:
+
+```bash
+make generate
+make sync-tool-configs
+make sync-gemini-prompts
+```

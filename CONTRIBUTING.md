@@ -3,11 +3,15 @@
 
 # Contributing to coding-ethos
 
-Thanks for your interest in contributing. `coding-ethos` is an open source project maintained by Blackcat Informatics® Inc. We welcome improvements to code, tests, documentation, examples, and release tooling.
+Thanks for your interest in contributing. `coding-ethos` is an open source
+project maintained by Blackcat Informatics® Inc. We welcome improvements to
+code, tests, documentation, examples, and release tooling.
 
 ## Code of Conduct
 
-Please read the [Code of Conduct](CODE_OF_CONDUCT.md) before participating. We expect respectful, professional collaboration. To report unacceptable behaviour, email <conduct@blackcat.ca>.
+Please read the [Code of Conduct](CODE_OF_CONDUCT.md) before participating. We
+expect respectful, professional collaboration. To report unacceptable behaviour,
+email <conduct@blackcat.ca>.
 
 ## Ways to contribute
 
@@ -59,7 +63,8 @@ Feature requests are welcome. Good enhancement reports usually include:
 ```bash
 git clone https://github.com/<your-username>/<repo-name>.git
 cd <repo-name>
-uv sync --group dev --all-packages
+make install
+make doctor
 make help
 ```
 
@@ -68,6 +73,10 @@ make help
 - Keep `coding_ethos.yml` and generated documentation examples aligned.
 - If CLI behavior changes, update [README.md](README.md).
 - If repo-overlay behavior changes, update [repo_ethos.example.yml](repo_ethos.example.yml).
+- If enforcement config behavior changes, update [repo_config.example.yaml](repo_config.example.yaml).
+- If hook behavior changes, update
+  [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) or
+  [pre-commit/hooks/HOOKS.md](pre-commit/hooks/HOOKS.md).
 - If output structure changes, update tests to cover the new contract.
 - If `repo_ethos.yml` or renderer behavior changes, regenerate the checked-in agent docs.
 
@@ -76,8 +85,13 @@ make help
 Before requesting review, make sure you:
 
 - [ ] ran `uv run pytest`
-- [ ] ran `make check-tool-configs` after changing `config.yaml`, `repo_config.example.yaml`, or tool-config generation logic
-- [ ] ran `make check-gemini-prompts` after changing Gemini prompts, `coding_ethos.yml`, `repo_ethos.yml`, `config.yaml`, or `repo_config.example.yaml`
+- [ ] ran `make doctor` after changing Makefile tool resolution or hook path logic
+- [ ] ran `make check` for the current repository gate
+- [ ] ran `make check-tool-configs` after changing `config.yaml`,
+  `repo_config.example.yaml`, or tool-config generation logic
+- [ ] ran `make check-gemini-prompts` after changing Gemini prompts,
+  `coding_ethos.yml`, `repo_ethos.yml`, `config.yaml`, or
+  `repo_config.example.yaml`
 - [ ] ran `make validate` after changing files under `pre-commit/`
 - [ ] ran `make generate` after changing `coding_ethos.yml`, `repo_ethos.yml`, or generated-doc rendering behavior
 - [ ] updated tests for any behavioral change

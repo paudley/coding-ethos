@@ -28,8 +28,9 @@ repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook shims are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`,
-`.yamllint.yml`, `.golangci.yml`, and `.code-ethos/gemini/prompt-pack.json` from the shared
-bundle inputs plus any consuming-repo overrides.
+`.yamllint.yml`, `.golangci.yml`, and
+`.code-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
+consuming-repo overrides.
 
 `make install-hooks` installs a pinned repo-local Lefthook binary to:
 
@@ -72,6 +73,7 @@ go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 From the bundle repo root:
 
 ```bash
+make doctor
 make pre-commit
 make pre-commit-all
 make pre-push
@@ -105,8 +107,11 @@ Primary files:
 - `../Makefile` - root-level hook entry points and repo-local Lefthook bootstrap
 - `lefthook.version` - single source of truth for the pinned Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
-- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool configs
-- `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini prompt pack with rendered prompts and per-check runtime metadata
+- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`,
+  `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool
+  configs
+- `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
+  prompt pack with rendered prompts and per-check runtime metadata
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `hooks/run-go-hook.sh` - cached Go helper build and execution wrapper
 - `hooks/run-lefthook.sh` - repo hook shim used for installed Git hooks
@@ -138,6 +143,20 @@ You can also point the bundle at an explicit override file with
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
 
+Generated config drift is checked with:
+
+```bash
+make check-tool-configs
+make check-gemini-prompts
+```
+
+Regenerate derived files with:
+
+```bash
+make sync-tool-configs
+make sync-gemini-prompts
+```
+
 Lefthook runs the toolchain with `uv run --project code-ethos/pre-commit/hooks`
 or `uv run --project pre-commit/hooks`, but Ruff, mypy, pyright, and yamllint
 read their policy from the generated consumer-repo config files at the repo
@@ -146,8 +165,12 @@ environment. Parent `uv` workspace membership is optional, not required.
 
 Important configurable areas:
 
-- `style.*` - shared cross-cutting settings like Python version and line length; `style.python_version` also drives `pyupgrade`, generated tool configs, and repo-root version consistency checks
-- `python.source_paths`, `python.test_paths`, `python.stub_paths`, `python.extra_paths` - shared repository layout inputs for generated tool configs
+- `style.*` - shared cross-cutting settings like Python version and line
+  length; `style.python_version` also drives `pyupgrade`, generated tool
+  configs, and repo-root version consistency checks
+- `python.source_paths`, `python.test_paths`, `python.stub_paths`,
+  `python.extra_paths` - shared repository layout inputs for generated tool
+  configs
 - `python.direct_imports` - public-package import enforcement
 - `python.util_centralization` - banned direct utility imports and exemptions
 - `python.sql_centralization` - centralized SQL module name and exempt paths
@@ -155,9 +178,11 @@ Important configurable areas:
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command
 - `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
-- `python.type_check` - checker commands, hook-project execution, config injection, enablement, and excluded path fragments
+- `python.type_check` - checker commands, hook-project execution, config
+  injection, enablement, and excluded path fragments
 - `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
-- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config defaults
+- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`,
+  `tooling.golangci_lint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
 
@@ -192,7 +217,8 @@ Pre-commit includes:
 - merge-conflict, shebang, private-key, and large-file checks
 - shell linting and shell best-practice enforcement
 - direct-import, utility-centralization, SQL-centralization, and type-policy checks
-- repo-root Python version consistency checks for `.python-version`, `pyproject.toml`, `mypy.ini`, `pyrightconfig.json`, and `ruff.toml`
+- repo-root Python version consistency checks for `.python-version`,
+  `pyproject.toml`, `mypy.ini`, `pyrightconfig.json`, and `ruff.toml`
 - security, logging, dead-code, complexity, maintainability, and docstring checks
 - optional manifest and plan workflow validation
 - optional Gemini-powered ETHOS review
@@ -232,6 +258,10 @@ make go-tidy
 make go-test
 ```
 
+`make go-fmt` formats every Go source file under
+`pre-commit/hooks/go-hooks/`. Override `GO=/path/to/go` or
+`GOFMT=/path/to/gofmt` when testing with a non-default toolchain.
+
 ## Adding Hooks
 
 Use Go for generic file, shell, text, and commit-message checks that do not
@@ -239,7 +269,7 @@ need Python AST analysis or Python package imports. Keep the command in
 `hooks/go-hooks/main.go` and the tunable policy in the repo-root `config.yaml`.
 
 Use Python for checks that need AST parsing, type tooling, Python import
-analysis, Gemini integration, or repository-specific policy modules.
+analysis, or repository-specific policy modules.
 
 For hooks that modify files:
 
