@@ -199,6 +199,37 @@ exit 2
 	}
 }
 
+func TestHookGroupResultFileRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	resultPath := filepath.Join(t.TempDir(), "result.json")
+	want := hookGroupResult{
+		Name:       "syntax",
+		Status:     statusFail,
+		ExitCode:   1,
+		DurationMS: 12,
+		Commands: []hookCommandResult{
+			{Name: "check-syntax", Status: statusPass, ExitCode: 0, DurationMS: 4},
+			{Name: "yamllint", Status: statusFail, ExitCode: 1, DurationMS: 8},
+		},
+	}
+
+	writeHookGroupResultFile(resultPath, want)
+
+	got, ok := readHookGroupResultFile(resultPath)
+	if !ok {
+		t.Fatal("readHookGroupResultFile() did not read result")
+	}
+
+	if got.Name != want.Name ||
+		got.Status != want.Status ||
+		got.ExitCode != want.ExitCode ||
+		got.DurationMS != want.DurationMS ||
+		!reflect.DeepEqual(got.Commands, want.Commands) {
+		t.Fatalf("readHookGroupResultFile() = %#v, want %#v", got, want)
+	}
+}
+
 func setupGitHookTestRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

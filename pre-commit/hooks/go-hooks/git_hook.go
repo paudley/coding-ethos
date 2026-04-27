@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,14 +14,18 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 var errGitCommandFailed = errors.New("git command failed")
 var errHookGroupTimedOut = errors.New("hook group timed out")
 
 const (
-	allZeroSHA   = "0000000000000000000000000000000000000000"
-	emptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+	allZeroSHA              = "0000000000000000000000000000000000000000"
+	emptyTreeSHA            = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+	hookGroupChildEnv       = "CODE_ETHOS_HOOK_GROUP_CHILD"
+	hookGroupResultPathEnv  = "CODE_ETHOS_HOOK_GROUP_RESULT_PATH"
+	hookGroupResultFileMode = 0o600
 )
 
 func runGitHookCommand(cfg Config, args []string) int {
@@ -142,31 +147,71 @@ func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int 
 	exit := 0
 
 	for _, group := range groups {
-		if runHookGroupInProcess(cfg, group, files) != 0 {
+		result := runHookGroupInProcess(cfg, group, files)
+		if result.ExitCode != 0 {
 			exit = 1
+		}
+
+		if result.ExitCode != 0 || hookVerboseSuccessOutputEnabled() {
+			writeLine(os.Stdout, formatHookExecutionSummary(
+				[]hookGroupResult{result},
+				selectedHookOutputFormat(),
+			))
 		}
 	}
 
 	return exit
 }
 
-func runHookGroupInProcess(cfg Config, group hookGroup, files []string) int {
+func runHookGroupInProcess(
+	cfg Config,
+	group hookGroup,
+	files []string,
+) hookGroupResult {
+	start := time.Now()
 	exit := 0
+	commandResults := make([]hookCommandResult, 0, len(group.Commands))
 
 	for _, command := range group.Commands {
-		if command.Run(cfg, files) != 0 {
+		commandStart := time.Now()
+
+		commandExit := command.Run(cfg, files)
+		if commandExit != 0 {
 			exit = 1
 		}
+
+		commandResults = append(commandResults, hookCommandResult{
+			Name:       command.Name,
+			Status:     hookStatusForExitCode(commandExit),
+			ExitCode:   commandExit,
+			DurationMS: durationMilliseconds(commandStart),
+		})
 	}
 
-	return exit
+	return hookGroupResult{
+		Name:       group.Name,
+		Status:     hookStatusForExitCode(exit),
+		ExitCode:   exit,
+		DurationMS: durationMilliseconds(start),
+		Commands:   commandResults,
+	}
+}
+
+type hookCommandResult struct {
+	Name       string  `json:"name"`
+	Status     string  `json:"status"`
+	ExitCode   int     `json:"exit_code"`
+	DurationMS float64 `json:"duration_ms"`
 }
 
 type hookGroupResult struct {
-	RunnerFailure error
-	Name          string
-	Output        string
-	ExitCode      int
+	RunnerFailure error               `json:"-"`
+	Name          string              `json:"name"`
+	Status        string              `json:"status"`
+	Output        string              `json:"output,omitempty"`
+	Commands      []hookCommandResult `json:"commands,omitempty"`
+	ExitCode      int                 `json:"exit_code"`
+	DurationMS    float64             `json:"duration_ms"`
 }
 
 func runHookGroupsInSubprocesses(groups []hookGroup, files []string) int {
@@ -195,12 +240,23 @@ func runHookGroupsInSubprocessesWithExecutable(
 
 	exit := 0
 	verboseSuccess := hookVerboseSuccessOutputEnabled()
+	shouldPrintSummary := verboseSuccess
 
 	for _, result := range results {
 		if result.ExitCode != 0 || result.RunnerFailure != nil {
 			exit = 1
+			shouldPrintSummary = true
 		}
+	}
 
+	if shouldPrintSummary {
+		writeLine(os.Stdout, formatHookExecutionSummary(
+			results,
+			selectedHookOutputFormat(),
+		))
+	}
+
+	for _, result := range results {
 		if result.ExitCode != 0 || result.RunnerFailure != nil || verboseSuccess {
 			writeText(os.Stdout, result.Output)
 		}
@@ -232,21 +288,44 @@ func runHookGroupSubprocess(
 		}
 	}
 
+	resultFile, err := os.CreateTemp("", "coding-ethos-hook-group-*.json")
+	if err != nil {
+		return hookGroupResult{
+			RunnerFailure: fmt.Errorf("create hook result file: %w", err),
+			Name:          name,
+			Status:        statusFail,
+			ExitCode:      1,
+		}
+	}
+
+	resultPath := resultFile.Name()
+
+	_ = resultFile.Close()
+
+	defer os.Remove(resultPath)
+
 	args := append([]string{"run-group", name}, files...)
 	toolResult := runExternalTool(externalToolRequest{
-		Name:           "hook group " + name,
-		Command:        append([]string{executable}, args...),
+		Name:    "hook group " + name,
+		Command: append([]string{executable}, args...),
+		Env: []string{
+			hookGroupChildEnv + "=1",
+			hookGroupResultPathEnv + "=" + resultPath,
+		},
 		TimeoutSeconds: loadHookSettings().ToolTimeoutSeconds,
 	})
 
 	result := hookGroupResult{
-		Name:     name,
-		Output:   toolResult.Combined,
-		ExitCode: toolResult.ExitCode,
+		Name:       name,
+		Status:     hookStatusForExitCode(toolResult.ExitCode),
+		Output:     toolResult.Combined,
+		ExitCode:   toolResult.ExitCode,
+		DurationMS: toolResult.DurationMS,
 	}
 
 	if toolResult.TimedOut {
 		result.ExitCode = 1
+		result.Status = statusFail
 		result.RunnerFailure = fmt.Errorf(
 			"%w after %d seconds: %s",
 			errHookGroupTimedOut,
@@ -258,8 +337,58 @@ func runHookGroupSubprocess(
 	}
 
 	result.RunnerFailure = toolResult.RunnerFailure
+	if childResult, ok := readHookGroupResultFile(resultPath); ok {
+		result.Commands = childResult.Commands
+		if result.ExitCode == childResult.ExitCode {
+			result.Status = childResult.Status
+		}
+	}
 
 	return result
+}
+
+func writeHookGroupResultFile(path string, result hookGroupResult) {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+
+	tempPrefix := os.TempDir() + string(os.PathSeparator)
+	if cleanPath == "." || !strings.HasPrefix(cleanPath, tempPrefix) {
+		return
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+
+	if os.WriteFile(cleanPath, data, hookGroupResultFileMode) != nil {
+		return
+	}
+}
+
+func readHookGroupResultFile(path string) (hookGroupResult, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return hookGroupResult{}, false
+	}
+
+	var result hookGroupResult
+	if json.Unmarshal(data, &result) != nil {
+		return hookGroupResult{}, false
+	}
+
+	return result, true
+}
+
+func hookStatusForExitCode(exitCode int) string {
+	if exitCode == 0 {
+		return statusPass
+	}
+
+	return statusFail
+}
+
+func durationMilliseconds(start time.Time) float64 {
+	return float64(time.Since(start).Milliseconds())
 }
 
 func enabledHookGroupNames(names []string) []string {

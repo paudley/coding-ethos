@@ -191,6 +191,9 @@ Agent-facing hook feedback should render from normalized diagnostics instead of
 raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
 structured hook reports; `auto` selects TOON when common agent caller
 environment markers are present and otherwise keeps the human terminal report.
+Failed grouped hook runs emit a runner-owned execution summary before captured
+tool output, including group status, duration, failed groups, and per-command
+timing for in-process group execution.
 Go-owned policy checks, Python static checks, Gemini AI checks, docstring
 coverage, shellcheck/yamllint, and the remaining external tool wrappers use
 this normalized report path.

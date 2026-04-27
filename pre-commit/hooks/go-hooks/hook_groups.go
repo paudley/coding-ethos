@@ -148,7 +148,18 @@ func runHookGroupCommand(cfg Config, args []string) int {
 		return 1
 	}
 
-	return runHookGroupInProcess(cfg, group, args[1:])
+	result := runHookGroupInProcess(cfg, group, args[1:])
+	writeHookGroupResultFile(os.Getenv(hookGroupResultPathEnv), result)
+
+	if os.Getenv(hookGroupChildEnv) != hookPlanBoolTrue &&
+		(result.ExitCode != 0 || hookVerboseSuccessOutputEnabled()) {
+		writeLine(os.Stdout, formatHookExecutionSummary(
+			[]hookGroupResult{result},
+			selectedHookOutputFormat(),
+		))
+	}
+
+	return result.ExitCode
 }
 
 type hookPlanGroup struct {

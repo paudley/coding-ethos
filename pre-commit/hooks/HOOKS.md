@@ -13,6 +13,9 @@ groups are silent by default through `hooks.success_output: silent`, while
 `hooks.parallel_groups: true`, enabled groups run concurrently as isolated hook
 subprocesses and their captured output is replayed in deterministic group order
 only when a group fails or verbose success output is enabled.
+Failed grouped runs also emit a compact execution summary before raw tool
+detail: group status, duration, failed groups, and command timing where
+commands ran in-process.
 
 ## Included Hooks
 

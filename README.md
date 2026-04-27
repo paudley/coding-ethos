@@ -323,7 +323,9 @@ selecting TOON when known agent/LLM environment markers are present. Successful
 groups are silent by default through `hooks.success_output: silent`; set it to
 `verbose` only when operator-facing pass summaries are useful. Enabled hook
 groups run in parallel when `hooks.parallel_groups: true`, with group output
-captured and replayed deterministically on failure.
+captured and replayed deterministically on failure. Failed hook runs print a
+runner-owned summary with group status, duration, failed groups, and command
+timing where the runner has in-process command visibility.
 
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the

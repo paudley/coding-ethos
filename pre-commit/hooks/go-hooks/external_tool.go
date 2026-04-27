@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type externalToolRequest struct {
 	Name           string
 	Dir            string
 	Command        []string
+	Env            []string
 	TimeoutSeconds int
 }
 
@@ -59,6 +61,11 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 
 	cmd := exec.CommandContext(ctx, request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.Dir
+
+	if len(request.Env) > 0 {
+		cmd.Env = append(os.Environ(), request.Env...)
+	}
+
 	output, err := cmd.CombinedOutput()
 
 	result := externalToolResult{
