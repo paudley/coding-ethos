@@ -74,7 +74,7 @@ python:
 			t.Fatalf("checkPytestGateCommand() = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(output, "Skipped tests: 1") {
+	if !strings.Contains(output, "skipped=1") {
 		t.Fatalf("unexpected output: %q", output)
 	}
 }

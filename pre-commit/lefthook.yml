@@ -171,7 +171,7 @@ pre-commit:
         - "*.yml"
         - "**/*.yaml"
         - "**/*.yml"
-      run: "{yaml_env} yamllint -c \"${REPO_YAMLLINT_CONFIG}\" --strict {staged_files}"
+      run: "{go_hook} yamllint {staged_files}"
 
     - name: ShellCheck
       run: "{go_hook} shellcheck {staged_files}"

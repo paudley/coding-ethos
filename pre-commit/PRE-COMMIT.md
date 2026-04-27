@@ -200,9 +200,10 @@ Important configurable areas:
 
 Agent-facing hook feedback should render from normalized diagnostics instead of
 raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
-structured hook reports for Python static checks, Gemini AI checks, and
-docstring coverage; `auto` selects TOON when common agent caller environment
-markers are present and otherwise keeps the human terminal report.
+structured hook reports; `auto` selects TOON when common agent caller
+environment markers are present and otherwise keeps the human terminal report.
+Go-owned policy checks, Python static checks, Gemini AI checks, docstring
+coverage, and the shellcheck/yamllint wrappers use this normalized report path.
 
 For this repo, many project-specific checks are disabled by default because the
 codebase does not have SQL centralization, manifest, plan, or Go worktree

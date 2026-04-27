@@ -1528,29 +1528,26 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "MODULE DOCSTRING CHECK FAILED (ETHOS §18)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(
-		os.Stderr,
-		"Per ETHOS §18 (Documentation as Contract): every Python file\n"+
-			"must have a module-level docstring of at least %d sentences.\n\n",
-		settings.MinSentences,
-	)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "  %s: %s\n", violation.File, violation.Reason)
+		findings = append(findings, hookFinding{
+			Tool:    "module_docstrings",
+			File:    violation.File,
+			Message: violation.Reason,
+			Detail:  fmt.Sprintf("sentences=%d", violation.Count),
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Add a module-level docstring at the top of the file:")
-	fmt.Fprintln(os.Stderr, `  """Brief summary of the module.`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  More detail about what the module provides. Include")
-	fmt.Fprintln(os.Stderr, "  usage examples and important caveats.")
-	fmt.Fprintln(os.Stderr, `  """`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "module_docstrings",
+		Title:    "MODULE DOCSTRING CHECK FAILED (ETHOS §18)",
+		Summary:  fmt.Sprintf("Every Python file must have a module-level docstring of at least %d sentences.", settings.MinSentences),
+		Findings: findings,
+		Guidance: []string{
+			"Add a module-level docstring at the top of the file.",
+			"Include a brief summary plus details about what the module provides.",
+			"Include usage examples and important caveats where relevant.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -1641,59 +1638,62 @@ func reportPytestGateFailure(result pytestRunResult) {
 }
 
 func reportPytestMarkerViolations(violations []pythonMarkerViolation) {
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "BANNED PYTEST MARKERS DETECTED (ETHOS §22)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §22: 100% pass rate is non-negotiable. Tests must",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"not be skipped. Use @pytest.mark.xfail(reason='...') for known",
-	)
-	fmt.Fprintln(os.Stderr, "temporary failures instead.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: @%s\n",
-			violation.File,
-			violation.Line,
-			violation.Marker,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "pytest_gate",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Marker,
+			Message: "banned pytest marker",
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  1. Remove the @pytest.mark.skip/skipif decorator")
-	fmt.Fprintln(os.Stderr, "  2. Fix the test or the code it tests")
-	fmt.Fprintln(
-		os.Stderr,
-		"  3. Use @pytest.mark.xfail(reason='...') for known gaps",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"  4. If the test is truly obsolete, delete it entirely",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "pytest_gate",
+		Title:    "BANNED PYTEST MARKERS DETECTED (ETHOS §22)",
+		Summary:  "Tests must not be skipped. Use xfail only for known temporary failures.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove the skip or skipif decorator.",
+			"Fix the test or the code it tests.",
+			"If the test is obsolete, delete it entirely.",
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func reportPytestGateFailureOutput(result pytestRunResult) {
-	reportPytestGateFailure(result)
-	fmt.Fprintln(os.Stderr)
-	printPytestGateLines(result.Stdout, true)
+	findings := []hookFinding{{
+		Tool:    "pytest_gate",
+		Code:    fmt.Sprintf("exit-%d", result.ReturnCode),
+		Message: "pytest gate failed",
+		Detail:  trimmedPytestOutput(result),
+	}}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "pytest_gate",
+		Title:    "PYTEST GATE FAILED (ETHOS §22)",
+		Summary:  fmt.Sprintf("failed=%d errors=%d skipped=%d return_code=%d", result.Counts["failed"], result.Counts["errors"], result.Counts["skipped"], result.ReturnCode),
+		Findings: findings,
+		Guidance: []string{
+			"All tests must pass with zero skips.",
+			"Fix failing tests before committing.",
+		},
+	}, selectedHookOutputFormat()))
+}
+
+func trimmedPytestOutput(result pytestRunResult) string {
+	output := strings.TrimSpace(result.Stdout)
 	if strings.TrimSpace(result.Stderr) != "" {
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "Stderr:")
-		printPytestGateLines(result.Stderr, false)
+		output = strings.TrimSpace(output + "\nStderr:\n" + strings.TrimSpace(result.Stderr))
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "All tests must pass with zero skips.")
-	fmt.Fprintln(os.Stderr, "Fix failing tests before committing.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	lines := strings.Split(output, "\n")
+	if len(lines) > pytestGateMaxOutputLines {
+		lines = append(
+			[]string{fmt.Sprintf("... (%d lines truncated)", len(lines)-pytestGateMaxOutputLines)},
+			lines[len(lines)-pytestGateMaxOutputLines:]...,
+		)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func printPytestGateLines(output string, showTruncation bool) {
@@ -1745,20 +1745,12 @@ func checkDirectImportsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "DIRECT MODULE IMPORT DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "Import from package __init__.py, not internal modules.")
-	fmt.Fprintln(os.Stderr, "This ensures you use the package's public API.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "\n  %s:%d\n", violation.File, violation.Line)
-		fmt.Fprintf(os.Stderr, "    Bad:  %s\n", violation.Statement)
-		fmt.Fprintf(os.Stderr, "    Good: %s\n", violation.Suggestion)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatDirectImportReport(
+		"direct_imports",
+		"DIRECT MODULE IMPORT DETECTED",
+		"Import from package __init__.py, not internal modules.",
+		violations,
+	))
 
 	return 1
 }
@@ -1803,28 +1795,40 @@ func checkUtilCentralizationCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "BANNED DIRECT IMPORT DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Production code must use the repository's configured utility",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"wrapper modules instead of importing utility libraries directly.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "\n  %s:%d\n", violation.File, violation.Line)
-		fmt.Fprintf(os.Stderr, "    Bad:  %s\n", violation.Statement)
-		fmt.Fprintf(os.Stderr, "    Good: %s\n", violation.Suggestion)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatDirectImportReport(
+		"util_centralization",
+		"BANNED DIRECT IMPORT DETECTED",
+		"Production code must use configured wrapper modules instead of importing utility libraries directly.",
+		violations,
+	))
 
 	return 1
+}
+
+func formatDirectImportReport(
+	tool string,
+	title string,
+	summary string,
+	violations []directImportViolation,
+) string {
+	findings := make([]hookFinding, 0, len(violations))
+	for _, violation := range violations {
+		findings = append(findings, hookFinding{
+			Tool:    tool,
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Statement,
+			Detail:  "use " + violation.Suggestion,
+		})
+	}
+
+	return formatHookReport(hookReport{
+		Tool:     tool,
+		Title:    title,
+		Summary:  summary,
+		Findings: findings,
+		Guidance: []string{"Import through the public or configured wrapper API."},
+	}, selectedHookOutputFormat())
 }
 
 func checkSQLCentralizationCommand(_ Config, args []string) int {
@@ -1854,49 +1858,27 @@ func checkSQLCentralizationCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(os.Stderr, "SQL STRINGS FOUND OUTSIDE %s\n", settings.ModuleName)
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(
-		os.Stderr,
-		"All SQL, DDL, DML, and Cypher strings must live in %s.\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"Other modules import named constants from %s.\n\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: [%s] %s\n",
-			violation.File,
-			violation.Line,
-			violation.Pattern,
-			violation.Snippet,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "sql_centralization",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Pattern,
+			Message: violation.Snippet,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintf(
-		os.Stderr,
-		"  1. Move the SQL string to %s as a Final[str] constant\n",
-		sqlModuleHint(settings),
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"  2. Import it: from %s import MY_QUERY\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"  3. For dynamic queries, create a builder function in %s\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "sql_centralization",
+		Title:    fmt.Sprintf("SQL STRINGS FOUND OUTSIDE %s", settings.ModuleName),
+		Summary:  fmt.Sprintf("All SQL, DDL, DML, and Cypher strings must live in %s.", settings.ModuleName),
+		Findings: findings,
+		Guidance: []string{
+			fmt.Sprintf("Move the SQL string to %s as a Final[str] constant.", sqlModuleHint(settings)),
+			fmt.Sprintf("Import it from %s.", settings.ModuleName),
+			fmt.Sprintf("For dynamic queries, create a builder function in %s.", settings.ModuleName),
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3021,42 +3003,27 @@ func checkStructuredLoggingCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "STRUCTURED LOGGING CHECK FAILED (ETHOS §11)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §11 (Radical Visibility): every logger call must",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"include keyword arguments for structured context. Bare string",
-	)
-	fmt.Fprintln(os.Stderr, "messages are insufficient for production observability.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "Violations found (%d):\n", len(violations))
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: logger.%s(%q) — no structured context\n",
-			violation.File,
-			violation.Line,
-			violation.Method,
-			violation.Preview,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "structured_logging",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Method,
+			Message: "logger call has no structured context",
+			Detail:  violation.Preview,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Add keyword arguments for structured context:")
-	fmt.Fprintln(os.Stderr, `    logger.info("event.name", key=value, other=data)`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  For exceptions, use exc_info or logger.exception():")
-	fmt.Fprintln(
-		os.Stderr,
-		`    logger.error("operation.failed", error=str(exc), exc_info=True)`,
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "structured_logging",
+		Title:    "STRUCTURED LOGGING CHECK FAILED (ETHOS §11)",
+		Summary:  "Logger calls must include keyword arguments for structured context.",
+		Findings: findings,
+		Guidance: []string{
+			`Add keyword arguments: logger.info("event.name", key=value, other=data).`,
+			`For exceptions, use exc_info or logger.exception().`,
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3089,41 +3056,27 @@ func checkConditionalImportsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §3: if a module requires a library, that library must",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"be present. Do not wrap imports in try/except to hide missing",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"dependencies. The application must crash at the import stage.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: conditional import of %q (%s)\n",
-			violation.File,
-			violation.Line,
-			violation.Module,
-			violation.Pattern,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "conditional_imports",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Module,
+			Message: "conditional import",
+			Detail:  violation.Pattern,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Remove the try/except and import directly:")
-	fmt.Fprintln(os.Stderr, "    import some_library  # Crash if missing — good.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  Add the dependency to pyproject.toml if needed.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "conditional_imports",
+		Title:    "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)",
+		Summary:  "Required imports must fail at import time instead of hiding missing dependencies.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove the try/except and import directly.",
+			"Add the dependency to pyproject.toml if needed.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3156,45 +3109,26 @@ func checkTypeCheckingImportsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "STRING ANNOTATION PATTERN DETECTED (ETHOS §3, §12)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Both TYPE_CHECKING and `from __future__ import annotations` make",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"types exist only at check time, not at runtime. TYPE_CHECKING",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"creates a conditional import path. PEP 563 future annotations",
-	)
-	fmt.Fprintln(os.Stderr, "turn all annotations into lazy strings and break runtime")
-	fmt.Fprintln(os.Stderr, "introspection. On Python 3.13+ neither pattern is needed.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: %s\n",
-			violation.File,
-			violation.Line,
-			violation.Pattern,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "type_checking_imports",
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Pattern,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  1. Remove `from __future__ import annotations`.")
-	fmt.Fprintln(os.Stderr, "  2. Extract shared types into a shared protocols module.")
-	fmt.Fprintln(
-		os.Stderr,
-		"  3. Use Protocol-first design or Dependency Inversion to break cycles.",
-	)
-	fmt.Fprintln(os.Stderr, "  4. Keep types runtime-visible.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "type_checking_imports",
+		Title:    "STRING ANNOTATION PATTERN DETECTED (ETHOS §3, §12)",
+		Summary:  "TYPE_CHECKING and future annotations make types unavailable at runtime.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove `from __future__ import annotations`.",
+			"Extract shared types into a shared protocols module.",
+			"Keep types runtime-visible.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3227,38 +3161,27 @@ func checkCatchAndSilenceCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "CATCH-AND-SILENCE CHECK FAILED (ETHOS §23)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §23: exceptions must never be silently swallowed.",
-	)
-	fmt.Fprintln(os.Stderr, "Every except handler must handle, transform+re-raise, or")
-	fmt.Fprintln(os.Stderr, "log+re-raise the exception.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: except %s: %s\n",
-			violation.File,
-			violation.Line,
-			violation.ExceptionType,
-			violation.HandlerBody,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "catch_and_silence",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.ExceptionType,
+			Message: "exception handler silences failure",
+			Detail:  violation.HandlerBody,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Replace silencing patterns with proper handling:")
-	fmt.Fprintln(os.Stderr, "    except SomeError as exc:")
-	fmt.Fprintln(
-		os.Stderr,
-		`        logger.warning("operation_failed", error=str(exc))`,
-	)
-	fmt.Fprintln(os.Stderr, "        raise  # or raise DifferentError(...) from exc")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "catch_and_silence",
+		Title:    "CATCH-AND-SILENCE CHECK FAILED (ETHOS §23)",
+		Summary:  "Exceptions must never be silently swallowed.",
+		Findings: findings,
+		Guidance: []string{
+			"Handle the exception, transform and re-raise, or log and re-raise.",
+			`Use logger.warning("operation_failed", error=str(exc)) with a raise where recovery is not complete.`,
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3291,22 +3214,22 @@ func checkOptionalReturnsCommand(_ Config, args []string) int {
 		return 0
 	}
 
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"ERROR: %s:%d: %s\n",
-			violation.File,
-			violation.Line,
-			violation.Context,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "optional_returns",
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Context,
+		})
 	}
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", compactDividerWidth))
-	fmt.Fprintln(os.Stderr, "Optional type annotation check FAILED")
-	fmt.Fprintln(
-		os.Stderr,
-		"All types must be non-optional. Use exceptions, not | None.",
-	)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "optional_returns",
+		Title:    "OPTIONAL TYPE ANNOTATION CHECK FAILED",
+		Summary:  "All types must be non-optional. Use exceptions, not | None.",
+		Findings: findings,
+		Guidance: []string{"Replace optional return or dependency types with explicit exceptions or required values."},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3354,13 +3277,29 @@ func collectSecurityPatternViolations(
 }
 
 func reportSecurityPatternViolations(violations []securityViolation) {
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
-	fmt.Fprintln(os.Stderr, "SECURITY ANTI-PATTERNS DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", compactDividerWidth))
-	for _, category := range securityViolationOrder() {
-		printSecurityCategoryViolations(violations, category)
+	findings := make([]hookFinding, 0, len(violations))
+	for _, violation := range violations {
+		findings = append(findings, hookFinding{
+			Tool:     "security_patterns",
+			File:     violation.File,
+			Line:     violation.Line,
+			Code:     violation.Category,
+			Severity: "error",
+			Message:  violation.Message,
+			Detail:   violation.Snippet,
+		})
 	}
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "security_patterns",
+		Title:    "SECURITY ANTI-PATTERNS DETECTED",
+		Summary:  "Security checks found unsafe defaults, SQL injection risks, or bootstrap bypasses.",
+		Findings: findings,
+		Guidance: []string{
+			"Use parameterized queries instead of SQL f-strings.",
+			"Remove default values from secret-related getenv calls.",
+			"Use fixtures that call bootstrap instead of direct environment assignment.",
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func securityViolationOrder() []string {

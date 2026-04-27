@@ -299,34 +299,25 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "PYTHON VERSION CONSISTENCY CHECK FAILED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(os.Stderr, "Configured style.python_version: %s\n\n", expected)
-	fmt.Fprintln(os.Stderr, "Mismatches found:")
+	findings := make([]hookFinding, 0, len(issues))
 	for _, issue := range issues {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s [%s]: found %q, expected %q\n",
-			issue.Path,
-			issue.Field,
-			issue.Found,
-			issue.Expect,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "python_version_consistency",
+			File:    issue.Path,
+			Code:    issue.Field,
+			Message: fmt.Sprintf("found %q, expected %q", issue.Found, issue.Expect),
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(
-		os.Stderr,
-		"  1. Update .python-version and pyproject.toml to match style.python_version.",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"  2. Run `make sync-tool-configs` to refresh mypy.ini, "+
-			"pyrightconfig.json, and ruff.toml.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "python_version_consistency",
+		Title:    "PYTHON VERSION CONSISTENCY CHECK FAILED",
+		Summary:  "Configured style.python_version: " + expected,
+		Findings: findings,
+		Guidance: []string{
+			"Update .python-version and pyproject.toml to match style.python_version.",
+			"Run `make sync-tool-configs` to refresh mypy.ini, pyrightconfig.json, and ruff.toml.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }

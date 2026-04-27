@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	_ = os.Setenv(hookOutputFormatEnv, hookOutputFormatHuman)
+	os.Exit(m.Run())
+}
+
 func TestLimitsForFilePreservesPythonLimitsUnderScripts(t *testing.T) {
 	cfg := Config{}
 	cfg.LineLimits.PythonHard = 1000
@@ -199,7 +204,7 @@ func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
 			t.Fatalf("checkForbiddenStrings(non-config) = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(stderr, `contains forbidden string "PLC0415"`) {
+	if !strings.Contains(stderr, `[PLC0415] contains forbidden string`) {
 		t.Fatalf("unexpected stderr: %q", stderr)
 	}
 }
@@ -293,7 +298,7 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 		"- [ ] unfinished\n- [x] done\n",
 	)
 
-	errors, err := checkPlanCompletionErrors(
+	findings, status, err := checkPlanCompletionErrors(
 		"docs/plans/feature-a/metadata.yaml",
 		planCompletionSettings{
 			CompletedStatusValues: []string{"review", "complete"},
@@ -302,16 +307,19 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkPlanCompletionErrors() returned error: %v", err)
 	}
-	if len(errors) == 0 {
-		t.Fatal("checkPlanCompletionErrors() returned no errors")
+	if status != "review" {
+		t.Fatalf("status = %q, want review", status)
 	}
-	if !strings.Contains(strings.Join(errors, "\n"), "PLAN COMPLETION FRAUD DETECTED") {
-		t.Fatalf("unexpected error output: %#v", errors)
+	if len(findings) == 0 {
+		t.Fatal("checkPlanCompletionErrors() returned no findings")
+	}
+	if findings[0].Message != "unchecked plan item" {
+		t.Fatalf("unexpected findings: %#v", findings)
 	}
 
 	mustWriteTestFile(t, "docs/plans/feature-b/metadata.yaml", "status: in_progress\n")
 	mustWriteTestFile(t, "docs/plans/feature-b/tasks.md", "- [ ] unfinished\n")
-	errors, err = checkPlanCompletionErrors(
+	findings, _, err = checkPlanCompletionErrors(
 		"docs/plans/feature-b/metadata.yaml",
 		planCompletionSettings{
 			CompletedStatusValues: []string{"review", "complete"},
@@ -320,8 +328,8 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkPlanCompletionErrors() returned error: %v", err)
 	}
-	if len(errors) != 0 {
-		t.Fatalf("checkPlanCompletionErrors(in_progress) = %#v, want no errors", errors)
+	if len(findings) != 0 {
+		t.Fatalf("checkPlanCompletionErrors(in_progress) = %#v, want no findings", findings)
 	}
 }
 
@@ -443,7 +451,7 @@ python:
 	if !strings.Contains(output, "contains forbidden linter file ignores") {
 		t.Fatalf("unexpected output: %q", output)
 	}
-	if !strings.Contains(output, "ruff per-file-ignores: src/** -> F401") {
+	if !strings.Contains(output, "[ruff.per-file-ignores] src/** F401") {
 		t.Fatalf("missing rendered finding in output: %q", output)
 	}
 }
@@ -519,7 +527,7 @@ python:
 	if !strings.Contains(output, "COMMENT-BASED LINT SUPPRESSION DETECTED") {
 		t.Fatalf("unexpected output: %q", output)
 	}
-	if !strings.Contains(output, "[custom bypass] # custom: bypass") {
+	if !strings.Contains(output, "[custom bypass] comment-based lint suppression # custom: bypass") {
 		t.Fatalf("missing configured label in output: %q", output)
 	}
 }
@@ -963,6 +971,44 @@ func TestFormatGeminiReportJSON(t *testing.T) {
 	if summary.Format != hookOutputFormatJSON || summary.Scope != "staged" ||
 		summary.Status != "WARN" || len(summary.Outcomes) != 1 {
 		t.Fatalf("unexpected Gemini JSON summary: %#v", summary)
+	}
+}
+
+func TestParseShellcheckFindings(t *testing.T) {
+	findings := parseShellcheckFindings(`{"comments":[{"file":"script.sh","line":3,"column":7,"level":"warning","code":2086,"message":"Double quote to prevent globbing and word splitting."}]}`)
+	if len(findings) != 1 {
+		t.Fatalf("parseShellcheckFindings() = %#v, want one finding", findings)
+	}
+	want := hookFinding{
+		Tool:     "shellcheck",
+		File:     "script.sh",
+		Line:     3,
+		Column:   7,
+		Severity: "warning",
+		Code:     "SC2086",
+		Message:  "Double quote to prevent globbing and word splitting.",
+	}
+	if findings[0] != want {
+		t.Fatalf("finding = %#v, want %#v", findings[0], want)
+	}
+}
+
+func TestParseYamllintFindings(t *testing.T) {
+	findings := parseYamllintFindings("config.yaml:2:5: [error] wrong indentation (indentation)")
+	if len(findings) != 1 {
+		t.Fatalf("parseYamllintFindings() = %#v, want one finding", findings)
+	}
+	want := hookFinding{
+		Tool:     "yamllint",
+		File:     "config.yaml",
+		Line:     2,
+		Column:   5,
+		Severity: "error",
+		Code:     "indentation",
+		Message:  "wrong indentation",
+	}
+	if findings[0] != want {
+		t.Fatalf("finding = %#v, want %#v", findings[0], want)
 	}
 }
 

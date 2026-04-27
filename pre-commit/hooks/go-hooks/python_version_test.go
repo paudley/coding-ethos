@@ -131,13 +131,13 @@ python_version = 3.12
 	if !strings.Contains(output, "PYTHON VERSION CONSISTENCY CHECK FAILED") {
 		t.Fatalf("unexpected output: %q", output)
 	}
-	if !strings.Contains(output, ".python-version [version]") {
+	if !strings.Contains(output, ".python-version: [version]") {
 		t.Fatalf("missing .python-version mismatch: %q", output)
 	}
-	if !strings.Contains(output, "pyproject.toml [project.requires-python]") {
+	if !strings.Contains(output, "pyproject.toml: [project.requires-python]") {
 		t.Fatalf("missing pyproject mismatch: %q", output)
 	}
-	if !strings.Contains(output, "mypy.ini [mypy.python_version]") {
+	if !strings.Contains(output, "mypy.ini: [mypy.python_version]") {
 		t.Fatalf("missing mypy mismatch: %q", output)
 	}
 }
@@ -219,7 +219,7 @@ requires-python = ">=3.13"
 			t.Fatalf("checkPythonVersionConsistencyCommand() = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(stderrOutput, ".python-version [version]") {
+	if !strings.Contains(stderrOutput, ".python-version: [version]") {
 		t.Fatalf(
 			"expected consumer-root .python-version mismatch, got %q",
 			stderrOutput,

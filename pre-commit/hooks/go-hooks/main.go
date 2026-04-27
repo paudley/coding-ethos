@@ -270,6 +270,7 @@ func main() {
 		"gemini-check":                     runGeminiCheck,
 		"quiet-filter":                     quietFilter,
 		"shellcheck":                       runShellcheck,
+		"yamllint":                         runYamllint,
 		"check-util-centralization":        checkUtilCentralizationCommand,
 		"validate-manifest":                validateManifestCommand,
 	}
@@ -3828,33 +3829,42 @@ func fixText(_ Config, paths []string) int {
 }
 
 func checkSyntax(_ Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	for _, path := range existingFiles(paths) {
-		if checkSyntaxPath(path) {
-			continue
+		if err := checkSyntaxPath(path); err != nil {
+			findings = append(findings, hookFinding{
+				Tool:    "syntax",
+				File:    path,
+				Message: err.Error(),
+			})
 		}
-		failed = true
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "syntax",
+		Title:    "SYNTAX CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Fix invalid YAML, TOML, or JSON syntax before committing."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
-func checkSyntaxPath(path string) bool {
+func checkSyntaxPath(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
-
-		return false
+		return err
 	}
 
 	err = decodeSyntaxFile(path, data)
 	if err == nil {
-		return true
+		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
-
-	return false
+	return err
 }
 
 func decodeSyntaxFile(path string, data []byte) error {
@@ -4102,10 +4112,20 @@ func validateManifestCommand(_ Config, _ []string) int {
 
 	errors := validateManifestData(data, settings)
 	if len(errors) > 0 {
-		fmt.Fprintf(os.Stderr, "ERROR: %s validation failed:\n", manifestPath)
+		findings := make([]hookFinding, 0, len(errors))
 		for _, item := range errors {
-			fmt.Fprintf(os.Stderr, "  - %s\n", item)
+			findings = append(findings, hookFinding{
+				Tool:    "manifest_validation",
+				File:    manifestPath,
+				Message: item,
+			})
 		}
+		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+			Tool:     "manifest_validation",
+			Title:    "MANIFEST VALIDATION FAILED",
+			Findings: findings,
+			Guidance: []string{"Update the manifest to satisfy required fields and sections."},
+		}, selectedHookOutputFormat()))
 
 		return 1
 	}
@@ -4212,10 +4232,10 @@ func findUncheckedPlanItems(planDir string) ([]uncheckedPlanItem, error) {
 func checkPlanCompletionErrors(
 	metadataPath string,
 	settings planCompletionSettings,
-) ([]string, error) {
+) ([]hookFinding, string, error) {
 	status, err := planStatus(metadataPath)
 	if err != nil {
-		return nil, fmt.Errorf("read %s status: %w", metadataPath, err)
+		return nil, "", fmt.Errorf("read %s status: %w", metadataPath, err)
 	}
 
 	completed := make(map[string]struct{}, len(settings.CompletedStatusValues))
@@ -4226,58 +4246,33 @@ func checkPlanCompletionErrors(
 		}
 	}
 	if _, ok := completed[status]; !ok {
-		return []string{}, nil
+		return nil, status, nil
 	}
 
 	planDir := filepath.Dir(metadataPath)
 	unchecked, err := findUncheckedPlanItems(planDir)
 	if err != nil {
-		return nil, fmt.Errorf("scan %s plan items: %w", planDir, err)
+		return nil, status, fmt.Errorf("scan %s plan items: %w", planDir, err)
 	}
 	if len(unchecked) == 0 {
-		return []string{}, nil
+		return nil, status, nil
 	}
-
-	errors := []string{
-		"",
-		strings.Repeat("=", compactDividerWidth),
-		"PLAN COMPLETION FRAUD DETECTED",
-		strings.Repeat("=", compactDividerWidth),
-		"",
-		"Plan: " + filepath.Base(planDir),
-		"Claimed status: " + status,
-		"",
-		"But these items are still unchecked:",
-	}
+	findings := make([]hookFinding, 0, len(unchecked))
 	for _, item := range unchecked {
 		relative, relErr := filepath.Rel(planDir, item.File)
 		if relErr != nil {
 			relative = item.File
 		}
-		errors = append(
-			errors,
-			fmt.Sprintf("  %s:%d: %s", relative, item.Line, item.Text),
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "plan_completion",
+			File:    filepath.Join(filepath.Base(planDir), relative),
+			Line:    item.Line,
+			Message: "unchecked plan item",
+			Detail:  item.Text,
+		})
 	}
-	errors = append(
-		errors,
-		"",
-		strings.Repeat("=", compactDividerWidth),
-		fmt.Sprintf("BLOCKED: Cannot mark plan as %q with incomplete items.", status),
-		"",
-		"Options:",
-		"  1. Complete the work (check off items when done)",
-		"  2. Get explicit user approval to remove items from scope",
-		"  3. Change status back to 'in_progress'",
-		"",
-		"DO NOT:",
-		"  - Use 'git commit --no-verify' to bypass this check",
-		"  - Rationalize why incomplete items don't matter",
-		"  - Claim YAGNI/KISS for spec'd requirements",
-		strings.Repeat("=", compactDividerWidth),
-	)
 
-	return errors, nil
+	return findings, status, nil
 }
 
 func checkPlanCompletionCommand(_ Config, args []string) int {
@@ -4297,18 +4292,32 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 	}
 	metadataFiles := findPlanMetadataFiles(paths, settings)
 
-	allErrors := make([]string, 0)
+	allFindings := make([]hookFinding, 0)
+	status := ""
 	for _, metadataPath := range metadataFiles {
-		errors, err := checkPlanCompletionErrors(metadataPath, settings)
+		findings, foundStatus, err := checkPlanCompletionErrors(metadataPath, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "FATAL: %s: %v\n", metadataPath, err)
 
 			return 1
 		}
-		allErrors = append(allErrors, errors...)
+		if foundStatus != "" {
+			status = foundStatus
+		}
+		allFindings = append(allFindings, findings...)
 	}
-	if len(allErrors) > 0 {
-		fmt.Fprintln(os.Stderr, strings.Join(allErrors, "\n"))
+	if len(allFindings) > 0 {
+		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+			Tool:     "plan_completion",
+			Title:    "PLAN COMPLETION FRAUD DETECTED",
+			Summary:  fmt.Sprintf("Cannot mark plan as %q with incomplete items.", status),
+			Findings: allFindings,
+			Guidance: []string{
+				"Complete the work and check off items when done.",
+				"Get explicit user approval to remove items from scope.",
+				"Change status back to in_progress.",
+			},
+		}, selectedHookOutputFormat()))
 
 		return 1
 	}
@@ -4725,6 +4734,7 @@ func checkPyprojectIgnoresCommand(_ Config, args []string) int {
 	}
 
 	hasErrors := false
+	reportFindings := []hookFinding{}
 	for _, rawPath := range args {
 		path := strings.TrimSpace(rawPath)
 		if filepath.Base(path) != "pyproject.toml" {
@@ -4747,25 +4757,25 @@ func checkPyprojectIgnoresCommand(_ Config, args []string) int {
 			continue
 		}
 		hasErrors = true
-		fmt.Fprintf(
-			os.Stderr,
-			"ERROR: %s contains forbidden linter file ignores:\n",
-			path,
-		)
 		for _, finding := range findings {
-			fmt.Fprintf(os.Stderr, "  %s\n", finding.render())
+			reportFindings = append(reportFindings, hookFinding{
+				Tool:    "pyproject_ignores",
+				File:    path,
+				Code:    finding.Tool + "." + finding.Setting,
+				Message: finding.Target,
+				Detail:  finding.Detail,
+			})
 		}
 	}
 
 	if hasErrors {
-		fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", compactDividerWidth))
-		fmt.Fprintln(os.Stderr, "Pyproject linter ignore check FAILED")
-		fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
-		fmt.Fprintln(
-			os.Stderr,
-			"Move file-specific ignores into the files themselves with "+
-				"documentation (e.g., # noqa / # type: ignore[code]).",
-		)
+		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+			Tool:     "pyproject_ignores",
+			Title:    "PYPROJECT LINTER IGNORE CHECK FAILED",
+			Summary:  "pyproject.toml contains forbidden linter file ignores.",
+			Findings: reportFindings,
+			Guidance: []string{"Move file-specific ignores into the files themselves with documentation."},
+		}, selectedHookOutputFormat()))
 
 		return 1
 	}
@@ -5019,43 +5029,27 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "COMMENT-BASED LINT SUPPRESSION DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Comment-based suppressions (noqa, type: ignore, pragma, etc.)",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"are banned. Fix the underlying issue instead of suppressing it.",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §14: linters are not suggestions, they are enforcement.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(allViolations))
 	for _, violation := range allViolations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: [%s] %s\n",
-			violation.File,
-			violation.Line,
-			violation.Label,
-			violation.Comment,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "comment_suppressions",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Label,
+			Message: "comment-based lint suppression",
+			Detail:  violation.Comment,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Remove the suppression comment and fix the code.")
-	fmt.Fprintln(os.Stderr, "  If a linter flags an issue, apply SOLID principles:")
-	fmt.Fprintln(os.Stderr, "    - Long function?  Split into focused units (SRP)")
-	fmt.Fprintln(os.Stderr, "    - Too many params? Use config objects (ISP)")
-	fmt.Fprintln(os.Stderr, "    - Complex logic?   Use polymorphism (OCP)")
-	fmt.Fprintln(os.Stderr, "    - Tight coupling?  Inject dependencies (DIP)")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "comment_suppressions",
+		Title:    "COMMENT-BASED LINT SUPPRESSION DETECTED",
+		Summary:  "Comment-based suppressions are banned. Fix the underlying issue instead.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove the suppression comment and fix the code.",
+			"Apply SOLID principles when a linter flags structural issues.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -5762,52 +5756,50 @@ func moduleDocsCommandFiles(
 }
 
 func reportModuleDocsViolations(violations moduleDocsViolations) int {
-	exitCode := 0
-	printedSection := false
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.MissingDocstring) > 0,
-		func() { printModuleDocsMissingDocstring(violations.MissingDocstring) },
-		printedSection,
-		exitCode,
-	)
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.MissingMarkdown) > 0,
-		func() { printModuleDocsMissingMarkdown(violations.MissingMarkdown) },
-		printedSection,
-		exitCode,
-	)
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.MissingRefs) > 0,
-		func() { printModuleDocsMissingRefs(violations.MissingRefs) },
-		printedSection,
-		exitCode,
-	)
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.MissingIndex) > 0,
-		func() { printModuleDocsMissingIndex(violations.MissingIndex) },
-		printedSection,
-		exitCode,
-	)
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.PathPrefixed) > 0,
-		func() { printModuleDocsPathPrefixed(violations.PathPrefixed) },
-		printedSection,
-		exitCode,
-	)
-	printedSection, exitCode = printModuleDocsViolationSection(
-		len(violations.NonexistentRefs) > 0,
-		func() { printModuleDocsNonexistentRefs(violations.NonexistentRefs) },
-		printedSection,
-		exitCode,
-	)
-	_, exitCode = printModuleDocsViolationSection(
-		len(violations.BannedFilenames) > 0,
-		func() { printModuleDocsBannedFilenames(violations.BannedFilenames) },
-		printedSection,
-		exitCode,
-	)
+	findings := moduleDocsHookFindings(violations)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "module_docs",
+		Title:    "MODULE DOCUMENTATION CHECK FAILED",
+		Summary:  "Documentation files must follow MODULE.md naming and reference contracts.",
+		Findings: findings,
+		Guidance: []string{
+			"Add missing module docstrings and MODULE.md files.",
+			"Link docs from __init__.py/conftest.py and SOURCE_DOCS.md.",
+			"Rename README.md docs to the containing directory's MODULE.md naming convention.",
+		},
+	}, selectedHookOutputFormat()))
 
-	return exitCode
+	return 1
+}
+
+func moduleDocsHookFindings(violations moduleDocsViolations) []hookFinding {
+	findings := []hookFinding{}
+	for _, path := range violations.MissingDocstring {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_docstring", Message: "missing module docstring"})
+	}
+	for _, path := range violations.MissingMarkdown {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_markdown", Message: "missing MODULE.md documentation"})
+	}
+	for _, item := range violations.MissingRefs {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "missing_refs", Message: "missing documentation refs", Detail: strings.Join(item.Markdown, ", ")})
+	}
+	for _, path := range violations.MissingIndex {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_index", Message: "missing SOURCE_DOCS.md index reference"})
+	}
+	for _, item := range violations.PathPrefixed {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "path_prefixed_refs", Message: "documentation refs must be bare filenames", Detail: strings.Join(item.Refs, ", ")})
+	}
+	for _, item := range violations.NonexistentRefs {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "nonexistent_refs", Message: "documentation refs point to missing files", Detail: strings.Join(item.Refs, ", ")})
+	}
+	for _, path := range violations.BannedFilenames {
+		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "banned_filename", Message: "documentation file uses banned name"})
+	}
+
+	return findings
 }
 
 func printModuleDocsViolationSection(
@@ -5826,7 +5818,7 @@ func printModuleDocsViolationSection(
 }
 
 func checkMergeConflict(_ Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	markers := []string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"}
 	for _, path := range existingFiles(paths) {
 		if isBinary(path) {
@@ -5839,12 +5831,12 @@ func checkMergeConflict(_ Config, paths []string) int {
 		for _, line := range strings.Split(text, "\n") {
 			for _, marker := range markers {
 				if strings.HasPrefix(line, marker) {
-					fmt.Fprintf(
-						os.Stderr,
-						"%s: unresolved merge conflict marker\n",
-						path,
-					)
-					failed = true
+					findings = append(findings, hookFinding{
+						Tool:    "merge_conflict",
+						File:    path,
+						Code:    marker,
+						Message: "unresolved merge conflict marker",
+					})
 
 					goto nextFile
 				}
@@ -5853,11 +5845,21 @@ func checkMergeConflict(_ Config, paths []string) int {
 	nextFile:
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "merge_conflict",
+		Title:    "MERGE CONFLICT MARKERS DETECTED",
+		Findings: findings,
+		Guidance: []string{"Resolve the conflict and remove all conflict markers."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func checkShebangs(_ Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	for _, path := range existingFiles(paths) {
 		text, binary, err := readText(path)
 		if err != nil || binary {
@@ -5870,40 +5872,72 @@ func checkShebangs(_ Config, paths []string) int {
 		executable := info.Mode()&executePermissionMask != 0
 		hasShebang := strings.HasPrefix(text, "#!")
 		if executable && !hasShebang {
-			fmt.Fprintf(os.Stderr, "%s: executable file has no shebang\n", path)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "shebangs",
+				File:    path,
+				Message: "executable file has no shebang",
+			})
 		}
 		if hasShebang && !executable {
-			fmt.Fprintf(os.Stderr, "%s: shebang script is not executable\n", path)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "shebangs",
+				File:    path,
+				Message: "shebang script is not executable",
+			})
 		}
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "shebangs",
+		Title:    "SHEBANG CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Add a valid shebang to executable scripts and mark shebang scripts executable."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func detectPrivateKey(_ Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	privateKey := regexp.MustCompile(privateKeyPattern)
 	for _, path := range existingFiles(paths) {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "private_key",
+				File:    path,
+				Message: err.Error(),
+			})
 
 			continue
 		}
 		if privateKey.Match(data) {
-			fmt.Fprintf(os.Stderr, "%s: possible private key detected\n", path)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "private_key",
+				File:    path,
+				Message: "possible private key detected",
+			})
 		}
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "private_key",
+		Title:    "PRIVATE KEY CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Remove secrets from source and rotate any exposed credentials."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func checkLargeFiles(cfg Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	suffixes := stringSet(cfg.Text.LargeFileSuffixes)
 	maxBytes := int64(cfg.Text.MaxLargeFileKB * kibibyte)
 	for _, path := range existingFiles(paths) {
@@ -5916,24 +5950,34 @@ func checkLargeFiles(cfg Config, paths []string) int {
 		}
 		info, err := os.Stat(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "large_files",
+				File:    path,
+				Message: err.Error(),
+			})
 
 			continue
 		}
 		if info.Size() > maxBytes {
-			fmt.Fprintf(
-				os.Stderr,
-				"%s: %d KiB exceeds %d KiB limit\n",
-				path,
-				info.Size()/kibibyte,
-				cfg.Text.MaxLargeFileKB,
-			)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "large_files",
+				File:    path,
+				Message: fmt.Sprintf("%d KiB exceeds %d KiB limit", info.Size()/kibibyte, cfg.Text.MaxLargeFileKB),
+			})
 		}
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "large_files",
+		Title:    "LARGE FILE CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Remove oversized generated or binary content from the commit."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func forbiddenStringExemptPath() string {
@@ -5958,7 +6002,7 @@ func isForbiddenStringExempt(path string, exemptPath string) bool {
 }
 
 func checkForbiddenStrings(cfg Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	exemptPath := forbiddenStringExemptPath()
 	for _, path := range existingFiles(paths) {
 		if isForbiddenStringExempt(path, exemptPath) {
@@ -5969,25 +6013,38 @@ func checkForbiddenStrings(cfg Config, paths []string) int {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %s: could not read file: %v\n", path, err)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "forbidden_strings",
+				File:    path,
+				Message: "could not read file",
+				Detail:  err.Error(),
+			})
 
 			continue
 		}
 		for _, forbidden := range cfg.Text.ForbiddenStrings {
 			if bytes.Contains(data, []byte(forbidden)) {
-				fmt.Fprintf(
-					os.Stderr,
-					"ERROR: %s: contains forbidden string %q\n",
-					path,
-					forbidden,
-				)
-				failed = true
+				findings = append(findings, hookFinding{
+					Tool:    "forbidden_strings",
+					File:    path,
+					Code:    forbidden,
+					Message: "contains forbidden string",
+				})
 			}
 		}
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "forbidden_strings",
+		Title:    "FORBIDDEN STRING CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Remove forbidden strings or fix the underlying lint/test issue."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func runShellcheck(_ Config, paths []string) int {
@@ -6004,20 +6061,169 @@ func runShellcheck(_ Config, paths []string) int {
 
 		return 1
 	}
-	args := append([]string{"--severity=warning", "-x"}, files...)
+	args := append([]string{"--severity=warning", "-x", "--format=json"}, files...)
 	cmd := exec.CommandContext(context.Background(), shellcheck, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-	if err != nil {
+	output, runErr := cmd.CombinedOutput()
+	outputText := strings.TrimSpace(string(output))
+	findings := parseShellcheckFindings(outputText)
+	if len(findings) > 0 {
+		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+			Tool:     "shellcheck",
+			Title:    "SHELLCHECK FAILED",
+			Findings: findings,
+			Guidance: []string{"Fix shellcheck diagnostics before committing."},
+		}, selectedHookOutputFormat()))
+
+		return 1
+	}
+	if outputText != "" {
+		fmt.Fprintln(os.Stdout, outputText)
+	}
+	if runErr != nil {
 		return 1
 	}
 
 	return 0
 }
 
+func parseShellcheckFindings(output string) []hookFinding {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	var payload struct {
+		Comments []struct {
+			File    string `json:"file"`
+			Line    int    `json:"line"`
+			Column  int    `json:"column"`
+			Level   string `json:"level"`
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"comments"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		return nil
+	}
+	findings := make([]hookFinding, 0, len(payload.Comments))
+	for _, comment := range payload.Comments {
+		findings = append(findings, hookFinding{
+			Tool:     "shellcheck",
+			File:     comment.File,
+			Line:     comment.Line,
+			Column:   comment.Column,
+			Severity: comment.Level,
+			Code:     fmt.Sprintf("SC%d", comment.Code),
+			Message:  comment.Message,
+		})
+	}
+
+	return findings
+}
+
+func runYamllint(_ Config, paths []string) int {
+	files := yamlFiles(existingFiles(paths))
+	if len(files) == 0 {
+		return 0
+	}
+	bundleRoot, err := findBundleRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+
+		return 1
+	}
+	configPath := ".yamllint.yml"
+	args := append(
+		[]string{
+			"run",
+			"--quiet",
+			"--project",
+			filepath.Join(bundleRoot, "hooks"),
+			"--with",
+			"yamllint",
+			"yamllint",
+			"-c",
+			configPath,
+			"--strict",
+			"-f",
+			"parsable",
+		},
+		files...,
+	)
+	cmd := exec.CommandContext(context.Background(), "uv", args...)
+	cmd.Dir = repoRoot()
+	output, runErr := cmd.CombinedOutput()
+	outputText := strings.TrimSpace(string(output))
+	findings := parseYamllintFindings(outputText)
+	if len(findings) > 0 {
+		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+			Tool:     "yamllint",
+			Title:    "YAMLLINT FAILED",
+			Findings: findings,
+			Guidance: []string{"Fix yamllint diagnostics before committing."},
+		}, selectedHookOutputFormat()))
+
+		return 1
+	}
+	if outputText != "" {
+		fmt.Fprintln(os.Stdout, outputText)
+	}
+	if runErr != nil {
+		return 1
+	}
+
+	return 0
+}
+
+func yamlFiles(paths []string) []string {
+	files := make([]string, 0)
+	for _, path := range paths {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".yaml" || ext == ".yml" {
+			files = append(files, path)
+		}
+	}
+
+	return files
+}
+
+func parseYamllintFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		parts := strings.SplitN(line, ":", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+		column, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+		message := strings.TrimSpace(parts[3])
+		severity := ""
+		if strings.Contains(message, "[error]") {
+			severity = "error"
+		} else if strings.Contains(message, "[warning]") {
+			severity = "warning"
+		}
+		code := ""
+		if start := strings.LastIndex(message, "("); start >= 0 &&
+			strings.HasSuffix(message, ")") {
+			code = strings.TrimSuffix(message[start+1:], ")")
+			message = strings.TrimSpace(message[:start])
+		}
+		message = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(message, "[error]"), "[warning]"))
+		findings = append(findings, hookFinding{
+			Tool:     "yamllint",
+			File:     strings.TrimSpace(parts[0]),
+			Line:     lineNo,
+			Column:   column,
+			Severity: severity,
+			Code:     code,
+			Message:  message,
+		})
+	}
+
+	return findings
+}
+
 func checkShellBestPractices(cfg Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	setPattern := regexp.MustCompile(
 		`(?m)^\s*set\s+-[euo]+\s*pipefail|^\s*set\s+-euo\s+pipefail`,
 	)
@@ -6025,8 +6231,12 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 	for _, path := range shellFiles(existingFiles(paths)) {
 		text, binary, err := readText(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: could not read file: %v\n", path, err)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "shell_best_practices",
+				File:    path,
+				Message: "could not read file",
+				Detail:  err.Error(),
+			})
 
 			continue
 		}
@@ -6048,27 +6258,43 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 			)
 		}
 		if len(errs) > 0 {
-			failed = true
-			fmt.Fprintf(os.Stderr, "\n%s:\n", path)
 			for _, err := range errs {
-				fmt.Fprintf(os.Stderr, "  - %s\n", err)
+				findings = append(findings, hookFinding{
+					Tool:    "shell_best_practices",
+					File:    path,
+					Message: err,
+				})
 			}
 		}
 	}
 
-	return exitCode(failed)
+	if len(findings) == 0 {
+		return 0
+	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "shell_best_practices",
+		Title:    "SHELL BEST PRACTICES CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{"Use a valid shell shebang, `set -euo pipefail`, and required common shell helpers."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func checkLineLimits(cfg Config, paths []string) int {
-	failed := false
+	findings := []hookFinding{}
 	for _, path := range existingFiles(paths) {
 		if !isLineLimited(path) {
 			continue
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			writef(os.Stderr, "ERROR: %s: Could not read file: %v\n", path, err)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "line_limits",
+				File:    path,
+				Message: "could not read file",
+				Detail:  err.Error(),
+			})
 
 			continue
 		}
@@ -6079,40 +6305,34 @@ func checkLineLimits(cfg Config, paths []string) int {
 		}
 		originalCount := originalLineCount(path)
 		if originalCount < 0 {
-			writef(
-				os.Stderr,
-				"ERROR: %s: New file has %d lines (limit: %d)\n",
-				path,
-				lineCount,
-				hardLimit,
-			)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "line_limits",
+				File:    path,
+				Message: fmt.Sprintf("new file has %d lines over %d limit", lineCount, hardLimit),
+			})
 		} else if lineCount > originalCount {
-			writef(
-				os.Stderr,
-				"ERROR: %s: File grew from %d to %d lines (over %d limit). "+
-					"Must refactor to reduce size.\n",
-				path,
-				originalCount,
-				lineCount,
-				hardLimit,
-			)
-			failed = true
+			findings = append(findings, hookFinding{
+				Tool:    "line_limits",
+				File:    path,
+				Message: fmt.Sprintf("file grew from %d to %d lines over %d limit", originalCount, lineCount, hardLimit),
+			})
 		}
 	}
-	if failed {
-		writeBlankLine(os.Stdout)
-		writeLine(os.Stdout, strings.Repeat("=", compactDividerWidth))
-		writeLine(os.Stdout, "File size check FAILED")
-		writeLine(os.Stdout, strings.Repeat("=", compactDividerWidth))
-		writeBlankLine(os.Stdout)
-		writeLine(os.Stdout, "Refactoring suggestions:")
-		writeLine(os.Stdout, "  - Extract helper functions to separate modules")
-		writeLine(os.Stdout, "  - Split large files into focused submodules")
-		writeLine(os.Stdout, "  - Move reusable code to lib/")
+	if len(findings) == 0 {
+		return 0
 	}
+	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+		Tool:     "line_limits",
+		Title:    "FILE SIZE CHECK FAILED",
+		Findings: findings,
+		Guidance: []string{
+			"Extract helper functions to separate modules.",
+			"Split large files into focused submodules.",
+			"Move reusable code to lib/.",
+		},
+	}, selectedHookOutputFormat()))
 
-	return exitCode(failed)
+	return 1
 }
 
 func checkCommitLint(cfg Config, args []string) int {
@@ -6131,13 +6351,20 @@ func checkCommitLint(cfg Config, args []string) int {
 	if len(errs) == 0 {
 		return 0
 	}
-	fmt.Fprintln(
-		os.Stderr,
-		"Commit message does not satisfy conventional commit rules:",
-	)
+	findings := make([]hookFinding, 0, len(errs))
 	for _, err := range errs {
-		fmt.Fprintf(os.Stderr, "  - %s\n", err)
+		findings = append(findings, hookFinding{
+			Tool:    "commitlint",
+			Message: err,
+		})
 	}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "commitlint",
+		Title:    "COMMIT MESSAGE CHECK FAILED",
+		Summary:  "Commit message does not satisfy conventional commit rules.",
+		Findings: findings,
+		Guidance: []string{"Use a conventional commit header with an allowed type and concise subject."},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -6178,23 +6405,20 @@ func checkCommitAttribution(cfg Config, args []string) int {
 	if len(violations) == 0 {
 		return 0
 	}
-	writeLine(os.Stdout, strings.Repeat("=", compactDividerWidth))
-	writeLine(os.Stdout, "COMMIT MESSAGE CONTAINS FORBIDDEN AI ATTRIBUTION")
-	writeLine(os.Stdout, strings.Repeat("=", compactDividerWidth))
-	writeBlankLine(os.Stdout)
-	writeLine(os.Stdout, "Per ETHOS §16 (No Self-Promotion), commit messages must not")
-	writeLine(
-		os.Stdout,
-		"contain AI co-author lines, attribution, or promotional content.",
-	)
-	writeBlankLine(os.Stdout)
-	writeLine(os.Stdout, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		writeLine(os.Stdout, violation)
+		findings = append(findings, hookFinding{
+			Tool:    "commit_attribution",
+			Message: violation,
+		})
 	}
-	writeBlankLine(os.Stdout)
-	writeLine(os.Stdout, "Remove the AI attribution and commit again.")
-	writeLine(os.Stdout, strings.Repeat("=", compactDividerWidth))
+	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+		Tool:     "commit_attribution",
+		Title:    "COMMIT MESSAGE CONTAINS FORBIDDEN AI ATTRIBUTION",
+		Summary:  "Commit messages must not contain AI co-author lines, attribution, or promotional content.",
+		Findings: findings,
+		Guidance: []string{"Remove the AI attribution and commit again."},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
