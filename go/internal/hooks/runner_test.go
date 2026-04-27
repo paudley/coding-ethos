@@ -181,6 +181,9 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 				Severity:   "block",
 				Message:    "gh --admin bypasses normal review gates.",
 				Suggestion: "Use the normal review path.",
+				PrincipleIDs: []string{
+					"evidence-based-engineering-and-decision-quality",
+				},
 			},
 		},
 	})
@@ -190,10 +193,36 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 		"event: PreToolUse",
 		"policy_id: shell.github_admin",
 		"suggestion: Use the normal review path.",
+		"ethos_reminder:",
+		"axiom: Todo lists prevent partial work from masquerading as completion.",
 	} {
 		if !strings.Contains(advice, expected) {
 			t.Fatalf("missing %q in advice: %s", expected, advice)
 		}
+	}
+}
+
+func TestBlockedAdviceUsesEthosReminderInHumanOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "human")
+
+	advice := BlockedAdvice(Result{
+		Event:  "PreToolUse",
+		Tool:   "Bash",
+		Status: statusBlocked,
+		Decisions: []policy.Decision{
+			{
+				PolicyID:     "git.destructive_command",
+				Decision:     "block",
+				Severity:     "block",
+				Message:      "Destructive git command blocked.",
+				PrincipleIDs: []string{"no-rationalized-shortcuts"},
+			},
+		},
+	})
+
+	if !strings.Contains(advice, "ETHOS reminder:") ||
+		!strings.Contains(advice, "Laziness only moves the cost downstream.") {
+		t.Fatalf("missing human reminder: %s", advice)
 	}
 }
 

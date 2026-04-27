@@ -78,6 +78,10 @@ inventory used to keep the migration status explicit.
 
 ## Remaining Integration Gaps
 
+- Agent-facing advice can now include deterministic ETHOS reminders keyed to
+  violated principles. Future work should move the reminder corpus into
+  compiled policy data, add quiet-frequency controls, and include reminders
+  such as "keep the todo list current" when work spans multiple planned steps.
 - Agent-hook behavior is runtime covered but not installed. Add a repo-owned
   Claude hook sync/doctor path before replacing parent or `~/.claude/hooks`
   entries.

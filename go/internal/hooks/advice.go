@@ -24,7 +24,7 @@ func BlockedAdvice(result Result) string {
 	case outputFormatTOON:
 		return blockedAdviceTOON(result, decisions)
 	default:
-		return blockedAdviceHuman(decisions)
+		return blockedAdviceHuman(result, decisions)
 	}
 }
 
@@ -39,7 +39,7 @@ func blockingDecisions(decisions []policy.Decision) []policy.Decision {
 	return blocking
 }
 
-func blockedAdviceHuman(decisions []policy.Decision) string {
+func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 	lines := make(
 		[]string,
 		0,
@@ -50,6 +50,13 @@ func blockedAdviceHuman(decisions []policy.Decision) string {
 		if decision.Suggestion != "" {
 			lines = append(lines, "Suggestion: "+decision.Suggestion)
 		}
+	}
+
+	if reminder, ok := ethosReminderFor(result, decisions); ok {
+		lines = append(
+			lines,
+			"ETHOS reminder: "+reminder.Axiom+" "+reminder.Action,
+		)
 	}
 
 	return strings.Join(lines, "\n")
@@ -77,6 +84,16 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 		}
 	}
 
+	if reminder, ok := ethosReminderFor(result, decisions); ok {
+		lines = append(
+			lines,
+			"ethos_reminder:",
+			"  principle_id: "+toonCell(reminder.PrincipleID),
+			"  axiom: "+toonCell(reminder.Axiom),
+			"  action: "+toonCell(reminder.Action),
+		)
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -87,6 +104,9 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 		"tool":      result.Tool,
 		"status":    result.Status,
 		"decisions": decisions,
+	}
+	if reminder, ok := ethosReminderFor(result, decisions); ok {
+		payload["ethos_reminder"] = reminder
 	}
 
 	encoded, err := json.MarshalIndent(payload, "", "  ")
