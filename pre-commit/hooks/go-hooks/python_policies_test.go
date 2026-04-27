@@ -79,6 +79,77 @@ python:
 	}
 }
 
+func TestCheckPytestGateCommandIsSilentOnSuccessByDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - /bin/sh
+      - -lc
+      - printf '2 passed in 0.10s\n'
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+	t.Setenv(hookSuccessOutputEnv, "")
+
+	filePath := filepath.Join(tempDir, "test_sample.py")
+	mustWriteTestFile(t, filePath, "def test_ok():\n    assert True\n")
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(Config{}, []string{filePath}); got != 0 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 0", got)
+		}
+	})
+	if output != "" {
+		t.Fatalf("expected silent success output, got: %q", output)
+	}
+}
+
+func TestCheckPytestGateCommandCanEmitVerboseSuccess(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - /bin/sh
+      - -lc
+      - printf '2 passed in 0.10s\n'
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+	t.Setenv(hookSuccessOutputEnv, hookSuccessVerbose)
+
+	filePath := filepath.Join(tempDir, "test_sample.py")
+	mustWriteTestFile(t, filePath, "def test_ok():\n    assert True\n")
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(Config{}, []string{filePath}); got != 0 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 0", got)
+		}
+	})
+	if !strings.Contains(output, "Running pytest gate...") ||
+		!strings.Contains(output, "Pytest gate passed: 2 tests, 0 skipped.") {
+		t.Fatalf("unexpected verbose output: %q", output)
+	}
+}
+
 func TestFindDirectImportViolations(t *testing.T) {
 	t.Parallel()
 

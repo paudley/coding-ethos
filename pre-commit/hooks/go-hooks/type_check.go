@@ -1127,7 +1127,9 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 
 	checkers := configuredTypeCheckers(settings)
 	if len(checkers) == 0 {
-		fmt.Fprintln(os.Stderr, "No type checkers registered")
+		if hookVerboseSuccessOutputEnabled() {
+			fmt.Fprintln(os.Stderr, "No type checkers registered")
+		}
 
 		return 0
 	}
@@ -1140,7 +1142,9 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 	}
 
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "No staged Python files to check")
+		if hookVerboseSuccessOutputEnabled() {
+			fmt.Fprintln(os.Stderr, "No staged Python files to check")
+		}
 
 		return 0
 	}

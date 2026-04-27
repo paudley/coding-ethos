@@ -6,6 +6,15 @@
 Go-backed Git hooks for coding-ethos bundles. Lefthook is retained only as a
 transitional compatibility dispatcher.
 
+The Go runner is the output-control layer for Git hooks. It supports
+`hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`
+selects TOON when known agent/LLM environment markers are present. Successful
+groups are silent by default through `hooks.success_output: silent`, while
+`hooks.success_output: verbose` restores operator-facing pass summaries. When
+`hooks.parallel_groups: true`, enabled groups run concurrently as isolated hook
+subprocesses and their captured output is replayed in deterministic group order
+only when a group fails or verbose success output is enabled.
+
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit

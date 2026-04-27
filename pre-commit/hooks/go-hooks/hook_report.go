@@ -16,15 +16,21 @@ const (
 	hookOutputFormatJSON  = "json"
 	hookOutputFormatTOON  = "toon"
 	hookOutputFormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+	hookSuccessOutputEnv  = "CODE_ETHOS_HOOK_SUCCESS_OUTPUT"
+	hookSuccessSilent     = "silent"
+	hookSuccessMinimal    = "minimal"
+	hookSuccessVerbose    = "verbose"
 )
 
 type hookSettings struct {
 	OutputFormat       string   `mapstructure:"output_format"`
+	SuccessOutput      string   `mapstructure:"success_output"`
 	AgentEnvMarkers    []string `mapstructure:"agent_env_markers"`
 	EnabledGroups      []string `mapstructure:"enabled_groups"`
 	FailSeverityLevels []string `mapstructure:"fail_severity_levels"`
 	WarnSeverityLevels []string `mapstructure:"warn_severity_levels"`
 	ToolTimeoutSeconds int      `mapstructure:"tool_timeout_seconds"`
+	ParallelGroups     bool     `mapstructure:"parallel_groups"`
 }
 
 type hookFinding struct {
@@ -81,6 +87,10 @@ func loadHookSettings() hookSettings {
 		settings.OutputFormat = hookOutputFormatAuto
 	}
 
+	if settings.SuccessOutput == "" {
+		settings.SuccessOutput = hookSuccessSilent
+	}
+
 	if len(settings.AgentEnvMarkers) == 0 {
 		settings.AgentEnvMarkers = defaultHookSettings().AgentEnvMarkers
 	}
@@ -103,6 +113,8 @@ func loadHookSettings() hookSettings {
 func defaultHookSettings() hookSettings {
 	return hookSettings{
 		OutputFormat:       hookOutputFormatAuto,
+		SuccessOutput:      hookSuccessSilent,
+		ParallelGroups:     true,
 		ToolTimeoutSeconds: defaultToolTimeoutSecs,
 		AgentEnvMarkers: []string{
 			"CODEX_THREAD_ID",
@@ -133,6 +145,34 @@ func defaultHookSettings() hookSettings {
 		FailSeverityLevels: []string{"error", "fatal", "critical"},
 		WarnSeverityLevels: []string{"warning", "warn"},
 	}
+}
+
+func selectedHookSuccessOutput() string {
+	settings := loadHookSettings()
+
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(hookSuccessOutputEnv)))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(settings.SuccessOutput))
+	}
+
+	switch mode {
+	case hookSuccessSilent, hookSuccessMinimal, hookSuccessVerbose:
+		return mode
+	case "0", "false", "off", "none":
+		return hookSuccessSilent
+	case "1", "true", "on":
+		return hookSuccessVerbose
+	default:
+		return hookSuccessSilent
+	}
+}
+
+func hookVerboseSuccessOutputEnabled() bool {
+	return selectedHookSuccessOutput() == hookSuccessVerbose
+}
+
+func hookParallelGroupsEnabled() bool {
+	return loadHookSettings().ParallelGroups
 }
 
 func selectedHookOutputFormat() string {

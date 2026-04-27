@@ -133,14 +133,5 @@ func runHookGroupCommand(cfg Config, args []string) int {
 		return 1
 	}
 
-	files := args[1:]
-	exit := 0
-
-	for _, command := range group.Commands {
-		if command(cfg, files) != 0 {
-			exit = 1
-		}
-	}
-
-	return exit
+	return runHookGroupInProcess(cfg, group, args[1:])
 }

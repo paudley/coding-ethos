@@ -318,6 +318,14 @@ It uses a repo-local pinned Lefthook binary cached under
 `.git/coding-ethos-hooks/` and Go-backed policy checks under
 `pre-commit/hooks/go-hooks/`.
 
+The Go hook runner owns hook output policy. Failure reports honor
+`hooks.output_format` (`auto`, `human`, `json`, or `toon`), with `auto`
+selecting TOON when known agent/LLM environment markers are present. Successful
+groups are silent by default through `hooks.success_output: silent`; set it to
+`verbose` only when operator-facing pass summaries are useful. Enabled hook
+groups run in parallel when `hooks.parallel_groups: true`, with group output
+captured and replayed deterministically on failure.
+
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
 new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;

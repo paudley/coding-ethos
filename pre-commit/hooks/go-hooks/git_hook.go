@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 var errGitCommandFailed = errors.New("git command failed")
+var errHookGroupTimedOut = errors.New("hook group timed out")
 
 const (
 	allZeroSHA   = "0000000000000000000000000000000000000000"
@@ -115,9 +117,10 @@ func runPrePushHook(cfg Config, input io.Reader) int {
 
 func runNamedHookGroups(cfg Config, names []string, files []string) int {
 	groups := canonicalHookGroups()
-	exit := 0
+	selectedNames := enabledHookGroupNames(names)
+	selectedGroups := make([]hookGroup, 0, len(selectedNames))
 
-	for _, name := range enabledHookGroupNames(names) {
+	for _, name := range selectedNames {
 		group, ok := groups[name]
 		if !ok {
 			fmt.Fprintf(os.Stderr, "FATAL: unknown hook group %q\n", name)
@@ -125,14 +128,138 @@ func runNamedHookGroups(cfg Config, names []string, files []string) int {
 			return 1
 		}
 
-		for _, command := range group.Commands {
-			if command(cfg, files) != 0 {
-				exit = 1
-			}
+		selectedGroups = append(selectedGroups, group)
+	}
+
+	if len(selectedGroups) <= 1 || !hookParallelGroupsEnabled() {
+		return runHookGroupsInProcess(cfg, selectedGroups, files)
+	}
+
+	return runHookGroupsInSubprocesses(selectedGroups, files)
+}
+
+func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int {
+	exit := 0
+
+	for _, group := range groups {
+		if runHookGroupInProcess(cfg, group, files) != 0 {
+			exit = 1
 		}
 	}
 
 	return exit
+}
+
+func runHookGroupInProcess(cfg Config, group hookGroup, files []string) int {
+	exit := 0
+
+	for _, command := range group.Commands {
+		if command(cfg, files) != 0 {
+			exit = 1
+		}
+	}
+
+	return exit
+}
+
+type hookGroupResult struct {
+	RunnerFailure error
+	Name          string
+	Output        string
+	ExitCode      int
+}
+
+func runHookGroupsInSubprocesses(groups []hookGroup, files []string) int {
+	return runHookGroupsInSubprocessesWithExecutable(groups, files, os.Executable)
+}
+
+func runHookGroupsInSubprocessesWithExecutable(
+	groups []hookGroup,
+	files []string,
+	executablePath func() (string, error),
+) int {
+	results := make([]hookGroupResult, len(groups))
+	waitGroup := sync.WaitGroup{}
+
+	for index, group := range groups {
+		waitGroup.Add(1)
+
+		go func(index int, group hookGroup) {
+			defer waitGroup.Done()
+
+			results[index] = runHookGroupSubprocess(group.Name, files, executablePath)
+		}(index, group)
+	}
+
+	waitGroup.Wait()
+
+	exit := 0
+	verboseSuccess := hookVerboseSuccessOutputEnabled()
+
+	for _, result := range results {
+		if result.ExitCode != 0 || result.RunnerFailure != nil {
+			exit = 1
+		}
+
+		if result.ExitCode != 0 || result.RunnerFailure != nil || verboseSuccess {
+			writeText(os.Stdout, result.Output)
+		}
+
+		if result.RunnerFailure != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"FATAL: hook group %q failed: %v\n",
+				result.Name,
+				result.RunnerFailure,
+			)
+		}
+	}
+
+	return exit
+}
+
+func runHookGroupSubprocess(
+	name string,
+	files []string,
+	executablePath func() (string, error),
+) hookGroupResult {
+	executable, err := executablePath()
+	if err != nil {
+		return hookGroupResult{
+			RunnerFailure: fmt.Errorf("resolve hook executable: %w", err),
+			Name:          name,
+			ExitCode:      1,
+		}
+	}
+
+	args := append([]string{"run-group", name}, files...)
+	toolResult := runExternalTool(externalToolRequest{
+		Name:           "hook group " + name,
+		Command:        append([]string{executable}, args...),
+		TimeoutSeconds: loadHookSettings().ToolTimeoutSeconds,
+	})
+
+	result := hookGroupResult{
+		Name:     name,
+		Output:   toolResult.Combined,
+		ExitCode: toolResult.ExitCode,
+	}
+
+	if toolResult.TimedOut {
+		result.ExitCode = 1
+		result.RunnerFailure = fmt.Errorf(
+			"%w after %d seconds: %s",
+			errHookGroupTimedOut,
+			loadHookSettings().ToolTimeoutSeconds,
+			name,
+		)
+
+		return result
+	}
+
+	result.RunnerFailure = toolResult.RunnerFailure
+
+	return result
 }
 
 func enabledHookGroupNames(names []string) []string {

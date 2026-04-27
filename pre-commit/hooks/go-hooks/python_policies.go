@@ -1724,7 +1724,9 @@ func checkPytestGateCommand(_ Config, args []string) int {
 		return 1
 	}
 
-	fmt.Fprintln(os.Stderr, "Running pytest gate...")
+	if hookVerboseSuccessOutputEnabled() {
+		fmt.Fprintln(os.Stderr, "Running pytest gate...")
+	}
 
 	result, err := runPytestCommand(settings)
 	if err != nil {
@@ -1747,12 +1749,14 @@ func checkPytestGateCommand(_ Config, args []string) int {
 		xfailNote = fmt.Sprintf(", %d xfailed", result.Counts["xfailed"])
 	}
 
-	fmt.Fprintf(
-		os.Stderr,
-		"Pytest gate passed: %d tests, 0 skipped%s.\n",
-		result.Counts["passed"],
-		xfailNote,
-	)
+	if hookVerboseSuccessOutputEnabled() {
+		fmt.Fprintf(
+			os.Stderr,
+			"Pytest gate passed: %d tests, 0 skipped%s.\n",
+			result.Counts["passed"],
+			xfailNote,
+		)
+	}
 
 	return 0
 }

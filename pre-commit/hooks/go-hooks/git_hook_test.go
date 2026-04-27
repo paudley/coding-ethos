@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -132,6 +133,69 @@ func TestDockerAndWorkflowFileSelection(t *testing.T) {
 
 	if got := workflowFiles(files); !reflect.DeepEqual(got, []string{".github/workflows/ci.yml", ".github/workflows/ci.yaml"}) {
 		t.Fatalf("workflowFiles() = %#v", got)
+	}
+}
+
+func TestRunHookGroupsInSubprocessesReplaysOnlyFailedOutputInGroupOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	scriptPath := filepath.Join(tempDir, "hook-runner")
+	mustWriteTestFile(
+		t,
+		scriptPath,
+		`#!/bin/sh
+case "$2" in
+  pass)
+    echo pass-output
+    exit 0
+    ;;
+  fail-a)
+    sleep 0.1
+    echo first-failure
+    exit 1
+    ;;
+  fail-b)
+    echo second-failure
+    exit 1
+    ;;
+esac
+echo "unexpected group: $2"
+exit 2
+`,
+	)
+
+	err := os.Chmod(scriptPath, 0o700)
+	if err != nil {
+		t.Fatalf("os.Chmod(%q) failed: %v", scriptPath, err)
+	}
+
+	stdout := captureStdout(t, func() {
+		groups := []hookGroup{
+			{Name: "pass"},
+			{Name: "fail-a"},
+			{Name: "fail-b"},
+		}
+		executablePath := func() (string, error) {
+			return scriptPath, nil
+		}
+
+		if got := runHookGroupsInSubprocessesWithExecutable(
+			groups,
+			nil,
+			executablePath,
+		); got != 1 {
+			t.Fatalf("runHookGroupsInSubprocesses() = %d, want 1", got)
+		}
+	})
+
+	if strings.Contains(stdout, "pass-output") {
+		t.Fatalf("successful group output was replayed: %q", stdout)
+	}
+
+	firstIndex := strings.Index(stdout, "first-failure")
+
+	secondIndex := strings.Index(stdout, "second-failure")
+	if firstIndex < 0 || secondIndex < 0 || firstIndex > secondIndex {
+		t.Fatalf("failed group output was not replayed in group order: %q", stdout)
 	}
 }
 
