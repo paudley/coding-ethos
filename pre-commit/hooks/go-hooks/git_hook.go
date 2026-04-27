@@ -152,10 +152,7 @@ func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int 
 			exit = 1
 		}
 
-		shouldPrintSummary := result.ExitCode != 0 &&
-			os.Getenv(hookGroupChildEnv) != hookPlanBoolTrue ||
-			hookVerboseSuccessOutputEnabled()
-		if shouldPrintSummary {
+		if hookVerboseSuccessOutputEnabled() {
 			writeLine(os.Stdout, formatHookExecutionSummary(
 				[]hookGroupResult{result},
 				selectedHookOutputFormat(),
@@ -243,16 +240,14 @@ func runHookGroupsInSubprocessesWithExecutable(
 
 	exit := 0
 	verboseSuccess := hookVerboseSuccessOutputEnabled()
-	shouldPrintSummary := verboseSuccess
 
 	for _, result := range results {
 		if result.ExitCode != 0 || result.RunnerFailure != nil {
 			exit = 1
-			shouldPrintSummary = true
 		}
 	}
 
-	if shouldPrintSummary {
+	if verboseSuccess {
 		writeLine(os.Stdout, formatHookExecutionSummary(
 			results,
 			selectedHookOutputFormat(),
