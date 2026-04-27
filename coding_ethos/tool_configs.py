@@ -11,7 +11,7 @@ It keeps cross-tool settings like Python version and line length synchronized.
 import configparser
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -49,36 +49,51 @@ def _ethos_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+ConfigMap = dict[str, Any]
+
+
+def _load_yaml(path: Path) -> ConfigMap:
+    payload: object = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
         msg = f"Invalid config YAML at {path}: expected a mapping at the document root."
         raise TypeError(msg)
-    return payload
+    return cast(ConfigMap, payload)
 
 
 def _with_hash_spdx_header(content: str) -> str:
     return f"{HASH_SPDX_HEADER}{content.lstrip()}"
 
 
-def _deep_merge(base: object, override: object) -> object:
-    if isinstance(base, dict) and isinstance(override, dict):
-        merged = dict(base)
-        for key, value in override.items():
-            if key in merged:
-                merged[key] = _deep_merge(merged[key], value)
-            else:
-                merged[key] = value
-        return merged
-    return override
+def _as_config_map(value: object, label: str) -> ConfigMap:
+    if not isinstance(value, dict):
+        msg = f"{label} must be a mapping."
+        raise TypeError(msg)
+    return cast(ConfigMap, value)
 
 
-def _get(config: dict[str, Any], path: str, default: object = "") -> object:
+def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
+    merged: ConfigMap = dict(base)
+    for key, value in override.items():
+        base_value = merged.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(
+                cast(ConfigMap, base_value),
+                cast(ConfigMap, value),
+            )
+        else:
+            merged[key] = value
+    return merged
+
+
+def _get(config: ConfigMap, path: str, default: object = "") -> object:
     current: object = config
     for segment in path.split("."):
-        if not isinstance(current, dict) or segment not in current:
+        if not isinstance(current, dict):
             return default
-        current = current[segment]
+        mapping = _as_config_map(cast(object, current), path)
+        if segment not in mapping:
+            return default
+        current = mapping[segment]
     return current
 
 
@@ -86,7 +101,8 @@ def _string_list(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
+        items = cast(list[object], value)
+        return [str(item).strip() for item in items if str(item).strip()]
     stripped = str(value).strip()
     return [stripped] if stripped else []
 
@@ -125,7 +141,7 @@ def _python_version(config: dict[str, Any]) -> str:
 
 
 def _line_length(config: dict[str, Any]) -> int:
-    return int(_get(config, "style.line_length", 88))
+    return _int_setting(config, "style.line_length", 88)
 
 
 def _ruff_target_version(config: dict[str, Any]) -> str:
@@ -164,8 +180,8 @@ def resolve_repo_config(
     if isinstance(explicit_repo_config, Path):
         return explicit_repo_config.expanduser().resolve()
 
-    resolved_base = (
-        base_config
+    resolved_base: ConfigMap = (
+        cast(ConfigMap, base_config)
         if isinstance(base_config, dict)
         else _load_yaml(_ethos_root() / "config.yaml")
     )
@@ -205,7 +221,7 @@ def load_enforcement_config(
         repo_config_path,
         base_config=base_config,
     )
-    if resolved_repo_config is None or not resolved_repo_config.exists():
+    if not resolved_repo_config.exists():
         return base_config, resolved_repo_config
     return _deep_merge(
         base_config, _load_yaml(resolved_repo_config)
@@ -269,10 +285,11 @@ def _sql_ignore_patterns(config: dict[str, Any]) -> dict[str, list[str]]:
 def _ruff_per_file_ignores(config: dict[str, Any]) -> dict[str, list[str]]:
     stub_codes = _string_list(_get(config, "tooling.ruff.stub_per_file_ignores", []))
     test_codes = _string_list(_get(config, "tooling.ruff.test_per_file_ignores", []))
-    configured = _get(config, "tooling.ruff.extra_per_file_ignores", {}) or {}
+    configured: object = _get(config, "tooling.ruff.extra_per_file_ignores", {}) or {}
     if configured and not isinstance(configured, dict):
         msg = "tooling.ruff.extra_per_file_ignores must be a mapping."
         raise TypeError(msg)
+    configured_map = cast(dict[object, object], configured)
 
     ignores: dict[str, list[str]] = {}
     for pattern in _path_patterns(_stub_paths(config)):
@@ -281,8 +298,8 @@ def _ruff_per_file_ignores(config: dict[str, Any]) -> dict[str, list[str]]:
         ignores[pattern] = list(test_codes)
     ignores.update(_sql_ignore_patterns(config))
 
-    for pattern, codes in configured.items():
-        ignores[str(pattern)] = _string_list(codes)
+    for raw_pattern, codes in configured_map.items():
+        ignores[str(raw_pattern)] = _string_list(codes)
     return {pattern: codes for pattern, codes in ignores.items() if codes}
 
 
@@ -349,7 +366,6 @@ def _mypy_exclude_regex(config: dict[str, Any]) -> str:
 def render_mypy_ini(config: dict[str, Any]) -> str:
     """Render `mypy.ini` from merged policy."""
     parser = configparser.ConfigParser()
-    parser.optionxform = str
     parser["mypy"] = {
         "strict": "True"
         if _bool_setting(config, "tooling.mypy.strict", default=True)
@@ -432,7 +448,7 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
             f"ignore = {_toml_list(ignore_codes)}",
             "",
             "[lint.pylint]",
-            f"max-args = {int(_get(config, 'tooling.ruff.max_args', 6))}",
+            f"max-args = {_int_setting(config, 'tooling.ruff.max_args', 6)}",
         ]
     )
 
@@ -444,14 +460,16 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
             for pattern in sorted(per_file_ignores)
         )
 
-    banned_api = _get(config, "tooling.ruff.banned_api", {}) or {}
+    banned_api: object = _get(config, "tooling.ruff.banned_api", {}) or {}
     if banned_api and not isinstance(banned_api, dict):
         msg = "tooling.ruff.banned_api must be a mapping."
         raise TypeError(msg)
-    if banned_api:
+    banned_api_map = cast(dict[object, object], banned_api)
+    if banned_api_map:
         lines.extend(["", "[lint.flake8-tidy-imports.banned-api]"])
-        for module_name in sorted(banned_api):
-            message = _truthy_string(banned_api[module_name])
+        for raw_module_name in sorted(banned_api_map, key=str):
+            module_name = str(raw_module_name)
+            message = _truthy_string(banned_api_map[raw_module_name])
             if message:
                 lines.append(
                     f"{_toml_string(module_name)} = {{ msg = {_toml_string(message)} }}"
@@ -526,8 +544,8 @@ def render_yamllint_config(config: dict[str, Any]) -> str:
         msg = "tooling.yamllint.rules must be a mapping."
         raise TypeError(msg)
 
-    rules = dict(payload["rules"])
-    line_length = dict(rules.get("line-length", {}))
+    rules = cast(dict[str, Any], payload["rules"]).copy()
+    line_length = cast(dict[str, Any], rules.get("line-length", {})).copy()
     line_length["max"] = _line_length(config)
     rules["line-length"] = line_length
     payload["rules"] = rules
@@ -538,10 +556,10 @@ def render_yamllint_config(config: dict[str, Any]) -> str:
 def render_golangci_config(config: dict[str, Any]) -> str:
     """Render `.golangci.yml` from merged policy."""
     configured = _get(config, "tooling.golangci_lint", {})
-    payload = _deep_merge({}, configured)
-    if not isinstance(payload, dict):
+    if not isinstance(configured, dict):
         msg = "tooling.golangci_lint must be a mapping."
         raise TypeError(msg)
+    payload = _deep_merge({}, cast(ConfigMap, configured))
 
     payload["version"] = str(payload.get("version", "2"))
 
@@ -549,20 +567,23 @@ def render_golangci_config(config: dict[str, Any]) -> str:
     if not isinstance(linters, dict):
         msg = "tooling.golangci_lint.linters must be a mapping."
         raise TypeError(msg)
+    linters_map = cast(ConfigMap, linters)
 
-    settings = linters.get("settings", {})
+    settings = linters_map.get("settings", {})
     if not isinstance(settings, dict):
         msg = "tooling.golangci_lint.linters.settings must be a mapping."
         raise TypeError(msg)
+    settings_map = cast(ConfigMap, settings)
 
-    lll = settings.get("lll", {})
+    lll = settings_map.get("lll", {})
     if not isinstance(lll, dict):
         msg = "tooling.golangci_lint.linters.settings.lll must be a mapping."
         raise TypeError(msg)
-    lll["line-length"] = _line_length(config)
-    settings["lll"] = lll
-    linters["settings"] = settings
-    payload["linters"] = linters
+    lll_map = cast(ConfigMap, lll)
+    lll_map["line-length"] = _line_length(config)
+    settings_map["lll"] = lll_map
+    linters_map["settings"] = settings_map
+    payload["linters"] = linters_map
     return _with_hash_spdx_header(render_yaml(payload))
 
 
