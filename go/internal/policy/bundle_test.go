@@ -84,7 +84,11 @@ func TestValidateRejectsUnsupportedDispatchMode(t *testing.T) {
 	t.Parallel()
 
 	bundle := ExampleBundle()
-	bundle.Dispatch.Hooks["PreToolUse"]["Write"][0].Mode = "ask"
+	for index, entry := range bundle.Dispatch.Hooks["PreToolUse"]["Write"] {
+		if entry.PolicyID == "python.conditional_imports" {
+			bundle.Dispatch.Hooks["PreToolUse"]["Write"][index].Mode = "ask"
+		}
+	}
 
 	err := bundle.Validate()
 	if err == nil {

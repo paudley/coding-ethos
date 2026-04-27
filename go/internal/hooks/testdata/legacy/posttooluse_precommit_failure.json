@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git commit -m test"
+  },
+  "tool_response": {
+    "stdout": "ruff...Failed\nmypy...Passed",
+    "return_code": 1
+  }
+}

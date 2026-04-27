@@ -6,6 +6,7 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,6 +106,144 @@ func TestRunAllowsNormalNonCommitGitCommand(t *testing.T) {
 	if len(result.Decisions) != 0 {
 		t.Fatalf("expected no decisions, got %#v", result.Decisions)
 	}
+}
+
+func TestRunBlocksProtectedPathWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "/usr/bin/got",
+				"content":   "binary",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.Decisions[0].PolicyID != "filesystem.protected_path" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "git commit -m test",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "ruff...Failed\nmypy...Passed",
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatal("expected hook-specific output")
+	}
+
+	if !strings.Contains(
+		result.HookSpecificOutput.AdditionalContext,
+		"PRE-COMMIT OUTPUT",
+	) ||
+		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "ruff...Failed") {
+		t.Fatalf("unexpected context: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestLegacyHookFixturesStayRunnable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		wantStatus  string
+		wantPolicy  string
+		wantContext string
+	}{
+		{
+			name:       "git hook bypass",
+			path:       "testdata/legacy/pretooluse_git_no_verify.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "git.hook_bypass",
+		},
+		{
+			name:       "protected path write",
+			path:       "testdata/legacy/pretooluse_protected_path_write.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
+		},
+		{
+			name:        "post tool hook output",
+			path:        "testdata/legacy/posttooluse_precommit_failure.json",
+			wantStatus:  statusAllowed,
+			wantContext: "PRE-COMMIT OUTPUT",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			event := readLegacyEventFixture(t, test.path)
+
+			result, err := Run(policy.ExampleBundle(), Options{Event: event})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != test.wantStatus {
+				t.Fatalf("status = %q, want %q", result.Status, test.wantStatus)
+			}
+
+			if test.wantPolicy != "" && result.Decisions[0].PolicyID != test.wantPolicy {
+				t.Fatalf("policy mismatch: %#v", result.Decisions)
+			}
+
+			if test.wantContext != "" &&
+				(result.HookSpecificOutput == nil ||
+					!strings.Contains(
+						result.HookSpecificOutput.AdditionalContext,
+						test.wantContext,
+					)) {
+				t.Fatalf("missing hook context: %#v", result.HookSpecificOutput)
+			}
+		})
+	}
+}
+
+func readLegacyEventFixture(t *testing.T, path string) Event {
+	t.Helper()
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", path, err)
+	}
+
+	var event Event
+
+	err = json.Unmarshal(payload, &event)
+	if err != nil {
+		t.Fatalf("decode fixture %s: %v", path, err)
+	}
+
+	return event
 }
 
 func TestRunSkipsPathScopedPolicyWhenPathDoesNotMatch(t *testing.T) {

@@ -1,0 +1,65 @@
+{
+  "parent_git_hooks": [
+    {
+      "hook": "pre-commit",
+      "legacy_behavior": "execute coding-ethos Go runner git-hook pre-commit",
+      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook pre-commit",
+      "status": "covered"
+    },
+    {
+      "hook": "pre-push",
+      "legacy_behavior": "execute coding-ethos Go runner git-hook pre-push",
+      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook pre-push",
+      "status": "covered"
+    },
+    {
+      "hook": "commit-msg",
+      "legacy_behavior": "execute coding-ethos Go runner git-hook commit-msg",
+      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook commit-msg",
+      "status": "covered"
+    },
+    {
+      "hook": "post-commit/post-merge/post-checkout",
+      "legacy_behavior": "delegate to git lfs post-* hooks",
+      "replacement": "preserve Git LFS post-hook delegation during cutover",
+      "status": "external"
+    }
+  ],
+  "claude_hooks": [
+    {
+      "event": "PreToolUse",
+      "tool": "Bash",
+      "legacy_behavior": "block hook bypass, destructive git, protected branch checkout, dangerous shell, background git, admin-only staged files, and protected paths",
+      "replacement": "coding-ethos-hook policy dispatch and evaluators",
+      "status": "partial"
+    },
+    {
+      "event": "PreToolUse",
+      "tool": "Write/Edit",
+      "legacy_behavior": "block protected branch writes, protected paths, bare except, broad except pass, and unexplained type ignore",
+      "replacement": "coding-ethos-hook policy dispatch and evaluators",
+      "status": "partial"
+    },
+    {
+      "event": "PostToolUse",
+      "tool": "Bash",
+      "legacy_behavior": "summarize git hook output back into agent context",
+      "replacement": "coding-ethos-hook hookSpecificOutput additionalContext",
+      "status": "covered"
+    },
+    {
+      "event": "PreCompact",
+      "tool": "",
+      "legacy_behavior": "generate continuation notes and prompt",
+      "replacement": "planned deterministic transcript capture and replay; no hook-path AI call",
+      "status": "planned"
+    },
+    {
+      "event": "SessionStart",
+      "tool": "compact",
+      "legacy_behavior": "inject generated continuation prompt into session context",
+      "replacement": "planned coding-ethos continuation context store",
+      "status": "planned"
+    }
+  ]
+}

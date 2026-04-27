@@ -52,6 +52,10 @@ func DefaultRegistry() Registry {
 		EvaluatorFunc(EvaluateGitCommitHeadAdvanced),
 	)
 	registry.Register(
+		"filesystem.protected_path",
+		EvaluatorFunc(EvaluateProtectedPath),
+	)
+	registry.Register(
 		"shell.dangerous_command",
 		EvaluatorFunc(EvaluateShellDangerousCommand),
 	)

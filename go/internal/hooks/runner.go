@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	modeAdvise    = "advise"
-	modeAnnotate  = "annotate"
-	modeBlock     = "block"
-	modeRecord    = "record"
-	statusAllowed = "allowed"
-	statusBlocked = "blocked"
+	modeAdvise       = "advise"
+	modeAnnotate     = "annotate"
+	modeBlock        = "block"
+	modeRecord       = "record"
+	statusAllowed    = "allowed"
+	statusBlocked    = "blocked"
+	hookDividerWidth = 50
 )
 
 var (
@@ -67,11 +68,82 @@ func RunWithRegistry(
 	}
 
 	return Result{
-		Event:     event.HookEventName,
-		Tool:      event.ToolName,
-		Status:    resultStatus(decisions),
-		Decisions: decisions,
+		Event:              event.HookEventName,
+		Tool:               event.ToolName,
+		Status:             resultStatus(decisions),
+		Decisions:          decisions,
+		HookSpecificOutput: hookSpecificOutput(event),
 	}, nil
+}
+
+func hookSpecificOutput(event Event) *HookSpecificOutput {
+	if event.HookEventName != "PostToolUse" || event.ToolName != "Bash" {
+		return nil
+	}
+
+	command := event.Command()
+	output := event.ToolOutput()
+
+	if !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
+		return nil
+	}
+
+	return &HookSpecificOutput{
+		HookEventName:     event.HookEventName,
+		AdditionalContext: buildHookOutputContext(command, output, event.ReturnCode()),
+	}
+}
+
+func isGitHookCommand(command string) bool {
+	lower := strings.ToLower(command)
+
+	return strings.Contains(lower, "git commit") ||
+		strings.Contains(lower, "git push") ||
+		strings.Contains(lower, "pre-commit")
+}
+
+func hasHookOutputKeywords(output string) bool {
+	lower := strings.ToLower(output)
+	for _, keyword := range []string{
+		"passed",
+		"failed",
+		"skipped",
+		"pre-commit",
+		"pre-push",
+		"hook",
+		"ruff",
+		"mypy",
+		"pyright",
+		"pylint",
+	} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func buildHookOutputContext(command string, output string, returnCode int) string {
+	hookType := "PRE-COMMIT"
+	operation := "commit"
+
+	if strings.Contains(strings.ToLower(command), "git push") {
+		hookType = "PRE-PUSH"
+		operation = "push"
+	}
+
+	outcome := "The " + operation + " succeeded."
+	if returnCode != 0 {
+		outcome = "The " + operation + " was blocked by hooks."
+	}
+
+	return hookType + " OUTPUT\n" +
+		strings.Repeat("=", hookDividerWidth) + "\n\n" +
+		outcome + "\n\n" +
+		"<hook-output>\n" + output + "\n</hook-output>\n\n" +
+		"Summarize failed hooks, modified files, warnings, and required fixes. " +
+		"Treat linter output as important and fix findings structurally."
 }
 
 func evaluateHookPolicy(

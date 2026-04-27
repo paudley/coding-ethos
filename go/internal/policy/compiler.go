@@ -234,6 +234,7 @@ func compilePolicies(
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, principles)
 	addShellPolicies(policies, principles)
+	addFilesystemPolicies(policies, principles)
 	addGeneratedConfigPolicy(policies, principles)
 
 	return policies
@@ -587,6 +588,32 @@ func shellPolicy(
 	}
 }
 
+func addFilesystemPolicies(
+	policies map[string]Policy,
+	principles map[string]Principle,
+) {
+	policies["filesystem.protected_path"] = Policy{
+		ID:       "filesystem.protected_path",
+		Category: "filesystem",
+		Source:   SourceRef{File: "config.yaml", Path: "filesystem.protected_path"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"no-rationalized-shortcuts",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Protected paths must not be modified.",
+		Suggestion:      "Do not write to protected system paths.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo: AppliesTo{
+			Paths: []string{"/usr/bin/got"},
+			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
+		},
+		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
+	}
+}
+
 func addGeneratedConfigPolicy(
 	policies map[string]Policy,
 	principles map[string]Principle,
@@ -647,6 +674,7 @@ func compileHookDispatch(
 	hooks := map[string]map[string][]HookDispatchEntry{}
 	addGitHookBypassDispatch(hooks, policies)
 	addBlockingBashDispatch(hooks, policies)
+	addProtectedPathDispatch(hooks, policies)
 	addPythonWriteDispatch(hooks, policies)
 	addPytestGateDispatch(hooks, policies)
 	addCommitHeadDispatch(hooks, policies)
@@ -696,6 +724,26 @@ func addBlockingBashDispatch(
 				},
 			)
 		}
+	}
+}
+
+func addProtectedPathDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	if _, ok := policies["filesystem.protected_path"]; !ok {
+		return
+	}
+
+	for _, tool := range []string{"Bash", "Write", "Edit", "MultiEdit"} {
+		ensureHookTool(hooks, "PreToolUse", tool)
+		hooks["PreToolUse"][tool] = append(
+			hooks["PreToolUse"][tool],
+			HookDispatchEntry{
+				PolicyID: "filesystem.protected_path",
+				Mode:     "block",
+			},
+		)
 	}
 }
 
@@ -792,6 +840,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.dangerous_command",
 			"shell.background_git",
 			"git.staged_admin_files",
+			"filesystem.protected_path",
 			"generated_config.freshness",
 			"python.conditional_imports",
 			"python.optional_returns",

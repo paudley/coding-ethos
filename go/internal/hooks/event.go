@@ -5,6 +5,7 @@ package hooks
 
 type Event struct {
 	ToolInput     map[string]any `json:"tool_input,omitempty"`
+	ToolResponse  map[string]any `json:"tool_response,omitempty"`
 	Cwd           string         `json:"cwd,omitempty"`
 	HookEventName string         `json:"hook_event_name"`
 	ToolName      string         `json:"tool_name,omitempty"`
@@ -51,6 +52,77 @@ func (event Event) Content() string {
 	for _, key := range []string{"content", "new_string", "text"} {
 		if content, ok := event.ToolInput[key].(string); ok {
 			return content
+		}
+	}
+
+	return ""
+}
+
+func (event Event) ToolOutput() string {
+	if event.ToolResponse == nil {
+		return ""
+	}
+
+	output := firstStringValue(
+		event.ToolResponse,
+		"stdout",
+		"output",
+		"result",
+		"text",
+		"content",
+	)
+
+	stderr := firstStringValue(event.ToolResponse, "stderr")
+	if output != "" && stderr != "" {
+		return output + "\n" + stderr
+	}
+
+	if output != "" {
+		return output
+	}
+
+	return stderr
+}
+
+func (event Event) ReturnCode() int {
+	if event.ToolResponse == nil {
+		return 0
+	}
+
+	for _, key := range []string{
+		"return_code",
+		"returnCode",
+		"exitCode",
+		"exit_code",
+		"code",
+	} {
+		value, ok := event.ToolResponse[key]
+		if !ok {
+			continue
+		}
+
+		switch typed := value.(type) {
+		case int:
+			return typed
+		case float64:
+			return int(typed)
+		case string:
+			if typed == "" || typed == "0" {
+				return 0
+			}
+
+			return 1
+		}
+	}
+
+	return 0
+}
+
+func firstStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := values[key].(string)
+		if ok && value != "" {
+			return value
 		}
 	}
 

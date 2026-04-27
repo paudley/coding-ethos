@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PreCompact",
+  "session_id": "session-001",
+  "transcript_path": "/tmp/session-001.jsonl"
+}

@@ -152,6 +152,7 @@ func examplePolicies() map[string]Policy {
 		"python.conditional_imports": exampleConditionalImportPolicy(),
 		"git.hook_bypass":            exampleHookBypassPolicy(),
 		"git.commit_head_advanced":   exampleCommitHeadPolicy(),
+		"filesystem.protected_path":  exampleProtectedPathPolicy(),
 	}
 }
 
@@ -205,6 +206,25 @@ func exampleHookBypassPolicy() Policy {
 	}
 }
 
+func exampleProtectedPathPolicy() Policy {
+	return Policy{
+		ID:              "filesystem.protected_path",
+		Category:        "filesystem",
+		Source:          SourceRef{File: "config.yaml", Path: "filesystem.protected_path"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Protected paths must not be modified.",
+		Suggestion:      "Do not write to protected system paths.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo: AppliesTo{
+			Paths: []string{"/usr/bin/got"},
+			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
+		},
+		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
+	}
+}
+
 func exampleCommitHeadPolicy() Policy {
 	return Policy{
 		ID:              "git.commit_head_advanced",
@@ -254,8 +274,16 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					Mode:            "record",
 					CommandPatterns: []string{"git commit"},
 				},
+				{
+					PolicyID: "filesystem.protected_path",
+					Mode:     "block",
+				},
 			},
 			"Write": {
+				{
+					PolicyID: "filesystem.protected_path",
+					Mode:     "block",
+				},
 				{
 					PolicyID:     "python.conditional_imports",
 					Mode:         "advise",
@@ -281,6 +309,7 @@ func exampleLinterDispatch() map[string][]string {
 		"staged": {
 			"git.hook_bypass",
 			"git.commit_head_advanced",
+			"filesystem.protected_path",
 			"python.conditional_imports",
 		},
 	}
