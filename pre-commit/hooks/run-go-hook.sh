@@ -19,6 +19,49 @@ TOOLS_BIN_DIR="${BIN_DIR}/bin"
 POLICY_DIR="${BIN_DIR}/policy"
 POLICY_BUNDLE="${POLICY_DIR}/policy-bundle.json"
 
+start_hook_log() {
+	if [[ -n "${CODE_ETHOS_HOOK_LOGGING_ACTIVE:-}" ]]; then
+		return
+	fi
+
+	local log_root="${ROOT}/.coding-ethos/hook-runs"
+	local timestamp
+	timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+	local run_id="${timestamp}-$PPID-$$"
+	local run_dir="${log_root}/${run_id}"
+	mkdir -p "$run_dir"
+
+	local stdout_log="${run_dir}/stdout.log"
+	local stderr_log="${run_dir}/stderr.log"
+	local metadata_log="${run_dir}/metadata.env"
+	{
+		printf 'run_id=%q\n' "$run_id"
+		printf 'started_at_utc=%q\n' "$timestamp"
+		printf 'repo_root=%q\n' "$ROOT"
+		printf 'bundle_root=%q\n' "$BUNDLE_ROOT"
+		printf 'git_common_dir=%q\n' "$GIT_COMMON_DIR"
+		printf 'command=%q' "$0"
+		printf ' %q' "$@"
+		printf '\n'
+	} >"$metadata_log"
+
+	set +e
+	CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$0" "$@" \
+		> >(tee -a "$stdout_log") \
+		2> >(tee -a "$stderr_log" >&2)
+	local status=$?
+	set -e
+
+	{
+		printf 'finished_at_utc=%q\n' "$(date -u +%Y%m%dT%H%M%SZ)"
+		printf 'exit_code=%q\n' "$status"
+	} >>"$metadata_log"
+
+	exit "$status"
+}
+
+start_hook_log "$@"
+
 cd "$ROOT"
 mkdir -p "$BIN_DIR" "$TOOLS_BIN_DIR"
 

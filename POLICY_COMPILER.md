@@ -137,6 +137,41 @@ Example:
 The compiled principle should contain enough data for hooks and linters to
 produce concise advice without loading the full rendered ethos document.
 
+### Evidence Maps
+
+ETHOS should also define how external tool findings become evidence for a
+principle-backed policy finding. Linters should not be treated as the policy
+source of truth. They are evidence collectors. The policy bundle should know
+which tool codes, AST observations, type-checker diagnostics, or hook outcomes
+indicate a specific ETHOS problem and what deterministic advice should be shown
+when that evidence appears.
+
+Example mapping:
+
+- `source`: `ruff`
+- `codes`: `PLC0415`
+- `policy_id`: `python.conditional_imports`
+- `principle_ids`: `no-conditional-imports`
+- `confidence`: `high`
+- `meaning`: import executed away from module scope, usually inside runtime
+  control flow
+- `advice.summary`: move required imports to module scope and fail during
+  startup
+- `advice.steps`: declare the dependency, import it at module scope, replace
+  runtime fallback paths with startup validation
+- `advice.rerun`: `make pre-commit`, `make check`
+
+Known evidence receives stronger ETHOS-grounded guidance. Unknown or unmapped
+tool diagnostics must still flow through the unified lint result as ordinary
+lint findings with tool, code, location, severity, and raw message preserved.
+The absence of an ETHOS mapping should never hide or discard a linter finding;
+it only means the finding receives normal diagnostic rendering rather than
+policy-grounded advice.
+
+This creates a policy-first pipeline:
+
+`ETHOS principle -> policy rule -> tool / AST / type evidence -> normalized finding -> ETHOS-grounded advice and ranking`
+
 ### Policies
 
 Policies are stable semantic units. They should not be provider-specific.

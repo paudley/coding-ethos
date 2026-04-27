@@ -17,6 +17,11 @@ Failed grouped runs also emit a compact execution summary before raw tool
 detail: group status, duration, failed groups, and command timing where
 commands ran in-process.
 
+The shell entry wrapper logs every top-level run to
+`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including
+`stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
+evidence and should stay ignored.
+
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit

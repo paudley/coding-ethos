@@ -54,6 +54,7 @@ dmypy.json
 
 # Local tooling state
 .cache/
+.coding-ethos/
 .pre-commit-cache/
 .uv/
 .lint-cache

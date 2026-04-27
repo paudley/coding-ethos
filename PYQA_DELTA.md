@@ -18,6 +18,27 @@ The useful delta is not to absorb `pyqa_lint` wholesale. The useful path is to
 adopt selected orchestration patterns that make `coding-ethos lint` a richer,
 policy-aware execution API for agents and hooks.
 
+The long-term goal is to subsume the useful product idea behind `pyqa_lint`,
+not to clone its foundation. `pyqa_lint` is tool-first: diagnostics are
+collected and then advice tries to infer quality meaning. `coding-ethos` should
+be policy-first: ETHOS principles define the engineering meaning, and linters,
+type checkers, AST checks, hooks, and future analyzers provide evidence for or
+against those principles.
+
+The target pipeline is:
+
+```text
+ETHOS principle -> policy rule -> tool evidence -> normalized finding -> advice
+```
+
+Known tool messages should become stronger when they map to ETHOS. For example,
+Ruff `PLC0415` is not merely "import not at top of file"; in this repo it can
+be evidence for `No Conditional Imports`, required-dependency validation, and
+startup fail-fast behavior. The advice should explain that ETHOS violation and
+give deterministic repair steps. Unknown or unmapped linter messages should
+still flow through normally as plain diagnostics. ETHOS mappings enrich known
+evidence; they do not filter out everything else.
+
 ## Feature Deltas
 
 ### Hook and lint orchestration
@@ -118,8 +139,12 @@ policy-aware execution API for agents and hooks.
 - Diagnostic normalization for external hook tools. The current hook findings
   are useful, but parsers for tool-native JSON would enable consistent JSON/TOON
   output and remediation advice.
-- A small remediation/advice layer that maps findings back to ethos principles
-  and concrete next commands.
+- A small remediation/advice layer that maps known findings back to ETHOS
+  principles and concrete next commands while preserving unmapped findings as
+  ordinary lint diagnostics.
+- An ETHOS evidence-map section that says which linter codes, AST observations,
+  type-checker diagnostics, or hook outcomes indicate each policy problem, with
+  confidence, meaning, advice, and rerun commands.
 - Tool/runtime environment checks exposed as `coding-ethos doctor` or through
   the existing Make doctor target with machine-readable output.
 
@@ -168,15 +193,28 @@ policy-aware execution API for agents and hooks.
    failing check IDs, and generated config/prompt-pack hashes under a hook-owned
    path such as `.git/coding-ethos-hooks/lint-state/`.
 
-7. Add policy-aware remediation hints.
+7. Add a repo ignore checker.
+   Verify that hook runtime output directories such as `.coding-ethos/` are
+   ignored in both the bundle repo and consuming repo before hooks write logs or
+   cache artifacts. This should become a normal policy check rather than tribal
+   setup knowledge.
+
+8. Add policy-aware remediation hints.
    Map findings to ethos principle IDs and one concrete next command. Keep this
    deterministic: no LLM call should be required to explain a known lint failure.
 
-8. Add `coding-ethos doctor --json` or equivalent Go hook command.
+9. Add ETHOS evidence maps.
+   Extend `coding_ethos.yml` / compiled policy data so tool evidence can map to
+   policy IDs, principle IDs, confidence, meaning, advice steps, and rerun
+   commands. Start with high-signal mappings such as Ruff `PLC0415` to
+   `No Conditional Imports`, then add mypy/pyright/ruff/golangci evidence where
+   it clearly supports an ETHOS principle.
+
+10. Add `coding-ethos doctor --json` or equivalent Go hook command.
    Report required tools, resolved config files, generated config drift status,
    prompt-pack drift status, hook group availability, and linter state freshness.
 
-9. Keep `coding-ethos` output modes aligned.
+11. Keep `coding-ethos` output modes aligned.
    Any new lint/explain/doctor command should support human output for local use,
    JSON for scripts, and TOON for agent contexts through the existing output
    selection conventions.

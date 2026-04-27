@@ -36,6 +36,11 @@ consuming-repo overrides.
 The cached Go helper binary lives under `.git/coding-ethos-hooks/` and rebuilds
 when its sources or config inputs change.
 
+Each top-level hook runner invocation logs stdout, stderr, and run metadata
+under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
+`.coding-ethos/` ignored in both the bundle repo and consuming repos; it is
+runtime evidence for later analysis, not source.
+
 Required tools:
 
 - `go` 1.26 or newer
