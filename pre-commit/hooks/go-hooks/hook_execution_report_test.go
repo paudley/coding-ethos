@@ -47,7 +47,7 @@ func TestFormatHookExecutionSummaryJSONIncludesTiming(t *testing.T) {
 	}
 }
 
-func TestFormatHookExecutionSummaryTOONIncludesCommandRows(t *testing.T) {
+func TestFormatHookExecutionSummaryTOONIncludesOnlyFailures(t *testing.T) {
 	t.Parallel()
 
 	output := formatHookExecutionSummary([]hookGroupResult{
@@ -65,14 +65,18 @@ func TestFormatHookExecutionSummaryTOONIncludesCommandRows(t *testing.T) {
 
 	for _, fragment := range []string{
 		"status: FAIL",
-		"groups[1]{name,status,exit_code,duration_ms}:",
-		"syntax,FAIL,1,15",
-		"commands[2]{group,name,status,exit_code,duration_ms}:",
+		"failed_groups[1]{name,exit_code,duration_ms}:",
+		"syntax,1,15",
+		"commands[1]{group,name,status,exit_code,duration_ms}:",
 		"syntax,yamllint,FAIL,1,11",
 		"fix_first[1]{group}:",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("summary TOON missing %q:\n%s", fragment, output)
 		}
+	}
+
+	if strings.Contains(output, "check-syntax") {
+		t.Fatalf("summary TOON included passing command:\n%s", output)
 	}
 }

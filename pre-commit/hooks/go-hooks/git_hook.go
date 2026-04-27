@@ -152,7 +152,10 @@ func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int 
 			exit = 1
 		}
 
-		if result.ExitCode != 0 || hookVerboseSuccessOutputEnabled() {
+		shouldPrintSummary := result.ExitCode != 0 &&
+			os.Getenv(hookGroupChildEnv) != hookPlanBoolTrue ||
+			hookVerboseSuccessOutputEnabled()
+		if shouldPrintSummary {
 			writeLine(os.Stdout, formatHookExecutionSummary(
 				[]hookGroupResult{result},
 				selectedHookOutputFormat(),

@@ -155,45 +155,48 @@ func formatHookExecutionSummaryTOON(summary hookExecutionSummary) string {
 		"status: " + toonCell(summary.Status),
 		"summary: " + toonCell(summary.Summary),
 		fmt.Sprintf("duration_ms: %.0f", summary.DurationMS),
-		fmt.Sprintf("passed: %d", summary.Passed),
 		fmt.Sprintf("failed: %d", summary.Failed),
-		fmt.Sprintf("groups[%d]{name,status,exit_code,duration_ms}:", len(summary.Groups)),
-	}
-	for _, group := range summary.Groups {
-		lines = append(lines, fmt.Sprintf(
-			"  %s,%s,%d,%.0f",
-			toonCell(group.Name),
-			toonCell(group.Status),
-			group.ExitCode,
-			group.DurationMS,
-		))
 	}
 
-	commandCount := 0
-	for _, group := range summary.Groups {
-		commandCount += len(group.Commands)
+	failedGroups := failedExecutionGroups(summary.Groups)
+	if len(failedGroups) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"failed_groups[%d]{name,exit_code,duration_ms}:",
+				len(failedGroups),
+			),
+		)
+		for _, group := range failedGroups {
+			lines = append(lines, fmt.Sprintf(
+				"  %s,%d,%.0f",
+				toonCell(group.Name),
+				group.ExitCode,
+				group.DurationMS,
+			))
+		}
 	}
 
-	if commandCount > 0 {
+	failedCommands := failedExecutionCommands(summary.Groups)
+
+	if len(failedCommands) > 0 {
 		lines = append(
 			lines,
 			fmt.Sprintf(
 				"commands[%d]{group,name,status,exit_code,duration_ms}:",
-				commandCount,
+				len(failedCommands),
 			),
 		)
 
-		for _, group := range summary.Groups {
-			for _, command := range group.Commands {
-				lines = append(lines, fmt.Sprintf(
-					"  %s,%s,%s,%d,%.0f",
-					toonCell(group.Name),
-					toonCell(command.Name),
-					toonCell(command.Status),
-					command.ExitCode,
-					command.DurationMS,
-				))
-			}
+		for _, command := range failedCommands {
+			lines = append(lines, fmt.Sprintf(
+				"  %s,%s,%s,%d,%.0f",
+				toonCell(command.Group),
+				toonCell(command.Name),
+				toonCell(command.Status),
+				command.ExitCode,
+				command.DurationMS,
+			))
 		}
 	}
 
@@ -208,4 +211,50 @@ func formatHookExecutionSummaryTOON(summary hookExecutionSummary) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+type failedExecutionCommand struct {
+	Group      string
+	Name       string
+	Status     string
+	ExitCode   int
+	DurationMS float64
+}
+
+func failedExecutionGroups(
+	groups []hookExecutionGroupJSON,
+) []hookExecutionGroupJSON {
+	failedGroups := []hookExecutionGroupJSON{}
+
+	for _, group := range groups {
+		if group.ExitCode != 0 || group.Status == statusFail {
+			failedGroups = append(failedGroups, group)
+		}
+	}
+
+	return failedGroups
+}
+
+func failedExecutionCommands(
+	groups []hookExecutionGroupJSON,
+) []failedExecutionCommand {
+	failedCommands := []failedExecutionCommand{}
+
+	for _, group := range groups {
+		for _, command := range group.Commands {
+			if command.ExitCode == 0 && command.Status != statusFail {
+				continue
+			}
+
+			failedCommands = append(failedCommands, failedExecutionCommand{
+				Group:      group.Name,
+				Name:       command.Name,
+				Status:     command.Status,
+				ExitCode:   command.ExitCode,
+				DurationMS: command.DurationMS,
+			})
+		}
+	}
+
+	return failedCommands
 }
