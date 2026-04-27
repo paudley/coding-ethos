@@ -29,7 +29,6 @@ GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format
 HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
 ROOT_LEFTHOOK := $(HOOK_CONSUMER_ROOT)/lefthook.yml
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
-LEFTHOOK_RUNNER := $(PRECOMMIT_DIR)hooks/run-lefthook.sh
 LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 LOCAL_LEFTHOOK := $(LOCAL_BIN_DIR)/lefthook
 LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
@@ -102,7 +101,9 @@ ifneq ($(strip $(MERGE_MODEL)),)
 MERGE_FLAGS += --merge-model "$(MERGE_MODEL)"
 endif
 
-LEFTHOOK := $(LOCAL_LEFTHOOK)
+LEFTHOOK ?= $(shell command -v lefthook 2>/dev/null || { \
+	if [ -x "$(LOCAL_LEFTHOOK)" ]; then printf '%s' "$(LOCAL_LEFTHOOK)"; fi; \
+})
 
 ifneq ($(strip $(TERM)),dumb)
 COLOR_RESET := \033[0m
@@ -134,14 +135,6 @@ endef
 
 define print_kv
 printf '  $(COLOR_ACCENT)%-24s$(COLOR_RESET) %s\n' "$(1)" "$(2)"
-endef
-
-define run_lefthook
-cd "$(HOOK_CONSUMER_ROOT)" && { \
-	$(LEFTHOOK) run --no-auto-install $(1) 2>&1 \
-		| "$(GO_HOOK)" quiet-filter; \
-	exit "$${PIPESTATUS[0]}"; \
-}
 endef
 
 .PHONY: \
@@ -246,14 +239,14 @@ status: ## Print the resolved tool and generation configuration.
 	@$(call print_kv,MERGE_MODEL,$(if $(strip $(MERGE_MODEL)),$(MERGE_MODEL),<default>))
 	@$(call print_kv,MERGE_TIMEOUT_SECONDS,$(MERGE_TIMEOUT_SECONDS))
 
-doctor: ensure-uv ensure-go ensure-gofmt check-root-config ## Check local tools and important resolved paths.
+doctor: ensure-uv ensure-go ensure-gofmt ## Check local tools and important resolved paths.
 	@$(call print_step,Checking local development environment)
 	@$(call print_info,uv: $$(command -v "$(UV)"))
 	@$(call print_info,python: $$("$(PYTHON)" --version))
 	@$(call print_info,go: $$("$(GO)" version))
 	@$(call print_info,gofmt: $$(command -v "$(GOFMT)"))
-	@$(call print_info,lefthook config: $(ROOT_LEFTHOOK))
 	@$(call print_info,hook consumer root: $(HOOK_CONSUMER_ROOT))
+	@$(call print_info,tool config repo: $(TOOL_CONFIG_REPO))
 
 ##@ Setup
 ensure-uv: ## Verify uv is available.
@@ -372,9 +365,15 @@ validate: ensure-go ## Validate the bundled hook runtime.
 	@$(call print_step,Validating bundled hook runtime)
 	@"$(GO_HOOK)" git-hook validate
 
-lefthook-validate: ensure-lefthook ## Validate the compatibility Lefthook configuration.
+lefthook-validate: ## Validate the bundled compatibility Lefthook configuration.
 	@$(call print_step,Validating bundled Lefthook compatibility config)
-	@cd "$(HOOK_CONSUMER_ROOT)" && $(LEFTHOOK) validate
+	@if [ -z "$(LEFTHOOK)" ]; then \
+		printf '$(COLOR_WARN)lefthook was not found on PATH or at %s.$(COLOR_RESET)\n' \
+			"$(LOCAL_LEFTHOOK)" >&2; \
+		printf 'Install lefthook or run `make ensure-lefthook` for legacy compatibility validation.\n' >&2; \
+		exit 127; \
+	fi
+	@cd "$(PRECOMMIT_DIR)" && "$(LEFTHOOK)" validate
 
 go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
