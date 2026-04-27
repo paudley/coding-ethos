@@ -70,6 +70,24 @@ func TestEvaluateShellBackgroundGitBlocksHiddenGit(t *testing.T) {
 	}
 }
 
+func TestEvaluateShellGitHubAdminBlocksAdminFlag(t *testing.T) {
+	t.Parallel()
+
+	policyDef := shellPolicy("shell.github_admin")
+
+	decisions, err := EvaluateShellGitHubAdmin(
+		policyDef,
+		Context{Argv: []string{"gh", "pr", "merge", "123", "--admin"}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate gh admin: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluateGitHookBypassBlocksRawEnvBypass(t *testing.T) {
 	t.Parallel()
 

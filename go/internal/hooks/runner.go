@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -89,8 +90,13 @@ func hookSpecificOutput(event Event) *HookSpecificOutput {
 	}
 
 	return &HookSpecificOutput{
-		HookEventName:     event.HookEventName,
-		AdditionalContext: buildHookOutputContext(command, output, event.ReturnCode()),
+		HookEventName: event.HookEventName,
+		AdditionalContext: buildHookOutputContext(
+			command,
+			output,
+			event.ReturnCode(),
+			selectedOutputFormat(),
+		),
 	}
 }
 
@@ -124,17 +130,59 @@ func hasHookOutputKeywords(output string) bool {
 	return false
 }
 
-func buildHookOutputContext(command string, output string, returnCode int) string {
-	hookType := "PRE-COMMIT"
+func buildHookOutputContext(
+	command string,
+	output string,
+	returnCode int,
+	format string,
+) string {
+	operation := hookOperation(command)
+	status := hookOutputStatus(returnCode)
+
+	switch format {
+	case outputFormatJSON:
+		return buildHookOutputContextJSON(operation, status, command, output, returnCode)
+	case outputFormatTOON:
+		return buildHookOutputContextTOON(operation, status, command, output, returnCode)
+	default:
+		return buildHookOutputContextHuman(operation, status, output)
+	}
+}
+
+func hookOperation(command string) string {
 	operation := "commit"
 
 	if strings.Contains(strings.ToLower(command), "git push") {
-		hookType = "PRE-PUSH"
 		operation = "push"
 	}
 
+	if strings.Contains(strings.ToLower(command), "pre-commit") {
+		operation = "pre-commit"
+	}
+
+	return operation
+}
+
+func hookOutputStatus(returnCode int) string {
+	if returnCode == 0 {
+		return statusAllowed
+	}
+
+	return statusBlocked
+}
+
+func buildHookOutputContextHuman(
+	operation string,
+	status string,
+	output string,
+) string {
+	hookType := "PRE-COMMIT"
+	if operation == "push" {
+		hookType = "PRE-PUSH"
+	}
+
 	outcome := "The " + operation + " succeeded."
-	if returnCode != 0 {
+	if status == statusBlocked {
 		outcome = "The " + operation + " was blocked by hooks."
 	}
 
@@ -144,6 +192,73 @@ func buildHookOutputContext(command string, output string, returnCode int) strin
 		"<hook-output>\n" + output + "\n</hook-output>\n\n" +
 		"Summarize failed hooks, modified files, warnings, and required fixes. " +
 		"Treat linter output as important and fix findings structurally."
+}
+
+func buildHookOutputContextTOON(
+	operation string,
+	status string,
+	command string,
+	output string,
+	returnCode int,
+) string {
+	return strings.Join([]string{
+		"format: toon",
+		"event: PostToolUse",
+		"tool: Bash",
+		"operation: " + toonCell(operation),
+		"status: " + toonCell(status),
+		fmt.Sprintf("return_code: %d", returnCode),
+		"command: " + toonCell(command),
+		"summary: " + toonCell(hookOutputSummary(operation, status)),
+		"hook_output: " + toonCell(output),
+		"guidance: " + toonCell(
+			"Summarize failed hooks, modified files, warnings, and required fixes. "+
+				"Treat linter output as important and fix findings structurally.",
+		),
+	}, "\n")
+}
+
+func buildHookOutputContextJSON(
+	operation string,
+	status string,
+	command string,
+	output string,
+	returnCode int,
+) string {
+	payload := map[string]any{
+		"format":      outputFormatJSON,
+		"event":       "PostToolUse",
+		"tool":        "Bash",
+		"operation":   operation,
+		"status":      status,
+		"return_code": returnCode,
+		"command":     command,
+		"summary":     hookOutputSummary(operation, status),
+		"hook_output": output,
+		"guidance": sentence(
+			"Summarize failed hooks, modified files, warnings, and required fixes.",
+			"Treat linter output as important and fix findings structurally.",
+		),
+	}
+
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return buildHookOutputContextTOON(operation, status, command, output, returnCode)
+	}
+
+	return string(encoded)
+}
+
+func hookOutputSummary(operation string, status string) string {
+	if status == statusBlocked {
+		return operation + " was blocked by hooks"
+	}
+
+	return operation + " hooks completed successfully"
+}
+
+func sentence(parts ...string) string {
+	return strings.Join(parts, " ")
 }
 
 func evaluateHookPolicy(
@@ -162,6 +277,7 @@ func evaluateHookPolicy(
 
 	context := evaluators.Context{
 		Scope:   event.HookEventName,
+		Tool:    event.ToolName,
 		Argv:    commandArgv(event.Command()),
 		Command: event.Command(),
 		Content: event.Content(),

@@ -29,16 +29,16 @@
     {
       "event": "PreToolUse",
       "tool": "Bash",
-      "legacy_behavior": "block hook bypass, destructive git, protected branch checkout, dangerous shell, background git, admin-only staged files, and protected paths",
+      "legacy_behavior": "block hook bypass, destructive git, protected branch checkout, dangerous shell, background git, gh admin operations, admin-only staged files, protected branch writes, and protected paths",
       "replacement": "coding-ethos-hook policy dispatch and evaluators",
-      "status": "partial"
+      "status": "covered"
     },
     {
       "event": "PreToolUse",
       "tool": "Write/Edit",
       "legacy_behavior": "block protected branch writes, protected paths, bare except, broad except pass, and unexplained type ignore",
       "replacement": "coding-ethos-hook policy dispatch and evaluators",
-      "status": "partial"
+      "status": "covered"
     },
     {
       "event": "PostToolUse",

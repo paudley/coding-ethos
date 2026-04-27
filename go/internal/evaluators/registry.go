@@ -56,10 +56,15 @@ func DefaultRegistry() Registry {
 		EvaluatorFunc(EvaluateProtectedPath),
 	)
 	registry.Register(
+		"filesystem.protected_branch_write",
+		EvaluatorFunc(EvaluateProtectedBranchWrite),
+	)
+	registry.Register(
 		"shell.dangerous_command",
 		EvaluatorFunc(EvaluateShellDangerousCommand),
 	)
 	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
+	registry.Register("shell.github_admin", EvaluatorFunc(EvaluateShellGitHubAdmin))
 	registry.Register(
 		"python.conditional_imports",
 		EvaluatorFunc(EvaluatePythonConditionalImports),
@@ -79,6 +84,11 @@ func DefaultRegistry() Registry {
 	registry.Register(
 		"python.direct_imports",
 		EvaluatorFunc(EvaluatePythonDirectImports),
+	)
+	registry.Register("python.bare_except", EvaluatorFunc(EvaluatePythonBareExcept))
+	registry.Register(
+		"python.unexplained_type_ignore",
+		EvaluatorFunc(EvaluatePythonUnexplainedTypeIgnore),
 	)
 
 	return registry

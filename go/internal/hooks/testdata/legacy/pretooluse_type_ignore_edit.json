@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "src/app.py",
+    "new_string": "value = dynamic()  # type: ignore\n"
+  }
+}

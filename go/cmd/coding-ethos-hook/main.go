@@ -85,20 +85,12 @@ func readBundle(path string) (policy.Bundle, error) {
 }
 
 func printBlocked(result hooks.Result) {
-	for _, decision := range result.Decisions {
-		if decision.Decision == "block" || decision.Severity == "block" {
-			fmt.Fprintf(
-				os.Stderr,
-				"[coding-ethos:%s] %s\n",
-				decision.PolicyID,
-				decision.Message,
-			)
-
-			if decision.Suggestion != "" {
-				fmt.Fprintf(os.Stderr, "Suggestion: %s\n", decision.Suggestion)
-			}
-		}
+	advice := hooks.BlockedAdvice(result)
+	if advice == "" {
+		return
 	}
+
+	fmt.Fprintln(os.Stderr, advice)
 }
 
 func exitErr(err error) {

@@ -135,7 +135,7 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 }
 
 func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
@@ -160,15 +160,46 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 
 	if !strings.Contains(
 		result.HookSpecificOutput.AdditionalContext,
-		"PRE-COMMIT OUTPUT",
+		"format: toon",
 	) ||
 		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "ruff...Failed") {
 		t.Fatalf("unexpected context: %#v", result.HookSpecificOutput)
 	}
 }
 
+func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	advice := BlockedAdvice(Result{
+		Event:  "PreToolUse",
+		Tool:   "Bash",
+		Status: statusBlocked,
+		Decisions: []policy.Decision{
+			{
+				PolicyID:   "shell.github_admin",
+				Decision:   "block",
+				Severity:   "block",
+				Message:    "gh --admin bypasses normal review gates.",
+				Suggestion: "Use the normal review path.",
+			},
+		},
+	})
+
+	for _, expected := range []string{
+		"format: toon",
+		"event: PreToolUse",
+		"policy_id: shell.github_admin",
+		"suggestion: Use the normal review path.",
+	} {
+		if !strings.Contains(advice, expected) {
+			t.Fatalf("missing %q in advice: %s", expected, advice)
+		}
+	}
+}
+
+//nolint:paralleltest // Mutates process env to force agent-facing TOON output.
 func TestLegacyHookFixturesStayRunnable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	tests := []struct {
 		name        string
@@ -190,20 +221,36 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			wantPolicy: "filesystem.protected_path",
 		},
 		{
+			name:       "gh admin",
+			path:       "testdata/legacy/pretooluse_gh_admin.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "shell.github_admin",
+		},
+		{
+			name:       "bare except write",
+			path:       "testdata/legacy/pretooluse_bare_except_write.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "python.bare_except",
+		},
+		{
+			name:       "type ignore edit",
+			path:       "testdata/legacy/pretooluse_type_ignore_edit.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "python.unexplained_type_ignore",
+		},
+		{
 			name:        "post tool hook output",
 			path:        "testdata/legacy/posttooluse_precommit_failure.json",
 			wantStatus:  statusAllowed,
-			wantContext: "PRE-COMMIT OUTPUT",
+			wantContext: "format: toon",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
 			event := readLegacyEventFixture(t, test.path)
 
-			result, err := Run(policy.ExampleBundle(), Options{Event: event})
+			result, err := Run(legacyFixtureBundle(), Options{Event: event})
 			if err != nil {
 				t.Fatalf("run hook: %v", err)
 			}
@@ -212,7 +259,7 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 				t.Fatalf("status = %q, want %q", result.Status, test.wantStatus)
 			}
 
-			if test.wantPolicy != "" && result.Decisions[0].PolicyID != test.wantPolicy {
+			if test.wantPolicy != "" && !hasDecision(result.Decisions, test.wantPolicy) {
 				t.Fatalf("policy mismatch: %#v", result.Decisions)
 			}
 
@@ -226,6 +273,71 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func hasDecision(decisions []policy.Decision, policyID string) bool {
+	for _, decision := range decisions {
+		if decision.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func legacyFixtureBundle() policy.Bundle {
+	bundle := policy.ExampleBundle()
+	addLegacyPolicy(
+		&bundle,
+		"shell.github_admin",
+		"shell",
+		"shell.github_admin",
+		"Bash",
+	)
+	addLegacyPolicy(
+		&bundle,
+		"python.bare_except",
+		"python",
+		"python.bare_except",
+		"Write",
+	)
+	addLegacyPolicy(
+		&bundle,
+		"python.unexplained_type_ignore",
+		"python",
+		"python.unexplained_type_ignore",
+		"Edit",
+	)
+
+	return bundle
+}
+
+func addLegacyPolicy(
+	bundle *policy.Bundle,
+	policyID string,
+	category string,
+	evaluatorName string,
+	tool string,
+) {
+	bundle.Policies[policyID] = policy.Policy{
+		ID:              policyID,
+		Category:        category,
+		Source:          policy.SourceRef{File: "testdata/legacy_hook_inventory.json"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record", "advise"},
+		Message:         "legacy fixture policy",
+		DefenseLayers:   policy.GitDefenseLayers("block", "", "block", "", ""),
+		Evaluators:      []policy.Evaluator{{Kind: category, Name: evaluatorName}},
+	}
+
+	if bundle.Dispatch.Hooks["PreToolUse"] == nil {
+		bundle.Dispatch.Hooks["PreToolUse"] = map[string][]policy.HookDispatchEntry{}
+	}
+
+	bundle.Dispatch.Hooks["PreToolUse"][tool] = append(
+		bundle.Dispatch.Hooks["PreToolUse"][tool],
+		policy.HookDispatchEntry{PolicyID: policyID, Mode: "block"},
+	)
 }
 
 func readLegacyEventFixture(t *testing.T, path string) Event {

@@ -294,6 +294,16 @@ func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
 			[]string{"python", "direct_imports"},
 			principleRefs(principles, "protocol-first-design"),
 		),
+		pythonPolicySpec(
+			"python.bare_except",
+			[]string{"python", "catch_and_silence"},
+			principleRefs(principles, "exception-hierarchy-and-error-messages"),
+		),
+		pythonPolicySpec(
+			"python.unexplained_type_ignore",
+			[]string{"python", "comment_suppressions"},
+			principleRefs(principles, "linting-as-code-quality-enforcement"),
+		),
 		pytestGatePolicySpec(principles),
 	}
 }
@@ -367,11 +377,15 @@ func pythonPolicyMessage(policyID string) string {
 			"Logging should preserve structured context instead of",
 			"formatting it away.",
 		)
-	default:
+	case "python.direct_imports":
 		return sentence(
 			"Direct imports from protected packages bypass the",
 			"intended public interface.",
 		)
+	case "python.bare_except":
+		return "Bare except clauses hide exception types and are forbidden."
+	default:
+		return "Unexplained type ignore suppressions are forbidden."
 	}
 }
 
@@ -385,8 +399,12 @@ func pythonPolicySuggestion(policyID string) string {
 		return "Handle the exception explicitly or let it fail with useful context."
 	case "python.structured_logging":
 		return "Use structured logging fields according to the repo policy."
-	default:
+	case "python.direct_imports":
 		return "Import through the package public API or configure an exempt path."
+	case "python.bare_except":
+		return "Catch a precise exception type and handle it explicitly."
+	default:
+		return "Remove the suppression or document the narrow technical reason."
 	}
 }
 
@@ -562,6 +580,12 @@ func addShellPolicies(policies map[string]Policy, principles map[string]Principl
 			"git commit and git push must not run in the background or under timeout.",
 			"Run git commit or git push in the foreground.",
 		),
+		shellPolicy(
+			"shell.github_admin",
+			principleRefs(principles, "one-path-for-critical-operations"),
+			"GitHub admin CLI operations are forbidden in agent hooks.",
+			"Use the reviewed administrative path instead of gh --admin.",
+		),
 	} {
 		policies[policy.ID] = policy
 	}
@@ -611,6 +635,31 @@ func addFilesystemPolicies(
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
 		},
 		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
+	}
+	policies["filesystem.protected_branch_write"] = Policy{
+		ID:       "filesystem.protected_branch_write",
+		Category: "filesystem",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "filesystem.protected_branch_write",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"one-path-for-critical-operations",
+			"no-rationalized-shortcuts",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Protected branch writes are forbidden.",
+		Suggestion:      "Create or use a worktree before modifying files.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", "git_state"),
+		AppliesTo: AppliesTo{
+			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
+		},
+		Evaluators: []Evaluator{{
+			Kind: "git_state",
+			Name: "filesystem.protected_branch_write",
+		}},
 	}
 }
 
@@ -675,6 +724,7 @@ func compileHookDispatch(
 	addGitHookBypassDispatch(hooks, policies)
 	addBlockingBashDispatch(hooks, policies)
 	addProtectedPathDispatch(hooks, policies)
+	addProtectedBranchWriteDispatch(hooks, policies)
 	addPythonWriteDispatch(hooks, policies)
 	addPytestGateDispatch(hooks, policies)
 	addCommitHeadDispatch(hooks, policies)
@@ -713,6 +763,7 @@ func addBlockingBashDispatch(
 		"git.stash_blocked",
 		"shell.dangerous_command",
 		"shell.background_git",
+		"shell.github_admin",
 	} {
 		if _, ok := policies[policyID]; ok {
 			ensureHookTool(hooks, "PreToolUse", "Bash")
@@ -724,6 +775,26 @@ func addBlockingBashDispatch(
 				},
 			)
 		}
+	}
+}
+
+func addProtectedBranchWriteDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	if _, ok := policies["filesystem.protected_branch_write"]; !ok {
+		return
+	}
+
+	for _, tool := range []string{"Bash", "Write", "Edit", "MultiEdit"} {
+		ensureHookTool(hooks, "PreToolUse", tool)
+		hooks["PreToolUse"][tool] = append(
+			hooks["PreToolUse"][tool],
+			HookDispatchEntry{
+				PolicyID: "filesystem.protected_branch_write",
+				Mode:     "block",
+			},
+		)
 	}
 }
 
@@ -757,6 +828,8 @@ func addPythonWriteDispatch(
 		"python.catch_and_silence",
 		"python.structured_logging",
 		"python.direct_imports",
+		"python.bare_except",
+		"python.unexplained_type_ignore",
 	} {
 		if _, exists := policies[policyID]; exists {
 			for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
@@ -839,14 +912,18 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.stash_blocked",
 			"shell.dangerous_command",
 			"shell.background_git",
+			"shell.github_admin",
 			"git.staged_admin_files",
 			"filesystem.protected_path",
+			"filesystem.protected_branch_write",
 			"generated_config.freshness",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
 			"python.structured_logging",
 			"python.direct_imports",
+			"python.bare_except",
+			"python.unexplained_type_ignore",
 		),
 		"full": existingPolicyIDs(
 			policies,

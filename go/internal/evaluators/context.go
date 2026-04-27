@@ -8,6 +8,7 @@ type Context struct {
 	Content string
 	Cwd     string
 	Scope   string
+	Tool    string
 	Files   []string
 	Argv    []string
 }

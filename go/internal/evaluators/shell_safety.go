@@ -55,6 +55,22 @@ func EvaluateShellBackgroundGit(
 	return nil, nil
 }
 
+func EvaluateShellGitHubAdmin(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	argv := context.Argv
+	if len(argv) == 0 {
+		return nil, nil
+	}
+
+	if argv[0] != "gh" || !hasArg(argv, "--admin") {
+		return nil, nil
+	}
+
+	return blockShellDecision(policyDef, strings.Join(argv, " ")), nil
+}
+
 func pipesToShell(command string) bool {
 	return strings.Contains(command, "| sh") ||
 		strings.Contains(command, "| bash") ||

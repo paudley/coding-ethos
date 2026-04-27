@@ -29,8 +29,8 @@ parent and Claude hook entries outside this repo.
 
 | Event | Tool | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- | --- |
-| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, admin-only staged files, and protected paths. | Policy dispatch plus Go evaluators. | Partial |
-| `PreToolUse` | `Write` / `Edit` | Block protected branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Partial |
+| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Covered |
+| `PreToolUse` | `Write` / `Edit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Covered |
 | `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Covered |
 | `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Planned deterministic transcript capture and replay. No hook-path AI call. | Planned |
 | `SessionStart` | `compact` | Inject continuation prompt into the next compacted session. | Planned coding-ethos continuation context store. | Planned |
@@ -51,12 +51,16 @@ Covered in Go agent/runtime code:
 - `git.commit_head_advanced`
 - `shell.dangerous_command`
 - `shell.background_git`
+- `shell.github_admin`
 - `filesystem.protected_path`
+- `filesystem.protected_branch_write`
 - `python.conditional_imports`
 - `python.optional_returns`
 - `python.catch_and_silence`
 - `python.structured_logging`
 - `python.direct_imports`
+- `python.bare_except`
+- `python.unexplained_type_ignore`
 - Post-tool hook output feedback for git hook commands
 
 Imported fixtures live under `go/internal/hooks/testdata/legacy/`.
@@ -65,14 +69,8 @@ inventory used to keep the migration status explicit.
 
 ## Remaining Runtime Gaps
 
-- Protected branch write detection needs a deterministic worktree/branch
-  evaluator for Bash, Write, Edit, and MultiEdit.
-- `gh --admin` command blocking should become a named shell policy.
 - AI co-author commit-message blocking currently exists in commit-message hooks;
   the agent hook path should route to the same policy.
-- Write/Edit content checks should distinguish bare `except:` and unexplained
-  `# type: ignore` as explicit policy evidence rather than only generic Python
-  catch/suppression checks.
 - PreCompact should be redesigned as deterministic context capture. The legacy
   script made a direct external model call and contained local credentials; that
   behavior should not be cloned.
@@ -85,6 +83,9 @@ Fixtures are representative imported payloads, not legacy adapters:
 
 - `pretooluse_git_no_verify.json`
 - `pretooluse_protected_path_write.json`
+- `pretooluse_gh_admin.json`
+- `pretooluse_bare_except_write.json`
+- `pretooluse_type_ignore_edit.json`
 - `posttooluse_precommit_failure.json`
 - `precompact_continuation_request.json`
 - `sessionstart_compact.json`
