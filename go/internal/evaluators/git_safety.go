@@ -172,7 +172,9 @@ func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision 
 }
 
 func isGit(argv []string) bool {
-	return len(argv) > 0 && argv[0] == "git"
+	normalized := stripLeadingAssignments(argv)
+
+	return len(normalized) > 0 && normalized[0] == "git"
 }
 
 func isGitSubcommand(argv []string, subcommand string) bool {
@@ -180,6 +182,7 @@ func isGitSubcommand(argv []string, subcommand string) bool {
 }
 
 func gitSubcommand(argv []string) string {
+	argv = stripLeadingAssignments(argv)
 	if len(argv) < gitSubcommandArgc {
 		return ""
 	}
@@ -204,6 +207,31 @@ func gitSubcommand(argv []string) string {
 	}
 
 	return ""
+}
+
+func stripLeadingAssignments(argv []string) []string {
+	for len(argv) > 0 && isShellAssignment(argv[0]) {
+		argv = argv[1:]
+	}
+
+	return argv
+}
+
+func isShellAssignment(arg string) bool {
+	name, value, ok := strings.Cut(arg, "=")
+	if !ok || name == "" || value == "" {
+		return false
+	}
+
+	for _, char := range name {
+		if char != '_' && (char < 'A' || char > 'Z') &&
+			(char < 'a' || char > 'z') &&
+			(char < '0' || char > '9') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func skipNextGitGlobalArg(arg string) bool {

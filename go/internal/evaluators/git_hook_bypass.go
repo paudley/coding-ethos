@@ -30,7 +30,7 @@ func EvaluateGitHookBypass(
 		return nil, nil
 	}
 
-	if context.Argv[0] != "git" {
+	if !isGit(context.Argv) {
 		return nil, nil
 	}
 
@@ -57,6 +57,7 @@ func isCommitOrPush(argv []string) bool {
 }
 
 func hasHookBypass(argv []string) bool {
+	argv = stripLeadingAssignments(argv)
 	for _, arg := range argv[2:] {
 		if arg == "--no-verify" {
 			return true

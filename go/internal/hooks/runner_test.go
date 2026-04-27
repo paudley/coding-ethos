@@ -500,6 +500,27 @@ func TestRunDoesNotTreatQuotedNoVerifyAsBypass(t *testing.T) {
 	}
 }
 
+func TestRunBlocksEnvPrefixedNoVerifyBypass(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "FOO=bar git commit --no-verify -m test",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+}
+
 func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 	t.Parallel()
 

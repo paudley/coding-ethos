@@ -64,3 +64,20 @@ func TestEvaluateGitHookBypassIgnoresNonGitCommand(t *testing.T) {
 		t.Fatalf("expected no decisions, got %#v", decisions)
 	}
 }
+
+func TestEvaluateGitHookBypassBlocksEnvPrefixedNoVerify(t *testing.T) {
+	t.Parallel()
+
+	policyDef := policy.ExampleBundle().Policies["git.hook_bypass"]
+
+	decisions, err := EvaluateGitHookBypass(policyDef, Context{
+		Argv: []string{"FOO=bar", "git", "commit", "--no-verify", "-m", "test"},
+	})
+	if err != nil {
+		t.Fatalf("evaluate hook bypass: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: got %d", len(decisions))
+	}
+}

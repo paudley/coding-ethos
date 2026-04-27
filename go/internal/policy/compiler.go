@@ -825,9 +825,8 @@ func addGitHookBypassDispatch(
 		hooks["PreToolUse"]["Bash"] = append(
 			hooks["PreToolUse"]["Bash"],
 			HookDispatchEntry{
-				PolicyID:        "git.hook_bypass",
-				Mode:            "block",
-				CommandPatterns: []string{"--no-verify", "SKIP=", "git commit -n"},
+				PolicyID: "git.hook_bypass",
+				Mode:     "block",
 			},
 		)
 	}
