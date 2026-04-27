@@ -65,6 +65,48 @@ func TestSyncAndDoctorSettings(t *testing.T) {
 	}
 }
 
+func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
+
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		path,
+		[]byte(`{"permissions":{"allow":["WebSearch"]},"outputStyle":"Explanatory"}`),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	err = agenthooks.SyncSettings(path, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+
+	output := string(payload)
+	for _, expected := range []string{
+		`"permissions"`,
+		`"WebSearch"`,
+		`"outputStyle": "Explanatory"`,
+		`"PreToolUse"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in settings:\n%s", expected, output)
+		}
+	}
+}
+
 func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	t.Parallel()
 

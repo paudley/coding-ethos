@@ -94,6 +94,13 @@ func SyncSettings(path string, hookCommand string) error {
 		return err
 	}
 
+	payload, err := existingSettingsPayload(path)
+	if err != nil {
+		return err
+	}
+
+	payload["hooks"] = settings.Hooks
+
 	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
 	if err != nil {
 		return fmt.Errorf("create settings directory: %w", err)
@@ -113,12 +120,34 @@ func SyncSettings(path string, hookCommand string) error {
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 
-	err = encoder.Encode(settings)
+	err = encoder.Encode(payload)
 	if err != nil {
 		return fmt.Errorf("encode settings: %w", err)
 	}
 
 	return nil
+}
+
+func existingSettingsPayload(path string) (map[string]any, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]any{}, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("open existing settings: %w", err)
+	}
+
+	defer file.Close()
+
+	payload := map[string]any{}
+
+	err = json.NewDecoder(file).Decode(&payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode existing settings: %w", err)
+	}
+
+	return payload, nil
 }
 
 func DoctorSettings(path string, hookCommand string) error {
