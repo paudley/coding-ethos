@@ -24,6 +24,14 @@ start_hook_log() {
 		return
 	fi
 
+	local required_ignore
+	for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
+		if ! git -C "$ROOT" check-ignore --quiet "$required_ignore"; then
+			printf 'FATAL: %s is not ignored; add .coding-ethos/ to the repo .gitignore before hook logs are written\n' "$required_ignore" >&2
+			exit 1
+		fi
+	done
+
 	local log_root="${ROOT}/.coding-ethos/hook-runs"
 	local timestamp
 	timestamp="$(date -u +%Y%m%dT%H%M%SZ)"

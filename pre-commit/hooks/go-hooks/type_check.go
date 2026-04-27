@@ -36,6 +36,7 @@ type typeCheckSettings struct {
 	ConsumerRoot          string
 	HooksProject          string
 	Checkers              []typeCheckerConfig
+	EvidenceMaps          []policyEvidenceMap
 	ExcludedPathFragments []string
 	Enabled               bool
 }
@@ -59,13 +60,36 @@ type typeCheckSummary struct {
 }
 
 type typeCheckDiagnostic struct {
-	Checker  string `json:"checker"`
-	File     string `json:"file"`
-	Severity string `json:"severity"`
-	Code     string `json:"code,omitempty"`
-	Message  string `json:"message"`
-	Line     int    `json:"line,omitempty"`
-	Column   int    `json:"column,omitempty"`
+	Checker      string   `json:"checker"`
+	File         string   `json:"file"`
+	Severity     string   `json:"severity"`
+	Code         string   `json:"code,omitempty"`
+	Message      string   `json:"message"`
+	PolicyID     string   `json:"policy_id,omitempty"`
+	Confidence   string   `json:"confidence,omitempty"`
+	Meaning      string   `json:"meaning,omitempty"`
+	Advice       string   `json:"advice,omitempty"`
+	PrincipleIDs []string `json:"principle_ids,omitempty"`
+	AdviceSteps  []string `json:"advice_steps,omitempty"`
+	Rerun        []string `json:"rerun,omitempty"`
+	Line         int      `json:"line,omitempty"`
+	Column       int      `json:"column,omitempty"`
+}
+
+type policyEvidenceAdvice struct {
+	Summary string
+	Steps   []string
+	Rerun   []string
+}
+
+type policyEvidenceMap struct {
+	Advice       policyEvidenceAdvice
+	Source       string
+	PolicyID     string
+	Confidence   string
+	Meaning      string
+	Codes        []string
+	PrincipleIDs []string
 }
 
 func defaultTypeCheckers() []typeCheckerConfig {
@@ -113,6 +137,28 @@ func defaultTypeCheckers() []typeCheckerConfig {
 	}
 }
 
+func defaultPolicyEvidenceMaps() []policyEvidenceMap {
+	return []policyEvidenceMap{
+		{
+			Source:       "ruff",
+			Codes:        []string{"PLC0415"},
+			PolicyID:     "python.conditional_imports",
+			PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
+			Confidence:   "high",
+			Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
+			Advice: policyEvidenceAdvice{
+				Summary: "Move required imports to module scope and fail during startup.",
+				Steps: []string{
+					"Declare the dependency as required.",
+					"Import it at module scope.",
+					"Replace runtime fallback paths with startup validation.",
+				},
+				Rerun: []string{"make pre-commit", "make check"},
+			},
+		},
+	}
+}
+
 func loadTypeCheckSettings() (typeCheckSettings, error) {
 	var settings typeCheckSettings
 
@@ -141,6 +187,15 @@ func loadTypeCheckSettings() (typeCheckSettings, error) {
 			"excluded_path_fragments",
 		) {
 		settings.ExcludedPathFragments = []string{"/docker/", "vulture_whitelist"}
+	}
+
+	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &settings.EvidenceMaps)
+	if err != nil {
+		return settings, fmt.Errorf("parse policy evidence maps: %w", err)
+	}
+
+	if len(settings.EvidenceMaps) == 0 {
+		settings.EvidenceMaps = defaultPolicyEvidenceMaps()
 	}
 
 	for checkerIndex := range settings.Checkers {
@@ -531,6 +586,7 @@ func runTypeChecker(
 	})
 	outputText := toolResult.Combined
 	diagnostics := parseTypeCheckDiagnostics(checker.Name, outputText)
+	diagnostics = enrichTypeCheckDiagnostics(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())
 	if toolResult.RunnerFailure == nil && toolResult.ExitCode == 0 {
@@ -749,6 +805,52 @@ func parsePylintDiagnostics(output string) []typeCheckDiagnostic {
 	return diagnostics
 }
 
+func enrichTypeCheckDiagnostics(
+	diagnostics []typeCheckDiagnostic,
+	evidenceMaps []policyEvidenceMap,
+) []typeCheckDiagnostic {
+	if len(diagnostics) == 0 || len(evidenceMaps) == 0 {
+		return diagnostics
+	}
+
+	enriched := make([]typeCheckDiagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		mapping, ok := evidenceMapForDiagnostic(diagnostic, evidenceMaps)
+		if ok {
+			diagnostic.PolicyID = mapping.PolicyID
+			diagnostic.PrincipleIDs = append([]string{}, mapping.PrincipleIDs...)
+			diagnostic.Confidence = mapping.Confidence
+			diagnostic.Meaning = mapping.Meaning
+			diagnostic.Advice = mapping.Advice.Summary
+			diagnostic.AdviceSteps = append([]string{}, mapping.Advice.Steps...)
+			diagnostic.Rerun = append([]string{}, mapping.Advice.Rerun...)
+		}
+
+		enriched = append(enriched, diagnostic)
+	}
+
+	return enriched
+}
+
+func evidenceMapForDiagnostic(
+	diagnostic typeCheckDiagnostic,
+	evidenceMaps []policyEvidenceMap,
+) (policyEvidenceMap, bool) {
+	for _, mapping := range evidenceMaps {
+		if !strings.EqualFold(strings.TrimSpace(mapping.Source), diagnostic.Checker) {
+			continue
+		}
+
+		for _, code := range mapping.Codes {
+			if strings.EqualFold(strings.TrimSpace(code), strings.TrimSpace(diagnostic.Code)) {
+				return mapping, true
+			}
+		}
+	}
+
+	return policyEvidenceMap{}, false
+}
+
 func typeCheckSummaryForResults(
 	results []typeCheckResult,
 	fileCount int,
@@ -839,12 +941,12 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 
 	diagnostics := typeCheckDiagnosticsForResults(results)
 	if len(diagnostics) == 0 {
-		lines = append(lines, "diagnostics[0]{tool,file,line,column,severity,code,message}:")
+		lines = append(lines, "diagnostics[0]{tool,file,line,column,severity,code,policy_id,message,advice}:")
 	} else {
 		lines = append(
 			lines,
 			fmt.Sprintf(
-				"diagnostics[%d]{tool,file,line,column,severity,code,message}:",
+				"diagnostics[%d]{tool,file,line,column,severity,code,policy_id,message,advice}:",
 				len(diagnostics),
 			),
 		)
@@ -852,14 +954,16 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 			lines = append(
 				lines,
 				fmt.Sprintf(
-					"  %s,%s,%d,%d,%s,%s,%s",
+					"  %s,%s,%d,%d,%s,%s,%s,%s,%s",
 					toonCell(diagnostic.Checker),
 					toonCell(diagnostic.File),
 					diagnostic.Line,
 					diagnostic.Column,
 					toonCell(defaultString(diagnostic.Severity, "error")),
 					toonCell(diagnostic.Code),
+					toonCell(diagnostic.PolicyID),
 					toonCell(diagnostic.Message),
+					toonCell(diagnostic.Advice),
 				),
 			)
 		}
@@ -1058,6 +1162,19 @@ func formatTypeCheckDiagnostics(diagnostics []typeCheckDiagnostic) []string {
 					diagnostic.Message,
 				),
 			)
+			if diagnostic.PolicyID != "" {
+				lines = append(
+					lines,
+					fmt.Sprintf(
+						"         policy: %s (%s)",
+						diagnostic.PolicyID,
+						defaultString(diagnostic.Confidence, "mapped"),
+					),
+				)
+				if diagnostic.Advice != "" {
+					lines = append(lines, "         advice: "+diagnostic.Advice)
+				}
+			}
 		}
 
 		lines = append(lines, "")

@@ -6,6 +6,7 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -211,7 +212,7 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 				t.Fatalf("parseTypeCheckDiagnostics() = %#v, want one diagnostic", got)
 			}
 
-			if got[0] != tc.want {
+			if !reflect.DeepEqual(got[0], tc.want) {
 				t.Fatalf("parseTypeCheckDiagnostics()[0] = %#v, want %#v", got[0], tc.want)
 			}
 		})
@@ -292,12 +293,61 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 		"format: toon",
 		"status: FAIL",
 		"checks{name,status,exit_code,duration_ms}:",
-		"diagnostics[1]{tool,file,line,column,severity,code,message}:",
-		"mypy,pkg/app.py,88,12,error,no-any-return,Returning Any from function declared to return bool",
+		"diagnostics[1]{tool,file,line,column,severity,code,policy_id,message,advice}:",
+		"mypy,pkg/app.py,88,12,error,no-any-return,,Returning Any from function declared to return bool,",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("TOON output missing %q:\n%s", fragment, output)
 		}
+	}
+}
+
+func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
+	t.Parallel()
+
+	diagnostics := enrichTypeCheckDiagnostics(
+		[]typeCheckDiagnostic{
+			{
+				Checker: "ruff",
+				Code:    "PLC0415",
+			},
+			{
+				Checker: "ruff",
+				Code:    "F401",
+			},
+		},
+		[]policyEvidenceMap{
+			{
+				Source:       "ruff",
+				Codes:        []string{"PLC0415"},
+				PolicyID:     "python.conditional_imports",
+				PrincipleIDs: []string{"no-conditional-imports"},
+				Confidence:   "high",
+				Meaning:      "import away from module scope",
+				Advice: policyEvidenceAdvice{
+					Summary: "Move required imports to module scope.",
+					Steps:   []string{"Import at module scope."},
+					Rerun:   []string{"make pre-commit"},
+				},
+			},
+		},
+	)
+
+	if diagnostics[0].PolicyID != "python.conditional_imports" {
+		t.Fatalf("mapped diagnostic policy = %q", diagnostics[0].PolicyID)
+	}
+
+	if diagnostics[0].Advice != "Move required imports to module scope." {
+		t.Fatalf("mapped diagnostic advice = %q", diagnostics[0].Advice)
+	}
+
+	if len(diagnostics[0].PrincipleIDs) != 1 ||
+		diagnostics[0].PrincipleIDs[0] != "no-conditional-imports" {
+		t.Fatalf("mapped diagnostic principles = %#v", diagnostics[0].PrincipleIDs)
+	}
+
+	if diagnostics[1].PolicyID != "" {
+		t.Fatalf("unmapped diagnostic policy = %q, want empty", diagnostics[1].PolicyID)
 	}
 }
 

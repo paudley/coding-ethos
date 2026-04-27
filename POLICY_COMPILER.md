@@ -168,6 +168,11 @@ The absence of an ETHOS mapping should never hide or discard a linter finding;
 it only means the finding receives normal diagnostic rendering rather than
 policy-grounded advice.
 
+The first runtime path for this is `policy.evidence_maps` in hook config. It is
+intentionally small: map a tool source and one or more codes to policy metadata,
+then let the normalized finding renderer carry both the raw diagnostic and the
+ETHOS advice.
+
 This creates a policy-first pipeline:
 
 `ETHOS principle -> policy rule -> tool / AST / type evidence -> normalized finding -> ETHOS-grounded advice and ranking`

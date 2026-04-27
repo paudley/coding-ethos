@@ -39,7 +39,8 @@ when its sources or config inputs change.
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
 `.coding-ethos/` ignored in both the bundle repo and consuming repos; it is
-runtime evidence for later analysis, not source.
+runtime evidence for later analysis, not source. The runner fails before
+writing logs when `.coding-ethos/` is not ignored.
 
 Required tools:
 
@@ -121,11 +122,15 @@ The same wrapper also exposes local policy-runtime entrypoints:
 pre-commit/hooks/run-go-hook.sh agent-hook
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
+pre-commit/hooks/run-go-hook.sh hook-log-summary
 ```
 
 `agent-hook` reads agent hook JSON from stdin and never calls Gemini. Gemini
 checks stay in the Git hook stages: changed-file review on pre-commit and
 full review on pre-push.
+
+`hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
+human, JSON, and TOON output selection as hook execution output.
 
 ## Configuration
 
@@ -162,6 +167,11 @@ golangci-lint read policy from the generated consumer-repo config files at the
 repo root. The hook project `hooks/pyproject.toml` remains the isolated
 toolchain environment. Parent `uv` workspace membership is optional, not
 required.
+
+Known external diagnostics can be enriched through `policy.evidence_maps`.
+Mapped findings keep their raw tool, code, location, severity, and message, then
+add policy ID, principle IDs, confidence, meaning, advice, and rerun commands.
+Unmapped diagnostics still flow through as ordinary lint findings.
 
 Important configurable areas:
 

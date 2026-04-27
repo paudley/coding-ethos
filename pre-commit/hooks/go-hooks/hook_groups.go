@@ -33,6 +33,7 @@ func canonicalHookGroups() map[string]hookGroup {
 		"syntax": {
 			Name: "syntax",
 			Commands: []hookCommand{
+				{Name: "check-runtime-ignores", Run: checkRuntimeIgnoresCommand},
 				{Name: "check-syntax", Run: checkSyntax},
 				{Name: "check-merge-conflict", Run: checkMergeConflict},
 				{Name: "check-shebangs", Run: checkShebangs},

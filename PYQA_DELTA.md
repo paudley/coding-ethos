@@ -198,10 +198,14 @@ evidence; they do not filter out everything else.
    ignored in both the bundle repo and consuming repo before hooks write logs or
    cache artifacts. This should become a normal policy check rather than tribal
    setup knowledge.
+   First pass: `check-runtime-ignores` and the shell hook wrapper both enforce
+   `.coding-ethos/` ignore coverage before hook logs are written.
 
 8. Add policy-aware remediation hints.
    Map findings to ethos principle IDs and one concrete next command. Keep this
    deterministic: no LLM call should be required to explain a known lint failure.
+   First pass: type-check diagnostics can be enriched from
+   `policy.evidence_maps` while preserving unmapped diagnostics.
 
 9. Add ETHOS evidence maps.
    Extend `coding_ethos.yml` / compiled policy data so tool evidence can map to
