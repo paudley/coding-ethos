@@ -78,7 +78,7 @@ func buildSettings(hookCommand string) (claudeSettings, error) {
 				commandMatcher("", hookCommand),
 			},
 			"SessionStart": {
-				commandMatcher("compact", hookCommand),
+				commandMatcher("", hookCommand),
 			},
 		},
 	}, nil

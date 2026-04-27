@@ -22,8 +22,9 @@ var (
 )
 
 type Options struct {
-	Cwd  string
-	Argv []string
+	Cwd           string
+	Argv          []string
+	AdminApproved bool
 }
 
 func Check(bundle policy.Bundle, options Options) (Result, error) {
@@ -60,7 +61,14 @@ func CheckWithRegistry(
 			)
 		}
 
-		evaluated, err := evaluateGitPolicy(policyDef, argv, options.Cwd, "", registry)
+		evaluated, err := evaluateGitPolicy(
+			policyDef,
+			argv,
+			options.Cwd,
+			"",
+			options.AdminApproved,
+			registry,
+		)
 		if err != nil {
 			return Result{}, err
 		}
@@ -136,12 +144,14 @@ func evaluateGitPolicy(
 	argv []string,
 	cwd string,
 	scope string,
+	adminApproved bool,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	context := evaluators.Context{
-		Argv:  append([]string(nil), argv...),
-		Cwd:   cwd,
-		Scope: scope,
+		AdminApproved: adminApproved,
+		Argv:          append([]string(nil), argv...),
+		Cwd:           cwd,
+		Scope:         scope,
 	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {

@@ -21,6 +21,7 @@ lint_bin="$go_bin/coding-ethos-lint"
 hook_bin="$go_bin/coding-ethos-hook"
 git_bin="$go_bin/coding-ethos-git"
 agent_hooks_bin="$go_bin/coding-ethos-agent-hooks"
+run_go_hook="$repo_root/pre-commit/hooks/run-go-hook.sh"
 
 for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; do
   if [[ ! -x "$bin" ]]; then
@@ -238,6 +239,7 @@ printf '==> validating installed hook wrapper runs compiled policy preflight\n'
 git init "$wrapper_repo" >/dev/null
 git -C "$wrapper_repo" config user.email test@example.com
 git -C "$wrapper_repo" config user.name Test
+git -C "$wrapper_repo" checkout -b feature/wrapper-smoke >/dev/null
 printf '.coding-ethos/\n' > "$wrapper_repo/.gitignore"
 printf '[project]\nname = "blocked"\n' > "$wrapper_repo/pyproject.toml"
 git -C "$wrapper_repo" add .gitignore pyproject.toml
@@ -263,14 +265,59 @@ fi
 
 printf '==> validating agent hook settings sync and doctor\n'
 agent_settings="$tmp_root/claude-settings/settings.local.json"
-"$agent_hooks_bin" sync \
-  --settings "$agent_settings" \
-  --hook-command "$repo_root/pre-commit/hooks/run-go-hook.sh agent-hook"
-"$agent_hooks_bin" doctor \
-  --settings "$agent_settings" \
-  --hook-command "$repo_root/pre-commit/hooks/run-go-hook.sh agent-hook" >/dev/null
+"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
+  --settings "$agent_settings" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
+  printf 'expected missing settings doctor to fail\n' >&2
+  cat /tmp/coding-ethos-agent-doctor-missing.out >&2
+  exit 1
+}
+"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
+  --settings "$agent_settings"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --settings "$agent_settings" >/dev/null
+
+printf '==> validating agent git wrapper rewrite and refusal\n'
+(
+  cd "$wrapper_repo"
+  printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-rewrite.out
+  printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out
+  set +e
+  printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"python -c \\"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\\""}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-refusal.out \
+      2>/tmp/coding-ethos-git-refusal.err
+  refusal_status=$?
+  set -e
+  if [[ "$refusal_status" -ne 2 ]]; then
+    printf 'expected git refusal exit 2, got %s\n' "$refusal_status" >&2
+    exit 1
+  fi
+)
+if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
+  ! grep -q 'policy-git' /tmp/coding-ethos-git-rewrite.out; then
+  printf 'expected git rewrite output:\n' >&2
+  cat /tmp/coding-ethos-git-rewrite.out >&2
+  exit 1
+fi
+if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||
+  ! grep -q "policy-git 'add'" /tmp/coding-ethos-git-chain-rewrite.out ||
+  ! grep -q "policy-git 'status' '-s'" /tmp/coding-ethos-git-chain-rewrite.out; then
+  printf 'expected chained git rewrite output:\n' >&2
+  cat /tmp/coding-ethos-git-chain-rewrite.out >&2
+  exit 1
+fi
+if ! grep -q 'This is a SYSTEM rule' /tmp/coding-ethos-git-refusal.err; then
+  printf 'expected explicit git refusal output:\n' >&2
+  cat /tmp/coding-ethos-git-refusal.err >&2
+  cat /tmp/coding-ethos-git-refusal.out >&2
+  exit 1
+fi
+shim_dir="$(git -C "$wrapper_repo" rev-parse --path-format=absolute --git-common-dir)/coding-ethos-hooks/bin"
+if [[ ! -x "$shim_dir/git" ]]; then
+  printf 'expected executable git shim at %s/git\n' "$shim_dir" >&2
+  exit 1
+fi
 
 printf '==> validating agent continuation capture and replay\n'
 transcript="$tmp_root/session.jsonl"

@@ -40,6 +40,11 @@ func run() error {
 	realGit := flags.String("real-git", "", "Real git executable")
 	checkOnly := flags.Bool("check-only", false, "Check policy without executing git")
 	jsonOutput := flags.Bool("json", false, "Emit JSON result")
+	adminApproved := flags.Bool(
+		"admin-approved",
+		false,
+		"Allow admin-protected coding-ethos commits when process ancestry is approved",
+	)
 
 	err := flags.Parse(os.Args[1:])
 	if err != nil {
@@ -71,7 +76,12 @@ func run() error {
 		return fmt.Errorf("get cwd: %w", err)
 	}
 
-	result, err := gitwrap.Check(bundle, gitwrap.Options{Argv: argv, Cwd: cwd})
+	options, err := gitOptions(argv, cwd, *adminApproved)
+	if err != nil {
+		return err
+	}
+
+	result, err := gitwrap.Check(bundle, options)
 	if err != nil {
 		return fmt.Errorf("check git policy: %w", err)
 	}
@@ -94,18 +104,34 @@ func run() error {
 		return nil
 	}
 
-	return executeGitWithPostChecks(bundle, *realGit, argv, cwd, *jsonOutput)
+	return executeGitWithPostChecks(bundle, *realGit, options, *jsonOutput)
+}
+
+func gitOptions(
+	argv []string,
+	cwd string,
+	adminApproved bool,
+) (gitwrap.Options, error) {
+	if adminApproved {
+		err := gitwrap.VerifyAdminApproved(cwd)
+		if err != nil {
+			return gitwrap.Options{}, fmt.Errorf("verify admin approval: %w", err)
+		}
+	}
+
+	return gitwrap.Options{
+		AdminApproved: adminApproved,
+		Argv:          argv,
+		Cwd:           cwd,
+	}, nil
 }
 
 func executeGitWithPostChecks(
 	bundle policy.Bundle,
 	realGit string,
-	argv []string,
-	cwd string,
+	options gitwrap.Options,
 	jsonOutput bool,
 ) error {
-	options := gitwrap.Options{Argv: argv, Cwd: cwd}
-
 	err := gitwrap.PreparePost(bundle, options)
 	if err != nil {
 		return fmt.Errorf("prepare post-git policy: %w", err)

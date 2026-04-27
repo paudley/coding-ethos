@@ -19,6 +19,9 @@ func (result Result) Blocked() bool {
 }
 
 type HookSpecificOutput struct {
-	HookEventName     string `json:"hookEventName"`
-	AdditionalContext string `json:"additionalContext,omitempty"`
+	UpdatedInput             map[string]any `json:"updatedInput,omitempty"`
+	HookEventName            string         `json:"hookEventName"`
+	AdditionalContext        string         `json:"additionalContext,omitempty"`
+	PermissionDecision       string         `json:"permissionDecision,omitempty"`
+	PermissionDecisionReason string         `json:"permissionDecisionReason,omitempty"`
 }

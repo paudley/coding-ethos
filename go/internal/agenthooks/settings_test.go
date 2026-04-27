@@ -35,7 +35,6 @@ func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
 		`"matcher": "Write"`,
 		`"matcher": "Edit"`,
 		`"matcher": "MultiEdit"`,
-		`"matcher": "compact"`,
 		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
 	} {
 		if !strings.Contains(output, expected) {

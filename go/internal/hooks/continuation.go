@@ -33,7 +33,7 @@ func continuationOutput(event Event) *HookSpecificOutput {
 	case "PreCompact":
 		return captureContinuationOutput(event)
 	case "SessionStart":
-		if event.Matcher != "compact" {
+		if event.Matcher != "compact" && event.Source != "compact" {
 			return nil
 		}
 

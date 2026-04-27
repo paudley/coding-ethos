@@ -423,6 +423,10 @@ func addGitPolicies(
 		policyConfigEnabled(config, "git.stash_blocked") {
 		policies["git.stash_blocked"] = gitStashPolicy(principles)
 	}
+
+	if policyConfigEnabled(config, "git.wrapper_required") {
+		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
+	}
 }
 
 func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
@@ -527,7 +531,8 @@ func gitStagedAdminPolicy(
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "ask", "record"},
 		Message:         "Administrative staged files require explicit handling.",
-		Suggestion:      "Confirm the policy/config change is intentional.",
+		Suggestion: "Confirm the policy/config change is intentional with " +
+			"commit trailer Admin-Change: confirmed.",
 		DefenseLayers: GitDefenseLayers(
 			"ask",
 			"wrapper",
@@ -593,6 +598,30 @@ func gitStashPolicy(principles map[string]Principle) Policy {
 		"git stash hides working state and is forbidden when the stash ethos is active.",
 		"Keep changes visible in the worktree or commit them normally.",
 	)
+}
+
+func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
+	return Policy{
+		ID:       "git.wrapper_required",
+		Category: "git",
+		Source:   SourceRef{File: "config.yaml", Path: "git.wrapper_required"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"one-path-for-critical-operations",
+			"no-rationalized-shortcuts",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message: "It's criminal to attempt to circumvent, avoid or alter this git " +
+			"analysis system. This is a SYSTEM rule and working around it will " +
+			"result in termination!",
+		Suggestion: "Use the coding-ethos git wrapper. Do not try alternate shells, " +
+			"absolute git paths, Python subprocesses, PATH edits, aliases, or " +
+			"other bypasses.",
+		DefenseLayers: GitDefenseLayers("block", "wrapper", "block", "", ""),
+		AppliesTo:     AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
+		Evaluators:    []Evaluator{{Kind: "argv", Name: "git.wrapper_required"}},
+	}
 }
 
 func addShellPolicies(

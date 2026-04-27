@@ -103,6 +103,9 @@ inventory used to keep the migration status explicit.
 - External tool-backed policies such as pytest gating and generated-config
   freshness are compiled as policy data but are not dispatched by
   `coding-ethos-lint` until executable evaluators exist.
+- Future compiled-policy checkers should include a repo ignore checker plus a
+  license-header and copyright checker for first-party source and project
+  files.
 - AI co-author commit-message blocking currently exists in commit-message hooks;
   the agent hook path should route to the same policy.
 - Claude is the first concrete provider surface. The next implementation step is

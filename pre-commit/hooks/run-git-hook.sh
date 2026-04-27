@@ -4,8 +4,9 @@
 
 set -euo pipefail
 
+REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
 HOOK_NAME="$(basename "$0")"
-ROOT="$(git rev-parse --show-toplevel)"
+ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
 if [[ -n "${CODE_ETHOS_PRECOMMIT_ROOT:-}" && -d "${CODE_ETHOS_PRECOMMIT_ROOT}" ]]; then
     BUNDLE_ROOT="${CODE_ETHOS_PRECOMMIT_ROOT}"
 elif [[ -d "${ROOT}/coding-ethos/pre-commit" ]]; then

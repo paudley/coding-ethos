@@ -104,6 +104,7 @@ func evaluatePostPoliciesWithRegistry(
 			argv,
 			options.Cwd,
 			scope,
+			options.AdminApproved,
 			registry,
 		)
 		if err != nil {

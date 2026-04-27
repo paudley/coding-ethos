@@ -12,4 +12,5 @@ type Context struct {
 	Tool             string
 	Files            []string
 	Argv             []string
+	AdminApproved    bool
 }

@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	statusAllowed = "allowed"
-	statusBlocked = "blocked"
+	permissionAllow = "allow"
+	statusAllowed   = "allowed"
+	statusBlocked   = "blocked"
 )
 
 func TestRunBlocksGitHookBypass(t *testing.T) {
@@ -50,7 +51,7 @@ func TestRunBlocksGitHookBypass(t *testing.T) {
 	}
 }
 
-func TestRunAllowsNormalGitCommit(t *testing.T) {
+func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 	t.Parallel()
 
 	repo := initHookRepo(t)
@@ -73,6 +74,17 @@ func TestRunAllowsNormalGitCommit(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
+	if result.HookSpecificOutput == nil ||
+		result.HookSpecificOutput.PermissionDecision != permissionAllow {
+		t.Fatalf("missing wrapper rewrite output: %#v", result.HookSpecificOutput)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok || !strings.Contains(rewritten, "policy-git") ||
+		!strings.Contains(rewritten, "commit") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+
 	if len(result.Decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", result.Decisions)
 	}
@@ -83,7 +95,7 @@ func TestRunAllowsNormalGitCommit(t *testing.T) {
 	}
 }
 
-func TestRunAllowsNormalNonCommitGitCommand(t *testing.T) {
+func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -105,6 +117,154 @@ func TestRunAllowsNormalNonCommitGitCommand(t *testing.T) {
 
 	if len(result.Decisions) != 0 {
 		t.Fatalf("expected no decisions, got %#v", result.Decisions)
+	}
+
+	if result.HookSpecificOutput == nil ||
+		result.HookSpecificOutput.PermissionDecision != permissionAllow {
+		t.Fatalf("missing wrapper rewrite output: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "git status && git log --oneline -1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput == nil ||
+		result.HookSpecificOutput.PermissionDecision != permissionAllow {
+		t.Fatalf("missing wrapper rewrite output: %#v", result.HookSpecificOutput)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-git 'status'") ||
+		!strings.Contains(rewritten, "&&") ||
+		!strings.Contains(rewritten, "policy-git 'log' '--oneline' '-1'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					"git add ",
+					"lbox-platform/docs/plans/0027-corpus_enrichment_completion/",
+					"implementation_plans/phase1-completion-and-pipeline-tamperproofing.md",
+					" && git status -s | grep tamperproofing",
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(rewritten, "policy-git 'status' '-s'") ||
+		!strings.Contains(rewritten, "| 'grep' 'tamperproofing'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunBlocksUnmanagedGitPath(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "/usr/bin/git status",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.Decisions[0].PolicyID != "git.wrapper_required" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					`python -c "import subprocess;`,
+					`subprocess.run(['/usr/bin/git','status'])"`,
+				}, " "),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !strings.Contains(result.Decisions[0].Message, "It's criminal to attempt") {
+		t.Fatalf("weak refusal message: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "helper.py",
+				"content":   `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 }
 

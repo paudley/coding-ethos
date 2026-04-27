@@ -109,6 +109,8 @@ git:
     enabled: true
   commit_head_advanced:
     enabled: true
+  wrapper_required:
+    enabled: true
   staged_admin_files:
     enabled: true
     basenames:

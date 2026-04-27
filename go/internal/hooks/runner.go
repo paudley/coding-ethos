@@ -44,6 +44,7 @@ func RunWithRegistry(
 	registry evaluators.Registry,
 ) (Result, error) {
 	event := options.Event
+	route := gitWrapperRouteFor(event)
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 	decisions := make([]policy.Decision, 0, len(entries))
 
@@ -68,16 +69,34 @@ func RunWithRegistry(
 		}
 	}
 
+	if route.Block && resultStatus(decisions) != statusBlocked {
+		decisions = append(decisions, gitWrapperBlockDecision(bundle, route.Reason))
+	}
+
+	status := resultStatus(decisions)
+	if status == statusBlocked {
+		route = gitWrapperRoute{}
+	}
+
 	return Result{
 		Event:              event.HookEventName,
 		Tool:               event.ToolName,
-		Status:             resultStatus(decisions),
+		Status:             status,
 		Decisions:          decisions,
-		HookSpecificOutput: hookSpecificOutput(event),
+		HookSpecificOutput: hookSpecificOutput(event, route),
 	}, nil
 }
 
-func hookSpecificOutput(event Event) *HookSpecificOutput {
+func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput {
+	if route.Rewrite {
+		return &HookSpecificOutput{
+			HookEventName:            event.HookEventName,
+			PermissionDecision:       permissionAllow,
+			PermissionDecisionReason: route.Reason,
+			UpdatedInput:             route.UpdatedInput,
+		}
+	}
+
 	if output := continuationOutput(event); output != nil {
 		return output
 	}

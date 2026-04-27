@@ -1410,7 +1410,7 @@ The intended managed-flow order is:
 
 1. Hook receives the raw tool call.
 2. Hook classifies the command and blocks obvious hard violations immediately.
-3. Hook rewrites simple git invocations to `coding-ethos-git` or relies on a
+3. Hook rewrites normal git invocations to `coding-ethos-git` or relies on a
    repo-local PATH shim that maps `git` to the wrapper.
 4. `coding-ethos-git` loads the same policy bundle and re-evaluates git policy.
 5. Allowed commands pass through to the real git executable.
@@ -1420,10 +1420,10 @@ This means the hook and wrapper intentionally overlap. The hook is the
 per-action routing and user-interaction layer. The wrapper is the executable
 boundary that still protects the repo if a git command reaches the shell.
 
-Hooks should not silently rewrite complex shell commands. For complex commands,
-the hook should either block a known violation or advise the agent to use
-`coding-ethos-git` explicitly. Only simple single git invocations should be
-rewritten automatically.
+Hooks may rewrite shell command chains when each git segment is a plain
+`git ...` invocation and non-git segments can be preserved literally. The hook
+must still block absolute git paths, nested shells, PATH edits, Python
+subprocesses, aliases, and other bypass shapes instead of normalizing them.
 
 ### CLI Shape
 
@@ -1444,6 +1444,25 @@ git-wrapper
 ```
 
 The important point is that all entrypoints load the same policy bundle.
+
+### Coding-Ethos Admin Approval
+
+`--admin-approved` is a narrow development affordance for sessions where an
+admin has explicitly approved an agent to work directly on the `coding-ethos`
+repository. It is not valid for consumer repositories and is not a general
+escape hatch.
+
+The flag only has effect when all of these are true:
+
+- `coding-ethos-git` is running inside the `coding-ethos` repository.
+- The caller supplied `--admin-approved` before the git subcommand, for example
+  `coding-ethos-git --admin-approved commit -m "..."`.
+- The current process ancestry contains a PID listed one per line in
+  `/etc/coding-ethos-admin.pids`.
+
+When those checks pass, `git.staged_admin_files` records the protected-file
+commit instead of blocking it. Other policies still run normally. Without all
+three checks, admin-protected files remain blocking.
 
 ### Rollout for Git Wrapper Support
 
@@ -1661,8 +1680,9 @@ also protect linked worktrees from the main checkout.
 
 ### `staged_admin_files`
 
-Blocks commits containing sensitive repo administration files unless explicitly
-allowed by repo config.
+Blocks commits containing sensitive repo administration files. In the
+`coding-ethos` repository only, an explicitly approved admin-supervised session
+may use `--admin-approved`; see "Coding-Ethos Admin Approval" above.
 
 Examples:
 

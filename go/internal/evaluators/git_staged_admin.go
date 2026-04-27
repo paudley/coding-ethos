@@ -50,16 +50,31 @@ func EvaluateGitStagedAdminFiles(
 		return nil, nil
 	}
 
-	decision := policy.NewDecision(blockDecision, policyDef)
+	if context.AdminApproved {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Message = "Administrative staged files approved by coding-ethos admin gate."
+		decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
 
-	decision.Evidence = map[string]any{
-		"staged_files": blockedFiles,
+		return []policy.Decision{decision}, nil
 	}
-	if context.Cwd != "" {
-		decision.Evidence["cwd"] = context.Cwd
-	}
+
+	decision := policy.NewDecision(blockDecision, policyDef)
+	decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
 
 	return []policy.Decision{decision}, nil
+}
+
+func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {
+	evidence := map[string]any{
+		"staged_files": blockedFiles,
+	}
+
+	if cwd != "" {
+		evidence["cwd"] = cwd
+	}
+
+	return evidence
 }
 
 func stagedFiles(cwd string) ([]string, error) {

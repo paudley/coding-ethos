@@ -354,6 +354,14 @@ Generated Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.
 
+For work directly on this `coding-ethos` repository, an admin may authorize a
+specific agent session by placing an approved process PID in
+`/etc/coding-ethos-admin.pids`. In that repo-local, admin-supervised case only,
+the git wrapper accepts `--admin-approved` before the git subcommand, such as
+`pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -m "..."`.
+The flag only changes `git.staged_admin_files` from block to record; it does not
+disable any other policy and it is invalid outside this repository.
+
 Install hooks:
 
 ```bash

@@ -6,8 +6,9 @@
 
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
-GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
+ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
+GIT_COMMON_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-common-dir)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
@@ -26,7 +27,7 @@ start_hook_log() {
 
 	local required_ignore
 	for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
-		if ! git -C "$ROOT" check-ignore --quiet "$required_ignore"; then
+		if ! "$REAL_GIT" -C "$ROOT" check-ignore --quiet "$required_ignore"; then
 			printf 'FATAL: %s is not ignored; add .coding-ethos/ to the repo .gitignore before hook logs are written\n' "$required_ignore" >&2
 			exit 1
 		fi
@@ -72,6 +73,37 @@ start_hook_log "$@"
 
 cd "$ROOT"
 mkdir -p "$BIN_DIR" "$TOOLS_BIN_DIR"
+
+shell_quote() {
+	printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+
+install_git_wrapper_shim() {
+	local shim="${TOOLS_BIN_DIR}/git"
+	local tmp_shim="${shim}.tmp.$$"
+	{
+		printf '#!/usr/bin/env bash\n'
+		printf 'set -euo pipefail\n'
+		printf 'export CODING_ETHOS_REAL_GIT=%s\n' "$(shell_quote "$REAL_GIT")"
+		printf 'exec %s policy-git "$@"\n' "$(shell_quote "${SCRIPT_DIR}/run-go-hook.sh")"
+	} >"$tmp_shim"
+	chmod +x "$tmp_shim"
+	mv -f "$tmp_shim" "$shim"
+}
+
+persist_agent_environment() {
+	if [[ -z "${CLAUDE_ENV_FILE:-}" ]]; then
+		return
+	fi
+
+	install_git_wrapper_shim
+	{
+		printf 'export CODING_ETHOS_REAL_GIT=%q\n' "$REAL_GIT"
+		printf 'export CODING_ETHOS_RUN_GO_HOOK=%q\n' "${SCRIPT_DIR}/run-go-hook.sh"
+		# shellcheck disable=SC2016
+		printf 'export PATH=%q:"$PATH"\n' "$TOOLS_BIN_DIR"
+	} >>"$CLAUDE_ENV_FILE"
+}
 
 needs_go_build() {
 	local src_dir="${1:?src dir required}"
@@ -160,7 +192,11 @@ compile_policy_bundle() {
 
 run_agent_hook() {
 	compile_policy_bundle
+	install_git_wrapper_shim
+	persist_agent_environment
 	build_policy_tool coding-ethos-hook
+	export CODING_ETHOS_RUN_GO_HOOK="${SCRIPT_DIR}/run-go-hook.sh"
+	export CODING_ETHOS_GIT_SHIM_DIR="$TOOLS_BIN_DIR"
 	exec "${TOOLS_BIN_DIR}/coding-ethos-hook" --bundle "$POLICY_BUNDLE" --json "$@"
 }
 
@@ -191,14 +227,16 @@ run_policy_lint_check() {
 
 run_policy_git() {
 	compile_policy_bundle
+	install_git_wrapper_shim
 	build_policy_tool coding-ethos-git
 	exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
 }
 
 run_agent_hooks() {
+	install_git_wrapper_shim
 	build_policy_tool coding-ethos-agent-hooks
 	if ! has_arg --hook-command "$@"; then
-		set -- "$@" --hook-command "${SCRIPT_DIR}/run-go-hook.sh agent-hook"
+		set -- "$@" --hook-command "PATH=${TOOLS_BIN_DIR}:\$PATH ${SCRIPT_DIR}/run-go-hook.sh agent-hook"
 	fi
 	exec "${TOOLS_BIN_DIR}/coding-ethos-agent-hooks" "$@"
 }
