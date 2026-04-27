@@ -8,6 +8,8 @@ HOOK_NAME="$(basename "$0")"
 ROOT="$(git rev-parse --show-toplevel)"
 if [[ -n "${CODE_ETHOS_PRECOMMIT_ROOT:-}" && -d "${CODE_ETHOS_PRECOMMIT_ROOT}" ]]; then
     BUNDLE_ROOT="${CODE_ETHOS_PRECOMMIT_ROOT}"
+elif [[ -d "${ROOT}/coding-ethos/pre-commit" ]]; then
+    BUNDLE_ROOT="${ROOT}/coding-ethos/pre-commit"
 elif [[ -d "${ROOT}/code-ethos/pre-commit" ]]; then
     BUNDLE_ROOT="${ROOT}/code-ethos/pre-commit"
 elif [[ -d "${ROOT}/pre-commit" ]]; then
