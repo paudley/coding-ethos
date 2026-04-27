@@ -18,8 +18,9 @@ policy_bin="$go_bin/coding-ethos-policy"
 lint_bin="$go_bin/coding-ethos-lint"
 hook_bin="$go_bin/coding-ethos-hook"
 git_bin="$go_bin/coding-ethos-git"
+agent_hooks_bin="$go_bin/coding-ethos-agent-hooks"
 
-for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin"; do
+for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; do
   if [[ ! -x "$bin" ]]; then
     printf 'missing executable: %s\n' "$bin" >&2
     exit 1
@@ -257,5 +258,16 @@ if ! grep -q '"policy_id": "git.staged_admin_files"' \
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
 fi
+
+printf '==> validating agent hook settings sync and doctor\n'
+agent_settings="$tmp_root/claude-settings/settings.local.json"
+"$agent_hooks_bin" sync \
+  --settings "$agent_settings" \
+  --hook-command "$repo_root/pre-commit/hooks/run-go-hook.sh agent-hook"
+"$agent_hooks_bin" doctor \
+  --settings "$agent_settings" \
+  --hook-command "$repo_root/pre-commit/hooks/run-go-hook.sh agent-hook" >/dev/null
+"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
+  --settings "$agent_settings" >/dev/null
 
 printf 'go tools smoke passed\n'

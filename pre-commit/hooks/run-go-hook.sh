@@ -97,6 +97,18 @@ build_policy_tool() {
 	build_go_binary "${TOOLS_SRC_DIR}/cmd/${name}" "${TOOLS_BIN_DIR}/${name}"
 }
 
+has_arg() {
+	local needle="${1:?arg required}"
+	shift
+
+	local arg
+	for arg in "$@"; do
+		[[ "$arg" == "$needle" ]] && return 0
+	done
+
+	return 1
+}
+
 needs_policy_compile() {
 	[[ ! -f "$POLICY_BUNDLE" ]] && return 0
 	for source in \
@@ -169,6 +181,14 @@ run_policy_git() {
 	exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
 }
 
+run_agent_hooks() {
+	build_policy_tool coding-ethos-agent-hooks
+	if ! has_arg --hook-command "$@"; then
+		set -- "$@" --hook-command "${SCRIPT_DIR}/run-go-hook.sh agent-hook"
+	fi
+	exec "${TOOLS_BIN_DIR}/coding-ethos-agent-hooks" "$@"
+}
+
 run_git_hook() {
 	local hook_name="${1:-}"
 
@@ -197,6 +217,10 @@ case "${1:-}" in
 	git-hook)
 		shift
 		run_git_hook "$@"
+		;;
+	agent-hooks)
+		shift
+		run_agent_hooks "$@"
 		;;
 	policy-lint)
 		shift

@@ -339,6 +339,16 @@ compiled-policy preflight before delegating to the current Go hook group runner.
 This keeps compiled policy in the active Git hook path while the remaining hook
 groups are moved over.
 
+Render or verify Claude agent hook settings without touching global files:
+
+```bash
+pre-commit/hooks/run-go-hook.sh agent-hooks print
+pre-commit/hooks/run-go-hook.sh agent-hooks sync --settings .claude/settings.local.json
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor --settings .claude/settings.local.json
+```
+
+The sync command only writes the explicit `--settings` path.
+
 Install hooks:
 
 ```bash

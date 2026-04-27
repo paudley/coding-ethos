@@ -32,6 +32,7 @@ LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 GIT_HOOKS := pre-commit pre-push commit-msg
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
 GO_TOOL_CMDS := \
+	coding-ethos-agent-hooks \
 	coding-ethos-policy \
 	coding-ethos-lint \
 	coding-ethos-hook \

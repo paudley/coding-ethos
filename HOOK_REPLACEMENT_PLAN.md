@@ -41,9 +41,9 @@ parent and Claude hook entries outside this repo.
 
 | Event | Tool | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- | --- |
-| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Runtime covered |
-| `PreToolUse` | `Write` / `Edit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Runtime covered |
-| `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Runtime covered |
+| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Installed |
+| `PreToolUse` | `Write` / `Edit` / `MultiEdit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Installed |
+| `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Installed |
 | `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Planned deterministic transcript capture and replay. No hook-path AI call. | Planned |
 | `SessionStart` | `compact` | Inject continuation prompt into the next compacted session. | Planned coding-ethos continuation context store. | Planned |
 
@@ -85,9 +85,10 @@ inventory used to keep the migration status explicit.
   violated principles. Future work should move the reminder corpus into
   compiled policy data, add quiet-frequency controls, and include reminders
   such as "keep the todo list current" when work spans multiple planned steps.
-- Agent-hook behavior is runtime covered but not installed. Add a repo-owned
-  Claude hook sync/doctor path before replacing parent or `~/.claude/hooks`
-  entries.
+- Agent-hook behavior has a repo-owned settings renderer, explicit sync, and
+  doctor path through `coding-ethos-agent-hooks` and
+  `run-go-hook.sh agent-hooks`. Cutover still requires intentionally choosing
+  which repo or Claude settings file to update.
 - Git hooks now run compiled-policy preflight before the current bundled Go hook
   runner under `pre-commit/hooks/go-hooks/`. Move remaining hook groups onto
   compiled-policy dispatch before claiming one runtime source of truth.
