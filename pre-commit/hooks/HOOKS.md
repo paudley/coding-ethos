@@ -3,15 +3,17 @@
 
 # coding-ethos-hooks
 
-Lefthook hooks for coding-ethos bundles.
+Go-backed Git hooks for coding-ethos bundles. Lefthook is retained as a
+compatibility dispatcher.
 
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit
   attribution, direct-import enforcement, utility and SQL centralization, file
-  and module doc checks, type-check orchestration, pytest gating, pyproject
-  ignore enforcement, repo-root Python version consistency checks, shared hook
-  policy, and the active Gemini AI review runner
+  and module doc checks, type-check orchestration, Python quality wrappers,
+  Dockerfile and workflow validation, Go toolchain checks, pytest gating,
+  pyproject ignore enforcement, repo-root Python version consistency checks,
+  shared hook policy, and the active Gemini AI review runner
 - **check_complexity.py** - Cyclomatic complexity checks via Radon
 - **check_maintainability.py** - Maintainability index checks via Radon
 - **check_vulture.py** - Dead-code detection via Vulture
@@ -22,7 +24,7 @@ Python tooling.
 
 ## Installation
 
-Install Lefthook from the repository root that exposes `lefthook.yml`:
+Install the Go hook shims from the repository root that exposes the bundle:
 
 ```bash
 cd /path/to/repo
@@ -33,6 +35,9 @@ make -C code-ethos install-hooks
 
 - pyyaml >= 6.0
 - go >= 1.26
+- uv
+- shellcheck, hadolint, actionlint, and golangci-lint for their corresponding
+  hook groups
 
 ## Development
 

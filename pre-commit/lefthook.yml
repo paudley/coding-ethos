@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-# Lefthook hooks for coding-ethos code quality.
+# Lefthook compatibility dispatcher for coding-ethos code quality.
 # Install: lefthook install
 # Run manually: lefthook run --no-auto-install pre-commit
 # Hook bypass is forbidden: do not use LEFTHOOK=0 or --no-verify.
@@ -15,8 +15,8 @@
 #   - golangci-lint: go install
 #                    github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 #
-# Formatting and generic auto-edit hooks run on the working tree, stage their
-# fixed files with Lefthook's stage_fixed option, and do not use git stash.
+# Formatting and generic auto-edit hooks run through the Go runner. Lefthook is
+# kept as a compatibility entrypoint for repos that still invoke it directly.
 
 min_version: 1.13.6
 skip_lfs: true
@@ -25,38 +25,10 @@ output:
   - failure
   - execution_out
 templates:
-  hook_env: >-
-    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
-    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-    HOOKS_PROJECT="${BUNDLE_DIR}/hooks" &&
-    HOOKS_PYPROJECT="${HOOKS_PROJECT}/pyproject.toml" &&
-    REPO_RUFF_CONFIG="ruff.toml" &&
-    uv run --quiet --project "${HOOKS_PROJECT}"
   go_hook: >-
     BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
     printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
     "${BUNDLE_DIR}/hooks/run-go-hook.sh"
-  go_worktree_env: >-
-    BUNDLE_DIR="${CODE_ETHOS_PRECOMMIT_ROOT:-$([ -d code-ethos/pre-commit ] &&
-    printf 'code-ethos/pre-commit' || printf 'pre-commit')}" &&
-    GO_WORKTREE="$("${BUNDLE_DIR}/hooks/run-go-hook.sh" config-get go.worktree go)" &&
-    [ -d "${GO_WORKTREE}" ] ||
-    { echo "FATAL: go.worktree is set to '${GO_WORKTREE}', but that directory
-    does not exist. Update config.yaml or repo_config.yaml."; exit 1; } &&
-    cd "${GO_WORKTREE}"
-  require_actionlint: >-
-    command -v actionlint >/dev/null 2>&1 ||
-    { echo "FATAL: actionlint is required. Install: brew install actionlint or
-    go install github.com/rhysd/actionlint/cmd/actionlint@latest"; exit 1; }
-  require_golangci_lint: >-
-    command -v golangci-lint >/dev/null 2>&1 ||
-    { echo "FATAL: golangci-lint is required. Install: go install
-    github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; exit 1; }
-  go_lint_env: >-
-    REPO_GOLANGCI_CONFIG="$(git rev-parse --show-toplevel)/.golangci.yml" &&
-    [ -f "${REPO_GOLANGCI_CONFIG}" ] ||
-    { echo "FATAL: missing ${REPO_GOLANGCI_CONFIG}. Run: make
-    sync-tool-configs"; exit 1; }
 
 pre-commit:
   parallel: false
@@ -77,173 +49,8 @@ pre-commit:
           exit 1
         fi
 
-    - name: Fix text endings and whitespace
-      run: "{go_hook} fix-text {staged_files}"
-      stage_fixed: true
-
-    - name: Pyupgrade autofix
-      glob:
-        - "*.py"
-        - "*.pyi"
-        - "**/*.py"
-        - "**/*.pyi"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "**/vulture_whitelist.py"
-      run: >-
-        PY_VER="$({go_hook} config-get style.python_version 3.13)" &&
-        PYUPGRADE_FLAG="--py$(printf '%s' "${PY_VER}" | tr -d .)-plus" &&
-        {hook_env} pyupgrade "${PYUPGRADE_FLAG}" {staged_files}
-        >/dev/null 2>&1 || true
-      stage_fixed: true
-
-    - name: Ruff format
-      glob:
-        - "*.py"
-        - "*.pyi"
-        - "**/*.py"
-        - "**/*.pyi"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "**/vulture_whitelist.py"
-      run: >-
-        {hook_env} ruff format --config "${REPO_RUFF_CONFIG}" --quiet
-        {staged_files} >/dev/null 2>&1 || true
-      stage_fixed: true
-
-    - name: Ruff autofix
-      glob:
-        - "*.py"
-        - "*.pyi"
-        - "**/*.py"
-        - "**/*.pyi"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "**/vulture_whitelist.py"
-      run: >-
-        {hook_env} ruff check --config "${REPO_RUFF_CONFIG}" --fix --quiet --ignore-noqa
-        {staged_files}
-        >/dev/null 2>&1 || true
-      stage_fixed: true
-
-    - name: Go format
-      glob: "**/*.go"
-      run: gofmt -w {staged_files}
-      stage_fixed: true
-
-    - name: Syntax and generic file checks
-      run: "{go_hook} run-group syntax {staged_files}"
-
-    - name: Hadolint Dockerfiles
-      glob:
-        - "Dockerfile*"
-        - "**/Dockerfile*"
-      run: >-
-        command -v hadolint >/dev/null 2>&1 ||
-        { echo "FATAL: hadolint is required. Install: brew install hadolint"; exit 1; };
-        hadolint {staged_files}
-
-    - name: Shell checks
-      run: "{go_hook} run-group shell {staged_files}"
-
-    - name: Python policy checks
-      run: "{go_hook} run-group python-policy {staged_files}"
-
-    - name: Python static checks
-      glob:
-        - "*.py"
-        - "**/*.py"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "docker/**"
-      run: "{go_hook} run-group python-static {staged_files}"
-
-    - name: Documentation checks
-      run: "{go_hook} run-group docs {staged_files}"
-
-    - name: Security checks
-      run: "{go_hook} run-group security {staged_files}"
-
-    - name: AI code checks
-      glob:
-        - "*.py"
-        - "*.pyi"
-        - "*.sh"
-        - "*.bash"
-        - "*.go"
-        - "**/*.py"
-        - "**/*.pyi"
-        - "**/*.sh"
-        - "**/*.bash"
-        - "**/*.go"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "scripts/**"
-      run: "{go_hook} run-group ai {staged_files}"
-
-    - name: GitHub Actions workflow validation
-      glob:
-        - ".github/workflows/*.yaml"
-        - ".github/workflows/*.yml"
-        - ".github/workflows/**/*.yaml"
-        - ".github/workflows/**/*.yml"
-      run: >-
-        {require_actionlint} &&
-        actionlint
-
-    - name: Cyclomatic complexity check
-      glob:
-        - "*.py"
-        - "**/*.py"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-      run: >-
-        {hook_env} python ${BUNDLE_DIR}/hooks/check_complexity.py
-        {staged_files}
-
-    - name: Maintainability index check
-      glob:
-        - "*.py"
-        - "**/*.py"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_maintainability.py"
-
-    - name: Dead code detection
-      glob:
-        - "*.py"
-        - "**/*.py"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-      run: "{hook_env} python ${BUNDLE_DIR}/hooks/check_vulture.py"
-
-    - name: Go vet
-      glob: "**/*.go"
-      run: >-
-        {go_worktree_env} &&
-        go vet ./...
-
-    - name: Go tests
-      glob: "**/*.go"
-      run: >-
-        {go_worktree_env} &&
-        go test ./...
-
-    - name: golangci-lint
-      glob: "**/*.go"
-      run: >-
-        {require_golangci_lint} &&
-        {go_worktree_env} &&
-        {go_lint_env} &&
-        golangci-lint run --config "${REPO_GOLANGCI_CONFIG}"
+    - name: Go hook runner
+      run: "{go_hook} git-hook pre-commit"
 
 pre-push:
   parallel: false
@@ -263,60 +70,8 @@ pre-push:
           exit 1
         fi
 
-    - name: Python policy checks
-      run: "{go_hook} run-group python-policy {push_files}"
-
-    - name: Python static checks
-      run: "{go_hook} run-group python-static {push_files}"
-
-    - name: Documentation checks
-      run: "{go_hook} run-group docs {push_files}"
-
-    - name: Security checks
-      run: "{go_hook} run-group security {push_files}"
-
-    - name: Shell checks
-      run: "{go_hook} run-group shell {push_files}"
-
-    - name: AI code checks
-      run: "{go_hook} run-group ai --full-check"
-
-    - name: GitHub Actions workflow validation
-      glob:
-        - ".github/workflows/*.yaml"
-        - ".github/workflows/*.yml"
-        - ".github/workflows/**/*.yaml"
-        - ".github/workflows/**/*.yml"
-      run: >-
-        {require_actionlint} &&
-        actionlint
-
-    - name: Go vet
-      glob: "**/*.go"
-      run: >-
-        {go_worktree_env} &&
-        go vet ./...
-
-    - name: Go format check
-      glob: "**/*.go"
-      run: >-
-        {go_worktree_env} &&
-        test -z "$(gofmt -l .)" ||
-        (gofmt -l . && exit 1)
-
-    - name: Go tests
-      glob: "**/*.go"
-      run: >-
-        {go_worktree_env} &&
-        go test ./...
-
-    - name: golangci-lint
-      glob: "**/*.go"
-      run: >-
-        {require_golangci_lint} &&
-        {go_worktree_env} &&
-        {go_lint_env} &&
-        golangci-lint run --config "${REPO_GOLANGCI_CONFIG}"
+    - name: Go hook runner
+      run: "{go_hook} git-hook pre-push"
 
 commit-msg:
   parallel: false

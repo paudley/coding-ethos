@@ -18,6 +18,10 @@ hooks:
     - docs
     - security
     - shell
+    - docker
+    - workflow
+    - python-quality
+    - go
     - ai
     - commit-msg
 

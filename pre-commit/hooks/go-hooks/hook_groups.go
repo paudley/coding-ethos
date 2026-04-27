@@ -17,7 +17,7 @@ func canonicalHookGroups() map[string]hookGroup {
 	return map[string]hookGroup{
 		"format": {
 			Name:     "format",
-			Commands: []CommandFunc{fixText},
+			Commands: []CommandFunc{runFormatGroupCommand},
 		},
 		"syntax": {
 			Name: "syntax",
@@ -75,6 +75,31 @@ func canonicalHookGroups() map[string]hookGroup {
 			Commands: []CommandFunc{
 				runShellcheck,
 				checkShellBestPractices,
+			},
+		},
+		"docker": {
+			Name:     "docker",
+			Commands: []CommandFunc{runHadolint},
+		},
+		"workflow": {
+			Name:     "workflow",
+			Commands: []CommandFunc{runActionlint},
+		},
+		"python-quality": {
+			Name: "python-quality",
+			Commands: []CommandFunc{
+				runPythonComplexity,
+				runPythonMaintainability,
+				runPythonVulture,
+			},
+		},
+		"go": {
+			Name: "go",
+			Commands: []CommandFunc{
+				runGoFormatCheck,
+				runGoVet,
+				runGoTests,
+				runGolangciLint,
 			},
 		},
 		"ai": {

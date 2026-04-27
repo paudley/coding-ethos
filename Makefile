@@ -326,11 +326,11 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install Git hook shims.
+install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git hook shims.
 	@$(call print_step,Installing Git hook shims)
 	@mkdir -p "$(HOOKS_DIR)"
 	@for hook in $(GIT_HOOKS); do \
-		cp "$(LEFTHOOK_RUNNER)" "$(HOOKS_DIR)/$$hook"; \
+		cp "$(PRECOMMIT_DIR)hooks/run-git-hook.sh" "$(HOOKS_DIR)/$$hook"; \
 		chmod +x "$(HOOKS_DIR)/$$hook"; \
 	done
 	@if [ -f "$(HOOKS_DIR)/prepare-commit-msg" ] \
@@ -338,34 +338,36 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install 
 			"$(HOOKS_DIR)/prepare-commit-msg"; then \
 		rm -f "$(HOOKS_DIR)/prepare-commit-msg"; \
 	fi
-	@$(call print_info,installed: $(LOCAL_LEFTHOOK))
+	@$(call print_info,installed: Go hook runner)
 
-pre-commit: ensure-lefthook ## Run bundled pre-commit hooks on staged files.
-	@$(call print_step,Running Lefthook pre-commit on staged files)
-	@$(call run_lefthook,--no-stage-fixed pre-commit)
+pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
+	@$(call print_step,Running Go pre-commit hooks on staged files)
+	@"$(GO_HOOK)" git-hook pre-commit
 
-pre-commit-all: ensure-lefthook ## Run bundled pre-commit hooks on all files.
-	@$(call print_step,Running Lefthook pre-commit on all files)
-	@$(call run_lefthook,--no-stage-fixed pre-commit --all-files)
+pre-commit-all: ensure-go ## Run bundled pre-commit hooks on all files.
+	@$(call print_step,Running Go pre-commit hooks on all files)
+	@"$(GO_HOOK)" git-hook pre-commit --all-files
 
-pre-push: ensure-lefthook ## Run bundled pre-push hooks.
-	@$(call print_step,Running Lefthook pre-push)
-	@$(call run_lefthook,pre-push)
+pre-push: ensure-go ## Run bundled pre-push hooks.
+	@$(call print_step,Running Go pre-push hooks)
+	@"$(GO_HOOK)" git-hook pre-push
 
-commit-msg: ensure-lefthook ## Run commit-message hooks against MSG=/path/to/file.
+commit-msg: ensure-go ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
 	@printf '$(COLOR_WARN)Usage: make commit-msg MSG=/path/to/commit-message-file$(COLOR_RESET)\n' >&2
 	@exit 2
 else
-	@$(call print_step,Running Lefthook commit-msg)
-	@$(call run_lefthook,commit-msg "$(MSG)")
+	@$(call print_step,Running Go commit-msg hooks)
+	@"$(GO_HOOK)" git-hook commit-msg "$(MSG)"
 endif
 
-validate: ensure-lefthook ## Validate the bundled Lefthook configuration.
-	@$(call print_step,Validating bundled pre-commit hooks)
-	@cd "$(HOOK_CONSUMER_ROOT)" && $(LEFTHOOK) validate
+validate: ensure-go ## Validate the bundled hook runtime.
+	@$(call print_step,Validating bundled hook runtime)
+	@"$(GO_HOOK)" git-hook validate
 
-lefthook-validate: validate
+lefthook-validate: ensure-lefthook ## Validate the compatibility Lefthook configuration.
+	@$(call print_step,Validating bundled Lefthook compatibility config)
+	@cd "$(HOOK_CONSUMER_ROOT)" && $(LEFTHOOK) validate
 
 go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
