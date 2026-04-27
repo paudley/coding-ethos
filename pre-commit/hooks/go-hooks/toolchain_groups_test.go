@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:lll // Uses process-global fixtures.
 package main
 
 import (
@@ -10,10 +11,13 @@ import (
 )
 
 func TestParseHadolintFindings(t *testing.T) {
+	t.Parallel()
+
 	findings := parseHadolintFindings(toolOutputFixture(t, "hadolint.json"))
 	if len(findings) != 1 {
 		t.Fatalf("parseHadolintFindings() = %#v, want one finding", findings)
 	}
+
 	got := findings[0]
 	if got.File != "Dockerfile" || got.Line != 3 || got.Code != "DL3008" ||
 		got.Severity != "warning" || got.Message != "Pin versions in apt get install." {
@@ -27,10 +31,13 @@ func TestParseHadolintFindings(t *testing.T) {
 }
 
 func TestParseActionlintFindings(t *testing.T) {
+	t.Parallel()
+
 	findings := parseActionlintFindings(toolOutputFixture(t, "actionlint.jsonl"))
 	if len(findings) != 1 {
 		t.Fatalf("parseActionlintFindings() = %#v, want one finding", findings)
 	}
+
 	got := findings[0]
 	if got.File != ".github/workflows/ci.yml" || got.Line != 12 || got.Column != 5 ||
 		got.Code != "syntax-check" || got.Message != "property \"run\" is not defined" {
@@ -44,12 +51,15 @@ func TestParseActionlintFindings(t *testing.T) {
 }
 
 func TestParseGolangciFindings(t *testing.T) {
+	t.Parallel()
+
 	findings := parseGolangciFindings(
 		"level=warning msg=\"runner warning\"\n" + toolOutputFixture(t, "golangci.json"),
 	)
 	if len(findings) != 1 {
 		t.Fatalf("parseGolangciFindings() = %#v, want one finding", findings)
 	}
+
 	got := findings[0]
 	if got.File != "pkg/app.go" || got.Line != 8 || got.Column != 2 ||
 		got.Code != "ineffassign" || got.Message != "ineffectual assignment to err" {
@@ -63,15 +73,19 @@ func TestParseGolangciFindings(t *testing.T) {
 }
 
 func TestParsePythonQualityFindings(t *testing.T) {
+	t.Parallel()
+
 	complexity := parseComplexityFindings("  pkg/app.py:42 build_payload (complexity: 19)")
 	if len(complexity) != 1 || complexity[0].Code != "cyclomatic-complexity" ||
 		complexity[0].Line != 42 {
 		t.Fatalf("parseComplexityFindings() = %#v", complexity)
 	}
+
 	maintainability := parseMaintainabilityFindings("  pkg/app.py (MI: 42.50)")
 	if len(maintainability) != 1 || maintainability[0].Code != "maintainability-index" {
 		t.Fatalf("parseMaintainabilityFindings() = %#v", maintainability)
 	}
+
 	vulture := parseVultureFindings("pkg/app.py:17: unused function 'helper' (60% confidence)")
 	if len(vulture) != 1 || vulture[0].Code != "unused-code" || vulture[0].Line != 17 {
 		t.Fatalf("parseVultureFindings() = %#v", vulture)
@@ -80,6 +94,7 @@ func TestParsePythonQualityFindings(t *testing.T) {
 
 func toolOutputFixture(t *testing.T, name string) string {
 	t.Helper()
+
 	content, err := os.ReadFile(filepath.Join("testdata", "tool_outputs", name))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", name, err)

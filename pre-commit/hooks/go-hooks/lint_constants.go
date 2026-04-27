@@ -5,14 +5,19 @@ package main
 
 const (
 	compactDividerWidth     = 60
+	defaultPythonVersion    = "3.13"
+	defaultToolTimeoutSecs  = 300
 	executePermissionMask   = 0o111
 	extBash                 = ".bash"
 	extPy                   = ".py"
 	extShell                = ".sh"
+	extYaml                 = ".yaml"
+	extYml                  = ".yml"
 	geminiDefaultModel      = "gemini-2.5-flash"
 	geminiServiceTierNormal = "standard"
 	kibibyte                = 1024
 	minCollectionItems      = 2
+	nilString               = "<nil>"
 	passVerdict             = "PASS"
 	quietSummaryParts       = 3
 	pythonNodeAssignment    = "assignment"
@@ -36,4 +41,9 @@ const (
 	pythonVersionMatchParts = 2
 	statusFail              = "FAIL"
 	statusPass              = "PASS"
+	statusError             = "ERROR"
+	statusWarn              = "WARN"
+	toolMypy                = "mypy"
+	unknownFile             = "<unknown>"
+	yamllintParts           = 4
 )

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:tagliatelle,gosec,funlen,lll,embeddedstructfieldcheck,modernize // External schemas and legacy hook orchestration.
 package main
 
 import (
@@ -228,15 +229,18 @@ func main() {
 	if os.Getenv("LEFTHOOK") == "0" {
 		os.Exit(0)
 	}
+
 	if len(os.Args) < minCollectionItems {
 		usage()
 		os.Exit(1)
 	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 		os.Exit(1)
 	}
+
 	commands := map[string]CommandFunc{
 		"check-catch-and-silence":          checkCatchAndSilenceCommand,
 		"check-comment-suppressions":       checkCommentSuppressionsCommand,
@@ -278,11 +282,13 @@ func main() {
 		"check-util-centralization":        checkUtilCentralizationCommand,
 		"validate-manifest":                validateManifestCommand,
 	}
+
 	command, ok := commands[os.Args[1]]
 	if !ok {
 		usage()
 		os.Exit(1)
 	}
+
 	os.Exit(command(cfg, os.Args[2:]))
 }
 
@@ -336,6 +342,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	}
 
 	var err error
+
 	filter.ansi, err = compileConfiguredRegex(
 		"quiet_filter.ansi_regex",
 		cfg.ANSIRegex,
@@ -343,6 +350,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.passed, err = compileConfiguredRegex(
 		"quiet_filter.passed_regex",
 		cfg.PassedRegex,
@@ -350,6 +358,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.skipped, err = compileConfiguredRegex(
 		"quiet_filter.skipped_regex",
 		cfg.SkippedRegex,
@@ -357,6 +366,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.failed, err = compileConfiguredRegex(
 		"quiet_filter.failed_regex",
 		cfg.FailedRegex,
@@ -364,6 +374,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.status, err = compileConfiguredRegex(
 		"quiet_filter.status_regex",
 		cfg.StatusRegex,
@@ -371,6 +382,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.preexisting, err = compileConfiguredRegex(
 		"quiet_filter.preexisting_regex",
 		cfg.PreexistingRegex,
@@ -378,6 +390,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	filter.separator, err = compileConfiguredRegex(
 		"quiet_filter.separator_regex",
 		cfg.SeparatorRegex,
@@ -385,6 +398,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 	if err != nil {
 		return filter, err
 	}
+
 	for i, pattern := range cfg.SuppressRegexes {
 		compiled, err := compileConfiguredRegex(
 			fmt.Sprintf("quiet_filter.suppress_regexes[%d]", i),
@@ -393,6 +407,7 @@ func compileQuietFilter(cfg QuietFilterConfig) (compiledQuietFilter, error) {
 		if err != nil {
 			return filter, err
 		}
+
 		filter.suppressRegexes = append(filter.suppressRegexes, compiled)
 	}
 
@@ -403,6 +418,7 @@ func compileConfiguredRegex(name string, pattern string) (*regexp.Regexp, error)
 	if pattern == "" {
 		return regexp.MustCompile(`a^`), nil
 	}
+
 	compiled, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -418,9 +434,11 @@ func runQuietFilter(filter compiledQuietFilter, input io.Reader, output io.Write
 		make([]byte, 0, scannerBufferCapacity),
 		scannerTokenLimit,
 	)
+
 	for scanner.Scan() {
 		state.processLine(scanner.Text())
 	}
+
 	err := scanner.Err()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "quiet-filter: %v\n", err)
@@ -482,12 +500,14 @@ func (state *quietFilterState) consumeStatus(clean string) bool {
 
 		return true
 	}
+
 	if state.filter.skipped.MatchString(clean) {
 		state.skipped++
 		state.suppressMeta = true
 
 		return true
 	}
+
 	if state.filter.failed.MatchString(clean) {
 		state.failed++
 	}
@@ -499,9 +519,11 @@ func (state *quietFilterState) consumeMetadata(clean string) bool {
 	if !state.suppressMeta {
 		return false
 	}
+
 	if clean == "" || hasPrefix(clean, state.filter.metadataPrefixes) {
 		return true
 	}
+
 	state.suppressMeta = false
 
 	return false
@@ -513,12 +535,15 @@ func (state *quietFilterState) consumePreexisting(clean string) bool {
 
 		return true
 	}
+
 	if !state.suppressPreexisting {
 		return false
 	}
+
 	if strings.HasPrefix(clean, " ") || clean == "" {
 		return true
 	}
+
 	state.suppressPreexisting = false
 
 	return false
@@ -530,15 +555,18 @@ func (state *quietFilterState) consumeSeparator(line string, clean string) bool 
 
 		return true
 	}
+
 	if !state.lastWasSeparator || clean == "" {
 		state.lastWasSeparator = false
 
 		return false
 	}
+
 	state.lastWasSeparator = false
 	if state.isBannerHeading(clean) {
 		return state.handleBannerHeading(line, clean)
 	}
+
 	_, _ = fmt.Fprintln(state.output, strings.Repeat("=", state.filter.bannerWidth))
 	_, _ = fmt.Fprintln(state.output, line)
 
@@ -555,10 +583,12 @@ func (state *quietFilterState) handleBannerHeading(line string, clean string) bo
 
 		return true
 	}
+
 	state.seenBanners[clean] = true
 	if clean == "How to fix:" {
 		state.seenBanners["howtofix"] = true
 	}
+
 	_, _ = fmt.Fprintln(state.output, strings.Repeat("=", state.filter.bannerWidth))
 	_, _ = fmt.Fprintln(state.output, line)
 	_, _ = fmt.Fprintln(state.output, strings.Repeat("=", state.filter.bannerWidth))
@@ -570,6 +600,7 @@ func (state *quietFilterState) consumeBannerContent(clean string) bool {
 	if !state.suppressBannerContent {
 		return false
 	}
+
 	if state.filter.status.MatchString(clean) {
 		state.suppressBannerContent = false
 
@@ -591,12 +622,15 @@ func (state *quietFilterState) consumeHowToFix(line string, clean string) bool {
 
 		return true
 	}
+
 	if !state.suppressHowToFix {
 		return false
 	}
+
 	if strings.HasPrefix(clean, " ") || clean == "" {
 		return true
 	}
+
 	state.suppressHowToFix = false
 
 	return false
@@ -607,6 +641,7 @@ func (state *quietFilterState) consumeBlank(clean string) bool {
 		if state.lastWasBlank {
 			return true
 		}
+
 		state.lastWasBlank = true
 	} else {
 		state.lastWasBlank = false
@@ -619,14 +654,17 @@ func (state *quietFilterState) printSummary() {
 	if state.failed == 0 {
 		return
 	}
+
 	parts := make([]string, 0, quietSummaryParts)
 	if state.passed > 0 {
 		parts = append(parts, fmt.Sprintf("\033[32m%d passed\033[0m", state.passed))
 	}
+
 	parts = append(parts, fmt.Sprintf("\033[31m%d failed\033[0m", state.failed))
 	if state.skipped > 0 {
 		parts = append(parts, fmt.Sprintf("\033[33m%d skipped\033[0m", state.skipped))
 	}
+
 	_, _ = fmt.Fprintf(state.output, "  (%s)\n", strings.Join(parts, ", "))
 }
 
@@ -634,9 +672,11 @@ func shouldSuppressQuietLine(filter compiledQuietFilter, clean string) bool {
 	if filter.suppressExact[clean] {
 		return true
 	}
+
 	if hasPrefix(clean, filter.suppressPrefixes) {
 		return true
 	}
+
 	for _, pattern := range filter.suppressRegexes {
 		if pattern.MatchString(clean) {
 			return true
@@ -667,6 +707,7 @@ func decodeYAMLValue(value any, target any) error {
 	if err != nil {
 		return fmt.Errorf("build config decoder: %w", err)
 	}
+
 	err = decoder.Decode(value)
 	if err != nil {
 		return fmt.Errorf("decode config value: %w", err)
@@ -694,6 +735,7 @@ func decodeOptionalConfigSection(
 	if !ok {
 		return false, nil
 	}
+
 	err := decodeConfigBlock(value, label, target)
 	if err != nil {
 		return false, err
@@ -706,10 +748,6 @@ func writeLine(writer io.Writer, text string) {
 	_, _ = fmt.Fprintln(writer, text)
 }
 
-func writeBlankLine(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer)
-}
-
 func writef(writer io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(writer, format, args...)
 }
@@ -718,10 +756,12 @@ func writeText(writer io.Writer, text string) {
 	if text == "" {
 		return
 	}
+
 	_, err := io.WriteString(writer, text)
 	if err != nil {
 		return
 	}
+
 	if !strings.HasSuffix(text, "\n") {
 		_, _ = fmt.Fprintln(writer)
 	}
@@ -739,6 +779,7 @@ func loadConfig() (Config, error) {
 	if !ok {
 		return cfg, nil
 	}
+
 	err = decodeConfigBlock(goConfig, "go", &cfg)
 	if err != nil {
 		return cfg, err
@@ -754,6 +795,7 @@ func loadManifestValidationSettings() (manifestValidationSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	sectionFound, err := decodeOptionalConfigSection(
 		rootConfig,
 		"python.manifest_validation",
@@ -763,15 +805,19 @@ func loadManifestValidationSettings() (manifestValidationSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if !sectionFound {
 		return settings, nil
 	}
+
 	if len(settings.CandidatePaths) == 0 {
 		settings.CandidatePaths = []string{"manifest.yaml", "code-ethos/manifest.yaml"}
 	}
+
 	if len(settings.RequiredStringFields) == 0 {
 		settings.RequiredStringFields = []string{"version"}
 	}
+
 	if len(settings.RequiredListSections) == 0 {
 		settings.RequiredListSections = map[string]manifestValidationListSpec{
 			"symlinks": {
@@ -796,6 +842,7 @@ func loadPlanCompletionSettings() (planCompletionSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	sectionFound, err := decodeOptionalConfigSection(
 		rootConfig,
 		"python.plan_completion",
@@ -805,15 +852,19 @@ func loadPlanCompletionSettings() (planCompletionSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if !sectionFound {
 		return settings, nil
 	}
+
 	if strings.TrimSpace(settings.MetadataFilename) == "" {
 		settings.MetadataFilename = "metadata.yaml"
 	}
+
 	if len(settings.RootMarkers) == 0 {
 		settings.RootMarkers = []string{"docs/plans/"}
 	}
+
 	if len(settings.CompletedStatusValues) == 0 {
 		settings.CompletedStatusValues = []string{"review", "complete"}
 	}
@@ -828,6 +879,7 @@ func loadPyprojectIgnoreSettings() (pyprojectIgnoreSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	sectionFound, err := decodeOptionalConfigSection(
 		rootConfig,
 		"python.pyproject_ignores",
@@ -837,9 +889,11 @@ func loadPyprojectIgnoreSettings() (pyprojectIgnoreSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if !sectionFound {
 		return settings, nil
 	}
+
 	if len(settings.AllowedIgnorePatterns) == 0 {
 		settings.AllowedIgnorePatterns = []string{
 			"tests/**", "tests/*", "**/tests/**", "**/tests/*",
@@ -847,6 +901,7 @@ func loadPyprojectIgnoreSettings() (pyprojectIgnoreSettings, error) {
 			"stubs/**", "stubs/*", "**/stubs/**", "**/stubs/*",
 		}
 	}
+
 	if len(settings.AllowedExcludePatterns) == 0 {
 		settings.AllowedExcludePatterns = []string{
 			".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "*.egg-info",
@@ -864,6 +919,7 @@ func loadCommentSuppressionSettings() (commentSuppressionSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	sectionFound, err := decodeOptionalConfigSection(
 		rootConfig,
 		"python.comment_suppressions",
@@ -873,9 +929,11 @@ func loadCommentSuppressionSettings() (commentSuppressionSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if !sectionFound {
 		return settings, nil
 	}
+
 	if len(settings.Patterns) == 0 {
 		settings.Patterns = []commentSuppressionPattern{
 			{Regex: `#\s*ruff:\s*noqa\b`, Label: "ruff: noqa (file-level)"},
@@ -904,6 +962,7 @@ func loadModuleDocsSettings() (moduleDocsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	sectionFound, err := decodeOptionalConfigSection(
 		rootConfig,
 		"python.module_docs",
@@ -913,15 +972,19 @@ func loadModuleDocsSettings() (moduleDocsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if !sectionFound {
 		return settings, nil
 	}
+
 	if strings.TrimSpace(settings.SourceDocsPath) == "" {
 		settings.SourceDocsPath = "docs/SOURCE_DOCS.md"
 	}
+
 	if len(settings.CheckFilenames) == 0 {
 		settings.CheckFilenames = []string{"__init__.py", "conftest.py"}
 	}
+
 	if len(settings.ExcludedDirs) == 0 {
 		settings.ExcludedDirs = []string{
 			".venv",
@@ -933,6 +996,7 @@ func loadModuleDocsSettings() (moduleDocsSettings, error) {
 			".git",
 		}
 	}
+
 	if len(settings.BannedDocFilenames) == 0 {
 		settings.BannedDocFilenames = []string{"README.md", "readme.md"}
 	}
@@ -941,14 +1005,19 @@ func loadModuleDocsSettings() (moduleDocsSettings, error) {
 }
 
 func loadGeminiSettings() (GeminiSettings, geminiRuntimePaths, error) {
-	var settings GeminiSettings
-	var paths geminiRuntimePaths
+	var (
+		settings GeminiSettings
+		paths    geminiRuntimePaths
+	)
+
 	bundleRoot, rootConfig, err := loadMergedRootConfig()
 	if err != nil {
 		return settings, paths, err
 	}
+
 	paths.BundleRoot = bundleRoot
 	paths.ConsumerRoot = consumerRoot(filepath.Dir(bundleRoot))
+
 	geminiConfig, ok := rootConfig["gemini"]
 	if !ok {
 		paths.CacheDir = filepath.Join(
@@ -959,17 +1028,21 @@ func loadGeminiSettings() (GeminiSettings, geminiRuntimePaths, error) {
 
 		return settings, paths, nil
 	}
+
 	err = decodeYAMLValue(geminiConfig, &settings)
 	if err != nil {
 		return settings, paths, fmt.Errorf("parse gemini config: %w", err)
 	}
+
 	if settings.Model == "" {
 		settings.Model = geminiDefaultModel
 	}
+
 	err = applyGeminiDefaults(&settings)
 	if err != nil {
 		return settings, paths, err
 	}
+
 	paths.CacheDir = filepath.Join(
 		gitCommonDir(paths.ConsumerRoot),
 		bundleLocalBinDirname(rootConfig),
@@ -984,25 +1057,32 @@ func applyGeminiDefaults(settings *GeminiSettings) error {
 	if err != nil {
 		return fmt.Errorf("gemini.service_tier: %w", err)
 	}
+
 	settings.ServiceTier = serviceTier
 	if settings.MaxRetries == 0 {
 		settings.MaxRetries = 3
 	}
+
 	if settings.TimeoutSeconds == 0 {
 		settings.TimeoutSeconds = 300
 	}
+
 	if settings.InitialBackoffSeconds == 0 {
 		settings.InitialBackoffSeconds = 1
 	}
+
 	if settings.MaxConcurrentAPICalls <= 0 {
 		settings.MaxConcurrentAPICalls = 1
 	}
+
 	if settings.Cache.TTLSeconds <= 0 {
 		settings.Cache.TTLSeconds = int((7 * 24 * time.Hour).Seconds())
 	}
+
 	if settings.Cache.APITTLSeconds <= 0 {
 		settings.Cache.APITTLSeconds = int(time.Hour.Seconds())
 	}
+
 	if strings.TrimSpace(settings.Cache.Dirname) == "" {
 		settings.Cache.Dirname = "gemini-cache"
 	}
@@ -1020,6 +1100,7 @@ func normalizeGeminiServiceTierOverrides(settings *GeminiSettings) error {
 				err,
 			)
 		}
+
 		settings.ServiceTierOverrides[checkName] = normalized
 	}
 
@@ -1031,6 +1112,7 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 	if err != nil {
 		return "", nil, err
 	}
+
 	rootConfig, err := loadYAMLMap(
 		filepath.Join(filepath.Dir(bundleRoot), "config.yaml"),
 	)
@@ -1053,6 +1135,7 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 		if err == nil {
 			return bundleRoot, deepMerge(rootConfig, overrideConfig), nil
 		}
+
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", nil, err
 		}
@@ -1063,6 +1146,7 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 
 func gitOutput(args ...string) string {
 	cmd := exec.CommandContext(context.Background(), "git", args...)
+
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -1088,6 +1172,7 @@ func consumerRoot(ethosRoot string) string {
 	); root != "" {
 		return root
 	}
+
 	if root := gitOutput("-C", ethosRoot, "rev-parse", "--show-toplevel"); root != "" {
 		return root
 	}
@@ -1112,7 +1197,7 @@ func gitCommonDir(root string) string {
 func bundleLocalBinDirname(rootConfig map[string]any) string {
 	if bundle, ok := rootConfig["bundle"].(map[string]any); ok {
 		name := strings.TrimSpace(fmt.Sprint(bundle["local_bin_dirname"]))
-		if name != "" && name != "<nil>" {
+		if name != "" && name != nilString {
 			return name
 		}
 	}
@@ -1125,6 +1210,7 @@ func isBundleRoot(path string) bool {
 	if err != nil || info.IsDir() {
 		return false
 	}
+
 	hooks, err := os.Stat(filepath.Join(path, "hooks"))
 
 	return err == nil && hooks.IsDir()
@@ -1161,9 +1247,11 @@ func overrideCandidates(root string, rootConfig map[string]any) []string {
 		"coding-ethos.pre-commit.yaml",
 		"coding-ethos.pre-commit.yml",
 	}
+
 	if bundle, ok := rootConfig["bundle"].(map[string]any); ok {
 		if raw, ok := bundle["consumer_override_candidates"].([]any); ok {
 			names = names[:0]
+
 			for _, item := range raw {
 				name := strings.TrimSpace(fmt.Sprint(item))
 				if name != "" {
@@ -1172,6 +1260,7 @@ func overrideCandidates(root string, rootConfig map[string]any) []string {
 			}
 		}
 	}
+
 	paths := make([]string, 0, len(names))
 	for _, name := range names {
 		paths = append(paths, filepath.Join(root, name))
@@ -1182,14 +1271,17 @@ func overrideCandidates(root string, rootConfig map[string]any) []string {
 
 func loadYAMLMap(path string) (map[string]any, error) {
 	var cfg map[string]any
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	err = yaml.Unmarshal(data, &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+
 	if cfg == nil {
 		cfg = map[string]any{}
 	}
@@ -1202,14 +1294,17 @@ func deepMerge(base map[string]any, override map[string]any) map[string]any {
 	for key, value := range base {
 		merged[key] = value
 	}
+
 	for key, value := range override {
 		baseMap, baseOK := merged[key].(map[string]any)
+
 		overrideMap, overrideOK := value.(map[string]any)
 		if baseOK && overrideOK {
 			merged[key] = deepMerge(baseMap, overrideMap)
 
 			continue
 		}
+
 		merged[key] = value
 	}
 
@@ -1218,19 +1313,23 @@ func deepMerge(base map[string]any, override map[string]any) map[string]any {
 
 func rootConfigValue(root map[string]any, path string) (any, bool) {
 	current := any(root)
+
 	for _, part := range strings.Split(strings.TrimSpace(path), ".") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			return nil, false
 		}
-		nextMap, ok := current.(map[string]any)
-		if !ok {
+
+		nextMap, isMap := current.(map[string]any)
+		if !isMap {
 			return nil, false
 		}
-		next, ok := nextMap[part]
-		if !ok {
+
+		next, found := nextMap[part]
+		if !found {
 			return nil, false
 		}
+
 		current = next
 	}
 
@@ -1276,6 +1375,7 @@ func configGet(_ Config, args []string) int {
 
 			return 0
 		}
+
 		writef(os.Stderr, "FATAL: config path not found: %s\n", args[0])
 
 		return 1
@@ -1287,6 +1387,7 @@ func configGet(_ Config, args []string) int {
 
 		return 1
 	}
+
 	writeLine(os.Stdout, formatted)
 
 	return 0
@@ -1294,8 +1395,10 @@ func configGet(_ Config, args []string) int {
 
 func loadGeminiPromptPack(bundleRoot string) (GeminiPromptPack, error) {
 	var pack GeminiPromptPack
+
 	ethosRoot := filepath.Dir(bundleRoot)
 	consumer := consumerRoot(ethosRoot)
+
 	candidates := []string{
 		filepath.Join(consumer, ".code-ethos", "gemini", "prompt-pack.json"),
 		filepath.Join(ethosRoot, ".code-ethos", "gemini", "prompt-pack.json"),
@@ -1309,10 +1412,12 @@ func loadGeminiPromptPack(bundleRoot string) (GeminiPromptPack, error) {
 
 			return pack, fmt.Errorf("read %s: %w", candidate, err)
 		}
+
 		err = json.Unmarshal(data, &pack)
 		if err != nil {
 			return pack, fmt.Errorf("parse %s: %w", candidate, err)
 		}
+
 		if len(pack.Prompts) == 0 {
 			return pack, fmt.Errorf(
 				"%w: %s",
@@ -1320,6 +1425,7 @@ func loadGeminiPromptPack(bundleRoot string) (GeminiPromptPack, error) {
 				candidate,
 			)
 		}
+
 		if len(pack.Checks) == 0 {
 			return pack, fmt.Errorf(
 				"%w: %s",
@@ -1486,18 +1592,18 @@ type geminiOutcomeReport struct {
 	Status            string             `json:"status"`
 	Model             string             `json:"model"`
 	ServiceTier       string             `json:"service_tier"`
-	IncludedFileCount int                `json:"included_file_count"`
-	BatchCount        int                `json:"batch_count"`
 	BatchErrors       []geminiBatchError `json:"batch_errors,omitempty"`
 	SkippedLargeFiles []string           `json:"skipped_large_files,omitempty"`
 	InDiff            []geminiViolation  `json:"in_diff,omitempty"`
 	PreExisting       []geminiViolation  `json:"pre_existing,omitempty"`
+	IncludedFileCount int                `json:"included_file_count"`
+	BatchCount        int                `json:"batch_count"`
 }
 
 type geminiBatchError struct {
-	Batch int      `json:"batch"`
-	Files []string `json:"files"`
 	Error string   `json:"error"`
+	Files []string `json:"files"`
+	Batch int      `json:"batch"`
 }
 
 type geminiRuntimePaths struct {
@@ -1543,6 +1649,7 @@ type geminiExplicitCacheSeed struct {
 
 func parseGeminiCLIOptions(args []string) (GeminiCLIOptions, error) {
 	options := GeminiCLIOptions{}
+
 	for argIndex := 0; argIndex < len(args); argIndex++ {
 		arg := args[argIndex]
 		switch {
@@ -1554,6 +1661,7 @@ func parseGeminiCLIOptions(args []string) (GeminiCLIOptions, error) {
 			if argIndex+1 >= len(args) {
 				return options, errCheckTypeValue
 			}
+
 			argIndex++
 			options.CheckType = strings.TrimSpace(args[argIndex])
 		case strings.HasPrefix(arg, "--check-type="):
@@ -1578,10 +1686,13 @@ func checkNamesFromPromptPack(
 	for name := range pack.Checks {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
+
 	if checkType == "" {
 		return names, nil
 	}
+
 	if _, ok := pack.Checks[checkType]; !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownGeminiCheckType, checkType)
 	}
@@ -1598,6 +1709,7 @@ func matchesGeminiSelector(path string, selector GeminiFileSelector) (bool, erro
 	if excludedByGeminiSelector(normalized, selector) {
 		return false, nil
 	}
+
 	ext := strings.ToLower(filepath.Ext(normalized))
 	if matchesGeminiExtension(ext, selector) ||
 		matchesGeminiScriptWithoutExtension(normalized, ext, selector) {
@@ -1616,6 +1728,7 @@ func excludedByGeminiSelector(
 			return true
 		}
 	}
+
 	for _, pattern := range selector.ExcludePrefixes {
 		if pattern != "" && strings.HasPrefix(normalized, pattern) {
 			return true
@@ -1654,9 +1767,11 @@ func matchesGeminiShebang(
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	if !utf8.Valid(data) {
 		return false, nil
 	}
+
 	firstLine, _, _ := strings.Cut(string(data), "\n")
 	if !strings.HasPrefix(firstLine, "#!") {
 		return false, nil
@@ -1687,18 +1802,22 @@ func unionGeminiFileFilter(
 	filtered := make([]string, 0, len(paths))
 	for _, raw := range existingFiles(paths) {
 		include := false
+
 		for _, name := range names {
 			spec := checks[name]
+
 			matches, err := matchesGeminiSelector(raw, spec.Selector)
 			if err != nil {
 				return nil, err
 			}
+
 			if matches {
 				include = true
 
 				break
 			}
 		}
+
 		if include {
 			filtered = append(filtered, raw)
 		}
@@ -1715,11 +1834,14 @@ func changedFilesForGeminiFullCheck() ([]string, error) {
 		"--name-only",
 		"origin/main...HEAD",
 	)
+
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff failed: %w", err)
 	}
+
 	var files []string
+
 	for _, item := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		item = strings.TrimSpace(item)
 		if item != "" {
@@ -1738,10 +1860,13 @@ func candidateFilesForGemini(
 	if err != nil {
 		return nil, "", err
 	}
+
 	var candidates []string
+
 	scope := "staged"
 	if options.FullCheck {
 		scope = "branch"
+
 		candidates, err = changedFilesForGeminiFullCheck()
 		if err != nil {
 			return nil, "", err
@@ -1749,6 +1874,7 @@ func candidateFilesForGemini(
 	} else {
 		candidates = options.Files
 	}
+
 	files, err := unionGeminiFileFilter(candidates, pack.Checks, checkNames)
 	if err != nil {
 		return nil, "", err
@@ -1785,6 +1911,7 @@ func prepareGeminiChecks(
 	if err != nil {
 		return nil, err
 	}
+
 	prepared := make([]geminiPreparedCheck, 0, len(checkNames))
 	for _, name := range checkNames {
 		check, prepareErr := prepareSingleGeminiCheck(
@@ -1797,6 +1924,7 @@ func prepareGeminiChecks(
 		if prepareErr != nil {
 			return nil, prepareErr
 		}
+
 		prepared = append(prepared, check)
 	}
 
@@ -1813,6 +1941,7 @@ func prepareSingleGeminiCheck(
 	requestSettings := resolveGeminiRequestSettings(settings, name, cacheDir)
 	spec := defaultGeminiPromptSpec(pack.Checks[name])
 	promptTemplate := pack.Prompts[name]
+
 	selected, included, skippedLarge, formattedContents, err := collectGeminiCheckFiles(
 		files,
 		spec,
@@ -1820,6 +1949,7 @@ func prepareSingleGeminiCheck(
 	if err != nil {
 		return geminiPreparedCheck{}, err
 	}
+
 	batches, batchPlans := buildGeminiCheckBatches(
 		included,
 		formattedContents,
@@ -1853,6 +1983,7 @@ func defaultGeminiPromptSpec(spec GeminiPromptCheckSpec) GeminiPromptCheckSpec {
 	if spec.BatchSize <= 0 {
 		spec.BatchSize = 1
 	}
+
 	if spec.MaxFileSizeKB <= 0 {
 		spec.MaxFileSizeKB = 100
 	}
@@ -1874,18 +2005,22 @@ func collectGeminiCheckFiles(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
+
 		if !fileStatus.selected {
 			continue
 		}
+
 		selected = append(selected, path)
 		if fileStatus.skippedLarge {
 			skippedLarge = append(skippedLarge, path)
 
 			continue
 		}
+
 		if fileStatus.binary {
 			continue
 		}
+
 		included = append(included, path)
 		formattedContents = append(formattedContents, fileStatus.formattedContent)
 	}
@@ -1908,20 +2043,25 @@ func geminiCheckFileStatus(
 	if err != nil {
 		return geminiCheckFileSelection{}, err
 	}
+
 	if !matches {
 		return geminiCheckFileSelection{}, nil
 	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		return geminiCheckFileSelection{}, fmt.Errorf("stat %s: %w", path, err)
 	}
+
 	if info.Size() > int64(spec.MaxFileSizeKB*kibibyte) {
 		return geminiCheckFileSelection{selected: true, skippedLarge: true}, nil
 	}
+
 	text, binary, err := readText(path)
 	if err != nil {
 		return geminiCheckFileSelection{}, err
 	}
+
 	if binary {
 		return geminiCheckFileSelection{selected: true, binary: true}, nil
 	}
@@ -1941,12 +2081,14 @@ func buildGeminiCheckBatches(
 ) ([]geminiPreparedBatch, []GeminiBatchPlan) {
 	batchPlans := make([]GeminiBatchPlan, 0)
 	batches := make([]geminiPreparedBatch, 0)
+
 	for batchStart := 0; batchStart < len(formattedContents); batchStart +=
 		spec.BatchSize {
 		end := batchStart + spec.BatchSize
 		if end > len(formattedContents) {
 			end = len(formattedContents)
 		}
+
 		batchFiles := append([]string{}, included[batchStart:end]...)
 		batchContent := strings.Join(formattedContents[batchStart:end], "\n")
 		batchPrompt := geminiPromptWithInlineContent(promptTemplate, batchContent)
@@ -1975,6 +2117,7 @@ func normalizeGeminiServiceTier(value string) (string, error) {
 	if normalized == "" || normalized == "unspecified" {
 		return geminiServiceTierNormal, nil
 	}
+
 	switch normalized {
 	case geminiServiceTierNormal, "flex", "priority":
 		return normalized, nil
@@ -1992,6 +2135,7 @@ func resolveGeminiRequestSettings(
 	if override := strings.TrimSpace(settings.ModelOverrides[checkName]); override != "" {
 		model = override
 	}
+
 	if model == "" {
 		model = geminiDefaultModel
 	}
@@ -2000,15 +2144,18 @@ func resolveGeminiRequestSettings(
 	if override, ok := settings.ServiceTierOverrides[checkName]; ok {
 		serviceTier = override
 	}
+
 	if serviceTier == "" {
 		serviceTier = geminiServiceTierNormal
 	}
 
 	var thinkingBudget *int
+
 	if settings.ThinkingBudget != nil {
 		value := *settings.ThinkingBudget
 		thinkingBudget = &value
 	}
+
 	if override, ok := settings.ThinkingBudgetOverrides[checkName]; ok {
 		value := override
 		thinkingBudget = &value
@@ -2037,6 +2184,7 @@ func geminiModelPath(model string) string {
 	if model == "" {
 		model = geminiDefaultModel
 	}
+
 	if !strings.HasPrefix(model, "models/") {
 		return "models/" + model
 	}
@@ -2055,6 +2203,7 @@ func isRetryableGeminiStatus(code int) bool {
 
 func geminiAPIErrorMessage(body []byte, status string) string {
 	var apiError geminiAPIErrorResponse
+
 	err := json.Unmarshal(body, &apiError)
 	if err == nil {
 		switch {
@@ -2064,6 +2213,7 @@ func geminiAPIErrorMessage(body []byte, status string) string {
 			return apiError.Error.Message
 		}
 	}
+
 	text := strings.TrimSpace(string(body))
 	if text == "" {
 		return status
@@ -2090,6 +2240,7 @@ func geminiPromptWithInlineContent(template string, content string) string {
 	if strings.Contains(template, "{code_content}") {
 		return strings.Replace(template, "{code_content}", content, 1)
 	}
+
 	if strings.TrimSpace(content) == "" {
 		return template
 	}
@@ -2125,6 +2276,7 @@ func geminiCacheKey(
 	if settings.ThinkingBudget != nil {
 		thinkingBudget = strconv.Itoa(*settings.ThinkingBudget)
 	}
+
 	payload := strings.Join(
 		[]string{
 			"v1",
@@ -2155,7 +2307,9 @@ func readGeminiCache(cache geminiResponseCache, key string) (string, bool, error
 	if !cache.Enabled {
 		return "", false, nil
 	}
+
 	path := geminiCachePath(cache, key)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -2164,15 +2318,19 @@ func readGeminiCache(cache geminiResponseCache, key string) (string, bool, error
 
 		return "", false, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	var entry geminiCacheEntry
+
 	err = json.Unmarshal(data, &entry)
 	if err != nil {
 		return "", false, fmt.Errorf("parse %s: %w", path, err)
 	}
+
 	createdAt, err := time.Parse(time.RFC3339Nano, entry.CreatedAt)
 	if err != nil {
 		return "", false, fmt.Errorf("parse %s timestamp: %w", path, err)
 	}
+
 	if cache.TTL > 0 && time.Since(createdAt) > cache.TTL {
 		_ = os.Remove(path)
 
@@ -2186,24 +2344,30 @@ func writeGeminiCache(cache geminiResponseCache, key string, text string) error 
 	if !cache.Enabled {
 		return nil
 	}
+
 	err := os.MkdirAll(cache.Dir, defaultDirPerm)
 	if err != nil {
 		return fmt.Errorf("create cache dir %s: %w", cache.Dir, err)
 	}
+
 	entry := geminiCacheEntry{
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		Text:      text,
 	}
+
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode cache entry: %w", err)
 	}
+
 	path := geminiCachePath(cache, key)
 	tempPath := fmt.Sprintf("%s.%d.tmp", path, time.Now().UnixNano())
+
 	err = os.WriteFile(tempPath, data, defaultFilePerm)
 	if err != nil {
 		return fmt.Errorf("write cache temp file %s: %w", tempPath, err)
 	}
+
 	err = os.Rename(tempPath, path)
 	if err != nil {
 		_ = os.Remove(tempPath)
@@ -2221,7 +2385,9 @@ func readGeminiExplicitCache(
 	if !cache.APIEnabled {
 		return "", false, nil
 	}
+
 	path := geminiExplicitCachePath(cache, key)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -2230,18 +2396,23 @@ func readGeminiExplicitCache(
 
 		return "", false, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	var entry geminiExplicitCacheEntry
+
 	err = json.Unmarshal(data, &entry)
 	if err != nil {
 		return "", false, fmt.Errorf("parse %s: %w", path, err)
 	}
+
 	if strings.TrimSpace(entry.Name) == "" {
 		return "", false, nil
 	}
+
 	expireTime, err := time.Parse(time.RFC3339Nano, entry.ExpireTime)
 	if err != nil {
 		return "", false, fmt.Errorf("parse %s timestamp: %w", path, err)
 	}
+
 	if time.Now().UTC().After(expireTime) {
 		_ = os.Remove(path)
 
@@ -2260,24 +2431,31 @@ func writeGeminiExplicitCache(
 	if !cache.APIEnabled {
 		return nil
 	}
+
 	path := geminiExplicitCachePath(cache, key)
+
 	err := os.MkdirAll(filepath.Dir(path), defaultDirPerm)
 	if err != nil {
 		return fmt.Errorf("create cache dir %s: %w", filepath.Dir(path), err)
 	}
+
 	entry := geminiExplicitCacheEntry{
 		Name:       name,
 		ExpireTime: expireTime.UTC().Format(time.RFC3339Nano),
 	}
+
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode explicit cache entry: %w", err)
 	}
+
 	tempPath := fmt.Sprintf("%s.%d.tmp", path, time.Now().UnixNano())
+
 	err = os.WriteFile(tempPath, data, defaultFilePerm)
 	if err != nil {
 		return fmt.Errorf("write explicit cache temp file %s: %w", tempPath, err)
 	}
+
 	err = os.Rename(tempPath, path)
 	if err != nil {
 		_ = os.Remove(tempPath)
@@ -2305,6 +2483,7 @@ func createGeminiExplicitCache(
 	displayName string,
 ) (geminiCachedContentResponse, error) {
 	var created geminiCachedContentResponse
+
 	payload, err := json.Marshal(geminiCachedContentCreateRequest{
 		Model:       geminiModelPath(model),
 		DisplayName: displayName,
@@ -2334,6 +2513,7 @@ func createGeminiExplicitCache(
 			err,
 		)
 	}
+
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Goog-Api-Key", apiKey)
 
@@ -2341,20 +2521,24 @@ func createGeminiExplicitCache(
 	if err != nil {
 		return created, fmt.Errorf("gemini cachedContents.create failed: %w", err)
 	}
+
 	body, readErr := io.ReadAll(response.Body)
 	closeErr := response.Body.Close()
+
 	if readErr != nil {
 		return created, fmt.Errorf(
 			"read Gemini cachedContents.create response: %w",
 			readErr,
 		)
 	}
+
 	if closeErr != nil {
 		return created, fmt.Errorf(
 			"close Gemini cachedContents.create response: %w",
 			closeErr,
 		)
 	}
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return created, fmt.Errorf(
 			"%w: %s: %s",
@@ -2363,6 +2547,7 @@ func createGeminiExplicitCache(
 			geminiAPIErrorMessage(body, response.Status),
 		)
 	}
+
 	err = json.Unmarshal(body, &created)
 	if err != nil {
 		return created, fmt.Errorf(
@@ -2370,6 +2555,7 @@ func createGeminiExplicitCache(
 			err,
 		)
 	}
+
 	if strings.TrimSpace(created.Name) == "" {
 		return created, errGeminiCreateNoName
 	}
@@ -2386,6 +2572,7 @@ func ensureGeminiExplicitCache(
 	if !seed.Cache.APIEnabled || strings.TrimSpace(seed.Content) == "" {
 		return "", false
 	}
+
 	cachedName, ok, err := readGeminiExplicitCache(seed.Cache, key)
 	if err == nil && ok {
 		return cachedName, true
@@ -2404,10 +2591,12 @@ func ensureGeminiExplicitCache(
 	}
 
 	expireTime := time.Now().UTC().Add(seed.Cache.APITTL)
+
 	parsedExpireTime, err := time.Parse(time.RFC3339Nano, created.ExpireTime)
 	if err == nil {
 		expireTime = parsedExpireTime
 	}
+
 	err = writeGeminiExplicitCache(seed.Cache, key, created.Name, expireTime)
 	if err != nil {
 		writef(
@@ -2429,6 +2618,7 @@ func generateGeminiText(
 	cachedContent string,
 ) (string, error) {
 	cacheKey := geminiCacheKey(settings, prompt, responseDependency)
+
 	cachedText, ok, err := readGeminiCache(settings.Cache, cacheKey)
 	if err == nil && ok {
 		return cachedText, nil
@@ -2462,10 +2652,12 @@ func generateGeminiText(
 		"https://generativelanguage.googleapis.com/v1beta/%s:generateContent",
 		geminiModelPath(settings.Model),
 	)
+
 	backoff := time.Duration(settings.InitialBackoffSeconds * float64(time.Second))
 	if backoff <= 0 {
 		backoff = time.Second
 	}
+
 	var lastErr error
 
 	for attempt := 0; attempt <= settings.MaxRetries; attempt++ {
@@ -2480,6 +2672,7 @@ func generateGeminiText(
 		if requestErr == nil {
 			return text, nil
 		}
+
 		lastErr = requestErr
 		if !retryable {
 			return "", lastErr
@@ -2488,6 +2681,7 @@ func generateGeminiText(
 		if attempt >= settings.MaxRetries {
 			break
 		}
+
 		time.Sleep(backoff)
 		backoff *= 2
 	}
@@ -2516,6 +2710,7 @@ func generateGeminiTextAttempt(
 	if err != nil {
 		return "", false, fmt.Errorf("build Gemini request: %w", err)
 	}
+
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Goog-Api-Key", apiKey)
 
@@ -2523,6 +2718,7 @@ func generateGeminiTextAttempt(
 	if err != nil {
 		return "", true, fmt.Errorf("gemini request failed: %w", err)
 	}
+
 	defer func() {
 		_ = response.Body.Close()
 	}()
@@ -2539,6 +2735,7 @@ func parseGeminiTextResponse(
 	if err != nil {
 		return "", true, err
 	}
+
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		requestErr := fmt.Errorf(
 			"%w: %s: %s",
@@ -2554,6 +2751,7 @@ func parseGeminiTextResponse(
 	if err != nil {
 		return "", false, err
 	}
+
 	cacheErr := writeGeminiCache(settings.Cache, cacheKey, text)
 	if cacheErr != nil {
 		writef(
@@ -2577,10 +2775,12 @@ func readGeminiResponseBody(response *http.Response) ([]byte, error) {
 
 func decodeGeminiResponseText(body []byte) (string, error) {
 	var parsed geminiGenerateResponse
+
 	err := json.Unmarshal(body, &parsed)
 	if err != nil {
 		return "", fmt.Errorf("parse Gemini API response: %w", err)
 	}
+
 	text := extractGeminiText(parsed)
 	if text == "" {
 		return "", errGeminiAPINoText
@@ -2597,6 +2797,7 @@ func extractGeminiText(response geminiGenerateResponse) string {
 				parts = append(parts, part.Text)
 			}
 		}
+
 		if len(parts) > 0 {
 			return strings.Join(parts, "")
 		}
@@ -2617,13 +2818,16 @@ func stripGeminiCodeFence(text string) string {
 
 func parseGeminiResult(responseText string) (geminiResult, error) {
 	var result geminiResult
+
 	err := json.Unmarshal([]byte(stripGeminiCodeFence(responseText)), &result)
 	if err != nil {
 		return result, fmt.Errorf("parse Gemini JSON response: %w", err)
 	}
+
 	if result.Verdict == "" {
 		result.Verdict = passVerdict
 	}
+
 	for index := range result.Violations {
 		result.Violations[index].Severity = strings.ToUpper(
 			strings.TrimSpace(result.Violations[index].Severity),
@@ -2631,12 +2835,14 @@ func parseGeminiResult(responseText string) (geminiResult, error) {
 		if result.Violations[index].Severity == "" {
 			result.Violations[index].Severity = "INFO"
 		}
+
 		result.Violations[index].File = normalizeGeminiPath(
 			result.Violations[index].File,
 		)
 		result.Violations[index].Message = strings.TrimSpace(
 			result.Violations[index].Message,
 		)
+
 		result.Violations[index].EthosSection = strings.TrimSpace(
 			result.Violations[index].EthosSection,
 		)
@@ -2737,6 +2943,7 @@ func filterGeminiModalAllowlistedViolations(
 	if len(patterns) == 0 {
 		return violations
 	}
+
 	filtered := make([]geminiViolation, 0, len(violations))
 	for _, violation := range violations {
 		if isModalGeminiViolation(violation) &&
@@ -2744,6 +2951,7 @@ func filterGeminiModalAllowlistedViolations(
 			isGeminiModalAllowlisted(violation.File, patterns) {
 			continue
 		}
+
 		filtered = append(filtered, violation)
 	}
 
@@ -2752,24 +2960,30 @@ func filterGeminiModalAllowlistedViolations(
 
 func parseGeminiChangedLines(diffOutput string) map[int]struct{} {
 	changedLines := make(map[int]struct{})
+
 	hunkPattern := regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@`)
 	for _, line := range strings.Split(diffOutput, "\n") {
 		match := hunkPattern.FindStringSubmatch(line)
 		if match == nil {
 			continue
 		}
+
 		start, err := strconv.Atoi(match[1])
 		if err != nil {
 			continue
 		}
+
 		count := 1
+
 		if match[2] != "" {
 			parsedCount, err := strconv.Atoi(match[2])
 			if err != nil {
 				continue
 			}
+
 			count = parsedCount
 		}
+
 		for lineNumber := start; lineNumber < start+count; lineNumber++ {
 			changedLines[lineNumber] = struct{}{}
 		}
@@ -2780,6 +2994,7 @@ func parseGeminiChangedLines(diffOutput string) map[int]struct{} {
 
 func changedLinesForGeminiFile(path string, scope string) map[int]struct{} {
 	var cmd *exec.Cmd
+
 	switch scope {
 	case "branch":
 		cmd = exec.CommandContext(
@@ -2803,6 +3018,7 @@ func changedLinesForGeminiFile(path string, scope string) map[int]struct{} {
 			path,
 		)
 	}
+
 	output, err := cmd.Output()
 	if err != nil {
 		return map[int]struct{}{}
@@ -2835,6 +3051,7 @@ func isGeminiAddedOrUntracked(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	status := string(output)
 
 	return strings.HasPrefix(status, "A ") || strings.HasPrefix(status, "?? ")
@@ -2882,12 +3099,14 @@ func appendGeminiViolationWithoutChangedLines(
 
 		return
 	}
+
 	_, err := os.Stat(violation.File)
 	if err != nil {
 		filtered.InDiff = append(filtered.InDiff, violation)
 
 		return
 	}
+
 	if isGeminiAddedOrUntracked(violation.File) {
 		filtered.InDiff = append(filtered.InDiff, violation)
 	} else {
@@ -2934,10 +3153,12 @@ func buildGeminiExplicitCacheBindings(
 		if !check.Request.Cache.APIEnabled {
 			continue
 		}
+
 		for _, batch := range check.Batches {
 			if batch.ExplicitAPIKey == "" || strings.TrimSpace(batch.Content) == "" {
 				continue
 			}
+
 			usageCounts[batch.ExplicitAPIKey]++
 			if _, ok := seeds[batch.ExplicitAPIKey]; !ok {
 				seeds[batch.ExplicitAPIKey] = geminiExplicitCacheSeed{
@@ -2950,10 +3171,12 @@ func buildGeminiExplicitCacheBindings(
 	}
 
 	bindings := make(map[string]string)
+
 	for key, count := range usageCounts {
 		if count < minCollectionItems {
 			continue
 		}
+
 		if cacheName, ok := ensureGeminiExplicitCache(client, apiKey, seeds[key], key); ok {
 			bindings[key] = cacheName
 		}
@@ -2973,6 +3196,7 @@ func executeGeminiChecks(
 		Timeout: time.Duration(settings.TimeoutSeconds) * time.Second,
 	}
 	explicitCacheBindings := buildGeminiExplicitCacheBindings(client, apiKey, prepared)
+
 	outcomes, jobs := initializeGeminiOutcomesAndJobs(prepared)
 	if len(jobs) == 0 {
 		return outcomes
@@ -2980,13 +3204,17 @@ func executeGeminiChecks(
 
 	semaphore := make(chan struct{}, maxGeminiConcurrency(settings))
 	results := make(chan geminiBatchJobResult, len(jobs))
+
 	var waitGroup sync.WaitGroup
 
 	for _, job := range jobs {
 		waitGroup.Add(1)
+
 		go func(job geminiBatchJob) {
 			defer waitGroup.Done()
+
 			semaphore <- struct{}{}
+
 			defer func() {
 				<-semaphore
 			}()
@@ -3034,6 +3262,7 @@ func initializeGeminiOutcomesAndJobs(
 	prepared []geminiPreparedCheck,
 ) ([]geminiCheckOutcome, []geminiBatchJob) {
 	outcomes := make([]geminiCheckOutcome, 0, len(prepared))
+
 	jobs := make([]geminiBatchJob, 0)
 	for checkIndex, check := range prepared {
 		outcome := geminiCheckOutcome{
@@ -3055,6 +3284,7 @@ func initializeGeminiOutcomesAndJobs(
 				Batch:      batch,
 			})
 		}
+
 		outcomes = append(outcomes, outcome)
 	}
 
@@ -3083,6 +3313,7 @@ func executeGeminiBatchJob(
 		job,
 		explicitCacheBindings,
 	)
+
 	responseText, err := generateGeminiText(
 		client,
 		job.Request,
@@ -3096,12 +3327,14 @@ func executeGeminiBatchJob(
 
 		return batchOutcome
 	}
+
 	result, err := parseGeminiResult(responseText)
 	if err != nil {
 		batchOutcome.Error = err.Error()
 
 		return batchOutcome
 	}
+
 	result.Violations = filterGeminiModalAllowlistedViolations(
 		result.Violations,
 		patterns,
@@ -3118,6 +3351,7 @@ func geminiBatchRequestInputs(
 	prompt := job.Batch.Prompt
 	responseDependency := ""
 	cachedContent := ""
+
 	if cacheName, ok := explicitCacheBindings[job.Batch.ExplicitAPIKey]; ok {
 		prompt = job.Batch.CachedPrompt
 		responseDependency = job.Batch.ExplicitAPIKey
@@ -3133,12 +3367,14 @@ func collectGeminiBatchResults(
 ) {
 	for result := range results {
 		outcome := &outcomes[result.CheckIndex]
+
 		outcome.Batches[result.BatchIndex] = result.Outcome
 		if result.Outcome.Error != "" {
 			outcome.BatchErrors++
 
 			continue
 		}
+
 		outcome.BatchesCompleted++
 	}
 }
@@ -3160,6 +3396,7 @@ func collectGeminiViolations(batches []geminiBatchOutcome) []geminiViolation {
 	for _, batch := range batches {
 		totalViolations += len(batch.Result.Violations)
 	}
+
 	allViolations := make([]geminiViolation, 0, totalViolations)
 	for _, batch := range batches {
 		allViolations = append(allViolations, batch.Result.Violations...)
@@ -3170,17 +3407,20 @@ func collectGeminiViolations(batches []geminiBatchOutcome) []geminiViolation {
 
 func geminiOutcomeStatus(outcome geminiCheckOutcome) string {
 	if outcome.Filtered.hasBlockingCriticals() {
-		return "FAIL"
+		return statusFail
 	}
+
 	if outcome.BatchErrors > 0 && outcome.BatchesCompleted == 0 {
-		return "ERROR"
+		return statusError
 	}
+
 	if outcome.BatchErrors > 0 {
-		return "WARN"
+		return statusWarn
 	}
+
 	for _, violation := range outcome.Filtered.InDiff {
 		if violation.Severity == "WARNING" {
-			return "WARN"
+			return statusWarn
 		}
 	}
 
@@ -3195,6 +3435,7 @@ func formatGeminiReport(
 	if !hasGeminiIssues(outcomes) {
 		return ""
 	}
+
 	switch format {
 	case hookOutputFormatJSON:
 		return formatGeminiReportJSON(scope, outcomes)
@@ -3219,6 +3460,7 @@ func formatGeminiReportHuman(scope string, outcomes []geminiCheckOutcome) string
 		if shouldSkipGeminiOutcome(outcome) {
 			continue
 		}
+
 		lines = appendGeminiOutcomeReport(lines, outcome)
 	}
 
@@ -3233,6 +3475,7 @@ func formatGeminiReportJSON(scope string, outcomes []geminiCheckOutcome) string 
 		outcomes,
 		hookOutputFormatJSON,
 	)
+
 	content, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
 		return formatGeminiReportHuman(scope, outcomes)
@@ -3247,11 +3490,12 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 		outcomes,
 		hookOutputFormatTOON,
 	)
+
 	lines := []string{
-		fmt.Sprintf("format: %s", summary.Format),
-		fmt.Sprintf("tool: gemini"),
-		fmt.Sprintf("scope: %s", toonCell(summary.Scope)),
-		fmt.Sprintf("status: %s", summary.Status),
+		"format: " + summary.Format,
+		"tool: gemini",
+		"scope: " + toonCell(summary.Scope),
+		"status: " + summary.Status,
 		fmt.Sprintf("outcomes[%d]{name,status,model,service_tier,included_files,batches}:",
 			len(summary.Outcomes)),
 	}
@@ -3269,7 +3513,9 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 			),
 		)
 	}
+
 	violations := geminiReportViolations(summary.Outcomes)
+
 	lines = append(
 		lines,
 		fmt.Sprintf(
@@ -3291,6 +3537,7 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 			),
 		)
 	}
+
 	batchErrors := geminiReportBatchErrors(summary.Outcomes)
 	if len(batchErrors) > 0 {
 		lines = append(
@@ -3338,18 +3585,22 @@ func geminiReportSummaryForOutcomes(
 		Scope:  scope,
 		Status: passVerdict,
 	}
+
 	for _, outcome := range outcomes {
 		if shouldSkipGeminiOutcome(outcome) {
 			continue
 		}
+
 		status := geminiOutcomeStatus(outcome)
-		if status == "FAIL" {
-			summary.Status = "FAIL"
-		} else if status == "ERROR" && summary.Status != "FAIL" {
-			summary.Status = "ERROR"
-		} else if status == "WARN" && summary.Status == passVerdict {
-			summary.Status = "WARN"
+		switch {
+		case status == statusFail:
+			summary.Status = statusFail
+		case status == statusError && summary.Status != statusFail:
+			summary.Status = statusError
+		case status == statusWarn && summary.Status == passVerdict:
+			summary.Status = statusWarn
 		}
+
 		summary.Outcomes = append(summary.Outcomes, geminiOutcomeReport{
 			Name:              outcome.Plan.Name,
 			Status:            status,
@@ -3369,10 +3620,12 @@ func geminiReportSummaryForOutcomes(
 
 func geminiBatchErrorsForOutcome(outcome geminiCheckOutcome) []geminiBatchError {
 	errors := []geminiBatchError{}
+
 	for index, batch := range outcome.Batches {
 		if batch.Error == "" {
 			continue
 		}
+
 		errors = append(errors, geminiBatchError{
 			Batch: index + 1,
 			Files: batch.Files,
@@ -3387,6 +3640,7 @@ func geminiReportViolations(
 	outcomes []geminiOutcomeReport,
 ) []geminiScopedViolation {
 	violations := []geminiScopedViolation{}
+
 	for _, outcome := range outcomes {
 		for _, violation := range outcome.InDiff {
 			violations = append(
@@ -3401,6 +3655,7 @@ func geminiReportViolations(
 				},
 			)
 		}
+
 		for _, violation := range outcome.PreExisting {
 			violations = append(
 				violations,
@@ -3415,10 +3670,12 @@ func geminiReportViolations(
 			)
 		}
 	}
+
 	sort.SliceStable(violations, func(left int, right int) bool {
 		if violations[left].File != violations[right].File {
 			return violations[left].File < violations[right].File
 		}
+
 		if violations[left].Line != violations[right].Line {
 			return violations[left].Line < violations[right].Line
 		}
@@ -3433,6 +3690,7 @@ func geminiReportBatchErrors(
 	outcomes []geminiOutcomeReport,
 ) []geminiScopedBatchError {
 	errors := []geminiScopedBatchError{}
+
 	for _, outcome := range outcomes {
 		for _, batchError := range outcome.BatchErrors {
 			errors = append(errors, geminiScopedBatchError{
@@ -3466,6 +3724,7 @@ func appendGeminiOutcomeReport(
 	outcome geminiCheckOutcome,
 ) []string {
 	status := geminiOutcomeStatus(outcome)
+
 	lines = append(lines, geminiOutcomeHeader(outcome, status))
 	if len(outcome.Plan.SkippedLargeFiles) > 0 {
 		lines = append(
@@ -3476,6 +3735,7 @@ func appendGeminiOutcomeReport(
 			),
 		)
 	}
+
 	lines = appendGeminiViolationSection(
 		lines,
 		"  [In your changes]",
@@ -3488,6 +3748,7 @@ func appendGeminiOutcomeReport(
 			outcome.Filtered.PreExisting,
 		)
 	}
+
 	lines = appendGeminiBatchErrors(lines, outcome.Batches)
 
 	return append(lines, "")
@@ -3589,6 +3850,7 @@ func runGeminiCheck(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled && !options.DryRun {
 		return 0
 	}
@@ -3608,6 +3870,7 @@ func runGeminiCheck(_ Config, args []string) int {
 	if options.DryRun {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
+
 		err := encoder.Encode(plan)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "FATAL: write Gemini dry-run plan: %v\n", err)
@@ -3637,6 +3900,7 @@ func runGeminiCheck(_ Config, args []string) int {
 		geminiPreparedFiles(prepared),
 		scope,
 	)
+
 	outcomes := executeGeminiChecks(settings, apiKey, prepared, changedLinesByFile)
 	if report := formatGeminiReport(
 		scope,
@@ -3692,6 +3956,7 @@ func geminiPreparedFiles(prepared []geminiPreparedCheck) []string {
 	for _, check := range prepared {
 		totalFiles += len(check.Plan.IncludedFiles)
 	}
+
 	files := make([]string, 0, totalFiles)
 	for _, check := range prepared {
 		files = append(files, check.Plan.IncludedFiles...)
@@ -3732,6 +3997,7 @@ func summarizeGeminiOutcomes(outcomes []geminiCheckOutcome) (bool, bool, bool) {
 	hasErrors := false
 	hasCriticals := false
 	hasAnyInDiff := false
+
 	for _, outcome := range outcomes {
 		switch geminiOutcomeStatus(outcome) {
 		case "ERROR":
@@ -3739,6 +4005,7 @@ func summarizeGeminiOutcomes(outcomes []geminiCheckOutcome) (bool, bool, bool) {
 		case "FAIL":
 			hasCriticals = true
 		}
+
 		if outcome.Filtered.hasAnyInDiff() {
 			hasAnyInDiff = true
 		}
@@ -3749,15 +4016,18 @@ func summarizeGeminiOutcomes(outcomes []geminiCheckOutcome) (bool, bool, bool) {
 
 func existingFiles(paths []string) []string {
 	files := make([]string, 0, len(paths))
+
 	seen := make(map[string]struct{}, len(paths))
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
 		if path == "" {
 			continue
 		}
+
 		if _, ok := seen[path]; ok {
 			continue
 		}
+
 		info, err := os.Stat(path)
 		if err == nil && !info.IsDir() {
 			seen[path] = struct{}{}
@@ -3773,10 +4043,13 @@ func isBinary(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	defer func() {
 		_ = file.Close()
 	}()
+
 	buf := make([]byte, textChunkSize)
+
 	n, err := file.Read(buf)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false
@@ -3790,6 +4063,7 @@ func readText(path string) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	if !utf8.Valid(data) || bytes.Contains(data, []byte{0}) {
 		return "", true, nil
 	}
@@ -3799,31 +4073,39 @@ func readText(path string) (string, bool, error) {
 
 func fixText(_ Config, paths []string) int {
 	failed := false
+
 	for _, path := range existingFiles(paths) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+
 			failed = true
 
 			continue
 		}
+
 		if !utf8.Valid(data) || bytes.Contains(data, []byte{0}) {
 			continue
 		}
+
 		text := strings.ReplaceAll(string(data), "\r\n", "\n")
 		text = strings.ReplaceAll(text, "\r", "\n")
+
 		parts := strings.Split(text, "\n")
 		for i, line := range parts {
 			parts[i] = strings.TrimRight(line, " \t")
 		}
+
 		fixed := strings.TrimRight(strings.Join(parts, "\n"), "\n")
 		if fixed != "" {
 			fixed += "\n"
 		}
+
 		if fixed != string(data) {
 			err := os.WriteFile(path, []byte(fixed), hookRewriteFilePerm)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+
 				failed = true
 			}
 		}
@@ -3834,8 +4116,10 @@ func fixText(_ Config, paths []string) int {
 
 func checkSyntax(_ Config, paths []string) int {
 	findings := []hookFinding{}
+
 	for _, path := range existingFiles(paths) {
-		if err := checkSyntaxPath(path); err != nil {
+		err := checkSyntaxPath(path)
+		if err != nil {
 			findings = append(findings, hookFinding{
 				Tool:    "syntax",
 				File:    path,
@@ -3847,6 +4131,7 @@ func checkSyntax(_ Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "syntax",
 		Title:    "SYNTAX CHECK FAILED",
@@ -3860,7 +4145,7 @@ func checkSyntax(_ Config, paths []string) int {
 func checkSyntaxPath(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("read syntax file %s: %w", path, err)
 	}
 
 	err = decodeSyntaxFile(path, data)
@@ -3873,7 +4158,7 @@ func checkSyntaxPath(path string) error {
 
 func decodeSyntaxFile(path string, data []byte) error {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
+	case extYaml, extYml:
 		return decodeYAMLSyntax(data)
 	case ".toml":
 		return decodeTOMLSyntax(data)
@@ -3886,12 +4171,15 @@ func decodeSyntaxFile(path string, data []byte) error {
 
 func decodeYAMLSyntax(data []byte) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
+
 	for {
 		var value any
+
 		err := decoder.Decode(&value)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
+
 		if err != nil {
 			return fmt.Errorf("decode YAML: %w", err)
 		}
@@ -3900,6 +4188,7 @@ func decodeYAMLSyntax(data []byte) error {
 
 func decodeTOMLSyntax(data []byte) error {
 	var value any
+
 	err := toml.Unmarshal(data, &value)
 	if err != nil {
 		return fmt.Errorf("decode TOML: %w", err)
@@ -3910,6 +4199,7 @@ func decodeTOMLSyntax(data []byte) error {
 
 func decodeJSONSyntax(data []byte) error {
 	var value any
+
 	err := json.Unmarshal(data, &value)
 	if err != nil {
 		return fmt.Errorf("decode JSON: %w", err)
@@ -3924,6 +4214,7 @@ func findManifestPath(settings manifestValidationSettings) (string, error) {
 		if candidate == "" {
 			continue
 		}
+
 		info, err := os.Stat(candidate)
 		if err == nil && !info.IsDir() {
 			return candidate, nil
@@ -3956,11 +4247,13 @@ func validateManifestRequiredStrings(
 	fieldNames []string,
 ) []string {
 	validationErrors := make([]string, 0)
+
 	for _, fieldName := range fieldNames {
 		fieldName = strings.TrimSpace(fieldName)
 		if fieldName == "" {
 			continue
 		}
+
 		value, ok := data[fieldName]
 		if !ok {
 			validationErrors = append(
@@ -3970,6 +4263,7 @@ func validateManifestRequiredStrings(
 
 			continue
 		}
+
 		if _, ok := value.(string); !ok {
 			validationErrors = append(
 				validationErrors,
@@ -4001,6 +4295,7 @@ func validateManifestListSection(
 	}
 
 	validationErrors := make([]string, 0)
+
 	for index, entry := range entries {
 		entryMap, ok := entry.(map[string]any)
 		if !ok {
@@ -4011,6 +4306,7 @@ func validateManifestListSection(
 
 			continue
 		}
+
 		validationErrors = append(
 			validationErrors,
 			validateManifestEntryStrings(
@@ -4044,11 +4340,13 @@ func validateManifestEntryStrings(
 	required bool,
 ) []string {
 	validationErrors := make([]string, 0)
+
 	for _, fieldName := range fieldNames {
 		fieldName = strings.TrimSpace(fieldName)
 		if fieldName == "" {
 			continue
 		}
+
 		value, ok := entryMap[fieldName]
 		if !ok {
 			if required {
@@ -4060,6 +4358,7 @@ func validateManifestEntryStrings(
 
 			continue
 		}
+
 		if _, ok := value.(string); !ok {
 			validationErrors = append(
 				validationErrors,
@@ -4078,6 +4377,7 @@ func validateManifestCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -4097,6 +4397,7 @@ func validateManifestCommand(_ Config, _ []string) int {
 	}
 
 	var data map[string]any
+
 	err = yaml.Unmarshal(content, &data)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Invalid YAML syntax in %s:\n", manifestPath)
@@ -4104,6 +4405,7 @@ func validateManifestCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if data == nil {
 		fmt.Fprintf(
 			os.Stderr,
@@ -4124,6 +4426,7 @@ func validateManifestCommand(_ Config, _ []string) int {
 				Message: item,
 			})
 		}
+
 		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 			Tool:     "manifest_validation",
 			Title:    "MANIFEST VALIDATION FAILED",
@@ -4151,14 +4454,17 @@ func findPlanMetadataFiles(
 	settings planCompletionSettings,
 ) []string {
 	matches := make([]string, 0)
+
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
 		if path == "" {
 			continue
 		}
+
 		if filepath.Base(path) != settings.MetadataFilename {
 			continue
 		}
+
 		normalized := normalizeGeminiPath(path)
 		for _, marker := range settings.RootMarkers {
 			marker = normalizeGeminiPath(marker)
@@ -4178,7 +4484,9 @@ func planStatus(metadataPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", metadataPath, err)
 	}
+
 	var data map[string]any
+
 	err = yaml.Unmarshal(content, &data)
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", metadataPath, err)
@@ -4196,22 +4504,27 @@ type uncheckedPlanItem struct {
 func findUncheckedPlanItems(planDir string) ([]uncheckedPlanItem, error) {
 	items := make([]uncheckedPlanItem, 0)
 	pattern := regexp.MustCompile(`^-\s*\[\s*\]\s+.+`)
+
 	err := filepath.WalkDir(
 		planDir,
 		func(path string, entry os.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
 			}
+
 			if entry.IsDir() {
 				return nil
 			}
+
 			if filepath.Ext(path) != ".md" {
 				return nil
 			}
+
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return fmt.Errorf("read %s: %w", path, err)
 			}
+
 			for index, line := range strings.Split(string(content), "\n") {
 				if pattern.MatchString(line) {
 					items = append(items, uncheckedPlanItem{
@@ -4225,7 +4538,6 @@ func findUncheckedPlanItems(planDir string) ([]uncheckedPlanItem, error) {
 			return nil
 		},
 	)
-
 	if err != nil {
 		return items, fmt.Errorf("walk %s: %w", planDir, err)
 	}
@@ -4249,24 +4561,29 @@ func checkPlanCompletionErrors(
 			completed[value] = struct{}{}
 		}
 	}
+
 	if _, ok := completed[status]; !ok {
 		return nil, status, nil
 	}
 
 	planDir := filepath.Dir(metadataPath)
+
 	unchecked, err := findUncheckedPlanItems(planDir)
 	if err != nil {
 		return nil, status, fmt.Errorf("scan %s plan items: %w", planDir, err)
 	}
+
 	if len(unchecked) == 0 {
 		return nil, status, nil
 	}
+
 	findings := make([]hookFinding, 0, len(unchecked))
 	for _, item := range unchecked {
 		relative, relErr := filepath.Rel(planDir, item.File)
 		if relErr != nil {
 			relative = item.File
 		}
+
 		findings = append(findings, hookFinding{
 			Tool:    "plan_completion",
 			File:    filepath.Join(filepath.Base(planDir), relative),
@@ -4286,6 +4603,7 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -4294,10 +4612,12 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 	if len(paths) == 0 {
 		paths = stagedFiles()
 	}
+
 	metadataFiles := findPlanMetadataFiles(paths, settings)
 
 	allFindings := make([]hookFinding, 0)
 	status := ""
+
 	for _, metadataPath := range metadataFiles {
 		findings, foundStatus, err := checkPlanCompletionErrors(metadataPath, settings)
 		if err != nil {
@@ -4305,11 +4625,14 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 
 			return 1
 		}
+
 		if foundStatus != "" {
 			status = foundStatus
 		}
+
 		allFindings = append(allFindings, findings...)
 	}
+
 	if len(allFindings) > 0 {
 		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 			Tool:     "plan_completion",
@@ -4379,6 +4702,7 @@ func addPyprojectPerFileFindings(
 
 				continue
 			}
+
 			for _, code := range codeList {
 				addPyprojectFinding(findings, tool, setting, pattern, code)
 			}
@@ -4386,6 +4710,7 @@ func addPyprojectPerFileFindings(
 
 		return
 	}
+
 	for _, entry := range normalizeStringList(value) {
 		addPyprojectFinding(findings, tool, setting, entry, "")
 	}
@@ -4455,10 +4780,12 @@ func pyprojectMap(value any) map[string]any {
 
 func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	ruff := pyprojectMap(toolTable["ruff"])
 	if ruff == nil {
 		return findings
 	}
+
 	lint := pyprojectMap(ruff["lint"])
 	for _, key := range ruffPerFileIgnoreKeys() {
 		if lint != nil {
@@ -4466,10 +4793,12 @@ func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]st
 				addPyprojectPerFileFindings(findings, "ruff", key, value)
 			}
 		}
+
 		if value, ok := ruff[key]; ok {
 			addPyprojectPerFileFindings(findings, "ruff", key, value)
 		}
 	}
+
 	for _, key := range []string{"exclude", "extend-exclude", "extend_exclude"} {
 		if value, ok := ruff[key]; ok {
 			addPyprojectPatternFindings(findings, "ruff", key, value)
@@ -4485,13 +4814,15 @@ func addMypyOverrideFindings(
 ) {
 	modules := normalizeStringList(firstNonNil(override["module"], override["modules"]))
 	if len(modules) == 0 {
-		modules = []string{"<unknown>"}
+		modules = []string{unknownFile}
 	}
+
 	for _, key := range mypyIgnoreKeys() {
 		value, ok := override[key]
 		if !ok {
 			continue
 		}
+
 		addMypyOverrideFindingsForKey(findings, modules, key, value)
 	}
 }
@@ -4520,10 +4851,11 @@ func addMypyOverrideErrorCodeFindings(
 		if strings.TrimSpace(code) == "" {
 			continue
 		}
+
 		for _, module := range modules {
 			addPyprojectFinding(
 				findings,
-				"mypy",
+				toolMypy,
 				"override."+key,
 				module,
 				code,
@@ -4541,16 +4873,17 @@ func addMypyOverrideGenericFindings(
 	if boolean, ok := value.(bool); ok {
 		if boolean {
 			for _, module := range modules {
-				addPyprojectFinding(findings, "mypy", "override."+key, module, "")
+				addPyprojectFinding(findings, toolMypy, "override."+key, module, "")
 			}
 		}
 
 		return
 	}
+
 	for _, module := range modules {
 		addPyprojectFinding(
 			findings,
-			"mypy",
+			toolMypy,
 			"override."+key,
 			module,
 			fmt.Sprint(value),
@@ -4560,18 +4893,22 @@ func addMypyOverrideGenericFindings(
 
 func extractMypyFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
-	mypy := pyprojectMap(toolTable["mypy"])
+
+	mypy := pyprojectMap(toolTable[toolMypy])
 	if mypy == nil {
 		return findings
 	}
+
 	for _, key := range []string{"per-file-ignores", "per_file_ignores"} {
 		if value, ok := mypy[key]; ok {
 			addPyprojectPerFileFindings(findings, "mypy", key, value)
 		}
 	}
+
 	if value, ok := mypy["exclude"]; ok {
 		addPyprojectPatternFindings(findings, "mypy", "exclude", value)
 	}
+
 	if overrides, ok := mypy["overrides"].([]any); ok {
 		for _, rawOverride := range overrides {
 			override := pyprojectMap(rawOverride)
@@ -4588,10 +4925,12 @@ func extractPyrightFindings(
 	toolTable map[string]any,
 ) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	pyright := pyprojectMap(toolTable["pyright"])
 	if pyright == nil {
 		return findings
 	}
+
 	for _, key := range []string{"exclude", "ignore"} {
 		if value, ok := pyright[key]; ok {
 			addPyprojectPatternFindings(findings, "pyright", key, value)
@@ -4605,14 +4944,17 @@ func extractPylintFindings(
 	toolTable map[string]any,
 ) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	pylint := pyprojectMap(toolTable["pylint"])
 	if pylint == nil {
 		return findings
 	}
+
 	sections := []map[string]any{pylint}
 	if mainSection := pyprojectMap(pylint["main"]); mainSection != nil {
 		sections = append(sections, mainSection)
 	}
+
 	for _, section := range sections {
 		for _, key := range pylintIgnoreKeys() {
 			if value, ok := section[key]; ok {
@@ -4641,16 +4983,20 @@ func extractPyprojectFindings(
 	if toolTable == nil {
 		return map[pyprojectIgnoreFinding]struct{}{}
 	}
+
 	findings := map[pyprojectIgnoreFinding]struct{}{}
 	for finding := range extractRuffFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractMypyFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractPyrightFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractPylintFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
@@ -4671,15 +5017,18 @@ func filterAllowedPyprojectFindings(
 		if allowedIgnore[finding.Target] {
 			continue
 		}
+
 		if isExcludeSetting(finding.Setting) &&
 			allowedExclude[finding.Target] {
 			continue
 		}
-		if finding.Tool == "mypy" &&
+
+		if finding.Tool == toolMypy &&
 			finding.Setting == "override.ignore_missing_imports" &&
 			allowedMypyMissing[finding.Target] {
 			continue
 		}
+
 		filtered = append(filtered, finding)
 	}
 
@@ -4717,7 +5066,9 @@ func loadPyprojectConfig(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to read file: %w", err)
 	}
+
 	var config map[string]any
+
 	err = toml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, fmt.Errorf("invalid TOML: %w", err)
@@ -4733,12 +5084,14 @@ func checkPyprojectIgnoresCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
 
 	hasErrors := false
 	reportFindings := []hookFinding{}
+
 	for _, rawPath := range args {
 		path := strings.TrimSpace(rawPath)
 		if filepath.Base(path) != "pyproject.toml" {
@@ -4748,6 +5101,7 @@ func checkPyprojectIgnoresCommand(_ Config, args []string) int {
 		config, err := loadPyprojectConfig(path)
 		if err != nil {
 			hasErrors = true
+
 			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
 
 			continue
@@ -4760,7 +5114,9 @@ func checkPyprojectIgnoresCommand(_ Config, args []string) int {
 		if len(findings) == 0 {
 			continue
 		}
+
 		hasErrors = true
+
 		for _, finding := range findings {
 			reportFindings = append(reportFindings, hookFinding{
 				Tool:    "pyproject_ignores",
@@ -4793,10 +5149,12 @@ func compileCommentSuppressionPatterns(
 	compiled := make([]compiledCommentSuppressionPattern, 0, len(settings.Patterns))
 	for _, pattern := range settings.Patterns {
 		expr := strings.TrimSpace(pattern.Regex)
+
 		label := strings.TrimSpace(pattern.Label)
 		if expr == "" || label == "" {
 			continue
 		}
+
 		regex, err := regexp.Compile(expr)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -4805,6 +5163,7 @@ func compileCommentSuppressionPatterns(
 				err,
 			)
 		}
+
 		compiled = append(compiled, compiledCommentSuppressionPattern{
 			Regex: regex,
 			Label: label,
@@ -4906,6 +5265,7 @@ func (scanner *pythonCommentScanner) recordComment() {
 		scanner.text[scanner.cursor] != '\n' {
 		scanner.cursor++
 	}
+
 	scanner.violations = append(scanner.violations, commentSuppressionViolation{
 		Line:    scanner.line,
 		Comment: strings.TrimSpace(scanner.text[start:scanner.cursor]),
@@ -4923,6 +5283,7 @@ func (scanner *pythonCommentScanner) enterQuote(
 
 		return
 	}
+
 	scanner.state = singleState
 	scanner.cursor++
 }
@@ -4949,6 +5310,7 @@ func (scanner *pythonCommentScanner) advanceEscaped() {
 		scanner.text[scanner.cursor+1] == '\n' {
 		scanner.line++
 	}
+
 	scanner.cursor += splitNParts
 }
 
@@ -4956,12 +5318,14 @@ func (scanner *pythonCommentScanner) stepTripleQuoted(quote byte) {
 	if scanner.text[scanner.cursor] == '\n' {
 		scanner.line++
 	}
+
 	if scanner.hasTripleQuote(quote) {
 		scanner.state = scanNormal
 		scanner.cursor += tripleQuoteLen
 
 		return
 	}
+
 	scanner.cursor++
 }
 
@@ -4980,16 +5344,20 @@ func findCommentSuppressions(
 	if err != nil {
 		return nil, err
 	}
+
 	if binary {
 		return nil, nil
 	}
+
 	comments := findPythonComments(text)
 	violations := make([]commentSuppressionViolation, 0)
+
 	for _, comment := range comments {
 		label := classifyCommentSuppression(comment.Comment, patterns)
 		if label == "" {
 			continue
 		}
+
 		comment.File = path
 		comment.Label = label
 		violations = append(violations, comment)
@@ -5005,9 +5373,11 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
+
 	patterns, err := compileCommentSuppressionPatterns(settings)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -5016,16 +5386,19 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 	}
 
 	allViolations := make([]commentSuppressionViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		violations, err := findCommentSuppressions(path, patterns)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
 
 			return 1
 		}
+
 		allViolations = append(allViolations, violations...)
 	}
 
@@ -5044,6 +5417,7 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 			Detail:  violation.Comment,
 		})
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "comment_suppressions",
 		Title:    "COMMENT-BASED LINT SUPPRESSION DETECTED",
@@ -5063,6 +5437,7 @@ func shouldCheckModuleDocsFile(path string, settings moduleDocsSettings) bool {
 	if !checkNames[filepath.Base(path)] {
 		return false
 	}
+
 	excluded := stringSet(settings.ExcludedDirs)
 	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
 		if excluded[part] {
@@ -5079,12 +5454,14 @@ func discoverModuleDocsFiles(
 ) ([]string, error) {
 	matches := make([]string, 0)
 	excluded := stringSet(settings.ExcludedDirs)
+
 	err := filepath.WalkDir(
 		root,
 		func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
 			}
+
 			if entry.IsDir() {
 				if excluded[entry.Name()] && path != root {
 					return filepath.SkipDir
@@ -5092,6 +5469,7 @@ func discoverModuleDocsFiles(
 
 				return nil
 			}
+
 			if shouldCheckModuleDocsFile(path, settings) {
 				matches = append(matches, filepath.ToSlash(path))
 			}
@@ -5102,6 +5480,7 @@ func discoverModuleDocsFiles(
 	if err != nil {
 		return nil, fmt.Errorf("walk module docs files: %w", err)
 	}
+
 	sort.Strings(matches)
 
 	return matches, nil
@@ -5109,15 +5488,19 @@ func discoverModuleDocsFiles(
 
 func listColocatedMarkdownFiles(path string) ([]string, error) {
 	directory := filepath.Dir(path)
+
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("read dir %s: %w", directory, err)
 	}
+
 	files := make([]string, 0)
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
+
 		if strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
 			files = append(
 				files,
@@ -5125,6 +5508,7 @@ func listColocatedMarkdownFiles(path string) ([]string, error) {
 			)
 		}
 	}
+
 	sort.Strings(files)
 
 	return files, nil
@@ -5135,6 +5519,7 @@ func extractModuleDocstringFromFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	if binary {
 		return "", nil
 	}
@@ -5144,6 +5529,7 @@ func extractModuleDocstringFromFile(path string) (string, error) {
 
 func extractModuleDocstring(text string) (string, error) {
 	text = strings.TrimPrefix(text, "\ufeff")
+
 	index := 0
 	for index < len(text) {
 		for index < len(text) {
@@ -5154,10 +5540,12 @@ func extractModuleDocstring(text string) (string, error) {
 				goto afterWhitespace
 			}
 		}
+
 	afterWhitespace:
 		if index >= len(text) {
 			return "", nil
 		}
+
 		if text[index] == '#' {
 			for index < len(text) && text[index] != '\n' {
 				index++
@@ -5177,16 +5565,20 @@ func parseModuleDocstringLiteral(text string, start int) (string, error) {
 	for index < len(text) && isASCIIAlpha(text[index]) {
 		index++
 	}
+
 	if !isModuleDocstringPrefix(text[start:index]) {
 		return "", nil
 	}
+
 	if index >= len(text) {
 		return "", nil
 	}
+
 	quote := text[index]
 	if quote != '\'' && quote != '"' {
 		return "", nil
 	}
+
 	triple := index+minCollectionItems < len(text) &&
 		text[index+1] == quote &&
 		text[index+2] == quote
@@ -5223,6 +5615,7 @@ func parseTripleQuotedDocstring(
 
 			continue
 		}
+
 		if text[cursor] == quote &&
 			text[cursor+1] == quote &&
 			text[cursor+2] == quote {
@@ -5271,7 +5664,9 @@ func extractModuleSeeAlsoReferences(docstring string) []string {
 	if content == "" {
 		return nil
 	}
+
 	refs := make(map[string]struct{})
+
 	for _, match := range moduleDocsEntryPattern.FindAllStringSubmatch(content, -1) {
 		if len(match) >= minCollectionItems {
 			refs[match[1]] = struct{}{}
@@ -5286,7 +5681,9 @@ func extractModulePathPrefixedReferences(docstring string) []string {
 	if content == "" {
 		return nil
 	}
+
 	refs := make(map[string]struct{})
+
 	for _, match := range moduleDocsPathPattern.FindAllStringSubmatch(content, -1) {
 		if len(match) >= minCollectionItems {
 			refs[match[1]] = struct{}{}
@@ -5303,8 +5700,10 @@ func missingModuleDocstringReferences(
 	if docstring == "" {
 		return markdownFiles
 	}
+
 	referenced := stringSet(extractModuleSeeAlsoReferences(docstring))
 	missing := make([]string, 0)
+
 	for _, markdownFile := range markdownFiles {
 		if !referenced[filepath.Base(markdownFile)] {
 			missing = append(missing, markdownFile)
@@ -5317,13 +5716,16 @@ func missingModuleDocstringReferences(
 func nonexistentModuleReferences(path string, docstring string) []string {
 	directory := filepath.Dir(path)
 	missing := make([]string, 0)
+
 	for _, ref := range extractModuleSeeAlsoReferences(docstring) {
 		refPath := filepath.Join(directory, ref)
+
 		_, err := os.Stat(refPath)
 		if errors.Is(err, os.ErrNotExist) {
 			missing = append(missing, ref)
 		}
 	}
+
 	sort.Strings(missing)
 
 	return missing
@@ -5333,6 +5735,7 @@ func loadModuleDocsIndex(settings moduleDocsSettings) (string, error) {
 	if strings.TrimSpace(settings.SourceDocsPath) == "" {
 		return "", nil
 	}
+
 	data, err := os.ReadFile(settings.SourceDocsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -5349,12 +5752,15 @@ func missingSourceDocsEntries(markdownFiles []string, index string) []string {
 	if strings.TrimSpace(index) == "" {
 		return append([]string{}, markdownFiles...)
 	}
+
 	missing := make([]string, 0)
+
 	for _, markdownFile := range markdownFiles {
 		directory := strings.TrimPrefix(
 			filepath.ToSlash(filepath.Dir(markdownFile))+"/",
 			"./",
 		)
+
 		name := filepath.Base(markdownFile)
 		if !strings.Contains(index, directory) || !strings.Contains(index, name) {
 			missing = append(missing, markdownFile)
@@ -5370,11 +5776,13 @@ func bannedModuleDocFilenames(
 ) []string {
 	banned := stringSet(settings.BannedDocFilenames)
 	violations := make([]string, 0)
+
 	for _, markdownFile := range markdownFiles {
 		if banned[filepath.Base(markdownFile)] {
 			violations = append(violations, markdownFile)
 		}
 	}
+
 	sort.Strings(violations)
 
 	return violations
@@ -5395,10 +5803,12 @@ func collectModuleDocsViolations(
 	}
 
 	allMarkdownFiles := sortedKeys(allMarkdown)
+
 	index, err := loadModuleDocsIndex(settings)
 	if err != nil {
 		return violations, err
 	}
+
 	violations.MissingIndex = missingSourceDocsEntries(allMarkdownFiles, index)
 	violations.BannedFilenames = bannedModuleDocFilenames(allMarkdownFiles, settings)
 	sort.Strings(violations.MissingDocstring)
@@ -5422,6 +5832,7 @@ func collectModuleDocsFileViolations(
 	if err != nil {
 		return err
 	}
+
 	if !hasMeaningfulModuleDocstring(docstring) {
 		violations.MissingDocstring = append(
 			violations.MissingDocstring,
@@ -5433,6 +5844,7 @@ func collectModuleDocsFileViolations(
 	if err != nil {
 		return err
 	}
+
 	collectModuleMarkdownViolations(
 		path,
 		docstring,
@@ -5464,6 +5876,7 @@ func collectModuleMarkdownViolations(
 	for _, markdownFile := range markdownFiles {
 		allMarkdown[markdownFile] = struct{}{}
 	}
+
 	missingRefs := missingModuleDocstringReferences(docstring, markdownFiles)
 	if len(missingRefs) > 0 {
 		violations.MissingRefs = append(violations.MissingRefs, moduleDocsMissingRefs{
@@ -5491,6 +5904,7 @@ func collectModuleDocstringReferenceViolations(
 			},
 		)
 	}
+
 	if refs := nonexistentModuleReferences(path, docstring); len(refs) > 0 {
 		violations.NonexistentRefs = append(
 			violations.NonexistentRefs,
@@ -5507,210 +5921,10 @@ func sortedKeys[T any](values map[string]T) []string {
 	for key := range values {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	return keys
-}
-
-func printModuleDocsMissingDocstring(violations []string) {
-	fmt.Fprintln(os.Stderr, "ERROR: Modules missing docstrings!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"The following __init__.py/conftest.py files have no module docstring:",
-	)
-	fmt.Fprintln(os.Stderr)
-	for _, path := range violations {
-		fmt.Fprintf(os.Stderr, "  - %s\n", path)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Add a module docstring at the top of each file:")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, `    """Brief description of this module.`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    Longer description explaining the module's purpose,")
-	fmt.Fprintln(os.Stderr, "    key classes/functions, and usage patterns.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    See Also:")
-	fmt.Fprintln(
-		os.Stderr,
-		"        MODULE_NAME.md: Detailed documentation for this module.",
-	)
-	fmt.Fprintln(os.Stderr, `    """`)
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsMissingMarkdown(violations []string) {
-	fmt.Fprintln(os.Stderr, "ERROR: Modules missing documentation files!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"Every __init__.py/conftest.py directory MUST have at least one .md file.",
-	)
-	fmt.Fprintln(os.Stderr, "The following directories have no documentation:")
-	fmt.Fprintln(os.Stderr)
-	for _, path := range violations {
-		fmt.Fprintf(os.Stderr, "  - %s/\n", filepath.ToSlash(filepath.Dir(path)))
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Create a directory-named markdown file in each directory:")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    DIRECTORY_NAME.md")
-	fmt.Fprintln(os.Stderr, "    # Module Name")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    Brief description of this module's purpose and usage.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"Avoid README.md here; this hook bans generic README names for module docs.",
-	)
-}
-
-func printModuleDocsMissingRefs(violations []moduleDocsMissingRefs) {
-	fmt.Fprintln(os.Stderr, "ERROR: Documentation reference violations found!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"When __init__.py/conftest.py files have co-located .md documentation,",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		`the module docstring MUST include a "See Also:" section referencing those files.`,
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "  %s missing references to:\n", violation.PythonFile)
-		for _, markdownFile := range violation.Markdown {
-			fmt.Fprintf(os.Stderr, "    - %s\n", filepath.Base(markdownFile))
-		}
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, `Add a "See Also:" section to the module docstring:`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, `    """Module docstring.`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    See Also:")
-	fmt.Fprintln(
-		os.Stderr,
-		"        FILENAME.md: Brief description of the documentation.",
-	)
-	fmt.Fprintln(os.Stderr, `    """`)
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsMissingIndex(violations []string) {
-	fmt.Fprintln(os.Stderr, "ERROR: Source documentation not indexed!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"The following .md files must be added to docs/SOURCE_DOCS.md:",
-	)
-	fmt.Fprintln(os.Stderr)
-	for _, path := range violations {
-		fmt.Fprintf(os.Stderr, "  - %s\n", path)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Add entries to docs/SOURCE_DOCS.md:")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "    | `directory/` | `FILENAME.md` | Description here |")
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsPathPrefixed(violations []moduleDocsPathRefs) {
-	fmt.Fprintln(os.Stderr, "ERROR: Path-prefixed documentation references found!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		`References in 'See Also:' sections must be to CO-LOCATED files only.`,
-	)
-	fmt.Fprintln(os.Stderr, "Path prefixes like 'subdir/FILE.md' are an anti-pattern.")
-	fmt.Fprintln(
-		os.Stderr,
-		"Each module should reference its own documentation, not reach into subdirs.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "  %s:\n", violation.PythonFile)
-		for _, ref := range violation.Refs {
-			fmt.Fprintf(os.Stderr, "    - %s\n", ref)
-		}
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Fix by either:")
-	fmt.Fprintln(
-		os.Stderr,
-		"  1. Moving the reference to the submodule's own __init__.py docstring",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"  2. Describing the submodule without a file path reference",
-	)
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsNonexistentRefs(violations []moduleDocsBadRefs) {
-	fmt.Fprintln(os.Stderr, "ERROR: References to non-existent documentation files!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"The 'See Also:' section references .md files that do not exist.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "  %s:\n", violation.PythonFile)
-		for _, ref := range violation.Refs {
-			fmt.Fprintf(os.Stderr, "    - %s (does not exist)\n", ref)
-		}
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Fix by either:")
-	fmt.Fprintln(os.Stderr, "  1. Creating the missing .md file")
-	fmt.Fprintln(os.Stderr, "  2. Updating the reference to the correct filename")
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsBannedFilenames(violations []string) {
-	fmt.Fprintln(os.Stderr, "ERROR: Banned documentation filename(s) found!")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"Documentation files must follow the MODULE.md naming convention:",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(
-		os.Stderr,
-		"  - Primary docs: Named after containing directory (e.g., foo/FOO.md)",
-	)
-	fmt.Fprintln(os.Stderr, "  - Secondary docs: Any name EXCEPT 'README.md'")
-	fmt.Fprintln(
-		os.Stderr,
-		"  - All docs: Must be linked in __init__.py/conftest.py AND SOURCE_DOCS.md",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Files with banned names:")
-	for _, path := range violations {
-		expected := strings.ToUpper(filepath.Base(filepath.Dir(path))) + ".md"
-		fmt.Fprintf(os.Stderr, "  - %s\n", path)
-		fmt.Fprintf(
-			os.Stderr,
-			"    Rename to: %s/%s\n",
-			filepath.ToSlash(filepath.Dir(path)),
-			expected,
-		)
-	}
-	fmt.Fprintln(os.Stderr)
-}
-
-func printModuleDocsSection(printFunc func(), printed bool) bool {
-	if printed {
-		fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("-", reportDividerWidth))
-	}
-	printFunc()
-
-	return true
 }
 
 func checkModuleDocsCommand(_ Config, args []string) int {
@@ -5720,6 +5934,7 @@ func checkModuleDocsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -5750,6 +5965,7 @@ func moduleDocsCommandFiles(
 	}
 
 	files := make([]string, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) == extPy {
 			files = append(files, filepath.ToSlash(path))
@@ -5764,6 +5980,7 @@ func reportModuleDocsViolations(violations moduleDocsViolations) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "module_docs",
 		Title:    "MODULE DOCUMENTATION CHECK FAILED",
@@ -5780,58 +5997,100 @@ func reportModuleDocsViolations(violations moduleDocsViolations) int {
 }
 
 func moduleDocsHookFindings(violations moduleDocsViolations) []hookFinding {
-	findings := []hookFinding{}
+	findings := make([]hookFinding, 0, moduleDocsFindingCount(violations))
 	for _, path := range violations.MissingDocstring {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_docstring", Message: "missing module docstring"})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    path,
+			Code:    "missing_docstring",
+			Message: "missing module docstring",
+		})
 	}
+
 	for _, path := range violations.MissingMarkdown {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_markdown", Message: "missing MODULE.md documentation"})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    path,
+			Code:    "missing_markdown",
+			Message: "missing MODULE.md documentation",
+		})
 	}
+
 	for _, item := range violations.MissingRefs {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "missing_refs", Message: "missing documentation refs", Detail: strings.Join(item.Markdown, ", ")})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    item.PythonFile,
+			Code:    "missing_refs",
+			Message: "missing documentation refs",
+			Detail:  strings.Join(item.Markdown, ", "),
+		})
 	}
+
 	for _, path := range violations.MissingIndex {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "missing_index", Message: "missing SOURCE_DOCS.md index reference"})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    path,
+			Code:    "missing_index",
+			Message: "missing SOURCE_DOCS.md index reference",
+		})
 	}
+
 	for _, item := range violations.PathPrefixed {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "path_prefixed_refs", Message: "documentation refs must be bare filenames", Detail: strings.Join(item.Refs, ", ")})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    item.PythonFile,
+			Code:    "path_prefixed_refs",
+			Message: "documentation refs must be bare filenames",
+			Detail:  strings.Join(item.Refs, ", "),
+		})
 	}
+
 	for _, item := range violations.NonexistentRefs {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: item.PythonFile, Code: "nonexistent_refs", Message: "documentation refs point to missing files", Detail: strings.Join(item.Refs, ", ")})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    item.PythonFile,
+			Code:    "nonexistent_refs",
+			Message: "documentation refs point to missing files",
+			Detail:  strings.Join(item.Refs, ", "),
+		})
 	}
+
 	for _, path := range violations.BannedFilenames {
-		findings = append(findings, hookFinding{Tool: "module_docs", File: path, Code: "banned_filename", Message: "documentation file uses banned name"})
+		findings = append(findings, hookFinding{
+			Tool:    "module_docs",
+			File:    path,
+			Code:    "banned_filename",
+			Message: "documentation file uses banned name",
+		})
 	}
 
 	return findings
 }
 
-func printModuleDocsViolationSection(
-	hasViolations bool,
-	printer func(),
-	printedSection bool,
-	exitCode int,
-) (bool, int) {
-	if !hasViolations {
-		return printedSection, exitCode
-	}
-
-	printedSection = printModuleDocsSection(printer, printedSection)
-
-	return printedSection, 1
+func moduleDocsFindingCount(violations moduleDocsViolations) int {
+	return len(violations.MissingDocstring) +
+		len(violations.MissingMarkdown) +
+		len(violations.MissingRefs) +
+		len(violations.MissingIndex) +
+		len(violations.PathPrefixed) +
+		len(violations.NonexistentRefs) +
+		len(violations.BannedFilenames)
 }
 
 func checkMergeConflict(_ Config, paths []string) int {
 	findings := []hookFinding{}
 	markers := []string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"}
+
 	for _, path := range existingFiles(paths) {
 		if isBinary(path) {
 			continue
 		}
+
 		text, binary, err := readText(path)
 		if err != nil || binary {
 			continue
 		}
+
 		for _, line := range strings.Split(text, "\n") {
 			for _, marker := range markers {
 				if strings.HasPrefix(line, marker) {
@@ -5846,12 +6105,14 @@ func checkMergeConflict(_ Config, paths []string) int {
 				}
 			}
 		}
+
 	nextFile:
 	}
 
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "merge_conflict",
 		Title:    "MERGE CONFLICT MARKERS DETECTED",
@@ -5864,16 +6125,20 @@ func checkMergeConflict(_ Config, paths []string) int {
 
 func checkShebangs(_ Config, paths []string) int {
 	findings := []hookFinding{}
+
 	for _, path := range existingFiles(paths) {
 		text, binary, err := readText(path)
 		if err != nil || binary {
 			continue
 		}
+
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
 		}
+
 		executable := info.Mode()&executePermissionMask != 0
+
 		hasShebang := strings.HasPrefix(text, "#!")
 		if executable && !hasShebang {
 			findings = append(findings, hookFinding{
@@ -5882,6 +6147,7 @@ func checkShebangs(_ Config, paths []string) int {
 				Message: "executable file has no shebang",
 			})
 		}
+
 		if hasShebang && !executable {
 			findings = append(findings, hookFinding{
 				Tool:    "shebangs",
@@ -5894,6 +6160,7 @@ func checkShebangs(_ Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "shebangs",
 		Title:    "SHEBANG CHECK FAILED",
@@ -5907,6 +6174,7 @@ func checkShebangs(_ Config, paths []string) int {
 func detectPrivateKey(_ Config, paths []string) int {
 	findings := []hookFinding{}
 	privateKey := regexp.MustCompile(privateKeyPattern)
+
 	for _, path := range existingFiles(paths) {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -5918,6 +6186,7 @@ func detectPrivateKey(_ Config, paths []string) int {
 
 			continue
 		}
+
 		if privateKey.Match(data) {
 			findings = append(findings, hookFinding{
 				Tool:    "private_key",
@@ -5930,6 +6199,7 @@ func detectPrivateKey(_ Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "private_key",
 		Title:    "PRIVATE KEY CHECK FAILED",
@@ -5943,15 +6213,18 @@ func detectPrivateKey(_ Config, paths []string) int {
 func checkLargeFiles(cfg Config, paths []string) int {
 	findings := []hookFinding{}
 	suffixes := stringSet(cfg.Text.LargeFileSuffixes)
+
 	maxBytes := int64(cfg.Text.MaxLargeFileKB * kibibyte)
 	for _, path := range existingFiles(paths) {
 		if !suffixes[strings.ToLower(filepath.Ext(path))] ||
 			hasPrefix(path, cfg.Text.LargeFileExcludePrefixes) {
 			continue
 		}
+
 		if !isAddedFile(path) {
 			continue
 		}
+
 		info, err := os.Stat(path)
 		if err != nil {
 			findings = append(findings, hookFinding{
@@ -5962,6 +6235,7 @@ func checkLargeFiles(cfg Config, paths []string) int {
 
 			continue
 		}
+
 		if info.Size() > maxBytes {
 			findings = append(findings, hookFinding{
 				Tool:    "large_files",
@@ -5974,6 +6248,7 @@ func checkLargeFiles(cfg Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "large_files",
 		Title:    "LARGE FILE CHECK FAILED",
@@ -5997,6 +6272,7 @@ func isForbiddenStringExempt(path string, exemptPath string) bool {
 	if strings.TrimSpace(exemptPath) == "" {
 		return false
 	}
+
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
 		return false
@@ -6007,14 +6283,17 @@ func isForbiddenStringExempt(path string, exemptPath string) bool {
 
 func checkForbiddenStrings(cfg Config, paths []string) int {
 	findings := []hookFinding{}
+
 	exemptPath := forbiddenStringExemptPath()
 	for _, path := range existingFiles(paths) {
 		if isForbiddenStringExempt(path, exemptPath) {
 			continue
 		}
+
 		if isBinary(path) {
 			continue
 		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			findings = append(findings, hookFinding{
@@ -6026,6 +6305,7 @@ func checkForbiddenStrings(cfg Config, paths []string) int {
 
 			continue
 		}
+
 		for _, forbidden := range cfg.Text.ForbiddenStrings {
 			if bytes.Contains(data, []byte(forbidden)) {
 				findings = append(findings, hookFinding{
@@ -6041,6 +6321,7 @@ func checkForbiddenStrings(cfg Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "forbidden_strings",
 		Title:    "FORBIDDEN STRING CHECK FAILED",
@@ -6056,6 +6337,7 @@ func runShellcheck(_ Config, paths []string) int {
 	if len(files) == 0 {
 		return 0
 	}
+
 	shellcheck, err := exec.LookPath("shellcheck")
 	if err != nil {
 		fmt.Fprintln(
@@ -6065,12 +6347,14 @@ func runShellcheck(_ Config, paths []string) int {
 
 		return 1
 	}
+
 	args := append([]string{"--severity=warning", "-x", "--format=json"}, files...)
 	result := runExternalTool(externalToolRequest{
 		Name:    "shellcheck",
 		Command: append([]string{shellcheck}, args...),
 	})
 	outputText := result.Combined
+
 	findings := parseShellcheckFindings(outputText)
 	if len(findings) > 0 {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
@@ -6082,9 +6366,11 @@ func runShellcheck(_ Config, paths []string) int {
 
 		return 1
 	}
+
 	if outputText != "" {
 		fmt.Fprintln(os.Stdout, outputText)
 	}
+
 	if result.RunnerFailure != nil || result.ExitCode != 0 {
 		return 1
 	}
@@ -6096,19 +6382,23 @@ func parseShellcheckFindings(output string) []hookFinding {
 	if strings.TrimSpace(output) == "" {
 		return nil
 	}
+
 	var payload struct {
 		Comments []struct {
 			File    string `json:"file"`
+			Level   string `json:"level"`
+			Message string `json:"message"`
 			Line    int    `json:"line"`
 			Column  int    `json:"column"`
-			Level   string `json:"level"`
 			Code    int    `json:"code"`
-			Message string `json:"message"`
 		} `json:"comments"`
 	}
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+
+	err := json.Unmarshal([]byte(output), &payload)
+	if err != nil {
 		return nil
 	}
+
 	findings := make([]hookFinding, 0, len(payload.Comments))
 	for _, comment := range payload.Comments {
 		findings = append(findings, hookFinding{
@@ -6130,12 +6420,14 @@ func runYamllint(_ Config, paths []string) int {
 	if len(files) == 0 {
 		return 0
 	}
+
 	bundleRoot, err := findBundleRoot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
+
 	configPath := ".yamllint.yml"
 	args := append(
 		[]string{
@@ -6160,6 +6452,7 @@ func runYamllint(_ Config, paths []string) int {
 		Command: append([]string{"uv"}, args...),
 	})
 	outputText := result.Combined
+
 	findings := parseYamllintFindings(outputText)
 	if len(findings) > 0 {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
@@ -6171,9 +6464,11 @@ func runYamllint(_ Config, paths []string) int {
 
 		return 1
 	}
+
 	if outputText != "" {
 		fmt.Fprintln(os.Stdout, outputText)
 	}
+
 	if result.RunnerFailure != nil || result.ExitCode != 0 {
 		return 1
 	}
@@ -6183,9 +6478,10 @@ func runYamllint(_ Config, paths []string) int {
 
 func yamlFiles(paths []string) []string {
 	files := make([]string, 0)
+
 	for _, path := range paths {
 		ext := strings.ToLower(filepath.Ext(path))
-		if ext == ".yaml" || ext == ".yml" {
+		if ext == extYaml || ext == extYml {
 			files = append(files, path)
 		}
 	}
@@ -6195,26 +6491,36 @@ func yamlFiles(paths []string) []string {
 
 func parseYamllintFindings(output string) []hookFinding {
 	findings := []hookFinding{}
+
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) < 4 {
+		parts := strings.SplitN(line, ":", yamllintParts)
+		if len(parts) < yamllintParts {
 			continue
 		}
-		lineNo, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
-		column, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+
+		lineNo, validLine := parseDiagnosticInt(parts[1])
+		column, validColumn := parseDiagnosticInt(parts[2])
+
+		if !validLine || !validColumn {
+			continue
+		}
+
 		message := strings.TrimSpace(parts[3])
+
 		severity := ""
 		if strings.Contains(message, "[error]") {
 			severity = "error"
 		} else if strings.Contains(message, "[warning]") {
 			severity = "warning"
 		}
+
 		code := ""
 		if start := strings.LastIndex(message, "("); start >= 0 &&
 			strings.HasSuffix(message, ")") {
 			code = strings.TrimSuffix(message[start+1:], ")")
 			message = strings.TrimSpace(message[:start])
 		}
+
 		message = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(message, "[error]"), "[warning]"))
 		findings = append(findings, hookFinding{
 			Tool:     "yamllint",
@@ -6236,6 +6542,7 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 		`(?m)^\s*set\s+-[euo]+\s*pipefail|^\s*set\s+-euo\s+pipefail`,
 	)
 	commonPattern := regexp.MustCompile(`(?m)source\s+.*common\.sh|^\.\s+.*common\.sh`)
+
 	for _, path := range shellFiles(existingFiles(paths)) {
 		text, binary, err := readText(path)
 		if err != nil {
@@ -6248,16 +6555,20 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 
 			continue
 		}
+
 		if binary {
 			continue
 		}
+
 		var errs []string
 		if !validShellShebang(text) {
 			errs = append(errs, "missing or invalid shell shebang")
 		}
+
 		if !setPattern.MatchString(text) {
 			errs = append(errs, "missing 'set -euo pipefail'")
 		}
+
 		if hasPrefix(path, cfg.Shell.RequireCommonForPrefixes) &&
 			!commonPattern.MatchString(text) {
 			errs = append(
@@ -6265,6 +6576,7 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 				"scripts/ shell files must source the repository common shell helpers",
 			)
 		}
+
 		if len(errs) > 0 {
 			for _, err := range errs {
 				findings = append(findings, hookFinding{
@@ -6279,6 +6591,7 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "shell_best_practices",
 		Title:    "SHELL BEST PRACTICES CHECK FAILED",
@@ -6291,10 +6604,12 @@ func checkShellBestPractices(cfg Config, paths []string) int {
 
 func checkLineLimits(cfg Config, paths []string) int {
 	findings := []hookFinding{}
+
 	for _, path := range existingFiles(paths) {
 		if !isLineLimited(path) {
 			continue
 		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			findings = append(findings, hookFinding{
@@ -6306,11 +6621,14 @@ func checkLineLimits(cfg Config, paths []string) int {
 
 			continue
 		}
+
 		lineCount := countLines(string(data))
+
 		hardLimit, _ := limitsForFile(cfg, path)
 		if lineCount <= hardLimit {
 			continue
 		}
+
 		originalCount := originalLineCount(path)
 		if originalCount < 0 {
 			findings = append(findings, hookFinding{
@@ -6326,9 +6644,11 @@ func checkLineLimits(cfg Config, paths []string) int {
 			})
 		}
 	}
+
 	if len(findings) == 0 {
 		return 0
 	}
+
 	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
 		Tool:     "line_limits",
 		Title:    "FILE SIZE CHECK FAILED",
@@ -6349,16 +6669,19 @@ func checkCommitLint(cfg Config, args []string) int {
 
 		return 1
 	}
+
 	lines, err := commitMessageLines(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", args[0], err)
 
 		return 1
 	}
+
 	errs := validateCommitMessage(cfg, lines)
 	if len(errs) == 0 {
 		return 0
 	}
+
 	findings := make([]hookFinding, 0, len(errs))
 	for _, err := range errs {
 		findings = append(findings, hookFinding{
@@ -6366,6 +6689,7 @@ func checkCommitLint(cfg Config, args []string) int {
 			Message: err,
 		})
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "commitlint",
 		Title:    "COMMIT MESSAGE CHECK FAILED",
@@ -6386,19 +6710,24 @@ func checkCommitAttribution(cfg Config, args []string) int {
 
 		return 1
 	}
+
 	data, err := os.ReadFile(args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Could not read commit message: %v\n", err)
 
 		return 1
 	}
+
 	patterns := attributionPatterns(cfg.CommitAttribution.BlockedNames)
+
 	var violations []string
+
 	for lineNo, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			continue
 		}
+
 		for _, pattern := range patterns {
 			if match := pattern.FindString(trimmed); match != "" {
 				violations = append(
@@ -6410,9 +6739,11 @@ func checkCommitAttribution(cfg Config, args []string) int {
 			}
 		}
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
+
 	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
 		findings = append(findings, hookFinding{
@@ -6420,6 +6751,7 @@ func checkCommitAttribution(cfg Config, args []string) int {
 			Message: violation,
 		})
 	}
+
 	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
 		Tool:     "commit_attribution",
 		Title:    "COMMIT MESSAGE CONTAINS FORBIDDEN AI ATTRIBUTION",
@@ -6436,7 +6768,9 @@ func commitMessageLines(path string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read commit message %s: %w", path, err)
 	}
+
 	var lines []string
+
 	for _, line := range strings.Split(string(data), "\n") {
 		if !strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
 			lines = append(lines, strings.TrimRight(line, " \t\r"))
@@ -6451,12 +6785,14 @@ func validateCommitMessage(cfg Config, lines []string) []string {
 	if len(lines) == 0 {
 		return []string{"commit message is empty"}
 	}
+
 	header := lines[0]
 	for _, prefix := range cfg.CommitLint.IgnoredPrefixes {
 		if strings.HasPrefix(header, prefix) {
 			return nil
 		}
 	}
+
 	var errs []string
 	if len(header) > cfg.CommitLint.MaxHeaderLength {
 		errs = append(
@@ -6467,22 +6803,27 @@ func validateCommitMessage(cfg Config, lines []string) []string {
 			),
 		)
 	}
+
 	match := regexp.MustCompile(`^([a-z]+)\(([A-Za-z0-9_.-]+)\)!?: (.+)$`).
 		FindStringSubmatch(header)
 	if match == nil {
 		return append(errs, "header must match: type(scope): subject")
 	}
+
 	if !stringSet(cfg.CommitLint.AllowedTypes)[match[1]] {
 		allowed := slices.Clone(cfg.CommitLint.AllowedTypes)
 		sort.Strings(allowed)
 		errs = append(errs, "type must be one of: "+strings.Join(allowed, ", "))
 	}
+
 	if strings.TrimSpace(match[2]) == "" {
 		errs = append(errs, "scope is required")
 	}
+
 	if strings.TrimSpace(match[3]) == "" {
 		errs = append(errs, "subject is required")
 	}
+
 	if hasCommitBodyOrFooter(lines) &&
 		len(lines) > 1 &&
 		strings.TrimSpace(lines[1]) != "" {
@@ -6515,6 +6856,7 @@ func attributionPatterns(names []string) []*regexp.Regexp {
 	for _, name := range names {
 		quoted = append(quoted, regexp.QuoteMeta(name))
 	}
+
 	namesPattern := strings.Join(quoted, "|")
 
 	return []*regexp.Regexp{
@@ -6532,6 +6874,7 @@ func attributionPatterns(names []string) []*regexp.Regexp {
 
 func shellFiles(paths []string) []string {
 	var files []string
+
 	for _, path := range paths {
 		if isShellFile(path) {
 			files = append(files, path)
@@ -6546,10 +6889,12 @@ func isShellFile(path string) bool {
 	if ext == extShell || ext == extBash {
 		return true
 	}
+
 	data, err := os.ReadFile(path)
 	if err != nil || !utf8.Valid(data) {
 		return false
 	}
+
 	firstLine, _, _ := strings.Cut(string(data), "\n")
 
 	return strings.HasPrefix(firstLine, "#!") &&
@@ -6575,6 +6920,7 @@ func limitsForFile(cfg Config, path string) (int, int) {
 	if ext == ".py" {
 		return cfg.LineLimits.PythonHard, cfg.LineLimits.PythonWarn
 	}
+
 	if ext == ".sh" || ext == extBash || strings.Contains(path, "scripts/") {
 		return cfg.LineLimits.ShellHard, cfg.LineLimits.ShellWarn
 	}
@@ -6584,6 +6930,7 @@ func limitsForFile(cfg Config, path string) (int, int) {
 
 func originalLineCount(path string) int {
 	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:"+path)
+
 	output, err := cmd.Output()
 	if err != nil {
 		return -1
@@ -6612,10 +6959,12 @@ func isAddedFile(path string) bool {
 		"--",
 		path,
 	)
+
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
+
 	for _, added := range strings.Split(string(output), "\n") {
 		if added == path {
 			return true

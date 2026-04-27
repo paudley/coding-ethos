@@ -1,24 +1,36 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package policy
+package policy_test
 
-import "testing"
+import (
+	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/policy"
+)
+
+const blockDecision = "block"
 
 func TestNewDecisionCopiesPolicyContext(t *testing.T) {
-	policyDef := ExampleBundle().Policies["git.hook_bypass"]
-	decision := NewDecision("block", policyDef)
+	t.Parallel()
 
-	if decision.Decision != "block" {
+	policyDef := ExampleBundle().Policies["git.hook_bypass"]
+	decision := NewDecision(blockDecision, policyDef)
+
+	if decision.Decision != blockDecision {
 		t.Fatalf("decision mismatch: got %q", decision.Decision)
 	}
+
 	if decision.PolicyID != "git.hook_bypass" {
 		t.Fatalf("policy id mismatch: got %q", decision.PolicyID)
 	}
-	if decision.Severity != "block" {
+
+	if decision.Severity != blockDecision {
 		t.Fatalf("severity mismatch: got %q", decision.Severity)
 	}
-	if len(decision.PrincipleIDs) != 1 || decision.PrincipleIDs[0] != "one-path-for-critical-operations" {
+
+	if len(decision.PrincipleIDs) != 1 ||
+		decision.PrincipleIDs[0] != "one-path-for-critical-operations" {
 		t.Fatalf("principle ids mismatch: got %#v", decision.PrincipleIDs)
 	}
 }

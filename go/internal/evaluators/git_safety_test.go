@@ -1,21 +1,52 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package evaluators
+package evaluators_test
 
 import (
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+type gitSafetyCase struct {
+	name      string
+	policyID  string
+	evaluator EvaluatorFunc
+	argv      []string
+}
+
 func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
-	tests := []struct {
-		name      string
-		policyID  string
-		evaluator EvaluatorFunc
-		argv      []string
-	}{
+	t.Parallel()
+
+	tests := unsafeGitSafetyCases()
+	bundle := compiledGitSafetyTestBundle()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			policyDef := bundle.Policies[test.policyID]
+
+			decisions, err := test.evaluator(policyDef, Context{Argv: test.argv})
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+
+			if len(decisions) != 1 {
+				t.Fatalf("decision count mismatch: got %d", len(decisions))
+			}
+
+			if decisions[0].Decision != "block" {
+				t.Fatalf("decision mismatch: %#v", decisions[0])
+			}
+		})
+	}
+}
+
+func unsafeGitSafetyCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "reset hard",
 			policyID:  "git.destructive_command",
@@ -71,26 +102,11 @@ func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
 			argv:      []string{"git", "stash"},
 		},
 	}
-
-	bundle := compiledGitSafetyTestBundle()
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			policyDef := bundle.Policies[test.policyID]
-			decisions, err := test.evaluator(policyDef, Context{Argv: test.argv})
-			if err != nil {
-				t.Fatalf("evaluate: %v", err)
-			}
-			if len(decisions) != 1 {
-				t.Fatalf("decision count mismatch: got %d", len(decisions))
-			}
-			if decisions[0].Decision != "block" {
-				t.Fatalf("decision mismatch: %#v", decisions[0])
-			}
-		})
-	}
 }
 
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		policyID  string
@@ -124,13 +140,18 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	}
 
 	bundle := compiledGitSafetyTestBundle()
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			policyDef := bundle.Policies[test.policyID]
+
 			decisions, err := test.evaluator(policyDef, Context{Argv: test.argv})
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
+
 			if len(decisions) != 0 {
 				t.Fatalf("expected no decisions, got %#v", decisions)
 			}
@@ -156,9 +177,16 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 			DefaultSeverity: "block",
 			SupportedModes:  []string{"block", "record"},
 			Message:         "blocked",
-			DefenseLayers:   policy.GitDefenseLayers("block", "wrapper", "block", "", ""),
-			Evaluators:      []policy.Evaluator{{Kind: "argv", Name: policyID}},
+			DefenseLayers: policy.GitDefenseLayers(
+				"block",
+				"wrapper",
+				"block",
+				"",
+				"",
+			),
+			Evaluators: []policy.Evaluator{{Kind: "argv", Name: policyID}},
 		}
 	}
+
 	return bundle
 }

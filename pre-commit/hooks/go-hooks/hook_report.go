@@ -21,21 +21,21 @@ const (
 type hookSettings struct {
 	OutputFormat       string   `mapstructure:"output_format"`
 	AgentEnvMarkers    []string `mapstructure:"agent_env_markers"`
-	ToolTimeoutSeconds int      `mapstructure:"tool_timeout_seconds"`
 	EnabledGroups      []string `mapstructure:"enabled_groups"`
 	FailSeverityLevels []string `mapstructure:"fail_severity_levels"`
 	WarnSeverityLevels []string `mapstructure:"warn_severity_levels"`
+	ToolTimeoutSeconds int      `mapstructure:"tool_timeout_seconds"`
 }
 
 type hookFinding struct {
 	Tool     string `json:"tool"`
 	File     string `json:"file,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Column   int    `json:"column,omitempty"`
 	Severity string `json:"severity,omitempty"`
 	Code     string `json:"code,omitempty"`
 	Message  string `json:"message"`
 	Detail   string `json:"detail,omitempty"`
+	Line     int    `json:"line,omitempty"`
+	Column   int    `json:"column,omitempty"`
 }
 
 type hookReport struct {
@@ -53,6 +53,7 @@ func formatHookReport(report hookReport, format string) string {
 	if report.Status == "" {
 		report.Status = statusFail
 	}
+
 	switch format {
 	case hookOutputFormatJSON:
 		return formatHookReportJSON(report)
@@ -68,22 +69,30 @@ func loadHookSettings() hookSettings {
 	if err != nil {
 		return defaultHookSettings()
 	}
+
 	settings := defaultHookSettings()
-	if err := decodeConfigSection(rootConfig, "hooks", &settings); err != nil {
+
+	err = decodeConfigSection(rootConfig, "hooks", &settings)
+	if err != nil {
 		return defaultHookSettings()
 	}
+
 	if settings.OutputFormat == "" {
 		settings.OutputFormat = hookOutputFormatAuto
 	}
+
 	if len(settings.AgentEnvMarkers) == 0 {
 		settings.AgentEnvMarkers = defaultHookSettings().AgentEnvMarkers
 	}
+
 	if settings.ToolTimeoutSeconds <= 0 {
 		settings.ToolTimeoutSeconds = defaultHookSettings().ToolTimeoutSeconds
 	}
+
 	if len(settings.FailSeverityLevels) == 0 {
 		settings.FailSeverityLevels = defaultHookSettings().FailSeverityLevels
 	}
+
 	if len(settings.WarnSeverityLevels) == 0 {
 		settings.WarnSeverityLevels = defaultHookSettings().WarnSeverityLevels
 	}
@@ -94,7 +103,7 @@ func loadHookSettings() hookSettings {
 func defaultHookSettings() hookSettings {
 	return hookSettings{
 		OutputFormat:       hookOutputFormatAuto,
-		ToolTimeoutSeconds: 300,
+		ToolTimeoutSeconds: defaultToolTimeoutSecs,
 		AgentEnvMarkers: []string{
 			"CODEX_THREAD_ID",
 			"CODEX_CI",
@@ -128,10 +137,12 @@ func defaultHookSettings() hookSettings {
 
 func selectedHookOutputFormat() string {
 	settings := loadHookSettings()
+
 	format := strings.ToLower(strings.TrimSpace(os.Getenv(hookOutputFormatEnv)))
 	if format == "" {
 		format = strings.ToLower(strings.TrimSpace(settings.OutputFormat))
 	}
+
 	switch format {
 	case "", hookOutputFormatAuto:
 		if isLLMCallerEnvironment(os.Getenv, settings.AgentEnvMarkers) {
@@ -150,6 +161,7 @@ func isLLMCallerEnvironment(getenv func(string) string, markers []string) bool {
 	if len(markers) == 0 {
 		markers = defaultHookSettings().AgentEnvMarkers
 	}
+
 	for _, name := range markers {
 		if strings.TrimSpace(getenv(name)) != "" {
 			return true
@@ -170,14 +182,15 @@ func formatHookReportJSON(report hookReport) string {
 
 func formatHookReportTOON(report hookReport) string {
 	lines := []string{
-		fmt.Sprintf("format: %s", report.Format),
-		fmt.Sprintf("tool: %s", toonCell(report.Tool)),
-		fmt.Sprintf("status: %s", toonCell(report.Status)),
-		fmt.Sprintf("title: %s", toonCell(report.Title)),
+		"format: " + report.Format,
+		"tool: " + toonCell(report.Tool),
+		"status: " + toonCell(report.Status),
+		"title: " + toonCell(report.Title),
 	}
 	if report.Summary != "" {
 		lines = append(lines, "summary: "+toonCell(report.Summary))
 	}
+
 	lines = append(
 		lines,
 		fmt.Sprintf(
@@ -201,6 +214,7 @@ func formatHookReportTOON(report hookReport) string {
 			),
 		)
 	}
+
 	if len(report.Guidance) > 0 {
 		lines = append(
 			lines,
@@ -224,18 +238,21 @@ func formatHookReportHuman(report hookReport) string {
 	if report.Summary != "" {
 		lines = append(lines, "", report.Summary)
 	}
+
 	if len(report.Findings) > 0 {
 		lines = append(lines, "", "Violations found:")
 		for _, finding := range report.Findings {
 			lines = append(lines, "  "+formatHookFindingHuman(report.Tool, finding))
 		}
 	}
+
 	if len(report.Guidance) > 0 {
 		lines = append(lines, "", "How to fix:")
 		for _, item := range report.Guidance {
 			lines = append(lines, "  "+item)
 		}
 	}
+
 	lines = append(lines, strings.Repeat("=", reportDividerWidth))
 
 	return strings.Join(lines, "\n")
@@ -249,14 +266,17 @@ func formatHookFindingHuman(tool string, finding hookFinding) string {
 			location += fmt.Sprintf(":%d", finding.Column)
 		}
 	}
+
 	prefix := strings.TrimSpace(location)
 	if prefix == "" {
 		prefix = firstNonEmpty(finding.Tool, tool)
 	}
+
 	code := finding.Code
 	if code != "" {
 		code = "[" + code + "] "
 	}
+
 	detail := ""
 	if finding.Detail != "" {
 		detail = " " + finding.Detail

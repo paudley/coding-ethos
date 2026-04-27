@@ -5,12 +5,12 @@ package policy
 
 type Decision struct {
 	Evidence     map[string]any `json:"evidence,omitempty"`
-	PrincipleIDs []string       `json:"principle_ids,omitempty"`
 	Decision     string         `json:"decision"`
 	Message      string         `json:"message"`
 	PolicyID     string         `json:"policy_id"`
 	Severity     string         `json:"severity"`
 	Suggestion   string         `json:"suggestion,omitempty"`
+	PrincipleIDs []string       `json:"principle_ids,omitempty"`
 }
 
 func NewDecision(decision string, policy Policy) Decision {

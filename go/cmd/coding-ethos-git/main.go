@@ -13,80 +13,143 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const blockedExitCode = 2
+
+var (
+	errBundleRequired = errors.New("--bundle is required")
+	errInvalidBundle  = errors.New("invalid policy bundle")
+)
+
 func main() {
+	err := run()
+	if err == nil {
+		return
+	}
+
+	var exitError gitwrap.ExitCodeError
+	if errors.As(err, &exitError) {
+		os.Exit(exitError.Code)
+	}
+
+	exitErr(err)
+}
+
+func run() error {
 	flags := flag.NewFlagSet("coding-ethos-git", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	realGit := flags.String("real-git", "", "Real git executable")
 	checkOnly := flags.Bool("check-only", false, "Check policy without executing git")
 	jsonOutput := flags.Bool("json", false, "Emit JSON result")
-	if err := flags.Parse(os.Args[1:]); err != nil {
-		exitErr(err)
+
+	err := flags.Parse(os.Args[1:])
+	if err != nil {
+		return fmt.Errorf("parse flags: %w", err)
 	}
+
 	if *bundlePath == "" {
-		exitErr(fmt.Errorf("--bundle is required"))
+		return errBundleRequired
 	}
 
 	bundle, err := readBundle(*bundlePath)
 	if err != nil {
-		exitErr(err)
+		return err
 	}
-	if err := bundle.Validate(); err != nil {
-		exitErr(fmt.Errorf("invalid policy bundle:\n%s", policy.FormatValidationError(err)))
+
+	err = bundle.Validate()
+	if err != nil {
+		return fmt.Errorf(
+			"%w:\n%s",
+			errInvalidBundle,
+			policy.FormatValidationError(err),
+		)
 	}
 
 	argv := flags.Args()
+
 	cwd, err := os.Getwd()
 	if err != nil {
-		exitErr(fmt.Errorf("get cwd: %w", err))
+		return fmt.Errorf("get cwd: %w", err)
 	}
+
 	result, err := gitwrap.Check(bundle, gitwrap.Options{Argv: argv, Cwd: cwd})
 	if err != nil {
-		exitErr(err)
+		return fmt.Errorf("check git policy: %w", err)
 	}
-	if *jsonOutput {
-		if err := gitwrap.EncodeResult(os.Stdout, result); err != nil {
-			exitErr(err)
-		}
+
+	err = maybePrintJSON(*jsonOutput, result)
+	if err != nil {
+		return err
 	}
+
 	if result.Blocked() {
 		printBlocked(result)
-		os.Exit(2)
+		os.Exit(blockedExitCode)
 	}
+
 	if *checkOnly {
 		if !*jsonOutput {
 			fmt.Fprintln(os.Stdout, "git policy check allowed")
 		}
-		return
+
+		return nil
 	}
 
+	return executeGitWithPostChecks(bundle, *realGit, argv, cwd, *jsonOutput)
+}
+
+func executeGitWithPostChecks(
+	bundle policy.Bundle,
+	realGit string,
+	argv []string,
+	cwd string,
+	jsonOutput bool,
+) error {
 	options := gitwrap.Options{Argv: argv, Cwd: cwd}
-	if err := gitwrap.PreparePost(bundle, options); err != nil {
-		exitErr(err)
-	}
-	resolvedGit, err := gitwrap.ResolveRealGit(*realGit)
+
+	err := gitwrap.PreparePost(bundle, options)
 	if err != nil {
-		exitErr(err)
+		return fmt.Errorf("prepare post-git policy: %w", err)
 	}
-	if err := gitwrap.Execute(resolvedGit, options); err != nil {
-		var exitError gitwrap.ExitCodeError
-		if errors.As(err, &exitError) {
-			os.Exit(exitError.Code)
-		}
-		exitErr(err)
+
+	resolvedGit, err := gitwrap.ResolveRealGit(realGit)
+	if err != nil {
+		return fmt.Errorf("resolve real git: %w", err)
 	}
+
+	err = gitwrap.Execute(resolvedGit, options)
+	if err != nil {
+		return fmt.Errorf("execute real git: %w", err)
+	}
+
 	postResult, err := gitwrap.VerifyPost(bundle, options)
 	if err != nil {
-		exitErr(err)
+		return fmt.Errorf("verify post-git policy: %w", err)
 	}
-	if *jsonOutput {
-		if err := gitwrap.EncodeResult(os.Stdout, postResult); err != nil {
-			exitErr(err)
-		}
+
+	err = maybePrintJSON(jsonOutput, postResult)
+	if err != nil {
+		return err
 	}
+
 	if postResult.Blocked() {
 		printBlocked(postResult)
-		os.Exit(2)
+		os.Exit(blockedExitCode)
 	}
+
+	return nil
+}
+
+func maybePrintJSON(jsonOutput bool, result gitwrap.Result) error {
+	if !jsonOutput {
+		return nil
+	}
+
+	err := gitwrap.EncodeResult(os.Stdout, result)
+	if err != nil {
+		return fmt.Errorf("encode result: %w", err)
+	}
+
+	return nil
 }
 
 func readBundle(path string) (policy.Bundle, error) {
@@ -95,13 +158,25 @@ func readBundle(path string) (policy.Bundle, error) {
 		return policy.Bundle{}, fmt.Errorf("open bundle: %w", err)
 	}
 	defer file.Close()
-	return policy.DecodeBundle(file)
+
+	bundle, err := policy.DecodeBundle(file)
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf("decode bundle: %w", err)
+	}
+
+	return bundle, nil
 }
 
 func printBlocked(result gitwrap.Result) {
 	for _, decision := range result.Decisions {
 		if decision.Decision == "block" || decision.Severity == "block" {
-			fmt.Fprintf(os.Stderr, "[coding-ethos:%s] %s\n", decision.PolicyID, decision.Message)
+			fmt.Fprintf(
+				os.Stderr,
+				"[coding-ethos:%s] %s\n",
+				decision.PolicyID,
+				decision.Message,
+			)
+
 			if decision.Suggestion != "" {
 				fmt.Fprintf(os.Stderr, "Suggestion: %s\n", decision.Suggestion)
 			}

@@ -1,19 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package policy
+package policy_test
 
 import (
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
 	"strings"
 	"testing"
 )
 
 func TestExplainPolicyWritesPolicyDetails(t *testing.T) {
+	t.Parallel()
+
 	var buffer bytes.Buffer
-	if err := ExplainPolicy(&buffer, ExampleBundle(), "git.hook_bypass"); err != nil {
+
+	err := ExplainPolicy(&buffer, ExampleBundle(), "git.hook_bypass")
+	if err != nil {
 		t.Fatalf("explain policy: %v", err)
 	}
+
 	output := buffer.String()
 	for _, expected := range []string{
 		"# git.hook_bypass",
@@ -28,11 +34,15 @@ func TestExplainPolicyWritesPolicyDetails(t *testing.T) {
 }
 
 func TestExplainPolicyRejectsUnknownPolicy(t *testing.T) {
+	t.Parallel()
+
 	var buffer bytes.Buffer
+
 	err := ExplainPolicy(&buffer, ExampleBundle(), "missing.policy")
 	if err == nil {
 		t.Fatal("expected error")
 	}
+
 	if !strings.Contains(err.Error(), `unknown policy "missing.policy"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}

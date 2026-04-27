@@ -4,44 +4,67 @@
 package gitwrap
 
 import (
+	"errors"
 	"fmt"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const (
+	statusAllowed = "allowed"
+	statusBlocked = "blocked"
+)
+
+var (
+	errUnknownGitPolicy      = errors.New("git dispatch references unknown policy")
+	errUnregisteredEvaluator = errors.New("policy references unregistered evaluator")
+)
+
 type Options struct {
-	Argv []string
 	Cwd  string
+	Argv []string
 }
 
 func Check(bundle policy.Bundle, options Options) (Result, error) {
 	return CheckWithRegistry(bundle, options, evaluators.DefaultRegistry())
 }
 
-func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluators.Registry) (Result, error) {
-	parsed := parseArgv(options.Argv)
+func CheckWithRegistry(
+	bundle policy.Bundle,
+	options Options,
+	registry evaluators.Registry,
+) (Result, error) {
+	parsed := ParseArgv(options.Argv)
 	argv := parsed.Argv
+
 	operation := parsed.Operation
 	if operation == "" {
-		return Result{Argv: argv, Status: "allowed"}, nil
+		return Result{Argv: argv, Status: statusAllowed}, nil
 	}
 
 	policyIDs := gitPrePolicyIDs(bundle, operation)
 	if len(policyIDs) == 0 {
-		return Result{Argv: argv, Operation: operation, Status: "allowed"}, nil
+		return Result{Argv: argv, Operation: operation, Status: statusAllowed}, nil
 	}
 
 	decisions := make([]policy.Decision, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
 		if !ok {
-			return Result{}, fmt.Errorf("git dispatch %q references unknown policy %q", operation, policyID)
+			return Result{}, fmt.Errorf(
+				"%w: %q references %q",
+				errUnknownGitPolicy,
+				operation,
+				policyID,
+			)
 		}
+
 		evaluated, err := evaluateGitPolicy(policyDef, argv, options.Cwd, "", registry)
 		if err != nil {
 			return Result{}, err
 		}
+
 		decisions = append(decisions, evaluated...)
 	}
 
@@ -54,15 +77,25 @@ func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluator
 }
 
 func gitPrePolicyIDs(bundle policy.Bundle, operation string) []string {
-	return appendGitPolicyIDs(nil, bundle, operation, func(dispatch policy.GitOperationDispatch) []string {
-		return dispatch.Pre
-	})
+	return appendGitPolicyIDs(
+		nil,
+		bundle,
+		operation,
+		func(dispatch policy.GitOperationDispatch) []string {
+			return dispatch.Pre
+		},
+	)
 }
 
 func gitPostPolicyIDs(bundle policy.Bundle, operation string) []string {
-	return appendGitPolicyIDs(nil, bundle, operation, func(dispatch policy.GitOperationDispatch) []string {
-		return dispatch.Post
-	})
+	return appendGitPolicyIDs(
+		nil,
+		bundle,
+		operation,
+		func(dispatch policy.GitOperationDispatch) []string {
+			return dispatch.Post
+		},
+	)
 }
 
 func appendGitPolicyIDs(
@@ -74,22 +107,27 @@ func appendGitPolicyIDs(
 	if dispatch, ok := bundle.Dispatch.Git["*"]; ok {
 		policyIDs = append(policyIDs, selectIDs(dispatch)...)
 	}
+
 	if dispatch, ok := bundle.Dispatch.Git[operation]; ok {
 		policyIDs = append(policyIDs, selectIDs(dispatch)...)
 	}
+
 	return dedupePolicyIDs(policyIDs)
 }
 
 func dedupePolicyIDs(policyIDs []string) []string {
 	seen := map[string]bool{}
+
 	deduped := make([]string, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		if policyID == "" || seen[policyID] {
 			continue
 		}
+
 		seen[policyID] = true
 		deduped = append(deduped, policyID)
 	}
+
 	return deduped
 }
 
@@ -100,28 +138,42 @@ func evaluateGitPolicy(
 	scope string,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
-	context := evaluators.Context{Argv: append([]string(nil), argv...), Cwd: cwd, Scope: scope}
+	context := evaluators.Context{
+		Argv:  append([]string(nil), argv...),
+		Cwd:   cwd,
+		Scope: scope,
+	}
+
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
-			return nil, fmt.Errorf("policy %q references unregistered evaluator %q", policyDef.ID, evaluatorSpec.Name)
+			return nil, fmt.Errorf(
+				"%w: policy %q evaluator %q",
+				errUnregisteredEvaluator,
+				policyDef.ID,
+				evaluatorSpec.Name,
+			)
 		}
+
 		decisions, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("evaluate policy %q: %w", policyDef.ID, err)
 		}
+
 		if len(decisions) > 0 {
 			return decisions, nil
 		}
 	}
+
 	return nil, nil
 }
 
 func resultStatus(decisions []policy.Decision) string {
 	for _, decision := range decisions {
 		if decision.Decision == "block" || decision.Severity == "block" {
-			return "blocked"
+			return statusBlocked
 		}
 	}
-	return "allowed"
+
+	return statusAllowed
 }

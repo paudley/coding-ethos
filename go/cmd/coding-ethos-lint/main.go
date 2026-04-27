@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -13,28 +14,44 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+var (
+	errBundleRequired = errors.New("--bundle is required")
+	errInvalidBundle  = errors.New("invalid policy bundle")
+)
+
 func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
-	argvRaw := flags.String("argv", "", "Command argv to evaluate, separated by NUL when possible or spaces for simple cases")
+	argvRaw := flags.String(
+		"argv",
+		"",
+		"Command argv to evaluate, separated by NUL when possible or spaces",
+	)
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	scope := scopeFlagSet(flags)
-	if err := flags.Parse(os.Args[1:]); err != nil {
+
+	err := flags.Parse(os.Args[1:])
+	if err != nil {
 		exitErr(err)
 	}
+
 	if *bundlePath == "" {
-		exitErr(fmt.Errorf("--bundle is required"))
+		exitErr(errBundleRequired)
 	}
 
 	bundle, err := readBundle(*bundlePath)
 	if err != nil {
 		exitErr(err)
 	}
-	if err := bundle.Validate(); err != nil {
-		exitErr(fmt.Errorf("invalid policy bundle:\n%s", policy.FormatValidationError(err)))
+
+	err = bundle.Validate()
+	if err != nil {
+		exitErr(
+			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
+		)
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
@@ -49,11 +66,14 @@ func main() {
 	}
 
 	if *jsonOutput {
-		if err := lint.EncodeResult(os.Stdout, result); err != nil {
+		err = lint.EncodeResult(os.Stdout, result)
+		if err != nil {
 			exitErr(err)
 		}
+
 		return
 	}
+
 	printHuman(result)
 }
 
@@ -63,14 +83,22 @@ func readBundle(path string) (policy.Bundle, error) {
 		return policy.Bundle{}, fmt.Errorf("open bundle: %w", err)
 	}
 	defer file.Close()
-	return policy.DecodeBundle(file)
+
+	bundle, err := policy.DecodeBundle(file)
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf("decode bundle: %w", err)
+	}
+
+	return bundle, nil
 }
 
 func parseFiles(raw string) []string {
 	if raw == "" {
 		return nil
 	}
+
 	parts := strings.Split(raw, ",")
+
 	files := make([]string, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
@@ -78,6 +106,7 @@ func parseFiles(raw string) []string {
 			files = append(files, trimmed)
 		}
 	}
+
 	return files
 }
 
@@ -85,29 +114,40 @@ func parseArgv(raw string) []string {
 	if raw == "" {
 		return nil
 	}
+
 	if strings.Contains(raw, "\x00") {
 		return splitNonEmpty(raw, "\x00")
 	}
+
 	return strings.Fields(raw)
 }
 
 func splitNonEmpty(raw string, separator string) []string {
 	parts := strings.Split(raw, separator)
+
 	items := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if part != "" {
 			items = append(items, part)
 		}
 	}
+
 	return items
 }
 
 func printHuman(result lint.Result) {
-	fmt.Printf("coding-ethos lint scope: %s\n", result.Scope)
-	fmt.Printf("status: %s\n", result.Status)
-	fmt.Printf("policies: %d\n", len(result.Decisions))
+	fmt.Fprintf(os.Stdout, "coding-ethos lint scope: %s\n", result.Scope)
+	fmt.Fprintf(os.Stdout, "status: %s\n", result.Status)
+	fmt.Fprintf(os.Stdout, "policies: %d\n", len(result.Decisions))
+
 	for _, decision := range result.Decisions {
-		fmt.Printf("- %s [%s]: %s\n", decision.PolicyID, decision.Severity, decision.Message)
+		fmt.Fprintf(
+			os.Stdout,
+			"- %s [%s]: %s\n",
+			decision.PolicyID,
+			decision.Severity,
+			decision.Message,
+		)
 	}
 }
 
@@ -125,20 +165,25 @@ func scopeFlagSet(flags *flag.FlagSet) *scopeFlag {
 	flags.Var(scope, "scope", "Lint scope: files, changed, staged, smoke, full")
 	flags.BoolFunc("changed", "Use changed-file lint scope", func(string) error {
 		scope.value = lint.ScopeChanged
+
 		return nil
 	})
 	flags.BoolFunc("staged", "Use staged lint scope", func(string) error {
 		scope.value = lint.ScopeStaged
+
 		return nil
 	})
 	flags.BoolFunc("smoke", "Use smoke lint scope", func(string) error {
 		scope.value = lint.ScopeSmoke
+
 		return nil
 	})
 	flags.BoolFunc("full", "Use full lint scope", func(string) error {
 		scope.value = lint.ScopeFull
+
 		return nil
 	})
+
 	return scope
 }
 
@@ -148,6 +193,7 @@ func (flag *scopeFlag) String() string {
 
 func (flag *scopeFlag) Set(value string) error {
 	flag.value = value
+
 	return nil
 }
 

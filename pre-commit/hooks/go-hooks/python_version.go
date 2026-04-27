@@ -43,19 +43,26 @@ func loadPythonVersionConsistencySettings() (
 	error,
 ) {
 	var settings pythonVersionConsistencySettings
+
 	bundleRoot, consumer, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, "", "", err
 	}
+
 	_ = bundleRoot
+
 	err = decodeConfigSection(rootConfig, "python.version_consistency", &settings)
 	if err != nil {
 		return settings, "", "", fmt.Errorf("parse version_consistency config: %w", err)
 	}
+
 	expectedValue, _ := rootConfigValue(rootConfig, "style.python_version")
-	expected := strings.TrimSpace(fmt.Sprint(firstNonNil(expectedValue, "3.13")))
-	if expected == "" || expected == "<nil>" {
-		expected = "3.13"
+
+	expected := strings.TrimSpace(
+		fmt.Sprint(firstNonNil(expectedValue, defaultPythonVersion)),
+	)
+	if expected == "" || expected == nilString {
+		expected = defaultPythonVersion
 	}
 
 	return settings, expected, consumer, nil
@@ -88,6 +95,7 @@ func readPyprojectRequiresPython(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	project := pyprojectMap(config["project"])
 	if project == nil {
 		return "", nil
@@ -101,13 +109,16 @@ func readMypyPythonVersion(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
+
 	currentSection := ""
-	for _, line := range strings.Split(string(data), "\n") {
+
+	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
 			strings.HasPrefix(trimmed, ";") {
 			continue
 		}
+
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			currentSection = strings.TrimSpace(
 				strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"),
@@ -115,9 +126,11 @@ func readMypyPythonVersion(path string) (string, error) {
 
 			continue
 		}
-		if currentSection != "mypy" {
+
+		if currentSection != toolMypy {
 			continue
 		}
+
 		if key, value, ok := strings.Cut(trimmed, "="); ok &&
 			strings.TrimSpace(key) == "python_version" {
 			return strings.TrimSpace(value), nil
@@ -129,10 +142,12 @@ func readMypyPythonVersion(path string) (string, error) {
 
 func readPyrightPythonVersion(path string) (string, error) {
 	var payload map[string]any
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
+
 	err = json.Unmarshal(data, &payload)
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", path, err)
@@ -143,10 +158,12 @@ func readPyrightPythonVersion(path string) (string, error) {
 
 func readRuffTargetVersion(path string) (string, error) {
 	var payload map[string]any
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
+
 	err = toml.Unmarshal(data, &payload)
 	if err != nil {
 		return "", fmt.Errorf("parse %s: %w", path, err)
@@ -164,6 +181,7 @@ func collectPythonVersionIssues(
 		if strings.TrimSpace(found) == "" {
 			found = "<missing>"
 		}
+
 		issues = append(issues, pythonVersionIssue{
 			Path:   path,
 			Field:  field,
@@ -173,6 +191,7 @@ func collectPythonVersionIssues(
 	}
 
 	wantRuffVersion := "py" + strings.ReplaceAll(expected, ".", "")
+
 	specs := []struct {
 		Read            func(string) (string, error)
 		Normalize       func(string) string
@@ -244,6 +263,7 @@ func appendPythonVersionIssue(
 	addIssue func(string, string, string, string),
 ) error {
 	fullPath := filepath.Join(consumerRoot, relativePath)
+
 	_, err := os.Stat(fullPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -252,17 +272,21 @@ func appendPythonVersionIssue(
 
 		return fmt.Errorf("stat %s: %w", fullPath, err)
 	}
+
 	found, err := read(fullPath)
 	if err != nil {
 		return err
 	}
+
 	comparison := found
 	if normalize != nil {
 		comparison = normalize(found)
 	}
+
 	if comparison == expected {
 		return nil
 	}
+
 	addIssue(relativePath, field, found, displayExpected)
 
 	return nil
@@ -285,6 +309,7 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -295,6 +320,7 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if len(issues) == 0 {
 		return 0
 	}
@@ -308,6 +334,7 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 			Message: fmt.Sprintf("found %q, expected %q", issue.Found, issue.Expect),
 		})
 	}
+
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
 		Tool:     "python_version_consistency",
 		Title:    "PYTHON VERSION CONSISTENCY CHECK FAILED",
@@ -315,7 +342,7 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 		Findings: findings,
 		Guidance: []string{
 			"Update .python-version and pyproject.toml to match style.python_version.",
-			"Run `make sync-tool-configs` to refresh mypy.ini, pyrightconfig.json, and ruff.toml.",
+			"Run `make sync-tool-configs` to refresh generated tool configs.",
 		},
 	}, selectedHookOutputFormat()))
 

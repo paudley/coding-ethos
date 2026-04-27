@@ -1,25 +1,23 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:paralleltest,tparallel,lll,varnamelen // Uses process-global fixtures.
 package main
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func stringSliceContains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(values, want)
 }
 
 func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	bundleRoot := filepath.Join(tempDir, "pre-commit")
 	consumerRoot := filepath.Join(tempDir, "repo")
@@ -64,6 +62,7 @@ func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
 			wantPrefix,
 		)
 	}
+
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
 			t.Fatalf(
@@ -78,11 +77,15 @@ func TestResolveTypeCheckerCommandInjectsRepoConfig(t *testing.T) {
 }
 
 func TestDefaultTypeCheckersIncludeStaticAnalysisSet(t *testing.T) {
+	t.Parallel()
+
 	checkers := defaultTypeCheckers()
+
 	names := make(map[string]bool, len(checkers))
 	for _, checker := range checkers {
 		names[checker.Name] = true
 	}
+
 	for _, name := range []string{"ruff", "mypy", "pyright", "pylint"} {
 		if !names[name] {
 			t.Fatalf("defaultTypeCheckers() missing %q: %#v", name, checkers)
@@ -91,11 +94,15 @@ func TestDefaultTypeCheckersIncludeStaticAnalysisSet(t *testing.T) {
 }
 
 func TestDefaultTypeCheckersRequestJsonOutput(t *testing.T) {
+	t.Parallel()
+
 	checkers := defaultTypeCheckers()
+
 	commands := make(map[string][]string, len(checkers))
 	for _, checker := range checkers {
 		commands[checker.Name] = checker.Command
 	}
+
 	for name, token := range map[string]string{
 		"ruff":    "--output-format",
 		"pyright": "--outputjson",
@@ -109,16 +116,21 @@ func TestDefaultTypeCheckersRequestJsonOutput(t *testing.T) {
 }
 
 func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
+	t.Parallel()
+
 	checkers := configuredTypeCheckers(typeCheckSettings{
 		Checkers: defaultTypeCheckers(),
 	})
+
 	names := make(map[string]bool, len(checkers))
 	for _, checker := range checkers {
 		names[checker.Name] = true
 	}
+
 	if names["pylint"] {
 		t.Fatalf("configuredTypeCheckers() enabled pylint by default: %#v", checkers)
 	}
+
 	for _, name := range []string{"ruff", "mypy", "pyright"} {
 		if !names[name] {
 			t.Fatalf("configuredTypeCheckers() missing enabled checker %q: %#v", name, checkers)
@@ -127,6 +139,8 @@ func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
 }
 
 func TestParseTypeCheckDiagnostics(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name    string
 		checker string
@@ -196,6 +210,7 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 			if len(got) != 1 {
 				t.Fatalf("parseTypeCheckDiagnostics() = %#v, want one diagnostic", got)
 			}
+
 			if got[0] != tc.want {
 				t.Fatalf("parseTypeCheckDiagnostics()[0] = %#v, want %#v", got[0], tc.want)
 			}
@@ -204,6 +219,8 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 }
 
 func TestFormatTypeCheckResultsGroupsDiagnosticsByFile(t *testing.T) {
+	t.Parallel()
+
 	output := formatTypeCheckResults(
 		[]typeCheckResult{
 			{
@@ -247,6 +264,8 @@ func TestFormatTypeCheckResultsGroupsDiagnosticsByFile(t *testing.T) {
 }
 
 func TestFormatTypeCheckResultsTOON(t *testing.T) {
+	t.Parallel()
+
 	output := formatTypeCheckResults(
 		[]typeCheckResult{
 			{
@@ -301,6 +320,8 @@ func TestSelectedTypeCheckOutputFormatAllowsHumanOverride(t *testing.T) {
 }
 
 func TestResolveRuffCommandInjectsRepoConfig(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	bundleRoot := filepath.Join(tempDir, "pre-commit")
 	consumerRoot := filepath.Join(tempDir, "repo")
@@ -347,6 +368,7 @@ func TestResolveRuffCommandInjectsRepoConfig(t *testing.T) {
 			wantPrefix,
 		)
 	}
+
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
 			t.Fatalf(
@@ -361,6 +383,8 @@ func TestResolveRuffCommandInjectsRepoConfig(t *testing.T) {
 }
 
 func TestResolveTypeCheckerCommandPrefersConsumerWorkspace(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	consumerRoot := filepath.Join(tempDir, "repo")
 	hooksProject := filepath.Join(consumerRoot, "coding-ethos", "pre-commit", "hooks")
@@ -411,6 +435,7 @@ members = [
 			wantPrefix,
 		)
 	}
+
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
 			t.Fatalf(
@@ -425,11 +450,14 @@ members = [
 }
 
 func TestNormalizeTypeCheckFiles(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	pythonFile := filepath.Join(tempDir, "pkg", "module.py")
 	dockerFile := filepath.Join(tempDir, "pkg", "docker", "script.py")
 	venvFile := filepath.Join(tempDir, ".venv", "lib.py")
 	whitelist := filepath.Join(tempDir, "vulture_whitelist.py")
+
 	mustWriteTestFile(t, pythonFile, "value = 1\n")
 	mustWriteTestFile(t, dockerFile, "value = 1\n")
 	mustWriteTestFile(t, venvFile, "value = 1\n")
@@ -445,9 +473,12 @@ func TestNormalizeTypeCheckFiles(t *testing.T) {
 }
 
 func TestNormalizeTypeCheckFilesHonorsConfiguredExcludedPathFragments(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	pythonFile := filepath.Join(tempDir, "pkg", "module.py")
 	generatedFile := filepath.Join(tempDir, "pkg", "generated", "script.py")
+
 	mustWriteTestFile(t, pythonFile, "value = 1\n")
 	mustWriteTestFile(t, generatedFile, "value = 1\n")
 
@@ -505,6 +536,7 @@ python:
 		) {
 			t.Fatalf("unexpected stderr: %q", stderr)
 		}
+
 		if !strings.Contains(
 			stderr,
 			"Fix the reported checker output above and run the hook again.",
@@ -515,6 +547,7 @@ python:
 	if !strings.Contains(stdout, "PYTHON STATIC CHECKS (PARALLEL)") {
 		t.Fatalf("unexpected stdout: %q", stdout)
 	}
+
 	if !strings.Contains(stdout, "fail: FAIL") {
 		t.Fatalf("missing failing checker report: %q", stdout)
 	}

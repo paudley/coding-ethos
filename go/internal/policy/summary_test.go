@@ -1,19 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package policy
+package policy_test
 
 import (
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
 	"strings"
 	"testing"
 )
 
 func TestWriteSummaryIncludesPoliciesAndPrinciples(t *testing.T) {
+	t.Parallel()
+
 	var buffer bytes.Buffer
-	if err := WriteSummary(&buffer, ExampleBundle()); err != nil {
+
+	err := WriteSummary(&buffer, ExampleBundle())
+	if err != nil {
 		t.Fatalf("write summary: %v", err)
 	}
+
 	summary := buffer.String()
 	for _, expected := range []string{
 		"# Policy Bundle Summary",

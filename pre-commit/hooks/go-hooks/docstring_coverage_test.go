@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:varnamelen // Uses process-global fixtures.
 package main
 
 import (
@@ -11,6 +12,8 @@ import (
 )
 
 func TestBuildDocstringCoverageCommand(t *testing.T) {
+	t.Parallel()
+
 	command := buildDocstringCoverageCommand(
 		docstringCoverageSettings{
 			Threshold:                95,
@@ -45,6 +48,7 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 	if len(command) < len(wantPrefix) {
 		t.Fatalf("command = %#v, want prefix %#v", command, wantPrefix)
 	}
+
 	for i := range wantPrefix {
 		if command[i] != wantPrefix[i] {
 			t.Fatalf(
@@ -56,6 +60,7 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 			)
 		}
 	}
+
 	if !slicesContains(command, "--ignore-regex") || !slicesContains(command, "pkg") ||
 		!slicesContains(command, "pre-commit/hooks") {
 		t.Fatalf("command missing expected flags or paths: %#v", command)
@@ -63,6 +68,8 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 }
 
 func TestBuildDocstringCoverageCommandHonorsConfigurableFlags(t *testing.T) {
+	t.Parallel()
+
 	command := buildDocstringCoverageCommand(
 		docstringCoverageSettings{
 			Threshold:                95,
@@ -128,18 +135,23 @@ python:
 	if !strings.Contains(stdout, "DOCSTRING COVERAGE CHECK FAILED") {
 		t.Fatalf("unexpected stdout: %q", stdout)
 	}
+
 	if !strings.Contains(stdout, "Threshold: 95%") {
 		t.Fatalf("missing threshold in stdout: %q", stdout)
 	}
+
 	if !strings.Contains(stdout, "Paths: pkg, pre-commit/hooks") {
 		t.Fatalf("missing paths in stdout: %q", stdout)
 	}
+
 	if !strings.Contains(stdout, "Coverage: 10.0") {
 		t.Fatalf("missing command output in stdout: %q", stdout)
 	}
 }
 
 func TestFormatDocstringCoverageFailureTOON(t *testing.T) {
+	t.Parallel()
+
 	output := formatDocstringCoverageFailure(
 		docstringCoverageSettings{
 			Threshold:  95,
@@ -165,6 +177,8 @@ func TestFormatDocstringCoverageFailureTOON(t *testing.T) {
 }
 
 func TestFormatDocstringCoverageFailureJSON(t *testing.T) {
+	t.Parallel()
+
 	output := formatDocstringCoverageFailure(
 		docstringCoverageSettings{
 			Threshold:  95,
@@ -174,10 +188,14 @@ func TestFormatDocstringCoverageFailureJSON(t *testing.T) {
 		"",
 		hookOutputFormatJSON,
 	)
+
 	var report docstringCoverageFailureReport
-	if err := json.Unmarshal([]byte(output), &report); err != nil {
+
+	err := json.Unmarshal([]byte(output), &report)
+	if err != nil {
 		t.Fatalf("docstring JSON output did not decode: %v\n%s", err, output)
 	}
+
 	if report.Format != hookOutputFormatJSON || report.Tool != "docstring_coverage" ||
 		report.Status != statusFail || report.Threshold != 95 {
 		t.Fatalf("unexpected docstring JSON report: %#v", report)

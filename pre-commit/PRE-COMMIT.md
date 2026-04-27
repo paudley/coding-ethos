@@ -174,7 +174,8 @@ Important configurable areas:
   configs
 - `python.direct_imports` - public-package import enforcement
 - `python.util_centralization` - banned direct utility imports and exemptions
-- `python.sql_centralization` - centralized SQL module name and exempt paths
+- `python.sql_centralization` - centralized SQL module name and exempt paths;
+  test paths are exempt from SQL centralization enforcement
 - `python.manifest_validation` - candidate manifest paths and required sections
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command

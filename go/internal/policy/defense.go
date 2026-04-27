@@ -14,7 +14,13 @@ func CodeDefenseLayers() DefenseLayers {
 	}
 }
 
-func GitDefenseLayers(intercept string, mediate string, detect string, enforce string, verify string) DefenseLayers {
+func GitDefenseLayers(
+	intercept string,
+	mediate string,
+	detect string,
+	enforce string,
+	verify string,
+) DefenseLayers {
 	return DefenseLayers{
 		Persuade:  true,
 		Intercept: intercept,

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:funlen // Central hook group table is kept together as the dispatch contract.
 package main
 
 import (
@@ -122,15 +123,19 @@ func runHookGroupCommand(cfg Config, args []string) int {
 
 		return 1
 	}
+
 	groupName := args[0]
+
 	group, ok := canonicalHookGroups()[groupName]
 	if !ok {
 		fmt.Fprintf(os.Stderr, "FATAL: unknown hook group %q\n", groupName)
 
 		return 1
 	}
+
 	files := args[1:]
 	exit := 0
+
 	for _, command := range group.Commands {
 		if command(cfg, files) != 0 {
 			exit = 1

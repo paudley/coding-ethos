@@ -13,8 +13,11 @@ func EncodeResult(writer io.Writer, result Result) error {
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(result); err != nil {
+
+	err := encoder.Encode(result)
+	if err != nil {
 		return fmt.Errorf("encode git wrapper result: %w", err)
 	}
+
 	return nil
 }

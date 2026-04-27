@@ -4,49 +4,77 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 )
 
+var errUnknownPolicy = errors.New("unknown policy")
+
+const policyExplanationParts = 7
+
 func ExplainPolicy(writer io.Writer, bundle Bundle, policyID string) error {
 	policy, ok := bundle.Policies[policyID]
 	if !ok {
-		return fmt.Errorf("unknown policy %q", policyID)
+		return fmt.Errorf("%w %q", errUnknownPolicy, policyID)
 	}
 
-	if _, err := fmt.Fprintf(writer, "# %s\n\n", policy.ID); err != nil {
-		return err
+	output := policyExplanation(policy)
+
+	_, err := io.WriteString(writer, output)
+	if err != nil {
+		return fmt.Errorf("write policy output: %w", err)
 	}
-	if _, err := fmt.Fprintf(writer, "- Category: `%s`\n", policy.Category); err != nil {
-		return err
+
+	return nil
+}
+
+func policyExplanation(policy Policy) string {
+	parts := make([]string, 0, policyExplanationParts)
+	parts = append(parts,
+		fmt.Sprintf("# %s\n\n", policy.ID),
+		fmt.Sprintf("- Category: `%s`\n", policy.Category),
+		fmt.Sprintf("- Severity: `%s`\n", policy.DefaultSeverity),
+		fmt.Sprintf("- Source: `%s%s`\n", policy.Source.File, sourcePath(policy)),
+	)
+
+	parts = append(parts, principleExplanation(policy.PrincipleIDs))
+	parts = append(parts, fmt.Sprintf("\n%s\n", policy.Message))
+	parts = append(parts, suggestionExplanation(policy.Suggestion))
+
+	return strings.Join(parts, "")
+}
+
+func sourcePath(policy Policy) string {
+	if policy.Source.Path == "" {
+		return ""
 	}
-	if _, err := fmt.Fprintf(writer, "- Severity: `%s`\n", policy.DefaultSeverity); err != nil {
-		return err
+
+	return ":" + policy.Source.Path
+}
+
+func principleExplanation(principleIDs []string) string {
+	if len(principleIDs) == 0 {
+		return ""
 	}
-	if _, err := fmt.Fprintf(writer, "- Source: `%s", policy.Source.File); err != nil {
-		return err
+
+	return fmt.Sprintf("- Principles: `%s`\n", strings.Join(principleIDs, "`, `"))
+}
+
+func suggestionExplanation(suggestion string) string {
+	if suggestion == "" {
+		return ""
 	}
-	if policy.Source.Path != "" {
-		if _, err := fmt.Fprintf(writer, ":%s", policy.Source.Path); err != nil {
-			return err
-		}
+
+	return fmt.Sprintf("\nSuggested fix: %s\n", suggestion)
+}
+
+func writePolicyLine(writer io.Writer, format string, args ...any) error {
+	_, err := fmt.Fprintf(writer, format, args...)
+	if err != nil {
+		return fmt.Errorf("write policy output: %w", err)
 	}
-	if _, err := fmt.Fprintln(writer, "`"); err != nil {
-		return err
-	}
-	if len(policy.PrincipleIDs) > 0 {
-		if _, err := fmt.Fprintf(writer, "- Principles: `%s`\n", strings.Join(policy.PrincipleIDs, "`, `")); err != nil {
-			return err
-		}
-	}
-	if _, err := fmt.Fprintf(writer, "\n%s\n", policy.Message); err != nil {
-		return err
-	}
-	if policy.Suggestion != "" {
-		if _, err := fmt.Fprintf(writer, "\nSuggested fix: %s\n", policy.Suggestion); err != nil {
-			return err
-		}
-	}
+
 	return nil
 }

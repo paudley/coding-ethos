@@ -6,6 +6,7 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,13 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
+
+var (
+	errNoCompiledPrinciples = errors.New("no principles found")
+	errNoCompiledPolicies   = errors.New("no enabled policies found")
+)
+
+const defaultBundleBaseParts = 2
 
 type CompileOptions struct {
 	GeneratedAt string
@@ -26,56 +34,29 @@ type CompileOptions struct {
 }
 
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
-	if options.Primary == "" {
-		options.Primary = "coding_ethos.yml"
-	}
-	if options.Config == "" {
-		options.Config = "config.yaml"
-	}
-	if options.GeneratedAt == "" {
-		options.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
-	}
+	options = normalizedCompileOptions(options)
 
-	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
+	primaryPayload, configPayload, sourceHashes, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
-	}
-	configPayload, configHash, err := loadYAMLFile(options.Config)
-	if err != nil {
-		return Bundle{}, Metadata{}, err
-	}
-
-	sourceHashes := map[string]string{
-		options.Primary: primaryHash,
-		options.Config:  configHash,
-	}
-
-	if options.RepoEthos != "" && fileExists(options.RepoEthos) {
-		repoEthosPayload, repoEthosHash, err := loadYAMLFile(options.RepoEthos)
-		if err != nil {
-			return Bundle{}, Metadata{}, err
-		}
-		sourceHashes[options.RepoEthos] = repoEthosHash
-		primaryPayload = mergeMaps(primaryPayload, repoEthosPayload)
-	}
-
-	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
-		repoConfigPayload, repoConfigHash, err := loadYAMLFile(options.RepoConfig)
-		if err != nil {
-			return Bundle{}, Metadata{}, err
-		}
-		sourceHashes[options.RepoConfig] = repoConfigHash
-		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
 	principles := compilePrinciples(primaryPayload)
 	if len(principles) == 0 {
-		return Bundle{}, Metadata{}, fmt.Errorf("compile principles: no principles found in %s", options.Primary)
+		return Bundle{}, Metadata{}, fmt.Errorf(
+			"compile principles: %w in %s",
+			errNoCompiledPrinciples,
+			options.Primary,
+		)
 	}
 
 	policies := compilePolicies(configPayload, principles)
 	if len(policies) == 0 {
-		return Bundle{}, Metadata{}, fmt.Errorf("compile policies: no enabled policies found in %s", options.Config)
+		return Bundle{}, Metadata{}, fmt.Errorf(
+			"compile policies: %w in %s",
+			errNoCompiledPolicies,
+			options.Config,
+		)
 	}
 
 	bundleID := options.BundleID
@@ -101,7 +82,9 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		Policies:   policies,
 		Dispatch:   compileDispatch(policies),
 	}
-	if err := bundle.Validate(); err != nil {
+
+	err = bundle.Validate()
+	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
 
@@ -109,7 +92,82 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
+
 	return bundle, metadata, nil
+}
+
+func normalizedCompileOptions(options CompileOptions) CompileOptions {
+	if options.Primary == "" {
+		options.Primary = "coding_ethos.yml"
+	}
+
+	if options.Config == "" {
+		options.Config = "config.yaml"
+	}
+
+	if options.GeneratedAt == "" {
+		options.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	return options
+}
+
+func compileInputs(
+	options CompileOptions,
+) (map[string]any, map[string]any, map[string]string, error) {
+	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	configPayload, configHash, err := loadYAMLFile(options.Config)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	sourceHashes := map[string]string{
+		options.Primary: primaryHash,
+		options.Config:  configHash,
+	}
+
+	primaryPayload, err = mergeOptionalYAML(
+		primaryPayload,
+		options.RepoEthos,
+		sourceHashes,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	configPayload, err = mergeOptionalYAML(
+		configPayload,
+		options.RepoConfig,
+		sourceHashes,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return primaryPayload, configPayload, sourceHashes, nil
+}
+
+func mergeOptionalYAML(
+	base map[string]any,
+	path string,
+	sourceHashes map[string]string,
+) (map[string]any, error) {
+	if path == "" || !fileExists(path) {
+		return base, nil
+	}
+
+	overlay, hash, err := loadYAMLFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceHashes[path] = hash
+
+	return mergeMaps(base, overlay), nil
 }
 
 func loadYAMLFile(path string) (map[string]any, string, error) {
@@ -117,31 +175,40 @@ func loadYAMLFile(path string) (map[string]any, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read YAML %s: %w", path, err)
 	}
+
 	var decoded map[string]any
-	if err := yaml.Unmarshal(payload, &decoded); err != nil {
+
+	err = yaml.Unmarshal(payload, &decoded)
+	if err != nil {
 		return nil, "", fmt.Errorf("parse YAML %s: %w", path, err)
 	}
+
 	sum := sha256.Sum256(payload)
+
 	return decoded, "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func compilePrinciples(payload map[string]any) map[string]Principle {
 	principles := map[string]Principle{}
+
 	rawPrinciples, ok := payload["principles"].([]any)
 	if !ok {
 		return principles
 	}
+
 	for _, raw := range rawPrinciples {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		id := stringValue(item["id"])
-		if id == "" {
+
+		principleID := stringValue(item["id"])
+		if principleID == "" {
 			continue
 		}
-		principles[id] = Principle{
-			ID:         id,
+
+		principles[principleID] = Principle{
+			ID:         principleID,
 			Order:      intValue(item["order"]),
 			Title:      stringValue(item["title"]),
 			Summary:    stringValue(item["summary"]),
@@ -150,80 +217,113 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 			Tags:       stringSlice(item["tags"]),
 			Related:    stringSlice(item["related"]),
 			AgentHints: stringMap(item["agent_hints"]),
-			DetailPath: filepath.ToSlash(filepath.Join(".agents", "ethos", id+".md")),
+			DetailPath: filepath.ToSlash(
+				filepath.Join(".agents", "ethos", principleID+".md"),
+			),
 		}
 	}
+
 	return principles
 }
 
-func compilePolicies(config map[string]any, principles map[string]Principle) map[string]Policy {
+func compilePolicies(
+	config map[string]any,
+	principles map[string]Principle,
+) map[string]Policy {
 	policies := map[string]Policy{}
-	addPolicyIfEnabled(policies, config, principles, "python.conditional_imports", []string{"python", "conditional_imports"}, Policy{
-		ID:              "python.conditional_imports",
+	addConfiguredPythonPolicies(policies, config, principles)
+	addGitPolicies(policies, principles)
+	addShellPolicies(policies, principles)
+	addGeneratedConfigPolicy(policies, principles)
+
+	return policies
+}
+
+func addConfiguredPythonPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
+	for _, spec := range pythonPolicySpecs(principles) {
+		addPolicyIfEnabled(
+			policies,
+			config,
+			principles,
+			spec.ID,
+			spec.EnabledPath,
+			spec.Policy,
+		)
+	}
+}
+
+type compiledPolicySpec struct {
+	Policy      Policy
+	ID          string
+	EnabledPath []string
+}
+
+func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
+	return []compiledPolicySpec{
+		pythonPolicySpec(
+			"python.conditional_imports",
+			[]string{"python", "conditional_imports"},
+			principleRefs(principles, "no-conditional-imports"),
+		),
+		pythonPolicySpec(
+			"python.optional_returns",
+			[]string{"python", "optional_returns"},
+			principleRefs(principles, "no-optional-types-for-required-dependencies"),
+		),
+		pythonPolicySpec(
+			"python.catch_and_silence",
+			[]string{"python", "catch_and_silence"},
+			principleRefs(
+				principles,
+				"fail-fast-fail-hard-overview",
+				"exception-hierarchy-and-error-messages",
+			),
+		),
+		pythonPolicySpec(
+			"python.structured_logging",
+			[]string{"python", "structured_logging"},
+			principleRefs(principles, "radical-visibility"),
+		),
+		pythonPolicySpec(
+			"python.direct_imports",
+			[]string{"python", "direct_imports"},
+			principleRefs(principles, "protocol-first-design"),
+		),
+		pytestGatePolicySpec(principles),
+	}
+}
+
+func pythonPolicySpec(
+	policyID string,
+	enabledPath []string,
+	principleIDs []string,
+) compiledPolicySpec {
+	policy := Policy{
+		ID:              policyID,
 		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.conditional_imports"},
-		PrincipleIDs:    principleRefs(principles, "no-conditional-imports"),
+		Source:          SourceRef{File: "config.yaml", Path: policyID},
+		PrincipleIDs:    principleIDs,
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         "Required dependencies should fail immediately; ImportError fallback creates a soft dependency path.",
-		Suggestion:      "Remove the conditional import or configure an explicit exemption.",
+		Message:         pythonPolicyMessage(policyID),
+		Suggestion:      pythonPolicySuggestion(policyID),
 		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
-		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.conditional_imports"}},
-	})
-	addPolicyIfEnabled(policies, config, principles, "python.optional_returns", []string{"python", "optional_returns"}, Policy{
-		ID:              "python.optional_returns",
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.optional_returns"},
-		PrincipleIDs:    principleRefs(principles, "no-optional-types-for-required-dependencies"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         "Required values should not be modeled as optional returns unless explicitly exempted.",
-		Suggestion:      "Use a required return type or configure a narrow exemption.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
-		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.optional_returns"}},
-	})
-	addPolicyIfEnabled(policies, config, principles, "python.catch_and_silence", []string{"python", "catch_and_silence"}, Policy{
-		ID:              "python.catch_and_silence",
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.catch_and_silence"},
-		PrincipleIDs:    principleRefs(principles, "fail-fast-fail-hard-overview", "exception-hierarchy-and-error-messages"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         "Silent exception handling hides failures and violates fail-fast behavior.",
-		Suggestion:      "Handle the exception explicitly or let it fail with useful context.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
-		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.catch_and_silence"}},
-	})
-	addPolicyIfEnabled(policies, config, principles, "python.structured_logging", []string{"python", "structured_logging"}, Policy{
-		ID:              "python.structured_logging",
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.structured_logging"},
-		PrincipleIDs:    principleRefs(principles, "radical-visibility"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         "Logging should preserve structured context instead of formatting it away.",
-		Suggestion:      "Use structured logging fields according to the repo policy.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
-		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.structured_logging"}},
-	})
-	addPolicyIfEnabled(policies, config, principles, "python.direct_imports", []string{"python", "direct_imports"}, Policy{
-		ID:              "python.direct_imports",
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.direct_imports"},
-		PrincipleIDs:    principleRefs(principles, "protocol-first-design"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         "Direct imports from protected packages bypass the intended public interface.",
-		Suggestion:      "Import through the package public API or configure an exempt path.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{Languages: []string{"python"}, FilePatterns: []string{"**/*.py"}},
-		Evaluators:      []Evaluator{{Kind: "ast", Name: "python.direct_imports"}},
-	})
-	addPolicyIfEnabled(policies, config, principles, "pytest.gate", []string{"python", "pytest_gate"}, Policy{
+		AppliesTo: AppliesTo{
+			Languages:    []string{"python"},
+			FilePatterns: []string{"**/*.py"},
+		},
+		Evaluators: []Evaluator{{Kind: "ast", Name: policyID}},
+	}
+
+	return compiledPolicySpec{ID: policyID, EnabledPath: enabledPath, Policy: policy}
+}
+
+func pytestGatePolicySpec(principles map[string]Principle) compiledPolicySpec {
+	policy := Policy{
 		ID:              "pytest.gate",
 		Category:        "pytest",
 		Source:          SourceRef{File: "config.yaml", Path: "python.pytest_gate"},
@@ -235,158 +335,194 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		DefenseLayers:   PytestDefenseLayers(),
 		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "external", Name: "pytest.gate"}},
-	})
+	}
 
-	policies["git.hook_bypass"] = Policy{
-		ID:              "git.hook_bypass",
+	return compiledPolicySpec{
+		ID:          "pytest.gate",
+		EnabledPath: []string{"python", "pytest_gate"},
+		Policy:      policy,
+	}
+}
+
+func pythonPolicyMessage(policyID string) string {
+	switch policyID {
+	case "python.conditional_imports":
+		return sentence(
+			"Required dependencies should fail immediately;",
+			"ImportError fallback creates a soft dependency path.",
+		)
+	case "python.optional_returns":
+		return sentence(
+			"Required values should not be modeled as optional",
+			"returns unless explicitly exempted.",
+		)
+	case "python.catch_and_silence":
+		return sentence(
+			"Silent exception handling hides failures and violates",
+			"fail-fast behavior.",
+		)
+	case "python.structured_logging":
+		return sentence(
+			"Logging should preserve structured context instead of",
+			"formatting it away.",
+		)
+	default:
+		return sentence(
+			"Direct imports from protected packages bypass the",
+			"intended public interface.",
+		)
+	}
+}
+
+func pythonPolicySuggestion(policyID string) string {
+	switch policyID {
+	case "python.conditional_imports":
+		return "Remove the conditional import or configure an explicit exemption."
+	case "python.optional_returns":
+		return "Use a required return type or configure a narrow exemption."
+	case "python.catch_and_silence":
+		return "Handle the exception explicitly or let it fail with useful context."
+	case "python.structured_logging":
+		return "Use structured logging fields according to the repo policy."
+	default:
+		return "Import through the package public API or configure an exempt path."
+	}
+}
+
+func addGitPolicies(policies map[string]Policy, principles map[string]Principle) {
+	for _, policy := range gitPolicies(principles) {
+		policies[policy.ID] = policy
+	}
+
+	if _, ok := principles["no-rationalized-shortcuts"]; ok {
+		policies["git.stash_blocked"] = gitStashPolicy(principles)
+	}
+}
+
+func gitPolicies(principles map[string]Principle) []Policy {
+	return []Policy{
+		gitPolicy(
+			"git.hook_bypass",
+			"git.hook_bypass",
+			principleRefs(
+				principles,
+				"one-path-for-critical-operations",
+				"linting-as-code-quality-enforcement",
+			),
+			"Hook bypass is forbidden.",
+			"Run the configured gate and fix the underlying failure.",
+		),
+		gitPolicy(
+			"git.destructive_command",
+			"git.destructive_command",
+			principleRefs(principles, "no-rationalized-shortcuts"),
+			"Destructive git commands are forbidden.",
+			"Preserve work and resolve the current state explicitly.",
+		),
+		gitPolicy(
+			"git.merge_strategy_shortcut",
+			"git.merge_strategy_shortcut",
+			principleRefs(principles, "no-rationalized-shortcuts"),
+			"git merge -X theirs/ours destroys conflict evidence.",
+			"Resolve each conflict explicitly instead of using blanket merge strategies.",
+		),
+		gitPolicy(
+			"git.force_push_protected_branch",
+			"git.force_push_protected_branch",
+			principleRefs(
+				principles,
+				"no-rationalized-shortcuts",
+				"one-path-for-critical-operations",
+			),
+			"Force push to protected branches is forbidden.",
+			"Use the repository's normal review and merge path.",
+		),
+		gitPolicy(
+			"git.checkout_protected_branch",
+			"git.checkout_protected_branch",
+			principleRefs(principles, "forward-motion-only"),
+			"Switching to main/master to check history is forbidden in managed workflows.",
+			"Inspect history with git fetch, git show, or git diff without switching.",
+		),
+		gitPolicy(
+			"git.destructive_worktree",
+			"git.destructive_worktree",
+			principleRefs(principles, "no-rationalized-shortcuts"),
+			"Destructive git worktree operations are forbidden.",
+			"Inspect worktree state before changing worktrees.",
+		),
+		gitChangeDirPolicy(principles),
+		gitStagedAdminPolicy(principles),
+		gitCommitHeadPolicy(principles),
+	}
+}
+
+func gitPolicy(
+	policyID string,
+	sourcePath string,
+	principleIDs []string,
+	message string,
+	suggestion string,
+) Policy {
+	return Policy{
+		ID:              policyID,
 		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.hook_bypass"},
-		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations", "linting-as-code-quality-enforcement"),
+		Source:          SourceRef{File: "config.yaml", Path: sourcePath},
+		PrincipleIDs:    principleIDs,
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Hook bypass is forbidden.",
-		Suggestion:      "Run the configured gate and fix the underlying failure.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "pre_commit", "git_state"),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit", "git push"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
-	}
-	policies["git.destructive_command"] = Policy{
-		ID:              "git.destructive_command",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.destructive_command"},
-		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Destructive git commands are forbidden.",
-		Suggestion:      "Preserve work and resolve the current state explicitly.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git reset", "git clean", "git checkout", "git restore"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_command"}},
-	}
-	policies["git.merge_strategy_shortcut"] = Policy{
-		ID:              "git.merge_strategy_shortcut",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.merge_strategy_shortcut"},
-		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "git merge -X theirs/ours destroys conflict evidence.",
-		Suggestion:      "Resolve each conflict explicitly instead of using blanket merge strategies.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git merge"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.merge_strategy_shortcut"}},
-	}
-	policies["git.force_push_protected_branch"] = Policy{
-		ID:              "git.force_push_protected_branch",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.force_push_protected_branch"},
-		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts", "one-path-for-critical-operations"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Force push to protected branches is forbidden.",
-		Suggestion:      "Use the repository's normal review and merge path.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "pre_push", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git push"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.force_push_protected_branch"}},
-	}
-	policies["git.checkout_protected_branch"] = Policy{
-		ID:              "git.checkout_protected_branch",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.checkout_protected_branch"},
-		PrincipleIDs:    principleRefs(principles, "forward-motion-only"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "record"},
-		Message:         "Switching to main/master to check history is forbidden in managed workflows.",
-		Suggestion:      "Inspect history with git fetch, git show, or git diff without switching branches.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git checkout", "git switch"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.checkout_protected_branch"}},
-	}
-	policies["git.destructive_worktree"] = Policy{
-		ID:              "git.destructive_worktree",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.destructive_worktree"},
-		PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Destructive git worktree operations are forbidden.",
-		Suggestion:      "Inspect worktree state and remove or move worktrees only through explicit safe steps.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git worktree"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.destructive_worktree"}},
-	}
-	policies["git.change_dir_flag"] = Policy{
-		ID:              "git.change_dir_flag",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.change_dir_flag"},
-		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "git -C hides the working directory context.",
-		Suggestion:      "Change to the intended directory explicitly, then run git there.",
+		Message:         message,
+		Suggestion:      suggestion,
 		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
 		AppliesTo:       AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: "git.change_dir_flag"}},
+		Evaluators:      []Evaluator{{Kind: "argv", Name: policyID}},
 	}
-	if _, ok := principles["no-rationalized-shortcuts"]; ok {
-		policies["git.stash_blocked"] = Policy{
-			ID:              "git.stash_blocked",
-			Category:        "git",
-			Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts"},
-			PrincipleIDs:    principleRefs(principles, "no-rationalized-shortcuts"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "git stash hides working state and is forbidden when the stash ethos is active.",
-			Suggestion:      "Keep changes visible in the worktree or commit them through the normal validated path.",
-			DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-			AppliesTo:       AppliesTo{Commands: []string{"git stash"}, Tools: []string{"Bash"}},
-			Evaluators:      []Evaluator{{Kind: "argv", Name: "git.stash_blocked"}},
-		}
-	}
-	policies["git.staged_admin_files"] = Policy{
+}
+
+func gitChangeDirPolicy(principles map[string]Principle) Policy {
+	return gitPolicy(
+		"git.change_dir_flag",
+		"git.change_dir_flag",
+		principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
+		"git -C hides the working directory context.",
+		"Change to the intended directory explicitly, then run git there.",
+	)
+}
+
+func gitStagedAdminPolicy(principles map[string]Principle) Policy {
+	return Policy{
 		ID:              "git.staged_admin_files",
 		Category:        "git",
 		Source:          SourceRef{File: "config.yaml", Path: "git.staged_admin_files"},
 		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations"),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "ask", "record"},
-		Message:         "Administrative staged files require explicit handling before commit.",
-		Suggestion:      "Confirm the policy/config change is intentional or move it to a separate admin commit.",
-		DefenseLayers:   GitDefenseLayers("ask", "wrapper", "block", "pre_commit", "git_state"),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.staged_admin_files"}},
+		Message:         "Administrative staged files require explicit handling.",
+		Suggestion:      "Confirm the policy/config change is intentional.",
+		DefenseLayers: GitDefenseLayers(
+			"ask",
+			"wrapper",
+			"block",
+			"pre_commit",
+			"git_state",
+		),
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit"},
+			Tools:    []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{Kind: "git_state", Name: "git.staged_admin_files"}},
 	}
-	policies["shell.dangerous_command"] = Policy{
-		ID:              "shell.dangerous_command",
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: "shell.dangerous_command"},
-		PrincipleIDs:    principleRefs(principles, "security-by-design", "no-rationalized-shortcuts"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Dangerous shell commands are forbidden.",
-		Suggestion:      "Use reviewed, explicit commands instead of broad destructive or pipe-to-shell patterns.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"rm", "curl", "wget", "chmod"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "shell", Name: "shell.dangerous_command"}},
-	}
-	policies["shell.background_git"] = Policy{
-		ID:              "shell.background_git",
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: "shell.background_git"},
-		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality", "one-path-for-critical-operations"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "git commit and git push must not run in the background or under timeout.",
-		Suggestion:      "Run git commit or git push in the foreground so hooks and results are visible.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", "git_state"),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit", "git push"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "shell", Name: "shell.background_git"}},
-	}
-	policies["git.commit_head_advanced"] = Policy{
-		ID:              "git.commit_head_advanced",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.commit_head_advanced"},
-		PrincipleIDs:    principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
+}
+
+func gitCommitHeadPolicy(principles map[string]Principle) Policy {
+	return Policy{
+		ID:       "git.commit_head_advanced",
+		Category: "git",
+		Source:   SourceRef{File: "config.yaml", Path: "git.commit_head_advanced"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"evidence-based-engineering-and-decision-quality",
+		),
 		DefaultSeverity: "annotate",
 		SupportedModes:  []string{"annotate", "record", "block"},
 		Message:         "Commit success must be verified by checking that HEAD advanced.",
@@ -395,21 +531,91 @@ func compilePolicies(config map[string]any, principles map[string]Principle) map
 		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
 	}
+}
+
+func gitStashPolicy(principles map[string]Principle) Policy {
+	return gitPolicy(
+		"git.stash_blocked",
+		"principles.no-rationalized-shortcuts",
+		principleRefs(principles, "no-rationalized-shortcuts"),
+		"git stash hides working state and is forbidden when the stash ethos is active.",
+		"Keep changes visible in the worktree or commit them normally.",
+	)
+}
+
+func addShellPolicies(policies map[string]Policy, principles map[string]Principle) {
+	for _, policy := range []Policy{
+		shellPolicy(
+			"shell.dangerous_command",
+			principleRefs(principles, "security-by-design", "no-rationalized-shortcuts"),
+			"Dangerous shell commands are forbidden.",
+			"Use reviewed, explicit commands.",
+		),
+		shellPolicy(
+			"shell.background_git",
+			principleRefs(
+				principles,
+				"evidence-based-engineering-and-decision-quality",
+				"one-path-for-critical-operations",
+			),
+			"git commit and git push must not run in the background or under timeout.",
+			"Run git commit or git push in the foreground.",
+		),
+	} {
+		policies[policy.ID] = policy
+	}
+}
+
+func shellPolicy(
+	policyID string,
+	principleIDs []string,
+	message string,
+	suggestion string,
+) Policy {
+	return Policy{
+		ID:              policyID,
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: policyID},
+		PrincipleIDs:    principleIDs,
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         message,
+		Suggestion:      suggestion,
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
+		Evaluators:      []Evaluator{{Kind: "shell", Name: policyID}},
+	}
+}
+
+func addGeneratedConfigPolicy(
+	policies map[string]Policy,
+	principles map[string]Principle,
+) {
 	policies["generated_config.freshness"] = Policy{
-		ID:              "generated_config.freshness",
-		Category:        "config",
-		Source:          SourceRef{File: "config.yaml", Path: "generated_config.freshness"},
-		PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
+		ID:       "generated_config.freshness",
+		Category: "config",
+		Source:   SourceRef{File: "config.yaml", Path: "generated_config.freshness"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+		),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "ask", "advise", "annotate", "record"},
-		Message:         "Generated tool configuration must match coding-ethos source policy.",
+		Message:         "Generated tool configuration must match source policy.",
 		Suggestion:      "Run the configured tool-config sync/check command.",
 		DefenseLayers:   GeneratedConfigDefenseLayers(),
-		AppliesTo:       AppliesTo{Paths: []string{"ruff.toml", "mypy.ini", "pyrightconfig.json", ".yamllint.yml"}},
-		Evaluators:      []Evaluator{{Kind: "config", Name: "generated_config.freshness"}},
+		AppliesTo: AppliesTo{
+			Paths: []string{
+				"ruff.toml",
+				"mypy.ini",
+				"pyrightconfig.json",
+				".yamllint.yml",
+			},
+		},
+		Evaluators: []Evaluator{
+			{Kind: "config", Name: "generated_config.freshness"},
+		},
 	}
-
-	return policies
 }
 
 func addPolicyIfEnabled(
@@ -426,16 +632,50 @@ func addPolicyIfEnabled(
 }
 
 func compileDispatch(policies map[string]Policy) Dispatch {
+	hooks := compileHookDispatch(policies)
+
+	return Dispatch{
+		Hooks:  hooks,
+		Linter: compileLinterDispatch(policies),
+		Git:    compileGitDispatch(policies),
+	}
+}
+
+func compileHookDispatch(
+	policies map[string]Policy,
+) map[string]map[string][]HookDispatchEntry {
 	hooks := map[string]map[string][]HookDispatchEntry{}
+	addGitHookBypassDispatch(hooks, policies)
+	addBlockingBashDispatch(hooks, policies)
+	addPythonWriteDispatch(hooks, policies)
+	addPytestGateDispatch(hooks, policies)
+	addCommitHeadDispatch(hooks, policies)
+
+	return hooks
+}
+
+func addGitHookBypassDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
 	if _, ok := policies["git.hook_bypass"]; ok {
 		ensureHookTool(hooks, "PreToolUse", "Bash")
-		hooks["PreToolUse"]["Bash"] = append(hooks["PreToolUse"]["Bash"], HookDispatchEntry{
-			PolicyID:        "git.hook_bypass",
-			Mode:            "block",
-			CommandPatterns: []string{"--no-verify", "SKIP=", "git commit -n"},
-		})
+		hooks["PreToolUse"]["Bash"] = append(
+			hooks["PreToolUse"]["Bash"],
+			HookDispatchEntry{
+				PolicyID:        "git.hook_bypass",
+				Mode:            "block",
+				CommandPatterns: []string{"--no-verify", "SKIP=", "git commit -n"},
+			},
+		)
 	}
-	for _, id := range []string{
+}
+
+func addBlockingBashDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	for _, policyID := range []string{
 		"git.destructive_command",
 		"git.merge_strategy_shortcut",
 		"git.force_push_protected_branch",
@@ -446,110 +686,178 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 		"shell.dangerous_command",
 		"shell.background_git",
 	} {
-		if _, ok := policies[id]; ok {
+		if _, ok := policies[policyID]; ok {
 			ensureHookTool(hooks, "PreToolUse", "Bash")
-			hooks["PreToolUse"]["Bash"] = append(hooks["PreToolUse"]["Bash"], HookDispatchEntry{
-				PolicyID: id,
-				Mode:     "block",
-			})
+			hooks["PreToolUse"]["Bash"] = append(
+				hooks["PreToolUse"]["Bash"],
+				HookDispatchEntry{
+					PolicyID: policyID,
+					Mode:     "block",
+				},
+			)
 		}
 	}
-	for _, id := range []string{
+}
+
+func addPythonWriteDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	for _, policyID := range []string{
 		"python.conditional_imports",
 		"python.optional_returns",
 		"python.catch_and_silence",
 		"python.structured_logging",
 		"python.direct_imports",
 	} {
-		if _, ok := policies[id]; ok {
+		if _, exists := policies[policyID]; exists {
 			for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
 				ensureHookTool(hooks, "PreToolUse", tool)
-				hooks["PreToolUse"][tool] = append(hooks["PreToolUse"][tool], HookDispatchEntry{
-					PolicyID:     id,
-					Mode:         "advise",
-					PathPatterns: []string{"**/*.py"},
-				})
+				hooks["PreToolUse"][tool] = append(
+					hooks["PreToolUse"][tool],
+					HookDispatchEntry{
+						PolicyID:     policyID,
+						Mode:         "advise",
+						PathPatterns: []string{"**/*.py"},
+					},
+				)
 			}
 		}
 	}
+}
+
+func addPytestGateDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
 	if _, ok := policies["pytest.gate"]; ok {
 		ensureHookTool(hooks, "PostToolUse", "Bash")
-		hooks["PostToolUse"]["Bash"] = append(hooks["PostToolUse"]["Bash"], HookDispatchEntry{
-			PolicyID:        "pytest.gate",
-			Mode:            "annotate",
-			CommandPatterns: []string{"pytest", "make check", "lefthook"},
-		})
+		hooks["PostToolUse"]["Bash"] = append(
+			hooks["PostToolUse"]["Bash"],
+			HookDispatchEntry{
+				PolicyID:        "pytest.gate",
+				Mode:            "annotate",
+				CommandPatterns: []string{"pytest", "make check", "lefthook"},
+			},
+		)
 	}
+}
+
+func addCommitHeadDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
 	if _, ok := policies["git.commit_head_advanced"]; ok {
 		ensureHookTool(hooks, "PreToolUse", "Bash")
-		hooks["PreToolUse"]["Bash"] = append(hooks["PreToolUse"]["Bash"], HookDispatchEntry{
-			PolicyID:        "git.commit_head_advanced",
-			Mode:            "record",
-			CommandPatterns: []string{"git commit"},
-		})
+		hooks["PreToolUse"]["Bash"] = append(
+			hooks["PreToolUse"]["Bash"],
+			HookDispatchEntry{
+				PolicyID:        "git.commit_head_advanced",
+				Mode:            "record",
+				CommandPatterns: []string{"git commit"},
+			},
+		)
 		ensureHookTool(hooks, "PostToolUse", "Bash")
-		hooks["PostToolUse"]["Bash"] = append(hooks["PostToolUse"]["Bash"], HookDispatchEntry{
-			PolicyID:        "git.commit_head_advanced",
-			Mode:            "block",
-			CommandPatterns: []string{"git commit"},
-		})
+		hooks["PostToolUse"]["Bash"] = append(
+			hooks["PostToolUse"]["Bash"],
+			HookDispatchEntry{
+				PolicyID:        "git.commit_head_advanced",
+				Mode:            "block",
+				CommandPatterns: []string{"git commit"},
+			},
+		)
 	}
+}
 
+func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	linter := map[string][]string{
-		"files":  existingPolicyIDs(policies, "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
-		"staged": existingPolicyIDs(policies, "git.hook_bypass", "git.destructive_command", "git.merge_strategy_shortcut", "git.force_push_protected_branch", "git.checkout_protected_branch", "git.destructive_worktree", "git.change_dir_flag", "git.stash_blocked", "shell.dangerous_command", "shell.background_git", "git.staged_admin_files", "generated_config.freshness", "python.conditional_imports", "python.optional_returns", "python.catch_and_silence", "python.structured_logging", "python.direct_imports"),
-		"full":   existingPolicyIDs(policies, "pytest.gate", "generated_config.freshness"),
+		"files": existingPolicyIDs(
+			policies,
+			"python.conditional_imports",
+			"python.optional_returns",
+			"python.catch_and_silence",
+			"python.structured_logging",
+			"python.direct_imports",
+		),
+		"staged": existingPolicyIDs(
+			policies,
+			"git.hook_bypass",
+			"git.destructive_command",
+			"git.merge_strategy_shortcut",
+			"git.force_push_protected_branch",
+			"git.checkout_protected_branch",
+			"git.destructive_worktree",
+			"git.change_dir_flag",
+			"git.stash_blocked",
+			"shell.dangerous_command",
+			"shell.background_git",
+			"git.staged_admin_files",
+			"generated_config.freshness",
+			"python.conditional_imports",
+			"python.optional_returns",
+			"python.catch_and_silence",
+			"python.structured_logging",
+			"python.direct_imports",
+		),
+		"full": existingPolicyIDs(
+			policies,
+			"pytest.gate",
+			"generated_config.freshness",
+		),
 	}
 	if _, ok := policies["pytest.gate"]; ok {
 		linter["smoke"] = []string{"pytest.gate"}
 	}
 
-	return Dispatch{
-		Hooks:  hooks,
-		Linter: linter,
-		Git: map[string]GitOperationDispatch{
-			"*": {
-				Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
-			},
-			"commit": {
-				Pre:  existingPolicyIDs(policies, "git.hook_bypass", "git.staged_admin_files"),
-				Post: existingPolicyIDs(policies, "git.commit_head_advanced"),
-			},
-			"push": {
-				Pre: existingPolicyIDs(policies, "git.hook_bypass", "git.force_push_protected_branch"),
-			},
-			"reset": {
-				Pre: existingPolicyIDs(policies, "git.destructive_command"),
-			},
-			"clean": {
-				Pre: existingPolicyIDs(policies, "git.destructive_command"),
-			},
-			"checkout": {
-				Pre: existingPolicyIDs(policies, "git.destructive_command", "git.checkout_protected_branch"),
-			},
-			"switch": {
-				Pre: existingPolicyIDs(policies, "git.checkout_protected_branch"),
-			},
-			"restore": {
-				Pre: existingPolicyIDs(policies, "git.destructive_command"),
-			},
-			"merge": {
-				Pre: existingPolicyIDs(policies, "git.merge_strategy_shortcut"),
-			},
-			"worktree": {
-				Pre: existingPolicyIDs(policies, "git.destructive_worktree"),
-			},
-			"stash": {
-				Pre: existingPolicyIDs(policies, "git.stash_blocked"),
-			},
+	return linter
+}
+
+func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispatch {
+	return map[string]GitOperationDispatch{
+		"*": {
+			Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
+		},
+		"commit": {
+			Pre: existingPolicyIDs(
+				policies,
+				"git.hook_bypass",
+				"git.staged_admin_files",
+			),
+			Post: existingPolicyIDs(policies, "git.commit_head_advanced"),
+		},
+		"push": {
+			Pre: existingPolicyIDs(
+				policies,
+				"git.hook_bypass",
+				"git.force_push_protected_branch",
+			),
+		},
+		"reset":    {Pre: existingPolicyIDs(policies, "git.destructive_command")},
+		"clean":    {Pre: existingPolicyIDs(policies, "git.destructive_command")},
+		"restore":  {Pre: existingPolicyIDs(policies, "git.destructive_command")},
+		"switch":   {Pre: existingPolicyIDs(policies, "git.checkout_protected_branch")},
+		"merge":    {Pre: existingPolicyIDs(policies, "git.merge_strategy_shortcut")},
+		"worktree": {Pre: existingPolicyIDs(policies, "git.destructive_worktree")},
+		"stash":    {Pre: existingPolicyIDs(policies, "git.stash_blocked")},
+		"checkout": {
+			Pre: existingPolicyIDs(
+				policies,
+				"git.destructive_command",
+				"git.checkout_protected_branch",
+			),
 		},
 	}
 }
 
-func ensureHookTool(hooks map[string]map[string][]HookDispatchEntry, event string, tool string) {
+func ensureHookTool(
+	hooks map[string]map[string][]HookDispatchEntry,
+	event string,
+	tool string,
+) {
 	if _, ok := hooks[event]; !ok {
 		hooks[event] = map[string][]HookDispatchEntry{}
 	}
+
 	if _, ok := hooks[event][tool]; !ok {
 		hooks[event][tool] = []HookDispatchEntry{}
 	}
@@ -562,6 +870,7 @@ func existingPolicyIDs(policies map[string]Policy, ids ...string) []string {
 			existing = append(existing, id)
 		}
 	}
+
 	return existing
 }
 
@@ -572,43 +881,54 @@ func principleRefs(principles map[string]Principle, ids ...string) []string {
 			refs = append(refs, id)
 		}
 	}
+
 	return refs
 }
 
 func mergeMaps(base map[string]any, overlay map[string]any) map[string]any {
 	for key, overlayValue := range overlay {
 		baseMap, baseOK := base[key].(map[string]any)
+
 		overlayMap, overlayOK := overlayValue.(map[string]any)
 		if baseOK && overlayOK {
 			base[key] = mergeMaps(baseMap, overlayMap)
+
 			continue
 		}
+
 		base[key] = overlayValue
 	}
+
 	return base
 }
 
 func boolAt(values map[string]any, path ...string) bool {
-	value, ok := valueAt(values, path...)
-	if !ok {
+	value, exists := valueAt(values, path...)
+	if !exists {
 		return false
 	}
-	boolValue, ok := value.(bool)
-	return ok && boolValue
+
+	boolValue, isBool := value.(bool)
+
+	return isBool && boolValue
 }
 
 func valueAt(values map[string]any, path ...string) (any, bool) {
 	current := any(values)
 	for _, part := range path {
-		currentMap, ok := current.(map[string]any)
-		if !ok {
+		currentMap, isMap := current.(map[string]any)
+		if !isMap {
 			return nil, false
 		}
-		current, ok = currentMap[part]
-		if !ok {
+
+		var exists bool
+
+		current, exists = currentMap[part]
+		if !exists {
 			return nil, false
 		}
 	}
+
 	return current, true
 }
 
@@ -616,6 +936,7 @@ func stringValue(value any) string {
 	if value == nil {
 		return ""
 	}
+
 	return fmt.Sprint(value)
 }
 
@@ -633,6 +954,7 @@ func intValue(value any) int {
 			return parsed
 		}
 	}
+
 	return 0
 }
 
@@ -641,10 +963,12 @@ func stringSlice(value any) []string {
 	if !ok {
 		return nil
 	}
+
 	items := make([]string, 0, len(rawItems))
 	for _, raw := range rawItems {
 		items = append(items, stringValue(raw))
 	}
+
 	return items
 }
 
@@ -653,10 +977,12 @@ func stringMap(value any) map[string]string {
 	if !ok {
 		return nil
 	}
+
 	items := map[string]string{}
 	for key, value := range raw {
 		items[key] = stringValue(value)
 	}
+
 	return items
 }
 
@@ -664,15 +990,21 @@ func fileExists(path string) bool {
 	if path == "" {
 		return false
 	}
+
 	_, err := os.Stat(path)
+
 	return err == nil
 }
 
 func defaultBundleID(primary string, config string, hashes map[string]string) string {
-	parts := []string{primary, config}
+	parts := make([]string, 0, defaultBundleBaseParts+len(hashes))
+	parts = append(parts, primary, config)
+
 	for path, hash := range hashes {
 		parts = append(parts, path+"="+hash)
 	}
+
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+
 	return "policy-" + hex.EncodeToString(sum[:8])
 }

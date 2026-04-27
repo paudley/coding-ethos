@@ -22,7 +22,9 @@ func HashBundle(bundle Bundle) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal policy bundle for hash: %w", err)
 	}
+
 	sum := sha256.Sum256(payload)
+
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
@@ -31,6 +33,7 @@ func BuildMetadata(bundle Bundle, sourceHashes map[string]string) (Metadata, err
 	if err != nil {
 		return Metadata{}, err
 	}
+
 	return Metadata{
 		BundleHash:   bundleHash,
 		GeneratedAt:  bundle.GeneratedAt,
@@ -42,8 +45,11 @@ func EncodeMetadata(writer io.Writer, metadata Metadata) error {
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(metadata); err != nil {
+
+	err := encoder.Encode(metadata)
+	if err != nil {
 		return fmt.Errorf("encode policy metadata: %w", err)
 	}
+
 	return nil
 }

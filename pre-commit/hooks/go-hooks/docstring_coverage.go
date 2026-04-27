@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:gosec // Runs validated hook commands.
 package main
 
 import (
@@ -45,11 +46,11 @@ type docstringCoverageFailureReport struct {
 	Format    string   `json:"format"`
 	Tool      string   `json:"tool"`
 	Status    string   `json:"status"`
-	Threshold int      `json:"threshold"`
-	Paths     []string `json:"paths"`
 	Stdout    string   `json:"stdout,omitempty"`
 	Stderr    string   `json:"stderr,omitempty"`
+	Paths     []string `json:"paths"`
 	Guidance  []string `json:"guidance"`
+	Threshold int      `json:"threshold"`
 }
 
 func configSectionFieldPresent(
@@ -57,14 +58,16 @@ func configSectionFieldPresent(
 	path string,
 	field string,
 ) bool {
-	value, ok := rootConfigValue(rootConfig, path)
-	if !ok {
+	value, found := rootConfigValue(rootConfig, path)
+	if !found {
 		return false
 	}
-	section, ok := value.(map[string]any)
-	if !ok {
+
+	section, isSection := value.(map[string]any)
+	if !isSection {
 		return false
 	}
+
 	_, present := section[field]
 
 	return present
@@ -72,14 +75,17 @@ func configSectionFieldPresent(
 
 func loadDocstringCoverageSettings() (docstringCoverageSettings, error) {
 	var settings docstringCoverageSettings
+
 	bundleRoot, consumer, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodeConfigSection(rootConfig, "python.docstring_coverage", &settings)
 	if err != nil {
 		return settings, fmt.Errorf("parse docstring_coverage config: %w", err)
 	}
+
 	settings.BundleRoot = bundleRoot
 	settings.ConsumerRoot = consumer
 	settings.HooksProject = filepath.Join(bundleRoot, "hooks")
@@ -95,12 +101,14 @@ func applyDocstringCoverageDefaults(
 	if settings.Threshold <= 0 {
 		settings.Threshold = 90
 	}
+
 	if len(settings.CheckPaths) == 0 {
 		settings.CheckPaths = []string{
 			"coding_ethos",
 			"pre-commit/hooks",
 		}
 	}
+
 	if len(settings.ExcludePatterns) == 0 {
 		settings.ExcludePatterns = []string{
 			`__pycache__`,
@@ -110,13 +118,17 @@ func applyDocstringCoverageDefaults(
 			`test_.*\.py$`,
 		}
 	}
+
 	if len(settings.Command) == 0 {
 		settings.Command = []string{"interrogate"}
 	}
+
 	applyDocstringCoverageFlagDefaults(settings, rootConfig)
+
 	if settings.UseHookProject {
 		return
 	}
+
 	if !configSectionFieldPresent(
 		rootConfig,
 		"python.docstring_coverage",
@@ -166,10 +178,12 @@ func buildDocstringCoverageCommand(settings docstringCoverageSettings) []string 
 		"--fail-under",
 		strconv.Itoa(settings.Threshold),
 	)
+
 	command = appendDocstringCoverageFlags(command, settings)
 	for _, pattern := range settings.ExcludePatterns {
 		command = append(command, "--ignore-regex", pattern)
 	}
+
 	command = append(command, settings.CheckPaths...)
 	if settings.UseHookProject {
 		command = append(
@@ -237,16 +251,23 @@ func runDocstringCoverage(
 	if len(command) == 0 {
 		return 1, "", "", errDocstringCoverageCommandEmpty
 	}
+
 	cmd := exec.CommandContext(context.Background(), command[0], command[1:]...)
 	cmd.Dir = settings.ConsumerRoot
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
 	err := cmd.Run()
 	if err == nil {
 		return 0, stdout.String(), stderr.String(), nil
 	}
+
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		return exitErr.ExitCode(), stdout.String(), stderr.String(), nil
@@ -262,6 +283,7 @@ func checkDocstringCoverageCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -276,6 +298,7 @@ func checkDocstringCoverageCommand(_ Config, _ []string) int {
 
 		return 1
 	}
+
 	if exitCode == 0 {
 		return 0
 	}
@@ -348,6 +371,7 @@ func formatDocstringCoverageFailureJSON(
 		stderr,
 		hookOutputFormatJSON,
 	)
+
 	content, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return formatDocstringCoverageFailureHuman(settings, stdout)
@@ -367,22 +391,26 @@ func formatDocstringCoverageFailureTOON(
 		stderr,
 		hookOutputFormatTOON,
 	)
+
 	lines := []string{
-		fmt.Sprintf("format: %s", payload.Format),
-		fmt.Sprintf("tool: %s", payload.Tool),
-		fmt.Sprintf("status: %s", payload.Status),
+		"format: " + payload.Format,
+		"tool: " + payload.Tool,
+		"status: " + payload.Status,
 		fmt.Sprintf("threshold: %d", payload.Threshold),
 		fmt.Sprintf("paths[%d]{path}:", len(payload.Paths)),
 	}
 	for _, path := range payload.Paths {
 		lines = append(lines, "  "+toonCell(path))
 	}
+
 	if payload.Stdout != "" {
 		lines = append(lines, "stdout: "+toonCell(payload.Stdout))
 	}
+
 	if payload.Stderr != "" {
 		lines = append(lines, "stderr: "+toonCell(payload.Stderr))
 	}
+
 	lines = append(
 		lines,
 		fmt.Sprintf("guidance[%d]{message}:", len(payload.Guidance)),
@@ -403,12 +431,13 @@ func formatDocstringCoverageFailureHuman(
 		"DOCSTRING COVERAGE CHECK FAILED (ETHOS §18)",
 		strings.Repeat("=", compactDividerWidth),
 		fmt.Sprintf("Threshold: %d%%", settings.Threshold),
-		fmt.Sprintf("Paths: %s", strings.Join(settings.CheckPaths, ", ")),
+		"Paths: " + strings.Join(settings.CheckPaths, ", "),
 		"",
 	}
 	if strings.TrimSpace(stdout) != "" {
 		lines = append(lines, strings.TrimRight(stdout, "\n"))
 	}
+
 	lines = append(
 		lines,
 		"",

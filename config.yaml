@@ -226,6 +226,8 @@ python:
     enabled: false
     module_name: project.sql
     central_paths: []
+    exempt_paths:
+      - tests
     migration_markers:
       - alembic
       - migrations
@@ -681,29 +683,6 @@ tooling:
           - common-false-positives
           - legacy
           - std-error-handling
-        rules:
-          - path: _test\.go
-            linters:
-              - cyclop
-              - funlen
-              - gocognit
-              - gocyclo
-              - lll
-              - maintidx
-              - mnd
-              - paralleltest
-              - testpackage
-              - varnamelen
-          - path: (cmd|internal|pkg)/.*_test\.go
-            linters:
-              - dupl
-              - gosec
-          - path: (^|/)testdata/
-            linters:
-              - gosec
-              - godoclint
-              - mnd
-              - protogetter
       settings:
         cyclop:
           max-complexity: 12

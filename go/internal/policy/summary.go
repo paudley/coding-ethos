@@ -4,72 +4,96 @@
 package policy
 
 import (
-	"fmt"
 	"io"
 	"sort"
 )
 
 func WriteSummary(writer io.Writer, bundle Bundle) error {
-	if _, err := fmt.Fprintf(writer, "# Policy Bundle Summary\n\n"); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(writer, "- Bundle: `%s`\n", bundle.BundleID); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(writer, "- Version: `%d`\n", bundle.Version); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(writer, "- Generated: `%s`\n", bundle.GeneratedAt); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(writer, "- Principles: `%d`\n", len(bundle.Principles)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(writer, "- Policies: `%d`\n\n", len(bundle.Policies)); err != nil {
+	err := writePolicyLine(writer, "# Policy Bundle Summary\n\n")
+	if err != nil {
 		return err
 	}
 
-	if err := writePrincipleSummary(writer, bundle); err != nil {
+	err = writePolicyLine(writer, "- Bundle: `%s`\n", bundle.BundleID)
+	if err != nil {
 		return err
 	}
+
+	err = writePolicyLine(writer, "- Version: `%d`\n", bundle.Version)
+	if err != nil {
+		return err
+	}
+
+	err = writePolicyLine(writer, "- Generated: `%s`\n", bundle.GeneratedAt)
+	if err != nil {
+		return err
+	}
+
+	err = writePolicyLine(writer, "- Principles: `%d`\n", len(bundle.Principles))
+	if err != nil {
+		return err
+	}
+
+	err = writePolicyLine(writer, "- Policies: `%d`\n\n", len(bundle.Policies))
+	if err != nil {
+		return err
+	}
+
+	err = writePrincipleSummary(writer, bundle)
+	if err != nil {
+		return err
+	}
+
 	return writePolicySummary(writer, bundle)
 }
 
 func writePrincipleSummary(writer io.Writer, bundle Bundle) error {
-	if _, err := fmt.Fprintf(writer, "## Principles\n\n"); err != nil {
+	err := writePolicyLine(writer, "## Principles\n\n")
+	if err != nil {
 		return err
 	}
+
 	ids := sortedKeys(bundle.Principles)
 	for _, id := range ids {
 		principle := bundle.Principles[id]
-		if _, err := fmt.Fprintf(writer, "- `%s`: %s\n", principle.ID, principle.Title); err != nil {
+
+		err = writePolicyLine(writer, "- `%s`: %s\n", principle.ID, principle.Title)
+		if err != nil {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintln(writer); err != nil {
+
+	err = writePolicyLine(writer, "\n")
+	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
 func writePolicySummary(writer io.Writer, bundle Bundle) error {
-	if _, err := fmt.Fprintf(writer, "## Policies\n\n"); err != nil {
+	err := writePolicyLine(writer, "## Policies\n\n")
+	if err != nil {
 		return err
 	}
+
 	ids := sortedKeys(bundle.Policies)
 	for _, id := range ids {
 		policy := bundle.Policies[id]
-		if _, err := fmt.Fprintf(
+
+		err = writePolicyLine(
 			writer,
 			"- `%s` [%s/%s]: %s\n",
 			policy.ID,
 			policy.Category,
 			policy.DefaultSeverity,
 			policy.Message,
-		); err != nil {
+		)
+		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -78,6 +102,8 @@ func sortedKeys[T any](values map[string]T) []string {
 	for key := range values {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
+
 	return keys
 }

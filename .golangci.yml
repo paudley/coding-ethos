@@ -122,29 +122,6 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
-    rules:
-      - path: _test\.go
-        linters:
-          - cyclop
-          - funlen
-          - gocognit
-          - gocyclo
-          - lll
-          - maintidx
-          - mnd
-          - paralleltest
-          - testpackage
-          - varnamelen
-      - path: (cmd|internal|pkg)/.*_test\.go
-        linters:
-          - dupl
-          - gosec
-      - path: (^|/)testdata/
-        linters:
-          - gosec
-          - godoclint
-          - mnd
-          - protogetter
   settings:
     cyclop:
       max-complexity: 12

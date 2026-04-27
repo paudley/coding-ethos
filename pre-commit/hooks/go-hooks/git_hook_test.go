@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:paralleltest,lll // Uses process-global fixtures.
 package main
 
 import (
-	"os"
+	"context"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -25,6 +26,7 @@ func TestHookFilesForPreCommitDiscoversStagedAndAllFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hookFilesForPreCommit(false) returned error: %v", err)
 	}
+
 	if !reflect.DeepEqual(staged, []string{"staged.py"}) {
 		t.Fatalf("staged files = %#v, want staged.py", staged)
 	}
@@ -33,6 +35,7 @@ func TestHookFilesForPreCommitDiscoversStagedAndAllFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hookFilesForPreCommit(true) returned error: %v", err)
 	}
+
 	if !reflect.DeepEqual(allFiles, []string{"staged.py", "tracked.py"}) {
 		t.Fatalf("all files = %#v, want staged.py and tracked.py", allFiles)
 	}
@@ -52,10 +55,12 @@ func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
 
 	input := strings.NewReader("refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n")
+
 	files, err := pushedFiles(input)
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
+
 	if !reflect.DeepEqual(files, []string{"feature.py"}) {
 		t.Fatalf("pushed files = %#v, want feature.py", files)
 	}
@@ -76,10 +81,12 @@ func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
 		"refs/heads/new " + localSHA + " refs/heads/new " + allZeroSHA + "\n" +
 			"refs/heads/gone " + allZeroSHA + " refs/heads/gone " + localSHA + "\n",
 	)
+
 	files, err := pushedFiles(input)
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
+
 	want := []string{"first.py", "second.py"}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("pushed files = %#v, want %#v", files, want)
@@ -99,10 +106,12 @@ func TestPushedFilesDeduplicatesMultipleRefs(t *testing.T) {
 	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
 
 	line := "refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n"
+
 	files, err := pushedFiles(strings.NewReader(line + line))
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
+
 	if !reflect.DeepEqual(files, []string{"feature.py"}) {
 		t.Fatalf("pushed files = %#v, want deduplicated feature.py", files)
 	}
@@ -120,6 +129,7 @@ func TestDockerAndWorkflowFileSelection(t *testing.T) {
 	if got := dockerFiles(files); !reflect.DeepEqual(got, []string{"Dockerfile", "docker/Dockerfile.worker"}) {
 		t.Fatalf("dockerFiles() = %#v", got)
 	}
+
 	if got := workflowFiles(files); !reflect.DeepEqual(got, []string{".github/workflows/ci.yml", ".github/workflows/ci.yaml"}) {
 		t.Fatalf("workflowFiles() = %#v", got)
 	}
@@ -137,18 +147,8 @@ func setupGitHookTestRepo(t *testing.T) string {
 
 func chdirForTest(t *testing.T, root string) {
 	t.Helper()
-	previous, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd() failed: %v", err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("os.Chdir(%q) failed: %v", root, err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(previous); err != nil {
-			t.Fatalf("restore working directory failed: %v", err)
-		}
-	})
+
+	t.Chdir(root)
 }
 
 func runGitTestCommand(t *testing.T, args ...string) {
@@ -158,17 +158,22 @@ func runGitTestCommand(t *testing.T, args ...string) {
 
 func runGitTestCommandInDir(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
-	if output, err := cmd.CombinedOutput(); err != nil {
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
 		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(output))
 	}
 }
 
 func gitTestOutput(t *testing.T, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = repoRoot()
+
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("git %s failed: %v", strings.Join(args, " "), err)
@@ -180,6 +185,7 @@ func gitTestOutput(t *testing.T, args ...string) string {
 func TestRepoPathResolvesRelativePath(t *testing.T) {
 	root := setupGitHookTestRepo(t)
 	chdirForTest(t, root)
+
 	if got := repoPath("ruff.toml"); got != filepath.Join(root, "ruff.toml") {
 		t.Fatalf("repoPath() = %q, want repo-root path", got)
 	}

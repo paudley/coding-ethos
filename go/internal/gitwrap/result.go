@@ -6,10 +6,10 @@ package gitwrap
 import "blackcat.ca/coding-ethos/go/internal/policy"
 
 type Result struct {
-	Decisions []policy.Decision `json:"decisions,omitempty"`
-	Argv      []string          `json:"argv"`
 	Operation string            `json:"operation,omitempty"`
 	Status    string            `json:"status"`
+	Decisions []policy.Decision `json:"decisions,omitempty"`
+	Argv      []string          `json:"argv"`
 }
 
 func (result Result) Blocked() bool {

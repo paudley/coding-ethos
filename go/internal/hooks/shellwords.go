@@ -7,47 +7,63 @@ import "strings"
 
 func shellFields(command string) []string {
 	fields := []string{}
-	var builder strings.Builder
-	var quote rune
+
+	var (
+		builder strings.Builder
+		quote   rune
+	)
+
 	escaped := false
 	for _, char := range command {
 		if escaped {
 			builder.WriteRune(char)
+
 			escaped = false
+
 			continue
 		}
+
 		if char == '\\' && quote != '\'' {
 			escaped = true
+
 			continue
 		}
+
 		if quote != 0 {
 			if char == quote {
 				quote = 0
+
 				continue
 			}
+
 			builder.WriteRune(char)
+
 			continue
 		}
-		switch {
-		case char == '\'' || char == '"':
+
+		switch char {
+		case '\'', '"':
 			quote = char
-		case char == ' ' || char == '\t' || char == '\n':
-			if builder.Len() > 0 {
-				fields = append(fields, builder.String())
-				builder.Reset()
-			}
-		case char == ';':
-			if builder.Len() > 0 {
-				fields = append(fields, builder.String())
-				builder.Reset()
-			}
+		case ' ', '\t', '\n':
+			fields = appendShellField(fields, &builder)
+		case ';':
+			fields = appendShellField(fields, &builder)
 			fields = append(fields, string(char))
 		default:
 			builder.WriteRune(char)
 		}
 	}
-	if builder.Len() > 0 {
-		fields = append(fields, builder.String())
+
+	return appendShellField(fields, &builder)
+}
+
+func appendShellField(fields []string, builder *strings.Builder) []string {
+	if builder.Len() == 0 {
+		return fields
 	}
+
+	fields = append(fields, builder.String())
+	builder.Reset()
+
 	return fields
 }
