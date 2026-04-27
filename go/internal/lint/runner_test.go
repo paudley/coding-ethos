@@ -101,3 +101,35 @@ func TestRunUsesRegisteredEvaluator(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 }
+
+func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.Bundle{
+		Policies: map[string]policy.Policy{
+			"python.missing_evaluator": {
+				ID:              "python.missing_evaluator",
+				DefaultSeverity: "block",
+				SupportedModes:  []string{"block", "record"},
+				Evaluators:      []policy.Evaluator{{Name: "python.missing_evaluator"}},
+				DefenseLayers:   policy.DefenseLayers{Enforce: "block"},
+				Message:         "missing evaluator",
+				PrincipleIDs:    []string{"static-analysis-is-the-first-line-of-defense"},
+			},
+		},
+		Dispatch: policy.Dispatch{
+			Linter: map[string][]string{
+				ScopeFiles: []string{"python.missing_evaluator"},
+			},
+		},
+	}
+
+	_, err := Run(bundle, Options{Scope: ScopeFiles, Files: []string{"src/app.py"}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	if !strings.Contains(err.Error(), "lint policy has no registered evaluator") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

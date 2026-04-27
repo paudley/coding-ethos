@@ -29,6 +29,7 @@ const (
 var (
 	errUnknownScopePolicy = errors.New("lint scope references unknown policy")
 	errUnsupportedScope   = errors.New("unsupported lint scope")
+	errMissingEvaluator   = errors.New("lint policy has no registered evaluator")
 )
 
 type Options struct {
@@ -100,11 +101,15 @@ func evaluatePolicy(
 		Cwd:     options.Cwd,
 	}
 
+	var registered bool
+
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
 			continue
 		}
+
+		registered = true
 
 		decisions, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
@@ -114,6 +119,10 @@ func evaluatePolicy(
 		if len(decisions) > 0 {
 			return decisions, nil
 		}
+	}
+
+	if len(policyDef.Evaluators) > 0 && !registered {
+		return nil, fmt.Errorf("%w: %q", errMissingEvaluator, policyDef.ID)
 	}
 
 	return []policy.Decision{recordDecision(policyDef, scope, options)}, nil

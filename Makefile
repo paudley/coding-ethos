@@ -272,7 +272,7 @@ test: ensure-uv ## Run the current automated test suite.
 	@$(call print_step,Running pytest)
 	@$(UV) run pytest
 
-check: test check-tool-configs check-gemini-prompts ## Run the repo's current verification gate.
+check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
 
 ##@ Hooks
 sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, yamllint, and golangci-lint configs.

@@ -726,7 +726,6 @@ func compileHookDispatch(
 	addProtectedPathDispatch(hooks, policies)
 	addProtectedBranchWriteDispatch(hooks, policies)
 	addPythonWriteDispatch(hooks, policies)
-	addPytestGateDispatch(hooks, policies)
 	addCommitHeadDispatch(hooks, policies)
 
 	return hooks
@@ -847,23 +846,6 @@ func addPythonWriteDispatch(
 	}
 }
 
-func addPytestGateDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	if _, ok := policies["pytest.gate"]; ok {
-		ensureHookTool(hooks, "PostToolUse", "Bash")
-		hooks["PostToolUse"]["Bash"] = append(
-			hooks["PostToolUse"]["Bash"],
-			HookDispatchEntry{
-				PolicyID:        "pytest.gate",
-				Mode:            "annotate",
-				CommandPatterns: []string{"pytest", "make check", "make pre-commit"},
-			},
-		)
-	}
-}
-
 func addCommitHeadDispatch(
 	hooks map[string]map[string][]HookDispatchEntry,
 	policies map[string]Policy,
@@ -916,7 +898,6 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
-			"generated_config.freshness",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -925,14 +906,6 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.bare_except",
 			"python.unexplained_type_ignore",
 		),
-		"full": existingPolicyIDs(
-			policies,
-			"pytest.gate",
-			"generated_config.freshness",
-		),
-	}
-	if _, ok := policies["pytest.gate"]; ok {
-		linter["smoke"] = []string{"pytest.gate"}
 	}
 
 	return linter

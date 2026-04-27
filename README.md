@@ -330,7 +330,9 @@ timing where the runner has in-process command visibility.
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
 new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
-they are not invoked from agent hooks.
+they are not invoked from agent hooks. Agent hook evaluators are runtime-covered,
+but Claude hook installation and cutover are still tracked in
+[HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
 
 Install hooks:
 
@@ -379,6 +381,8 @@ Broader verification for hook work:
 ```bash
 make validate
 make go-test
+make go-tools-test
+make go-tools-smoke
 make pre-commit-all
 ```
 

@@ -78,7 +78,7 @@ for shell_case in "${shell_block_cases[@]}"; do
   hook_status=$?
   set -e
   if [[ "$hook_status" -ne 2 ]]; then
-    printf 'expected hook exit 2 for `%s`, got %s:\n%s\n' "$shell_case" "$hook_status" "$hook_output" >&2
+    printf 'expected hook exit 2 for [%s], got %s:\n%s\n' "$shell_case" "$hook_status" "$hook_output" >&2
     exit 1
   fi
 done
@@ -203,7 +203,7 @@ for git_case in "${blocked_git_cases[@]}"; do
   git_status=$?
   set -e
   if [[ "$git_status" -ne 2 ]]; then
-    printf 'expected git wrapper exit 2 for `%s`, got %s:\n' "$git_case" "$git_status" >&2
+    printf 'expected git wrapper exit 2 for [%s], got %s:\n' "$git_case" "$git_status" >&2
     cat /tmp/coding-ethos-git-smoke.out >&2
     exit 1
   fi

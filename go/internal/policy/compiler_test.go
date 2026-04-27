@@ -67,6 +67,31 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	}
 }
 
+func TestCompileExcludesNonExecutablePoliciesFromLinterDispatch(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, policyID := range bundle.Dispatch.Linter["staged"] {
+		if policyID == "pytest.gate" || policyID == "generated_config.freshness" {
+			t.Fatalf("non-executable policy should not be in linter dispatch: %q", policyID)
+		}
+	}
+}
+
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
 	t.Parallel()
 

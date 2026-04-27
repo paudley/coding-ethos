@@ -12,8 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
 BIN_DIR="${GIT_COMMON_DIR}/coding-ethos-hooks"
-LEGACY_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
-LEGACY_BIN="${BIN_DIR}/coding-ethos-legacy-hook"
+GIT_HOOK_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
+GIT_HOOK_BIN="${BIN_DIR}/coding-ethos-git-hook"
 TOOLS_SRC_DIR="${ETHOS_ROOT}/go"
 TOOLS_BIN_DIR="${BIN_DIR}/bin"
 POLICY_DIR="${BIN_DIR}/policy"
@@ -164,7 +164,7 @@ case "${1:-}" in
 		run_policy_git "$@"
 		;;
 	*)
-		build_go_binary "$LEGACY_SRC_DIR" "$LEGACY_BIN"
-		exec "$LEGACY_BIN" "$@"
+		build_go_binary "$GIT_HOOK_SRC_DIR" "$GIT_HOOK_BIN"
+		exec "$GIT_HOOK_BIN" "$@"
 		;;
 esac

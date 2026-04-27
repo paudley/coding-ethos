@@ -24,7 +24,6 @@ func bashModifyingPatterns() []*regexp.Regexp {
 		regexp.MustCompile(`\bsed\s+-i`),
 		regexp.MustCompile(`\bgit\s+mv\b`),
 		regexp.MustCompile(`\bgit\s+add\b`),
-		regexp.MustCompile(`\bgit\s+commit\b`),
 		regexp.MustCompile(`\bgit\s+stash\b`),
 	}
 }

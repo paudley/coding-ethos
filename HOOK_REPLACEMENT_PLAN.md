@@ -14,6 +14,15 @@ parent and Claude hook entries outside this repo.
 - Imported behavior is represented as policy, deterministic evaluators,
   fixtures, and tests.
 
+## Status Terms
+
+- `Runtime covered`: deterministic policy/evaluator behavior exists and is
+  fixture-backed through the Go agent hook runtime.
+- `Installed`: the repo-owned hook installation flow wires the behavior into
+  the relevant Git or Claude hook surface.
+- `Cutover ready`: the behavior is runtime covered, installed, documented, and
+  verified by an end-to-end compiled-policy path.
+
 ## Parent Git Hooks
 
 | Hook | Imported Behavior | Replacement | Status |
@@ -29,15 +38,15 @@ parent and Claude hook entries outside this repo.
 
 | Event | Tool | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- | --- |
-| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Covered |
-| `PreToolUse` | `Write` / `Edit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Covered |
-| `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Covered |
+| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Runtime covered |
+| `PreToolUse` | `Write` / `Edit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Runtime covered |
+| `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Runtime covered |
 | `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Planned deterministic transcript capture and replay. No hook-path AI call. | Planned |
 | `SessionStart` | `compact` | Inject continuation prompt into the next compacted session. | Planned coding-ethos continuation context store. | Planned |
 
 ## Current Coverage
 
-Covered in Go agent/runtime code:
+Runtime covered in Go agent-hook code:
 
 - `git.hook_bypass`
 - `git.destructive_command`
@@ -67,8 +76,21 @@ Imported fixtures live under `go/internal/hooks/testdata/legacy/`.
 `go/internal/hooks/testdata/legacy_hook_inventory.json` is the machine-readable
 inventory used to keep the migration status explicit.
 
-## Remaining Runtime Gaps
+## Remaining Integration Gaps
 
+- Agent-hook behavior is runtime covered but not installed. Add a repo-owned
+  Claude hook sync/doctor path before replacing parent or `~/.claude/hooks`
+  entries.
+- Git hooks still run through the current bundled Go hook runner under
+  `pre-commit/hooks/go-hooks/`; compiled policy powers `agent-hook`,
+  `policy-lint`, and `policy-git` side entrypoints. Move Git hook groups onto
+  compiled-policy dispatch before claiming one runtime source of truth.
+- Protected paths, protected branches, staged admin files, and shell/git policy
+  enablement need config-backed evaluator options rather than hardcoded
+  defaults.
+- External tool-backed policies such as pytest gating and generated-config
+  freshness are compiled as policy data but are not dispatched by
+  `coding-ethos-lint` until executable evaluators exist.
 - AI co-author commit-message blocking currently exists in commit-message hooks;
   the agent hook path should route to the same policy.
 - PreCompact should be redesigned as deterministic context capture. The legacy

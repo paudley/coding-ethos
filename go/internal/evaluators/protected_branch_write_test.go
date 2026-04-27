@@ -52,6 +52,26 @@ func TestEvaluateProtectedBranchWriteAllowsPlanFile(t *testing.T) {
 	}
 }
 
+func TestEvaluateProtectedBranchWriteAllowsCommitVerification(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := protectedBranchWritePolicy()
+
+	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
+		Tool:    "Bash",
+		Cwd:     repo,
+		Command: "git commit -m noop",
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions, got %#v", decisions)
+	}
+}
+
 func initProtectedBranchRepo(t *testing.T) string {
 	t.Helper()
 
