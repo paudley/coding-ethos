@@ -348,6 +348,7 @@ python:
       - vulture_whitelist
     checkers:
       - name: ruff
+        enabled: true
         command:
           - ruff
           - check
@@ -361,6 +362,7 @@ python:
           - --config
         repo_config: ruff.toml
       - name: pyright
+        enabled: true
         command:
           - pyright
           - --outputjson
@@ -372,6 +374,7 @@ python:
         repo_config: pyrightconfig.json
         fallback_bundle_config: hooks/pyproject.toml
       - name: mypy
+        enabled: true
         command:
           - mypy
           - --output
@@ -383,6 +386,7 @@ python:
         repo_config: mypy.ini
         fallback_bundle_config: hooks/pyproject.toml
       - name: pylint
+        enabled: false
         command:
           - pylint
           - --output-format=json
@@ -492,6 +496,52 @@ tooling:
     banned_api:
       dateutil.tz: Use `zoneinfo` instead.
       importlib: banned, use standard imports
+
+  pylint:
+    enabled: true
+    jobs: 0
+    persistent: false
+    reports: false
+    score: false
+    ignore:
+      - .git
+      - .venv
+      - .mypy_cache
+      - .ruff_cache
+      - __pycache__
+      - build
+      - dist
+      - node_modules
+    ignore_paths:
+      - (^|/)\.git/
+      - (^|/)\.venv/
+      - (^|/)__pycache__/
+      - (^|/)\.mypy_cache/
+      - (^|/)\.ruff_cache/
+      - (^|/)build/
+      - (^|/)dist/
+      - (^|/)node_modules/
+    disable:
+      - missing-module-docstring
+      - missing-class-docstring
+      - missing-function-docstring
+      - line-too-long
+      - too-few-public-methods
+      - duplicate-code
+      - import-error
+      - no-member
+      - too-many-instance-attributes
+      - too-many-locals
+      - too-many-branches
+      - too-many-statements
+      - fixme
+    good_names:
+      - i
+      - j
+      - k
+      - ex
+      - _
+    max_args: 6
 
   yamllint:
     enabled: true

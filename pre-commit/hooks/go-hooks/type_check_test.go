@@ -108,6 +108,24 @@ func TestDefaultTypeCheckersRequestJsonOutput(t *testing.T) {
 	}
 }
 
+func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
+	checkers := configuredTypeCheckers(typeCheckSettings{
+		Checkers: defaultTypeCheckers(),
+	})
+	names := make(map[string]bool, len(checkers))
+	for _, checker := range checkers {
+		names[checker.Name] = true
+	}
+	if names["pylint"] {
+		t.Fatalf("configuredTypeCheckers() enabled pylint by default: %#v", checkers)
+	}
+	for _, name := range []string{"ruff", "mypy", "pyright"} {
+		if !names[name] {
+			t.Fatalf("configuredTypeCheckers() missing enabled checker %q: %#v", name, checkers)
+		}
+	}
+}
+
 func TestParseTypeCheckDiagnostics(t *testing.T) {
 	cases := []struct {
 		name    string

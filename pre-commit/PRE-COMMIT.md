@@ -28,7 +28,7 @@ When `code-ethos/` is a submodule, the root `Makefile` resolves the parent
 repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook shims are installed, `make install-hooks` also generates the
-consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`,
+consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 `.yamllint.yml`, `.golangci.yml`, and
 `.code-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
 consuming-repo overrides.
@@ -93,7 +93,7 @@ Primary files:
 - `../Makefile` - root-level hook entry points and Git hook installation
 - `lefthook.version` - pinned compatibility Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
-- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`,
+- `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.pylintrc`,
   `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool
   configs
 - `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
@@ -179,14 +179,15 @@ Important configurable areas:
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command
 - `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
-- `python.type_check` - aggregated Ruff, mypy, pyright, and pylint command
-  execution, hook-project execution, config injection, enablement, and excluded
-  path fragments
+- `python.type_check` - aggregated Ruff, mypy, pyright, and optional pylint
+  command execution, hook-project execution, config injection, per-checker
+  enablement, and excluded path fragments
 - `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
 - `hooks.*` - normalized output format, agent environment detection,
   external tool timeout, severity thresholds, and canonical hook groups
-- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`,
-  `tooling.golangci_lint` - generated repo-root tool config defaults
+- `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.pylint`,
+  `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config
+  defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
 
@@ -197,6 +198,9 @@ environment markers are present and otherwise keeps the human terminal report.
 Go-owned policy checks, Python static checks, Gemini AI checks, docstring
 coverage, shellcheck/yamllint, and the remaining external tool wrappers use
 this normalized report path.
+Pylint config is generated as `.pylintrc`, but the Pylint checker is disabled
+by default in `python.type_check.checkers`; re-enable it per repo after the
+local `.pylintrc` policy has been reviewed.
 The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
 `python-quality`, `python-static`, `docs`, `security`, `shell`, `docker`,
 `workflow`, `go`, `ai`, and `commit-msg`; the Go runner owns the enforcement

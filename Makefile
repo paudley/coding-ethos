@@ -192,7 +192,7 @@ help: ## Show the available targets and the most useful overrides.
 			printf "$(COLOR_SECTION)%s$(COLOR_RESET)\n", section; \
 			next; \
 		} \
-		/^[a-zA-Z0-9_.-]+:.*## / { \
+		/^[a-zA-Z0-9_.%-]+:.*## / { \
 			printf "  $(COLOR_TARGET)%-20s$(COLOR_RESET) %s\n", $$1, $$2; \
 		}' $(MAKEFILE_LIST)
 	@printf '\n$(COLOR_BOLD)Common overrides$(COLOR_RESET)\n'
@@ -249,25 +249,25 @@ doctor: ensure-uv ensure-go ensure-gofmt check-root-config ## Check local tools 
 	@$(call print_info,hook consumer root: $(HOOK_CONSUMER_ROOT))
 
 ##@ Setup
-ensure-uv:
+ensure-uv: ## Verify uv is available.
 	@command -v "$(UV)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)uv is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
 
-ensure-go:
+ensure-go: ## Verify go is available.
 	@command -v "$(GO)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)go is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
 
-ensure-gofmt:
+ensure-gofmt: ## Verify gofmt is available.
 	@command -v "$(GOFMT)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)gofmt is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
 
-ensure-lefthook: check-root-config ensure-go
+ensure-lefthook: check-root-config ensure-go ## Install or refresh the repo-local Lefthook compatibility binary.
 	@mkdir -p "$(LOCAL_BIN_DIR)"
 	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] \
 		|| [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] \
@@ -297,14 +297,14 @@ test: ensure-uv ## Run the current automated test suite.
 check: test check-tool-configs check-gemini-prompts ## Run the repo's current verification gate.
 
 ##@ Hooks
-check-root-config:
+check-root-config: ## Verify the consumer repo exposes the root lefthook.yml compatibility config.
 	@if [ ! -e "$(ROOT_LEFTHOOK)" ]; then \
 		printf '$(COLOR_WARN)Missing %s.$(COLOR_RESET)\n' "$(ROOT_LEFTHOOK)" >&2; \
 		printf 'Restore the repo-root lefthook.yml symlink before running hook targets.\n' >&2; \
 		exit 1; \
 	fi
 
-sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, yamllint, and golangci-lint configs.
+sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, yamllint, and golangci-lint configs.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
@@ -421,12 +421,12 @@ clean-cache: ## Remove cached bundled hook binaries from .git.
 	@rm -rf "$(LOCAL_BIN_DIR)"
 	@$(call print_warn,Removed $(LOCAL_BIN_DIR).)
 
-hooks-validate: validate
-hooks-install: install-hooks
-hooks-go-test: go-test
+hooks-validate: validate ## Alias for validate.
+hooks-install: install-hooks ## Alias for install-hooks.
+hooks-go-test: go-test ## Alias for go-test.
 
 ##@ Generation
-guard-%:
+guard-%: ## Internal guard that requires a make variable, for example guard-SEED_FROM.
 	@if [ -z "$($*)" ]; then \
 		printf '$(COLOR_WARN)Missing required variable: $*$(COLOR_RESET)\n' >&2; \
 		exit 1; \

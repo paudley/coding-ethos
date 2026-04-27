@@ -27,6 +27,7 @@ type typeCheckerConfig struct {
 	ConfigFlags          []string
 	PassFilesAsArgs      bool
 	UseHookProject       bool
+	Enabled              bool
 }
 
 type typeCheckSettings struct {
@@ -76,6 +77,7 @@ func defaultTypeCheckers() []typeCheckerConfig {
 			ConfigFlags:          []string{"--config"},
 			RepoConfig:           "ruff.toml",
 			FallbackBundleConfig: "",
+			Enabled:              true,
 		},
 		{
 			Name:                 "pyright",
@@ -85,6 +87,7 @@ func defaultTypeCheckers() []typeCheckerConfig {
 			ConfigFlags:          []string{"--project", "-p"},
 			RepoConfig:           "pyrightconfig.json",
 			FallbackBundleConfig: "hooks/pyproject.toml",
+			Enabled:              true,
 		},
 		{
 			Name:                 "mypy",
@@ -94,6 +97,7 @@ func defaultTypeCheckers() []typeCheckerConfig {
 			ConfigFlags:          []string{"--config-file"},
 			RepoConfig:           "mypy.ini",
 			FallbackBundleConfig: "hooks/pyproject.toml",
+			Enabled:              true,
 		},
 		{
 			Name:                 "pylint",
@@ -103,6 +107,7 @@ func defaultTypeCheckers() []typeCheckerConfig {
 			ConfigFlags:          []string{"--rcfile"},
 			RepoConfig:           ".pylintrc",
 			FallbackBundleConfig: "",
+			Enabled:              false,
 		},
 	}
 }
@@ -163,6 +168,12 @@ func applyTypeCheckerDefaults(
 		}
 		if checker.FallbackBundleConfig == "" {
 			checker.FallbackBundleConfig = defaultChecker.FallbackBundleConfig
+		}
+	}
+	if !fieldPresentInTypeCheckerConfig(rootConfig, checker.Name, "enabled") {
+		checker.Enabled = true
+		if hasDefault {
+			checker.Enabled = defaultChecker.Enabled
 		}
 	}
 }
@@ -969,7 +980,7 @@ func formatTypeCheckDiagnostics(diagnostics []typeCheckDiagnostic) []string {
 func configuredTypeCheckers(settings typeCheckSettings) []typeCheckerConfig {
 	checkers := make([]typeCheckerConfig, 0, len(settings.Checkers))
 	for _, checker := range settings.Checkers {
-		if checker.Name != "" && len(checker.Command) > 0 {
+		if checker.Enabled && checker.Name != "" && len(checker.Command) > 0 {
 			checkers = append(checkers, checker)
 		}
 	}

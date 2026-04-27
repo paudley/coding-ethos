@@ -21,6 +21,7 @@ GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
     "pyrightconfig.json",
     "mypy.ini",
     "ruff.toml",
+    ".pylintrc",
     ".yamllint.yml",
     ".golangci.yml",
 )
@@ -108,6 +109,15 @@ def _truthy_string(value: object) -> str:
 
 def _bool_setting(config: dict[str, Any], path: str, *, default: bool) -> bool:
     return bool(_get(config, path, default))
+
+
+def _int_setting(config: dict[str, Any], path: str, default: int) -> int:
+    value = _get(config, path, default)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    return default
 
 
 def _python_version(config: dict[str, Any]) -> str:
@@ -450,6 +460,61 @@ def render_ruff_toml(config: dict[str, Any]) -> str:
     return _with_hash_spdx_header("\n".join(lines).rstrip() + "\n")
 
 
+def render_pylintrc(config: dict[str, Any]) -> str:
+    """Render `.pylintrc` from merged policy."""
+    parser = configparser.ConfigParser()
+    parser["MAIN"] = {
+        "jobs": str(_int_setting(config, "tooling.pylint.jobs", 0)),
+        "persistent": _pylint_bool(
+            value=_bool_setting(config, "tooling.pylint.persistent", default=False)
+        ),
+    }
+
+    ignore = _string_list(_get(config, "tooling.pylint.ignore", []))
+    if ignore:
+        parser["MAIN"]["ignore"] = ",".join(ignore)
+
+    ignore_paths = _string_list(_get(config, "tooling.pylint.ignore_paths", []))
+    if ignore_paths:
+        parser["MAIN"]["ignore-paths"] = ",".join(ignore_paths)
+
+    parser["MESSAGES CONTROL"] = {
+        "disable": ",".join(_string_list(_get(config, "tooling.pylint.disable", [])))
+    }
+    parser["REPORTS"] = {
+        "reports": _pylint_bool(
+            value=_bool_setting(config, "tooling.pylint.reports", default=False)
+        ),
+        "score": _pylint_bool(
+            value=_bool_setting(config, "tooling.pylint.score", default=False)
+        ),
+    }
+    parser["FORMAT"] = {
+        "max-line-length": str(
+            _int_setting(config, "tooling.pylint.max_line_length", _line_length(config))
+        )
+    }
+    parser["DESIGN"] = {
+        "max-args": str(_int_setting(config, "tooling.pylint.max_args", 6))
+    }
+
+    good_names = _string_list(_get(config, "tooling.pylint.good_names", []))
+    if good_names:
+        parser["BASIC"] = {"good-names": ",".join(good_names)}
+
+    lines: list[str] = []
+    for section in parser.sections():
+        lines.append(f"[{section}]")
+        for key, value in parser[section].items():
+            lines.append(f"{key} = {value}")
+        lines.append("")
+    return _with_hash_spdx_header("\n".join(lines).rstrip() + "\n")
+
+
+def _pylint_bool(*, value: bool) -> str:
+    return "yes" if value else "no"
+
+
 def render_yamllint_config(config: dict[str, Any]) -> str:
     """Render `.yamllint.yml` from merged policy."""
     payload: dict[str, Any] = {
@@ -507,6 +572,7 @@ def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
         "pyrightconfig.json": render_pyrightconfig(config),
         "mypy.ini": render_mypy_ini(config),
         "ruff.toml": render_ruff_toml(config),
+        ".pylintrc": render_pylintrc(config),
         ".yamllint.yml": render_yamllint_config(config),
         ".golangci.yml": render_golangci_config(config),
     }
