@@ -54,6 +54,7 @@ dmypy.json
 
 # Local tooling state
 .cache/
+.coding-ethos/
 .pre-commit-cache/
 .uv/
 .lint-cache
@@ -66,6 +67,7 @@ logs/
 *.orig
 *.rej
 *~
+go/bin/
 
 # Editor and OS noise
 .DS_Store

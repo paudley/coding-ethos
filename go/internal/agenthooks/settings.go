@@ -1,0 +1,256 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package agenthooks
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+)
+
+const (
+	settingsDirMode  = 0o755
+	settingsFileMode = 0o600
+)
+
+var (
+	errHookCommandRequired = errors.New("hook command is required")
+	errSettingsRequired    = errors.New("settings path is required")
+	errUnsupportedProvider = errors.New("unsupported agent hook provider")
+	errSettingsMismatch    = errors.New(
+		"claude settings do not contain agent hook command",
+	)
+)
+
+type commandHook struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+type matcherHook struct {
+	Matcher string        `json:"matcher,omitempty"`
+	Hooks   []commandHook `json:"hooks"`
+}
+
+type claudeSettings struct {
+	Hooks map[string][]matcherHook `json:"hooks"`
+}
+
+func WriteSettings(writer io.Writer, hookCommand string) error {
+	err := WriteProviderSettings(writer, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WriteProviderSettings(
+	writer io.Writer,
+	provider Provider,
+	hookCommand string,
+) error {
+	settings, err := buildSettings(provider, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	encoder := json.NewEncoder(writer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	err = encoder.Encode(settings)
+	if err != nil {
+		return fmt.Errorf("encode settings: %w", err)
+	}
+
+	return nil
+}
+
+func buildSettings(provider Provider, hookCommand string) (claudeSettings, error) {
+	if hookCommand == "" {
+		return claudeSettings{}, errHookCommandRequired
+	}
+
+	switch provider {
+	case ProviderClaude:
+		return buildClaudeSettings(RuntimeHookSpecs(), hookCommand), nil
+	default:
+		return claudeSettings{}, errUnsupportedProvider
+	}
+}
+
+func SyncSettings(path string, hookCommand string) error {
+	err := SyncProviderSettings(path, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SyncProviderSettings(path string, provider Provider, hookCommand string) error {
+	if path == "" {
+		return errSettingsRequired
+	}
+
+	settings, err := buildSettings(provider, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	payload, err := existingSettingsPayload(path)
+	if err != nil {
+		return err
+	}
+
+	payload["hooks"] = settings.Hooks
+
+	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
+	if err != nil {
+		return fmt.Errorf("create settings directory: %w", err)
+	}
+
+	file, err := os.OpenFile(
+		path,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+		settingsFileMode,
+	)
+	if err != nil {
+		return fmt.Errorf("open settings: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	err = encoder.Encode(payload)
+	if err != nil {
+		return fmt.Errorf("encode settings: %w", err)
+	}
+
+	return nil
+}
+
+func existingSettingsPayload(path string) (map[string]any, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]any{}, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("open existing settings: %w", err)
+	}
+
+	defer file.Close()
+
+	payload := map[string]any{}
+
+	err = json.NewDecoder(file).Decode(&payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode existing settings: %w", err)
+	}
+
+	return payload, nil
+}
+
+func DoctorSettings(path string, hookCommand string) error {
+	err := DoctorProviderSettings(path, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func DoctorProviderSettings(path string, provider Provider, hookCommand string) error {
+	if path == "" {
+		return errSettingsRequired
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open settings: %w", err)
+	}
+	defer file.Close()
+
+	var settings claudeSettings
+
+	err = json.NewDecoder(file).Decode(&settings)
+	if err != nil {
+		return fmt.Errorf("decode settings: %w", err)
+	}
+
+	expected, err := buildSettings(provider, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	if !settingsContainExpectedHooks(settings, expected) {
+		return errSettingsMismatch
+	}
+
+	return nil
+}
+
+func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
+	hooks := make(map[string][]matcherHook)
+	for _, spec := range specs {
+		hooks[spec.Event] = append(
+			hooks[spec.Event],
+			commandMatcher(spec.Tool, hookCommand),
+		)
+	}
+
+	return claudeSettings{Hooks: hooks}
+}
+
+func commandMatcher(matcher string, hookCommand string) matcherHook {
+	return matcherHook{
+		Matcher: matcher,
+		Hooks: []commandHook{{
+			Type:    "command",
+			Command: hookCommand,
+		}},
+	}
+}
+
+func settingsContainExpectedHooks(
+	actual claudeSettings,
+	expected claudeSettings,
+) bool {
+	for event, expectedMatchers := range expected.Hooks {
+		actualMatchers := actual.Hooks[event]
+		for _, expectedMatcher := range expectedMatchers {
+			if !containsMatcher(actualMatchers, expectedMatcher) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func containsMatcher(actual []matcherHook, expected matcherHook) bool {
+	for _, candidate := range actual {
+		if candidate.Matcher != expected.Matcher {
+			continue
+		}
+
+		if containsCommandHook(candidate.Hooks, expected.Hooks[0]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsCommandHook(actual []commandHook, expected commandHook) bool {
+	return slices.Contains(actual, expected)
+}

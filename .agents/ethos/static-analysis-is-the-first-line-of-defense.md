@@ -41,9 +41,8 @@ optional tribal knowledge.
 - Overview: Python CLI plus bundled ETHOS enforcement package for generating ETHOS.md, AGENTS.md, CLAUDE.md, GEMINI.md, and supporting agent context files from a shared YAML ethos plus an optional repo-specific overlay.
 - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
 - config.yaml is the bundle-wide enforcement source of truth; consuming repos refine it with repo_config.yaml-style overrides at their own repo root.
-- The Makefile is the preferred repo-local operator interface for both generation and bundled Lefthook workflows, including syncing generated repo-root tool configs, the generated Gemini prompt pack, and the repo-local Lefthook binary.
-- When invoking the repo-local Lefthook binary directly, use `lefthook run --no-auto-install ...` so runtime execution does not overwrite the custom coding-ethos hook shims in `.git/hooks/`.
-- The bundled ETHOS pre-commit enforcement package lives under pre-commit/, with a root lefthook.yml symlink for local validation.
+- The Makefile is the preferred repo-local operator interface for generation, generated repo-root tool configs, the generated Gemini prompt pack, and bundled Go hook workflows.
+- The bundled ETHOS pre-commit enforcement package lives under pre-commit/ and installs direct Go runner shims into `.git/hooks/`.
 - style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and .golangci.yml's lll line-length setting.
 - Most hook runtime and policy enforcement now lives in pre-commit/hooks/go-hooks/; the remaining Python hook files are third-party analysis wrappers rather than bespoke policy engines.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.

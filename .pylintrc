@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+[MAIN]
+jobs = 0
+persistent = no
+ignore = .git,.venv,.mypy_cache,.ruff_cache,__pycache__,build,dist,node_modules
+ignore-paths = (^|/)\.git/,(^|/)\.venv/,(^|/)__pycache__/,(^|/)\.mypy_cache/,(^|/)\.ruff_cache/,(^|/)build/,(^|/)dist/,(^|/)node_modules/
+
+[MESSAGES CONTROL]
+disable = missing-module-docstring,missing-class-docstring,missing-function-docstring,line-too-long,too-few-public-methods,duplicate-code,import-error,no-member,too-many-instance-attributes,too-many-locals,too-many-branches,too-many-statements,fixme
+
+[REPORTS]
+reports = no
+score = no
+
+[FORMAT]
+max-line-length = 88
+
+[DESIGN]
+max-args = 6
+
+[BASIC]
+good-names = i,j,k,ex,_

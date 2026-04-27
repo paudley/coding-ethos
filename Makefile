@@ -12,6 +12,7 @@ LOCAL_REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))
 PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
 HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
 GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
+GO_TOOLS_DIR := $(LOCAL_REPO_ROOT)/go
 
 define resolve_hook_consumer_root
 super="$$(git -C "$(LOCAL_REPO_ROOT)" rev-parse \
@@ -26,22 +27,25 @@ endef
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
 HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
-ROOT_LEFTHOOK := $(HOOK_CONSUMER_ROOT)/lefthook.yml
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
-LEFTHOOK_RUNNER := $(PRECOMMIT_DIR)hooks/run-lefthook.sh
 LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
-LOCAL_LEFTHOOK := $(LOCAL_BIN_DIR)/lefthook
-LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
 GIT_HOOKS := pre-commit pre-push commit-msg
-LEFTHOOK_VERSION_FILE := $(PRECOMMIT_DIR)lefthook.version
-LEFTHOOK_VERSION := $(strip $(shell cat "$(LEFTHOOK_VERSION_FILE)"))
+GIT_LFS_HOOKS := post-commit post-merge post-checkout
+GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
+GO_TOOL_CMDS := \
+	coding-ethos-agent-hooks \
+	coding-ethos-policy \
+	coding-ethos-lint \
+	coding-ethos-hook \
+	coding-ethos-git-hook \
+	coding-ethos-git
 
 UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
+GO_TOOLS_CACHE_DIR ?= $(GO_TOOLS_DIR)/.cache/go-build
 REPO ?= $(LOCAL_REPO_ROOT)
-TOOL_CONFIG_REPO ?= $(HOOK_CONSUMER_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
 REPO_ETHOS ?=
 REPO_CONFIG ?=
@@ -53,6 +57,14 @@ MERGE_TIMEOUT_SECONDS ?= 300
 SEED_FROM ?=
 
 APP ?= $(UV) run $(PYTHON) $(LOCAL_REPO_ROOT)/main.py
+
+ifeq ($(abspath $(REPO)),$(LOCAL_REPO_ROOT))
+DEFAULT_TOOL_CONFIG_REPO := $(LOCAL_REPO_ROOT)
+else
+DEFAULT_TOOL_CONFIG_REPO := $(HOOK_CONSUMER_ROOT)
+endif
+
+TOOL_CONFIG_REPO ?= $(DEFAULT_TOOL_CONFIG_REPO)
 
 ifeq ($(strip $(REPO_ETHOS)),)
 ifeq ($(abspath $(REPO)),$(LOCAL_REPO_ROOT))
@@ -87,8 +99,6 @@ ifneq ($(strip $(MERGE_MODEL)),)
 MERGE_FLAGS += --merge-model "$(MERGE_MODEL)"
 endif
 
-LEFTHOOK := $(LOCAL_LEFTHOOK)
-
 ifneq ($(strip $(TERM)),dumb)
 COLOR_RESET := \033[0m
 COLOR_BOLD := \033[1m
@@ -121,14 +131,6 @@ define print_kv
 printf '  $(COLOR_ACCENT)%-24s$(COLOR_RESET) %s\n' "$(1)" "$(2)"
 endef
 
-define run_lefthook
-cd "$(HOOK_CONSUMER_ROOT)" && { \
-	$(LEFTHOOK) run --no-auto-install $(1) 2>&1 \
-		| "$(GO_HOOK)" quiet-filter; \
-	exit "$${PIPESTATUS[0]}"; \
-}
-endef
-
 .PHONY: \
 	help \
 	status \
@@ -142,12 +144,17 @@ endef
 	pre-commit-all \
 	pre-push \
 	commit-msg \
+	hook-plan \
 	validate \
-	lefthook-validate \
 	go-test \
 	go-tidy \
 	go-fmt \
 	fmt \
+	go-tools-test \
+	go-tools-build \
+	go-tools-install \
+	go-tools-smoke \
+	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
 	check-tool-configs \
@@ -164,8 +171,6 @@ endef
 	ensure-uv \
 	ensure-go \
 	ensure-gofmt \
-	ensure-lefthook \
-	check-root-config \
 	guard-%
 
 ##@ Help
@@ -179,7 +184,7 @@ help: ## Show the available targets and the most useful overrides.
 			printf "$(COLOR_SECTION)%s$(COLOR_RESET)\n", section; \
 			next; \
 		} \
-		/^[a-zA-Z0-9_.-]+:.*## / { \
+		/^[a-zA-Z0-9_.%-]+:.*## / { \
 			printf "  $(COLOR_TARGET)%-20s$(COLOR_RESET) %s\n", $$1, $$2; \
 		}' $(MAKEFILE_LIST)
 	@printf '\n$(COLOR_BOLD)Common overrides$(COLOR_RESET)\n'
@@ -214,7 +219,6 @@ status: ## Print the resolved tool and generation configuration.
 	@$(call print_kv,GO,$(GO))
 	@$(call print_kv,GOFMT,$(GOFMT))
 	@$(call print_kv,APP,$(APP))
-	@$(call print_kv,LOCAL_LEFTHOOK,$(LOCAL_LEFTHOOK))
 	@$(call print_kv,REPO,$(REPO))
 	@$(call print_kv,TOOL_CONFIG_REPO,$(TOOL_CONFIG_REPO))
 	@$(call print_kv,PRIMARY,$(PRIMARY))
@@ -226,43 +230,33 @@ status: ## Print the resolved tool and generation configuration.
 	@$(call print_kv,MERGE_MODEL,$(if $(strip $(MERGE_MODEL)),$(MERGE_MODEL),<default>))
 	@$(call print_kv,MERGE_TIMEOUT_SECONDS,$(MERGE_TIMEOUT_SECONDS))
 
-doctor: ensure-uv ensure-go ensure-gofmt check-root-config ## Check local tools and important resolved paths.
+doctor: ensure-uv ensure-go ensure-gofmt ## Check local tools and important resolved paths.
 	@$(call print_step,Checking local development environment)
 	@$(call print_info,uv: $$(command -v "$(UV)"))
 	@$(call print_info,python: $$("$(PYTHON)" --version))
 	@$(call print_info,go: $$("$(GO)" version))
 	@$(call print_info,gofmt: $$(command -v "$(GOFMT)"))
-	@$(call print_info,lefthook config: $(ROOT_LEFTHOOK))
 	@$(call print_info,hook consumer root: $(HOOK_CONSUMER_ROOT))
+	@$(call print_info,tool config repo: $(TOOL_CONFIG_REPO))
 
 ##@ Setup
-ensure-uv:
+ensure-uv: ## Verify uv is available.
 	@command -v "$(UV)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)uv is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
 
-ensure-go:
+ensure-go: ## Verify go is available.
 	@command -v "$(GO)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)go is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
 
-ensure-gofmt:
+ensure-gofmt: ## Verify gofmt is available.
 	@command -v "$(GOFMT)" >/dev/null 2>&1 || { \
 		printf '$(COLOR_WARN)gofmt is required but was not found on PATH.$(COLOR_RESET)\n' >&2; \
 		exit 1; \
 	}
-
-ensure-lefthook: check-root-config ensure-go
-	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] \
-		|| [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] \
-		|| [ "$$(cat "$(LOCAL_LEFTHOOK_VERSION_FILE)" 2>/dev/null)" != "$(LEFTHOOK_VERSION)" ]; then \
-		$(call print_step,Installing repo-local Lefthook $(LEFTHOOK_VERSION)); \
-		GOBIN="$(LOCAL_BIN_DIR)" "$(GO)" install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION); \
-		printf '%s\n' "$(LEFTHOOK_VERSION)" > "$(LOCAL_LEFTHOOK_VERSION_FILE)"; \
-	fi
 
 install: ensure-uv ## Sync the repo's development dependencies.
 	@$(call print_step,Syncing development dependencies)
@@ -281,17 +275,10 @@ test: ensure-uv ## Run the current automated test suite.
 	@$(call print_step,Running pytest)
 	@$(UV) run pytest
 
-check: test check-tool-configs check-gemini-prompts ## Run the repo's current verification gate.
+check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
 
 ##@ Hooks
-check-root-config:
-	@if [ ! -e "$(ROOT_LEFTHOOK)" ]; then \
-		printf '$(COLOR_WARN)Missing %s.$(COLOR_RESET)\n' "$(ROOT_LEFTHOOK)" >&2; \
-		printf 'Restore the repo-root lefthook.yml symlink before running hook targets.\n' >&2; \
-		exit 1; \
-	fi
-
-sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, yamllint, and golangci-lint configs.
+sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, yamllint, and golangci-lint configs.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
@@ -313,46 +300,48 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-install-hooks: sync-tool-configs sync-gemini-prompts ensure-lefthook ## Install Git hook shims.
+install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git hook shims.
 	@$(call print_step,Installing Git hook shims)
 	@mkdir -p "$(HOOKS_DIR)"
 	@for hook in $(GIT_HOOKS); do \
-		cp "$(LEFTHOOK_RUNNER)" "$(HOOKS_DIR)/$$hook"; \
+		cp "$(PRECOMMIT_DIR)hooks/run-git-hook.sh" "$(HOOKS_DIR)/$$hook"; \
 		chmod +x "$(HOOKS_DIR)/$$hook"; \
 	done
-	@if [ -f "$(HOOKS_DIR)/prepare-commit-msg" ] \
-		&& grep -q 'call_lefthook run "prepare-commit-msg"' \
-			"$(HOOKS_DIR)/prepare-commit-msg"; then \
-		rm -f "$(HOOKS_DIR)/prepare-commit-msg"; \
-	fi
-	@$(call print_info,installed: $(LOCAL_LEFTHOOK))
+	@for hook in $(GIT_LFS_HOOKS); do \
+		cp "$(PRECOMMIT_DIR)hooks/run-lfs-hook.sh" "$(HOOKS_DIR)/$$hook"; \
+		chmod +x "$(HOOKS_DIR)/$$hook"; \
+	done
+	@$(call print_info,installed: Go hook runner)
+	@$(call print_info,installed: Git LFS delegation hooks)
 
-pre-commit: ensure-lefthook ## Run bundled pre-commit hooks on staged files.
-	@$(call print_step,Running Lefthook pre-commit on staged files)
-	@$(call run_lefthook,--no-stage-fixed pre-commit)
+pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
+	@$(call print_step,Running Go pre-commit hooks on staged files)
+	@"$(GO_HOOK)" git-hook pre-commit
 
-pre-commit-all: ensure-lefthook ## Run bundled pre-commit hooks on all files.
-	@$(call print_step,Running Lefthook pre-commit on all files)
-	@$(call run_lefthook,--no-stage-fixed pre-commit --all-files)
+pre-commit-all: ensure-go ## Run bundled pre-commit hooks on all files.
+	@$(call print_step,Running Go pre-commit hooks on all files)
+	@"$(GO_HOOK)" git-hook pre-commit --all-files
 
-pre-push: ensure-lefthook ## Run bundled pre-push hooks.
-	@$(call print_step,Running Lefthook pre-push)
-	@$(call run_lefthook,pre-push)
+pre-push: ensure-go ## Run bundled pre-push hooks.
+	@$(call print_step,Running Go pre-push hooks)
+	@"$(GO_HOOK)" git-hook pre-push
 
-commit-msg: ensure-lefthook ## Run commit-message hooks against MSG=/path/to/file.
+commit-msg: ensure-go ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
 	@printf '$(COLOR_WARN)Usage: make commit-msg MSG=/path/to/commit-message-file$(COLOR_RESET)\n' >&2
 	@exit 2
 else
-	@$(call print_step,Running Lefthook commit-msg)
-	@$(call run_lefthook,commit-msg "$(MSG)")
+	@$(call print_step,Running Go commit-msg hooks)
+	@"$(GO_HOOK)" git-hook commit-msg "$(MSG)"
 endif
 
-validate: ensure-lefthook ## Validate the bundled Lefthook configuration.
-	@$(call print_step,Validating bundled pre-commit hooks)
-	@cd "$(HOOK_CONSUMER_ROOT)" && $(LEFTHOOK) validate
+hook-plan: ensure-go ## Print the active Go hook group plan.
+	@$(call print_step,Printing Go hook group plan)
+	@"$(GO_HOOK)" hook-plan
 
-lefthook-validate: validate
+validate: ensure-go ## Validate the bundled hook runtime.
+	@$(call print_step,Validating bundled hook runtime)
+	@"$(GO_HOOK)" git-hook validate
 
 go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
@@ -368,17 +357,50 @@ go-fmt: ensure-gofmt ## Format the bundled Go hook helper.
 
 fmt: go-fmt ## Format repo-owned generated helper source files.
 
+go-tools-test: ensure-go ## Run the shared Go tool tests.
+	@$(call print_step,Running shared Go tool tests)
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" test ./...
+
+go-tools-build: ensure-go ## Build shared Go tools into go/bin.
+	@$(call print_step,Building shared Go tools)
+	@mkdir -p "$(GO_TOOLS_DIR)/bin"
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
+		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
+	done
+	@$(call print_info,built: $(GO_TOOLS_DIR)/bin)
+
+go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook bin directory.
+	@$(call print_step,Installing shared Go tools)
+	@mkdir -p "$(GO_TOOLS_BIN_DIR)"
+	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
+		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
+	done
+	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
+
+go-tools-smoke: ## Smoke test shared Go tools using only temporary runtime state.
+	@$(call print_step,Smoke testing shared Go tools)
+	@tmp_bin="$$(mktemp -d)"; \
+		$(MAKE) --no-print-directory go-tools-install GO_TOOLS_BIN_DIR="$$tmp_bin"; \
+		"$(GO_TOOLS_DIR)/scripts/smoke.sh" "$(LOCAL_REPO_ROOT)" "$$tmp_bin"
+
+go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
+	@$(call print_step,Removing shared Go tool build outputs)
+	@rm -rf "$(GO_TOOLS_DIR)/bin" "$(GO_TOOLS_DIR)/.cache"
+
 clean-cache: ## Remove cached bundled hook binaries from .git.
 	@$(call print_step,Removing cached bundled hook binaries)
 	@rm -rf "$(LOCAL_BIN_DIR)"
 	@$(call print_warn,Removed $(LOCAL_BIN_DIR).)
 
-hooks-validate: validate
-hooks-install: install-hooks
-hooks-go-test: go-test
+hooks-validate: validate ## Alias for validate.
+hooks-install: install-hooks ## Alias for install-hooks.
+hooks-go-test: go-test ## Alias for go-test.
 
 ##@ Generation
-guard-%:
+guard-%: ## Internal guard that requires a make variable, for example guard-SEED_FROM.
 	@if [ -z "$($*)" ]; then \
 		printf '$(COLOR_WARN)Missing required variable: $*$(COLOR_RESET)\n' >&2; \
 		exit 1; \

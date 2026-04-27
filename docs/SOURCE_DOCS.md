@@ -10,7 +10,7 @@
 - `coding_ethos/CODING_ETHOS.md`: package overview, module boundaries, and
   supported public imports.
 - `tests/TESTS.md`: test-suite scope and expectations for behavior changes.
-- `pre-commit/PRE-COMMIT.md`: bundled Lefthook installation, generated config,
+- `pre-commit/PRE-COMMIT.md`: bundled Go hook installation, generated config,
   hook inventory, and update workflow.
 - `pre-commit/hooks/HOOKS.md`: hook implementation overview and development
   commands.

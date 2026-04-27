@@ -1,0 +1,10 @@
+[
+  {
+    "code": "DL3008",
+    "column": 1,
+    "file": "Dockerfile",
+    "level": "warning",
+    "line": 3,
+    "message": "Pin versions in apt get install."
+  }
+]

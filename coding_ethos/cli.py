@@ -356,7 +356,7 @@ def _repo_root_from_args(args: argparse.Namespace) -> Path:
 
 
 def _tool_actions_requested(args: argparse.Namespace) -> bool:
-    return (
+    return bool(
         args.sync_tool_configs
         or args.check_tool_configs
         or args.sync_gemini_prompts

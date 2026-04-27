@@ -52,25 +52,27 @@ def _write_repo_tool_config_override(repo_root: Path) -> None:
 
 def _load_generated_tool_configs(
     repo_root: Path,
-) -> tuple[dict[str, object], str, str, dict[str, object], dict[str, object]]:
+) -> tuple[dict[str, object], str, str, str, dict[str, object], dict[str, object]]:
     pyright = yaml.safe_load(
         (repo_root / "pyrightconfig.json").read_text(encoding="utf-8")
     )
     mypy_ini = (repo_root / "mypy.ini").read_text(encoding="utf-8")
     ruff_toml = (repo_root / "ruff.toml").read_text(encoding="utf-8")
+    pylintrc = (repo_root / ".pylintrc").read_text(encoding="utf-8")
     yamllint = yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8"))
     golangci = yaml.safe_load((repo_root / ".golangci.yml").read_text(encoding="utf-8"))
-    return pyright, mypy_ini, ruff_toml, yamllint, golangci
+    return pyright, mypy_ini, ruff_toml, pylintrc, yamllint, golangci
 
 
 def _assert_generated_tool_configs(repo_root: Path) -> None:
-    pyright, mypy_ini, ruff_toml, yamllint, golangci = _load_generated_tool_configs(
-        repo_root
+    pyright, mypy_ini, ruff_toml, pylintrc, yamllint, golangci = (
+        _load_generated_tool_configs(repo_root)
     )
 
     _assert_pyright_tool_config(pyright)
     _assert_mypy_tool_config(mypy_ini)
     _assert_ruff_tool_config(ruff_toml)
+    _assert_pylint_tool_config(pylintrc)
     _assert_yamllint_tool_config(yamllint)
     _assert_golangci_tool_config(golangci)
 
@@ -98,15 +100,54 @@ def _assert_ruff_tool_config(ruff_toml: str) -> None:
     assert '"lib/python/lbox/sql.py" = ["S608"]' in ruff_toml
 
 
+def _assert_pylint_tool_config(pylintrc: str) -> None:
+    assert "[MAIN]" in pylintrc
+    assert "jobs = 0" in pylintrc
+    assert "ignore-paths = (^|/)\\.git/" in pylintrc
+    assert "[MESSAGES CONTROL]" in pylintrc
+    assert "missing-function-docstring" in pylintrc
+    assert "max-line-length = 100" in pylintrc
+    assert "max-args = 6" in pylintrc
+
+
 def _assert_yamllint_tool_config(yamllint: dict[str, object]) -> None:
     assert yamllint["rules"]["line-length"]["max"] == 100
 
 
 def _assert_golangci_tool_config(golangci: dict[str, object]) -> None:
+    linters = golangci["linters"]
+    enabled_linters = linters["enable"]
+    settings = linters["settings"]
+
     assert golangci["version"] == "2"
-    assert golangci["linters"]["settings"]["lll"]["line-length"] == 100
-    assert "govet" in golangci["linters"]["enable"]
-    assert golangci["linters"]["settings"]["govet"]["enable-all"] is True
+    assert settings["lll"]["line-length"] == 100
+    for linter in (
+        "depguard",
+        "dupl",
+        "gochecksumtype",
+        "godoclint",
+        "gomoddirectives",
+        "gosec",
+        "govet",
+        "modernize",
+        "nilnesserr",
+        "paralleltest",
+        "testpackage",
+        "unqueryvet",
+        "usetesting",
+        "wsl_v5",
+    ):
+        assert linter in enabled_linters
+    assert settings["govet"]["enable-all"] is True
+    assert {
+        "pkg": "github.com/pkg/errors",
+        "desc": 'Use standard errors plus fmt.Errorf("%w") wrapping.',
+    } in settings["depguard"]["rules"]["main"]["deny"]
+    assert settings["gomoddirectives"]["replace-allow-list"] == []
+    assert settings["gomoddirectives"]["retract-allow-no-explanation"] is False
+    assert settings["tagliatelle"]["case"]["rules"]["json"] == "snake"
+    assert settings["tagliatelle"]["case"]["rules"]["yaml"] == "snake"
+    assert settings["testifylint"]["enable-all"] is True
 
 
 class MarkdownSeedTests(unittest.TestCase):

@@ -1,0 +1,66 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
+	t.Parallel()
+
+	plan := hookPlan{
+		OutputFormat:   hookOutputFormatJSON,
+		SuccessOutput:  hookSuccessSilent,
+		ParallelGroups: hookPlanBoolTrue,
+		Groups: []hookPlanGroup{
+			{
+				Name:     "syntax",
+				Enabled:  hookPlanBoolTrue,
+				Commands: []string{"check-syntax"},
+			},
+		},
+	}
+
+	output := formatHookPlan(plan, hookOutputFormatJSON)
+	for _, fragment := range []string{
+		`"parallel_groups": true`,
+		`"enabled": true`,
+		`"commands": [`,
+		`"check-syntax"`,
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)
+		}
+	}
+}
+
+func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
+	t.Parallel()
+
+	plan := hookPlan{
+		OutputFormat:   hookOutputFormatTOON,
+		SuccessOutput:  hookSuccessSilent,
+		ParallelGroups: hookPlanBoolTrue,
+		Groups: []hookPlanGroup{
+			{
+				Name:     "syntax",
+				Enabled:  hookPlanBoolTrue,
+				Commands: []string{"check-syntax", "yamllint"},
+			},
+		},
+	}
+
+	output := formatHookPlan(plan, hookOutputFormatTOON)
+	for _, fragment := range []string{
+		"format: toon",
+		"groups[1]{name,enabled,commands}:",
+		"syntax,true,check-syntax yamllint",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)
+		}
+	}
+}

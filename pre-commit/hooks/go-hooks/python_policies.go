@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
+//nolint:gosec,lll // Policy checks intentionally inspect configured repository paths and emit long user-facing guidance.
 package main
 
 import (
@@ -109,6 +110,7 @@ type bannedUtilityModule struct {
 type sqlCentralizationSettings struct {
 	ModuleName           string
 	CentralPaths         []string
+	ExemptPaths          []string
 	MigrationMarkers     []string
 	ErrorContextKeywords []string
 	MinStringLength      int
@@ -319,10 +321,12 @@ func decodePolicySection(
 
 func loadFileDocstringsSettings() (fileDocstringsSettings, error) {
 	var settings fileDocstringsSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.file_docstrings",
@@ -332,9 +336,11 @@ func loadFileDocstringsSettings() (fileDocstringsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.ExemptFilenames) == 0 {
 		settings.ExemptFilenames = []string{"__init__.py", "conftest.py"}
 	}
+
 	if settings.MinSentences <= 0 {
 		settings.MinSentences = fileDocDefaultSentences
 	}
@@ -344,10 +350,12 @@ func loadFileDocstringsSettings() (fileDocstringsSettings, error) {
 
 func loadPytestGateSettings() (pytestGateSettings, error) {
 	var settings pytestGateSettings
+
 	_, consumer, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.pytest_gate",
@@ -357,9 +365,11 @@ func loadPytestGateSettings() (pytestGateSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.BannedMarkers) == 0 {
 		settings.BannedMarkers = []string{"skip", "skipif"}
 	}
+
 	if len(settings.TestCommand) == 0 {
 		settings.TestCommand = []string{
 			"uv",
@@ -370,6 +380,7 @@ func loadPytestGateSettings() (pytestGateSettings, error) {
 			"--strict-markers",
 		}
 	}
+
 	settings.ConsumerRoot = consumer
 
 	return settings, nil
@@ -377,10 +388,12 @@ func loadPytestGateSettings() (pytestGateSettings, error) {
 
 func loadDirectImportsSettings() (directImportsSettings, error) {
 	var settings directImportsSettings
+
 	_, consumer, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.direct_imports",
@@ -390,12 +403,15 @@ func loadDirectImportsSettings() (directImportsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.Packages) == 0 {
 		settings.Packages = []string{"coding_ethos"}
 	}
+
 	if raw, ok := rootConfigValue(rootConfig, "python.source_paths"); ok {
 		settings.SourcePaths = normalizeStringList(raw)
 	}
+
 	settings.ConsumerRoot = consumer
 
 	return settings, nil
@@ -403,10 +419,12 @@ func loadDirectImportsSettings() (directImportsSettings, error) {
 
 func loadUtilCentralizationSettings() (utilCentralizationSettings, error) {
 	var settings utilCentralizationSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.util_centralization",
@@ -422,10 +440,12 @@ func loadUtilCentralizationSettings() (utilCentralizationSettings, error) {
 
 func loadSQLCentralizationSettings() (sqlCentralizationSettings, error) {
 	var settings sqlCentralizationSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.sql_centralization",
@@ -435,12 +455,24 @@ func loadSQLCentralizationSettings() (sqlCentralizationSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
+	testPaths := []string{}
+
+	err = decodeConfigSection(rootConfig, "python.test_paths", &testPaths)
+	if err != nil {
+		return settings, fmt.Errorf("parse sql_centralization test paths: %w", err)
+	}
+
+	settings.ExemptPaths = append(settings.ExemptPaths, testPaths...)
+
 	if strings.TrimSpace(settings.ModuleName) == "" {
 		settings.ModuleName = "project.sql"
 	}
+
 	if len(settings.MigrationMarkers) == 0 {
 		settings.MigrationMarkers = []string{"alembic", "migrations"}
 	}
+
 	if len(settings.ErrorContextKeywords) == 0 {
 		settings.ErrorContextKeywords = []string{
 			"suggestion",
@@ -450,6 +482,7 @@ func loadSQLCentralizationSettings() (sqlCentralizationSettings, error) {
 			"extra",
 		}
 	}
+
 	if settings.MinStringLength <= 0 {
 		settings.MinStringLength = sqlDefaultMinStringLength
 	}
@@ -459,10 +492,12 @@ func loadSQLCentralizationSettings() (sqlCentralizationSettings, error) {
 
 func loadStructuredLoggingSettings() (structuredLoggingSettings, error) {
 	var settings structuredLoggingSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.structured_logging",
@@ -472,12 +507,15 @@ func loadStructuredLoggingSettings() (structuredLoggingSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.Methods) == 0 {
 		settings.Methods = []string{"debug", "info", "warning", "error", "critical"}
 	}
+
 	if len(settings.LoggerNames) == 0 {
 		settings.LoggerNames = []string{"logger", "_logger", "log", "_log"}
 	}
+
 	if len(settings.ExemptKwargs) == 0 {
 		settings.ExemptKwargs = []string{"exc_info", "stack_info", "stacklevel"}
 	}
@@ -487,10 +525,12 @@ func loadStructuredLoggingSettings() (structuredLoggingSettings, error) {
 
 func loadConditionalImportsSettings() (conditionalImportsSettings, error) {
 	var settings conditionalImportsSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.conditional_imports",
@@ -500,9 +540,11 @@ func loadConditionalImportsSettings() (conditionalImportsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.ExceptionNames) == 0 {
 		settings.ExceptionNames = []string{"ImportError", "ModuleNotFoundError"}
 	}
+
 	if strings.TrimSpace(settings.CapabilityPrefix) == "" {
 		settings.CapabilityPrefix = "HAS_"
 	}
@@ -512,10 +554,12 @@ func loadConditionalImportsSettings() (conditionalImportsSettings, error) {
 
 func loadTypeCheckingImportsSettings() (typeCheckingImportsSettings, error) {
 	var settings typeCheckingImportsSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.type_checking_imports",
@@ -525,9 +569,11 @@ func loadTypeCheckingImportsSettings() (typeCheckingImportsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.TypeCheckingNames) == 0 {
 		settings.TypeCheckingNames = []string{"TYPE_CHECKING"}
 	}
+
 	if strings.TrimSpace(settings.FutureImportName) == "" {
 		settings.FutureImportName = "annotations"
 	}
@@ -537,10 +583,12 @@ func loadTypeCheckingImportsSettings() (typeCheckingImportsSettings, error) {
 
 func loadCatchSilenceSettings() (catchSilenceSettings, error) {
 	var settings catchSilenceSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.catch_and_silence",
@@ -556,10 +604,12 @@ func loadCatchSilenceSettings() (catchSilenceSettings, error) {
 
 func loadOptionalReturnsSettings() (optionalReturnsSettings, error) {
 	var settings optionalReturnsSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.optional_returns",
@@ -569,6 +619,7 @@ func loadOptionalReturnsSettings() (optionalReturnsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.ExemptMethodNames) == 0 {
 		settings.ExemptMethodNames = []string{"__exit__", "__aexit__"}
 	}
@@ -578,10 +629,12 @@ func loadOptionalReturnsSettings() (optionalReturnsSettings, error) {
 
 func loadSecurityPatternsSettings() (securityPatternsSettings, error) {
 	var settings securityPatternsSettings
+
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
 		return settings, err
 	}
+
 	err = decodePolicySection(
 		rootConfig,
 		"python.security_patterns",
@@ -591,6 +644,7 @@ func loadSecurityPatternsSettings() (securityPatternsSettings, error) {
 	if err != nil {
 		return settings, err
 	}
+
 	if len(settings.SQLKeywords) == 0 {
 		settings.SQLKeywords = []string{
 			"SELECT",
@@ -605,6 +659,7 @@ func loadSecurityPatternsSettings() (securityPatternsSettings, error) {
 			"EXEC",
 		}
 	}
+
 	if len(settings.SecretPatterns) == 0 {
 		settings.SecretPatterns = []string{
 			"sk-",
@@ -618,9 +673,11 @@ func loadSecurityPatternsSettings() (securityPatternsSettings, error) {
 			"credential",
 		}
 	}
+
 	if len(settings.TestFileMarkers) == 0 {
 		settings.TestFileMarkers = []string{"tests", "conftest", "test_", "_test.py"}
 	}
+
 	if settings.MinGetenvArgsWithDefault <= 0 {
 		settings.MinGetenvArgsWithDefault = 2
 	}
@@ -633,12 +690,15 @@ func parsePythonFile(path string) ([]byte, *ts.Tree, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	parser := ts.NewParser()
 	defer parser.Close()
+
 	err = parser.SetLanguage(pythonLanguage())
 	if err != nil {
 		return nil, nil, fmt.Errorf("set python parser language: %w", err)
 	}
+
 	tree := parser.Parse(source, nil)
 	if tree == nil {
 		return nil, nil, fmt.Errorf("%w: %s", errPythonParse, path)
@@ -659,9 +719,12 @@ func walkPythonNodes(node *ts.Node, visit func(*ts.Node)) {
 	if node == nil {
 		return
 	}
+
 	visit(node)
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	for i := range children {
 		child := children[i]
@@ -673,6 +736,7 @@ func parsePythonImportAlias(node *ts.Node, source []byte) pythonImportAlias {
 	if node == nil {
 		return pythonImportAlias{}
 	}
+
 	if node.Kind() == "aliased_import" {
 		return pythonImportAlias{
 			Name:  pythonNodeText(node.ChildByFieldName("name"), source),
@@ -685,6 +749,7 @@ func parsePythonImportAlias(node *ts.Node, source []byte) pythonImportAlias {
 
 func collectPythonImports(root *ts.Node, source []byte) []pythonImportStatement {
 	imports := make([]pythonImportStatement, 0)
+
 	walkPythonNodes(root, func(node *ts.Node) {
 		statement, ok := pythonImportStatementFromNode(node, source)
 		if ok {
@@ -709,7 +774,7 @@ func pythonImportStatementFromNode(
 		return pythonImportStatement{
 			Kind:  pythonNodeImport,
 			Names: names,
-			Line:  int(node.StartPosition().Row) + 1,
+			Line:  treeSitterLine(node.StartPosition().Row),
 		}, true
 	case pythonNodeImportFrom:
 		moduleNode := node.ChildByFieldName("module_name")
@@ -721,7 +786,7 @@ func pythonImportStatementFromNode(
 			Kind:     "from",
 			Module:   pythonNodeText(moduleNode, source),
 			Names:    pythonImportAliases(node, source),
-			Line:     int(node.StartPosition().Row) + 1,
+			Line:     treeSitterLine(node.StartPosition().Row),
 			Relative: moduleNode.Kind() == "relative_import",
 		}, true
 	default:
@@ -732,7 +797,9 @@ func pythonImportStatementFromNode(
 func pythonImportAliases(node *ts.Node, source []byte) []pythonImportAlias {
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	nameNodes := node.ChildrenByFieldName("name", cursor)
+
 	names := make([]pythonImportAlias, 0, len(nameNodes))
 	for nameIndex := range nameNodes {
 		name := parsePythonImportAlias(&nameNodes[nameIndex], source)
@@ -748,11 +815,13 @@ func pythonAttributeChain(node *ts.Node, source []byte) []string {
 	if node == nil {
 		return nil
 	}
+
 	switch node.Kind() {
 	case pythonNodeCall:
 		return pythonAttributeChain(node.ChildByFieldName("function"), source)
 	case pythonNodeAttribute:
 		chain := pythonAttributeChain(node.ChildByFieldName("object"), source)
+
 		attr := pythonNodeText(node.ChildByFieldName(pythonNodeAttribute), source)
 		if attr != "" {
 			chain = append(chain, attr)
@@ -783,25 +852,30 @@ func findPytestMarkerViolations(
 
 	banned := stringSet(settings.BannedMarkers)
 	violations := make([]pythonMarkerViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		if node.Kind() != "decorator" {
 			return
 		}
+
 		cursor := node.Walk()
 		defer cursor.Close()
+
 		children := node.NamedChildren(cursor)
 		if len(children) == 0 {
 			return
 		}
+
 		chain := pythonAttributeChain(&children[0], source)
 		if len(chain) < minCollectionItems || chain[len(chain)-2] != "mark" {
 			return
 		}
+
 		marker := chain[len(chain)-1]
 		if banned[marker] {
 			violations = append(violations, pythonMarkerViolation{
 				File:   path,
-				Line:   int(node.StartPosition().Row) + 1,
+				Line:   treeSitterLine(node.StartPosition().Row),
 				Marker: "pytest.mark." + marker,
 			})
 		}
@@ -823,19 +897,25 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 	if len(settings.TestCommand) == 0 {
 		return result, errPytestGateCommandEmpty
 	}
+
 	cmd := exec.CommandContext(
 		context.Background(),
 		settings.TestCommand[0],
 		settings.TestCommand[1:]...,
 	)
 	cmd.Dir = settings.ConsumerRoot
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
+
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -847,6 +927,7 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 
 		return result, fmt.Errorf("run pytest gate command: %w", err)
 	}
+
 	result.Counts = parsePytestSummary(result.Stdout)
 
 	return result, nil
@@ -860,21 +941,25 @@ func parsePytestSummary(output string) map[string]int {
 		"failed":  0,
 		"errors":  0,
 	}
+
 	lines := strings.Split(output, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
 		match := pytestSummaryPattern.FindStringSubmatch(lines[i])
 		if match == nil {
 			continue
 		}
+
 		names := pytestSummaryPattern.SubexpNames()
 		for idx, name := range names {
 			if idx == 0 || name == "" || match[idx] == "" {
 				continue
 			}
+
 			value, err := strconv.Atoi(match[idx])
 			if err != nil {
 				continue
 			}
+
 			counts[name] = value
 		}
 
@@ -886,15 +971,18 @@ func parsePytestSummary(output string) map[string]int {
 
 func pythonFileModulePath(path string) string {
 	parts := make([]string, 0)
+
 	current := filepath.Clean(filepath.Dir(path))
 	for current != "." && current != "/" {
 		_, err := os.Stat(filepath.Join(current, "__init__.py"))
 		if err == nil {
 			parts = append([]string{filepath.Base(current)}, parts...)
+
 			parent := filepath.Dir(current)
 			if parent == current {
 				break
 			}
+
 			current = parent
 
 			continue
@@ -928,9 +1016,11 @@ func directImportSearchRoots(path string, settings directImportsSettings) []stri
 		if candidate == "." || candidate == "" {
 			candidate = settings.ConsumerRoot
 		}
+
 		if !filepath.IsAbs(candidate) {
 			candidate = filepath.Join(settings.ConsumerRoot, candidate)
 		}
+
 		candidate = filepath.Clean(candidate)
 		if !seen[candidate] {
 			seen[candidate] = true
@@ -954,10 +1044,12 @@ func addSourceSearchRoots(
 		if sourcePath == "" {
 			continue
 		}
+
 		full := sourcePath
 		if !filepath.IsAbs(full) {
 			full = filepath.Join(settings.ConsumerRoot, full)
 		}
+
 		add(full)
 		add(filepath.Dir(full))
 	}
@@ -976,10 +1068,12 @@ func addTopLevelSearchRoot(add func(string), path string) {
 
 			return
 		}
+
 		parent := filepath.Dir(current)
 		if parent == current {
 			return
 		}
+
 		current = parent
 	}
 }
@@ -989,12 +1083,15 @@ func resolvePythonModuleKind(module string, searchRoots []string) string {
 	if len(parts) == 0 {
 		return ""
 	}
+
 	for _, root := range searchRoots {
 		modulePath := filepath.Join(append([]string{root}, parts...)...)
+
 		info, err := os.Stat(modulePath + extPy)
 		if err == nil && !info.IsDir() {
 			return pythonNodeModule
 		}
+
 		info, err = os.Stat(filepath.Join(modulePath, "__init__.py"))
 		if err == nil && !info.IsDir() {
 			return "package"
@@ -1012,6 +1109,7 @@ func statementImportNames(names []pythonImportAlias) string {
 
 			continue
 		}
+
 		parts = append(parts, name.Name)
 	}
 
@@ -1092,17 +1190,21 @@ func directFromImportViolations(
 	if stmt.Relative || stmt.Module == "" {
 		return nil
 	}
+
 	topLevel := strings.Split(stmt.Module, ".")[0]
 	if !packages[topLevel] || isSamePackageFromImport(stmt.Module, fileModule) {
 		return nil
 	}
+
 	if resolvePythonModuleKind(stmt.Module, searchRoots) != pythonNodeModule {
 		return nil
 	}
+
 	moduleParts := strings.Split(stmt.Module, ".")
 	if len(moduleParts) < minCollectionItems {
 		return nil
 	}
+
 	parentModule := strings.Join(moduleParts[:len(moduleParts)-1], ".")
 	names := statementImportNames(stmt.Names)
 
@@ -1122,23 +1224,30 @@ func directImportStatementViolations(
 	searchRoots []string,
 ) []directImportViolation {
 	violations := make([]directImportViolation, 0)
+
 	for _, alias := range stmt.Names {
 		module := alias.Name
+
 		parts := strings.Split(module, ".")
 		if len(parts) < minCollectionItems || !packages[parts[0]] {
 			continue
 		}
+
 		if topLevelPackage != "" && parts[0] == topLevelPackage {
 			continue
 		}
+
 		if resolvePythonModuleKind(module, searchRoots) != pythonNodeModule {
 			continue
 		}
+
 		parentModule := strings.Join(parts[:len(parts)-1], ".")
+
 		statement := "import " + module
 		if alias.Alias != "" {
 			statement += " as " + alias.Alias
 		}
+
 		violations = append(violations, directImportViolation{
 			File:       path,
 			Line:       stmt.Line,
@@ -1159,6 +1268,7 @@ func findBannedUtility(
 		if module == banned.Module {
 			return banned
 		}
+
 		if strings.Contains(banned.Module, ".") &&
 			strings.HasPrefix(module, banned.Module+".") {
 			return banned
@@ -1172,6 +1282,7 @@ func isUtilityImportExempt(path string, banned bannedUtilityModule) bool {
 	if len(banned.ExemptPaths) == 0 {
 		return false
 	}
+
 	for _, marker := range banned.ExemptPaths {
 		if marker != "" && strings.Contains(path, marker) {
 			return true
@@ -1192,6 +1303,7 @@ func findUtilityViolations(
 	defer tree.Close()
 
 	imports := collectPythonImports(tree.RootNode(), source)
+
 	violations := make([]directImportViolation, 0)
 	for _, stmt := range imports {
 		violations = append(
@@ -1224,15 +1336,18 @@ func utilityImportViolations(
 	bannedModules []bannedUtilityModule,
 ) []directImportViolation {
 	violations := make([]directImportViolation, 0)
+
 	for _, alias := range stmt.Names {
 		banned := findBannedUtility(alias.Name, bannedModules)
 		if banned == nil || isUtilityImportExempt(path, *banned) {
 			continue
 		}
+
 		statement := "import " + alias.Name
 		if alias.Alias != "" {
 			statement += " as " + alias.Alias
 		}
+
 		violations = append(violations, directImportViolation{
 			File:       path,
 			Line:       stmt.Line,
@@ -1252,6 +1367,7 @@ func utilityFromImportViolations(
 	if stmt.Relative || stmt.Module == "" {
 		return nil
 	}
+
 	if banned := findBannedUtility(stmt.Module, bannedModules); banned != nil &&
 		!isUtilityImportExempt(path, *banned) {
 		return []directImportViolation{{
@@ -1267,16 +1383,20 @@ func utilityFromImportViolations(
 	}
 
 	violations := make([]directImportViolation, 0)
+
 	for _, alias := range stmt.Names {
 		qualified := stmt.Module + "." + alias.Name
+
 		banned := findBannedUtility(qualified, bannedModules)
 		if banned == nil || isUtilityImportExempt(path, *banned) {
 			continue
 		}
+
 		name := alias.Name
 		if alias.Alias != "" {
 			name += " as " + alias.Alias
 		}
+
 		violations = append(violations, directImportViolation{
 			File:       path,
 			Line:       stmt.Line,
@@ -1298,11 +1418,15 @@ func sqlModuleHint(settings sqlCentralizationSettings) string {
 
 func isSQLExemptPath(path string, settings sqlCentralizationSettings) bool {
 	markers := append(
-		append([]string{}, settings.CentralPaths...),
+		append(append([]string{}, settings.CentralPaths...), settings.ExemptPaths...),
 		settings.MigrationMarkers...,
 	)
+
+	normalizedPath := filepath.ToSlash(filepath.Clean(path))
 	for _, marker := range markers {
-		if marker != "" && strings.Contains(path, marker) {
+		normalizedMarker := filepath.ToSlash(filepath.Clean(strings.TrimSpace(marker)))
+		if normalizedMarker != "." && normalizedMarker != "" &&
+			strings.Contains(normalizedPath, normalizedMarker) {
 			return true
 		}
 	}
@@ -1314,11 +1438,14 @@ func stringNodeLiteralText(node *ts.Node, source []byte) string {
 	if node == nil {
 		return ""
 	}
+
 	switch node.Kind() {
 	case pythonNodeString:
 		cursor := node.Walk()
 		defer cursor.Close()
+
 		children := node.Children(cursor)
+
 		parts := make([]string, 0, len(children))
 		for childIndex := range children {
 			child := children[childIndex]
@@ -1329,6 +1456,7 @@ func stringNodeLiteralText(node *ts.Node, source []byte) string {
 				parts = append(parts, " ")
 			}
 		}
+
 		if len(parts) == 0 {
 			return node.Utf8Text(source)
 		}
@@ -1337,7 +1465,9 @@ func stringNodeLiteralText(node *ts.Node, source []byte) string {
 	case pythonNodeConcatString:
 		cursor := node.Walk()
 		defer cursor.Close()
+
 		children := node.NamedChildren(cursor)
+
 		parts := make([]string, 0, len(children))
 		for i := range children {
 			parts = append(parts, stringNodeLiteralText(&children[i], source))
@@ -1354,30 +1484,37 @@ func isStringDocstringOrStandalone(node *ts.Node) bool {
 	if parent == nil || parent.Kind() != pythonNodeExprStmt {
 		return false
 	}
+
 	container := parent.Parent()
 	if container == nil {
 		return false
 	}
+
 	switch container.Kind() {
 	case pythonNodeModule, pythonNodeBlock:
 	default:
 		return false
 	}
+
 	cursor := container.Walk()
 	defer cursor.Close()
+
 	children := container.NamedChildren(cursor)
 	for childIndex := range children {
 		child := children[childIndex]
 		if !child.Equals(*parent) {
 			continue
 		}
+
 		if childIndex == 0 {
 			return true
 		}
+
 		prev := children[childIndex-1]
 		if prev.Kind() != pythonNodeExprStmt {
 			return false
 		}
+
 		prevExpr := prev.NamedChild(0)
 
 		return prevExpr != nil && prevExpr.Kind() == pythonNodeAssignment
@@ -1395,6 +1532,7 @@ func isStringErrorContext(
 	if parent == nil || parent.Kind() != pythonNodeKeywordArg {
 		return false
 	}
+
 	name := pythonNodeText(parent.ChildByFieldName("name"), source)
 
 	return stringSet(settings.ErrorContextKeywords)[name]
@@ -1405,6 +1543,7 @@ func findSQLPattern(text string, settings sqlCentralizationSettings) string {
 	if len(collapsed) < settings.MinStringLength {
 		return ""
 	}
+
 	for _, pattern := range sqlPatterns() {
 		if pattern.Regex.MatchString(collapsed) {
 			return pattern.Name
@@ -1430,6 +1569,7 @@ func findSQLViolations(
 	if isSQLExemptPath(path, settings) {
 		return nil, nil
 	}
+
 	source, tree, err := parsePythonFile(path)
 	if err != nil {
 		return nil, err
@@ -1437,26 +1577,32 @@ func findSQLViolations(
 	defer tree.Close()
 
 	violations := make([]sqlViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		if node.Kind() != pythonNodeString && node.Kind() != pythonNodeConcatString {
 			return
 		}
+
 		parent := node.Parent()
 		if parent != nil && parent.Kind() == pythonNodeConcatString {
 			return
 		}
+
 		if isStringDocstringOrStandalone(node) ||
 			isStringErrorContext(node, settings, source) {
 			return
 		}
+
 		text := stringNodeLiteralText(node, source)
+
 		pattern := findSQLPattern(text, settings)
 		if pattern == "" {
 			return
 		}
+
 		violations = append(violations, sqlViolation{
 			File:    path,
-			Line:    int(node.StartPosition().Row) + 1,
+			Line:    treeSitterLine(node.StartPosition().Row),
 			Pattern: pattern,
 			Snippet: truncateSQLSnippet(text),
 		})
@@ -1477,9 +1623,11 @@ func checkSingleFileDocstring(
 	if err != nil {
 		return fileDocViolation{}, err
 	}
+
 	if strings.TrimSpace(docstring) == "" {
 		return fileDocViolation{File: path, Reason: "missing module docstring"}, nil
 	}
+
 	count := countDocstringSentences(docstring)
 	if count < settings.MinSentences {
 		return fileDocViolation{
@@ -1503,22 +1651,26 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
 
 	exempt := stringSet(settings.ExemptFilenames)
 	violations := make([]fileDocViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy || exempt[filepath.Base(path)] {
 			continue
 		}
+
 		violation, err := checkSingleFileDocstring(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
+
 		if violation.Reason != "" {
 			violations = append(violations, violation)
 		}
@@ -1528,29 +1680,27 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "MODULE DOCSTRING CHECK FAILED (ETHOS §18)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(
-		os.Stderr,
-		"Per ETHOS §18 (Documentation as Contract): every Python file\n"+
-			"must have a module-level docstring of at least %d sentences.\n\n",
-		settings.MinSentences,
-	)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "  %s: %s\n", violation.File, violation.Reason)
+		findings = append(findings, hookFinding{
+			Tool:    "module_docstrings",
+			File:    violation.File,
+			Message: violation.Reason,
+			Detail:  fmt.Sprintf("sentences=%d", violation.Count),
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Add a module-level docstring at the top of the file:")
-	fmt.Fprintln(os.Stderr, `  """Brief summary of the module.`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  More detail about what the module provides. Include")
-	fmt.Fprintln(os.Stderr, "  usage examples and important caveats.")
-	fmt.Fprintln(os.Stderr, `  """`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "module_docstrings",
+		Title:    "MODULE DOCSTRING CHECK FAILED (ETHOS §18)",
+		Summary:  fmt.Sprintf("Every Python file must have a module-level docstring of at least %d sentences.", settings.MinSentences),
+		Findings: findings,
+		Guidance: []string{
+			"Add a module-level docstring at the top of the file.",
+			"Include a brief summary plus details about what the module provides.",
+			"Include usage examples and important caveats where relevant.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -1562,6 +1712,7 @@ func checkPytestGateCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled {
 		return 0
 	}
@@ -1573,30 +1724,39 @@ func checkPytestGateCommand(_ Config, args []string) int {
 		return 1
 	}
 
-	fmt.Fprintln(os.Stderr, "Running pytest gate...")
+	if hookVerboseSuccessOutputEnabled() {
+		fmt.Fprintln(os.Stderr, "Running pytest gate...")
+	}
+
 	result, err := runPytestCommand(settings)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
+
 	hasFailures := result.ReturnCode != 0
+
 	hasSkips := result.Counts["skipped"] > 0
 	if hasFailures || hasSkips {
 		reportPytestGateFailureOutput(result)
 
 		return 1
 	}
+
 	xfailNote := ""
 	if result.Counts["xfailed"] > 0 {
 		xfailNote = fmt.Sprintf(", %d xfailed", result.Counts["xfailed"])
 	}
-	fmt.Fprintf(
-		os.Stderr,
-		"Pytest gate passed: %d tests, 0 skipped%s.\n",
-		result.Counts["passed"],
-		xfailNote,
-	)
+
+	if hookVerboseSuccessOutputEnabled() {
+		fmt.Fprintf(
+			os.Stderr,
+			"Pytest gate passed: %d tests, 0 skipped%s.\n",
+			result.Counts["passed"],
+			xfailNote,
+		)
+	}
 
 	return 0
 }
@@ -1606,113 +1766,84 @@ func collectPytestGateMarkerViolations(
 	settings pytestGateSettings,
 ) []pythonMarkerViolation {
 	markerViolations := make([]pythonMarkerViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		pathViolations, pathErr := findPytestMarkerViolations(path, settings)
 		if pathErr != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, pathErr)
 
 			continue
 		}
+
 		markerViolations = append(markerViolations, pathViolations...)
 	}
 
 	return markerViolations
 }
 
-func reportPytestGateFailure(result pytestRunResult) {
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "PYTEST GATE FAILED (ETHOS §22)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	if result.ReturnCode != 0 {
-		fmt.Fprintf(os.Stderr, "Pytest exited with code %d.\n", result.ReturnCode)
-	}
-	if result.Counts["failed"] > 0 {
-		fmt.Fprintf(os.Stderr, "Failed tests: %d\n", result.Counts["failed"])
-	}
-	if result.Counts["errors"] > 0 {
-		fmt.Fprintf(os.Stderr, "Errors: %d\n", result.Counts["errors"])
-	}
-	if result.Counts["skipped"] > 0 {
-		fmt.Fprintf(os.Stderr, "Skipped tests: %d\n", result.Counts["skipped"])
-	}
-}
-
 func reportPytestMarkerViolations(violations []pythonMarkerViolation) {
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "BANNED PYTEST MARKERS DETECTED (ETHOS §22)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §22: 100% pass rate is non-negotiable. Tests must",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"not be skipped. Use @pytest.mark.xfail(reason='...') for known",
-	)
-	fmt.Fprintln(os.Stderr, "temporary failures instead.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: @%s\n",
-			violation.File,
-			violation.Line,
-			violation.Marker,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "pytest_gate",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Marker,
+			Message: "banned pytest marker",
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  1. Remove the @pytest.mark.skip/skipif decorator")
-	fmt.Fprintln(os.Stderr, "  2. Fix the test or the code it tests")
-	fmt.Fprintln(
-		os.Stderr,
-		"  3. Use @pytest.mark.xfail(reason='...') for known gaps",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"  4. If the test is truly obsolete, delete it entirely",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "pytest_gate",
+		Title:    "BANNED PYTEST MARKERS DETECTED (ETHOS §22)",
+		Summary:  "Tests must not be skipped. Use xfail only for known temporary failures.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove the skip or skipif decorator.",
+			"Fix the test or the code it tests.",
+			"If the test is obsolete, delete it entirely.",
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func reportPytestGateFailureOutput(result pytestRunResult) {
-	reportPytestGateFailure(result)
-	fmt.Fprintln(os.Stderr)
-	printPytestGateLines(result.Stdout, true)
-	if strings.TrimSpace(result.Stderr) != "" {
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "Stderr:")
-		printPytestGateLines(result.Stderr, false)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "All tests must pass with zero skips.")
-	fmt.Fprintln(os.Stderr, "Fix failing tests before committing.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	findings := []hookFinding{{
+		Tool:    "pytest_gate",
+		Code:    fmt.Sprintf("exit-%d", result.ReturnCode),
+		Message: "pytest gate failed",
+		Detail:  trimmedPytestOutput(result),
+	}}
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "pytest_gate",
+		Title:    "PYTEST GATE FAILED (ETHOS §22)",
+		Summary:  fmt.Sprintf("failed=%d errors=%d skipped=%d return_code=%d", result.Counts["failed"], result.Counts["errors"], result.Counts["skipped"], result.ReturnCode),
+		Findings: findings,
+		Guidance: []string{
+			"All tests must pass with zero skips.",
+			"Fix failing tests before committing.",
+		},
+	}, selectedHookOutputFormat()))
 }
 
-func printPytestGateLines(output string, showTruncation bool) {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
+func trimmedPytestOutput(result pytestRunResult) string {
+	output := strings.TrimSpace(result.Stdout)
+	if strings.TrimSpace(result.Stderr) != "" {
+		output = strings.TrimSpace(output + "\nStderr:\n" + strings.TrimSpace(result.Stderr))
+	}
+
+	lines := strings.Split(output, "\n")
 	if len(lines) > pytestGateMaxOutputLines {
-		if showTruncation {
-			fmt.Fprintf(
-				os.Stderr,
-				"... (%d lines truncated)\n",
-				len(lines)-pytestGateMaxOutputLines,
-			)
-		}
-		lines = lines[len(lines)-pytestGateMaxOutputLines:]
+		lines = append(
+			[]string{fmt.Sprintf("... (%d lines truncated)", len(lines)-pytestGateMaxOutputLines)},
+			lines[len(lines)-pytestGateMaxOutputLines:]...,
+		)
 	}
-	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			fmt.Fprintf(os.Stderr, "  %s\n", line)
-		}
-	}
+
+	return strings.Join(lines, "\n")
 }
 
 func checkDirectImportsCommand(_ Config, args []string) int {
@@ -1722,43 +1853,42 @@ func checkDirectImportsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
+
 	violations := make([]directImportViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		if isDirectImportExempt(path, settings) {
 			continue
 		}
+
 		found, err := findDirectImportViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "DIRECT MODULE IMPORT DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "Import from package __init__.py, not internal modules.")
-	fmt.Fprintln(os.Stderr, "This ensures you use the package's public API.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "\n  %s:%d\n", violation.File, violation.Line)
-		fmt.Fprintf(os.Stderr, "    Bad:  %s\n", violation.Statement)
-		fmt.Fprintf(os.Stderr, "    Good: %s\n", violation.Suggestion)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatDirectImportReport(
+		"direct_imports",
+		"DIRECT MODULE IMPORT DETECTED",
+		"Import from package __init__.py, not internal modules.",
+		violations,
+	))
 
 	return 1
 }
@@ -1783,48 +1913,66 @@ func checkUtilCentralizationCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
+
 	violations := make([]directImportViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		found, err := findUtilityViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "BANNED DIRECT IMPORT DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Production code must use the repository's configured utility",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"wrapper modules instead of importing utility libraries directly.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
-	for _, violation := range violations {
-		fmt.Fprintf(os.Stderr, "\n  %s:%d\n", violation.File, violation.Line)
-		fmt.Fprintf(os.Stderr, "    Bad:  %s\n", violation.Statement)
-		fmt.Fprintf(os.Stderr, "    Good: %s\n", violation.Suggestion)
-	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+	fmt.Fprintln(os.Stderr, formatDirectImportReport(
+		"util_centralization",
+		"BANNED DIRECT IMPORT DETECTED",
+		"Production code must use configured wrapper modules instead of importing utility libraries directly.",
+		violations,
+	))
 
 	return 1
+}
+
+func formatDirectImportReport(
+	tool string,
+	title string,
+	summary string,
+	violations []directImportViolation,
+) string {
+	findings := make([]hookFinding, 0, len(violations))
+	for _, violation := range violations {
+		findings = append(findings, hookFinding{
+			Tool:    tool,
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Statement,
+			Detail:  "use " + violation.Suggestion,
+		})
+	}
+
+	return formatHookReport(hookReport{
+		Tool:     tool,
+		Title:    title,
+		Summary:  summary,
+		Findings: findings,
+		Guidance: []string{"Import through the public or configured wrapper API."},
+	}, selectedHookOutputFormat())
 }
 
 func checkSQLCentralizationCommand(_ Config, args []string) int {
@@ -1834,69 +1982,54 @@ func checkSQLCentralizationCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
+
 	violations := make([]sqlViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		found, err := findSQLViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(os.Stderr, "SQL STRINGS FOUND OUTSIDE %s\n", settings.ModuleName)
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintf(
-		os.Stderr,
-		"All SQL, DDL, DML, and Cypher strings must live in %s.\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"Other modules import named constants from %s.\n\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: [%s] %s\n",
-			violation.File,
-			violation.Line,
-			violation.Pattern,
-			violation.Snippet,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "sql_centralization",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Pattern,
+			Message: violation.Snippet,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintf(
-		os.Stderr,
-		"  1. Move the SQL string to %s as a Final[str] constant\n",
-		sqlModuleHint(settings),
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"  2. Import it: from %s import MY_QUERY\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintf(
-		os.Stderr,
-		"  3. For dynamic queries, create a builder function in %s\n",
-		settings.ModuleName,
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "sql_centralization",
+		Title:    "SQL STRINGS FOUND OUTSIDE " + settings.ModuleName,
+		Summary:  fmt.Sprintf("All SQL, DDL, DML, and Cypher strings must live in %s.", settings.ModuleName),
+		Findings: findings,
+		Guidance: []string{
+			fmt.Sprintf("Move the SQL string to %s as a Final[str] constant.", sqlModuleHint(settings)),
+			fmt.Sprintf("Import it from %s.", settings.ModuleName),
+			fmt.Sprintf("For dynamic queries, create a builder function in %s.", settings.ModuleName),
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -1909,19 +2042,24 @@ func loggerMethodAndReceiver(
 	if node == nil || node.Kind() != pythonNodeCall {
 		return "", "", false
 	}
+
 	function := node.ChildByFieldName("function")
 	if function == nil || function.Kind() != pythonNodeAttribute {
 		return "", "", false
 	}
+
 	method := pythonNodeText(function.ChildByFieldName(pythonNodeAttribute), source)
 	if !isAllowedLoggerMethod(method, settings) {
 		return "", "", false
 	}
+
 	receiverNode := function.ChildByFieldName("object")
+
 	receiver := pythonNodeText(receiverNode, source)
 	if receiver == "" {
 		return "", "", false
 	}
+
 	if isAllowedLoggerReceiver(receiverNode, receiver, source, settings) {
 		return receiver, method, true
 	}
@@ -1948,6 +2086,7 @@ func isAllowedLoggerReceiver(
 	if loggerNames[receiver] {
 		return true
 	}
+
 	if receiverNode == nil || receiverNode.Kind() != pythonNodeAttribute {
 		return false
 	}
@@ -1966,15 +2105,19 @@ func callHasStructuredContext(
 	if args == nil {
 		return false
 	}
+
 	exempt := stringSet(settings.ExemptKwargs)
+
 	cursor := args.Walk()
 	defer cursor.Close()
+
 	children := args.NamedChildren(cursor)
 	for i := range children {
 		child := children[i]
 		if child.Kind() != pythonNodeKeywordArg {
 			continue
 		}
+
 		name := pythonNodeText(child.ChildByFieldName("name"), source)
 		if name != "" && !exempt[name] {
 			return true
@@ -1989,14 +2132,18 @@ func callUsesPercentFormatting(callNode *ts.Node) bool {
 	if args == nil {
 		return false
 	}
+
 	cursor := args.Walk()
 	defer cursor.Close()
+
 	children := args.NamedChildren(cursor)
 	count := 0
+
 	for i := range children {
 		if children[i].Kind() == pythonNodeKeywordArg {
 			continue
 		}
+
 		count++
 	}
 
@@ -2008,14 +2155,17 @@ func loggingMessagePreview(callNode *ts.Node, source []byte) string {
 	if args == nil {
 		return "<no message>"
 	}
+
 	cursor := args.Walk()
 	defer cursor.Close()
+
 	children := args.NamedChildren(cursor)
 	for i := range children {
 		child := children[i]
 		if child.Kind() == pythonNodeKeywordArg {
 			continue
 		}
+
 		switch child.Kind() {
 		case pythonNodeString, pythonNodeConcatString:
 			return truncateSQLSnippet(stringNodeLiteralText(&child, source))
@@ -2036,20 +2186,24 @@ func findStructuredLoggingViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]structuredLoggingViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		if node.Kind() != pythonNodeCall {
 			return
 		}
+
 		_, method, ok := loggerMethodAndReceiver(node, source, settings)
 		if !ok {
 			return
 		}
+
 		if !callHasStructuredContext(node, source, settings) ||
 			callUsesPercentFormatting(node) {
 			violations = append(violations, structuredLoggingViolation{
 				File:    path,
-				Line:    int(node.StartPosition().Row) + 1,
+				Line:    treeSitterLine(node.StartPosition().Row),
 				Method:  method,
 				Preview: loggingMessagePreview(node, source),
 			})
@@ -2063,11 +2217,14 @@ func exceptClauseValue(node *ts.Node) *ts.Node {
 	if node == nil || node.Kind() != pythonNodeExceptClause {
 		return nil
 	}
+
 	if value := node.ChildByFieldName("value"); value != nil {
 		return value
 	}
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	for i := range children {
 		if children[i].Kind() != pythonNodeBlock {
@@ -2084,11 +2241,14 @@ func exceptClauseBlock(node *ts.Node) *ts.Node {
 	if node == nil || node.Kind() != pythonNodeExceptClause {
 		return nil
 	}
+
 	if body := node.ChildByFieldName("body"); body != nil {
 		return body
 	}
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	for i := range children {
 		if children[i].Kind() == pythonNodeBlock {
@@ -2109,17 +2269,22 @@ func exceptClauseCatchesImportError(
 	if node == nil || node.Kind() != pythonNodeExceptClause {
 		return false
 	}
+
 	exceptions := stringSet(settings.ExceptionNames)
+
 	value := exceptClauseValue(node)
 	if value == nil {
 		return true
 	}
+
 	if value.Kind() == pythonNodeIdentifier {
 		return exceptions[pythonNodeText(value, source)]
 	}
+
 	if value.Kind() == "tuple" {
 		cursor := value.Walk()
 		defer cursor.Close()
+
 		children := value.NamedChildren(cursor)
 		for i := range children {
 			if children[i].Kind() == pythonNodeIdentifier &&
@@ -2136,9 +2301,12 @@ func extractImportsFromBlock(block *ts.Node, source []byte) []string {
 	if block == nil {
 		return nil
 	}
+
 	names := make([]string, 0)
+
 	cursor := block.Walk()
 	defer cursor.Close()
+
 	children := block.NamedChildren(cursor)
 	for i := range children {
 		child := children[i]
@@ -2168,27 +2336,34 @@ func capabilityFlagsInExceptClause(
 	if node == nil || node.Kind() != pythonNodeExceptClause {
 		return nil
 	}
+
 	block := exceptClauseBlock(node)
 	if block == nil {
 		return nil
 	}
+
 	flags := make([]string, 0)
+
 	cursor := block.Walk()
 	defer cursor.Close()
+
 	children := block.NamedChildren(cursor)
 	for i := range children {
 		child := children[i]
 		if child.Kind() != pythonNodeExprStmt {
 			continue
 		}
+
 		expr := child.NamedChild(0)
 		if expr == nil || expr.Kind() != pythonNodeAssignment {
 			continue
 		}
+
 		left := expr.ChildByFieldName("left")
 		if left == nil || left.Kind() != pythonNodeIdentifier {
 			continue
 		}
+
 		name := pythonNodeText(left, source)
 		if strings.HasPrefix(name, settings.CapabilityPrefix) {
 			flags = append(flags, name)
@@ -2207,17 +2382,22 @@ func findConditionalImportViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]conditionalImportViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		if node.Kind() != "try_statement" {
 			return
 		}
+
 		body := node.ChildByFieldName("body")
 		imports := extractImportsFromBlock(body, source)
+
 		excepts := tryStatementExceptClauses(node)
 		if !tryStatementCatchesImportError(excepts, settings, source) {
 			return
 		}
+
 		violations = append(
 			violations,
 			conditionalImportViolationsForTry(path, node, imports)...,
@@ -2234,8 +2414,10 @@ func findConditionalImportViolations(
 func tryStatementExceptClauses(node *ts.Node) []ts.Node {
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	excepts := make([]ts.Node, 0)
+
 	for childIndex := range children {
 		if children[childIndex].Kind() == pythonNodeExceptClause {
 			excepts = append(excepts, children[childIndex])
@@ -2268,7 +2450,7 @@ func conditionalImportViolationsForTry(
 	for _, module := range imports {
 		violations = append(violations, conditionalImportViolation{
 			File:    path,
-			Line:    int(node.StartPosition().Row) + 1,
+			Line:    treeSitterLine(node.StartPosition().Row),
 			Module:  module,
 			Pattern: "try/import/except ImportError",
 		})
@@ -2285,6 +2467,7 @@ func conditionalFlagViolationsForTry(
 	source []byte,
 ) []conditionalImportViolation {
 	violations := make([]conditionalImportViolation, 0)
+
 	for exceptIndex := range excepts {
 		for _, flag := range capabilityFlagsInExceptClause(
 			&excepts[exceptIndex],
@@ -2293,7 +2476,7 @@ func conditionalFlagViolationsForTry(
 		) {
 			violations = append(violations, conditionalImportViolation{
 				File:    path,
-				Line:    int(node.StartPosition().Row) + 1,
+				Line:    treeSitterLine(node.StartPosition().Row),
 				Module:  flag,
 				Pattern: "HAS_* capability flag in except ImportError",
 			})
@@ -2311,7 +2494,9 @@ func isTypeCheckingRef(
 	if node == nil {
 		return false
 	}
+
 	names := stringSet(settings.TypeCheckingNames)
+
 	switch node.Kind() {
 	case pythonNodeIdentifier:
 		return names[pythonNodeText(node, source)]
@@ -2332,7 +2517,9 @@ func findTypeCheckingImportViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]typeCheckingViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		switch node.Kind() {
 		case "future_import_statement":
@@ -2350,7 +2537,7 @@ func findTypeCheckingImportViolations(
 			if isTypeCheckingRef(condition, settings, source) {
 				violations = append(violations, typeCheckingViolation{
 					File:    path,
-					Line:    int(node.StartPosition().Row) + 1,
+					Line:    treeSitterLine(node.StartPosition().Row),
 					Pattern: "if TYPE_CHECKING: (conditional import guard)",
 				})
 			}
@@ -2367,15 +2554,17 @@ func futureImportViolations(
 	source []byte,
 ) []typeCheckingViolation {
 	violations := make([]typeCheckingViolation, 0)
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	names := node.ChildrenByFieldName("name", cursor)
 	for nameIndex := range names {
 		name := parsePythonImportAlias(&names[nameIndex], source).Name
 		if name == settings.FutureImportName {
 			violations = append(violations, typeCheckingViolation{
 				File:    path,
-				Line:    int(node.StartPosition().Row) + 1,
+				Line:    treeSitterLine(node.StartPosition().Row),
 				Pattern: "from __future__ import annotations (PEP 563 string annotations)",
 			})
 		}
@@ -2397,15 +2586,17 @@ func typeCheckingImportFromViolations(
 
 	allowedNames := stringSet(settings.TypeCheckingNames)
 	violations := make([]typeCheckingViolation, 0)
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	names := node.ChildrenByFieldName("name", cursor)
 	for nameIndex := range names {
 		name := parsePythonImportAlias(&names[nameIndex], source).Name
 		if allowedNames[name] {
 			violations = append(violations, typeCheckingViolation{
 				File:    path,
-				Line:    int(node.StartPosition().Row) + 1,
+				Line:    treeSitterLine(node.StartPosition().Row),
 				Pattern: "from typing import TYPE_CHECKING",
 			})
 		}
@@ -2419,10 +2610,13 @@ func exceptClauseBodyStatements(node *ts.Node) []ts.Node {
 	if block == nil {
 		return nil
 	}
+
 	cursor := block.Walk()
 	defer cursor.Close()
+
 	children := block.NamedChildren(cursor)
 	statements := make([]ts.Node, 0)
+
 	for childIndex := range children {
 		if children[childIndex].Kind() == pythonNodeExprStmt {
 			expr := children[childIndex].NamedChild(0)
@@ -2430,6 +2624,7 @@ func exceptClauseBodyStatements(node *ts.Node) []ts.Node {
 				continue
 			}
 		}
+
 		statements = append(statements, children[childIndex])
 	}
 
@@ -2469,6 +2664,7 @@ func returnStatementValue(node ts.Node) *ts.Node {
 	if value := node.ChildByFieldName("value"); value != nil {
 		return value
 	}
+
 	if node.NamedChildCount() > 0 {
 		return node.NamedChild(0)
 	}
@@ -2498,16 +2694,19 @@ func findCatchSilenceViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]catchSilenceViolation, 0)
+
 	walkPythonNodes(tree.RootNode(), func(node *ts.Node) {
 		if node.Kind() != pythonNodeExceptClause {
 			return
 		}
+
 		body := exceptClauseBodyStatements(node)
 		if len(body) == 1 && isSilencingStatement(body[0]) {
 			violations = append(violations, catchSilenceViolation{
 				File:          path,
-				Line:          int(node.StartPosition().Row) + 1,
+				Line:          treeSitterLine(node.StartPosition().Row),
 				ExceptionType: exceptClauseExceptionType(node, source),
 				HandlerBody:   silenceBodyDescription(body[0]),
 			})
@@ -2521,8 +2720,10 @@ func containsNoneUnion(node *ts.Node) bool {
 	if node == nil {
 		return false
 	}
+
 	if unionChildren := noneUnionChildren(node); len(unionChildren) == minCollectionItems {
 		left := unionChildren[0]
+
 		right := unionChildren[1]
 		if left.Kind() == pythonNodeNone || right.Kind() == pythonNodeNone {
 			return true
@@ -2530,8 +2731,10 @@ func containsNoneUnion(node *ts.Node) bool {
 
 		return containsNoneUnion(&left) || containsNoneUnion(&right)
 	}
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	for childIndex := range children {
 		if containsNoneUnion(&children[childIndex]) {
@@ -2546,10 +2749,12 @@ func noneUnionChildren(node *ts.Node) []ts.Node {
 	if node.Kind() != "binary_operator" {
 		return nil
 	}
+
 	operator := node.Child(1)
 	if operator == nil || operator.Kind() != "|" {
 		return nil
 	}
+
 	cursor := node.Walk()
 	defer cursor.Close()
 
@@ -2559,6 +2764,7 @@ func noneUnionChildren(node *ts.Node) []ts.Node {
 func typedParameterName(node *ts.Node, source []byte) string {
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.NamedChildren(cursor)
 	for childIndex := range children {
 		switch children[childIndex].Kind() {
@@ -2579,10 +2785,12 @@ func isClassVariableAssignment(node *ts.Node) bool {
 	if parent == nil || parent.Kind() != pythonNodeExprStmt {
 		return false
 	}
+
 	block := parent.Parent()
 	if block == nil || block.Kind() != pythonNodeBlock {
 		return false
 	}
+
 	owner := block.Parent()
 
 	return owner != nil && owner.Kind() == "class_definition"
@@ -2597,6 +2805,7 @@ func findOptionalTypeViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]optionalTypeViolation, 0)
 	exemptMethods := stringSet(settings.ExemptMethodNames)
 
@@ -2629,6 +2838,7 @@ func optionalAssignmentViolations(
 	}
 
 	left := node.ChildByFieldName("left")
+
 	context := "| None variable: " + pythonNodeText(left, source)
 	if isClassVariableAssignment(node) {
 		context = "| None class variable: " + pythonNodeText(left, source)
@@ -2636,7 +2846,7 @@ func optionalAssignmentViolations(
 
 	return []optionalTypeViolation{{
 		File:    path,
-		Line:    int(node.StartPosition().Row) + 1,
+		Line:    treeSitterLine(node.StartPosition().Row),
 		Context: context,
 	}}
 }
@@ -2653,6 +2863,7 @@ func optionalFunctionViolations(
 	}
 
 	violations := optionalReturnViolations(path, node, name)
+
 	parameters := node.ChildByFieldName("parameters")
 	if parameters == nil {
 		return violations
@@ -2673,7 +2884,7 @@ func optionalReturnViolations(
 
 	return []optionalTypeViolation{{
 		File:    path,
-		Line:    int(returnType.StartPosition().Row) + 1,
+		Line:    treeSitterLine(returnType.StartPosition().Row),
 		Context: fmt.Sprintf("| None return: %s()", name),
 	}}
 }
@@ -2685,20 +2896,24 @@ func optionalParameterViolations(
 ) []optionalTypeViolation {
 	cursor := parameters.Walk()
 	defer cursor.Close()
+
 	children := parameters.NamedChildren(cursor)
 	violations := make([]optionalTypeViolation, 0)
+
 	for childIndex := range children {
 		child := children[childIndex]
 		if !isTypedParameterKind(child.Kind()) {
 			continue
 		}
+
 		annotation := child.ChildByFieldName("type")
 		if annotation == nil || !containsNoneUnion(annotation) {
 			continue
 		}
+
 		violations = append(violations, optionalTypeViolation{
 			File: path,
-			Line: int(annotation.StartPosition().Row) + 1,
+			Line: treeSitterLine(annotation.StartPosition().Row),
 			Context: "| None parameter: " + typedParameterName(
 				&child,
 				source,
@@ -2717,6 +2932,7 @@ func isTypedParameterKind(kind string) bool {
 
 func isTestFilePath(path string, settings securityPatternsSettings) bool {
 	name := filepath.Base(path)
+
 	for _, marker := range settings.TestFileMarkers {
 		if strings.HasSuffix(marker, extPy) {
 			if strings.Contains(name, marker) {
@@ -2725,6 +2941,7 @@ func isTestFilePath(path string, settings securityPatternsSettings) bool {
 
 			continue
 		}
+
 		if strings.Contains(path, marker) || strings.Contains(name, marker) {
 			return true
 		}
@@ -2736,11 +2953,12 @@ func isTestFilePath(path string, settings securityPatternsSettings) bool {
 func sourceSnippet(path string, line int) string {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "<unknown>"
+		return unknownFile
 	}
+
 	lines := strings.Split(string(content), "\n")
 	if line < 1 || line > len(lines) {
-		return "<unknown>"
+		return unknownFile
 	}
 
 	return strings.TrimSpace(lines[line-1])
@@ -2750,11 +2968,14 @@ func isGetenvCall(node *ts.Node, source []byte) bool {
 	if node == nil || node.Kind() != pythonNodeCall {
 		return false
 	}
+
 	function := node.ChildByFieldName("function")
 	if function == nil || function.Kind() != pythonNodeAttribute {
 		return false
 	}
+
 	attr := pythonNodeText(function.ChildByFieldName(pythonNodeAttribute), source)
+
 	object := function.ChildByFieldName("object")
 	if attr == "getenv" && object != nil && object.Kind() == pythonNodeIdentifier &&
 		pythonNodeText(object, source) == "os" {
@@ -2774,10 +2995,13 @@ func getenvDefaultValue(
 	if args == nil {
 		return nil
 	}
+
 	cursor := args.Walk()
 	defer cursor.Close()
+
 	children := args.NamedChildren(cursor)
 	positional := make([]*ts.Node, 0)
+
 	for i := range children {
 		child := children[i]
 		if child.Kind() == pythonNodeKeywordArg {
@@ -2788,8 +3012,10 @@ func getenvDefaultValue(
 
 			continue
 		}
+
 		positional = append(positional, &child)
 	}
+
 	if settings.MinGetenvArgsWithDefault > 0 &&
 		len(positional) >= settings.MinGetenvArgsWithDefault {
 		return positional[settings.MinGetenvArgsWithDefault-1]
@@ -2813,6 +3039,7 @@ func isOSEnvironSubscript(node *ts.Node, source []byte) bool {
 	if node == nil || node.Kind() != "subscript" {
 		return false
 	}
+
 	value := node.ChildByFieldName("value")
 
 	return value != nil && value.Kind() == pythonNodeAttribute &&
@@ -2824,8 +3051,10 @@ func stringHasInterpolation(node *ts.Node) bool {
 	if node == nil {
 		return false
 	}
+
 	cursor := node.Walk()
 	defer cursor.Close()
+
 	children := node.Children(cursor)
 	for i := range children {
 		child := children[i]
@@ -2865,6 +3094,7 @@ func findSecurityViolations(
 		return nil, err
 	}
 	defer tree.Close()
+
 	violations := make([]securityViolation, 0)
 	isTestFile := isTestFilePath(path, settings)
 
@@ -2906,7 +3136,7 @@ func securityCallViolations(
 		return nil
 	}
 
-	line := int(defaultNode.StartPosition().Row) + 1
+	line := treeSitterLine(defaultNode.StartPosition().Row)
 
 	return []securityViolation{{
 		File:     path,
@@ -2929,6 +3159,7 @@ func securityAssignmentViolations(
 	if violation, ok := sqlInterpolationViolation(path, node, settings, source); ok {
 		violations = append(violations, violation)
 	}
+
 	if violation, ok := testEnvBypassViolation(path, node, source, isTestFile); ok {
 		violations = append(violations, violation)
 	}
@@ -2952,7 +3183,7 @@ func sqlInterpolationViolation(
 		return securityViolation{}, false
 	}
 
-	line := int(right.StartPosition().Row) + 1
+	line := treeSitterLine(right.StartPosition().Row)
 
 	return securityViolation{
 		File:     path,
@@ -2981,7 +3212,7 @@ func testEnvBypassViolation(
 		return securityViolation{}, false
 	}
 
-	line := int(left.StartPosition().Row) + 1
+	line := treeSitterLine(left.StartPosition().Row)
 
 	return securityViolation{
 		File:     path,
@@ -2993,6 +3224,49 @@ func testEnvBypassViolation(
 	}, true
 }
 
+func runPythonPolicyCommand[V any](
+	args []string,
+	load func() (bool, error),
+	find func(string) ([]V, error),
+	report func([]V),
+) int {
+	enabled, err := load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+
+		return 1
+	}
+
+	if !enabled || len(args) == 0 {
+		return 0
+	}
+
+	violations := make([]V, 0)
+
+	for _, path := range existingFiles(args) {
+		if filepath.Ext(path) != extPy {
+			continue
+		}
+
+		found, err := find(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+
+			continue
+		}
+
+		violations = append(violations, found...)
+	}
+
+	if len(violations) == 0 {
+		return 0
+	}
+
+	report(violations)
+
+	return 1
+}
+
 func checkStructuredLoggingCommand(_ Config, args []string) int {
 	settings, err := loadStructuredLoggingSettings()
 	if err != nil {
@@ -3000,65 +3274,40 @@ func checkStructuredLoggingCommand(_ Config, args []string) int {
 
 		return 1
 	}
-	if !settings.Enabled || len(args) == 0 {
-		return 0
-	}
 
-	violations := make([]structuredLoggingViolation, 0)
-	for _, path := range existingFiles(args) {
-		if filepath.Ext(path) != extPy {
-			continue
-		}
-		found, err := findStructuredLoggingViolations(path, settings)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
-
-			continue
-		}
-		violations = append(violations, found...)
-	}
-	if len(violations) == 0 {
-		return 0
-	}
-
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "STRUCTURED LOGGING CHECK FAILED (ETHOS §11)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §11 (Radical Visibility): every logger call must",
+	return runPythonPolicyCommand(
+		args,
+		func() (bool, error) { return settings.Enabled, nil },
+		func(path string) ([]structuredLoggingViolation, error) {
+			return findStructuredLoggingViolations(path, settings)
+		},
+		reportStructuredLoggingViolations,
 	)
-	fmt.Fprintln(
-		os.Stderr,
-		"include keyword arguments for structured context. Bare string",
-	)
-	fmt.Fprintln(os.Stderr, "messages are insufficient for production observability.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "Violations found (%d):\n", len(violations))
+}
+
+func reportStructuredLoggingViolations(violations []structuredLoggingViolation) {
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: logger.%s(%q) — no structured context\n",
-			violation.File,
-			violation.Line,
-			violation.Method,
-			violation.Preview,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "structured_logging",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Method,
+			Message: "logger call has no structured context",
+			Detail:  violation.Preview,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Add keyword arguments for structured context:")
-	fmt.Fprintln(os.Stderr, `    logger.info("event.name", key=value, other=data)`)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  For exceptions, use exc_info or logger.exception():")
-	fmt.Fprintln(
-		os.Stderr,
-		`    logger.error("operation.failed", error=str(exc), exc_info=True)`,
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
 
-	return 1
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "structured_logging",
+		Title:    "STRUCTURED LOGGING CHECK FAILED (ETHOS §11)",
+		Summary:  "Logger calls must include keyword arguments for structured context.",
+		Findings: findings,
+		Guidance: []string{
+			`Add keyword arguments: logger.info("event.name", key=value, other=data).`,
+			`For exceptions, use exc_info or logger.exception().`,
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func checkConditionalImportsCommand(_ Config, args []string) int {
@@ -3068,64 +3317,40 @@ func checkConditionalImportsCommand(_ Config, args []string) int {
 
 		return 1
 	}
-	if !settings.Enabled || len(args) == 0 {
-		return 0
-	}
 
-	violations := make([]conditionalImportViolation, 0)
-	for _, path := range existingFiles(args) {
-		if filepath.Ext(path) != extPy {
-			continue
-		}
-		found, err := findConditionalImportViolations(path, settings)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+	return runPythonPolicyCommand(
+		args,
+		func() (bool, error) { return settings.Enabled, nil },
+		func(path string) ([]conditionalImportViolation, error) {
+			return findConditionalImportViolations(path, settings)
+		},
+		reportConditionalImportViolations,
+	)
+}
 
-			continue
-		}
-		violations = append(violations, found...)
-	}
-	if len(violations) == 0 {
-		return 0
-	}
-
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §3: if a module requires a library, that library must",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"be present. Do not wrap imports in try/except to hide missing",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"dependencies. The application must crash at the import stage.",
-	)
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+func reportConditionalImportViolations(violations []conditionalImportViolation) {
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: conditional import of %q (%s)\n",
-			violation.File,
-			violation.Line,
-			violation.Module,
-			violation.Pattern,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "conditional_imports",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.Module,
+			Message: "conditional import",
+			Detail:  violation.Pattern,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Remove the try/except and import directly:")
-	fmt.Fprintln(os.Stderr, "    import some_library  # Crash if missing — good.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "  Add the dependency to pyproject.toml if needed.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
 
-	return 1
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "conditional_imports",
+		Title:    "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)",
+		Summary:  "Required imports must fail at import time instead of hiding missing dependencies.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove the try/except and import directly.",
+			"Add the dependency to pyproject.toml if needed.",
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func checkTypeCheckingImportsCommand(_ Config, args []string) int {
@@ -3135,66 +3360,53 @@ func checkTypeCheckingImportsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
 
 	violations := make([]typeCheckingViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		found, err := findTypeCheckingImportViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "STRING ANNOTATION PATTERN DETECTED (ETHOS §3, §12)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Both TYPE_CHECKING and `from __future__ import annotations` make",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"types exist only at check time, not at runtime. TYPE_CHECKING",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"creates a conditional import path. PEP 563 future annotations",
-	)
-	fmt.Fprintln(os.Stderr, "turn all annotations into lazy strings and break runtime")
-	fmt.Fprintln(os.Stderr, "introspection. On Python 3.13+ neither pattern is needed.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: %s\n",
-			violation.File,
-			violation.Line,
-			violation.Pattern,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "type_checking_imports",
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Pattern,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  1. Remove `from __future__ import annotations`.")
-	fmt.Fprintln(os.Stderr, "  2. Extract shared types into a shared protocols module.")
-	fmt.Fprintln(
-		os.Stderr,
-		"  3. Use Protocol-first design or Dependency Inversion to break cycles.",
-	)
-	fmt.Fprintln(os.Stderr, "  4. Keep types runtime-visible.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
+
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "type_checking_imports",
+		Title:    "STRING ANNOTATION PATTERN DETECTED (ETHOS §3, §12)",
+		Summary:  "TYPE_CHECKING and future annotations make types unavailable at runtime.",
+		Findings: findings,
+		Guidance: []string{
+			"Remove `from __future__ import annotations`.",
+			"Extract shared types into a shared protocols module.",
+			"Keep types runtime-visible.",
+		},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3206,61 +3418,40 @@ func checkCatchAndSilenceCommand(_ Config, args []string) int {
 
 		return 1
 	}
-	if !settings.Enabled || len(args) == 0 {
-		return 0
-	}
 
-	violations := make([]catchSilenceViolation, 0)
-	for _, path := range existingFiles(args) {
-		if filepath.Ext(path) != extPy {
-			continue
-		}
-		found, err := findCatchSilenceViolations(path, settings)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
-
-			continue
-		}
-		violations = append(violations, found...)
-	}
-	if len(violations) == 0 {
-		return 0
-	}
-
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(os.Stderr, "CATCH-AND-SILENCE CHECK FAILED (ETHOS §23)")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", reportDividerWidth))
-	fmt.Fprintln(
-		os.Stderr,
-		"Per ETHOS §23: exceptions must never be silently swallowed.",
+	return runPythonPolicyCommand(
+		args,
+		func() (bool, error) { return settings.Enabled, nil },
+		func(path string) ([]catchSilenceViolation, error) {
+			return findCatchSilenceViolations(path, settings)
+		},
+		reportCatchSilenceViolations,
 	)
-	fmt.Fprintln(os.Stderr, "Every except handler must handle, transform+re-raise, or")
-	fmt.Fprintln(os.Stderr, "log+re-raise the exception.")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "Violations found:")
+}
+
+func reportCatchSilenceViolations(violations []catchSilenceViolation) {
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: except %s: %s\n",
-			violation.File,
-			violation.Line,
-			violation.ExceptionType,
-			violation.HandlerBody,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "catch_and_silence",
+			File:    violation.File,
+			Line:    violation.Line,
+			Code:    violation.ExceptionType,
+			Message: "exception handler silences failure",
+			Detail:  violation.HandlerBody,
+		})
 	}
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "How to fix:")
-	fmt.Fprintln(os.Stderr, "  Replace silencing patterns with proper handling:")
-	fmt.Fprintln(os.Stderr, "    except SomeError as exc:")
-	fmt.Fprintln(
-		os.Stderr,
-		`        logger.warning("operation_failed", error=str(exc))`,
-	)
-	fmt.Fprintln(os.Stderr, "        raise  # or raise DifferentError(...) from exc")
-	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", reportDividerWidth))
 
-	return 1
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "catch_and_silence",
+		Title:    "CATCH-AND-SILENCE CHECK FAILED (ETHOS §23)",
+		Summary:  "Exceptions must never be silently swallowed.",
+		Findings: findings,
+		Guidance: []string{
+			"Handle the exception, transform and re-raise, or log and re-raise.",
+			`Use logger.warning("operation_failed", error=str(exc)) with a raise where recovery is not complete.`,
+		},
+	}, selectedHookOutputFormat()))
 }
 
 func checkOptionalReturnsCommand(_ Config, args []string) int {
@@ -3270,43 +3461,49 @@ func checkOptionalReturnsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
 
 	violations := make([]optionalTypeViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		found, err := findOptionalTypeViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
+
 	if len(violations) == 0 {
 		return 0
 	}
 
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		fmt.Fprintf(
-			os.Stderr,
-			"ERROR: %s:%d: %s\n",
-			violation.File,
-			violation.Line,
-			violation.Context,
-		)
+		findings = append(findings, hookFinding{
+			Tool:    "optional_returns",
+			File:    violation.File,
+			Line:    violation.Line,
+			Message: violation.Context,
+		})
 	}
-	fmt.Fprintf(os.Stderr, "\n%s\n", strings.Repeat("=", compactDividerWidth))
-	fmt.Fprintln(os.Stderr, "Optional type annotation check FAILED")
-	fmt.Fprintln(
-		os.Stderr,
-		"All types must be non-optional. Use exceptions, not | None.",
-	)
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
+
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "optional_returns",
+		Title:    "OPTIONAL TYPE ANNOTATION CHECK FAILED",
+		Summary:  "All types must be non-optional. Use exceptions, not | None.",
+		Findings: findings,
+		Guidance: []string{"Replace optional return or dependency types with explicit exceptions or required values."},
+	}, selectedHookOutputFormat()))
 
 	return 1
 }
@@ -3318,6 +3515,7 @@ func checkSecurityPatternsCommand(_ Config, args []string) int {
 
 		return 1
 	}
+
 	if !settings.Enabled || len(args) == 0 {
 		return 0
 	}
@@ -3337,16 +3535,19 @@ func collectSecurityPatternViolations(
 	settings securityPatternsSettings,
 ) []securityViolation {
 	violations := make([]securityViolation, 0)
+
 	for _, path := range existingFiles(args) {
 		if filepath.Ext(path) != extPy {
 			continue
 		}
+
 		found, err := findSecurityViolations(path, settings)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  %s: %v\n", path, err)
 
 			continue
 		}
+
 		violations = append(violations, found...)
 	}
 
@@ -3354,83 +3555,28 @@ func collectSecurityPatternViolations(
 }
 
 func reportSecurityPatternViolations(violations []securityViolation) {
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
-	fmt.Fprintln(os.Stderr, "SECURITY ANTI-PATTERNS DETECTED")
-	fmt.Fprintf(os.Stderr, "%s\n\n", strings.Repeat("=", compactDividerWidth))
-	for _, category := range securityViolationOrder() {
-		printSecurityCategoryViolations(violations, category)
-	}
-	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("=", compactDividerWidth))
-}
-
-func securityViolationOrder() []string {
-	return []string{"DEFAULT_SECRET", "SQL_INJECTION", "TEST_ENV_BYPASS"}
-}
-
-func securityViolationDescriptions() map[string][2]string {
-	return map[string][2]string{
-		"SQL_INJECTION": {
-			"SQL Injection Risk (ETHOS §24):",
-			"Use parameterized queries instead of f-strings for SQL.",
-		},
-		"DEFAULT_SECRET": {
-			"Default Secret Values (ETHOS §24):",
-			"Remove default values from secret-related getenv() calls.",
-		},
-		"TEST_ENV_BYPASS": {
-			"Test Environment Bypass (ETHOS §9):",
-			"Use fixtures that call bootstrap() instead of direct env assignment.",
-		},
-	}
-}
-
-func printSecurityCategoryViolations(
-	violations []securityViolation,
-	category string,
-) {
-	categoryViolations := securityViolationsByCategory(violations, category)
-	if len(categoryViolations) == 0 {
-		return
-	}
-
-	title, description := securityViolationDescription(category)
-	fmt.Fprintln(os.Stderr, title)
-	fmt.Fprintf(os.Stderr, "  %s\n\n", description)
-	for _, violation := range categoryViolations {
-		fmt.Fprintf(
-			os.Stderr,
-			"  %s:%d: [%s] %s\n    > %s\n",
-			violation.File,
-			violation.Line,
-			violation.Category,
-			violation.Message,
-			violation.Snippet,
-		)
-	}
-	fmt.Fprintln(os.Stderr)
-}
-
-func securityViolationsByCategory(
-	violations []securityViolation,
-	category string,
-) []securityViolation {
-	filtered := make([]securityViolation, 0)
+	findings := make([]hookFinding, 0, len(violations))
 	for _, violation := range violations {
-		if violation.Category == category {
-			filtered = append(filtered, violation)
-		}
+		findings = append(findings, hookFinding{
+			Tool:     "security_patterns",
+			File:     violation.File,
+			Line:     violation.Line,
+			Code:     violation.Category,
+			Severity: "error",
+			Message:  violation.Message,
+			Detail:   violation.Snippet,
+		})
 	}
 
-	return filtered
-}
-
-func securityViolationDescription(category string) (string, string) {
-	descriptions := securityViolationDescriptions()
-	title := descriptions[category][0]
-	description := descriptions[category][1]
-	if title == "" {
-		return category + ":", "Security issue detected."
-	}
-
-	return title, description
+	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
+		Tool:     "security_patterns",
+		Title:    "SECURITY ANTI-PATTERNS DETECTED",
+		Summary:  "Security checks found unsafe defaults, SQL injection risks, or bootstrap bypasses.",
+		Findings: findings,
+		Guidance: []string{
+			"Use parameterized queries instead of SQL f-strings.",
+			"Remove default values from secret-related getenv calls.",
+			"Use fixtures that call bootstrap instead of direct environment assignment.",
+		},
+	}, selectedHookOutputFormat()))
 }

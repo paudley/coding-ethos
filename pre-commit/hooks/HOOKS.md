@@ -3,15 +3,40 @@
 
 # coding-ethos-hooks
 
-Lefthook hooks for coding-ethos bundles.
+Go-backed Git hooks for coding-ethos bundles.
+
+The Go runner is the output-control layer for Git hooks. It supports
+`hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`
+selects TOON when known agent/LLM environment markers are present. Successful
+groups are silent by default through `hooks.success_output: silent`, while
+`hooks.success_output: verbose` restores operator-facing pass summaries. When
+`hooks.parallel_groups: true`, enabled groups run concurrently as isolated hook
+subprocesses and their captured output is replayed in deterministic group order
+only when a group fails or verbose success output is enabled.
+Failed grouped runs also emit a compact execution summary before raw tool
+detail: group status, duration, failed groups, and command timing where
+commands ran in-process.
+
+The shell entry wrapper logs every top-level run to
+`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including
+`stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
+evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
+when required runtime output paths are not ignored, and `hook-log-summary`
+summarizes collected runs for later analysis.
+
+Known linter/type-checker diagnostics can map to ETHOS policy evidence through
+`policy.evidence_maps`. Mapped findings receive policy-grounded advice in
+human, JSON, and TOON output; unmapped findings keep their normal diagnostic
+shape.
 
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit
   attribution, direct-import enforcement, utility and SQL centralization, file
-  and module doc checks, type-check orchestration, pytest gating, pyproject
-  ignore enforcement, repo-root Python version consistency checks, shared hook
-  policy, and the active Gemini AI review runner
+  and module doc checks, type-check orchestration, Python quality wrappers,
+  Dockerfile and workflow validation, Go toolchain checks, pytest gating,
+  pyproject ignore enforcement, repo-root Python version consistency checks,
+  shared hook policy, and the active Gemini AI review runner
 - **check_complexity.py** - Cyclomatic complexity checks via Radon
 - **check_maintainability.py** - Maintainability index checks via Radon
 - **check_vulture.py** - Dead-code detection via Vulture
@@ -22,7 +47,7 @@ Python tooling.
 
 ## Installation
 
-Install Lefthook from the repository root that exposes `lefthook.yml`:
+Install the Go hook shims from the repository root that exposes the bundle:
 
 ```bash
 cd /path/to/repo
@@ -33,6 +58,9 @@ make -C code-ethos install-hooks
 
 - pyyaml >= 6.0
 - go >= 1.26
+- uv
+- shellcheck, hadolint, actionlint, and golangci-lint for their corresponding
+  hook groups
 
 ## Development
 

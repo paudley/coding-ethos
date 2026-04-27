@@ -4,6 +4,64 @@
 style:
   line_length: 100
 
+hooks:
+  output_format: auto
+  success_output: silent
+  parallel_groups: true
+  tool_timeout_seconds: 300
+  agent_env_markers:
+    - CODEX_THREAD_ID
+    - CLAUDE_CODE_ENTRYPOINT
+    - GEMINI_CLI
+  enabled_groups:
+    - syntax
+    - python-policy
+    - python-static
+    - docs
+    - security
+    - shell
+    - docker
+    - workflow
+    - python-quality
+    - go
+    - ai
+    - commit-msg
+
+git:
+  hook_bypass:
+    enabled: true
+  stash_blocked:
+    enabled: true
+  staged_admin_files:
+    enabled: true
+    basenames:
+      - pyproject.toml
+      - repo_config.yaml
+    dirs:
+      - .github
+
+filesystem:
+  protected_path:
+    enabled: true
+    paths:
+      - /usr/bin/got
+  protected_branch_write:
+    enabled: true
+    branches:
+      - main
+      - release
+    exempt_path_prefixes:
+      - .claude/
+      - docs/plans/
+
+shell:
+  dangerous_command:
+    enabled: true
+  background_git:
+    enabled: true
+  github_admin:
+    enabled: true
+
 python:
   source_paths:
     - lib/python/project
@@ -105,9 +163,25 @@ python:
       - /docker/
       - vulture_whitelist
     checkers:
+      - name: ruff
+        enabled: true
+        command:
+          - ruff
+          - check
+          - --quiet
+          - --ignore-noqa
+          - --output-format
+          - json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config
+        repo_config: ruff.toml
       - name: pyright
+        enabled: true
         command:
           - pyright
+          - --outputjson
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
@@ -115,13 +189,26 @@ python:
           - -p
         repo_config: pyrightconfig.json
       - name: mypy
+        enabled: true
         command:
           - mypy
+          - --output
+          - json
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
           - --config-file
         repo_config: mypy.ini
+      - name: pylint
+        enabled: false
+        command:
+          - pylint
+          - --output-format=json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --rcfile
+        repo_config: .pylintrc
 
   docstring_coverage:
     enabled: true
@@ -138,6 +225,14 @@ tooling:
     include:
       - lib/python/project
       - pre-commit/hooks
+  pylint:
+    disable:
+      - missing-module-docstring
+      - missing-class-docstring
+      - missing-function-docstring
+      - line-too-long
+      - too-few-public-methods
+      - duplicate-code
   golangci_lint:
     linters:
       enable:

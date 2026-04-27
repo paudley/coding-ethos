@@ -87,9 +87,8 @@ For Gemini prompt-pack sync, the CLI merges ethos context and enforcement
 config, renders every prompt template, attaches check selectors and runtime
 metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
 
-For hooks, the Makefile installs repo-local Lefthook shims that call the pinned
-Lefthook binary under `.git/coding-ethos-hooks/`. Most policy checks execute
-through the Go helper in `pre-commit/hooks/go-hooks/`.
+For hooks, the Makefile installs repo-local Git hook shims that call the Go
+helper in `pre-commit/hooks/go-hooks/`.
 
 ## Validation boundaries
 

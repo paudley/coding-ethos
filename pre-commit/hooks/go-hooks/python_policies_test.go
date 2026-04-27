@@ -74,12 +74,85 @@ python:
 			t.Fatalf("checkPytestGateCommand() = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(output, "Skipped tests: 1") {
+	if !strings.Contains(output, "skipped=1") {
 		t.Fatalf("unexpected output: %q", output)
 	}
 }
 
+func TestCheckPytestGateCommandIsSilentOnSuccessByDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - /bin/sh
+      - -lc
+      - printf '2 passed in 0.10s\n'
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+	t.Setenv(hookSuccessOutputEnv, "")
+
+	filePath := filepath.Join(tempDir, "test_sample.py")
+	mustWriteTestFile(t, filePath, "def test_ok():\n    assert True\n")
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(Config{}, []string{filePath}); got != 0 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 0", got)
+		}
+	})
+	if output != "" {
+		t.Fatalf("expected silent success output, got: %q", output)
+	}
+}
+
+func TestCheckPytestGateCommandCanEmitVerboseSuccess(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - /bin/sh
+      - -lc
+      - printf '2 passed in 0.10s\n'
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+	t.Setenv(hookSuccessOutputEnv, hookSuccessVerbose)
+
+	filePath := filepath.Join(tempDir, "test_sample.py")
+	mustWriteTestFile(t, filePath, "def test_ok():\n    assert True\n")
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(Config{}, []string{filePath}); got != 0 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 0", got)
+		}
+	})
+	if !strings.Contains(output, "Running pytest gate...") ||
+		!strings.Contains(output, "Pytest gate passed: 2 tests, 0 skipped.") {
+		t.Fatalf("unexpected verbose output: %q", output)
+	}
+}
+
 func TestFindDirectImportViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	mustWriteTestFile(t, filepath.Join(tempDir, "project", "__init__.py"), "")
 	mustWriteTestFile(
@@ -105,15 +178,19 @@ func TestFindDirectImportViolations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findDirectImportViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 1 {
 		t.Fatalf("len(violations) = %d, want 1 (%#v)", len(violations), violations)
 	}
+
 	if got, want := violations[0].Suggestion, "from project import helper"; got != want {
 		t.Fatalf("Suggestion = %q, want %q", got, want)
 	}
 }
 
 func TestIsDirectImportExemptMatchesConfiguredPath(t *testing.T) {
+	t.Parallel()
+
 	settings := directImportsSettings{
 		ExemptPaths: []string{"lib/python/tests"},
 	}
@@ -121,12 +198,15 @@ func TestIsDirectImportExemptMatchesConfiguredPath(t *testing.T) {
 	if !isDirectImportExempt("repo/lib/python/tests/test_module.py", settings) {
 		t.Fatal("expected test path to be exempt")
 	}
+
 	if isDirectImportExempt("repo/lib/python/project/module.py", settings) {
 		t.Fatal("source path should not be exempt")
 	}
 }
 
 func TestFindUtilityViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "module.py")
 	mustWriteTestFile(t, filePath, "import requests\nfrom google import genai\n")
@@ -144,9 +224,11 @@ func TestFindUtilityViolations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findUtilityViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 2 {
 		t.Fatalf("len(violations) = %d, want 2 (%#v)", len(violations), violations)
 	}
+
 	if !reflect.DeepEqual(
 		[]string{violations[0].Suggestion, violations[1].Suggestion},
 		[]string{"Use project.http", "Use project.ai"},
@@ -156,16 +238,18 @@ func TestFindUtilityViolations(t *testing.T) {
 }
 
 func TestFindSQLViolationsIgnoresDocstringsAndKeywordContext(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "module.py")
 	mustWriteTestFile(
 		t,
 		filePath,
 		strings.TrimSpace(`
-"""SELECT * FROM docs should not count."""
+"""SELECT id FROM docs should not count."""
 
 def build():
-    raise ValueError(reason="SELECT * FROM docs")
+    raise ValueError(reason="SELECT id FROM docs")
     query = "SELECT id FROM users WHERE id = $1"
     return query
 `)+"\n",
@@ -183,15 +267,48 @@ def build():
 	if err != nil {
 		t.Fatalf("findSQLViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 1 {
 		t.Fatalf("len(violations) = %d, want 1 (%#v)", len(violations), violations)
 	}
+
 	if violations[0].Pattern != "SELECT...FROM" {
 		t.Fatalf("Pattern = %q, want %q", violations[0].Pattern, "SELECT...FROM")
 	}
 }
 
+func TestFindSQLViolationsIgnoresConfiguredTestPaths(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "tests", "test_queries.py")
+	mustWriteTestFile(
+		t,
+		filePath,
+		"query = \"SELECT id FROM users WHERE id = $1\"\n",
+	)
+
+	violations, err := findSQLViolations(
+		filePath,
+		sqlCentralizationSettings{
+			Enabled:         true,
+			ModuleName:      "project.sql",
+			ExemptPaths:     []string{"tests"},
+			MinStringLength: 15,
+		},
+	)
+	if err != nil {
+		t.Fatalf("findSQLViolations() returned error: %v", err)
+	}
+
+	if len(violations) != 0 {
+		t.Fatalf("len(violations) = %d, want 0 (%#v)", len(violations), violations)
+	}
+}
+
 func TestFindStructuredLoggingViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "logging.py")
 	mustWriteTestFile(
@@ -218,15 +335,19 @@ def run(logger, exc):
 	if err != nil {
 		t.Fatalf("findStructuredLoggingViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 2 {
 		t.Fatalf("len(violations) = %d, want 2 (%#v)", len(violations), violations)
 	}
+
 	if violations[0].Method != "info" || violations[1].Method != "info" {
 		t.Fatalf("unexpected methods: %#v", violations)
 	}
 }
 
 func TestFindConditionalImportViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "imports.py")
 	mustWriteTestFile(
@@ -251,12 +372,15 @@ except ImportError:
 	if err != nil {
 		t.Fatalf("findConditionalImportViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 2 {
 		t.Fatalf("len(violations) = %d, want 2 (%#v)", len(violations), violations)
 	}
 }
 
 func TestFindTypeCheckingImportViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "typing_example.py")
 	mustWriteTestFile(
@@ -282,12 +406,15 @@ if TYPE_CHECKING:
 	if err != nil {
 		t.Fatalf("findTypeCheckingImportViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 3 {
 		t.Fatalf("len(violations) = %d, want 3 (%#v)", len(violations), violations)
 	}
 }
 
 func TestFindCatchSilenceViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "exceptions.py")
 	mustWriteTestFile(
@@ -309,15 +436,19 @@ except ValueError:
 	if err != nil {
 		t.Fatalf("findCatchSilenceViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 1 {
 		t.Fatalf("len(violations) = %d, want 1 (%#v)", len(violations), violations)
 	}
+
 	if violations[0].HandlerBody != "pass" {
 		t.Fatalf("HandlerBody = %q, want %q", violations[0].HandlerBody, "pass")
 	}
 }
 
 func TestFindOptionalTypeViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "optional_types.py")
 	mustWriteTestFile(
@@ -347,12 +478,15 @@ def __exit__(exc_type: type[BaseException] | None) -> None:
 	if err != nil {
 		t.Fatalf("findOptionalTypeViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 4 {
 		t.Fatalf("len(violations) = %d, want 4 (%#v)", len(violations), violations)
 	}
 }
 
 func TestFindSecurityViolations(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "tests", "test_security.py")
 	mustWriteTestFile(
@@ -362,7 +496,7 @@ func TestFindSecurityViolations(t *testing.T) {
 import os
 
 def build_query(table: str) -> str:
-    query = f"SELECT * FROM {table}"
+    query = f"SELECT id FROM {table}"
     secret = os.getenv("API_KEY", "sk-test-key")
     os.environ["API_KEY"] = "override"
     return query + secret
@@ -408,6 +542,7 @@ def build_query(table: str) -> str:
 	if err != nil {
 		t.Fatalf("findSecurityViolations() returned error: %v", err)
 	}
+
 	if len(violations) != 3 {
 		t.Fatalf("len(violations) = %d, want 3 (%#v)", len(violations), violations)
 	}
