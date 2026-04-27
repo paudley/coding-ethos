@@ -13,6 +13,8 @@ trap 'rm -rf "$tmp_root"' EXIT
 policy_dir="$tmp_root/policy"
 git_repo="$tmp_root/repo"
 wrapper_repo="$tmp_root/wrapper-repo"
+lfs_hook_dir="$tmp_root/lfs-hooks"
+fake_bin="$tmp_root/fake-bin"
 
 policy_bin="$go_bin/coding-ethos-policy"
 lint_bin="$go_bin/coding-ethos-lint"
@@ -269,5 +271,32 @@ agent_settings="$tmp_root/claude-settings/settings.local.json"
   --hook-command "$repo_root/pre-commit/hooks/run-go-hook.sh agent-hook" >/dev/null
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --settings "$agent_settings" >/dev/null
+
+printf '==> validating git lfs delegation hook\n'
+mkdir -p "$lfs_hook_dir" "$fake_bin"
+cp "$repo_root/pre-commit/hooks/run-lfs-hook.sh" "$lfs_hook_dir/post-commit"
+chmod +x "$lfs_hook_dir/post-commit"
+cat > "$fake_bin/git" <<'FAKEGIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "lfs" ]]; then
+  exit 1
+fi
+if [[ "${2:-}" == "version" ]]; then
+  printf 'git-lfs/test\n'
+  exit 0
+fi
+printf '%s\n' "$*" > "${CODING_ETHOS_FAKE_GIT_LOG:?}"
+FAKEGIT
+chmod +x "$fake_bin/git"
+fake_git_log="$tmp_root/fake-git-lfs.log"
+CODING_ETHOS_FAKE_GIT_LOG="$fake_git_log" \
+  PATH="$fake_bin:$PATH" \
+  "$lfs_hook_dir/post-commit"
+if [[ "$(cat "$fake_git_log")" != "lfs post-commit" ]]; then
+  printf 'expected git lfs post-commit delegation, got:\n' >&2
+  cat "$fake_git_log" >&2
+  exit 1
+fi
 
 printf 'go tools smoke passed\n'
