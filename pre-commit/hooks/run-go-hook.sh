@@ -94,7 +94,21 @@ build_go_binary() {
 
 build_policy_tool() {
 	local name="${1:?tool name required}"
-	build_go_binary "${TOOLS_SRC_DIR}/cmd/${name}" "${TOOLS_BIN_DIR}/${name}"
+	local src_dir="${TOOLS_SRC_DIR}/cmd/${name}"
+	local bin="${TOOLS_BIN_DIR}/${name}"
+
+	if [[ -x "$bin" ]] && ! find \
+		"${TOOLS_SRC_DIR}/cmd/${name}" \
+		"${TOOLS_SRC_DIR}/internal" \
+		-type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) \
+		-newer "$bin" | grep -q .; then
+		return
+	fi
+
+	local tmp_bin="${bin}.tmp.$$"
+	rm -f "$tmp_bin"
+	go build -C "$src_dir" -buildvcs=false -o "$tmp_bin" .
+	mv -f "$tmp_bin" "$bin"
 }
 
 has_arg() {
