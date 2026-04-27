@@ -4,11 +4,14 @@
 package hooks
 
 type Event struct {
-	ToolInput     map[string]any `json:"tool_input,omitempty"`
-	ToolResponse  map[string]any `json:"tool_response,omitempty"`
-	Cwd           string         `json:"cwd,omitempty"`
-	HookEventName string         `json:"hook_event_name"`
-	ToolName      string         `json:"tool_name,omitempty"`
+	ToolInput      map[string]any `json:"tool_input,omitempty"`
+	ToolResponse   map[string]any `json:"tool_response,omitempty"`
+	Cwd            string         `json:"cwd,omitempty"`
+	HookEventName  string         `json:"hook_event_name"`
+	Matcher        string         `json:"matcher,omitempty"`
+	SessionID      string         `json:"session_id,omitempty"`
+	ToolName       string         `json:"tool_name,omitempty"`
+	TranscriptPath string         `json:"transcript_path,omitempty"`
 }
 
 func (event Event) Command() string {

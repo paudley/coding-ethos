@@ -3,26 +3,26 @@
     {
       "hook": "pre-commit",
       "legacy_behavior": "execute coding-ethos Go runner git-hook pre-commit",
-      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook pre-commit",
-      "status": "covered"
+      "replacement": "coding-ethos-git-hook compiled-policy runtime",
+      "status": "cutover_ready"
     },
     {
       "hook": "pre-push",
       "legacy_behavior": "execute coding-ethos Go runner git-hook pre-push",
-      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook pre-push",
-      "status": "covered"
+      "replacement": "coding-ethos-git-hook compiled-policy runtime",
+      "status": "cutover_ready"
     },
     {
       "hook": "commit-msg",
       "legacy_behavior": "execute coding-ethos Go runner git-hook commit-msg",
-      "replacement": "pre-commit/hooks/run-go-hook.sh git-hook commit-msg",
-      "status": "covered"
+      "replacement": "coding-ethos-git-hook compiled-policy runtime",
+      "status": "cutover_ready"
     },
     {
       "hook": "post-commit/post-merge/post-checkout",
       "legacy_behavior": "delegate to git lfs post-* hooks",
       "replacement": "preserve Git LFS post-hook delegation during cutover",
-      "status": "external"
+      "status": "cutover_ready"
     }
   ],
   "claude_hooks": [
@@ -51,15 +51,15 @@
       "event": "PreCompact",
       "tool": "",
       "legacy_behavior": "generate continuation notes and prompt",
-      "replacement": "planned deterministic transcript capture and replay; no hook-path AI call",
-      "status": "planned"
+      "replacement": "deterministic transcript capture; no hook-path AI call",
+      "status": "covered"
     },
     {
       "event": "SessionStart",
       "tool": "compact",
       "legacy_behavior": "inject generated continuation prompt into session context",
-      "replacement": "planned coding-ethos continuation context store",
-      "status": "planned"
+      "replacement": "coding-ethos continuation context store replay",
+      "status": "covered"
     }
   ]
 }

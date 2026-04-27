@@ -542,6 +542,64 @@ func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 	}
 }
 
+func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	transcript := filepath.Join(t.TempDir(), "session.jsonl")
+
+	err := os.WriteFile(
+		transcript,
+		[]byte("{\"role\":\"user\",\"content\":\"finish the hook cutover\"}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	capture, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName:  "PreCompact",
+			Cwd:            repo,
+			SessionID:      "session-001",
+			TranscriptPath: transcript,
+		},
+	})
+	if err != nil {
+		t.Fatalf("capture continuation: %v", err)
+	}
+
+	if capture.HookSpecificOutput == nil ||
+		!strings.Contains(
+			capture.HookSpecificOutput.AdditionalContext,
+			"captured deterministic continuation context",
+		) {
+		t.Fatalf("missing capture output: %#v", capture.HookSpecificOutput)
+	}
+
+	inject, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "SessionStart",
+			Matcher:       "compact",
+			Cwd:           repo,
+			SessionID:     "session-001",
+		},
+	})
+	if err != nil {
+		t.Fatalf("inject continuation: %v", err)
+	}
+
+	if inject.HookSpecificOutput == nil {
+		t.Fatalf("missing inject output: %#v", inject.HookSpecificOutput)
+	}
+
+	additionalContext := inject.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(additionalContext, "CODING-ETHOS CONTINUATION") ||
+		!strings.Contains(additionalContext, "finish the hook cutover") {
+		t.Fatalf("unexpected inject output: %#v", inject.HookSpecificOutput)
+	}
+}
+
 func initHookRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

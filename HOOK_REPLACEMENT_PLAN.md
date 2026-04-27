@@ -30,12 +30,12 @@ parent and Claude hook entries outside this repo.
 
 | Hook | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- |
-| `pre-commit` | Locate bundle and run `run-go-hook.sh git-hook pre-commit`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
-| `pre-push` | Locate bundle and run `run-go-hook.sh git-hook pre-push`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
-| `commit-msg` | Locate bundle and run `run-go-hook.sh git-hook commit-msg`. | Current coding-ethos Git shim. | Covered |
-| `post-commit` | Delegate to `git lfs post-commit`. | Installed Git LFS delegation shim. | Installed |
-| `post-merge` | Delegate to `git lfs post-merge`. | Installed Git LFS delegation shim. | Installed |
-| `post-checkout` | Delegate to `git lfs post-checkout`. | Installed Git LFS delegation shim. | Installed |
+| `pre-commit` | Locate bundle and run `run-go-hook.sh git-hook pre-commit`. | `coding-ethos-git-hook` compiled-policy runtime plus bundled hook groups. | Cutover ready |
+| `pre-push` | Locate bundle and run `run-go-hook.sh git-hook pre-push`. | `coding-ethos-git-hook` compiled-policy runtime plus bundled hook groups. | Cutover ready |
+| `commit-msg` | Locate bundle and run `run-go-hook.sh git-hook commit-msg`. | `coding-ethos-git-hook` compiled-policy runtime plus commit-message group. | Cutover ready |
+| `post-commit` | Delegate to `git lfs post-commit`. | Installed Git LFS delegation shim. | Cutover ready |
+| `post-merge` | Delegate to `git lfs post-merge`. | Installed Git LFS delegation shim. | Cutover ready |
+| `post-checkout` | Delegate to `git lfs post-checkout`. | Installed Git LFS delegation shim. | Cutover ready |
 
 ## Claude Hooks
 
@@ -44,8 +44,8 @@ parent and Claude hook entries outside this repo.
 | `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Installed |
 | `PreToolUse` | `Write` / `Edit` / `MultiEdit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Installed |
 | `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Installed |
-| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Planned deterministic transcript capture and replay. No hook-path AI call. | Planned |
-| `SessionStart` | `compact` | Inject continuation prompt into the next compacted session. | Planned coding-ethos continuation context store. | Planned |
+| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Deterministic transcript tail capture in `.git/coding-ethos-hooks/continuation/`. No hook-path AI call. | Installed |
+| `SessionStart` | `compact` | Inject generated continuation prompt into session context. | Deterministic continuation context replay from `.git/coding-ethos-hooks/continuation/`. | Installed |
 
 ## Current Coverage
 
@@ -74,6 +74,8 @@ Runtime covered in Go agent-hook code:
 - `python.bare_except`
 - `python.unexplained_type_ignore`
 - Post-tool hook output feedback for git hook commands
+- Pre-compact deterministic continuation capture
+- Compact session-start deterministic continuation replay
 
 Imported fixtures live under `go/internal/hooks/testdata/legacy/`.
 `go/internal/hooks/testdata/legacy_hook_inventory.json` is the machine-readable
@@ -89,9 +91,11 @@ inventory used to keep the migration status explicit.
   doctor path through `coding-ethos-agent-hooks` and
   `run-go-hook.sh agent-hooks`. Cutover still requires intentionally choosing
   which repo or Claude settings file to update.
-- Git hooks now run compiled-policy preflight before the current bundled Go hook
-  runner under `pre-commit/hooks/go-hooks/`. Move remaining hook groups onto
-  compiled-policy dispatch before claiming one runtime source of truth.
+- Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
+  runtime. It performs policy preflight and then runs the bundled hook groups as
+  executable checks. Future work should continue migrating individual checks
+  into compiled policy evaluators, but parent hook replacement no longer depends
+  on legacy parent shims.
 - Protected paths, protected branches, staged admin files, and shell/git policy
   enablement are compiled from `config.yaml`/repo override data. Remaining
   config work is to broaden that pattern to every evaluator as it moves into
@@ -101,11 +105,10 @@ inventory used to keep the migration status explicit.
   `coding-ethos-lint` until executable evaluators exist.
 - AI co-author commit-message blocking currently exists in commit-message hooks;
   the agent hook path should route to the same policy.
-- PreCompact should be redesigned as deterministic context capture. The legacy
-  script made a direct external model call and contained local credentials; that
-  behavior should not be cloned.
-- SessionStart continuation injection needs a repo-owned continuation store and
-  a fixture-backed output contract.
+- Claude is the first concrete provider surface. The next implementation step is
+  splitting the provider-neutral hook event model from Claude settings rendering
+  so Codex/Gemini adapters can use the same runtime where their products expose
+  lifecycle hooks.
 
 ## Fixture Contract
 

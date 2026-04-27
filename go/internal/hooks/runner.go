@@ -78,6 +78,10 @@ func RunWithRegistry(
 }
 
 func hookSpecificOutput(event Event) *HookSpecificOutput {
+	if output := continuationOutput(event); output != nil {
+		return output
+	}
+
 	if event.HookEventName != "PostToolUse" || event.ToolName != "Bash" {
 		return nil
 	}

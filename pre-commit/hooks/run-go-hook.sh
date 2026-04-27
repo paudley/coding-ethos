@@ -194,10 +194,7 @@ run_git_hook() {
 
 	compile_policy_bundle
 	case "$hook_name" in
-		pre-commit | pre-push)
-			run_policy_lint_check --staged --cwd "$ROOT"
-			;;
-		commit-msg | validate)
+		pre-commit | pre-push | commit-msg | validate)
 			;;
 		*)
 			printf 'FATAL: unknown git hook %q\n' "$hook_name" >&2
@@ -205,8 +202,13 @@ run_git_hook() {
 			;;
 	esac
 
+	build_policy_tool coding-ethos-git-hook
 	build_go_binary "$GIT_HOOK_SRC_DIR" "$GIT_HOOK_BIN"
-	exec "$GIT_HOOK_BIN" git-hook "$@"
+	exec "${TOOLS_BIN_DIR}/coding-ethos-git-hook" \
+		--bundle "$POLICY_BUNDLE" \
+		--runner "$GIT_HOOK_BIN" \
+		--cwd "$ROOT" \
+		"$@"
 }
 
 case "${1:-}" in

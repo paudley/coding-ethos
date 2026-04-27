@@ -334,12 +334,11 @@ they are not invoked from agent hooks. Agent hook evaluators are runtime-covered
 but Claude hook installation and cutover are still tracked in
 [HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
 
-Installed Git hook shims also compile the policy bundle and run executable
-compiled-policy preflight before delegating to the current Go hook group runner.
-This keeps compiled policy in the active Git hook path while the remaining hook
-groups are moved over. `make install-hooks` also installs `post-commit`,
-`post-merge`, and `post-checkout` shims that delegate to Git LFS when it is
-available.
+Installed Git hook shims compile the policy bundle and enter
+`coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That runtime
+runs policy preflight and then executes the bundled hook groups as the active
+quality gate. `make install-hooks` also installs `post-commit`, `post-merge`,
+and `post-checkout` shims that delegate to Git LFS when it is available.
 
 Render or verify Claude agent hook settings without touching global files:
 
@@ -350,6 +349,10 @@ pre-commit/hooks/run-go-hook.sh agent-hooks doctor --settings .claude/settings.l
 ```
 
 The sync command only writes the explicit `--settings` path.
+Generated Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
+`SessionStart` compact replay. Continuation state is stored under
+`.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
+another model from the agent-hook path.
 
 Install hooks:
 

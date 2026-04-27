@@ -272,6 +272,25 @@ agent_settings="$tmp_root/claude-settings/settings.local.json"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --settings "$agent_settings" >/dev/null
 
+printf '==> validating agent continuation capture and replay\n'
+transcript="$tmp_root/session.jsonl"
+printf '{"role":"user","content":"finish the hook cutover"}\n' > "$transcript"
+(
+  cd "$wrapper_repo"
+  printf '{"hook_event_name":"PreCompact","session_id":"smoke-session","transcript_path":"%s"}\n' \
+    "$transcript" |
+    "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
+      >/tmp/coding-ethos-precompact-smoke.out
+  printf '{"hook_event_name":"SessionStart","matcher":"compact","session_id":"smoke-session"}\n' |
+    "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
+      >/tmp/coding-ethos-sessionstart-smoke.out
+)
+if ! grep -q 'CODING-ETHOS CONTINUATION' /tmp/coding-ethos-sessionstart-smoke.out; then
+  printf 'expected continuation replay output:\n' >&2
+  cat /tmp/coding-ethos-sessionstart-smoke.out >&2
+  exit 1
+fi
+
 printf '==> validating git lfs delegation hook\n'
 mkdir -p "$lfs_hook_dir" "$fake_bin"
 cp "$repo_root/pre-commit/hooks/run-lfs-hook.sh" "$lfs_hook_dir/post-commit"

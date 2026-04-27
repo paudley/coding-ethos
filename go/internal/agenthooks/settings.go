@@ -74,6 +74,12 @@ func buildSettings(hookCommand string) (claudeSettings, error) {
 			"PostToolUse": {
 				commandMatcher("Bash", hookCommand),
 			},
+			"PreCompact": {
+				commandMatcher("", hookCommand),
+			},
+			"SessionStart": {
+				commandMatcher("compact", hookCommand),
+			},
 		},
 	}, nil
 }

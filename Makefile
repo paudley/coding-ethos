@@ -37,6 +37,7 @@ GO_TOOL_CMDS := \
 	coding-ethos-policy \
 	coding-ethos-lint \
 	coding-ethos-hook \
+	coding-ethos-git-hook \
 	coding-ethos-git
 
 UV ?= uv
