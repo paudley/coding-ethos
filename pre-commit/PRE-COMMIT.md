@@ -4,15 +4,13 @@
 # Pre-Commit Hooks
 
 This bundle provides ETHOS-oriented Git hooks through the bundled Go runner.
-Lefthook remains as a transitional compatibility dispatcher, not the primary
-runtime. The bundle supports two layouts:
+The bundle supports two layouts:
 
 - Source repo: `pre-commit/`
 - Vendored/submodule repo: `code-ethos/pre-commit/`
 
-The hook runners resolve either layout automatically. Consuming repos that
-still run Lefthook can keep a root-level `lefthook.yml` symlink, but installed
-Git hooks call the Go runner directly.
+The hook runners resolve either layout automatically. Installed Git hooks call
+the Go runner directly.
 
 ## Install
 
@@ -64,6 +62,7 @@ make pre-commit
 make pre-commit-all
 make pre-push
 make validate
+make hook-plan
 ```
 
 Run a single group directly:
@@ -83,15 +82,13 @@ make commit-msg MSG="$tmp"
 rm -f "$tmp"
 ```
 
-Hook bypass is forbidden. Do not use `LEFTHOOK=0` or `--no-verify`.
+Hook bypass is forbidden. Do not use `--no-verify`.
 
 ## Layout
 
 Primary files:
 
-- `lefthook.yml` - transitional dispatcher for repos still invoking Lefthook
 - `../Makefile` - root-level hook entry points and Git hook installation
-- `lefthook.version` - pinned compatibility Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
 - `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.pylintrc`,
   `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool
@@ -101,7 +98,6 @@ Primary files:
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `hooks/run-go-hook.sh` - cached Go helper build and execution wrapper
 - `hooks/run-git-hook.sh` - installed Git hook shim
-- `hooks/run-lefthook.sh` - compatibility shim for legacy Lefthook installs
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
@@ -113,8 +109,6 @@ merged `config.yaml` plus `repo_config.yaml`.
 
 The cached Go helper binary lives in `.git/coding-ethos-hooks/`. It rebuilds
 when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
-The Lefthook binary can still be cached there for transitional compatibility
-validation and manual Lefthook workflows.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 
@@ -206,7 +200,7 @@ local `.pylintrc` policy has been reviewed.
 The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
 `python-quality`, `python-static`, `docs`, `security`, `shell`, `docker`,
 `workflow`, `go`, `ai`, and `commit-msg`; the Go runner owns the enforcement
-behavior and Lefthook dispatches to it only during the transition period.
+behavior. Run `make hook-plan` to print the active group and command plan.
 
 For this repo, many project-specific checks are disabled by default because the
 codebase does not have SQL centralization, manifest, plan, or Go worktree
@@ -259,19 +253,6 @@ Commit-message hooks enforce:
 - no AI attribution or promotional co-author lines
 
 ## Updating
-
-To update Lefthook:
-
-1. Change `pre-commit/lefthook.version`.
-2. Change `min_version` in `pre-commit/lefthook.yml`.
-3. Run:
-
-```bash
-make lefthook-validate
-make install-hooks
-cd "$(git rev-parse --show-toplevel)"
-.git/coding-ethos-hooks/lefthook validate
-```
 
 To update Go helper behavior:
 

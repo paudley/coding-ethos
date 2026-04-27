@@ -154,7 +154,7 @@ func runHookGroupInProcess(cfg Config, group hookGroup, files []string) int {
 	exit := 0
 
 	for _, command := range group.Commands {
-		if command(cfg, files) != 0 {
+		if command.Run(cfg, files) != 0 {
 			exit = 1
 		}
 	}
@@ -423,6 +423,14 @@ func validateGoHookRuntime() int {
 			fmt.Fprintf(os.Stderr, "FATAL: invalid empty hook group %q\n", name)
 
 			return 1
+		}
+
+		for _, command := range group.Commands {
+			if strings.TrimSpace(command.Name) == "" || command.Run == nil {
+				fmt.Fprintf(os.Stderr, "FATAL: invalid hook command in group %q\n", name)
+
+				return 1
+			}
 		}
 	}
 

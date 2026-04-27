@@ -226,10 +226,6 @@ var (
 type CommandFunc func(Config, []string) int
 
 func main() {
-	if os.Getenv("LEFTHOOK") == "0" {
-		os.Exit(0)
-	}
-
 	if len(os.Args) < minCollectionItems {
 		usage()
 		os.Exit(1)
@@ -273,6 +269,7 @@ func main() {
 		"fix-text":                         fixText,
 		"gemini-check":                     runGeminiCheck,
 		"git-hook":                         runGitHookCommand,
+		"hook-plan":                        runHookPlanCommand,
 		"hadolint":                         runHadolint,
 		"quiet-filter":                     quietFilter,
 		"run-group":                        runHookGroupCommand,
@@ -1206,14 +1203,14 @@ func bundleLocalBinDirname(rootConfig map[string]any) string {
 }
 
 func isBundleRoot(path string) bool {
-	info, err := os.Stat(filepath.Join(path, "lefthook.yml"))
+	info, err := os.Stat(filepath.Join(path, "hooks", "run-go-hook.sh"))
 	if err != nil || info.IsDir() {
 		return false
 	}
 
-	hooks, err := os.Stat(filepath.Join(path, "hooks"))
+	hookRuntime, err := os.Stat(filepath.Join(path, "hooks", "go-hooks"))
 
-	return err == nil && hooks.IsDir()
+	return err == nil && hookRuntime.IsDir()
 }
 
 func findBundleRoot() (string, error) {

@@ -205,9 +205,10 @@ func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
 
 	mustWriteTestFile(
 		t,
-		filepath.Join(bundleRoot, "lefthook.yml"),
-		"min_version: 1.13.6\n",
+		filepath.Join(bundleRoot, "hooks", "run-go-hook.sh"),
+		"#!/bin/sh\n",
 	)
+	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "go-hooks", "main.go"), "package main\n")
 	configPath := filepath.Join(tempDir, "config.yaml")
 	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - PLC0415\n")
 

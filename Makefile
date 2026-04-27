@@ -27,14 +27,9 @@ endef
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
 HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
-ROOT_LEFTHOOK := $(HOOK_CONSUMER_ROOT)/lefthook.yml
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
 LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
-LOCAL_LEFTHOOK := $(LOCAL_BIN_DIR)/lefthook
-LOCAL_LEFTHOOK_VERSION_FILE := $(LOCAL_BIN_DIR)/lefthook.version
 GIT_HOOKS := pre-commit pre-push commit-msg
-LEFTHOOK_VERSION_FILE := $(PRECOMMIT_DIR)lefthook.version
-LEFTHOOK_VERSION := $(strip $(shell cat "$(LEFTHOOK_VERSION_FILE)"))
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
 GO_TOOL_CMDS := \
 	coding-ethos-policy \
@@ -101,10 +96,6 @@ ifneq ($(strip $(MERGE_MODEL)),)
 MERGE_FLAGS += --merge-model "$(MERGE_MODEL)"
 endif
 
-LEFTHOOK ?= $(shell command -v lefthook 2>/dev/null || { \
-	if [ -x "$(LOCAL_LEFTHOOK)" ]; then printf '%s' "$(LOCAL_LEFTHOOK)"; fi; \
-})
-
 ifneq ($(strip $(TERM)),dumb)
 COLOR_RESET := \033[0m
 COLOR_BOLD := \033[1m
@@ -150,8 +141,8 @@ endef
 	pre-commit-all \
 	pre-push \
 	commit-msg \
+	hook-plan \
 	validate \
-	lefthook-validate \
 	go-test \
 	go-tidy \
 	go-fmt \
@@ -177,8 +168,6 @@ endef
 	ensure-uv \
 	ensure-go \
 	ensure-gofmt \
-	ensure-lefthook \
-	check-root-config \
 	guard-%
 
 ##@ Help
@@ -227,7 +216,6 @@ status: ## Print the resolved tool and generation configuration.
 	@$(call print_kv,GO,$(GO))
 	@$(call print_kv,GOFMT,$(GOFMT))
 	@$(call print_kv,APP,$(APP))
-	@$(call print_kv,LOCAL_LEFTHOOK,$(LOCAL_LEFTHOOK))
 	@$(call print_kv,REPO,$(REPO))
 	@$(call print_kv,TOOL_CONFIG_REPO,$(TOOL_CONFIG_REPO))
 	@$(call print_kv,PRIMARY,$(PRIMARY))
@@ -267,16 +255,6 @@ ensure-gofmt: ## Verify gofmt is available.
 		exit 1; \
 	}
 
-ensure-lefthook: check-root-config ensure-go ## Install or refresh the repo-local Lefthook compatibility binary.
-	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@if [ ! -x "$(LOCAL_LEFTHOOK)" ] \
-		|| [ ! -f "$(LOCAL_LEFTHOOK_VERSION_FILE)" ] \
-		|| [ "$$(cat "$(LOCAL_LEFTHOOK_VERSION_FILE)" 2>/dev/null)" != "$(LEFTHOOK_VERSION)" ]; then \
-		$(call print_step,Installing repo-local Lefthook $(LEFTHOOK_VERSION)); \
-		GOBIN="$(LOCAL_BIN_DIR)" "$(GO)" install github.com/evilmartians/lefthook@$(LEFTHOOK_VERSION); \
-		printf '%s\n' "$(LEFTHOOK_VERSION)" > "$(LOCAL_LEFTHOOK_VERSION_FILE)"; \
-	fi
-
 install: ensure-uv ## Sync the repo's development dependencies.
 	@$(call print_step,Syncing development dependencies)
 	@$(UV) sync --group dev --all-packages
@@ -297,13 +275,6 @@ test: ensure-uv ## Run the current automated test suite.
 check: test check-tool-configs check-gemini-prompts ## Run the repo's current verification gate.
 
 ##@ Hooks
-check-root-config: ## Verify the consumer repo exposes the root lefthook.yml compatibility config.
-	@if [ ! -e "$(ROOT_LEFTHOOK)" ]; then \
-		printf '$(COLOR_WARN)Missing %s.$(COLOR_RESET)\n' "$(ROOT_LEFTHOOK)" >&2; \
-		printf 'Restore the repo-root lefthook.yml symlink before running hook targets.\n' >&2; \
-		exit 1; \
-	fi
-
 sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, yamllint, and golangci-lint configs.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
@@ -333,11 +304,6 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git ho
 		cp "$(PRECOMMIT_DIR)hooks/run-git-hook.sh" "$(HOOKS_DIR)/$$hook"; \
 		chmod +x "$(HOOKS_DIR)/$$hook"; \
 	done
-	@if [ -f "$(HOOKS_DIR)/prepare-commit-msg" ] \
-		&& grep -q 'call_lefthook run "prepare-commit-msg"' \
-			"$(HOOKS_DIR)/prepare-commit-msg"; then \
-		rm -f "$(HOOKS_DIR)/prepare-commit-msg"; \
-	fi
 	@$(call print_info,installed: Go hook runner)
 
 pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
@@ -361,19 +327,13 @@ else
 	@"$(GO_HOOK)" git-hook commit-msg "$(MSG)"
 endif
 
+hook-plan: ensure-go ## Print the active Go hook group plan.
+	@$(call print_step,Printing Go hook group plan)
+	@"$(GO_HOOK)" hook-plan
+
 validate: ensure-go ## Validate the bundled hook runtime.
 	@$(call print_step,Validating bundled hook runtime)
 	@"$(GO_HOOK)" git-hook validate
-
-lefthook-validate: ## Validate the bundled compatibility Lefthook configuration.
-	@$(call print_step,Validating bundled Lefthook compatibility config)
-	@if [ -z "$(LEFTHOOK)" ]; then \
-		printf '$(COLOR_WARN)lefthook was not found on PATH or at %s.$(COLOR_RESET)\n' \
-			"$(LOCAL_LEFTHOOK)" >&2; \
-		printf 'Install lefthook or run `make ensure-lefthook` for legacy compatibility validation.\n' >&2; \
-		exit 127; \
-	fi
-	@cd "$(PRECOMMIT_DIR)" && "$(LEFTHOOK)" validate
 
 go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)

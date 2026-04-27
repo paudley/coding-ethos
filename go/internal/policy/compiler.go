@@ -737,7 +737,7 @@ func addPytestGateDispatch(
 			HookDispatchEntry{
 				PolicyID:        "pytest.gate",
 				Mode:            "annotate",
-				CommandPatterns: []string{"pytest", "make check", "lefthook"},
+				CommandPatterns: []string{"pytest", "make check", "make pre-commit"},
 			},
 		)
 	}

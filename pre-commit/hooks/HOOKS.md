@@ -3,8 +3,7 @@
 
 # coding-ethos-hooks
 
-Go-backed Git hooks for coding-ethos bundles. Lefthook is retained only as a
-transitional compatibility dispatcher.
+Go-backed Git hooks for coding-ethos bundles.
 
 The Go runner is the output-control layer for Git hooks. It supports
 `hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`

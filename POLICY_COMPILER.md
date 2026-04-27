@@ -14,7 +14,7 @@ The policy compiler should provide one source of truth for:
 
 - rendered agent guidance
 - unified linting
-- pre-commit and Lefthook execution
+- Go git hook execution
 - agent hook behavior
 - git wrapper decisions
 - generated prompt packs
@@ -32,7 +32,7 @@ compiled coding-ethos policy bundle
         |
         +--> rendered agent guidance
         +--> unified linter
-        +--> pre-commit / Lefthook
+	+--> Go git hooks
         +--> agent hooks
         +--> git wrapper
         +--> generated prompt packs
@@ -248,7 +248,7 @@ Example:
           {
             "policy_id": "pytest.gate",
             "mode": "annotate",
-            "command_patterns": ["pytest", "make check", "lefthook"]
+		    "command_patterns": ["pytest", "make check", "make pre-commit"]
           }
         ]
       }
@@ -748,7 +748,7 @@ coding-ethos policy doctor --repo .
 The linter, hooks, and git wrapper should compile automatically when needed,
 but explicit commands are useful for debugging.
 
-Gemini-backed corpus review remains a Lefthook pre-commit/pre-push concern.
+Gemini-backed corpus review remains a pre-commit/pre-push concern.
 The agent hook runtime is intentionally local policy evaluation only: it reads
 agent hook JSON from stdin, applies the compiled dispatch table, and exits with
 code 2 for blocking decisions.

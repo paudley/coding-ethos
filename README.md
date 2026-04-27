@@ -24,7 +24,7 @@ quality gates to share the same contract. The shared ethos lives in
 - Syncs generated repo-root tool configs for Pyright, mypy, Ruff, yamllint,
   and golangci-lint.
 - Syncs the grounded Gemini prompt pack consumed by the bundled Go hook runner.
-- Provides a bundled Lefthook-based pre-commit and pre-push enforcement package.
+- Provides a bundled Go pre-commit and pre-push enforcement package.
 - Seeds structured YAML from an existing Markdown ethos.
 
 ## Repository model
@@ -40,7 +40,7 @@ The project has four related surfaces:
   `pre-commit/prompts/` templates render
   `.code-ethos/gemini/prompt-pack.json`.
 - Hook runtime: `pre-commit/`, generated configs, and the generated prompt pack
-  run through repo-local Lefthook shims and Go-backed policy checks.
+  run through repo-local Go hook shims and Go-backed policy checks.
 
 Generated Markdown files are derived artifacts. Change the YAML source or
 renderer first, then regenerate and review the generated diff.
@@ -142,7 +142,7 @@ The Makefile is the preferred operator interface.
 - `make doctor`: check required local tools and important resolved paths.
 - `make test`: run `uv run pytest`.
 - `make check`: run tests plus generated config and prompt-pack drift checks.
-- `make validate`: validate the bundled Lefthook configuration.
+- `make validate`: validate the bundled Go hook runtime.
 - `make go-test`: run tests for the Go hook runner.
 - `make go-fmt`: format all Go hook helper source files.
 - `make go-tidy`: format Go hook helper sources and run `go mod tidy`.
@@ -314,8 +314,7 @@ must already be installed and authenticated. The merge process must write
 ## Hook bundle
 
 The bundled ETHOS enforcement package lives under [pre-commit/](pre-commit/).
-It uses a repo-local pinned Lefthook binary cached under
-`.git/coding-ethos-hooks/` and Go-backed policy checks under
+It uses repo-local Git hook shims that call the Go runner under
 `pre-commit/hooks/go-hooks/`.
 
 The Go hook runner owns hook output policy. Failure reports honor
@@ -343,13 +342,7 @@ Run hooks:
 make pre-commit
 make pre-commit-all
 make pre-push
-```
-
-When invoking Lefthook directly, include `--no-auto-install` so Lefthook does
-not overwrite the custom hook shims:
-
-```bash
-.git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --all-files
+make hook-plan
 ```
 
 See [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) and

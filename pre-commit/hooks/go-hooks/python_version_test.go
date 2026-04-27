@@ -78,8 +78,13 @@ python:
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "pre-commit", "lefthook.yml"),
-		"min_version: 1.13.6\n",
+		filepath.Join(tempDir, "pre-commit", "hooks", "run-go-hook.sh"),
+		"#!/bin/sh\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "pre-commit", "hooks", "go-hooks", "main.go"),
+		"package main\n",
 	)
 
 	err := os.MkdirAll(filepath.Join(tempDir, "pre-commit", "hooks"), 0o755)
@@ -162,8 +167,13 @@ python:
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "lefthook.yml"),
-		"min_version: 1.13.6\n",
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "run-go-hook.sh"),
+		"#!/bin/sh\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "go-hooks", "main.go"),
+		"package main\n",
 	)
 
 	err = os.MkdirAll(

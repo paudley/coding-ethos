@@ -3,11 +3,11 @@
 
 # coding-ethos-hooks
 
-Lefthook utilities for coding-ethos bundles.
+Go hook utilities for coding-ethos bundles.
 
 ## Overview
 
-This package provides shared utilities for coding-ethos Lefthook hooks.
+This package provides shared utilities for coding-ethos Go hooks.
 
 ## Available Hooks
 
@@ -21,6 +21,5 @@ The parent `pre-commit/hooks/` directory contains the actual hook implementation
 ## Installation
 
 Hooks are installed from the repository root with `make install-hooks` or, in a
-consuming repo, `make -C code-ethos install-hooks`. The bundle keeps its pinned
-Lefthook binary repo-local and reads merged policy from the repo-root
-`config.yaml` plus optional consumer override YAML.
+consuming repo, `make -C code-ethos install-hooks`. The bundle reads merged
+policy from the repo-root `config.yaml` plus optional consumer override YAML.

@@ -25,7 +25,7 @@ compiled coding-ethos policy bundle
         |
         +--> rendered agent guidance
         +--> unified linter
-        +--> pre-commit / Lefthook
+	+--> Go git hooks
         +--> agent hooks
         +--> git wrapper
         +--> generated prompt packs
@@ -852,8 +852,7 @@ Use when the action changes the quality gate itself.
 
 Examples:
 
-- Ask before editing `.pre-commit-config.yaml`, `lefthook.yml`, or
-  `pre-commit/`.
+- Ask before editing hook configuration or `pre-commit/`.
 - Ask before editing `pyproject.toml`, `mypy.ini`, `ruff.toml`,
   `pyrightconfig.json`, or generated tool config.
 - Ask before modifying `repo_config.yaml` sections that relax checks.
@@ -1018,7 +1017,7 @@ Use this to interpret tool outcomes.
 
 Useful behaviors:
 
-- Parse pre-commit, Lefthook, pytest, Ruff, mypy, and pyright output into a
+- Parse pre-commit, pytest, Ruff, mypy, and pyright output into a
   short action summary.
 - Preserve original output and avoid false success summaries.
 - Detect when generated configs changed and advise inspecting them.
