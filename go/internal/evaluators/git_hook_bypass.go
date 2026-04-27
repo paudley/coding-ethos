@@ -41,10 +41,8 @@ func EvaluateGitHookBypass(policyDef policy.Policy, context Context) ([]policy.D
 }
 
 func isCommitOrPush(argv []string) bool {
-	if len(argv) < 2 {
-		return false
-	}
-	return argv[1] == "commit" || argv[1] == "push"
+	operation := gitSubcommand(argv)
+	return operation == "commit" || operation == "push"
 }
 
 func hasHookBypass(argv []string) bool {
@@ -63,7 +61,7 @@ func hasHookBypass(argv []string) bool {
 }
 
 func isCommit(argv []string) bool {
-	return len(argv) >= 2 && argv[1] == "commit"
+	return gitSubcommand(argv) == "commit"
 }
 
 func hasRawHookBypass(command string) bool {
@@ -71,11 +69,12 @@ func hasRawHookBypass(command string) bool {
 		return false
 	}
 	lower := strings.ToLower(command)
-	return strings.Contains(command, "SKIP=") ||
-		strings.Contains(command, "export SKIP=") ||
+	gitOperation := strings.Contains(lower, "git commit") || strings.Contains(lower, "git push")
+	return strings.Contains(lower, "export skip=") ||
+		strings.Contains(command, "SKIP=") && gitOperation ||
 		strings.Contains(lower, "git_verify=false") ||
 		strings.Contains(lower, "git_verify=0") ||
 		strings.Contains(lower, "git_verify=no") ||
-		strings.Contains(lower, "--no-verify") ||
+		strings.Contains(lower, "--no-verify") && gitOperation ||
 		strings.Contains(lower, "git commit -n")
 }

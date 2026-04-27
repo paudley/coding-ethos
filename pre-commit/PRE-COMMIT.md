@@ -129,6 +129,17 @@ when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
 The Lefthook binary is cached there as well, with a small version stamp file so
 the bundle can refresh it locally when the pinned version changes.
 
+The same wrapper also exposes local policy-runtime entrypoints:
+
+```bash
+pre-commit/hooks/run-go-hook.sh agent-hook
+pre-commit/hooks/run-go-hook.sh policy-lint --staged
+pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
+```
+
+`agent-hook` reads agent hook JSON from stdin and never calls Gemini. Gemini
+checks stay in Lefthook pre-commit/pre-push jobs.
+
 ## Configuration
 
 Bundle defaults live in the code-ethos repo-root `config.yaml`. Consuming repos

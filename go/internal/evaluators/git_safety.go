@@ -138,7 +138,31 @@ func gitSubcommand(argv []string) string {
 	if len(argv) < 2 {
 		return ""
 	}
-	return argv[1]
+	for idx := 1; idx < len(argv); idx++ {
+		arg := argv[idx]
+		if arg == "--" {
+			return ""
+		}
+		if arg == "" {
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return arg
+		}
+		if skipNextGitGlobalArg(arg) && idx+1 < len(argv) {
+			idx++
+		}
+	}
+	return ""
+}
+
+func skipNextGitGlobalArg(arg string) bool {
+	switch arg {
+	case "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasArg(argv []string, target string) bool {

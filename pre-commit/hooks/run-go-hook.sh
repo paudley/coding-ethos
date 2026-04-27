@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-# Build and run the cached Go hook helper.
+# Build and run cached Go hook helpers.
 
 set -euo pipefail
 
@@ -11,26 +11,109 @@ GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
-SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
 BIN_DIR="${GIT_COMMON_DIR}/coding-ethos-hooks"
-BIN="${BIN_DIR}/coding-ethos-hook"
+LEGACY_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
+LEGACY_BIN="${BIN_DIR}/coding-ethos-legacy-hook"
+TOOLS_SRC_DIR="${ETHOS_ROOT}/go"
+TOOLS_BIN_DIR="${BIN_DIR}/bin"
+POLICY_DIR="${BIN_DIR}/policy"
+POLICY_BUNDLE="${POLICY_DIR}/policy-bundle.json"
 
 cd "$ROOT"
-mkdir -p "$BIN_DIR"
+mkdir -p "$BIN_DIR" "$TOOLS_BIN_DIR"
 
-needs_build=false
-if [[ ! -x "$BIN" ]]; then
-    needs_build=true
-elif find "$SRC_DIR" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -newer "$BIN" | grep -q . || [[ "${ETHOS_ROOT}/config.yaml" -nt "$BIN" ]]; then
-    needs_build=true
-fi
+needs_go_build() {
+	local src_dir="${1:?src dir required}"
+	local bin="${2:?bin required}"
 
-if [[ "$needs_build" == true ]]; then
-    TMP_BIN="${BIN}.tmp.$$"
-    trap 'rm -f "$TMP_BIN"' EXIT
-    go build -C "$SRC_DIR" -o "$TMP_BIN" .
-    mv -f "$TMP_BIN" "$BIN"
-    trap - EXIT
-fi
+	[[ ! -x "$bin" ]] && return 0
+	find "$src_dir" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -newer "$bin" | grep -q .
+}
 
-exec "$BIN" "$@"
+build_go_binary() {
+	local src_dir="${1:?src dir required}"
+	local bin="${2:?bin required}"
+	if needs_go_build "$src_dir" "$bin"; then
+		local tmp_bin="${bin}.tmp.$$"
+		rm -f "$tmp_bin"
+		go build -C "$src_dir" -buildvcs=false -o "$tmp_bin" .
+		mv -f "$tmp_bin" "$bin"
+	fi
+}
+
+build_policy_tool() {
+	local name="${1:?tool name required}"
+	build_go_binary "${TOOLS_SRC_DIR}/cmd/${name}" "${TOOLS_BIN_DIR}/${name}"
+}
+
+needs_policy_compile() {
+	[[ ! -f "$POLICY_BUNDLE" ]] && return 0
+	for source in \
+		"${ETHOS_ROOT}/coding_ethos.yml" \
+		"${ETHOS_ROOT}/repo_ethos.yml" \
+		"${ETHOS_ROOT}/config.yaml" \
+		"${ROOT}/repo_config.yaml" \
+		"${ROOT}/repo_config.yml"; do
+		[[ -f "$source" && "$source" -nt "$POLICY_BUNDLE" ]] && return 0
+	done
+	return 1
+}
+
+compile_policy_bundle() {
+	if [[ ! -d "$TOOLS_SRC_DIR" ]]; then
+		echo "FATAL: policy tool source not found at ${TOOLS_SRC_DIR}" >&2
+		exit 127
+	fi
+	build_policy_tool coding-ethos-policy
+	if needs_policy_compile; then
+		local -a args=(
+			compile
+			--primary "${ETHOS_ROOT}/coding_ethos.yml"
+			--config "${ETHOS_ROOT}/config.yaml"
+			--out-dir "$POLICY_DIR"
+		)
+		if [[ -f "${ROOT}/repo_config.yaml" ]]; then
+			args+=(--repo-config "${ROOT}/repo_config.yaml")
+		elif [[ -f "${ROOT}/repo_config.yml" ]]; then
+			args+=(--repo-config "${ROOT}/repo_config.yml")
+		fi
+		"${TOOLS_BIN_DIR}/coding-ethos-policy" "${args[@]}" >/dev/null
+	fi
+}
+
+run_agent_hook() {
+	compile_policy_bundle
+	build_policy_tool coding-ethos-hook
+	exec "${TOOLS_BIN_DIR}/coding-ethos-hook" --bundle "$POLICY_BUNDLE" --json "$@"
+}
+
+run_policy_lint() {
+	compile_policy_bundle
+	build_policy_tool coding-ethos-lint
+	exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" "$@"
+}
+
+run_policy_git() {
+	compile_policy_bundle
+	build_policy_tool coding-ethos-git
+	exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
+}
+
+case "${1:-}" in
+	agent-hook)
+		shift
+		run_agent_hook "$@"
+		;;
+	policy-lint)
+		shift
+		run_policy_lint "$@"
+		;;
+	policy-git)
+		shift
+		run_policy_git "$@"
+		;;
+	*)
+		build_go_binary "$LEGACY_SRC_DIR" "$LEGACY_BIN"
+		exec "$LEGACY_BIN" "$@"
+		;;
+esac

@@ -71,13 +71,18 @@ func recordCommitHead(policyDef policy.Policy, context Context) ([]policy.Decisi
 }
 
 func verifyCommitHead(policyDef policy.Policy, context Context) ([]policy.Decision, error) {
-	state, ok, err := readCommitHeadState(context.Cwd)
+	path, err := commitHeadStatePath(context.Cwd)
+	if err != nil {
+		return nil, err
+	}
+	state, ok, err := readCommitHeadStatePath(path)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, nil
 	}
+	defer os.Remove(path)
 	head, err := currentHead(context.Cwd)
 	if err != nil && !errors.Is(err, errNoHead) {
 		return nil, err
@@ -110,6 +115,10 @@ func readCommitHeadState(cwd string) (commitHeadState, bool, error) {
 	if err != nil {
 		return commitHeadState{}, false, err
 	}
+	return readCommitHeadStatePath(path)
+}
+
+func readCommitHeadStatePath(path string) (commitHeadState, bool, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

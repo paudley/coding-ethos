@@ -5,6 +5,7 @@ package hooks
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -56,23 +57,28 @@ func evaluateHookPolicy(
 	if !matchesCommandPatterns(event.Command(), entry.CommandPatterns) {
 		return nil, nil
 	}
+	if !matchesPathPatterns(event.Files(), entry.PathPatterns) {
+		return nil, nil
+	}
 	context := evaluators.Context{
 		Scope:   event.HookEventName,
 		Argv:    commandArgv(event.Command()),
 		Command: event.Command(),
+		Content: event.Content(),
 		Cwd:     event.Cwd,
+		Files:   event.Files(),
 	}
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("policy %q references unregistered evaluator %q", policyDef.ID, evaluatorSpec.Name)
 		}
 		decisions, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
 			return nil, err
 		}
 		if len(decisions) > 0 {
-			return decisions, nil
+			return applyDispatchMode(decisions, entry.Mode), nil
 		}
 	}
 	if entry.Mode == "advise" || entry.Mode == "record" || entry.Mode == "annotate" {
@@ -90,11 +96,24 @@ func evaluateHookPolicy(
 	return nil, nil
 }
 
+func applyDispatchMode(decisions []policy.Decision, mode string) []policy.Decision {
+	if mode == "" || mode == "block" {
+		return decisions
+	}
+	applied := make([]policy.Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		decision.Decision = mode
+		decision.Severity = mode
+		applied = append(applied, decision)
+	}
+	return applied
+}
+
 func commandArgv(command string) []string {
 	if command == "" {
 		return nil
 	}
-	return strings.Fields(command)
+	return shellFields(command)
 }
 
 func matchesCommandPatterns(command string, patterns []string) bool {
@@ -105,6 +124,49 @@ func matchesCommandPatterns(command string, patterns []string) bool {
 		if pattern != "" && strings.Contains(command, pattern) {
 			return true
 		}
+	}
+	return false
+}
+
+func matchesPathPatterns(files []string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	if len(files) == 0 {
+		return false
+	}
+	for _, file := range files {
+		for _, pattern := range patterns {
+			if matchesPathPattern(file, pattern) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func matchesPathPattern(file string, pattern string) bool {
+	normalizedFile := strings.TrimPrefix(filepath.ToSlash(file), "./")
+	normalizedPattern := strings.TrimPrefix(filepath.ToSlash(pattern), "./")
+	if normalizedPattern == "" {
+		return false
+	}
+	if normalizedPattern == normalizedFile {
+		return true
+	}
+	if strings.HasPrefix(normalizedPattern, "**/") {
+		suffix := strings.TrimPrefix(normalizedPattern, "**/")
+		if matched, _ := filepath.Match(suffix, filepath.Base(normalizedFile)); matched {
+			return true
+		}
+		return strings.HasSuffix(normalizedFile, "/"+suffix)
+	}
+	if matched, _ := filepath.Match(normalizedPattern, normalizedFile); matched {
+		return true
+	}
+	if !strings.Contains(normalizedPattern, "/") {
+		matched, _ := filepath.Match(normalizedPattern, filepath.Base(normalizedFile))
+		return matched
 	}
 	return false
 }

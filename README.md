@@ -318,6 +318,11 @@ It uses a repo-local pinned Lefthook binary cached under
 `.git/coding-ethos-hooks/` and Go-backed policy checks under
 `pre-commit/hooks/go-hooks/`.
 
+The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
+compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
+new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
+they are not invoked from agent hooks.
+
 Install hooks:
 
 ```bash

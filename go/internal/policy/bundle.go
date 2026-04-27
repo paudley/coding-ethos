@@ -209,7 +209,7 @@ func ExampleBundle() Bundle {
 					"Bash": {
 						{
 							PolicyID:        "git.commit_head_advanced",
-							Mode:            "annotate",
+							Mode:            "block",
 							CommandPatterns: []string{"git commit"},
 						},
 					},

@@ -14,11 +14,12 @@ import (
 )
 
 func Execute(realGit string, options Options) error {
-	if realGit == "" {
-		realGit = "git"
+	resolvedGit, err := ResolveRealGit(realGit)
+	if err != nil {
+		return err
 	}
 	normalized := normalizeArgv(options.Argv)
-	cmd := exec.Command(realGit, normalized[1:]...)
+	cmd := exec.Command(resolvedGit, normalized[1:]...)
 	if options.Cwd != "" {
 		cmd.Dir = options.Cwd
 	}
@@ -54,17 +55,18 @@ func evaluatePostPoliciesWithRegistry(
 	scope string,
 	registry evaluators.Registry,
 ) (Result, error) {
-	argv := normalizeArgv(options.Argv)
-	operation := gitOperation(argv)
+	parsed := parseArgv(options.Argv)
+	argv := parsed.Argv
+	operation := parsed.Operation
 	if operation == "" {
 		return Result{Argv: argv, Status: "allowed"}, nil
 	}
-	dispatch, ok := bundle.Dispatch.Git[operation]
-	if !ok || len(dispatch.Post) == 0 {
+	policyIDs := gitPostPolicyIDs(bundle, operation)
+	if len(policyIDs) == 0 {
 		return Result{Argv: argv, Operation: operation, Status: "allowed"}, nil
 	}
-	decisions := make([]policy.Decision, 0, len(dispatch.Post))
-	for _, policyID := range dispatch.Post {
+	decisions := make([]policy.Decision, 0, len(policyIDs))
+	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
 		if !ok {
 			return Result{}, fmt.Errorf("git dispatch %q post references unknown policy %q", operation, policyID)

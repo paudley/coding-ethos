@@ -748,6 +748,11 @@ coding-ethos policy doctor --repo .
 The linter, hooks, and git wrapper should compile automatically when needed,
 but explicit commands are useful for debugging.
 
+Gemini-backed corpus review remains a Lefthook pre-commit/pre-push concern.
+The agent hook runtime is intentionally local policy evaluation only: it reads
+agent hook JSON from stdin, applies the compiled dispatch table, and exits with
+code 2 for blocking decisions.
+
 ## Initial Go Implementation
 
 The first Go implementation lives under `go/`.

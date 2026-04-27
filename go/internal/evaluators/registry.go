@@ -29,6 +29,11 @@ func DefaultRegistry() Registry {
 	registry.Register("git.commit_head_advanced", EvaluatorFunc(EvaluateGitCommitHeadAdvanced))
 	registry.Register("shell.dangerous_command", EvaluatorFunc(EvaluateShellDangerousCommand))
 	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
+	registry.Register("python.conditional_imports", EvaluatorFunc(EvaluatePythonConditionalImports))
+	registry.Register("python.optional_returns", EvaluatorFunc(EvaluatePythonOptionalReturns))
+	registry.Register("python.catch_and_silence", EvaluatorFunc(EvaluatePythonCatchAndSilence))
+	registry.Register("python.structured_logging", EvaluatorFunc(EvaluatePythonStructuredLogging))
+	registry.Register("python.direct_imports", EvaluatorFunc(EvaluatePythonDirectImports))
 	return registry
 }
 

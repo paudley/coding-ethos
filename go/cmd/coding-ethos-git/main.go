@@ -16,7 +16,7 @@ import (
 func main() {
 	flags := flag.NewFlagSet("coding-ethos-git", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
-	realGit := flags.String("real-git", "git", "Real git executable")
+	realGit := flags.String("real-git", "", "Real git executable")
 	checkOnly := flags.Bool("check-only", false, "Check policy without executing git")
 	jsonOutput := flags.Bool("json", false, "Emit JSON result")
 	if err := flags.Parse(os.Args[1:]); err != nil {
@@ -63,7 +63,11 @@ func main() {
 	if err := gitwrap.PreparePost(bundle, options); err != nil {
 		exitErr(err)
 	}
-	if err := gitwrap.Execute(*realGit, options); err != nil {
+	resolvedGit, err := gitwrap.ResolveRealGit(*realGit)
+	if err != nil {
+		exitErr(err)
+	}
+	if err := gitwrap.Execute(resolvedGit, options); err != nil {
 		var exitError gitwrap.ExitCodeError
 		if errors.As(err, &exitError) {
 			os.Exit(exitError.Code)

@@ -490,7 +490,7 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 		ensureHookTool(hooks, "PostToolUse", "Bash")
 		hooks["PostToolUse"]["Bash"] = append(hooks["PostToolUse"]["Bash"], HookDispatchEntry{
 			PolicyID:        "git.commit_head_advanced",
-			Mode:            "annotate",
+			Mode:            "block",
 			CommandPatterns: []string{"git commit"},
 		})
 	}
@@ -508,15 +508,15 @@ func compileDispatch(policies map[string]Policy) Dispatch {
 		Hooks:  hooks,
 		Linter: linter,
 		Git: map[string]GitOperationDispatch{
+			"*": {
+				Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
+			},
 			"commit": {
 				Pre:  existingPolicyIDs(policies, "git.hook_bypass", "git.staged_admin_files"),
 				Post: existingPolicyIDs(policies, "git.commit_head_advanced"),
 			},
 			"push": {
 				Pre: existingPolicyIDs(policies, "git.hook_bypass", "git.force_push_protected_branch"),
-			},
-			"-C": {
-				Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
 			},
 			"reset": {
 				Pre: existingPolicyIDs(policies, "git.destructive_command"),

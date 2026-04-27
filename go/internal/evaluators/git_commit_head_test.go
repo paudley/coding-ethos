@@ -35,6 +35,9 @@ func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 	if decisions[0].Decision != "block" {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
+	if _, ok, err := readCommitHeadState(repo); err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
+	}
 }
 
 func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
@@ -64,6 +67,9 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 	}
 	if decisions[0].Decision != "record" {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
+	}
+	if _, ok, err := readCommitHeadState(repo); err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
 	}
 }
 

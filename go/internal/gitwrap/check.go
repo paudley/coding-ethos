@@ -20,19 +20,20 @@ func Check(bundle policy.Bundle, options Options) (Result, error) {
 }
 
 func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluators.Registry) (Result, error) {
-	argv := normalizeArgv(options.Argv)
-	operation := gitOperation(argv)
+	parsed := parseArgv(options.Argv)
+	argv := parsed.Argv
+	operation := parsed.Operation
 	if operation == "" {
 		return Result{Argv: argv, Status: "allowed"}, nil
 	}
 
-	dispatch, ok := bundle.Dispatch.Git[operation]
-	if !ok {
+	policyIDs := gitPrePolicyIDs(bundle, operation)
+	if len(policyIDs) == 0 {
 		return Result{Argv: argv, Operation: operation, Status: "allowed"}, nil
 	}
 
-	decisions := make([]policy.Decision, 0, len(dispatch.Pre))
-	for _, policyID := range dispatch.Pre {
+	decisions := make([]policy.Decision, 0, len(policyIDs))
+	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
 		if !ok {
 			return Result{}, fmt.Errorf("git dispatch %q references unknown policy %q", operation, policyID)
@@ -52,6 +53,46 @@ func CheckWithRegistry(bundle policy.Bundle, options Options, registry evaluator
 	}, nil
 }
 
+func gitPrePolicyIDs(bundle policy.Bundle, operation string) []string {
+	return appendGitPolicyIDs(nil, bundle, operation, func(dispatch policy.GitOperationDispatch) []string {
+		return dispatch.Pre
+	})
+}
+
+func gitPostPolicyIDs(bundle policy.Bundle, operation string) []string {
+	return appendGitPolicyIDs(nil, bundle, operation, func(dispatch policy.GitOperationDispatch) []string {
+		return dispatch.Post
+	})
+}
+
+func appendGitPolicyIDs(
+	policyIDs []string,
+	bundle policy.Bundle,
+	operation string,
+	selectIDs func(policy.GitOperationDispatch) []string,
+) []string {
+	if dispatch, ok := bundle.Dispatch.Git["*"]; ok {
+		policyIDs = append(policyIDs, selectIDs(dispatch)...)
+	}
+	if dispatch, ok := bundle.Dispatch.Git[operation]; ok {
+		policyIDs = append(policyIDs, selectIDs(dispatch)...)
+	}
+	return dedupePolicyIDs(policyIDs)
+}
+
+func dedupePolicyIDs(policyIDs []string) []string {
+	seen := map[string]bool{}
+	deduped := make([]string, 0, len(policyIDs))
+	for _, policyID := range policyIDs {
+		if policyID == "" || seen[policyID] {
+			continue
+		}
+		seen[policyID] = true
+		deduped = append(deduped, policyID)
+	}
+	return deduped
+}
+
 func evaluateGitPolicy(
 	policyDef policy.Policy,
 	argv []string,
@@ -63,7 +104,7 @@ func evaluateGitPolicy(
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("policy %q references unregistered evaluator %q", policyDef.ID, evaluatorSpec.Name)
 		}
 		decisions, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
@@ -74,24 +115,6 @@ func evaluateGitPolicy(
 		}
 	}
 	return nil, nil
-}
-
-func normalizeArgv(argv []string) []string {
-	normalized := append([]string(nil), argv...)
-	if len(normalized) == 0 {
-		return []string{"git"}
-	}
-	if normalized[0] == "git" {
-		return normalized
-	}
-	return append([]string{"git"}, normalized...)
-}
-
-func gitOperation(argv []string) string {
-	if len(argv) < 2 || argv[0] != "git" {
-		return ""
-	}
-	return argv[1]
 }
 
 func resultStatus(decisions []policy.Decision) string {
