@@ -108,10 +108,11 @@ inventory used to keep the migration status explicit.
   files.
 - AI co-author commit-message blocking currently exists in commit-message hooks;
   the agent hook path should route to the same policy.
-- Claude is the first concrete provider surface. The next implementation step is
-  splitting the provider-neutral hook event model from Claude settings rendering
-  so Codex/Gemini adapters can use the same runtime where their products expose
-  lifecycle hooks.
+- Claude is the first concrete provider surface. The agent-hook settings
+  renderer now consumes provider-neutral hook specs before rendering Claude
+  settings. Remaining provider work is to add concrete Codex/Gemini adapters
+  where their products expose lifecycle hooks, using the same runtime event
+  inventory instead of duplicating policy wiring.
 
 ## Fixture Contract
 

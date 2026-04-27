@@ -348,8 +348,10 @@ pre-commit/hooks/run-go-hook.sh agent-hooks sync --settings .claude/settings.loc
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor --settings .claude/settings.local.json
 ```
 
-The sync command only writes the explicit `--settings` path.
-Generated Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
+The sync command only writes the explicit `--settings` path. The current
+settings renderer supports `--provider claude` and consumes the shared
+provider-neutral hook spec list before emitting Claude settings. Generated
+Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
 `SessionStart` compact replay. Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.

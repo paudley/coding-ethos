@@ -21,6 +21,7 @@ const (
 var (
 	errHookCommandRequired = errors.New("hook command is required")
 	errSettingsRequired    = errors.New("settings path is required")
+	errUnsupportedProvider = errors.New("unsupported agent hook provider")
 	errSettingsMismatch    = errors.New(
 		"claude settings do not contain agent hook command",
 	)
@@ -41,7 +42,20 @@ type claudeSettings struct {
 }
 
 func WriteSettings(writer io.Writer, hookCommand string) error {
-	settings, err := buildSettings(hookCommand)
+	err := WriteProviderSettings(writer, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func WriteProviderSettings(
+	writer io.Writer,
+	provider Provider,
+	hookCommand string,
+) error {
+	settings, err := buildSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
@@ -58,38 +72,34 @@ func WriteSettings(writer io.Writer, hookCommand string) error {
 	return nil
 }
 
-func buildSettings(hookCommand string) (claudeSettings, error) {
+func buildSettings(provider Provider, hookCommand string) (claudeSettings, error) {
 	if hookCommand == "" {
 		return claudeSettings{}, errHookCommandRequired
 	}
 
-	return claudeSettings{
-		Hooks: map[string][]matcherHook{
-			"PreToolUse": {
-				commandMatcher("Bash", hookCommand),
-				commandMatcher("Write", hookCommand),
-				commandMatcher("Edit", hookCommand),
-				commandMatcher("MultiEdit", hookCommand),
-			},
-			"PostToolUse": {
-				commandMatcher("Bash", hookCommand),
-			},
-			"PreCompact": {
-				commandMatcher("", hookCommand),
-			},
-			"SessionStart": {
-				commandMatcher("", hookCommand),
-			},
-		},
-	}, nil
+	switch provider {
+	case ProviderClaude:
+		return buildClaudeSettings(RuntimeHookSpecs(), hookCommand), nil
+	default:
+		return claudeSettings{}, errUnsupportedProvider
+	}
 }
 
 func SyncSettings(path string, hookCommand string) error {
+	err := SyncProviderSettings(path, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SyncProviderSettings(path string, provider Provider, hookCommand string) error {
 	if path == "" {
 		return errSettingsRequired
 	}
 
-	settings, err := buildSettings(hookCommand)
+	settings, err := buildSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
@@ -151,6 +161,15 @@ func existingSettingsPayload(path string) (map[string]any, error) {
 }
 
 func DoctorSettings(path string, hookCommand string) error {
+	err := DoctorProviderSettings(path, ProviderClaude, hookCommand)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func DoctorProviderSettings(path string, provider Provider, hookCommand string) error {
 	if path == "" {
 		return errSettingsRequired
 	}
@@ -168,7 +187,7 @@ func DoctorSettings(path string, hookCommand string) error {
 		return fmt.Errorf("decode settings: %w", err)
 	}
 
-	expected, err := buildSettings(hookCommand)
+	expected, err := buildSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
@@ -178,6 +197,18 @@ func DoctorSettings(path string, hookCommand string) error {
 	}
 
 	return nil
+}
+
+func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
+	hooks := make(map[string][]matcherHook)
+	for _, spec := range specs {
+		hooks[spec.Event] = append(
+			hooks[spec.Event],
+			commandMatcher(spec.Tool, hookCommand),
+		)
+	}
+
+	return claudeSettings{Hooks: hooks}
 }
 
 func commandMatcher(matcher string, hookCommand string) matcherHook {

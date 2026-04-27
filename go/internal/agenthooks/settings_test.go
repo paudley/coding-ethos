@@ -43,6 +43,40 @@ func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
 	}
 }
 
+func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
+	t.Parallel()
+
+	specs := agenthooks.RuntimeHookSpecs()
+	expected := []agenthooks.HookSpec{
+		{Event: "PreToolUse", Tool: "Bash"},
+		{Event: "PreToolUse", Tool: "Write"},
+		{Event: "PreToolUse", Tool: "Edit"},
+		{Event: "PreToolUse", Tool: "MultiEdit"},
+		{Event: "PostToolUse", Tool: "Bash"},
+		{Event: "PreCompact"},
+		{Event: "SessionStart"},
+	}
+
+	if len(specs) != len(expected) {
+		t.Fatalf("expected %d hook specs, got %d: %#v", len(expected), len(specs), specs)
+	}
+
+	for index, expectedSpec := range expected {
+		if specs[index] != expectedSpec {
+			t.Fatalf("spec %d: expected %#v, got %#v", index, expectedSpec, specs[index])
+		}
+	}
+}
+
+func TestParseProviderRejectsUnsupportedProvider(t *testing.T) {
+	t.Parallel()
+
+	_, err := agenthooks.ParseProvider("codex")
+	if err == nil {
+		t.Fatal("expected unsupported provider error")
+	}
+}
+
 func TestSyncAndDoctorSettings(t *testing.T) {
 	t.Parallel()
 

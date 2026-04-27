@@ -1583,9 +1583,11 @@ coding-ethos agent-hooks doctor
 coding-ethos agent-hooks run --event PreToolUse
 ```
 
-The hook runner should use a provider-neutral internal event model. Claude Code
-is the first adapter, but the policy engine should not hard-code Claude-specific
-payloads outside the adapter layer.
+The hook runner uses a provider-neutral internal event model. Claude Code is
+the first concrete settings renderer, but the policy engine must not hard-code
+Claude-specific payloads outside the adapter layer. Codex and Gemini adapters
+should consume the same event inventory when their products expose lifecycle
+hook surfaces.
 
 ## Repo Configuration
 
@@ -1703,7 +1705,9 @@ not claim success from tool output alone.
 ## Installation and Sync
 
 `coding-ethos agent-hooks sync --repo .` should generate or update the
-consumer repo's Claude hook configuration.
+consumer repo's agent hook configuration for the selected provider. The current
+concrete provider is Claude; `coding-ethos-agent-hooks sync --provider claude`
+renders `.claude/settings.local.json` entries from the shared hook spec list.
 
 The generated Claude settings should call stable `coding-ethos` entrypoints
 rather than embedding long shell snippets. For example:
@@ -1762,7 +1766,9 @@ Policy failures need actionable output, not vague refusal text.
 ## Rollout Plan
 
 1. Add `agent_hooks` config schema and validation.
-2. Add Claude event adapter and provider-neutral event model.
+2. Add Claude event adapter and provider-neutral event model. The current Go
+   settings renderer already uses provider-neutral hook specs before emitting
+   Claude settings.
 3. Add `agent-hooks run`, `validate`, `doctor`, and `sync` commands.
 4. Port high-confidence global guards:
    - `dangerous_shell`
