@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -16,7 +18,12 @@ func runHadolint(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runHookTool("hadolint", repoRoot(), append([]string{"hadolint"}, files...))
+	return runHookToolWithParser(
+		"hadolint",
+		repoRoot(),
+		append([]string{"hadolint"}, files...),
+		parseHadolintFindings,
+	)
 }
 
 func runActionlint(_ Config, paths []string) int {
@@ -24,7 +31,12 @@ func runActionlint(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runHookTool("actionlint", repoRoot(), []string{"actionlint"})
+	return runHookToolWithParser(
+		"actionlint",
+		repoRoot(),
+		[]string{"actionlint"},
+		parseActionlintFindings,
+	)
 }
 
 func runPythonComplexity(_ Config, paths []string) int {
@@ -33,7 +45,12 @@ func runPythonComplexity(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript("complexity", "check_complexity.py", files)
+	return runPythonHookScript(
+		"complexity",
+		"check_complexity.py",
+		files,
+		parseComplexityFindings,
+	)
 }
 
 func runPythonMaintainability(_ Config, paths []string) int {
@@ -41,7 +58,12 @@ func runPythonMaintainability(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript("maintainability", "check_maintainability.py", nil)
+	return runPythonHookScript(
+		"maintainability",
+		"check_maintainability.py",
+		nil,
+		parseMaintainabilityFindings,
+	)
 }
 
 func runPythonVulture(_ Config, paths []string) int {
@@ -49,7 +71,7 @@ func runPythonVulture(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript("vulture", "check_vulture.py", nil)
+	return runPythonHookScript("vulture", "check_vulture.py", nil, parseVultureFindings)
 }
 
 func runGoFormatCheck(_ Config, paths []string) int {
@@ -128,17 +150,27 @@ func runGolangciLint(_ Config, paths []string) int {
 	}
 	config := repoPath(".golangci.yml")
 
-	return runHookTool("golangci-lint", worktree, []string{"golangci-lint", "run", "--config", config})
+	return runHookToolWithParser(
+		"golangci-lint",
+		worktree,
+		[]string{"golangci-lint", "run", "--config", config},
+		parseGolangciFindings,
+	)
 }
 
-func runPythonHookScript(name string, script string, files []string) int {
+func runPythonHookScript(
+	name string,
+	script string,
+	files []string,
+	parseFindings func(string) []hookFinding,
+) int {
 	command := []string{
 		"uv", "run", "--quiet", "--project", hooksProjectPath(),
 		"python", filepath.Join(hooksProjectPath(), script),
 	}
 	command = append(command, files...)
 
-	return runHookTool(name, repoRoot(), command)
+	return runHookToolWithParser(name, repoRoot(), command, parseFindings)
 }
 
 func configuredGoWorktree() (string, bool) {
@@ -202,4 +234,143 @@ func workflowFiles(paths []string) []string {
 	}
 
 	return files
+}
+
+var (
+	hadolintPattern    = regexp.MustCompile(`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`)
+	actionlintPattern  = regexp.MustCompile(`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\[([^\]]+)])?$`)
+	golangciPattern    = regexp.MustCompile(`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\(([^)]+)\))?$`)
+	complexityPattern  = regexp.MustCompile(`^\s*(.+?):(\d+)\s+(.+?)\s+\(complexity:\s*(\d+)\)$`)
+	maintainPattern    = regexp.MustCompile(`^\s*(.+?)\s+\(MI:\s*([0-9.]+)\)$`)
+	vultureLinePattern = regexp.MustCompile(`^(.+?):(\d+):\s*(.+)$`)
+)
+
+func parseHadolintFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := hadolintPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != 6 {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(matches[2])
+		findings = append(findings, hookFinding{
+			Tool:     "hadolint",
+			File:     matches[1],
+			Line:     lineNo,
+			Severity: strings.TrimSpace(matches[4]),
+			Code:     matches[3],
+			Message:  strings.TrimSpace(matches[5]),
+		})
+	}
+
+	return findings
+}
+
+func parseActionlintFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := actionlintPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != 6 {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(matches[2])
+		column, _ := strconv.Atoi(matches[3])
+		findings = append(findings, hookFinding{
+			Tool:     "actionlint",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: "error",
+			Code:     matches[5],
+			Message:  strings.TrimSpace(matches[4]),
+		})
+	}
+
+	return findings
+}
+
+func parseGolangciFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := golangciPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != 6 {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(matches[2])
+		column, _ := strconv.Atoi(matches[3])
+		findings = append(findings, hookFinding{
+			Tool:     "golangci-lint",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: "error",
+			Code:     matches[5],
+			Message:  strings.TrimSpace(matches[4]),
+		})
+	}
+
+	return findings
+}
+
+func parseComplexityFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := complexityPattern.FindStringSubmatch(line)
+		if len(matches) != 5 {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(matches[2])
+		findings = append(findings, hookFinding{
+			Tool:     "complexity",
+			File:     matches[1],
+			Line:     lineNo,
+			Severity: "error",
+			Code:     "cyclomatic-complexity",
+			Message:  strings.TrimSpace(matches[3]),
+			Detail:   "complexity: " + matches[4],
+		})
+	}
+
+	return findings
+}
+
+func parseMaintainabilityFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := maintainPattern.FindStringSubmatch(line)
+		if len(matches) != 3 {
+			continue
+		}
+		findings = append(findings, hookFinding{
+			Tool:     "maintainability",
+			File:     matches[1],
+			Severity: "warning",
+			Code:     "maintainability-index",
+			Message:  "Maintainability index below configured threshold.",
+			Detail:   "MI: " + matches[2],
+		})
+	}
+
+	return findings
+}
+
+func parseVultureFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		matches := vultureLinePattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != 4 || strings.HasPrefix(matches[1], "=") {
+			continue
+		}
+		lineNo, _ := strconv.Atoi(matches[2])
+		findings = append(findings, hookFinding{
+			Tool:     "vulture",
+			File:     matches[1],
+			Line:     lineNo,
+			Severity: "warning",
+			Code:     "unused-code",
+			Message:  strings.TrimSpace(matches[3]),
+		})
+	}
+
+	return findings
 }

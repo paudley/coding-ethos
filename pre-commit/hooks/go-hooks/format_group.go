@@ -126,6 +126,15 @@ func hooksProjectPath() string {
 }
 
 func runHookTool(name string, dir string, command []string) int {
+	return runHookToolWithParser(name, dir, command, nil)
+}
+
+func runHookToolWithParser(
+	name string,
+	dir string,
+	command []string,
+	parseFindings func(string) []hookFinding,
+) int {
 	result := runExternalTool(externalToolRequest{Name: name, Dir: dir, Command: command})
 	if result.RunnerFailure != nil {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
@@ -142,15 +151,21 @@ func runHookTool(name string, dir string, command []string) int {
 		return 1
 	}
 	if result.ExitCode != 0 {
+		findings := []hookFinding{{
+			Tool:     name,
+			Severity: "error",
+			Message:  "external tool exited with status " + fmt.Sprint(result.ExitCode),
+			Detail:   truncateHookDetail(result.Combined),
+		}}
+		if parseFindings != nil {
+			if parsed := parseFindings(result.Combined); len(parsed) > 0 {
+				findings = parsed
+			}
+		}
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:  name,
-			Title: strings.ToUpper(name) + " FAILED",
-			Findings: []hookFinding{{
-				Tool:     name,
-				Severity: "error",
-				Message:  "external tool exited with status " + fmt.Sprint(result.ExitCode),
-				Detail:   truncateHookDetail(result.Combined),
-			}},
+			Tool:     name,
+			Title:    strings.ToUpper(name) + " FAILED",
+			Findings: findings,
 			Guidance: []string{"Fix the reported diagnostics before committing."},
 		}, selectedHookOutputFormat()))
 	}

@@ -61,6 +61,53 @@ func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 	}
 }
 
+func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	chdirForTest(t, root)
+	mustWriteTestFile(t, "first.py", "print('first')\n")
+	runGitTestCommand(t, "add", "first.py")
+	runGitTestCommand(t, "commit", "-m", "test: first")
+	mustWriteTestFile(t, "second.py", "print('second')\n")
+	runGitTestCommand(t, "add", "second.py")
+	runGitTestCommand(t, "commit", "-m", "test: second")
+	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	input := strings.NewReader(
+		"refs/heads/new " + localSHA + " refs/heads/new " + allZeroSHA + "\n" +
+			"refs/heads/gone " + allZeroSHA + " refs/heads/gone " + localSHA + "\n",
+	)
+	files, err := pushedFiles(input)
+	if err != nil {
+		t.Fatalf("pushedFiles() returned error: %v", err)
+	}
+	want := []string{"first.py", "second.py"}
+	if !reflect.DeepEqual(files, want) {
+		t.Fatalf("pushed files = %#v, want %#v", files, want)
+	}
+}
+
+func TestPushedFilesDeduplicatesMultipleRefs(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	chdirForTest(t, root)
+	mustWriteTestFile(t, "base.py", "print('base')\n")
+	runGitTestCommand(t, "add", "base.py")
+	runGitTestCommand(t, "commit", "-m", "test: base")
+	remoteSHA := gitTestOutput(t, "rev-parse", "HEAD")
+	mustWriteTestFile(t, "feature.py", "print('feature')\n")
+	runGitTestCommand(t, "add", "feature.py")
+	runGitTestCommand(t, "commit", "-m", "test: feature")
+	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	line := "refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n"
+	files, err := pushedFiles(strings.NewReader(line + line))
+	if err != nil {
+		t.Fatalf("pushedFiles() returned error: %v", err)
+	}
+	if !reflect.DeepEqual(files, []string{"feature.py"}) {
+		t.Fatalf("pushed files = %#v, want deduplicated feature.py", files)
+	}
+}
+
 func TestDockerAndWorkflowFileSelection(t *testing.T) {
 	files := []string{
 		"Dockerfile",

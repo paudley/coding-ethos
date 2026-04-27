@@ -15,6 +15,7 @@ import (
 )
 
 var allZeroSHA = strings.Repeat("0", 40)
+var emptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 func runGitHookCommand(cfg Config, args []string) int {
 	if len(args) == 0 {
@@ -157,7 +158,7 @@ func pushedFiles(input io.Reader) ([]string, error) {
 		var changed []string
 		var err error
 		if fields[3] == allZeroSHA {
-			changed, err = gitLines("diff-tree", "--no-commit-id", "--name-only", "-r", fields[1])
+			changed, err = gitLines("diff", "--name-only", emptyTreeSHA+".."+fields[1])
 		} else {
 			changed, err = gitLines("diff", "--name-only", fields[3]+".."+fields[1])
 		}
