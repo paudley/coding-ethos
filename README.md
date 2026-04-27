@@ -334,6 +334,11 @@ they are not invoked from agent hooks. Agent hook evaluators are runtime-covered
 but Claude hook installation and cutover are still tracked in
 [HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
 
+Installed Git hook shims also compile the policy bundle and run executable
+compiled-policy preflight before delegating to the current Go hook group runner.
+This keeps compiled policy in the active Git hook path while the remaining hook
+groups are moved over.
+
 Install hooks:
 
 ```bash

@@ -144,16 +144,59 @@ run_policy_lint() {
 	exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" "$@"
 }
 
+run_policy_lint_check() {
+	build_policy_tool coding-ethos-lint
+	local output
+	set +e
+	output="$("${TOOLS_BIN_DIR}/coding-ethos-lint" \
+		--bundle "$POLICY_BUNDLE" \
+		--json \
+		"$@" 2>&1)"
+	local status=$?
+	set -e
+
+	if [[ "$status" -eq 0 ]]; then
+		return
+	fi
+
+	printf '%s\n' "$output" >&2
+	exit "$status"
+}
+
 run_policy_git() {
 	compile_policy_bundle
 	build_policy_tool coding-ethos-git
 	exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
 }
 
+run_git_hook() {
+	local hook_name="${1:-}"
+
+	compile_policy_bundle
+	case "$hook_name" in
+		pre-commit | pre-push)
+			run_policy_lint_check --staged --cwd "$ROOT"
+			;;
+		commit-msg | validate)
+			;;
+		*)
+			printf 'FATAL: unknown git hook %q\n' "$hook_name" >&2
+			exit 1
+			;;
+	esac
+
+	build_go_binary "$GIT_HOOK_SRC_DIR" "$GIT_HOOK_BIN"
+	exec "$GIT_HOOK_BIN" git-hook "$@"
+}
+
 case "${1:-}" in
 	agent-hook)
 		shift
 		run_agent_hook "$@"
+		;;
+	git-hook)
+		shift
+		run_git_hook "$@"
 		;;
 	policy-lint)
 		shift

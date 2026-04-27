@@ -20,6 +20,9 @@ parent and Claude hook entries outside this repo.
   fixture-backed through the Go agent hook runtime.
 - `Installed`: the repo-owned hook installation flow wires the behavior into
   the relevant Git or Claude hook surface.
+- `Bridged`: installed Git hook execution includes compiled-policy preflight,
+  then delegates to the current bundled hook group runner for checks not yet
+  represented in compiled policy.
 - `Cutover ready`: the behavior is runtime covered, installed, documented, and
   verified by an end-to-end compiled-policy path.
 
@@ -27,8 +30,8 @@ parent and Claude hook entries outside this repo.
 
 | Hook | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- |
-| `pre-commit` | Locate bundle and run `run-go-hook.sh git-hook pre-commit`. | Current coding-ethos Git shim. | Covered |
-| `pre-push` | Locate bundle and run `run-go-hook.sh git-hook pre-push`. | Current coding-ethos Git shim. | Covered |
+| `pre-commit` | Locate bundle and run `run-go-hook.sh git-hook pre-commit`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
+| `pre-push` | Locate bundle and run `run-go-hook.sh git-hook pre-push`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
 | `commit-msg` | Locate bundle and run `run-go-hook.sh git-hook commit-msg`. | Current coding-ethos Git shim. | Covered |
 | `post-commit` | Delegate to `git lfs post-commit`. | Preserve as external Git LFS delegation at cutover. | External |
 | `post-merge` | Delegate to `git lfs post-merge`. | Preserve as external Git LFS delegation at cutover. | External |
@@ -85,9 +88,8 @@ inventory used to keep the migration status explicit.
 - Agent-hook behavior is runtime covered but not installed. Add a repo-owned
   Claude hook sync/doctor path before replacing parent or `~/.claude/hooks`
   entries.
-- Git hooks still run through the current bundled Go hook runner under
-  `pre-commit/hooks/go-hooks/`; compiled policy powers `agent-hook`,
-  `policy-lint`, and `policy-git` side entrypoints. Move Git hook groups onto
+- Git hooks now run compiled-policy preflight before the current bundled Go hook
+  runner under `pre-commit/hooks/go-hooks/`. Move remaining hook groups onto
   compiled-policy dispatch before claiming one runtime source of truth.
 - Protected paths, protected branches, staged admin files, and shell/git policy
   enablement need config-backed evaluator options rather than hardcoded

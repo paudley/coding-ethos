@@ -19,6 +19,8 @@ var (
 	errInvalidBundle  = errors.New("invalid policy bundle")
 )
 
+const blockedExitCode = 2
+
 func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
@@ -70,11 +72,13 @@ func main() {
 		if err != nil {
 			exitErr(err)
 		}
-
-		return
+	} else {
+		printHuman(result)
 	}
 
-	printHuman(result)
+	if result.Blocked() {
+		os.Exit(blockedExitCode)
+	}
 }
 
 func readBundle(path string) (policy.Bundle, error) {

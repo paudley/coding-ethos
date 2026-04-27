@@ -12,6 +12,7 @@ trap 'rm -rf "$tmp_root"' EXIT
 
 policy_dir="$tmp_root/policy"
 git_repo="$tmp_root/repo"
+wrapper_repo="$tmp_root/wrapper-repo"
 
 policy_bin="$go_bin/coding-ethos-policy"
 lint_bin="$go_bin/coding-ethos-lint"
@@ -33,11 +34,18 @@ printf '==> compiling policy bundle\n'
   --generated-at "2026-04-24T00:00:00Z" >/dev/null
 
 printf '==> validating lint block decision\n'
+set +e
 lint_output="$("$lint_bin" \
   --bundle "$policy_dir/policy-bundle.json" \
   --staged \
   --argv "git commit --no-verify -m test" \
   --json)"
+lint_status=$?
+set -e
+if [[ "$lint_status" -ne 2 ]]; then
+  printf 'expected lint exit 2, got %s:\n%s\n' "$lint_status" "$lint_output" >&2
+  exit 1
+fi
 if ! grep -q '"status": "blocked"' <<<"$lint_output"; then
   printf 'expected lint status blocked, got:\n%s\n' "$lint_output" >&2
   exit 1
@@ -220,6 +228,33 @@ set -e
 if [[ "$git_status" -ne 2 ]]; then
   printf 'expected git wrapper exit 2 for git -C, got %s:\n' "$git_status" >&2
   cat /tmp/coding-ethos-git-smoke.out >&2
+  exit 1
+fi
+
+printf '==> validating installed hook wrapper runs compiled policy preflight\n'
+git init "$wrapper_repo" >/dev/null
+git -C "$wrapper_repo" config user.email test@example.com
+git -C "$wrapper_repo" config user.name Test
+printf '.coding-ethos/\n' > "$wrapper_repo/.gitignore"
+printf '[project]\nname = "blocked"\n' > "$wrapper_repo/pyproject.toml"
+git -C "$wrapper_repo" add .gitignore pyproject.toml
+set +e
+(
+  cd "$wrapper_repo"
+  "$repo_root/pre-commit/hooks/run-go-hook.sh" \
+    git-hook pre-commit >/tmp/coding-ethos-hook-wrapper-smoke.out 2>&1
+)
+wrapper_status=$?
+set -e
+if [[ "$wrapper_status" -ne 2 ]]; then
+  printf 'expected hook wrapper exit 2 for compiled preflight, got %s:\n' "$wrapper_status" >&2
+  cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
+  exit 1
+fi
+if ! grep -q '"policy_id": "git.staged_admin_files"' \
+  /tmp/coding-ethos-hook-wrapper-smoke.out; then
+  printf 'expected compiled preflight staged admin policy output:\n' >&2
+  cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
 fi
 

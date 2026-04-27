@@ -11,3 +11,7 @@ type Result struct {
 	Decisions []policy.Decision `json:"decisions"`
 	Files     []string          `json:"files,omitempty"`
 }
+
+func (result Result) Blocked() bool {
+	return result.Status == "blocked"
+}
