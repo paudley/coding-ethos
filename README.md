@@ -3,29 +3,81 @@
 
 # coding-ethos
 
-Generate consistent `ETHOS.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, agent
-detail files, repo-root tool configs, and hook prompt packs from one structured
-engineering ethos.
+`coding-ethos` turns an engineering ethos into runnable repository policy.
 
-`coding-ethos` is for repositories that need AI-facing instructions and local
-quality gates to share the same contract. The shared ethos lives in
-`coding_ethos.yml`, repo-specific guidance can be layered through
-`repo_ethos.yml`, and enforcement settings can be layered through
-`repo_config.yaml`.
+It keeps agent instructions, generated documentation, static-analysis config,
+Git hooks, and agent tool-use guards on the same source contract. The result is
+defense in depth for human and AI contributors: the repo tells agents what good
+work looks like, gives developers the same standards in normal tool output, and
+blocks critical bypasses before bad changes land.
 
-## What it does
+## Why it exists
 
-- Renders root agent documents for Codex, Claude, and Gemini.
-- Renders per-principle deep reference docs under `.agents/ethos/`.
-- Renders Claude memory and lightweight prompt-addon files for fallback agent
-  contexts.
-- Preserves existing root agent files with managed injection blocks or an
-  explicit LLM merge strategy.
-- Syncs generated repo-root tool configs for Pyright, mypy, Ruff, yamllint,
-  and golangci-lint.
-- Syncs the grounded Gemini prompt pack consumed by the bundled Go hook runner.
-- Provides a bundled Go pre-commit and pre-push enforcement package.
-- Seeds structured YAML from an existing Markdown ethos.
+AI coding agents fail most dangerously when advice, tooling, and enforcement
+disagree. A Markdown rule says one thing, a linter checks another thing, and a
+hook lets a third thing through. `coding-ethos` closes that gap by compiling the
+repo's working agreement into every place contributors interact with the code:
+
+- **Agent context**: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`, and
+  deep per-principle reference docs.
+- **Tool configuration**: Pyright, mypy, Ruff, yamllint, and golangci-lint
+  config generated from the same policy inputs.
+- **Git enforcement**: repo-local Git hooks backed by Go policy evaluators and
+  deterministic failure output.
+- **Agent tool-use enforcement**: Claude hook settings and runtime policy that
+  can rewrite safe Git commands, block bypass attempts, capture continuation
+  context, and preserve audit logs.
+- **AI review grounding**: Gemini prompt packs generated from ethos, repo
+  overlays, enforcement config, and checked-in prompt templates.
+
+## Defense in depth
+
+`coding-ethos` does not rely on one hook or one instruction file. Policy is
+layered so failures are caught at multiple points:
+
+1. **Source policy** lives in YAML: `coding_ethos.yml` for shared principles,
+   `repo_ethos.yml` for repo-local context, `config.yaml` for enforcement, and
+   optional `repo_config.yaml` for consumer overrides.
+2. **Generated guidance** makes the same contract visible to agents and humans
+   through root agent files and deep reference docs.
+3. **Generated tool config** aligns standard linters and type checkers with the
+   policy instead of relying on hand-maintained config drift.
+4. **Git hooks** run compiled policy preflight, static checks, AI review checks,
+   and repo-specific gates before commits and pushes.
+5. **Agent hooks** protect high-risk tool paths during the work session, before
+   a commit even exists.
+6. **Audit output** is written under `.coding-ethos/` so noisy or expensive hook
+   runs can be analyzed later without flooding the calling agent.
+
+Unknown linter output still flows through normally. Findings tied to ETHOS
+principles can receive stronger, policy-grounded advice instead of generic
+tool messages.
+
+## How policy flows
+
+```text
+coding_ethos.yml      repo_ethos.yml
+       │                    │
+       ├──── merged ethos ──┤
+       │                    │
+       ▼                    ▼
+AGENTS.md / CLAUDE.md / GEMINI.md / ETHOS.md
+.agents/ethos/ deep docs
+.agent-context/ prompt addons
+
+config.yaml          repo_config.yaml
+       │                    │
+       ├── merged enforcement config
+       │
+       ├── generated tool configs
+       ├── Gemini prompt pack
+       ├── Go hook policy bundle
+       ├── Git hook runner
+       └── agent hook runtime
+```
+
+The same inputs drive both guidance and enforcement. If a rule changes, update
+the source YAML or renderer, regenerate, and review the derived diff.
 
 ## Repository model
 
@@ -317,15 +369,15 @@ The bundled ETHOS enforcement package lives under [pre-commit/](pre-commit/).
 It uses repo-local Git hook shims that call the Go runner under
 `pre-commit/hooks/go-hooks/`.
 
-The Go hook runner owns hook output policy. Failure reports honor
+The Go hook runner owns hook output policy. Reports honor
 `hooks.output_format` (`auto`, `human`, `json`, or `toon`), with `auto`
 selecting TOON when known agent/LLM environment markers are present. Successful
 groups are silent by default through `hooks.success_output: silent`; set it to
 `verbose` only when operator-facing pass summaries are useful. Enabled hook
 groups run in parallel when `hooks.parallel_groups: true`, with group output
-captured and replayed deterministically on failure. Failed hook runs print a
-runner-owned summary with group status, duration, failed groups, and command
-timing where the runner has in-process command visibility.
+captured and replayed deterministically on failure. Default failure output is
+intentionally narrow: show the failing checks and their actionable findings,
+not pass tables, internal group names, or timings that do not help fix code.
 
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
