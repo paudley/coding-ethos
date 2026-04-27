@@ -214,7 +214,7 @@ func TestFormatTypeCheckResultsGroupsDiagnosticsByFile(t *testing.T) {
 			},
 		},
 		2,
-		typeCheckOutputFormatHuman,
+		hookOutputFormatHuman,
 	)
 	for _, fragment := range []string{
 		"pkg/a.py",
@@ -249,7 +249,7 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 			},
 		},
 		1,
-		typeCheckOutputFormatTOON,
+		hookOutputFormatTOON,
 	)
 	for _, fragment := range []string{
 		"format: toon",
@@ -265,20 +265,20 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 }
 
 func TestSelectedTypeCheckOutputFormatHonorsAgentEnvironment(t *testing.T) {
-	t.Setenv(typeCheckOutputFormatEnv, "")
+	t.Setenv(hookOutputFormatEnv, "")
 	t.Setenv("CODEX_THREAD_ID", "thread")
 
-	if got := selectedTypeCheckOutputFormat(); got != typeCheckOutputFormatTOON {
-		t.Fatalf("selectedTypeCheckOutputFormat() = %q, want toon", got)
+	if got := selectedHookOutputFormat(); got != hookOutputFormatTOON {
+		t.Fatalf("selectedHookOutputFormat() = %q, want toon", got)
 	}
 }
 
 func TestSelectedTypeCheckOutputFormatAllowsHumanOverride(t *testing.T) {
-	t.Setenv(typeCheckOutputFormatEnv, typeCheckOutputFormatHuman)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatHuman)
 	t.Setenv("CODEX_THREAD_ID", "thread")
 
-	if got := selectedTypeCheckOutputFormat(); got != typeCheckOutputFormatHuman {
-		t.Fatalf("selectedTypeCheckOutputFormat() = %q, want human", got)
+	if got := selectedHookOutputFormat(); got != hookOutputFormatHuman {
+		t.Fatalf("selectedHookOutputFormat() = %q, want human", got)
 	}
 }
 
@@ -470,7 +470,7 @@ python:
 `)+"\n",
 	)
 	t.Setenv(configEnv, overridePath)
-	t.Setenv(typeCheckOutputFormatEnv, typeCheckOutputFormatHuman)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatHuman)
 
 	pythonPath := filepath.Join(tempDir, "module.py")
 	mustWriteTestFile(t, pythonPath, "value = 1\n")

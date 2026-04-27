@@ -67,11 +67,11 @@ type typeCheckDiagnostic struct {
 }
 
 const (
-	typeCheckOutputFormatAuto  = "auto"
-	typeCheckOutputFormatHuman = "human"
-	typeCheckOutputFormatJSON  = "json"
-	typeCheckOutputFormatTOON  = "toon"
-	typeCheckOutputFormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+	hookOutputFormatAuto  = "auto"
+	hookOutputFormatHuman = "human"
+	hookOutputFormatJSON  = "json"
+	hookOutputFormatTOON  = "toon"
+	hookOutputFormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
 )
 
 func defaultTypeCheckers() []typeCheckerConfig {
@@ -701,19 +701,19 @@ func typeCheckSummaryForResults(
 	return summary
 }
 
-func selectedTypeCheckOutputFormat() string {
-	format := strings.ToLower(strings.TrimSpace(os.Getenv(typeCheckOutputFormatEnv)))
+func selectedHookOutputFormat() string {
+	format := strings.ToLower(strings.TrimSpace(os.Getenv(hookOutputFormatEnv)))
 	switch format {
-	case "", typeCheckOutputFormatAuto:
+	case "", hookOutputFormatAuto:
 		if isLLMCallerEnvironment(os.Getenv) {
-			return typeCheckOutputFormatTOON
+			return hookOutputFormatTOON
 		}
 
-		return typeCheckOutputFormatHuman
-	case typeCheckOutputFormatHuman, typeCheckOutputFormatJSON, typeCheckOutputFormatTOON:
+		return hookOutputFormatHuman
+	case hookOutputFormatHuman, hookOutputFormatJSON, hookOutputFormatTOON:
 		return format
 	default:
-		return typeCheckOutputFormatHuman
+		return hookOutputFormatHuman
 	}
 }
 
@@ -743,9 +743,9 @@ func formatTypeCheckResults(
 	format string,
 ) string {
 	switch format {
-	case typeCheckOutputFormatJSON:
+	case hookOutputFormatJSON:
 		return formatTypeCheckResultsJSON(results, fileCount)
-	case typeCheckOutputFormatTOON:
+	case hookOutputFormatTOON:
 		return formatTypeCheckResultsTOON(results, fileCount)
 	default:
 		return formatTypeCheckResultsHuman(results, fileCount)
@@ -756,7 +756,7 @@ func formatTypeCheckResultsJSON(results []typeCheckResult, fileCount int) string
 	payload := typeCheckSummaryForResults(
 		results,
 		fileCount,
-		typeCheckOutputFormatJSON,
+		hookOutputFormatJSON,
 	)
 	content, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -770,7 +770,7 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 	summary := typeCheckSummaryForResults(
 		results,
 		fileCount,
-		typeCheckOutputFormatTOON,
+		hookOutputFormatTOON,
 	)
 	lines := []string{
 		fmt.Sprintf("format: %s", summary.Format),
@@ -1083,7 +1083,7 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 				formatTypeCheckResults(
 					results,
 					len(files),
-					selectedTypeCheckOutputFormat(),
+					selectedHookOutputFormat(),
 				),
 			)
 			_, _ = fmt.Fprintln(os.Stderr)

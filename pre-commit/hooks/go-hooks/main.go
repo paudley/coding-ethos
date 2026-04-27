@@ -1469,6 +1469,32 @@ type geminiCheckOutcome struct {
 	BatchesCompleted int                      `json:"batchesCompleted"`
 }
 
+type geminiReportSummary struct {
+	Format   string                `json:"format"`
+	Scope    string                `json:"scope"`
+	Status   string                `json:"status"`
+	Outcomes []geminiOutcomeReport `json:"outcomes"`
+}
+
+type geminiOutcomeReport struct {
+	Name              string             `json:"name"`
+	Status            string             `json:"status"`
+	Model             string             `json:"model"`
+	ServiceTier       string             `json:"service_tier"`
+	IncludedFileCount int                `json:"included_file_count"`
+	BatchCount        int                `json:"batch_count"`
+	BatchErrors       []geminiBatchError `json:"batch_errors,omitempty"`
+	SkippedLargeFiles []string           `json:"skipped_large_files,omitempty"`
+	InDiff            []geminiViolation  `json:"in_diff,omitempty"`
+	PreExisting       []geminiViolation  `json:"pre_existing,omitempty"`
+}
+
+type geminiBatchError struct {
+	Batch int      `json:"batch"`
+	Files []string `json:"files"`
+	Error string   `json:"error"`
+}
+
 type geminiRuntimePaths struct {
 	BundleRoot   string
 	ConsumerRoot string
@@ -3156,11 +3182,25 @@ func geminiOutcomeStatus(outcome geminiCheckOutcome) string {
 	return passVerdict
 }
 
-func formatGeminiReport(scope string, outcomes []geminiCheckOutcome) string {
+func formatGeminiReport(
+	scope string,
+	outcomes []geminiCheckOutcome,
+	format string,
+) string {
 	if !hasGeminiIssues(outcomes) {
 		return ""
 	}
+	switch format {
+	case hookOutputFormatJSON:
+		return formatGeminiReportJSON(scope, outcomes)
+	case hookOutputFormatTOON:
+		return formatGeminiReportTOON(scope, outcomes)
+	default:
+		return formatGeminiReportHuman(scope, outcomes)
+	}
+}
 
+func formatGeminiReportHuman(scope string, outcomes []geminiCheckOutcome) string {
 	lines := []string{
 		"",
 		strings.Repeat("=", reportDividerWidth),
@@ -3180,6 +3220,224 @@ func formatGeminiReport(scope string, outcomes []geminiCheckOutcome) string {
 	lines = append(lines, strings.Repeat("=", reportDividerWidth))
 
 	return strings.Join(lines, "\n")
+}
+
+func formatGeminiReportJSON(scope string, outcomes []geminiCheckOutcome) string {
+	summary := geminiReportSummaryForOutcomes(
+		scope,
+		outcomes,
+		hookOutputFormatJSON,
+	)
+	content, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return formatGeminiReportHuman(scope, outcomes)
+	}
+
+	return string(content)
+}
+
+func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string {
+	summary := geminiReportSummaryForOutcomes(
+		scope,
+		outcomes,
+		hookOutputFormatTOON,
+	)
+	lines := []string{
+		fmt.Sprintf("format: %s", summary.Format),
+		fmt.Sprintf("tool: gemini"),
+		fmt.Sprintf("scope: %s", toonCell(summary.Scope)),
+		fmt.Sprintf("status: %s", summary.Status),
+		fmt.Sprintf("outcomes[%d]{name,status,model,service_tier,included_files,batches}:",
+			len(summary.Outcomes)),
+	}
+	for _, outcome := range summary.Outcomes {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"  %s,%s,%s,%s,%d,%d",
+				toonCell(outcome.Name),
+				outcome.Status,
+				toonCell(outcome.Model),
+				toonCell(outcome.ServiceTier),
+				outcome.IncludedFileCount,
+				outcome.BatchCount,
+			),
+		)
+	}
+	violations := geminiReportViolations(summary.Outcomes)
+	lines = append(
+		lines,
+		fmt.Sprintf(
+			"violations[%d]{scope,severity,file,line,ethos_section,message}:",
+			len(violations),
+		),
+	)
+	for _, violation := range violations {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"  %s,%s,%s,%d,%s,%s",
+				toonCell(violation.Scope),
+				toonCell(violation.Severity),
+				toonCell(violation.File),
+				violation.Line,
+				toonCell(violation.EthosSection),
+				toonCell(violation.Message),
+			),
+		)
+	}
+	batchErrors := geminiReportBatchErrors(summary.Outcomes)
+	if len(batchErrors) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf("batch_errors[%d]{check,batch,files,error}:", len(batchErrors)),
+		)
+		for _, item := range batchErrors {
+			lines = append(
+				lines,
+				fmt.Sprintf(
+					"  %s,%d,%s,%s",
+					toonCell(item.Check),
+					item.Batch,
+					toonCell(strings.Join(item.Files, " ")),
+					toonCell(item.Error),
+				),
+			)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+type geminiScopedViolation struct {
+	Scope        string
+	Severity     string
+	File         string
+	Message      string
+	EthosSection string
+	Line         int
+}
+
+type geminiScopedBatchError struct {
+	Check string
+	geminiBatchError
+}
+
+func geminiReportSummaryForOutcomes(
+	scope string,
+	outcomes []geminiCheckOutcome,
+	format string,
+) geminiReportSummary {
+	summary := geminiReportSummary{
+		Format: format,
+		Scope:  scope,
+		Status: passVerdict,
+	}
+	for _, outcome := range outcomes {
+		if shouldSkipGeminiOutcome(outcome) {
+			continue
+		}
+		status := geminiOutcomeStatus(outcome)
+		if status == "FAIL" {
+			summary.Status = "FAIL"
+		} else if status == "ERROR" && summary.Status != "FAIL" {
+			summary.Status = "ERROR"
+		} else if status == "WARN" && summary.Status == passVerdict {
+			summary.Status = "WARN"
+		}
+		summary.Outcomes = append(summary.Outcomes, geminiOutcomeReport{
+			Name:              outcome.Plan.Name,
+			Status:            status,
+			Model:             outcome.Plan.Model,
+			ServiceTier:       outcome.Plan.ServiceTier,
+			IncludedFileCount: len(outcome.Plan.IncludedFiles),
+			BatchCount:        len(outcome.Plan.Batches),
+			BatchErrors:       geminiBatchErrorsForOutcome(outcome),
+			SkippedLargeFiles: outcome.Plan.SkippedLargeFiles,
+			InDiff:            outcome.Filtered.InDiff,
+			PreExisting:       outcome.Filtered.PreExisting,
+		})
+	}
+
+	return summary
+}
+
+func geminiBatchErrorsForOutcome(outcome geminiCheckOutcome) []geminiBatchError {
+	errors := []geminiBatchError{}
+	for index, batch := range outcome.Batches {
+		if batch.Error == "" {
+			continue
+		}
+		errors = append(errors, geminiBatchError{
+			Batch: index + 1,
+			Files: batch.Files,
+			Error: batch.Error,
+		})
+	}
+
+	return errors
+}
+
+func geminiReportViolations(
+	outcomes []geminiOutcomeReport,
+) []geminiScopedViolation {
+	violations := []geminiScopedViolation{}
+	for _, outcome := range outcomes {
+		for _, violation := range outcome.InDiff {
+			violations = append(
+				violations,
+				geminiScopedViolation{
+					Scope:        "in_diff",
+					Severity:     violation.Severity,
+					File:         violation.File,
+					Message:      violation.Message,
+					EthosSection: violation.EthosSection,
+					Line:         violation.Line,
+				},
+			)
+		}
+		for _, violation := range outcome.PreExisting {
+			violations = append(
+				violations,
+				geminiScopedViolation{
+					Scope:        "pre_existing",
+					Severity:     violation.Severity,
+					File:         violation.File,
+					Message:      violation.Message,
+					EthosSection: violation.EthosSection,
+					Line:         violation.Line,
+				},
+			)
+		}
+	}
+	sort.SliceStable(violations, func(left int, right int) bool {
+		if violations[left].File != violations[right].File {
+			return violations[left].File < violations[right].File
+		}
+		if violations[left].Line != violations[right].Line {
+			return violations[left].Line < violations[right].Line
+		}
+
+		return violations[left].Severity < violations[right].Severity
+	})
+
+	return violations
+}
+
+func geminiReportBatchErrors(
+	outcomes []geminiOutcomeReport,
+) []geminiScopedBatchError {
+	errors := []geminiScopedBatchError{}
+	for _, outcome := range outcomes {
+		for _, batchError := range outcome.BatchErrors {
+			errors = append(errors, geminiScopedBatchError{
+				Check:            outcome.Name,
+				geminiBatchError: batchError,
+			})
+		}
+	}
+
+	return errors
 }
 
 func hasGeminiIssues(outcomes []geminiCheckOutcome) bool {
@@ -3375,7 +3633,11 @@ func runGeminiCheck(_ Config, args []string) int {
 		scope,
 	)
 	outcomes := executeGeminiChecks(settings, apiKey, prepared, changedLinesByFile)
-	if report := formatGeminiReport(scope, outcomes); report != "" {
+	if report := formatGeminiReport(
+		scope,
+		outcomes,
+		selectedHookOutputFormat(),
+	); report != "" {
 		writeText(os.Stdout, report)
 	}
 

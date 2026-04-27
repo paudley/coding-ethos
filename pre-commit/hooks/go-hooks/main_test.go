@@ -883,6 +883,89 @@ func TestFilterGeminiModalAllowlistedViolations(t *testing.T) {
 	}
 }
 
+func TestFormatGeminiReportTOON(t *testing.T) {
+	report := formatGeminiReport(
+		"staged",
+		[]geminiCheckOutcome{
+			{
+				Plan: GeminiCheckPlan{
+					Name:          "code_ethos",
+					Model:         "gemini-2.5-flash",
+					ServiceTier:   "standard",
+					IncludedFiles: []string{"pkg/app.py"},
+					Batches: []GeminiBatchPlan{
+						{Files: []string{"pkg/app.py"}},
+					},
+				},
+				Filtered: geminiFilteredViolations{
+					InDiff: []geminiViolation{
+						{
+							Severity:     "CRITICAL",
+							File:         "pkg/app.py",
+							Line:         12,
+							EthosSection: "Section 19",
+							Message:      "Do not introduce modal behavior",
+						},
+					},
+				},
+			},
+		},
+		hookOutputFormatTOON,
+	)
+	for _, fragment := range []string{
+		"format: toon",
+		"tool: gemini",
+		"scope: staged",
+		"status: FAIL",
+		"outcomes[1]{name,status,model,service_tier,included_files,batches}:",
+		"code_ethos,FAIL,gemini-2.5-flash,standard,1,1",
+		"violations[1]{scope,severity,file,line,ethos_section,message}:",
+		"in_diff,CRITICAL,pkg/app.py,12,Section 19,Do not introduce modal behavior",
+	} {
+		if !strings.Contains(report, fragment) {
+			t.Fatalf("Gemini TOON report missing %q:\n%s", fragment, report)
+		}
+	}
+}
+
+func TestFormatGeminiReportJSON(t *testing.T) {
+	report := formatGeminiReport(
+		"staged",
+		[]geminiCheckOutcome{
+			{
+				Plan: GeminiCheckPlan{
+					Name:          "code_ethos",
+					Model:         "gemini-2.5-flash",
+					ServiceTier:   "standard",
+					IncludedFiles: []string{"pkg/app.py"},
+					Batches: []GeminiBatchPlan{
+						{Files: []string{"pkg/app.py"}},
+					},
+				},
+				Filtered: geminiFilteredViolations{
+					InDiff: []geminiViolation{
+						{
+							Severity: "WARNING",
+							File:     "pkg/app.py",
+							Line:     7,
+							Message:  "Clarify the branch",
+						},
+					},
+				},
+			},
+		},
+		hookOutputFormatJSON,
+	)
+	var summary geminiReportSummary
+	if err := json.Unmarshal([]byte(report), &summary); err != nil {
+		t.Fatalf("Gemini JSON report did not decode: %v\n%s", err, report)
+	}
+	if summary.Format != hookOutputFormatJSON || summary.Scope != "staged" ||
+		summary.Status != "WARN" || len(summary.Outcomes) != 1 {
+		t.Fatalf("unexpected Gemini JSON summary: %#v", summary)
+	}
+}
+
 func TestParseGeminiChangedLines(t *testing.T) {
 	diff := strings.Join([]string{
 		"@@ -10,2 +10,3 @@",
