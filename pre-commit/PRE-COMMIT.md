@@ -187,7 +187,8 @@ Important configurable areas:
   external tool timeout, severity thresholds, and canonical hook groups
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.pylint`,
   `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config
-  defaults
+  defaults, including the expanded Go security, dependency, module-directive,
+  modern-library, protobuf, test, and whitespace/style linter policy
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
 

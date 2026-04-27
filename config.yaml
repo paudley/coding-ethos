@@ -579,7 +579,9 @@ tooling:
         - copyloopvar
         - cyclop
         - decorder
+        - depguard
         - dogsled
+        - dupl
         - dupword
         - durationcheck
         - embeddedstructfieldcheck
@@ -589,6 +591,7 @@ tooling:
         - errname
         - errorlint
         - exhaustive
+        - exptostd
         - fatcontext
         - forbidigo
         - forcetypeassert
@@ -597,12 +600,18 @@ tooling:
         - gocheckcompilerdirectives
         - gochecknoglobals
         - gochecknoinits
+        - gochecksumtype
         - gocognit
         - goconst
         - gocritic
         - gocyclo
+        - godoclint
         - godot
         - godox
+        - gomoddirectives
+        - gomodguard
+        - goprintffuncname
+        - gosec
         - govet
         - grouper
         - iface
@@ -615,12 +624,15 @@ tooling:
         - loggercheck
         - maintidx
         - makezero
+        - mirror
         - misspell
         - mnd
+        - modernize
         - musttag
         - nakedret
         - nestif
         - nilerr
+        - nilnesserr
         - nilnil
         - nlreturn
         - noctx
@@ -628,9 +640,12 @@ tooling:
         - nolintlint
         - nonamedreturns
         - nosprintfhostport
+        - paralleltest
         - perfsprint
         - prealloc
         - predeclared
+        - promlinter
+        - protogetter
         - reassign
         - recvcheck
         - revive
@@ -642,17 +657,21 @@ tooling:
         - tagalign
         - tagliatelle
         - testableexamples
+        - testpackage
         - testifylint
         - thelper
         - tparallel
         - unconvert
         - unparam
+        - unqueryvet
         - unused
         - usestdlibvars
+        - usetesting
         - varnamelen
         - wastedassign
         - whitespace
         - wrapcheck
+        - wsl_v5
         - zerologlint
       exclusions:
         generated: strict
@@ -672,10 +691,30 @@ tooling:
               - lll
               - maintidx
               - mnd
+              - paralleltest
+              - testpackage
               - varnamelen
+          - path: (cmd|internal|pkg)/.*_test\.go
+            linters:
+              - dupl
+              - gosec
+          - path: (^|/)testdata/
+            linters:
+              - gosec
+              - godoclint
+              - mnd
+              - protogetter
       settings:
         cyclop:
           max-complexity: 12
+        depguard:
+          rules:
+            main:
+              deny:
+                - pkg: github.com/pkg/errors
+                  desc: Use standard errors plus fmt.Errorf("%w") wrapping.
+                - pkg: io/ioutil
+                  desc: Use os or io package replacements.
         errcheck:
           check-blank: true
           check-type-assertions: true
@@ -686,14 +725,29 @@ tooling:
           min-complexity: 20
         gocyclo:
           min-complexity: 12
+        gosec:
+          excludes:
+            - G101
+            - G304
         govet:
           enable-all: true
+        gomoddirectives:
+          replace-allow-list: []
+          retract-allow-no-explanation: false
+          exclude-forbidden: false
         lll:
           tab-width: 1
         nestif:
           min-complexity: 4
         revive:
           severity: error
+        tagliatelle:
+          case:
+            rules:
+              json: snake
+              yaml: snake
+        testifylint:
+          enable-all: true
 
 go:
   enabled: false

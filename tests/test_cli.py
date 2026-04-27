@@ -115,10 +115,39 @@ def _assert_yamllint_tool_config(yamllint: dict[str, object]) -> None:
 
 
 def _assert_golangci_tool_config(golangci: dict[str, object]) -> None:
+    linters = golangci["linters"]
+    enabled_linters = linters["enable"]
+    settings = linters["settings"]
+
     assert golangci["version"] == "2"
-    assert golangci["linters"]["settings"]["lll"]["line-length"] == 100
-    assert "govet" in golangci["linters"]["enable"]
-    assert golangci["linters"]["settings"]["govet"]["enable-all"] is True
+    assert settings["lll"]["line-length"] == 100
+    for linter in (
+        "depguard",
+        "dupl",
+        "gochecksumtype",
+        "godoclint",
+        "gomoddirectives",
+        "gosec",
+        "govet",
+        "modernize",
+        "nilnesserr",
+        "paralleltest",
+        "testpackage",
+        "unqueryvet",
+        "usetesting",
+        "wsl_v5",
+    ):
+        assert linter in enabled_linters
+    assert settings["govet"]["enable-all"] is True
+    assert {
+        "pkg": "github.com/pkg/errors",
+        "desc": 'Use standard errors plus fmt.Errorf("%w") wrapping.',
+    } in settings["depguard"]["rules"]["main"]["deny"]
+    assert settings["gomoddirectives"]["replace-allow-list"] == []
+    assert settings["gomoddirectives"]["retract-allow-no-explanation"] is False
+    assert settings["tagliatelle"]["case"]["rules"]["json"] == "snake"
+    assert settings["tagliatelle"]["case"]["rules"]["yaml"] == "snake"
+    assert settings["testifylint"]["enable-all"] is True
 
 
 class MarkdownSeedTests(unittest.TestCase):
