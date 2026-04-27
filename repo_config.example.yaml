@@ -4,6 +4,23 @@
 style:
   line_length: 100
 
+hooks:
+  output_format: auto
+  tool_timeout_seconds: 300
+  agent_env_markers:
+    - CODEX_THREAD_ID
+    - CLAUDE_CODE_ENTRYPOINT
+    - GEMINI_CLI
+  enabled_groups:
+    - syntax
+    - python-policy
+    - python-static
+    - docs
+    - security
+    - shell
+    - ai
+    - commit-msg
+
 python:
   source_paths:
     - lib/python/project

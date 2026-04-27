@@ -193,6 +193,8 @@ Important configurable areas:
   execution, hook-project execution, config injection, enablement, and excluded
   path fragments
 - `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
+- `hooks.*` - normalized output format, agent environment detection,
+  external tool timeout, severity thresholds, and canonical hook groups
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`,
   `tooling.golangci_lint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
@@ -204,6 +206,9 @@ structured hook reports; `auto` selects TOON when common agent caller
 environment markers are present and otherwise keeps the human terminal report.
 Go-owned policy checks, Python static checks, Gemini AI checks, docstring
 coverage, and the shellcheck/yamllint wrappers use this normalized report path.
+The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
+`python-static`, `docs`, `security`, `shell`, `ai`, and `commit-msg`; Lefthook
+dispatches those groups while the Go runner owns the enforcement behavior.
 
 For this repo, many project-specific checks are disabled by default because the
 codebase does not have SQL centralization, manifest, plan, or Go worktree

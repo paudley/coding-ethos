@@ -1012,6 +1012,28 @@ func TestParseYamllintFindings(t *testing.T) {
 	}
 }
 
+func TestCanonicalHookGroupsExposeExpectedGroups(t *testing.T) {
+	groups := canonicalHookGroups()
+	for _, name := range []string{
+		"syntax",
+		"python-policy",
+		"python-static",
+		"docs",
+		"security",
+		"shell",
+		"ai",
+		"commit-msg",
+	} {
+		group, ok := groups[name]
+		if !ok {
+			t.Fatalf("canonicalHookGroups() missing %q", name)
+		}
+		if len(group.Commands) == 0 {
+			t.Fatalf("canonicalHookGroups()[%q] has no commands", name)
+		}
+	}
+}
+
 func TestParseGeminiChangedLines(t *testing.T) {
 	diff := strings.Join([]string{
 		"@@ -10,2 +10,3 @@",

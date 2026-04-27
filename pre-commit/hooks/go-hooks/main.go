@@ -269,6 +269,7 @@ func main() {
 		"fix-text":                         fixText,
 		"gemini-check":                     runGeminiCheck,
 		"quiet-filter":                     quietFilter,
+		"run-group":                        runHookGroupCommand,
 		"shellcheck":                       runShellcheck,
 		"yamllint":                         runYamllint,
 		"check-util-centralization":        checkUtilCentralizationCommand,
@@ -6062,9 +6063,11 @@ func runShellcheck(_ Config, paths []string) int {
 		return 1
 	}
 	args := append([]string{"--severity=warning", "-x", "--format=json"}, files...)
-	cmd := exec.CommandContext(context.Background(), shellcheck, args...)
-	output, runErr := cmd.CombinedOutput()
-	outputText := strings.TrimSpace(string(output))
+	result := runExternalTool(externalToolRequest{
+		Name:    "shellcheck",
+		Command: append([]string{shellcheck}, args...),
+	})
+	outputText := result.Combined
 	findings := parseShellcheckFindings(outputText)
 	if len(findings) > 0 {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
@@ -6079,7 +6082,7 @@ func runShellcheck(_ Config, paths []string) int {
 	if outputText != "" {
 		fmt.Fprintln(os.Stdout, outputText)
 	}
-	if runErr != nil {
+	if result.RunnerFailure != nil || result.ExitCode != 0 {
 		return 1
 	}
 
@@ -6148,10 +6151,12 @@ func runYamllint(_ Config, paths []string) int {
 		},
 		files...,
 	)
-	cmd := exec.CommandContext(context.Background(), "uv", args...)
-	cmd.Dir = repoRoot()
-	output, runErr := cmd.CombinedOutput()
-	outputText := strings.TrimSpace(string(output))
+	result := runExternalTool(externalToolRequest{
+		Name:    "yamllint",
+		Dir:     repoRoot(),
+		Command: append([]string{"uv"}, args...),
+	})
+	outputText := result.Combined
 	findings := parseYamllintFindings(outputText)
 	if len(findings) > 0 {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
@@ -6166,7 +6171,7 @@ func runYamllint(_ Config, paths []string) int {
 	if outputText != "" {
 		fmt.Fprintln(os.Stdout, outputText)
 	}
-	if runErr != nil {
+	if result.RunnerFailure != nil || result.ExitCode != 0 {
 		return 1
 	}
 

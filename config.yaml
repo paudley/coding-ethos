@@ -53,6 +53,37 @@ bundle:
     - coding-ethos.pre-commit.yaml
     - coding-ethos.pre-commit.yml
 
+hooks:
+  output_format: auto
+  tool_timeout_seconds: 300
+  agent_env_markers:
+    - CODEX_THREAD_ID
+    - CODEX_CI
+    - CODEX_MANAGED_BY_NPM
+    - CLAUDECODE
+    - CLAUDE_CODE_ENTRYPOINT
+    - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+    - GEMINI_CLI
+    - AIDER_MODEL
+    - CURSOR_TRACE_ID
+  enabled_groups:
+    - format
+    - syntax
+    - python-policy
+    - python-static
+    - docs
+    - security
+    - shell
+    - ai
+    - commit-msg
+  fail_severity_levels:
+    - error
+    - fatal
+    - critical
+  warn_severity_levels:
+    - warning
+    - warn
+
 python:
   source_paths:
     - coding_ethos

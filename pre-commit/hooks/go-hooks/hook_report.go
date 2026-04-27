@@ -6,8 +6,26 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 )
+
+const (
+	hookOutputFormatAuto  = "auto"
+	hookOutputFormatHuman = "human"
+	hookOutputFormatJSON  = "json"
+	hookOutputFormatTOON  = "toon"
+	hookOutputFormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+)
+
+type hookSettings struct {
+	OutputFormat       string   `mapstructure:"output_format"`
+	AgentEnvMarkers    []string `mapstructure:"agent_env_markers"`
+	ToolTimeoutSeconds int      `mapstructure:"tool_timeout_seconds"`
+	EnabledGroups      []string `mapstructure:"enabled_groups"`
+	FailSeverityLevels []string `mapstructure:"fail_severity_levels"`
+	WarnSeverityLevels []string `mapstructure:"warn_severity_levels"`
+}
 
 type hookFinding struct {
 	Tool     string `json:"tool"`
@@ -43,6 +61,98 @@ func formatHookReport(report hookReport, format string) string {
 	default:
 		return formatHookReportHuman(report)
 	}
+}
+
+func loadHookSettings() hookSettings {
+	_, _, rootConfig, err := loadBundleConsumerAndConfig()
+	if err != nil {
+		return defaultHookSettings()
+	}
+	settings := defaultHookSettings()
+	if err := decodeConfigSection(rootConfig, "hooks", &settings); err != nil {
+		return defaultHookSettings()
+	}
+	if settings.OutputFormat == "" {
+		settings.OutputFormat = hookOutputFormatAuto
+	}
+	if len(settings.AgentEnvMarkers) == 0 {
+		settings.AgentEnvMarkers = defaultHookSettings().AgentEnvMarkers
+	}
+	if settings.ToolTimeoutSeconds <= 0 {
+		settings.ToolTimeoutSeconds = defaultHookSettings().ToolTimeoutSeconds
+	}
+	if len(settings.FailSeverityLevels) == 0 {
+		settings.FailSeverityLevels = defaultHookSettings().FailSeverityLevels
+	}
+	if len(settings.WarnSeverityLevels) == 0 {
+		settings.WarnSeverityLevels = defaultHookSettings().WarnSeverityLevels
+	}
+
+	return settings
+}
+
+func defaultHookSettings() hookSettings {
+	return hookSettings{
+		OutputFormat:       hookOutputFormatAuto,
+		ToolTimeoutSeconds: 300,
+		AgentEnvMarkers: []string{
+			"CODEX_THREAD_ID",
+			"CODEX_CI",
+			"CODEX_MANAGED_BY_NPM",
+			"CLAUDECODE",
+			"CLAUDE_CODE_ENTRYPOINT",
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+			"GEMINI_CLI",
+			"AIDER_MODEL",
+			"CURSOR_TRACE_ID",
+		},
+		EnabledGroups: []string{
+			"format",
+			"syntax",
+			"python-policy",
+			"python-static",
+			"docs",
+			"security",
+			"shell",
+			"ai",
+			"commit-msg",
+		},
+		FailSeverityLevels: []string{"error", "fatal", "critical"},
+		WarnSeverityLevels: []string{"warning", "warn"},
+	}
+}
+
+func selectedHookOutputFormat() string {
+	settings := loadHookSettings()
+	format := strings.ToLower(strings.TrimSpace(os.Getenv(hookOutputFormatEnv)))
+	if format == "" {
+		format = strings.ToLower(strings.TrimSpace(settings.OutputFormat))
+	}
+	switch format {
+	case "", hookOutputFormatAuto:
+		if isLLMCallerEnvironment(os.Getenv, settings.AgentEnvMarkers) {
+			return hookOutputFormatTOON
+		}
+
+		return hookOutputFormatHuman
+	case hookOutputFormatHuman, hookOutputFormatJSON, hookOutputFormatTOON:
+		return format
+	default:
+		return hookOutputFormatHuman
+	}
+}
+
+func isLLMCallerEnvironment(getenv func(string) string, markers []string) bool {
+	if len(markers) == 0 {
+		markers = defaultHookSettings().AgentEnvMarkers
+	}
+	for _, name := range markers {
+		if strings.TrimSpace(getenv(name)) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func formatHookReportJSON(report hookReport) string {

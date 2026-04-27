@@ -66,14 +66,6 @@ type typeCheckDiagnostic struct {
 	Column   int    `json:"column,omitempty"`
 }
 
-const (
-	hookOutputFormatAuto  = "auto"
-	hookOutputFormatHuman = "human"
-	hookOutputFormatJSON  = "json"
-	hookOutputFormatTOON  = "toon"
-	hookOutputFormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
-)
-
 func defaultTypeCheckers() []typeCheckerConfig {
 	return []typeCheckerConfig{
 		{
@@ -416,16 +408,22 @@ func normalizeTypeCheckFiles(
 	files := make([]string, 0, len(paths))
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
-		if path == "" || seen[path] ||
-			!isCheckablePythonFile(path, excludedPathFragments) {
+		if path == "" || !isCheckablePythonFile(path, excludedPathFragments) {
 			continue
 		}
-		_, err := os.Stat(path)
+		absolutePath, err := filepath.Abs(path)
 		if err != nil {
 			continue
 		}
-		seen[path] = true
-		files = append(files, path)
+		if seen[absolutePath] {
+			continue
+		}
+		_, err = os.Stat(absolutePath)
+		if err != nil {
+			continue
+		}
+		seen[absolutePath] = true
+		files = append(files, absolutePath)
 	}
 
 	return files
@@ -478,13 +476,15 @@ func runTypeChecker(
 			Output:   "Error: empty checker command",
 		}
 	}
-	cmd := exec.CommandContext(context.Background(), command[0], command[1:]...)
-	cmd.Dir = settings.ConsumerRoot
-	output, err := cmd.CombinedOutput()
-	outputText := strings.TrimSpace(string(output))
+	toolResult := runExternalTool(externalToolRequest{
+		Name:    checker.Name,
+		Dir:     settings.ConsumerRoot,
+		Command: command,
+	})
+	outputText := toolResult.Combined
 	diagnostics := parseTypeCheckDiagnostics(checker.Name, outputText)
 	duration := float64(time.Since(start).Milliseconds())
-	if err == nil {
+	if toolResult.RunnerFailure == nil && toolResult.ExitCode == 0 {
 		return typeCheckResult{
 			Name:        checker.Name,
 			ExitCode:    0,
@@ -493,11 +493,10 @@ func runTypeChecker(
 			DurationMS:  duration,
 		}
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if toolResult.RunnerFailure == nil {
 		return typeCheckResult{
 			Name:        checker.Name,
-			ExitCode:    exitErr.ExitCode(),
+			ExitCode:    toolResult.ExitCode,
 			Output:      outputText,
 			Diagnostics: diagnostics,
 			DurationMS:  duration,
@@ -507,7 +506,7 @@ func runTypeChecker(
 	return typeCheckResult{
 		Name:       checker.Name,
 		ExitCode:   1,
-		Output:     fmt.Sprintf("Error running %s: %v", checker.Name, err),
+		Output:     fmt.Sprintf("Error running %s: %v", checker.Name, toolResult.RunnerFailure),
 		DurationMS: duration,
 	}
 }
@@ -699,42 +698,6 @@ func typeCheckSummaryForResults(
 	}
 
 	return summary
-}
-
-func selectedHookOutputFormat() string {
-	format := strings.ToLower(strings.TrimSpace(os.Getenv(hookOutputFormatEnv)))
-	switch format {
-	case "", hookOutputFormatAuto:
-		if isLLMCallerEnvironment(os.Getenv) {
-			return hookOutputFormatTOON
-		}
-
-		return hookOutputFormatHuman
-	case hookOutputFormatHuman, hookOutputFormatJSON, hookOutputFormatTOON:
-		return format
-	default:
-		return hookOutputFormatHuman
-	}
-}
-
-func isLLMCallerEnvironment(getenv func(string) string) bool {
-	for _, name := range []string{
-		"CODEX_THREAD_ID",
-		"CODEX_CI",
-		"CODEX_MANAGED_BY_NPM",
-		"CLAUDECODE",
-		"CLAUDE_CODE_ENTRYPOINT",
-		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-		"GEMINI_CLI",
-		"AIDER_MODEL",
-		"CURSOR_TRACE_ID",
-	} {
-		if strings.TrimSpace(getenv(name)) != "" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func formatTypeCheckResults(
