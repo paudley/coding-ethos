@@ -84,7 +84,7 @@ Run a single job directly:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-.git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --jobs "Ruff lint"
+.git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --jobs "Python static checks"
 .git/coding-ethos-hooks/lefthook run --no-auto-install pre-commit --all-files --jobs "Validate YAML/TOML/JSON syntax"
 ```
 
@@ -189,13 +189,19 @@ Important configurable areas:
 - `python.plan_completion` - plan metadata filename, root markers, and done states
 - `python.pytest_gate` - banned markers and pytest command
 - `python.file_docstrings` - minimum sentence count and exempt filenames for file-level module docstrings
-- `python.type_check` - checker commands, hook-project execution, config
-  injection, enablement, and excluded path fragments
+- `python.type_check` - aggregated Ruff, mypy, pyright, and pylint command
+  execution, hook-project execution, config injection, enablement, and excluded
+  path fragments
 - `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.yamllint`,
   `tooling.golangci_lint` - generated repo-root tool config defaults
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
 - `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
+
+Agent-facing hook feedback should render from normalized diagnostics instead of
+raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
+the Python static-check report; `auto` selects TOON when common agent caller
+environment markers are present and otherwise keeps the human terminal report.
 
 For this repo, many project-specific checks are disabled by default because the
 codebase does not have SQL centralization, manifest, plan, or Go worktree

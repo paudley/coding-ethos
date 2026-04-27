@@ -307,14 +307,28 @@ python:
     allowed_mypy_missing_imports: []
 
   type_check:
-    enabled: false
+    enabled: true
     excluded_path_fragments:
       - /docker/
       - vulture_whitelist
     checkers:
+      - name: ruff
+        command:
+          - ruff
+          - check
+          - --quiet
+          - --ignore-noqa
+          - --output-format
+          - json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config
+        repo_config: ruff.toml
       - name: pyright
         command:
           - pyright
+          - --outputjson
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
@@ -325,12 +339,23 @@ python:
       - name: mypy
         command:
           - mypy
+          - --output
+          - json
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
           - --config-file
         repo_config: mypy.ini
         fallback_bundle_config: hooks/pyproject.toml
+      - name: pylint
+        command:
+          - pylint
+          - --output-format=json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --rcfile
+        repo_config: .pylintrc
 
 tooling:
   pyright:

@@ -105,9 +105,23 @@ python:
       - /docker/
       - vulture_whitelist
     checkers:
+      - name: ruff
+        command:
+          - ruff
+          - check
+          - --quiet
+          - --ignore-noqa
+          - --output-format
+          - json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --config
+        repo_config: ruff.toml
       - name: pyright
         command:
           - pyright
+          - --outputjson
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
@@ -117,11 +131,22 @@ python:
       - name: mypy
         command:
           - mypy
+          - --output
+          - json
         pass_files_as_args: true
         use_hook_project: true
         config_flags:
           - --config-file
         repo_config: mypy.ini
+      - name: pylint
+        command:
+          - pylint
+          - --output-format=json
+        pass_files_as_args: true
+        use_hook_project: true
+        config_flags:
+          - --rcfile
+        repo_config: .pylintrc
 
   docstring_coverage:
     enabled: true

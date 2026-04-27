@@ -136,20 +136,6 @@ pre-commit:
         >/dev/null 2>&1 || true
       stage_fixed: true
 
-    - name: Ruff lint
-      glob:
-        - "*.py"
-        - "*.pyi"
-        - "**/*.py"
-        - "**/*.pyi"
-      exclude:
-        - ".venv/**"
-        - "**/.venv/**"
-        - "**/vulture_whitelist.py"
-      run: >-
-        {hook_env} ruff check --config "${REPO_RUFF_CONFIG}" --quiet --ignore-noqa
-        {staged_files}
-
     - name: Go format
       glob: "**/*.go"
       run: gofmt -w {staged_files}
@@ -239,7 +225,7 @@ pre-commit:
         - ".claude/hooks/**"
       run: "{go_hook} check-util-centralization {staged_files}"
 
-    - name: Type checking
+    - name: Python static checks
       glob:
         - "*.py"
         - "**/*.py"
@@ -520,7 +506,7 @@ pre-push:
         - ".claude/hooks/**"
       run: "{go_hook} check-util-centralization {push_files}"
 
-    - name: Type checking
+    - name: Python static checks
       glob:
         - "*.py"
         - "**/*.py"
