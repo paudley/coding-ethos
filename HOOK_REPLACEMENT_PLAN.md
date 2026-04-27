@@ -93,8 +93,9 @@ inventory used to keep the migration status explicit.
   runner under `pre-commit/hooks/go-hooks/`. Move remaining hook groups onto
   compiled-policy dispatch before claiming one runtime source of truth.
 - Protected paths, protected branches, staged admin files, and shell/git policy
-  enablement need config-backed evaluator options rather than hardcoded
-  defaults.
+  enablement are compiled from `config.yaml`/repo override data. Remaining
+  config work is to broaden that pattern to every evaluator as it moves into
+  compiled policy.
 - External tool-backed policies such as pytest gating and generated-config
   freshness are compiled as policy data but are not dispatched by
   `coding-ethos-lint` until executable evaluators exist.

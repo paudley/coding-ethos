@@ -36,12 +36,12 @@ func EvaluateProtectedBranchWrite(
 		return nil, nil
 	}
 
-	if allFilesExemptFromProtectedBranch(context.Files) {
+	if allFilesExemptFromProtectedBranch(context.Files, context.EvaluatorOptions) {
 		return nil, nil
 	}
 
 	branch, ok := currentBranch(context.Cwd)
-	if !ok || !isProtectedBranch(branch) {
+	if !ok || !isProtectedBranch(branch, context.EvaluatorOptions) {
 		return nil, nil
 	}
 
@@ -83,13 +83,13 @@ func bashCommandModifiesFiles(command string) bool {
 	return false
 }
 
-func allFilesExemptFromProtectedBranch(files []string) bool {
+func allFilesExemptFromProtectedBranch(files []string, options map[string]any) bool {
 	if len(files) == 0 {
 		return false
 	}
 
 	for _, file := range files {
-		if !protectedBranchFileExempt(file) {
+		if !protectedBranchFileExempt(file, options) {
 			return false
 		}
 	}
@@ -97,13 +97,23 @@ func allFilesExemptFromProtectedBranch(files []string) bool {
 	return true
 }
 
-func protectedBranchFileExempt(file string) bool {
+func protectedBranchFileExempt(file string, options map[string]any) bool {
 	normalized := strings.TrimPrefix(file, "./")
+	for _, prefix := range protectedBranchExemptPathPrefixes(options) {
+		if strings.Contains(normalized, "/"+prefix) ||
+			strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
 
-	return strings.Contains(normalized, "/.claude/") ||
-		strings.HasPrefix(normalized, ".claude/") ||
-		strings.Contains(normalized, "/docs/plans/") ||
-		strings.HasPrefix(normalized, "docs/plans/")
+	return false
+}
+
+func protectedBranchExemptPathPrefixes(options map[string]any) []string {
+	return stringSliceOption(options, "exempt_path_prefixes", []string{
+		".claude/",
+		"docs/plans/",
+	})
 }
 
 func currentBranch(cwd string) (string, bool) {
@@ -120,11 +130,12 @@ func currentBranch(cwd string) (string, bool) {
 	return strings.TrimSpace(string(output)), true
 }
 
-func isProtectedBranch(branch string) bool {
-	switch branch {
-	case "main", "master":
-		return true
-	default:
-		return false
-	}
+func isProtectedBranch(branch string, options map[string]any) bool {
+	branches := stringSet(stringSliceOption(
+		options,
+		"branches",
+		[]string{"main", "master"},
+	))
+
+	return branches[branch]
 }

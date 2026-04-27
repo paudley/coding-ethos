@@ -109,6 +109,8 @@ func evaluatePolicy(
 			continue
 		}
 
+		context.EvaluatorOptions = evaluatorSpec.Options
+
 		registered = true
 
 		decisions, err := evaluator.Evaluate(policyDef, context)

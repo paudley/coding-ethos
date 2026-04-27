@@ -155,6 +155,8 @@ func evaluateGitPolicy(
 			)
 		}
 
+		context.EvaluatorOptions = evaluatorSpec.Options
+
 		decisions, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate policy %q: %w", policyDef.ID, err)

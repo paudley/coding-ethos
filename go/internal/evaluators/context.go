@@ -4,11 +4,12 @@
 package evaluators
 
 type Context struct {
-	Command string
-	Content string
-	Cwd     string
-	Scope   string
-	Tool    string
-	Files   []string
-	Argv    []string
+	EvaluatorOptions map[string]any
+	Command          string
+	Content          string
+	Cwd              string
+	Scope            string
+	Tool             string
+	Files            []string
+	Argv             []string
 }

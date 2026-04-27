@@ -122,6 +122,113 @@ python:
 	}
 }
 
+func TestCompileAddsEvaluatorOptionsFromConfig(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+git:
+  staged_admin_files:
+    basenames: [custom.lock]
+    dirs: [ops]
+filesystem:
+  protected_path:
+    paths: [/opt/blocked]
+  protected_branch_write:
+    branches: [release]
+    exempt_path_prefixes: [docs/plans/]
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	protectedPath := optionStrings(
+		t,
+		bundle.Policies["filesystem.protected_path"].Evaluators[0],
+		"paths",
+	)
+	if protectedPath[0] != "/opt/blocked" {
+		t.Fatalf("protected path options mismatch: %#v", protectedPath)
+	}
+
+	protectedBranch := optionStrings(
+		t,
+		bundle.Policies["filesystem.protected_branch_write"].Evaluators[0],
+		"branches",
+	)
+	if protectedBranch[0] != "release" {
+		t.Fatalf("protected branch options mismatch: %#v", protectedBranch)
+	}
+
+	adminFiles := optionStrings(
+		t,
+		bundle.Policies["git.staged_admin_files"].Evaluators[0],
+		"basenames",
+	)
+	if adminFiles[0] != "custom.lock" {
+		t.Fatalf("admin file options mismatch: %#v", adminFiles)
+	}
+}
+
+func TestCompileHonorsPolicyEnabledFlags(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+git:
+  hook_bypass:
+    enabled: false
+filesystem:
+  protected_path:
+    enabled: false
+shell:
+  dangerous_command:
+    enabled: false
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, policyID := range []string{
+		"git.hook_bypass",
+		"filesystem.protected_path",
+		"shell.dangerous_command",
+	} {
+		if _, ok := bundle.Policies[policyID]; ok {
+			t.Fatalf("policy should be disabled: %s", policyID)
+		}
+	}
+}
+
+func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
+	t.Helper()
+
+	items, ok := evaluator.Options[key].([]string)
+	if !ok {
+		t.Fatalf("option %q is not []string: %#v", key, evaluator.Options[key])
+	}
+
+	return items
+}
+
 func TestCompileRejectsMissingPrinciples(t *testing.T) {
 	t.Parallel()
 

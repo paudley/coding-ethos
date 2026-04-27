@@ -232,9 +232,9 @@ func compilePolicies(
 ) map[string]Policy {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
-	addGitPolicies(policies, principles)
-	addShellPolicies(policies, principles)
-	addFilesystemPolicies(policies, principles)
+	addGitPolicies(policies, config, principles)
+	addShellPolicies(policies, config, principles)
+	addFilesystemPolicies(policies, config, principles)
 	addGeneratedConfigPolicy(policies, principles)
 
 	return policies
@@ -408,17 +408,24 @@ func pythonPolicySuggestion(policyID string) string {
 	}
 }
 
-func addGitPolicies(policies map[string]Policy, principles map[string]Principle) {
-	for _, policy := range gitPolicies(principles) {
-		policies[policy.ID] = policy
+func addGitPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
+	for _, policy := range gitPolicies(config, principles) {
+		if policyConfigEnabled(config, policy.ID) {
+			policies[policy.ID] = policy
+		}
 	}
 
-	if _, ok := principles["no-rationalized-shortcuts"]; ok {
+	if _, ok := principles["no-rationalized-shortcuts"]; ok &&
+		policyConfigEnabled(config, "git.stash_blocked") {
 		policies["git.stash_blocked"] = gitStashPolicy(principles)
 	}
 }
 
-func gitPolicies(principles map[string]Principle) []Policy {
+func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
 	return []Policy{
 		gitPolicy(
 			"git.hook_bypass",
@@ -471,7 +478,7 @@ func gitPolicies(principles map[string]Principle) []Policy {
 			"Inspect worktree state before changing worktrees.",
 		),
 		gitChangeDirPolicy(principles),
-		gitStagedAdminPolicy(principles),
+		gitStagedAdminPolicy(config, principles),
 		gitCommitHeadPolicy(principles),
 	}
 }
@@ -508,7 +515,10 @@ func gitChangeDirPolicy(principles map[string]Principle) Policy {
 	)
 }
 
-func gitStagedAdminPolicy(principles map[string]Principle) Policy {
+func gitStagedAdminPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
 	return Policy{
 		ID:              "git.staged_admin_files",
 		Category:        "git",
@@ -529,7 +539,30 @@ func gitStagedAdminPolicy(principles map[string]Principle) Policy {
 			Commands: []string{"git commit"},
 			Tools:    []string{"Bash"},
 		},
-		Evaluators: []Evaluator{{Kind: "git_state", Name: "git.staged_admin_files"}},
+		Evaluators: []Evaluator{{
+			Kind: "git_state",
+			Name: "git.staged_admin_files",
+			Options: map[string]any{
+				"basenames": stringSliceAt(
+					config,
+					[]string{"git", "staged_admin_files", "basenames"},
+					[]string{
+						".pre-commit-config.yaml",
+						"pre-commit-config.yaml",
+						".importlinter",
+						"importlinter",
+						".pylintrc",
+						"pylintrc",
+						"pyproject.toml",
+					},
+				),
+				"dirs": stringSliceAt(
+					config,
+					[]string{"git", "staged_admin_files", "dirs"},
+					[]string{".pre-commit", "pre-commit"},
+				),
+			},
+		}},
 	}
 }
 
@@ -562,7 +595,11 @@ func gitStashPolicy(principles map[string]Principle) Policy {
 	)
 }
 
-func addShellPolicies(policies map[string]Policy, principles map[string]Principle) {
+func addShellPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
 	for _, policy := range []Policy{
 		shellPolicy(
 			"shell.dangerous_command",
@@ -587,7 +624,9 @@ func addShellPolicies(policies map[string]Policy, principles map[string]Principl
 			"Use the reviewed administrative path instead of gh --admin.",
 		),
 	} {
-		policies[policy.ID] = policy
+		if policyConfigEnabled(config, policy.ID) {
+			policies[policy.ID] = policy
+		}
 	}
 }
 
@@ -614,9 +653,30 @@ func shellPolicy(
 
 func addFilesystemPolicies(
 	policies map[string]Policy,
+	config map[string]any,
 	principles map[string]Principle,
 ) {
-	policies["filesystem.protected_path"] = Policy{
+	for _, policy := range []Policy{
+		filesystemProtectedPathPolicy(config, principles),
+		filesystemProtectedBranchWritePolicy(config, principles),
+	} {
+		if policyConfigEnabled(config, policy.ID) {
+			policies[policy.ID] = policy
+		}
+	}
+}
+
+func filesystemProtectedPathPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	protectedPaths := stringSliceAt(
+		config,
+		[]string{"filesystem", "protected_path", "paths"},
+		[]string{"/usr/bin/got"},
+	)
+
+	return Policy{
 		ID:       "filesystem.protected_path",
 		Category: "filesystem",
 		Source:   SourceRef{File: "config.yaml", Path: "filesystem.protected_path"},
@@ -631,12 +691,33 @@ func addFilesystemPolicies(
 		Suggestion:      "Do not write to protected system paths.",
 		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo: AppliesTo{
-			Paths: []string{"/usr/bin/got"},
+			Paths: protectedPaths,
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
 		},
-		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
+		Evaluators: []Evaluator{{
+			Kind:    "path",
+			Name:    "filesystem.protected_path",
+			Options: map[string]any{"paths": protectedPaths},
+		}},
 	}
-	policies["filesystem.protected_branch_write"] = Policy{
+}
+
+func filesystemProtectedBranchWritePolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	protectedBranches := stringSliceAt(
+		config,
+		[]string{"filesystem", "protected_branch_write", "branches"},
+		[]string{"main", "master"},
+	)
+	exemptPathPrefixes := stringSliceAt(
+		config,
+		[]string{"filesystem", "protected_branch_write", "exempt_path_prefixes"},
+		[]string{".claude/", "docs/plans/"},
+	)
+
+	return Policy{
 		ID:       "filesystem.protected_branch_write",
 		Category: "filesystem",
 		Source: SourceRef{
@@ -659,6 +740,10 @@ func addFilesystemPolicies(
 		Evaluators: []Evaluator{{
 			Kind: "git_state",
 			Name: "filesystem.protected_branch_write",
+			Options: map[string]any{
+				"branches":             protectedBranches,
+				"exempt_path_prefixes": exemptPathPrefixes,
+			},
 		}},
 	}
 }
@@ -1010,6 +1095,37 @@ func boolAt(values map[string]any, path ...string) bool {
 	boolValue, isBool := value.(bool)
 
 	return isBool && boolValue
+}
+
+func stringSliceAt(
+	values map[string]any,
+	path []string,
+	defaults []string,
+) []string {
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return append([]string(nil), defaults...)
+	}
+
+	items := stringSlice(value)
+	if len(items) == 0 {
+		return append([]string(nil), defaults...)
+	}
+
+	return items
+}
+
+func policyConfigEnabled(values map[string]any, policyID string) bool {
+	path := append(strings.Split(policyID, "."), "enabled")
+
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return true
+	}
+
+	boolValue, isBool := value.(bool)
+
+	return !isBool || boolValue
 }
 
 func valueAt(values map[string]any, path ...string) (any, bool) {

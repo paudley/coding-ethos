@@ -13,7 +13,7 @@ func EvaluateProtectedPath(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	for _, protectedPath := range protectedPaths() {
+	for _, protectedPath := range protectedPaths(context) {
 		if strings.Contains(context.Command, protectedPath) {
 			return blockProtectedPathDecision(policyDef, protectedPath), nil
 		}
@@ -28,8 +28,12 @@ func EvaluateProtectedPath(
 	return nil, nil
 }
 
-func protectedPaths() []string {
-	return []string{"/usr/bin/got"}
+func protectedPaths(context Context) []string {
+	return stringSliceOption(
+		context.EvaluatorOptions,
+		"paths",
+		[]string{"/usr/bin/got"},
+	)
 }
 
 func blockProtectedPathDecision(

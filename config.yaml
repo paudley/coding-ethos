@@ -90,6 +90,61 @@ hooks:
     - warning
     - warn
 
+git:
+  hook_bypass:
+    enabled: true
+  destructive_command:
+    enabled: true
+  merge_strategy_shortcut:
+    enabled: true
+  force_push_protected_branch:
+    enabled: true
+  checkout_protected_branch:
+    enabled: true
+  destructive_worktree:
+    enabled: true
+  change_dir_flag:
+    enabled: true
+  stash_blocked:
+    enabled: true
+  commit_head_advanced:
+    enabled: true
+  staged_admin_files:
+    enabled: true
+    basenames:
+      - .pre-commit-config.yaml
+      - pre-commit-config.yaml
+      - .importlinter
+      - importlinter
+      - .pylintrc
+      - pylintrc
+      - pyproject.toml
+    dirs:
+      - .pre-commit
+      - pre-commit
+
+filesystem:
+  protected_path:
+    enabled: true
+    paths:
+      - /usr/bin/got
+  protected_branch_write:
+    enabled: true
+    branches:
+      - main
+      - master
+    exempt_path_prefixes:
+      - .claude/
+      - docs/plans/
+
+shell:
+  dangerous_command:
+    enabled: true
+  background_git:
+    enabled: true
+  github_admin:
+    enabled: true
+
 python:
   source_paths:
     - coding_ethos

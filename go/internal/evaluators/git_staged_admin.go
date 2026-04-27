@@ -13,23 +13,20 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-func adminOnlyBasenames() map[string]bool {
-	return map[string]bool{
-		".pre-commit-config.yaml": true,
-		"pre-commit-config.yaml":  true,
-		".importlinter":           true,
-		"importlinter":            true,
-		".pylintrc":               true,
-		"pylintrc":                true,
-		"pyproject.toml":          true,
+func defaultAdminOnlyBasenames() []string {
+	return []string{
+		".pre-commit-config.yaml",
+		"pre-commit-config.yaml",
+		".importlinter",
+		"importlinter",
+		".pylintrc",
+		"pylintrc",
+		"pyproject.toml",
 	}
 }
 
-func adminOnlyDirs() []string {
-	return []string{
-		".pre-commit",
-		"pre-commit",
-	}
+func defaultAdminOnlyDirs() []string {
+	return []string{".pre-commit", "pre-commit"}
 }
 
 func EvaluateGitStagedAdminFiles(
@@ -45,7 +42,10 @@ func EvaluateGitStagedAdminFiles(
 		return nil, err
 	}
 
-	blockedFiles := BlockedAdminFiles(stagedFiles)
+	blockedFiles := BlockedAdminFiles(
+		stagedFiles,
+		context.EvaluatorOptions,
+	)
 	if len(blockedFiles) == 0 {
 		return nil, nil
 	}
@@ -87,10 +87,14 @@ func stagedFiles(cwd string) ([]string, error) {
 	return strings.Split(trimmed, "\n"), nil
 }
 
-func BlockedAdminFiles(files []string) []string {
+func BlockedAdminFiles(files []string, options map[string]any) []string {
 	blocked := []string{}
-	basenames := adminOnlyBasenames()
-	dirs := adminOnlyDirs()
+	basenames := stringSet(stringSliceOption(
+		options,
+		"basenames",
+		defaultAdminOnlyBasenames(),
+	))
+	dirs := stringSliceOption(options, "dirs", defaultAdminOnlyDirs())
 
 	for _, file := range files {
 		if file == "" {

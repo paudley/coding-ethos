@@ -27,6 +27,41 @@ hooks:
     - ai
     - commit-msg
 
+git:
+  hook_bypass:
+    enabled: true
+  stash_blocked:
+    enabled: true
+  staged_admin_files:
+    enabled: true
+    basenames:
+      - pyproject.toml
+      - repo_config.yaml
+    dirs:
+      - .github
+
+filesystem:
+  protected_path:
+    enabled: true
+    paths:
+      - /usr/bin/got
+  protected_branch_write:
+    enabled: true
+    branches:
+      - main
+      - release
+    exempt_path_prefixes:
+      - .claude/
+      - docs/plans/
+
+shell:
+  dangerous_command:
+    enabled: true
+  background_git:
+    enabled: true
+  github_admin:
+    enabled: true
+
 python:
   source_paths:
     - lib/python/project

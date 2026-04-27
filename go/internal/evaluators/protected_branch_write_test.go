@@ -72,6 +72,29 @@ func TestEvaluateProtectedBranchWriteAllowsCommitVerification(t *testing.T) {
 	}
 }
 
+func TestEvaluateProtectedBranchWriteUsesConfiguredBranches(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := protectedBranchWritePolicy()
+
+	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
+		Tool:  "Write",
+		Cwd:   repo,
+		Files: []string{"src/app.py"},
+		EvaluatorOptions: map[string]any{
+			"branches": []any{"release"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions, got %#v", decisions)
+	}
+}
+
 func initProtectedBranchRepo(t *testing.T) string {
 	t.Helper()
 
