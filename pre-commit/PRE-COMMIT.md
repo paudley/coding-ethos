@@ -4,8 +4,8 @@
 # Pre-Commit Hooks
 
 This bundle provides ETHOS-oriented Git hooks through the bundled Go runner.
-Lefthook remains as a compatibility dispatcher, not the primary runtime. The
-bundle supports two layouts:
+Lefthook remains as a transitional compatibility dispatcher, not the primary
+runtime. The bundle supports two layouts:
 
 - Source repo: `pre-commit/`
 - Vendored/submodule repo: `code-ethos/pre-commit/`
@@ -89,7 +89,7 @@ Hook bypass is forbidden. Do not use `LEFTHOOK=0` or `--no-verify`.
 
 Primary files:
 
-- `lefthook.yml` - compatibility dispatcher for repos still invoking Lefthook
+- `lefthook.yml` - transitional dispatcher for repos still invoking Lefthook
 - `../Makefile` - root-level hook entry points and Git hook installation
 - `lefthook.version` - pinned compatibility Lefthook version
 - `../config.yaml` - repo-root bundle policy and per-check defaults
@@ -113,8 +113,8 @@ merged `config.yaml` plus `repo_config.yaml`.
 
 The cached Go helper binary lives in `.git/coding-ethos-hooks/`. It rebuilds
 when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
-The Lefthook binary can still be cached there for compatibility validation and
-manual Lefthook workflows.
+The Lefthook binary can still be cached there for transitional compatibility
+validation and manual Lefthook workflows.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 
@@ -204,7 +204,7 @@ local `.pylintrc` policy has been reviewed.
 The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
 `python-quality`, `python-static`, `docs`, `security`, `shell`, `docker`,
 `workflow`, `go`, `ai`, and `commit-msg`; the Go runner owns the enforcement
-behavior and Lefthook dispatches to it for compatibility.
+behavior and Lefthook dispatches to it only during the transition period.
 
 For this repo, many project-specific checks are disabled by default because the
 codebase does not have SQL centralization, manifest, plan, or Go worktree

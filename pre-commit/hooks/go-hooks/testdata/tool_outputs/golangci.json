@@ -1,0 +1,14 @@
+{
+  "Issues": [
+    {
+      "FromLinter": "ineffassign",
+      "Text": "ineffectual assignment to err",
+      "Severity": "error",
+      "Pos": {
+        "Filename": "pkg/app.go",
+        "Line": 8,
+        "Column": 2
+      }
+    }
+  ]
+}

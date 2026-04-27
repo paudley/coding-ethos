@@ -3,10 +3,14 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseHadolintFindings(t *testing.T) {
-	findings := parseHadolintFindings("Dockerfile:3 DL3008 warning: Pin versions in apt get install.")
+	findings := parseHadolintFindings(toolOutputFixture(t, "hadolint.json"))
 	if len(findings) != 1 {
 		t.Fatalf("parseHadolintFindings() = %#v, want one finding", findings)
 	}
@@ -15,10 +19,15 @@ func TestParseHadolintFindings(t *testing.T) {
 		got.Severity != "warning" || got.Message != "Pin versions in apt get install." {
 		t.Fatalf("unexpected finding: %#v", got)
 	}
+
+	textFindings := parseHadolintFindings("Dockerfile:3 DL3008 warning: Pin versions in apt get install.")
+	if len(textFindings) != 1 {
+		t.Fatalf("parseHadolintFindings(text) = %#v, want one finding", textFindings)
+	}
 }
 
 func TestParseActionlintFindings(t *testing.T) {
-	findings := parseActionlintFindings(".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]")
+	findings := parseActionlintFindings(toolOutputFixture(t, "actionlint.jsonl"))
 	if len(findings) != 1 {
 		t.Fatalf("parseActionlintFindings() = %#v, want one finding", findings)
 	}
@@ -27,10 +36,17 @@ func TestParseActionlintFindings(t *testing.T) {
 		got.Code != "syntax-check" || got.Message != "property \"run\" is not defined" {
 		t.Fatalf("unexpected finding: %#v", got)
 	}
+
+	textFindings := parseActionlintFindings(".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]")
+	if len(textFindings) != 1 {
+		t.Fatalf("parseActionlintFindings(text) = %#v, want one finding", textFindings)
+	}
 }
 
 func TestParseGolangciFindings(t *testing.T) {
-	findings := parseGolangciFindings("pkg/app.go:8:2: ineffectual assignment to err (ineffassign)")
+	findings := parseGolangciFindings(
+		"level=warning msg=\"runner warning\"\n" + toolOutputFixture(t, "golangci.json"),
+	)
 	if len(findings) != 1 {
 		t.Fatalf("parseGolangciFindings() = %#v, want one finding", findings)
 	}
@@ -38,6 +54,11 @@ func TestParseGolangciFindings(t *testing.T) {
 	if got.File != "pkg/app.go" || got.Line != 8 || got.Column != 2 ||
 		got.Code != "ineffassign" || got.Message != "ineffectual assignment to err" {
 		t.Fatalf("unexpected finding: %#v", got)
+	}
+
+	textFindings := parseGolangciFindings("pkg/app.go:8:2: ineffectual assignment to err (ineffassign)")
+	if len(textFindings) != 1 {
+		t.Fatalf("parseGolangciFindings(text) = %#v, want one finding", textFindings)
 	}
 }
 
@@ -55,4 +76,14 @@ func TestParsePythonQualityFindings(t *testing.T) {
 	if len(vulture) != 1 || vulture[0].Code != "unused-code" || vulture[0].Line != 17 {
 		t.Fatalf("parseVultureFindings() = %#v", vulture)
 	}
+}
+
+func toolOutputFixture(t *testing.T, name string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join("testdata", "tool_outputs", name))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", name, err)
+	}
+
+	return string(content)
 }

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func runHadolint(_ Config, paths []string) int {
 	return runHookToolWithParser(
 		"hadolint",
 		repoRoot(),
-		append([]string{"hadolint"}, files...),
+		append([]string{"hadolint", "--format", "json"}, files...),
 		parseHadolintFindings,
 	)
 }
@@ -34,7 +35,7 @@ func runActionlint(_ Config, paths []string) int {
 	return runHookToolWithParser(
 		"actionlint",
 		repoRoot(),
-		[]string{"actionlint"},
+		[]string{"actionlint", "-format", "{{json .}}"},
 		parseActionlintFindings,
 	)
 }
@@ -153,7 +154,16 @@ func runGolangciLint(_ Config, paths []string) int {
 	return runHookToolWithParser(
 		"golangci-lint",
 		worktree,
-		[]string{"golangci-lint", "run", "--config", config},
+		[]string{
+			"golangci-lint",
+			"run",
+			"--config",
+			config,
+			"--output.json.path",
+			"stdout",
+			"--output.text.path",
+			"/dev/null",
+		},
 		parseGolangciFindings,
 	)
 }
@@ -246,6 +256,9 @@ var (
 )
 
 func parseHadolintFindings(output string) []hookFinding {
+	if findings := parseHadolintJSONFindings(output); len(findings) > 0 {
+		return findings
+	}
 	findings := []hookFinding{}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		matches := hadolintPattern.FindStringSubmatch(strings.TrimSpace(line))
@@ -266,7 +279,38 @@ func parseHadolintFindings(output string) []hookFinding {
 	return findings
 }
 
+func parseHadolintJSONFindings(output string) []hookFinding {
+	var items []struct {
+		Code    string `json:"code"`
+		File    string `json:"file"`
+		Level   string `json:"level"`
+		Message string `json:"message"`
+		Line    int    `json:"line"`
+		Column  int    `json:"column"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items); err != nil {
+		return nil
+	}
+	findings := make([]hookFinding, 0, len(items))
+	for _, item := range items {
+		findings = append(findings, hookFinding{
+			Tool:     "hadolint",
+			File:     item.File,
+			Line:     item.Line,
+			Column:   item.Column,
+			Severity: item.Level,
+			Code:     item.Code,
+			Message:  item.Message,
+		})
+	}
+
+	return findings
+}
+
 func parseActionlintFindings(output string) []hookFinding {
+	if findings := parseActionlintJSONFindings(output); len(findings) > 0 {
+		return findings
+	}
 	findings := []hookFinding{}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		matches := actionlintPattern.FindStringSubmatch(strings.TrimSpace(line))
@@ -289,7 +333,45 @@ func parseActionlintFindings(output string) []hookFinding {
 	return findings
 }
 
+func parseActionlintJSONFindings(output string) []hookFinding {
+	findings := []hookFinding{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		var item struct {
+			FilePath string `json:"filepath"`
+			File     string `json:"file"`
+			Path     string `json:"path"`
+			Message  string `json:"message"`
+			Kind     string `json:"kind"`
+			Check    string `json:"check"`
+			Line     int    `json:"line"`
+			Column   int    `json:"column"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &item); err != nil {
+			continue
+		}
+		file := firstNonEmpty(item.FilePath, item.File, item.Path)
+		code := firstNonEmpty(item.Kind, item.Check)
+		if file == "" && item.Message == "" {
+			continue
+		}
+		findings = append(findings, hookFinding{
+			Tool:     "actionlint",
+			File:     file,
+			Line:     item.Line,
+			Column:   item.Column,
+			Severity: "error",
+			Code:     code,
+			Message:  item.Message,
+		})
+	}
+
+	return findings
+}
+
 func parseGolangciFindings(output string) []hookFinding {
+	if findings := parseGolangciJSONFindings(output); len(findings) > 0 {
+		return findings
+	}
 	findings := []hookFinding{}
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		matches := golangciPattern.FindStringSubmatch(strings.TrimSpace(line))
@@ -310,6 +392,48 @@ func parseGolangciFindings(output string) []hookFinding {
 	}
 
 	return findings
+}
+
+func parseGolangciJSONFindings(output string) []hookFinding {
+	var payload struct {
+		Issues []struct {
+			FromLinter string `json:"FromLinter"`
+			Text       string `json:"Text"`
+			Severity   string `json:"Severity"`
+			Pos        struct {
+				Filename string `json:"Filename"`
+				Line     int    `json:"Line"`
+				Column   int    `json:"Column"`
+			} `json:"Pos"`
+		} `json:"Issues"`
+	}
+	if err := json.Unmarshal([]byte(extractJSONObject(output)), &payload); err != nil {
+		return nil
+	}
+	findings := make([]hookFinding, 0, len(payload.Issues))
+	for _, issue := range payload.Issues {
+		findings = append(findings, hookFinding{
+			Tool:     "golangci-lint",
+			File:     issue.Pos.Filename,
+			Line:     issue.Pos.Line,
+			Column:   issue.Pos.Column,
+			Severity: firstNonEmpty(issue.Severity, "error"),
+			Code:     issue.FromLinter,
+			Message:  issue.Text,
+		})
+	}
+
+	return findings
+}
+
+func extractJSONObject(output string) string {
+	start := strings.Index(output, "{")
+	end := strings.LastIndex(output, "}")
+	if start < 0 || end < start {
+		return strings.TrimSpace(output)
+	}
+
+	return strings.TrimSpace(output[start : end+1])
 }
 
 func parseComplexityFindings(output string) []hookFinding {

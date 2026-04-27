@@ -3,8 +3,8 @@
 
 # coding-ethos-hooks
 
-Go-backed Git hooks for coding-ethos bundles. Lefthook is retained as a
-compatibility dispatcher.
+Go-backed Git hooks for coding-ethos bundles. Lefthook is retained only as a
+transitional compatibility dispatcher.
 
 ## Included Hooks
 

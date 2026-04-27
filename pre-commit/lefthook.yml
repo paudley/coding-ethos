@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-# Lefthook compatibility dispatcher for coding-ethos code quality.
+# Transitional Lefthook compatibility dispatcher for coding-ethos code quality.
 # Install: lefthook install
 # Run manually: lefthook run --no-auto-install pre-commit
 # Hook bypass is forbidden: do not use LEFTHOOK=0 or --no-verify.
@@ -15,8 +15,8 @@
 #   - golangci-lint: go install
 #                    github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 #
-# Formatting and generic auto-edit hooks run through the Go runner. Lefthook is
-# kept as a compatibility entrypoint for repos that still invoke it directly.
+# Formatting and generic auto-edit hooks run through the Go runner. This file is
+# transitional and remains only for repos that still invoke Lefthook directly.
 
 min_version: 1.13.6
 skip_lfs: true
