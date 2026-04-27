@@ -30,6 +30,7 @@ HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=abso
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
 LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 GIT_HOOKS := pre-commit pre-push commit-msg
+GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
 GO_TOOL_CMDS := \
 	coding-ethos-agent-hooks \
@@ -305,7 +306,12 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git ho
 		cp "$(PRECOMMIT_DIR)hooks/run-git-hook.sh" "$(HOOKS_DIR)/$$hook"; \
 		chmod +x "$(HOOKS_DIR)/$$hook"; \
 	done
+	@for hook in $(GIT_LFS_HOOKS); do \
+		cp "$(PRECOMMIT_DIR)hooks/run-lfs-hook.sh" "$(HOOKS_DIR)/$$hook"; \
+		chmod +x "$(HOOKS_DIR)/$$hook"; \
+	done
 	@$(call print_info,installed: Go hook runner)
+	@$(call print_info,installed: Git LFS delegation hooks)
 
 pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Go pre-commit hooks on staged files)

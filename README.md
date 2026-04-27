@@ -337,7 +337,9 @@ but Claude hook installation and cutover are still tracked in
 Installed Git hook shims also compile the policy bundle and run executable
 compiled-policy preflight before delegating to the current Go hook group runner.
 This keeps compiled policy in the active Git hook path while the remaining hook
-groups are moved over.
+groups are moved over. `make install-hooks` also installs `post-commit`,
+`post-merge`, and `post-checkout` shims that delegate to Git LFS when it is
+available.
 
 Render or verify Claude agent hook settings without touching global files:
 

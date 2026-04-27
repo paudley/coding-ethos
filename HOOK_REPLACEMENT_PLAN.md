@@ -33,9 +33,9 @@ parent and Claude hook entries outside this repo.
 | `pre-commit` | Locate bundle and run `run-go-hook.sh git-hook pre-commit`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
 | `pre-push` | Locate bundle and run `run-go-hook.sh git-hook pre-push`. | Compiled-policy preflight plus current Go hook groups. | Bridged |
 | `commit-msg` | Locate bundle and run `run-go-hook.sh git-hook commit-msg`. | Current coding-ethos Git shim. | Covered |
-| `post-commit` | Delegate to `git lfs post-commit`. | Preserve as external Git LFS delegation at cutover. | External |
-| `post-merge` | Delegate to `git lfs post-merge`. | Preserve as external Git LFS delegation at cutover. | External |
-| `post-checkout` | Delegate to `git lfs post-checkout`. | Preserve as external Git LFS delegation at cutover. | External |
+| `post-commit` | Delegate to `git lfs post-commit`. | Installed Git LFS delegation shim. | Installed |
+| `post-merge` | Delegate to `git lfs post-merge`. | Installed Git LFS delegation shim. | Installed |
+| `post-checkout` | Delegate to `git lfs post-checkout`. | Installed Git LFS delegation shim. | Installed |
 
 ## Claude Hooks
 
