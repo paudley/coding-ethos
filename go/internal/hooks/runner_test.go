@@ -1252,9 +1252,44 @@ func runHookGit(t *testing.T, repo string, args ...string) {
 
 	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = repo
+	cmd.Env = cleanGitTestEnv()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+}
+
+func cleanGitTestEnv() []string {
+	env := make([]string, 0, len(os.Environ()))
+	for _, item := range os.Environ() {
+		name, _, found := strings.Cut(item, "=")
+		if found && gitLocalEnvName(name) {
+			continue
+		}
+
+		env = append(env, item)
+	}
+
+	return env
+}
+
+func gitLocalEnvName(name string) bool {
+	switch name {
+	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_COMMON_DIR",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_DIR",
+		"GIT_INDEX_FILE",
+		"GIT_NAMESPACE",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_PREFIX",
+		"GIT_QUARANTINE_PATH",
+		"GIT_WORK_TREE":
+		return true
+	default:
+		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
 	}
 }

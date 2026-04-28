@@ -4,8 +4,6 @@
 package evaluators
 
 import (
-	"context"
-	"os/exec"
 	"regexp"
 	"strings"
 
@@ -117,11 +115,7 @@ func protectedBranchExemptPathPrefixes(options map[string]any) []string {
 }
 
 func currentBranch(cwd string) (string, bool) {
-	cmd := exec.CommandContext(context.Background(), "git", "branch", "--show-current")
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
+	cmd := gitCommand(cwd, "branch", "--show-current")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false

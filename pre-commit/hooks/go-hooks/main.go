@@ -1147,6 +1147,7 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 
 func gitOutput(args ...string) string {
 	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Env = externalToolEnv(nil)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -6849,6 +6850,7 @@ func limitsForFile(cfg Config, path string) (int, int) {
 
 func originalLineCount(path string) int {
 	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:"+path)
+	cmd.Env = externalToolEnv(nil)
 
 	output, err := cmd.Output()
 	if err != nil {

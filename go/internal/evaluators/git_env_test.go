@@ -1,0 +1,23 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package evaluators
+
+import "testing"
+
+func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
+	source := []string{
+		"GIT_DIR=/tmp/wrong-git-dir",
+		"GIT_INDEX_FILE=/tmp/wrong-index",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=user.email",
+		"GIT_CONFIG_VALUE_0=test@example.com",
+		"PATH=/usr/bin",
+	}
+
+	got := cleanGitLocalEnv(source)
+
+	if len(got) != 1 || got[0] != "PATH=/usr/bin" {
+		t.Fatalf("cleanGitLocalEnv() = %#v, want only PATH", got)
+	}
+}

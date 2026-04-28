@@ -4,12 +4,13 @@
 package hooks
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -332,8 +333,8 @@ func hookOutputNormalizer(cwd string) hookTextNormalizer {
 			New: root.New,
 		})
 	}
-	sort.Slice(replacements, func(left int, right int) bool {
-		return len(replacements[left].Old) > len(replacements[right].Old)
+	slices.SortFunc(replacements, func(left hookTextReplacement, right hookTextReplacement) int {
+		return cmp.Compare(len(right.Old), len(left.Old))
 	})
 
 	return hookTextNormalizer{replacements: replacements}

@@ -5,7 +5,6 @@ package evaluators
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -95,7 +94,7 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 	t.Helper()
 
 	repo := t.TempDir()
-	cmd := exec.Command("git", "init")
+	cmd := gitCommand(repo, "init")
 	cmd.Dir = repo
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)

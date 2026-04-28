@@ -4,6 +4,25 @@
 
 set -euo pipefail
 
+for name in \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR \
+  GIT_CONFIG_COUNT \
+  GIT_CONFIG_PARAMETERS \
+  GIT_DIR \
+  GIT_INDEX_FILE \
+  GIT_NAMESPACE \
+  GIT_OBJECT_DIRECTORY \
+  GIT_PREFIX \
+  GIT_QUARANTINE_PATH \
+  GIT_WORK_TREE; do
+  unset "$name"
+done
+
+for name in $(env | sed -nE 's/^(GIT_CONFIG_(KEY|VALUE)_[0-9]+)=.*/\1/p'); do
+  unset "$name"
+done
+
 repo_root="${1:?usage: smoke.sh /path/to/coding-ethos}"
 go_bin="${2:?usage: smoke.sh /path/to/coding-ethos /tmp/bin}"
 

@@ -4,7 +4,6 @@
 package evaluators
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -16,17 +15,17 @@ var errGitCheckIgnore = errors.New("git check-ignore failed")
 
 func EvaluateRequiredIgnores(
 	policyDef policy.Policy,
-	context Context,
+	evalContext Context,
 ) ([]policy.Decision, error) {
 	paths := stringSliceOption(
-		context.EvaluatorOptions,
+		evalContext.EvaluatorOptions,
 		"paths",
 		defaultRequiredIgnorePaths(),
 	)
 
 	missing := make([]string, 0, len(paths))
 	for _, path := range paths {
-		ignored, err := gitCheckIgnore(context.Cwd, path)
+		ignored, err := gitCheckIgnore(evalContext.Cwd, path)
 		if err != nil {
 			return nil, err
 		}
@@ -43,8 +42,8 @@ func EvaluateRequiredIgnores(
 	decision.Evidence = map[string]any{
 		"missing_ignores": missing,
 	}
-	if context.Cwd != "" {
-		decision.Evidence["cwd"] = context.Cwd
+	if evalContext.Cwd != "" {
+		decision.Evidence["cwd"] = evalContext.Cwd
 	}
 
 	return []policy.Decision{decision}, nil
@@ -58,11 +57,7 @@ func defaultRequiredIgnorePaths() []string {
 }
 
 func gitCheckIgnore(cwd string, path string) (bool, error) {
-	cmd := exec.CommandContext(context.Background(), "git", "check-ignore", "--quiet", path)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
+	cmd := gitCommand(cwd, "check-ignore", "--quiet", path)
 	err := cmd.Run()
 	if err == nil {
 		return true, nil

@@ -4,12 +4,10 @@
 package evaluators
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -190,11 +188,7 @@ func commitHeadStatePath(cwd string) (string, error) {
 }
 
 func gitDir(cwd string) (string, error) {
-	cmd := exec.CommandContext(context.Background(), "git", "rev-parse", "--git-dir")
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
+	cmd := gitCommand(cwd, "rev-parse", "--git-dir")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("resolve git dir: %w", err)
@@ -206,17 +200,7 @@ func gitDir(cwd string) (string, error) {
 var errNoHead = errors.New("git repository has no HEAD commit")
 
 func currentHead(cwd string) (string, error) {
-	cmd := exec.CommandContext(
-		context.Background(),
-		"git",
-		"rev-parse",
-		"--verify",
-		"HEAD",
-	)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
+	cmd := gitCommand(cwd, "rev-parse", "--verify", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", errNoHead

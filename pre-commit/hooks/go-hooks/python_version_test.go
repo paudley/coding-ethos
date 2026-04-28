@@ -148,6 +148,7 @@ func TestCheckPythonVersionConsistencyCommandUsesConsumerRoot(t *testing.T) {
 	tempDir := t.TempDir()
 	cmd := exec.CommandContext(context.Background(), "git", "init")
 	cmd.Dir = tempDir
+	cmd.Env = cleanGitTestEnv()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

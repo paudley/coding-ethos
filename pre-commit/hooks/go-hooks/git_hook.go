@@ -225,6 +225,7 @@ func runHookGroupsInSubprocessesWithExecutable(
 ) int {
 	results := make([]hookGroupResult, len(groups))
 	waitGroup := sync.WaitGroup{}
+	childConsumerRoot := repoRoot()
 
 	for index, group := range groups {
 		waitGroup.Add(1)
@@ -232,7 +233,12 @@ func runHookGroupsInSubprocessesWithExecutable(
 		go func(index int, group hookGroup) {
 			defer waitGroup.Done()
 
-			results[index] = runHookGroupSubprocess(group.Name, files, executablePath)
+			results[index] = runHookGroupSubprocess(
+				group.Name,
+				files,
+				executablePath,
+				childConsumerRoot,
+			)
 		}(index, group)
 	}
 
@@ -276,6 +282,7 @@ func runHookGroupSubprocess(
 	name string,
 	files []string,
 	executablePath func() (string, error),
+	childConsumerRoot string,
 ) hookGroupResult {
 	executable, err := executablePath()
 	if err != nil {
@@ -306,7 +313,7 @@ func runHookGroupSubprocess(
 	toolResult := runExternalTool(externalToolRequest{
 		Name:           "hook group " + name,
 		Command:        append([]string{executable}, args...),
-		Env:            hookGroupChildEnvironment(resultPath),
+		Env:            hookGroupChildEnvironment(resultPath, childConsumerRoot),
 		TimeoutSeconds: loadHookSettings().ToolTimeoutSeconds,
 	})
 
@@ -342,13 +349,13 @@ func runHookGroupSubprocess(
 	return result
 }
 
-func hookGroupChildEnvironment(resultPath string) []string {
+func hookGroupChildEnvironment(resultPath string, childConsumerRoot string) []string {
 	env := []string{
 		hookGroupChildEnv + "=1",
 		hookGroupResultPathEnv + "=" + resultPath,
 	}
 
-	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+	if root := strings.TrimSpace(childConsumerRoot); root != "" {
 		env = append(env, consumerRootEnv+"="+root)
 	}
 
