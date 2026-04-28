@@ -132,6 +132,96 @@ policy:
         rerun:
           - make pre-commit
           - make check
+    - source: shellcheck
+      codes:
+        - SC*
+      policy_id: shell.static_analysis
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - linting-as-code-quality-enforcement
+      confidence: medium
+      meaning: Shellcheck found shell behavior that is fragile or ambiguous.
+      advice:
+        summary: Fix the shell script structure instead of suppressing ShellCheck.
+        steps:
+          - Quote expansions and make data flow explicit.
+          - Prefer arrays and checked commands over stringly shell assembly.
+          - Keep shell behavior deterministic under strict mode.
+        rerun:
+          - make pre-commit
+    - source: yamllint
+      codes:
+        - indentation
+        - truthy
+      policy_id: yaml.config_clarity
+      principle_ids:
+        - validation-at-the-gate
+        - documentation-as-contract
+      confidence: medium
+      meaning: YAML structure or scalar spelling is ambiguous for configuration.
+      advice:
+        summary: Make YAML configuration explicit and parser-stable.
+        steps:
+          - Fix indentation to match the intended structure.
+          - Quote ambiguous scalars when the value is meant to be a string.
+          - Keep configuration readable enough to review in diffs.
+        rerun:
+          - make pre-commit
+    - source: hadolint
+      codes:
+        - DL*
+      policy_id: docker.reproducible_builds
+      principle_ids:
+        - security-by-design
+        - evidence-based-engineering-and-decision-quality
+      confidence: medium
+      meaning: Dockerfile instructions are weakening reproducibility or container safety.
+      advice:
+        summary: Make the container build deterministic and least-privilege.
+        steps:
+          - Pin package versions where practical.
+          - Avoid broad shell pipelines that hide failures.
+          - Prefer explicit users, trusted sources, and minimal layers.
+        rerun:
+          - make pre-commit
+    - source: actionlint
+      codes:
+        - "*"
+      policy_id: workflow.validation
+      principle_ids:
+        - validation-at-the-gate
+        - testing-as-specification
+      confidence: high
+      meaning: GitHub Actions workflow syntax or expression behavior is invalid.
+      advice:
+        summary: Fix workflow definitions before relying on CI as a quality gate.
+        steps:
+          - Validate expressions, job wiring, and event-specific context.
+          - Keep workflow behavior explicit instead of depending on runtime surprises.
+          - Re-run the workflow hook locally before pushing.
+        rerun:
+          - make pre-commit
+    - source: golangci-lint
+      codes:
+        - errcheck
+        - gosec
+        - staticcheck
+        - revive
+      policy_id: go.static_analysis
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - linting-as-code-quality-enforcement
+      confidence: high
+      meaning: Go static analysis found correctness, security, or maintainability risk.
+      advice:
+        summary: Fix the Go issue structurally and keep golangci-lint blocking.
+        steps:
+          - Handle errors explicitly.
+          - Remove suspicious or insecure constructs instead of suppressing them.
+          - Prefer a small refactor over weakening lint coverage.
+        rerun:
+          - make pre-commit
+          - make check
 
 git:
   hook_bypass:

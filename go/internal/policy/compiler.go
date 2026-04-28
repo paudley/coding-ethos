@@ -962,27 +962,200 @@ func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 
 func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
 	return []diagnostics.EvidenceMap{
-		{
-			Source:   "ruff",
-			Codes:    []string{"PLC0415"},
-			PolicyID: "python.conditional_imports",
-			PrincipleIDs: principleRefs(
-				principles,
-				"no-conditional-imports",
-				"fail-fast-fail-hard-overview",
-			),
-			Confidence: "high",
-			Meaning: "Import executes away from module scope, usually inside " +
-				"runtime control flow.",
-			Advice: diagnostics.EvidenceAdvice{
-				Summary: "Move required imports to module scope and fail during startup.",
-				Steps: []string{
-					"Declare the dependency as required.",
-					"Import it at module scope.",
-					"Replace runtime fallback paths with startup validation.",
-				},
-				Rerun: []string{"make pre-commit", "make check"},
+		defaultRuffEvidenceMap(principles),
+		defaultMypyEvidenceMap(principles),
+		defaultShellcheckEvidenceMap(principles),
+		defaultYamllintEvidenceMap(principles),
+		defaultHadolintEvidenceMap(principles),
+		defaultActionlintEvidenceMap(principles),
+		defaultGolangciEvidenceMap(principles),
+	}
+}
+
+func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"PLC0415"},
+		PolicyID: "python.conditional_imports",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-conditional-imports",
+			"fail-fast-fail-hard-overview",
+		),
+		Confidence: "high",
+		Meaning: "Import executes away from module scope, usually inside " +
+			"runtime control flow.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Move required imports to module scope and fail during startup.",
+			Steps: []string{
+				"Declare the dependency as required.",
+				"Import it at module scope.",
+				"Replace runtime fallback paths with startup validation.",
 			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultMypyEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "mypy",
+		Codes:    []string{"no-any-return"},
+		PolicyID: "python.optional_returns",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "medium",
+		Meaning:    "A required return path is leaking Any instead of a precise type.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Replace Any return flow with an explicit required type.",
+			Steps: []string{
+				"Identify the source of Any.",
+				"Add the missing annotation or typed adapter at the boundary.",
+				"Keep required dependencies non-optional.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultShellcheckEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "shellcheck",
+		Codes:    []string{"SC*"},
+		PolicyID: "shell.static_analysis",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "medium",
+		Meaning:    "Shellcheck found fragile or ambiguous shell behavior.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the shell script structure instead of suppressing ShellCheck.",
+			Steps: []string{
+				"Quote expansions and make data flow explicit.",
+				"Prefer arrays and checked commands over stringly shell assembly.",
+				"Keep shell behavior deterministic under strict mode.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultYamllintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "yamllint",
+		Codes:    []string{"indentation", "truthy"},
+		PolicyID: "yaml.config_clarity",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning: "YAML structure or scalar spelling is ambiguous for " +
+			"configuration.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make YAML configuration explicit and parser-stable.",
+			Steps: []string{
+				"Fix indentation to match the intended structure.",
+				"Quote ambiguous scalars when the value is meant to be a string.",
+				"Keep configuration readable enough to review in diffs.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultHadolintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "hadolint",
+		Codes:    []string{"DL*"},
+		PolicyID: "docker.reproducible_builds",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"evidence-based-engineering-and-decision-quality",
+		),
+		Confidence: "medium",
+		Meaning: "Dockerfile instructions weaken reproducibility or " +
+			"container safety.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the container build deterministic and least-privilege.",
+			Steps: []string{
+				"Pin package versions where practical.",
+				"Avoid broad shell pipelines that hide failures.",
+				"Prefer explicit users, trusted sources, and minimal layers.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultActionlintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "actionlint",
+		Codes:    []string{"*"},
+		PolicyID: "workflow.validation",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"testing-as-specification",
+		),
+		Confidence: "high",
+		Meaning: "GitHub Actions workflow syntax or expression behavior " +
+			"is invalid.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix workflow definitions before relying on CI as a quality gate.",
+			Steps: []string{
+				"Validate expressions, job wiring, and event-specific context.",
+				"Keep workflow behavior explicit instead of runtime surprises.",
+				"Re-run the workflow hook locally before pushing.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultGolangciEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "golangci-lint",
+		Codes: []string{
+			"errcheck",
+			"gosec",
+			"staticcheck",
+			"revive",
+		},
+		PolicyID: "go.static_analysis",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "Go static analysis found correctness, security, or " +
+			"maintainability risk.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the Go issue structurally and keep golangci-lint blocking.",
+			Steps: []string{
+				"Handle errors explicitly.",
+				"Remove suspicious or insecure constructs instead of suppressing them.",
+				"Prefer a small refactor over weakening lint coverage.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

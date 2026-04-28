@@ -13,7 +13,7 @@ import (
 )
 
 func runHadolint(_ Config, paths []string) int {
-	files := dockerFiles(existingFiles(paths))
+	files := toolchainFiles("hadolint", existingFiles(paths))
 	if len(files) == 0 {
 		return 0
 	}
@@ -27,7 +27,7 @@ func runHadolint(_ Config, paths []string) int {
 }
 
 func runActionlint(_ Config, paths []string) int {
-	if len(workflowFiles(existingFiles(paths))) == 0 {
+	if len(toolchainFiles("actionlint", existingFiles(paths))) == 0 {
 		return 0
 	}
 
@@ -146,7 +146,7 @@ func runGoTests(_ Config, paths []string) int {
 }
 
 func runGolangciLint(_ Config, paths []string) int {
-	if len(goFiles(existingFiles(paths))) == 0 {
+	if len(toolchainFiles("golangci-lint", existingFiles(paths))) == 0 {
 		return 0
 	}
 

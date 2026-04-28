@@ -34,14 +34,23 @@ type hookSettings struct {
 }
 
 type hookFinding struct {
-	Tool     string `json:"tool"`
-	File     string `json:"file,omitempty"`
-	Severity string `json:"severity,omitempty"`
-	Code     string `json:"code,omitempty"`
-	Message  string `json:"message"`
-	Detail   string `json:"detail,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Column   int    `json:"column,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Advice       string         `json:"advice,omitempty"`
+	Confidence   string         `json:"confidence,omitempty"`
+	Tool         string         `json:"tool"`
+	File         string         `json:"file,omitempty"`
+	Severity     string         `json:"severity,omitempty"`
+	Code         string         `json:"code,omitempty"`
+	PolicyID     string         `json:"policy_id,omitempty"`
+	Message      string         `json:"message"`
+	Meaning      string         `json:"meaning,omitempty"`
+	Detail       string         `json:"detail,omitempty"`
+	AdviceSteps  []string       `json:"advice_steps,omitempty"`
+	PrincipleIDs []string       `json:"principle_ids,omitempty"`
+	Rerun        []string       `json:"rerun,omitempty"`
+	Tags         []string       `json:"tags,omitempty"`
+	Line         int            `json:"line,omitempty"`
+	Column       int            `json:"column,omitempty"`
 }
 
 type hookReport struct {
@@ -234,7 +243,7 @@ func formatHookReportTOON(report hookReport) string {
 	lines = append(
 		lines,
 		fmt.Sprintf(
-			"findings[%d]{tool,file,line,column,severity,code,message,detail}:",
+			"findings[%d]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
 			len(report.Findings),
 		),
 	)
@@ -242,14 +251,16 @@ func formatHookReportTOON(report hookReport) string {
 		lines = append(
 			lines,
 			fmt.Sprintf(
-				"  %s,%s,%d,%d,%s,%s,%s,%s",
+				"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s",
 				toonCell(firstNonEmpty(finding.Tool, report.Tool)),
 				toonCell(finding.File),
 				finding.Line,
 				finding.Column,
 				toonCell(finding.Severity),
 				toonCell(finding.Code),
+				toonCell(finding.PolicyID),
 				toonCell(finding.Message),
+				toonCell(finding.Advice),
 				toonCell(finding.Detail),
 			),
 		)
@@ -322,5 +333,14 @@ func formatHookFindingHuman(tool string, finding hookFinding) string {
 		detail = " " + finding.Detail
 	}
 
-	return fmt.Sprintf("%s: %s%s%s", prefix, code, finding.Message, detail)
+	line := fmt.Sprintf("%s: %s%s%s", prefix, code, finding.Message, detail)
+	if finding.PolicyID != "" {
+		line += " policy=" + finding.PolicyID
+	}
+
+	if finding.Advice != "" {
+		line += " advice=" + finding.Advice
+	}
+
+	return line
 }

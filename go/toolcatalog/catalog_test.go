@@ -87,6 +87,24 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
 
+	assertToolFileMetadata(t, tools["hadolint"], nil, nil, []string{"Dockerfile"})
+	assertToolFileMetadata(
+		t,
+		tools["actionlint"],
+		[]string{".yaml", ".yml"},
+		[]string{".github/workflows/"},
+		nil,
+	)
+	assertToolFileMetadata(
+		t,
+		tools["shellcheck"],
+		[]string{".sh", ".bash", ".zsh", ".ksh"},
+		nil,
+		nil,
+	)
+	assertToolFileMetadata(t, tools["yamllint"], []string{".yaml", ".yml"}, nil, nil)
+	assertToolFileMetadata(t, tools["golangci-lint"], []string{".go"}, nil, nil)
+
 	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
 		tools["yamllint"].ConfigFlags[0] != "-c" {
 		t.Fatalf("yamllint config metadata = %#v", tools["yamllint"])
@@ -133,5 +151,21 @@ func assertToolCommand(t *testing.T, tool toolcatalog.Tool, want []string) {
 
 	if !reflect.DeepEqual(tool.Command, want) {
 		t.Fatalf("%s command = %#v, want %#v", tool.Name, tool.Command, want)
+	}
+}
+
+func assertToolFileMetadata(
+	t *testing.T,
+	tool toolcatalog.Tool,
+	extensions []string,
+	prefixes []string,
+	basePrefixes []string,
+) {
+	t.Helper()
+
+	if !reflect.DeepEqual(tool.FileExtensions, extensions) ||
+		!reflect.DeepEqual(tool.FilePrefixes, prefixes) ||
+		!reflect.DeepEqual(tool.BaseNamePrefixes, basePrefixes) {
+		t.Fatalf("file metadata for %s = %#v", tool.Name, tool)
 	}
 }

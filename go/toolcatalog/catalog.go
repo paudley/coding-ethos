@@ -21,6 +21,9 @@ type Tool struct {
 	FallbackBundleConfig string   `json:"fallback_bundle_config,omitempty"`
 	Command              []string `json:"command"`
 	ConfigFlags          []string `json:"config_flags,omitempty"`
+	FileExtensions       []string `json:"file_extensions,omitempty"`
+	FilePrefixes         []string `json:"file_prefixes,omitempty"`
+	BaseNamePrefixes     []string `json:"base_name_prefixes,omitempty"`
 	PostConfigArgs       []string `json:"post_config_args,omitempty"`
 	PassFilesAsArgs      bool     `json:"pass_files_as_args"`
 	UseHookProject       bool     `json:"use_hook_project"`
@@ -133,6 +136,7 @@ func hadolintTool() Tool {
 		Parser:           "hadolint",
 		Runtime:          RuntimeBinary,
 		Command:          []string{"hadolint", "--format", "json"},
+		BaseNamePrefixes: []string{"Dockerfile"},
 		PassFilesAsArgs:  true,
 		EnabledByDefault: true,
 	}
@@ -144,6 +148,8 @@ func actionlintTool() Tool {
 		Parser:           "actionlint",
 		Runtime:          RuntimeBinary,
 		Command:          []string{"actionlint", "-format", "{{json .}}"},
+		FileExtensions:   []string{".yaml", ".yml"},
+		FilePrefixes:     []string{".github/workflows/"},
 		PassFilesAsArgs:  false,
 		EnabledByDefault: true,
 	}
@@ -155,6 +161,7 @@ func shellcheckTool() Tool {
 		Parser:           "shellcheck",
 		Runtime:          RuntimeBinary,
 		Command:          []string{"shellcheck", "--severity=warning", "-x", "--format=json"},
+		FileExtensions:   []string{".sh", ".bash", ".zsh", ".ksh"},
 		PassFilesAsArgs:  true,
 		EnabledByDefault: true,
 	}
@@ -167,6 +174,7 @@ func yamllintTool() Tool {
 		Runtime:          RuntimeUV,
 		Command:          []string{"yamllint"},
 		ConfigFlags:      []string{"-c"},
+		FileExtensions:   []string{".yaml", ".yml"},
 		RepoConfig:       ".yamllint.yml",
 		PostConfigArgs:   []string{"--strict", "-f", "parsable"},
 		PassFilesAsArgs:  true,
@@ -182,7 +190,10 @@ func golangciLintTool() Tool {
 		Runtime:     RuntimeGo,
 		Command:     []string{"golangci-lint", "run"},
 		ConfigFlags: []string{"--config"},
-		RepoConfig:  ".golangci.yml",
+		FileExtensions: []string{
+			".go",
+		},
+		RepoConfig: ".golangci.yml",
 		PostConfigArgs: []string{
 			"--output.json.path",
 			"stdout",
@@ -216,6 +227,9 @@ func cloneTools(tools []Tool) []Tool {
 func (tool Tool) clone() Tool {
 	tool.Command = append([]string(nil), tool.Command...)
 	tool.ConfigFlags = append([]string(nil), tool.ConfigFlags...)
+	tool.FileExtensions = append([]string(nil), tool.FileExtensions...)
+	tool.FilePrefixes = append([]string(nil), tool.FilePrefixes...)
+	tool.BaseNamePrefixes = append([]string(nil), tool.BaseNamePrefixes...)
 	tool.PostConfigArgs = append([]string(nil), tool.PostConfigArgs...)
 
 	return tool

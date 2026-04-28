@@ -89,22 +89,152 @@ func typeCheckerFromCatalog(tool toolcatalog.Tool) typeCheckerConfig {
 
 func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
 	return []diag.EvidenceMap{
-		{
-			Source:       "ruff",
-			Codes:        []string{"PLC0415"},
-			PolicyID:     "python.conditional_imports",
-			PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
-			Confidence:   "high",
-			Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
-			Advice: diag.EvidenceAdvice{
-				Summary: "Move required imports to module scope and fail during startup.",
-				Steps: []string{
-					"Declare the dependency as required.",
-					"Import it at module scope.",
-					"Replace runtime fallback paths with startup validation.",
-				},
-				Rerun: []string{"make pre-commit", "make check"},
+		defaultRuffEvidenceMap(),
+		defaultMypyEvidenceMap(),
+		defaultShellcheckEvidenceMap(),
+		defaultYamllintEvidenceMap(),
+		defaultHadolintEvidenceMap(),
+		defaultActionlintEvidenceMap(),
+		defaultGolangciEvidenceMap(),
+	}
+}
+
+func defaultRuffEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "ruff",
+		Codes:        []string{"PLC0415"},
+		PolicyID:     "python.conditional_imports",
+		PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
+		Confidence:   "high",
+		Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Move required imports to module scope and fail during startup.",
+			Steps: []string{
+				"Declare the dependency as required.",
+				"Import it at module scope.",
+				"Replace runtime fallback paths with startup validation.",
 			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultMypyEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "mypy",
+		Codes:        []string{"no-any-return"},
+		PolicyID:     "python.optional_returns",
+		PrincipleIDs: []string{"no-optional-types-for-required-dependencies"},
+		Confidence:   "medium",
+		Meaning:      "A required return path is leaking Any instead of a precise type.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Replace Any return flow with an explicit required type.",
+			Steps: []string{
+				"Identify the source of Any.",
+				"Add the missing annotation or typed adapter at the boundary.",
+				"Keep required dependencies non-optional.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultShellcheckEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "shellcheck",
+		Codes:        []string{"SC*"},
+		PolicyID:     "shell.static_analysis",
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		Confidence:   "medium",
+		Meaning:      "Shellcheck found fragile or ambiguous shell behavior.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix the shell script structure instead of suppressing ShellCheck.",
+			Steps: []string{
+				"Quote expansions and make data flow explicit.",
+				"Prefer arrays and checked commands over stringly shell assembly.",
+				"Keep shell behavior deterministic under strict mode.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultYamllintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "yamllint",
+		Codes:        []string{"indentation", "truthy"},
+		PolicyID:     "yaml.config_clarity",
+		PrincipleIDs: []string{"validation-at-the-gate"},
+		Confidence:   "medium",
+		Meaning:      "YAML structure or scalar spelling is ambiguous for configuration.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Make YAML configuration explicit and parser-stable.",
+			Steps: []string{
+				"Fix indentation to match the intended structure.",
+				"Quote ambiguous scalars when the value is meant to be a string.",
+				"Keep configuration readable enough to review in diffs.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultHadolintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "hadolint",
+		Codes:        []string{"DL*"},
+		PolicyID:     "docker.reproducible_builds",
+		PrincipleIDs: []string{"security-by-design"},
+		Confidence:   "medium",
+		Meaning:      "Dockerfile instructions weaken reproducibility or container safety.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Make the container build deterministic and least-privilege.",
+			Steps: []string{
+				"Pin package versions where practical.",
+				"Avoid broad shell pipelines that hide failures.",
+				"Prefer explicit users, trusted sources, and minimal layers.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultActionlintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "actionlint",
+		Codes:        []string{"*"},
+		PolicyID:     "workflow.validation",
+		PrincipleIDs: []string{"validation-at-the-gate"},
+		Confidence:   "high",
+		Meaning:      "GitHub Actions workflow syntax or expression behavior is invalid.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix workflow definitions before relying on CI as a quality gate.",
+			Steps: []string{
+				"Validate expressions, job wiring, and event-specific context.",
+				"Keep workflow behavior explicit instead of runtime surprises.",
+				"Re-run the workflow hook locally before pushing.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultGolangciEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "golangci-lint",
+		Codes:        []string{"errcheck", "gosec", "staticcheck", "revive"},
+		PolicyID:     "go.static_analysis",
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		Confidence:   "high",
+		Meaning:      "Go static analysis found correctness, security, or maintainability risk.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix the Go issue structurally and keep golangci-lint blocking.",
+			Steps: []string{
+				"Handle errors explicitly.",
+				"Remove suspicious or insecure constructs instead of suppressing them.",
+				"Prefer a small refactor over weakening lint coverage.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }
@@ -139,14 +269,7 @@ func loadTypeCheckSettings() (typeCheckSettings, error) {
 		settings.ExcludedPathFragments = []string{"/docker/", "vulture_whitelist"}
 	}
 
-	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &settings.EvidenceMaps)
-	if err != nil {
-		return settings, fmt.Errorf("parse policy evidence maps: %w", err)
-	}
-
-	if len(settings.EvidenceMaps) == 0 {
-		settings.EvidenceMaps = defaultPolicyEvidenceMaps()
-	}
+	settings.EvidenceMaps = loadHookEvidenceMaps()
 
 	for checkerIndex := range settings.Checkers {
 		applyTypeCheckerDefaults(&settings.Checkers[checkerIndex], rootConfig)

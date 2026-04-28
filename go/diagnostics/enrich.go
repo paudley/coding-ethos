@@ -39,11 +39,30 @@ func evidenceMapForDiagnostic(
 		}
 
 		for _, code := range mapping.Codes {
-			if strings.EqualFold(strings.TrimSpace(code), strings.TrimSpace(item.Code)) {
+			if diagnosticCodeMatches(code, item.Code) {
 				return mapping, true
 			}
 		}
 	}
 
 	return EvidenceMap{}, false
+}
+
+func diagnosticCodeMatches(pattern string, code string) bool {
+	normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
+	normalizedCode := strings.ToLower(strings.TrimSpace(code))
+
+	if normalizedPattern == "" || normalizedCode == "" {
+		return false
+	}
+
+	if normalizedPattern == "*" {
+		return true
+	}
+
+	if prefix, wildcard := strings.CutSuffix(normalizedPattern, "*"); wildcard {
+		return strings.HasPrefix(normalizedCode, prefix)
+	}
+
+	return normalizedPattern == normalizedCode
 }

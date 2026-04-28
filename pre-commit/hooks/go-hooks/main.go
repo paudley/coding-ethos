@@ -6332,7 +6332,7 @@ func checkForbiddenStrings(cfg Config, paths []string) int {
 }
 
 func runShellcheck(_ Config, paths []string) int {
-	files := shellFiles(existingFiles(paths))
+	files := toolchainFiles("shellcheck", existingFiles(paths))
 	if len(files) == 0 {
 		return 0
 	}
@@ -6371,7 +6371,7 @@ func parseShellcheckFindings(output string) []hookFinding {
 }
 
 func runYamllint(_ Config, paths []string) int {
-	files := yamlFiles(existingFiles(paths))
+	files := toolchainFiles("yamllint", existingFiles(paths))
 	if len(files) == 0 {
 		return 0
 	}
@@ -6404,19 +6404,6 @@ func runYamllint(_ Config, paths []string) int {
 	}
 
 	return 0
-}
-
-func yamlFiles(paths []string) []string {
-	files := make([]string, 0)
-
-	for _, path := range paths {
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext == extYaml || ext == extYml {
-			files = append(files, path)
-		}
-	}
-
-	return files
 }
 
 func parseYamllintFindings(output string) []hookFinding {

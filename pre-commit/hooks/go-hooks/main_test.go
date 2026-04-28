@@ -1036,15 +1036,22 @@ func TestParseShellcheckFindings(t *testing.T) {
 	}
 
 	want := hookFinding{
-		Tool:     "shellcheck",
-		File:     "script.sh",
-		Line:     3,
-		Column:   7,
-		Severity: "warning",
-		Code:     "SC2086",
-		Message:  "Double quote to prevent globbing and word splitting.",
+		Advice:       "Fix the shell script structure instead of suppressing ShellCheck.",
+		Confidence:   "medium",
+		Tool:         "shellcheck",
+		File:         "script.sh",
+		Line:         3,
+		Column:       7,
+		Severity:     "warning",
+		Code:         "SC2086",
+		PolicyID:     "shell.static_analysis",
+		Message:      "Double quote to prevent globbing and word splitting.",
+		Meaning:      "Shellcheck found shell behavior that is fragile or ambiguous.",
+		AdviceSteps:  []string{"Quote expansions and make data flow explicit.", "Prefer arrays and checked commands over stringly shell assembly.", "Keep shell behavior deterministic under strict mode."},
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense", "linting-as-code-quality-enforcement"},
+		Rerun:        []string{"make pre-commit"},
 	}
-	if findings[0] != want {
+	if !reflect.DeepEqual(findings[0], want) {
 		t.Fatalf("finding = %#v, want %#v", findings[0], want)
 	}
 }
@@ -1058,15 +1065,22 @@ func TestParseYamllintFindings(t *testing.T) {
 	}
 
 	want := hookFinding{
-		Tool:     "yamllint",
-		File:     "config.yaml",
-		Line:     2,
-		Column:   5,
-		Severity: "error",
-		Code:     "indentation",
-		Message:  "wrong indentation",
+		Advice:       "Make YAML configuration explicit and parser-stable.",
+		Confidence:   "medium",
+		Tool:         "yamllint",
+		File:         "config.yaml",
+		Line:         2,
+		Column:       5,
+		Severity:     "error",
+		Code:         "indentation",
+		PolicyID:     "yaml.config_clarity",
+		Message:      "wrong indentation",
+		Meaning:      "YAML structure or scalar spelling is ambiguous for configuration.",
+		AdviceSteps:  []string{"Fix indentation to match the intended structure.", "Quote ambiguous scalars when the value is meant to be a string.", "Keep configuration readable enough to review in diffs."},
+		PrincipleIDs: []string{"validation-at-the-gate", "documentation-as-contract"},
+		Rerun:        []string{"make pre-commit"},
 	}
-	if findings[0] != want {
+	if !reflect.DeepEqual(findings[0], want) {
 		t.Fatalf("finding = %#v, want %#v", findings[0], want)
 	}
 }

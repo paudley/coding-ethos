@@ -245,6 +245,30 @@ func TestEnrichMapsKnownDiagnosticEvidence(t *testing.T) {
 	}
 }
 
+func TestEnrichMapsWildcardDiagnosticEvidence(t *testing.T) {
+	t.Parallel()
+
+	enriched := diagnostics.Enrich(
+		[]diagnostics.Diagnostic{
+			{Tool: "shellcheck", Code: "SC2086", Message: "quote expansion"},
+		},
+		[]diagnostics.EvidenceMap{
+			{
+				Source:   "shellcheck",
+				Codes:    []string{"SC*"},
+				PolicyID: "shell.static_analysis",
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Fix shell diagnostics structurally.",
+				},
+			},
+		},
+	)
+
+	if enriched[0].PolicyID != "shell.static_analysis" {
+		t.Fatalf("wildcard policy = %q", enriched[0].PolicyID)
+	}
+}
+
 func assertDiagnostic(
 	t *testing.T,
 	parsed []diagnostics.Diagnostic,
