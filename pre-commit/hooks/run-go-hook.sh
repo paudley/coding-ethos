@@ -25,6 +25,9 @@ start_hook_log() {
 	if [[ -n "${CODE_ETHOS_HOOK_LOGGING_ACTIVE:-}" ]]; then
 		return
 	fi
+	if [[ "${1:-}" == "cutover" ]]; then
+		return
+	fi
 
 	local required_ignore
 	for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
@@ -311,8 +314,9 @@ cutover_report() {
 	local status="${2:?status required}"
 	local git_hooks="${3:?git hooks status required}"
 	local agent_hooks="${4:?agent hooks status required}"
-	local runtime="${5:?runtime status required}"
-	local fix_items_file="${6:-}"
+	local repo_ignores="${5:?repo ignores status required}"
+	local runtime="${6:?runtime status required}"
+	local fix_items_file="${7:-}"
 
 	cat <<EOF
 format: toon
@@ -320,9 +324,10 @@ command: cutover
 action: ${action}
 status: ${status}
 repo: ${ROOT}
-surfaces[3]{name,status}:
+surfaces[4]{name,status}:
   git-hooks,${git_hooks}
   agent-hooks,${agent_hooks}
+  repo-ignores,${repo_ignores}
   policy-runtime,${runtime}
 EOF
 
@@ -361,16 +366,28 @@ runtime_fix_items() {
 	fi
 }
 
+required_ignore_fix_items() {
+	local required_ignore
+	for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
+		if ! "$REAL_GIT" -C "$ROOT" check-ignore --quiet "$required_ignore"; then
+			printf '  repo-ignores,%s is not ignored,add .coding-ethos/ to .gitignore\n' "$required_ignore"
+		fi
+	done
+}
+
 run_cutover_verify() {
 	local action="${1:-verify}"
 	local git_hooks=PASS
 	local agent_hooks=PASS
+	local repo_ignores=PASS
 	local runtime=PASS
 	local status=ready
 	local agent_verify_output
+	local repo_ignore_output
 	local runtime_verify_output
 	local fix_items_output
 	agent_verify_output="$(mktemp)"
+	repo_ignore_output="$(mktemp)"
 	runtime_verify_output="$(mktemp)"
 	fix_items_output="$(mktemp)"
 
@@ -386,6 +403,16 @@ run_cutover_verify() {
 		agent_hook_fix_items "$agent_verify_output" >>"$fix_items_output"
 	fi
 
+	if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$0" policy-lint \
+		--scope cutover \
+		--cwd "$ROOT" \
+		--json \
+		>"$repo_ignore_output" 2>&1; then
+		repo_ignores=FAIL
+		status=blocked
+		required_ignore_fix_items >>"$fix_items_output"
+	fi
+
 	if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT" \
 		"$0" git-hook validate \
 		>"$runtime_verify_output" 2>&1; then
@@ -394,7 +421,7 @@ run_cutover_verify() {
 		runtime_fix_items "$runtime_verify_output" >>"$fix_items_output"
 	fi
 
-	cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$runtime" \
+	cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$repo_ignores" "$runtime" \
 		"$fix_items_output"
 
 	if [[ "$status" != ready ]]; then
@@ -406,11 +433,15 @@ run_cutover_verify() {
 			printf 'policy runtime verify output:\n' >&2
 			cat "$runtime_verify_output" >&2
 		fi
-		rm -f "$agent_verify_output" "$runtime_verify_output" "$fix_items_output"
+		if [[ "$repo_ignores" == FAIL ]]; then
+			printf 'repo ignore verify output:\n' >&2
+			cat "$repo_ignore_output" >&2
+		fi
+		rm -f "$agent_verify_output" "$repo_ignore_output" "$runtime_verify_output" "$fix_items_output"
 		return 1
 	fi
 
-	rm -f "$agent_verify_output" "$runtime_verify_output" "$fix_items_output"
+	rm -f "$agent_verify_output" "$repo_ignore_output" "$runtime_verify_output" "$fix_items_output"
 }
 
 run_cutover() {

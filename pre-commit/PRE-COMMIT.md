@@ -41,15 +41,17 @@ when its sources or config inputs change.
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
 surface. `make cutover-verify` checks the installed Git shims, runs
-`agent-hooks verify`, runs the policy runtime validation hook, and prints a
-concise TOON readiness report. Blocked reports include `fix_first` entries that
-name the stale or missing surface and the next action.
+`agent-hooks verify`, verifies required runtime ignores through the compiled
+`filesystem.required_ignores` policy, runs the policy runtime validation hook,
+and prints a concise TOON readiness report. Blocked reports include `fix_first`
+entries that name the stale or missing surface and the next action.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
 `.coding-ethos/` ignored in both the bundle repo and consuming repos; it is
-runtime evidence for later analysis, not source. The runner fails before
-writing logs when `.coding-ethos/` is not ignored.
+runtime evidence for later analysis, not source. The cutover gate reports
+missing ignore rules before installation, and normal hook execution still fails
+before writing logs when `.coding-ethos/` is not ignored.
 
 Required tools:
 

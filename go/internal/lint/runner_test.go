@@ -71,6 +71,38 @@ func TestRunRejectsUnknownScope(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsCutoverScope(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.Bundle{
+		Policies: map[string]policy.Policy{
+			"filesystem.required_ignores": {
+				ID:              "filesystem.required_ignores",
+				DefaultSeverity: "block",
+				SupportedModes:  []string{"block", "record"},
+				Evaluators:      []policy.Evaluator{},
+				DefenseLayers:   policy.DefenseLayers{Enforce: "block"},
+				Message:         "required ignores missing",
+				PrincipleIDs:    []string{"radical-visibility"},
+			},
+		},
+		Dispatch: policy.Dispatch{
+			Linter: map[string][]string{
+				ScopeCutover: []string{"filesystem.required_ignores"},
+			},
+		},
+	}
+
+	result, err := Run(bundle, Options{Scope: ScopeCutover})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+
+	if result.Scope != ScopeCutover {
+		t.Fatalf("scope mismatch: got %q", result.Scope)
+	}
+}
+
 func TestRunUsesRegisteredEvaluator(t *testing.T) {
 	t.Parallel()
 

@@ -76,6 +76,10 @@ func registerFilesystemEvaluators(registry Registry) {
 		"filesystem.protected_branch_write",
 		EvaluatorFunc(EvaluateProtectedBranchWrite),
 	)
+	registry.Register(
+		"filesystem.required_ignores",
+		EvaluatorFunc(EvaluateRequiredIgnores),
+	)
 }
 
 func registerShellEvaluators(registry Registry) {

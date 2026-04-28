@@ -102,6 +102,21 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 		bundle.Dispatch.Linter["smoke"],
 		"generated_config.freshness",
 	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["smoke"],
+		"filesystem.required_ignores",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["cutover"],
+		"filesystem.required_ignores",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["staged"],
+		"filesystem.required_ignores",
+	)
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -153,6 +168,8 @@ filesystem:
   protected_branch_write:
     branches: [release]
     exempt_path_prefixes: [docs/plans/]
+  required_ignores:
+    paths: [.runtime/]
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
@@ -185,6 +202,15 @@ shell:
 	)
 	if protectedBranch[0] != "release" {
 		t.Fatalf("protected branch options mismatch: %#v", protectedBranch)
+	}
+
+	requiredIgnores := optionStrings(
+		t,
+		bundle.Policies["filesystem.required_ignores"].Evaluators[0],
+		"paths",
+	)
+	if requiredIgnores[0] != ".runtime/" {
+		t.Fatalf("required ignore options mismatch: %#v", requiredIgnores)
 	}
 
 	adminFiles := optionStrings(
@@ -284,6 +310,8 @@ git:
 filesystem:
   protected_path:
     enabled: false
+  required_ignores:
+    enabled: false
 shell:
   dangerous_command:
     enabled: false
@@ -300,6 +328,7 @@ shell:
 	for _, policyID := range []string{
 		"git.hook_bypass",
 		"filesystem.protected_path",
+		"filesystem.required_ignores",
 		"shell.dangerous_command",
 	} {
 		if _, ok := bundle.Policies[policyID]; ok {

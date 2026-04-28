@@ -315,6 +315,26 @@ if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
 fi
 
 printf '==> validating cutover install and readiness report\n'
+cutover_unignored_repo="$tmp_root/cutover-unignored-repo"
+mkdir -p "$cutover_unignored_repo"
+git -C "$cutover_unignored_repo" init >/dev/null
+set +e
+(
+  cd "$cutover_unignored_repo"
+  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
+    >/tmp/coding-ethos-cutover-unignored.out 2>&1
+)
+cutover_unignored_status=$?
+set -e
+if [[ "$cutover_unignored_status" -eq 0 ]] ||
+  ! grep -q 'repo-ignores,FAIL' /tmp/coding-ethos-cutover-unignored.out ||
+  ! grep -q '.coding-ethos/ is not ignored' \
+    /tmp/coding-ethos-cutover-unignored.out; then
+  printf 'expected cutover to report missing repo ignores:\n' >&2
+  cat /tmp/coding-ethos-cutover-unignored.out >&2
+  exit 1
+fi
+
 cutover_repo="$tmp_root/cutover-repo"
 mkdir -p "$cutover_repo"
 git -C "$cutover_repo" init >/dev/null
@@ -347,6 +367,7 @@ fi
 if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'git-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'agent-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
+  ! grep -q 'repo-ignores,PASS' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'policy-runtime,PASS' /tmp/coding-ethos-cutover-install.out; then
   printf 'expected ready cutover install report:\n' >&2
   cat /tmp/coding-ethos-cutover-install.out >&2

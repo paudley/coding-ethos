@@ -825,6 +825,7 @@ func addFilesystemPolicies(
 	for _, policy := range []Policy{
 		filesystemProtectedPathPolicy(config, principles),
 		filesystemProtectedBranchWritePolicy(config, principles),
+		filesystemRequiredIgnoresPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
 			policies[policy.ID] = policy
@@ -910,6 +911,49 @@ func filesystemProtectedBranchWritePolicy(
 				"branches":             protectedBranches,
 				"exempt_path_prefixes": exemptPathPrefixes,
 			},
+		}},
+	}
+}
+
+func filesystemRequiredIgnoresPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	requiredIgnores := stringSliceAt(
+		config,
+		[]string{"filesystem", "required_ignores", "paths"},
+		[]string{
+			".coding-ethos/",
+			".coding-ethos/hook-runs/example/stdout.log",
+		},
+	)
+
+	return Policy{
+		ID:       "filesystem.required_ignores",
+		Category: "filesystem",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "filesystem.required_ignores",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"radical-visibility",
+			"security-by-design",
+			"one-path-for-critical-operations",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Required runtime evidence paths must be ignored.",
+		Suggestion:      "Add the missing runtime paths to .gitignore before running hooks.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "pre_commit", "git_state"),
+		AppliesTo: AppliesTo{
+			Paths: requiredIgnores,
+			Tools: []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{
+			Kind:    "git_state",
+			Name:    "filesystem.required_ignores",
+			Options: map[string]any{"paths": requiredIgnores},
 		}},
 	}
 }
@@ -1429,6 +1473,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
+			"filesystem.required_ignores",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1439,13 +1484,19 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 		),
 		"smoke": existingPolicyIDs(
 			policies,
+			"filesystem.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"full": existingPolicyIDs(
 			policies,
+			"filesystem.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
+		),
+		"cutover": existingPolicyIDs(
+			policies,
+			"filesystem.required_ignores",
 		),
 	}
 
