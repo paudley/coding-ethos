@@ -11,6 +11,14 @@ import (
 )
 
 const blockedAdviceHumanLinesPerDecision = 2
+const severeViolationWarning = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the documented hook and git wrapper path, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+
+var severeViolationPolicyIDs = map[string]bool{
+	"filesystem.protected_path": true,
+	"git.hook_bypass":           true,
+	"git.wrapper_required":      true,
+	"shell.forbidden_strings":   true,
+}
 
 func BlockedAdvice(result Result) string {
 	decisions := blockingDecisions(result.Decisions)
@@ -45,6 +53,10 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 		0,
 		len(decisions)*blockedAdviceHumanLinesPerDecision,
 	)
+	if hasSevereViolation(decisions) {
+		lines = append(lines, severeViolationWarning, "")
+	}
+
 	for _, decision := range decisions {
 		lines = append(lines, "[coding-ethos:"+decision.PolicyID+"] "+decision.Message)
 		if decision.Suggestion != "" {
@@ -68,8 +80,12 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 		"event: " + toonCell(result.Event),
 		"tool: " + toonCell(result.Tool),
 		"status: " + toonCell(result.Status),
-		"decisions:",
 	}
+	if hasSevereViolation(decisions) {
+		lines = append(lines, "violation_warning: "+toonCell(severeViolationWarning))
+	}
+
+	lines = append(lines, "decisions:")
 
 	for _, decision := range decisions {
 		lines = append(
@@ -105,6 +121,9 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 		"status":    result.Status,
 		"decisions": decisions,
 	}
+	if hasSevereViolation(decisions) {
+		payload["violation_warning"] = severeViolationWarning
+	}
 	if reminder, ok := ethosReminderFor(result, decisions); ok {
 		payload["ethos_reminder"] = reminder
 	}
@@ -115,4 +134,14 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	}
 
 	return string(encoded)
+}
+
+func hasSevereViolation(decisions []policy.Decision) bool {
+	for _, decision := range decisions {
+		if severeViolationPolicyIDs[decision.PolicyID] {
+			return true
+		}
+	}
+
+	return false
 }

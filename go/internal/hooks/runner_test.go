@@ -675,6 +675,12 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			wantPolicy: "filesystem.protected_path",
 		},
 		{
+			name:       "hook binary tamper",
+			path:       "testdata/legacy/pretooluse_hook_binary_tamper.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
+		},
+		{
 			name:       "gh admin",
 			path:       "testdata/legacy/pretooluse_gh_admin.json",
 			wantStatus: statusBlocked,
@@ -750,11 +756,27 @@ func TestNativeProviderFixturesStayRunnable(t *testing.T) {
 			wantTool:   toolBash,
 		},
 		{
+			name:       "codex hook binary tamper",
+			path:       "testdata/codex/pretooluse_hook_binary_tamper.json",
+			provider:   "codex",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
+			wantTool:   toolBash,
+		},
+		{
 			name:       "gemini git hook bypass",
 			path:       "testdata/gemini/beforetool_git_no_verify.json",
 			provider:   "gemini",
 			wantStatus: statusBlocked,
 			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini hook binary tamper",
+			path:       "testdata/gemini/beforetool_hook_binary_tamper.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
 			wantTool:   toolBash,
 		},
 		{
@@ -1239,6 +1261,8 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 		`"decision": "block"`,
 		`"permissionDecision": "deny"`,
 		`"systemMessage"`,
+		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		"may result in termination",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
@@ -1276,6 +1300,8 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 		`"decision": "deny"`,
 		`"reason"`,
 		`"systemMessage"`,
+		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		"may result in termination",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)

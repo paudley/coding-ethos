@@ -119,6 +119,10 @@ func providerBlockReason(result Result) string {
 	}
 
 	parts := make([]string, 0, len(blocking))
+	if hasSevereViolation(blocking) {
+		parts = append(parts, severeViolationWarning)
+	}
+
 	for _, decision := range blocking {
 		part := decision.Message
 		if decision.Suggestion != "" && !strings.Contains(part, decision.Suggestion) {

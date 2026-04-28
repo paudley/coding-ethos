@@ -102,7 +102,7 @@ func protectedPathPolicy() policy.Policy {
 		},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected paths must not be modified.",
+		Message:         "Protected coding-ethos hook paths must not be modified.",
 		DefenseLayers:   policy.GitDefenseLayers("block", "", "block", "", ""),
 		Evaluators: []policy.Evaluator{{
 			Kind: "path",

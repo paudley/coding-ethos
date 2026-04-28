@@ -1491,11 +1491,11 @@ func shellForbiddenStringsPolicy(
 		),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message: "Commands must not contain or execute files containing " +
-			"forbidden hook-system strings.",
-		Suggestion: "Do not inspect, enumerate, or route around coding-ethos " +
-			"hook implementation internals. Use the installed hook surfaces " +
-			"and documented commands.",
+		Message: "Commands must not inspect, tamper with, or execute files " +
+			"containing protected hook-system internals.",
+		Suggestion: "Do not inspect, enumerate, delete, rebuild, replace, or " +
+			"route around coding-ethos hook implementation internals. Use the " +
+			"installed hook surfaces and documented commands.",
 		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
@@ -1592,9 +1592,10 @@ func filesystemProtectedPathPolicy(
 		),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected paths must not be modified.",
-		Suggestion:      "Do not write to protected system paths.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		Message:         "Protected coding-ethos hook paths must not be modified.",
+		Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
+			"hook binaries or protected hook paths.",
+		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo: AppliesTo{
 			Paths: protectedPaths,
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},

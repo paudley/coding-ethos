@@ -919,6 +919,18 @@ func hookProbes() []hookProbe {
 			validate: validateClaudeRewriteProbe,
 		},
 		{
+			provider: string(ProviderClaude),
+			event:    "PreToolUse",
+			tool:     "Bash",
+			payload: `{
+				"provider": "claude",
+				"hook_event_name": "PreToolUse",
+				"tool_name": "Bash",
+				"tool_input": {"command": "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook ."}
+			}`,
+			validate: validateClaudeBlockProbe,
+		},
+		{
 			provider: string(ProviderCodex),
 			event:    "PreToolUse",
 			tool:     "exec_command",
@@ -967,6 +979,18 @@ func hookProbes() []hookProbe {
 			validate: validateCodexBlockProbe,
 		},
 		{
+			provider: string(ProviderCodex),
+			event:    "PreToolUse",
+			tool:     "exec_command",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "exec_command",
+				"input": {"command": "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook ."}
+			}`,
+			validate: validateCodexBlockProbe,
+		},
+		{
 			provider: string(ProviderGemini),
 			event:    "BeforeTool",
 			tool:     "run_shell_command",
@@ -975,6 +999,18 @@ func hookProbes() []hookProbe {
 				"hookEventName": "BeforeTool",
 				"toolName": "run_shell_command",
 				"toolInput": {"command": "git status --short"}
+			}`,
+			validate: validateGeminiDenyProbe,
+		},
+		{
+			provider: string(ProviderGemini),
+			event:    "BeforeTool",
+			tool:     "run_shell_command",
+			payload: `{
+				"provider": "gemini-cli",
+				"hookEventName": "BeforeTool",
+				"toolName": "run_shell_command",
+				"toolInput": {"command": "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook ."}
 			}`,
 			validate: validateGeminiDenyProbe,
 		},
@@ -1102,6 +1138,10 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 		return fmt.Errorf("Codex raw git probe should block")
 	}
 
+	return validateDecisionProbe(result, "block")
+}
+
+func validateClaudeBlockProbe(result hookProbeResult) error {
 	return validateDecisionProbe(result, "block")
 }
 

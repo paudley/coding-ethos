@@ -193,8 +193,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 8 {
-		t.Fatalf("check count = %d, want 8: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 11 {
+		t.Fatalf("check count = %d, want 11: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
@@ -411,6 +411,18 @@ func fakeAgentHookCommand(t *testing.T) string {
 		[]byte(`#!/bin/sh
 payload="$(cat)"
 case "$payload" in
+  *'coding-ethos-git-hook'*)
+    case "$payload" in
+      *'"provider": "gemini-cli"'*)
+        printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
+        exit 2
+        ;;
+      *)
+        printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
+        exit 2
+        ;;
+    esac
+    ;;
   *'"provider": "claude"'*)
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
     ;;
