@@ -103,6 +103,14 @@ func TestParsePythonQualityFindings(t *testing.T) {
 		t.Fatalf("parseMaintainabilityFindings() = %#v", maintainability)
 	}
 
+	timeout := parseMaintainabilityFindings("Error: radon timed out after 60s")
+	if len(timeout) != 1 ||
+		timeout[0].Code != "timeout" ||
+		timeout[0].Message != "radon timed out after 60s" ||
+		timeout[0].Advice == "" {
+		t.Fatalf("parseMaintainabilityFindings(timeout) = %#v", timeout)
+	}
+
 	vulture := parseVultureFindings("pkg/app.py:17: unused function 'helper' (60% confidence)")
 	if len(vulture) != 1 || vulture[0].Code != "unused-code" || vulture[0].Line != 17 {
 		t.Fatalf("parseVultureFindings() = %#v", vulture)

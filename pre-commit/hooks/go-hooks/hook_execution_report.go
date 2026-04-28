@@ -153,28 +153,7 @@ func formatHookExecutionSummaryTOON(summary hookExecutionSummary) string {
 	lines := []string{
 		"format: " + toonCell(summary.Format),
 		"status: " + toonCell(summary.Status),
-		"summary: " + toonCell(summary.Summary),
-		fmt.Sprintf("duration_ms: %.0f", summary.DurationMS),
 		fmt.Sprintf("failed: %d", summary.Failed),
-	}
-
-	failedGroups := failedExecutionGroups(summary.Groups)
-	if len(failedGroups) > 0 {
-		lines = append(
-			lines,
-			fmt.Sprintf(
-				"failed_groups[%d]{name,exit_code,duration_ms}:",
-				len(failedGroups),
-			),
-		)
-		for _, group := range failedGroups {
-			lines = append(lines, fmt.Sprintf(
-				"  %s,%d,%.0f",
-				toonCell(group.Name),
-				group.ExitCode,
-				group.DurationMS,
-			))
-		}
 	}
 
 	failedCommands := failedExecutionCommands(summary.Groups)
@@ -183,30 +162,29 @@ func formatHookExecutionSummaryTOON(summary hookExecutionSummary) string {
 		lines = append(
 			lines,
 			fmt.Sprintf(
-				"commands[%d]{group,name,status,exit_code,duration_ms}:",
+				"failed_checks[%d]{name,status}:",
 				len(failedCommands),
 			),
 		)
 
 		for _, command := range failedCommands {
 			lines = append(lines, fmt.Sprintf(
-				"  %s,%s,%s,%d,%.0f",
-				toonCell(command.Group),
+				"  %s,%s",
 				toonCell(command.Name),
 				toonCell(command.Status),
-				command.ExitCode,
-				command.DurationMS,
 			))
 		}
 	}
 
-	if len(summary.FailedFirst) > 0 {
+	if len(failedCommands) > 0 {
 		lines = append(
 			lines,
-			fmt.Sprintf("fix_first[%d]{group}:", len(summary.FailedFirst)),
+			fmt.Sprintf("next[%d]{action}:", len(failedCommands)),
 		)
-		for _, group := range summary.FailedFirst {
-			lines = append(lines, "  "+toonCell(group))
+		for _, command := range failedCommands {
+			lines = append(lines, "  "+toonCell(
+				"Fix "+command.Name+" diagnostics above, then rerun the commit.",
+			))
 		}
 	}
 

@@ -332,6 +332,12 @@ func parseMaintainabilityFindings(output string) []hookFinding {
 	findings := []hookFinding{}
 
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		if finding, ok := parseMaintainabilityToolError(line); ok {
+			findings = append(findings, finding)
+
+			continue
+		}
+
 		matches := maintainPattern.FindStringSubmatch(line)
 		if len(matches) != maintainMatchParts {
 			continue
@@ -348,6 +354,25 @@ func parseMaintainabilityFindings(output string) []hookFinding {
 	}
 
 	return findings
+}
+
+func parseMaintainabilityToolError(line string) (hookFinding, bool) {
+	message := strings.TrimSpace(strings.TrimPrefix(line, "Error:"))
+	if message == strings.TrimSpace(line) || message == "" {
+		return hookFinding{}, false
+	}
+
+	finding := hookFinding{
+		Tool:     "maintainability",
+		Severity: "error",
+		Message:  message,
+		Advice:   "Run the maintainability check directly, then simplify or split the slow module before committing.",
+	}
+	if strings.Contains(strings.ToLower(message), "timed out") {
+		finding.Code = "timeout"
+	}
+
+	return finding, true
 }
 
 func parseVultureFindings(output string) []hookFinding {
