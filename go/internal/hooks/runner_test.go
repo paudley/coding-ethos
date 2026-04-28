@@ -228,6 +228,36 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 	}
 }
 
+func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pwd && git status --short 2>&1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "'pwd' &&") ||
+		!strings.Contains(rewritten, "policy-git 'status' '--short' 2>&1") ||
+		strings.Contains(rewritten, "'2>' & '1'") ||
+		strings.Contains(rewritten, " & '1'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestRunBlocksUnmanagedGitPath(t *testing.T) {
 	t.Parallel()
 
