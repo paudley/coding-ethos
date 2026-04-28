@@ -90,6 +90,8 @@ func typeCheckerFromCatalog(tool toolcatalog.Tool) typeCheckerConfig {
 func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
 	return []diag.EvidenceMap{
 		defaultRuffEvidenceMap(),
+		defaultRuffImportOrderEvidenceMap(),
+		defaultRuffSQLSafetyEvidenceMap(),
 		defaultMypyEvidenceMap(),
 		defaultShellcheckEvidenceMap(),
 		defaultYamllintEvidenceMap(),
@@ -115,6 +117,46 @@ func defaultRuffEvidenceMap() diag.EvidenceMap {
 				"Replace runtime fallback paths with startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffImportOrderEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "ruff",
+		Codes:        []string{"E402"},
+		PolicyID:     "python.import_order",
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense", "linting-as-code-quality-enforcement"},
+		Confidence:   "high",
+		Meaning:      "Import ordering is hiding setup side effects or runtime dependency flow.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Move imports to the top of the module or split setup into a helper.",
+			Steps: []string{
+				"Put imports before executable statements.",
+				"Move path or environment setup into test fixtures or helper modules.",
+				"Keep dependency loading explicit and reviewable.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultRuffSQLSafetyEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "ruff",
+		Codes:        []string{"S608"},
+		PolicyID:     "python.sql_safety",
+		PrincipleIDs: []string{"security-by-design", "linting-as-code-quality-enforcement"},
+		Confidence:   "high",
+		Meaning:      "SQL text is being assembled dynamically and may bypass parameterization.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Use parameterized SQL or a reviewed central SQL helper.",
+			Steps: []string{
+				"Replace string-built SQL with placeholders and bound parameters.",
+				"If dynamic identifiers are required, validate them against an allowlist.",
+				"Keep test-only SQL safety exceptions explicit and narrow.",
+			},
+			Rerun: []string{"make pre-commit"},
 		},
 	}
 }
@@ -898,8 +940,9 @@ func typeCheckRawOutputsForResults(results []typeCheckResult) []typeCheckResult 
 func toonCell(value string) string {
 	cleaned := strings.TrimSpace(value)
 	cleaned = strings.ReplaceAll(cleaned, "\\", "\\\\")
-	cleaned = strings.ReplaceAll(cleaned, "\r\n", "\\n")
-	cleaned = strings.ReplaceAll(cleaned, "\n", "\\n")
+	cleaned = strings.ReplaceAll(cleaned, "\r\n", " ")
+	cleaned = strings.ReplaceAll(cleaned, "\n", " ")
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
 	cleaned = strings.ReplaceAll(cleaned, ",", "\\,")
 
 	return cleaned

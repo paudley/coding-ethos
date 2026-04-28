@@ -67,8 +67,8 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 7 {
-		t.Fatalf("evidence map count = %d, want 7", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 9 {
+		t.Fatalf("evidence map count = %d, want 9", len(bundle.EvidenceMaps))
 	}
 
 	forbiddenStrings := optionStrings(
@@ -290,8 +290,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 1 {
-		t.Fatalf("evidence map count = %d, want 1", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 10 {
+		t.Fatalf("evidence map count = %d, want 10", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]

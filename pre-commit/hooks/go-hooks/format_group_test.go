@@ -102,6 +102,95 @@ func TestHookReportNormalizesAbsoluteRepoPaths(t *testing.T) {
 	}
 }
 
+func TestRuffAutofixTOONKeepsMultilineMessagesSingleRow(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot()
+	report := formatHookReport(hookReport{
+		Tool:  "ruff-autofix",
+		Title: "RUFF-AUTOFIX FAILED",
+		Findings: parseRuffAutofixFindings(`[
+  {
+    "filename": "` + root + `/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+    "code": "S608",
+    "message": "Possible SQL injection vector through\nstring-based query construction",
+    "location": {"row": 400, "column": 29}
+  }
+]`),
+		Guidance: []string{"Fix the reported diagnostics before committing."},
+	}, hookOutputFormatTOON)
+
+	for _, want := range []string{
+		"ruff,lib/python/tests/parsing/test_persist_extra_records_integration.py,400,29,error,S608,python.sql_safety",
+		"Possible SQL injection vector through string-based query construction",
+		"Use parameterized SQL or a reviewed central SQL helper.",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("TOON report missing %q:\n%s", want, report)
+		}
+	}
+
+	for _, line := range strings.Split(report, "\n") {
+		if strings.Contains(line, "string-based query construction") &&
+			!strings.Contains(line, "Possible SQL injection vector through string-based query construction") {
+			t.Fatalf("TOON finding split multiline message across rows:\n%s", report)
+		}
+	}
+}
+
+func TestFailedCommitTranscriptStaysCompactAndRelative(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot()
+	toolReport := formatHookReport(hookReport{
+		Tool:  "ruff-autofix",
+		Title: "RUFF-AUTOFIX FAILED",
+		Findings: parseRuffAutofixFindings(`[
+  {
+    "filename": "` + root + `/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+    "code": "E402",
+    "message": "Module level import not at top of file",
+    "location": {"row": 61, "column": 1}
+  }
+]`),
+		Guidance: []string{"Fix the reported diagnostics before committing."},
+	}, hookOutputFormatTOON)
+	summary := formatHookExecutionSummary([]hookGroupResult{{
+		Name:     "format",
+		Status:   statusFail,
+		ExitCode: 1,
+		Commands: []hookCommandResult{{
+			Name:     "ruff-autofix",
+			Status:   statusFail,
+			ExitCode: 1,
+		}},
+	}}, hookOutputFormatTOON)
+	transcript := toolReport + "\n" + summary
+
+	for _, want := range []string{
+		"python.import_order",
+		"Move imports to the top of the module or split setup into a helper.",
+		"failed_checks[1]{name,status}:",
+		"next[1]{action}:",
+	} {
+		if !strings.Contains(transcript, want) {
+			t.Fatalf("failed commit transcript missing %q:\n%s", want, transcript)
+		}
+	}
+
+	for _, unwanted := range []string{
+		root,
+		"duration_ms",
+		"failed_groups",
+		"commands[",
+		"fix_first",
+	} {
+		if strings.Contains(transcript, unwanted) {
+			t.Fatalf("failed commit transcript contains noisy field %q:\n%s", unwanted, transcript)
+		}
+	}
+}
+
 func TestParseGenericHookFindingsUsesFallbackDiagnostics(t *testing.T) {
 	t.Parallel()
 

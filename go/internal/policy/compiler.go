@@ -1026,7 +1026,7 @@ func compileEvidenceMaps(
 		return defaultEvidenceMaps(principles)
 	}
 
-	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems))
+	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems)+len(defaultEvidenceMaps(principles)))
 	for _, rawItem := range rawItems {
 		item, ok := rawItem.(map[string]any)
 		if !ok {
@@ -1040,7 +1040,7 @@ func compileEvidenceMaps(
 		return defaultEvidenceMaps(principles)
 	}
 
-	return maps
+	return append(maps, defaultEvidenceMaps(principles)...)
 }
 
 func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
@@ -1062,6 +1062,8 @@ func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
 	return []diagnostics.EvidenceMap{
 		defaultRuffEvidenceMap(principles),
+		defaultRuffImportOrderEvidenceMap(principles),
+		defaultRuffSQLSafetyEvidenceMap(principles),
 		defaultMypyEvidenceMap(principles),
 		defaultShellcheckEvidenceMap(principles),
 		defaultYamllintEvidenceMap(principles),
@@ -1092,6 +1094,60 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 				"Replace runtime fallback paths with startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffImportOrderEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"E402"},
+		PolicyID: "python.import_order",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "Import ordering is hiding setup side effects or runtime " +
+			"dependency flow.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Move imports to the top of the module or split setup into a helper.",
+			Steps: []string{
+				"Put imports before executable statements.",
+				"Move path or environment setup into test fixtures or helper modules.",
+				"Keep dependency loading explicit and reviewable.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultRuffSQLSafetyEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"S608"},
+		PolicyID: "python.sql_safety",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "SQL text is being assembled dynamically and may bypass " +
+			"parameterization.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Use parameterized SQL or a reviewed central SQL helper.",
+			Steps: []string{
+				"Replace string-built SQL with placeholders and bound parameters.",
+				"If dynamic identifiers are required, validate them against an allowlist.",
+				"Keep test-only SQL safety exceptions explicit and narrow.",
+			},
+			Rerun: []string{"make pre-commit"},
 		},
 	}
 }

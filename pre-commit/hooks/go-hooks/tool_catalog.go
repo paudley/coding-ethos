@@ -188,5 +188,5 @@ func loadHookEvidenceMaps() []diag.EvidenceMap {
 		return defaultPolicyEvidenceMaps()
 	}
 
-	return maps
+	return append(maps, defaultPolicyEvidenceMaps()...)
 }
