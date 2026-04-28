@@ -71,9 +71,58 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 func TestParseProviderRejectsUnsupportedProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := agenthooks.ParseProvider("codex")
+	_, err := agenthooks.ParseProvider("unknown")
 	if err == nil {
 		t.Fatal("expected unsupported provider error")
+	}
+}
+
+func TestParseProviderAcceptsSupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"claude", "codex", "gemini"} {
+		provider, err := agenthooks.ParseProvider(name)
+		if err != nil {
+			t.Fatalf("ParseProvider(%q): %v", name, err)
+		}
+
+		if string(provider) != name {
+			t.Fatalf("ParseProvider(%q) = %q", name, provider)
+		}
+	}
+}
+
+func TestWriteProviderSettingsIncludesProviderManifests(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []agenthooks.Provider{
+		agenthooks.ProviderCodex,
+		agenthooks.ProviderGemini,
+	} {
+		buffer := bytes.Buffer{}
+
+		err := agenthooks.WriteProviderSettings(&buffer, provider, testHookCommand)
+		if err != nil {
+			t.Fatalf("write %s settings: %v", provider, err)
+		}
+
+		output := buffer.String()
+		for _, expected := range []string{
+			`"` + string(provider) + `": {`,
+			`"version": 1`,
+			`"event": "PreToolUse"`,
+			`"tool": "Bash"`,
+			`"event": "PreCompact"`,
+			`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		} {
+			if !strings.Contains(output, expected) {
+				t.Fatalf("missing %s in %s settings:\n%s", expected, provider, output)
+			}
+		}
+
+		if strings.Contains(output, `"hooks": {`) {
+			t.Fatalf("%s settings used Claude-shaped hooks map:\n%s", provider, output)
+		}
 	}
 }
 
@@ -140,6 +189,38 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	}
 }
 
+func TestSyncAndDoctorProviderSettings(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []agenthooks.Provider{
+		agenthooks.ProviderCodex,
+		agenthooks.ProviderGemini,
+	} {
+		path := filepath.Join(t.TempDir(), string(provider), "settings.json")
+
+		err := agenthooks.SyncProviderSettings(path, provider, testHookCommand)
+		if err != nil {
+			t.Fatalf("sync %s settings: %v", provider, err)
+		}
+
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s settings: %v", provider, err)
+		}
+
+		output := string(payload)
+		if !strings.Contains(output, `"`+string(provider)+`": {`) ||
+			!strings.Contains(output, `"version": 1`) {
+			t.Fatalf("provider manifest missing from %s settings:\n%s", provider, output)
+		}
+
+		err = agenthooks.DoctorProviderSettings(path, provider, testHookCommand)
+		if err != nil {
+			t.Fatalf("doctor %s settings: %v", provider, err)
+		}
+	}
+}
+
 func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +232,30 @@ func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	}
 
 	err = agenthooks.DoctorSettings(path, "/other/run-go-hook.sh agent-hook")
+	if err == nil {
+		t.Fatal("expected doctor mismatch")
+	}
+}
+
+func TestDoctorProviderSettingsRejectsWrongCommand(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "codex-settings.json")
+
+	err := agenthooks.SyncProviderSettings(
+		path,
+		agenthooks.ProviderCodex,
+		testHookCommand,
+	)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	err = agenthooks.DoctorProviderSettings(
+		path,
+		agenthooks.ProviderCodex,
+		"/other/run-go-hook.sh agent-hook",
+	)
 	if err == nil {
 		t.Fatal("expected doctor mismatch")
 	}

@@ -408,19 +408,30 @@ Python static-tool defaults now come from the shared Go tool catalog, which
 captures command, parser, config flags, repo config, runtime, file-argument
 behavior, and enabled-by-default state in one typed definition.
 
-Render or verify Claude agent hook settings without touching global files:
+Render or verify repo-local agent hook settings without touching global files:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh agent-hooks print
-pre-commit/hooks/run-go-hook.sh agent-hooks sync --settings .claude/settings.local.json
-pre-commit/hooks/run-go-hook.sh agent-hooks doctor --settings .claude/settings.local.json
+pre-commit/hooks/run-go-hook.sh agent-hooks print --provider claude
+pre-commit/hooks/run-go-hook.sh agent-hooks sync --provider claude --settings .claude/settings.local.json
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor --provider claude --settings .claude/settings.local.json
+
+pre-commit/hooks/run-go-hook.sh agent-hooks print --provider codex
+pre-commit/hooks/run-go-hook.sh agent-hooks sync --provider codex --settings .codex/coding-ethos-hooks.json
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor --provider codex --settings .codex/coding-ethos-hooks.json
+
+pre-commit/hooks/run-go-hook.sh agent-hooks print --provider gemini
+pre-commit/hooks/run-go-hook.sh agent-hooks sync --provider gemini --settings .gemini/coding-ethos-hooks.json
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor --provider gemini --settings .gemini/coding-ethos-hooks.json
 ```
 
 The sync command only writes the explicit `--settings` path. The current
-settings renderer supports `--provider claude` and consumes the shared
-provider-neutral hook spec list before emitting Claude settings. Generated
-Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
-`SessionStart` compact replay. Continuation state is stored under
+settings renderer supports `--provider claude`, `--provider codex`, and
+`--provider gemini`. Claude output preserves Claude Code's native `hooks` map.
+Codex and Gemini output provider-owned manifests under `codex` and `gemini`
+top-level keys so downstream installers can consume the same event/tool contract
+without pretending to be Claude settings. Generated settings cover
+`PreToolUse`, `PostToolUse`, `PreCompact`, and `SessionStart` compact replay.
+Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.
 

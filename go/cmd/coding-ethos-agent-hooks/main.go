@@ -71,7 +71,7 @@ func printSettings(args []string) error {
 
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
-	settings := flags.String("settings", "", "Claude settings path to write")
+	settings := flags.String("settings", "", "Agent settings path to write")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	providerName := flags.String("provider", "claude", "Agent hook provider")
 
@@ -95,7 +95,7 @@ func syncSettings(args []string) error {
 
 func doctorSettings(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ExitOnError)
-	settings := flags.String("settings", "", "Claude settings path to verify")
+	settings := flags.String("settings", "", "Agent settings path to verify")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	providerName := flags.String("provider", "claude", "Agent hook provider")
 

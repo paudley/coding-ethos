@@ -10,12 +10,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 )
 
 const (
 	settingsDirMode  = 0o755
 	settingsFileMode = 0o600
+	manifestVersion  = 1
 )
 
 var (
@@ -23,7 +25,7 @@ var (
 	errSettingsRequired    = errors.New("settings path is required")
 	errUnsupportedProvider = errors.New("unsupported agent hook provider")
 	errSettingsMismatch    = errors.New(
-		"claude settings do not contain agent hook command",
+		"agent hook settings do not contain expected provider hook command",
 	)
 )
 
@@ -41,6 +43,25 @@ type claudeSettings struct {
 	Hooks map[string][]matcherHook `json:"hooks"`
 }
 
+type manifestHook struct {
+	Event   string `json:"event"`
+	Tool    string `json:"tool,omitempty"`
+	Command string `json:"command"`
+}
+
+type providerManifest struct {
+	Hooks   []manifestHook `json:"hooks"`
+	Version int            `json:"version"`
+}
+
+type codexSettings struct {
+	Codex providerManifest `json:"codex"`
+}
+
+type geminiSettings struct {
+	Gemini providerManifest `json:"gemini"`
+}
+
 func WriteSettings(writer io.Writer, hookCommand string) error {
 	err := WriteProviderSettings(writer, ProviderClaude, hookCommand)
 	if err != nil {
@@ -55,7 +76,7 @@ func WriteProviderSettings(
 	provider Provider,
 	hookCommand string,
 ) error {
-	settings, err := buildSettings(provider, hookCommand)
+	settings, err := buildProviderSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
@@ -72,16 +93,24 @@ func WriteProviderSettings(
 	return nil
 }
 
-func buildSettings(provider Provider, hookCommand string) (claudeSettings, error) {
+func buildProviderSettings(provider Provider, hookCommand string) (any, error) {
 	if hookCommand == "" {
-		return claudeSettings{}, errHookCommandRequired
+		return nil, errHookCommandRequired
 	}
 
 	switch provider {
 	case ProviderClaude:
 		return buildClaudeSettings(RuntimeHookSpecs(), hookCommand), nil
+	case ProviderCodex:
+		return codexSettings{
+			Codex: buildProviderManifest(RuntimeHookSpecs(), hookCommand),
+		}, nil
+	case ProviderGemini:
+		return geminiSettings{
+			Gemini: buildProviderManifest(RuntimeHookSpecs(), hookCommand),
+		}, nil
 	default:
-		return claudeSettings{}, errUnsupportedProvider
+		return nil, errUnsupportedProvider
 	}
 }
 
@@ -99,7 +128,7 @@ func SyncProviderSettings(path string, provider Provider, hookCommand string) er
 		return errSettingsRequired
 	}
 
-	settings, err := buildSettings(provider, hookCommand)
+	settings, err := buildProviderSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
@@ -109,7 +138,7 @@ func SyncProviderSettings(path string, provider Provider, hookCommand string) er
 		return err
 	}
 
-	payload["hooks"] = settings.Hooks
+	mergeProviderSettings(payload, settings)
 
 	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
 	if err != nil {
@@ -180,19 +209,19 @@ func DoctorProviderSettings(path string, provider Provider, hookCommand string) 
 	}
 	defer file.Close()
 
-	var settings claudeSettings
+	payload := map[string]any{}
 
-	err = json.NewDecoder(file).Decode(&settings)
+	err = json.NewDecoder(file).Decode(&payload)
 	if err != nil {
 		return fmt.Errorf("decode settings: %w", err)
 	}
 
-	expected, err := buildSettings(provider, hookCommand)
+	expected, err := buildProviderSettings(provider, hookCommand)
 	if err != nil {
 		return err
 	}
 
-	if !settingsContainExpectedHooks(settings, expected) {
+	if !providerSettingsContainExpectedHooks(payload, provider, expected) {
 		return errSettingsMismatch
 	}
 
@@ -209,6 +238,122 @@ func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
 	}
 
 	return claudeSettings{Hooks: hooks}
+}
+
+func buildProviderManifest(
+	specs []HookSpec,
+	hookCommand string,
+) providerManifest {
+	hooks := make([]manifestHook, 0, len(specs))
+	for _, spec := range specs {
+		hooks = append(hooks, manifestHook{
+			Event:   spec.Event,
+			Tool:    spec.Tool,
+			Command: hookCommand,
+		})
+	}
+
+	return providerManifest{
+		Version: manifestVersion,
+		Hooks:   hooks,
+	}
+}
+
+func mergeProviderSettings(
+	payload map[string]any,
+	settings any,
+) {
+	switch typed := settings.(type) {
+	case claudeSettings:
+		payload["hooks"] = typed.Hooks
+	case codexSettings:
+		payload[string(ProviderCodex)] = typed.Codex
+	case geminiSettings:
+		payload[string(ProviderGemini)] = typed.Gemini
+	}
+}
+
+func providerSettingsContainExpectedHooks(
+	payload map[string]any,
+	provider Provider,
+	expected any,
+) bool {
+	switch provider {
+	case ProviderClaude:
+		return claudePayloadContainsExpectedHooks(payload, expected)
+	case ProviderCodex:
+		return manifestPayloadMatches(payload, ProviderCodex, expected)
+	case ProviderGemini:
+		return manifestPayloadMatches(payload, ProviderGemini, expected)
+	default:
+		return false
+	}
+}
+
+func claudePayloadContainsExpectedHooks(payload map[string]any, expected any) bool {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return false
+	}
+
+	var actual claudeSettings
+
+	err = json.Unmarshal(raw, &actual)
+	if err != nil {
+		return false
+	}
+
+	expectedSettings, ok := expected.(claudeSettings)
+	if !ok {
+		return false
+	}
+
+	return settingsContainExpectedHooks(actual, expectedSettings)
+}
+
+func manifestPayloadMatches(
+	payload map[string]any,
+	provider Provider,
+	expected any,
+) bool {
+	raw, err := json.Marshal(payload[string(provider)])
+	if err != nil {
+		return false
+	}
+
+	var actual providerManifest
+
+	err = json.Unmarshal(raw, &actual)
+	if err != nil {
+		return false
+	}
+
+	expectedManifest, ok := expectedManifestForProvider(provider, expected)
+	if !ok {
+		return false
+	}
+
+	return reflect.DeepEqual(actual, expectedManifest)
+}
+
+func expectedManifestForProvider(
+	provider Provider,
+	expected any,
+) (providerManifest, bool) {
+	switch provider {
+	case ProviderClaude:
+		return providerManifest{}, false
+	case ProviderCodex:
+		settings, ok := expected.(codexSettings)
+
+		return settings.Codex, ok
+	case ProviderGemini:
+		settings, ok := expected.(geminiSettings)
+
+		return settings.Gemini, ok
+	default:
+		return providerManifest{}, false
+	}
 }
 
 func commandMatcher(matcher string, hookCommand string) matcherHook {
