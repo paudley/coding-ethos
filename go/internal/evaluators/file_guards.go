@@ -256,12 +256,143 @@ func EvaluateFileLineLimit(
 	return nil, nil
 }
 
+func EvaluatePIIScrubber(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	patterns, err := piiPatterns(context.EvaluatorOptions)
+	if err != nil {
+		return nil, err
+	}
+	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
+
+	for _, file := range context.Files {
+		if hasConfiguredPrefix(file, exemptPrefixes) {
+			continue
+		}
+
+		path := resolveGuardPath(context.Cwd, file)
+		text, binary, err := readGuardText(path)
+		if err != nil {
+			return nil, err
+		}
+		if binary {
+			continue
+		}
+
+		for lineNumber, line := range strings.Split(text, "\n") {
+			for _, pattern := range patterns {
+				if pattern.MatchString(line) {
+					return []policy.Decision{
+						fileGuardDecision(
+							policyDef,
+							"pii",
+							file,
+							lineNumber+1,
+							"",
+							"local machine detail detected",
+						),
+					}, nil
+				}
+			}
+		}
+	}
+
+	return nil, nil
+}
+
+func EvaluateLicenseHeader(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	extensions := stringSet(normalizedSuffixes(stringSliceOption(
+		context.EvaluatorOptions,
+		"extensions",
+		[]string{".go", ".py", ".sh"},
+	)))
+	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
+	exemptBasenames := stringSet(stringSliceOption(context.EvaluatorOptions, "exempt_basenames", nil))
+	required := stringSliceOption(context.EvaluatorOptions, "required", []string{
+		"SPDX-FileCopyrightText:",
+		"SPDX-License-Identifier:",
+	})
+
+	for _, file := range context.Files {
+		if !extensions[strings.ToLower(filepath.Ext(file))] ||
+			hasConfiguredPrefix(file, exemptPrefixes) ||
+			exemptBasenames[filepath.Base(file)] {
+			continue
+		}
+
+		text, binary, err := readGuardText(resolveGuardPath(context.Cwd, file))
+		if err != nil {
+			return nil, err
+		}
+		if binary {
+			continue
+		}
+
+		header := firstGuardLines(text, intOption(context.EvaluatorOptions, "scan_lines", 5))
+		for _, requiredText := range required {
+			if !strings.Contains(header, requiredText) {
+				return []policy.Decision{
+					fileGuardDecision(
+						policyDef,
+						"license_header",
+						file,
+						1,
+						requiredText,
+						"missing required license header text",
+					),
+				}, nil
+			}
+		}
+	}
+
+	return nil, nil
+}
+
+func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
+	rawPatterns := stringSliceOption(options, "patterns", []string{
+		`/(home|Users)/[A-Za-z0-9._-]+/`,
+		`lbox-worktrees/[A-Za-z0-9._-]+`,
+		`/tmp/tmp\.[A-Za-z0-9._-]+`,
+	})
+	patterns := make([]*regexp.Regexp, 0, len(rawPatterns))
+	for _, raw := range rawPatterns {
+		pattern, err := regexp.Compile(raw)
+		if err != nil {
+			return nil, fmt.Errorf("compile PII pattern %q: %w", raw, err)
+		}
+		patterns = append(patterns, pattern)
+	}
+
+	for _, literal := range stringSliceOption(options, "literals", nil) {
+		patterns = append(patterns, regexp.MustCompile(regexp.QuoteMeta(literal)))
+	}
+
+	return patterns, nil
+}
+
 func resolveGuardPath(cwd string, path string) string {
 	if filepath.IsAbs(path) || cwd == "" {
 		return path
 	}
 
 	return filepath.Join(cwd, path)
+}
+
+func firstGuardLines(text string, count int) string {
+	if count <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) > count {
+		lines = lines[:count]
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func readGuardText(path string) (string, bool, error) {

@@ -63,7 +63,7 @@ provider binary executed an end-to-end tool call.
 `cutover install` installs Git hook shims, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
 agent hook, repo-ignore, and policy runtime readiness in TOON. Required runtime
-ignore checks run through the compiled `filesystem.required_ignores` policy.
+ignore checks run through the compiled `repo.required_ignores` policy.
 Blocked reports include `fix_first` rows naming the stale or missing hook
 surface and the next action.
 
@@ -94,8 +94,8 @@ line tables instead of giant escaped string cells.
 
 ## Included Hooks
 
-- **go-hooks/** - Compiled policy preflight, shell checks, commitlint, commit
-  attribution, direct-import enforcement, utility and SQL centralization, file
+- **go-hooks/** - Compiled policy preflight, shell checks, direct-import
+  enforcement, utility and SQL centralization, file
   and module doc checks, type-check orchestration, Python quality wrappers,
   Dockerfile and workflow validation, Go toolchain checks, pytest gating,
   pyproject ignore enforcement, repo-root Python version consistency checks,

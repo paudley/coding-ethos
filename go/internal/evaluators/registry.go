@@ -54,6 +54,7 @@ func registerGitEvaluators(registry Registry) {
 	)
 	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
 	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
+	registry.Register("git.commitlint", EvaluatorFunc(EvaluateGitCommitLint))
 	registry.Register(
 		"git.commit_attribution",
 		EvaluatorFunc(EvaluateGitCommitAttribution),
@@ -81,6 +82,9 @@ func registerFilesystemEvaluators(registry Registry) {
 		"filesystem.required_ignores",
 		EvaluatorFunc(EvaluateRequiredIgnores),
 	)
+	registry.Register("repo.required_ignores", EvaluatorFunc(EvaluateRequiredIgnores))
+	registry.Register("repo.pii_scrubber", EvaluatorFunc(EvaluatePIIScrubber))
+	registry.Register("repo.license_header", EvaluatorFunc(EvaluateLicenseHeader))
 }
 
 func registerShellEvaluators(registry Registry) {

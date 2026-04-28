@@ -573,8 +573,12 @@ func addGitPolicies(
 		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
 	}
 
-	if policyConfigEnabled(config, "git.commit_attribution") {
+	if enabledAt(config, []string{"go", "commit_attribution"}) {
 		policies["git.commit_attribution"] = gitCommitAttributionPolicy(config, principles)
+	}
+
+	if enabledAt(config, []string{"go", "commitlint"}) {
+		policies["git.commitlint"] = gitCommitLintPolicy(config, principles)
 	}
 }
 
@@ -793,6 +797,45 @@ func gitCommitAttributionPolicy(
 	}
 }
 
+func gitCommitLintPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	return Policy{
+		ID:              "git.commitlint",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "go.commitlint"},
+		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Commit messages must follow the configured conventional format.",
+		Suggestion:      "Use exactly: type(scope): concise subject, then a blank line before the body.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
+		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "git_state",
+			Name: "git.commitlint",
+			Options: map[string]any{
+				"allowed_types": stringSliceAt(
+					config,
+					[]string{"go", "commitlint", "allowed_types"},
+					[]string{"chore", "docs", "feat", "fix", "perf", "refactor", "test"},
+				),
+				"ignored_prefixes": stringSliceAt(
+					config,
+					[]string{"go", "commitlint", "ignored_prefixes"},
+					[]string{"Merge ", "Revert ", "fixup! ", "squash! "},
+				),
+				"max_header_length": intAt(
+					config,
+					[]string{"go", "commitlint", "max_header_length"},
+					150,
+				),
+			},
+		}},
+	}
+}
+
 func gitStashPolicy(principles map[string]Principle) Policy {
 	return gitPolicy(
 		"git.stash_blocked",
@@ -938,6 +981,92 @@ func addFileGuardPolicies(
 						config,
 						[]string{"filesystem", "line_limits", "shell_hard"},
 						intAt(config, []string{"go", "line_limits", "shell_hard"}, 500),
+					),
+				},
+			}},
+		}
+	}
+
+	if enabledAt(config, []string{"filesystem", "pii_scrubber"}) {
+		policies["repo.pii_scrubber"] = Policy{
+			ID:              "repo.pii_scrubber",
+			Category:        "repo",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.pii_scrubber"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design", "radical-visibility"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Local-machine PII must not be committed.",
+			Suggestion:      "Replace local paths, usernames, hostnames, and worktree names with generic placeholders.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind: "text",
+				Name: "repo.pii_scrubber",
+				Options: map[string]any{
+					"patterns": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "patterns"},
+						[]string{
+							`/(home|Users)/[A-Za-z0-9._-]+/`,
+							`lbox-worktrees/[A-Za-z0-9._-]+`,
+							`/tmp/tmp\.[A-Za-z0-9._-]+`,
+						},
+					),
+					"literals": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "literals"},
+						nil,
+					),
+					"exempt_prefixes": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},
+						[]string{".git/"},
+					),
+				},
+			}},
+		}
+	}
+
+	if enabledAt(config, []string{"filesystem", "license_header"}) {
+		policies["repo.license_header"] = Policy{
+			ID:              "repo.license_header",
+			Category:        "repo",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.license_header"},
+			PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "First-party source files must carry SPDX license headers.",
+			Suggestion:      "Add SPDX-FileCopyrightText and SPDX-License-Identifier near the top of the file.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
+			Evaluators: []Evaluator{{
+				Kind: "text",
+				Name: "repo.license_header",
+				Options: map[string]any{
+					"extensions": stringSliceAt(
+						config,
+						[]string{"filesystem", "license_header", "extensions"},
+						[]string{".go", ".py", ".sh"},
+					),
+					"exempt_prefixes": stringSliceAt(
+						config,
+						[]string{"filesystem", "license_header", "exempt_prefixes"},
+						[]string{".git/"},
+					),
+					"exempt_basenames": stringSliceAt(
+						config,
+						[]string{"filesystem", "license_header", "exempt_basenames"},
+						nil,
+					),
+					"required": stringSliceAt(
+						config,
+						[]string{"filesystem", "license_header", "required"},
+						[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
+					),
+					"scan_lines": intAt(
+						config,
+						[]string{"filesystem", "license_header", "scan_lines"},
+						5,
 					),
 				},
 			}},
@@ -1180,6 +1309,25 @@ func addFilesystemPolicies(
 			policies[policy.ID] = policy
 		}
 	}
+
+	if enabledAt(config, []string{"filesystem", "required_ignores"}) {
+		policies["repo.required_ignores"] = repoRequiredIgnoresPolicy(config, principles)
+	}
+}
+
+func repoRequiredIgnoresPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	policy := filesystemRequiredIgnoresPolicy(config, principles)
+	policy.ID = "repo.required_ignores"
+	policy.Category = "repo"
+	policy.Source.Path = "filesystem.required_ignores"
+	policy.Message = "Repository runtime output paths must be ignored."
+	policy.Suggestion = "Add coding-ethos runtime paths to .gitignore before hook output is written."
+	policy.Evaluators[0].Name = "repo.required_ignores"
+
+	return policy
 }
 
 func filesystemProtectedPathPolicy(
@@ -1736,6 +1884,7 @@ func addBlockingBashDispatch(
 		"git.destructive_worktree",
 		"git.change_dir_flag",
 		"git.stash_blocked",
+		"git.commitlint",
 		"git.commit_attribution",
 		"shell.dangerous_command",
 		"shell.background_git",
@@ -1860,6 +2009,8 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"filesystem.shebangs",
 			"filesystem.large_files",
 			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
 			"shell.best_practices",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
@@ -1887,13 +2038,15 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
-			"filesystem.required_ignores",
+			"repo.required_ignores",
 			"syntax.file_syntax",
 			"syntax.merge_conflict",
 			"security.private_key",
 			"filesystem.shebangs",
 			"filesystem.large_files",
 			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1904,19 +2057,24 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 		),
 		"smoke": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"full": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"cutover": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
+		),
+		"commit-msg": existingPolicyIDs(
+			policies,
+			"git.commitlint",
+			"git.commit_attribution",
 		),
 	}
 
@@ -1932,6 +2090,7 @@ func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispa
 			Pre: existingPolicyIDs(
 				policies,
 				"git.hook_bypass",
+				"git.commitlint",
 				"git.commit_attribution",
 				"git.staged_admin_files",
 			),
@@ -2023,6 +2182,17 @@ func boolAt(values map[string]any, path ...string) bool {
 	boolValue, isBool := value.(bool)
 
 	return isBool && boolValue
+}
+
+func enabledAt(values map[string]any, path []string) bool {
+	value, exists := valueAt(values, append(path, "enabled")...)
+	if !exists {
+		return true
+	}
+
+	boolValue, isBool := value.(bool)
+
+	return !isBool || boolValue
 }
 
 func stringSliceAt(

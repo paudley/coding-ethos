@@ -64,6 +64,28 @@ func main() {
 	}
 
 	hookName := args[0]
+	if hookName == "commit-msg" {
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			exitErr(errors.New("commit-msg hook requires a message file"))
+		}
+
+		result, runErr := lint.Run(bundle, lint.Options{
+			Scope: lint.ScopeCommit,
+			Cwd:   *cwd,
+			Files: []string{args[1]},
+		})
+		if runErr != nil {
+			exitErr(runErr)
+		}
+
+		if result.Blocked() {
+			encodeLintResult(result)
+			os.Exit(blockedExitCode)
+		}
+
+		os.Exit(0)
+	}
+
 	if hookName == "pre-commit" || hookName == "pre-push" {
 		files, err := hookFiles(*cwd, hookName)
 		if err != nil {
@@ -137,6 +159,10 @@ func readBundle(path string) (policy.Bundle, error) {
 }
 
 func encodeLintResult(result lint.Result) {
+	if result.Blocked() {
+		result = blockedOnlyResult(result)
+	}
+
 	encoder := json.NewEncoder(os.Stderr)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
@@ -145,6 +171,24 @@ func encodeLintResult(result lint.Result) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
 	}
+}
+
+func blockedOnlyResult(result lint.Result) lint.Result {
+	filtered := lint.Result{
+		Scope:  result.Scope,
+		Status: result.Status,
+	}
+
+	for _, decision := range result.Decisions {
+		if decision.Decision != "block" && decision.Severity != "block" {
+			continue
+		}
+
+		filtered.Decisions = append(filtered.Decisions, decision)
+		filtered.Diagnostics = append(filtered.Diagnostics, decision.Diagnostics...)
+	}
+
+	return filtered
 }
 
 func runLegacyRunner(runnerPath string, args []string) int {

@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Typed models shared across ethos loading, rendering, and merge flows.
 
 These dataclasses define the stable in-memory contract for the structured
 ethos bundle so generators and hook tooling can share one vocabulary.
 They keep serialization concerns out of the renderer and CLI layers.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass, field
 

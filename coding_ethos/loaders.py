@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Load, validate, and merge structured ethos YAML into runtime models.
 
 This module owns normalization of the primary shared ethos document and the
 optional repo overlay so renderers can operate on consistent typed bundles.
 It is the schema boundary between raw YAML and the rest of the application.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy

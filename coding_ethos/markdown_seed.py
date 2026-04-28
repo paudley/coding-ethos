@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Convert Markdown ethos documents into structured YAML source data.
 
 These helpers extract principle sections, summaries, and lightweight metadata
 so an existing prose ethos can seed the canonical YAML authoring surface.
 They keep the seeding workflow deterministic enough for tests and regeneration.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import re
 from pathlib import Path

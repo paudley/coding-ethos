@@ -160,13 +160,26 @@ func EvaluatePythonDirectImports(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	if len(context.Files) > 0 && insidePackage(context.Files[0], "coding_ethos") {
-		return nil, nil
+	sources, err := pythonSources(context)
+	if err != nil {
+		return nil, err
 	}
 
-	return evaluatePythonLines(policyDef, context, func(line string) bool {
-		return directImportPattern.MatchString(line)
-	})
+	for _, source := range sources {
+		if insidePackage(source.Path, "coding_ethos") {
+			continue
+		}
+
+		for idx, line := range strings.Split(source.Text, "\n") {
+			if directImportPattern.MatchString(line) {
+				return []policy.Decision{
+					pythonDecision(policyDef, source, idx+1, strings.TrimSpace(line)),
+				}, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 type pythonSource struct {

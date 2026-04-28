@@ -142,6 +142,36 @@ func TestGitCommitAttributionBlocksMessageFile(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != decisionBlock {
 		t.Fatalf("expected block decision, got %#v", decisions)
 	}
+	if decisions[0].Evidence["example"] == "" {
+		t.Fatalf("missing commitlint example evidence: %#v", decisions[0].Evidence)
+	}
+}
+
+func TestGitCommitLintBlocksBadCommitMessageFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
+
+	err := os.WriteFile(messagePath, []byte("bad header\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	policyDef := compiledGitSafetyTestBundle().Policies["git.commitlint"]
+
+	decisions, err := EvaluateGitCommitLint(policyDef, Context{
+		Cwd:   repo,
+		Files: []string{"COMMIT_EDITMSG"},
+		Scope: "commit-msg",
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != decisionBlock {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
 }
 
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
@@ -215,6 +245,7 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 		"git.destructive_worktree",
 		"git.change_dir_flag",
 		"git.stash_blocked",
+		"git.commitlint",
 		"git.commit_attribution",
 	} {
 		bundle.Policies[policyID] = policy.Policy{

@@ -26,6 +26,7 @@ const (
 	ScopeSmoke   = "smoke"
 	ScopeFull    = "full"
 	ScopeCutover = "cutover"
+	ScopeCommit  = "commit-msg"
 )
 
 var (
@@ -210,6 +211,7 @@ func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {
 		ScopeSmoke,
 		ScopeFull,
 		ScopeCutover,
+		ScopeCommit,
 	}
 	if !slices.Contains(allowedScopes, scope) {
 		return nil, fmt.Errorf("unsupported lint scope %q: %w", scope, errUnsupportedScope)

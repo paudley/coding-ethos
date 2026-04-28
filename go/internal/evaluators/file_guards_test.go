@@ -36,7 +36,7 @@ func TestEvaluateFilePrivateKeyBlocksKeyMaterial(t *testing.T) {
 	path := writeGuardTestFile(
 		t,
 		"secret.pem",
-		"-----BEGIN RSA PRIVATE KEY-----\nredacted\n",
+		"-----BEGIN RSA "+"PRIVATE KEY-----\nredacted\n",
 	)
 	decision := evaluateFileGuardPolicy(
 		t,
@@ -124,6 +124,79 @@ func TestEvaluateFileLineLimitBlocksGrowthOverLimit(t *testing.T) {
 
 	if !strings.Contains(decision.Diagnostics[0].Message, "file grew from 1 to 3") {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluatePIIScrubberBlocksLocalMachineDetails(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "notes.md", "path: /"+"home/example/project\n")
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.pii_scrubber",
+		EvaluatePIIScrubber,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Tool != "pii" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluatePIIScrubberBlocksConfiguredLiteral(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "notes.md", "host: build-host-17\n")
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.pii_scrubber",
+		EvaluatePIIScrubber,
+		Context{
+			Files:            []string{path},
+			EvaluatorOptions: map[string]any{"literals": []string{"build-host-17"}},
+		},
+	)
+
+	if decision.Diagnostics[0].Tool != "pii" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateLicenseHeaderBlocksMissingSPDX(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "app.go", "package main\n")
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.license_header",
+		EvaluateLicenseHeader,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Tool != "license_header" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateLicenseHeaderAllowsSPDX(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(
+		t,
+		"app.go",
+		"// SPDX-FileCopyrightText: 2026 Example Inc.\n"+
+			"// SPDX-License-Identifier: MIT\n\npackage main\n",
+	)
+
+	decisions, err := EvaluateLicenseHeader(
+		fileGuardPolicy("repo.license_header"),
+		Context{Files: []string{path}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate license header: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("unexpected decisions: %#v", decisions)
 	}
 }
 

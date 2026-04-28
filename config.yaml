@@ -296,6 +296,28 @@ filesystem:
     paths:
       - .coding-ethos/
       - .coding-ethos/hook-runs/example/stdout.log
+  pii_scrubber:
+    enabled: true
+    patterns:
+      - '/(home|Users)/[A-Za-z0-9._-]+/'
+      - 'lbox-worktrees/[A-Za-z0-9._-]+'
+      - '/tmp/tmp\.[A-Za-z0-9._-]+'
+    literals: []
+    exempt_prefixes:
+      - .git/
+  license_header:
+    enabled: true
+    extensions:
+      - .go
+      - .py
+      - .sh
+    exempt_prefixes:
+      - .git/
+    exempt_basenames: []
+    required:
+      - 'SPDX-FileCopyrightText:'
+      - 'SPDX-License-Identifier:'
+    scan_lines: 5
   shebangs:
     enabled: true
   large_files:
@@ -1026,6 +1048,7 @@ go:
   enabled: false
   worktree: pre-commit/hooks/go-hooks
   commitlint:
+    enabled: true
     allowed_types:
       - chore
       - docs
@@ -1041,6 +1064,7 @@ go:
       - 'squash! '
     max_header_length: 150
   commit_attribution:
+    enabled: true
     blocked_names:
       - claude
       - anthropic

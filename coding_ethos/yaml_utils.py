@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Shared YAML formatting helpers for repo-owned configuration artifacts.
 
 This module centralizes deterministic YAML rendering so generated config files
 and repo-maintained YAML sources follow the same indentation and wrapping
 rules. It also preserves comments when reformatting existing YAML files.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import re
 import textwrap

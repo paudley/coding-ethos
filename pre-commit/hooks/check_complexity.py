@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
 """Check cyclomatic complexity of Python code.
 
 Pre-commit hook for complexity enforcement.
@@ -15,9 +17,6 @@ Exit codes:
     0: All functions within complexity threshold
     1: One or more functions exceed threshold
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import sys
 from typing import Final

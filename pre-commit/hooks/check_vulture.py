@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
 """Check for dead/unused code using vulture.
 
 Pre-commit hook for dead code detection.
@@ -11,9 +13,6 @@ Exit codes:
     0: No dead code detected
     1: Dead code detected or error
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import shutil
 import subprocess

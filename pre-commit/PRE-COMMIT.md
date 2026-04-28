@@ -42,7 +42,7 @@ when its sources or config inputs change.
 Gemini repo-local agent hook settings, and then verifies the full cutover
 surface. `make cutover-verify` checks the installed Git shims, runs
 `agent-hooks verify`, verifies required runtime ignores through the compiled
-`filesystem.required_ignores` policy, runs the policy runtime validation hook,
+`repo.required_ignores` policy, runs the policy runtime validation hook,
 and prints a concise TOON readiness report. Blocked reports include `fix_first`
 entries that name the stale or missing surface and the next action.
 
@@ -274,7 +274,8 @@ Important configurable areas:
   defaults, including the expanded Go security, dependency, module-directive,
   modern-library, protobuf, test, and whitespace/style linter policy
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
-- `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
+- `go.*` - compiled commitlint and commit attribution policy, text policy,
+  line limits, and quiet-filter rules
 
 Agent-facing hook feedback should render from normalized diagnostics instead of
 raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
@@ -291,7 +292,7 @@ by default in `python.type_check.checkers`; re-enable it per repo after the
 local `.pylintrc` policy has been reviewed.
 The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
 `python-quality`, `python-static`, `docs`, `security`, `shell`, `docker`,
-`workflow`, `go`, `ai`, and `commit-msg`; the Go runner owns the enforcement
+`workflow`, `go`, and `ai`; compiled policy preflight owns commit message
 behavior. Run `make hook-plan` to print the active group and command plan.
 
 For this repo, many project-specific checks are disabled by default because the

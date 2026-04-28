@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestHookFilesReturnsStagedPreCommitFiles(t *testing.T) {
@@ -46,6 +49,41 @@ func TestHookFilesSkipsNonPreCommitHooks(t *testing.T) {
 	}
 	if len(files) != 0 {
 		t.Fatalf("pre-push should not resolve staged files: %#v", files)
+	}
+}
+
+func TestBlockedOnlyResultDropsResolvedPolicyRecords(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeCommit,
+		Status: "blocked",
+		Files:  []string{"/tmp/COMMIT_EDITMSG"},
+		Decisions: []policy.Decision{
+			{
+				PolicyID: "git.commitlint",
+				Decision: "block",
+				Severity: "block",
+				Message:  "bad commit",
+			},
+			{
+				PolicyID: "git.commit_attribution",
+				Decision: "record",
+				Severity: "record",
+				Message:  "clean attribution",
+			},
+		},
+	}
+
+	filtered := blockedOnlyResult(result)
+	if len(filtered.Decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", filtered.Decisions)
+	}
+	if filtered.Decisions[0].PolicyID != "git.commitlint" {
+		t.Fatalf("unexpected decision: %#v", filtered.Decisions[0])
+	}
+	if len(filtered.Files) != 0 {
+		t.Fatalf("filtered result leaked input files: %#v", filtered.Files)
 	}
 }
 

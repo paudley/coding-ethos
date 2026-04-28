@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Render normalized ethos bundles into root files and supporting documents.
 
 These renderers own the generated Markdown layout for root agent files, shared
 indexes, per-principle detail docs, and prompt addons.
 They are the only place where output shape should change by design.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 from pathlib import Path
 

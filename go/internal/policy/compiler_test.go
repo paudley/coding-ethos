@@ -62,6 +62,11 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		"filesystem.shebangs",
 		"filesystem.large_files",
 		"filesystem.line_limits",
+		"repo.required_ignores",
+		"repo.pii_scrubber",
+		"repo.license_header",
+		"git.commitlint",
+		"git.commit_attribution",
 	} {
 		if _, ok := bundle.Policies[policyID]; !ok {
 			t.Fatalf("missing compiled file guard policy %s", policyID)
@@ -135,17 +140,17 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["smoke"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["cutover"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.best_practices")
@@ -154,6 +159,8 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.shebangs")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.large_files")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.line_limits")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.pii_scrubber")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.license_header")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.forbidden_strings")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
@@ -162,6 +169,10 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.shebangs")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.large_files")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.line_limits")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.pii_scrubber")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.license_header")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commitlint")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commit_attribution")
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -481,8 +492,17 @@ filesystem:
     enabled: false
   required_ignores:
     enabled: false
+  pii_scrubber:
+    enabled: false
+  license_header:
+    enabled: false
 shell:
   dangerous_command:
+    enabled: false
+go:
+  commitlint:
+    enabled: false
+  commit_attribution:
     enabled: false
 `)
 
@@ -498,7 +518,12 @@ shell:
 		"git.hook_bypass",
 		"filesystem.protected_path",
 		"filesystem.required_ignores",
+		"repo.required_ignores",
+		"repo.pii_scrubber",
+		"repo.license_header",
 		"shell.dangerous_command",
+		"git.commitlint",
+		"git.commit_attribution",
 	} {
 		if _, ok := bundle.Policies[policyID]; ok {
 			t.Fatalf("policy should be disabled: %s", policyID)

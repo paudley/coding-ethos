@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Generate repo-root linter and type-checker config files from policy YAML.
 
 This module merges bundle defaults with optional consumer overrides and renders
 deterministic tool config files for editors, hooks, and local CLI workflows.
 It keeps cross-tool settings like Python version and line length synchronized.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import configparser
 import json

@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """CLI orchestration for generating ethos outputs and derived hook artifacts.
 
 This module keeps argument parsing and top-level workflow coordination in one
 place while delegating rendering, loading, and merge logic to narrower helpers.
 It is the only supported command-line entrypoint for generation and sync flows.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import argparse
 from dataclasses import dataclass

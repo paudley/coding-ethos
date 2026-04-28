@@ -115,13 +115,6 @@ func canonicalHookGroups() map[string]hookGroup {
 			Name:     "ai",
 			Commands: []hookCommand{{Name: "gemini-check", Run: runGeminiCheck}},
 		},
-		"commit-msg": {
-			Name: "commit-msg",
-			Commands: []hookCommand{
-				{Name: "commitlint", Run: checkCommitLint},
-				{Name: "commit-attribution", Run: checkCommitAttribution},
-			},
-		},
 	}
 }
 

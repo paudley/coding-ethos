@@ -47,26 +47,6 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 	}
 }
 
-func TestCommitLintGuidanceIncludesConcreteExample(t *testing.T) {
-	t.Parallel()
-
-	var cfg Config
-
-	cfg.CommitLint.AllowedTypes = []string{"fix", "feat", "docs"}
-
-	guidance := strings.Join(commitLintGuidance(cfg), "\n")
-	for _, want := range []string{
-		"Use exactly: type(scope): concise subject",
-		"Good example: fix(bind): harden enrichment transaction handling",
-		"Allowed types: docs, feat, fix",
-		"Put body details after a blank line below the header.",
-	} {
-		if !strings.Contains(guidance, want) {
-			t.Fatalf("guidance missing %q:\n%s", want, guidance)
-		}
-	}
-}
-
 func TestLoadGeminiPromptPackParsesGeneratedContract(t *testing.T) {
 	t.Parallel()
 
@@ -1048,7 +1028,6 @@ func TestCanonicalHookGroupsExposeExpectedGroups(t *testing.T) {
 		"security",
 		"shell",
 		"ai",
-		"commit-msg",
 	} {
 		group, ok := groups[name]
 		if !ok {

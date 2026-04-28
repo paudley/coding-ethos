@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
 """Shared utilities for radon-based code quality checks.
 
 Provides a common interface for running radon commands and parsing the JSON

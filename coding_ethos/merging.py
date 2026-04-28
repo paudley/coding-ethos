@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Merge generated root files with existing repo-owned agent documents.
 
 This module keeps merge policy, managed-block injection, and external merge
 engine orchestration together so the CLI can remain a thin workflow shell.
 It is responsible for preserving local guidance without forking the renderer.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import os
 import re
