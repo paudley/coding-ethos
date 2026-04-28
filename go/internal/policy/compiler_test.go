@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -202,6 +203,92 @@ python:
 
 	if _, ok := bundle.Policies["python.structured_logging"]; !ok {
 		t.Fatalf("repo overlay should enable structured logging policy")
+	}
+}
+
+func TestCompileDoesNotInheritLicensePolicyIntoConsumerRepo(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+filesystem:
+  license_header:
+    enabled: true
+`)
+	writeTestFile(t, repoConfigPath, `
+python:
+  structured_logging:
+    enabled: true
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if _, ok := bundle.Policies["repo.license_header"]; ok {
+		t.Fatalf("consumer repo should not inherit bundle license policy")
+	}
+}
+
+func TestCompileAddsRepoSpecificLicensePolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, `
+repo:
+  license:
+    spdx_identifier: MIT
+    copyright: 2026 Example Inc.
+    text: |
+      MIT License
+
+      Copyright (c) <year> <copyright holders>
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef, ok := bundle.Policies["repo.license_header"]
+	if !ok {
+		t.Fatalf("missing repo-specific license policy")
+	}
+	if policyDef.Source.File != "repo_config.yaml" || policyDef.Source.Path != "repo.license" {
+		t.Fatalf("source mismatch: %#v", policyDef.Source)
+	}
+
+	options := policyDef.Evaluators[0].Options
+	required := optionStrings(t, policyDef.Evaluators[0], "required")
+	if !slices.Contains(required, "SPDX-License-Identifier: MIT") {
+		t.Fatalf("missing SPDX header requirement: %#v", required)
+	}
+	if !slices.Contains(required, "SPDX-FileCopyrightText: 2026 Example Inc.") {
+		t.Fatalf("missing copyright header requirement: %#v", required)
+	}
+	expected, ok := options["expected_license_text"].(string)
+	if !ok || !strings.Contains(expected, "Copyright (c) 2026 Example Inc.") {
+		t.Fatalf("expected license text mismatch: %#v", options["expected_license_text"])
 	}
 }
 

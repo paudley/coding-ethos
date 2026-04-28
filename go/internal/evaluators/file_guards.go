@@ -305,6 +305,10 @@ func EvaluateLicenseHeader(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
+	if decision, err := evaluateLicenseFile(policyDef, context); decision != nil || err != nil {
+		return decision, err
+	}
+
 	extensions := stringSet(normalizedSuffixes(stringSliceOption(
 		context.EvaluatorOptions,
 		"extensions",
@@ -350,6 +354,59 @@ func EvaluateLicenseHeader(
 	}
 
 	return nil, nil
+}
+
+func evaluateLicenseFile(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	expected := stringOption(context.EvaluatorOptions, "expected_license_text", "")
+	if expected == "" {
+		return nil, nil
+	}
+
+	licenseFile := stringOption(context.EvaluatorOptions, "license_file", "LICENSE")
+	path := resolveGuardPath(context.Cwd, licenseFile)
+	text, binary, err := readGuardText(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []policy.Decision{
+				fileGuardDecision(
+					policyDef,
+					"license_file",
+					licenseFile,
+					1,
+					stringOption(context.EvaluatorOptions, "spdx_id", ""),
+					"configured SPDX license file is missing",
+				),
+			}, nil
+		}
+
+		return nil, err
+	}
+	if binary || normalizeGuardLicenseText(text) != normalizeGuardLicenseText(expected) {
+		return []policy.Decision{
+			fileGuardDecision(
+				policyDef,
+				"license_file",
+				licenseFile,
+				1,
+				stringOption(context.EvaluatorOptions, "spdx_id", ""),
+				"LICENSE does not match the configured SPDX license text",
+			),
+		}, nil
+	}
+
+	return nil, nil
+}
+
+func normalizeGuardLicenseText(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {

@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,7 +39,7 @@ type CompileOptions struct {
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
-	primaryPayload, configPayload, sourceHashes, err := compileInputs(options)
+	primaryPayload, configPayload, repoConfigPayload, sourceHashes, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
@@ -51,7 +53,15 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		)
 	}
 
-	policies := compilePolicies(configPayload, principles, sourceRoot(options.Config))
+	policies, err := compilePolicies(
+		configPayload,
+		repoConfigPayload,
+		principles,
+		sourceRoot(options.Config),
+	)
+	if err != nil {
+		return Bundle{}, Metadata{}, err
+	}
 	if len(policies) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile policies: %w in %s",
@@ -129,15 +139,15 @@ func sourceRoot(path string) string {
 
 func compileInputs(
 	options CompileOptions,
-) (map[string]any, map[string]any, map[string]string, error) {
+) (map[string]any, map[string]any, map[string]any, map[string]string, error) {
 	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	configPayload, configHash, err := loadYAMLFile(options.Config)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	sourceHashes := map[string]string{
@@ -151,19 +161,21 @@ func compileInputs(
 		sourceHashes,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	configPayload, err = mergeOptionalYAML(
-		configPayload,
-		options.RepoConfig,
-		sourceHashes,
-	)
-	if err != nil {
-		return nil, nil, nil, err
+	var repoConfigPayload map[string]any
+	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
+		var repoConfigHash string
+		repoConfigPayload, repoConfigHash, err = loadYAMLFile(options.RepoConfig)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		sourceHashes[options.RepoConfig] = repoConfigHash
+		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
-	return primaryPayload, configPayload, sourceHashes, nil
+	return primaryPayload, configPayload, repoConfigPayload, sourceHashes, nil
 }
 
 func mergeOptionalYAML(
@@ -354,19 +366,22 @@ func defaultReminderConfig() ReminderConfig {
 
 func compilePolicies(
 	config map[string]any,
+	repoConfig map[string]any,
 	principles map[string]Principle,
 	configSourceRoot string,
-) map[string]Policy {
+) (map[string]Policy, error) {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, config, principles)
 	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
-	addFileGuardPolicies(policies, config, principles)
+	if err := addFileGuardPolicies(policies, config, repoConfig, principles); err != nil {
+		return nil, err
+	}
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 
-	return policies
+	return policies, nil
 }
 
 func addConfiguredPythonPolicies(
@@ -873,8 +888,9 @@ func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
 func addFileGuardPolicies(
 	policies map[string]Policy,
 	config map[string]any,
+	repoConfig map[string]any,
 	principles map[string]Principle,
-) {
+) error {
 	if policyConfigEnabled(config, "security.private_key") {
 		pattern := stringAt(config, "security", "private_key", "pattern")
 		if pattern == "" {
@@ -1027,51 +1043,212 @@ func addFileGuardPolicies(
 		}
 	}
 
-	if enabledAt(config, []string{"filesystem", "license_header"}) {
-		policies["repo.license_header"] = Policy{
-			ID:              "repo.license_header",
-			Category:        "repo",
-			Source:          SourceRef{File: "config.yaml", Path: "filesystem.license_header"},
-			PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "First-party source files must carry SPDX license headers.",
-			Suggestion:      "Add SPDX-FileCopyrightText and SPDX-License-Identifier near the top of the file.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
-			Evaluators: []Evaluator{{
-				Kind: "text",
-				Name: "repo.license_header",
-				Options: map[string]any{
-					"extensions": stringSliceAt(
-						config,
-						[]string{"filesystem", "license_header", "extensions"},
-						[]string{".go", ".py", ".sh"},
-					),
-					"exempt_prefixes": stringSliceAt(
-						config,
-						[]string{"filesystem", "license_header", "exempt_prefixes"},
-						[]string{".git/"},
-					),
-					"exempt_basenames": stringSliceAt(
-						config,
-						[]string{"filesystem", "license_header", "exempt_basenames"},
-						nil,
-					),
-					"required": stringSliceAt(
-						config,
-						[]string{"filesystem", "license_header", "required"},
-						[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
-					),
-					"scan_lines": intAt(
-						config,
-						[]string{"filesystem", "license_header", "scan_lines"},
-						5,
-					),
-				},
-			}},
+	licensePolicy, err := licenseHeaderPolicy(config, repoConfig, principles)
+	if err != nil {
+		return err
+	}
+	if licensePolicy.ID != "" {
+		policies[licensePolicy.ID] = licensePolicy
+	}
+
+	return nil
+}
+
+func licenseHeaderPolicy(
+	config map[string]any,
+	repoConfig map[string]any,
+	principles map[string]Principle,
+) (Policy, error) {
+	if len(repoConfig) == 0 {
+		if !enabledAt(config, []string{"filesystem", "license_header"}) {
+			return Policy{}, nil
+		}
+
+		return baseLicenseHeaderPolicy(
+			principles,
+			"config.yaml",
+			"filesystem.license_header",
+			map[string]any{
+				"extensions": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "extensions"},
+					[]string{".go", ".py", ".sh"},
+				),
+				"exempt_prefixes": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "exempt_prefixes"},
+					[]string{".git/"},
+				),
+				"exempt_basenames": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "exempt_basenames"},
+					nil,
+				),
+				"required": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "required"},
+					[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
+				),
+				"scan_lines": intAt(config, []string{"filesystem", "license_header", "scan_lines"}, 5),
+			},
+		), nil
+	}
+
+	if !repoLicenseConfigured(repoConfig) {
+		return Policy{}, nil
+	}
+
+	spdxID := repoLicenseString(config, "spdx_identifier", "spdx")
+	copyrightText := repoLicenseString(config, "copyright")
+	licenseFile := repoLicenseString(config, "license_file")
+	if licenseFile == "" {
+		licenseFile = "LICENSE"
+	}
+
+	required := []string{}
+	if spdxID != "" {
+		required = append(required, "SPDX-License-Identifier: "+spdxID)
+	}
+	if copyrightText != "" {
+		required = append(required, "SPDX-FileCopyrightText: "+copyrightText)
+	}
+
+	options := map[string]any{
+		"extensions": stringSliceAt(
+			config,
+			[]string{"repo", "license", "extensions"},
+			[]string{".go", ".py", ".sh"},
+		),
+		"exempt_prefixes": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_prefixes"},
+			[]string{".git/"},
+		),
+		"exempt_basenames": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_basenames"},
+			nil,
+		),
+		"required":     required,
+		"scan_lines":   intAt(config, []string{"repo", "license", "scan_lines"}, 5),
+		"license_file": licenseFile,
+		"spdx_id":      spdxID,
+	}
+
+	if spdxID != "" {
+		licenseText, err := repoLicenseText(config, spdxID, copyrightText)
+		if err != nil {
+			return Policy{}, err
+		}
+		options["expected_license_text"] = licenseText
+	}
+
+	return baseLicenseHeaderPolicy(
+		principles,
+		"repo_config.yaml",
+		"repo.license",
+		options,
+	), nil
+}
+
+func baseLicenseHeaderPolicy(
+	principles map[string]Principle,
+	sourceFile string,
+	sourcePath string,
+	options map[string]any,
+) Policy {
+	return Policy{
+		ID:              "repo.license_header",
+		Category:        "repo",
+		Source:          SourceRef{File: sourceFile, Path: sourcePath},
+		PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "First-party source files must carry the configured SPDX license contract.",
+		Suggestion:      "Add the configured LICENSE file and matching SPDX source headers.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
+		Evaluators: []Evaluator{{
+			Kind:    "text",
+			Name:    "repo.license_header",
+			Options: options,
+		}},
+	}
+}
+
+func repoLicenseConfigured(repoConfig map[string]any) bool {
+	if !enabledAt(repoConfig, []string{"repo", "license"}) {
+		return false
+	}
+
+	return repoLicenseString(repoConfig, "spdx_identifier", "spdx") != "" ||
+		repoLicenseString(repoConfig, "copyright") != ""
+}
+
+func repoLicenseString(config map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringAt(config, "repo", "license", key); value != "" {
+			return value
 		}
 	}
+
+	return ""
+}
+
+func repoLicenseText(
+	config map[string]any,
+	spdxID string,
+	copyrightText string,
+) (string, error) {
+	if text := stringAt(config, "repo", "license", "text"); text != "" {
+		return normalizeLicenseText(fillLicenseTemplate(text, copyrightText)), nil
+	}
+
+	url := stringAt(config, "repo", "license", "url")
+	if url == "" {
+		url = "https://spdx.org/licenses/" + spdxID + ".txt"
+	}
+
+	client := http.Client{Timeout: 10 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("download SPDX license %s: %w", spdxID, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download SPDX license %s: status %s", spdxID, response.Status)
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return "", fmt.Errorf("read SPDX license %s: %w", spdxID, err)
+	}
+
+	return normalizeLicenseText(fillLicenseTemplate(string(body), copyrightText)), nil
+}
+
+func fillLicenseTemplate(text string, copyrightText string) string {
+	if copyrightText == "" {
+		return text
+	}
+
+	replacer := strings.NewReplacer(
+		"<year> <copyright holders>", copyrightText,
+		"[yyyy] [name of copyright owner]", copyrightText,
+		"[year] [fullname]", copyrightText,
+	)
+
+	return replacer.Replace(text)
+}
+
+func normalizeLicenseText(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func addSyntaxPolicies(

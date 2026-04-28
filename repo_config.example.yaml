@@ -4,6 +4,15 @@
 style:
   line_length: 100
 
+repo:
+  license:
+    # Set this per consuming repo to opt into LICENSE file and header checks.
+    # When enabled, coding-ethos downloads the SPDX text, validates LICENSE
+    # without overwriting it, and requires matching source headers.
+    # spdx_identifier: MIT
+    # copyright: 2026 Example Inc.
+    # license_file: LICENSE
+
 hooks:
   output_format: auto
   success_output: silent

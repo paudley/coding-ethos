@@ -220,6 +220,12 @@ You can also point the bundle at an explicit override file with
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
 
+License enforcement is intentionally not inherited from the bundle defaults.
+Consumers opt in with `repo.license.spdx_identifier` in `repo_config.yaml`; the
+compiler downloads that SPDX license text into the policy bundle, the hook
+verifies `LICENSE` without overwriting it, and source files must carry the
+configured SPDX license and copyright headers.
+
 Generated config drift is checked with:
 
 ```bash

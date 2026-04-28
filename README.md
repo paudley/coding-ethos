@@ -282,6 +282,13 @@ The merged config drives:
 - Gemini AI review runtime settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
 
+License and copyright enforcement is repo-specific. Bundle `config.yaml`
+controls this repository's own headers only; consuming repos do not inherit that
+license policy. To opt in, set `repo.license.spdx_identifier` and, if desired,
+`repo.license.copyright` in `repo_config.yaml`. The compiled policy downloads
+the SPDX license text, verifies the repo `LICENSE` file without overwriting it,
+and requires matching SPDX source headers.
+
 See [repo_config.example.yaml](repo_config.example.yaml).
 
 ## Output layout

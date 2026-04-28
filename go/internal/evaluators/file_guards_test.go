@@ -200,6 +200,123 @@ func TestEvaluateLicenseHeaderAllowsSPDX(t *testing.T) {
 	}
 }
 
+func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	path := filepath.Join(repo, "app.go")
+	err := os.WriteFile(
+		path,
+		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.license_header",
+		EvaluateLicenseHeader,
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.go"},
+			EvaluatorOptions: map[string]any{
+				"expected_license_text": "MIT License\n",
+				"license_file":          "LICENSE",
+				"spdx_id":               "MIT",
+				"required":              []string{"SPDX-License-Identifier: MIT"},
+			},
+		},
+	)
+
+	if decision.Diagnostics[0].Tool != "license_file" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("wrong\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write license: %v", err)
+	}
+	err = os.WriteFile(
+		filepath.Join(repo, "app.go"),
+		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.license_header",
+		EvaluateLicenseHeader,
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.go"},
+			EvaluatorOptions: map[string]any{
+				"expected_license_text": "MIT License\n",
+				"license_file":          "LICENSE",
+				"spdx_id":               "MIT",
+				"required":              []string{"SPDX-License-Identifier: MIT"},
+			},
+		},
+	)
+
+	if decision.Diagnostics[0].Message != "LICENSE does not match the configured SPDX license text" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("MIT License\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write license: %v", err)
+	}
+	err = os.WriteFile(
+		filepath.Join(repo, "app.go"),
+		[]byte(
+			"// SPDX-FileCopyrightText: 2026 Example Inc.\n"+
+				"// SPDX-License-Identifier: MIT\n\npackage main\n",
+		),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+
+	decisions, err := EvaluateLicenseHeader(
+		fileGuardPolicy("repo.license_header"),
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.go"},
+			EvaluatorOptions: map[string]any{
+				"expected_license_text": "MIT License\n",
+				"license_file":          "LICENSE",
+				"spdx_id":               "MIT",
+				"required": []string{
+					"SPDX-FileCopyrightText: 2026 Example Inc.",
+					"SPDX-License-Identifier: MIT",
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate license header: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("unexpected decisions: %#v", decisions)
+	}
+}
+
 func evaluateFileGuardPolicy(
 	t *testing.T,
 	policyID string,
