@@ -49,19 +49,13 @@ func main() {
 func printSettings(args []string) error {
 	flags := flag.NewFlagSet("print", flag.ExitOnError)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse print flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.WriteProviderSettings(os.Stdout, provider, *hookCommand)
+	err = agenthooks.WriteSettings(os.Stdout, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("write agent hook settings: %w", err)
 	}
@@ -71,21 +65,15 @@ func printSettings(args []string) error {
 
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
-	settings := flags.String("settings", "", "Agent settings path to write")
+	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse sync flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.SyncProviderSettings(*settings, provider, *hookCommand)
+	err = agenthooks.SyncSettings(*root, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
@@ -95,21 +83,15 @@ func syncSettings(args []string) error {
 
 func doctorSettings(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ExitOnError)
-	settings := flags.String("settings", "", "Agent settings path to verify")
+	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.DoctorProviderSettings(*settings, provider, *hookCommand)
+	err = agenthooks.DoctorSettings(*root, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}

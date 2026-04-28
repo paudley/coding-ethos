@@ -15,7 +15,7 @@ import (
 
 const testHookCommand = "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"
 
-func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
+func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 	t.Parallel()
 
 	buffer := bytes.Buffer{}
@@ -27,14 +27,15 @@ func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
 
 	output := buffer.String()
 	for _, expected := range []string{
+		`"claude": {`,
+		`"codex": {`,
+		`"gemini": {`,
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
 		`"matcher": "Bash"`,
-		`"matcher": "Write"`,
-		`"matcher": "Edit"`,
-		`"matcher": "MultiEdit"`,
+		`"tool": "Bash"`,
 		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
 	} {
 		if !strings.Contains(output, expected) {
@@ -68,80 +69,25 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 	}
 }
 
-func TestParseProviderRejectsUnsupportedProvider(t *testing.T) {
+func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	t.Parallel()
 
-	_, err := agenthooks.ParseProvider("unknown")
-	if err == nil {
-		t.Fatal("expected unsupported provider error")
-	}
-}
+	root := t.TempDir()
 
-func TestParseProviderAcceptsSupportedProviders(t *testing.T) {
-	t.Parallel()
-
-	for _, name := range []string{"claude", "codex", "gemini"} {
-		provider, err := agenthooks.ParseProvider(name)
-		if err != nil {
-			t.Fatalf("ParseProvider(%q): %v", name, err)
-		}
-
-		if string(provider) != name {
-			t.Fatalf("ParseProvider(%q) = %q", name, provider)
-		}
-	}
-}
-
-func TestWriteProviderSettingsIncludesProviderManifests(t *testing.T) {
-	t.Parallel()
-
-	for _, provider := range []agenthooks.Provider{
-		agenthooks.ProviderCodex,
-		agenthooks.ProviderGemini,
-	} {
-		buffer := bytes.Buffer{}
-
-		err := agenthooks.WriteProviderSettings(&buffer, provider, testHookCommand)
-		if err != nil {
-			t.Fatalf("write %s settings: %v", provider, err)
-		}
-
-		output := buffer.String()
-		for _, expected := range []string{
-			`"` + string(provider) + `": {`,
-			`"version": 1`,
-			`"event": "PreToolUse"`,
-			`"tool": "Bash"`,
-			`"event": "PreCompact"`,
-			`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
-		} {
-			if !strings.Contains(output, expected) {
-				t.Fatalf("missing %s in %s settings:\n%s", expected, provider, output)
-			}
-		}
-
-		if strings.Contains(output, `"hooks": {`) {
-			t.Fatalf("%s settings used Claude-shaped hooks map:\n%s", provider, output)
-		}
-	}
-}
-
-func TestSyncAndDoctorSettings(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
-
-	err := agenthooks.SyncSettings(path, testHookCommand)
+	err := agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	_, statErr := os.Stat(path)
-	if statErr != nil {
-		t.Fatalf("stat settings: %v", statErr)
+	paths := agenthooks.DefaultSettingsPaths(root)
+	for _, path := range []string{paths.Claude, paths.Codex, paths.Gemini} {
+		_, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat settings %s: %v", path, statErr)
+		}
 	}
 
-	err = agenthooks.DoctorSettings(path, testHookCommand)
+	err = agenthooks.DoctorSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("doctor settings: %v", err)
 	}
@@ -150,15 +96,16 @@ func TestSyncAndDoctorSettings(t *testing.T) {
 func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
+	root := t.TempDir()
+	paths := agenthooks.DefaultSettingsPaths(root)
 
-	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	err := os.MkdirAll(filepath.Dir(paths.Claude), 0o755)
 	if err != nil {
 		t.Fatalf("create settings dir: %v", err)
 	}
 
 	err = os.WriteFile(
-		path,
+		paths.Claude,
 		[]byte(`{"permissions":{"allow":["WebSearch"]},"outputStyle":"Explanatory"}`),
 		0o600,
 	)
@@ -166,12 +113,12 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	err = agenthooks.SyncSettings(path, testHookCommand)
+	err = agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	payload, err := os.ReadFile(path)
+	payload, err := os.ReadFile(paths.Claude)
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
@@ -189,73 +136,17 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	}
 }
 
-func TestSyncAndDoctorProviderSettings(t *testing.T) {
-	t.Parallel()
-
-	for _, provider := range []agenthooks.Provider{
-		agenthooks.ProviderCodex,
-		agenthooks.ProviderGemini,
-	} {
-		path := filepath.Join(t.TempDir(), string(provider), "settings.json")
-
-		err := agenthooks.SyncProviderSettings(path, provider, testHookCommand)
-		if err != nil {
-			t.Fatalf("sync %s settings: %v", provider, err)
-		}
-
-		payload, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s settings: %v", provider, err)
-		}
-
-		output := string(payload)
-		if !strings.Contains(output, `"`+string(provider)+`": {`) ||
-			!strings.Contains(output, `"version": 1`) {
-			t.Fatalf("provider manifest missing from %s settings:\n%s", provider, output)
-		}
-
-		err = agenthooks.DoctorProviderSettings(path, provider, testHookCommand)
-		if err != nil {
-			t.Fatalf("doctor %s settings: %v", provider, err)
-		}
-	}
-}
-
 func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "settings.json")
+	root := t.TempDir()
 
-	err := agenthooks.SyncSettings(path, testHookCommand)
+	err := agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	err = agenthooks.DoctorSettings(path, "/other/run-go-hook.sh agent-hook")
-	if err == nil {
-		t.Fatal("expected doctor mismatch")
-	}
-}
-
-func TestDoctorProviderSettingsRejectsWrongCommand(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "codex-settings.json")
-
-	err := agenthooks.SyncProviderSettings(
-		path,
-		agenthooks.ProviderCodex,
-		testHookCommand,
-	)
-	if err != nil {
-		t.Fatalf("sync settings: %v", err)
-	}
-
-	err = agenthooks.DoctorProviderSettings(
-		path,
-		agenthooks.ProviderCodex,
-		"/other/run-go-hook.sh agent-hook",
-	)
+	err = agenthooks.DoctorSettings(root, "/other/run-go-hook.sh agent-hook")
 	if err == nil {
 		t.Fatal("expected doctor mismatch")
 	}

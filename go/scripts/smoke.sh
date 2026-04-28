@@ -264,17 +264,17 @@ if ! grep -q '"policy_id": "git.staged_admin_files"' \
 fi
 
 printf '==> validating agent hook settings sync and doctor\n'
-agent_settings="$tmp_root/claude-settings/settings.local.json"
+agent_settings_root="$tmp_root/agent-settings"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --settings "$agent_settings" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
   cat /tmp/coding-ethos-agent-doctor-missing.out >&2
   exit 1
 }
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
-  --settings "$agent_settings"
+  --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --settings "$agent_settings" >/dev/null
+  --root "$agent_settings_root" >/dev/null
 
 printf '==> validating agent git wrapper rewrite and refusal\n'
 (

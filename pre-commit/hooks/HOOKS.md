@@ -29,20 +29,21 @@ Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 human, JSON, and TOON output; unmapped findings keep their normal diagnostic
 shape.
 
-Agent settings rendering is provider-aware:
+Agent settings rendering covers every supported provider:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider claude
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider codex
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider gemini
+pre-commit/hooks/run-go-hook.sh agent-hooks print
+pre-commit/hooks/run-go-hook.sh agent-hooks sync
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex and Gemini output
-provider-owned manifests under `codex` and `gemini` top-level keys. All three
+provider-owned manifests under `codex` and `gemini` top-level keys. All
 providers use the same protected event/tool list and the same `agent-hook`
-runtime entrypoint. The active runtime does not call AI systems from agent
-hooks; AI review stays in Git hook stages where output, cost, and caching are
-controlled by this runner.
+runtime entrypoint. Single-provider generation is intentionally not exposed:
+partial protection is not a valid install state. The active runtime does not
+call AI systems from agent hooks; AI review stays in Git hook stages where
+output, cost, and caching are controlled by this runner.
 
 ## Included Hooks
 

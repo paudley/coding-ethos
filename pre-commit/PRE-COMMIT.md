@@ -120,9 +120,9 @@ The same wrapper also exposes local policy-runtime entrypoints:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh agent-hook
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider claude
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider codex
-pre-commit/hooks/run-go-hook.sh agent-hooks print --provider gemini
+pre-commit/hooks/run-go-hook.sh agent-hooks print
+pre-commit/hooks/run-go-hook.sh agent-hooks sync
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
 pre-commit/hooks/run-go-hook.sh hook-log-summary
@@ -132,11 +132,12 @@ pre-commit/hooks/run-go-hook.sh hook-log-summary
 checks stay in the Git hook stages: changed-file review on pre-commit and
 full review on pre-push.
 
-`agent-hooks print|sync|doctor --provider claude|codex|gemini` renders the
-same provider-neutral event/tool coverage for each agent surface. Claude output
-uses Claude Code's native `hooks` map. Codex and Gemini output explicit
-provider manifests under `codex` and `gemini` top-level keys so repo-local
-installers can cut over without using legacy Claude-shaped adapters.
+`agent-hooks print|sync|doctor` always covers every supported agent surface.
+There is no single-agent generation path because partial protection is not a
+valid install state. Claude output uses Claude Code's native `hooks` map. Codex
+and Gemini output explicit provider manifests under `codex` and `gemini`
+top-level keys so repo-local installers can cut over without using legacy
+Claude-shaped adapters.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
 human, JSON, and TOON output selection as hook execution output.

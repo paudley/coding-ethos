@@ -34,18 +34,3 @@ func RuntimeHookSpecs() []HookSpec {
 		{Event: "SessionStart"},
 	}
 }
-
-// ParseProvider validates a provider name accepted by the settings renderer.
-func ParseProvider(name string) (Provider, error) {
-	if name == "" {
-		return ProviderClaude, nil
-	}
-
-	provider := Provider(name)
-	switch provider {
-	case ProviderClaude, ProviderCodex, ProviderGemini:
-		return provider, nil
-	default:
-		return "", errUnsupportedProvider
-	}
-}
