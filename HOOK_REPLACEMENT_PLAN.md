@@ -59,6 +59,7 @@ Runtime covered in Go agent-hook code:
 - `git.destructive_worktree`
 - `git.change_dir_flag`
 - `git.stash_blocked`
+- `git.commit_attribution`
 - `git.staged_admin_files`
 - `git.commit_head_advanced`
 - `shell.dangerous_command`
@@ -106,8 +107,6 @@ inventory used to keep the migration status explicit.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
-- AI co-author commit-message blocking currently exists in commit-message hooks;
-  the agent hook path should route to the same policy.
 - Claude is the first concrete provider surface. The agent-hook settings
   renderer now consumes provider-neutral hook specs before rendering Claude
   settings. Remaining provider work is to add concrete Codex/Gemini adapters

@@ -151,6 +151,7 @@ func examplePolicies() map[string]Policy {
 	return map[string]Policy{
 		"python.conditional_imports": exampleConditionalImportPolicy(),
 		"git.hook_bypass":            exampleHookBypassPolicy(),
+		"git.commit_attribution":     exampleCommitAttributionPolicy(),
 		"git.commit_head_advanced":   exampleCommitHeadPolicy(),
 		"filesystem.protected_path":  exampleProtectedPathPolicy(),
 	}
@@ -247,13 +248,38 @@ func exampleCommitHeadPolicy() Policy {
 	}
 }
 
+func exampleCommitAttributionPolicy() Policy {
+	return Policy{
+		ID:              "git.commit_attribution",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "go.commit_attribution"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Commit messages must not contain AI attribution.",
+		Suggestion:      "Remove AI attribution before committing.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit"},
+			Tools:    []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{
+			Kind: "argv",
+			Name: "git.commit_attribution",
+			Options: map[string]any{
+				"blocked_names": []string{"claude", "openai", "gemini"},
+			},
+		}},
+	}
+}
+
 func exampleDispatch() Dispatch {
 	return Dispatch{
 		Hooks:  exampleHookDispatch(),
 		Linter: exampleLinterDispatch(),
 		Git: map[string]GitOperationDispatch{
 			"commit": {
-				Pre:  []string{"git.hook_bypass"},
+				Pre:  []string{"git.hook_bypass", "git.commit_attribution"},
 				Post: []string{"git.commit_head_advanced"},
 			},
 		},
@@ -268,6 +294,11 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					PolicyID:        "git.hook_bypass",
 					Mode:            "block",
 					CommandPatterns: []string{"--no-verify", "SKIP=", "git commit -n"},
+				},
+				{
+					PolicyID:        "git.commit_attribution",
+					Mode:            "block",
+					CommandPatterns: []string{"git commit"},
 				},
 				{
 					PolicyID:        "git.commit_head_advanced",
@@ -308,6 +339,7 @@ func exampleLinterDispatch() map[string][]string {
 		"files": {"python.conditional_imports"},
 		"staged": {
 			"git.hook_bypass",
+			"git.commit_attribution",
 			"git.commit_head_advanced",
 			"filesystem.protected_path",
 			"python.conditional_imports",

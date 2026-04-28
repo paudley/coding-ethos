@@ -427,6 +427,10 @@ func addGitPolicies(
 	if policyConfigEnabled(config, "git.wrapper_required") {
 		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
 	}
+
+	if policyConfigEnabled(config, "git.commit_attribution") {
+		policies["git.commit_attribution"] = gitCommitAttributionPolicy(config, principles)
+	}
 }
 
 func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
@@ -587,6 +591,60 @@ func gitCommitHeadPolicy(principles map[string]Principle) Policy {
 		DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
 		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
+	}
+}
+
+func gitCommitAttributionPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	return Policy{
+		ID:       "git.commit_attribution",
+		Category: "git",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "go.commit_attribution.blocked_names",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-self-promotion",
+			"one-path-for-critical-operations",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Commit messages must not contain AI attribution.",
+		Suggestion: sentence(
+			"Remove AI co-author, generated-by, assisted-by, or bot",
+			"attribution before committing.",
+		),
+		DefenseLayers: GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
+		AppliesTo:     AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "argv",
+			Name: "git.commit_attribution",
+			Options: map[string]any{
+				"blocked_names": stringSliceAt(
+					config,
+					[]string{"go", "commit_attribution", "blocked_names"},
+					[]string{
+						"claude",
+						"anthropic",
+						"gpt",
+						"chatgpt",
+						"openai",
+						"copilot",
+						"github copilot",
+						"ai assistant",
+						"ai agent",
+						"llm",
+						"large language model",
+						"gemini",
+						"bard",
+						"cursor",
+					},
+				),
+			},
+		}},
 	}
 }
 
@@ -873,6 +931,7 @@ func addBlockingBashDispatch(
 		"git.destructive_worktree",
 		"git.change_dir_flag",
 		"git.stash_blocked",
+		"git.commit_attribution",
 		"shell.dangerous_command",
 		"shell.background_git",
 		"shell.github_admin",
@@ -1008,6 +1067,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.dangerous_command",
 			"shell.background_git",
 			"shell.github_admin",
+			"git.commit_attribution",
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
@@ -1033,6 +1093,7 @@ func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispa
 			Pre: existingPolicyIDs(
 				policies,
 				"git.hook_bypass",
+				"git.commit_attribution",
 				"git.staged_admin_files",
 			),
 			Post: existingPolicyIDs(policies, "git.commit_head_advanced"),

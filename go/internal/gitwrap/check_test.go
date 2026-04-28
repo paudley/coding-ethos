@@ -10,6 +10,11 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const (
+	checkStatusAllowed = "allowed"
+	checkStatusBlocked = "blocked"
+)
+
 func TestCheckBlocksHookBypass(t *testing.T) {
 	t.Parallel()
 
@@ -20,7 +25,7 @@ func TestCheckBlocksHookBypass(t *testing.T) {
 		t.Fatalf("check git wrapper: %v", err)
 	}
 
-	if result.Status != "blocked" {
+	if result.Status != checkStatusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
@@ -29,6 +34,29 @@ func TestCheckBlocksHookBypass(t *testing.T) {
 	}
 
 	if result.Decisions[0].PolicyID != "git.hook_bypass" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestCheckBlocksCommitAttribution(t *testing.T) {
+	t.Parallel()
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"commit", "-m", "feat: test\n\nCo-authored-by: Claude"},
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if len(result.Decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", result.Decisions)
+	}
+
+	if result.Decisions[0].PolicyID != "git.commit_attribution" {
 		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
 	}
 }
@@ -43,7 +71,7 @@ func TestCheckAllowsNormalCommit(t *testing.T) {
 		t.Fatalf("check git wrapper: %v", err)
 	}
 
-	if result.Status != "allowed" {
+	if result.Status != checkStatusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
@@ -62,7 +90,7 @@ func TestCheckAllowsUnknownOperation(t *testing.T) {
 		t.Fatalf("check git wrapper: %v", err)
 	}
 
-	if result.Status != "allowed" {
+	if result.Status != checkStatusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 

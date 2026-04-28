@@ -4,6 +4,10 @@
 package evaluators
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -162,6 +166,34 @@ func EvaluateGitStashBlocked(
 	return nil, nil
 }
 
+func EvaluateGitCommitAttribution(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	argv := context.Argv
+	if !isGitSubcommand(argv, "commit") {
+		return nil, nil
+	}
+
+	messages, err := commitMessagesFromArgv(argv, context.Cwd)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := forbiddenAttributionMatches(messages, attributionNames(context))
+	if len(matches) == 0 {
+		return nil, nil
+	}
+
+	decision := policy.NewDecision(blockDecision, policyDef)
+	decision.Evidence = map[string]any{
+		"argv":    append([]string(nil), argv...),
+		"matches": matches,
+	}
+
+	return []policy.Decision{decision}, nil
+}
+
 func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	decision.Evidence = map[string]any{
@@ -169,6 +201,248 @@ func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision 
 	}
 
 	return []policy.Decision{decision}
+}
+
+func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
+	args := gitArgsAfterSubcommand(argv)
+	messages := []string{}
+
+	for idx := 0; idx < len(args); idx++ {
+		nextIdx, message, found, err := commitMessageArg(args, idx, cwd)
+		if err != nil {
+			return nil, err
+		}
+
+		idx = nextIdx
+
+		if found {
+			messages = append(messages, message)
+		}
+	}
+
+	return messages, nil
+}
+
+func commitMessageArg(
+	args []string,
+	idx int,
+	cwd string,
+) (int, string, bool, error) {
+	arg := args[idx]
+
+	if arg == "-m" || arg == "--message" {
+		return nextCommitMessageValue(args, idx)
+	}
+
+	if strings.HasPrefix(arg, "-m") && arg != "-m" {
+		return idx, strings.TrimPrefix(arg, "-m"), true, nil
+	}
+
+	if value, found := strings.CutPrefix(arg, "--message="); found {
+		return idx, value, true, nil
+	}
+
+	if arg == "-F" || arg == "--file" {
+		return nextCommitMessageFile(args, idx, cwd)
+	}
+
+	if strings.HasPrefix(arg, "-F") && arg != "-F" {
+		return commitMessageFileValue(idx, strings.TrimPrefix(arg, "-F"), cwd)
+	}
+
+	if value, found := strings.CutPrefix(arg, "--file="); found {
+		return commitMessageFileValue(idx, value, cwd)
+	}
+
+	return idx, "", false, nil
+}
+
+func nextCommitMessageValue(args []string, idx int) (int, string, bool, error) {
+	if idx+1 >= len(args) {
+		return idx, "", false, nil
+	}
+
+	return idx + 1, args[idx+1], true, nil
+}
+
+func nextCommitMessageFile(
+	args []string,
+	idx int,
+	cwd string,
+) (int, string, bool, error) {
+	if idx+1 >= len(args) {
+		return idx, "", false, nil
+	}
+
+	message, err := readCommitMessageFile(args[idx+1], cwd)
+	if err != nil {
+		return idx, "", false, err
+	}
+
+	return idx + 1, message, true, nil
+}
+
+func commitMessageFileValue(
+	idx int,
+	path string,
+	cwd string,
+) (int, string, bool, error) {
+	message, err := readCommitMessageFile(path, cwd)
+	if err != nil {
+		return idx, "", false, err
+	}
+
+	return idx, message, true, nil
+}
+
+func gitArgsAfterSubcommand(argv []string) []string {
+	argv = stripLeadingAssignments(argv)
+	for idx := 1; idx < len(argv); idx++ {
+		arg := argv[idx]
+		if arg == "--" {
+			return nil
+		}
+
+		if arg == "" {
+			continue
+		}
+
+		if !strings.HasPrefix(arg, "-") {
+			if idx+1 >= len(argv) {
+				return nil
+			}
+
+			return argv[idx+1:]
+		}
+
+		if skipNextGitGlobalArg(arg) && idx+1 < len(argv) {
+			idx++
+		}
+	}
+
+	return nil
+}
+
+func readCommitMessageFile(path string, cwd string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+
+	if !filepath.IsAbs(path) && cwd != "" {
+		path = filepath.Join(cwd, path)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read commit message file %s: %w", path, err)
+	}
+
+	return string(data), nil
+}
+
+func forbiddenAttributionMatches(messages []string, names []string) []string {
+	patterns := attributionPatterns(names)
+	matches := []string{}
+
+	for _, message := range messages {
+		for lineNo, line := range strings.Split(message, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+
+			for _, pattern := range patterns {
+				if match := pattern.FindString(trimmed); match != "" {
+					matches = append(
+						matches,
+						fmt.Sprintf("line %d: %q in %s", lineNo+1, match, trimmed),
+					)
+
+					break
+				}
+			}
+		}
+	}
+
+	return matches
+}
+
+func attributionPatterns(names []string) []*regexp.Regexp {
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		if name != "" {
+			quoted = append(quoted, regexp.QuoteMeta(name))
+		}
+	}
+
+	if len(quoted) == 0 {
+		quoted = append(quoted, regexp.QuoteMeta("ai"))
+	}
+
+	namesPattern := strings.Join(quoted, "|")
+
+	return []*regexp.Regexp{
+		regexp.MustCompile(`(?i)co-?authored-?by:\s*(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)signed-?off-?by:\s*(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)generated\s+(by|with|using)\s+(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)created\s+(by|with|using)\s+(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)written\s+(by|with|using)\s+(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)assisted\s+by\s+(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)\x{1F916}\s*(` + namesPattern + `)`),
+		regexp.MustCompile(`(?i)(` + namesPattern + `)\s*\x{1F916}`),
+		regexp.MustCompile(`\x{1F916}`),
+	}
+}
+
+func attributionNames(context Context) []string {
+	raw, ok := context.EvaluatorOptions["blocked_names"]
+	if !ok {
+		return defaultAttributionNames()
+	}
+
+	names := stringOptionList(raw)
+	if len(names) == 0 {
+		return defaultAttributionNames()
+	}
+
+	return names
+}
+
+func defaultAttributionNames() []string {
+	return []string{
+		"claude",
+		"anthropic",
+		"gpt",
+		"chatgpt",
+		"openai",
+		"copilot",
+		"github copilot",
+		"ai assistant",
+		"ai agent",
+		"llm",
+		"large language model",
+		"gemini",
+		"bard",
+		"cursor",
+	}
+}
+
+func stringOptionList(raw any) []string {
+	switch typed := raw.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok && text != "" {
+				values = append(values, text)
+			}
+		}
+
+		return values
+	default:
+		return nil
+	}
 }
 
 func isGit(argv []string) bool {
