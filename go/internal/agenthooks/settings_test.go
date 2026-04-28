@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,6 +31,11 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"claude": {`,
 		`"codex": {`,
 		`"gemini": {`,
+		`"capabilities": [`,
+		`"coverage": "full"`,
+		`"coverage": "partial"`,
+		`"provider_limited"`,
+		`"unsupported"`,
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"PreCompact"`,
@@ -46,6 +52,21 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 			t.Fatalf("missing %s in settings:\n%s", expected, output)
 		}
 	}
+}
+
+func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
+	t.Parallel()
+
+	capabilities := agenthooks.ProviderCapabilities()
+	if len(capabilities) != 3 {
+		t.Fatalf("capability count mismatch: %#v", capabilities)
+	}
+
+	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
+	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
+	assertUnsupported(t, capabilities, "gemini", "PostToolUse shell-output feedback")
 }
 
 func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
@@ -70,6 +91,29 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 		if specs[index] != expectedSpec {
 			t.Fatalf("spec %d: expected %#v, got %#v", index, expectedSpec, specs[index])
 		}
+	}
+}
+
+func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
+	t.Parallel()
+
+	buffer := bytes.Buffer{}
+
+	err := agenthooks.WriteSettings(&buffer, testHookCommand)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	output := buffer.String()
+
+	geminiIndex := strings.Index(output, `"gemini": {`)
+	if geminiIndex == -1 {
+		t.Fatalf("missing gemini settings:\n%s", output)
+	}
+
+	geminiSettings := output[geminiIndex:]
+	if strings.Contains(geminiSettings, `"PostToolUse"`) {
+		t.Fatalf("Gemini must not claim unsupported PostToolUse:\n%s", output)
 	}
 }
 
@@ -238,4 +282,64 @@ func overwriteAgentSettings(t *testing.T, path string, content string) {
 	if err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
+}
+
+func assertCapability(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+	coverage string,
+	supported string,
+) {
+	t.Helper()
+
+	capability := findCapability(t, capabilities, provider)
+	if capability.Coverage != coverage {
+		t.Fatalf("%s coverage = %q, want %q", provider, capability.Coverage, coverage)
+	}
+
+	if !containsString(capability.Supported, supported) {
+		t.Fatalf("%s missing supported capability %q: %#v", provider, supported, capability)
+	}
+}
+
+func assertUnsupported(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+	unsupported string,
+) {
+	t.Helper()
+
+	capability := findCapability(t, capabilities, provider)
+	if !containsString(capability.Unsupported, unsupported) {
+		t.Fatalf(
+			"%s missing unsupported capability %q: %#v",
+			provider,
+			unsupported,
+			capability,
+		)
+	}
+}
+
+func findCapability(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+) agenthooks.ProviderCapability {
+	t.Helper()
+
+	for _, capability := range capabilities {
+		if capability.Provider == provider {
+			return capability
+		}
+	}
+
+	t.Fatalf("missing provider capability %q: %#v", provider, capabilities)
+
+	return agenthooks.ProviderCapability{}
+}
+
+func containsString(values []string, expected string) bool {
+	return slices.Contains(values, expected)
 }

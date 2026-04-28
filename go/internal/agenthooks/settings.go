@@ -45,10 +45,20 @@ type claudeSettings struct {
 	Hooks map[string][]matcherHook `json:"hooks"`
 }
 
+type ProviderCapability struct {
+	Provider        string   `json:"provider"`
+	Coverage        string   `json:"coverage"`
+	NativeFiles     []string `json:"native_files"`
+	Supported       []string `json:"supported"`
+	ProviderLimited []string `json:"provider_limited,omitempty"`
+	Unsupported     []string `json:"unsupported,omitempty"`
+}
+
 type allSettings struct {
-	Claude claudeSettings `json:"claude"`
-	Codex  claudeSettings `json:"codex"`
-	Gemini claudeSettings `json:"gemini"`
+	Claude       claudeSettings       `json:"claude"`
+	Codex        claudeSettings       `json:"codex"`
+	Gemini       claudeSettings       `json:"gemini"`
+	Capabilities []ProviderCapability `json:"capabilities"`
 }
 
 type SettingsPaths struct {
@@ -343,10 +353,59 @@ func buildAllSettings(hookCommand string) (allSettings, error) {
 	}
 
 	return allSettings{
-		Claude: buildClaudeSettings(RuntimeHookSpecs(), hookCommand),
-		Codex:  buildCodexSettings(RuntimeHookSpecs(), hookCommand),
-		Gemini: buildGeminiSettings(RuntimeHookSpecs(), hookCommand),
+		Claude:       buildClaudeSettings(RuntimeHookSpecs(), hookCommand),
+		Codex:        buildCodexSettings(RuntimeHookSpecs(), hookCommand),
+		Gemini:       buildGeminiSettings(RuntimeHookSpecs(), hookCommand),
+		Capabilities: ProviderCapabilities(),
 	}, nil
+}
+
+func ProviderCapabilities() []ProviderCapability {
+	return []ProviderCapability{
+		{
+			Provider:    string(ProviderClaude),
+			Coverage:    "full",
+			NativeFiles: []string{".claude/settings.local.json"},
+			Supported: []string{
+				"PreToolUse block",
+				"PreToolUse updatedInput rewrite",
+				"PostToolUse additionalContext",
+				"PreCompact capture",
+				"SessionStart additionalContext",
+			},
+		},
+		{
+			Provider:    string(ProviderCodex),
+			Coverage:    "partial",
+			NativeFiles: []string{".codex/config.toml", ".codex/hooks.json"},
+			Supported: []string{
+				"PreToolUse block",
+				"PostToolUse additionalContext",
+				"SessionStart additionalContext",
+			},
+			ProviderLimited: []string{
+				"git wrapper enforcement is deny-and-rerun because updatedInput is not supported",
+			},
+			Unsupported: []string{"PreToolUse updatedInput rewrite"},
+		},
+		{
+			Provider:    string(ProviderGemini),
+			Coverage:    "partial",
+			NativeFiles: []string{".gemini/settings.json"},
+			Supported: []string{
+				"BeforeTool deny",
+				"BeforeTool systemMessage",
+				"SessionStart additionalContext",
+			},
+			ProviderLimited: []string{
+				"BeforeTool maps to PreToolUse for run_shell_command and write_file",
+			},
+			Unsupported: []string{
+				"PreToolUse updatedInput rewrite",
+				"PostToolUse shell-output feedback",
+			},
+		},
+	}
 }
 
 func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {

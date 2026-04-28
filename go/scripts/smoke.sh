@@ -274,7 +274,15 @@ agent_settings_root="$tmp_root/agent-settings"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
   --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --root "$agent_settings_root" >/dev/null
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor.out
+if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"coverage": "partial"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"PostToolUse shell-output feedback"' /tmp/coding-ethos-agent-doctor.out; then
+  printf 'expected doctor capability matrix:\n' >&2
+  cat /tmp/coding-ethos-agent-doctor.out >&2
+  exit 1
+fi
 if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
   ! grep -q '"PreToolUse"' "$agent_settings_root/.codex/hooks.json" ||
   ! grep -q '"statusMessage": "coding-ethos policy"' \

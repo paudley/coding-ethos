@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -96,7 +97,28 @@ func doctorSettings(args []string) error {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "agent hook settings valid")
+	err = writeDoctorReport(os.Stdout)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeDoctorReport(file *os.File) error {
+	payload := map[string]any{
+		"status":       "valid",
+		"capabilities": agenthooks.ProviderCapabilities(),
+	}
+
+	encoder := json.NewEncoder(file)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	err := encoder.Encode(payload)
+	if err != nil {
+		return fmt.Errorf("encode doctor report: %w", err)
+	}
 
 	return nil
 }

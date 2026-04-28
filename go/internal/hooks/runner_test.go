@@ -6,7 +6,6 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -473,7 +472,7 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			event := readLegacyEventFixture(t, test.path)
+			event := readDecodedEventFixture(t, test.path)
 
 			result, err := Run(legacyFixtureBundle(), Options{Event: event})
 			if err != nil {
@@ -498,6 +497,88 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			}
 		})
 	}
+}
+
+//nolint:paralleltest // Mutates process env to force agent-facing TOON output.
+func TestNativeProviderFixturesStayRunnable(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	tests := []struct {
+		name       string
+		path       string
+		provider   string
+		wantStatus string
+		wantPolicy string
+		wantTool   string
+	}{
+		{
+			name:       "codex git hook bypass",
+			path:       "testdata/codex/pretooluse_git_no_verify.json",
+			provider:   "codex",
+			wantStatus: statusBlocked,
+			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini git hook bypass",
+			path:       "testdata/gemini/beforetool_git_no_verify.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini write policy",
+			path:       "testdata/gemini/beforetool_write_secret.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "python.bare_except",
+			wantTool:   "Write",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := readDecodedEventFixture(t, test.path)
+
+			result, err := Run(legacyFixtureBundle(), Options{Event: event})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Provider != test.provider {
+				t.Fatalf("provider = %q, want %q", result.Provider, test.provider)
+			}
+
+			if result.Tool != test.wantTool {
+				t.Fatalf("tool = %q, want %q", result.Tool, test.wantTool)
+			}
+
+			if result.Status != test.wantStatus {
+				t.Fatalf("status = %q, want %q", result.Status, test.wantStatus)
+			}
+
+			if !hasDecision(result.Decisions, test.wantPolicy) {
+				t.Fatalf("policy mismatch: %#v", result.Decisions)
+			}
+		})
+	}
+}
+
+func readDecodedEventFixture(t *testing.T, path string) Event {
+	t.Helper()
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", path, err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatalf("decode fixture %s: %v", path, err)
+	}
+
+	return event
 }
 
 func hasDecision(decisions []policy.Decision, policyID string) bool {
@@ -563,24 +644,6 @@ func addLegacyPolicy(
 		bundle.Dispatch.Hooks["PreToolUse"][tool],
 		policy.HookDispatchEntry{PolicyID: policyID, Mode: "block"},
 	)
-}
-
-func readLegacyEventFixture(t *testing.T, path string) Event {
-	t.Helper()
-
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read fixture %s: %v", path, err)
-	}
-
-	var event Event
-
-	err = json.Unmarshal(payload, &event)
-	if err != nil {
-		t.Fatalf("decode fixture %s: %v", path, err)
-	}
-
-	return event
 }
 
 func TestRunSkipsPathScopedPolicyWhenPathDoesNotMatch(t *testing.T) {
