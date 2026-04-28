@@ -36,6 +36,8 @@ pre-commit/hooks/run-go-hook.sh agent-hooks print
 pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 pre-commit/hooks/run-go-hook.sh agent-hooks verify
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex output enables
@@ -51,6 +53,9 @@ Codex feature flag does not count as an installed provider surface.
 `agent-hooks verify` additionally executes provider-native smoke payloads
 through the configured hook command, proving that Claude rewrites, Codex blocks,
 and Gemini denies reach the active runtime.
+`cutover install` installs Git hook shims, syncs all agent settings, and then
+runs the readiness gate. `cutover verify` is read-only and reports Git hook,
+agent hook, and policy runtime readiness in TOON.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain

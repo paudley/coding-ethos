@@ -18,6 +18,8 @@ Run from the bundle repo root:
 
 ```bash
 make install-hooks
+make cutover-install
+make cutover-verify
 ```
 
 In a consuming repo, run the same target from `code-ethos/`.
@@ -35,6 +37,12 @@ consuming-repo overrides.
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
 The cached Go helper binary lives under `.git/coding-ethos-hooks/` and rebuilds
 when its sources or config inputs change.
+
+`make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
+Gemini repo-local agent hook settings, and then verifies the full cutover
+surface. `make cutover-verify` checks the installed Git shims, runs
+`agent-hooks verify`, runs the policy runtime validation hook, and prints a
+concise TOON readiness report.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
@@ -124,6 +132,8 @@ pre-commit/hooks/run-go-hook.sh agent-hooks print
 pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 pre-commit/hooks/run-go-hook.sh agent-hooks verify
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
 pre-commit/hooks/run-go-hook.sh hook-log-summary

@@ -100,6 +100,11 @@ inventory used to keep the migration status explicit.
   the installed config reaches a runnable policy path. Claude uses Claude
   Code's native settings file. Codex uses `[features].codex_hooks = true` plus
   native `.codex/hooks.json`. Gemini uses native `.gemini/settings.json` hooks.
+- Cutover is a first-class runtime operation: `run-go-hook.sh cutover install`
+  installs Git hook shims, syncs all supported agent hook settings, and then
+  runs `cutover verify`. `cutover verify` checks installed Git shims,
+  provider-native agent hook probes, and the policy runtime validation hook,
+  then emits one TOON readiness report.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
   executable checks. Future work should continue migrating individual checks

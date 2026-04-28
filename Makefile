@@ -139,6 +139,8 @@ endef
 	install-runtime \
 	test \
 	check \
+	cutover-install \
+	cutover-verify \
 	install-hooks \
 	pre-commit \
 	pre-commit-all \
@@ -203,6 +205,8 @@ help: ## Show the available targets and the most useful overrides.
 	@printf '  make test\n'
 	@printf '  make validate\n'
 	@printf '  make install-hooks\n'
+	@printf '  make cutover-install\n'
+	@printf '  make cutover-verify\n'
 	@printf '  make sync-tool-configs\n'
 	@printf '  make sync-gemini-prompts\n'
 	@printf '  make generate\n'
@@ -313,6 +317,14 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git ho
 	done
 	@$(call print_info,installed: Go hook runner)
 	@$(call print_info,installed: Git LFS delegation hooks)
+
+cutover-install: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git and agent hooks, then verify cutover readiness.
+	@$(call print_step,Installing and verifying repo-local hook cutover)
+	@"$(GO_HOOK)" cutover install
+
+cutover-verify: ensure-go ## Verify Git and agent hook cutover readiness.
+	@$(call print_step,Verifying repo-local hook cutover)
+	@"$(GO_HOOK)" cutover verify
 
 pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Go pre-commit hooks on staged files)

@@ -200,6 +200,8 @@ The Makefile is the preferred operator interface.
 - `make go-tidy`: format Go hook helper sources and run `go mod tidy`.
 - `make fmt`: run repo-owned source formatters currently exposed by Make.
 - `make install-hooks`: install repo-local Git hook shims.
+- `make cutover-install`: install Git and agent hooks, then verify readiness.
+- `make cutover-verify`: verify Git, agent hook, and policy runtime readiness.
 - `make pre-commit`: run staged-file pre-commit hooks.
 - `make pre-commit-all`: run pre-commit hooks over all files.
 - `make pre-push`: run pre-push hooks.
@@ -438,6 +440,19 @@ payloads to prove the installed files point at a runnable policy path. The
 verification probes cover Claude's transparent git rewrite, Codex's block
 response for raw git when rewrite is unavailable, Gemini's `deny` response for
 raw shell git, and Gemini write-tool policy denial.
+
+Use the cutover command when preparing a repo to replace old hook surfaces:
+
+```bash
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
+```
+
+`cutover install` installs the repo-local Git hook shims, syncs every supported
+agent hook surface, and then runs readiness verification. `cutover verify`
+checks installed Git hook shims, runs `agent-hooks verify`, runs the policy
+runtime validation hook, and emits a concise TOON readiness report for Git,
+agent hooks, and the policy runtime.
 At runtime, `agent-hook` normalizes Claude native payloads and first-class
 Codex/Gemini CLI payloads into one internal policy event. The preferred
 provider-neutral payload shape is:
