@@ -6,7 +6,6 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,9 +16,12 @@ import (
 )
 
 const (
-	permissionAllow = "allow"
-	statusAllowed   = "allowed"
-	statusBlocked   = "blocked"
+	commandGitStatus = "git status"
+	permissionAllow  = "allow"
+	preToolUse       = "PreToolUse"
+	statusAllowed    = "allowed"
+	statusBlocked    = "blocked"
+	toolBash         = "Bash"
 )
 
 func TestRunBlocksGitHookBypass(t *testing.T) {
@@ -226,6 +228,36 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 	}
 }
 
+func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pwd && git status --short 2>&1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "'pwd' &&") ||
+		!strings.Contains(rewritten, "policy-git 'status' '--short' 2>&1") ||
+		strings.Contains(rewritten, "'2>' & '1'") ||
+		strings.Contains(rewritten, " & '1'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestRunBlocksUnmanagedGitPath(t *testing.T) {
 	t.Parallel()
 
@@ -276,6 +308,35 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 
 	if !strings.Contains(result.Decisions[0].Message, "It's criminal to attempt") {
 		t.Fatalf("weak refusal message: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksHookSettingsReconnaissance(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					`cat /home/paudley/.claude/settings.json 2>/dev/null | `,
+					`python3 -c "import sys, json; `,
+					`d = json.load(sys.stdin); print(d.get('hooks', {}))"`,
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden strings decision, got %#v", result.Decisions)
 	}
 }
 
@@ -470,7 +531,7 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			event := readLegacyEventFixture(t, test.path)
+			event := readDecodedEventFixture(t, test.path)
 
 			result, err := Run(legacyFixtureBundle(), Options{Event: event})
 			if err != nil {
@@ -495,6 +556,88 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			}
 		})
 	}
+}
+
+//nolint:paralleltest // Mutates process env to force agent-facing TOON output.
+func TestNativeProviderFixturesStayRunnable(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	tests := []struct {
+		name       string
+		path       string
+		provider   string
+		wantStatus string
+		wantPolicy string
+		wantTool   string
+	}{
+		{
+			name:       "codex git hook bypass",
+			path:       "testdata/codex/pretooluse_git_no_verify.json",
+			provider:   "codex",
+			wantStatus: statusBlocked,
+			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini git hook bypass",
+			path:       "testdata/gemini/beforetool_git_no_verify.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini write policy",
+			path:       "testdata/gemini/beforetool_write_secret.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "python.bare_except",
+			wantTool:   "Write",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := readDecodedEventFixture(t, test.path)
+
+			result, err := Run(legacyFixtureBundle(), Options{Event: event})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Provider != test.provider {
+				t.Fatalf("provider = %q, want %q", result.Provider, test.provider)
+			}
+
+			if result.Tool != test.wantTool {
+				t.Fatalf("tool = %q, want %q", result.Tool, test.wantTool)
+			}
+
+			if result.Status != test.wantStatus {
+				t.Fatalf("status = %q, want %q", result.Status, test.wantStatus)
+			}
+
+			if !hasDecision(result.Decisions, test.wantPolicy) {
+				t.Fatalf("policy mismatch: %#v", result.Decisions)
+			}
+		})
+	}
+}
+
+func readDecodedEventFixture(t *testing.T, path string) Event {
+	t.Helper()
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", path, err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatalf("decode fixture %s: %v", path, err)
+	}
+
+	return event
 }
 
 func hasDecision(decisions []policy.Decision, policyID string) bool {
@@ -560,24 +703,6 @@ func addLegacyPolicy(
 		bundle.Dispatch.Hooks["PreToolUse"][tool],
 		policy.HookDispatchEntry{PolicyID: policyID, Mode: "block"},
 	)
-}
-
-func readLegacyEventFixture(t *testing.T, path string) Event {
-	t.Helper()
-
-	payload, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read fixture %s: %v", path, err)
-	}
-
-	var event Event
-
-	err = json.Unmarshal(payload, &event)
-	if err != nil {
-		t.Fatalf("decode fixture %s: %v", path, err)
-	}
-
-	return event
 }
 
 func TestRunSkipsPathScopedPolicyWhenPathDoesNotMatch(t *testing.T) {
@@ -726,12 +851,277 @@ func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != preToolUse || event.ToolName != toolBash {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 
-	if event.Command() != "git status" {
+	if event.Command() != commandGitStatus {
 		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func TestDecodeEventReadsCodexPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git status"},
+		"cwd": "/repo"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != toolBash ||
+		event.Cwd != "/repo" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Command() != commandGitStatus {
+		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func TestDecodeEventReadsGeminiCLIPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
+		"toolInput": {"command": "git status"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "gemini-cli" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != toolBash {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Command() != commandGitStatus {
+		t.Fatalf("tool data mismatch: %#v", event)
+	}
+}
+
+func TestDecodeEventReadsGeminiWriteToolPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "write_file",
+		"toolInput": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.HookEventName != preToolUse || event.ToolName != "Write" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Content() != "print(1)\n" {
+		t.Fatalf("content mismatch: %#v", event)
+	}
+}
+
+func TestDecodeEventReadsNestedToolPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"runtime": "codex",
+		"event_name": "PreToolUse",
+		"tool_call": {
+			"name": "Write",
+			"arguments": {
+				"file_path": "src/app.py",
+				"content": "import subprocess\n"
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != "Write" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if got := event.Files(); len(got) != 1 || got[0] != "src/app.py" {
+		t.Fatalf("files mismatch: %#v", got)
+	}
+
+	if event.Content() != "import subprocess\n" {
+		t.Fatalf("content mismatch: %q", event.Content())
+	}
+}
+
+func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "git.hook_bypass") {
+		t.Fatalf("expected git bypass block, got %#v", result)
+	}
+}
+
+func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	buffer := strings.Builder{}
+
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	for _, expected := range []string{
+		`"decision": "block"`,
+		`"permissionDecision": "deny"`,
+		`"systemMessage"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
+		"toolInput": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	buffer := strings.Builder{}
+
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	for _, expected := range []string{
+		`"decision": "deny"`,
+		`"reason"`,
+		`"systemMessage"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
+		"toolInput": {"command": "git status"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Gemini must not receive unsupported rewrite output: %#v", result)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCodexGitCommandWithoutUnsupportedRewrite(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git status"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Codex must not receive unsupported rewrite output: %#v", result)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
 	}
 }
 

@@ -200,6 +200,8 @@ The Makefile is the preferred operator interface.
 - `make go-tidy`: format Go hook helper sources and run `go mod tidy`.
 - `make fmt`: run repo-owned source formatters currently exposed by Make.
 - `make install-hooks`: install repo-local Git hook shims.
+- `make cutover-install`: install Git and agent hooks, then verify readiness.
+- `make cutover-verify`: verify Git, agent hook, and policy runtime readiness.
 - `make pre-commit`: run staged-file pre-commit hooks.
 - `make pre-commit-all`: run pre-commit hooks over all files.
 - `make pre-push`: run pre-push hooks.
@@ -408,19 +410,86 @@ Python static-tool defaults now come from the shared Go tool catalog, which
 captures command, parser, config flags, repo config, runtime, file-argument
 behavior, and enabled-by-default state in one typed definition.
 
-Render or verify Claude agent hook settings without touching global files:
+Render or verify repo-local agent hook settings without touching global files:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh agent-hooks print
-pre-commit/hooks/run-go-hook.sh agent-hooks sync --settings .claude/settings.local.json
-pre-commit/hooks/run-go-hook.sh agent-hooks doctor --settings .claude/settings.local.json
+pre-commit/hooks/run-go-hook.sh agent-hooks sync
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
 ```
 
-The sync command only writes the explicit `--settings` path. The current
-settings renderer supports `--provider claude` and consumes the shared
-provider-neutral hook spec list before emitting Claude settings. Generated
-Claude settings cover `PreToolUse`, `PostToolUse`, `PreCompact`, and
-`SessionStart` compact replay. Continuation state is stored under
+Agent hook generation is all-or-nothing by design. `sync` writes every
+supported repo-local agent surface:
+
+- `.claude/settings.local.json`
+- `.codex/config.toml`
+- `.codex/hooks.json`
+- `.gemini/settings.json`
+
+Claude output preserves Claude Code's native `hooks` map. Codex output enables
+`[features].codex_hooks` and writes native `.codex/hooks.json`. Gemini output
+writes native `.gemini/settings.json` hooks. Generated settings cover the
+events each provider exposes: Claude uses the full runtime set, Codex uses
+Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
+maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
+`agent-hooks doctor` verifies those native activation files rather than a
+coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
+the configured hook command with provider-native Claude, Codex, and Gemini
+payloads to prove the installed files point at a runnable policy path. The
+verification probes cover Claude's transparent git rewrite, Codex's block
+response for raw git when rewrite is unavailable, Gemini's `deny` response for
+raw shell git, and Gemini write-tool policy denial.
+
+Use the cutover command when preparing a repo to replace old hook surfaces:
+
+```bash
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
+```
+
+`cutover install` installs the repo-local Git hook shims, syncs every supported
+agent hook surface, and then runs readiness verification. `cutover verify`
+checks installed Git hook shims, runs `agent-hooks verify`, runs the policy
+runtime validation hook, and emits a concise TOON readiness report for Git,
+agent hooks, and the policy runtime.
+At runtime, `agent-hook` normalizes Claude native payloads and first-class
+Codex/Gemini CLI payloads into one internal policy event. The preferred
+provider-neutral payload shape is:
+
+```json
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "input": {"command": "git status"}
+}
+```
+
+Gemini CLI callers may use `BeforeTool`, `run_shell_command`, and `write_file`;
+those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
+surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
+accepted. Provider identity is recorded for diagnostics, but policy enforcement
+is intentionally shared across all supported agents.
+Agent shell policy includes a forbidden-string gate for hook-system
+reconnaissance: banned strings are rejected when they appear directly in a
+command and when they appear in regular files referenced by the command, so
+agents cannot hide hook inspection in helper scripts.
+
+Provider output uses the strongest native shape each agent supports:
+
+- Claude receives full `hookSpecificOutput`, including `updatedInput` for
+  transparent git wrapper rewrites.
+- Codex receives native `decision: "block"` plus
+  `permissionDecision: "deny"` for blocks, and `additionalContext` for
+  supported context events. Codex does not currently support `updatedInput`, so
+  raw git is denied rather than rewritten there.
+- Gemini receives native `decision: "deny"` / `systemMessage` for tool blocks
+  and `additionalContext` on supported lifecycle hooks. Gemini does not expose a
+  direct `PostToolUse` equivalent, so post-command hook-output advice remains
+  provider-limited.
+
+Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.
 

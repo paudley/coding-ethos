@@ -1,0 +1,8 @@
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "input": {
+    "command": "git commit --no-verify -m test"
+  }
+}

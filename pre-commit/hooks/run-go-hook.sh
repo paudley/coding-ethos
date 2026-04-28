@@ -9,6 +9,7 @@ set -euo pipefail
 REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
 ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
 GIT_COMMON_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-common-dir)"
+HOOKS_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
@@ -89,6 +90,38 @@ install_git_wrapper_shim() {
 	} >"$tmp_shim"
 	chmod +x "$tmp_shim"
 	mv -f "$tmp_shim" "$shim"
+}
+
+install_git_hook_shims() {
+	mkdir -p "$HOOKS_DIR"
+
+	local hook
+	for hook in pre-commit pre-push commit-msg; do
+		cp "${SCRIPT_DIR}/run-git-hook.sh" "${HOOKS_DIR}/${hook}"
+		chmod +x "${HOOKS_DIR}/${hook}"
+	done
+
+	for hook in post-commit post-merge post-checkout; do
+		cp "${SCRIPT_DIR}/run-lfs-hook.sh" "${HOOKS_DIR}/${hook}"
+		chmod +x "${HOOKS_DIR}/${hook}"
+	done
+}
+
+verify_git_hook_shims() {
+	local hook
+	for hook in pre-commit pre-push commit-msg; do
+		if [[ ! -x "${HOOKS_DIR}/${hook}" ]] ||
+			! cmp -s "${SCRIPT_DIR}/run-git-hook.sh" "${HOOKS_DIR}/${hook}"; then
+			return 1
+		fi
+	done
+
+	for hook in post-commit post-merge post-checkout; do
+		if [[ ! -x "${HOOKS_DIR}/${hook}" ]] ||
+			! cmp -s "${SCRIPT_DIR}/run-lfs-hook.sh" "${HOOKS_DIR}/${hook}"; then
+			return 1
+		fi
+	done
 }
 
 persist_agent_environment() {
@@ -241,6 +274,104 @@ run_agent_hooks() {
 	exec "${TOOLS_BIN_DIR}/coding-ethos-agent-hooks" "$@"
 }
 
+agent_hook_command() {
+	printf 'PATH=%s:$PATH %s agent-hook' "$TOOLS_BIN_DIR" "${SCRIPT_DIR}/run-go-hook.sh"
+}
+
+run_agent_hooks_tool() {
+	install_git_wrapper_shim
+	build_policy_tool coding-ethos-agent-hooks
+	if ! has_arg --hook-command "$@"; then
+		set -- "$@" --hook-command "$(agent_hook_command)"
+	fi
+	"${TOOLS_BIN_DIR}/coding-ethos-agent-hooks" "$@"
+}
+
+cutover_report() {
+	local action="${1:?action required}"
+	local status="${2:?status required}"
+	local git_hooks="${3:?git hooks status required}"
+	local agent_hooks="${4:?agent hooks status required}"
+	local runtime="${5:?runtime status required}"
+
+	cat <<EOF
+format: toon
+command: cutover
+action: ${action}
+status: ${status}
+repo: ${ROOT}
+surfaces[3]{name,status}:
+  git-hooks,${git_hooks}
+  agent-hooks,${agent_hooks}
+  policy-runtime,${runtime}
+EOF
+}
+
+run_cutover_verify() {
+	local action="${1:-verify}"
+	local git_hooks=PASS
+	local agent_hooks=PASS
+	local runtime=PASS
+	local status=ready
+	local agent_verify_output
+	local runtime_verify_output
+	agent_verify_output="$(mktemp)"
+	runtime_verify_output="$(mktemp)"
+
+	if ! verify_git_hook_shims; then
+		git_hooks=FAIL
+		status=blocked
+	fi
+
+	if ! run_agent_hooks_tool verify --root "$ROOT" >"$agent_verify_output" 2>&1; then
+		agent_hooks=FAIL
+		status=blocked
+	fi
+
+	if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT" \
+		"$0" git-hook validate \
+		>"$runtime_verify_output" 2>&1; then
+		runtime=FAIL
+		status=blocked
+	fi
+
+	cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$runtime"
+
+	if [[ "$status" != ready ]]; then
+		if [[ "$agent_hooks" == FAIL ]]; then
+			printf 'agent hook verify output:\n' >&2
+			cat "$agent_verify_output" >&2
+		fi
+		if [[ "$runtime" == FAIL ]]; then
+			printf 'policy runtime verify output:\n' >&2
+			cat "$runtime_verify_output" >&2
+		fi
+		rm -f "$agent_verify_output" "$runtime_verify_output"
+		return 1
+	fi
+
+	rm -f "$agent_verify_output" "$runtime_verify_output"
+}
+
+run_cutover() {
+	local action="${1:-verify}"
+	case "$action" in
+		verify)
+			run_cutover_verify
+			;;
+		install)
+			install_git_hook_shims
+			run_agent_hooks_tool sync --root "$ROOT"
+			run_cutover_verify install
+			;;
+		*)
+			printf 'FATAL: unknown cutover action %q\n' "$action" >&2
+			printf 'Usage: %s cutover <verify|install>\n' "$0" >&2
+			exit 2
+			;;
+	esac
+}
+
 run_git_hook() {
 	local hook_name="${1:-}"
 
@@ -275,6 +406,10 @@ case "${1:-}" in
 	agent-hooks)
 		shift
 		run_agent_hooks "$@"
+		;;
+	cutover)
+		shift
+		run_cutover "$@"
 		;;
 	policy-lint)
 		shift

@@ -263,18 +263,90 @@ if ! grep -q '"policy_id": "git.staged_admin_files"' \
   exit 1
 fi
 
-printf '==> validating agent hook settings sync and doctor\n'
-agent_settings="$tmp_root/claude-settings/settings.local.json"
+printf '==> validating agent hook settings sync, doctor, and verify\n'
+agent_settings_root="$tmp_root/agent-settings"
+mkdir -p "$agent_settings_root"
+git -C "$agent_settings_root" init >/dev/null
+printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --settings "$agent_settings" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
   cat /tmp/coding-ethos-agent-doctor-missing.out >&2
   exit 1
 }
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
-  --settings "$agent_settings"
+  --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --settings "$agent_settings" >/dev/null
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor.out
+if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"coverage": "partial"' /tmp/coding-ethos-agent-doctor.out ||
+  ! grep -q '"PostToolUse shell-output feedback"' /tmp/coding-ethos-agent-doctor.out; then
+  printf 'expected doctor capability matrix:\n' >&2
+  cat /tmp/coding-ethos-agent-doctor.out >&2
+  exit 1
+fi
+if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
+  ! grep -q '"PreToolUse"' "$agent_settings_root/.codex/hooks.json" ||
+  ! grep -q '"statusMessage": "coding-ethos policy"' \
+    "$agent_settings_root/.codex/hooks.json"; then
+  printf 'expected native Codex hook activation:\n' >&2
+  cat "$agent_settings_root/.codex/config.toml" >&2
+  cat "$agent_settings_root/.codex/hooks.json" >&2
+  exit 1
+fi
+if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"matcher": "run_shell_command"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"name": "coding-ethos"' "$agent_settings_root/.gemini/settings.json"; then
+  printf 'expected native Gemini hook activation:\n' >&2
+  cat "$agent_settings_root/.gemini/settings.json" >&2
+  exit 1
+fi
+"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks verify \
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-verify.out
+if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "claude"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "codex"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "gemini"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"tool": "write_file"' /tmp/coding-ethos-agent-verify.out; then
+  printf 'expected agent verify provider smoke report:\n' >&2
+  cat /tmp/coding-ethos-agent-verify.out >&2
+  exit 1
+fi
+
+printf '==> validating cutover install and readiness report\n'
+cutover_repo="$tmp_root/cutover-repo"
+mkdir -p "$cutover_repo"
+git -C "$cutover_repo" init >/dev/null
+printf '.coding-ethos/\n' > "$cutover_repo/.gitignore"
+set +e
+(
+  cd "$cutover_repo"
+  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
+    >/tmp/coding-ethos-cutover-missing.out 2>&1
+)
+cutover_missing_status=$?
+set -e
+if [[ "$cutover_missing_status" -eq 0 ]] ||
+  ! grep -q 'status: blocked' /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'git-hooks,FAIL' /tmp/coding-ethos-cutover-missing.out; then
+  printf 'expected missing cutover verification to fail:\n' >&2
+  cat /tmp/coding-ethos-cutover-missing.out >&2
+  exit 1
+fi
+(
+  cd "$cutover_repo"
+  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover install \
+    >/tmp/coding-ethos-cutover-install.out
+)
+if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
+  ! grep -q 'git-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
+  ! grep -q 'agent-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
+  ! grep -q 'policy-runtime,PASS' /tmp/coding-ethos-cutover-install.out; then
+  printf 'expected ready cutover install report:\n' >&2
+  cat /tmp/coding-ethos-cutover-install.out >&2
+  exit 1
+fi
 
 printf '==> validating agent git wrapper rewrite and refusal\n'
 (
@@ -284,6 +356,14 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out
   set +e
+  printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git commit --no-verify -m test"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-refusal.out \
+      2>/tmp/coding-ethos-codex-refusal.err
+  codex_refusal_status=$?
+  printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git commit --no-verify -m test"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-refusal.out \
+      2>/tmp/coding-ethos-gemini-refusal.err
+  gemini_refusal_status=$?
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"python -c \\"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\\""}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-refusal.out \
       2>/tmp/coding-ethos-git-refusal.err
@@ -293,11 +373,33 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
     printf 'expected git refusal exit 2, got %s\n' "$refusal_status" >&2
     exit 1
   fi
+  if [[ "$codex_refusal_status" -ne 2 ]]; then
+    printf 'expected Codex refusal exit 2, got %s\n' "$codex_refusal_status" >&2
+    exit 1
+  fi
+  if [[ "$gemini_refusal_status" -ne 2 ]]; then
+    printf 'expected Gemini refusal exit 2, got %s\n' "$gemini_refusal_status" >&2
+    exit 1
+  fi
 )
 if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   ! grep -q 'policy-git' /tmp/coding-ethos-git-rewrite.out; then
   printf 'expected git rewrite output:\n' >&2
   cat /tmp/coding-ethos-git-rewrite.out >&2
+  exit 1
+fi
+if ! grep -q '"decision": "block"' /tmp/coding-ethos-codex-refusal.out ||
+  ! grep -q '"permissionDecision": "deny"' /tmp/coding-ethos-codex-refusal.out; then
+  printf 'expected Codex native block output:\n' >&2
+  cat /tmp/coding-ethos-codex-refusal.out >&2
+  cat /tmp/coding-ethos-codex-refusal.err >&2
+  exit 1
+fi
+if ! grep -q '"decision": "deny"' /tmp/coding-ethos-gemini-refusal.out ||
+  ! grep -q '"systemMessage"' /tmp/coding-ethos-gemini-refusal.out; then
+  printf 'expected Gemini native deny output:\n' >&2
+  cat /tmp/coding-ethos-gemini-refusal.out >&2
+  cat /tmp/coding-ethos-gemini-refusal.err >&2
   exit 1
 fi
 if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||

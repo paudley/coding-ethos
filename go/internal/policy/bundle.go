@@ -157,6 +157,7 @@ func examplePolicies() map[string]Policy {
 		"git.commit_attribution":     exampleCommitAttributionPolicy(),
 		"git.commit_head_advanced":   exampleCommitHeadPolicy(),
 		"filesystem.protected_path":  exampleProtectedPathPolicy(),
+		"shell.forbidden_strings":    exampleShellForbiddenStringsPolicy(),
 	}
 }
 
@@ -276,6 +277,36 @@ func exampleCommitAttributionPolicy() Policy {
 	}
 }
 
+func exampleShellForbiddenStringsPolicy() Policy {
+	return Policy{
+		ID:              "shell.forbidden_strings",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.forbidden_strings"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Commands must not contain forbidden hook-system strings.",
+		Suggestion:      "Do not inspect or route around agent hook settings.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "shell",
+			Name: "shell.forbidden_strings",
+			Options: map[string]any{
+				"strings": []string{
+					"/.claude/settings.json",
+					"/.claude/settings.local.json",
+					"~/.claude/settings.json",
+					"~/.claude/settings.local.json",
+					"/.codex/config.toml",
+					"/.codex/hooks.json",
+					"/.gemini/settings.json",
+				},
+			},
+		}},
+	}
+}
+
 func exampleDispatch() Dispatch {
 	return Dispatch{
 		Hooks:  exampleHookDispatch(),
@@ -312,6 +343,10 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					PolicyID: "filesystem.protected_path",
 					Mode:     "block",
 				},
+				{
+					PolicyID: "shell.forbidden_strings",
+					Mode:     "block",
+				},
 			},
 			"Write": {
 				{
@@ -345,6 +380,7 @@ func exampleLinterDispatch() map[string][]string {
 			"git.commit_attribution",
 			"git.commit_head_advanced",
 			"filesystem.protected_path",
+			"shell.forbidden_strings",
 			"python.conditional_imports",
 		},
 	}

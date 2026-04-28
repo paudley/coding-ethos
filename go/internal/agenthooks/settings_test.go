@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 
 const testHookCommand = "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"
 
-func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
+func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 	t.Parallel()
 
 	buffer := bytes.Buffer{}
@@ -27,20 +28,45 @@ func TestWriteSettingsIncludesRuntimeCoveredClaudeHooks(t *testing.T) {
 
 	output := buffer.String()
 	for _, expected := range []string{
+		`"claude": {`,
+		`"codex": {`,
+		`"gemini": {`,
+		`"capabilities": [`,
+		`"coverage": "full"`,
+		`"coverage": "partial"`,
+		`"provider_limited"`,
+		`"unsupported"`,
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
+		`"BeforeTool"`,
+		`"run_shell_command"`,
+		`"write_file"`,
 		`"matcher": "Bash"`,
-		`"matcher": "Write"`,
-		`"matcher": "Edit"`,
-		`"matcher": "MultiEdit"`,
 		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		`"statusMessage": "coding-ethos policy"`,
+		`"name": "coding-ethos"`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %s in settings:\n%s", expected, output)
 		}
 	}
+}
+
+func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
+	t.Parallel()
+
+	capabilities := agenthooks.ProviderCapabilities()
+	if len(capabilities) != 3 {
+		t.Fatalf("capability count mismatch: %#v", capabilities)
+	}
+
+	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
+	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
+	assertUnsupported(t, capabilities, "gemini", "PostToolUse shell-output feedback")
 }
 
 func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
@@ -68,48 +94,102 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 	}
 }
 
-func TestParseProviderRejectsUnsupportedProvider(t *testing.T) {
+func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
 	t.Parallel()
 
-	_, err := agenthooks.ParseProvider("codex")
-	if err == nil {
-		t.Fatal("expected unsupported provider error")
+	buffer := bytes.Buffer{}
+
+	err := agenthooks.WriteSettings(&buffer, testHookCommand)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	output := buffer.String()
+
+	geminiIndex := strings.Index(output, `"gemini": {`)
+	if geminiIndex == -1 {
+		t.Fatalf("missing gemini settings:\n%s", output)
+	}
+
+	geminiSettings := output[geminiIndex:]
+	if strings.Contains(geminiSettings, `"PostToolUse"`) {
+		t.Fatalf("Gemini must not claim unsupported PostToolUse:\n%s", output)
 	}
 }
 
-func TestSyncAndDoctorSettings(t *testing.T) {
+func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
+	root := t.TempDir()
 
-	err := agenthooks.SyncSettings(path, testHookCommand)
+	err := agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	_, statErr := os.Stat(path)
-	if statErr != nil {
-		t.Fatalf("stat settings: %v", statErr)
+	paths := agenthooks.DefaultSettingsPaths(root)
+	for _, path := range []string{
+		paths.Claude,
+		paths.CodexConfig,
+		paths.CodexHooks,
+		paths.Gemini,
+	} {
+		_, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat settings %s: %v", path, statErr)
+		}
 	}
 
-	err = agenthooks.DoctorSettings(path, testHookCommand)
+	err = agenthooks.DoctorSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("doctor settings: %v", err)
+	}
+}
+
+func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hookCommand := fakeAgentHookCommand(t)
+
+	err := agenthooks.SyncSettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("verify settings: %v", err)
+	}
+
+	if report.Status != "valid" {
+		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
+	}
+
+	if len(report.Checks) != 4 {
+		t.Fatalf("check count = %d, want 4: %#v", len(report.Checks), report.Checks)
+	}
+
+	for _, check := range report.Checks {
+		if check.Status != "pass" {
+			t.Fatalf("failed check: %#v", check)
+		}
 	}
 }
 
 func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), ".claude", "settings.local.json")
+	root := t.TempDir()
+	paths := agenthooks.DefaultSettingsPaths(root)
 
-	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	err := os.MkdirAll(filepath.Dir(paths.Claude), 0o755)
 	if err != nil {
 		t.Fatalf("create settings dir: %v", err)
 	}
 
 	err = os.WriteFile(
-		path,
+		paths.Claude,
 		[]byte(`{"permissions":{"allow":["WebSearch"]},"outputStyle":"Explanatory"}`),
 		0o600,
 	)
@@ -117,12 +197,12 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	err = agenthooks.SyncSettings(path, testHookCommand)
+	err = agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	payload, err := os.ReadFile(path)
+	payload, err := os.ReadFile(paths.Claude)
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
@@ -143,15 +223,193 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "settings.json")
+	root := t.TempDir()
 
-	err := agenthooks.SyncSettings(path, testHookCommand)
+	err := agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	err = agenthooks.DoctorSettings(path, "/other/run-go-hook.sh agent-hook")
+	err = agenthooks.DoctorSettings(root, "/other/run-go-hook.sh agent-hook")
 	if err == nil {
 		t.Fatal("expected doctor mismatch")
 	}
+}
+
+func TestDoctorSettingsRejectsDisabledCodexHooksFeature(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+
+	payload, err := os.ReadFile(paths.CodexConfig)
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
+	}
+
+	mutated := strings.Replace(
+		string(payload),
+		`codex_hooks = true`,
+		`codex_hooks = false`,
+		1,
+	)
+
+	overwriteAgentSettings(t, paths.CodexConfig, mutated)
+
+	err = agenthooks.DoctorSettings(root, testHookCommand)
+	if err == nil {
+		t.Fatal("expected disabled Codex hooks feature mismatch")
+	}
+}
+
+func TestDoctorSettingsRejectsMissingGeminiHook(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+
+	payload, err := os.ReadFile(paths.Gemini)
+	if err != nil {
+		t.Fatalf("read gemini settings: %v", err)
+	}
+
+	mutated := strings.Replace(
+		string(payload),
+		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		`"command": "/other/run-go-hook.sh agent-hook"`,
+		1,
+	)
+
+	overwriteAgentSettings(t, paths.Gemini, mutated)
+
+	err = agenthooks.DoctorSettings(root, testHookCommand)
+	if err == nil {
+		t.Fatal("expected wrong Gemini hook command mismatch")
+	}
+}
+
+func overwriteAgentSettings(t *testing.T, path string, content string) {
+	t.Helper()
+
+	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatalf("open settings for overwrite: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(content)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+}
+
+func assertCapability(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+	coverage string,
+	supported string,
+) {
+	t.Helper()
+
+	capability := findCapability(t, capabilities, provider)
+	if capability.Coverage != coverage {
+		t.Fatalf("%s coverage = %q, want %q", provider, capability.Coverage, coverage)
+	}
+
+	if !containsString(capability.Supported, supported) {
+		t.Fatalf("%s missing supported capability %q: %#v", provider, supported, capability)
+	}
+}
+
+func assertUnsupported(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+	unsupported string,
+) {
+	t.Helper()
+
+	capability := findCapability(t, capabilities, provider)
+	if !containsString(capability.Unsupported, unsupported) {
+		t.Fatalf(
+			"%s missing unsupported capability %q: %#v",
+			provider,
+			unsupported,
+			capability,
+		)
+	}
+}
+
+func findCapability(
+	t *testing.T,
+	capabilities []agenthooks.ProviderCapability,
+	provider string,
+) agenthooks.ProviderCapability {
+	t.Helper()
+
+	for _, capability := range capabilities {
+		if capability.Provider == provider {
+			return capability
+		}
+	}
+
+	t.Fatalf("missing provider capability %q: %#v", provider, capabilities)
+
+	return agenthooks.ProviderCapability{}
+}
+
+func containsString(values []string, expected string) bool {
+	return slices.Contains(values, expected)
+}
+
+func fakeAgentHookCommand(t *testing.T) string {
+	t.Helper()
+
+	script := filepath.Join(t.TempDir(), "agent-hook")
+	err := os.WriteFile(
+		script,
+		[]byte(`#!/bin/sh
+payload="$(cat)"
+case "$payload" in
+  *'"provider": "claude"'*)
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    ;;
+  *'"provider": "codex"'*)
+    printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
+    exit 2
+    ;;
+  *'"toolName": "write_file"'*)
+    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
+    exit 2
+    ;;
+  *'"provider": "gemini-cli"'*)
+    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
+    exit 2
+    ;;
+  *)
+    printf '%s\n' '{"decision":"unknown"}'
+    exit 1
+    ;;
+esac
+`),
+		0o700,
+	)
+	if err != nil {
+		t.Fatalf("write fake agent hook: %v", err)
+	}
+
+	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "'"
 }

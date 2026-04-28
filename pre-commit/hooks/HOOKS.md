@@ -29,6 +29,54 @@ Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 human, JSON, and TOON output; unmapped findings keep their normal diagnostic
 shape.
 
+Agent settings rendering covers every supported provider:
+
+```bash
+pre-commit/hooks/run-go-hook.sh agent-hooks print
+pre-commit/hooks/run-go-hook.sh agent-hooks sync
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
+```
+
+Claude output uses Claude Code's native `hooks` map. Codex output enables
+`[features].codex_hooks` in `.codex/config.toml` and writes native
+`.codex/hooks.json`. Gemini output writes native `.gemini/settings.json`
+hooks. All providers use the same `agent-hook` runtime entrypoint for the
+lifecycle hooks they expose. Single-provider generation is intentionally not
+exposed: partial protection is not a valid install state. The active runtime
+does not call AI systems from agent hooks; AI review stays in Git hook stages
+where output, cost, and caching are controlled by this runner. `agent-hooks
+doctor` checks native provider activation files, so a stale file or missing
+Codex feature flag does not count as an installed provider surface.
+`agent-hooks verify` additionally executes provider-native smoke payloads
+through the configured hook command, proving that Claude rewrites, Codex blocks,
+and Gemini denies reach the active runtime.
+`cutover install` installs Git hook shims, syncs all agent settings, and then
+runs the readiness gate. `cutover verify` is read-only and reports Git hook,
+agent hook, and policy runtime readiness in TOON.
+
+`agent-hook` normalizes provider payloads at the JSON boundary. Claude native
+payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain
+supported. Codex and Gemini CLI integrations should use the first-class
+provider-neutral payload shape:
+
+```json
+{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}
+```
+
+CamelCase hook fields, Gemini `BeforeTool` payloads, and nested
+`tool_call.name`/`tool_call.arguments` are accepted for CLI adapters that expose
+those shapes. After normalization, provider events run through the same policy
+bundle and receive the same blocking, rewrite, advice, continuation, and
+post-tool feedback behavior where the provider exposes that lifecycle point.
+Provider output is adapted at the boundary: Claude receives full
+`hookSpecificOutput` including `updatedInput`, Codex receives native block
+output and supported context output without relying on unsupported rewrite
+semantics, and Gemini receives native `deny` / `systemMessage` responses for
+tool gates.
+
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit

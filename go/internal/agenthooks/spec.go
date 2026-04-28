@@ -9,6 +9,10 @@ type Provider string
 const (
 	// ProviderClaude renders Claude Code settings.local.json hook entries.
 	ProviderClaude Provider = "claude"
+	// ProviderCodex renders a Codex-owned coding-ethos hook manifest.
+	ProviderCodex Provider = "codex"
+	// ProviderGemini renders a Gemini-owned coding-ethos hook manifest.
+	ProviderGemini Provider = "gemini"
 )
 
 // HookSpec describes the provider-neutral hook surface the runtime protects.
@@ -28,20 +32,5 @@ func RuntimeHookSpecs() []HookSpec {
 		{Event: "PostToolUse", Tool: "Bash"},
 		{Event: "PreCompact"},
 		{Event: "SessionStart"},
-	}
-}
-
-// ParseProvider validates a provider name accepted by the settings renderer.
-func ParseProvider(name string) (Provider, error) {
-	if name == "" {
-		return ProviderClaude, nil
-	}
-
-	provider := Provider(name)
-	switch provider {
-	case ProviderClaude:
-		return provider, nil
-	default:
-		return "", errUnsupportedProvider
 	}
 }

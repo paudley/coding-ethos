@@ -18,6 +18,8 @@ Run from the bundle repo root:
 
 ```bash
 make install-hooks
+make cutover-install
+make cutover-verify
 ```
 
 In a consuming repo, run the same target from `code-ethos/`.
@@ -35,6 +37,12 @@ consuming-repo overrides.
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
 The cached Go helper binary lives under `.git/coding-ethos-hooks/` and rebuilds
 when its sources or config inputs change.
+
+`make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
+Gemini repo-local agent hook settings, and then verifies the full cutover
+surface. `make cutover-verify` checks the installed Git shims, runs
+`agent-hooks verify`, runs the policy runtime validation hook, and prints a
+concise TOON readiness report.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
@@ -120,6 +128,12 @@ The same wrapper also exposes local policy-runtime entrypoints:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh agent-hook
+pre-commit/hooks/run-go-hook.sh agent-hooks print
+pre-commit/hooks/run-go-hook.sh agent-hooks sync
+pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
+pre-commit/hooks/run-go-hook.sh cutover install
+pre-commit/hooks/run-go-hook.sh cutover verify
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
 pre-commit/hooks/run-go-hook.sh hook-log-summary
@@ -128,6 +142,46 @@ pre-commit/hooks/run-go-hook.sh hook-log-summary
 `agent-hook` reads agent hook JSON from stdin and never calls Gemini. Gemini
 checks stay in the Git hook stages: changed-file review on pre-commit and
 full review on pre-push.
+
+`agent-hooks print|sync|doctor|verify` always covers every supported agent
+surface.
+There is no single-agent generation path because partial protection is not a
+valid install state. Claude output uses Claude Code's native `hooks` map.
+Codex output enables `[features].codex_hooks` in `.codex/config.toml` and
+writes native `.codex/hooks.json`. Gemini output writes native
+`.gemini/settings.json` hooks. `doctor` verifies those native activation files
+and fails when a provider does not point at the expected hook command.
+
+`agent-hook` accepts each provider's supported event shape and normalizes it
+before policy evaluation. Claude may send native `hook_event_name`,
+`tool_name`, `tool_input`, and `tool_response` fields. Codex and Gemini CLI
+callers should send the provider-neutral shape:
+
+```json
+{
+  "provider": "gemini-cli",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "input": {"command": "git status"}
+}
+```
+
+The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
+`toolInput`, `toolResponse`, `exitCode`), Gemini's `BeforeTool`,
+`run_shell_command`, and `write_file` names, and nested Codex-style
+`tool_call.name` plus `tool_call.arguments`. Provider identity does not weaken
+policy: the same git wrapper, filesystem, Python-edit, continuation, and
+post-tool output rules apply wherever the provider exposes the corresponding
+lifecycle hook.
+
+Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
+contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
+does not currently support `updatedInput`, so coding-ethos returns native block
+output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
+command must be rerun through the wrapper. Gemini uses native
+`decision: "deny"` and `systemMessage` for tool blocks. Post-tool hook-output
+advice remains full-fidelity for Claude and Codex; Gemini has no direct
+`PostToolUse` equivalent in the documented hook surface.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
 human, JSON, and TOON output selection as hook execution output.

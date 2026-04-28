@@ -741,10 +741,58 @@ func addShellPolicies(
 			"GitHub admin CLI operations are forbidden in agent hooks.",
 			"Use the reviewed administrative path instead of gh --admin.",
 		),
+		shellForbiddenStringsPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
 			policies[policy.ID] = policy
 		}
+	}
+}
+
+func shellForbiddenStringsPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	strings := stringSliceAt(
+		config,
+		[]string{"shell", "forbidden_strings", "strings"},
+		[]string{
+			"/.claude/settings.json",
+			"/.claude/settings.local.json",
+			"~/.claude/settings.json",
+			"~/.claude/settings.local.json",
+			"/.codex/config.toml",
+			"/.codex/hooks.json",
+			"/.gemini/settings.json",
+		},
+	)
+
+	return Policy{
+		ID:       "shell.forbidden_strings",
+		Category: "shell",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "shell.forbidden_strings",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"no-rationalized-shortcuts",
+			"one-path-for-critical-operations",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message: "Commands must not contain or execute files containing " +
+			"forbidden hook-system strings.",
+		Suggestion: "Do not inspect, enumerate, or route around agent hook " +
+			"settings. Use the installed coding-ethos hook surfaces.",
+		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind:    "shell",
+			Name:    "shell.forbidden_strings",
+			Options: map[string]any{"strings": strings},
+		}},
 	}
 }
 
@@ -1243,6 +1291,7 @@ func addBlockingBashDispatch(
 		"shell.dangerous_command",
 		"shell.background_git",
 		"shell.github_admin",
+		"shell.forbidden_strings",
 	} {
 		if _, ok := policies[policyID]; ok {
 			ensureHookTool(hooks, "PreToolUse", "Bash")
@@ -1375,6 +1424,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.dangerous_command",
 			"shell.background_git",
 			"shell.github_admin",
+			"shell.forbidden_strings",
 			"git.commit_attribution",
 			"git.staged_admin_files",
 			"filesystem.protected_path",

@@ -156,6 +156,9 @@ filesystem:
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
+shell:
+  forbidden_strings:
+    strings: [/blocked/settings.json]
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -209,6 +212,15 @@ generated_config:
 	)
 	if generatedConfigCommand[2] != "/tmp/repo" {
 		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
+	}
+
+	forbiddenStrings := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"strings",
+	)
+	if forbiddenStrings[0] != "/blocked/settings.json" {
+		t.Fatalf("forbidden strings options mismatch: %#v", forbiddenStrings)
 	}
 }
 

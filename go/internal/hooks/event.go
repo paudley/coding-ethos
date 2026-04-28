@@ -3,6 +3,14 @@
 
 package hooks
 
+import "strings"
+
+const (
+	providerClaude = "claude"
+	providerCodex  = "codex"
+	providerGemini = "gemini"
+)
+
 type Event struct {
 	ToolInput      map[string]any `json:"tool_input,omitempty"`
 	ToolResponse   map[string]any `json:"tool_response,omitempty"`
@@ -13,6 +21,20 @@ type Event struct {
 	Source         string         `json:"source,omitempty"`
 	ToolName       string         `json:"tool_name,omitempty"`
 	TranscriptPath string         `json:"transcript_path,omitempty"`
+}
+
+func (event Event) Provider() string {
+	source := strings.ToLower(strings.TrimSpace(event.Source))
+	switch {
+	case strings.Contains(source, providerGemini):
+		return providerGemini
+	case strings.Contains(source, providerCodex):
+		return providerCodex
+	case strings.Contains(source, providerClaude):
+		return providerClaude
+	default:
+		return providerClaude
+	}
 }
 
 func (event Event) Command() string {

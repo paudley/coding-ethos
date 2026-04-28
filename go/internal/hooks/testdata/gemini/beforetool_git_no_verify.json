@@ -1,0 +1,8 @@
+{
+  "provider": "gemini-cli",
+  "hookEventName": "BeforeTool",
+  "toolName": "run_shell_command",
+  "toolInput": {
+    "command": "git commit --no-verify -m test"
+  }
+}

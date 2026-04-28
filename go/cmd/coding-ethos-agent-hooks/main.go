@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -34,6 +35,8 @@ func main() {
 		err = syncSettings(os.Args[commandArgsOffset:])
 	case "doctor":
 		err = doctorSettings(os.Args[commandArgsOffset:])
+	case "verify":
+		err = verifySettings(os.Args[commandArgsOffset:])
 	default:
 		usage()
 
@@ -49,19 +52,13 @@ func main() {
 func printSettings(args []string) error {
 	flags := flag.NewFlagSet("print", flag.ExitOnError)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse print flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.WriteProviderSettings(os.Stdout, provider, *hookCommand)
+	err = agenthooks.WriteSettings(os.Stdout, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("write agent hook settings: %w", err)
 	}
@@ -71,21 +68,15 @@ func printSettings(args []string) error {
 
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ExitOnError)
-	settings := flags.String("settings", "", "Claude settings path to write")
+	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse sync flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.SyncProviderSettings(*settings, provider, *hookCommand)
+	err = agenthooks.SyncSettings(*root, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
@@ -95,26 +86,72 @@ func syncSettings(args []string) error {
 
 func doctorSettings(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ExitOnError)
-	settings := flags.String("settings", "", "Claude settings path to verify")
+	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	providerName := flags.String("provider", "claude", "Agent hook provider")
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	provider, err := agenthooks.ParseProvider(*providerName)
-	if err != nil {
-		return fmt.Errorf("parse provider: %w", err)
-	}
-
-	err = agenthooks.DoctorProviderSettings(*settings, provider, *hookCommand)
+	err = agenthooks.DoctorSettings(*root, *hookCommand)
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "agent hook settings valid")
+	err = writeDoctorReport(os.Stdout)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func verifySettings(args []string) error {
+	flags := flag.NewFlagSet("verify", flag.ExitOnError)
+	root := flags.String("root", ".", "Repository root for agent settings")
+	hookCommand := flags.String("hook-command", "", "Agent hook command")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse verify flags: %w", err)
+	}
+
+	report, err := agenthooks.VerifySettings(*root, *hookCommand)
+	if err != nil {
+		if encodeErr := writeJSONReport(os.Stdout, report); encodeErr != nil {
+			return encodeErr
+		}
+
+		return fmt.Errorf("verify agent hook settings: %w", err)
+	}
+
+	err = writeJSONReport(os.Stdout, report)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeDoctorReport(file *os.File) error {
+	payload := map[string]any{
+		"status":       "valid",
+		"capabilities": agenthooks.ProviderCapabilities(),
+	}
+
+	return writeJSONReport(file, payload)
+}
+
+func writeJSONReport(file *os.File, payload any) error {
+	encoder := json.NewEncoder(file)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	err := encoder.Encode(payload)
+	if err != nil {
+		return fmt.Errorf("encode doctor report: %w", err)
+	}
 
 	return nil
 }
@@ -122,6 +159,6 @@ func doctorSettings(args []string) error {
 func usage() {
 	fmt.Fprintln(
 		os.Stderr,
-		"Usage: coding-ethos-agent-hooks <print|sync|doctor> [flags]",
+		"Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
 	)
 }

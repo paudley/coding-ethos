@@ -5,6 +5,8 @@ package evaluators_test
 
 import (
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -103,6 +105,63 @@ func TestEvaluateGitHookBypassBlocksRawEnvBypass(t *testing.T) {
 
 	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
 		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluateShellForbiddenStringsBlocksCommandText(t *testing.T) {
+	t.Parallel()
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Command: `cat /home/paudley/.claude/settings.json | python3 -c "import json, sys; print(json.load(sys.stdin).get('hooks', {}))"`,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	helper := filepath.Join(dir, "inspect-hooks.sh")
+	err := os.WriteFile(
+		helper,
+		[]byte("cat /home/paudley/.claude/settings.local.json\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{Cwd: dir, Command: "bash inspect-hooks.sh", Argv: []string{
+			"bash",
+			"inspect-hooks.sh",
+		}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+
+	location, ok := decisions[0].Evidence["location"].(string)
+	if !ok || location != "inspect-hooks.sh" {
+		t.Fatalf("expected helper file evidence, got %#v", decisions[0].Evidence)
 	}
 }
 

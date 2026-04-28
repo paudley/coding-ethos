@@ -60,6 +60,16 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 
 	rewritten, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
+		if event.Provider() != providerClaude {
+			return gitWrapperRoute{
+				Reason: sentence(
+					gitWrapperCircumventionRefusal,
+					gitWrapperUseManagedSuggestion,
+				),
+				Block: true,
+			}
+		}
+
 		return gitWrapperRoute{
 			UpdatedInput: updatedBashInput(
 				event.ToolInput,
@@ -156,7 +166,13 @@ func rewriteGitSegment(segment []string) (string, bool) {
 	}
 
 	if segment[0] == tokenGit {
-		return wrapperCommand(segment[1:]), true
+		args, redirections := splitShellRedirections(segment[1:])
+		command := wrapperCommand(args)
+		if len(redirections) > 0 {
+			command += " " + strings.Join(redirections, " ")
+		}
+
+		return command, true
 	}
 
 	if segmentMentionsUnmanagedGit(segment) {
@@ -178,6 +194,12 @@ func segmentMentionsUnmanagedGit(segment []string) bool {
 
 func appendQuotedTokens(rewritten []string, tokens []string) []string {
 	for _, token := range tokens {
+		if isShellRedirectionSyntax(token) {
+			rewritten = append(rewritten, token)
+
+			continue
+		}
+
 		rewritten = append(rewritten, shellQuote(token))
 	}
 
@@ -335,7 +357,17 @@ func shellControlFields(command string) []string {
 		case ';':
 			fields = appendShellField(fields, &builder)
 			fields = append(fields, string(char))
-		case '&', '|':
+		case '&':
+			if strings.HasSuffix(builder.String(), ">") ||
+				strings.HasSuffix(builder.String(), "<") {
+				builder.WriteRune(char)
+
+				continue
+			}
+
+			fields = appendShellField(fields, &builder)
+			fields = appendShellOperator(fields, char)
+		case '|':
 			fields = appendShellField(fields, &builder)
 			fields = appendShellOperator(fields, char)
 		default:
@@ -355,4 +387,65 @@ func appendShellOperator(fields []string, char rune) []string {
 	fields[len(fields)-1] += operator
 
 	return fields
+}
+
+func splitShellRedirections(tokens []string) ([]string, []string) {
+	args := make([]string, 0, len(tokens))
+	redirections := []string{}
+
+	for index := 0; index < len(tokens); index++ {
+		token := tokens[index]
+		if isShellRedirectionOperator(token) && index+1 < len(tokens) {
+			redirections = append(
+				redirections,
+				token+" "+shellQuote(tokens[index+1]),
+			)
+			index++
+
+			continue
+		}
+
+		if isShellRedirectionSyntax(token) {
+			redirections = append(redirections, token)
+
+			continue
+		}
+
+		args = append(args, token)
+	}
+
+	return args, redirections
+}
+
+func isShellRedirectionSyntax(token string) bool {
+	return isShellRedirectionOperator(token) || isFusedShellRedirection(token)
+}
+
+func isShellRedirectionOperator(token string) bool {
+	operator := tokenWithoutLeadingFileDescriptor(token)
+
+	switch operator {
+	case "<", ">", "<<", ">>", "<>", "<&", ">&", "&>", "&>>":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFusedShellRedirection(token string) bool {
+	operator := tokenWithoutLeadingFileDescriptor(token)
+
+	return strings.HasPrefix(operator, "<") ||
+		strings.HasPrefix(operator, ">") ||
+		strings.HasPrefix(operator, "&>")
+}
+
+func tokenWithoutLeadingFileDescriptor(token string) string {
+	for index, char := range token {
+		if char < '0' || char > '9' {
+			return token[index:]
+		}
+	}
+
+	return token
 }
