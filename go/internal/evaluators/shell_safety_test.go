@@ -128,6 +128,26 @@ func TestEvaluateShellForbiddenStringsBlocksCommandText(t *testing.T) {
 	}
 }
 
+func TestEvaluateShellForbiddenStringsBlocksHookImplementationRecon(t *testing.T) {
+	t.Parallel()
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Command: `grep -r "header must match" /home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/pre-commit/hooks/go-hooks --include="*.go"`,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 	t.Parallel()
 

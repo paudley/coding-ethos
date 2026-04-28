@@ -4,10 +4,13 @@
 package hooks
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -124,6 +127,7 @@ func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput 
 			output,
 			event.ReturnCode(),
 			selectedOutputFormat(),
+			event.Cwd,
 		),
 	}
 }
@@ -163,9 +167,13 @@ func buildHookOutputContext(
 	output string,
 	returnCode int,
 	format string,
+	cwd string,
 ) string {
 	operation := hookOperation(command)
 	status := hookOutputStatus(returnCode)
+	normalizer := hookOutputNormalizer(cwd)
+	command = normalizer.compact(command)
+	output = normalizer.preserveLines(output)
 
 	switch format {
 	case outputFormatJSON:
@@ -229,7 +237,7 @@ func buildHookOutputContextTOON(
 	output string,
 	returnCode int,
 ) string {
-	return strings.Join([]string{
+	lines := []string{
 		"format: toon",
 		"event: PostToolUse",
 		"tool: Bash",
@@ -238,12 +246,20 @@ func buildHookOutputContextTOON(
 		fmt.Sprintf("return_code: %d", returnCode),
 		"command: " + toonCell(command),
 		"summary: " + toonCell(hookOutputSummary(operation, status)),
-		"hook_output: " + toonCell(output),
 		"guidance: " + toonCell(
 			"Summarize failed hooks, modified files, warnings, and required fixes. "+
 				"Treat linter output as important and fix findings structurally.",
 		),
-	}, "\n")
+	}
+	outputLines := compactHookOutputLines(output)
+	if len(outputLines) > 0 {
+		lines = append(lines, fmt.Sprintf("hook_output[%d]{line}:", len(outputLines)))
+		for _, line := range outputLines {
+			lines = append(lines, "  "+toonCell(line))
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func buildHookOutputContextJSON(
@@ -283,6 +299,71 @@ func hookOutputSummary(operation string, status string) string {
 	}
 
 	return operation + " hooks completed successfully"
+}
+
+type hookTextNormalizer struct {
+	replacements []hookTextReplacement
+}
+
+type hookTextReplacement struct {
+	Old string
+	New string
+}
+
+func hookOutputNormalizer(cwd string) hookTextNormalizer {
+	roots := []hookTextReplacement{{Old: cwd, New: "<repo>"}}
+	if cwd == "" {
+		if current, err := os.Getwd(); err == nil {
+			roots = append(roots, hookTextReplacement{Old: current, New: "<repo>"})
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, hookTextReplacement{Old: home, New: "<home>"})
+	}
+	roots = append(roots, hookTextReplacement{Old: os.TempDir(), New: "<tmp>"})
+
+	replacements := []hookTextReplacement{}
+	for _, root := range roots {
+		cleaned := strings.TrimRight(filepath.Clean(root.Old), string(filepath.Separator))
+		if cleaned == "." || cleaned == "" {
+			continue
+		}
+		replacements = append(replacements, hookTextReplacement{
+			Old: filepath.ToSlash(cleaned),
+			New: root.New,
+		})
+	}
+	slices.SortFunc(replacements, func(left hookTextReplacement, right hookTextReplacement) int {
+		return cmp.Compare(len(right.Old), len(left.Old))
+	})
+
+	return hookTextNormalizer{replacements: replacements}
+}
+
+func (normalizer hookTextNormalizer) compact(value string) string {
+	return strings.Join(strings.Fields(normalizer.preserveLines(value)), " ")
+}
+
+func (normalizer hookTextNormalizer) preserveLines(value string) string {
+	normalized := filepath.ToSlash(value)
+	for _, replacement := range normalizer.replacements {
+		normalized = strings.ReplaceAll(normalized, replacement.Old, replacement.New)
+	}
+
+	return normalized
+}
+
+func compactHookOutputLines(output string) []string {
+	lines := []string{}
+	for line := range strings.SplitSeq(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lines = append(lines, trimmed)
+	}
+
+	return lines
 }
 
 func sentence(parts ...string) string {

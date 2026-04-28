@@ -58,8 +58,10 @@ dmypy.json
 .pre-commit-cache/
 .uv/
 .lint-cache
+.claude/settings.local.json
 .codex
 .codex/
+.gemini/
 logs/
 *.log
 *.tmp

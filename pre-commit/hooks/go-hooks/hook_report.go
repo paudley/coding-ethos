@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -54,13 +55,14 @@ type hookFinding struct {
 }
 
 type hookReport struct {
-	Format   string        `json:"format"`
-	Tool     string        `json:"tool"`
-	Title    string        `json:"title"`
-	Status   string        `json:"status"`
-	Summary  string        `json:"summary,omitempty"`
-	Guidance []string      `json:"guidance,omitempty"`
-	Findings []hookFinding `json:"findings"`
+	Format    string        `json:"format"`
+	Tool      string        `json:"tool"`
+	Title     string        `json:"title"`
+	Status    string        `json:"status"`
+	Summary   string        `json:"summary,omitempty"`
+	RawOutput []string      `json:"raw_output,omitempty"`
+	Guidance  []string      `json:"guidance,omitempty"`
+	Findings  []hookFinding `json:"findings"`
 }
 
 func formatHookReport(report hookReport, format string) string {
@@ -68,6 +70,8 @@ func formatHookReport(report hookReport, format string) string {
 	if report.Status == "" {
 		report.Status = statusFail
 	}
+
+	report = normalizeHookReportPaths(report)
 
 	switch format {
 	case hookOutputFormatJSON:
@@ -77,6 +81,36 @@ func formatHookReport(report hookReport, format string) string {
 	default:
 		return formatHookReportHuman(report)
 	}
+}
+
+func normalizeHookReportPaths(report hookReport) hookReport {
+	root := repoRoot()
+	for i := range report.Findings {
+		report.Findings[i].File = normalizeHookFindingPath(root, report.Findings[i].File)
+	}
+
+	return report
+}
+
+func normalizeHookFindingPath(root string, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil ||
+		rel == "." ||
+		rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	return filepath.ToSlash(rel)
 }
 
 func loadHookSettings() hookSettings {
@@ -276,6 +310,16 @@ func formatHookReportTOON(report hookReport) string {
 		}
 	}
 
+	if len(report.RawOutput) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf("raw_output[%d]{line}:", len(report.RawOutput)),
+		)
+		for _, item := range report.RawOutput {
+			lines = append(lines, "  "+toonCell(item))
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -300,6 +344,13 @@ func formatHookReportHuman(report hookReport) string {
 	if len(report.Guidance) > 0 {
 		lines = append(lines, "", "How to fix:")
 		for _, item := range report.Guidance {
+			lines = append(lines, "  "+item)
+		}
+	}
+
+	if len(report.RawOutput) > 0 {
+		lines = append(lines, "", "Raw output:")
+		for _, item := range report.RawOutput {
 			lines = append(lines, "  "+item)
 		}
 	}

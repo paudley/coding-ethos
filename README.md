@@ -450,9 +450,12 @@ pre-commit/hooks/run-go-hook.sh cutover verify
 
 `cutover install` installs the repo-local Git hook shims, syncs every supported
 agent hook surface, and then runs readiness verification. `cutover verify`
-checks installed Git hook shims, runs `agent-hooks verify`, runs the policy
-runtime validation hook, and emits a concise TOON readiness report for Git,
-agent hooks, and the policy runtime.
+checks installed Git hook shims, runs `agent-hooks verify`, verifies required
+runtime ignores through the compiled `filesystem.required_ignores` policy, runs
+the policy runtime validation hook, and emits a concise TOON readiness report
+for Git, agent hooks, repo ignores, and the policy runtime. Blocked reports
+include `fix_first` entries naming missing or stale hook files, missing ignore
+rules, and the next command or file to fix.
 At runtime, `agent-hook` normalizes Claude native payloads and first-class
 Codex/Gemini CLI payloads into one internal policy event. The preferred
 provider-neutral payload shape is:

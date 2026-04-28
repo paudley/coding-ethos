@@ -17,6 +17,7 @@ import (
 )
 
 const blockedExitCode = 2
+const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
 
 var (
 	errBundleRequired = errors.New("--bundle is required")
@@ -64,8 +65,9 @@ func main() {
 	hookName := args[0]
 	if hookName == "pre-commit" || hookName == "pre-push" {
 		result, runErr := lint.Run(bundle, lint.Options{
-			Scope: lint.ScopeStaged,
-			Cwd:   *cwd,
+			AdminApproved: os.Getenv(adminApprovedEnv) == "1",
+			Scope:         lint.ScopeStaged,
+			Cwd:           *cwd,
 		})
 		if runErr != nil {
 			exitErr(runErr)

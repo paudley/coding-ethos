@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	diag "blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 func runFormatGroupCommand(cfg Config, files []string) int {
@@ -72,10 +74,11 @@ func runRuffAutofix(files []string) int {
 		return 0
 	}
 
-	return runHookTool("ruff-autofix", repoRoot(), append([]string{
+	return runHookToolWithParser("ruff-autofix", repoRoot(), append([]string{
 		"uv", "run", "--quiet", "--project", hooksProjectPath(), "ruff", "check",
 		"--config", repoPath("ruff.toml"), "--fix", "--quiet", "--ignore-noqa",
-	}, pyFiles...))
+		"--output-format", "json",
+	}, pyFiles...), parseRuffAutofixFindings)
 }
 
 func runGofmtWrite(files []string) int {
@@ -165,36 +168,84 @@ func runHookToolWithParser(
 	}
 
 	if result.ExitCode != 0 {
-		findings := []hookFinding{{
-			Tool:     name,
-			Severity: "error",
-			Message:  "external tool exited with status " + strconv.Itoa(result.ExitCode),
-			Detail:   truncateHookDetail(result.Combined),
-		}}
+		rawOutput := []string(nil)
+
+		var findings []hookFinding
 		if parseFindings != nil {
-			if parsed := parseFindings(result.Combined); len(parsed) > 0 {
-				findings = parsed
-			}
+			findings = parseFindings(result.Combined)
+		} else {
+			findings = parseGenericHookFindings(name, result.Combined)
+		}
+
+		if len(findings) == 0 {
+			findings = []hookFinding{genericToolFailureFinding(name, result.ExitCode)}
+			rawOutput = boundedRawOutputLines(result.Combined)
 		}
 
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     name,
-			Title:    strings.ToUpper(name) + " FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix the reported diagnostics before committing."},
+			Tool:      name,
+			Title:     strings.ToUpper(name) + " FAILED",
+			Findings:  findings,
+			RawOutput: rawOutput,
+			Guidance:  []string{"Fix the reported diagnostics before committing."},
 		}, selectedHookOutputFormat()))
 	}
 
 	return result.ExitCode
 }
 
-func truncateHookDetail(value string) string {
-	const maxDetailLength = 4000
+func genericToolFailureFinding(name string, exitCode int) hookFinding {
+	return hookFinding{
+		Tool:     name,
+		Severity: "error",
+		Message:  "external tool exited with status " + strconv.Itoa(exitCode),
+	}
+}
 
-	value = strings.TrimSpace(value)
-	if len(value) <= maxDetailLength {
-		return value
+func parseGenericHookFindings(name string, output string) []hookFinding {
+	return diagnosticsToHookFindings(diag.Parse(name, output, ""))
+}
+
+func boundedRawOutputLines(output string) []string {
+	const (
+		maxRawOutputLines      = 20
+		maxRawOutputLineLength = 500
+	)
+
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil
 	}
 
-	return value[:maxDetailLength] + "\n[truncated]"
+	lines := strings.Split(output, "\n")
+	limit := len(lines)
+	truncated := false
+
+	if limit > maxRawOutputLines {
+		limit = maxRawOutputLines
+		truncated = true
+	}
+
+	bounded := make([]string, 0, limit+1)
+	for _, line := range lines[:limit] {
+		line = strings.TrimRight(line, "\r")
+		if len(line) > maxRawOutputLineLength {
+			line = line[:maxRawOutputLineLength] + " [truncated]"
+		}
+
+		bounded = append(bounded, line)
+	}
+
+	if truncated {
+		bounded = append(bounded, fmt.Sprintf(
+			"[truncated: %d additional lines]",
+			len(lines)-limit,
+		))
+	}
+
+	return bounded
+}
+
+func parseRuffAutofixFindings(output string) []hookFinding {
+	return parseCatalogFindings("ruff", output)
 }

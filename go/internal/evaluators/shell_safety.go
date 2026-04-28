@@ -112,6 +112,12 @@ func forbiddenStrings(options map[string]any) []string {
 		"/.codex/config.toml",
 		"/.codex/hooks.json",
 		"/.gemini/settings.json",
+		"/coding-ethos/pre-commit/hooks/",
+		"/coding-ethos/go/internal/",
+		"/coding-ethos/config.yaml",
+		"/coding-ethos/ruff.toml",
+		"/coding-ethos/.golangci.yml",
+		"header must match",
 	})
 }
 

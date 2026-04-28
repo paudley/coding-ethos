@@ -710,8 +710,8 @@ func hookProbes() []hookProbe {
 				"hookEventName": "BeforeTool",
 				"toolName": "write_file",
 				"toolInput": {
-					"file_path": "src/app.py",
-					"content": "try:\n    run()\nexcept:\n    pass\n"
+					"file_path": "/usr/bin/got",
+					"content": "binary"
 				}
 			}`,
 			validate: validateGeminiDenyProbe,

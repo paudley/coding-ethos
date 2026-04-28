@@ -86,16 +86,24 @@ func runGoFormatCheck(_ Config, paths []string) int {
 
 	result := runExternalTool(externalToolRequest{Name: "gofmt-check", Dir: worktree, Command: []string{"gofmt", "-l", "."}})
 	if strings.TrimSpace(result.Combined) != "" {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:  "gofmt-check",
-			Title: "GOFMT CHECK FAILED",
-			Findings: []hookFinding{{
+		findings := parseGofmtCheckFindings(result.Combined)
+		rawOutput := []string(nil)
+
+		if len(findings) == 0 {
+			findings = []hookFinding{{
 				Tool:     "gofmt-check",
 				Severity: "error",
 				Message:  "Go files are not gofmt-formatted.",
-				Detail:   truncateHookDetail(result.Combined),
-			}},
-			Guidance: []string{"Run gofmt on the listed files before pushing."},
+			}}
+			rawOutput = boundedRawOutputLines(result.Combined)
+		}
+
+		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+			Tool:      "gofmt-check",
+			Title:     "GOFMT CHECK FAILED",
+			Findings:  findings,
+			RawOutput: rawOutput,
+			Guidance:  []string{"Run gofmt on the listed files before pushing."},
 		}, selectedHookOutputFormat()))
 
 		return 1
@@ -117,6 +125,25 @@ func runGoFormatCheck(_ Config, paths []string) int {
 	}
 
 	return result.ExitCode
+}
+
+func parseGofmtCheckFindings(output string) []hookFinding {
+	files := strings.Fields(strings.TrimSpace(output))
+	if len(files) == 0 {
+		return nil
+	}
+
+	findings := make([]hookFinding, 0, len(files))
+	for _, file := range files {
+		findings = append(findings, hookFinding{
+			Tool:     "gofmt-check",
+			File:     file,
+			Severity: "error",
+			Message:  "Go file is not gofmt-formatted.",
+		})
+	}
+
+	return findings
 }
 
 func runGoVet(_ Config, paths []string) int {
@@ -306,6 +333,12 @@ func parseMaintainabilityFindings(output string) []hookFinding {
 	findings := []hookFinding{}
 
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		if finding, ok := parseMaintainabilityToolError(line); ok {
+			findings = append(findings, finding)
+
+			continue
+		}
+
 		matches := maintainPattern.FindStringSubmatch(line)
 		if len(matches) != maintainMatchParts {
 			continue
@@ -322,6 +355,25 @@ func parseMaintainabilityFindings(output string) []hookFinding {
 	}
 
 	return findings
+}
+
+func parseMaintainabilityToolError(line string) (hookFinding, bool) {
+	message := strings.TrimSpace(strings.TrimPrefix(line, "Error:"))
+	if message == strings.TrimSpace(line) || message == "" {
+		return hookFinding{}, false
+	}
+
+	finding := hookFinding{
+		Tool:     "maintainability",
+		Severity: "error",
+		Message:  message,
+		Advice:   "Run the maintainability check directly, then simplify or split the slow module before committing.",
+	}
+	if strings.Contains(strings.ToLower(message), "timed out") {
+		finding.Code = "timeout"
+	}
+
+	return finding, true
 }
 
 func parseVultureFindings(output string) []hookFinding {

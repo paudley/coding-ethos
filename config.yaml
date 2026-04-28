@@ -271,6 +271,11 @@ filesystem:
     exempt_path_prefixes:
       - .claude/
       - docs/plans/
+  required_ignores:
+    enabled: true
+    paths:
+      - .coding-ethos/
+      - .coding-ethos/hook-runs/example/stdout.log
 
 shell:
   dangerous_command:
@@ -289,6 +294,12 @@ shell:
       - /.codex/config.toml
       - /.codex/hooks.json
       - /.gemini/settings.json
+      - /coding-ethos/pre-commit/hooks/
+      - /coding-ethos/go/internal/
+      - /coding-ethos/config.yaml
+      - /coding-ethos/ruff.toml
+      - /coding-ethos/.golangci.yml
+      - header must match
 
 python:
   source_paths:

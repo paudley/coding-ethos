@@ -104,8 +104,10 @@ func injectContinuationOutput(event Event) *HookSpecificOutput {
 	}
 
 	return &HookSpecificOutput{
-		HookEventName:     event.HookEventName,
-		AdditionalContext: formatContinuationContext(record),
+		HookEventName: event.HookEventName,
+		AdditionalContext: hookOutputNormalizer(event.Cwd).preserveLines(
+			formatContinuationContext(record),
+		),
 	}
 }
 

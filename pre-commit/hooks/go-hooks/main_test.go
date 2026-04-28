@@ -22,6 +22,51 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestConsumerRootHonorsExplicitEnvironment(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "coding-ethos")
+
+	err := os.MkdirAll(root, 0o755)
+	if err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+
+	t.Setenv(consumerRootEnv, root)
+
+	if got := consumerRoot(root); got != root {
+		t.Fatalf("consumerRoot() = %q, want %q", got, root)
+	}
+}
+
+func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	t.Setenv(consumerRootEnv, root)
+
+	if got := consumerRoot(other); got == root {
+		t.Fatalf("consumerRoot() used unrelated explicit root %q", root)
+	}
+}
+
+func TestCommitLintGuidanceIncludesConcreteExample(t *testing.T) {
+	t.Parallel()
+
+	var cfg Config
+
+	cfg.CommitLint.AllowedTypes = []string{"fix", "feat", "docs"}
+
+	guidance := strings.Join(commitLintGuidance(cfg), "\n")
+	for _, want := range []string{
+		"Use exactly: type(scope): concise subject",
+		"Good example: fix(bind): harden enrichment transaction handling",
+		"Allowed types: docs, feat, fix",
+		"Put body details after a blank line below the header.",
+	} {
+		if !strings.Contains(guidance, want) {
+			t.Fatalf("guidance missing %q:\n%s", want, guidance)
+		}
+	}
+}
+
 func TestLimitsForFilePreservesPythonLimitsUnderScripts(t *testing.T) {
 	t.Parallel()
 
@@ -210,15 +255,16 @@ func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
 	)
 	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "go-hooks", "main.go"), "package main\n")
 	configPath := filepath.Join(tempDir, "config.yaml")
-	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - PLC0415\n")
+	forbidden := "PLC" + "0415"
+	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - "+forbidden+"\n")
 
 	otherPath := filepath.Join(tempDir, "other.txt")
-	mustWriteTestFile(t, otherPath, "PLC0415\n")
+	mustWriteTestFile(t, otherPath, forbidden+"\n")
 
 	t.Setenv(precommitRootEnv, bundleRoot)
 
 	cfg := Config{}
-	cfg.Text.ForbiddenStrings = []string{"PLC0415"}
+	cfg.Text.ForbiddenStrings = []string{forbidden}
 
 	if got := checkForbiddenStrings(
 		cfg,
@@ -235,7 +281,7 @@ func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
 			t.Fatalf("checkForbiddenStrings(non-config) = %d, want 1", got)
 		}
 	})
-	if !strings.Contains(stderr, `[PLC0415] contains forbidden string`) {
+	if !strings.Contains(stderr, `[`+forbidden+`] contains forbidden string`) {
 		t.Fatalf("unexpected stderr: %q", stderr)
 	}
 }

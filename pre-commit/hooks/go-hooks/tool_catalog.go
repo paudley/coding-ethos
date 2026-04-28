@@ -181,12 +181,12 @@ func loadHookEvidenceMaps() []diag.EvidenceMap {
 		return defaultPolicyEvidenceMaps()
 	}
 
-	var maps []diag.EvidenceMap
+	maps := make([]diag.EvidenceMap, 0, len(defaultPolicyEvidenceMaps()))
 
 	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &maps)
 	if err != nil || len(maps) == 0 {
 		return defaultPolicyEvidenceMaps()
 	}
 
-	return maps
+	return append(maps, defaultPolicyEvidenceMaps()...)
 }

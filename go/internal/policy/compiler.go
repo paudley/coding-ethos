@@ -764,6 +764,12 @@ func shellForbiddenStringsPolicy(
 			"/.codex/config.toml",
 			"/.codex/hooks.json",
 			"/.gemini/settings.json",
+			"/coding-ethos/pre-commit/hooks/",
+			"/coding-ethos/go/internal/",
+			"/coding-ethos/config.yaml",
+			"/coding-ethos/ruff.toml",
+			"/coding-ethos/.golangci.yml",
+			"header must match",
 		},
 	)
 
@@ -784,8 +790,9 @@ func shellForbiddenStringsPolicy(
 		SupportedModes:  []string{"block", "record"},
 		Message: "Commands must not contain or execute files containing " +
 			"forbidden hook-system strings.",
-		Suggestion: "Do not inspect, enumerate, or route around agent hook " +
-			"settings. Use the installed coding-ethos hook surfaces.",
+		Suggestion: "Do not inspect, enumerate, or route around coding-ethos " +
+			"hook implementation internals. Use the installed hook surfaces " +
+			"and documented commands.",
 		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
@@ -825,6 +832,7 @@ func addFilesystemPolicies(
 	for _, policy := range []Policy{
 		filesystemProtectedPathPolicy(config, principles),
 		filesystemProtectedBranchWritePolicy(config, principles),
+		filesystemRequiredIgnoresPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
 			policies[policy.ID] = policy
@@ -914,6 +922,49 @@ func filesystemProtectedBranchWritePolicy(
 	}
 }
 
+func filesystemRequiredIgnoresPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	requiredIgnores := stringSliceAt(
+		config,
+		[]string{"filesystem", "required_ignores", "paths"},
+		[]string{
+			".coding-ethos/",
+			".coding-ethos/hook-runs/example/stdout.log",
+		},
+	)
+
+	return Policy{
+		ID:       "filesystem.required_ignores",
+		Category: "filesystem",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "filesystem.required_ignores",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"radical-visibility",
+			"security-by-design",
+			"one-path-for-critical-operations",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Required runtime evidence paths must be ignored.",
+		Suggestion:      "Add the missing runtime paths to .gitignore before running hooks.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "pre_commit", "git_state"),
+		AppliesTo: AppliesTo{
+			Paths: requiredIgnores,
+			Tools: []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{
+			Kind:    "git_state",
+			Name:    "filesystem.required_ignores",
+			Options: map[string]any{"paths": requiredIgnores},
+		}},
+	}
+}
+
 func addGeneratedConfigPolicy(
 	policies map[string]Policy,
 	config map[string]any,
@@ -975,7 +1026,7 @@ func compileEvidenceMaps(
 		return defaultEvidenceMaps(principles)
 	}
 
-	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems))
+	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems)+len(defaultEvidenceMaps(principles)))
 	for _, rawItem := range rawItems {
 		item, ok := rawItem.(map[string]any)
 		if !ok {
@@ -989,7 +1040,7 @@ func compileEvidenceMaps(
 		return defaultEvidenceMaps(principles)
 	}
 
-	return maps
+	return append(maps, defaultEvidenceMaps(principles)...)
 }
 
 func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
@@ -1011,6 +1062,8 @@ func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
 	return []diagnostics.EvidenceMap{
 		defaultRuffEvidenceMap(principles),
+		defaultRuffImportOrderEvidenceMap(principles),
+		defaultRuffSQLSafetyEvidenceMap(principles),
 		defaultMypyEvidenceMap(principles),
 		defaultShellcheckEvidenceMap(principles),
 		defaultYamllintEvidenceMap(principles),
@@ -1041,6 +1094,60 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 				"Replace runtime fallback paths with startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffImportOrderEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"E402"},
+		PolicyID: "python.import_order",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "Import ordering is hiding setup side effects or runtime " +
+			"dependency flow.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Move imports to the top of the module or split setup into a helper.",
+			Steps: []string{
+				"Put imports before executable statements.",
+				"Move path or environment setup into test fixtures or helper modules.",
+				"Keep dependency loading explicit and reviewable.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultRuffSQLSafetyEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"S608"},
+		PolicyID: "python.sql_safety",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "SQL text is being assembled dynamically and may bypass " +
+			"parameterization.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Use parameterized SQL or a reviewed central SQL helper.",
+			Steps: []string{
+				"Replace string-built SQL with placeholders and bound parameters.",
+				"If dynamic identifiers are required, validate them against an allowlist.",
+				"Keep test-only SQL safety exceptions explicit and narrow.",
+			},
+			Rerun: []string{"make pre-commit"},
 		},
 	}
 }
@@ -1429,6 +1536,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
+			"filesystem.required_ignores",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1439,13 +1547,19 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 		),
 		"smoke": existingPolicyIDs(
 			policies,
+			"filesystem.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"full": existingPolicyIDs(
 			policies,
+			"filesystem.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
+		),
+		"cutover": existingPolicyIDs(
+			policies,
+			"filesystem.required_ignores",
 		),
 	}
 

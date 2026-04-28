@@ -340,6 +340,33 @@ func TestRunBlocksHookSettingsReconnaissance(t *testing.T) {
 	}
 }
 
+func TestRunBlocksHookImplementationReconnaissance(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `grep -r "header must match" ` +
+					`/home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/ ` +
+					`--include="*.go" -l`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden strings decision, got %#v", result.Decisions)
+	}
+}
+
 func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 	t.Parallel()
 
@@ -390,16 +417,18 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 
 func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	repo := t.TempDir()
 
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			HookEventName: "PostToolUse",
 			ToolName:      "Bash",
+			Cwd:           repo,
 			ToolInput: map[string]any{
-				"command": "git commit -m test",
+				"command": "cd " + repo + " && git commit -m 'feat(test): subject\n\nbody'",
 			},
 			ToolResponse: map[string]any{
-				"stdout":      "ruff...Failed\nmypy...Passed",
+				"stdout":      "ruff...Failed\n" + repo + "/lib/app.py:1:1: E402 import not at top\nmypy...Passed",
 				"return_code": 1,
 			},
 		},
@@ -416,8 +445,18 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 		result.HookSpecificOutput.AdditionalContext,
 		"format: toon",
 	) ||
-		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "ruff...Failed") {
+		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "ruff...Failed") ||
+		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "hook_output[3]{line}:") {
 		t.Fatalf("unexpected context: %#v", result.HookSpecificOutput)
+	}
+	if strings.Contains(result.HookSpecificOutput.AdditionalContext, repo) {
+		t.Fatalf("context leaked absolute repo path: %s", result.HookSpecificOutput.AdditionalContext)
+	}
+	if strings.Contains(result.HookSpecificOutput.AdditionalContext, "\\n") {
+		t.Fatalf("context leaked escaped newlines: %s", result.HookSpecificOutput.AdditionalContext)
+	}
+	if !strings.Contains(result.HookSpecificOutput.AdditionalContext, "<repo>/lib/app.py") {
+		t.Fatalf("context did not normalize repo path: %s", result.HookSpecificOutput.AdditionalContext)
 	}
 }
 
@@ -1181,6 +1220,12 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 		!strings.Contains(additionalContext, "finish the hook cutover") {
 		t.Fatalf("unexpected inject output: %#v", inject.HookSpecificOutput)
 	}
+	if strings.Contains(additionalContext, transcript) {
+		t.Fatalf("continuation context leaked transcript path: %s", additionalContext)
+	}
+	if !strings.Contains(additionalContext, "<tmp>") {
+		t.Fatalf("continuation context did not normalize transcript path: %s", additionalContext)
+	}
 }
 
 func initHookRepo(t *testing.T) string {
@@ -1207,9 +1252,44 @@ func runHookGit(t *testing.T, repo string, args ...string) {
 
 	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = repo
+	cmd.Env = cleanGitTestEnv()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+}
+
+func cleanGitTestEnv() []string {
+	env := make([]string, 0, len(os.Environ()))
+	for _, item := range os.Environ() {
+		name, _, found := strings.Cut(item, "=")
+		if found && gitLocalEnvName(name) {
+			continue
+		}
+
+		env = append(env, item)
+	}
+
+	return env
+}
+
+func gitLocalEnvName(name string) bool {
+	switch name {
+	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_COMMON_DIR",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_DIR",
+		"GIT_INDEX_FILE",
+		"GIT_NAMESPACE",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_PREFIX",
+		"GIT_QUARANTINE_PATH",
+		"GIT_WORK_TREE":
+		return true
+	default:
+		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
 	}
 }

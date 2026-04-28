@@ -41,14 +41,17 @@ when its sources or config inputs change.
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
 surface. `make cutover-verify` checks the installed Git shims, runs
-`agent-hooks verify`, runs the policy runtime validation hook, and prints a
-concise TOON readiness report.
+`agent-hooks verify`, verifies required runtime ignores through the compiled
+`filesystem.required_ignores` policy, runs the policy runtime validation hook,
+and prints a concise TOON readiness report. Blocked reports include `fix_first`
+entries that name the stale or missing surface and the next action.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
 `.coding-ethos/` ignored in both the bundle repo and consuming repos; it is
-runtime evidence for later analysis, not source. The runner fails before
-writing logs when `.coding-ethos/` is not ignored.
+runtime evidence for later analysis, not source. The cutover gate reports
+missing ignore rules before installation, and normal hook execution still fails
+before writing logs when `.coding-ethos/` is not ignored.
 
 Required tools:
 
@@ -136,6 +139,7 @@ pre-commit/hooks/run-go-hook.sh cutover install
 pre-commit/hooks/run-go-hook.sh cutover verify
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
+pre-commit/hooks/run-go-hook.sh hook-log-analyze
 pre-commit/hooks/run-go-hook.sh hook-log-summary
 ```
 
@@ -181,10 +185,17 @@ output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
 command must be rerun through the wrapper. Gemini uses native
 `decision: "deny"` and `systemMessage` for tool blocks. Post-tool hook-output
 advice remains full-fidelity for Claude and Codex; Gemini has no direct
-`PostToolUse` equivalent in the documented hook surface.
+`PostToolUse` equivalent in the documented hook surface. Agent-facing
+post-tool context replaces absolute repo, home, and temp paths with stable
+tokens, collapses multiline commands, and renders hook output as TOON line
+tables instead of escaped newline cells.
 
-`hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
-human, JSON, and TOON output selection as hook execution output.
+`hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
+ranks failed tools, codes, repeated findings, and output-quality problems such
+as raw output, escaped newline cells, or leaked absolute repo paths. The
+analyzer scans newest runs first and caps scanned runs plus examples so it stays
+interactive on large agent log directories. Both commands honor the same human,
+JSON, and TOON output selection as hook execution output.
 
 ## Configuration
 

@@ -4,6 +4,25 @@
 
 set -euo pipefail
 
+for name in \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_COMMON_DIR \
+  GIT_CONFIG_COUNT \
+  GIT_CONFIG_PARAMETERS \
+  GIT_DIR \
+  GIT_INDEX_FILE \
+  GIT_NAMESPACE \
+  GIT_OBJECT_DIRECTORY \
+  GIT_PREFIX \
+  GIT_QUARANTINE_PATH \
+  GIT_WORK_TREE; do
+  unset "$name"
+done
+
+for name in $(env | sed -nE 's/^(GIT_CONFIG_(KEY|VALUE)_[0-9]+)=.*/\1/p'); do
+  unset "$name"
+done
+
 repo_root="${1:?usage: smoke.sh /path/to/coding-ethos}"
 go_bin="${2:?usage: smoke.sh /path/to/coding-ethos /tmp/bin}"
 
@@ -315,6 +334,26 @@ if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
 fi
 
 printf '==> validating cutover install and readiness report\n'
+cutover_unignored_repo="$tmp_root/cutover-unignored-repo"
+mkdir -p "$cutover_unignored_repo"
+git -C "$cutover_unignored_repo" init >/dev/null
+set +e
+(
+  cd "$cutover_unignored_repo"
+  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
+    >/tmp/coding-ethos-cutover-unignored.out 2>&1
+)
+cutover_unignored_status=$?
+set -e
+if [[ "$cutover_unignored_status" -eq 0 ]] ||
+  ! grep -q 'repo-ignores,FAIL' /tmp/coding-ethos-cutover-unignored.out ||
+  ! grep -q '.coding-ethos/ is not ignored' \
+    /tmp/coding-ethos-cutover-unignored.out; then
+  printf 'expected cutover to report missing repo ignores:\n' >&2
+  cat /tmp/coding-ethos-cutover-unignored.out >&2
+  exit 1
+fi
+
 cutover_repo="$tmp_root/cutover-repo"
 mkdir -p "$cutover_repo"
 git -C "$cutover_repo" init >/dev/null
@@ -329,7 +368,12 @@ cutover_missing_status=$?
 set -e
 if [[ "$cutover_missing_status" -eq 0 ]] ||
   ! grep -q 'status: blocked' /tmp/coding-ethos-cutover-missing.out ||
-  ! grep -q 'git-hooks,FAIL' /tmp/coding-ethos-cutover-missing.out; then
+  ! grep -q 'git-hooks,FAIL' /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'fix_first' /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'pre-commit missing or not executable' \
+    /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'agent-hooks,native agent settings missing or stale,run cutover install' \
+    /tmp/coding-ethos-cutover-missing.out; then
   printf 'expected missing cutover verification to fail:\n' >&2
   cat /tmp/coding-ethos-cutover-missing.out >&2
   exit 1
@@ -342,6 +386,7 @@ fi
 if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'git-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'agent-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
+  ! grep -q 'repo-ignores,PASS' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'policy-runtime,PASS' /tmp/coding-ethos-cutover-install.out; then
   printf 'expected ready cutover install report:\n' >&2
   cat /tmp/coding-ethos-cutover-install.out >&2

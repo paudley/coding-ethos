@@ -36,6 +36,7 @@ import (
 const (
 	configEnv         = "CODE_ETHOS_PRECOMMIT_CONFIG"
 	precommitRootEnv  = "CODE_ETHOS_PRECOMMIT_ROOT"
+	consumerRootEnv   = "CODE_ETHOS_CONSUMER_ROOT"
 	privateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize     = 8192
 )
@@ -270,6 +271,7 @@ func main() {
 		"fix-text":                         fixText,
 		"gemini-check":                     runGeminiCheck,
 		"git-hook":                         runGitHookCommand,
+		"hook-log-analyze":                 hookLogAnalyzeCommand,
 		"hook-log-summary":                 hookLogSummaryCommand,
 		"hook-plan":                        runHookPlanCommand,
 		"hadolint":                         runHadolint,
@@ -1145,6 +1147,7 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 
 func gitOutput(args ...string) string {
 	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd.Env = externalToolEnv(nil)
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -1155,6 +1158,10 @@ func gitOutput(args ...string) string {
 }
 
 func repoRoot() string {
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		return root
+	}
+
 	if root := gitOutput("rev-parse", "--show-toplevel"); root != "" {
 		return root
 	}
@@ -1163,6 +1170,12 @@ func repoRoot() string {
 }
 
 func consumerRoot(ethosRoot string) string {
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		if explicitConsumerRootApplies(root, ethosRoot) {
+			return root
+		}
+	}
+
 	if root := gitOutput(
 		"-C",
 		ethosRoot,
@@ -1177,6 +1190,22 @@ func consumerRoot(ethosRoot string) string {
 	}
 
 	return ethosRoot
+}
+
+func explicitConsumerRootApplies(root string, ethosRoot string) bool {
+	absRoot, rootErr := filepath.Abs(root)
+
+	absEthosRoot, ethosErr := filepath.Abs(ethosRoot)
+	if rootErr != nil || ethosErr != nil {
+		return root == ethosRoot
+	}
+
+	rel, err := filepath.Rel(absRoot, absEthosRoot)
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
 func gitCommonDir(root string) string {
@@ -6569,10 +6598,27 @@ func checkCommitLint(cfg Config, args []string) int {
 		Title:    "COMMIT MESSAGE CHECK FAILED",
 		Summary:  "Commit message does not satisfy conventional commit rules.",
 		Findings: findings,
-		Guidance: []string{"Use a conventional commit header with an allowed type and concise subject."},
+		Guidance: commitLintGuidance(cfg),
 	}, selectedHookOutputFormat()))
 
 	return 1
+}
+
+func commitLintGuidance(cfg Config) []string {
+	allowed := slices.Clone(cfg.CommitLint.AllowedTypes)
+	sort.Strings(allowed)
+
+	if len(allowed) == 0 {
+		allowed = []string{"fix", "feat", "docs", "test", "refactor", "chore"}
+	}
+
+	return []string{
+		"Use exactly: type(scope): concise subject",
+		"Good example: fix(bind): harden enrichment transaction handling",
+		"Scope is required and should name the touched component, such as hooks, bind, cli, docs, or config.",
+		"Allowed types: " + strings.Join(allowed, ", "),
+		"Put body details after a blank line below the header.",
+	}
 }
 
 func checkCommitAttribution(cfg Config, args []string) int {
@@ -6804,6 +6850,7 @@ func limitsForFile(cfg Config, path string) (int, int) {
 
 func originalLineCount(path string) int {
 	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:"+path)
+	cmd.Env = externalToolEnv(nil)
 
 	output, err := cmd.Output()
 	if err != nil {

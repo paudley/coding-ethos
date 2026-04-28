@@ -22,7 +22,11 @@ The shell entry wrapper logs every top-level run to
 `stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
 evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
 when required runtime output paths are not ignored, and `hook-log-summary`
-summarizes collected runs for later analysis.
+summarizes collected runs for later analysis. `hook-log-analyze` ranks failed
+tools, codes, repeated findings, and output-quality problems such as raw output,
+escaped newline cells, or leaked absolute repo paths. Analysis scans the newest
+hook runs first and caps both scanned runs and examples so it remains usable on
+large real-world log directories.
 
 Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 `policy.evidence_maps`. Mapped findings receive policy-grounded advice in
@@ -55,7 +59,10 @@ through the configured hook command, proving that Claude rewrites, Codex blocks,
 and Gemini denies reach the active runtime.
 `cutover install` installs Git hook shims, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
-agent hook, and policy runtime readiness in TOON.
+agent hook, repo-ignore, and policy runtime readiness in TOON. Required runtime
+ignore checks run through the compiled `filesystem.required_ignores` policy.
+Blocked reports include `fix_first` rows naming the stale or missing hook
+surface and the next action.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain
@@ -75,7 +82,9 @@ Provider output is adapted at the boundary: Claude receives full
 `hookSpecificOutput` including `updatedInput`, Codex receives native block
 output and supported context output without relying on unsupported rewrite
 semantics, and Gemini receives native `deny` / `systemMessage` responses for
-tool gates.
+tool gates. Agent-facing post-tool context normalizes absolute repo, home, and
+temporary paths, collapses multiline commands, and renders hook output as TOON
+line tables instead of giant escaped string cells.
 
 ## Included Hooks
 

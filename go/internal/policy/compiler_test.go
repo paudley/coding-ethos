@@ -67,8 +67,17 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 7 {
-		t.Fatalf("evidence map count = %d, want 7", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 9 {
+		t.Fatalf("evidence map count = %d, want 9", len(bundle.EvidenceMaps))
+	}
+
+	forbiddenStrings := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"strings",
+	)
+	if !slices.Contains(forbiddenStrings, "header must match") {
+		t.Fatalf("default forbidden strings missing hook recon marker: %#v", forbiddenStrings)
 	}
 }
 
@@ -101,6 +110,21 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 		t,
 		bundle.Dispatch.Linter["smoke"],
 		"generated_config.freshness",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["smoke"],
+		"filesystem.required_ignores",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["cutover"],
+		"filesystem.required_ignores",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["staged"],
+		"filesystem.required_ignores",
 	)
 }
 
@@ -153,6 +177,8 @@ filesystem:
   protected_branch_write:
     branches: [release]
     exempt_path_prefixes: [docs/plans/]
+  required_ignores:
+    paths: [.runtime/]
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
@@ -185,6 +211,15 @@ shell:
 	)
 	if protectedBranch[0] != "release" {
 		t.Fatalf("protected branch options mismatch: %#v", protectedBranch)
+	}
+
+	requiredIgnores := optionStrings(
+		t,
+		bundle.Policies["filesystem.required_ignores"].Evaluators[0],
+		"paths",
+	)
+	if requiredIgnores[0] != ".runtime/" {
+		t.Fatalf("required ignore options mismatch: %#v", requiredIgnores)
 	}
 
 	adminFiles := optionStrings(
@@ -255,8 +290,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 1 {
-		t.Fatalf("evidence map count = %d, want 1", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 10 {
+		t.Fatalf("evidence map count = %d, want 10", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]
@@ -284,6 +319,8 @@ git:
 filesystem:
   protected_path:
     enabled: false
+  required_ignores:
+    enabled: false
 shell:
   dangerous_command:
     enabled: false
@@ -300,6 +337,7 @@ shell:
 	for _, policyID := range []string{
 		"git.hook_bypass",
 		"filesystem.protected_path",
+		"filesystem.required_ignores",
 		"shell.dangerous_command",
 	} {
 		if _, ok := bundle.Policies[policyID]; ok {

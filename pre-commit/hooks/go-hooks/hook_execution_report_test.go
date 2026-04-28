@@ -65,18 +65,26 @@ func TestFormatHookExecutionSummaryTOONIncludesOnlyFailures(t *testing.T) {
 
 	for _, fragment := range []string{
 		"status: FAIL",
-		"failed_groups[1]{name,exit_code,duration_ms}:",
-		"syntax,1,15",
-		"commands[1]{group,name,status,exit_code,duration_ms}:",
-		"syntax,yamllint,FAIL,1,11",
-		"fix_first[1]{group}:",
+		"failed_checks[1]{name,status}:",
+		"yamllint,FAIL",
+		"next[1]{action}:",
+		"Fix yamllint diagnostics above\\, then rerun the commit.",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("summary TOON missing %q:\n%s", fragment, output)
 		}
 	}
 
-	if strings.Contains(output, "check-syntax") {
-		t.Fatalf("summary TOON included passing command:\n%s", output)
+	for _, unwanted := range []string{
+		"check-syntax",
+		"duration_ms",
+		"failed_groups",
+		"commands[",
+		"fix_first",
+		"syntax,1,15",
+	} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("summary TOON included low-value field %q:\n%s", unwanted, output)
+		}
 	}
 }
