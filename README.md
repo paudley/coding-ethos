@@ -385,9 +385,7 @@ The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
 new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
 they are not invoked from agent hooks. Agent hook evaluators are runtime-covered,
-and all supported provider settings are generated together. Provider- and
-event-specific completion status is tracked in
-[HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
+and all supported provider settings are generated together.
 
 Installed Git hook shims compile the policy bundle and enter
 `coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That runtime
