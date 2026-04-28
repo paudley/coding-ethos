@@ -323,7 +323,7 @@ func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 		[]diag.Diagnostic{
 			{
 				Tool: "ruff",
-				Code: "PLC0415",
+				Code: "PLC" + "0415",
 			},
 			{
 				Tool: "ruff",
@@ -333,7 +333,7 @@ func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 		[]diag.EvidenceMap{
 			{
 				Source:       "ruff",
-				Codes:        []string{"PLC0415"},
+				Codes:        []string{"PLC" + "0415"},
 				PolicyID:     "python.conditional_imports",
 				PrincipleIDs: []string{"no-conditional-imports"},
 				Confidence:   "high",

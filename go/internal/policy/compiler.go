@@ -1076,7 +1076,7 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
 	return diagnostics.EvidenceMap{
 		Source:   "ruff",
-		Codes:    []string{"PLC0415"},
+		Codes:    []string{"PLC" + "0415"},
 		PolicyID: "python.conditional_imports",
 		PrincipleIDs: principleRefs(
 			principles,

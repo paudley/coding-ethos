@@ -22,6 +22,10 @@ SUPPORTED_MERGE_ENGINES = ("codex", "gemini", "claude")
 SUPPORTED_MERGE_STRATEGIES = ("inject", "llm")
 
 
+def _empty_merge_topics() -> list[str]:
+    return []
+
+
 class UnsupportedMergeEngineError(ValueError):
     """Raised when a configured merge engine name is not supported."""
 
@@ -75,7 +79,7 @@ class MergeRequest:
     existing_content: str
     generated_content: str
     model: str = ""
-    merge_topics: list[str] = field(default_factory=list)
+    merge_topics: list[str] = field(default_factory=_empty_merge_topics)
     timeout_seconds: int = 300
 
 

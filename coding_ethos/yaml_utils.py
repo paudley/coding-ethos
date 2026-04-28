@@ -12,6 +12,7 @@ import re
 import textwrap
 from io import StringIO
 from pathlib import Path
+from typing import Any, cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedBase, CommentedMap, CommentedSeq
@@ -33,19 +34,31 @@ def _build_yaml() -> YAML:
 def _normalize_yaml_strings(value: object) -> object:
     normalized = value
     if isinstance(value, CommentedMap):
-        for key in list(value):
-            value[key] = _normalize_yaml_strings(value[key])
+        mapping = cast(Any, value)
+        keys = cast(list[object], list(mapping))
+        for key in keys:
+            item = cast(object, mapping[key])
+            mapping[key] = _normalize_yaml_strings(item)
         normalized = value
     elif isinstance(value, CommentedSeq):
-        for index, item in enumerate(list(value)):
-            value[index] = _normalize_yaml_strings(item)
+        sequence = cast(Any, value)
+        items = cast(list[object], list(sequence))
+        for index, item in enumerate(items):
+            sequence[index] = _normalize_yaml_strings(item)
         normalized = value
     elif isinstance(value, dict):
-        normalized = {key: _normalize_yaml_strings(item) for key, item in value.items()}
+        mapping = cast(dict[object, object], value)
+        normalized = {
+            key: _normalize_yaml_strings(item) for key, item in mapping.items()
+        }
     elif isinstance(value, list):
-        normalized = [_normalize_yaml_strings(item) for item in value]
+        normalized = [
+            _normalize_yaml_strings(item) for item in cast(list[object], value)
+        ]
     elif isinstance(value, tuple):
-        normalized = tuple(_normalize_yaml_strings(item) for item in value)
+        normalized = tuple(
+            _normalize_yaml_strings(item) for item in cast(tuple[object, ...], value)
+        )
     elif isinstance(value, str):
         normalized = _normalize_yaml_string(value)
     return normalized
@@ -132,14 +145,16 @@ def render_yaml(data: object) -> str:
     """Render YAML with repo-standard indentation and wrapping."""
     yaml = _build_yaml()
     stream = StringIO()
-    yaml.dump(_normalize_yaml_strings(data), stream)
+    yaml_rt = cast(Any, yaml)
+    yaml_rt.dump(_normalize_yaml_strings(data), stream)
     return stream.getvalue()
 
 
 def format_yaml_file(path: Path) -> Path:
     """Reformat one existing YAML file in place while preserving comments."""
     yaml = _build_yaml()
-    payload = yaml.load(path.read_text(encoding="utf-8"))
+    yaml_rt = cast(Any, yaml)
+    payload = cast(object, yaml_rt.load(path.read_text(encoding="utf-8")))
     if payload is None:
         msg = f"Cannot format empty YAML file: {path}"
         raise ValueError(msg)
@@ -147,6 +162,7 @@ def format_yaml_file(path: Path) -> Path:
         msg = f"Cannot format non-collection YAML payload in {path}"
         raise TypeError(msg)
     stream = StringIO()
-    yaml.dump(_normalize_yaml_strings(payload), stream)
+    yaml_rt = cast(Any, yaml)
+    yaml_rt.dump(_normalize_yaml_strings(cast(object, payload)), stream)
     path.write_text(stream.getvalue(), encoding="utf-8")
     return path

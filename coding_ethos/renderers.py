@@ -135,7 +135,7 @@ def render_agents_md(bundle: EthosBundle, repo_root: Path) -> str:
         ]
     )
 
-    combined_notes = []
+    combined_notes: list[str] = []
     if codex_profile:
         combined_notes.extend(codex_profile.notes)
     combined_notes.extend(bundle.repo.agent_notes.get("codex", []))

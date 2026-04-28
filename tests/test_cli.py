@@ -1,11 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-from __future__ import annotations
+"""CLI integration tests for coding-ethos generation workflows.
+
+These tests exercise the public command surface rather than private helpers.
+They verify that generated files, tool configs, and merge behavior stay aligned.
+"""
 
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -52,15 +57,22 @@ def _write_repo_tool_config_override(repo_root: Path) -> None:
 
 def _load_generated_tool_configs(
     repo_root: Path,
-) -> tuple[dict[str, object], str, str, str, dict[str, object], dict[str, object]]:
-    pyright = yaml.safe_load(
-        (repo_root / "pyrightconfig.json").read_text(encoding="utf-8")
+) -> tuple[dict[str, Any], str, str, str, dict[str, Any], dict[str, Any]]:
+    pyright = cast(
+        dict[str, Any],
+        yaml.safe_load((repo_root / "pyrightconfig.json").read_text(encoding="utf-8")),
     )
     mypy_ini = (repo_root / "mypy.ini").read_text(encoding="utf-8")
     ruff_toml = (repo_root / "ruff.toml").read_text(encoding="utf-8")
     pylintrc = (repo_root / ".pylintrc").read_text(encoding="utf-8")
-    yamllint = yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8"))
-    golangci = yaml.safe_load((repo_root / ".golangci.yml").read_text(encoding="utf-8"))
+    yamllint = cast(
+        dict[str, Any],
+        yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8")),
+    )
+    golangci = cast(
+        dict[str, Any],
+        yaml.safe_load((repo_root / ".golangci.yml").read_text(encoding="utf-8")),
+    )
     return pyright, mypy_ini, ruff_toml, pylintrc, yamllint, golangci
 
 
@@ -77,7 +89,7 @@ def _assert_generated_tool_configs(repo_root: Path) -> None:
     _assert_golangci_tool_config(golangci)
 
 
-def _assert_pyright_tool_config(pyright: dict[str, object]) -> None:
+def _assert_pyright_tool_config(pyright: dict[str, Any]) -> None:
     assert pyright["include"] == ["lib/python/lbox", "pre-commit/hooks"]
     assert pyright["stubPath"] == "lib/python/stubs"
     assert pyright["extraPaths"] == [
@@ -110,11 +122,11 @@ def _assert_pylint_tool_config(pylintrc: str) -> None:
     assert "max-args = 6" in pylintrc
 
 
-def _assert_yamllint_tool_config(yamllint: dict[str, object]) -> None:
+def _assert_yamllint_tool_config(yamllint: dict[str, Any]) -> None:
     assert yamllint["rules"]["line-length"]["max"] == 100
 
 
-def _assert_golangci_tool_config(golangci: dict[str, object]) -> None:
+def _assert_golangci_tool_config(golangci: dict[str, Any]) -> None:
     linters = golangci["linters"]
     enabled_linters = linters["enable"]
     settings = linters["settings"]

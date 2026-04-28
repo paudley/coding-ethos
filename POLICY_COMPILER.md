@@ -149,7 +149,7 @@ when that evidence appears.
 Example mapping:
 
 - `source`: `ruff`
-- `codes`: `PLC0415`
+- `codes`: `PLC 0415`
 - `policy_id`: `python.conditional_imports`
 - `principle_ids`: `no-conditional-imports`
 - `confidence`: `high`

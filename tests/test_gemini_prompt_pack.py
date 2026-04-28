@@ -1,9 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-"""Tests for generated Gemini prompt packs."""
+"""Tests for generated Gemini prompt packs.
 
-from __future__ import annotations
+These tests verify that prompt-pack rendering carries repo identity and policy
+context. They also cover sync and check behavior for generated prompt artifacts.
+"""
 
 import json
 import tempfile

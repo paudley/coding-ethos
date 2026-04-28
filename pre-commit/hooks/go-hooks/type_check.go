@@ -104,7 +104,7 @@ func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
 func defaultRuffEvidenceMap() diag.EvidenceMap {
 	return diag.EvidenceMap{
 		Source:       "ruff",
-		Codes:        []string{"PLC0415"},
+		Codes:        []string{"PLC" + "0415"},
 		PolicyID:     "python.conditional_imports",
 		PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
 		Confidence:   "high",

@@ -8,9 +8,10 @@ It is the schema boundary between raw YAML and the rest of the application.
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 import yaml
 
@@ -34,11 +35,31 @@ ETHOS_SCHEMA_VERSION = 2
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    payload = cast(object, yaml.safe_load(path.read_text(encoding="utf-8")))
+    if payload is None:
+        return {}
     if not isinstance(payload, dict):
         msg = f"Invalid ethos YAML at {path}: expected a mapping at the document root."
         raise TypeError(msg)
-    return payload
+    return cast(dict[str, Any], payload)
+
+
+def _as_mapping(value: object, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        msg = f"{label} must be a mapping."
+        raise TypeError(msg)
+    return cast(dict[str, Any], value)
+
+
+def _empty_mapping() -> dict[str, Any]:
+    return {}
+
+
+def _as_sequence(value: object, label: str) -> Sequence[object]:
+    if not isinstance(value, list):
+        msg = f"{label} must be a list."
+        raise TypeError(msg)
+    return cast(Sequence[object], value)
 
 
 def _error(source: str, message: str) -> NoReturn:
@@ -50,8 +71,12 @@ def _normalize_lines(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [item.strip() for item in value if item and item.strip()]
-    stripped = value.strip()
+        return [
+            str(item).strip()
+            for item in cast(Sequence[object], value)
+            if str(item).strip()
+        ]
+    stripped = str(value).strip()
     return [stripped] if stripped else []
 
 
@@ -62,7 +87,7 @@ def _normalize_commands(raw: object) -> dict[str, list[str]]:
         msg = "commands must be a mapping."
         raise TypeError(msg)
     normalized: dict[str, list[str]] = {}
-    for name, commands in raw.items():
+    for name, commands in _as_mapping(cast(object, raw), "commands").items():
         normalized[str(name)] = _normalize_lines(commands)
     return normalized
 
@@ -74,12 +99,15 @@ def _normalize_agent_notes(raw: object) -> dict[str, list[str]]:
     if not isinstance(raw, dict):
         msg = "agent_notes must be a mapping."
         raise TypeError(msg)
-    unknown_agents = sorted(agent for agent in raw if agent not in SUPPORTED_AGENTS)
+    raw_notes = cast(dict[str, Any], raw)
+    unknown_agents = sorted(
+        agent for agent in raw_notes if agent not in SUPPORTED_AGENTS
+    )
     if unknown_agents:
         msg = f"agent_notes contains unsupported agents: {', '.join(unknown_agents)}"
         raise ValueError(msg)
     for agent in SUPPORTED_AGENTS:
-        notes[agent] = _normalize_lines(raw.get(agent))
+        notes[agent] = _normalize_lines(raw_notes.get(agent))
     return notes
 
 
@@ -89,13 +117,16 @@ def _normalize_agent_hints(raw: object) -> dict[str, str]:
     if not isinstance(raw, dict):
         msg = "agent_hints must be a mapping."
         raise TypeError(msg)
-    unknown_agents = sorted(agent for agent in raw if agent not in SUPPORTED_AGENTS)
+    raw_hints = cast(dict[str, Any], raw)
+    unknown_agents = sorted(
+        agent for agent in raw_hints if agent not in SUPPORTED_AGENTS
+    )
     if unknown_agents:
         msg = f"agent_hints contains unsupported agents: {', '.join(unknown_agents)}"
         raise ValueError(msg)
     return {
         agent: str(value).strip()
-        for agent, value in raw.items()
+        for agent, value in raw_hints.items()
         if agent in SUPPORTED_AGENTS and str(value).strip()
     }
 
@@ -120,27 +151,27 @@ def _section_from_raw(
 ) -> PrincipleSection:
     if not isinstance(raw_section, dict):
         _error(source, "each section must be a mapping.")
-    body = _body_from_item(raw_section)
-    section_id = str(raw_section.get("id", "")).strip()
+    section = cast(dict[str, Any], raw_section)
+    body = _body_from_item(section)
+    section_id = str(section.get("id", "")).strip()
     if not section_id:
         _error(source, "each section must define a non-empty `id`.")
     if section_id in seen_section_ids:
         _error(source, f"duplicate section id `{section_id}`.")
     seen_section_ids.add(section_id)
-    title = str(raw_section.get("title", "")).strip()
+    title = str(section.get("title", "")).strip()
     if not title:
         _error(source, f"section `{section_id}` must define a non-empty `title`.")
     if not body:
         _error(source, f"section `{section_id}` must define a non-empty `body`.")
     try:
-        section_kind = _normalize_section_kind(raw_section.get("kind"))
+        section_kind = _normalize_section_kind(section.get("kind"))
     except ValueError as exc:
         _error(source, f"section `{section_id}` {exc}")
     return PrincipleSection(
         id=section_id,
         title=title,
-        summary=str(raw_section.get("summary", "")).strip()
-        or body.splitlines()[0].strip(),
+        summary=str(section.get("summary", "")).strip() or body.splitlines()[0].strip(),
         body=body,
         kind=section_kind,
     )
@@ -176,7 +207,7 @@ def _sections_from_payload(
             source=source,
             seen_section_ids=seen_section_ids,
         )
-        for raw_section in raw_sections
+        for raw_section in _as_sequence(cast(object, raw_sections), "`sections`")
     )
     return sections
 
@@ -316,11 +347,14 @@ def _validate_primary_payload(payload: dict[str, Any], primary_path: Path) -> No
         _error(source, "`principles` must be a non-empty list.")
 
     normalized_principles: list[Principle] = []
-    for index, item in enumerate(principles, start=1):
+    for index, item in enumerate(cast(Sequence[object], principles), start=1):
         if not isinstance(item, dict):
             _error(source, f"principles[{index}] must be a mapping.")
         normalized_principles.append(
-            _principle_from_item(item, source=f"{source} principles[{index}]")
+            _principle_from_item(
+                cast(dict[str, Any], item),
+                source=f"{source} principles[{index}]",
+            )
         )
     _validate_principle_collection(normalized_principles, source)
 
@@ -355,9 +389,15 @@ def _principles_from_payload(
     payload: dict[str, Any], *, source: str
 ) -> list[Principle]:
     principles: list[Principle] = []
-    for index, item in enumerate(payload.get("principles", []), start=1):
+    raw_principles = payload.get("principles", [])
+    for index, item in enumerate(_as_sequence(raw_principles, "`principles`"), start=1):
+        if not isinstance(item, dict):
+            _error(source, f"principles[{index}] must be a mapping.")
         principles.append(
-            _principle_from_item(item, source=f"{source} principles[{index}]")
+            _principle_from_item(
+                cast(dict[str, Any], item),
+                source=f"{source} principles[{index}]",
+            )
         )
     return sorted(
         principles, key=lambda principle: (principle.order, principle.title.lower())
@@ -365,11 +405,13 @@ def _principles_from_payload(
 
 
 def _agent_profiles_from_payload(payload: dict[str, Any]) -> dict[str, AgentProfile]:
-    raw_profiles = dict(AGENT_PROFILES)
-    raw_profiles.update(payload.get("agents", {}) or {})
+    raw_profiles: dict[str, Any] = dict(AGENT_PROFILES)
+    raw_agents = cast(object, payload.get("agents", {}) or {})
+    if isinstance(raw_agents, Mapping):
+        raw_profiles.update(cast(Mapping[str, Any], raw_agents))
     profiles: dict[str, AgentProfile] = {}
     for agent in SUPPORTED_AGENTS:
-        raw = raw_profiles.get(agent, {})
+        raw = _as_mapping(raw_profiles.get(agent, {}) or {}, f"agents.{agent}")
         profiles[agent] = AgentProfile(
             name=agent,
             root_file=str(raw.get("root_file", "")).strip(),
@@ -399,7 +441,7 @@ def load_primary_bundle(primary_path: Path) -> EthosBundle:
     """
     payload = _load_yaml(primary_path)
     _validate_primary_payload(payload, primary_path)
-    metadata = payload.get("metadata", {})
+    metadata = _as_mapping(payload.get("metadata", {}) or {}, "metadata")
     return EthosBundle(
         title=str(metadata.get("title", "Coding Ethos")).strip(),
         overview=str(metadata.get("overview", "")).strip(),
@@ -414,18 +456,20 @@ def _overlay_error(repo_ethos_path: Path, message: str) -> None:
 
 
 def _load_repo_context(payload: dict[str, Any], repo_ethos_path: Path) -> RepoContext:
-    repo_payload = payload.get("repo", {})
+    repo_payload = cast(object, payload.get("repo", {}))
     if repo_payload and not isinstance(repo_payload, dict):
         _overlay_error(repo_ethos_path, "`repo` must be a mapping.")
+    repo = cast(dict[str, Any], repo_payload) if repo_payload else _empty_mapping()
+    raw_paths = cast(object, repo.get("paths") or {})
+    if raw_paths and not isinstance(raw_paths, dict):
+        _overlay_error(repo_ethos_path, "`repo.paths` must be a mapping.")
+    paths = cast(dict[str, Any], raw_paths) if raw_paths else _empty_mapping()
     return RepoContext(
-        name=str(repo_payload.get("name", "")).strip(),
-        overview=str(repo_payload.get("overview", "")).strip(),
-        commands=_normalize_commands(repo_payload.get("commands")),
-        paths={
-            str(key): str(value)
-            for key, value in (repo_payload.get("paths") or {}).items()
-        },
-        notes=_normalize_lines(repo_payload.get("notes")),
+        name=str(repo.get("name", "")).strip(),
+        overview=str(repo.get("overview", "")).strip(),
+        commands=_normalize_commands(repo.get("commands")),
+        paths={str(key): str(value) for key, value in paths.items()},
+        notes=_normalize_lines(repo.get("notes")),
         agent_notes=_normalize_agent_notes(payload.get("agent_notes")),
     )
 
@@ -436,7 +480,7 @@ def _overlay_principle_section(
     principle_section = payload.get("principles", {})
     if principle_section and not isinstance(principle_section, dict):
         _overlay_error(repo_ethos_path, "`principles` must be a mapping.")
-    return principle_section
+    return cast(dict[str, Any], principle_section)
 
 
 def _overlay_overrides(
@@ -444,12 +488,13 @@ def _overlay_overrides(
     principles_by_id: dict[str, Principle],
     repo_ethos_path: Path,
 ) -> dict[str, Any]:
-    overrides = principle_section.get("overrides", {}) or {}
+    overrides = cast(object, principle_section.get("overrides", {}) or {})
     if overrides and not isinstance(overrides, dict):
         _overlay_error(repo_ethos_path, "`principles.overrides` must be a mapping.")
+    override_map = cast(dict[str, Any], overrides) if overrides else _empty_mapping()
     unknown_override_ids = sorted(
         principle_id
-        for principle_id in overrides
+        for principle_id in override_map
         if str(principle_id) not in principles_by_id
     )
     if unknown_override_ids:
@@ -458,7 +503,7 @@ def _overlay_overrides(
             repo_ethos_path,
             f"unknown override ids: {unknown_ids}.",
         )
-    return overrides
+    return override_map
 
 
 def _apply_principle_override(
@@ -507,14 +552,14 @@ def _apply_override_fields(
         principle.directive = str(override["directive"]).strip()
         recalc_quick_ref = True
     if "tags" in override:
-        principle.tags = [
-            str(tag).strip() for tag in override["tags"] if str(tag).strip()
-        ]
+        raw_tags = _as_sequence(override["tags"], "override.tags")
+        principle.tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()]
         recalc_merge_topics = True
         recalc_agent_hints = True
     if "related" in override:
+        raw_related = _as_sequence(override["related"], "override.related")
         principle.related = [
-            str(item).strip() for item in override["related"] if str(item).strip()
+            str(item).strip() for item in raw_related if str(item).strip()
         ]
     if "quick_ref" in override:
         principle.quick_ref = _normalize_string_list(
@@ -617,7 +662,7 @@ def _apply_overrides(
             )
         _apply_principle_override(
             principle,
-            override=override,
+            override=cast(dict[str, Any], override),
             repo_ethos_path=repo_ethos_path,
         )
 
@@ -629,17 +674,17 @@ def _append_additional_principles(
 ) -> None:
     principles_by_id = {principle.id for principle in merged.principles}
     additional_ids: set[str] = set()
-    additional = principle_section.get("additional", []) or []
+    additional = cast(object, principle_section.get("additional", []) or [])
     if additional and not isinstance(additional, list):
         _overlay_error(repo_ethos_path, "`principles.additional` must be a list.")
-    for item in additional:
+    for item in cast(Sequence[object], additional):
         if not isinstance(item, dict):
             _overlay_error(
                 repo_ethos_path,
                 "each additional principle must be a mapping.",
             )
         principle = _principle_from_item(
-            item,
+            cast(dict[str, Any], item),
             source=f"{repo_ethos_path} additional[{len(additional_ids) + 1}]",
         )
         if principle.id in principles_by_id or principle.id in additional_ids:
