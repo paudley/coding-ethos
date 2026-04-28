@@ -3,14 +3,17 @@
 
 package policy
 
+import "blackcat.ca/coding-ethos/go/diagnostics"
+
 type Bundle struct {
-	Sources     Sources              `json:"sources"`
-	Principles  map[string]Principle `json:"principles"`
-	Policies    map[string]Policy    `json:"policies"`
-	Dispatch    Dispatch             `json:"dispatch"`
-	BundleID    string               `json:"bundle_id"`
-	GeneratedAt string               `json:"generated_at"`
-	Version     int                  `json:"version"`
+	Dispatch     Dispatch                  `json:"dispatch"`
+	Principles   map[string]Principle      `json:"principles"`
+	Policies     map[string]Policy         `json:"policies"`
+	Sources      Sources                   `json:"sources"`
+	BundleID     string                    `json:"bundle_id"`
+	GeneratedAt  string                    `json:"generated_at"`
+	EvidenceMaps []diagnostics.EvidenceMap `json:"evidence_maps,omitempty"`
+	Version      int                       `json:"version"`
 }
 
 type Sources struct {

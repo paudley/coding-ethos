@@ -391,6 +391,22 @@ Installed Git hook shims compile the policy bundle and enter
 runs policy preflight and then executes the bundled hook groups as the active
 quality gate. `make install-hooks` also installs `post-commit`, `post-merge`,
 and `post-checkout` shims that delegate to Git LFS when it is available.
+The standalone `coding-ethos-lint` path can now execute compiled smoke/full
+policies for generated tool-config freshness and the configured pytest gate, so
+those checks are no longer inert policy metadata.
+External command failures can carry normalized diagnostics in the lint JSON
+result. The initial parser registry covers Ruff, Pyright, mypy, Pylint,
+golangci-lint, and generic `file:line:column` text output.
+Known diagnostic codes are enriched from compiled `policy.evidence_maps`, so
+ETHOS-significant findings can carry `policy_id`, `principle_ids`, confidence,
+meaning, and repair advice while unmapped tool findings still flow through
+unchanged.
+The bundled Python type-check hook uses this same shared diagnostic package, so
+Ruff, Pyright, mypy, and Pylint parsing have one implementation across compiled
+lint and hook execution.
+Python static-tool defaults now come from the shared Go tool catalog, which
+captures command, parser, config flags, repo config, runtime, file-argument
+behavior, and enabled-by-default state in one typed definition.
 
 Render or verify Claude agent hook settings without touching global files:
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:tagliatelle,gocognit,nestif,lll // External checker schemas and diagnostics.
+//nolint:gocognit,lll // Type-check orchestration has several tool paths.
 package main
 
 import (
@@ -17,11 +17,14 @@ import (
 	"sync"
 	"time"
 
+	diag "blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 	"github.com/pelletier/go-toml/v2"
 )
 
 type typeCheckerConfig struct {
 	Name                 string
+	Parser               string
 	RepoConfig           string
 	FallbackBundleConfig string
 	Command              []string
@@ -36,17 +39,17 @@ type typeCheckSettings struct {
 	ConsumerRoot          string
 	HooksProject          string
 	Checkers              []typeCheckerConfig
-	EvidenceMaps          []policyEvidenceMap
+	EvidenceMaps          []diag.EvidenceMap
 	ExcludedPathFragments []string
 	Enabled               bool
 }
 
 type typeCheckResult struct {
-	Name        string                `json:"name"`
-	Output      string                `json:"output,omitempty"`
-	Diagnostics []typeCheckDiagnostic `json:"diagnostics,omitempty"`
-	ExitCode    int                   `json:"exit_code"`
-	DurationMS  float64               `json:"duration_ms"`
+	Name        string            `json:"name"`
+	Output      string            `json:"output,omitempty"`
+	Diagnostics []diag.Diagnostic `json:"diagnostics,omitempty"`
+	ExitCode    int               `json:"exit_code"`
+	DurationMS  float64           `json:"duration_ms"`
 }
 
 type typeCheckSummary struct {
@@ -59,102 +62,179 @@ type typeCheckSummary struct {
 	Duration  float64           `json:"duration_ms"`
 }
 
-type typeCheckDiagnostic struct {
-	Checker      string   `json:"checker"`
-	File         string   `json:"file"`
-	Severity     string   `json:"severity"`
-	Code         string   `json:"code,omitempty"`
-	Message      string   `json:"message"`
-	PolicyID     string   `json:"policy_id,omitempty"`
-	Confidence   string   `json:"confidence,omitempty"`
-	Meaning      string   `json:"meaning,omitempty"`
-	Advice       string   `json:"advice,omitempty"`
-	PrincipleIDs []string `json:"principle_ids,omitempty"`
-	AdviceSteps  []string `json:"advice_steps,omitempty"`
-	Rerun        []string `json:"rerun,omitempty"`
-	Line         int      `json:"line,omitempty"`
-	Column       int      `json:"column,omitempty"`
-}
-
-type policyEvidenceAdvice struct {
-	Summary string
-	Steps   []string
-	Rerun   []string
-}
-
-type policyEvidenceMap struct {
-	Advice       policyEvidenceAdvice
-	Source       string
-	PolicyID     string
-	Confidence   string
-	Meaning      string
-	Codes        []string
-	PrincipleIDs []string
-}
-
 func defaultTypeCheckers() []typeCheckerConfig {
-	return []typeCheckerConfig{
-		{
-			Name:                 "ruff",
-			Command:              []string{"ruff", "check", "--quiet", "--ignore-noqa", "--output-format", "json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--config"},
-			RepoConfig:           "ruff.toml",
-			FallbackBundleConfig: "",
-			Enabled:              true,
-		},
-		{
-			Name:                 "pyright",
-			Command:              []string{"pyright", "--outputjson"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--project", "-p"},
-			RepoConfig:           "pyrightconfig.json",
-			FallbackBundleConfig: "hooks/pyproject.toml",
-			Enabled:              true,
-		},
-		{
-			Name:                 "mypy",
-			Command:              []string{"mypy", "--output", "json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--config-file"},
-			RepoConfig:           "mypy.ini",
-			FallbackBundleConfig: "hooks/pyproject.toml",
-			Enabled:              true,
-		},
-		{
-			Name:                 "pylint",
-			Command:              []string{"pylint", "--output-format=json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--rcfile"},
-			RepoConfig:           ".pylintrc",
-			FallbackBundleConfig: "",
-			Enabled:              false,
+	tools := toolcatalog.PythonStaticTools()
+
+	checkers := make([]typeCheckerConfig, 0, len(tools))
+	for _, tool := range tools {
+		checkers = append(checkers, typeCheckerFromCatalog(tool))
+	}
+
+	return checkers
+}
+
+func typeCheckerFromCatalog(tool toolcatalog.Tool) typeCheckerConfig {
+	return typeCheckerConfig{
+		Name:                 tool.Name,
+		Parser:               tool.Parser,
+		Command:              append([]string(nil), tool.Command...),
+		PassFilesAsArgs:      tool.PassFilesAsArgs,
+		UseHookProject:       tool.UseHookProject,
+		ConfigFlags:          append([]string(nil), tool.ConfigFlags...),
+		RepoConfig:           tool.RepoConfig,
+		FallbackBundleConfig: tool.FallbackBundleConfig,
+		Enabled:              tool.EnabledByDefault,
+	}
+}
+
+func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
+	return []diag.EvidenceMap{
+		defaultRuffEvidenceMap(),
+		defaultMypyEvidenceMap(),
+		defaultShellcheckEvidenceMap(),
+		defaultYamllintEvidenceMap(),
+		defaultHadolintEvidenceMap(),
+		defaultActionlintEvidenceMap(),
+		defaultGolangciEvidenceMap(),
+	}
+}
+
+func defaultRuffEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "ruff",
+		Codes:        []string{"PLC0415"},
+		PolicyID:     "python.conditional_imports",
+		PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
+		Confidence:   "high",
+		Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Move required imports to module scope and fail during startup.",
+			Steps: []string{
+				"Declare the dependency as required.",
+				"Import it at module scope.",
+				"Replace runtime fallback paths with startup validation.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }
 
-func defaultPolicyEvidenceMaps() []policyEvidenceMap {
-	return []policyEvidenceMap{
-		{
-			Source:       "ruff",
-			Codes:        []string{"PLC0415"},
-			PolicyID:     "python.conditional_imports",
-			PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
-			Confidence:   "high",
-			Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
-			Advice: policyEvidenceAdvice{
-				Summary: "Move required imports to module scope and fail during startup.",
-				Steps: []string{
-					"Declare the dependency as required.",
-					"Import it at module scope.",
-					"Replace runtime fallback paths with startup validation.",
-				},
-				Rerun: []string{"make pre-commit", "make check"},
+func defaultMypyEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "mypy",
+		Codes:        []string{"no-any-return"},
+		PolicyID:     "python.optional_returns",
+		PrincipleIDs: []string{"no-optional-types-for-required-dependencies"},
+		Confidence:   "medium",
+		Meaning:      "A required return path is leaking Any instead of a precise type.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Replace Any return flow with an explicit required type.",
+			Steps: []string{
+				"Identify the source of Any.",
+				"Add the missing annotation or typed adapter at the boundary.",
+				"Keep required dependencies non-optional.",
 			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultShellcheckEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "shellcheck",
+		Codes:        []string{"SC*"},
+		PolicyID:     "shell.static_analysis",
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		Confidence:   "medium",
+		Meaning:      "Shellcheck found fragile or ambiguous shell behavior.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix the shell script structure instead of suppressing ShellCheck.",
+			Steps: []string{
+				"Quote expansions and make data flow explicit.",
+				"Prefer arrays and checked commands over stringly shell assembly.",
+				"Keep shell behavior deterministic under strict mode.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultYamllintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "yamllint",
+		Codes:        []string{"indentation", "truthy"},
+		PolicyID:     "yaml.config_clarity",
+		PrincipleIDs: []string{"validation-at-the-gate"},
+		Confidence:   "medium",
+		Meaning:      "YAML structure or scalar spelling is ambiguous for configuration.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Make YAML configuration explicit and parser-stable.",
+			Steps: []string{
+				"Fix indentation to match the intended structure.",
+				"Quote ambiguous scalars when the value is meant to be a string.",
+				"Keep configuration readable enough to review in diffs.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultHadolintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "hadolint",
+		Codes:        []string{"DL*"},
+		PolicyID:     "docker.reproducible_builds",
+		PrincipleIDs: []string{"security-by-design"},
+		Confidence:   "medium",
+		Meaning:      "Dockerfile instructions weaken reproducibility or container safety.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Make the container build deterministic and least-privilege.",
+			Steps: []string{
+				"Pin package versions where practical.",
+				"Avoid broad shell pipelines that hide failures.",
+				"Prefer explicit users, trusted sources, and minimal layers.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultActionlintEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "actionlint",
+		Codes:        []string{"*"},
+		PolicyID:     "workflow.validation",
+		PrincipleIDs: []string{"validation-at-the-gate"},
+		Confidence:   "high",
+		Meaning:      "GitHub Actions workflow syntax or expression behavior is invalid.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix workflow definitions before relying on CI as a quality gate.",
+			Steps: []string{
+				"Validate expressions, job wiring, and event-specific context.",
+				"Keep workflow behavior explicit instead of runtime surprises.",
+				"Re-run the workflow hook locally before pushing.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultGolangciEvidenceMap() diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:       "golangci-lint",
+		Codes:        []string{"errcheck", "gosec", "staticcheck", "revive"},
+		PolicyID:     "go.static_analysis",
+		PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		Confidence:   "high",
+		Meaning:      "Go static analysis found correctness, security, or maintainability risk.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Fix the Go issue structurally and keep golangci-lint blocking.",
+			Steps: []string{
+				"Handle errors explicitly.",
+				"Remove suspicious or insecure constructs instead of suppressing them.",
+				"Prefer a small refactor over weakening lint coverage.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }
@@ -189,14 +269,7 @@ func loadTypeCheckSettings() (typeCheckSettings, error) {
 		settings.ExcludedPathFragments = []string{"/docker/", "vulture_whitelist"}
 	}
 
-	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &settings.EvidenceMaps)
-	if err != nil {
-		return settings, fmt.Errorf("parse policy evidence maps: %w", err)
-	}
-
-	if len(settings.EvidenceMaps) == 0 {
-		settings.EvidenceMaps = defaultPolicyEvidenceMaps()
-	}
+	settings.EvidenceMaps = loadHookEvidenceMaps()
 
 	for checkerIndex := range settings.Checkers {
 		applyTypeCheckerDefaults(&settings.Checkers[checkerIndex], rootConfig)
@@ -210,10 +283,23 @@ func applyTypeCheckerDefaults(
 	rootConfig map[string]any,
 ) {
 	defaultChecker, hasDefault := defaultTypeCheckerByName(checker.Name)
+	if checker.Parser == "" && hasDefault {
+		checker.Parser = defaultChecker.Parser
+	}
+
 	if len(checker.Command) == 0 && hasDefault {
 		checker.Command = append([]string{}, defaultChecker.Command...)
 	}
 
+	applyTypeCheckerBooleanDefaults(checker, rootConfig)
+	applyTypeCheckerConfigDefaults(checker, defaultChecker, hasDefault)
+	applyTypeCheckerEnabledDefault(checker, rootConfig, defaultChecker, hasDefault)
+}
+
+func applyTypeCheckerBooleanDefaults(
+	checker *typeCheckerConfig,
+	rootConfig map[string]any,
+) {
 	if shouldDefaultTypeCheckerField(
 		*checker,
 		rootConfig,
@@ -225,18 +311,33 @@ func applyTypeCheckerDefaults(
 	if shouldDefaultTypeCheckerField(*checker, rootConfig, "use_hook_project") {
 		checker.UseHookProject = true
 	}
+}
 
-	if len(checker.ConfigFlags) == 0 && hasDefault {
-		checker.ConfigFlags = append([]string{}, defaultChecker.ConfigFlags...)
-		if checker.RepoConfig == "" {
-			checker.RepoConfig = defaultChecker.RepoConfig
-		}
-
-		if checker.FallbackBundleConfig == "" {
-			checker.FallbackBundleConfig = defaultChecker.FallbackBundleConfig
-		}
+func applyTypeCheckerConfigDefaults(
+	checker *typeCheckerConfig,
+	defaultChecker typeCheckerConfig,
+	hasDefault bool,
+) {
+	if len(checker.ConfigFlags) != 0 || !hasDefault {
+		return
 	}
 
+	checker.ConfigFlags = append([]string{}, defaultChecker.ConfigFlags...)
+	if checker.RepoConfig == "" {
+		checker.RepoConfig = defaultChecker.RepoConfig
+	}
+
+	if checker.FallbackBundleConfig == "" {
+		checker.FallbackBundleConfig = defaultChecker.FallbackBundleConfig
+	}
+}
+
+func applyTypeCheckerEnabledDefault(
+	checker *typeCheckerConfig,
+	rootConfig map[string]any,
+	defaultChecker typeCheckerConfig,
+	hasDefault bool,
+) {
 	if !fieldPresentInTypeCheckerConfig(rootConfig, checker.Name, "enabled") {
 		checker.Enabled = true
 		if hasDefault {
@@ -585,8 +686,8 @@ func runTypeChecker(
 		Command: command,
 	})
 	outputText := toolResult.Combined
-	diagnostics := parseTypeCheckDiagnostics(checker.Name, outputText)
-	diagnostics = enrichTypeCheckDiagnostics(diagnostics, settings.EvidenceMaps)
+	diagnostics := diag.Parse(defaultString(checker.Parser, checker.Name), outputText, "")
+	diagnostics = diag.Enrich(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())
 	if toolResult.RunnerFailure == nil && toolResult.ExitCode == 0 {
@@ -615,240 +716,6 @@ func runTypeChecker(
 		Output:     fmt.Sprintf("Error running %s: %v", checker.Name, toolResult.RunnerFailure),
 		DurationMS: duration,
 	}
-}
-
-func parseTypeCheckDiagnostics(checker string, output string) []typeCheckDiagnostic {
-	if strings.TrimSpace(output) == "" {
-		return nil
-	}
-
-	switch checker {
-	case "ruff":
-		return parseRuffDiagnostics(output)
-	case "pyright":
-		return parsePyrightDiagnostics(output)
-	case "mypy":
-		return parseMypyDiagnostics(output)
-	case "pylint":
-		return parsePylintDiagnostics(output)
-	default:
-		return nil
-	}
-}
-
-func parseRuffDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		Filename string `json:"filename"`
-		Code     string `json:"code"`
-		Message  string `json:"message"`
-		Location struct {
-			Row    int `json:"row"`
-			Column int `json:"column"`
-		} `json:"location"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "ruff",
-			File:     item.Filename,
-			Severity: "error",
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Location.Row,
-			Column:   item.Location.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parsePyrightDiagnostics(output string) []typeCheckDiagnostic {
-	var payload struct {
-		GeneralDiagnostics []struct {
-			File     string `json:"file"`
-			Severity string `json:"severity"`
-			Message  string `json:"message"`
-			Rule     string `json:"rule"`
-			Range    struct {
-				Start struct {
-					Line      int `json:"line"`
-					Character int `json:"character"`
-				} `json:"start"`
-			} `json:"range"`
-		} `json:"generalDiagnostics"`
-	}
-
-	err := json.Unmarshal([]byte(output), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(payload.GeneralDiagnostics))
-	for _, item := range payload.GeneralDiagnostics {
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "pyright",
-			File:     item.File,
-			Severity: item.Severity,
-			Code:     item.Rule,
-			Message:  item.Message,
-			Line:     item.Range.Start.Line + 1,
-			Column:   item.Range.Start.Character + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseMypyDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		File     string `json:"file"`
-		Path     string `json:"path"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
-		Code     string `json:"code"`
-		Line     int    `json:"line"`
-		Column   int    `json:"column"`
-	}
-
-	trimmedOutput := strings.TrimSpace(output)
-	if strings.HasPrefix(trimmedOutput, "[") {
-		err := json.Unmarshal([]byte(trimmedOutput), &items)
-		if err != nil {
-			return nil
-		}
-	} else {
-		for line := range strings.SplitSeq(trimmedOutput, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-
-			var item struct {
-				File     string `json:"file"`
-				Path     string `json:"path"`
-				Severity string `json:"severity"`
-				Message  string `json:"message"`
-				Code     string `json:"code"`
-				Line     int    `json:"line"`
-				Column   int    `json:"column"`
-			}
-
-			err := json.Unmarshal([]byte(line), &item)
-			if err != nil {
-				return nil
-			}
-
-			items = append(items, item)
-		}
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		file := item.File
-		if file == "" {
-			file = item.Path
-		}
-
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "mypy",
-			File:     file,
-			Severity: item.Severity,
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parsePylintDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		Path      string `json:"path"`
-		Type      string `json:"type"`
-		Symbol    string `json:"symbol"`
-		MessageID string `json:"message-id"`
-		Message   string `json:"message"`
-		Line      int    `json:"line"`
-		Column    int    `json:"column"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		code := item.Symbol
-		if code == "" {
-			code = item.MessageID
-		}
-
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "pylint",
-			File:     item.Path,
-			Severity: item.Type,
-			Code:     code,
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func enrichTypeCheckDiagnostics(
-	diagnostics []typeCheckDiagnostic,
-	evidenceMaps []policyEvidenceMap,
-) []typeCheckDiagnostic {
-	if len(diagnostics) == 0 || len(evidenceMaps) == 0 {
-		return diagnostics
-	}
-
-	enriched := make([]typeCheckDiagnostic, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		mapping, ok := evidenceMapForDiagnostic(diagnostic, evidenceMaps)
-		if ok {
-			diagnostic.PolicyID = mapping.PolicyID
-			diagnostic.PrincipleIDs = append([]string{}, mapping.PrincipleIDs...)
-			diagnostic.Confidence = mapping.Confidence
-			diagnostic.Meaning = mapping.Meaning
-			diagnostic.Advice = mapping.Advice.Summary
-			diagnostic.AdviceSteps = append([]string{}, mapping.Advice.Steps...)
-			diagnostic.Rerun = append([]string{}, mapping.Advice.Rerun...)
-		}
-
-		enriched = append(enriched, diagnostic)
-	}
-
-	return enriched
-}
-
-func evidenceMapForDiagnostic(
-	diagnostic typeCheckDiagnostic,
-	evidenceMaps []policyEvidenceMap,
-) (policyEvidenceMap, bool) {
-	for _, mapping := range evidenceMaps {
-		if !strings.EqualFold(strings.TrimSpace(mapping.Source), diagnostic.Checker) {
-			continue
-		}
-
-		for _, code := range mapping.Codes {
-			if strings.EqualFold(strings.TrimSpace(code), strings.TrimSpace(diagnostic.Code)) {
-				return mapping, true
-			}
-		}
-	}
-
-	return policyEvidenceMap{}, false
 }
 
 func typeCheckSummaryForResults(
@@ -955,7 +822,7 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 				lines,
 				fmt.Sprintf(
 					"  %s,%s,%d,%d,%s,%s,%s,%s,%s",
-					toonCell(diagnostic.Checker),
+					toonCell(diagnostic.Tool),
 					toonCell(diagnostic.File),
 					diagnostic.Line,
 					diagnostic.Column,
@@ -988,8 +855,8 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 
 func typeCheckDiagnosticsForResults(
 	results []typeCheckResult,
-) []typeCheckDiagnostic {
-	diagnostics := []typeCheckDiagnostic{}
+) []diag.Diagnostic {
+	diagnostics := []diag.Diagnostic{}
 	for _, result := range results {
 		diagnostics = append(diagnostics, result.Diagnostics...)
 	}
@@ -1007,7 +874,7 @@ func typeCheckDiagnosticsForResults(
 			return diagnostics[left].Column < diagnostics[right].Column
 		}
 
-		return diagnostics[left].Checker < diagnostics[right].Checker
+		return diagnostics[left].Tool < diagnostics[right].Tool
 	})
 
 	return diagnostics
@@ -1110,8 +977,8 @@ func formatTypeCheckResultsHuman(results []typeCheckResult, fileCount int) strin
 	return strings.Join(lines, "\n")
 }
 
-func formatTypeCheckDiagnostics(diagnostics []typeCheckDiagnostic) []string {
-	grouped := map[string][]typeCheckDiagnostic{}
+func formatTypeCheckDiagnostics(diagnostics []diag.Diagnostic) []string {
+	grouped := map[string][]diag.Diagnostic{}
 	files := []string{}
 
 	for _, diagnostic := range diagnostics {

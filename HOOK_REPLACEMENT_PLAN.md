@@ -74,6 +74,8 @@ Runtime covered in Go agent-hook code:
 - `python.direct_imports`
 - `python.bare_except`
 - `python.unexplained_type_ignore`
+- `pytest.gate`
+- `generated_config.freshness`
 - Post-tool hook output feedback for git hook commands
 - Pre-compact deterministic continuation capture
 - Compact session-start deterministic continuation replay
@@ -101,9 +103,19 @@ inventory used to keep the migration status explicit.
   enablement are compiled from `config.yaml`/repo override data. Remaining
   config work is to broaden that pattern to every evaluator as it moves into
   compiled policy.
-- External tool-backed policies such as pytest gating and generated-config
-  freshness are compiled as policy data but are not dispatched by
-  `coding-ethos-lint` until executable evaluators exist.
+- External tool-backed policies for pytest gating and generated-config
+  freshness now dispatch through `coding-ethos-lint` smoke/full scopes. Future
+  work should expand this pattern into typed tool metadata. The shared
+  diagnostic model and first parser registry now normalize Ruff, Pyright, mypy,
+  Pylint, golangci-lint, and fallback `file:line:column` output for compiled
+  external evaluator results. Compiled `policy.evidence_maps` enrich known
+  diagnostic codes with ETHOS policy IDs, principles, confidence, meaning, and
+  repair advice while preserving unmapped diagnostics. The bundled Python
+  type-check hook now uses the same shared parser and enrichment package instead
+  of maintaining a private duplicate parser stack.
+- Python static-tool defaults now come from a shared typed Go tool catalog.
+  This is the first step toward moving shellcheck, yamllint, golangci-lint,
+  actionlint, hadolint, and other hook tools into data-driven runtime metadata.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.

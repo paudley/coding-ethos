@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -50,7 +51,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		)
 	}
 
-	policies := compilePolicies(configPayload, principles)
+	policies := compilePolicies(configPayload, principles, sourceRoot(options.Config))
 	if len(policies) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile policies: %w in %s",
@@ -81,6 +82,10 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		Principles: principles,
 		Policies:   policies,
 		Dispatch:   compileDispatch(policies),
+		EvidenceMaps: compileEvidenceMaps(
+			configPayload,
+			principles,
+		),
 	}
 
 	err = bundle.Validate()
@@ -110,6 +115,15 @@ func normalizedCompileOptions(options CompileOptions) CompileOptions {
 	}
 
 	return options
+}
+
+func sourceRoot(path string) string {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Dir(path)
+	}
+
+	return filepath.Dir(absolutePath)
 }
 
 func compileInputs(
@@ -229,13 +243,14 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 func compilePolicies(
 	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) map[string]Policy {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
-	addGeneratedConfigPolicy(policies, principles)
+	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 
 	return policies
 }
@@ -245,7 +260,7 @@ func addConfiguredPythonPolicies(
 	config map[string]any,
 	principles map[string]Principle,
 ) {
-	for _, spec := range pythonPolicySpecs(principles) {
+	for _, spec := range pythonPolicySpecs(config, principles) {
 		addPolicyIfEnabled(
 			policies,
 			config,
@@ -263,7 +278,10 @@ type compiledPolicySpec struct {
 	EnabledPath []string
 }
 
-func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
+func pythonPolicySpecs(
+	config map[string]any,
+	principles map[string]Principle,
+) []compiledPolicySpec {
 	return []compiledPolicySpec{
 		pythonPolicySpec(
 			"python.conditional_imports",
@@ -304,7 +322,7 @@ func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
 			[]string{"python", "comment_suppressions"},
 			principleRefs(principles, "linting-as-code-quality-enforcement"),
 		),
-		pytestGatePolicySpec(principles),
+		pytestGatePolicySpec(config, principles),
 	}
 }
 
@@ -333,7 +351,16 @@ func pythonPolicySpec(
 	return compiledPolicySpec{ID: policyID, EnabledPath: enabledPath, Policy: policy}
 }
 
-func pytestGatePolicySpec(principles map[string]Principle) compiledPolicySpec {
+func pytestGatePolicySpec(
+	config map[string]any,
+	principles map[string]Principle,
+) compiledPolicySpec {
+	command := stringSliceAt(
+		config,
+		[]string{"python", "pytest_gate", "test_command"},
+		[]string{"pytest"},
+	)
+
 	policy := Policy{
 		ID:              "pytest.gate",
 		Category:        "pytest",
@@ -345,7 +372,11 @@ func pytestGatePolicySpec(principles map[string]Principle) compiledPolicySpec {
 		Suggestion:      "Run the configured pytest gate and address failures.",
 		DefenseLayers:   PytestDefenseLayers(),
 		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "external", Name: "pytest.gate"}},
+		Evaluators: []Evaluator{{
+			Kind:    "external",
+			Name:    "pytest.gate",
+			Options: map[string]any{"command": command},
+		}},
 	}
 
 	return compiledPolicySpec{
@@ -837,8 +868,20 @@ func filesystemProtectedBranchWritePolicy(
 
 func addGeneratedConfigPolicy(
 	policies map[string]Policy,
+	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) {
+	if !policyConfigEnabled(config, "generated_config.freshness") {
+		return
+	}
+
+	command := stringSliceAt(
+		config,
+		[]string{"generated_config", "freshness", "check_command"},
+		defaultGeneratedConfigCheckCommand(configSourceRoot),
+	)
+
 	policies["generated_config.freshness"] = Policy{
 		ID:       "generated_config.freshness",
 		Category: "config",
@@ -861,8 +904,273 @@ func addGeneratedConfigPolicy(
 			},
 		},
 		Evaluators: []Evaluator{
-			{Kind: "config", Name: "generated_config.freshness"},
+			{
+				Kind:    "config",
+				Name:    "generated_config.freshness",
+				Options: map[string]any{"command": command},
+			},
 		},
+	}
+}
+
+func compileEvidenceMaps(
+	config map[string]any,
+	principles map[string]Principle,
+) []diagnostics.EvidenceMap {
+	raw, exists := valueAt(config, "policy", "evidence_maps")
+	if !exists {
+		return defaultEvidenceMaps(principles)
+	}
+
+	rawItems, ok := raw.([]any)
+	if !ok || len(rawItems) == 0 {
+		return defaultEvidenceMaps(principles)
+	}
+
+	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		maps = append(maps, evidenceMapFromConfig(item))
+	}
+
+	if len(maps) == 0 {
+		return defaultEvidenceMaps(principles)
+	}
+
+	return maps
+}
+
+func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:       stringAt(item, "source"),
+		Codes:        stringSliceAt(item, []string{"codes"}, nil),
+		PolicyID:     stringAt(item, "policy_id"),
+		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
+		Confidence:   stringAt(item, "confidence"),
+		Meaning:      stringAt(item, "meaning"),
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: stringAt(item, "advice", "summary"),
+			Steps:   stringSliceAt(item, []string{"advice", "steps"}, nil),
+			Rerun:   stringSliceAt(item, []string{"advice", "rerun"}, nil),
+		},
+	}
+}
+
+func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
+	return []diagnostics.EvidenceMap{
+		defaultRuffEvidenceMap(principles),
+		defaultMypyEvidenceMap(principles),
+		defaultShellcheckEvidenceMap(principles),
+		defaultYamllintEvidenceMap(principles),
+		defaultHadolintEvidenceMap(principles),
+		defaultActionlintEvidenceMap(principles),
+		defaultGolangciEvidenceMap(principles),
+	}
+}
+
+func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"PLC0415"},
+		PolicyID: "python.conditional_imports",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-conditional-imports",
+			"fail-fast-fail-hard-overview",
+		),
+		Confidence: "high",
+		Meaning: "Import executes away from module scope, usually inside " +
+			"runtime control flow.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Move required imports to module scope and fail during startup.",
+			Steps: []string{
+				"Declare the dependency as required.",
+				"Import it at module scope.",
+				"Replace runtime fallback paths with startup validation.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultMypyEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "mypy",
+		Codes:    []string{"no-any-return"},
+		PolicyID: "python.optional_returns",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "medium",
+		Meaning:    "A required return path is leaking Any instead of a precise type.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Replace Any return flow with an explicit required type.",
+			Steps: []string{
+				"Identify the source of Any.",
+				"Add the missing annotation or typed adapter at the boundary.",
+				"Keep required dependencies non-optional.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultShellcheckEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "shellcheck",
+		Codes:    []string{"SC*"},
+		PolicyID: "shell.static_analysis",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "medium",
+		Meaning:    "Shellcheck found fragile or ambiguous shell behavior.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the shell script structure instead of suppressing ShellCheck.",
+			Steps: []string{
+				"Quote expansions and make data flow explicit.",
+				"Prefer arrays and checked commands over stringly shell assembly.",
+				"Keep shell behavior deterministic under strict mode.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultYamllintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "yamllint",
+		Codes:    []string{"indentation", "truthy"},
+		PolicyID: "yaml.config_clarity",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning: "YAML structure or scalar spelling is ambiguous for " +
+			"configuration.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make YAML configuration explicit and parser-stable.",
+			Steps: []string{
+				"Fix indentation to match the intended structure.",
+				"Quote ambiguous scalars when the value is meant to be a string.",
+				"Keep configuration readable enough to review in diffs.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultHadolintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "hadolint",
+		Codes:    []string{"DL*"},
+		PolicyID: "docker.reproducible_builds",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"evidence-based-engineering-and-decision-quality",
+		),
+		Confidence: "medium",
+		Meaning: "Dockerfile instructions weaken reproducibility or " +
+			"container safety.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the container build deterministic and least-privilege.",
+			Steps: []string{
+				"Pin package versions where practical.",
+				"Avoid broad shell pipelines that hide failures.",
+				"Prefer explicit users, trusted sources, and minimal layers.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultActionlintEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "actionlint",
+		Codes:    []string{"*"},
+		PolicyID: "workflow.validation",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"testing-as-specification",
+		),
+		Confidence: "high",
+		Meaning: "GitHub Actions workflow syntax or expression behavior " +
+			"is invalid.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix workflow definitions before relying on CI as a quality gate.",
+			Steps: []string{
+				"Validate expressions, job wiring, and event-specific context.",
+				"Keep workflow behavior explicit instead of runtime surprises.",
+				"Re-run the workflow hook locally before pushing.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultGolangciEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "golangci-lint",
+		Codes: []string{
+			"errcheck",
+			"gosec",
+			"staticcheck",
+			"revive",
+		},
+		PolicyID: "go.static_analysis",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"linting-as-code-quality-enforcement",
+		),
+		Confidence: "high",
+		Meaning: "Go static analysis found correctness, security, or " +
+			"maintainability risk.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the Go issue structurally and keep golangci-lint blocking.",
+			Steps: []string{
+				"Handle errors explicitly.",
+				"Remove suspicious or insecure constructs instead of suppressing them.",
+				"Prefer a small refactor over weakening lint coverage.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
+	return []string{
+		"uv",
+		"run",
+		"--project",
+		configSourceRoot,
+		"python",
+		filepath.Join(configSourceRoot, "main.py"),
+		"--repo",
+		".",
+		"--check-tool-configs",
 	}
 }
 
@@ -1079,6 +1387,16 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.bare_except",
 			"python.unexplained_type_ignore",
 		),
+		"smoke": existingPolicyIDs(
+			policies,
+			"generated_config.freshness",
+			"pytest.gate",
+		),
+		"full": existingPolicyIDs(
+			policies,
+			"generated_config.freshness",
+			"pytest.gate",
+		),
 	}
 
 	return linter
@@ -1202,6 +1520,20 @@ func stringSliceAt(
 	}
 
 	return items
+}
+
+func stringAt(values map[string]any, path ...string) string {
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return ""
+	}
+
+	stringValue, ok := value.(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(stringValue)
 }
 
 func policyConfigEnabled(values map[string]any, policyID string) bool {

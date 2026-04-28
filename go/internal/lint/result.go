@@ -3,13 +3,17 @@
 
 package lint
 
-import "blackcat.ca/coding-ethos/go/internal/policy"
+import (
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+)
 
 type Result struct {
-	Scope     string            `json:"scope"`
-	Status    string            `json:"status"`
-	Decisions []policy.Decision `json:"decisions"`
-	Files     []string          `json:"files,omitempty"`
+	Scope       string                   `json:"scope"`
+	Status      string                   `json:"status"`
+	Decisions   []policy.Decision        `json:"decisions"`
+	Diagnostics []diagnostics.Diagnostic `json:"diagnostics,omitempty"`
+	Files       []string                 `json:"files,omitempty"`
 }
 
 func (result Result) Blocked() bool {

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	diag "blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 func stringSliceContains(values []string, want string) bool {
@@ -116,6 +118,18 @@ func TestDefaultTypeCheckersRequestJsonOutput(t *testing.T) {
 	}
 }
 
+func TestDefaultTypeCheckersCarryParserNames(t *testing.T) {
+	t.Parallel()
+
+	checkers := defaultTypeCheckers()
+
+	for _, checker := range checkers {
+		if checker.Parser == "" {
+			t.Fatalf("checker %q missing parser: %#v", checker.Name, checker)
+		}
+	}
+}
+
 func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
 	t.Parallel()
 
@@ -146,14 +160,14 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 		name    string
 		checker string
 		output  string
-		want    typeCheckDiagnostic
+		want    diag.Diagnostic
 	}{
 		{
 			name:    "ruff",
 			checker: "ruff",
 			output:  `[{"filename":"pkg/app.py","code":"F401","message":"unused import","location":{"row":3,"column":5}}]`,
-			want: typeCheckDiagnostic{
-				Checker:  "ruff",
+			want: diag.Diagnostic{
+				Tool:     "ruff",
 				File:     "pkg/app.py",
 				Severity: "error",
 				Code:     "F401",
@@ -166,8 +180,8 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 			name:    "pyright",
 			checker: "pyright",
 			output:  `{"generalDiagnostics":[{"file":"pkg/app.py","severity":"error","message":"bad type","rule":"reportAssignmentType","range":{"start":{"line":4,"character":2}}}]}`,
-			want: typeCheckDiagnostic{
-				Checker:  "pyright",
+			want: diag.Diagnostic{
+				Tool:     "pyright",
 				File:     "pkg/app.py",
 				Severity: "error",
 				Code:     "reportAssignmentType",
@@ -180,8 +194,8 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 			name:    "mypy",
 			checker: "mypy",
 			output:  `{"file":"pkg/app.py","line":7,"column":1,"message":"missing type","code":"no-untyped-def","severity":"error"}`,
-			want: typeCheckDiagnostic{
-				Checker:  "mypy",
+			want: diag.Diagnostic{
+				Tool:     "mypy",
 				File:     "pkg/app.py",
 				Severity: "error",
 				Code:     "no-untyped-def",
@@ -194,8 +208,8 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 			name:    "pylint",
 			checker: "pylint",
 			output:  `[{"path":"pkg/app.py","type":"convention","symbol":"missing-function-docstring","message":"Missing function or method docstring","line":11,"column":0}]`,
-			want: typeCheckDiagnostic{
-				Checker:  "pylint",
+			want: diag.Diagnostic{
+				Tool:     "pylint",
 				File:     "pkg/app.py",
 				Severity: "convention",
 				Code:     "missing-function-docstring",
@@ -207,13 +221,13 @@ func TestParseTypeCheckDiagnostics(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseTypeCheckDiagnostics(tc.checker, tc.output)
+			got := diag.Parse(tc.checker, tc.output, "")
 			if len(got) != 1 {
-				t.Fatalf("parseTypeCheckDiagnostics() = %#v, want one diagnostic", got)
+				t.Fatalf("diagnostics.Parse() = %#v, want one diagnostic", got)
 			}
 
 			if !reflect.DeepEqual(got[0], tc.want) {
-				t.Fatalf("parseTypeCheckDiagnostics()[0] = %#v, want %#v", got[0], tc.want)
+				t.Fatalf("diagnostics.Parse()[0] = %#v, want %#v", got[0], tc.want)
 			}
 		})
 	}
@@ -227,9 +241,9 @@ func TestFormatTypeCheckResultsGroupsDiagnosticsByFile(t *testing.T) {
 			{
 				Name:     "ruff",
 				ExitCode: 1,
-				Diagnostics: []typeCheckDiagnostic{
+				Diagnostics: []diag.Diagnostic{
 					{
-						Checker:  "ruff",
+						Tool:     "ruff",
 						File:     "pkg/a.py",
 						Severity: "error",
 						Code:     "F401",
@@ -238,7 +252,7 @@ func TestFormatTypeCheckResultsGroupsDiagnosticsByFile(t *testing.T) {
 						Column:   1,
 					},
 					{
-						Checker:  "ruff",
+						Tool:     "ruff",
 						File:     "pkg/b.py",
 						Severity: "error",
 						Code:     "F821",
@@ -273,9 +287,9 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 				Name:       "mypy",
 				ExitCode:   1,
 				DurationMS: 12,
-				Diagnostics: []typeCheckDiagnostic{
+				Diagnostics: []diag.Diagnostic{
 					{
-						Checker:  "mypy",
+						Tool:     "mypy",
 						File:     "pkg/app.py",
 						Severity: "error",
 						Code:     "no-any-return",
@@ -305,18 +319,18 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 	t.Parallel()
 
-	diagnostics := enrichTypeCheckDiagnostics(
-		[]typeCheckDiagnostic{
+	diagnostics := diag.Enrich(
+		[]diag.Diagnostic{
 			{
-				Checker: "ruff",
-				Code:    "PLC0415",
+				Tool: "ruff",
+				Code: "PLC0415",
 			},
 			{
-				Checker: "ruff",
-				Code:    "F401",
+				Tool: "ruff",
+				Code: "F401",
 			},
 		},
-		[]policyEvidenceMap{
+		[]diag.EvidenceMap{
 			{
 				Source:       "ruff",
 				Codes:        []string{"PLC0415"},
@@ -324,7 +338,7 @@ func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 				PrincipleIDs: []string{"no-conditional-imports"},
 				Confidence:   "high",
 				Meaning:      "import away from module scope",
-				Advice: policyEvidenceAdvice{
+				Advice: diag.EvidenceAdvice{
 					Summary: "Move required imports to module scope.",
 					Steps:   []string{"Import at module scope."},
 					Rerun:   []string{"make pre-commit"},

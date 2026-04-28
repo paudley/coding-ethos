@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -79,12 +80,32 @@ func RunWithRegistry(
 		decisions = append(decisions, evaluated...)
 	}
 
+	decisions = enrichDecisionDiagnostics(decisions, bundle.EvidenceMaps)
+
 	return Result{
-		Scope:     scope,
-		Files:     append([]string(nil), options.Files...),
-		Status:    resultStatus(decisions),
-		Decisions: decisions,
+		Scope:       scope,
+		Files:       append([]string(nil), options.Files...),
+		Status:      resultStatus(decisions),
+		Decisions:   decisions,
+		Diagnostics: diagnosticsFromDecisions(decisions),
 	}, nil
+}
+
+func enrichDecisionDiagnostics(
+	decisions []policy.Decision,
+	evidenceMaps []diagnostics.EvidenceMap,
+) []policy.Decision {
+	if len(decisions) == 0 || len(evidenceMaps) == 0 {
+		return decisions
+	}
+
+	enriched := make([]policy.Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		decision.Diagnostics = diagnostics.Enrich(decision.Diagnostics, evidenceMaps)
+		enriched = append(enriched, decision)
+	}
+
+	return enriched
 }
 
 func evaluatePolicy(
@@ -164,6 +185,15 @@ func resultStatus(decisions []policy.Decision) string {
 	}
 
 	return statusResolved
+}
+
+func diagnosticsFromDecisions(decisions []policy.Decision) []diagnostics.Diagnostic {
+	diagnosticItems := []diagnostics.Diagnostic{}
+	for _, decision := range decisions {
+		diagnosticItems = append(diagnosticItems, decision.Diagnostics...)
+	}
+
+	return diagnosticItems
 }
 
 func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {

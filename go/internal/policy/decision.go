@@ -3,14 +3,17 @@
 
 package policy
 
+import "blackcat.ca/coding-ethos/go/diagnostics"
+
 type Decision struct {
-	Evidence     map[string]any `json:"evidence,omitempty"`
-	Decision     string         `json:"decision"`
-	Message      string         `json:"message"`
-	PolicyID     string         `json:"policy_id"`
-	Severity     string         `json:"severity"`
-	Suggestion   string         `json:"suggestion,omitempty"`
-	PrincipleIDs []string       `json:"principle_ids,omitempty"`
+	Evidence     map[string]any           `json:"evidence,omitempty"`
+	Decision     string                   `json:"decision"`
+	Message      string                   `json:"message"`
+	PolicyID     string                   `json:"policy_id"`
+	Severity     string                   `json:"severity"`
+	Suggestion   string                   `json:"suggestion,omitempty"`
+	Diagnostics  []diagnostics.Diagnostic `json:"diagnostics,omitempty"`
+	PrincipleIDs []string                 `json:"principle_ids,omitempty"`
 }
 
 func NewDecision(decision string, policy Policy) Decision {

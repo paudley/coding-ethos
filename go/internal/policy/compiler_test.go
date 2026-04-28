@@ -7,6 +7,7 @@ import (
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -65,9 +66,13 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		metadata.SourceHashes[configPath] == "" {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
+
+	if len(bundle.EvidenceMaps) != 7 {
+		t.Fatalf("evidence map count = %d, want 7", len(bundle.EvidenceMaps))
+	}
 }
 
-func TestCompileExcludesNonExecutablePoliciesFromLinterDispatch(t *testing.T) {
+func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -87,9 +92,16 @@ func TestCompileExcludesNonExecutablePoliciesFromLinterDispatch(t *testing.T) {
 
 	for _, policyID := range bundle.Dispatch.Linter["staged"] {
 		if policyID == "pytest.gate" || policyID == "generated_config.freshness" {
-			t.Fatalf("non-executable policy should not be in linter dispatch: %q", policyID)
+			t.Fatalf("smoke-only policy should not be in staged dispatch: %q", policyID)
 		}
 	}
+
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["smoke"], "pytest.gate")
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["smoke"],
+		"generated_config.freshness",
+	)
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -141,6 +153,9 @@ filesystem:
   protected_branch_write:
     branches: [release]
     exempt_path_prefixes: [docs/plans/]
+generated_config:
+  freshness:
+    check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -176,6 +191,69 @@ filesystem:
 	)
 	if adminFiles[0] != "custom.lock" {
 		t.Fatalf("admin file options mismatch: %#v", adminFiles)
+	}
+
+	pytestCommand := optionStrings(
+		t,
+		bundle.Policies["pytest.gate"].Evaluators[0],
+		"command",
+	)
+	if pytestCommand[0] != "uv" {
+		t.Fatalf("pytest command options mismatch: %#v", pytestCommand)
+	}
+
+	generatedConfigCommand := optionStrings(
+		t,
+		bundle.Policies["generated_config.freshness"].Evaluators[0],
+		"command",
+	)
+	if generatedConfigCommand[2] != "/tmp/repo" {
+		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
+	}
+}
+
+func TestCompileHonorsConfiguredEvidenceMaps(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  evidence_maps:
+    - source: mypy
+      codes: [no-any-return]
+      policy_id: python.optional_returns
+      principle_ids: [no-optional-types-for-required-dependencies]
+      confidence: medium
+      meaning: Return type leaks Any.
+      advice:
+        summary: Replace Any with a precise required type.
+        steps: [Tighten the annotation.]
+        rerun: [make pre-commit]
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if len(bundle.EvidenceMaps) != 1 {
+		t.Fatalf("evidence map count = %d, want 1", len(bundle.EvidenceMaps))
+	}
+
+	evidenceMap := bundle.EvidenceMaps[0]
+	if evidenceMap.Source != "mypy" || evidenceMap.Codes[0] != "no-any-return" {
+		t.Fatalf("evidence map mismatch: %#v", evidenceMap)
+	}
+
+	if evidenceMap.Advice.Summary != "Replace Any with a precise required type." {
+		t.Fatalf("evidence advice mismatch: %#v", evidenceMap.Advice)
 	}
 }
 
@@ -245,6 +323,16 @@ func TestCompileRejectsMissingPrinciples(t *testing.T) {
 	}
 }
 
+func assertPolicyDispatched(t *testing.T, policyIDs []string, expected string) {
+	t.Helper()
+
+	if slices.Contains(policyIDs, expected) {
+		return
+	}
+
+	t.Fatalf("dispatch missing %q: %#v", expected, policyIDs)
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 
@@ -300,4 +388,5 @@ python:
     enabled: false
   pytest_gate:
     enabled: true
+    test_command: [uv, run, pytest]
 `
