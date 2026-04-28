@@ -245,7 +245,6 @@ func main() {
 		"check-direct-imports":             checkDirectImportsCommand,
 		"check-docstring-coverage":         checkDocstringCoverageCommand,
 		"check-file-docstrings":            checkFileDocstringsCommand,
-		"check-forbidden-strings":          checkForbiddenStrings,
 		"check-optional-returns":           checkOptionalReturnsCommand,
 		"check-module-docs":                checkModuleDocsCommand,
 		"check-pyproject-ignores":          checkPyprojectIgnoresCommand,
@@ -4059,26 +4058,6 @@ func existingFiles(paths []string) []string {
 	return files
 }
 
-func isBinary(path string) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-
-	defer func() {
-		_ = file.Close()
-	}()
-
-	buf := make([]byte, textChunkSize)
-
-	n, err := file.Read(buf)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false
-	}
-
-	return bytes.Contains(buf[:n], []byte{0})
-}
-
 func readText(path string) (string, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -6002,79 +5981,6 @@ func moduleDocsFindingCount(violations moduleDocsViolations) int {
 		len(violations.PathPrefixed) +
 		len(violations.NonexistentRefs) +
 		len(violations.BannedFilenames)
-}
-
-func forbiddenStringExemptPath() string {
-	bundleRoot, err := findBundleRoot()
-	if err != nil {
-		return ""
-	}
-
-	return filepath.Clean(filepath.Join(filepath.Dir(bundleRoot), "config.yaml"))
-}
-
-func isForbiddenStringExempt(path string, exemptPath string) bool {
-	if strings.TrimSpace(exemptPath) == "" {
-		return false
-	}
-
-	absolutePath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-
-	return filepath.Clean(absolutePath) == filepath.Clean(exemptPath)
-}
-
-func checkForbiddenStrings(cfg Config, paths []string) int {
-	findings := []hookFinding{}
-
-	exemptPath := forbiddenStringExemptPath()
-	for _, path := range existingFiles(paths) {
-		if isForbiddenStringExempt(path, exemptPath) {
-			continue
-		}
-
-		if isBinary(path) {
-			continue
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "forbidden_strings",
-				File:    path,
-				Message: "could not read file",
-				Detail:  err.Error(),
-			})
-
-			continue
-		}
-
-		for _, forbidden := range cfg.Text.ForbiddenStrings {
-			if bytes.Contains(data, []byte(forbidden)) {
-				findings = append(findings, hookFinding{
-					Tool:    "forbidden_strings",
-					File:    path,
-					Code:    forbidden,
-					Message: "contains forbidden string",
-				})
-			}
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "forbidden_strings",
-		Title:    "FORBIDDEN STRING CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Remove forbidden strings or fix the underlying lint/test issue."},
-	}, selectedHookOutputFormat()))
-
-	return 1
 }
 
 func runShellcheck(_ Config, paths []string) int {

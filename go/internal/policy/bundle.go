@@ -7,6 +7,7 @@ import "blackcat.ca/coding-ethos/go/diagnostics"
 
 type Bundle struct {
 	Dispatch     Dispatch                  `json:"dispatch"`
+	Advice       Advice                    `json:"advice,omitempty"`
 	Principles   map[string]Principle      `json:"principles"`
 	Policies     map[string]Policy         `json:"policies"`
 	Sources      Sources                   `json:"sources"`
@@ -19,6 +20,21 @@ type Bundle struct {
 type Sources struct {
 	Ethos       SourcePair `json:"ethos"`
 	Enforcement SourcePair `json:"enforcement"`
+}
+
+type Advice struct {
+	Reminders ReminderConfig `json:"reminders,omitempty"`
+}
+
+type ReminderConfig struct {
+	Items          []EthosReminder `json:"items,omitempty"`
+	QuietFrequency int             `json:"quiet_frequency,omitempty"`
+}
+
+type EthosReminder struct {
+	PrincipleID string `json:"principle_id"`
+	Axiom       string `json:"axiom"`
+	Action      string `json:"action"`
 }
 
 type SourcePair struct {
@@ -112,6 +128,7 @@ func ExampleBundle() Bundle {
 		BundleID:    "example-policy-bundle",
 		GeneratedAt: "1970-01-01T00:00:00Z",
 		Sources:     exampleSources(),
+		Advice:      exampleAdvice(),
 		Principles:  examplePrinciples(),
 		Policies:    examplePolicies(),
 		Dispatch:    exampleDispatch(),
@@ -123,6 +140,10 @@ func exampleSources() Sources {
 		Ethos:       SourcePair{Primary: "coding_ethos.yml", Repo: "repo_ethos.yml"},
 		Enforcement: SourcePair{Primary: "config.yaml", Repo: "repo_config.yaml"},
 	}
+}
+
+func exampleAdvice() Advice {
+	return Advice{Reminders: defaultReminderConfig()}
 }
 
 func examplePrinciples() map[string]Principle {

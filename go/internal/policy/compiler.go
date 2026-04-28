@@ -79,6 +79,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 				Repo:    options.RepoConfig,
 			},
 		},
+		Advice:     compileAdvice(configPayload, principles),
 		Principles: principles,
 		Policies:   policies,
 		Dispatch:   compileDispatch(policies),
@@ -238,6 +239,117 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 	}
 
 	return principles
+}
+
+func compileAdvice(
+	config map[string]any,
+	principles map[string]Principle,
+) Advice {
+	return Advice{
+		Reminders: compileReminderConfig(config, principles),
+	}
+}
+
+func compileReminderConfig(
+	config map[string]any,
+	principles map[string]Principle,
+) ReminderConfig {
+	reminders := defaultReminderConfig()
+	configuredFrequency := intAt(
+		config,
+		[]string{"agent_advice", "reminders", "quiet_frequency"},
+		0,
+	)
+	if configuredFrequency > 0 {
+		reminders.QuietFrequency = configuredFrequency
+	}
+
+	rawValue, exists := valueAt(config, "agent_advice", "reminders", "items")
+	if !exists {
+		return reminders
+	}
+
+	rawItems, ok := rawValue.([]any)
+	if !ok {
+		return reminders
+	}
+
+	items := make([]EthosReminder, 0, len(rawItems))
+	for _, raw := range rawItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		reminder := EthosReminder{
+			PrincipleID: stringValue(item["principle_id"]),
+			Axiom:       stringValue(item["axiom"]),
+			Action:      stringValue(item["action"]),
+		}
+		if reminder.PrincipleID == "" ||
+			reminder.Axiom == "" ||
+			reminder.Action == "" {
+			continue
+		}
+		if _, ok := principles[reminder.PrincipleID]; !ok {
+			continue
+		}
+
+		items = append(items, reminder)
+	}
+
+	if len(items) > 0 {
+		reminders.Items = items
+	}
+
+	return reminders
+}
+
+func defaultReminderConfig() ReminderConfig {
+	return ReminderConfig{
+		QuietFrequency: 3,
+		Items: []EthosReminder{
+			{
+				PrincipleID: "evidence-based-engineering-and-decision-quality",
+				Axiom:       "Todo lists prevent partial work from masquerading as completion.",
+				Action: sentence(
+					"Keep the task list current, mark progress as it happens,",
+					"and do not report done while planned work remains.",
+				),
+			},
+			{
+				PrincipleID: "no-rationalized-shortcuts",
+				Axiom:       "Laziness only moves the cost downstream.",
+				Action: sentence(
+					"Stop, use the documented path,",
+					"and do not trade correctness for completion.",
+				),
+			},
+			{
+				PrincipleID: "testing-as-specification",
+				Axiom:       "A green process is not the same as a correct result.",
+				Action: sentence(
+					"Define success by user-visible behavior",
+					"and inspect representative output.",
+				),
+			},
+			{
+				PrincipleID: "static-analysis-is-the-first-line-of-defense",
+				Axiom:       "Static analysis is a gate, not background noise.",
+				Action:      "Treat the finding as a structural signal and fix the cause.",
+			},
+			{
+				PrincipleID: "linting-as-code-quality-enforcement",
+				Axiom:       "A linter warning is review feedback in executable form.",
+				Action:      "Resolve it structurally instead of weakening the rule.",
+			},
+			{
+				PrincipleID: "forward-motion-only",
+				Axiom:       "History is context, not an excuse.",
+				Action:      "Fix the current state with evidence and move forward.",
+			},
+		},
+	}
 }
 
 func compilePolicies(
@@ -988,6 +1100,16 @@ func shellForbiddenStringsPolicy(
 			"header must match",
 		},
 	)
+	exemptPaths := stringSliceAt(
+		config,
+		[]string{"shell", "forbidden_strings", "exempt_paths"},
+		[]string{"config.yaml"},
+	)
+	fileStrings := stringSliceAt(
+		config,
+		[]string{"shell", "forbidden_strings", "file_strings"},
+		stringSliceAt(config, []string{"go", "text", "forbidden_strings"}, nil),
+	)
 
 	return Policy{
 		ID:       "shell.forbidden_strings",
@@ -1012,9 +1134,13 @@ func shellForbiddenStringsPolicy(
 		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
-			Kind:    "shell",
-			Name:    "shell.forbidden_strings",
-			Options: map[string]any{"strings": strings},
+			Kind: "shell",
+			Name: "shell.forbidden_strings",
+			Options: map[string]any{
+				"exempt_paths": exemptPaths,
+				"file_strings": fileStrings,
+				"strings":      strings,
+			},
 		}},
 	}
 }
@@ -1735,6 +1861,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"filesystem.large_files",
 			"filesystem.line_limits",
 			"shell.best_practices",
+			"shell.forbidden_strings",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",

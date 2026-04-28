@@ -823,6 +823,9 @@ func hasDecision(decisions []policy.Decision, policyID string) bool {
 
 func legacyFixtureBundle() policy.Bundle {
 	bundle := policy.ExampleBundle()
+	if bundle.Dispatch.Hooks["PostToolUse"] != nil {
+		delete(bundle.Dispatch.Hooks["PostToolUse"], "Bash")
+	}
 	addLegacyPolicy(
 		&bundle,
 		"shell.github_admin",

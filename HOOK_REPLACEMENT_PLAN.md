@@ -143,9 +143,11 @@ inventory used to keep the migration status explicit.
 ## Remaining Integration Gaps
 
 - Agent-facing advice can now include deterministic ETHOS reminders keyed to
-  violated principles. Future work should move the reminder corpus into
-  compiled policy data, add quiet-frequency controls, and include reminders
-  such as "keep the todo list current" when work spans multiple planned steps.
+  violated principles. The reminder corpus and quiet-frequency control are
+  compiled from `config.yaml` / repo overrides so reminder policy can evolve
+  without hard-coding hook runtime text. Future work should add per-session
+  quieting state and include reminders based on work shape, such as "keep the
+  todo list current" when work spans multiple planned steps.
 - Agent-hook behavior has a repo-owned settings renderer, explicit sync,
   doctor, and verify path through `coding-ethos-agent-hooks` and
   `run-go-hook.sh agent-hooks`. Generation is all-provider only: Claude,
@@ -185,18 +187,31 @@ inventory used to keep the migration status explicit.
   type-check hook now uses the same shared parser and enrichment package instead
   of maintaining a private duplicate parser stack.
 - Python static-tool defaults now come from a shared typed Go tool catalog.
-  This is the first step toward moving shellcheck, yamllint, golangci-lint,
-  actionlint, hadolint, and other hook tools into data-driven runtime metadata.
+  Shellcheck, yamllint, golangci-lint, actionlint, and hadolint also expose
+  typed metadata for command shape, parser, output format, language/domain,
+  fast/edit suitability, file matching, and default advice. Future work should
+  route every external wrapper through this catalog instead of local guidance
+  strings.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
+- Future compiled-policy checkers should include a PII scrubber for local
+  machine details in generated docs, logs, fixtures, and hook output, including
+  absolute home paths, usernames, hostnames, and local worktree directory names.
+- Future agent advice should become language-aware. The hook runtime should use
+  touched file languages and catalog metadata to surface Python-, Go-, shell-,
+  YAML-, Docker-, and workflow-specific repair guidance before falling back to
+  generic ETHOS advice.
+- Future post-edit feedback should run very fast linters, starting with Ruff on
+  edited Python files, and surface concise PostToolUse warnings without waiting
+  for commit-time hooks.
 
 ## Active Hook Boundary
 
 | Boundary | Current checks |
 | --- | --- |
-| Compiled policy evaluators | Git safety, protected paths/branches, required runtime ignores, Python write policies, syntax parsing, merge-conflict markers, private-key detection, shebang consistency, newly added large files, source line limits, shell best practices, generated-config freshness, and pytest gating. |
-| Bundled in-process groups | Runtime ignore command wrapper, Python policy checks that still rely on the bundled parser stack, documentation/manifest/plan checks, commitlint, commit attribution, repo Python-version consistency, and forbidden-string file scans. |
+| Compiled policy evaluators | Git safety, protected paths/branches, required runtime ignores, Python write policies, syntax parsing, merge-conflict markers, private-key detection, shebang consistency, newly added large files, source line limits, shell best practices, forbidden-string scanning, generated-config freshness, and pytest gating. |
+| Bundled in-process groups | Runtime ignore command wrapper, Python policy checks that still rely on the bundled parser stack, documentation/manifest/plan checks, commitlint, commit attribution, and repo Python-version consistency. |
 | External tool-backed groups | Ruff/format, mypy, pyright, Pylint, Radon, Vulture, shellcheck, yamllint, hadolint, actionlint, golangci-lint, Go test/vet/format, and Gemini pre-commit/pre-push review. |
 - Claude, Codex, and Gemini now share the provider-neutral hook spec and
   runtime event inventory. The hook runtime normalizes Claude native payloads,

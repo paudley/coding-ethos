@@ -78,7 +78,6 @@ func canonicalHookGroups() map[string]hookGroup {
 			Name: "security",
 			Commands: []hookCommand{
 				{Name: "check-security-patterns", Run: checkSecurityPatternsCommand},
-				{Name: "check-forbidden-strings", Run: checkForbiddenStrings},
 			},
 		},
 		"shell": {

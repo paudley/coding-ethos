@@ -9,6 +9,7 @@ import "blackcat.ca/coding-ethos/go/internal/policy"
 type Result struct {
 	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
 	Event              string              `json:"event"`
+	Advice             policy.Advice       `json:"advice,omitempty"`
 	Provider           string              `json:"provider,omitempty"`
 	Status             string              `json:"status"`
 	Tool               string              `json:"tool,omitempty"`

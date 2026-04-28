@@ -191,53 +191,6 @@ func TestRootConfigValue(t *testing.T) {
 	}
 }
 
-func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
-	tempDir := t.TempDir()
-	bundleRoot := filepath.Join(tempDir, "pre-commit")
-
-	err := os.MkdirAll(filepath.Join(bundleRoot, "hooks"), 0o755)
-	if err != nil {
-		t.Fatalf("os.MkdirAll(%q) failed: %v", bundleRoot, err)
-	}
-
-	mustWriteTestFile(
-		t,
-		filepath.Join(bundleRoot, "hooks", "run-go-hook.sh"),
-		"#!/bin/sh\n",
-	)
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "go-hooks", "main.go"), "package main\n")
-	configPath := filepath.Join(tempDir, "config.yaml")
-	forbidden := "PLC" + "0415"
-	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - "+forbidden+"\n")
-
-	otherPath := filepath.Join(tempDir, "other.txt")
-	mustWriteTestFile(t, otherPath, forbidden+"\n")
-
-	t.Setenv(precommitRootEnv, bundleRoot)
-
-	cfg := Config{}
-	cfg.Text.ForbiddenStrings = []string{forbidden}
-
-	if got := checkForbiddenStrings(
-		cfg,
-		[]string{configPath},
-	); got != 0 {
-		t.Fatalf("checkForbiddenStrings(bundle config) = %d, want 0", got)
-	}
-
-	stderr := captureStderr(t, func() {
-		if got := checkForbiddenStrings(
-			cfg,
-			[]string{otherPath},
-		); got != 1 {
-			t.Fatalf("checkForbiddenStrings(non-config) = %d, want 1", got)
-		}
-	})
-	if !strings.Contains(stderr, `[`+forbidden+`] contains forbidden string`) {
-		t.Fatalf("unexpected stderr: %q", stderr)
-	}
-}
-
 func TestValidateManifestData(t *testing.T) {
 	t.Parallel()
 

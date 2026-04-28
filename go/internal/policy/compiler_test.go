@@ -46,6 +46,10 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if _, ok := bundle.Policies["pytest.gate"]; !ok {
 		t.Fatalf("missing compiled pytest gate policy")
 	}
+	if bundle.Advice.Reminders.QuietFrequency != 3 ||
+		len(bundle.Advice.Reminders.Items) == 0 {
+		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
+	}
 	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
 		t.Fatalf("missing compiled syntax policy")
 	}
@@ -150,6 +154,7 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.shebangs")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.large_files")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.line_limits")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.forbidden_strings")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.merge_conflict")
@@ -224,6 +229,8 @@ shell:
   best_practices:
     require_common_for_prefixes: [bin/]
   forbidden_strings:
+    exempt_paths: [config.yaml]
+    file_strings: [BADCODE]
     strings: [/blocked/settings.json]
 syntax:
   file_syntax:
@@ -304,6 +311,22 @@ security:
 	)
 	if forbiddenStrings[0] != "/blocked/settings.json" {
 		t.Fatalf("forbidden strings options mismatch: %#v", forbiddenStrings)
+	}
+	forbiddenStringExempts := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"exempt_paths",
+	)
+	if forbiddenStringExempts[0] != "config.yaml" {
+		t.Fatalf("forbidden string exempt options mismatch: %#v", forbiddenStringExempts)
+	}
+	forbiddenFileStrings := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"file_strings",
+	)
+	if forbiddenFileStrings[0] != "BADCODE" {
+		t.Fatalf("forbidden file string options mismatch: %#v", forbiddenFileStrings)
 	}
 
 	shellPrefixes := optionStrings(
@@ -403,6 +426,41 @@ policy:
 
 	if evidenceMap.Advice.Summary != "Replace Any with a precise required type." {
 		t.Fatalf("evidence advice mismatch: %#v", evidenceMap.Advice)
+	}
+}
+
+func TestCompileHonorsConfiguredReminderAdvice(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+agent_advice:
+  reminders:
+    quiet_frequency: 5
+    items:
+      - principle_id: evidence-based-engineering-and-decision-quality
+        axiom: Keep the list alive.
+        action: Update the todo list before claiming completion.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	reminders := bundle.Advice.Reminders
+	if reminders.QuietFrequency != 5 || len(reminders.Items) != 1 {
+		t.Fatalf("reminder config mismatch: %#v", reminders)
+	}
+	if reminders.Items[0].Axiom != "Keep the list alive." {
+		t.Fatalf("reminder item mismatch: %#v", reminders.Items[0])
 	}
 }
 
@@ -550,6 +608,11 @@ principles:
     title: Testing as Specification
     summary: Tests are executable behavioral contracts.
     directive: Treat tests as executable behavioral contracts.
+  - id: evidence-based-engineering-and-decision-quality
+    order: 26
+    title: Evidence-Based Engineering and Decision Quality
+    summary: Evidence outranks assumptions.
+    directive: Understand, plan, execute, and validate with evidence.
   - id: radical-visibility
     order: 11
     title: Radical Visibility

@@ -83,6 +83,7 @@ func RunWithRegistry(
 
 	return Result{
 		Event:              event.HookEventName,
+		Advice:             bundle.Advice,
 		Provider:           event.Provider(),
 		Tool:               event.ToolName,
 		Status:             status,

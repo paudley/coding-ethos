@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -64,10 +65,16 @@ func main() {
 
 	hookName := args[0]
 	if hookName == "pre-commit" || hookName == "pre-push" {
+		files, err := hookFiles(*cwd, hookName)
+		if err != nil {
+			exitErr(err)
+		}
+
 		result, runErr := lint.Run(bundle, lint.Options{
 			AdminApproved: os.Getenv(adminApprovedEnv) == "1",
 			Scope:         lint.ScopeStaged,
 			Cwd:           *cwd,
+			Files:         files,
 		})
 		if runErr != nil {
 			exitErr(runErr)
@@ -80,6 +87,38 @@ func main() {
 	}
 
 	os.Exit(runLegacyRunner(*runnerPath, args))
+}
+
+func hookFiles(cwd string, hookName string) ([]string, error) {
+	if hookName != "pre-commit" {
+		return nil, nil
+	}
+
+	command := exec.CommandContext(
+		context.Background(),
+		"git",
+		"diff",
+		"--cached",
+		"--name-only",
+		"--diff-filter=ACMR",
+		"--",
+	)
+	command.Dir = cwd
+
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list staged files: %w", err)
+	}
+
+	files := []string{}
+	for _, line := range strings.Split(string(output), "\n") {
+		file := strings.TrimSpace(line)
+		if file != "" {
+			files = append(files, file)
+		}
+	}
+
+	return files, nil
 }
 
 func readBundle(path string) (policy.Bundle, error) {

@@ -49,6 +49,30 @@ for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; 
   fi
 done
 
+expect_compiled_file_block() {
+  local file="$1"
+  local policy_id="$2"
+  local compiled_output
+  local compiled_status
+
+  set +e
+  compiled_output="$("$lint_bin" \
+    --bundle "$policy_dir/policy-bundle.json" \
+    --scope files \
+    --cwd "$git_repo" \
+    --files "$file" \
+    --json 2>&1)"
+  compiled_status=$?
+  set -e
+
+  if [[ "$compiled_status" -ne 2 ]] ||
+    ! grep -q "\"policy_id\": \"$policy_id\"" <<<"$compiled_output"; then
+    printf 'expected compiled %s block, got %s:\n%s\n' \
+      "$policy_id" "$compiled_status" "$compiled_output" >&2
+    exit 1
+  fi
+}
+
 printf '==> compiling policy bundle\n'
 "$policy_bin" compile \
   --primary "$repo_root/coding_ethos.yml" \
@@ -122,40 +146,16 @@ git -C "$git_repo" config commit.gpgsign false
 
 printf '==> validating compiled file policy preflight blocks migrated checks\n'
 printf '<<<<<<< HEAD\n' > "$git_repo/conflict.txt"
-set +e
-compiled_output="$("$lint_bin" \
-  --bundle "$policy_dir/policy-bundle.json" \
-  --scope files \
-  --cwd "$git_repo" \
-  --files conflict.txt \
-  --json 2>&1)"
-compiled_status=$?
-set -e
-if [[ "$compiled_status" -ne 2 ]] ||
-  ! grep -q '"policy_id": "syntax.merge_conflict"' <<<"$compiled_output"; then
-  printf 'expected compiled merge-conflict block, got %s:\n%s\n' \
-    "$compiled_status" "$compiled_output" >&2
-  exit 1
-fi
+expect_compiled_file_block conflict.txt syntax.merge_conflict
 rm -f "$git_repo/conflict.txt"
 
-printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----' 'redacted' > "$git_repo/secret.pem"
-set +e
-compiled_output="$("$lint_bin" \
-  --bundle "$policy_dir/policy-bundle.json" \
-  --scope files \
-  --cwd "$git_repo" \
-  --files secret.pem \
-  --json 2>&1)"
-compiled_status=$?
-set -e
-if [[ "$compiled_status" -ne 2 ]] ||
-  ! grep -q '"policy_id": "security.private_key"' <<<"$compiled_output"; then
-  printf 'expected compiled private-key block, got %s:\n%s\n' \
-    "$compiled_status" "$compiled_output" >&2
-  exit 1
-fi
+printf '%s%s\n%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----' 'redacted' > "$git_repo/secret.pem"
+expect_compiled_file_block secret.pem security.private_key
 rm -f "$git_repo/secret.pem"
+
+printf '%s%s\n' 'PLC' '0415' > "$git_repo/forbidden.txt"
+expect_compiled_file_block forbidden.txt shell.forbidden_strings
+rm -f "$git_repo/forbidden.txt"
 
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt

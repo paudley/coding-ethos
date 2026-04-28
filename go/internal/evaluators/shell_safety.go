@@ -84,16 +84,20 @@ func EvaluateShellForbiddenStrings(
 
 	if matched, value := containsForbiddenString(
 		command,
-		forbiddenStrings(context.EvaluatorOptions),
+		forbiddenCommandStrings(context.EvaluatorOptions),
 	); matched {
 		return blockForbiddenStringDecision(policyDef, command, "command", value), nil
 	}
 
 	for _, file := range referencedCommandFiles(context) {
+		if forbiddenStringFileExempt(context.Cwd, file, context.EvaluatorOptions) {
+			continue
+		}
+
 		matched, value := referencedFileContainsForbiddenString(
 			context.Cwd,
 			file,
-			forbiddenStrings(context.EvaluatorOptions),
+			forbiddenFileStrings(context.EvaluatorOptions),
 		)
 		if matched {
 			return blockForbiddenStringDecision(policyDef, command, file, value), nil
@@ -103,7 +107,7 @@ func EvaluateShellForbiddenStrings(
 	return nil, nil
 }
 
-func forbiddenStrings(options map[string]any) []string {
+func forbiddenCommandStrings(options map[string]any) []string {
 	return stringSliceOption(options, "strings", []string{
 		"/.claude/settings.json",
 		"/.claude/settings.local.json",
@@ -119,6 +123,21 @@ func forbiddenStrings(options map[string]any) []string {
 		"/coding-ethos/.golangci.yml",
 		"header must match",
 	})
+}
+
+func forbiddenFileStrings(options map[string]any) []string {
+	return stringSliceOption(options, "file_strings", nil)
+}
+
+func forbiddenStringFileExempt(cwd string, file string, options map[string]any) bool {
+	path := cleanEvaluatorPath(cwd, file)
+	for _, exempt := range stringSliceOption(options, "exempt_paths", nil) {
+		if path == cleanEvaluatorPath(cwd, exempt) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func containsForbiddenString(text string, forbidden []string) (bool, string) {
@@ -150,10 +169,7 @@ func referencedFileContainsForbiddenString(
 	file string,
 	forbidden []string,
 ) (bool, string) {
-	path := file
-	if !filepath.IsAbs(path) && cwd != "" {
-		path = filepath.Join(cwd, path)
-	}
+	path := cleanEvaluatorPath(cwd, file)
 
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
@@ -171,6 +187,15 @@ func referencedFileContainsForbiddenString(
 	}
 
 	return containsForbiddenString(string(content), forbidden)
+}
+
+func cleanEvaluatorPath(cwd string, file string) string {
+	path := file
+	if !filepath.IsAbs(path) && cwd != "" {
+		path = filepath.Join(cwd, path)
+	}
+
+	return filepath.Clean(path)
 }
 
 func dedupeEvaluatorStrings(values []string) []string {
