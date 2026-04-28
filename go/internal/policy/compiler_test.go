@@ -70,6 +70,15 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if len(bundle.EvidenceMaps) != 7 {
 		t.Fatalf("evidence map count = %d, want 7", len(bundle.EvidenceMaps))
 	}
+
+	forbiddenStrings := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"strings",
+	)
+	if !slices.Contains(forbiddenStrings, "header must match") {
+		t.Fatalf("default forbidden strings missing hook recon marker: %#v", forbiddenStrings)
+	}
 }
 
 func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {

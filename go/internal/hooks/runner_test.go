@@ -340,6 +340,33 @@ func TestRunBlocksHookSettingsReconnaissance(t *testing.T) {
 	}
 }
 
+func TestRunBlocksHookImplementationReconnaissance(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `grep -r "header must match" ` +
+					`/home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/ ` +
+					`--include="*.go" -l`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden strings decision, got %#v", result.Decisions)
+	}
+}
+
 func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 	t.Parallel()
 

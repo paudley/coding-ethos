@@ -6569,10 +6569,26 @@ func checkCommitLint(cfg Config, args []string) int {
 		Title:    "COMMIT MESSAGE CHECK FAILED",
 		Summary:  "Commit message does not satisfy conventional commit rules.",
 		Findings: findings,
-		Guidance: []string{"Use a conventional commit header with an allowed type and concise subject."},
+		Guidance: commitLintGuidance(cfg),
 	}, selectedHookOutputFormat()))
 
 	return 1
+}
+
+func commitLintGuidance(cfg Config) []string {
+	allowed := slices.Clone(cfg.CommitLint.AllowedTypes)
+	sort.Strings(allowed)
+	if len(allowed) == 0 {
+		allowed = []string{"fix", "feat", "docs", "test", "refactor", "chore"}
+	}
+
+	return []string{
+		"Use exactly: type(scope): concise subject",
+		"Good example: fix(bind): harden enrichment transaction handling",
+		"Scope is required and should name the touched component, such as hooks, bind, cli, docs, or config.",
+		"Allowed types: " + strings.Join(allowed, ", "),
+		"Put body details after a blank line below the header.",
+	}
 }
 
 func checkCommitAttribution(cfg Config, args []string) int {

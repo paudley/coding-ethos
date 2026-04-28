@@ -764,6 +764,12 @@ func shellForbiddenStringsPolicy(
 			"/.codex/config.toml",
 			"/.codex/hooks.json",
 			"/.gemini/settings.json",
+			"/coding-ethos/pre-commit/hooks/",
+			"/coding-ethos/go/internal/",
+			"/coding-ethos/config.yaml",
+			"/coding-ethos/ruff.toml",
+			"/coding-ethos/.golangci.yml",
+			"header must match",
 		},
 	)
 
@@ -784,8 +790,9 @@ func shellForbiddenStringsPolicy(
 		SupportedModes:  []string{"block", "record"},
 		Message: "Commands must not contain or execute files containing " +
 			"forbidden hook-system strings.",
-		Suggestion: "Do not inspect, enumerate, or route around agent hook " +
-			"settings. Use the installed coding-ethos hook surfaces.",
+		Suggestion: "Do not inspect, enumerate, or route around coding-ethos " +
+			"hook implementation internals. Use the installed hook surfaces " +
+			"and documented commands.",
 		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
