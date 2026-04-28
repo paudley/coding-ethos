@@ -72,10 +72,11 @@ func runRuffAutofix(files []string) int {
 		return 0
 	}
 
-	return runHookTool("ruff-autofix", repoRoot(), append([]string{
+	return runHookToolWithParser("ruff-autofix", repoRoot(), append([]string{
 		"uv", "run", "--quiet", "--project", hooksProjectPath(), "ruff", "check",
 		"--config", repoPath("ruff.toml"), "--fix", "--quiet", "--ignore-noqa",
-	}, pyFiles...))
+		"--output-format", "json",
+	}, pyFiles...), parseRuffAutofixFindings)
 }
 
 func runGofmtWrite(files []string) int {
@@ -197,4 +198,8 @@ func truncateHookDetail(value string) string {
 	}
 
 	return value[:maxDetailLength] + "\n[truncated]"
+}
+
+func parseRuffAutofixFindings(output string) []hookFinding {
+	return parseCatalogFindings("ruff", output)
 }
