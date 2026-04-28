@@ -54,13 +54,14 @@ type hookFinding struct {
 }
 
 type hookReport struct {
-	Format   string        `json:"format"`
-	Tool     string        `json:"tool"`
-	Title    string        `json:"title"`
-	Status   string        `json:"status"`
-	Summary  string        `json:"summary,omitempty"`
-	Guidance []string      `json:"guidance,omitempty"`
-	Findings []hookFinding `json:"findings"`
+	Format    string        `json:"format"`
+	Tool      string        `json:"tool"`
+	Title     string        `json:"title"`
+	Status    string        `json:"status"`
+	Summary   string        `json:"summary,omitempty"`
+	RawOutput []string      `json:"raw_output,omitempty"`
+	Guidance  []string      `json:"guidance,omitempty"`
+	Findings  []hookFinding `json:"findings"`
 }
 
 func formatHookReport(report hookReport, format string) string {
@@ -276,6 +277,16 @@ func formatHookReportTOON(report hookReport) string {
 		}
 	}
 
+	if len(report.RawOutput) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf("raw_output[%d]{line}:", len(report.RawOutput)),
+		)
+		for _, item := range report.RawOutput {
+			lines = append(lines, "  "+toonCell(item))
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -300,6 +311,13 @@ func formatHookReportHuman(report hookReport) string {
 	if len(report.Guidance) > 0 {
 		lines = append(lines, "", "How to fix:")
 		for _, item := range report.Guidance {
+			lines = append(lines, "  "+item)
+		}
+	}
+
+	if len(report.RawOutput) > 0 {
+		lines = append(lines, "", "Raw output:")
+		for _, item := range report.RawOutput {
 			lines = append(lines, "  "+item)
 		}
 	}

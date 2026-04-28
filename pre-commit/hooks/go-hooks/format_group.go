@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	diag "blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 func runFormatGroupCommand(cfg Config, files []string) int {
@@ -166,27 +168,40 @@ func runHookToolWithParser(
 	}
 
 	if result.ExitCode != 0 {
-		findings := []hookFinding{{
-			Tool:     name,
-			Severity: "error",
-			Message:  "external tool exited with status " + strconv.Itoa(result.ExitCode),
-			Detail:   truncateHookDetail(result.Combined),
-		}}
+		rawOutput := []string(nil)
+		findings := []hookFinding(nil)
 		if parseFindings != nil {
-			if parsed := parseFindings(result.Combined); len(parsed) > 0 {
-				findings = parsed
-			}
+			findings = parseFindings(result.Combined)
+		} else {
+			findings = parseGenericHookFindings(name, result.Combined)
+		}
+		if len(findings) == 0 {
+			findings = []hookFinding{genericToolFailureFinding(name, result.ExitCode)}
+			rawOutput = boundedRawOutputLines(result.Combined)
 		}
 
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     name,
-			Title:    strings.ToUpper(name) + " FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix the reported diagnostics before committing."},
+			Tool:      name,
+			Title:     strings.ToUpper(name) + " FAILED",
+			Findings:  findings,
+			RawOutput: rawOutput,
+			Guidance:  []string{"Fix the reported diagnostics before committing."},
 		}, selectedHookOutputFormat()))
 	}
 
 	return result.ExitCode
+}
+
+func genericToolFailureFinding(name string, exitCode int) hookFinding {
+	return hookFinding{
+		Tool:     name,
+		Severity: "error",
+		Message:  "external tool exited with status " + strconv.Itoa(exitCode),
+	}
+}
+
+func parseGenericHookFindings(name string, output string) []hookFinding {
+	return diagnosticsToHookFindings(diag.Parse(name, output, ""))
 }
 
 func truncateHookDetail(value string) string {
@@ -198,6 +213,42 @@ func truncateHookDetail(value string) string {
 	}
 
 	return value[:maxDetailLength] + "\n[truncated]"
+}
+
+func boundedRawOutputLines(output string) []string {
+	const maxRawOutputLines = 20
+	const maxRawOutputLineLength = 500
+
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil
+	}
+
+	lines := strings.Split(output, "\n")
+	limit := len(lines)
+	truncated := false
+	if limit > maxRawOutputLines {
+		limit = maxRawOutputLines
+		truncated = true
+	}
+
+	bounded := make([]string, 0, limit+1)
+	for _, line := range lines[:limit] {
+		line = strings.TrimRight(line, "\r")
+		if len(line) > maxRawOutputLineLength {
+			line = line[:maxRawOutputLineLength] + " [truncated]"
+		}
+		bounded = append(bounded, line)
+	}
+
+	if truncated {
+		bounded = append(bounded, fmt.Sprintf(
+			"[truncated: %d additional lines]",
+			len(lines)-limit,
+		))
+	}
+
+	return bounded
 }
 
 func parseRuffAutofixFindings(output string) []hookFinding {

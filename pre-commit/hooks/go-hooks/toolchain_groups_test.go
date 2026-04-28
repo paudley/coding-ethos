@@ -72,6 +72,23 @@ func TestParseGolangciFindings(t *testing.T) {
 	}
 }
 
+func TestParseGofmtCheckFindings(t *testing.T) {
+	t.Parallel()
+
+	findings := parseGofmtCheckFindings("pkg/app.go\ncmd/main.go\n")
+	if len(findings) != 2 {
+		t.Fatalf("parseGofmtCheckFindings() = %#v, want two findings", findings)
+	}
+
+	got := findings[0]
+	if got.Tool != "gofmt-check" ||
+		got.File != "pkg/app.go" ||
+		got.Severity != "error" ||
+		got.Message != "Go file is not gofmt-formatted." {
+		t.Fatalf("unexpected finding: %#v", got)
+	}
+}
+
 func TestParsePythonQualityFindings(t *testing.T) {
 	t.Parallel()
 
