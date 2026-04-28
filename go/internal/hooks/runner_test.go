@@ -283,6 +283,104 @@ func TestRunBlocksUnmanagedGitPath(t *testing.T) {
 	}
 }
 
+func TestRunBlocksRawGitEvenWhenCommandMentionsManagedWrapper(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "echo coding-ethos-git && /usr/bin/git status",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pre-commit/hooks/run-go-hook.sh policy-git status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunAllowsInstalledManagedGitWrapperCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": ".git/coding-ethos-hooks/bin/git status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunBlocksStringOnlyManagedWrapperMentionWithRawGit(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"printf '%s\n' coding-ethos-git /usr/bin/git",
+		"echo run-go-hook.sh policy-git /bin/git status",
+		"some-coding-ethos-git status",
+	} {
+		result, err := Run(policy.ExampleBundle(), Options{
+			Event: Event{
+				HookEventName: "PreToolUse",
+				ToolName:      "Bash",
+				ToolInput: map[string]any{
+					"command": command,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("run hook for %q: %v", command, err)
+		}
+
+		if result.Status != statusBlocked {
+			t.Fatalf("status for %q = %q", command, result.Status)
+		}
+
+		if !hasDecision(result.Decisions, "git.wrapper_required") {
+			t.Fatalf("expected wrapper-required for %q, got %#v", command, result.Decisions)
+		}
+	}
+}
+
 func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 	t.Parallel()
 
@@ -308,6 +406,37 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 
 	if !strings.Contains(result.Decisions[0].Message, "It's criminal to attempt") {
 		t.Fatalf("weak refusal message: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksEvasiveGitThroughEnvAndShell(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"env -i /usr/bin/git status",
+		"bash -c '/usr/bin/git status'",
+		"/bin/sh -c 'git status'",
+	} {
+		result, err := Run(policy.ExampleBundle(), Options{
+			Event: Event{
+				HookEventName: "PreToolUse",
+				ToolName:      "Bash",
+				ToolInput: map[string]any{
+					"command": command,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("run hook for %q: %v", command, err)
+		}
+
+		if result.Status != statusBlocked {
+			t.Fatalf("status for %q = %q", command, result.Status)
+		}
+
+		if !hasDecision(result.Decisions, "git.wrapper_required") {
+			t.Fatalf("expected wrapper-required for %q, got %#v", command, result.Decisions)
+		}
 	}
 }
 

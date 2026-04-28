@@ -1464,6 +1464,18 @@ When those checks pass, `git.staged_admin_files` records the protected-file
 commit instead of blocking it. Other policies still run normally. Without all
 three checks, admin-protected files remain blocking.
 
+Admin-supervised branch setup uses the same approval gate rather than raw Git:
+
+```bash
+coding-ethos-git --admin-approved admin-start-branch hooks_and_crooks_take_6
+```
+
+The wrapper verifies the admin PID, verifies the repo is `coding-ethos`, requires
+a clean worktree, then performs `checkout main`, `pull --ff-only`, and
+`checkout -b <branch>`. Direct `/usr/bin/git checkout main`, nested shell
+variants, Python subprocesses, PATH edits, aliases, or any other raw-Git bypass
+remain policy violations even during admin-supervised work.
+
 ### Rollout for Git Wrapper Support
 
 1. Move wrapper policy from hardcoded constants into config-backed structures.

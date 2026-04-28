@@ -16,8 +16,11 @@ import (
 const blockedExitCode = 2
 
 var (
-	errBundleRequired = errors.New("--bundle is required")
-	errInvalidBundle  = errors.New("invalid policy bundle")
+	errBundleRequired        = errors.New("--bundle is required")
+	errInvalidBundle         = errors.New("invalid policy bundle")
+	errAdminApprovedRequired = errors.New(
+		"admin-start-branch requires --admin-approved",
+	)
 )
 
 func main() {
@@ -74,6 +77,19 @@ func run() error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get cwd: %w", err)
+	}
+
+	if len(argv) > 0 && argv[0] == "admin-start-branch" {
+		if !*adminApproved {
+			return errAdminApprovedRequired
+		}
+
+		err := gitwrap.VerifyAdminApproved(cwd)
+		if err != nil {
+			return fmt.Errorf("verify admin approval: %w", err)
+		}
+
+		return gitwrap.AdminStartBranch(*realGit, cwd, argv[1:])
 	}
 
 	options, err := gitOptions(argv, cwd, *adminApproved)

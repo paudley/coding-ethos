@@ -6,6 +6,7 @@ package hooks
 import (
 	"maps"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -54,7 +55,7 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 	}
 
 	command := strings.TrimSpace(event.Command())
-	if command == "" || managedGitCommand(command) {
+	if command == "" {
 		return gitWrapperRoute{}
 	}
 
@@ -78,6 +79,10 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 			Reason:  "Routed raw git through coding-ethos-git.",
 			Rewrite: true,
 		}
+	}
+
+	if routeOK && managedGitCommandChain(command) {
+		return gitWrapperRoute{}
 	}
 
 	if !routeOK || commandMentionsGit(command) || evasiveGitShell(command) {
@@ -160,9 +165,40 @@ func rewriteGitCommandChain(command string) (string, bool, bool) {
 	return strings.Join(rewritten, " "), rewrite, true
 }
 
+func managedGitCommandChain(command string) bool {
+	tokens := shellControlFields(command)
+	for index := 0; index < len(tokens); {
+		if isShellControlToken(tokens[index]) {
+			index++
+
+			continue
+		}
+
+		start := index
+		for index < len(tokens) && !isShellControlToken(tokens[index]) {
+			index++
+		}
+
+		segment := tokens[start:index]
+		if managedGitSegment(segment) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func rewriteGitSegment(segment []string) (string, bool) {
 	if len(segment) == 0 {
 		return "", true
+	}
+
+	if managedGitSegment(segment) {
+		return "", true
+	}
+
+	if managedGitWrapperImpersonation(segment[0]) {
+		return "", false
 	}
 
 	if segment[0] == tokenGit {
@@ -180,6 +216,32 @@ func rewriteGitSegment(segment []string) (string, bool) {
 	}
 
 	return "", true
+}
+
+func managedGitSegment(segment []string) bool {
+	if len(segment) == 0 {
+		return false
+	}
+
+	command := segment[0]
+	commandBase := filepath.Base(command)
+	if commandBase == "run-go-hook.sh" {
+		return len(segment) > 1 && segment[1] == "policy-git"
+	}
+
+	if commandBase == "coding-ethos-git" {
+		return true
+	}
+
+	return strings.Contains(segment[0], ".git/coding-ethos-hooks/bin/git") ||
+		strings.Contains(segment[0], "coding-ethos-hooks/bin/git")
+}
+
+func managedGitWrapperImpersonation(command string) bool {
+	base := filepath.Base(command)
+
+	return strings.Contains(base, "coding-ethos-git") ||
+		strings.Contains(base, "run-go-hook.sh")
 }
 
 func segmentMentionsUnmanagedGit(segment []string) bool {
@@ -213,21 +275,6 @@ func isShellControlToken(token string) bool {
 	default:
 		return false
 	}
-}
-
-func managedGitCommand(command string) bool {
-	for _, marker := range []string{
-		"run-go-hook.sh policy-git",
-		"coding-ethos-git",
-		".git/coding-ethos-hooks/bin/git",
-		"coding-ethos-hooks/bin/git",
-	} {
-		if strings.Contains(command, marker) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func commandMentionsGit(command string) bool {

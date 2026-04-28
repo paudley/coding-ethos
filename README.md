@@ -503,6 +503,11 @@ the git wrapper accepts `--admin-approved` before the git subcommand, such as
 `pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -m "..."`.
 The flag only changes `git.staged_admin_files` from block to record; it does not
 disable any other policy and it is invalid outside this repository.
+Admin branch setup uses the same gate:
+`pre-commit/hooks/run-go-hook.sh policy-git --admin-approved admin-start-branch hooks_and_crooks_take_6`.
+That wrapper-owned operation requires a clean worktree, checks out `main`, pulls
+with `--ff-only`, and creates the requested branch. Agents must not use
+`/usr/bin/git` or any other raw Git path for that workflow.
 
 Install hooks:
 
