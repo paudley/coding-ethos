@@ -19,7 +19,7 @@ func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
 			{
 				Name:     "syntax",
 				Enabled:  hookPlanBoolTrue,
-				Commands: []string{"check-syntax"},
+				Commands: []string{"yamllint"},
 			},
 		},
 	}
@@ -29,7 +29,7 @@ func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
 		`"parallel_groups": true`,
 		`"enabled": true`,
 		`"commands": [`,
-		`"check-syntax"`,
+		`"yamllint"`,
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)
@@ -48,7 +48,7 @@ func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
 			{
 				Name:     "syntax",
 				Enabled:  hookPlanBoolTrue,
-				Commands: []string{"check-syntax", "yamllint"},
+				Commands: []string{"yamllint", "shellcheck"},
 			},
 		},
 	}
@@ -57,7 +57,7 @@ func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
 	for _, fragment := range []string{
 		"format: toon",
 		"groups[1]{name,enabled,commands}:",
-		"syntax,true,check-syntax yamllint",
+		"syntax,true,yamllint shellcheck",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)

@@ -119,6 +119,44 @@ git init "$git_repo" >/dev/null
 git -C "$git_repo" config user.email test@example.com
 git -C "$git_repo" config user.name Test
 git -C "$git_repo" config commit.gpgsign false
+
+printf '==> validating compiled file policy preflight blocks migrated checks\n'
+printf '<<<<<<< HEAD\n' > "$git_repo/conflict.txt"
+set +e
+compiled_output="$("$lint_bin" \
+  --bundle "$policy_dir/policy-bundle.json" \
+  --scope files \
+  --cwd "$git_repo" \
+  --files conflict.txt \
+  --json 2>&1)"
+compiled_status=$?
+set -e
+if [[ "$compiled_status" -ne 2 ]] ||
+  ! grep -q '"policy_id": "syntax.merge_conflict"' <<<"$compiled_output"; then
+  printf 'expected compiled merge-conflict block, got %s:\n%s\n' \
+    "$compiled_status" "$compiled_output" >&2
+  exit 1
+fi
+rm -f "$git_repo/conflict.txt"
+
+printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----' 'redacted' > "$git_repo/secret.pem"
+set +e
+compiled_output="$("$lint_bin" \
+  --bundle "$policy_dir/policy-bundle.json" \
+  --scope files \
+  --cwd "$git_repo" \
+  --files secret.pem \
+  --json 2>&1)"
+compiled_status=$?
+set -e
+if [[ "$compiled_status" -ne 2 ]] ||
+  ! grep -q '"policy_id": "security.private_key"' <<<"$compiled_output"; then
+  printf 'expected compiled private-key block, got %s:\n%s\n' \
+    "$compiled_status" "$compiled_output" >&2
+  exit 1
+fi
+rm -f "$git_repo/secret.pem"
+
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
 

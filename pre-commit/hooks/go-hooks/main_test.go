@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:paralleltest,tparallel,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global fixtures.
+//nolint:paralleltest,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global fixtures.
 package main
 
 import (
@@ -64,54 +64,6 @@ func TestCommitLintGuidanceIncludesConcreteExample(t *testing.T) {
 		if !strings.Contains(guidance, want) {
 			t.Fatalf("guidance missing %q:\n%s", want, guidance)
 		}
-	}
-}
-
-func TestLimitsForFilePreservesPythonLimitsUnderScripts(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{}
-	cfg.LineLimits.PythonHard = 1000
-	cfg.LineLimits.PythonWarn = 800
-	cfg.LineLimits.ShellHard = 500
-	cfg.LineLimits.ShellWarn = 400
-
-	tests := []struct {
-		path     string
-		hardWant int
-		warnWant int
-	}{
-		{
-			path:     "scripts/tool.py",
-			hardWant: 1000,
-			warnWant: 800,
-		},
-		{
-			path:     "scripts/tool.sh",
-			hardWant: 500,
-			warnWant: 400,
-		},
-		{
-			path:     "coding_ethos/module.py",
-			hardWant: 1000,
-			warnWant: 800,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
-			hardGot, warnGot := limitsForFile(cfg, tc.path)
-			if hardGot != tc.hardWant || warnGot != tc.warnWant {
-				t.Fatalf(
-					"limitsForFile(%q) = (%d, %d), want (%d, %d)",
-					tc.path,
-					hardGot,
-					warnGot,
-					tc.hardWant,
-					tc.warnWant,
-				)
-			}
-		})
 	}
 }
 

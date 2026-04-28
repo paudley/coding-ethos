@@ -246,19 +246,13 @@ func main() {
 		"check-docstring-coverage":         checkDocstringCoverageCommand,
 		"check-file-docstrings":            checkFileDocstringsCommand,
 		"check-forbidden-strings":          checkForbiddenStrings,
-		"check-large-files":                checkLargeFiles,
-		"check-line-limits":                checkLineLimits,
-		"check-merge-conflict":             checkMergeConflict,
 		"check-optional-returns":           checkOptionalReturnsCommand,
 		"check-module-docs":                checkModuleDocsCommand,
 		"check-pyproject-ignores":          checkPyprojectIgnoresCommand,
 		"check-pytest-gate":                checkPytestGateCommand,
 		"check-security-patterns":          checkSecurityPatternsCommand,
-		"check-shebangs":                   checkShebangs,
-		"check-shell-best-practices":       checkShellBestPractices,
 		"check-sql-centralization":         checkSQLCentralizationCommand,
 		"check-structured-logging":         checkStructuredLoggingCommand,
-		"check-syntax":                     checkSyntax,
 		"check-type-checkers":              checkTypeCheckersCommand,
 		"check-type-checking-imports":      checkTypeCheckingImportsCommand,
 		"check-plan-completion":            checkPlanCompletionCommand,
@@ -267,7 +261,6 @@ func main() {
 		"config-get":                       configGet,
 		"commit-attribution":               checkCommitAttribution,
 		"commitlint":                       checkCommitLint,
-		"detect-private-key":               detectPrivateKey,
 		"fix-text":                         fixText,
 		"gemini-check":                     runGeminiCheck,
 		"git-hook":                         runGitHookCommand,
@@ -4142,100 +4135,6 @@ func fixText(_ Config, paths []string) int {
 	return exitCode(failed)
 }
 
-func checkSyntax(_ Config, paths []string) int {
-	findings := []hookFinding{}
-
-	for _, path := range existingFiles(paths) {
-		err := checkSyntaxPath(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "syntax",
-				File:    path,
-				Message: err.Error(),
-			})
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "syntax",
-		Title:    "SYNTAX CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Fix invalid YAML, TOML, or JSON syntax before committing."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
-func checkSyntaxPath(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read syntax file %s: %w", path, err)
-	}
-
-	err = decodeSyntaxFile(path, data)
-	if err == nil {
-		return nil
-	}
-
-	return err
-}
-
-func decodeSyntaxFile(path string, data []byte) error {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case extYaml, extYml:
-		return decodeYAMLSyntax(data)
-	case ".toml":
-		return decodeTOMLSyntax(data)
-	case ".json":
-		return decodeJSONSyntax(data)
-	default:
-		return nil
-	}
-}
-
-func decodeYAMLSyntax(data []byte) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-
-	for {
-		var value any
-
-		err := decoder.Decode(&value)
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-
-		if err != nil {
-			return fmt.Errorf("decode YAML: %w", err)
-		}
-	}
-}
-
-func decodeTOMLSyntax(data []byte) error {
-	var value any
-
-	err := toml.Unmarshal(data, &value)
-	if err != nil {
-		return fmt.Errorf("decode TOML: %w", err)
-	}
-
-	return nil
-}
-
-func decodeJSONSyntax(data []byte) error {
-	var value any
-
-	err := json.Unmarshal(data, &value)
-	if err != nil {
-		return fmt.Errorf("decode JSON: %w", err)
-	}
-
-	return nil
-}
-
 func findManifestPath(settings manifestValidationSettings) (string, error) {
 	for _, raw := range settings.CandidatePaths {
 		candidate := strings.TrimSpace(raw)
@@ -6105,188 +6004,6 @@ func moduleDocsFindingCount(violations moduleDocsViolations) int {
 		len(violations.BannedFilenames)
 }
 
-func checkMergeConflict(_ Config, paths []string) int {
-	findings := []hookFinding{}
-	markers := []string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"}
-
-	for _, path := range existingFiles(paths) {
-		if isBinary(path) {
-			continue
-		}
-
-		text, binary, err := readText(path)
-		if err != nil || binary {
-			continue
-		}
-
-		for _, line := range strings.Split(text, "\n") {
-			for _, marker := range markers {
-				if strings.HasPrefix(line, marker) {
-					findings = append(findings, hookFinding{
-						Tool:    "merge_conflict",
-						File:    path,
-						Code:    marker,
-						Message: "unresolved merge conflict marker",
-					})
-
-					goto nextFile
-				}
-			}
-		}
-
-	nextFile:
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "merge_conflict",
-		Title:    "MERGE CONFLICT MARKERS DETECTED",
-		Findings: findings,
-		Guidance: []string{"Resolve the conflict and remove all conflict markers."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
-func checkShebangs(_ Config, paths []string) int {
-	findings := []hookFinding{}
-
-	for _, path := range existingFiles(paths) {
-		text, binary, err := readText(path)
-		if err != nil || binary {
-			continue
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-
-		executable := info.Mode()&executePermissionMask != 0
-
-		hasShebang := strings.HasPrefix(text, "#!")
-		if executable && !hasShebang {
-			findings = append(findings, hookFinding{
-				Tool:    "shebangs",
-				File:    path,
-				Message: "executable file has no shebang",
-			})
-		}
-
-		if hasShebang && !executable {
-			findings = append(findings, hookFinding{
-				Tool:    "shebangs",
-				File:    path,
-				Message: "shebang script is not executable",
-			})
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "shebangs",
-		Title:    "SHEBANG CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Add a valid shebang to executable scripts and mark shebang scripts executable."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
-func detectPrivateKey(_ Config, paths []string) int {
-	findings := []hookFinding{}
-	privateKey := regexp.MustCompile(privateKeyPattern)
-
-	for _, path := range existingFiles(paths) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "private_key",
-				File:    path,
-				Message: err.Error(),
-			})
-
-			continue
-		}
-
-		if privateKey.Match(data) {
-			findings = append(findings, hookFinding{
-				Tool:    "private_key",
-				File:    path,
-				Message: "possible private key detected",
-			})
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "private_key",
-		Title:    "PRIVATE KEY CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Remove secrets from source and rotate any exposed credentials."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
-func checkLargeFiles(cfg Config, paths []string) int {
-	findings := []hookFinding{}
-	suffixes := stringSet(cfg.Text.LargeFileSuffixes)
-
-	maxBytes := int64(cfg.Text.MaxLargeFileKB * kibibyte)
-	for _, path := range existingFiles(paths) {
-		if !suffixes[strings.ToLower(filepath.Ext(path))] ||
-			hasPrefix(path, cfg.Text.LargeFileExcludePrefixes) {
-			continue
-		}
-
-		if !isAddedFile(path) {
-			continue
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "large_files",
-				File:    path,
-				Message: err.Error(),
-			})
-
-			continue
-		}
-
-		if info.Size() > maxBytes {
-			findings = append(findings, hookFinding{
-				Tool:    "large_files",
-				File:    path,
-				Message: fmt.Sprintf("%d KiB exceeds %d KiB limit", info.Size()/kibibyte, cfg.Text.MaxLargeFileKB),
-			})
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "large_files",
-		Title:    "LARGE FILE CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Remove oversized generated or binary content from the commit."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
 func forbiddenStringExemptPath() string {
 	bundleRoot, err := findBundleRoot()
 	if err != nil {
@@ -6437,133 +6154,6 @@ func runYamllint(_ Config, paths []string) int {
 
 func parseYamllintFindings(output string) []hookFinding {
 	return parseCatalogFindings("yamllint", output)
-}
-
-func checkShellBestPractices(cfg Config, paths []string) int {
-	findings := []hookFinding{}
-	setPattern := regexp.MustCompile(
-		`(?m)^\s*set\s+-[euo]+\s*pipefail|^\s*set\s+-euo\s+pipefail`,
-	)
-	commonPattern := regexp.MustCompile(`(?m)source\s+.*common\.sh|^\.\s+.*common\.sh`)
-
-	for _, path := range shellFiles(existingFiles(paths)) {
-		text, binary, err := readText(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "shell_best_practices",
-				File:    path,
-				Message: "could not read file",
-				Detail:  err.Error(),
-			})
-
-			continue
-		}
-
-		if binary {
-			continue
-		}
-
-		var errs []string
-		if !validShellShebang(text) {
-			errs = append(errs, "missing or invalid shell shebang")
-		}
-
-		if !setPattern.MatchString(text) {
-			errs = append(errs, "missing 'set -euo pipefail'")
-		}
-
-		if hasPrefix(path, cfg.Shell.RequireCommonForPrefixes) &&
-			!commonPattern.MatchString(text) {
-			errs = append(
-				errs,
-				"scripts/ shell files must source the repository common shell helpers",
-			)
-		}
-
-		if len(errs) > 0 {
-			for _, err := range errs {
-				findings = append(findings, hookFinding{
-					Tool:    "shell_best_practices",
-					File:    path,
-					Message: err,
-				})
-			}
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "shell_best_practices",
-		Title:    "SHELL BEST PRACTICES CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{"Use a valid shell shebang, `set -euo pipefail`, and required common shell helpers."},
-	}, selectedHookOutputFormat()))
-
-	return 1
-}
-
-func checkLineLimits(cfg Config, paths []string) int {
-	findings := []hookFinding{}
-
-	for _, path := range existingFiles(paths) {
-		if !isLineLimited(path) {
-			continue
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			findings = append(findings, hookFinding{
-				Tool:    "line_limits",
-				File:    path,
-				Message: "could not read file",
-				Detail:  err.Error(),
-			})
-
-			continue
-		}
-
-		lineCount := countLines(string(data))
-
-		hardLimit, _ := limitsForFile(cfg, path)
-		if lineCount <= hardLimit {
-			continue
-		}
-
-		originalCount := originalLineCount(path)
-		if originalCount < 0 {
-			findings = append(findings, hookFinding{
-				Tool:    "line_limits",
-				File:    path,
-				Message: fmt.Sprintf("new file has %d lines over %d limit", lineCount, hardLimit),
-			})
-		} else if lineCount > originalCount {
-			findings = append(findings, hookFinding{
-				Tool:    "line_limits",
-				File:    path,
-				Message: fmt.Sprintf("file grew from %d to %d lines over %d limit", originalCount, lineCount, hardLimit),
-			})
-		}
-	}
-
-	if len(findings) == 0 {
-		return 0
-	}
-
-	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-		Tool:     "line_limits",
-		Title:    "FILE SIZE CHECK FAILED",
-		Findings: findings,
-		Guidance: []string{
-			"Extract helper functions to separate modules.",
-			"Split large files into focused submodules.",
-			"Move reusable code to lib/.",
-		},
-	}, selectedHookOutputFormat()))
-
-	return 1
 }
 
 func checkCommitLint(cfg Config, args []string) int {
@@ -6792,18 +6382,6 @@ func attributionPatterns(names []string) []*regexp.Regexp {
 	}
 }
 
-func shellFiles(paths []string) []string {
-	var files []string
-
-	for _, path := range paths {
-		if isShellFile(path) {
-			files = append(files, path)
-		}
-	}
-
-	return files
-}
-
 func isShellFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == extShell || ext == extBash {
@@ -6819,80 +6397,6 @@ func isShellFile(path string) bool {
 
 	return strings.HasPrefix(firstLine, "#!") &&
 		(strings.Contains(firstLine, "bash") || strings.Contains(firstLine, "sh"))
-}
-
-func validShellShebang(text string) bool {
-	firstLine, _, _ := strings.Cut(text, "\n")
-
-	return strings.HasPrefix(firstLine, "#!") &&
-		(strings.Contains(firstLine, "bash") || strings.Contains(firstLine, "sh"))
-}
-
-func isLineLimited(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-
-	return ext == ".py" || ext == ".sh" || ext == extBash ||
-		strings.Contains(path, "scripts/")
-}
-
-func limitsForFile(cfg Config, path string) (int, int) {
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".py" {
-		return cfg.LineLimits.PythonHard, cfg.LineLimits.PythonWarn
-	}
-
-	if ext == ".sh" || ext == extBash || strings.Contains(path, "scripts/") {
-		return cfg.LineLimits.ShellHard, cfg.LineLimits.ShellWarn
-	}
-
-	return cfg.LineLimits.PythonHard, cfg.LineLimits.PythonWarn
-}
-
-func originalLineCount(path string) int {
-	cmd := exec.CommandContext(context.Background(), "git", "show", "HEAD:"+path)
-	cmd.Env = externalToolEnv(nil)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return -1
-	}
-
-	return countLines(string(output))
-}
-
-func countLines(text string) int {
-	trimmed := strings.TrimRight(text, "\n")
-	if trimmed == "" {
-		return 0
-	}
-
-	return len(strings.Split(trimmed, "\n"))
-}
-
-func isAddedFile(path string) bool {
-	cmd := exec.CommandContext(
-		context.Background(),
-		"git",
-		"diff",
-		"--cached",
-		"--name-only",
-		"--diff-filter=A",
-		"--",
-		path,
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-
-	for _, added := range strings.Split(string(output), "\n") {
-		if added == path {
-			return true
-		}
-	}
-
-	return false
 }
 
 func stringSet(values []string) map[string]bool {

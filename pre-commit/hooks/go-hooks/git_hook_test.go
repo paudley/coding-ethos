@@ -209,7 +209,7 @@ func TestHookGroupResultFileRoundTrip(t *testing.T) {
 		ExitCode:   1,
 		DurationMS: 12,
 		Commands: []hookCommandResult{
-			{Name: "check-syntax", Status: statusPass, ExitCode: 0, DurationMS: 4},
+			{Name: "yamllint", Status: statusPass, ExitCode: 0, DurationMS: 4},
 			{Name: "yamllint", Status: statusFail, ExitCode: 1, DurationMS: 8},
 		},
 	}
