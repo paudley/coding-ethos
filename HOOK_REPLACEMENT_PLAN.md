@@ -65,6 +65,7 @@ Runtime covered in Go agent-hook code:
 - `shell.dangerous_command`
 - `shell.background_git`
 - `shell.github_admin`
+- `shell.forbidden_strings`
 - `filesystem.protected_path`
 - `filesystem.protected_branch_write`
 - `python.conditional_imports`

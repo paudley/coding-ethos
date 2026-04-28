@@ -456,6 +456,10 @@ those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
 surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
 accepted. Provider identity is recorded for diagnostics, but policy enforcement
 is intentionally shared across all supported agents.
+Agent shell policy includes a forbidden-string gate for hook-system
+reconnaissance: banned strings are rejected when they appear directly in a
+command and when they appear in regular files referenced by the command, so
+agents cannot hide hook inspection in helper scripts.
 
 Provider output uses the strongest native shape each agent supports:
 

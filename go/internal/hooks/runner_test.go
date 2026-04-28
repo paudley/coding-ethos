@@ -311,6 +311,35 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 	}
 }
 
+func TestRunBlocksHookSettingsReconnaissance(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					`cat /home/paudley/.claude/settings.json 2>/dev/null | `,
+					`python3 -c "import sys, json; `,
+					`d = json.load(sys.stdin); print(d.get('hooks', {}))"`,
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden strings decision, got %#v", result.Decisions)
+	}
+}
+
 func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 	t.Parallel()
 

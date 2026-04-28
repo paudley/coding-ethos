@@ -4,6 +4,8 @@
 package evaluators
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -71,6 +73,115 @@ func EvaluateShellGitHubAdmin(
 	return blockShellDecision(policyDef, strings.Join(argv, " ")), nil
 }
 
+func EvaluateShellForbiddenStrings(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	command := context.Command
+	if command == "" {
+		command = strings.Join(context.Argv, " ")
+	}
+
+	if matched, value := containsForbiddenString(
+		command,
+		forbiddenStrings(context.EvaluatorOptions),
+	); matched {
+		return blockForbiddenStringDecision(policyDef, command, "command", value), nil
+	}
+
+	for _, file := range referencedCommandFiles(context) {
+		matched, value := referencedFileContainsForbiddenString(
+			context.Cwd,
+			file,
+			forbiddenStrings(context.EvaluatorOptions),
+		)
+		if matched {
+			return blockForbiddenStringDecision(policyDef, command, file, value), nil
+		}
+	}
+
+	return nil, nil
+}
+
+func forbiddenStrings(options map[string]any) []string {
+	return stringSliceOption(options, "strings", []string{
+		"/.claude/settings.json",
+		"/.claude/settings.local.json",
+		"~/.claude/settings.json",
+		"~/.claude/settings.local.json",
+		"/.codex/config.toml",
+		"/.codex/hooks.json",
+		"/.gemini/settings.json",
+	})
+}
+
+func containsForbiddenString(text string, forbidden []string) (bool, string) {
+	lower := strings.ToLower(text)
+	for _, value := range forbidden {
+		if strings.Contains(lower, strings.ToLower(value)) {
+			return true, value
+		}
+	}
+
+	return false, ""
+}
+
+func referencedCommandFiles(context Context) []string {
+	files := append([]string{}, context.Files...)
+	for _, arg := range context.Argv {
+		if arg == "" || strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+			continue
+		}
+
+		files = append(files, arg)
+	}
+
+	return dedupeEvaluatorStrings(files)
+}
+
+func referencedFileContainsForbiddenString(
+	cwd string,
+	file string,
+	forbidden []string,
+) (bool, string) {
+	path := file
+	if !filepath.IsAbs(path) && cwd != "" {
+		path = filepath.Join(cwd, path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
+		return false, ""
+	}
+
+	const maxForbiddenStringScanBytes = 1 << 20
+	if info.Size() > maxForbiddenStringScanBytes {
+		return false, ""
+	}
+
+	content, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return false, ""
+	}
+
+	return containsForbiddenString(string(content), forbidden)
+}
+
+func dedupeEvaluatorStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+
+		seen[value] = true
+		result = append(result, value)
+	}
+
+	return result
+}
+
 func pipesToShell(command string) bool {
 	return strings.Contains(command, "| sh") ||
 		strings.Contains(command, "| bash") ||
@@ -81,6 +192,22 @@ func pipesToShell(command string) bool {
 func blockShellDecision(policyDef policy.Policy, command string) []policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	decision.Evidence = map[string]any{"command": command}
+
+	return []policy.Decision{decision}
+}
+
+func blockForbiddenStringDecision(
+	policyDef policy.Policy,
+	command string,
+	location string,
+	value string,
+) []policy.Decision {
+	decision := policy.NewDecision(blockDecision, policyDef)
+	decision.Evidence = map[string]any{
+		"command":          command,
+		"location":         location,
+		"forbidden_string": value,
+	}
 
 	return []policy.Decision{decision}
 }

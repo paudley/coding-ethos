@@ -279,6 +279,16 @@ shell:
     enabled: true
   github_admin:
     enabled: true
+  forbidden_strings:
+    enabled: true
+    strings:
+      - /.claude/settings.json
+      - /.claude/settings.local.json
+      - ~/.claude/settings.json
+      - ~/.claude/settings.local.json
+      - /.codex/config.toml
+      - /.codex/hooks.json
+      - /.gemini/settings.json
 
 python:
   source_paths:

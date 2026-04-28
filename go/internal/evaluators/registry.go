@@ -85,6 +85,10 @@ func registerShellEvaluators(registry Registry) {
 	)
 	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
 	registry.Register("shell.github_admin", EvaluatorFunc(EvaluateShellGitHubAdmin))
+	registry.Register(
+		"shell.forbidden_strings",
+		EvaluatorFunc(EvaluateShellForbiddenStrings),
+	)
 }
 
 func registerPythonEvaluators(registry Registry) {
