@@ -47,3 +47,85 @@ func TestParseMetadataEnvTrimsQuotedValues(t *testing.T) {
 		t.Fatalf("parseMetadataEnv() = %#v", values)
 	}
 }
+
+func TestAnalyzeHookLogsRanksFailuresAndQualityIssues(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repo := repoRoot()
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "run-a", "stdout.log"),
+		`format: toon
+tool: ruff-autofix
+findings[2]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:
+  ruff,lib/python/app.py,10,1,error,E402,python.import_order,Module level import not at top of file,Move imports to top,
+  ruff,`+repo+`/lib/python/app.py,20,4,error,S608,python.sql_safety,Possible SQL injection vector through\nstring-based query construction,Use parameterized SQL,
+raw_output[1]{line}:
+  Error: noisy output
+`,
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "run-b", "stdout.log"),
+		`format: toon
+tool: ruff-autofix
+findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:
+  ruff,lib/python/app.py,10,1,error,E402,python.import_order,Module level import not at top of file,Move imports to top,
+`,
+	)
+
+	analysis, err := analyzeHookLogs(root, hookOutputFormatTOON)
+	if err != nil {
+		t.Fatalf("analyzeHookLogs() returned error: %v", err)
+	}
+
+	if analysis.RunsAnalyzed != 2 || analysis.Findings != 3 {
+		t.Fatalf("analysis counts = %#v", analysis)
+	}
+	if len(analysis.TopTools) == 0 ||
+		analysis.TopTools[0] != (hookLogCount{Key: "ruff", Count: 3}) {
+		t.Fatalf("top tools = %#v", analysis.TopTools)
+	}
+	if len(analysis.TopCodes) == 0 ||
+		analysis.TopCodes[0] != (hookLogCount{Key: "ruff:E402", Count: 2}) {
+		t.Fatalf("top codes = %#v", analysis.TopCodes)
+	}
+	if len(analysis.Repeated) == 0 || analysis.Repeated[0].Count != 2 {
+		t.Fatalf("repeated failures = %#v", analysis.Repeated)
+	}
+
+	kinds := map[string]bool{}
+	for _, issue := range analysis.QualityIssues {
+		kinds[issue.Kind] = true
+	}
+	for _, want := range []string{
+		"absolute_repo_path",
+		"escaped_newline_cell",
+		"raw_output",
+	} {
+		if !kinds[want] {
+			t.Fatalf("missing quality issue %q in %#v", want, analysis.QualityIssues)
+		}
+	}
+
+	output := formatHookLogAnalysis(analysis)
+	for _, want := range []string{
+		"top_tools[1]{key,count}:",
+		"top_codes[2]{key,count}:",
+		"quality_issues[3]{kind,run_id,line,sample}:",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("analysis output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestSplitTOONCSVHandlesEscapedCommas(t *testing.T) {
+	t.Parallel()
+
+	cells := splitTOONCSV(`ruff,path.py,1,2,error,E402,,message with \, comma,advice,`)
+	if len(cells) != 10 || cells[7] != "message with , comma" {
+		t.Fatalf("splitTOONCSV() = %#v", cells)
+	}
+}

@@ -22,7 +22,9 @@ The shell entry wrapper logs every top-level run to
 `stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
 evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
 when required runtime output paths are not ignored, and `hook-log-summary`
-summarizes collected runs for later analysis.
+summarizes collected runs for later analysis. `hook-log-analyze` ranks failed
+tools, codes, repeated findings, and output-quality problems such as raw output,
+escaped newline cells, or leaked absolute repo paths.
 
 Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 `policy.evidence_maps`. Mapped findings receive policy-grounded advice in

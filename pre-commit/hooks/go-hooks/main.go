@@ -270,6 +270,7 @@ func main() {
 		"fix-text":                         fixText,
 		"gemini-check":                     runGeminiCheck,
 		"git-hook":                         runGitHookCommand,
+		"hook-log-analyze":                 hookLogAnalyzeCommand,
 		"hook-log-summary":                 hookLogSummaryCommand,
 		"hook-plan":                        runHookPlanCommand,
 		"hadolint":                         runHadolint,

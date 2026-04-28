@@ -139,6 +139,7 @@ pre-commit/hooks/run-go-hook.sh cutover install
 pre-commit/hooks/run-go-hook.sh cutover verify
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
+pre-commit/hooks/run-go-hook.sh hook-log-analyze
 pre-commit/hooks/run-go-hook.sh hook-log-summary
 ```
 
@@ -186,8 +187,10 @@ command must be rerun through the wrapper. Gemini uses native
 advice remains full-fidelity for Claude and Codex; Gemini has no direct
 `PostToolUse` equivalent in the documented hook surface.
 
-`hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
-human, JSON, and TOON output selection as hook execution output.
+`hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
+ranks failed tools, codes, repeated findings, and output-quality problems such
+as raw output, escaped newline cells, or leaked absolute repo paths. Both honor
+the same human, JSON, and TOON output selection as hook execution output.
 
 ## Configuration
 
