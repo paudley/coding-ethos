@@ -18,8 +18,10 @@ import (
 
 const (
 	permissionAllow = "allow"
+	preToolUse      = "PreToolUse"
 	statusAllowed   = "allowed"
 	statusBlocked   = "blocked"
+	toolBash        = "Bash"
 )
 
 func TestRunBlocksGitHookBypass(t *testing.T) {
@@ -726,12 +728,148 @@ func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != preToolUse || event.ToolName != toolBash {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 
 	if event.Command() != "git status" {
 		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func TestDecodeEventReadsCodexPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git status"},
+		"cwd": "/repo"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != toolBash ||
+		event.Cwd != "/repo" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Command() != "git status" {
+		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func TestDecodeEventReadsGeminiCLIPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "PostToolUse",
+		"toolName": "Bash",
+		"toolInput": {"command": "git commit -m test"},
+		"output": "ruff...Failed",
+		"exitCode": 1
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "gemini-cli" ||
+		event.HookEventName != "PostToolUse" ||
+		event.ToolName != toolBash {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Command() != "git commit -m test" ||
+		event.ToolOutput() != "ruff...Failed" ||
+		event.ReturnCode() != 1 {
+		t.Fatalf("tool data mismatch: %#v", event)
+	}
+}
+
+func TestDecodeEventReadsNestedToolPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"runtime": "codex",
+		"event_name": "PreToolUse",
+		"tool_call": {
+			"name": "Write",
+			"arguments": {
+				"file_path": "src/app.py",
+				"content": "import subprocess\n"
+			}
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != "Write" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if got := event.Files(); len(got) != 1 || got[0] != "src/app.py" {
+		t.Fatalf("files mismatch: %#v", got)
+	}
+
+	if event.Content() != "import subprocess\n" {
+		t.Fatalf("content mismatch: %q", event.Content())
+	}
+}
+
+func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "git.hook_bypass") {
+		t.Fatalf("expected git bypass block, got %#v", result)
+	}
+}
+
+func TestRunRewritesGeminiPayloadGitCommand(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "PreToolUse",
+		"toolName": "Bash",
+		"toolInput": {"command": "git status"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed ||
+		result.HookSpecificOutput == nil ||
+		result.HookSpecificOutput.PermissionDecision != permissionAllow {
+		t.Fatalf("expected git rewrite allow, got %#v", result)
 	}
 }
 

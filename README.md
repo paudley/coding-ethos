@@ -428,6 +428,24 @@ output provider-owned manifests under `codex` and `gemini` top-level keys so
 downstream installers can consume the same event/tool contract without
 pretending to be Claude settings. Generated settings cover `PreToolUse`,
 `PostToolUse`, `PreCompact`, and `SessionStart` compact replay.
+At runtime, `agent-hook` normalizes Claude native payloads and first-class
+Codex/Gemini CLI payloads into one internal policy event. The preferred
+provider-neutral payload shape is:
+
+```json
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "input": {"command": "git status"}
+}
+```
+
+Gemini CLI callers may use camelCase hook fields such as `hookEventName`,
+`toolName`, `toolInput`, `toolResponse`, and `exitCode`; Codex-style nested
+`tool_call.name` plus `tool_call.arguments` is also accepted. Provider identity
+is recorded for diagnostics, but policy enforcement is intentionally shared
+across all supported agents.
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.

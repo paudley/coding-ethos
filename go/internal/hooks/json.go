@@ -10,16 +10,16 @@ import (
 )
 
 func DecodeEvent(reader io.Reader) (Event, error) {
-	var event Event
+	payload := map[string]json.RawMessage{}
 
 	decoder := json.NewDecoder(reader)
 
-	err := decoder.Decode(&event)
+	err := decoder.Decode(&payload)
 	if err != nil {
 		return Event{}, fmt.Errorf("decode hook event: %w", err)
 	}
 
-	return event, nil
+	return normalizeEvent(payload), nil
 }
 
 func EncodeResult(writer io.Writer, result Result) error {
@@ -33,4 +33,209 @@ func EncodeResult(writer io.Writer, result Result) error {
 	}
 
 	return nil
+}
+
+func normalizeEvent(payload map[string]json.RawMessage) Event {
+	event := Event{
+		Cwd:            firstString(payload, "cwd", "working_directory", "workingDirectory"),
+		HookEventName:  primaryHookEventName(payload),
+		Matcher:        firstString(payload, "matcher"),
+		SessionID:      firstString(payload, "session_id", "sessionID", "sessionId"),
+		Source:         firstString(payload, "source", "provider", "agent", "runtime"),
+		ToolInput:      primaryToolInput(payload),
+		ToolName:       firstString(payload, "tool_name", "toolName", "tool"),
+		ToolResponse:   primaryToolResponse(payload),
+		TranscriptPath: firstString(payload, "transcript_path", "transcriptPath"),
+	}
+
+	event = normalizeNestedTool(payload, event)
+	event.ToolResponse = mergeTopLevelResponseStatus(payload, event.ToolResponse)
+
+	return event
+}
+
+func primaryHookEventName(payload map[string]json.RawMessage) string {
+	return firstString(
+		payload,
+		"hook_event_name",
+		"hookEventName",
+		"event",
+		"event_name",
+	)
+}
+
+func primaryToolInput(payload map[string]json.RawMessage) map[string]any {
+	return firstMap(
+		payload,
+		"tool_input",
+		"toolInput",
+		"input",
+		"arguments",
+		"args",
+		"parameters",
+	)
+}
+
+func primaryToolResponse(payload map[string]json.RawMessage) map[string]any {
+	return firstResponseMap(
+		payload,
+		"tool_response",
+		"toolResponse",
+		"response",
+		"output",
+		"result",
+	)
+}
+
+func normalizeNestedTool(payload map[string]json.RawMessage, event Event) Event {
+	for _, key := range []string{"tool_call", "toolCall", "tool"} {
+		nested := decodeObject(payload[key])
+		if len(nested) == 0 {
+			continue
+		}
+
+		if event.ToolName == "" {
+			event.ToolName = firstString(nested, "name", "tool_name", "toolName", "tool")
+		}
+
+		if event.ToolInput == nil {
+			event.ToolInput = firstMap(nested, "input", "arguments", "args", "parameters")
+		}
+
+		if event.ToolResponse == nil {
+			event.ToolResponse = firstResponseMap(nested, "response", "output", "result")
+		}
+	}
+
+	return event
+}
+
+func mergeTopLevelResponseStatus(
+	payload map[string]json.RawMessage,
+	response map[string]any,
+) map[string]any {
+	for _, key := range []string{
+		"return_code",
+		"returnCode",
+		"exitCode",
+		"exit_code",
+		"code",
+	} {
+		value, ok := decodeNumberOrString(payload[key])
+		if !ok {
+			continue
+		}
+
+		if response == nil {
+			response = map[string]any{}
+		}
+
+		response[key] = value
+	}
+
+	return response
+}
+
+func firstString(payload map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		value, ok := decodeString(payload[key])
+		if ok {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func firstMap(payload map[string]json.RawMessage, keys ...string) map[string]any {
+	for _, key := range keys {
+		value := decodeMap(payload[key])
+		if value != nil {
+			return value
+		}
+	}
+
+	return nil
+}
+
+func firstResponseMap(
+	payload map[string]json.RawMessage,
+	keys ...string,
+) map[string]any {
+	for _, key := range keys {
+		if response := decodeMap(payload[key]); response != nil {
+			return response
+		}
+
+		if response, ok := decodeString(payload[key]); ok {
+			return map[string]any{"output": response}
+		}
+	}
+
+	return nil
+}
+
+func decodeString(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+
+	var value string
+
+	err := json.Unmarshal(raw, &value)
+	if err != nil || value == "" {
+		return "", false
+	}
+
+	return value, true
+}
+
+func decodeMap(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	value := map[string]any{}
+
+	err := json.Unmarshal(raw, &value)
+	if err != nil {
+		return nil
+	}
+
+	return value
+}
+
+func decodeNumberOrString(raw json.RawMessage) (any, bool) {
+	if len(raw) == 0 {
+		return nil, false
+	}
+
+	var value any
+
+	err := json.Unmarshal(raw, &value)
+	if err != nil {
+		return nil, false
+	}
+
+	switch value.(type) {
+	case float64, string:
+		return value, true
+	default:
+		return nil, false
+	}
+}
+
+func decodeObject(raw json.RawMessage) map[string]json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	value := map[string]json.RawMessage{}
+
+	err := json.Unmarshal(raw, &value)
+	if err != nil {
+		return nil
+	}
+
+	return value
 }

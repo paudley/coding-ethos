@@ -281,6 +281,10 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
   cd "$wrapper_repo"
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-rewrite.out
+  printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-git-rewrite.out
+  printf '{"provider":"gemini-cli","hookEventName":"PreToolUse","toolName":"Bash","toolInput":{"command":"git status"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-git-rewrite.out
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out
   set +e
@@ -298,6 +302,18 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   ! grep -q 'policy-git' /tmp/coding-ethos-git-rewrite.out; then
   printf 'expected git rewrite output:\n' >&2
   cat /tmp/coding-ethos-git-rewrite.out >&2
+  exit 1
+fi
+if ! grep -q '"updatedInput"' /tmp/coding-ethos-codex-git-rewrite.out ||
+  ! grep -q 'policy-git' /tmp/coding-ethos-codex-git-rewrite.out; then
+  printf 'expected Codex git rewrite output:\n' >&2
+  cat /tmp/coding-ethos-codex-git-rewrite.out >&2
+  exit 1
+fi
+if ! grep -q '"updatedInput"' /tmp/coding-ethos-gemini-git-rewrite.out ||
+  ! grep -q 'policy-git' /tmp/coding-ethos-gemini-git-rewrite.out; then
+  printf 'expected Gemini git rewrite output:\n' >&2
+  cat /tmp/coding-ethos-gemini-git-rewrite.out >&2
   exit 1
 fi
 if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||

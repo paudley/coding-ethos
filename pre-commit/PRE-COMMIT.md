@@ -139,6 +139,26 @@ and Gemini output explicit provider manifests under `codex` and `gemini`
 top-level keys so repo-local installers can cut over without using legacy
 Claude-shaped adapters.
 
+`agent-hook` accepts each provider's supported event shape and normalizes it
+before policy evaluation. Claude may send native `hook_event_name`,
+`tool_name`, `tool_input`, and `tool_response` fields. Codex and Gemini CLI
+callers should send the provider-neutral shape:
+
+```json
+{
+  "provider": "gemini-cli",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "input": {"command": "git status"}
+}
+```
+
+The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
+`toolInput`, `toolResponse`, `exitCode`) and nested Codex-style
+`tool_call.name` plus `tool_call.arguments`. Provider identity does not weaken
+policy: the same git wrapper, filesystem, Python-edit, continuation, and
+post-tool output rules apply to Claude, Codex, and Gemini.
+
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
 human, JSON, and TOON output selection as hook execution output.
 

@@ -45,6 +45,20 @@ partial protection is not a valid install state. The active runtime does not
 call AI systems from agent hooks; AI review stays in Git hook stages where
 output, cost, and caching are controlled by this runner.
 
+`agent-hook` normalizes provider payloads at the JSON boundary. Claude native
+payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain
+supported. Codex and Gemini CLI integrations should use the first-class
+provider-neutral payload shape:
+
+```json
+{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}
+```
+
+CamelCase hook fields and nested `tool_call.name`/`tool_call.arguments` are
+accepted for CLI adapters that expose those shapes. After normalization, all
+providers run through the same policy bundle and receive the same blocking,
+rewrite, advice, continuation, and post-tool feedback behavior.
+
 ## Included Hooks
 
 - **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit
