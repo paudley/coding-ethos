@@ -148,6 +148,29 @@ func TestEvaluateShellForbiddenStringsBlocksHookImplementationRecon(t *testing.T
 	}
 }
 
+func TestEvaluateShellForbiddenStringsBlocksHookBinaryTampering(t *testing.T) {
+	t.Parallel()
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Command: `rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook .`,
+			EvaluatorOptions: map[string]any{
+				"strings": []string{"/coding-ethos-hooks/coding-ethos-git-hook"},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 	t.Parallel()
 

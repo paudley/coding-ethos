@@ -529,7 +529,7 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Write",
 			ToolInput: map[string]any{
-				"file_path": "/usr/bin/got",
+				"file_path": "/repo/.git/coding-ethos-hooks/coding-ethos-git-hook",
 				"content":   "binary",
 			},
 		},

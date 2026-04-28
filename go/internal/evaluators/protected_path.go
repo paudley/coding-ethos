@@ -19,7 +19,7 @@ func EvaluateProtectedPath(
 		}
 
 		for _, file := range context.Files {
-			if file == protectedPath || strings.TrimRight(file, "/") == protectedPath {
+			if protectedPathMatches(file, protectedPath) {
 				return blockProtectedPathDecision(policyDef, protectedPath), nil
 			}
 		}
@@ -32,8 +32,24 @@ func protectedPaths(context Context) []string {
 	return stringSliceOption(
 		context.EvaluatorOptions,
 		"paths",
-		[]string{"/usr/bin/got"},
+		[]string{"/coding-ethos-hooks/coding-ethos-git-hook"},
 	)
+}
+
+func protectedPathMatches(file string, protectedPath string) bool {
+	cleanFile := strings.Trim(strings.ReplaceAll(file, "\\", "/"), "/")
+	cleanProtected := strings.Trim(strings.ReplaceAll(protectedPath, "\\", "/"), "/")
+	if cleanFile == cleanProtected {
+		return true
+	}
+
+	if strings.HasPrefix(cleanProtected, "coding-ethos-hooks/") &&
+		strings.HasSuffix(cleanFile, cleanProtected) {
+		return true
+	}
+
+	return strings.HasSuffix(protectedPath, "/") &&
+		strings.HasPrefix(cleanFile, cleanProtected+"/")
 }
 
 func blockProtectedPathDecision(

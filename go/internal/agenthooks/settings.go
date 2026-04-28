@@ -987,7 +987,7 @@ func hookProbes() []hookProbe {
 				"hookEventName": "BeforeTool",
 				"toolName": "write_file",
 				"toolInput": {
-					"file_path": "/usr/bin/got",
+					"file_path": "/repo/.git/coding-ethos-hooks/coding-ethos-git-hook",
 					"content": "binary"
 				}
 			}`,

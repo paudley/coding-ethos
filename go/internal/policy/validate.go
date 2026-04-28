@@ -486,7 +486,7 @@ func validMode(mode string) bool {
 
 func validEvaluatorKind(kind string) bool {
 	switch kind {
-	case "argv", "shell", "path", "ast", "text", "config", "git_state", "external":
+	case "argv", "shell", "path", "ast", "text", "toml", "config", "git_state", "external":
 		return true
 	default:
 		return false

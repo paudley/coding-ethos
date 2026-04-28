@@ -1453,6 +1453,10 @@ func shellForbiddenStringsPolicy(
 			"/.codex/config.toml",
 			"/.codex/hooks.json",
 			"/.gemini/settings.json",
+			"/coding-ethos-hooks/coding-ethos-git-hook",
+			"/coding-ethos-hooks/coding-ethos-hook",
+			"/coding-ethos-hooks/coding-ethos-legacy-hook",
+			"/coding-ethos-hooks/lefthook",
 			"/coding-ethos/pre-commit/hooks/",
 			"/coding-ethos/go/internal/",
 			"/coding-ethos/config.yaml",
@@ -1569,7 +1573,12 @@ func filesystemProtectedPathPolicy(
 	protectedPaths := stringSliceAt(
 		config,
 		[]string{"filesystem", "protected_path", "paths"},
-		[]string{"/usr/bin/got"},
+		[]string{
+			"/coding-ethos-hooks/coding-ethos-git-hook",
+			"/coding-ethos-hooks/coding-ethos-hook",
+			"/coding-ethos-hooks/coding-ethos-legacy-hook",
+			"/coding-ethos-hooks/lefthook",
+		},
 	)
 
 	return Policy{

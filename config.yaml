@@ -282,7 +282,10 @@ filesystem:
   protected_path:
     enabled: true
     paths:
-      - /usr/bin/got
+      - /coding-ethos-hooks/coding-ethos-git-hook
+      - /coding-ethos-hooks/coding-ethos-hook
+      - /coding-ethos-hooks/coding-ethos-legacy-hook
+      - /coding-ethos-hooks/lefthook
   protected_branch_write:
     enabled: true
     branches:
@@ -363,6 +366,10 @@ shell:
       - /.codex/config.toml
       - /.codex/hooks.json
       - /.gemini/settings.json
+      - /coding-ethos-hooks/coding-ethos-git-hook
+      - /coding-ethos-hooks/coding-ethos-hook
+      - /coding-ethos-hooks/coding-ethos-legacy-hook
+      - /coding-ethos-hooks/lefthook
       - /coding-ethos/pre-commit/hooks/
       - /coding-ethos/go/internal/
       - /coding-ethos/config.yaml

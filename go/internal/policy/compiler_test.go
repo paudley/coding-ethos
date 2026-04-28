@@ -109,6 +109,18 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if !slices.Contains(forbiddenStrings, "header must match") {
 		t.Fatalf("default forbidden strings missing hook recon marker: %#v", forbiddenStrings)
 	}
+	if !slices.Contains(forbiddenStrings, "/coding-ethos-hooks/coding-ethos-git-hook") {
+		t.Fatalf("default forbidden strings missing hook binary path: %#v", forbiddenStrings)
+	}
+
+	protectedPaths := optionStrings(
+		t,
+		bundle.Policies["filesystem.protected_path"].Evaluators[0],
+		"paths",
+	)
+	if !slices.Contains(protectedPaths, "/coding-ethos-hooks/coding-ethos-git-hook") {
+		t.Fatalf("default protected paths missing hook cache: %#v", protectedPaths)
+	}
 }
 
 func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
