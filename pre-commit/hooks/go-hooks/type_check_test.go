@@ -118,6 +118,18 @@ func TestDefaultTypeCheckersRequestJsonOutput(t *testing.T) {
 	}
 }
 
+func TestDefaultTypeCheckersCarryParserNames(t *testing.T) {
+	t.Parallel()
+
+	checkers := defaultTypeCheckers()
+
+	for _, checker := range checkers {
+		if checker.Parser == "" {
+			t.Fatalf("checker %q missing parser: %#v", checker.Name, checker)
+		}
+	}
+}
+
 func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
 	t.Parallel()
 

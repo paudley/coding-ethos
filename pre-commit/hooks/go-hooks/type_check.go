@@ -18,11 +18,13 @@ import (
 	"time"
 
 	diag "blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 	"github.com/pelletier/go-toml/v2"
 )
 
 type typeCheckerConfig struct {
 	Name                 string
+	Parser               string
 	RepoConfig           string
 	FallbackBundleConfig string
 	Command              []string
@@ -61,47 +63,27 @@ type typeCheckSummary struct {
 }
 
 func defaultTypeCheckers() []typeCheckerConfig {
-	return []typeCheckerConfig{
-		{
-			Name:                 "ruff",
-			Command:              []string{"ruff", "check", "--quiet", "--ignore-noqa", "--output-format", "json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--config"},
-			RepoConfig:           "ruff.toml",
-			FallbackBundleConfig: "",
-			Enabled:              true,
-		},
-		{
-			Name:                 "pyright",
-			Command:              []string{"pyright", "--outputjson"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--project", "-p"},
-			RepoConfig:           "pyrightconfig.json",
-			FallbackBundleConfig: "hooks/pyproject.toml",
-			Enabled:              true,
-		},
-		{
-			Name:                 "mypy",
-			Command:              []string{"mypy", "--output", "json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--config-file"},
-			RepoConfig:           "mypy.ini",
-			FallbackBundleConfig: "hooks/pyproject.toml",
-			Enabled:              true,
-		},
-		{
-			Name:                 "pylint",
-			Command:              []string{"pylint", "--output-format=json"},
-			PassFilesAsArgs:      true,
-			UseHookProject:       true,
-			ConfigFlags:          []string{"--rcfile"},
-			RepoConfig:           ".pylintrc",
-			FallbackBundleConfig: "",
-			Enabled:              false,
-		},
+	tools := toolcatalog.PythonStaticTools()
+
+	checkers := make([]typeCheckerConfig, 0, len(tools))
+	for _, tool := range tools {
+		checkers = append(checkers, typeCheckerFromCatalog(tool))
+	}
+
+	return checkers
+}
+
+func typeCheckerFromCatalog(tool toolcatalog.Tool) typeCheckerConfig {
+	return typeCheckerConfig{
+		Name:                 tool.Name,
+		Parser:               tool.Parser,
+		Command:              append([]string(nil), tool.Command...),
+		PassFilesAsArgs:      tool.PassFilesAsArgs,
+		UseHookProject:       tool.UseHookProject,
+		ConfigFlags:          append([]string(nil), tool.ConfigFlags...),
+		RepoConfig:           tool.RepoConfig,
+		FallbackBundleConfig: tool.FallbackBundleConfig,
+		Enabled:              tool.EnabledByDefault,
 	}
 }
 
@@ -178,10 +160,23 @@ func applyTypeCheckerDefaults(
 	rootConfig map[string]any,
 ) {
 	defaultChecker, hasDefault := defaultTypeCheckerByName(checker.Name)
+	if checker.Parser == "" && hasDefault {
+		checker.Parser = defaultChecker.Parser
+	}
+
 	if len(checker.Command) == 0 && hasDefault {
 		checker.Command = append([]string{}, defaultChecker.Command...)
 	}
 
+	applyTypeCheckerBooleanDefaults(checker, rootConfig)
+	applyTypeCheckerConfigDefaults(checker, defaultChecker, hasDefault)
+	applyTypeCheckerEnabledDefault(checker, rootConfig, defaultChecker, hasDefault)
+}
+
+func applyTypeCheckerBooleanDefaults(
+	checker *typeCheckerConfig,
+	rootConfig map[string]any,
+) {
 	if shouldDefaultTypeCheckerField(
 		*checker,
 		rootConfig,
@@ -193,18 +188,33 @@ func applyTypeCheckerDefaults(
 	if shouldDefaultTypeCheckerField(*checker, rootConfig, "use_hook_project") {
 		checker.UseHookProject = true
 	}
+}
 
-	if len(checker.ConfigFlags) == 0 && hasDefault {
-		checker.ConfigFlags = append([]string{}, defaultChecker.ConfigFlags...)
-		if checker.RepoConfig == "" {
-			checker.RepoConfig = defaultChecker.RepoConfig
-		}
-
-		if checker.FallbackBundleConfig == "" {
-			checker.FallbackBundleConfig = defaultChecker.FallbackBundleConfig
-		}
+func applyTypeCheckerConfigDefaults(
+	checker *typeCheckerConfig,
+	defaultChecker typeCheckerConfig,
+	hasDefault bool,
+) {
+	if len(checker.ConfigFlags) != 0 || !hasDefault {
+		return
 	}
 
+	checker.ConfigFlags = append([]string{}, defaultChecker.ConfigFlags...)
+	if checker.RepoConfig == "" {
+		checker.RepoConfig = defaultChecker.RepoConfig
+	}
+
+	if checker.FallbackBundleConfig == "" {
+		checker.FallbackBundleConfig = defaultChecker.FallbackBundleConfig
+	}
+}
+
+func applyTypeCheckerEnabledDefault(
+	checker *typeCheckerConfig,
+	rootConfig map[string]any,
+	defaultChecker typeCheckerConfig,
+	hasDefault bool,
+) {
 	if !fieldPresentInTypeCheckerConfig(rootConfig, checker.Name, "enabled") {
 		checker.Enabled = true
 		if hasDefault {
@@ -553,7 +563,7 @@ func runTypeChecker(
 		Command: command,
 	})
 	outputText := toolResult.Combined
-	diagnostics := diag.Parse(checker.Name, outputText, "")
+	diagnostics := diag.Parse(defaultString(checker.Parser, checker.Name), outputText, "")
 	diagnostics = diag.Enrich(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())

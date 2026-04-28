@@ -113,6 +113,9 @@ inventory used to keep the migration status explicit.
   repair advice while preserving unmapped diagnostics. The bundled Python
   type-check hook now uses the same shared parser and enrichment package instead
   of maintaining a private duplicate parser stack.
+- Python static-tool defaults now come from a shared typed Go tool catalog.
+  This is the first step toward moving shellcheck, yamllint, golangci-lint,
+  actionlint, hadolint, and other hook tools into data-driven runtime metadata.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
