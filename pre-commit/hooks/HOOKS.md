@@ -24,7 +24,9 @@ evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
 when required runtime output paths are not ignored, and `hook-log-summary`
 summarizes collected runs for later analysis. `hook-log-analyze` ranks failed
 tools, codes, repeated findings, and output-quality problems such as raw output,
-escaped newline cells, or leaked absolute repo paths.
+escaped newline cells, or leaked absolute repo paths. Analysis scans the newest
+hook runs first and caps both scanned runs and examples so it remains usable on
+large real-world log directories.
 
 Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 `policy.evidence_maps`. Mapped findings receive policy-grounded advice in

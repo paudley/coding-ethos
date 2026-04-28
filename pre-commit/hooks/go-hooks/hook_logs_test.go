@@ -58,6 +58,7 @@ func TestAnalyzeHookLogsRanksFailuresAndQualityIssues(t *testing.T) {
 		filepath.Join(root, "run-a", "stdout.log"),
 		`format: toon
 tool: ruff-autofix
+command: "/home/example/repo/git commit -m 'feat(test): subject\, with commas'"
 findings[2]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:
   ruff,lib/python/app.py,10,1,error,E402,python.import_order,Module level import not at top of file,Move imports to top,
   ruff,`+repo+`/lib/python/app.py,20,4,error,S608,python.sql_safety,Possible SQL injection vector through\nstring-based query construction,Use parameterized SQL,
@@ -87,6 +88,11 @@ findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}
 		analysis.TopTools[0] != (hookLogCount{Key: "ruff", Count: 3}) {
 		t.Fatalf("top tools = %#v", analysis.TopTools)
 	}
+	for _, count := range analysis.TopTools {
+		if count.Key == "command" {
+			t.Fatalf("command row was counted as a finding: %#v", analysis.TopTools)
+		}
+	}
 	if len(analysis.TopCodes) == 0 ||
 		analysis.TopCodes[0] != (hookLogCount{Key: "ruff:E402", Count: 2}) {
 		t.Fatalf("top codes = %#v", analysis.TopCodes)
@@ -96,8 +102,8 @@ findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}
 	}
 
 	kinds := map[string]bool{}
-	for _, issue := range analysis.QualityIssues {
-		kinds[issue.Kind] = true
+	for _, count := range analysis.QualityCounts {
+		kinds[count.Key] = true
 	}
 	for _, want := range []string{
 		"absolute_repo_path",
@@ -113,11 +119,39 @@ findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}
 	for _, want := range []string{
 		"top_tools[1]{key,count}:",
 		"top_codes[2]{key,count}:",
-		"quality_issues[3]{kind,run_id,line,sample}:",
+		"quality_issue_counts[3]{key,count}:",
+		"quality_issue_examples[4]{kind,run_id,line,sample}:",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("analysis output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestAnalyzeHookLogsCapsQualityIssueExamples(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lines := []string{"format: toon"}
+	for range maxHookLogQualityIssueSamples + 5 {
+		lines = append(lines, "command: /home/example/repo/git status")
+	}
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "run-a", "stdout.log"),
+		strings.Join(lines, "\n"),
+	)
+
+	analysis, err := analyzeHookLogs(root, hookOutputFormatTOON)
+	if err != nil {
+		t.Fatalf("analyzeHookLogs() returned error: %v", err)
+	}
+
+	if analysis.QualityTotal != maxHookLogQualityIssueSamples+5 {
+		t.Fatalf("quality total = %d", analysis.QualityTotal)
+	}
+	if len(analysis.QualityIssues) != maxHookLogQualityIssueSamples {
+		t.Fatalf("quality examples = %d", len(analysis.QualityIssues))
 	}
 }
 

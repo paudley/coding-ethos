@@ -189,8 +189,10 @@ advice remains full-fidelity for Claude and Codex; Gemini has no direct
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
 ranks failed tools, codes, repeated findings, and output-quality problems such
-as raw output, escaped newline cells, or leaked absolute repo paths. Both honor
-the same human, JSON, and TOON output selection as hook execution output.
+as raw output, escaped newline cells, or leaked absolute repo paths. The
+analyzer scans newest runs first and caps scanned runs plus examples so it stays
+interactive on large agent log directories. Both commands honor the same human,
+JSON, and TOON output selection as hook execution output.
 
 ## Configuration
 

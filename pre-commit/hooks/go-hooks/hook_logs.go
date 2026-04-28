@@ -6,11 +6,19 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+)
+
+const (
+	maxHookLogAnalyzeRuns          = 250
+	maxHookLogAnalyzeBytesPerRun   = 2 * 1024 * 1024
+	maxHookLogQualityIssueSamples  = 20
+	hookLogTruncatedOutputIssueKey = "truncated_output"
 )
 
 type hookLogRun struct {
@@ -34,9 +42,13 @@ type hookLogAnalysis struct {
 	TopTools      []hookLogCount `json:"top_tools"`
 	TopCodes      []hookLogCount `json:"top_codes"`
 	Repeated      []hookLogCount `json:"repeated_failures"`
+	QualityCounts []hookLogCount `json:"quality_issue_counts"`
 	QualityIssues []hookLogIssue `json:"quality_issues"`
 	RunsAnalyzed  int            `json:"runs_analyzed"`
+	RunsAvailable int            `json:"runs_available"`
+	RunsSkipped   int            `json:"runs_skipped"`
 	Findings      int            `json:"findings"`
+	QualityTotal  int            `json:"quality_issues_total"`
 }
 
 type hookLogCount struct {
@@ -141,19 +153,29 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 	if err != nil {
 		return analysis, fmt.Errorf("read hook log dir %q: %w", path, err)
 	}
+	sort.Slice(entries, func(left int, right int) bool {
+		return entries[left].Name() > entries[right].Name()
+	})
 
 	toolCounts := map[string]int{}
 	codeCounts := map[string]int{}
 	repeatedCounts := map[string]int{}
+	qualityCounts := map[string]int{}
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
+		analysis.RunsAvailable++
+		if analysis.RunsAnalyzed >= maxHookLogAnalyzeRuns {
+			analysis.RunsSkipped++
+
+			continue
+		}
 
 		runID := entry.Name()
 		stdoutPath := filepath.Join(path, runID, "stdout.log")
-		content, err := os.ReadFile(filepath.Clean(stdoutPath))
+		content, truncated, err := readHookLogOutput(stdoutPath)
 		if err != nil {
 			continue
 		}
@@ -166,14 +188,47 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 			toolCounts,
 			codeCounts,
 			repeatedCounts,
+			qualityCounts,
 		)
+		if truncated {
+			analysis.QualityTotal++
+			qualityCounts[hookLogTruncatedOutputIssueKey]++
+			if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
+				analysis.QualityIssues = append(analysis.QualityIssues, hookLogIssue{
+					RunID:  runID,
+					Kind:   hookLogTruncatedOutputIssueKey,
+					Line:   0,
+					Sample: fmt.Sprintf("stdout.log exceeded %d bytes", maxHookLogAnalyzeBytesPerRun),
+				})
+			}
+		}
 	}
 
 	analysis.TopTools = topHookLogCounts(toolCounts, 10)
 	analysis.TopCodes = topHookLogCounts(codeCounts, 10)
 	analysis.Repeated = topHookLogCounts(repeatedCounts, 10)
+	analysis.QualityCounts = topHookLogCounts(qualityCounts, 10)
 
 	return analysis, nil
+}
+
+func readHookLogOutput(path string) (string, bool, error) {
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return "", false, err
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, maxHookLogAnalyzeBytesPerRun+1))
+	if err != nil {
+		return "", false, fmt.Errorf("read hook output %q: %w", path, err)
+	}
+	truncated := len(content) > maxHookLogAnalyzeBytesPerRun
+	if truncated {
+		content = content[:maxHookLogAnalyzeBytesPerRun]
+	}
+
+	return string(content), truncated, nil
 }
 
 func analyzeHookLogOutput(
@@ -183,9 +238,20 @@ func analyzeHookLogOutput(
 	toolCounts map[string]int,
 	codeCounts map[string]int,
 	repeatedCounts map[string]int,
+	qualityCounts map[string]int,
 ) {
+	inFindingsTable := false
 	for lineNumber, line := range strings.Split(output, "\n") {
-		if strings.HasPrefix(line, "  ") && strings.Count(line, ",") >= 8 {
+		if isHookLogFindingHeader(line) {
+			inFindingsTable = true
+
+			continue
+		}
+		if isHookLogTableHeader(line) {
+			inFindingsTable = false
+		}
+
+		if inFindingsTable && strings.HasPrefix(line, "  ") {
 			finding := parseHookLogFindingRow(line)
 			if finding.Tool != "" {
 				analysis.Findings++
@@ -200,11 +266,35 @@ func analyzeHookLogOutput(
 			}
 		}
 
-		analysis.QualityIssues = append(
-			analysis.QualityIssues,
-			hookLogQualityIssues(runID, lineNumber+1, line)...,
-		)
+		for _, issue := range hookLogQualityIssues(runID, lineNumber+1, line) {
+			analysis.QualityTotal++
+			qualityCounts[issue.Kind]++
+			if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
+				analysis.QualityIssues = append(analysis.QualityIssues, issue)
+			}
+		}
 	}
+}
+
+func isHookLogFindingHeader(line string) bool {
+	trimmed := strings.TrimSpace(line)
+
+	return strings.HasPrefix(trimmed, "findings[") &&
+		strings.Contains(trimmed, "{tool,file,line,column,severity,code,policy_id,message,advice,detail}")
+}
+
+func isHookLogTableHeader(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.Contains(trimmed, "]{") || !strings.HasSuffix(trimmed, ":") {
+		return false
+	}
+
+	tableName, _, ok := strings.Cut(trimmed, "[")
+	if !ok {
+		return false
+	}
+
+	return tableName != "findings"
 }
 
 func parseHookLogFindingRow(line string) hookFinding {
@@ -276,7 +366,7 @@ func hookLogFindingKey(finding hookFinding) string {
 
 func hookLogQualityIssues(runID string, lineNumber int, line string) []hookLogIssue {
 	issues := []hookLogIssue{}
-	if strings.Contains(line, repoRoot()) {
+	if containsHookLogAbsolutePath(line) {
 		issues = append(issues, hookLogIssue{
 			RunID:  runID,
 			Kind:   "absolute_repo_path",
@@ -302,6 +392,26 @@ func hookLogQualityIssues(runID string, lineNumber int, line string) []hookLogIs
 	}
 
 	return issues
+}
+
+func containsHookLogAbsolutePath(line string) bool {
+	if strings.Contains(line, repoRoot()) {
+		return true
+	}
+
+	for _, marker := range []string{
+		"/home/",
+		"/Users/",
+		"/var/folders/",
+		"/tmp/",
+		"/opt/",
+	} {
+		if strings.Contains(line, marker) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func truncateHookLogSample(line string) string {
@@ -390,16 +500,20 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 		lines := []string{
 			"format: toon",
 			"path: " + toonCell(analysis.Path),
+			fmt.Sprintf("runs_available: %d", analysis.RunsAvailable),
 			fmt.Sprintf("runs_analyzed: %d", analysis.RunsAnalyzed),
+			fmt.Sprintf("runs_skipped: %d", analysis.RunsSkipped),
 			fmt.Sprintf("findings: %d", analysis.Findings),
+			fmt.Sprintf("quality_issues_total: %d", analysis.QualityTotal),
 		}
 		lines = append(lines, formatHookLogCountTable("top_tools", analysis.TopTools)...)
 		lines = append(lines, formatHookLogCountTable("top_codes", analysis.TopCodes)...)
 		lines = append(lines, formatHookLogCountTable("repeated_failures", analysis.Repeated)...)
+		lines = append(lines, formatHookLogCountTable("quality_issue_counts", analysis.QualityCounts)...)
 		if len(analysis.QualityIssues) > 0 {
 			lines = append(
 				lines,
-				fmt.Sprintf("quality_issues[%d]{kind,run_id,line,sample}:",
+				fmt.Sprintf("quality_issue_examples[%d]{kind,run_id,line,sample}:",
 					len(analysis.QualityIssues),
 				),
 			)
@@ -419,12 +533,15 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 
 	lines := []string{
 		"Hook log analysis: " + analysis.Path,
+		fmt.Sprintf("Runs available: %d", analysis.RunsAvailable),
 		fmt.Sprintf("Runs analyzed: %d", analysis.RunsAnalyzed),
+		fmt.Sprintf("Runs skipped: %d", analysis.RunsSkipped),
 		fmt.Sprintf("Findings: %d", analysis.Findings),
 		"Top tools: " + hookLogCountsHuman(analysis.TopTools),
 		"Top codes: " + hookLogCountsHuman(analysis.TopCodes),
 		"Repeated failures: " + hookLogCountsHuman(analysis.Repeated),
-		fmt.Sprintf("Quality issues: %d", len(analysis.QualityIssues)),
+		fmt.Sprintf("Quality issues: %d", analysis.QualityTotal),
+		"Quality issue types: " + hookLogCountsHuman(analysis.QualityCounts),
 	}
 
 	return strings.Join(lines, "\n")
