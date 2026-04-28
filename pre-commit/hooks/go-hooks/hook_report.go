@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -69,6 +70,7 @@ func formatHookReport(report hookReport, format string) string {
 	if report.Status == "" {
 		report.Status = statusFail
 	}
+	report = normalizeHookReportPaths(report)
 
 	switch format {
 	case hookOutputFormatJSON:
@@ -78,6 +80,34 @@ func formatHookReport(report hookReport, format string) string {
 	default:
 		return formatHookReportHuman(report)
 	}
+}
+
+func normalizeHookReportPaths(report hookReport) hookReport {
+	root := repoRoot()
+	for i := range report.Findings {
+		report.Findings[i].File = normalizeHookFindingPath(root, report.Findings[i].File)
+	}
+
+	return report
+}
+
+func normalizeHookFindingPath(root string, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+		rel == ".." {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	return filepath.ToSlash(rel)
 }
 
 func loadHookSettings() hookSettings {

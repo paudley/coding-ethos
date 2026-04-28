@@ -73,6 +73,35 @@ func TestRuffAutofixTOONOmitsRawRenderedDetail(t *testing.T) {
 	}
 }
 
+func TestHookReportNormalizesAbsoluteRepoPaths(t *testing.T) {
+	t.Parallel()
+
+	root := repoRoot()
+	report := formatHookReport(hookReport{
+		Tool:  "ruff-autofix",
+		Title: "RUFF-AUTOFIX FAILED",
+		Findings: []hookFinding{{
+			Tool:     "ruff",
+			File:     root + "/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+			Line:     61,
+			Column:   1,
+			Severity: "error",
+			Code:     "E402",
+			Message:  "Module level import not at top of file",
+		}},
+	}, hookOutputFormatTOON)
+
+	if strings.Contains(report, root) {
+		t.Fatalf("TOON report leaked absolute repo root:\n%s", report)
+	}
+	if !strings.Contains(
+		report,
+		"ruff,lib/python/tests/parsing/test_persist_extra_records_integration.py,61,1,error,E402",
+	) {
+		t.Fatalf("TOON report missing normalized path:\n%s", report)
+	}
+}
+
 func TestParseGenericHookFindingsUsesFallbackDiagnostics(t *testing.T) {
 	t.Parallel()
 
