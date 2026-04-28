@@ -13,6 +13,9 @@ HOOKS_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
+if [[ -z "${CODE_ETHOS_CONSUMER_ROOT:-}" && "${ROOT}" == "${ETHOS_ROOT}" ]]; then
+	export CODE_ETHOS_CONSUMER_ROOT="${ROOT}"
+fi
 BIN_DIR="${GIT_COMMON_DIR}/coding-ethos-hooks"
 GIT_HOOK_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
 GIT_HOOK_BIN="${BIN_DIR}/coding-ethos-git-hook"

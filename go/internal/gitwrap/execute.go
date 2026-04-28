@@ -14,6 +14,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
+
 func Execute(realGit string, options Options) error {
 	resolvedGit, err := ResolveRealGit(realGit)
 	if err != nil {
@@ -31,6 +33,9 @@ func Execute(realGit string, options Options) error {
 	cmd.Stdout = os.Stdout
 
 	cmd.Stderr = os.Stderr
+	if options.AdminApproved {
+		cmd.Env = append(os.Environ(), adminApprovedEnv+"=1")
+	}
 
 	err = cmd.Run()
 	if err != nil {

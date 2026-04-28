@@ -88,6 +88,7 @@ func runGoFormatCheck(_ Config, paths []string) int {
 	if strings.TrimSpace(result.Combined) != "" {
 		findings := parseGofmtCheckFindings(result.Combined)
 		rawOutput := []string(nil)
+
 		if len(findings) == 0 {
 			findings = []hookFinding{{
 				Tool:     "gofmt-check",

@@ -169,12 +169,14 @@ func runHookToolWithParser(
 
 	if result.ExitCode != 0 {
 		rawOutput := []string(nil)
-		findings := []hookFinding(nil)
+
+		var findings []hookFinding
 		if parseFindings != nil {
 			findings = parseFindings(result.Combined)
 		} else {
 			findings = parseGenericHookFindings(name, result.Combined)
 		}
+
 		if len(findings) == 0 {
 			findings = []hookFinding{genericToolFailureFinding(name, result.ExitCode)}
 			rawOutput = boundedRawOutputLines(result.Combined)
@@ -204,20 +206,11 @@ func parseGenericHookFindings(name string, output string) []hookFinding {
 	return diagnosticsToHookFindings(diag.Parse(name, output, ""))
 }
 
-func truncateHookDetail(value string) string {
-	const maxDetailLength = 4000
-
-	value = strings.TrimSpace(value)
-	if len(value) <= maxDetailLength {
-		return value
-	}
-
-	return value[:maxDetailLength] + "\n[truncated]"
-}
-
 func boundedRawOutputLines(output string) []string {
-	const maxRawOutputLines = 20
-	const maxRawOutputLineLength = 500
+	const (
+		maxRawOutputLines      = 20
+		maxRawOutputLineLength = 500
+	)
 
 	output = strings.TrimSpace(output)
 	if output == "" {
@@ -227,6 +220,7 @@ func boundedRawOutputLines(output string) []string {
 	lines := strings.Split(output, "\n")
 	limit := len(lines)
 	truncated := false
+
 	if limit > maxRawOutputLines {
 		limit = maxRawOutputLines
 		truncated = true
@@ -238,6 +232,7 @@ func boundedRawOutputLines(output string) []string {
 		if len(line) > maxRawOutputLineLength {
 			line = line[:maxRawOutputLineLength] + " [truncated]"
 		}
+
 		bounded = append(bounded, line)
 	}
 

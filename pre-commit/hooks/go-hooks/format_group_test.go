@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+const persistExtraRecordsTestPath = "lib/python/tests/parsing/" +
+	"test_persist_extra_records_integration.py"
+
 func TestParseRuffAutofixFindingsUsesStructuredDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -82,7 +85,7 @@ func TestHookReportNormalizesAbsoluteRepoPaths(t *testing.T) {
 		Title: "RUFF-AUTOFIX FAILED",
 		Findings: []hookFinding{{
 			Tool:     "ruff",
-			File:     root + "/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+			File:     root + "/" + persistExtraRecordsTestPath,
 			Line:     61,
 			Column:   1,
 			Severity: "error",
@@ -94,9 +97,10 @@ func TestHookReportNormalizesAbsoluteRepoPaths(t *testing.T) {
 	if strings.Contains(report, root) {
 		t.Fatalf("TOON report leaked absolute repo root:\n%s", report)
 	}
+
 	if !strings.Contains(
 		report,
-		"ruff,lib/python/tests/parsing/test_persist_extra_records_integration.py,61,1,error,E402",
+		"ruff,"+persistExtraRecordsTestPath+",61,1,error,E402",
 	) {
 		t.Fatalf("TOON report missing normalized path:\n%s", report)
 	}
@@ -111,7 +115,7 @@ func TestRuffAutofixTOONKeepsMultilineMessagesSingleRow(t *testing.T) {
 		Title: "RUFF-AUTOFIX FAILED",
 		Findings: parseRuffAutofixFindings(`[
   {
-    "filename": "` + root + `/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+    "filename": "` + root + `/` + persistExtraRecordsTestPath + `",
     "code": "S608",
     "message": "Possible SQL injection vector through\nstring-based query construction",
     "location": {"row": 400, "column": 29}
@@ -121,7 +125,8 @@ func TestRuffAutofixTOONKeepsMultilineMessagesSingleRow(t *testing.T) {
 	}, hookOutputFormatTOON)
 
 	for _, want := range []string{
-		"ruff,lib/python/tests/parsing/test_persist_extra_records_integration.py,400,29,error,S608,python.sql_safety",
+		"ruff," + persistExtraRecordsTestPath +
+			",400,29,error,S608,python.sql_safety",
 		"Possible SQL injection vector through string-based query construction",
 		"Use parameterized SQL or a reviewed central SQL helper.",
 	} {
@@ -130,9 +135,12 @@ func TestRuffAutofixTOONKeepsMultilineMessagesSingleRow(t *testing.T) {
 		}
 	}
 
-	for _, line := range strings.Split(report, "\n") {
+	for line := range strings.SplitSeq(report, "\n") {
 		if strings.Contains(line, "string-based query construction") &&
-			!strings.Contains(line, "Possible SQL injection vector through string-based query construction") {
+			!strings.Contains(
+				line,
+				"Possible SQL injection vector through string-based query construction",
+			) {
 			t.Fatalf("TOON finding split multiline message across rows:\n%s", report)
 		}
 	}
@@ -147,7 +155,7 @@ func TestFailedCommitTranscriptStaysCompactAndRelative(t *testing.T) {
 		Title: "RUFF-AUTOFIX FAILED",
 		Findings: parseRuffAutofixFindings(`[
   {
-    "filename": "` + root + `/lib/python/tests/parsing/test_persist_extra_records_integration.py",
+    "filename": "` + root + `/` + persistExtraRecordsTestPath + `",
     "code": "E402",
     "message": "Module level import not at top of file",
     "location": {"row": 61, "column": 1}
@@ -186,7 +194,11 @@ func TestFailedCommitTranscriptStaysCompactAndRelative(t *testing.T) {
 		"fix_first",
 	} {
 		if strings.Contains(transcript, unwanted) {
-			t.Fatalf("failed commit transcript contains noisy field %q:\n%s", unwanted, transcript)
+			t.Fatalf(
+				"failed commit transcript contains noisy field %q:\n%s",
+				unwanted,
+				transcript,
+			)
 		}
 	}
 }
@@ -222,10 +234,10 @@ func TestHookReportTOONKeepsRawOutputOutsideFindingsTable(t *testing.T) {
 			"go-test",
 			1,
 		)},
-		RawOutput: boundedRawOutputLines(`--- FAIL: TestExample (0.00s)
-    app_test.go:12: wanted true
-FAIL
-FAIL pkg/app 0.013s`),
+		RawOutput: boundedRawOutputLines(
+			"--- FAIL: TestExample (0.00s)\n" +
+				"    app_test.go:12: wanted true\nFAIL\npkg/app 0.013s",
+		),
 		Guidance: []string{"Fix the reported diagnostics before committing."},
 	}, hookOutputFormatTOON)
 
@@ -235,11 +247,13 @@ FAIL pkg/app 0.013s`),
 	}
 
 	findingsLine := ""
-	for _, line := range strings.Split(report, "\n") {
+
+	for line := range strings.SplitSeq(report, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "go-test,,0,0,error") {
 			findingsLine = line
 		}
 	}
+
 	if findingsLine == "" {
 		t.Fatalf("TOON report missing generic finding:\n%s", report)
 	}

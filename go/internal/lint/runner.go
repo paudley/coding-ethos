@@ -35,11 +35,12 @@ var (
 )
 
 type Options struct {
-	Command string
-	Cwd     string
-	Scope   string
-	Files   []string
-	Argv    []string
+	Command       string
+	Cwd           string
+	Scope         string
+	Files         []string
+	Argv          []string
+	AdminApproved bool
 }
 
 func Run(bundle policy.Bundle, options Options) (Result, error) {
@@ -116,11 +117,12 @@ func evaluatePolicy(
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	context := evaluators.Context{
-		Scope:   scope,
-		Files:   append([]string(nil), options.Files...),
-		Argv:    append([]string(nil), options.Argv...),
-		Command: options.Command,
-		Cwd:     options.Cwd,
+		AdminApproved: options.AdminApproved,
+		Scope:         scope,
+		Files:         append([]string(nil), options.Files...),
+		Argv:          append([]string(nil), options.Argv...),
+		Command:       options.Command,
+		Cwd:           options.Cwd,
 	}
 
 	var registered bool

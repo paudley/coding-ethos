@@ -304,12 +304,9 @@ func runHookGroupSubprocess(
 
 	args := append([]string{"run-group", name}, files...)
 	toolResult := runExternalTool(externalToolRequest{
-		Name:    "hook group " + name,
-		Command: append([]string{executable}, args...),
-		Env: []string{
-			hookGroupChildEnv + "=1",
-			hookGroupResultPathEnv + "=" + resultPath,
-		},
+		Name:           "hook group " + name,
+		Command:        append([]string{executable}, args...),
+		Env:            hookGroupChildEnvironment(resultPath),
 		TimeoutSeconds: loadHookSettings().ToolTimeoutSeconds,
 	})
 
@@ -343,6 +340,19 @@ func runHookGroupSubprocess(
 	}
 
 	return result
+}
+
+func hookGroupChildEnvironment(resultPath string) []string {
+	env := []string{
+		hookGroupChildEnv + "=1",
+		hookGroupResultPathEnv + "=" + resultPath,
+	}
+
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		env = append(env, consumerRootEnv+"="+root)
+	}
+
+	return env
 }
 
 func writeHookGroupResultFile(path string, result hookGroupResult) {

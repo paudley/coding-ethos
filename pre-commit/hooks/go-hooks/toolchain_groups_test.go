@@ -82,7 +82,7 @@ func TestParseGofmtCheckFindings(t *testing.T) {
 
 	got := findings[0]
 	if got.Tool != "gofmt-check" ||
-		got.File != "pkg/app.go" ||
+		got.File != toolCatalogGoFile ||
 		got.Severity != "error" ||
 		got.Message != "Go file is not gofmt-formatted." {
 		t.Fatalf("unexpected finding: %#v", got)
@@ -92,16 +92,33 @@ func TestParseGofmtCheckFindings(t *testing.T) {
 func TestParsePythonQualityFindings(t *testing.T) {
 	t.Parallel()
 
+	assertComplexityFinding(t)
+	assertMaintainabilityFinding(t)
+	assertMaintainabilityTimeoutFinding(t)
+	assertVultureFinding(t)
+}
+
+func assertComplexityFinding(t *testing.T) {
+	t.Helper()
+
 	complexity := parseComplexityFindings("  pkg/app.py:42 build_payload (complexity: 19)")
 	if len(complexity) != 1 || complexity[0].Code != "cyclomatic-complexity" ||
 		complexity[0].Line != 42 {
 		t.Fatalf("parseComplexityFindings() = %#v", complexity)
 	}
+}
+
+func assertMaintainabilityFinding(t *testing.T) {
+	t.Helper()
 
 	maintainability := parseMaintainabilityFindings("  pkg/app.py (MI: 42.50)")
 	if len(maintainability) != 1 || maintainability[0].Code != "maintainability-index" {
 		t.Fatalf("parseMaintainabilityFindings() = %#v", maintainability)
 	}
+}
+
+func assertMaintainabilityTimeoutFinding(t *testing.T) {
+	t.Helper()
 
 	timeout := parseMaintainabilityFindings("Error: radon timed out after 60s")
 	if len(timeout) != 1 ||
@@ -110,6 +127,10 @@ func TestParsePythonQualityFindings(t *testing.T) {
 		timeout[0].Advice == "" {
 		t.Fatalf("parseMaintainabilityFindings(timeout) = %#v", timeout)
 	}
+}
+
+func assertVultureFinding(t *testing.T) {
+	t.Helper()
 
 	vulture := parseVultureFindings("pkg/app.py:17: unused function 'helper' (60% confidence)")
 	if len(vulture) != 1 || vulture[0].Code != "unused-code" || vulture[0].Line != 17 {

@@ -36,6 +36,7 @@ import (
 const (
 	configEnv         = "CODE_ETHOS_PRECOMMIT_CONFIG"
 	precommitRootEnv  = "CODE_ETHOS_PRECOMMIT_ROOT"
+	consumerRootEnv   = "CODE_ETHOS_CONSUMER_ROOT"
 	privateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize     = 8192
 )
@@ -1156,6 +1157,10 @@ func gitOutput(args ...string) string {
 }
 
 func repoRoot() string {
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		return root
+	}
+
 	if root := gitOutput("rev-parse", "--show-toplevel"); root != "" {
 		return root
 	}
@@ -1164,6 +1169,12 @@ func repoRoot() string {
 }
 
 func consumerRoot(ethosRoot string) string {
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		if explicitConsumerRootApplies(root, ethosRoot) {
+			return root
+		}
+	}
+
 	if root := gitOutput(
 		"-C",
 		ethosRoot,
@@ -1178,6 +1189,22 @@ func consumerRoot(ethosRoot string) string {
 	}
 
 	return ethosRoot
+}
+
+func explicitConsumerRootApplies(root string, ethosRoot string) bool {
+	absRoot, rootErr := filepath.Abs(root)
+
+	absEthosRoot, ethosErr := filepath.Abs(ethosRoot)
+	if rootErr != nil || ethosErr != nil {
+		return root == ethosRoot
+	}
+
+	rel, err := filepath.Rel(absRoot, absEthosRoot)
+	if err != nil {
+		return false
+	}
+
+	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
 func gitCommonDir(root string) string {
@@ -6579,6 +6606,7 @@ func checkCommitLint(cfg Config, args []string) int {
 func commitLintGuidance(cfg Config) []string {
 	allowed := slices.Clone(cfg.CommitLint.AllowedTypes)
 	sort.Strings(allowed)
+
 	if len(allowed) == 0 {
 		allowed = []string{"fix", "feat", "docs", "test", "refactor", "chore"}
 	}

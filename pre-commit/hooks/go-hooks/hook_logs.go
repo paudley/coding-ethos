@@ -15,9 +15,13 @@ import (
 )
 
 const (
-	maxHookLogAnalyzeRuns          = 250
-	maxHookLogAnalyzeBytesPerRun   = 2 * 1024 * 1024
-	maxHookLogQualityIssueSamples  = 20
+	maxHookLogAnalyzeRuns         = 250
+	maxHookLogAnalyzeBytesPerRun  = 2 * 1024 * 1024
+	maxHookLogQualityIssueSamples = 20
+	hookLogFindingCellCount       = 10
+	hookLogFindingColumns         = "{tool,file,line,column,severity,code," +
+		"policy_id,message,advice,detail}"
+	hookLogTopCountLimit           = 10
 	hookLogTruncatedOutputIssueKey = "truncated_output"
 )
 
@@ -59,8 +63,8 @@ type hookLogCount struct {
 type hookLogIssue struct {
 	RunID  string `json:"run_id"`
 	Kind   string `json:"kind"`
-	Line   int    `json:"line"`
 	Sample string `json:"sample"`
+	Line   int    `json:"line"`
 }
 
 func hookLogSummaryCommand(_ Config, args []string) int {
@@ -153,6 +157,7 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 	if err != nil {
 		return analysis, fmt.Errorf("read hook log dir %q: %w", path, err)
 	}
+
 	sort.Slice(entries, func(left int, right int) bool {
 		return entries[left].Name() > entries[right].Name()
 	})
@@ -166,6 +171,7 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 		if !entry.IsDir() {
 			continue
 		}
+
 		analysis.RunsAvailable++
 		if analysis.RunsAnalyzed >= maxHookLogAnalyzeRuns {
 			analysis.RunsSkipped++
@@ -175,6 +181,7 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 
 		runID := entry.Name()
 		stdoutPath := filepath.Join(path, runID, "stdout.log")
+
 		content, truncated, err := readHookLogOutput(stdoutPath)
 		if err != nil {
 			continue
@@ -183,15 +190,17 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 		analysis.RunsAnalyzed++
 		analyzeHookLogOutput(
 			runID,
-			string(content),
+			content,
 			&analysis,
 			toolCounts,
 			codeCounts,
 			repeatedCounts,
 			qualityCounts,
 		)
+
 		if truncated {
 			analysis.QualityTotal++
+
 			qualityCounts[hookLogTruncatedOutputIssueKey]++
 			if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
 				analysis.QualityIssues = append(analysis.QualityIssues, hookLogIssue{
@@ -204,10 +213,10 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 		}
 	}
 
-	analysis.TopTools = topHookLogCounts(toolCounts, 10)
-	analysis.TopCodes = topHookLogCounts(codeCounts, 10)
-	analysis.Repeated = topHookLogCounts(repeatedCounts, 10)
-	analysis.QualityCounts = topHookLogCounts(qualityCounts, 10)
+	analysis.TopTools = topHookLogCounts(toolCounts)
+	analysis.TopCodes = topHookLogCounts(codeCounts)
+	analysis.Repeated = topHookLogCounts(repeatedCounts)
+	analysis.QualityCounts = topHookLogCounts(qualityCounts)
 
 	return analysis, nil
 }
@@ -215,7 +224,7 @@ func analyzeHookLogs(path string, format string) (hookLogAnalysis, error) {
 func readHookLogOutput(path string) (string, bool, error) {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return "", false, err
+		return "", false, fmt.Errorf("open hook output %q: %w", path, err)
 	}
 	defer file.Close()
 
@@ -223,6 +232,7 @@ func readHookLogOutput(path string) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("read hook output %q: %w", path, err)
 	}
+
 	truncated := len(content) > maxHookLogAnalyzeBytesPerRun
 	if truncated {
 		content = content[:maxHookLogAnalyzeBytesPerRun]
@@ -242,6 +252,7 @@ func analyzeHookLogOutput(
 ) {
 	inFindingsTable := false
 	currentTable := ""
+
 	for lineNumber, line := range strings.Split(output, "\n") {
 		if isHookLogFindingHeader(line) {
 			inFindingsTable = true
@@ -249,35 +260,67 @@ func analyzeHookLogOutput(
 
 			continue
 		}
+
 		if tableName, ok := hookLogTableHeaderName(line); ok {
 			inFindingsTable = false
 			currentTable = tableName
 		}
 
 		if inFindingsTable && strings.HasPrefix(line, "  ") {
-			finding := parseHookLogFindingRow(line)
-			if finding.Tool != "" {
-				analysis.Findings++
-				toolCounts[finding.Tool]++
-			}
-			if finding.Code != "" {
-				codeCounts[finding.Tool+":"+finding.Code]++
-			}
-			key := hookLogFindingKey(finding)
-			if key != "" {
-				repeatedCounts[key]++
-			}
+			processHookLogFinding(
+				parseHookLogFindingRow(line),
+				analysis,
+				toolCounts,
+				codeCounts,
+				repeatedCounts,
+			)
 		}
 
 		if !isHookLogQualityCandidate(currentTable, line) {
 			continue
 		}
-		for _, issue := range hookLogQualityIssues(runID, lineNumber+1, line) {
-			analysis.QualityTotal++
-			qualityCounts[issue.Kind]++
-			if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
-				analysis.QualityIssues = append(analysis.QualityIssues, issue)
-			}
+
+		collectHookLogQualityIssues(
+			hookLogQualityIssues(runID, lineNumber+1, line),
+			analysis,
+			qualityCounts,
+		)
+	}
+}
+
+func processHookLogFinding(
+	finding hookFinding,
+	analysis *hookLogAnalysis,
+	toolCounts map[string]int,
+	codeCounts map[string]int,
+	repeatedCounts map[string]int,
+) {
+	if finding.Tool != "" {
+		analysis.Findings++
+		toolCounts[finding.Tool]++
+	}
+
+	if finding.Code != "" {
+		codeCounts[finding.Tool+":"+finding.Code]++
+	}
+
+	key := hookLogFindingKey(finding)
+	if key != "" {
+		repeatedCounts[key]++
+	}
+}
+
+func collectHookLogQualityIssues(
+	issues []hookLogIssue,
+	analysis *hookLogAnalysis,
+	qualityCounts map[string]int,
+) {
+	for _, issue := range issues {
+		analysis.QualityTotal++
+
+		qualityCounts[issue.Kind]++
+		if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
+			analysis.QualityIssues = append(analysis.QualityIssues, issue)
 		}
 	}
 }
@@ -286,22 +329,18 @@ func isHookLogFindingHeader(line string) bool {
 	if line != strings.TrimSpace(line) {
 		return false
 	}
+
 	trimmed := strings.TrimSpace(line)
 
 	return strings.HasPrefix(trimmed, "findings[") &&
-		strings.Contains(trimmed, "{tool,file,line,column,severity,code,policy_id,message,advice,detail}")
-}
-
-func isHookLogTableHeader(line string) bool {
-	_, ok := hookLogTableHeaderName(line)
-
-	return ok
+		strings.Contains(trimmed, hookLogFindingColumns)
 }
 
 func hookLogTableHeaderName(line string) (string, bool) {
 	if line != strings.TrimSpace(line) {
 		return "", false
 	}
+
 	trimmed := line
 	if !strings.Contains(trimmed, "]{") || !strings.HasSuffix(trimmed, ":") {
 		return "", false
@@ -326,9 +365,11 @@ func isHookLogQualityCandidate(currentTable string, line string) bool {
 	if trimmed == "" || strings.HasPrefix(trimmed, "path: ") {
 		return false
 	}
+
 	if currentTable == "" && line != strings.TrimLeft(line, " \t") {
 		return false
 	}
+
 	for _, prefix := range []string{
 		"diff --git ",
 		"index ",
@@ -348,12 +389,19 @@ func isHookLogQualityCandidate(currentTable string, line string) bool {
 
 func parseHookLogFindingRow(line string) hookFinding {
 	cells := splitTOONCSV(strings.TrimSpace(line))
-	if len(cells) < 10 {
+	if len(cells) < hookLogFindingCellCount {
 		return hookFinding{}
 	}
 
-	lineNumber, _ := strconv.Atoi(cells[2])
-	column, _ := strconv.Atoi(cells[3])
+	lineNumber, err := strconv.Atoi(cells[2])
+	if err != nil {
+		return hookFinding{}
+	}
+
+	column, err := strconv.Atoi(cells[3])
+	if err != nil {
+		return hookFinding{}
+	}
 
 	return hookFinding{
 		Tool:     cells[0],
@@ -371,20 +419,25 @@ func parseHookLogFindingRow(line string) hookFinding {
 
 func splitTOONCSV(line string) []string {
 	cells := []string{}
+
 	var current strings.Builder
+
 	escaped := false
 	for _, char := range line {
 		if escaped {
 			current.WriteRune(char)
+
 			escaped = false
 
 			continue
 		}
+
 		if char == '\\' {
 			escaped = true
 
 			continue
 		}
+
 		if char == ',' {
 			cells = append(cells, current.String())
 			current.Reset()
@@ -394,13 +447,15 @@ func splitTOONCSV(line string) []string {
 
 		current.WriteRune(char)
 	}
+
 	cells = append(cells, current.String())
 
 	return cells
 }
 
 func hookLogFindingKey(finding hookFinding) string {
-	if finding.Tool == "" || finding.File == "" && finding.Code == "" && finding.Message == "" {
+	if finding.Tool == "" ||
+		finding.File == "" && finding.Code == "" && finding.Message == "" {
 		return ""
 	}
 
@@ -423,6 +478,7 @@ func hookLogQualityIssues(runID string, lineNumber int, line string) []hookLogIs
 			Sample: truncateHookLogSample(line),
 		})
 	}
+
 	if strings.Contains(line, "\\n") {
 		issues = append(issues, hookLogIssue{
 			RunID:  runID,
@@ -431,6 +487,7 @@ func hookLogQualityIssues(runID string, lineNumber int, line string) []hookLogIs
 			Sample: truncateHookLogSample(line),
 		})
 	}
+
 	if strings.HasPrefix(line, "raw_output[") {
 		issues = append(issues, hookLogIssue{
 			RunID:  runID,
@@ -465,6 +522,7 @@ func containsHookLogAbsolutePath(line string) bool {
 
 func truncateHookLogSample(line string) string {
 	const maxHookLogSampleLength = 180
+
 	line = strings.TrimSpace(line)
 	if len(line) <= maxHookLogSampleLength {
 		return line
@@ -473,7 +531,7 @@ func truncateHookLogSample(line string) string {
 	return line[:maxHookLogSampleLength] + " [truncated]"
 }
 
-func topHookLogCounts(counts map[string]int, limit int) []hookLogCount {
+func topHookLogCounts(counts map[string]int) []hookLogCount {
 	items := make([]hookLogCount, 0, len(counts))
 	for key, count := range counts {
 		items = append(items, hookLogCount{Key: key, Count: count})
@@ -487,8 +545,8 @@ func topHookLogCounts(counts map[string]int, limit int) []hookLogCount {
 		return items[left].Key < items[right].Key
 	})
 
-	if len(items) > limit {
-		return items[:limit]
+	if len(items) > hookLogTopCountLimit {
+		return items[:hookLogTopCountLimit]
 	}
 
 	return items
@@ -557,8 +615,15 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 		}
 		lines = append(lines, formatHookLogCountTable("top_tools", analysis.TopTools)...)
 		lines = append(lines, formatHookLogCountTable("top_codes", analysis.TopCodes)...)
-		lines = append(lines, formatHookLogCountTable("repeated_failures", analysis.Repeated)...)
-		lines = append(lines, formatHookLogCountTable("quality_issue_counts", analysis.QualityCounts)...)
+		lines = append(
+			lines,
+			formatHookLogCountTable("repeated_failures", analysis.Repeated)...,
+		)
+
+		lines = append(
+			lines,
+			formatHookLogCountTable("quality_issue_counts", analysis.QualityCounts)...,
+		)
 		if len(analysis.QualityIssues) > 0 {
 			lines = append(
 				lines,
@@ -597,7 +662,9 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 }
 
 func formatHookLogCountTable(name string, counts []hookLogCount) []string {
-	lines := []string{fmt.Sprintf("%s[%d]{key,count}:", name, len(counts))}
+	lines := make([]string, 1, 1+len(counts))
+
+	lines[0] = fmt.Sprintf("%s[%d]{key,count}:", name, len(counts))
 	for _, item := range counts {
 		lines = append(lines, fmt.Sprintf("  %s,%d", toonCell(item.Key), item.Count))
 	}

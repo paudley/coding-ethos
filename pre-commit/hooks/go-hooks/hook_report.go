@@ -70,6 +70,7 @@ func formatHookReport(report hookReport, format string) string {
 	if report.Status == "" {
 		report.Status = statusFail
 	}
+
 	report = normalizeHookReportPaths(report)
 
 	switch format {
@@ -102,8 +103,10 @@ func normalizeHookFindingPath(root string, path string) string {
 	}
 
 	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
-		rel == ".." {
+	if err != nil ||
+		rel == "." ||
+		rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return filepath.ToSlash(filepath.Clean(path))
 	}
 

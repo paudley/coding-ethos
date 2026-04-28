@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -61,10 +62,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 
 	cmd := exec.CommandContext(ctx, request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.Dir
-
-	if len(request.Env) > 0 {
-		cmd.Env = append(os.Environ(), request.Env...)
-	}
+	cmd.Env = externalToolEnv(request.Env)
 
 	output, err := cmd.CombinedOutput()
 
@@ -89,4 +87,50 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	result.RunnerFailure = err
 
 	return result
+}
+
+func externalToolEnv(extra []string) []string {
+	env := make([]string, 0, len(os.Environ())+len(extra))
+	for _, item := range os.Environ() {
+		if externalToolEnvBlocked(item) {
+			continue
+		}
+
+		env = append(env, item)
+	}
+
+	return append(env, extra...)
+}
+
+func externalToolEnvBlocked(item string) bool {
+	name, _, found := strings.Cut(item, "=")
+	if !found {
+		return false
+	}
+
+	if name == consumerRootEnv ||
+		name == hookGroupChildEnv ||
+		name == hookGroupResultPathEnv {
+		return true
+	}
+
+	return slices.Contains(gitHookLocalEnvNames(), name) ||
+		strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+		strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+}
+
+func gitHookLocalEnvNames() []string {
+	return []string{
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_COMMON_DIR",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_DIR",
+		"GIT_INDEX_FILE",
+		"GIT_NAMESPACE",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_PREFIX",
+		"GIT_QUARANTINE_PATH",
+		"GIT_WORK_TREE",
+	}
 }

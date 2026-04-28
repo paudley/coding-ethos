@@ -5,6 +5,8 @@ package main
 
 import "testing"
 
+const toolCatalogGoFile = "pkg/app.go"
+
 func TestParseCatalogFindingsEnrichesDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -34,7 +36,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		"Dockerfile",
 		"README.md",
 		".github/workflows/ci.yml",
-		"pkg/app.go",
+		toolCatalogGoFile,
 		"config.yaml",
 	}
 
@@ -48,7 +50,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 	}
 
 	if got := toolchainFiles("golangci-lint", paths); len(got) != 1 ||
-		got[0] != "pkg/app.go" {
+		got[0] != toolCatalogGoFile {
 		t.Fatalf("golangci-lint files = %#v", got)
 	}
 

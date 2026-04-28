@@ -199,20 +199,6 @@ type failedExecutionCommand struct {
 	DurationMS float64
 }
 
-func failedExecutionGroups(
-	groups []hookExecutionGroupJSON,
-) []hookExecutionGroupJSON {
-	failedGroups := []hookExecutionGroupJSON{}
-
-	for _, group := range groups {
-		if group.ExitCode != 0 || group.Status == statusFail {
-			failedGroups = append(failedGroups, group)
-		}
-	}
-
-	return failedGroups
-}
-
 func failedExecutionCommands(
 	groups []hookExecutionGroupJSON,
 ) []failedExecutionCommand {
