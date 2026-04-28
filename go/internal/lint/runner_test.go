@@ -144,9 +144,16 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 				DefaultSeverity: "block",
 				SupportedModes:  []string{"block", "record"},
 				Evaluators: []policy.Evaluator{{
-					Kind:    "external",
-					Name:    "pytest.gate",
-					Options: map[string]any{"command": []string{"sh", "-c", "exit 9"}},
+					Kind: "external",
+					Name: "pytest.gate",
+					Options: map[string]any{
+						"command": []string{
+							"sh",
+							"-c",
+							printRuffDiagnosticCommand + "; exit 9",
+						},
+						"parser": "ruff",
+					},
 				}},
 				DefenseLayers: policy.DefenseLayers{Enforce: "block"},
 				Message:       "pytest failed",
@@ -172,4 +179,12 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 	if got := result.Decisions[0].Evidence["exit_code"]; got != 9 {
 		t.Fatalf("exit evidence = %#v, want 9", got)
 	}
+
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "F401" {
+		t.Fatalf("diagnostics = %#v, want parsed F401", result.Diagnostics)
+	}
 }
+
+const printRuffDiagnosticCommand = `printf '%s\n' ` +
+	`'[{"filename":"pkg/app.py","code":"F401","message":"unused import",` +
+	`"location":{"row":4,"column":8}}]'`

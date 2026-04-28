@@ -105,8 +105,10 @@ inventory used to keep the migration status explicit.
   compiled policy.
 - External tool-backed policies for pytest gating and generated-config
   freshness now dispatch through `coding-ethos-lint` smoke/full scopes. Future
-  work should expand this pattern into typed tool metadata and normalized
-  diagnostics instead of only command exit evidence.
+  work should expand this pattern into typed tool metadata. The shared
+  diagnostic model and first parser registry now normalize Ruff, Pyright, mypy,
+  Pylint, golangci-lint, and fallback `file:line:column` output for compiled
+  external evaluator results.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.

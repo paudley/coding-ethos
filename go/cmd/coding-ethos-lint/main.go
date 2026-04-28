@@ -153,6 +153,30 @@ func printHuman(result lint.Result) {
 			decision.Message,
 		)
 	}
+
+	for _, diagnostic := range result.Diagnostics {
+		location := diagnostic.File
+		if diagnostic.Line > 0 {
+			location += fmt.Sprintf(":%d", diagnostic.Line)
+			if diagnostic.Column > 0 {
+				location += fmt.Sprintf(":%d", diagnostic.Column)
+			}
+		}
+
+		code := diagnostic.Code
+		if code != "" {
+			code = " " + code
+		}
+
+		fmt.Fprintf(
+			os.Stdout,
+			"  %s [%s%s] %s\n",
+			location,
+			diagnostic.Tool,
+			code,
+			diagnostic.Message,
+		)
+	}
 }
 
 func exitErr(err error) {

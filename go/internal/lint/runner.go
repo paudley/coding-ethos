@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 
+	"blackcat.ca/coding-ethos/go/internal/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -80,10 +81,11 @@ func RunWithRegistry(
 	}
 
 	return Result{
-		Scope:     scope,
-		Files:     append([]string(nil), options.Files...),
-		Status:    resultStatus(decisions),
-		Decisions: decisions,
+		Scope:       scope,
+		Files:       append([]string(nil), options.Files...),
+		Status:      resultStatus(decisions),
+		Decisions:   decisions,
+		Diagnostics: diagnosticsFromDecisions(decisions),
 	}, nil
 }
 
@@ -164,6 +166,15 @@ func resultStatus(decisions []policy.Decision) string {
 	}
 
 	return statusResolved
+}
+
+func diagnosticsFromDecisions(decisions []policy.Decision) []diagnostics.Diagnostic {
+	diagnosticItems := []diagnostics.Diagnostic{}
+	for _, decision := range decisions {
+		diagnosticItems = append(diagnosticItems, decision.Diagnostics...)
+	}
+
+	return diagnosticItems
 }
 
 func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {

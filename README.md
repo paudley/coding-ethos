@@ -394,6 +394,9 @@ and `post-checkout` shims that delegate to Git LFS when it is available.
 The standalone `coding-ethos-lint` path can now execute compiled smoke/full
 policies for generated tool-config freshness and the configured pytest gate, so
 those checks are no longer inert policy metadata.
+External command failures can carry normalized diagnostics in the lint JSON
+result. The initial parser registry covers Ruff, Pyright, mypy, Pylint,
+golangci-lint, and generic `file:line:column` text output.
 
 Render or verify Claude agent hook settings without touching global files:
 

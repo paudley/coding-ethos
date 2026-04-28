@@ -59,6 +59,42 @@ func TestEvaluateGeneratedConfigFreshnessBlocksWhenCommandFails(t *testing.T) {
 	}
 }
 
+func TestEvaluateExternalCommandAttachesParsedDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := evaluators.EvaluateExternalCommand(
+		externalPolicy("python.lint"),
+		evaluators.Context{
+			EvaluatorOptions: map[string]any{
+				"command": []string{
+					"sh",
+					"-c",
+					printRuffDiagnosticCommand + "; exit 1",
+				},
+				"parser": "ruff",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate external command: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count = %d, want 1", len(decisions))
+	}
+
+	diagnostics := decisions[0].Diagnostics
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostic count = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+
+	if diagnostics[0].Tool != "ruff" ||
+		diagnostics[0].File != "pkg/app.py" ||
+		diagnostics[0].Code != "F401" {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostics[0])
+	}
+}
+
 func externalPolicy(policyID string) policy.Policy {
 	return policy.Policy{
 		ID:              policyID,
@@ -68,3 +104,7 @@ func externalPolicy(policyID string) policy.Policy {
 		Evaluators:      []policy.Evaluator{{Kind: "external", Name: policyID}},
 	}
 }
+
+const printRuffDiagnosticCommand = `printf '%s\n' ` +
+	`'[{"filename":"pkg/app.py","code":"F401","message":"unused import",` +
+	`"location":{"row":4,"column":8}}]'`

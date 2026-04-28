@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -52,13 +53,23 @@ func EvaluateExternalCommand(
 		return nil, nil
 	}
 
+	stdoutText := strings.TrimSpace(stdout.String())
+	stderrText := strings.TrimSpace(stderr.String())
+	tool := stringOption(
+		context.EvaluatorOptions,
+		"parser",
+		diagnostics.InferTool(command),
+	)
+
 	decision := policy.NewDecision("block", policyDef)
+	decision.Diagnostics = diagnostics.Parse(tool, stdoutText, stderrText)
 
 	decision.Evidence = map[string]any{
 		"command":   append([]string(nil), command...),
 		"exit_code": externalExitCode(err),
-		"stdout":    strings.TrimSpace(stdout.String()),
-		"stderr":    strings.TrimSpace(stderr.String()),
+		"stderr":    stderrText,
+		"stdout":    stdoutText,
+		"tool":      tool,
 	}
 	if context.Cwd != "" {
 		decision.Evidence["cwd"] = context.Cwd

@@ -3,6 +3,27 @@
 
 package evaluators
 
+import "strings"
+
+func stringOption(options map[string]any, key string, defaultValue string) string {
+	raw, exists := options[key]
+	if !exists {
+		return defaultValue
+	}
+
+	value, isString := raw.(string)
+	if !isString {
+		return defaultValue
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
+}
+
 func stringSliceOption(
 	options map[string]any,
 	key string,
