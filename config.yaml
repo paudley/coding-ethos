@@ -94,6 +94,15 @@ generated_config:
   freshness:
     enabled: true
 
+syntax:
+  file_syntax:
+    enabled: true
+    extensions:
+      - .json
+      - .toml
+      - .yaml
+      - .yml
+
 policy:
   evidence_maps:
     - source: ruff
@@ -104,7 +113,9 @@ policy:
         - no-conditional-imports
         - fail-fast-fail-hard-overview
       confidence: high
-      meaning: Import executes away from module scope, usually inside runtime control flow.
+      meaning: >-
+        Import executes away from module scope, usually inside runtime control
+        flow.
       advice:
         summary: Move required imports to module scope and fail during startup.
         steps:
@@ -175,7 +186,9 @@ policy:
         - security-by-design
         - evidence-based-engineering-and-decision-quality
       confidence: medium
-      meaning: Dockerfile instructions are weakening reproducibility or container safety.
+      meaning: >-
+        Dockerfile instructions are weakening reproducibility or container
+        safety.
       advice:
         summary: Make the container build deterministic and least-privilege.
         steps:
@@ -284,6 +297,10 @@ shell:
     enabled: true
   github_admin:
     enabled: true
+  best_practices:
+    enabled: true
+    require_common_for_prefixes:
+      - scripts/
   forbidden_strings:
     enabled: true
     strings:

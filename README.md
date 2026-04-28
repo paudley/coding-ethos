@@ -502,6 +502,12 @@ Provider output uses the strongest native shape each agent supports:
   direct `PostToolUse` equivalent, so post-command hook-output advice remains
   provider-limited.
 
+Post-edit advice for `Write`, `Edit`, and `MultiEdit` now includes compiled
+file-scope lint state for the edited paths. The hook path runs only deterministic
+compiled evaluators, such as Python policy checks, structured-data syntax
+validation, and shell best-practice checks; external tool suites remain in the
+Git hook/check path where their cost and output can be controlled.
+
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.

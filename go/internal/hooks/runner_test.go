@@ -1588,6 +1588,45 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	}
 }
 
+func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+	err := os.WriteFile(
+		sourcePath,
+		[]byte("try:\n    import missing\nexcept ImportError:\n    missing = None\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": %q}
+	}`, dir, sourcePath)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "compiled_lint:") ||
+		!strings.Contains(context, "findings: 1") ||
+		!strings.Contains(context, "python.conditional_imports") ||
+		!strings.Contains(context, "<repo>/app.py") {
+		t.Fatalf("missing compiled lint finding: %s", context)
+	}
+}
+
 func initHookRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

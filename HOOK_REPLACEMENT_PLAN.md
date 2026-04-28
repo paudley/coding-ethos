@@ -50,7 +50,7 @@ remove old parent and Claude hook entries outside this repo.
 | `PreToolUse` / `BeforeTool` | shell command | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. Claude can receive transparent `updatedInput` git-wrapper rewrites; Codex and Gemini block raw git because their native hook contracts do not expose safe input rewriting. | Provider-neutral policy dispatch plus provider-specific output adapters. | Cutover ready for Claude/Codex/Gemini supported pre-tool surfaces |
 | `PreToolUse` / `BeforeTool` | write/edit tools | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. Claude covers `Write`, `Edit`, and `MultiEdit`; Gemini maps `write_file`; Codex maps provider-neutral write plus native write/edit aliases. | Provider-neutral policy dispatch plus Go evaluators. | Cutover ready for supported write/edit surfaces |
 | `PostToolUse` | shell command | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook` where the provider exposes post-tool context. Gemini has no direct equivalent and does not fake one. | Claude/Codex provider-limited |
-| `PostToolUse` / `PostToolBatch` | write/edit tools | Surface lint/type feedback after code edits. | Deterministic post-edit checkpoint guidance for `Write`, `Edit`, and `MultiEdit`; no AI or expensive lint run in the hook path. | Runtime covered; richer lint-state feedback remains planned |
+| `PostToolUse` / `PostToolBatch` | write/edit tools | Surface lint/type feedback after code edits. | Deterministic post-edit checkpoint guidance for `Write`, `Edit`, and `MultiEdit`, plus compiled file-scope lint findings for the edited files. No AI or expensive external lint run in the hook path. | Runtime covered for compiled file-scope policies; external lint-state feedback remains planned |
 | `UserPromptSubmit` | user prompt | Inject concise ETHOS reminders, todo-list reminders, and repo-specific guardrails before work starts. | Deterministic prompt guidance context. | Runtime covered where provider exposes the event |
 | `Stop` / `SessionEnd` | session close | Surface outstanding failing gates, missing follow-up records, and continuation reminders. | Deterministic stop checkpoint guidance. | Runtime covered where provider exposes the event |
 | `SubagentStart` / `SubagentStop` | delegated work | Provide scoped ETHOS context and collect subagent completion evidence. | Deterministic subagent start/stop guidance. | Runtime covered where provider exposes the event |
@@ -66,7 +66,7 @@ remove old parent and Claude hook entries outside this repo.
 | Pre-tool git rewrite | Full via `updatedInput` | Unsupported by provider; block raw git | Unsupported by provider; block raw git | None unless providers add input rewrite. |
 | Pre-tool write/edit blocking | Full for `Write`, `Edit`, `MultiEdit` | Full for native edit aliases | Full for `write_file`, `replace`, and `MultiEdit` | Add any newly observed native names. |
 | Post-tool shell advice | Full | Full when Codex accepts additional context | Full through `AfterTool` where Gemini provides tool output | Keep provider-native, no legacy adapters. |
-| Post-edit lint advice | Deterministic checkpoint | Deterministic checkpoint | Deterministic checkpoint through `AfterTool` | Add changed-file lint state and specific tool output later. |
+| Post-edit lint advice | Checkpoint plus compiled file-scope findings | Checkpoint plus compiled file-scope findings | Checkpoint plus compiled file-scope findings through `AfterTool` | Add external tool lint-state summaries later. |
 | Prompt/session guidance | Runtime covered | Runtime covered | Runtime covered for mapped events | Add provider aliases if real CLIs use different names. |
 | Continuation capture | Advisory and fail-visible | Advisory where payload includes transcript | Advisory where payload includes transcript | Keep failures visible without blocking normal work. |
 | Verification | Settings plus synthetic runtime probes plus manual CLI activation smoke | Settings plus synthetic runtime probes plus manual CLI activation smoke | Settings plus synthetic runtime probes plus manual CLI activation smoke | Keep automated smoke deterministic; provider CLIs remain optional local verification. |
@@ -111,6 +111,8 @@ Runtime covered in Go agent-hook code:
 - `shell.background_git`
 - `shell.github_admin`
 - `shell.forbidden_strings`
+- `shell.best_practices`
+- `syntax.file_syntax`
 - `filesystem.protected_path`
 - `filesystem.protected_branch_write`
 - `python.conditional_imports`
@@ -123,8 +125,8 @@ Runtime covered in Go agent-hook code:
 - `pytest.gate`
 - `generated_config.freshness`
 - Post-tool hook output feedback for git hook commands
-- Post-edit deterministic verification guidance for `Write`, `Edit`, and
-  `MultiEdit`
+- Post-edit deterministic verification guidance plus compiled file-scope
+  findings for `Write`, `Edit`, and `MultiEdit`
 - Pre-compact deterministic continuation capture
 - Compact session-start deterministic continuation replay
 - User-prompt, tool-batch, stop/session-end, and subagent lifecycle guidance
@@ -156,13 +158,15 @@ inventory used to keep the migration status explicit.
   then emits one TOON readiness report.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
-  executable checks. Future work should continue migrating individual checks
-  into compiled policy evaluators, but parent hook replacement no longer depends
-  on legacy parent shims.
+  executable checks. Syntax validation and shell best-practice checks have
+  moved into compiled policy evaluators; future work should continue migrating
+  individual checks, but parent hook replacement no longer depends on legacy
+  parent shims.
 - Protected paths, protected branches, staged admin files, and shell/git policy
-  enablement are compiled from `config.yaml`/repo override data. Remaining
-  config work is to broaden that pattern to every evaluator as it moves into
-  compiled policy.
+  enablement are compiled from `config.yaml`/repo override data. Syntax file
+  extensions and shell best-practice prefixes are also compiled from config.
+  Remaining config work is to broaden that pattern to every evaluator as it
+  moves into compiled policy.
 - External tool-backed policies for pytest gating and generated-config
   freshness now dispatch through `coding-ethos-lint` smoke/full scopes. Future
   work should expand this pattern into typed tool metadata. The shared

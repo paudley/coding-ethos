@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -240,6 +241,15 @@ func pythonDecision(
 	snippet string,
 ) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
+	decision.Diagnostics = []diagnostics.Diagnostic{{
+		Tool:     policyDef.ID,
+		File:     source.Path,
+		Line:     line,
+		Severity: blockDecision,
+		PolicyID: policyDef.ID,
+		Message:  policyDef.Message,
+		Advice:   policyDef.Suggestion,
+	}}
 
 	decision.Evidence = map[string]any{
 		"line":    line,

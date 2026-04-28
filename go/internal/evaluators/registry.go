@@ -23,6 +23,7 @@ func DefaultRegistry() Registry {
 	registerGitEvaluators(registry)
 	registerFilesystemEvaluators(registry)
 	registerShellEvaluators(registry)
+	registerSyntaxEvaluators(registry)
 	registerPythonEvaluators(registry)
 	registerExternalEvaluators(registry)
 
@@ -93,6 +94,14 @@ func registerShellEvaluators(registry Registry) {
 		"shell.forbidden_strings",
 		EvaluatorFunc(EvaluateShellForbiddenStrings),
 	)
+	registry.Register(
+		"shell.best_practices",
+		EvaluatorFunc(EvaluateShellBestPractices),
+	)
+}
+
+func registerSyntaxEvaluators(registry Registry) {
+	registry.Register("syntax.file_syntax", EvaluatorFunc(EvaluateFileSyntax))
 }
 
 func registerPythonEvaluators(registry Registry) {

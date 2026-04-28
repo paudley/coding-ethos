@@ -248,6 +248,7 @@ func compilePolicies(
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, config, principles)
+	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
@@ -713,6 +714,42 @@ func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
 	}
 }
 
+func addSyntaxPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
+	if !policyConfigEnabled(config, "syntax.file_syntax") {
+		return
+	}
+
+	extensions := stringSliceAt(
+		config,
+		[]string{"syntax", "file_syntax", "extensions"},
+		[]string{".json", ".toml", ".yaml", ".yml"},
+	)
+
+	policies["syntax.file_syntax"] = Policy{
+		ID:              "syntax.file_syntax",
+		Category:        "syntax",
+		Source:          SourceRef{File: "config.yaml", Path: "syntax.file_syntax"},
+		PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Structured data files must parse before they enter the repo.",
+		Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
+		},
+		Evaluators: []Evaluator{{
+			Kind:    "config",
+			Name:    "syntax.file_syntax",
+			Options: map[string]any{"extensions": extensions},
+		}},
+	}
+}
+
 func addShellPolicies(
 	policies map[string]Policy,
 	config map[string]any,
@@ -742,10 +779,46 @@ func addShellPolicies(
 			"Use the reviewed administrative path instead of gh --admin.",
 		),
 		shellForbiddenStringsPolicy(config, principles),
+		shellBestPracticesPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
 			policies[policy.ID] = policy
 		}
+	}
+}
+
+func shellBestPracticesPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	requireCommon := stringSliceAt(
+		config,
+		[]string{"shell", "best_practices", "require_common_for_prefixes"},
+		stringSliceAt(
+			config,
+			[]string{"go", "shell", "require_common_for_prefixes"},
+			[]string{"scripts/"},
+		),
+	)
+
+	return Policy{
+		ID:              "shell.best_practices",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.best_practices"},
+		PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Shell scripts must follow repository shell safety practices.",
+		Suggestion:      "Use a valid shell shebang, strict mode, and required common helpers.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.sh", "**/*.bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "shell",
+			Name: "shell.best_practices",
+			Options: map[string]any{
+				"require_common_for_prefixes": requireCommon,
+			},
+		}},
 	}
 }
 
@@ -1512,6 +1585,8 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	linter := map[string][]string{
 		"files": existingPolicyIDs(
 			policies,
+			"syntax.file_syntax",
+			"shell.best_practices",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1532,11 +1607,13 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.background_git",
 			"shell.github_admin",
 			"shell.forbidden_strings",
+			"shell.best_practices",
 			"git.commit_attribution",
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
 			"filesystem.required_ignores",
+			"syntax.file_syntax",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",

@@ -46,6 +46,12 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if _, ok := bundle.Policies["pytest.gate"]; !ok {
 		t.Fatalf("missing compiled pytest gate policy")
 	}
+	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
+		t.Fatalf("missing compiled syntax policy")
+	}
+	if _, ok := bundle.Policies["shell.best_practices"]; !ok {
+		t.Fatalf("missing compiled shell best practices policy")
+	}
 
 	if bundle.Policies["git.hook_bypass"].DefenseLayers.Notify != "on_block" {
 		t.Fatalf(
@@ -126,6 +132,10 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 		bundle.Dispatch.Linter["staged"],
 		"filesystem.required_ignores",
 	)
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.file_syntax")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.best_practices")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -183,8 +193,13 @@ generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
 shell:
+  best_practices:
+    require_common_for_prefixes: [bin/]
   forbidden_strings:
     strings: [/blocked/settings.json]
+syntax:
+  file_syntax:
+    extensions: [.json]
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -256,6 +271,24 @@ shell:
 	)
 	if forbiddenStrings[0] != "/blocked/settings.json" {
 		t.Fatalf("forbidden strings options mismatch: %#v", forbiddenStrings)
+	}
+
+	shellPrefixes := optionStrings(
+		t,
+		bundle.Policies["shell.best_practices"].Evaluators[0],
+		"require_common_for_prefixes",
+	)
+	if shellPrefixes[0] != "bin/" {
+		t.Fatalf("shell best-practices options mismatch: %#v", shellPrefixes)
+	}
+
+	syntaxExtensions := optionStrings(
+		t,
+		bundle.Policies["syntax.file_syntax"].Evaluators[0],
+		"extensions",
+	)
+	if syntaxExtensions[0] != ".json" {
+		t.Fatalf("syntax options mismatch: %#v", syntaxExtensions)
 	}
 }
 
@@ -421,6 +454,11 @@ principles:
     title: Radical Visibility
     summary: Log important decisions.
     directive: Log important decisions with context.
+  - id: validation-at-the-gate
+    order: 8
+    title: Validation at the Gate
+    summary: Validate inputs before use.
+    directive: Validate configuration and syntax before relying on files.
 `
 
 const testConfigYAML = `
