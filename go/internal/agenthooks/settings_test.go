@@ -30,19 +30,17 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"claude": {`,
 		`"codex": {`,
 		`"gemini": {`,
-		`"active": true`,
-		`"command_contract": "stdin-json"`,
-		`"payload_contract": "coding-ethos-agent-event-v1"`,
-		`"provider": "codex"`,
-		`"provider": "gemini"`,
-		`"runtime_entrypoint": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
+		`"BeforeTool"`,
+		`"run_shell_command"`,
+		`"write_file"`,
 		`"matcher": "Bash"`,
-		`"tool": "Bash"`,
 		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		`"statusMessage": "coding-ethos policy"`,
+		`"name": "coding-ethos"`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %s in settings:\n%s", expected, output)
@@ -86,7 +84,12 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	}
 
 	paths := agenthooks.DefaultSettingsPaths(root)
-	for _, path := range []string{paths.Claude, paths.Codex, paths.Gemini} {
+	for _, path := range []string{
+		paths.Claude,
+		paths.CodexConfig,
+		paths.CodexHooks,
+		paths.Gemini,
+	} {
 		_, statErr := os.Stat(path)
 		if statErr != nil {
 			t.Fatalf("stat settings %s: %v", path, statErr)
@@ -158,7 +161,7 @@ func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	}
 }
 
-func TestDoctorSettingsRejectsInactiveProviderManifest(t *testing.T) {
+func TestDoctorSettingsRejectsDisabledCodexHooksFeature(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -170,22 +173,27 @@ func TestDoctorSettingsRejectsInactiveProviderManifest(t *testing.T) {
 
 	paths := agenthooks.DefaultSettingsPaths(root)
 
-	payload, err := os.ReadFile(paths.Codex)
+	payload, err := os.ReadFile(paths.CodexConfig)
 	if err != nil {
-		t.Fatalf("read codex settings: %v", err)
+		t.Fatalf("read codex config: %v", err)
 	}
 
-	mutated := strings.Replace(string(payload), `"active": true`, `"active": false`, 1)
+	mutated := strings.Replace(
+		string(payload),
+		`codex_hooks = true`,
+		`codex_hooks = false`,
+		1,
+	)
 
-	overwriteAgentSettings(t, paths.Codex, mutated)
+	overwriteAgentSettings(t, paths.CodexConfig, mutated)
 
 	err = agenthooks.DoctorSettings(root, testHookCommand)
 	if err == nil {
-		t.Fatal("expected inactive provider manifest mismatch")
+		t.Fatal("expected disabled Codex hooks feature mismatch")
 	}
 }
 
-func TestDoctorSettingsRejectsWrongProviderManifest(t *testing.T) {
+func TestDoctorSettingsRejectsMissingGeminiHook(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -204,8 +212,8 @@ func TestDoctorSettingsRejectsWrongProviderManifest(t *testing.T) {
 
 	mutated := strings.Replace(
 		string(payload),
-		`"provider": "gemini"`,
-		`"provider": "codex"`,
+		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		`"command": "/other/run-go-hook.sh agent-hook"`,
 		1,
 	)
 
@@ -213,7 +221,7 @@ func TestDoctorSettingsRejectsWrongProviderManifest(t *testing.T) {
 
 	err = agenthooks.DoctorSettings(root, testHookCommand)
 	if err == nil {
-		t.Fatal("expected wrong provider manifest mismatch")
+		t.Fatal("expected wrong Gemini hook command mismatch")
 	}
 }
 

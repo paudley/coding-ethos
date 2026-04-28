@@ -275,19 +275,20 @@ agent_settings_root="$tmp_root/agent-settings"
   --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --root "$agent_settings_root" >/dev/null
-if ! grep -q '"provider": "codex"' "$agent_settings_root/.codex/coding-ethos-hooks.json" ||
-  ! grep -q '"active": true' "$agent_settings_root/.codex/coding-ethos-hooks.json" ||
-  ! grep -q '"payload_contract": "coding-ethos-agent-event-v1"' \
-    "$agent_settings_root/.codex/coding-ethos-hooks.json"; then
-  printf 'expected active Codex provider manifest:\n' >&2
-  cat "$agent_settings_root/.codex/coding-ethos-hooks.json" >&2
+if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
+  ! grep -q '"PreToolUse"' "$agent_settings_root/.codex/hooks.json" ||
+  ! grep -q '"statusMessage": "coding-ethos policy"' \
+    "$agent_settings_root/.codex/hooks.json"; then
+  printf 'expected native Codex hook activation:\n' >&2
+  cat "$agent_settings_root/.codex/config.toml" >&2
+  cat "$agent_settings_root/.codex/hooks.json" >&2
   exit 1
 fi
-if ! grep -q '"provider": "gemini"' "$agent_settings_root/.gemini/coding-ethos-hooks.json" ||
-  ! grep -q '"active": true' "$agent_settings_root/.gemini/coding-ethos-hooks.json" ||
-  ! grep -q '"runtime_entrypoint": ' "$agent_settings_root/.gemini/coding-ethos-hooks.json"; then
-  printf 'expected active Gemini provider manifest:\n' >&2
-  cat "$agent_settings_root/.gemini/coding-ethos-hooks.json" >&2
+if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"matcher": "run_shell_command"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"name": "coding-ethos"' "$agent_settings_root/.gemini/settings.json"; then
+  printf 'expected native Gemini hook activation:\n' >&2
+  cat "$agent_settings_root/.gemini/settings.json" >&2
   exit 1
 fi
 
@@ -298,7 +299,7 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-rewrite.out
   printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-git-rewrite.out
-  printf '{"provider":"gemini-cli","hookEventName":"PreToolUse","toolName":"Bash","toolInput":{"command":"git status"}}\n' |
+  printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git status"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-git-rewrite.out
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out

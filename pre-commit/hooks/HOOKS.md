@@ -37,17 +37,16 @@ pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 ```
 
-Claude output uses Claude Code's native `hooks` map. Codex and Gemini output
-provider-owned manifests under `codex` and `gemini` top-level keys. All
-providers use the same protected event/tool list and the same `agent-hook`
-runtime entrypoint. Single-provider generation is intentionally not exposed:
-partial protection is not a valid install state. The active runtime does not
-call AI systems from agent hooks; AI review stays in Git hook stages where
-output, cost, and caching are controlled by this runner.
-Codex and Gemini manifests include `active: true`, provider identity, adapter
-metadata, and the runtime command contract. `agent-hooks doctor` checks those
-activation fields in addition to the hook list, so a stale or mislabeled file
-does not count as an installed provider surface.
+Claude output uses Claude Code's native `hooks` map. Codex output enables
+`[features].codex_hooks` in `.codex/config.toml` and writes native
+`.codex/hooks.json`. Gemini output writes native `.gemini/settings.json`
+hooks. All providers use the same `agent-hook` runtime entrypoint for the
+lifecycle hooks they expose. Single-provider generation is intentionally not
+exposed: partial protection is not a valid install state. The active runtime
+does not call AI systems from agent hooks; AI review stays in Git hook stages
+where output, cost, and caching are controlled by this runner. `agent-hooks
+doctor` checks native provider activation files, so a stale file or missing
+Codex feature flag does not count as an installed provider surface.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain
@@ -58,10 +57,11 @@ provider-neutral payload shape:
 {"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}
 ```
 
-CamelCase hook fields and nested `tool_call.name`/`tool_call.arguments` are
-accepted for CLI adapters that expose those shapes. After normalization, all
-providers run through the same policy bundle and receive the same blocking,
-rewrite, advice, continuation, and post-tool feedback behavior.
+CamelCase hook fields, Gemini `BeforeTool` payloads, and nested
+`tool_call.name`/`tool_call.arguments` are accepted for CLI adapters that expose
+those shapes. After normalization, provider events run through the same policy
+bundle and receive the same blocking, rewrite, advice, continuation, and
+post-tool feedback behavior where the provider exposes that lifecycle point.
 
 ## Included Hooks
 

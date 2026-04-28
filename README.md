@@ -420,17 +420,18 @@ Agent hook generation is all-or-nothing by design. `sync` writes every
 supported repo-local agent surface:
 
 - `.claude/settings.local.json`
-- `.codex/coding-ethos-hooks.json`
-- `.gemini/coding-ethos-hooks.json`
+- `.codex/config.toml`
+- `.codex/hooks.json`
+- `.gemini/settings.json`
 
-Claude output preserves Claude Code's native `hooks` map. Codex and Gemini
-output provider-owned manifests under `codex` and `gemini` top-level keys so
-downstream installers can consume the same event/tool contract without
-pretending to be Claude settings. Generated settings cover `PreToolUse`,
-`PostToolUse`, `PreCompact`, and `SessionStart` compact replay.
-Codex and Gemini manifests are activation-bearing contracts: `active: true`,
-the expected provider ID, adapter metadata, and the `agent-hook` runtime
-entrypoint must all match or `agent-hooks doctor` fails.
+Claude output preserves Claude Code's native `hooks` map. Codex output enables
+`[features].codex_hooks` and writes native `.codex/hooks.json`. Gemini output
+writes native `.gemini/settings.json` hooks. Generated settings cover the
+events each provider exposes: Claude uses the full runtime set, Codex uses
+Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
+maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
+`agent-hooks doctor` verifies those native activation files rather than a
+coding-ethos-only sidecar.
 At runtime, `agent-hook` normalizes Claude native payloads and first-class
 Codex/Gemini CLI payloads into one internal policy event. The preferred
 provider-neutral payload shape is:
@@ -444,11 +445,11 @@ provider-neutral payload shape is:
 }
 ```
 
-Gemini CLI callers may use camelCase hook fields such as `hookEventName`,
-`toolName`, `toolInput`, `toolResponse`, and `exitCode`; Codex-style nested
-`tool_call.name` plus `tool_call.arguments` is also accepted. Provider identity
-is recorded for diagnostics, but policy enforcement is intentionally shared
-across all supported agents.
+Gemini CLI callers may use `BeforeTool`, `run_shell_command`, and `write_file`;
+those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
+surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
+accepted. Provider identity is recorded for diagnostics, but policy enforcement
+is intentionally shared across all supported agents.
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.

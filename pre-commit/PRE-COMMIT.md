@@ -134,14 +134,11 @@ full review on pre-push.
 
 `agent-hooks print|sync|doctor` always covers every supported agent surface.
 There is no single-agent generation path because partial protection is not a
-valid install state. Claude output uses Claude Code's native `hooks` map. Codex
-and Gemini output explicit provider manifests under `codex` and `gemini`
-top-level keys so repo-local installers can cut over without using legacy
-Claude-shaped adapters.
-Those manifests are not passive notes: they include `active: true`, provider
-identity, adapter metadata, and the runtime entrypoint. `doctor` verifies those
-fields and fails when a provider manifest is inactive, mislabeled, or points at
-the wrong hook command.
+valid install state. Claude output uses Claude Code's native `hooks` map.
+Codex output enables `[features].codex_hooks` in `.codex/config.toml` and
+writes native `.codex/hooks.json`. Gemini output writes native
+`.gemini/settings.json` hooks. `doctor` verifies those native activation files
+and fails when a provider does not point at the expected hook command.
 
 `agent-hook` accepts each provider's supported event shape and normalizes it
 before policy evaluation. Claude may send native `hook_event_name`,
@@ -158,10 +155,12 @@ callers should send the provider-neutral shape:
 ```
 
 The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
-`toolInput`, `toolResponse`, `exitCode`) and nested Codex-style
+`toolInput`, `toolResponse`, `exitCode`), Gemini's `BeforeTool`,
+`run_shell_command`, and `write_file` names, and nested Codex-style
 `tool_call.name` plus `tool_call.arguments`. Provider identity does not weaken
 policy: the same git wrapper, filesystem, Python-edit, continuation, and
-post-tool output rules apply to Claude, Codex, and Gemini.
+post-tool output rules apply wherever the provider exposes the corresponding
+lifecycle hook.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
 human, JSON, and TOON output selection as hook execution output.

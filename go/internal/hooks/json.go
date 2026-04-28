@@ -9,6 +9,11 @@ import (
 	"io"
 )
 
+const (
+	canonicalToolBash  = "Bash"
+	canonicalToolWrite = "Write"
+)
+
 func DecodeEvent(reader io.Reader) (Event, error) {
 	payload := map[string]json.RawMessage{}
 
@@ -49,9 +54,31 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 	}
 
 	event = normalizeNestedTool(payload, event)
+	event.HookEventName = normalizedHookEventName(event.HookEventName)
+	event.ToolName = normalizedToolName(event.ToolName)
 	event.ToolResponse = mergeTopLevelResponseStatus(payload, event.ToolResponse)
 
 	return event
+}
+
+func normalizedHookEventName(name string) string {
+	switch name {
+	case "BeforeTool":
+		return "PreToolUse"
+	default:
+		return name
+	}
+}
+
+func normalizedToolName(name string) string {
+	switch name {
+	case "run_shell_command":
+		return canonicalToolBash
+	case "write_file":
+		return canonicalToolWrite
+	default:
+		return name
+	}
 }
 
 func primaryHookEventName(payload map[string]json.RawMessage) string {

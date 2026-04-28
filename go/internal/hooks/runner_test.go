@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	permissionAllow = "allow"
-	preToolUse      = "PreToolUse"
-	statusAllowed   = "allowed"
-	statusBlocked   = "blocked"
-	toolBash        = "Bash"
+	commandGitStatus = "git status"
+	permissionAllow  = "allow"
+	preToolUse       = "PreToolUse"
+	statusAllowed    = "allowed"
+	statusBlocked    = "blocked"
+	toolBash         = "Bash"
 )
 
 func TestRunBlocksGitHookBypass(t *testing.T) {
@@ -732,7 +733,7 @@ func TestDecodeEventReadsClaudeLikePayload(t *testing.T) {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 
-	if event.Command() != "git status" {
+	if event.Command() != commandGitStatus {
 		t.Fatalf("command mismatch: %q", event.Command())
 	}
 }
@@ -758,7 +759,7 @@ func TestDecodeEventReadsCodexPayload(t *testing.T) {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 
-	if event.Command() != "git status" {
+	if event.Command() != commandGitStatus {
 		t.Fatalf("command mismatch: %q", event.Command())
 	}
 }
@@ -768,26 +769,44 @@ func TestDecodeEventReadsGeminiCLIPayload(t *testing.T) {
 
 	event, err := DecodeEvent(strings.NewReader(`{
 		"provider": "gemini-cli",
-		"hookEventName": "PostToolUse",
-		"toolName": "Bash",
-		"toolInput": {"command": "git commit -m test"},
-		"output": "ruff...Failed",
-		"exitCode": 1
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
+		"toolInput": {"command": "git status"}
 	}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
 
 	if event.Source != "gemini-cli" ||
-		event.HookEventName != "PostToolUse" ||
+		event.HookEventName != preToolUse ||
 		event.ToolName != toolBash {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 
-	if event.Command() != "git commit -m test" ||
-		event.ToolOutput() != "ruff...Failed" ||
-		event.ReturnCode() != 1 {
+	if event.Command() != commandGitStatus {
 		t.Fatalf("tool data mismatch: %#v", event)
+	}
+}
+
+func TestDecodeEventReadsGeminiWriteToolPayload(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "write_file",
+		"toolInput": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.HookEventName != preToolUse || event.ToolName != "Write" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Content() != "print(1)\n" {
+		t.Fatalf("content mismatch: %#v", event)
 	}
 }
 
@@ -853,8 +872,8 @@ func TestRunRewritesGeminiPayloadGitCommand(t *testing.T) {
 
 	event, err := DecodeEvent(strings.NewReader(`{
 		"provider": "gemini-cli",
-		"hookEventName": "PreToolUse",
-		"toolName": "Bash",
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
 		"toolInput": {"command": "git status"}
 	}`))
 	if err != nil {

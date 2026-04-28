@@ -93,11 +93,10 @@ inventory used to keep the migration status explicit.
 - Agent-hook behavior has a repo-owned settings renderer, explicit sync, and
   doctor path through `coding-ethos-agent-hooks` and
   `run-go-hook.sh agent-hooks`. Generation is all-provider only: Claude,
-  Codex, and Gemini surfaces are rendered together, and doctor rejects missing,
-  inactive, wrong-provider, or wrong-command provider manifests. Claude uses
-  Claude Code's native settings file. Codex and Gemini use explicit
-  coding-ethos provider manifests with an active flag, provider identity,
-  adapter metadata, and the shared runtime command contract.
+  Codex, and Gemini surfaces are rendered together, and doctor verifies the
+  native activation files for each provider. Claude uses Claude Code's native
+  settings file. Codex uses `[features].codex_hooks = true` plus native
+  `.codex/hooks.json`. Gemini uses native `.gemini/settings.json` hooks.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
   executable checks. Future work should continue migrating individual checks
@@ -123,14 +122,14 @@ inventory used to keep the migration status explicit.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
-- Claude, Codex, and Gemini now share the provider-neutral hook spec and runtime
-  event inventory. The hook runtime normalizes Claude native payloads,
-  provider-neutral Codex/Gemini payloads, camelCase Gemini CLI-style payloads,
-  and nested Codex-style `tool_call` payloads into one policy event before
-  evaluation. Remaining provider work is product-specific activation glue where
-  Codex or Gemini CLI expose native lifecycle hook execution; that glue should
-  consume the generated provider manifests rather than adding legacy adapters
-  or duplicating policy wiring.
+- Claude, Codex, and Gemini now share the provider-neutral hook spec and
+  runtime event inventory. The hook runtime normalizes Claude native payloads,
+  provider-neutral Codex/Gemini payloads, Gemini `BeforeTool` payloads, and
+  nested Codex-style `tool_call` payloads into one policy event before
+  evaluation. Codex exposes the needed native `PreToolUse`, `PostToolUse`, and
+  `SessionStart` hooks. Gemini exposes native `BeforeTool` and `SessionStart`
+  hook points; unsupported lifecycle points should remain absent rather than
+  being faked through legacy adapters.
 
 ## Fixture Contract
 
