@@ -55,7 +55,8 @@ through the configured hook command, proving that Claude rewrites, Codex blocks,
 and Gemini denies reach the active runtime.
 `cutover install` installs Git hook shims, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
-agent hook, and policy runtime readiness in TOON.
+agent hook, and policy runtime readiness in TOON. Blocked reports include
+`fix_first` rows naming the stale or missing hook surface and the next action.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain

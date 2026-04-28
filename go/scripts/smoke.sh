@@ -329,7 +329,12 @@ cutover_missing_status=$?
 set -e
 if [[ "$cutover_missing_status" -eq 0 ]] ||
   ! grep -q 'status: blocked' /tmp/coding-ethos-cutover-missing.out ||
-  ! grep -q 'git-hooks,FAIL' /tmp/coding-ethos-cutover-missing.out; then
+  ! grep -q 'git-hooks,FAIL' /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'fix_first' /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'pre-commit missing or not executable' \
+    /tmp/coding-ethos-cutover-missing.out ||
+  ! grep -q 'agent-hooks,native agent settings missing or stale,run cutover install' \
+    /tmp/coding-ethos-cutover-missing.out; then
   printf 'expected missing cutover verification to fail:\n' >&2
   cat /tmp/coding-ethos-cutover-missing.out >&2
   exit 1

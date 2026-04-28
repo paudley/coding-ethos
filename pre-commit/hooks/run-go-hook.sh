@@ -124,6 +124,25 @@ verify_git_hook_shims() {
 	done
 }
 
+git_hook_fix_items() {
+	local hook
+	for hook in pre-commit pre-push commit-msg; do
+		if [[ ! -x "${HOOKS_DIR}/${hook}" ]]; then
+			printf '  git-hooks,%s missing or not executable,run cutover install\n' "${HOOKS_DIR}/${hook}"
+		elif ! cmp -s "${SCRIPT_DIR}/run-git-hook.sh" "${HOOKS_DIR}/${hook}"; then
+			printf '  git-hooks,%s is stale,run cutover install\n' "${HOOKS_DIR}/${hook}"
+		fi
+	done
+
+	for hook in post-commit post-merge post-checkout; do
+		if [[ ! -x "${HOOKS_DIR}/${hook}" ]]; then
+			printf '  git-hooks,%s missing or not executable,run cutover install\n' "${HOOKS_DIR}/${hook}"
+		elif ! cmp -s "${SCRIPT_DIR}/run-lfs-hook.sh" "${HOOKS_DIR}/${hook}"; then
+			printf '  git-hooks,%s is stale,run cutover install\n' "${HOOKS_DIR}/${hook}"
+		fi
+	done
+}
+
 persist_agent_environment() {
 	if [[ -z "${CLAUDE_ENV_FILE:-}" ]]; then
 		return
@@ -293,6 +312,7 @@ cutover_report() {
 	local git_hooks="${3:?git hooks status required}"
 	local agent_hooks="${4:?agent hooks status required}"
 	local runtime="${5:?runtime status required}"
+	local fix_items_file="${6:-}"
 
 	cat <<EOF
 format: toon
@@ -305,6 +325,40 @@ surfaces[3]{name,status}:
   agent-hooks,${agent_hooks}
   policy-runtime,${runtime}
 EOF
+
+	if [[ -n "$fix_items_file" && -s "$fix_items_file" ]]; then
+		local item_count
+		item_count="$(wc -l <"$fix_items_file" | tr -d ' ')"
+		printf 'fix_first[%s]{surface,problem,action}:\n' "$item_count"
+		cat "$fix_items_file"
+	fi
+}
+
+agent_hook_fix_items() {
+	local output_file="${1:?agent verify output required}"
+
+	if grep -q 'settings do not contain expected hooks for all providers' "$output_file"; then
+		printf '  agent-hooks,native agent settings missing or stale,run cutover install\n'
+		return
+	fi
+
+	if grep -q 'Codex hooks feature' "$output_file" ||
+		grep -q 'codex_hooks' "$output_file"; then
+		printf '  agent-hooks,.codex/config.toml missing codex_hooks=true,run cutover install\n'
+	fi
+
+	if grep -q '.gemini/settings.json' "$output_file" ||
+		grep -q 'Gemini' "$output_file"; then
+		printf '  agent-hooks,.gemini/settings.json missing expected hook,run cutover install\n'
+	fi
+}
+
+runtime_fix_items() {
+	local output_file="${1:?runtime verify output required}"
+
+	if [[ -s "$output_file" ]]; then
+		printf '  policy-runtime,git-hook validate failed,inspect policy runtime validation output\n'
+	fi
 }
 
 run_cutover_verify() {
@@ -315,17 +369,21 @@ run_cutover_verify() {
 	local status=ready
 	local agent_verify_output
 	local runtime_verify_output
+	local fix_items_output
 	agent_verify_output="$(mktemp)"
 	runtime_verify_output="$(mktemp)"
+	fix_items_output="$(mktemp)"
 
 	if ! verify_git_hook_shims; then
 		git_hooks=FAIL
 		status=blocked
+		git_hook_fix_items >>"$fix_items_output"
 	fi
 
 	if ! run_agent_hooks_tool verify --root "$ROOT" >"$agent_verify_output" 2>&1; then
 		agent_hooks=FAIL
 		status=blocked
+		agent_hook_fix_items "$agent_verify_output" >>"$fix_items_output"
 	fi
 
 	if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT" \
@@ -333,9 +391,11 @@ run_cutover_verify() {
 		>"$runtime_verify_output" 2>&1; then
 		runtime=FAIL
 		status=blocked
+		runtime_fix_items "$runtime_verify_output" >>"$fix_items_output"
 	fi
 
-	cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$runtime"
+	cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$runtime" \
+		"$fix_items_output"
 
 	if [[ "$status" != ready ]]; then
 		if [[ "$agent_hooks" == FAIL ]]; then
@@ -346,11 +406,11 @@ run_cutover_verify() {
 			printf 'policy runtime verify output:\n' >&2
 			cat "$runtime_verify_output" >&2
 		fi
-		rm -f "$agent_verify_output" "$runtime_verify_output"
+		rm -f "$agent_verify_output" "$runtime_verify_output" "$fix_items_output"
 		return 1
 	fi
 
-	rm -f "$agent_verify_output" "$runtime_verify_output"
+	rm -f "$agent_verify_output" "$runtime_verify_output" "$fix_items_output"
 }
 
 run_cutover() {
