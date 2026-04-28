@@ -88,9 +88,9 @@ if [[ "$hook_status" -ne 2 ]]; then
   printf 'expected hook exit 2, got %s:\n%s\n' "$hook_status" "$hook_output" >&2
   exit 1
 fi
-if ! grep -q '"status": "blocked"' <<<"$hook_output"; then
-  printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
-  exit 1
+if ! grep -q '"permissionDecision": "deny"' <<<"$hook_output"; then
+	printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
+	exit 1
 fi
 
 printf '==> validating hook blocks shell safety policies\n'
@@ -300,21 +300,29 @@ printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "partial"' /tmp/coding-ethos-agent-doctor.out ||
-  ! grep -q '"PostToolUse shell-output feedback"' /tmp/coding-ethos-agent-doctor.out; then
+  ! grep -q '"PostToolBatch additionalContext"' /tmp/coding-ethos-agent-doctor.out; then
   printf 'expected doctor capability matrix:\n' >&2
   cat /tmp/coding-ethos-agent-doctor.out >&2
   exit 1
 fi
 if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
-  ! grep -q '"PreToolUse"' "$agent_settings_root/.codex/hooks.json" ||
-  ! grep -q '"statusMessage": "coding-ethos policy"' \
-    "$agent_settings_root/.codex/hooks.json"; then
+  ! grep -q 'PreToolUse = \[' "$agent_settings_root/.codex/config.toml" ||
+  ! grep -q 'statusMessage = "coding-ethos policy"' \
+    "$agent_settings_root/.codex/config.toml"; then
   printf 'expected native Codex hook activation:\n' >&2
   cat "$agent_settings_root/.codex/config.toml" >&2
+  exit 1
+fi
+if [[ -e "$agent_settings_root/.codex/hooks.json" ]]; then
+  printf 'stale Codex hooks JSON should have been removed\n' >&2
   cat "$agent_settings_root/.codex/hooks.json" >&2
   exit 1
 fi
 if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"AfterTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"BeforeAgent"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"AfterAgent"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"hooksConfig"' "$agent_settings_root/.gemini/settings.json" ||
   ! grep -q '"matcher": "run_shell_command"' "$agent_settings_root/.gemini/settings.json" ||
   ! grep -q '"name": "coding-ethos"' "$agent_settings_root/.gemini/settings.json"; then
   printf 'expected native Gemini hook activation:\n' >&2

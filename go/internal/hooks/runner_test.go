@@ -1280,6 +1280,39 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 	}
 }
 
+func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "claude",
+		"hook_event_name": "SessionEnd"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	buffer := strings.Builder{}
+
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	if strings.Contains(output, "hookSpecificOutput") {
+		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
+	}
+	if !strings.Contains(output, `"systemMessage"`) ||
+		!strings.Contains(output, "CODING-ETHOS STOP CHECKPOINT") {
+		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
+	}
+}
+
 func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 	t.Parallel()
 

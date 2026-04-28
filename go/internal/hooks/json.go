@@ -28,7 +28,7 @@ func DecodeEvent(reader io.Reader) (Event, error) {
 }
 
 func EncodeResult(writer io.Writer, result Result) error {
-	if result.Provider != "" && result.Provider != "claude" {
+	if result.Provider != "" {
 		return EncodeProviderResult(writer, result)
 	}
 

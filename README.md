@@ -425,19 +425,18 @@ supported repo-local agent surface:
 
 - `.claude/settings.local.json`
 - `.codex/config.toml`
-- `.codex/hooks.json`
 - `.gemini/settings.json`
 
 Claude output preserves Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` and writes native `.codex/hooks.json`. Gemini output
-writes native `.gemini/settings.json` hooks. Generated settings cover the
-events each provider exposes: Claude uses the full runtime set, Codex uses
-Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
-maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
-Codex settings include both provider-neutral tool names and native shell/edit
-aliases such as `exec_command`, `run_shell_command`, `shell`, `write_file`, and
-`apply_patch` so current Codex sessions enter the same policy runtime instead
-of missing the hook on a tool-name mismatch.
+`[features].codex_hooks` and writes native `[hooks]` entries in
+`.codex/config.toml`. Gemini output writes native `.gemini/settings.json` hooks
+with `hooksConfig.enabled = true`. Generated settings cover the events each
+provider exposes: Claude uses the full runtime set, Codex uses native
+`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`
+hook names, and Gemini maps runtime policy to `BeforeTool`, `AfterTool`,
+`BeforeAgent`, `AfterAgent`, `SessionStart`, and `SessionEnd`.
+Codex runs one native command hook per supported event so current Codex sessions
+enter the same policy runtime without depending on unstable tool matcher names.
 `agent-hooks doctor` verifies those native activation files rather than a
 coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
 the configured hook command with provider-native Claude, Codex, and Gemini

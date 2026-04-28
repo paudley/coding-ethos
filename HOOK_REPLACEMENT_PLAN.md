@@ -61,15 +61,15 @@ remove old parent and Claude hook entries outside this repo.
 
 | Capability | Claude | Codex | Gemini CLI | Remaining Work |
 | --- | --- | --- | --- | --- |
-| Native settings generation | Full | Full (`.codex/config.toml` + `.codex/hooks.json`) | Full (`.gemini/settings.json`) | Add real-provider activation smoke where CLI support permits. |
+| Native settings generation | Full | Full (`.codex/config.toml`) | Full (`.gemini/settings.json`) | Promote manual real-provider smoke into an optional local command once provider CLI auth/trust can be made non-interactive. |
 | Pre-tool shell blocking | Full | Full for provider-neutral and native shell aliases | Full for `BeforeTool` / `run_shell_command` | Keep adding observed tool aliases as fixtures. |
 | Pre-tool git rewrite | Full via `updatedInput` | Unsupported by provider; block raw git | Unsupported by provider; block raw git | None unless providers add input rewrite. |
-| Pre-tool write/edit blocking | Full for `Write`, `Edit`, `MultiEdit` | Full for provider-neutral and native write/edit aliases | Full for `write_file` | Add any newly observed native names. |
-| Post-tool shell advice | Full | Full when Codex accepts additional context | Not exposed directly | Keep Gemini absent rather than faking legacy adapters. |
-| Post-edit lint advice | Deterministic checkpoint | Deterministic checkpoint | No direct post-tool surface | Add changed-file lint state and specific tool output later. |
+| Pre-tool write/edit blocking | Full for `Write`, `Edit`, `MultiEdit` | Full for native edit aliases | Full for `write_file`, `replace`, and `MultiEdit` | Add any newly observed native names. |
+| Post-tool shell advice | Full | Full when Codex accepts additional context | Full through `AfterTool` where Gemini provides tool output | Keep provider-native, no legacy adapters. |
+| Post-edit lint advice | Deterministic checkpoint | Deterministic checkpoint | Deterministic checkpoint through `AfterTool` | Add changed-file lint state and specific tool output later. |
 | Prompt/session guidance | Runtime covered | Runtime covered | Runtime covered for mapped events | Add provider aliases if real CLIs use different names. |
 | Continuation capture | Advisory and fail-visible | Advisory where payload includes transcript | Advisory where payload includes transcript | Keep failures visible without blocking normal work. |
-| Verification | Settings plus synthetic runtime probes | Settings plus synthetic runtime probes | Settings plus synthetic runtime probes | Add real CLI activation checks or document as out of scope. |
+| Verification | Settings plus synthetic runtime probes plus manual CLI activation smoke | Settings plus synthetic runtime probes plus manual CLI activation smoke | Settings plus synthetic runtime probes plus manual CLI activation smoke | Keep automated smoke deterministic; provider CLIs remain optional local verification. |
 
 ## Completion Checklist
 
@@ -147,7 +147,8 @@ inventory used to keep the migration status explicit.
   provider-native smoke payloads through the configured hook command to prove
   the installed config reaches a runnable policy path. Claude uses Claude
   Code's native settings file. Codex uses `[features].codex_hooks = true` plus
-  native `.codex/hooks.json`. Gemini uses native `.gemini/settings.json` hooks.
+  native `[hooks]` entries in `.codex/config.toml`. Gemini uses native
+  `.gemini/settings.json` hooks with `hooksConfig.enabled = true`.
 - Cutover is a first-class runtime operation: `run-go-hook.sh cutover install`
   installs Git hook shims, syncs all supported agent hook settings, and then
   runs `cutover verify`. `cutover verify` checks installed Git shims,
@@ -190,6 +191,14 @@ inventory used to keep the migration status explicit.
   supported lifecycle hooks, but does not expose a direct `PostToolUse`
   equivalent; unsupported lifecycle points remain absent rather than being
   faked through legacy adapters.
+- Real-provider activation was manually smoke-tested on 2026-04-28 in a
+  disposable repo created with `cutover install`. Claude loaded project hooks
+  and emitted `SessionStart` / `UserPromptSubmit` hook events before local auth
+  failed. Codex `exec --enable codex_hooks` loaded repo-local `.codex/config.toml`
+  and created hook-run logs for `SessionStart`, `UserPromptSubmit`,
+  `PreToolUse`, `PostToolUse`, and `Stop`. Gemini ran with explicit workspace
+  trust and reported successful `SessionStart`, `BeforeAgent`, and `AfterAgent`
+  hook execution while writing `.coding-ethos/hook-runs/` logs.
 
 ## Fixture Contract
 
