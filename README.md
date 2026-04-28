@@ -397,6 +397,10 @@ those checks are no longer inert policy metadata.
 External command failures can carry normalized diagnostics in the lint JSON
 result. The initial parser registry covers Ruff, Pyright, mypy, Pylint,
 golangci-lint, and generic `file:line:column` text output.
+Known diagnostic codes are enriched from compiled `policy.evidence_maps`, so
+ETHOS-significant findings can carry `policy_id`, `principle_ids`, confidence,
+meaning, and repair advice while unmapped tool findings still flow through
+unchanged.
 
 Render or verify Claude agent hook settings without touching global files:
 

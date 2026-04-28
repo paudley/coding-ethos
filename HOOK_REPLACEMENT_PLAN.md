@@ -108,7 +108,9 @@ inventory used to keep the migration status explicit.
   work should expand this pattern into typed tool metadata. The shared
   diagnostic model and first parser registry now normalize Ruff, Pyright, mypy,
   Pylint, golangci-lint, and fallback `file:line:column` output for compiled
-  external evaluator results.
+  external evaluator results. Compiled `policy.evidence_maps` enrich known
+  diagnostic codes with ETHOS policy IDs, principles, confidence, meaning, and
+  repair advice while preserving unmapped diagnostics.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.

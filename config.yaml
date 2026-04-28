@@ -94,6 +94,45 @@ generated_config:
   freshness:
     enabled: true
 
+policy:
+  evidence_maps:
+    - source: ruff
+      codes:
+        - PLC0415
+      policy_id: python.conditional_imports
+      principle_ids:
+        - no-conditional-imports
+        - fail-fast-fail-hard-overview
+      confidence: high
+      meaning: Import executes away from module scope, usually inside runtime control flow.
+      advice:
+        summary: Move required imports to module scope and fail during startup.
+        steps:
+          - Declare the dependency as required.
+          - Import it at module scope.
+          - Replace runtime fallback paths with startup validation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: mypy
+      codes:
+        - no-any-return
+      policy_id: python.optional_returns
+      principle_ids:
+        - no-optional-types-for-required-dependencies
+        - static-analysis-is-the-first-line-of-defense
+      confidence: medium
+      meaning: A required return path is leaking Any instead of a precise type.
+      advice:
+        summary: Replace Any return flow with an explicit required type.
+        steps:
+          - Identify the source of Any.
+          - Add the missing annotation or typed adapter at the boundary.
+          - Keep required dependencies non-optional.
+        rerun:
+          - make pre-commit
+          - make check
+
 git:
   hook_bypass:
     enabled: true

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -160,6 +161,21 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 				PrincipleIDs:  []string{"testing-as-specification"},
 			},
 		},
+		EvidenceMaps: []diagnostics.EvidenceMap{
+			{
+				Source:       "ruff",
+				Codes:        []string{"F401"},
+				PolicyID:     "python.direct_imports",
+				PrincipleIDs: []string{"protocol-first-design"},
+				Confidence:   "medium",
+				Meaning:      "unused import evidence",
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Remove the unused import or use the protocol.",
+					Steps:   []string{"Remove unused imports."},
+					Rerun:   []string{"make pre-commit"},
+				},
+			},
+		},
 		Dispatch: policy.Dispatch{
 			Linter: map[string][]string{
 				ScopeSmoke: []string{"pytest.gate"},
@@ -182,6 +198,14 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "F401" {
 		t.Fatalf("diagnostics = %#v, want parsed F401", result.Diagnostics)
+	}
+
+	if result.Diagnostics[0].PolicyID != "python.direct_imports" {
+		t.Fatalf("diagnostic policy = %q", result.Diagnostics[0].PolicyID)
+	}
+
+	if result.Diagnostics[0].Advice != "Remove the unused import or use the protocol." {
+		t.Fatalf("diagnostic advice = %q", result.Diagnostics[0].Advice)
 	}
 }
 

@@ -66,6 +66,10 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		metadata.SourceHashes[configPath] == "" {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
+
+	if len(bundle.EvidenceMaps) != 1 {
+		t.Fatalf("evidence map count = %d, want 1", len(bundle.EvidenceMaps))
+	}
 }
 
 func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
@@ -205,6 +209,51 @@ generated_config:
 	)
 	if generatedConfigCommand[2] != "/tmp/repo" {
 		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
+	}
+}
+
+func TestCompileHonorsConfiguredEvidenceMaps(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  evidence_maps:
+    - source: mypy
+      codes: [no-any-return]
+      policy_id: python.optional_returns
+      principle_ids: [no-optional-types-for-required-dependencies]
+      confidence: medium
+      meaning: Return type leaks Any.
+      advice:
+        summary: Replace Any with a precise required type.
+        steps: [Tighten the annotation.]
+        rerun: [make pre-commit]
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if len(bundle.EvidenceMaps) != 1 {
+		t.Fatalf("evidence map count = %d, want 1", len(bundle.EvidenceMaps))
+	}
+
+	evidenceMap := bundle.EvidenceMaps[0]
+	if evidenceMap.Source != "mypy" || evidenceMap.Codes[0] != "no-any-return" {
+		t.Fatalf("evidence map mismatch: %#v", evidenceMap)
+	}
+
+	if evidenceMap.Advice.Summary != "Replace Any with a precise required type." {
+		t.Fatalf("evidence advice mismatch: %#v", evidenceMap.Advice)
 	}
 }
 

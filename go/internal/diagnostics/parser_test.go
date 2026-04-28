@@ -120,6 +120,49 @@ func TestInferToolScansWrappedCommands(t *testing.T) {
 	}
 }
 
+func TestEnrichMapsKnownDiagnosticEvidence(t *testing.T) {
+	t.Parallel()
+
+	enriched := diagnostics.Enrich(
+		[]diagnostics.Diagnostic{
+			{Tool: "ruff", Code: "PLC0415", Message: "import outside top-level"},
+			{Tool: "ruff", Code: "F401", Message: "unused import"},
+		},
+		[]diagnostics.EvidenceMap{
+			{
+				Source:       "ruff",
+				Codes:        []string{"PLC0415"},
+				PolicyID:     "python.conditional_imports",
+				PrincipleIDs: []string{"no-conditional-imports"},
+				Confidence:   "high",
+				Meaning:      "import away from module scope",
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Move required imports to module scope.",
+					Steps:   []string{"Import at module scope."},
+					Rerun:   []string{"make pre-commit"},
+				},
+			},
+		},
+	)
+
+	if enriched[0].PolicyID != "python.conditional_imports" {
+		t.Fatalf("mapped policy = %q", enriched[0].PolicyID)
+	}
+
+	if enriched[0].Advice != "Move required imports to module scope." {
+		t.Fatalf("mapped advice = %q", enriched[0].Advice)
+	}
+
+	if len(enriched[0].PrincipleIDs) != 1 ||
+		enriched[0].PrincipleIDs[0] != "no-conditional-imports" {
+		t.Fatalf("mapped principles = %#v", enriched[0].PrincipleIDs)
+	}
+
+	if enriched[1].PolicyID != "" {
+		t.Fatalf("unmapped policy = %q, want empty", enriched[1].PolicyID)
+	}
+}
+
 func assertDiagnostic(
 	t *testing.T,
 	parsed []diagnostics.Diagnostic,

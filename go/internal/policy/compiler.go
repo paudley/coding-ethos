@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/diagnostics"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -81,6 +82,10 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		Principles: principles,
 		Policies:   policies,
 		Dispatch:   compileDispatch(policies),
+		EvidenceMaps: compileEvidenceMaps(
+			configPayload,
+			principles,
+		),
 	}
 
 	err = bundle.Validate()
@@ -908,6 +913,80 @@ func addGeneratedConfigPolicy(
 	}
 }
 
+func compileEvidenceMaps(
+	config map[string]any,
+	principles map[string]Principle,
+) []diagnostics.EvidenceMap {
+	raw, exists := valueAt(config, "policy", "evidence_maps")
+	if !exists {
+		return defaultEvidenceMaps(principles)
+	}
+
+	rawItems, ok := raw.([]any)
+	if !ok || len(rawItems) == 0 {
+		return defaultEvidenceMaps(principles)
+	}
+
+	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems))
+	for _, rawItem := range rawItems {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		maps = append(maps, evidenceMapFromConfig(item))
+	}
+
+	if len(maps) == 0 {
+		return defaultEvidenceMaps(principles)
+	}
+
+	return maps
+}
+
+func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:       stringAt(item, "source"),
+		Codes:        stringSliceAt(item, []string{"codes"}, nil),
+		PolicyID:     stringAt(item, "policy_id"),
+		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
+		Confidence:   stringAt(item, "confidence"),
+		Meaning:      stringAt(item, "meaning"),
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: stringAt(item, "advice", "summary"),
+			Steps:   stringSliceAt(item, []string{"advice", "steps"}, nil),
+			Rerun:   stringSliceAt(item, []string{"advice", "rerun"}, nil),
+		},
+	}
+}
+
+func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
+	return []diagnostics.EvidenceMap{
+		{
+			Source:   "ruff",
+			Codes:    []string{"PLC0415"},
+			PolicyID: "python.conditional_imports",
+			PrincipleIDs: principleRefs(
+				principles,
+				"no-conditional-imports",
+				"fail-fast-fail-hard-overview",
+			),
+			Confidence: "high",
+			Meaning: "Import executes away from module scope, usually inside " +
+				"runtime control flow.",
+			Advice: diagnostics.EvidenceAdvice{
+				Summary: "Move required imports to module scope and fail during startup.",
+				Steps: []string{
+					"Declare the dependency as required.",
+					"Import it at module scope.",
+					"Replace runtime fallback paths with startup validation.",
+				},
+				Rerun: []string{"make pre-commit", "make check"},
+			},
+		},
+	}
+}
+
 func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
 	return []string{
 		"uv",
@@ -1268,6 +1347,20 @@ func stringSliceAt(
 	}
 
 	return items
+}
+
+func stringAt(values map[string]any, path ...string) string {
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return ""
+	}
+
+	stringValue, ok := value.(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(stringValue)
 }
 
 func policyConfigEnabled(values map[string]any, policyID string) bool {
