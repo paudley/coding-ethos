@@ -226,15 +226,16 @@ func managedGitSegment(segment []string) bool {
 	command := segment[0]
 	commandBase := filepath.Base(command)
 	if commandBase == "run-go-hook.sh" {
-		return len(segment) > 1 && segment[1] == "policy-git"
+		return isTrustedRunGoHookCommand(command) &&
+			len(segment) > 1 &&
+			segment[1] == "policy-git"
 	}
 
 	if commandBase == "coding-ethos-git" {
-		return true
+		return isTrustedHookBinaryCommand(command)
 	}
 
-	return strings.Contains(segment[0], ".git/coding-ethos-hooks/bin/git") ||
-		strings.Contains(segment[0], "coding-ethos-hooks/bin/git")
+	return commandBase == "git" && isTrustedHookBinaryCommand(command)
 }
 
 func managedGitWrapperImpersonation(command string) bool {
@@ -242,6 +243,18 @@ func managedGitWrapperImpersonation(command string) bool {
 
 	return strings.Contains(base, "coding-ethos-git") ||
 		strings.Contains(base, "run-go-hook.sh")
+}
+
+func isTrustedRunGoHookCommand(command string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(command))
+
+	return strings.HasSuffix(cleaned, "pre-commit/hooks/run-go-hook.sh")
+}
+
+func isTrustedHookBinaryCommand(command string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(command))
+
+	return strings.Contains(cleaned, ".git/coding-ethos-hooks/bin/")
 }
 
 func segmentMentionsUnmanagedGit(segment []string) bool {

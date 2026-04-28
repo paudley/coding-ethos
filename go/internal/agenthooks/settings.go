@@ -469,6 +469,7 @@ func ProviderCapabilities() []ProviderCapability {
 			NativeFiles: []string{".codex/config.toml", ".codex/hooks.json"},
 			Supported: []string{
 				"PreToolUse block",
+				"PreToolUse native shell aliases",
 				"PostToolUse additionalContext",
 				"SessionStart additionalContext",
 			},
@@ -512,13 +513,52 @@ func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
 func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
 	hooks := make(map[string][]matcherHook)
 	for _, spec := range specs {
-		hooks[spec.Event] = append(
-			hooks[spec.Event],
-			codexMatcher(spec.Tool, hookCommand),
-		)
+		for _, matcher := range codexHookMatchers(spec) {
+			hooks[spec.Event] = append(
+				hooks[spec.Event],
+				codexMatcher(matcher, hookCommand),
+			)
+		}
 	}
 
 	return claudeSettings{Hooks: hooks}
+}
+
+func codexHookMatchers(spec HookSpec) []string {
+	switch {
+	case spec.Event == "PreToolUse" && spec.Tool == "Bash":
+		return []string{
+			"Bash",
+			"bash",
+			"exec_command",
+			"run_command",
+			"run_shell",
+			"run_shell_command",
+			"shell",
+			"shell_command",
+		}
+	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
+		return []string{
+			"Bash",
+			"bash",
+			"exec_command",
+			"run_command",
+			"run_shell",
+			"run_shell_command",
+			"shell",
+			"shell_command",
+		}
+	case spec.Event == "PreToolUse" && spec.Tool == "Write":
+		return []string{"Write", "create_file", "write_file"}
+	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
+		return []string{"Edit", "apply_patch", "edit_file"}
+	default:
+		if spec.Tool == "" {
+			return []string{""}
+		}
+
+		return []string{spec.Tool}
+	}
 }
 
 func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
@@ -680,12 +720,48 @@ func hookProbes() []hookProbe {
 		{
 			provider: string(ProviderCodex),
 			event:    "PreToolUse",
-			tool:     "Bash",
+			tool:     "exec_command",
 			payload: `{
 				"provider": "codex",
 				"event": "PreToolUse",
-				"tool": "Bash",
+				"tool": "exec_command",
 				"input": {"command": "git status --short"}
+			}`,
+			validate: validateCodexBlockProbe,
+		},
+		{
+			provider: string(ProviderCodex),
+			event:    "PreToolUse",
+			tool:     "exec_command",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "exec_command",
+				"input": {"command": "/usr/bin/git status --short"}
+			}`,
+			validate: validateCodexBlockProbe,
+		},
+		{
+			provider: string(ProviderCodex),
+			event:    "PreToolUse",
+			tool:     "exec_command",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "exec_command",
+				"input": {"command": "bash -c 'git status --short'"}
+			}`,
+			validate: validateCodexBlockProbe,
+		},
+		{
+			provider: string(ProviderCodex),
+			event:    "PreToolUse",
+			tool:     "exec_command",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "exec_command",
+				"input": {"command": "python3 -c \"import subprocess; subprocess.run(['/usr/bin/git','status'])\""}
 			}`,
 			validate: validateCodexBlockProbe,
 		},

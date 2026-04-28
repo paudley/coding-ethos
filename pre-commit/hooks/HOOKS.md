@@ -55,8 +55,9 @@ where output, cost, and caching are controlled by this runner. `agent-hooks
 doctor` checks native provider activation files, so a stale file or missing
 Codex feature flag does not count as an installed provider surface.
 `agent-hooks verify` additionally executes provider-native smoke payloads
-through the configured hook command, proving that Claude rewrites, Codex blocks,
-and Gemini denies reach the active runtime.
+through the configured hook command, proving that Claude rewrites, Codex blocks
+raw git, absolute git, nested shell git, and Python subprocess git, and Gemini
+denies reach the active runtime.
 `cutover install` installs Git hook shims, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
 agent hook, repo-ignore, and policy runtime readiness in TOON. Required runtime
@@ -75,7 +76,10 @@ provider-neutral payload shape:
 
 CamelCase hook fields, Gemini `BeforeTool` payloads, and nested
 `tool_call.name`/`tool_call.arguments` are accepted for CLI adapters that expose
-those shapes. After normalization, provider events run through the same policy
+those shapes. Codex native shell aliases (`exec_command`, `run_command`,
+`run_shell`, `run_shell_command`, `shell`, `shell_command`) normalize to the
+internal `Bash` tool, and edit aliases (`apply_patch`, `edit_file`) normalize
+to `Edit`. After normalization, provider events run through the same policy
 bundle and receive the same blocking, rewrite, advice, continuation, and
 post-tool feedback behavior where the provider exposes that lifecycle point.
 Provider output is adapted at the boundary: Claude receives full

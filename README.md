@@ -433,13 +433,18 @@ writes native `.gemini/settings.json` hooks. Generated settings cover the
 events each provider exposes: Claude uses the full runtime set, Codex uses
 Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
 maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
+Codex settings include both provider-neutral tool names and native shell/edit
+aliases such as `exec_command`, `run_shell_command`, `shell`, `write_file`, and
+`apply_patch` so current Codex sessions enter the same policy runtime instead
+of missing the hook on a tool-name mismatch.
 `agent-hooks doctor` verifies those native activation files rather than a
 coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
 the configured hook command with provider-native Claude, Codex, and Gemini
 payloads to prove the installed files point at a runnable policy path. The
 verification probes cover Claude's transparent git rewrite, Codex's block
-response for raw git when rewrite is unavailable, Gemini's `deny` response for
-raw shell git, and Gemini write-tool policy denial.
+response for raw git, absolute git paths, nested shell git, and Python
+subprocess git when rewrite is unavailable, Gemini's `deny` response for raw
+shell git, and Gemini write-tool policy denial.
 
 Use the cutover command when preparing a repo to replace old hook surfaces:
 
@@ -471,9 +476,12 @@ provider-neutral payload shape is:
 
 Gemini CLI callers may use `BeforeTool`, `run_shell_command`, and `write_file`;
 those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
-surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
-accepted. Provider identity is recorded for diagnostics, but policy enforcement
-is intentionally shared across all supported agents.
+surface. Codex callers may use native shell aliases such as `exec_command`,
+`run_command`, `run_shell`, `run_shell_command`, `shell`, or `shell_command`;
+those normalize to the same internal `Bash` policy surface. Codex-style nested
+`tool_call.name` plus `tool_call.arguments` is also accepted. Provider identity
+is recorded for diagnostics, but policy enforcement is intentionally shared
+across all supported agents.
 Agent shell policy includes a forbidden-string gate for hook-system
 reconnaissance: banned strings are rejected when they appear directly in a
 command and when they appear in regular files referenced by the command, so

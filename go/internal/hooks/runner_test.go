@@ -6,6 +6,7 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -357,6 +358,8 @@ func TestRunBlocksStringOnlyManagedWrapperMentionWithRawGit(t *testing.T) {
 		"printf '%s\n' coding-ethos-git /usr/bin/git",
 		"echo run-go-hook.sh policy-git /bin/git status",
 		"some-coding-ethos-git status",
+		"coding-ethos-git status",
+		"./run-go-hook.sh policy-git status",
 	} {
 		result, err := Run(policy.ExampleBundle(), Options{
 			Event: Event{
@@ -1054,6 +1057,52 @@ func TestDecodeEventReadsCodexPayload(t *testing.T) {
 	}
 }
 
+func TestDecodeEventNormalizesCodexNativeShellTool(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "exec_command",
+		"input": {"command": "git status"},
+		"cwd": "/repo"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != toolBash ||
+		event.Cwd != "/repo" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+
+	if event.Command() != commandGitStatus {
+		t.Fatalf("command mismatch: %q", event.Command())
+	}
+}
+
+func TestDecodeEventNormalizesCodexPatchTool(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "apply_patch",
+		"input": {"file_path": "src/app.py", "content": "patch"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.Source != "codex" ||
+		event.HookEventName != preToolUse ||
+		event.ToolName != "Edit" {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+}
+
 func TestDecodeEventReadsGeminiCLIPayload(t *testing.T) {
 	t.Parallel()
 
@@ -1290,6 +1339,44 @@ func TestRunBlocksCodexGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 
 	if !hasDecision(result.Decisions, "git.wrapper_required") {
 		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCodexNativeShellGitBypassShapes(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"git status",
+		"/usr/bin/git status",
+		"bash -c 'git status'",
+		"python3 -c \"import subprocess; subprocess.run(['/usr/bin/git','status'])\"",
+	} {
+		event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+			"provider": "codex",
+			"event": "PreToolUse",
+			"tool": "exec_command",
+			"input": {"command": %q}
+		}`, command)))
+		if err != nil {
+			t.Fatalf("decode event for %q: %v", command, err)
+		}
+
+		result, err := Run(policy.ExampleBundle(), Options{Event: event})
+		if err != nil {
+			t.Fatalf("run hook for %q: %v", command, err)
+		}
+
+		if result.Status != statusBlocked {
+			t.Fatalf("status for %q = %q", command, result.Status)
+		}
+
+		if result.HookSpecificOutput != nil {
+			t.Fatalf("Codex must not receive unsupported rewrite for %q: %#v", command, result)
+		}
+
+		if !hasDecision(result.Decisions, "git.wrapper_required") {
+			t.Fatalf("expected wrapper-required for %q, got %#v", command, result.Decisions)
+		}
 	}
 }
 

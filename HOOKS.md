@@ -1600,6 +1600,12 @@ the first concrete settings renderer, but the policy engine must not hard-code
 Claude-specific payloads outside the adapter layer. Codex and Gemini adapters
 should consume the same event inventory when their products expose lifecycle
 hook surfaces.
+Current Codex support must include native shell aliases such as
+`exec_command`, `run_command`, `run_shell`, `run_shell_command`, `shell`, and
+`shell_command`, plus edit aliases such as `apply_patch` and `edit_file`.
+Those aliases normalize to the provider-neutral `Bash` and `Edit` policy
+surfaces so generated Codex hook settings cannot miss enforcement because the
+tool name spelling changed.
 
 ## Repo Configuration
 

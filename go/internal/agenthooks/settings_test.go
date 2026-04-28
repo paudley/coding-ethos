@@ -40,6 +40,9 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
+		`"exec_command"`,
+		`"run_shell_command"`,
+		`"apply_patch"`,
 		`"BeforeTool"`,
 		`"run_shell_command"`,
 		`"write_file"`,
@@ -64,6 +67,7 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native shell aliases")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
 	assertUnsupported(t, capabilities, "gemini", "PostToolUse shell-output feedback")
@@ -166,8 +170,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 4 {
-		t.Fatalf("check count = %d, want 4: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 7 {
+		t.Fatalf("check count = %d, want 7: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {

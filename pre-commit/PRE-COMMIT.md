@@ -155,6 +155,10 @@ Codex output enables `[features].codex_hooks` in `.codex/config.toml` and
 writes native `.codex/hooks.json`. Gemini output writes native
 `.gemini/settings.json` hooks. `doctor` verifies those native activation files
 and fails when a provider does not point at the expected hook command.
+Codex hook generation includes both provider-neutral matchers and native tool
+aliases such as `exec_command`, `run_shell_command`, `shell`, `write_file`, and
+`apply_patch`, so shell and edit policy does not depend on a single Codex tool
+name spelling.
 
 `agent-hook` accepts each provider's supported event shape and normalizes it
 before policy evaluation. Claude may send native `hook_event_name`,
@@ -172,11 +176,12 @@ callers should send the provider-neutral shape:
 
 The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
 `toolInput`, `toolResponse`, `exitCode`), Gemini's `BeforeTool`,
-`run_shell_command`, and `write_file` names, and nested Codex-style
-`tool_call.name` plus `tool_call.arguments`. Provider identity does not weaken
-policy: the same git wrapper, filesystem, Python-edit, continuation, and
-post-tool output rules apply wherever the provider exposes the corresponding
-lifecycle hook.
+`run_shell_command`, and `write_file` names, Codex shell aliases
+(`exec_command`, `run_command`, `run_shell`, `run_shell_command`, `shell`,
+`shell_command`), and nested Codex-style `tool_call.name` plus
+`tool_call.arguments`. Provider identity does not weaken policy: the same git
+wrapper, filesystem, Python-edit, continuation, and post-tool output rules
+apply wherever the provider exposes the corresponding lifecycle hook.
 
 Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
 contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
