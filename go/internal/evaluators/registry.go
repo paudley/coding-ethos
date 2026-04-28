@@ -44,6 +44,10 @@ func DefaultRegistry() Registry {
 	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
 	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
 	registry.Register(
+		"git.commit_attribution",
+		EvaluatorFunc(EvaluateGitCommitAttribution),
+	)
+	registry.Register(
 		"git.staged_admin_files",
 		EvaluatorFunc(EvaluateGitStagedAdminFiles),
 	)
