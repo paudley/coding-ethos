@@ -263,8 +263,11 @@ if ! grep -q '"policy_id": "git.staged_admin_files"' \
   exit 1
 fi
 
-printf '==> validating agent hook settings sync and doctor\n'
+printf '==> validating agent hook settings sync, doctor, and verify\n'
 agent_settings_root="$tmp_root/agent-settings"
+mkdir -p "$agent_settings_root"
+git -C "$agent_settings_root" init >/dev/null
+printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
@@ -297,6 +300,17 @@ if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
   ! grep -q '"name": "coding-ethos"' "$agent_settings_root/.gemini/settings.json"; then
   printf 'expected native Gemini hook activation:\n' >&2
   cat "$agent_settings_root/.gemini/settings.json" >&2
+  exit 1
+fi
+"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks verify \
+  --root "$agent_settings_root" >/tmp/coding-ethos-agent-verify.out
+if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "claude"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "codex"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"provider": "gemini"' /tmp/coding-ethos-agent-verify.out ||
+  ! grep -q '"tool": "write_file"' /tmp/coding-ethos-agent-verify.out; then
+  printf 'expected agent verify provider smoke report:\n' >&2
+  cat /tmp/coding-ethos-agent-verify.out >&2
   exit 1
 fi
 

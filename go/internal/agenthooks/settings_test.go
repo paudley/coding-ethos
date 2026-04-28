@@ -146,6 +146,37 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	}
 }
 
+func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hookCommand := fakeAgentHookCommand(t)
+
+	err := agenthooks.SyncSettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("verify settings: %v", err)
+	}
+
+	if report.Status != "valid" {
+		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
+	}
+
+	if len(report.Checks) != 4 {
+		t.Fatalf("check count = %d, want 4: %#v", len(report.Checks), report.Checks)
+	}
+
+	for _, check := range report.Checks {
+		if check.Status != "pass" {
+			t.Fatalf("failed check: %#v", check)
+		}
+	}
+}
+
 func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	t.Parallel()
 
@@ -342,4 +373,43 @@ func findCapability(
 
 func containsString(values []string, expected string) bool {
 	return slices.Contains(values, expected)
+}
+
+func fakeAgentHookCommand(t *testing.T) string {
+	t.Helper()
+
+	script := filepath.Join(t.TempDir(), "agent-hook")
+	err := os.WriteFile(
+		script,
+		[]byte(`#!/bin/sh
+payload="$(cat)"
+case "$payload" in
+  *'"provider": "claude"'*)
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    ;;
+  *'"provider": "codex"'*)
+    printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
+    exit 2
+    ;;
+  *'"toolName": "write_file"'*)
+    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
+    exit 2
+    ;;
+  *'"provider": "gemini-cli"'*)
+    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
+    exit 2
+    ;;
+  *)
+    printf '%s\n' '{"decision":"unknown"}'
+    exit 1
+    ;;
+esac
+`),
+		0o700,
+	)
+	if err != nil {
+		t.Fatalf("write fake agent hook: %v", err)
+	}
+
+	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "'"
 }

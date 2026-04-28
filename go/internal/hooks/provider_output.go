@@ -105,7 +105,7 @@ func providerBlockReason(result Result) string {
 	parts := make([]string, 0, len(blocking))
 	for _, decision := range blocking {
 		part := decision.Message
-		if decision.Suggestion != "" {
+		if decision.Suggestion != "" && !strings.Contains(part, decision.Suggestion) {
 			part = sentence(part, decision.Suggestion)
 		}
 

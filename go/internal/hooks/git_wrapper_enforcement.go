@@ -60,6 +60,16 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 
 	rewritten, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
+		if event.Provider() != providerClaude {
+			return gitWrapperRoute{
+				Reason: sentence(
+					gitWrapperCircumventionRefusal,
+					gitWrapperUseManagedSuggestion,
+				),
+				Block: true,
+			}
+		}
+
 		return gitWrapperRoute{
 			UpdatedInput: updatedBashInput(
 				event.ToolInput,

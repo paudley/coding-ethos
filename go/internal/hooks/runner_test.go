@@ -1034,7 +1034,7 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 	}
 }
 
-func TestRunAllowsGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
+func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
@@ -1052,12 +1052,47 @@ func TestRunAllowsGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
 	if result.HookSpecificOutput != nil {
 		t.Fatalf("Gemini must not receive unsupported rewrite output: %#v", result)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCodexGitCommandWithoutUnsupportedRewrite(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git status"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Codex must not receive unsupported rewrite output: %#v", result)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
 	}
 }
 

@@ -35,6 +35,7 @@ Agent settings rendering covers every supported provider:
 pre-commit/hooks/run-go-hook.sh agent-hooks print
 pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex output enables
@@ -47,6 +48,9 @@ does not call AI systems from agent hooks; AI review stays in Git hook stages
 where output, cost, and caching are controlled by this runner. `agent-hooks
 doctor` checks native provider activation files, so a stale file or missing
 Codex feature flag does not count as an installed provider surface.
+`agent-hooks verify` additionally executes provider-native smoke payloads
+through the configured hook command, proving that Claude rewrites, Codex blocks,
+and Gemini denies reach the active runtime.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain

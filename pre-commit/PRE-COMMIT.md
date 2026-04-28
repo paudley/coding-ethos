@@ -123,6 +123,7 @@ pre-commit/hooks/run-go-hook.sh agent-hook
 pre-commit/hooks/run-go-hook.sh agent-hooks print
 pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
 pre-commit/hooks/run-go-hook.sh policy-lint --staged
 pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
 pre-commit/hooks/run-go-hook.sh hook-log-summary
@@ -132,7 +133,8 @@ pre-commit/hooks/run-go-hook.sh hook-log-summary
 checks stay in the Git hook stages: changed-file review on pre-commit and
 full review on pre-push.
 
-`agent-hooks print|sync|doctor` always covers every supported agent surface.
+`agent-hooks print|sync|doctor|verify` always covers every supported agent
+surface.
 There is no single-agent generation path because partial protection is not a
 valid install state. Claude output uses Claude Code's native `hooks` map.
 Codex output enables `[features].codex_hooks` in `.codex/config.toml` and

@@ -5,20 +5,25 @@
 package agenthooks
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 const (
 	codexConfigGrowth = 2
 	settingsDirMode   = 0o755
 	settingsFileMode  = 0o600
+	verifyTimeout     = 30 * time.Second
 )
 
 var (
@@ -66,6 +71,38 @@ type SettingsPaths struct {
 	CodexConfig string
 	CodexHooks  string
 	Gemini      string
+}
+
+// VerifyReport describes the installed native hook surfaces and runnable smoke
+// checks performed by agent-hooks verify.
+type VerifyReport struct {
+	Status       string               `json:"status"`
+	Checks       []VerifyCheck        `json:"checks"`
+	Capabilities []ProviderCapability `json:"capabilities"`
+}
+
+// VerifyCheck records one provider-native hook payload probe.
+type VerifyCheck struct {
+	Provider string `json:"provider"`
+	Event    string `json:"event"`
+	Tool     string `json:"tool"`
+	Status   string `json:"status"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+type hookProbe struct {
+	provider string
+	event    string
+	tool     string
+	payload  string
+	validate func(hookProbeResult) error
+}
+
+type hookProbeResult struct {
+	exitCode int
+	stdout   string
+	stderr   string
+	payload  map[string]any
 }
 
 func DefaultSettingsPaths(root string) SettingsPaths {
@@ -347,6 +384,58 @@ func DoctorSettings(root string, hookCommand string) error {
 	return nil
 }
 
+func VerifySettings(root string, hookCommand string) (VerifyReport, error) {
+	if err := DoctorSettings(root, hookCommand); err != nil {
+		return VerifyReport{
+			Status:       "invalid",
+			Capabilities: ProviderCapabilities(),
+			Checks: []VerifyCheck{{
+				Provider: "all",
+				Event:    "settings",
+				Status:   "fail",
+				Detail:   err.Error(),
+			}},
+		}, err
+	}
+
+	report := VerifyReport{
+		Status:       "valid",
+		Capabilities: ProviderCapabilities(),
+	}
+
+	for _, probe := range hookProbes() {
+		result, err := runHookProbe(root, hookCommand, probe)
+		check := VerifyCheck{
+			Provider: probe.provider,
+			Event:    probe.event,
+			Tool:     probe.tool,
+			Status:   "pass",
+		}
+		if err != nil {
+			check.Status = "fail"
+			check.Detail = err.Error()
+			report.Status = "invalid"
+			report.Checks = append(report.Checks, check)
+
+			return report, err
+		}
+
+		err = probe.validate(result)
+		if err != nil {
+			check.Status = "fail"
+			check.Detail = err.Error()
+			report.Status = "invalid"
+			report.Checks = append(report.Checks, check)
+
+			return report, err
+		}
+
+		report.Checks = append(report.Checks, check)
+	}
+
+	return report, nil
+}
+
 func buildAllSettings(hookCommand string) (allSettings, error) {
 	if hookCommand == "" {
 		return allSettings{}, errHookCommandRequired
@@ -384,7 +473,7 @@ func ProviderCapabilities() []ProviderCapability {
 				"SessionStart additionalContext",
 			},
 			ProviderLimited: []string{
-				"git wrapper enforcement is deny-and-rerun because updatedInput is not supported",
+				"git wrapper enforcement blocks raw git because updatedInput is not supported",
 			},
 			Unsupported: []string{"PreToolUse updatedInput rewrite"},
 		},
@@ -572,4 +661,199 @@ func containsMatcher(actual []matcherHook, expected matcherHook) bool {
 
 func containsCommandHook(actual []commandHook, expected commandHook) bool {
 	return slices.Contains(actual, expected)
+}
+
+func hookProbes() []hookProbe {
+	return []hookProbe{
+		{
+			provider: string(ProviderClaude),
+			event:    "PreToolUse",
+			tool:     "Bash",
+			payload: `{
+				"provider": "claude",
+				"hook_event_name": "PreToolUse",
+				"tool_name": "Bash",
+				"tool_input": {"command": "pwd && git status --short 2>&1"}
+			}`,
+			validate: validateClaudeRewriteProbe,
+		},
+		{
+			provider: string(ProviderCodex),
+			event:    "PreToolUse",
+			tool:     "Bash",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "Bash",
+				"input": {"command": "git status --short"}
+			}`,
+			validate: validateCodexBlockProbe,
+		},
+		{
+			provider: string(ProviderGemini),
+			event:    "BeforeTool",
+			tool:     "run_shell_command",
+			payload: `{
+				"provider": "gemini-cli",
+				"hookEventName": "BeforeTool",
+				"toolName": "run_shell_command",
+				"toolInput": {"command": "git status --short"}
+			}`,
+			validate: validateGeminiDenyProbe,
+		},
+		{
+			provider: string(ProviderGemini),
+			event:    "BeforeTool",
+			tool:     "write_file",
+			payload: `{
+				"provider": "gemini-cli",
+				"hookEventName": "BeforeTool",
+				"toolName": "write_file",
+				"toolInput": {
+					"file_path": "src/app.py",
+					"content": "try:\n    run()\nexcept:\n    pass\n"
+				}
+			}`,
+			validate: validateGeminiDenyProbe,
+		},
+	}
+}
+
+func runHookProbe(
+	root string,
+	hookCommand string,
+	probe hookProbe,
+) (hookProbeResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, "sh", "-c", hookCommand)
+	command.Dir = root
+	command.Stdin = strings.NewReader(probe.payload)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	err := command.Run()
+	result := hookProbeResult{
+		exitCode: commandExitCode(err),
+		stdout:   stdout.String(),
+		stderr:   stderr.String(),
+	}
+	if ctx.Err() != nil {
+		return result, fmt.Errorf("hook probe timed out: %w", ctx.Err())
+	}
+
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return result, fmt.Errorf("run hook probe: %w", err)
+		}
+	}
+
+	if result.stdout != "" {
+		payload, decodeErr := decodeHookProbePayload(result.stdout)
+		if decodeErr != nil {
+			return result, decodeErr
+		}
+
+		result.payload = payload
+	}
+
+	return result, nil
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+
+	return 1
+}
+
+func decodeHookProbePayload(output string) (map[string]any, error) {
+	decoder := json.NewDecoder(strings.NewReader(output))
+	payload := map[string]any{}
+
+	err := decoder.Decode(&payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode hook probe JSON: %w", err)
+	}
+
+	return payload, nil
+}
+
+func validateClaudeRewriteProbe(result hookProbeResult) error {
+	command, ok := nestedString(
+		result.payload,
+		"hookSpecificOutput",
+		"updatedInput",
+		"command",
+	)
+	if !ok {
+		return fmt.Errorf("missing Claude updatedInput command in %s", result.stdout)
+	}
+
+	if !strings.Contains(command, "policy-git 'status' '--short' 2>&1") {
+		return fmt.Errorf("Claude rewrite lost git wrapper or redirection: %s", command)
+	}
+
+	return nil
+}
+
+func validateCodexBlockProbe(result hookProbeResult) error {
+	if result.exitCode == 0 {
+		return fmt.Errorf("Codex raw git probe should block")
+	}
+
+	return validateDecisionProbe(result, "block")
+}
+
+func validateGeminiDenyProbe(result hookProbeResult) error {
+	if result.exitCode == 0 {
+		return fmt.Errorf("Gemini probe should deny")
+	}
+
+	return validateDecisionProbe(result, "deny")
+}
+
+func validateDecisionProbe(result hookProbeResult, decision string) error {
+	actual, ok := result.payload["decision"].(string)
+	if !ok || actual != decision {
+		return fmt.Errorf("decision = %q, want %q; stdout=%s", actual, decision, result.stdout)
+	}
+
+	message, ok := result.payload["systemMessage"].(string)
+	if !ok || strings.TrimSpace(message) == "" {
+		return fmt.Errorf("missing systemMessage in %s", result.stdout)
+	}
+
+	return nil
+}
+
+func nestedString(payload map[string]any, keys ...string) (string, bool) {
+	current := any(payload)
+	for _, key := range keys {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return "", false
+		}
+
+		current, ok = object[key]
+		if !ok {
+			return "", false
+		}
+	}
+
+	value, ok := current.(string)
+
+	return value, ok
 }

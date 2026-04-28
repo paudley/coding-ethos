@@ -35,6 +35,8 @@ func main() {
 		err = syncSettings(os.Args[commandArgsOffset:])
 	case "doctor":
 		err = doctorSettings(os.Args[commandArgsOffset:])
+	case "verify":
+		err = verifySettings(os.Args[commandArgsOffset:])
 	default:
 		usage()
 
@@ -105,12 +107,43 @@ func doctorSettings(args []string) error {
 	return nil
 }
 
+func verifySettings(args []string) error {
+	flags := flag.NewFlagSet("verify", flag.ExitOnError)
+	root := flags.String("root", ".", "Repository root for agent settings")
+	hookCommand := flags.String("hook-command", "", "Agent hook command")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse verify flags: %w", err)
+	}
+
+	report, err := agenthooks.VerifySettings(*root, *hookCommand)
+	if err != nil {
+		if encodeErr := writeJSONReport(os.Stdout, report); encodeErr != nil {
+			return encodeErr
+		}
+
+		return fmt.Errorf("verify agent hook settings: %w", err)
+	}
+
+	err = writeJSONReport(os.Stdout, report)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func writeDoctorReport(file *os.File) error {
 	payload := map[string]any{
 		"status":       "valid",
 		"capabilities": agenthooks.ProviderCapabilities(),
 	}
 
+	return writeJSONReport(file, payload)
+}
+
+func writeJSONReport(file *os.File, payload any) error {
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
@@ -126,6 +159,6 @@ func writeDoctorReport(file *os.File) error {
 func usage() {
 	fmt.Fprintln(
 		os.Stderr,
-		"Usage: coding-ethos-agent-hooks <print|sync|doctor> [flags]",
+		"Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
 	)
 }

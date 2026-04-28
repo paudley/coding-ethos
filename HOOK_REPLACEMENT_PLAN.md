@@ -1,9 +1,9 @@
 # Hook Replacement Plan
 
 This document tracks the import-only migration from parent repo Git hooks and
-`~/.claude/hooks` into the `coding-ethos` hook runtime. The old hooks are source
-material only. Cutover should install `coding-ethos` shims and then remove old
-parent and Claude hook entries outside this repo.
+repo-local agent hooks into the `coding-ethos` hook runtime. The old hooks are
+source material only. Cutover should install `coding-ethos` shims and then
+remove old parent and Claude hook entries outside this repo.
 
 ## Goals
 
@@ -19,7 +19,7 @@ parent and Claude hook entries outside this repo.
 - `Runtime covered`: deterministic policy/evaluator behavior exists and is
   fixture-backed through the Go agent hook runtime.
 - `Installed`: the repo-owned hook installation flow wires the behavior into
-  the relevant Git or Claude hook surface.
+  the relevant Git or agent hook surface.
 - `Bridged`: installed Git hook execution includes compiled-policy preflight,
   then delegates to the current bundled hook group runner for checks not yet
   represented in compiled policy.
@@ -37,15 +37,15 @@ parent and Claude hook entries outside this repo.
 | `post-merge` | Delegate to `git lfs post-merge`. | Installed Git LFS delegation shim. | Cutover ready |
 | `post-checkout` | Delegate to `git lfs post-checkout`. | Installed Git LFS delegation shim. | Cutover ready |
 
-## Claude Hooks
+## Agent Hooks
 
 | Event | Tool | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- | --- |
-| `PreToolUse` | `Bash` | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. | Policy dispatch plus Go evaluators. | Installed |
-| `PreToolUse` | `Write` / `Edit` / `MultiEdit` | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. | Policy dispatch plus Go evaluators. | Installed |
-| `PostToolUse` | `Bash` | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook`. | Installed |
-| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Deterministic transcript tail capture in `.git/coding-ethos-hooks/continuation/`. No hook-path AI call. | Installed |
-| `SessionStart` | `compact` | Inject generated continuation prompt into session context. | Deterministic continuation context replay from `.git/coding-ethos-hooks/continuation/`. | Installed |
+| `PreToolUse` / `BeforeTool` | shell command | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. Claude can receive transparent `updatedInput` git-wrapper rewrites; Codex and Gemini block raw git because their native hook contracts do not expose safe input rewriting. | Provider-neutral policy dispatch plus provider-specific output adapters. | Cutover ready |
+| `PreToolUse` / `BeforeTool` | write/edit tools | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. Claude covers `Write`, `Edit`, and `MultiEdit`; Gemini maps `write_file`; Codex maps the provider-neutral write surface. | Provider-neutral policy dispatch plus Go evaluators. | Cutover ready |
+| `PostToolUse` | shell command | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook` where the provider exposes post-tool context. Gemini has no direct equivalent and does not fake one. | Provider limited |
+| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Deterministic transcript tail capture in `.git/coding-ethos-hooks/continuation/`. No hook-path AI call. | Claude only |
+| `SessionStart` | startup / compact | Inject generated continuation prompt into session context. | Deterministic continuation context replay from `.git/coding-ethos-hooks/continuation/`. | Cutover ready |
 
 ## Current Coverage
 
@@ -90,13 +90,15 @@ inventory used to keep the migration status explicit.
   violated principles. Future work should move the reminder corpus into
   compiled policy data, add quiet-frequency controls, and include reminders
   such as "keep the todo list current" when work spans multiple planned steps.
-- Agent-hook behavior has a repo-owned settings renderer, explicit sync, and
-  doctor path through `coding-ethos-agent-hooks` and
+- Agent-hook behavior has a repo-owned settings renderer, explicit sync,
+  doctor, and verify path through `coding-ethos-agent-hooks` and
   `run-go-hook.sh agent-hooks`. Generation is all-provider only: Claude,
-  Codex, and Gemini surfaces are rendered together, and doctor verifies the
-  native activation files for each provider. Claude uses Claude Code's native
-  settings file. Codex uses `[features].codex_hooks = true` plus native
-  `.codex/hooks.json`. Gemini uses native `.gemini/settings.json` hooks.
+  Codex, and Gemini surfaces are rendered together. Doctor verifies the native
+  activation files for each provider. Verify runs doctor and then executes
+  provider-native smoke payloads through the configured hook command to prove
+  the installed config reaches a runnable policy path. Claude uses Claude
+  Code's native settings file. Codex uses `[features].codex_hooks = true` plus
+  native `.codex/hooks.json`. Gemini uses native `.gemini/settings.json` hooks.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
   executable checks. Future work should continue migrating individual checks
@@ -129,11 +131,11 @@ inventory used to keep the migration status explicit.
   evaluation, then adapts output to each provider's strongest supported native
   response contract. Claude keeps rewrite-capable `hookSpecificOutput`. Codex
   supports native block and context feedback but not `updatedInput`, so git
-  wrapper enforcement is deny-and-rerun instead of transparent rewrite. Gemini
+  wrapper enforcement blocks raw git instead of transparent rewrite. Gemini
   supports native `deny` / `systemMessage` for tool gates and context on
   supported lifecycle hooks, but does not expose a direct `PostToolUse`
-  equivalent; unsupported lifecycle points should remain absent rather than
-  being faked through legacy adapters.
+  equivalent; unsupported lifecycle points remain absent rather than being
+  faked through legacy adapters.
 
 ## Fixture Contract
 

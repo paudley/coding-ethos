@@ -414,6 +414,7 @@ Render or verify repo-local agent hook settings without touching global files:
 pre-commit/hooks/run-go-hook.sh agent-hooks print
 pre-commit/hooks/run-go-hook.sh agent-hooks sync
 pre-commit/hooks/run-go-hook.sh agent-hooks doctor
+pre-commit/hooks/run-go-hook.sh agent-hooks verify
 ```
 
 Agent hook generation is all-or-nothing by design. `sync` writes every
@@ -431,7 +432,12 @@ events each provider exposes: Claude uses the full runtime set, Codex uses
 Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
 maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
 `agent-hooks doctor` verifies those native activation files rather than a
-coding-ethos-only sidecar.
+coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
+the configured hook command with provider-native Claude, Codex, and Gemini
+payloads to prove the installed files point at a runnable policy path. The
+verification probes cover Claude's transparent git rewrite, Codex's block
+response for raw git when rewrite is unavailable, Gemini's `deny` response for
+raw shell git, and Gemini write-tool policy denial.
 At runtime, `agent-hook` normalizes Claude native payloads and first-class
 Codex/Gemini CLI payloads into one internal policy event. The preferred
 provider-neutral payload shape is:
