@@ -6,6 +6,7 @@ package evaluators
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ const (
 	defaultPrivateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	executePermissionMask    = 0o111
 	kibibyte                 = 1024
+	binaryProbeBytes         = 1024
 )
 
 func EvaluateFileMergeConflict(
@@ -446,7 +448,7 @@ func firstGuardLines(text string, count int) string {
 		return ""
 	}
 
-	lines := strings.Split(text, "\n")
+	lines := strings.SplitN(text, "\n", count+1)
 	if len(lines) > count {
 		lines = lines[:count]
 	}
@@ -455,12 +457,32 @@ func firstGuardLines(text string, count int) string {
 }
 
 func readGuardText(path string) (string, bool, error) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", false, nil
 		}
 
+		return "", false, fmt.Errorf("read file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	probe := make([]byte, binaryProbeBytes)
+	read, err := file.Read(probe)
+	if err != nil && err != io.EOF {
+		return "", false, fmt.Errorf("read file %s: %w", path, err)
+	}
+
+	if isBinaryBytes(probe[:read]) {
+		return "", true, nil
+	}
+
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", false, fmt.Errorf("seek file %s: %w", path, err)
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
 		return "", false, fmt.Errorf("read file %s: %w", path, err)
 	}
 
