@@ -29,6 +29,7 @@ func TestAdminStartBranchRunsApprovedBranchSequence(t *testing.T) {
 
 	log := readText(t, logPath)
 	for _, expected := range []string{
+		"check-ref-format --branch hooks_and_crooks_take_7|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
 		"status --porcelain=v1 --untracked-files=all|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
 		"checkout main|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
 		"pull --ff-only|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",

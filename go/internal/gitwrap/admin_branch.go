@@ -28,13 +28,13 @@ func AdminStartBranch(realGit string, cwd string, args []string) error {
 	}
 
 	branch := strings.TrimSpace(args[0])
-	if !validAdminBranchName(branch) {
-		return fmt.Errorf("%w: %q", errAdminBranchInvalid, args[0])
-	}
-
 	resolvedGit, err := ResolveRealGit(realGit)
 	if err != nil {
 		return err
+	}
+
+	if !validAdminBranchName(resolvedGit, cwd, branch) {
+		return fmt.Errorf("%w: %q", errAdminBranchInvalid, args[0])
 	}
 
 	err = ensureCleanWorktree(resolvedGit, cwd)
@@ -75,20 +75,14 @@ func ensureCleanWorktree(realGit string, cwd string) error {
 	return nil
 }
 
-func validAdminBranchName(branch string) bool {
-	if branch == "" ||
-		strings.HasPrefix(branch, "-") ||
-		strings.HasPrefix(branch, "/") ||
-		strings.HasSuffix(branch, "/") ||
-		strings.HasSuffix(branch, ".") ||
-		strings.Contains(branch, "..") ||
-		strings.Contains(branch, "@{") ||
-		strings.Contains(branch, "\\") ||
-		strings.ContainsAny(branch, " \t\n\r~^:?*[") {
+func validAdminBranchName(realGit string, cwd string, branch string) bool {
+	if branch == "" {
 		return false
 	}
 
-	return true
+	err := runRealGit(realGit, cwd, "check-ref-format", "--branch", branch)
+
+	return err == nil
 }
 
 func realGitOutput(realGit string, cwd string, args ...string) (string, error) {

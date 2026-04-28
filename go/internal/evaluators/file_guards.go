@@ -4,6 +4,7 @@
 package evaluators
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,15 +33,7 @@ func EvaluateFileMergeConflict(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
-		text, binary, err := readGuardText(path)
-		if err != nil {
-			return nil, err
-		}
-		if binary {
-			continue
-		}
-
-		for lineNumber, line := range strings.Split(text, "\n") {
+		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
 			for _, marker := range markers {
 				if strings.HasPrefix(line, marker) {
 					return []policy.Decision{
@@ -48,13 +41,21 @@ func EvaluateFileMergeConflict(
 							policyDef,
 							"merge_conflict",
 							file,
-							lineNumber+1,
+							lineNumber,
 							marker,
 							"unresolved merge conflict marker",
 						),
-					}, nil
+					}, true
 				}
 			}
+
+			return nil, false
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(found) > 0 {
+			return found, nil
 		}
 	}
 
@@ -172,12 +173,13 @@ func EvaluateFileLargeFile(
 		nil,
 	)
 	maxKB := intOption(context.EvaluatorOptions, "max_kb", 500)
+	addedFiles := gitAddedFileSet(context.Cwd)
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
 		if !suffixes[strings.ToLower(filepath.Ext(file))] ||
 			hasConfiguredPrefix(file, excludePrefixes) ||
-			!isGitAddedFile(context.Cwd, file) {
+			!addedFiles[file] {
 			continue
 		}
 
@@ -272,15 +274,7 @@ func EvaluatePIIScrubber(
 		}
 
 		path := resolveGuardPath(context.Cwd, file)
-		text, binary, err := readGuardText(path)
-		if err != nil {
-			return nil, err
-		}
-		if binary {
-			continue
-		}
-
-		for lineNumber, line := range strings.Split(text, "\n") {
+		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
 			for _, pattern := range patterns {
 				if pattern.MatchString(line) {
 					return []policy.Decision{
@@ -288,13 +282,21 @@ func EvaluatePIIScrubber(
 							policyDef,
 							"pii",
 							file,
-							lineNumber+1,
+							lineNumber,
 							"",
 							"local machine detail detected",
 						),
-					}, nil
+					}, true
 				}
 			}
+
+			return nil, false
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(found) > 0 {
+			return found, nil
 		}
 	}
 
@@ -495,21 +497,59 @@ func normalizedSuffixes(suffixes []string) []string {
 	return normalized
 }
 
-func isGitAddedFile(cwd string, path string) bool {
-	cmd := gitCommand(cwd, "diff", "--cached", "--name-only", "--diff-filter=A", "--", path)
-
-	output, err := cmd.Output()
+func scanGuardLines(
+	path string,
+	visit func(lineNumber int, line string) ([]policy.Decision, bool),
+) ([]policy.Decision, error) {
+	file, err := os.Open(path)
 	if err != nil {
-		return false
-	}
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 
-	for _, added := range strings.Split(string(output), "\n") {
-		if added == path {
-			return true
+		return nil, fmt.Errorf("read file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*kibibyte), 10*kibibyte*kibibyte)
+
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
+		if strings.ContainsRune(line, 0) {
+			return nil, nil
+		}
+
+		if decision, ok := visit(lineNumber, line); ok {
+			return decision, nil
 		}
 	}
 
-	return false
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan file %s: %w", path, err)
+	}
+
+	return nil, nil
+}
+
+func gitAddedFileSet(cwd string) map[string]bool {
+	cmd := gitCommand(cwd, "diff", "--cached", "--name-only", "--diff-filter=A")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	files := map[string]bool{}
+	for _, added := range strings.Split(string(output), "\n") {
+		if added != "" {
+			files[added] = true
+		}
+	}
+
+	return files
 }
 
 func isLineLimitedFile(path string) bool {
@@ -545,7 +585,7 @@ func countGuardLines(text string) int {
 		return 0
 	}
 
-	return len(strings.Split(trimmed, "\n"))
+	return strings.Count(trimmed, "\n") + 1
 }
 
 func fileGuardDecision(
