@@ -867,7 +867,81 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 	}
 }
 
-func TestRunRewritesGeminiPayloadGitCommand(t *testing.T) {
+func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	buffer := strings.Builder{}
+
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	for _, expected := range []string{
+		`"decision": "block"`,
+		`"permissionDecision": "deny"`,
+		`"systemMessage"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "gemini-cli",
+		"hookEventName": "BeforeTool",
+		"toolName": "run_shell_command",
+		"toolInput": {"command": "git commit --no-verify -m test"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	buffer := strings.Builder{}
+
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	for _, expected := range []string{
+		`"decision": "deny"`,
+		`"reason"`,
+		`"systemMessage"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestRunAllowsGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
@@ -885,10 +959,12 @@ func TestRunRewritesGeminiPayloadGitCommand(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed ||
-		result.HookSpecificOutput == nil ||
-		result.HookSpecificOutput.PermissionDecision != permissionAllow {
-		t.Fatalf("expected git rewrite allow, got %#v", result)
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Gemini must not receive unsupported rewrite output: %#v", result)
 	}
 }
 

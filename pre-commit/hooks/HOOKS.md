@@ -62,6 +62,11 @@ CamelCase hook fields, Gemini `BeforeTool` payloads, and nested
 those shapes. After normalization, provider events run through the same policy
 bundle and receive the same blocking, rewrite, advice, continuation, and
 post-tool feedback behavior where the provider exposes that lifecycle point.
+Provider output is adapted at the boundary: Claude receives full
+`hookSpecificOutput` including `updatedInput`, Codex receives native block
+output and supported context output without relying on unsupported rewrite
+semantics, and Gemini receives native `deny` / `systemMessage` responses for
+tool gates.
 
 ## Included Hooks
 

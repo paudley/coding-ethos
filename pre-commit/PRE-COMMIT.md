@@ -162,6 +162,15 @@ policy: the same git wrapper, filesystem, Python-edit, continuation, and
 post-tool output rules apply wherever the provider exposes the corresponding
 lifecycle hook.
 
+Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
+contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
+does not currently support `updatedInput`, so coding-ethos returns native block
+output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
+command must be rerun through the wrapper. Gemini uses native
+`decision: "deny"` and `systemMessage` for tool blocks. Post-tool hook-output
+advice remains full-fidelity for Claude and Codex; Gemini has no direct
+`PostToolUse` equivalent in the documented hook surface.
+
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and honors the same
 human, JSON, and TOON output selection as hook execution output.
 

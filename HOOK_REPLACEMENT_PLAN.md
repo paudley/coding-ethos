@@ -126,9 +126,13 @@ inventory used to keep the migration status explicit.
   runtime event inventory. The hook runtime normalizes Claude native payloads,
   provider-neutral Codex/Gemini payloads, Gemini `BeforeTool` payloads, and
   nested Codex-style `tool_call` payloads into one policy event before
-  evaluation. Codex exposes the needed native `PreToolUse`, `PostToolUse`, and
-  `SessionStart` hooks. Gemini exposes native `BeforeTool` and `SessionStart`
-  hook points; unsupported lifecycle points should remain absent rather than
+  evaluation, then adapts output to each provider's strongest supported native
+  response contract. Claude keeps rewrite-capable `hookSpecificOutput`. Codex
+  supports native block and context feedback but not `updatedInput`, so git
+  wrapper enforcement is deny-and-rerun instead of transparent rewrite. Gemini
+  supports native `deny` / `systemMessage` for tool gates and context on
+  supported lifecycle hooks, but does not expose a direct `PostToolUse`
+  equivalent; unsupported lifecycle points should remain absent rather than
   being faked through legacy adapters.
 
 ## Fixture Contract

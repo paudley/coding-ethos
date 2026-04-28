@@ -297,13 +297,17 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
   cd "$wrapper_repo"
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-rewrite.out
-  printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-git-rewrite.out
-  printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git status"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-git-rewrite.out
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out
   set +e
+  printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git commit --no-verify -m test"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-refusal.out \
+      2>/tmp/coding-ethos-codex-refusal.err
+  codex_refusal_status=$?
+  printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git commit --no-verify -m test"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-refusal.out \
+      2>/tmp/coding-ethos-gemini-refusal.err
+  gemini_refusal_status=$?
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"python -c \\"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\\""}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-git-refusal.out \
       2>/tmp/coding-ethos-git-refusal.err
@@ -313,6 +317,14 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
     printf 'expected git refusal exit 2, got %s\n' "$refusal_status" >&2
     exit 1
   fi
+  if [[ "$codex_refusal_status" -ne 2 ]]; then
+    printf 'expected Codex refusal exit 2, got %s\n' "$codex_refusal_status" >&2
+    exit 1
+  fi
+  if [[ "$gemini_refusal_status" -ne 2 ]]; then
+    printf 'expected Gemini refusal exit 2, got %s\n' "$gemini_refusal_status" >&2
+    exit 1
+  fi
 )
 if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   ! grep -q 'policy-git' /tmp/coding-ethos-git-rewrite.out; then
@@ -320,16 +332,18 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   cat /tmp/coding-ethos-git-rewrite.out >&2
   exit 1
 fi
-if ! grep -q '"updatedInput"' /tmp/coding-ethos-codex-git-rewrite.out ||
-  ! grep -q 'policy-git' /tmp/coding-ethos-codex-git-rewrite.out; then
-  printf 'expected Codex git rewrite output:\n' >&2
-  cat /tmp/coding-ethos-codex-git-rewrite.out >&2
+if ! grep -q '"decision": "block"' /tmp/coding-ethos-codex-refusal.out ||
+  ! grep -q '"permissionDecision": "deny"' /tmp/coding-ethos-codex-refusal.out; then
+  printf 'expected Codex native block output:\n' >&2
+  cat /tmp/coding-ethos-codex-refusal.out >&2
+  cat /tmp/coding-ethos-codex-refusal.err >&2
   exit 1
 fi
-if ! grep -q '"updatedInput"' /tmp/coding-ethos-gemini-git-rewrite.out ||
-  ! grep -q 'policy-git' /tmp/coding-ethos-gemini-git-rewrite.out; then
-  printf 'expected Gemini git rewrite output:\n' >&2
-  cat /tmp/coding-ethos-gemini-git-rewrite.out >&2
+if ! grep -q '"decision": "deny"' /tmp/coding-ethos-gemini-refusal.out ||
+  ! grep -q '"systemMessage"' /tmp/coding-ethos-gemini-refusal.out; then
+  printf 'expected Gemini native deny output:\n' >&2
+  cat /tmp/coding-ethos-gemini-refusal.out >&2
+  cat /tmp/coding-ethos-gemini-refusal.err >&2
   exit 1
 fi
 if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||

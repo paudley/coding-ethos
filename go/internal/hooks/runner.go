@@ -80,6 +80,7 @@ func RunWithRegistry(
 
 	return Result{
 		Event:              event.HookEventName,
+		Provider:           event.Provider(),
 		Tool:               event.ToolName,
 		Status:             status,
 		Decisions:          decisions,
@@ -89,6 +90,10 @@ func RunWithRegistry(
 
 func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput {
 	if route.Rewrite {
+		if event.Provider() != "claude" {
+			return nil
+		}
+
 		return &HookSpecificOutput{
 			HookEventName:            event.HookEventName,
 			PermissionDecision:       permissionAllow,

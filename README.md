@@ -450,6 +450,20 @@ those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
 surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
 accepted. Provider identity is recorded for diagnostics, but policy enforcement
 is intentionally shared across all supported agents.
+
+Provider output uses the strongest native shape each agent supports:
+
+- Claude receives full `hookSpecificOutput`, including `updatedInput` for
+  transparent git wrapper rewrites.
+- Codex receives native `decision: "block"` plus
+  `permissionDecision: "deny"` for blocks, and `additionalContext` for
+  supported context events. Codex does not currently support `updatedInput`, so
+  raw git is denied rather than rewritten there.
+- Gemini receives native `decision: "deny"` / `systemMessage` for tool blocks
+  and `additionalContext` on supported lifecycle hooks. Gemini does not expose a
+  direct `PostToolUse` equivalent, so post-command hook-output advice remains
+  provider-limited.
+
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
 another model from the agent-hook path.
