@@ -241,14 +241,17 @@ func analyzeHookLogOutput(
 	qualityCounts map[string]int,
 ) {
 	inFindingsTable := false
+	currentTable := ""
 	for lineNumber, line := range strings.Split(output, "\n") {
 		if isHookLogFindingHeader(line) {
 			inFindingsTable = true
+			currentTable = "findings"
 
 			continue
 		}
-		if isHookLogTableHeader(line) {
+		if tableName, ok := hookLogTableHeaderName(line); ok {
 			inFindingsTable = false
+			currentTable = tableName
 		}
 
 		if inFindingsTable && strings.HasPrefix(line, "  ") {
@@ -266,6 +269,9 @@ func analyzeHookLogOutput(
 			}
 		}
 
+		if !isHookLogQualityCandidate(currentTable, line) {
+			continue
+		}
 		for _, issue := range hookLogQualityIssues(runID, lineNumber+1, line) {
 			analysis.QualityTotal++
 			qualityCounts[issue.Kind]++
@@ -277,6 +283,9 @@ func analyzeHookLogOutput(
 }
 
 func isHookLogFindingHeader(line string) bool {
+	if line != strings.TrimSpace(line) {
+		return false
+	}
 	trimmed := strings.TrimSpace(line)
 
 	return strings.HasPrefix(trimmed, "findings[") &&
@@ -284,17 +293,57 @@ func isHookLogFindingHeader(line string) bool {
 }
 
 func isHookLogTableHeader(line string) bool {
-	trimmed := strings.TrimSpace(line)
+	_, ok := hookLogTableHeaderName(line)
+
+	return ok
+}
+
+func hookLogTableHeaderName(line string) (string, bool) {
+	if line != strings.TrimSpace(line) {
+		return "", false
+	}
+	trimmed := line
 	if !strings.Contains(trimmed, "]{") || !strings.HasSuffix(trimmed, ":") {
-		return false
+		return "", false
 	}
 
 	tableName, _, ok := strings.Cut(trimmed, "[")
 	if !ok {
+		return "", false
+	}
+
+	return tableName, tableName != "findings"
+}
+
+func isHookLogQualityCandidate(currentTable string, line string) bool {
+	if currentTable == "quality_issue_examples" ||
+		currentTable == "quality_issues" ||
+		currentTable == "quality_issue_counts" {
 		return false
 	}
 
-	return tableName != "findings"
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "path: ") {
+		return false
+	}
+	if currentTable == "" && line != strings.TrimLeft(line, " \t") {
+		return false
+	}
+	for _, prefix := range []string{
+		"diff --git ",
+		"index ",
+		"@@",
+		"--- ",
+		"+++ ",
+		"+",
+		"-",
+	} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func parseHookLogFindingRow(line string) hookFinding {

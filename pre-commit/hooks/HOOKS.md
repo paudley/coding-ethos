@@ -82,7 +82,9 @@ Provider output is adapted at the boundary: Claude receives full
 `hookSpecificOutput` including `updatedInput`, Codex receives native block
 output and supported context output without relying on unsupported rewrite
 semantics, and Gemini receives native `deny` / `systemMessage` responses for
-tool gates.
+tool gates. Agent-facing post-tool context normalizes absolute repo, home, and
+temporary paths, collapses multiline commands, and renders hook output as TOON
+line tables instead of giant escaped string cells.
 
 ## Included Hooks
 

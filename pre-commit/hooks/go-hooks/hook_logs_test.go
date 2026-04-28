@@ -75,13 +75,23 @@ findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}
   ruff,lib/python/app.py,10,1,error,E402,python.import_order,Module level import not at top of file,Move imports to top,
 `,
 	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "run-c", "stdout.log"),
+		`diff --git a/example b/example
+ findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:
+   ruff,/home/example/repo/not-real.py,1,1,error,E999,,diff fixture only,,
+quality_issue_examples[1]{kind,run_id,line,sample}:
+  absolute_repo_path,old-run,4,"command": "/home/example/repo/git status"
+`,
+	)
 
 	analysis, err := analyzeHookLogs(root, hookOutputFormatTOON)
 	if err != nil {
 		t.Fatalf("analyzeHookLogs() returned error: %v", err)
 	}
 
-	if analysis.RunsAnalyzed != 2 || analysis.Findings != 3 {
+	if analysis.RunsAnalyzed != 3 || analysis.Findings != 3 {
 		t.Fatalf("analysis counts = %#v", analysis)
 	}
 	if len(analysis.TopTools) == 0 ||

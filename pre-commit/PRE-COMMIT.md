@@ -185,7 +185,10 @@ output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
 command must be rerun through the wrapper. Gemini uses native
 `decision: "deny"` and `systemMessage` for tool blocks. Post-tool hook-output
 advice remains full-fidelity for Claude and Codex; Gemini has no direct
-`PostToolUse` equivalent in the documented hook surface.
+`PostToolUse` equivalent in the documented hook surface. Agent-facing
+post-tool context replaces absolute repo, home, and temp paths with stable
+tokens, collapses multiline commands, and renders hook output as TOON line
+tables instead of escaped newline cells.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
 ranks failed tools, codes, repeated findings, and output-quality problems such
