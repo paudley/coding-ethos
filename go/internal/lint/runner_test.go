@@ -133,3 +133,43 @@ func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.Bundle{
+		Policies: map[string]policy.Policy{
+			"pytest.gate": {
+				ID:              "pytest.gate",
+				DefaultSeverity: "block",
+				SupportedModes:  []string{"block", "record"},
+				Evaluators: []policy.Evaluator{{
+					Kind:    "external",
+					Name:    "pytest.gate",
+					Options: map[string]any{"command": []string{"sh", "-c", "exit 9"}},
+				}},
+				DefenseLayers: policy.DefenseLayers{Enforce: "block"},
+				Message:       "pytest failed",
+				PrincipleIDs:  []string{"testing-as-specification"},
+			},
+		},
+		Dispatch: policy.Dispatch{
+			Linter: map[string][]string{
+				ScopeSmoke: []string{"pytest.gate"},
+			},
+		},
+	}
+
+	result, err := Run(bundle, Options{Scope: ScopeSmoke})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+
+	if result.Status != "blocked" {
+		t.Fatalf("status = %q, want blocked", result.Status)
+	}
+
+	if got := result.Decisions[0].Evidence["exit_code"]; got != 9 {
+		t.Fatalf("exit evidence = %#v, want 9", got)
+	}
+}

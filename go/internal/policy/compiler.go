@@ -50,7 +50,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		)
 	}
 
-	policies := compilePolicies(configPayload, principles)
+	policies := compilePolicies(configPayload, principles, sourceRoot(options.Config))
 	if len(policies) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile policies: %w in %s",
@@ -110,6 +110,15 @@ func normalizedCompileOptions(options CompileOptions) CompileOptions {
 	}
 
 	return options
+}
+
+func sourceRoot(path string) string {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Dir(path)
+	}
+
+	return filepath.Dir(absolutePath)
 }
 
 func compileInputs(
@@ -229,13 +238,14 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 func compilePolicies(
 	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) map[string]Policy {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
-	addGeneratedConfigPolicy(policies, principles)
+	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 
 	return policies
 }
@@ -245,7 +255,7 @@ func addConfiguredPythonPolicies(
 	config map[string]any,
 	principles map[string]Principle,
 ) {
-	for _, spec := range pythonPolicySpecs(principles) {
+	for _, spec := range pythonPolicySpecs(config, principles) {
 		addPolicyIfEnabled(
 			policies,
 			config,
@@ -263,7 +273,10 @@ type compiledPolicySpec struct {
 	EnabledPath []string
 }
 
-func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
+func pythonPolicySpecs(
+	config map[string]any,
+	principles map[string]Principle,
+) []compiledPolicySpec {
 	return []compiledPolicySpec{
 		pythonPolicySpec(
 			"python.conditional_imports",
@@ -304,7 +317,7 @@ func pythonPolicySpecs(principles map[string]Principle) []compiledPolicySpec {
 			[]string{"python", "comment_suppressions"},
 			principleRefs(principles, "linting-as-code-quality-enforcement"),
 		),
-		pytestGatePolicySpec(principles),
+		pytestGatePolicySpec(config, principles),
 	}
 }
 
@@ -333,7 +346,16 @@ func pythonPolicySpec(
 	return compiledPolicySpec{ID: policyID, EnabledPath: enabledPath, Policy: policy}
 }
 
-func pytestGatePolicySpec(principles map[string]Principle) compiledPolicySpec {
+func pytestGatePolicySpec(
+	config map[string]any,
+	principles map[string]Principle,
+) compiledPolicySpec {
+	command := stringSliceAt(
+		config,
+		[]string{"python", "pytest_gate", "test_command"},
+		[]string{"pytest"},
+	)
+
 	policy := Policy{
 		ID:              "pytest.gate",
 		Category:        "pytest",
@@ -345,7 +367,11 @@ func pytestGatePolicySpec(principles map[string]Principle) compiledPolicySpec {
 		Suggestion:      "Run the configured pytest gate and address failures.",
 		DefenseLayers:   PytestDefenseLayers(),
 		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "external", Name: "pytest.gate"}},
+		Evaluators: []Evaluator{{
+			Kind:    "external",
+			Name:    "pytest.gate",
+			Options: map[string]any{"command": command},
+		}},
 	}
 
 	return compiledPolicySpec{
@@ -837,8 +863,20 @@ func filesystemProtectedBranchWritePolicy(
 
 func addGeneratedConfigPolicy(
 	policies map[string]Policy,
+	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) {
+	if !policyConfigEnabled(config, "generated_config.freshness") {
+		return
+	}
+
+	command := stringSliceAt(
+		config,
+		[]string{"generated_config", "freshness", "check_command"},
+		defaultGeneratedConfigCheckCommand(configSourceRoot),
+	)
+
 	policies["generated_config.freshness"] = Policy{
 		ID:       "generated_config.freshness",
 		Category: "config",
@@ -861,8 +899,26 @@ func addGeneratedConfigPolicy(
 			},
 		},
 		Evaluators: []Evaluator{
-			{Kind: "config", Name: "generated_config.freshness"},
+			{
+				Kind:    "config",
+				Name:    "generated_config.freshness",
+				Options: map[string]any{"command": command},
+			},
 		},
+	}
+}
+
+func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
+	return []string{
+		"uv",
+		"run",
+		"--project",
+		configSourceRoot,
+		"python",
+		filepath.Join(configSourceRoot, "main.py"),
+		"--repo",
+		".",
+		"--check-tool-configs",
 	}
 }
 
@@ -1078,6 +1134,16 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.direct_imports",
 			"python.bare_except",
 			"python.unexplained_type_ignore",
+		),
+		"smoke": existingPolicyIDs(
+			policies,
+			"generated_config.freshness",
+			"pytest.gate",
+		),
+		"full": existingPolicyIDs(
+			policies,
+			"generated_config.freshness",
+			"pytest.gate",
 		),
 	}
 

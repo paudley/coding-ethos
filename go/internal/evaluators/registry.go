@@ -20,6 +20,16 @@ func NewRegistry() Registry {
 
 func DefaultRegistry() Registry {
 	registry := NewRegistry()
+	registerGitEvaluators(registry)
+	registerFilesystemEvaluators(registry)
+	registerShellEvaluators(registry)
+	registerPythonEvaluators(registry)
+	registerExternalEvaluators(registry)
+
+	return registry
+}
+
+func registerGitEvaluators(registry Registry) {
 	registry.Register("git.hook_bypass", EvaluatorFunc(EvaluateGitHookBypass))
 	registry.Register(
 		"git.destructive_command",
@@ -55,6 +65,9 @@ func DefaultRegistry() Registry {
 		"git.commit_head_advanced",
 		EvaluatorFunc(EvaluateGitCommitHeadAdvanced),
 	)
+}
+
+func registerFilesystemEvaluators(registry Registry) {
 	registry.Register(
 		"filesystem.protected_path",
 		EvaluatorFunc(EvaluateProtectedPath),
@@ -63,12 +76,18 @@ func DefaultRegistry() Registry {
 		"filesystem.protected_branch_write",
 		EvaluatorFunc(EvaluateProtectedBranchWrite),
 	)
+}
+
+func registerShellEvaluators(registry Registry) {
 	registry.Register(
 		"shell.dangerous_command",
 		EvaluatorFunc(EvaluateShellDangerousCommand),
 	)
 	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
 	registry.Register("shell.github_admin", EvaluatorFunc(EvaluateShellGitHubAdmin))
+}
+
+func registerPythonEvaluators(registry Registry) {
 	registry.Register(
 		"python.conditional_imports",
 		EvaluatorFunc(EvaluatePythonConditionalImports),
@@ -94,8 +113,14 @@ func DefaultRegistry() Registry {
 		"python.unexplained_type_ignore",
 		EvaluatorFunc(EvaluatePythonUnexplainedTypeIgnore),
 	)
+}
 
-	return registry
+func registerExternalEvaluators(registry Registry) {
+	registry.Register(
+		"generated_config.freshness",
+		EvaluatorFunc(EvaluateGeneratedConfigFreshness),
+	)
+	registry.Register("pytest.gate", EvaluatorFunc(EvaluatePytestGate))
 }
 
 func (registry Registry) Register(name string, evaluator Evaluator) {

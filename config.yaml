@@ -90,6 +90,10 @@ hooks:
     - warning
     - warn
 
+generated_config:
+  freshness:
+    enabled: true
+
 git:
   hook_bypass:
     enabled: true

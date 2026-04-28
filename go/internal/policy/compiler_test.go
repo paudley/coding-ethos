@@ -7,6 +7,7 @@ import (
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -67,7 +68,7 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	}
 }
 
-func TestCompileExcludesNonExecutablePoliciesFromLinterDispatch(t *testing.T) {
+func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -87,9 +88,16 @@ func TestCompileExcludesNonExecutablePoliciesFromLinterDispatch(t *testing.T) {
 
 	for _, policyID := range bundle.Dispatch.Linter["staged"] {
 		if policyID == "pytest.gate" || policyID == "generated_config.freshness" {
-			t.Fatalf("non-executable policy should not be in linter dispatch: %q", policyID)
+			t.Fatalf("smoke-only policy should not be in staged dispatch: %q", policyID)
 		}
 	}
+
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["smoke"], "pytest.gate")
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["smoke"],
+		"generated_config.freshness",
+	)
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -141,6 +149,9 @@ filesystem:
   protected_branch_write:
     branches: [release]
     exempt_path_prefixes: [docs/plans/]
+generated_config:
+  freshness:
+    check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -176,6 +187,24 @@ filesystem:
 	)
 	if adminFiles[0] != "custom.lock" {
 		t.Fatalf("admin file options mismatch: %#v", adminFiles)
+	}
+
+	pytestCommand := optionStrings(
+		t,
+		bundle.Policies["pytest.gate"].Evaluators[0],
+		"command",
+	)
+	if pytestCommand[0] != "uv" {
+		t.Fatalf("pytest command options mismatch: %#v", pytestCommand)
+	}
+
+	generatedConfigCommand := optionStrings(
+		t,
+		bundle.Policies["generated_config.freshness"].Evaluators[0],
+		"command",
+	)
+	if generatedConfigCommand[2] != "/tmp/repo" {
+		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
 	}
 }
 
@@ -245,6 +274,16 @@ func TestCompileRejectsMissingPrinciples(t *testing.T) {
 	}
 }
 
+func assertPolicyDispatched(t *testing.T, policyIDs []string, expected string) {
+	t.Helper()
+
+	if slices.Contains(policyIDs, expected) {
+		return
+	}
+
+	t.Fatalf("dispatch missing %q: %#v", expected, policyIDs)
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 
@@ -300,4 +339,5 @@ python:
     enabled: false
   pytest_gate:
     enabled: true
+    test_command: [uv, run, pytest]
 `

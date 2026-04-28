@@ -391,6 +391,9 @@ Installed Git hook shims compile the policy bundle and enter
 runs policy preflight and then executes the bundled hook groups as the active
 quality gate. `make install-hooks` also installs `post-commit`, `post-merge`,
 and `post-checkout` shims that delegate to Git LFS when it is available.
+The standalone `coding-ethos-lint` path can now execute compiled smoke/full
+policies for generated tool-config freshness and the configured pytest gate, so
+those checks are no longer inert policy metadata.
 
 Render or verify Claude agent hook settings without touching global files:
 

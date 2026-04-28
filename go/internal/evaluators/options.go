@@ -13,6 +13,22 @@ func stringSliceOption(
 		return append([]string(nil), defaults...)
 	}
 
+	rawStringItems, isStringSlice := raw.([]string)
+	if isStringSlice {
+		items := make([]string, 0, len(rawStringItems))
+		for _, item := range rawStringItems {
+			if item != "" {
+				items = append(items, item)
+			}
+		}
+
+		if len(items) > 0 {
+			return items
+		}
+
+		return append([]string(nil), defaults...)
+	}
+
 	rawItems, ok := raw.([]any)
 	if !ok {
 		return append([]string(nil), defaults...)
