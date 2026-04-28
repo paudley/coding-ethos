@@ -94,7 +94,7 @@ line tables instead of giant escaped string cells.
 
 ## Included Hooks
 
-- **go-hooks/** - Fast generic file checks, shell checks, commitlint, commit
+- **go-hooks/** - Compiled policy preflight, shell checks, commitlint, commit
   attribution, direct-import enforcement, utility and SQL centralization, file
   and module doc checks, type-check orchestration, Python quality wrappers,
   Dockerfile and workflow validation, Go toolchain checks, pytest gating,
@@ -104,9 +104,12 @@ line tables instead of giant escaped string cells.
 - **check_maintainability.py** - Maintainability index checks via Radon
 - **check_vulture.py** - Dead-code detection via Vulture
 
-Most active policy enforcement lives in `go-hooks/`. The Python hook files are
-kept for analyzer integrations that are naturally Python-based or already use
-Python tooling.
+Cheap deterministic checks such as syntax parsing, merge-conflict markers,
+private-key detection, shebang consistency, large-file limits, line limits, and
+shell best practices now run through compiled policy preflight. The remaining
+bundled groups are either richer repo-structure checks or external tool
+orchestration. The Python hook files are kept for analyzer integrations that are
+naturally Python-based or already use Python tooling.
 
 ## Installation
 

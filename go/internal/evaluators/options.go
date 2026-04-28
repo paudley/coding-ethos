@@ -5,6 +5,24 @@ package evaluators
 
 import "strings"
 
+func intOption(options map[string]any, key string, defaultValue int) int {
+	raw, exists := options[key]
+	if !exists {
+		return defaultValue
+	}
+
+	switch typed := raw.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return defaultValue
+	}
+}
+
 func stringOption(options map[string]any, key string, defaultValue string) string {
 	raw, exists := options[key]
 	if !exists {

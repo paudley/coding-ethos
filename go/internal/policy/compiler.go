@@ -251,6 +251,7 @@ func compilePolicies(
 	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
+	addFileGuardPolicies(policies, config, principles)
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 
 	return policies
@@ -714,39 +715,181 @@ func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
 	}
 }
 
+func addFileGuardPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
+	if policyConfigEnabled(config, "security.private_key") {
+		pattern := stringAt(config, "security", "private_key", "pattern")
+		if pattern == "" {
+			pattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
+		}
+
+		policies["security.private_key"] = Policy{
+			ID:              "security.private_key",
+			Category:        "security",
+			Source:          SourceRef{File: "config.yaml", Path: "security.private_key"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Private keys must not be committed.",
+			Suggestion:      "Remove secrets from source and rotate exposed credentials.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind:    "text",
+				Name:    "security.private_key",
+				Options: map[string]any{"pattern": pattern},
+			}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.shebangs") {
+		policies["filesystem.shebangs"] = Policy{
+			ID:              "filesystem.shebangs",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.shebangs"},
+			PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Executable scripts and shebangs must agree.",
+			Suggestion:      "Add a valid shebang to executable scripts and mark shebang scripts executable.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators:      []Evaluator{{Kind: "text", Name: "filesystem.shebangs"}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.large_files") {
+		suffixes := stringSliceAt(
+			config,
+			[]string{"filesystem", "large_files", "suffixes"},
+			stringSliceAt(config, []string{"go", "text", "large_file_suffixes"}, nil),
+		)
+		excludePrefixes := stringSliceAt(
+			config,
+			[]string{"filesystem", "large_files", "exclude_prefixes"},
+			stringSliceAt(config, []string{"go", "text", "large_file_exclude_prefixes"}, nil),
+		)
+		maxKB := intAt(
+			config,
+			[]string{"filesystem", "large_files", "max_kb"},
+			intAt(config, []string{"go", "text", "max_large_file_kb"}, 500),
+		)
+
+		policies["filesystem.large_files"] = Policy{
+			ID:              "filesystem.large_files",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.large_files"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Oversized newly added files are forbidden.",
+			Suggestion:      "Remove oversized generated or binary content from the commit.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind: "git_state",
+				Name: "filesystem.large_files",
+				Options: map[string]any{
+					"suffixes":         suffixes,
+					"exclude_prefixes": excludePrefixes,
+					"max_kb":           maxKB,
+				},
+			}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.line_limits") {
+		policies["filesystem.line_limits"] = Policy{
+			ID:              "filesystem.line_limits",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.line_limits"},
+			PrincipleIDs:    principleRefs(principles, "solid-is-law"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Large source files must not keep growing.",
+			Suggestion:      "Split large files into focused modules before committing.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.py", "**/*.sh", "**/*.bash"}},
+			Evaluators: []Evaluator{{
+				Kind: "git_state",
+				Name: "filesystem.line_limits",
+				Options: map[string]any{
+					"python_hard": intAt(
+						config,
+						[]string{"filesystem", "line_limits", "python_hard"},
+						intAt(config, []string{"go", "line_limits", "python_hard"}, 1000),
+					),
+					"shell_hard": intAt(
+						config,
+						[]string{"filesystem", "line_limits", "shell_hard"},
+						intAt(config, []string{"go", "line_limits", "shell_hard"}, 500),
+					),
+				},
+			}},
+		}
+	}
+}
+
 func addSyntaxPolicies(
 	policies map[string]Policy,
 	config map[string]any,
 	principles map[string]Principle,
 ) {
-	if !policyConfigEnabled(config, "syntax.file_syntax") {
-		return
+	if policyConfigEnabled(config, "syntax.file_syntax") {
+		extensions := stringSliceAt(
+			config,
+			[]string{"syntax", "file_syntax", "extensions"},
+			[]string{".json", ".toml", ".yaml", ".yml"},
+		)
+
+		policies["syntax.file_syntax"] = Policy{
+			ID:              "syntax.file_syntax",
+			Category:        "syntax",
+			Source:          SourceRef{File: "config.yaml", Path: "syntax.file_syntax"},
+			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Structured data files must parse before they enter the repo.",
+			Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo: AppliesTo{
+				FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
+			},
+			Evaluators: []Evaluator{{
+				Kind:    "config",
+				Name:    "syntax.file_syntax",
+				Options: map[string]any{"extensions": extensions},
+			}},
+		}
 	}
 
-	extensions := stringSliceAt(
-		config,
-		[]string{"syntax", "file_syntax", "extensions"},
-		[]string{".json", ".toml", ".yaml", ".yml"},
-	)
+	if policyConfigEnabled(config, "syntax.merge_conflict") {
+		markers := stringSliceAt(
+			config,
+			[]string{"syntax", "merge_conflict", "markers"},
+			[]string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"},
+		)
 
-	policies["syntax.file_syntax"] = Policy{
-		ID:              "syntax.file_syntax",
-		Category:        "syntax",
-		Source:          SourceRef{File: "config.yaml", Path: "syntax.file_syntax"},
-		PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Structured data files must parse before they enter the repo.",
-		Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo: AppliesTo{
-			FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
-		},
-		Evaluators: []Evaluator{{
-			Kind:    "config",
-			Name:    "syntax.file_syntax",
-			Options: map[string]any{"extensions": extensions},
-		}},
+		policies["syntax.merge_conflict"] = Policy{
+			ID:              "syntax.merge_conflict",
+			Category:        "syntax",
+			Source:          SourceRef{File: "config.yaml", Path: "syntax.merge_conflict"},
+			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Unresolved merge conflict markers are forbidden.",
+			Suggestion:      "Resolve the conflict and remove all conflict markers.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind:    "text",
+				Name:    "syntax.merge_conflict",
+				Options: map[string]any{"markers": markers},
+			}},
+		}
 	}
 }
 
@@ -1586,6 +1729,11 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 		"files": existingPolicyIDs(
 			policies,
 			"syntax.file_syntax",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
 			"shell.best_practices",
 			"python.conditional_imports",
 			"python.optional_returns",
@@ -1614,6 +1762,11 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"filesystem.protected_branch_write",
 			"filesystem.required_ignores",
 			"syntax.file_syntax",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1761,6 +1914,24 @@ func stringSliceAt(
 	}
 
 	return items
+}
+
+func intAt(values map[string]any, path []string, defaultValue int) int {
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return defaultValue
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return defaultValue
+	}
 }
 
 func stringAt(values map[string]any, path ...string) string {

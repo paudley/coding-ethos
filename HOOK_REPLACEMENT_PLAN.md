@@ -113,6 +113,11 @@ Runtime covered in Go agent-hook code:
 - `shell.forbidden_strings`
 - `shell.best_practices`
 - `syntax.file_syntax`
+- `syntax.merge_conflict`
+- `security.private_key`
+- `filesystem.shebangs`
+- `filesystem.large_files`
+- `filesystem.line_limits`
 - `filesystem.protected_path`
 - `filesystem.protected_branch_write`
 - `python.conditional_imports`
@@ -158,15 +163,17 @@ inventory used to keep the migration status explicit.
   then emits one TOON readiness report.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
-  executable checks. Syntax validation and shell best-practice checks have
-  moved into compiled policy evaluators; future work should continue migrating
-  individual checks, but parent hook replacement no longer depends on legacy
-  parent shims.
+  executable checks. Syntax validation, merge-conflict markers, private-key
+  detection, shebang/executable consistency, newly added large-file limits,
+  source line limits, and shell best practices have moved into compiled policy
+  evaluators. Future work should continue migrating individual checks, but
+  parent hook replacement no longer depends on legacy parent shims.
 - Protected paths, protected branches, staged admin files, and shell/git policy
   enablement are compiled from `config.yaml`/repo override data. Syntax file
-  extensions and shell best-practice prefixes are also compiled from config.
-  Remaining config work is to broaden that pattern to every evaluator as it
-  moves into compiled policy.
+  extensions, merge-conflict markers, private-key patterns, large-file suffixes
+  and size limits, line-limit thresholds, and shell best-practice prefixes are
+  also compiled from config. Remaining config work is to broaden that pattern
+  to every evaluator as it moves into compiled policy.
 - External tool-backed policies for pytest gating and generated-config
   freshness now dispatch through `coding-ethos-lint` smoke/full scopes. Future
   work should expand this pattern into typed tool metadata. The shared
@@ -183,6 +190,14 @@ inventory used to keep the migration status explicit.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
+
+## Active Hook Boundary
+
+| Boundary | Current checks |
+| --- | --- |
+| Compiled policy evaluators | Git safety, protected paths/branches, required runtime ignores, Python write policies, syntax parsing, merge-conflict markers, private-key detection, shebang consistency, newly added large files, source line limits, shell best practices, generated-config freshness, and pytest gating. |
+| Bundled in-process groups | Runtime ignore command wrapper, Python policy checks that still rely on the bundled parser stack, documentation/manifest/plan checks, commitlint, commit attribution, repo Python-version consistency, and forbidden-string file scans. |
+| External tool-backed groups | Ruff/format, mypy, pyright, Pylint, Radon, Vulture, shellcheck, yamllint, hadolint, actionlint, golangci-lint, Go test/vet/format, and Gemini pre-commit/pre-push review. |
 - Claude, Codex, and Gemini now share the provider-neutral hook spec and
   runtime event inventory. The hook runtime normalizes Claude native payloads,
   provider-neutral Codex/Gemini payloads, Gemini `BeforeTool` payloads, and

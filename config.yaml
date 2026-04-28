@@ -102,6 +102,13 @@ syntax:
       - .toml
       - .yaml
       - .yml
+  merge_conflict:
+    enabled: true
+    markers:
+      - '<<<<<<<'
+      - '======='
+      - '>>>>>>>'
+      - '|||||||'
 
 policy:
   evidence_maps:
@@ -289,6 +296,25 @@ filesystem:
     paths:
       - .coding-ethos/
       - .coding-ethos/hook-runs/example/stdout.log
+  shebangs:
+    enabled: true
+  large_files:
+    enabled: true
+    exclude_prefixes: []
+    suffixes:
+      - .bash
+      - .json
+      - .py
+      - .pyi
+      - .sh
+      - .toml
+      - .yaml
+      - .yml
+    max_kb: 500
+  line_limits:
+    enabled: true
+    python_hard: 1000
+    shell_hard: 500
 
 shell:
   dangerous_command:
@@ -317,6 +343,11 @@ shell:
       - /coding-ethos/ruff.toml
       - /coding-ethos/.golangci.yml
       - header must match
+
+security:
+  private_key:
+    enabled: true
+    pattern: '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----'
 
 python:
   source_paths:

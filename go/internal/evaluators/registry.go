@@ -102,6 +102,11 @@ func registerShellEvaluators(registry Registry) {
 
 func registerSyntaxEvaluators(registry Registry) {
 	registry.Register("syntax.file_syntax", EvaluatorFunc(EvaluateFileSyntax))
+	registry.Register("syntax.merge_conflict", EvaluatorFunc(EvaluateFileMergeConflict))
+	registry.Register("security.private_key", EvaluatorFunc(EvaluateFilePrivateKey))
+	registry.Register("filesystem.shebangs", EvaluatorFunc(EvaluateFileShebang))
+	registry.Register("filesystem.large_files", EvaluatorFunc(EvaluateFileLargeFile))
+	registry.Register("filesystem.line_limits", EvaluatorFunc(EvaluateFileLineLimit))
 }
 
 func registerPythonEvaluators(registry Registry) {

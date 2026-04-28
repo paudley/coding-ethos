@@ -52,6 +52,17 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if _, ok := bundle.Policies["shell.best_practices"]; !ok {
 		t.Fatalf("missing compiled shell best practices policy")
 	}
+	for _, policyID := range []string{
+		"syntax.merge_conflict",
+		"security.private_key",
+		"filesystem.shebangs",
+		"filesystem.large_files",
+		"filesystem.line_limits",
+	} {
+		if _, ok := bundle.Policies[policyID]; !ok {
+			t.Fatalf("missing compiled file guard policy %s", policyID)
+		}
+	}
 
 	if bundle.Policies["git.hook_bypass"].DefenseLayers.Notify != "on_block" {
 		t.Fatalf(
@@ -134,8 +145,18 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	)
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.best_practices")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.merge_conflict")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "security.private_key")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.shebangs")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.large_files")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.line_limits")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.merge_conflict")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "security.private_key")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.shebangs")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.large_files")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.line_limits")
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -189,6 +210,13 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
+  large_files:
+    suffixes: [.txt]
+    exclude_prefixes: [vendor/]
+    max_kb: 7
+  line_limits:
+    python_hard: 12
+    shell_hard: 8
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
@@ -200,6 +228,11 @@ shell:
 syntax:
   file_syntax:
     extensions: [.json]
+  merge_conflict:
+    markers: [CONFLICT]
+security:
+  private_key:
+    pattern: PRIVATE KEY
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -289,6 +322,42 @@ syntax:
 	)
 	if syntaxExtensions[0] != ".json" {
 		t.Fatalf("syntax options mismatch: %#v", syntaxExtensions)
+	}
+
+	mergeMarkers := optionStrings(
+		t,
+		bundle.Policies["syntax.merge_conflict"].Evaluators[0],
+		"markers",
+	)
+	if mergeMarkers[0] != "CONFLICT" {
+		t.Fatalf("merge marker options mismatch: %#v", mergeMarkers)
+	}
+
+	privateKeyPattern := optionString(
+		t,
+		bundle.Policies["security.private_key"].Evaluators[0],
+		"pattern",
+	)
+	if privateKeyPattern != "PRIVATE KEY" {
+		t.Fatalf("private key pattern mismatch: %q", privateKeyPattern)
+	}
+
+	largeFileSuffixes := optionStrings(
+		t,
+		bundle.Policies["filesystem.large_files"].Evaluators[0],
+		"suffixes",
+	)
+	if largeFileSuffixes[0] != ".txt" {
+		t.Fatalf("large file suffix options mismatch: %#v", largeFileSuffixes)
+	}
+
+	lineLimit := optionInt(
+		t,
+		bundle.Policies["filesystem.line_limits"].Evaluators[0],
+		"python_hard",
+	)
+	if lineLimit != 12 {
+		t.Fatalf("line limit option mismatch: %d", lineLimit)
 	}
 }
 
@@ -390,6 +459,28 @@ func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	return items
 }
 
+func optionString(t *testing.T, evaluator Evaluator, key string) string {
+	t.Helper()
+
+	item, ok := evaluator.Options[key].(string)
+	if !ok {
+		t.Fatalf("option %q is not string: %#v", key, evaluator.Options[key])
+	}
+
+	return item
+}
+
+func optionInt(t *testing.T, evaluator Evaluator, key string) int {
+	t.Helper()
+
+	item, ok := evaluator.Options[key].(int)
+	if !ok {
+		t.Fatalf("option %q is not int: %#v", key, evaluator.Options[key])
+	}
+
+	return item
+}
+
 func TestCompileRejectsMissingPrinciples(t *testing.T) {
 	t.Parallel()
 
@@ -428,6 +519,16 @@ func writeTestFile(t *testing.T, path string, content string) {
 const testEthosYAML = `
 version: 2
 principles:
+  - id: solid-is-law
+    order: 1
+    title: SOLID is Law
+    summary: Keep design simple.
+    directive: Enforce SOLID and simplicity.
+  - id: security-by-design
+    order: 24
+    title: Security by Design
+    summary: Design for safe defaults.
+    directive: Prevent secrets and unsafe defaults.
   - id: no-conditional-imports
     order: 3
     title: No Conditional Imports

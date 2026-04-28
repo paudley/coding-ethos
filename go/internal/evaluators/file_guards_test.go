@@ -1,0 +1,190 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package evaluators_test
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+)
+
+func TestEvaluateFileMergeConflictBlocksMarkers(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "conflict.txt", "<<<<<<< HEAD\n")
+	decision := evaluateFileGuardPolicy(
+		t,
+		"syntax.merge_conflict",
+		EvaluateFileMergeConflict,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Tool != "merge_conflict" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateFilePrivateKeyBlocksKeyMaterial(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(
+		t,
+		"secret.pem",
+		"-----BEGIN RSA PRIVATE KEY-----\nredacted\n",
+	)
+	decision := evaluateFileGuardPolicy(
+		t,
+		"security.private_key",
+		EvaluateFilePrivateKey,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Tool != "private_key" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateFileShebangBlocksExecutableWithoutShebang(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "script.sh", "echo ok\n")
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("chmod script: %v", err)
+	}
+
+	decision := evaluateFileGuardPolicy(
+		t,
+		"filesystem.shebangs",
+		EvaluateFileShebang,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Message != "executable file has no shebang" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateFileLargeFileBlocksNewOversizedFile(t *testing.T) {
+	t.Parallel()
+
+	repo := initGuardRepo(t)
+	path := filepath.Join(repo, "large.py")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 2048)), 0o600); err != nil {
+		t.Fatalf("write large file: %v", err)
+	}
+	runGuardGit(t, repo, "add", "large.py")
+
+	decision := evaluateFileGuardPolicy(
+		t,
+		"filesystem.large_files",
+		EvaluateFileLargeFile,
+		Context{
+			Cwd:              repo,
+			Files:            []string{"large.py"},
+			EvaluatorOptions: map[string]any{"max_kb": 1, "suffixes": []string{".py"}},
+		},
+	)
+
+	if decision.Diagnostics[0].Tool != "large_files" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluateFileLineLimitBlocksGrowthOverLimit(t *testing.T) {
+	t.Parallel()
+
+	repo := initGuardRepo(t)
+	path := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(path, []byte("one\n"), 0o600); err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+	runGuardGit(t, repo, "add", "app.py")
+	runGuardGit(t, repo, "commit", "-m", "initial")
+
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatalf("rewrite app: %v", err)
+	}
+
+	decision := evaluateFileGuardPolicy(
+		t,
+		"filesystem.line_limits",
+		EvaluateFileLineLimit,
+		Context{
+			Cwd:              repo,
+			Files:            []string{"app.py"},
+			EvaluatorOptions: map[string]any{"python_hard": 2},
+		},
+	)
+
+	if !strings.Contains(decision.Diagnostics[0].Message, "file grew from 1 to 3") {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func evaluateFileGuardPolicy(
+	t *testing.T,
+	policyID string,
+	evaluator func(policy.Policy, Context) ([]policy.Decision, error),
+	context Context,
+) policy.Decision {
+	t.Helper()
+
+	decisions, err := evaluator(fileGuardPolicy(policyID), context)
+	if err != nil {
+		t.Fatalf("evaluate %s: %v", policyID, err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	return decisions[0]
+}
+
+func fileGuardPolicy(policyID string) policy.Policy {
+	return policy.Policy{
+		ID:              policyID,
+		DefaultSeverity: "block",
+		Message:         policyID + " failed",
+		Suggestion:      "fix " + policyID,
+	}
+}
+
+func writeGuardTestFile(t *testing.T, name string, content string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+
+	return path
+}
+
+func initGuardRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	runGuardGit(t, repo, "init")
+	runGuardGit(t, repo, "config", "user.email", "test@example.com")
+	runGuardGit(t, repo, "config", "user.name", "Test User")
+	runGuardGit(t, repo, "config", "commit.gpgsign", "false")
+
+	return repo
+}
+
+func runGuardGit(t *testing.T, repo string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+}

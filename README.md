@@ -505,8 +505,10 @@ Provider output uses the strongest native shape each agent supports:
 Post-edit advice for `Write`, `Edit`, and `MultiEdit` now includes compiled
 file-scope lint state for the edited paths. The hook path runs only deterministic
 compiled evaluators, such as Python policy checks, structured-data syntax
-validation, and shell best-practice checks; external tool suites remain in the
-Git hook/check path where their cost and output can be controlled.
+validation, merge-conflict detection, private-key detection, shebang checks,
+large-file limits, line limits, and shell best-practice checks; external tool
+suites remain in the Git hook/check path where their cost and output can be
+controlled.
 
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
