@@ -44,6 +44,10 @@ runtime entrypoint. Single-provider generation is intentionally not exposed:
 partial protection is not a valid install state. The active runtime does not
 call AI systems from agent hooks; AI review stays in Git hook stages where
 output, cost, and caching are controlled by this runner.
+Codex and Gemini manifests include `active: true`, provider identity, adapter
+metadata, and the runtime command contract. `agent-hooks doctor` checks those
+activation fields in addition to the hook list, so a stale or mislabeled file
+does not count as an installed provider surface.
 
 `agent-hook` normalizes provider payloads at the JSON boundary. Claude native
 payloads (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`) remain

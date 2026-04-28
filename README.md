@@ -428,6 +428,9 @@ output provider-owned manifests under `codex` and `gemini` top-level keys so
 downstream installers can consume the same event/tool contract without
 pretending to be Claude settings. Generated settings cover `PreToolUse`,
 `PostToolUse`, `PreCompact`, and `SessionStart` compact replay.
+Codex and Gemini manifests are activation-bearing contracts: `active: true`,
+the expected provider ID, adapter metadata, and the `agent-hook` runtime
+entrypoint must all match or `agent-hooks doctor` fails.
 At runtime, `agent-hook` normalizes Claude native payloads and first-class
 Codex/Gemini CLI payloads into one internal policy event. The preferred
 provider-neutral payload shape is:

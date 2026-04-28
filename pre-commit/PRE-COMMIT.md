@@ -138,6 +138,10 @@ valid install state. Claude output uses Claude Code's native `hooks` map. Codex
 and Gemini output explicit provider manifests under `codex` and `gemini`
 top-level keys so repo-local installers can cut over without using legacy
 Claude-shaped adapters.
+Those manifests are not passive notes: they include `active: true`, provider
+identity, adapter metadata, and the runtime entrypoint. `doctor` verifies those
+fields and fails when a provider manifest is inactive, mislabeled, or points at
+the wrong hook command.
 
 `agent-hook` accepts each provider's supported event shape and normalizes it
 before policy evaluation. Claude may send native `hook_event_name`,

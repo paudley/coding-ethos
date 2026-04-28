@@ -275,6 +275,21 @@ agent_settings_root="$tmp_root/agent-settings"
   --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
   --root "$agent_settings_root" >/dev/null
+if ! grep -q '"provider": "codex"' "$agent_settings_root/.codex/coding-ethos-hooks.json" ||
+  ! grep -q '"active": true' "$agent_settings_root/.codex/coding-ethos-hooks.json" ||
+  ! grep -q '"payload_contract": "coding-ethos-agent-event-v1"' \
+    "$agent_settings_root/.codex/coding-ethos-hooks.json"; then
+  printf 'expected active Codex provider manifest:\n' >&2
+  cat "$agent_settings_root/.codex/coding-ethos-hooks.json" >&2
+  exit 1
+fi
+if ! grep -q '"provider": "gemini"' "$agent_settings_root/.gemini/coding-ethos-hooks.json" ||
+  ! grep -q '"active": true' "$agent_settings_root/.gemini/coding-ethos-hooks.json" ||
+  ! grep -q '"runtime_entrypoint": ' "$agent_settings_root/.gemini/coding-ethos-hooks.json"; then
+  printf 'expected active Gemini provider manifest:\n' >&2
+  cat "$agent_settings_root/.gemini/coding-ethos-hooks.json" >&2
+  exit 1
+fi
 
 printf '==> validating agent git wrapper rewrite and refusal\n'
 (

@@ -92,8 +92,12 @@ inventory used to keep the migration status explicit.
   such as "keep the todo list current" when work spans multiple planned steps.
 - Agent-hook behavior has a repo-owned settings renderer, explicit sync, and
   doctor path through `coding-ethos-agent-hooks` and
-  `run-go-hook.sh agent-hooks`. Cutover still requires intentionally choosing
-  which repo or Claude settings file to update.
+  `run-go-hook.sh agent-hooks`. Generation is all-provider only: Claude,
+  Codex, and Gemini surfaces are rendered together, and doctor rejects missing,
+  inactive, wrong-provider, or wrong-command provider manifests. Claude uses
+  Claude Code's native settings file. Codex and Gemini use explicit
+  coding-ethos provider manifests with an active flag, provider identity,
+  adapter metadata, and the shared runtime command contract.
 - Git hooks now enter `coding-ethos-git-hook`, a compiled-policy-owned Go
   runtime. It performs policy preflight and then runs the bundled hook groups as
   executable checks. Future work should continue migrating individual checks
@@ -119,11 +123,14 @@ inventory used to keep the migration status explicit.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.
-- Claude is the first concrete provider surface. The agent-hook settings
-  renderer now consumes provider-neutral hook specs before rendering Claude
-  settings. Remaining provider work is to add concrete Codex/Gemini adapters
-  where their products expose lifecycle hooks, using the same runtime event
-  inventory instead of duplicating policy wiring.
+- Claude, Codex, and Gemini now share the provider-neutral hook spec and runtime
+  event inventory. The hook runtime normalizes Claude native payloads,
+  provider-neutral Codex/Gemini payloads, camelCase Gemini CLI-style payloads,
+  and nested Codex-style `tool_call` payloads into one policy event before
+  evaluation. Remaining provider work is product-specific activation glue where
+  Codex or Gemini CLI expose native lifecycle hook execution; that glue should
+  consume the generated provider manifests rather than adding legacy adapters
+  or duplicating policy wiring.
 
 ## Fixture Contract
 

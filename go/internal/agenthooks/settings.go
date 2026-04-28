@@ -47,9 +47,18 @@ type manifestHook struct {
 	Command string `json:"command"`
 }
 
+type adapterManifest struct {
+	CommandContract   string `json:"command_contract"`
+	PayloadContract   string `json:"payload_contract"`
+	RuntimeEntrypoint string `json:"runtime_entrypoint"`
+}
+
 type providerManifest struct {
-	Hooks   []manifestHook `json:"hooks"`
-	Version int            `json:"version"`
+	Adapter  adapterManifest `json:"adapter"`
+	Provider string          `json:"provider"`
+	Hooks    []manifestHook  `json:"hooks"`
+	Version  int             `json:"version"`
+	Active   bool            `json:"active"`
 }
 
 type allSettings struct {
@@ -224,8 +233,8 @@ func buildAllSettings(hookCommand string) (allSettings, error) {
 
 	return allSettings{
 		Claude: buildClaudeSettings(RuntimeHookSpecs(), hookCommand),
-		Codex:  buildProviderManifest(RuntimeHookSpecs(), hookCommand),
-		Gemini: buildProviderManifest(RuntimeHookSpecs(), hookCommand),
+		Codex:  buildProviderManifest(ProviderCodex, RuntimeHookSpecs(), hookCommand),
+		Gemini: buildProviderManifest(ProviderGemini, RuntimeHookSpecs(), hookCommand),
 	}, nil
 }
 
@@ -242,6 +251,7 @@ func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
 }
 
 func buildProviderManifest(
+	provider Provider,
 	specs []HookSpec,
 	hookCommand string,
 ) providerManifest {
@@ -255,8 +265,15 @@ func buildProviderManifest(
 	}
 
 	return providerManifest{
-		Version: manifestVersion,
-		Hooks:   hooks,
+		Adapter: adapterManifest{
+			CommandContract:   "stdin-json",
+			PayloadContract:   "coding-ethos-agent-event-v1",
+			RuntimeEntrypoint: hookCommand,
+		},
+		Active:   true,
+		Hooks:    hooks,
+		Provider: string(provider),
+		Version:  manifestVersion,
 	}
 }
 
@@ -293,6 +310,10 @@ func manifestPayloadMatches(
 
 	err = json.Unmarshal(raw, &actual)
 	if err != nil {
+		return false
+	}
+
+	if !actual.Active || actual.Provider != string(provider) {
 		return false
 	}
 

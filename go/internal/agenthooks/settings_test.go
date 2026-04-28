@@ -30,6 +30,12 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"claude": {`,
 		`"codex": {`,
 		`"gemini": {`,
+		`"active": true`,
+		`"command_contract": "stdin-json"`,
+		`"payload_contract": "coding-ethos-agent-event-v1"`,
+		`"provider": "codex"`,
+		`"provider": "gemini"`,
+		`"runtime_entrypoint": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"PreCompact"`,
@@ -149,5 +155,79 @@ func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	err = agenthooks.DoctorSettings(root, "/other/run-go-hook.sh agent-hook")
 	if err == nil {
 		t.Fatal("expected doctor mismatch")
+	}
+}
+
+func TestDoctorSettingsRejectsInactiveProviderManifest(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+
+	payload, err := os.ReadFile(paths.Codex)
+	if err != nil {
+		t.Fatalf("read codex settings: %v", err)
+	}
+
+	mutated := strings.Replace(string(payload), `"active": true`, `"active": false`, 1)
+
+	overwriteAgentSettings(t, paths.Codex, mutated)
+
+	err = agenthooks.DoctorSettings(root, testHookCommand)
+	if err == nil {
+		t.Fatal("expected inactive provider manifest mismatch")
+	}
+}
+
+func TestDoctorSettingsRejectsWrongProviderManifest(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+
+	payload, err := os.ReadFile(paths.Gemini)
+	if err != nil {
+		t.Fatalf("read gemini settings: %v", err)
+	}
+
+	mutated := strings.Replace(
+		string(payload),
+		`"provider": "gemini"`,
+		`"provider": "codex"`,
+		1,
+	)
+
+	overwriteAgentSettings(t, paths.Gemini, mutated)
+
+	err = agenthooks.DoctorSettings(root, testHookCommand)
+	if err == nil {
+		t.Fatal("expected wrong provider manifest mismatch")
+	}
+}
+
+func overwriteAgentSettings(t *testing.T, path string, content string) {
+	t.Helper()
+
+	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatalf("open settings for overwrite: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(content)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
 	}
 }
