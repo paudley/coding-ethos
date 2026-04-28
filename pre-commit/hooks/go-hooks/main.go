@@ -6337,20 +6337,9 @@ func runShellcheck(_ Config, paths []string) int {
 		return 0
 	}
 
-	shellcheck, err := exec.LookPath("shellcheck")
-	if err != nil {
-		fmt.Fprintln(
-			os.Stderr,
-			"FATAL: shellcheck is required. Install: apt/brew install shellcheck",
-		)
-
-		return 1
-	}
-
-	args := append([]string{"--severity=warning", "-x", "--format=json"}, files...)
 	result := runExternalTool(externalToolRequest{
 		Name:    "shellcheck",
-		Command: append([]string{shellcheck}, args...),
+		Command: toolchainCommandWithFiles("shellcheck", files),
 	})
 	outputText := result.Combined
 
@@ -6378,40 +6367,7 @@ func runShellcheck(_ Config, paths []string) int {
 }
 
 func parseShellcheckFindings(output string) []hookFinding {
-	if strings.TrimSpace(output) == "" {
-		return nil
-	}
-
-	var payload struct {
-		Comments []struct {
-			File    string `json:"file"`
-			Level   string `json:"level"`
-			Message string `json:"message"`
-			Line    int    `json:"line"`
-			Column  int    `json:"column"`
-			Code    int    `json:"code"`
-		} `json:"comments"`
-	}
-
-	err := json.Unmarshal([]byte(output), &payload)
-	if err != nil {
-		return nil
-	}
-
-	findings := make([]hookFinding, 0, len(payload.Comments))
-	for _, comment := range payload.Comments {
-		findings = append(findings, hookFinding{
-			Tool:     "shellcheck",
-			File:     comment.File,
-			Line:     comment.Line,
-			Column:   comment.Column,
-			Severity: comment.Level,
-			Code:     fmt.Sprintf("SC%d", comment.Code),
-			Message:  comment.Message,
-		})
-	}
-
-	return findings
+	return parseCatalogFindings("shellcheck", output)
 }
 
 func runYamllint(_ Config, paths []string) int {
@@ -6420,35 +6376,10 @@ func runYamllint(_ Config, paths []string) int {
 		return 0
 	}
 
-	bundleRoot, err := findBundleRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
-
-		return 1
-	}
-
-	configPath := ".yamllint.yml"
-	args := append(
-		[]string{
-			"run",
-			"--quiet",
-			"--project",
-			filepath.Join(bundleRoot, "hooks"),
-			"--with",
-			"yamllint",
-			"yamllint",
-			"-c",
-			configPath,
-			"--strict",
-			"-f",
-			"parsable",
-		},
-		files...,
-	)
 	result := runExternalTool(externalToolRequest{
 		Name:    "yamllint",
 		Dir:     repoRoot(),
-		Command: append([]string{"uv"}, args...),
+		Command: uvToolchainCommandWithRepoConfig("yamllint", ".yamllint.yml", files),
 	})
 	outputText := result.Combined
 
@@ -6489,50 +6420,7 @@ func yamlFiles(paths []string) []string {
 }
 
 func parseYamllintFindings(output string) []hookFinding {
-	findings := []hookFinding{}
-
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		parts := strings.SplitN(line, ":", yamllintParts)
-		if len(parts) < yamllintParts {
-			continue
-		}
-
-		lineNo, validLine := parseDiagnosticInt(parts[1])
-		column, validColumn := parseDiagnosticInt(parts[2])
-
-		if !validLine || !validColumn {
-			continue
-		}
-
-		message := strings.TrimSpace(parts[3])
-
-		severity := ""
-		if strings.Contains(message, "[error]") {
-			severity = "error"
-		} else if strings.Contains(message, "[warning]") {
-			severity = "warning"
-		}
-
-		code := ""
-		if start := strings.LastIndex(message, "("); start >= 0 &&
-			strings.HasSuffix(message, ")") {
-			code = strings.TrimSuffix(message[start+1:], ")")
-			message = strings.TrimSpace(message[:start])
-		}
-
-		message = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(message, "[error]"), "[warning]"))
-		findings = append(findings, hookFinding{
-			Tool:     "yamllint",
-			File:     strings.TrimSpace(parts[0]),
-			Line:     lineNo,
-			Column:   column,
-			Severity: severity,
-			Code:     code,
-			Message:  message,
-		})
-	}
-
-	return findings
+	return parseCatalogFindings("yamllint", output)
 }
 
 func checkShellBestPractices(cfg Config, paths []string) int {

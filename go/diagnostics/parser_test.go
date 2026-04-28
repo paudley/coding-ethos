@@ -90,6 +90,88 @@ func TestParseGolangciLintDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseToolchainDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tool   string
+		output string
+		want   diagnostics.Diagnostic
+	}{
+		{
+			name: "hadolint-json",
+			tool: "hadolint",
+			output: `[{"file":"Dockerfile","line":3,"column":1,` +
+				`"level":"warning","code":"DL3008",` +
+				`"message":"Pin versions in apt get install."}]`,
+			want: diagnostics.Diagnostic{
+				Tool:     "hadolint",
+				File:     "Dockerfile",
+				Line:     3,
+				Column:   1,
+				Severity: "warning",
+				Code:     "DL3008",
+				Message:  "Pin versions in apt get install.",
+			},
+		},
+		{
+			name: "actionlint-jsonl",
+			tool: "actionlint",
+			output: `{"filepath":".github/workflows/ci.yml",` +
+				`"line":12,"column":5,"kind":"syntax-check",` +
+				`"message":"property \"run\" is not defined"}`,
+			want: diagnostics.Diagnostic{
+				Tool:     "actionlint",
+				File:     ".github/workflows/ci.yml",
+				Line:     12,
+				Column:   5,
+				Severity: "error",
+				Code:     "syntax-check",
+				Message:  `property "run" is not defined`,
+			},
+		},
+		{
+			name: "shellcheck-json",
+			tool: "shellcheck",
+			output: `{"comments":[{"file":"script.sh","line":3,` +
+				`"column":7,"level":"warning","code":2086,` +
+				`"message":"Double quote to prevent globbing and word splitting."}]}`,
+			want: diagnostics.Diagnostic{
+				Tool:     "shellcheck",
+				File:     "script.sh",
+				Line:     3,
+				Column:   7,
+				Severity: "warning",
+				Code:     "SC2086",
+				Message:  "Double quote to prevent globbing and word splitting.",
+			},
+		},
+		{
+			name:   "yamllint-parsable",
+			tool:   "yamllint",
+			output: `config.yaml:2:5: [error] wrong indentation (indentation)`,
+			want: diagnostics.Diagnostic{
+				Tool:     "yamllint",
+				File:     "config.yaml",
+				Line:     2,
+				Column:   5,
+				Severity: "error",
+				Code:     "indentation",
+				Message:  "wrong indentation",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
+		})
+	}
+}
+
 func TestFallbackParserUsesStderrWhenStdoutEmpty(t *testing.T) {
 	t.Parallel()
 

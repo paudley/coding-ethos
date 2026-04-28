@@ -22,6 +22,24 @@ var fallbackPattern = regexp.MustCompile(
 
 const fallbackMatchParts = 6
 
+var (
+	actionlintPattern = regexp.MustCompile(
+		`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\[([^\]]+)])?$`,
+	)
+	golangciPattern = regexp.MustCompile(
+		`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\(([^)]+)\))?$`,
+	)
+	hadolintPattern = regexp.MustCompile(
+		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
+	)
+)
+
+const (
+	actionlintTextMatchParts = 6
+	hadolintTextMatchParts   = 6
+	yamllintParts            = 4
+)
+
 func Parse(tool string, stdout string, stderr string) []Diagnostic {
 	output := strings.TrimSpace(firstNonEmpty(stdout, stderr))
 	if output == "" {
@@ -63,6 +81,14 @@ func parserForTool(tool string) (Parser, bool) {
 		return parsePylint, true
 	case "golangci-lint":
 		return parseGolangciLint, true
+	case "hadolint":
+		return parseHadolint, true
+	case "actionlint":
+		return parseActionlint, true
+	case "shellcheck":
+		return parseShellcheck, true
+	case "yamllint":
+		return parseYamllint, true
 	default:
 		return nil, false
 	}
@@ -238,6 +264,40 @@ func parsePylint(output string) []Diagnostic {
 }
 
 func parseGolangciLint(output string) []Diagnostic {
+	if diagnostics := parseGolangciLintJSON(output); len(diagnostics) > 0 {
+		return diagnostics
+	}
+
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		matches := golangciPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != actionlintTextMatchParts {
+			continue
+		}
+
+		lineNo, validLine := parseInt(matches[2])
+		column, validColumn := parseInt(matches[3])
+
+		if !validLine || !validColumn {
+			continue
+		}
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "golangci-lint",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: "error",
+			Code:     matches[5],
+			Message:  strings.TrimSpace(matches[4]),
+		})
+	}
+
+	return diagnostics
+}
+
+func parseGolangciLintJSON(output string) []Diagnostic {
 	var payload struct {
 		Issues []struct {
 			FromLinter string `json:"FromLinter"`
@@ -266,6 +326,225 @@ func parseGolangciLint(output string) []Diagnostic {
 			Severity: firstNonEmpty(issue.Severity, "error"),
 			Code:     issue.FromLinter,
 			Message:  issue.Text,
+		})
+	}
+
+	return diagnostics
+}
+
+func parseHadolint(output string) []Diagnostic {
+	if diagnostics := parseHadolintJSON(output); len(diagnostics) > 0 {
+		return diagnostics
+	}
+
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		matches := hadolintPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != hadolintTextMatchParts {
+			continue
+		}
+
+		lineNo, ok := parseInt(matches[2])
+		if !ok {
+			continue
+		}
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "hadolint",
+			File:     matches[1],
+			Line:     lineNo,
+			Severity: strings.TrimSpace(matches[4]),
+			Code:     matches[3],
+			Message:  strings.TrimSpace(matches[5]),
+		})
+	}
+
+	return diagnostics
+}
+
+func parseHadolintJSON(output string) []Diagnostic {
+	var items []struct {
+		Code    string `json:"code"`
+		File    string `json:"file"`
+		Level   string `json:"level"`
+		Message string `json:"message"`
+		Line    int    `json:"line"`
+		Column  int    `json:"column"`
+	}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(items))
+	for _, item := range items {
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "hadolint",
+			File:     item.File,
+			Line:     item.Line,
+			Column:   item.Column,
+			Severity: item.Level,
+			Code:     item.Code,
+			Message:  item.Message,
+		})
+	}
+
+	return diagnostics
+}
+
+func parseActionlint(output string) []Diagnostic {
+	if diagnostics := parseActionlintJSON(output); len(diagnostics) > 0 {
+		return diagnostics
+	}
+
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		matches := actionlintPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != actionlintTextMatchParts {
+			continue
+		}
+
+		lineNo, validLine := parseInt(matches[2])
+		column, validColumn := parseInt(matches[3])
+
+		if !validLine || !validColumn {
+			continue
+		}
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "actionlint",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: "error",
+			Code:     matches[5],
+			Message:  strings.TrimSpace(matches[4]),
+		})
+	}
+
+	return diagnostics
+}
+
+func parseActionlintJSON(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		var item struct {
+			FilePath string `json:"filepath"`
+			File     string `json:"file"`
+			Path     string `json:"path"`
+			Message  string `json:"message"`
+			Kind     string `json:"kind"`
+			Check    string `json:"check"`
+			Line     int    `json:"line"`
+			Column   int    `json:"column"`
+		}
+
+		err := json.Unmarshal([]byte(strings.TrimSpace(line)), &item)
+		if err != nil {
+			continue
+		}
+
+		file := firstNonEmpty(item.FilePath, item.File, item.Path)
+		if file == "" && item.Message == "" {
+			continue
+		}
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "actionlint",
+			File:     file,
+			Line:     item.Line,
+			Column:   item.Column,
+			Severity: "error",
+			Code:     firstNonEmpty(item.Kind, item.Check),
+			Message:  item.Message,
+		})
+	}
+
+	return diagnostics
+}
+
+func parseShellcheck(output string) []Diagnostic {
+	var payload struct {
+		Comments []struct {
+			File    string `json:"file"`
+			Level   string `json:"level"`
+			Message string `json:"message"`
+			Line    int    `json:"line"`
+			Column  int    `json:"column"`
+			Code    int    `json:"code"`
+		} `json:"comments"`
+	}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(payload.Comments))
+	for _, comment := range payload.Comments {
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "shellcheck",
+			File:     comment.File,
+			Line:     comment.Line,
+			Column:   comment.Column,
+			Severity: comment.Level,
+			Code:     "SC" + strconv.Itoa(comment.Code),
+			Message:  comment.Message,
+		})
+	}
+
+	return diagnostics
+}
+
+func parseYamllint(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		parts := strings.SplitN(line, ":", yamllintParts)
+		if len(parts) < yamllintParts {
+			continue
+		}
+
+		lineNo, validLine := parseInt(parts[1])
+		column, validColumn := parseInt(parts[2])
+
+		if !validLine || !validColumn {
+			continue
+		}
+
+		message := strings.TrimSpace(parts[3])
+		severity := ""
+
+		switch {
+		case strings.Contains(message, "[error]"):
+			severity = "error"
+		case strings.Contains(message, "[warning]"):
+			severity = "warning"
+		}
+
+		code := ""
+		if start := strings.LastIndex(message, "("); start >= 0 &&
+			strings.HasSuffix(message, ")") {
+			code = strings.TrimSuffix(message[start+1:], ")")
+			message = strings.TrimSpace(message[:start])
+		}
+
+		message = strings.TrimPrefix(message, "[error]")
+		message = strings.TrimPrefix(message, "[warning]")
+		message = strings.TrimSpace(message)
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "yamllint",
+			File:     strings.TrimSpace(parts[0]),
+			Line:     lineNo,
+			Column:   column,
+			Severity: severity,
+			Code:     code,
+			Message:  message,
 		})
 	}
 

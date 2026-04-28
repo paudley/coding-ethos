@@ -4,6 +4,7 @@
 package toolcatalog_test
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -64,5 +65,73 @@ func TestPythonStaticToolReturnsDefensiveCopy(t *testing.T) {
 
 	if again.Command[0] != "ruff" {
 		t.Fatalf("catalog command mutated: %#v", again.Command)
+	}
+}
+
+func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
+	t.Parallel()
+
+	tools := mapByName(toolcatalog.ToolchainTools())
+
+	assertToolCommand(t, tools["hadolint"], []string{"hadolint", "--format", "json"})
+	assertToolCommand(
+		t,
+		tools["actionlint"],
+		[]string{"actionlint", "-format", "{{json .}}"},
+	)
+	assertToolCommand(
+		t,
+		tools["shellcheck"],
+		[]string{"shellcheck", "--severity=warning", "-x", "--format=json"},
+	)
+	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
+	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
+
+	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
+		tools["yamllint"].ConfigFlags[0] != "-c" {
+		t.Fatalf("yamllint config metadata = %#v", tools["yamllint"])
+	}
+
+	if !reflect.DeepEqual(
+		tools["yamllint"].PostConfigArgs,
+		[]string{"--strict", "-f", "parsable"},
+	) {
+		t.Fatalf("yamllint post-config args = %#v", tools["yamllint"].PostConfigArgs)
+	}
+
+	golangci := tools["golangci-lint"]
+	if golangci.RepoConfig != ".golangci.yml" || golangci.ConfigFlags[0] != "--config" {
+		t.Fatalf("golangci-lint config metadata = %#v", golangci)
+	}
+
+	wantPostConfig := []string{
+		"--output.json.path",
+		"stdout",
+		"--output.text.path",
+		"/dev/null",
+	}
+	if !reflect.DeepEqual(golangci.PostConfigArgs, wantPostConfig) {
+		t.Fatalf(
+			"golangci-lint post-config args = %#v, want %#v",
+			golangci.PostConfigArgs,
+			wantPostConfig,
+		)
+	}
+}
+
+func mapByName(tools []toolcatalog.Tool) map[string]toolcatalog.Tool {
+	byName := make(map[string]toolcatalog.Tool, len(tools))
+	for _, tool := range tools {
+		byName[tool.Name] = tool
+	}
+
+	return byName
+}
+
+func assertToolCommand(t *testing.T, tool toolcatalog.Tool, want []string) {
+	t.Helper()
+
+	if !reflect.DeepEqual(tool.Command, want) {
+		t.Fatalf("%s command = %#v, want %#v", tool.Name, tool.Command, want)
 	}
 }
