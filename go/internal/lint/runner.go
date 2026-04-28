@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"blackcat.ca/coding-ethos/go/internal/diagnostics"
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"blackcat.ca/coding-ethos/go/internal/diagnostics"
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"go.yaml.in/yaml/v3"
 )
 

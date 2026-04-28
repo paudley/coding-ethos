@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"blackcat.ca/coding-ethos/go/internal/diagnostics"
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 

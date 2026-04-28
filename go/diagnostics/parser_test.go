@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"blackcat.ca/coding-ethos/go/internal/diagnostics"
+	"blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 func TestParseRuffDiagnostics(t *testing.T) {

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:tagliatelle,gocognit,nestif,lll // External checker schemas and diagnostics.
+//nolint:gocognit,lll // Type-check orchestration has several tool paths.
 package main
 
 import (
@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	diag "blackcat.ca/coding-ethos/go/diagnostics"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -36,17 +37,17 @@ type typeCheckSettings struct {
 	ConsumerRoot          string
 	HooksProject          string
 	Checkers              []typeCheckerConfig
-	EvidenceMaps          []policyEvidenceMap
+	EvidenceMaps          []diag.EvidenceMap
 	ExcludedPathFragments []string
 	Enabled               bool
 }
 
 type typeCheckResult struct {
-	Name        string                `json:"name"`
-	Output      string                `json:"output,omitempty"`
-	Diagnostics []typeCheckDiagnostic `json:"diagnostics,omitempty"`
-	ExitCode    int                   `json:"exit_code"`
-	DurationMS  float64               `json:"duration_ms"`
+	Name        string            `json:"name"`
+	Output      string            `json:"output,omitempty"`
+	Diagnostics []diag.Diagnostic `json:"diagnostics,omitempty"`
+	ExitCode    int               `json:"exit_code"`
+	DurationMS  float64           `json:"duration_ms"`
 }
 
 type typeCheckSummary struct {
@@ -57,39 +58,6 @@ type typeCheckSummary struct {
 	Passed    int               `json:"passed"`
 	Failed    int               `json:"failed"`
 	Duration  float64           `json:"duration_ms"`
-}
-
-type typeCheckDiagnostic struct {
-	Checker      string   `json:"checker"`
-	File         string   `json:"file"`
-	Severity     string   `json:"severity"`
-	Code         string   `json:"code,omitempty"`
-	Message      string   `json:"message"`
-	PolicyID     string   `json:"policy_id,omitempty"`
-	Confidence   string   `json:"confidence,omitempty"`
-	Meaning      string   `json:"meaning,omitempty"`
-	Advice       string   `json:"advice,omitempty"`
-	PrincipleIDs []string `json:"principle_ids,omitempty"`
-	AdviceSteps  []string `json:"advice_steps,omitempty"`
-	Rerun        []string `json:"rerun,omitempty"`
-	Line         int      `json:"line,omitempty"`
-	Column       int      `json:"column,omitempty"`
-}
-
-type policyEvidenceAdvice struct {
-	Summary string
-	Steps   []string
-	Rerun   []string
-}
-
-type policyEvidenceMap struct {
-	Advice       policyEvidenceAdvice
-	Source       string
-	PolicyID     string
-	Confidence   string
-	Meaning      string
-	Codes        []string
-	PrincipleIDs []string
 }
 
 func defaultTypeCheckers() []typeCheckerConfig {
@@ -137,8 +105,8 @@ func defaultTypeCheckers() []typeCheckerConfig {
 	}
 }
 
-func defaultPolicyEvidenceMaps() []policyEvidenceMap {
-	return []policyEvidenceMap{
+func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
+	return []diag.EvidenceMap{
 		{
 			Source:       "ruff",
 			Codes:        []string{"PLC0415"},
@@ -146,7 +114,7 @@ func defaultPolicyEvidenceMaps() []policyEvidenceMap {
 			PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
 			Confidence:   "high",
 			Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
-			Advice: policyEvidenceAdvice{
+			Advice: diag.EvidenceAdvice{
 				Summary: "Move required imports to module scope and fail during startup.",
 				Steps: []string{
 					"Declare the dependency as required.",
@@ -585,8 +553,8 @@ func runTypeChecker(
 		Command: command,
 	})
 	outputText := toolResult.Combined
-	diagnostics := parseTypeCheckDiagnostics(checker.Name, outputText)
-	diagnostics = enrichTypeCheckDiagnostics(diagnostics, settings.EvidenceMaps)
+	diagnostics := diag.Parse(checker.Name, outputText, "")
+	diagnostics = diag.Enrich(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())
 	if toolResult.RunnerFailure == nil && toolResult.ExitCode == 0 {
@@ -615,240 +583,6 @@ func runTypeChecker(
 		Output:     fmt.Sprintf("Error running %s: %v", checker.Name, toolResult.RunnerFailure),
 		DurationMS: duration,
 	}
-}
-
-func parseTypeCheckDiagnostics(checker string, output string) []typeCheckDiagnostic {
-	if strings.TrimSpace(output) == "" {
-		return nil
-	}
-
-	switch checker {
-	case "ruff":
-		return parseRuffDiagnostics(output)
-	case "pyright":
-		return parsePyrightDiagnostics(output)
-	case "mypy":
-		return parseMypyDiagnostics(output)
-	case "pylint":
-		return parsePylintDiagnostics(output)
-	default:
-		return nil
-	}
-}
-
-func parseRuffDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		Filename string `json:"filename"`
-		Code     string `json:"code"`
-		Message  string `json:"message"`
-		Location struct {
-			Row    int `json:"row"`
-			Column int `json:"column"`
-		} `json:"location"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "ruff",
-			File:     item.Filename,
-			Severity: "error",
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Location.Row,
-			Column:   item.Location.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parsePyrightDiagnostics(output string) []typeCheckDiagnostic {
-	var payload struct {
-		GeneralDiagnostics []struct {
-			File     string `json:"file"`
-			Severity string `json:"severity"`
-			Message  string `json:"message"`
-			Rule     string `json:"rule"`
-			Range    struct {
-				Start struct {
-					Line      int `json:"line"`
-					Character int `json:"character"`
-				} `json:"start"`
-			} `json:"range"`
-		} `json:"generalDiagnostics"`
-	}
-
-	err := json.Unmarshal([]byte(output), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(payload.GeneralDiagnostics))
-	for _, item := range payload.GeneralDiagnostics {
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "pyright",
-			File:     item.File,
-			Severity: item.Severity,
-			Code:     item.Rule,
-			Message:  item.Message,
-			Line:     item.Range.Start.Line + 1,
-			Column:   item.Range.Start.Character + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseMypyDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		File     string `json:"file"`
-		Path     string `json:"path"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
-		Code     string `json:"code"`
-		Line     int    `json:"line"`
-		Column   int    `json:"column"`
-	}
-
-	trimmedOutput := strings.TrimSpace(output)
-	if strings.HasPrefix(trimmedOutput, "[") {
-		err := json.Unmarshal([]byte(trimmedOutput), &items)
-		if err != nil {
-			return nil
-		}
-	} else {
-		for line := range strings.SplitSeq(trimmedOutput, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-
-			var item struct {
-				File     string `json:"file"`
-				Path     string `json:"path"`
-				Severity string `json:"severity"`
-				Message  string `json:"message"`
-				Code     string `json:"code"`
-				Line     int    `json:"line"`
-				Column   int    `json:"column"`
-			}
-
-			err := json.Unmarshal([]byte(line), &item)
-			if err != nil {
-				return nil
-			}
-
-			items = append(items, item)
-		}
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		file := item.File
-		if file == "" {
-			file = item.Path
-		}
-
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "mypy",
-			File:     file,
-			Severity: item.Severity,
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parsePylintDiagnostics(output string) []typeCheckDiagnostic {
-	var items []struct {
-		Path      string `json:"path"`
-		Type      string `json:"type"`
-		Symbol    string `json:"symbol"`
-		MessageID string `json:"message-id"`
-		Message   string `json:"message"`
-		Line      int    `json:"line"`
-		Column    int    `json:"column"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]typeCheckDiagnostic, 0, len(items))
-	for _, item := range items {
-		code := item.Symbol
-		if code == "" {
-			code = item.MessageID
-		}
-
-		diagnostics = append(diagnostics, typeCheckDiagnostic{
-			Checker:  "pylint",
-			File:     item.Path,
-			Severity: item.Type,
-			Code:     code,
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func enrichTypeCheckDiagnostics(
-	diagnostics []typeCheckDiagnostic,
-	evidenceMaps []policyEvidenceMap,
-) []typeCheckDiagnostic {
-	if len(diagnostics) == 0 || len(evidenceMaps) == 0 {
-		return diagnostics
-	}
-
-	enriched := make([]typeCheckDiagnostic, 0, len(diagnostics))
-	for _, diagnostic := range diagnostics {
-		mapping, ok := evidenceMapForDiagnostic(diagnostic, evidenceMaps)
-		if ok {
-			diagnostic.PolicyID = mapping.PolicyID
-			diagnostic.PrincipleIDs = append([]string{}, mapping.PrincipleIDs...)
-			diagnostic.Confidence = mapping.Confidence
-			diagnostic.Meaning = mapping.Meaning
-			diagnostic.Advice = mapping.Advice.Summary
-			diagnostic.AdviceSteps = append([]string{}, mapping.Advice.Steps...)
-			diagnostic.Rerun = append([]string{}, mapping.Advice.Rerun...)
-		}
-
-		enriched = append(enriched, diagnostic)
-	}
-
-	return enriched
-}
-
-func evidenceMapForDiagnostic(
-	diagnostic typeCheckDiagnostic,
-	evidenceMaps []policyEvidenceMap,
-) (policyEvidenceMap, bool) {
-	for _, mapping := range evidenceMaps {
-		if !strings.EqualFold(strings.TrimSpace(mapping.Source), diagnostic.Checker) {
-			continue
-		}
-
-		for _, code := range mapping.Codes {
-			if strings.EqualFold(strings.TrimSpace(code), strings.TrimSpace(diagnostic.Code)) {
-				return mapping, true
-			}
-		}
-	}
-
-	return policyEvidenceMap{}, false
 }
 
 func typeCheckSummaryForResults(
@@ -955,7 +689,7 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 				lines,
 				fmt.Sprintf(
 					"  %s,%s,%d,%d,%s,%s,%s,%s,%s",
-					toonCell(diagnostic.Checker),
+					toonCell(diagnostic.Tool),
 					toonCell(diagnostic.File),
 					diagnostic.Line,
 					diagnostic.Column,
@@ -988,8 +722,8 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 
 func typeCheckDiagnosticsForResults(
 	results []typeCheckResult,
-) []typeCheckDiagnostic {
-	diagnostics := []typeCheckDiagnostic{}
+) []diag.Diagnostic {
+	diagnostics := []diag.Diagnostic{}
 	for _, result := range results {
 		diagnostics = append(diagnostics, result.Diagnostics...)
 	}
@@ -1007,7 +741,7 @@ func typeCheckDiagnosticsForResults(
 			return diagnostics[left].Column < diagnostics[right].Column
 		}
 
-		return diagnostics[left].Checker < diagnostics[right].Checker
+		return diagnostics[left].Tool < diagnostics[right].Tool
 	})
 
 	return diagnostics
@@ -1110,8 +844,8 @@ func formatTypeCheckResultsHuman(results []typeCheckResult, fileCount int) strin
 	return strings.Join(lines, "\n")
 }
 
-func formatTypeCheckDiagnostics(diagnostics []typeCheckDiagnostic) []string {
-	grouped := map[string][]typeCheckDiagnostic{}
+func formatTypeCheckDiagnostics(diagnostics []diag.Diagnostic) []string {
+	grouped := map[string][]diag.Diagnostic{}
 	files := []string{}
 
 	for _, diagnostic := range diagnostics {

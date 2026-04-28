@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"blackcat.ca/coding-ethos/go/internal/diagnostics"
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 

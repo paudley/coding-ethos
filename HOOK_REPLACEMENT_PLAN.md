@@ -110,7 +110,9 @@ inventory used to keep the migration status explicit.
   Pylint, golangci-lint, and fallback `file:line:column` output for compiled
   external evaluator results. Compiled `policy.evidence_maps` enrich known
   diagnostic codes with ETHOS policy IDs, principles, confidence, meaning, and
-  repair advice while preserving unmapped diagnostics.
+  repair advice while preserving unmapped diagnostics. The bundled Python
+  type-check hook now uses the same shared parser and enrichment package instead
+  of maintaining a private duplicate parser stack.
 - Future compiled-policy checkers should include a repo ignore checker plus a
   license-header and copyright checker for first-party source and project
   files.

@@ -3,7 +3,7 @@
 
 package policy
 
-import "blackcat.ca/coding-ethos/go/internal/diagnostics"
+import "blackcat.ca/coding-ethos/go/diagnostics"
 
 type Decision struct {
 	Evidence     map[string]any           `json:"evidence,omitempty"`

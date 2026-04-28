@@ -401,6 +401,9 @@ Known diagnostic codes are enriched from compiled `policy.evidence_maps`, so
 ETHOS-significant findings can carry `policy_id`, `principle_ids`, confidence,
 meaning, and repair advice while unmapped tool findings still flow through
 unchanged.
+The bundled Python type-check hook uses this same shared diagnostic package, so
+Ruff, Pyright, mypy, and Pylint parsing have one implementation across compiled
+lint and hook execution.
 
 Render or verify Claude agent hook settings without touching global files:
 
