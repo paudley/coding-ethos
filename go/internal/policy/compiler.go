@@ -451,6 +451,7 @@ func pythonPolicySpecs(
 			[]string{"python", "comment_suppressions"},
 			principleRefs(principles, "linting-as-code-quality-enforcement"),
 		),
+		pyprojectIgnoresPolicySpec(config, principles),
 		pytestGatePolicySpec(config, principles),
 	}
 }
@@ -515,6 +516,56 @@ func pytestGatePolicySpec(
 	}
 }
 
+func pyprojectIgnoresPolicySpec(
+	config map[string]any,
+	principles map[string]Principle,
+) compiledPolicySpec {
+	policyID := "python.pyproject_ignores"
+	options := map[string]any{
+		"allowed_ignore_patterns": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_ignore_patterns"},
+			nil,
+		),
+		"allowed_exclude_patterns": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_exclude_patterns"},
+			nil,
+		),
+		"allowed_mypy_missing_imports": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_mypy_missing_imports"},
+			nil,
+		),
+	}
+
+	policy := Policy{
+		ID:              policyID,
+		Category:        "python",
+		Source:          SourceRef{File: "config.yaml", Path: "python.pyproject_ignores"},
+		PrincipleIDs:    principleRefs(principles, "linting-as-code-quality-enforcement"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         pythonPolicyMessage(policyID),
+		Suggestion:      pythonPolicySuggestion(policyID),
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			FilePatterns: []string{"pyproject.toml", "**/pyproject.toml"},
+		},
+		Evaluators: []Evaluator{{
+			Kind:    "toml",
+			Name:    policyID,
+			Options: options,
+		}},
+	}
+
+	return compiledPolicySpec{
+		ID:          policyID,
+		EnabledPath: []string{"python", "pyproject_ignores"},
+		Policy:      policy,
+	}
+}
+
 func pythonPolicyMessage(policyID string) string {
 	switch policyID {
 	case "python.conditional_imports":
@@ -544,6 +595,8 @@ func pythonPolicyMessage(policyID string) string {
 		)
 	case "python.bare_except":
 		return "Bare except clauses hide exception types and are forbidden."
+	case "python.pyproject_ignores":
+		return "pyproject.toml contains forbidden linter ignore configuration."
 	default:
 		return "Unexplained type ignore suppressions are forbidden."
 	}
@@ -563,6 +616,8 @@ func pythonPolicySuggestion(policyID string) string {
 		return "Import through the package public API or configure an exempt path."
 	case "python.bare_except":
 		return "Catch a precise exception type and handle it explicitly."
+	case "python.pyproject_ignores":
+		return "Move file-specific ignores into the target files with documented justification."
 	default:
 		return "Remove the suppression or document the narrow technical reason."
 	}
@@ -2195,6 +2250,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.catch_and_silence",
 			"python.structured_logging",
 			"python.direct_imports",
+			"python.pyproject_ignores",
 		),
 		"staged": existingPolicyIDs(
 			policies,
@@ -2231,6 +2287,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.direct_imports",
 			"python.bare_except",
 			"python.unexplained_type_ignore",
+			"python.pyproject_ignores",
 		),
 		"smoke": existingPolicyIDs(
 			policies,

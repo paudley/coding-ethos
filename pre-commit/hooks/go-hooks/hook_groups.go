@@ -50,7 +50,6 @@ func canonicalHookGroups() map[string]hookGroup {
 				{Name: "check-type-checking-imports", Run: checkTypeCheckingImportsCommand},
 				{Name: "check-structured-logging", Run: checkStructuredLoggingCommand},
 				{Name: "check-sql-centralization", Run: checkSQLCentralizationCommand},
-				{Name: "check-pyproject-ignores", Run: checkPyprojectIgnoresCommand},
 				{
 					Name: "check-python-version-consistency",
 					Run:  checkPythonVersionConsistencyCommand,

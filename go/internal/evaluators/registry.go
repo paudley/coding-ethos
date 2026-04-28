@@ -139,6 +139,10 @@ func registerPythonEvaluators(registry Registry) {
 		"python.unexplained_type_ignore",
 		EvaluatorFunc(EvaluatePythonUnexplainedTypeIgnore),
 	)
+	registry.Register(
+		"python.pyproject_ignores",
+		EvaluatorFunc(EvaluatePythonPyprojectIgnores),
+	)
 }
 
 func registerExternalEvaluators(registry Registry) {

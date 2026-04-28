@@ -4,12 +4,15 @@
 package policy_test
 
 import (
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
 func TestCompileBuildsBundleFromYAML(t *testing.T) {
@@ -289,6 +292,76 @@ repo:
 	expected, ok := options["expected_license_text"].(string)
 	if !ok || !strings.Contains(expected, "Copyright (c) 2026 Example Inc.") {
 		t.Fatalf("expected license text mismatch: %#v", options["expected_license_text"])
+	}
+}
+
+func TestCompiledRepoLicensePolicyRunsAgainstSampleConsumer(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	consumerRoot := filepath.Join(dir, "consumer")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, sampleLicenseRepoConfigYAML)
+	if err := os.MkdirAll(consumerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir consumer: %v", err)
+	}
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	writeTestFile(t, filepath.Join(consumerRoot, "LICENSE"), "wrong\n")
+	writeTestFile(t, filepath.Join(consumerRoot, "app.go"), sampleLicensedGoSource)
+
+	result, err := lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	assertBlockedDiagnostic(t, result.Diagnostics, "license_file")
+
+	writeTestFile(t, filepath.Join(consumerRoot, "LICENSE"), sampleExpectedLicenseText)
+	writeTestFile(
+		t,
+		filepath.Join(consumerRoot, "app.go"),
+		"// SPDX-License-Identifier: Apache-2.0\n\npackage main\n",
+	)
+
+	result, err = lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	assertBlockedDiagnostic(t, result.Diagnostics, "license_header")
+
+	writeTestFile(t, filepath.Join(consumerRoot, "app.go"), sampleLicensedGoSource)
+
+	result, err = lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	if result.Status != "resolved" {
+		t.Fatalf("sample consumer should pass, got %#v", result)
 	}
 }
 
@@ -677,6 +750,22 @@ func assertPolicyDispatched(t *testing.T, policyIDs []string, expected string) {
 	t.Fatalf("dispatch missing %q: %#v", expected, policyIDs)
 }
 
+func assertBlockedDiagnostic(
+	t *testing.T,
+	diagnostics []diagnostics.Diagnostic,
+	tool string,
+) {
+	t.Helper()
+
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Tool == tool {
+			return
+		}
+	}
+
+	t.Fatalf("missing diagnostic tool %q: %#v", tool, diagnostics)
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 
@@ -753,4 +842,26 @@ python:
   pytest_gate:
     enabled: true
     test_command: [uv, run, pytest]
+`
+
+const sampleLicenseRepoConfigYAML = `
+repo:
+  license:
+    spdx_identifier: MIT
+    copyright: 2026 Example Inc.
+    text: |
+      MIT License
+
+      Copyright (c) <year> <copyright holders>
+`
+
+const sampleExpectedLicenseText = `MIT License
+
+Copyright (c) 2026 Example Inc.
+`
+
+const sampleLicensedGoSource = `// SPDX-FileCopyrightText: 2026 Example Inc.
+// SPDX-License-Identifier: MIT
+
+package main
 `

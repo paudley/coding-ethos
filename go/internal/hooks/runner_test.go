@@ -452,7 +452,7 @@ func TestRunBlocksHookSettingsReconnaissance(t *testing.T) {
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
 				"command": strings.Join([]string{
-					`cat /home/paudley/.claude/settings.json 2>/dev/null | `,
+					`cat /tmp/fake-home/.claude/settings.json 2>/dev/null | `,
 					`python3 -c "import sys, json; `,
 					`d = json.load(sys.stdin); print(d.get('hooks', {}))"`,
 				}, ""),
@@ -481,7 +481,7 @@ func TestRunBlocksHookImplementationReconnaissance(t *testing.T) {
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
 				"command": `grep -r "header must match" ` +
-					`/home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/ ` +
+					`/workspace/coding-ethos/ ` +
 					`--include="*.go" -l`,
 			},
 		},
@@ -1586,6 +1586,8 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "CODING-ETHOS POST-EDIT CHECKPOINT") ||
 		!strings.Contains(context, "src/app.py") ||
+		!strings.Contains(context, "language_advice:") ||
+		!strings.Contains(context, "python: run ruff/mypy/pyright") ||
 		!strings.Contains(context, "Run focused formatting") {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
 	}
@@ -1627,6 +1629,54 @@ func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
 		!strings.Contains(context, "python.conditional_imports") ||
 		!strings.Contains(context, "<repo>/app.py") {
 		t.Fatalf("missing compiled lint finding: %s", context)
+	}
+}
+
+func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+	err := os.WriteFile(sourcePath, []byte("import os\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	ruffPath := filepath.Join(binDir, "ruff")
+	err = os.WriteFile(
+		ruffPath,
+		[]byte(`#!/usr/bin/env bash
+printf '%s\n' '[{"filename":"app.py","code":"F401","message":"unused import","location":{"row":1,"column":8}}]'
+exit 1
+`),
+		0o700,
+	)
+	if err != nil {
+		t.Fatalf("write fake ruff: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": %q}
+	}`, dir, sourcePath)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "fast_lint:") ||
+		!strings.Contains(context, "tool: ruff") ||
+		!strings.Contains(context, "F401") ||
+		!strings.Contains(context, "unused import") {
+		t.Fatalf("missing fast ruff finding: %s", context)
 	}
 }
 

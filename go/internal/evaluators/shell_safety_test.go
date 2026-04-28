@@ -116,7 +116,7 @@ func TestEvaluateShellForbiddenStringsBlocksCommandText(t *testing.T) {
 	decisions, err := EvaluateShellForbiddenStrings(
 		policyDef,
 		Context{
-			Command: `cat /home/paudley/.claude/settings.json | python3 -c "import json, sys; print(json.load(sys.stdin).get('hooks', {}))"`,
+			Command: `cat /tmp/fake-home/.claude/settings.json | python3 -c "import json, sys; print(json.load(sys.stdin).get('hooks', {}))"`,
 		},
 	)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestEvaluateShellForbiddenStringsBlocksHookImplementationRecon(t *testing.T
 	decisions, err := EvaluateShellForbiddenStrings(
 		policyDef,
 		Context{
-			Command: `grep -r "header must match" /home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/pre-commit/hooks/go-hooks --include="*.go"`,
+			Command: `grep -r "header must match" /workspace/coding-ethos/pre-commit/hooks/go-hooks --include="*.go"`,
 		},
 	)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestEvaluateShellForbiddenStringsSkipsExemptReferencedFile(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	err := os.WriteFile(
 		configPath,
-		[]byte("/home/paudley/.claude/settings.local.json\n"),
+		[]byte("/tmp/fake-home/.claude/settings.local.json\n"),
 		0o600,
 	)
 	if err != nil {

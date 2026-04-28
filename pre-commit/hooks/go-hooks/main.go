@@ -144,20 +144,6 @@ type planCompletionSettings struct {
 	Enabled               bool
 }
 
-type pyprojectIgnoreSettings struct {
-	AllowedIgnorePatterns    []string
-	AllowedExcludePatterns   []string
-	AllowedMypyMissingImport []string
-	Enabled                  bool
-}
-
-type pyprojectIgnoreFinding struct {
-	Tool    string
-	Setting string
-	Target  string
-	Detail  string
-}
-
 type commentSuppressionSettings struct {
 	Patterns []commentSuppressionPattern
 	Enabled  bool
@@ -246,7 +232,6 @@ func main() {
 		"check-file-docstrings":            checkFileDocstringsCommand,
 		"check-optional-returns":           checkOptionalReturnsCommand,
 		"check-module-docs":                checkModuleDocsCommand,
-		"check-pyproject-ignores":          checkPyprojectIgnoresCommand,
 		"check-pytest-gate":                checkPytestGateCommand,
 		"check-security-patterns":          checkSecurityPatternsCommand,
 		"check-sql-centralization":         checkSQLCentralizationCommand,
@@ -857,46 +842,6 @@ func loadPlanCompletionSettings() (planCompletionSettings, error) {
 
 	if len(settings.CompletedStatusValues) == 0 {
 		settings.CompletedStatusValues = []string{"review", "complete"}
-	}
-
-	return settings, nil
-}
-
-func loadPyprojectIgnoreSettings() (pyprojectIgnoreSettings, error) {
-	var settings pyprojectIgnoreSettings
-
-	_, rootConfig, err := loadMergedRootConfig()
-	if err != nil {
-		return settings, err
-	}
-
-	sectionFound, err := decodeOptionalConfigSection(
-		rootConfig,
-		"python.pyproject_ignores",
-		"pyproject_ignores",
-		&settings,
-	)
-	if err != nil {
-		return settings, err
-	}
-
-	if !sectionFound {
-		return settings, nil
-	}
-
-	if len(settings.AllowedIgnorePatterns) == 0 {
-		settings.AllowedIgnorePatterns = []string{
-			"tests/**", "tests/*", "**/tests/**", "**/tests/*",
-			"test_*.py", "*_test.py",
-			"stubs/**", "stubs/*", "**/stubs/**", "**/stubs/*",
-		}
-	}
-
-	if len(settings.AllowedExcludePatterns) == 0 {
-		settings.AllowedExcludePatterns = []string{
-			".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "*.egg-info",
-			".eggs", "build", "dist", "node_modules",
-		}
 	}
 
 	return settings, nil
@@ -4555,20 +4500,6 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 	return 0
 }
 
-func (finding pyprojectIgnoreFinding) render() string {
-	if finding.Detail != "" {
-		return fmt.Sprintf(
-			"%s %s: %s -> %s",
-			finding.Tool,
-			finding.Setting,
-			finding.Target,
-			finding.Detail,
-		)
-	}
-
-	return fmt.Sprintf("%s %s: %s", finding.Tool, finding.Setting, finding.Target)
-}
-
 func normalizeStringList(value any) []string {
 	switch typed := value.(type) {
 	case nil:
@@ -4591,284 +4522,6 @@ func normalizeStringList(value any) []string {
 	}
 }
 
-func addPyprojectPerFileFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	tool string,
-	setting string,
-	value any,
-) {
-	if typed, ok := value.(map[string]any); ok {
-		for pattern, codes := range typed {
-			codeList := normalizeStringList(codes)
-			if len(codeList) == 0 {
-				addPyprojectFinding(findings, tool, setting, pattern, "<all>")
-
-				continue
-			}
-
-			for _, code := range codeList {
-				addPyprojectFinding(findings, tool, setting, pattern, code)
-			}
-		}
-
-		return
-	}
-
-	for _, entry := range normalizeStringList(value) {
-		addPyprojectFinding(findings, tool, setting, entry, "")
-	}
-}
-
-func addPyprojectPatternFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	tool string,
-	setting string,
-	value any,
-) {
-	for _, pattern := range normalizeStringList(value) {
-		addPyprojectFinding(findings, tool, setting, pattern, "")
-	}
-}
-
-func addPyprojectFinding(
-	findings map[pyprojectIgnoreFinding]struct{},
-	tool string,
-	setting string,
-	target string,
-	detail string,
-) {
-	findings[pyprojectIgnoreFinding{
-		Tool:    tool,
-		Setting: setting,
-		Target:  target,
-		Detail:  detail,
-	}] = struct{}{}
-}
-
-func ruffPerFileIgnoreKeys() []string {
-	return []string{
-		"per-file-ignores",
-		"extend-per-file-ignores",
-		"per_file_ignores",
-		"extend_per_file_ignores",
-	}
-}
-
-func mypyIgnoreKeys() []string {
-	return []string{
-		"ignore_errors",
-		"ignore_missing_imports",
-		"disable_error_code",
-		"disable_error_codes",
-	}
-}
-
-func pylintIgnoreKeys() []string {
-	return []string{
-		"ignore",
-		"ignore-patterns",
-		"ignore-paths",
-		"ignore-modules",
-		"ignored-modules",
-	}
-}
-
-func pyprojectMap(value any) map[string]any {
-	if typed, ok := value.(map[string]any); ok {
-		return typed
-	}
-
-	return nil
-}
-
-func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
-	findings := map[pyprojectIgnoreFinding]struct{}{}
-
-	ruff := pyprojectMap(toolTable["ruff"])
-	if ruff == nil {
-		return findings
-	}
-
-	lint := pyprojectMap(ruff["lint"])
-	for _, key := range ruffPerFileIgnoreKeys() {
-		if lint != nil {
-			if value, ok := lint[key]; ok {
-				addPyprojectPerFileFindings(findings, "ruff", key, value)
-			}
-		}
-
-		if value, ok := ruff[key]; ok {
-			addPyprojectPerFileFindings(findings, "ruff", key, value)
-		}
-	}
-
-	for _, key := range []string{"exclude", "extend-exclude", "extend_exclude"} {
-		if value, ok := ruff[key]; ok {
-			addPyprojectPatternFindings(findings, "ruff", key, value)
-		}
-	}
-
-	return findings
-}
-
-func addMypyOverrideFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	override map[string]any,
-) {
-	modules := normalizeStringList(firstNonNil(override["module"], override["modules"]))
-	if len(modules) == 0 {
-		modules = []string{unknownFile}
-	}
-
-	for _, key := range mypyIgnoreKeys() {
-		value, ok := override[key]
-		if !ok {
-			continue
-		}
-
-		addMypyOverrideFindingsForKey(findings, modules, key, value)
-	}
-}
-
-func addMypyOverrideFindingsForKey(
-	findings map[pyprojectIgnoreFinding]struct{},
-	modules []string,
-	key string,
-	value any,
-) {
-	switch key {
-	case "disable_error_code", "disable_error_codes":
-		addMypyOverrideErrorCodeFindings(findings, modules, key, value)
-	default:
-		addMypyOverrideGenericFindings(findings, modules, key, value)
-	}
-}
-
-func addMypyOverrideErrorCodeFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	modules []string,
-	key string,
-	value any,
-) {
-	for _, code := range normalizeStringList(value) {
-		if strings.TrimSpace(code) == "" {
-			continue
-		}
-
-		for _, module := range modules {
-			addPyprojectFinding(
-				findings,
-				toolMypy,
-				"override."+key,
-				module,
-				code,
-			)
-		}
-	}
-}
-
-func addMypyOverrideGenericFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	modules []string,
-	key string,
-	value any,
-) {
-	if boolean, ok := value.(bool); ok {
-		if boolean {
-			for _, module := range modules {
-				addPyprojectFinding(findings, toolMypy, "override."+key, module, "")
-			}
-		}
-
-		return
-	}
-
-	for _, module := range modules {
-		addPyprojectFinding(
-			findings,
-			toolMypy,
-			"override."+key,
-			module,
-			fmt.Sprint(value),
-		)
-	}
-}
-
-func extractMypyFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
-	findings := map[pyprojectIgnoreFinding]struct{}{}
-
-	mypy := pyprojectMap(toolTable[toolMypy])
-	if mypy == nil {
-		return findings
-	}
-
-	for _, key := range []string{"per-file-ignores", "per_file_ignores"} {
-		if value, ok := mypy[key]; ok {
-			addPyprojectPerFileFindings(findings, "mypy", key, value)
-		}
-	}
-
-	if value, ok := mypy["exclude"]; ok {
-		addPyprojectPatternFindings(findings, "mypy", "exclude", value)
-	}
-
-	if overrides, ok := mypy["overrides"].([]any); ok {
-		for _, rawOverride := range overrides {
-			override := pyprojectMap(rawOverride)
-			if override != nil {
-				addMypyOverrideFindings(findings, override)
-			}
-		}
-	}
-
-	return findings
-}
-
-func extractPyrightFindings(
-	toolTable map[string]any,
-) map[pyprojectIgnoreFinding]struct{} {
-	findings := map[pyprojectIgnoreFinding]struct{}{}
-
-	pyright := pyprojectMap(toolTable["pyright"])
-	if pyright == nil {
-		return findings
-	}
-
-	for _, key := range []string{"exclude", "ignore"} {
-		if value, ok := pyright[key]; ok {
-			addPyprojectPatternFindings(findings, "pyright", key, value)
-		}
-	}
-
-	return findings
-}
-
-func extractPylintFindings(
-	toolTable map[string]any,
-) map[pyprojectIgnoreFinding]struct{} {
-	findings := map[pyprojectIgnoreFinding]struct{}{}
-
-	pylint := pyprojectMap(toolTable["pylint"])
-	if pylint == nil {
-		return findings
-	}
-
-	sections := []map[string]any{pylint}
-	if mainSection := pyprojectMap(pylint["main"]); mainSection != nil {
-		sections = append(sections, mainSection)
-	}
-
-	for _, section := range sections {
-		for _, key := range pylintIgnoreKeys() {
-			if value, ok := section[key]; ok {
-				addPyprojectPatternFindings(findings, "pylint", key, value)
-			}
-		}
-	}
-
-	return findings
-}
-
 func firstNonNil(values ...any) any {
 	for _, value := range values {
 		if value != nil {
@@ -4879,89 +4532,12 @@ func firstNonNil(values ...any) any {
 	return nil
 }
 
-func extractPyprojectFindings(
-	config map[string]any,
-) map[pyprojectIgnoreFinding]struct{} {
-	toolTable := pyprojectMap(config["tool"])
-	if toolTable == nil {
-		return map[pyprojectIgnoreFinding]struct{}{}
+func pyprojectMap(value any) map[string]any {
+	if typed, ok := value.(map[string]any); ok {
+		return typed
 	}
 
-	findings := map[pyprojectIgnoreFinding]struct{}{}
-	for finding := range extractRuffFindings(toolTable) {
-		findings[finding] = struct{}{}
-	}
-
-	for finding := range extractMypyFindings(toolTable) {
-		findings[finding] = struct{}{}
-	}
-
-	for finding := range extractPyrightFindings(toolTable) {
-		findings[finding] = struct{}{}
-	}
-
-	for finding := range extractPylintFindings(toolTable) {
-		findings[finding] = struct{}{}
-	}
-
-	return findings
-}
-
-func filterAllowedPyprojectFindings(
-	findings map[pyprojectIgnoreFinding]struct{},
-	settings pyprojectIgnoreSettings,
-) []pyprojectIgnoreFinding {
-	allowedIgnore := stringSet(settings.AllowedIgnorePatterns)
-	allowedExclude := stringSet(settings.AllowedExcludePatterns)
-	allowedMypyMissing := stringSet(settings.AllowedMypyMissingImport)
-
-	filtered := make([]pyprojectIgnoreFinding, 0, len(findings))
-	for finding := range findings {
-		if allowedIgnore[finding.Target] {
-			continue
-		}
-
-		if isExcludeSetting(finding.Setting) &&
-			allowedExclude[finding.Target] {
-			continue
-		}
-
-		if finding.Tool == toolMypy &&
-			finding.Setting == "override.ignore_missing_imports" &&
-			allowedMypyMissing[finding.Target] {
-			continue
-		}
-
-		filtered = append(filtered, finding)
-	}
-
-	sort.Slice(filtered, func(i, j int) bool {
-		left := filtered[i]
-		right := filtered[j]
-
-		return fmt.Sprintf(
-			"%s|%s|%s|%s",
-			left.Tool,
-			left.Setting,
-			left.Target,
-			left.Detail,
-		) <
-			fmt.Sprintf(
-				"%s|%s|%s|%s",
-				right.Tool,
-				right.Setting,
-				right.Target,
-				right.Detail,
-			)
-	})
-
-	return filtered
-}
-
-func isExcludeSetting(setting string) bool {
-	return setting == "exclude" ||
-		setting == "extend-exclude" ||
-		setting == "extend_exclude"
+	return nil
 }
 
 func loadPyprojectConfig(path string) (map[string]any, error) {
@@ -4978,72 +4554,6 @@ func loadPyprojectConfig(path string) (map[string]any, error) {
 	}
 
 	return config, nil
-}
-
-func checkPyprojectIgnoresCommand(_ Config, args []string) int {
-	settings, err := loadPyprojectIgnoreSettings()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
-
-		return 1
-	}
-
-	if !settings.Enabled || len(args) == 0 {
-		return 0
-	}
-
-	hasErrors := false
-	reportFindings := []hookFinding{}
-
-	for _, rawPath := range args {
-		path := strings.TrimSpace(rawPath)
-		if filepath.Base(path) != "pyproject.toml" {
-			continue
-		}
-
-		config, err := loadPyprojectConfig(path)
-		if err != nil {
-			hasErrors = true
-
-			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
-
-			continue
-		}
-
-		findings := filterAllowedPyprojectFindings(
-			extractPyprojectFindings(config),
-			settings,
-		)
-		if len(findings) == 0 {
-			continue
-		}
-
-		hasErrors = true
-
-		for _, finding := range findings {
-			reportFindings = append(reportFindings, hookFinding{
-				Tool:    "pyproject_ignores",
-				File:    path,
-				Code:    finding.Tool + "." + finding.Setting,
-				Message: finding.Target,
-				Detail:  finding.Detail,
-			})
-		}
-	}
-
-	if hasErrors {
-		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-			Tool:     "pyproject_ignores",
-			Title:    "PYPROJECT LINTER IGNORE CHECK FAILED",
-			Summary:  "pyproject.toml contains forbidden linter file ignores.",
-			Findings: reportFindings,
-			Guidance: []string{"Move file-specific ignores into the files themselves with documentation."},
-		}, selectedHookOutputFormat()))
-
-		return 1
-	}
-
-	return 0
 }
 
 func compileCommentSuppressionPatterns(
