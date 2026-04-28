@@ -1444,6 +1444,117 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 	}
 }
 
+func TestRunSurfacesContinuationCaptureFailure(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreCompact",
+			Cwd:           t.TempDir(),
+			SessionID:     "session-001",
+		},
+	})
+	if err != nil {
+		t.Fatalf("capture continuation: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("expected visible advisory failure, got %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "continuation capture failed") ||
+		!strings.Contains(context, "Continuation is advisory") {
+		t.Fatalf("unexpected continuation failure context: %s", context)
+	}
+}
+
+func TestRunAddsUserPromptGuidance(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "UserPromptSubmit",
+		"input": {"prompt": "finish hook replacement"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("expected allowed context output, got %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "CODING-ETHOS PROMPT GUIDANCE") ||
+		!strings.Contains(context, "todo list") ||
+		!strings.Contains(context, "finish hook replacement") {
+		t.Fatalf("unexpected prompt guidance: %s", context)
+	}
+}
+
+func TestRunAddsStopCheckpointGuidance(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "Stop"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("expected allowed context output, got %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "CODING-ETHOS STOP CHECKPOINT") ||
+		!strings.Contains(context, "planned work remains") {
+		t.Fatalf("unexpected stop guidance: %s", context)
+	}
+}
+
+func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("expected allowed context output, got %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "CODING-ETHOS POST-EDIT CHECKPOINT") ||
+		!strings.Contains(context, "src/app.py") ||
+		!strings.Contains(context, "Run focused formatting") {
+		t.Fatalf("unexpected post-edit guidance: %s", context)
+	}
+}
+
 func initHookRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

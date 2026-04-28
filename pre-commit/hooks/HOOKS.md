@@ -58,6 +58,8 @@ Codex feature flag does not count as an installed provider surface.
 through the configured hook command, proving that Claude rewrites, Codex blocks
 raw git, absolute git, nested shell git, and Python subprocess git, and Gemini
 denies reach the active runtime.
+This is settings plus runtime-probe verification, not proof that the real
+provider binary executed an end-to-end tool call.
 `cutover install` installs Git hook shims, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
 agent hook, repo-ignore, and policy runtime readiness in TOON. Required runtime

@@ -40,6 +40,11 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"Stop"`,
+		`"SessionEnd"`,
+		`"SubagentStart"`,
+		`"SubagentStop"`,
 		`"exec_command"`,
 		`"run_shell_command"`,
 		`"apply_patch"`,
@@ -66,10 +71,14 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	}
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native shell aliases")
+	assertCapability(t, capabilities, "codex", "partial", "Stop additionalContext")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
+	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
 	assertUnsupported(t, capabilities, "gemini", "PostToolUse shell-output feedback")
 }
 
@@ -83,8 +92,17 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 		{Event: "PreToolUse", Tool: "Edit"},
 		{Event: "PreToolUse", Tool: "MultiEdit"},
 		{Event: "PostToolUse", Tool: "Bash"},
+		{Event: "PostToolUse", Tool: "Write"},
+		{Event: "PostToolUse", Tool: "Edit"},
+		{Event: "PostToolUse", Tool: "MultiEdit"},
+		{Event: "PostToolBatch"},
 		{Event: "PreCompact"},
 		{Event: "SessionStart"},
+		{Event: "UserPromptSubmit"},
+		{Event: "Stop"},
+		{Event: "SessionEnd"},
+		{Event: "SubagentStart"},
+		{Event: "SubagentStop"},
 	}
 
 	if len(specs) != len(expected) {
@@ -170,8 +188,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 7 {
-		t.Fatalf("check count = %d, want 7: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 8 {
+		t.Fatalf("check count = %d, want 8: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
@@ -390,6 +408,9 @@ payload="$(cat)"
 case "$payload" in
   *'"provider": "claude"'*)
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    ;;
+  *'"UserPromptSubmit"'*)
+    printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'
     ;;
   *'"provider": "codex"'*)
     printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'

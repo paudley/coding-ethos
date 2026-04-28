@@ -109,6 +109,14 @@ func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput 
 		return output
 	}
 
+	if output := lifecycleOutput(event); output != nil {
+		return output
+	}
+
+	if output := postEditOutput(event); output != nil {
+		return output
+	}
+
 	if event.HookEventName != "PostToolUse" || event.ToolName != "Bash" {
 		return nil
 	}

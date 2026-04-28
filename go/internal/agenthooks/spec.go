@@ -30,7 +30,16 @@ func RuntimeHookSpecs() []HookSpec {
 		{Event: "PreToolUse", Tool: "Edit"},
 		{Event: "PreToolUse", Tool: "MultiEdit"},
 		{Event: "PostToolUse", Tool: "Bash"},
+		{Event: "PostToolUse", Tool: "Write"},
+		{Event: "PostToolUse", Tool: "Edit"},
+		{Event: "PostToolUse", Tool: "MultiEdit"},
+		{Event: "PostToolBatch"},
 		{Event: "PreCompact"},
 		{Event: "SessionStart"},
+		{Event: "UserPromptSubmit"},
+		{Event: "Stop"},
+		{Event: "SessionEnd"},
+		{Event: "SubagentStart"},
+		{Event: "SubagentStop"},
 	}
 }

@@ -75,7 +75,7 @@ func (event Event) Content() string {
 		return ""
 	}
 
-	for _, key := range []string{"content", "new_string", "text"} {
+	for _, key := range []string{"content", "new_string", "prompt", "text"} {
 		if content, ok := event.ToolInput[key].(string); ok {
 			return content
 		}

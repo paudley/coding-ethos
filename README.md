@@ -385,7 +385,8 @@ The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
 new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
 they are not invoked from agent hooks. Agent hook evaluators are runtime-covered,
-but Claude hook installation and cutover are still tracked in
+and all supported provider settings are generated together. Provider- and
+event-specific completion status is tracked in
 [HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
 
 Installed Git hook shims compile the policy bundle and enter
@@ -440,11 +441,13 @@ of missing the hook on a tool-name mismatch.
 `agent-hooks doctor` verifies those native activation files rather than a
 coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
 the configured hook command with provider-native Claude, Codex, and Gemini
-payloads to prove the installed files point at a runnable policy path. The
-verification probes cover Claude's transparent git rewrite, Codex's block
-response for raw git, absolute git paths, nested shell git, and Python
-subprocess git when rewrite is unavailable, Gemini's `deny` response for raw
-shell git, and Gemini write-tool policy denial.
+payloads to prove the installed files point at a runnable policy path. This is
+settings plus runtime-probe verification; it does not claim that each real
+provider binary has executed a live tool call. The verification probes cover
+Claude's transparent git rewrite, Codex's block response for raw git, absolute
+git paths, nested shell git, and Python subprocess git when rewrite is
+unavailable, Gemini's `deny` response for raw shell git, and Gemini write-tool
+policy denial.
 
 Use the cutover command when preparing a repo to replace old hook surfaces:
 

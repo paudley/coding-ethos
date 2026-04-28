@@ -459,8 +459,15 @@ func ProviderCapabilities() []ProviderCapability {
 				"PreToolUse block",
 				"PreToolUse updatedInput rewrite",
 				"PostToolUse additionalContext",
+				"PostToolUse edit verification advice",
+				"PostToolBatch additionalContext",
 				"PreCompact capture",
 				"SessionStart additionalContext",
+				"UserPromptSubmit additionalContext",
+				"Stop additionalContext",
+				"SessionEnd additionalContext",
+				"SubagentStart additionalContext",
+				"SubagentStop additionalContext",
 			},
 		},
 		{
@@ -471,7 +478,14 @@ func ProviderCapabilities() []ProviderCapability {
 				"PreToolUse block",
 				"PreToolUse native shell aliases",
 				"PostToolUse additionalContext",
+				"PostToolUse edit verification advice",
+				"PostToolBatch additionalContext",
 				"SessionStart additionalContext",
+				"UserPromptSubmit additionalContext",
+				"Stop additionalContext",
+				"SessionEnd additionalContext",
+				"SubagentStart additionalContext",
+				"SubagentStop additionalContext",
 			},
 			ProviderLimited: []string{
 				"git wrapper enforcement blocks raw git because updatedInput is not supported",
@@ -486,6 +500,9 @@ func ProviderCapabilities() []ProviderCapability {
 				"BeforeTool deny",
 				"BeforeTool systemMessage",
 				"SessionStart additionalContext",
+				"UserPromptSubmit additionalContext",
+				"Stop additionalContext",
+				"SessionEnd additionalContext",
 			},
 			ProviderLimited: []string{
 				"BeforeTool maps to PreToolUse for run_shell_command and write_file",
@@ -548,6 +565,10 @@ func codexHookMatchers(spec HookSpec) []string {
 			"shell",
 			"shell_command",
 		}
+	case spec.Event == "PostToolUse" && spec.Tool == "Write":
+		return []string{"Write", "create_file", "write_file"}
+	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
+		return []string{"Edit", "apply_patch", "edit_file"}
 	case spec.Event == "PreToolUse" && spec.Tool == "Write":
 		return []string{"Write", "create_file", "write_file"}
 	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
@@ -645,6 +666,12 @@ func geminiHookSpec(spec HookSpec) (string, string, bool) {
 		return "BeforeTool", "write_file", true
 	case spec.Event == "SessionStart":
 		return "SessionStart", "startup", true
+	case spec.Event == "UserPromptSubmit":
+		return "UserPromptSubmit", "prompt", true
+	case spec.Event == "Stop":
+		return "Stop", "stop", true
+	case spec.Event == "SessionEnd":
+		return "SessionEnd", "session", true
 	default:
 		return "", "", false
 	}
@@ -792,6 +819,17 @@ func hookProbes() []hookProbe {
 			}`,
 			validate: validateGeminiDenyProbe,
 		},
+		{
+			provider: string(ProviderCodex),
+			event:    "UserPromptSubmit",
+			tool:     "",
+			payload: `{
+				"provider": "codex",
+				"event": "UserPromptSubmit",
+				"input": {"prompt": "finish hook replacement"}
+			}`,
+			validate: validateContextProbe,
+		},
 	}
 }
 
@@ -899,6 +937,18 @@ func validateGeminiDenyProbe(result hookProbeResult) error {
 	}
 
 	return validateDecisionProbe(result, "deny")
+}
+
+func validateContextProbe(result hookProbeResult) error {
+	if result.exitCode != 0 {
+		return fmt.Errorf("context probe should allow, got exit %d", result.exitCode)
+	}
+
+	if _, ok := nestedString(result.payload, "hookSpecificOutput", "additionalContext"); !ok {
+		return fmt.Errorf("missing additionalContext in %s", result.stdout)
+	}
+
+	return nil
 }
 
 func validateDecisionProbe(result hookProbeResult, decision string) error {

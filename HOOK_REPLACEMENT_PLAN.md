@@ -20,11 +20,17 @@ remove old parent and Claude hook entries outside this repo.
   fixture-backed through the Go agent hook runtime.
 - `Installed`: the repo-owned hook installation flow wires the behavior into
   the relevant Git or agent hook surface.
+- `Settings verified`: `doctor` confirms native provider config files point at
+  the expected hook command and feature flags are enabled.
+- `Runtime probed`: `verify` runs provider-shaped JSON through the configured
+  hook command. This proves the runtime path, not that the real provider binary
+  has executed a tool.
 - `Bridged`: installed Git hook execution includes compiled-policy preflight,
   then delegates to the current bundled hook group runner for checks not yet
   represented in compiled policy.
-- `Cutover ready`: the behavior is runtime covered, installed, documented, and
-  verified by an end-to-end compiled-policy path.
+- `Cutover ready`: the behavior is runtime covered, installed, documented,
+  settings verified, and runtime probed through the compiled-policy path. It
+  does not imply real CLI end-to-end activation unless explicitly stated.
 
 ## Parent Git Hooks
 
@@ -41,11 +47,50 @@ remove old parent and Claude hook entries outside this repo.
 
 | Event | Tool | Imported Behavior | Replacement | Status |
 | --- | --- | --- | --- | --- |
-| `PreToolUse` / `BeforeTool` | shell command | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. Claude can receive transparent `updatedInput` git-wrapper rewrites; Codex and Gemini block raw git because their native hook contracts do not expose safe input rewriting. | Provider-neutral policy dispatch plus provider-specific output adapters. | Cutover ready |
-| `PreToolUse` / `BeforeTool` | write/edit tools | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. Claude covers `Write`, `Edit`, and `MultiEdit`; Gemini maps `write_file`; Codex maps the provider-neutral write surface. | Provider-neutral policy dispatch plus Go evaluators. | Cutover ready |
-| `PostToolUse` | shell command | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook` where the provider exposes post-tool context. Gemini has no direct equivalent and does not fake one. | Provider limited |
-| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Deterministic transcript tail capture in `.git/coding-ethos-hooks/continuation/`. No hook-path AI call. | Claude only |
-| `SessionStart` | startup / compact | Inject generated continuation prompt into session context. | Deterministic continuation context replay from `.git/coding-ethos-hooks/continuation/`. | Cutover ready |
+| `PreToolUse` / `BeforeTool` | shell command | Block hook bypass, destructive git, protected-branch checkout, dangerous shell commands, background git, `gh --admin`, admin-only staged files, protected-branch writes, and protected paths. Claude can receive transparent `updatedInput` git-wrapper rewrites; Codex and Gemini block raw git because their native hook contracts do not expose safe input rewriting. | Provider-neutral policy dispatch plus provider-specific output adapters. | Cutover ready for Claude/Codex/Gemini supported pre-tool surfaces |
+| `PreToolUse` / `BeforeTool` | write/edit tools | Block protected-branch writes, protected paths, bare `except:`, broad `except Exception: pass`, and unexplained `# type: ignore`. Claude covers `Write`, `Edit`, and `MultiEdit`; Gemini maps `write_file`; Codex maps provider-neutral write plus native write/edit aliases. | Provider-neutral policy dispatch plus Go evaluators. | Cutover ready for supported write/edit surfaces |
+| `PostToolUse` | shell command | Feed git hook output back to the agent for summarization. | `hookSpecificOutput.additionalContext` from `coding-ethos-hook` where the provider exposes post-tool context. Gemini has no direct equivalent and does not fake one. | Claude/Codex provider-limited |
+| `PostToolUse` / `PostToolBatch` | write/edit tools | Surface lint/type feedback after code edits. | Deterministic post-edit checkpoint guidance for `Write`, `Edit`, and `MultiEdit`; no AI or expensive lint run in the hook path. | Runtime covered; richer lint-state feedback remains planned |
+| `UserPromptSubmit` | user prompt | Inject concise ETHOS reminders, todo-list reminders, and repo-specific guardrails before work starts. | Deterministic prompt guidance context. | Runtime covered where provider exposes the event |
+| `Stop` / `SessionEnd` | session close | Surface outstanding failing gates, missing follow-up records, and continuation reminders. | Deterministic stop checkpoint guidance. | Runtime covered where provider exposes the event |
+| `SubagentStart` / `SubagentStop` | delegated work | Provide scoped ETHOS context and collect subagent completion evidence. | Deterministic subagent start/stop guidance. | Runtime covered where provider exposes the event |
+| `PreCompact` | any | Generate continuation prompt and notes from the transcript. | Deterministic transcript tail capture in `.git/coding-ethos-hooks/continuation/`. No hook-path AI call. Capture failures are visible advisory context. | Claude-focused; advisory |
+| `SessionStart` | startup / compact | Inject generated continuation prompt into session context. | Deterministic continuation context replay from `.git/coding-ethos-hooks/continuation/`. | Cutover ready where provider supports context |
+
+## Provider Capability Matrix
+
+| Capability | Claude | Codex | Gemini CLI | Remaining Work |
+| --- | --- | --- | --- | --- |
+| Native settings generation | Full | Full (`.codex/config.toml` + `.codex/hooks.json`) | Full (`.gemini/settings.json`) | Add real-provider activation smoke where CLI support permits. |
+| Pre-tool shell blocking | Full | Full for provider-neutral and native shell aliases | Full for `BeforeTool` / `run_shell_command` | Keep adding observed tool aliases as fixtures. |
+| Pre-tool git rewrite | Full via `updatedInput` | Unsupported by provider; block raw git | Unsupported by provider; block raw git | None unless providers add input rewrite. |
+| Pre-tool write/edit blocking | Full for `Write`, `Edit`, `MultiEdit` | Full for provider-neutral and native write/edit aliases | Full for `write_file` | Add any newly observed native names. |
+| Post-tool shell advice | Full | Full when Codex accepts additional context | Not exposed directly | Keep Gemini absent rather than faking legacy adapters. |
+| Post-edit lint advice | Deterministic checkpoint | Deterministic checkpoint | No direct post-tool surface | Add changed-file lint state and specific tool output later. |
+| Prompt/session guidance | Runtime covered | Runtime covered | Runtime covered for mapped events | Add provider aliases if real CLIs use different names. |
+| Continuation capture | Advisory and fail-visible | Advisory where payload includes transcript | Advisory where payload includes transcript | Keep failures visible without blocking normal work. |
+| Verification | Settings plus synthetic runtime probes | Settings plus synthetic runtime probes | Settings plus synthetic runtime probes | Add real CLI activation checks or document as out of scope. |
+
+## Completion Checklist
+
+- [x] Replace parent Git hook shims with repo-owned `coding-ethos` Git hook
+  runtime and Git LFS delegation shims.
+- [x] Generate all supported agent settings together; no single-provider
+  install path.
+- [x] Enforce git wrapper use across Claude, Codex, and Gemini pre-tool shell
+  surfaces.
+- [x] Block raw git bypasses including absolute git, nested shell git, Python
+  subprocess git, PATH edits, and fake wrapper basenames.
+- [x] Keep AI review calls out of the agent-hook path.
+- [x] Add lifecycle hooks for `UserPromptSubmit`, `Stop`, `SessionEnd`, and
+  subagent events where providers expose them.
+- [x] Add deterministic post-edit lint/type feedback and concise advice.
+- [x] Make continuation capture failures visible according to an explicit
+  advisory-or-required policy.
+- [x] Add real provider activation checks, or label verification as settings
+  plus runtime-probe readiness everywhere.
+- [x] Reconcile README, HOOKS, PRE-COMMIT, and this plan so cutover status is
+  provider- and event-specific.
 
 ## Current Coverage
 
@@ -78,8 +123,11 @@ Runtime covered in Go agent-hook code:
 - `pytest.gate`
 - `generated_config.freshness`
 - Post-tool hook output feedback for git hook commands
+- Post-edit deterministic verification guidance for `Write`, `Edit`, and
+  `MultiEdit`
 - Pre-compact deterministic continuation capture
 - Compact session-start deterministic continuation replay
+- User-prompt, tool-batch, stop/session-end, and subagent lifecycle guidance
 
 Imported fixtures live under `go/internal/hooks/testdata/legacy/`.
 `go/internal/hooks/testdata/legacy_hook_inventory.json` is the machine-readable

@@ -159,6 +159,10 @@ Codex hook generation includes both provider-neutral matchers and native tool
 aliases such as `exec_command`, `run_shell_command`, `shell`, `write_file`, and
 `apply_patch`, so shell and edit policy does not depend on a single Codex tool
 name spelling.
+`verify` executes provider-shaped runtime probes through the configured hook
+command after `doctor` succeeds. It proves the settings point at a runnable
+policy path; it is not a substitute for a real provider binary executing a live
+tool call.
 
 `agent-hook` accepts each provider's supported event shape and normalizes it
 before policy evaluation. Claude may send native `hook_event_name`,
