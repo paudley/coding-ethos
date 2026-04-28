@@ -18,7 +18,7 @@ func TestFormatHookExecutionSummaryJSONIncludesTiming(t *testing.T) {
 			ExitCode:   0,
 			DurationMS: 12,
 			Commands: []hookCommandResult{
-				{Name: "check-syntax", Status: statusPass, ExitCode: 0, DurationMS: 5},
+				{Name: "yamllint", Status: statusPass, ExitCode: 0, DurationMS: 5},
 			},
 		},
 		{
@@ -57,7 +57,7 @@ func TestFormatHookExecutionSummaryTOONIncludesOnlyFailures(t *testing.T) {
 			ExitCode:   1,
 			DurationMS: 15,
 			Commands: []hookCommandResult{
-				{Name: "check-syntax", Status: statusPass, ExitCode: 0, DurationMS: 4},
+				{Name: "shellcheck", Status: statusPass, ExitCode: 0, DurationMS: 4},
 				{Name: "yamllint", Status: statusFail, ExitCode: 1, DurationMS: 11},
 			},
 		},
@@ -76,7 +76,7 @@ func TestFormatHookExecutionSummaryTOONIncludesOnlyFailures(t *testing.T) {
 	}
 
 	for _, unwanted := range []string{
-		"check-syntax",
+		"shellcheck",
 		"duration_ms",
 		"failed_groups",
 		"commands[",

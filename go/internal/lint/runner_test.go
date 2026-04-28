@@ -5,6 +5,8 @@ package lint_test
 
 import (
 	. "blackcat.ca/coding-ethos/go/internal/lint"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -130,6 +132,47 @@ func TestRunUsesRegisteredEvaluator(t *testing.T) {
 		t.Fatalf("missing git.hook_bypass decision: %#v", result.Decisions)
 	}
 
+	if result.Status != "blocked" {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+}
+
+func TestRunAcceptsCommitMessageScope(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
+	if err := os.WriteFile(messagePath, []byte("bad header\n"), 0o600); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	bundle := policy.Bundle{
+		Policies: map[string]policy.Policy{
+			"git.commitlint": {
+				ID:              "git.commitlint",
+				DefaultSeverity: "block",
+				SupportedModes:  []string{"block", "record"},
+				Evaluators:      []policy.Evaluator{{Name: "git.commitlint"}},
+				DefenseLayers:   policy.DefenseLayers{Enforce: "block"},
+				Message:         "commit message invalid",
+				PrincipleIDs:    []string{"one-path-for-critical-operations"},
+			},
+		},
+		Dispatch: policy.Dispatch{
+			Linter: map[string][]string{
+				ScopeCommit: []string{"git.commitlint"},
+			},
+		},
+	}
+
+	result, err := Run(bundle, Options{
+		Scope: ScopeCommit,
+		Cwd:   repo,
+		Files: []string{"COMMIT_EDITMSG"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
 	if result.Status != "blocked" {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}

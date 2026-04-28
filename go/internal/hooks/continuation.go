@@ -57,27 +57,46 @@ func captureContinuationOutput(event Event) *HookSpecificOutput {
 
 	path, err := continuationPath(event)
 	if err != nil {
-		return nil
+		return continuationFailureOutput(event, "resolve continuation path", err)
 	}
 
 	err = os.MkdirAll(filepath.Dir(path), continuationDirMode)
 	if err != nil {
-		return nil
+		return continuationFailureOutput(event, "create continuation directory", err)
 	}
 
 	payload, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
-		return nil
+		return continuationFailureOutput(event, "encode continuation record", err)
 	}
 
 	err = os.WriteFile(path, append(payload, '\n'), continuationFileMode)
 	if err != nil {
-		return nil
+		return continuationFailureOutput(event, "write continuation record", err)
 	}
 
 	return &HookSpecificOutput{
 		HookEventName:     event.HookEventName,
 		AdditionalContext: "coding-ethos captured deterministic continuation context",
+	}
+}
+
+func continuationFailureOutput(
+	event Event,
+	operation string,
+	err error,
+) *HookSpecificOutput {
+	message := "coding-ethos continuation capture failed during " +
+		operation +
+		": " +
+		err.Error() +
+		"\nContinuation is advisory, but this failure should stay visible."
+
+	return &HookSpecificOutput{
+		HookEventName: event.HookEventName,
+		AdditionalContext: hookOutputNormalizer(event.Cwd).preserveLines(
+			message,
+		),
 	}
 }
 

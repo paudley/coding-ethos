@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Merge generated root files with existing repo-owned agent documents.
 
 This module keeps merge policy, managed-block injection, and external merge
 engine orchestration together so the CLI can remain a thin workflow shell.
 It is responsible for preserving local guidance without forking the renderer.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import os
 import re
@@ -20,6 +20,10 @@ from pathlib import Path
 MERGEABLE_FILES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
 SUPPORTED_MERGE_ENGINES = ("codex", "gemini", "claude")
 SUPPORTED_MERGE_STRATEGIES = ("inject", "llm")
+
+
+def _empty_merge_topics() -> list[str]:
+    return []
 
 
 class UnsupportedMergeEngineError(ValueError):
@@ -75,7 +79,7 @@ class MergeRequest:
     existing_content: str
     generated_content: str
     model: str = ""
-    merge_topics: list[str] = field(default_factory=list)
+    merge_topics: list[str] = field(default_factory=_empty_merge_topics)
     timeout_seconds: int = 300
 
 

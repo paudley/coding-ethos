@@ -67,12 +67,18 @@ func hasHookBypass(argv []string) bool {
 			return true
 		}
 
-		if strings.HasPrefix(arg, "-") && strings.Contains(arg, "n") && isCommit(argv) {
+		if isShortCommitNoVerifyFlag(arg) && isCommit(argv) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func isShortCommitNoVerifyFlag(arg string) bool {
+	return strings.HasPrefix(arg, "-") &&
+		!strings.HasPrefix(arg, "--") &&
+		strings.Contains(arg, "n")
 }
 
 func isCommit(argv []string) bool {

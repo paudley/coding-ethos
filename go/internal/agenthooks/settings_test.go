@@ -5,6 +5,7 @@ package agenthooks_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,9 +41,16 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"PostToolUse"`,
 		`"PreCompact"`,
 		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"Stop"`,
+		`"SessionEnd"`,
+		`"SubagentStart"`,
+		`"SubagentStop"`,
+		`"run_shell_command"`,
 		`"BeforeTool"`,
 		`"run_shell_command"`,
 		`"write_file"`,
+		`"hooksConfig"`,
 		`"matcher": "Bash"`,
 		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
 		`"statusMessage": "coding-ethos policy"`,
@@ -63,10 +71,17 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	}
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
+	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
+	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
+	assertCapability(t, capabilities, "codex", "partial", "Stop additionalContext")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
-	assertUnsupported(t, capabilities, "gemini", "PostToolUse shell-output feedback")
+	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
+	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
+	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
+	assertUnsupported(t, capabilities, "gemini", "PostToolBatch additionalContext")
 }
 
 func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
@@ -79,8 +94,17 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 		{Event: "PreToolUse", Tool: "Edit"},
 		{Event: "PreToolUse", Tool: "MultiEdit"},
 		{Event: "PostToolUse", Tool: "Bash"},
+		{Event: "PostToolUse", Tool: "Write"},
+		{Event: "PostToolUse", Tool: "Edit"},
+		{Event: "PostToolUse", Tool: "MultiEdit"},
+		{Event: "PostToolBatch"},
 		{Event: "PreCompact"},
 		{Event: "SessionStart"},
+		{Event: "UserPromptSubmit"},
+		{Event: "Stop"},
+		{Event: "SessionEnd"},
+		{Event: "SubagentStart"},
+		{Event: "SubagentStop"},
 	}
 
 	if len(specs) != len(expected) {
@@ -131,13 +155,16 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	for _, path := range []string{
 		paths.Claude,
 		paths.CodexConfig,
-		paths.CodexHooks,
 		paths.Gemini,
 	} {
 		_, statErr := os.Stat(path)
 		if statErr != nil {
 			t.Fatalf("stat settings %s: %v", path, statErr)
 		}
+	}
+
+	if _, statErr := os.Stat(paths.CodexHooks); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("stale Codex hooks JSON should not exist: %v", statErr)
 	}
 
 	err = agenthooks.DoctorSettings(root, testHookCommand)
@@ -166,8 +193,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 4 {
-		t.Fatalf("check count = %d, want 4: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 8 {
+		t.Fatalf("check count = %d, want 8: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
@@ -386,6 +413,9 @@ payload="$(cat)"
 case "$payload" in
   *'"provider": "claude"'*)
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    ;;
+  *'"UserPromptSubmit"'*)
+    printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'
     ;;
   *'"provider": "codex"'*)
     printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'

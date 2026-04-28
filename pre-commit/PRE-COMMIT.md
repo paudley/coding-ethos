@@ -42,7 +42,7 @@ when its sources or config inputs change.
 Gemini repo-local agent hook settings, and then verifies the full cutover
 surface. `make cutover-verify` checks the installed Git shims, runs
 `agent-hooks verify`, verifies required runtime ignores through the compiled
-`filesystem.required_ignores` policy, runs the policy runtime validation hook,
+`repo.required_ignores` policy, runs the policy runtime validation hook,
 and prints a concise TOON readiness report. Blocked reports include `fix_first`
 entries that name the stale or missing surface and the next action.
 
@@ -151,10 +151,19 @@ full review on pre-push.
 surface.
 There is no single-agent generation path because partial protection is not a
 valid install state. Claude output uses Claude Code's native `hooks` map.
-Codex output enables `[features].codex_hooks` in `.codex/config.toml` and
-writes native `.codex/hooks.json`. Gemini output writes native
-`.gemini/settings.json` hooks. `doctor` verifies those native activation files
-and fails when a provider does not point at the expected hook command.
+Codex output enables `[features].codex_hooks` in `.codex/config.toml`, writes
+managed native `[hooks]` entries in that same TOML file, and removes stale
+`.codex/hooks.json`. Gemini output writes native `.gemini/settings.json` hooks
+with `hooksConfig.enabled = true`. `doctor` verifies those native activation
+files and fails when a provider does not point at the expected hook command.
+Codex hook generation uses one native command hook per supported lifecycle
+event, while the runtime normalizes aliases such as `exec_command`,
+`run_shell_command`, `shell`, `write_file`, and `apply_patch`; shell and edit
+policy does not depend on a single Codex tool name spelling.
+`verify` executes provider-shaped runtime probes through the configured hook
+command after `doctor` succeeds. It proves the settings point at a runnable
+policy path; it is not a substitute for a real provider binary executing a live
+tool call.
 
 `agent-hook` accepts each provider's supported event shape and normalizes it
 before policy evaluation. Claude may send native `hook_event_name`,
@@ -172,23 +181,28 @@ callers should send the provider-neutral shape:
 
 The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
 `toolInput`, `toolResponse`, `exitCode`), Gemini's `BeforeTool`,
-`run_shell_command`, and `write_file` names, and nested Codex-style
-`tool_call.name` plus `tool_call.arguments`. Provider identity does not weaken
-policy: the same git wrapper, filesystem, Python-edit, continuation, and
-post-tool output rules apply wherever the provider exposes the corresponding
-lifecycle hook.
+`run_shell_command`, and `write_file` names, Codex shell aliases
+(`exec_command`, `run_command`, `run_shell`, `run_shell_command`, `shell`,
+`shell_command`), and nested Codex-style `tool_call.name` plus
+`tool_call.arguments`. Provider identity does not weaken policy: the same git
+wrapper, filesystem, Python-edit, continuation, and post-tool output rules
+apply wherever the provider exposes the corresponding lifecycle hook.
 
 Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
 contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
 does not currently support `updatedInput`, so coding-ethos returns native block
 output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
 command must be rerun through the wrapper. Gemini uses native
-`decision: "deny"` and `systemMessage` for tool blocks. Post-tool hook-output
-advice remains full-fidelity for Claude and Codex; Gemini has no direct
-`PostToolUse` equivalent in the documented hook surface. Agent-facing
-post-tool context replaces absolute repo, home, and temp paths with stable
-tokens, collapses multiline commands, and renders hook output as TOON line
-tables instead of escaped newline cells.
+`decision: "deny"` and `systemMessage` for tool blocks, and maps `AfterTool` to
+the same internal `PostToolUse` feedback path for shell and edit advice.
+Agent-facing post-tool context replaces absolute repo, home, and temp paths
+with stable tokens, collapses multiline commands, and renders hook output as
+TOON line tables instead of escaped newline cells.
+
+Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes a checkpoint,
+language-specific advice, compiled lint findings for the edited files, and a
+fast Ruff probe for Python files when `ruff` is available. Expensive external
+tool suites still belong to the Git hook/check path.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
 ranks failed tools, codes, repeated findings, and output-quality problems such
@@ -210,6 +224,14 @@ You can also point the bundle at an explicit override file with
 
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
+
+License enforcement is intentionally not inherited from the bundle defaults.
+Consumers opt in with `repo.license.spdx_identifier` in `repo_config.yaml`; the
+compiler downloads that SPDX license text into the policy bundle, the hook
+verifies `LICENSE` without overwriting it, and source files must carry the
+configured SPDX license and copyright headers. The same compiled file-policy
+path also enforces configured PII scrub patterns and required runtime ignore
+paths such as `.coding-ethos/`.
 
 Generated config drift is checked with:
 
@@ -265,7 +287,8 @@ Important configurable areas:
   defaults, including the expanded Go security, dependency, module-directive,
   modern-library, protobuf, test, and whitespace/style linter policy
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns
-- `go.*` - commitlint, commit attribution, text policy, line limits, and quiet-filter rules
+- `go.*` - compiled commitlint and commit attribution policy, text policy,
+  line limits, and quiet-filter rules
 
 Agent-facing hook feedback should render from normalized diagnostics instead of
 raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
@@ -282,7 +305,7 @@ by default in `python.type_check.checkers`; re-enable it per repo after the
 local `.pylintrc` policy has been reviewed.
 The canonical Go-owned hook groups are `format`, `syntax`, `python-policy`,
 `python-quality`, `python-static`, `docs`, `security`, `shell`, `docker`,
-`workflow`, `go`, `ai`, and `commit-msg`; the Go runner owns the enforcement
+`workflow`, `go`, and `ai`; compiled policy preflight owns commit message
 behavior. Run `make hook-plan` to print the active group and command plan.
 
 For this repo, many project-specific checks are disabled by default because the

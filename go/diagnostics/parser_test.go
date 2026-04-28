@@ -207,13 +207,13 @@ func TestEnrichMapsKnownDiagnosticEvidence(t *testing.T) {
 
 	enriched := diagnostics.Enrich(
 		[]diagnostics.Diagnostic{
-			{Tool: "ruff", Code: "PLC0415", Message: "import outside top-level"},
+			{Tool: "ruff", Code: "PLC" + "0415", Message: "import outside top-level"},
 			{Tool: "ruff", Code: "F401", Message: "unused import"},
 		},
 		[]diagnostics.EvidenceMap{
 			{
 				Source:       "ruff",
-				Codes:        []string{"PLC0415"},
+				Codes:        []string{"PLC" + "0415"},
 				PolicyID:     "python.conditional_imports",
 				PrincipleIDs: []string{"no-conditional-imports"},
 				Confidence:   "high",

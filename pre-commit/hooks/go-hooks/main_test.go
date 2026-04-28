@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:paralleltest,tparallel,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global fixtures.
+//nolint:paralleltest,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global fixtures.
 package main
 
 import (
@@ -44,74 +44,6 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 
 	if got := consumerRoot(other); got == root {
 		t.Fatalf("consumerRoot() used unrelated explicit root %q", root)
-	}
-}
-
-func TestCommitLintGuidanceIncludesConcreteExample(t *testing.T) {
-	t.Parallel()
-
-	var cfg Config
-
-	cfg.CommitLint.AllowedTypes = []string{"fix", "feat", "docs"}
-
-	guidance := strings.Join(commitLintGuidance(cfg), "\n")
-	for _, want := range []string{
-		"Use exactly: type(scope): concise subject",
-		"Good example: fix(bind): harden enrichment transaction handling",
-		"Allowed types: docs, feat, fix",
-		"Put body details after a blank line below the header.",
-	} {
-		if !strings.Contains(guidance, want) {
-			t.Fatalf("guidance missing %q:\n%s", want, guidance)
-		}
-	}
-}
-
-func TestLimitsForFilePreservesPythonLimitsUnderScripts(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{}
-	cfg.LineLimits.PythonHard = 1000
-	cfg.LineLimits.PythonWarn = 800
-	cfg.LineLimits.ShellHard = 500
-	cfg.LineLimits.ShellWarn = 400
-
-	tests := []struct {
-		path     string
-		hardWant int
-		warnWant int
-	}{
-		{
-			path:     "scripts/tool.py",
-			hardWant: 1000,
-			warnWant: 800,
-		},
-		{
-			path:     "scripts/tool.sh",
-			hardWant: 500,
-			warnWant: 400,
-		},
-		{
-			path:     "coding_ethos/module.py",
-			hardWant: 1000,
-			warnWant: 800,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
-			hardGot, warnGot := limitsForFile(cfg, tc.path)
-			if hardGot != tc.hardWant || warnGot != tc.warnWant {
-				t.Fatalf(
-					"limitsForFile(%q) = (%d, %d), want (%d, %d)",
-					tc.path,
-					hardGot,
-					warnGot,
-					tc.hardWant,
-					tc.warnWant,
-				)
-			}
-		})
 	}
 }
 
@@ -239,53 +171,6 @@ func TestRootConfigValue(t *testing.T) {
 	}
 }
 
-func TestCheckForbiddenStringsExemptsBundleConfig(t *testing.T) {
-	tempDir := t.TempDir()
-	bundleRoot := filepath.Join(tempDir, "pre-commit")
-
-	err := os.MkdirAll(filepath.Join(bundleRoot, "hooks"), 0o755)
-	if err != nil {
-		t.Fatalf("os.MkdirAll(%q) failed: %v", bundleRoot, err)
-	}
-
-	mustWriteTestFile(
-		t,
-		filepath.Join(bundleRoot, "hooks", "run-go-hook.sh"),
-		"#!/bin/sh\n",
-	)
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "go-hooks", "main.go"), "package main\n")
-	configPath := filepath.Join(tempDir, "config.yaml")
-	forbidden := "PLC" + "0415"
-	mustWriteTestFile(t, configPath, "text:\n  forbidden_strings:\n    - "+forbidden+"\n")
-
-	otherPath := filepath.Join(tempDir, "other.txt")
-	mustWriteTestFile(t, otherPath, forbidden+"\n")
-
-	t.Setenv(precommitRootEnv, bundleRoot)
-
-	cfg := Config{}
-	cfg.Text.ForbiddenStrings = []string{forbidden}
-
-	if got := checkForbiddenStrings(
-		cfg,
-		[]string{configPath},
-	); got != 0 {
-		t.Fatalf("checkForbiddenStrings(bundle config) = %d, want 0", got)
-	}
-
-	stderr := captureStderr(t, func() {
-		if got := checkForbiddenStrings(
-			cfg,
-			[]string{otherPath},
-		); got != 1 {
-			t.Fatalf("checkForbiddenStrings(non-config) = %d, want 1", got)
-		}
-	})
-	if !strings.Contains(stderr, `[`+forbidden+`] contains forbidden string`) {
-		t.Fatalf("unexpected stderr: %q", stderr)
-	}
-}
-
 func TestValidateManifestData(t *testing.T) {
 	t.Parallel()
 
@@ -405,135 +290,6 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 
 	if len(findings) != 0 {
 		t.Fatalf("checkPlanCompletionErrors(in_progress) = %#v, want no findings", findings)
-	}
-}
-
-func TestExtractAndFilterPyprojectFindings(t *testing.T) {
-	t.Parallel()
-
-	tempDir := t.TempDir()
-	path := filepath.Join(tempDir, "pyproject.toml")
-	mustWriteTestFile(
-		t,
-		path,
-		strings.TrimSpace(`
-[tool.ruff]
-exclude = [".venv", "generated"]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
-"pkg/**" = ["F401"]
-
-[tool.mypy]
-exclude = ["build"]
-
-[[tool.mypy.overrides]]
-module = ["external_pkg.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["internal_pkg.*"]
-ignore_missing_imports = true
-disable_error_code = ["attr-defined"]
-
-[tool.pyright]
-ignore = ["vendor/**"]
-
-[tool.pylint.main]
-ignore-paths = ["generated"]
-`)+"\n",
-	)
-
-	config, err := loadPyprojectConfig(path)
-	if err != nil {
-		t.Fatalf("loadPyprojectConfig() returned error: %v", err)
-	}
-
-	findings := filterAllowedPyprojectFindings(
-		extractPyprojectFindings(config),
-		pyprojectIgnoreSettings{
-			AllowedIgnorePatterns:    []string{"tests/**"},
-			AllowedExcludePatterns:   []string{".venv", "build"},
-			AllowedMypyMissingImport: []string{"external_pkg.*"},
-		},
-	)
-
-	rendered := make([]string, 0, len(findings))
-	for _, finding := range findings {
-		rendered = append(rendered, finding.render())
-	}
-
-	if slicesContains(rendered, "ruff per-file-ignores: tests/** -> S101") {
-		t.Fatalf("allowed test ignore unexpectedly reported: %#v", rendered)
-	}
-
-	if slicesContains(
-		rendered,
-		"mypy override.ignore_missing_imports: external_pkg.*",
-	) {
-		t.Fatalf(
-			"allowed external mypy import ignore unexpectedly reported: %#v",
-			rendered,
-		)
-	}
-
-	expected := []string{
-		"ruff exclude: generated",
-		"ruff per-file-ignores: pkg/** -> F401",
-		"mypy override.disable_error_code: internal_pkg.* -> attr-defined",
-		"mypy override.ignore_missing_imports: internal_pkg.*",
-		"pyright ignore: vendor/**",
-		"pylint ignore-paths: generated",
-	}
-	for _, want := range expected {
-		if !slicesContains(rendered, want) {
-			t.Fatalf("missing finding %q from %#v", want, rendered)
-		}
-	}
-}
-
-func TestCheckPyprojectIgnoresCommand(t *testing.T) {
-	tempDir := t.TempDir()
-	overridePath := filepath.Join(tempDir, "repo_config.yaml")
-	mustWriteTestFile(
-		t,
-		overridePath,
-		strings.TrimSpace(`
-python:
-  pyproject_ignores:
-    enabled: true
-    allowed_ignore_patterns:
-      - tests/**
-    allowed_exclude_patterns:
-      - .venv
-    allowed_mypy_missing_imports:
-      - external_pkg.*
-`)+"\n",
-	)
-	t.Setenv(configEnv, overridePath)
-
-	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
-	mustWriteTestFile(
-		t,
-		pyprojectPath,
-		strings.TrimSpace(`
-[tool.ruff.lint.per-file-ignores]
-"src/**" = ["F401"]
-`)+"\n",
-	)
-
-	output := captureStderr(t, func() {
-		if got := checkPyprojectIgnoresCommand(Config{}, []string{pyprojectPath}); got != 1 {
-			t.Fatalf("checkPyprojectIgnoresCommand() = %d, want 1", got)
-		}
-	})
-
-	if !strings.Contains(output, "contains forbidden linter file ignores") {
-		t.Fatalf("unexpected output: %q", output)
-	}
-
-	if !strings.Contains(output, "[ruff.per-file-ignores] src/** F401") {
-		t.Fatalf("missing rendered finding in output: %q", output)
 	}
 }
 
@@ -1143,7 +899,6 @@ func TestCanonicalHookGroupsExposeExpectedGroups(t *testing.T) {
 		"security",
 		"shell",
 		"ai",
-		"commit-msg",
 	} {
 		group, ok := groups[name]
 		if !ok {

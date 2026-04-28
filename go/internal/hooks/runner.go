@@ -83,15 +83,20 @@ func RunWithRegistry(
 
 	return Result{
 		Event:              event.HookEventName,
+		Advice:             bundle.Advice,
 		Provider:           event.Provider(),
 		Tool:               event.ToolName,
 		Status:             status,
 		Decisions:          decisions,
-		HookSpecificOutput: hookSpecificOutput(event, route),
+		HookSpecificOutput: hookSpecificOutput(bundle, event, route),
 	}, nil
 }
 
-func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput {
+func hookSpecificOutput(
+	bundle policy.Bundle,
+	event Event,
+	route gitWrapperRoute,
+) *HookSpecificOutput {
 	if route.Rewrite {
 		if event.Provider() != "claude" {
 			return nil
@@ -106,6 +111,14 @@ func hookSpecificOutput(event Event, route gitWrapperRoute) *HookSpecificOutput 
 	}
 
 	if output := continuationOutput(event); output != nil {
+		return output
+	}
+
+	if output := lifecycleOutput(event); output != nil {
+		return output
+	}
+
+	if output := postEditOutput(bundle, event); output != nil {
 		return output
 	}
 

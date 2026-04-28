@@ -45,16 +45,12 @@ func runGitHookCommand(cfg Config, args []string) int {
 	case "pre-push":
 		return runPrePushHook(cfg, os.Stdin)
 	case "commit-msg":
-		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
-			fmt.Fprintln(
-				os.Stderr,
-				"Usage: coding-ethos-hook git-hook commit-msg <message-file>",
-			)
+		fmt.Fprintln(
+			os.Stderr,
+			"FATAL: commit-msg is enforced by compiled policy preflight",
+		)
 
-			return 1
-		}
-
-		return runNamedHookGroups(cfg, []string{"commit-msg"}, []string{args[1]})
+		return 1
 	case "validate":
 		return validateGoHookRuntime()
 	default:

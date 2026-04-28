@@ -11,7 +11,7 @@ It keeps prompt authoring in templates while preserving a deterministic output.
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
@@ -23,7 +23,27 @@ GENERATED_GEMINI_PROMPT_FILES: tuple[str, ...] = (
     ".code-ethos/gemini/prompt-pack.json",
 )
 
-_CHECK_SPECS: dict[str, dict[str, object]] = {
+
+class CheckSelectorSpec(TypedDict):
+    """Selector configuration for one Gemini check."""
+
+    includeExtensions: list[str]
+    excludeSubstrings: list[str]
+    excludePrefixes: list[str]
+    allowExtensionlessInScripts: bool
+    shebangMarkers: list[str]
+
+
+class CheckSpec(TypedDict):
+    """Runtime configuration for one Gemini check."""
+
+    fileScope: str
+    batchSize: int
+    maxFileSizeKb: int
+    selector: CheckSelectorSpec
+
+
+_CHECK_SPECS: dict[str, CheckSpec] = {
     "code_ethos": {
         "fileScope": "code",
         "batchSize": 3,
@@ -178,7 +198,9 @@ def _string_list(value: object) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [str(item).strip() for item in value if str(item).strip()]
+        return [
+            str(item).strip() for item in cast(list[object], value) if str(item).strip()
+        ]
     stripped = str(value).strip()
     return [stripped] if stripped else []
 
@@ -245,7 +267,8 @@ def _repo_paths_payload(bundle: EthosBundle) -> list[dict[str, str]]:
 
 def _mapping_section(value: object) -> dict[str, object]:
     if isinstance(value, dict):
-        return {str(key): item for key, item in value.items()}
+        mapping = cast(dict[object, object], value)
+        return {str(key): item for key, item in mapping.items()}
     return {}
 
 
@@ -298,10 +321,11 @@ def _util_centralization_note(python: dict[str, object]) -> str:
     if not isinstance(banned, list):
         return ""
 
-    for item in banned:
+    for item in cast(list[object], banned):
         if isinstance(item, dict):
-            module = str(item.get("module", "")).strip()
-            alternative = str(item.get("alternative", "")).strip()
+            entry = cast(dict[str, object], item)
+            module = str(entry.get("module", "")).strip()
+            alternative = str(entry.get("alternative", "")).strip()
             if module and alternative:
                 banned_entries.append(f"{module} -> {alternative}")
             elif module:
@@ -402,11 +426,8 @@ def _build_template_context(
     repo_root: Path,
 ) -> dict[str, Any]:
     principles = [_principle_payload(principle) for principle in bundle.principles]
-    profile_notes = (
-        bundle.agent_profiles.get("gemini").notes
-        if bundle.agent_profiles.get("gemini")
-        else []
-    )
+    gemini_profile = bundle.agent_profiles.get("gemini")
+    profile_notes = list(gemini_profile.notes) if gemini_profile else []
     gemini_notes = _dedupe_preserve_order(
         profile_notes + bundle.repo.agent_notes.get("gemini", [])
     )
@@ -434,19 +455,19 @@ def _render_prompts(context: dict[str, Any]) -> dict[str, str]:
     return prompts
 
 
-def _render_check_specs() -> dict[str, dict[str, object]]:
+def _render_check_specs() -> dict[str, CheckSpec]:
     return {
         name: {
-            "fileScope": str(spec["fileScope"]),
-            "batchSize": int(spec["batchSize"]),
-            "maxFileSizeKb": int(spec["maxFileSizeKb"]),
+            "fileScope": spec["fileScope"],
+            "batchSize": spec["batchSize"],
+            "maxFileSizeKb": spec["maxFileSizeKb"],
             "selector": {
                 "includeExtensions": list(spec["selector"]["includeExtensions"]),
                 "excludeSubstrings": list(spec["selector"]["excludeSubstrings"]),
                 "excludePrefixes": list(spec["selector"]["excludePrefixes"]),
-                "allowExtensionlessInScripts": bool(
-                    spec["selector"]["allowExtensionlessInScripts"]
-                ),
+                "allowExtensionlessInScripts": spec["selector"][
+                    "allowExtensionlessInScripts"
+                ],
                 "shebangMarkers": list(spec["selector"]["shebangMarkers"]),
             },
         }

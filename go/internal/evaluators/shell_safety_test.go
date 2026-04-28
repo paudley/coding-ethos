@@ -116,7 +116,7 @@ func TestEvaluateShellForbiddenStringsBlocksCommandText(t *testing.T) {
 	decisions, err := EvaluateShellForbiddenStrings(
 		policyDef,
 		Context{
-			Command: `cat /home/paudley/.claude/settings.json | python3 -c "import json, sys; print(json.load(sys.stdin).get('hooks', {}))"`,
+			Command: `cat /tmp/fake-home/.claude/settings.json | python3 -c "import json, sys; print(json.load(sys.stdin).get('hooks', {}))"`,
 		},
 	)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestEvaluateShellForbiddenStringsBlocksHookImplementationRecon(t *testing.T
 	decisions, err := EvaluateShellForbiddenStrings(
 		policyDef,
 		Context{
-			Command: `grep -r "header must match" /home/paudley/Active/lbox-worktrees/feature-0027-corpus_enrichment_completion/coding-ethos/pre-commit/hooks/go-hooks --include="*.go"`,
+			Command: `grep -r "header must match" /workspace/coding-ethos/pre-commit/hooks/go-hooks --include="*.go"`,
 		},
 	)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 	helper := filepath.Join(dir, "inspect-hooks.sh")
 	err := os.WriteFile(
 		helper,
-		[]byte("cat /home/paudley/.claude/settings.local.json\n"),
+		[]byte("blocked-marker\n"),
 		0o600,
 	)
 	if err != nil {
@@ -166,10 +166,15 @@ func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 
 	decisions, err := EvaluateShellForbiddenStrings(
 		policyDef,
-		Context{Cwd: dir, Command: "bash inspect-hooks.sh", Argv: []string{
-			"bash",
-			"inspect-hooks.sh",
-		}},
+		Context{
+			Cwd:     dir,
+			Command: "bash inspect-hooks.sh",
+			Argv: []string{
+				"bash",
+				"inspect-hooks.sh",
+			},
+			EvaluatorOptions: map[string]any{"file_strings": []string{"blocked-marker"}},
+		},
 	)
 	if err != nil {
 		t.Fatalf("evaluate forbidden strings: %v", err)
@@ -182,6 +187,39 @@ func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 	location, ok := decisions[0].Evidence["location"].(string)
 	if !ok || location != "inspect-hooks.sh" {
 		t.Fatalf("expected helper file evidence, got %#v", decisions[0].Evidence)
+	}
+}
+
+func TestEvaluateShellForbiddenStringsSkipsExemptReferencedFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	err := os.WriteFile(
+		configPath,
+		[]byte("/tmp/fake-home/.claude/settings.local.json\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Cwd:              dir,
+			Files:            []string{"config.yaml"},
+			EvaluatorOptions: map[string]any{"exempt_paths": []string{"config.yaml"}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected exempt config file, got %#v", decisions)
 	}
 }
 

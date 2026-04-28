@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -30,7 +29,7 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
-	if result.Status != "blocked" {
+	if !hookOutputDenies(result) {
 		t.Fatalf("result status mismatch: %#v", result)
 	}
 }
@@ -49,16 +48,8 @@ func TestHookCLIAdvisesMultiEditPythonPolicy(t *testing.T) {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
-	if result.Status != "allowed" {
-		t.Fatalf("result status mismatch: %#v", result)
-	}
-
-	if len(result.Decisions) != 1 {
-		t.Fatalf("decision count mismatch: %#v", result.Decisions)
-	}
-
-	if result.Decisions[0].Decision != "advise" {
-		t.Fatalf("decision mismatch: %#v", result.Decisions[0])
+	if hookOutputDenies(result) {
+		t.Fatalf("result should not deny: %#v", result)
 	}
 }
 
@@ -75,16 +66,12 @@ func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
-	if result.Status != "allowed" {
-		t.Fatalf("result status mismatch: %#v", result)
-	}
-
-	if len(result.Decisions) != 0 {
-		t.Fatalf("expected no decisions, got %#v", result.Decisions)
+	if hookOutputDenies(result) {
+		t.Fatalf("result should not deny: %#v", result)
 	}
 }
 
-func runHookCLI(t *testing.T, stdin string) (hooks.Result, int) {
+func runHookCLI(t *testing.T, stdin string) (map[string]any, int) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "coding-ethos-hook")
 	build := exec.CommandContext(
@@ -127,7 +114,7 @@ func runHookCLI(t *testing.T, stdin string) (hooks.Result, int) {
 		status = exitErr.ExitCode()
 	}
 
-	var result hooks.Result
+	var result map[string]any
 
 	err = json.Unmarshal(stdout.Bytes(), &result)
 	if err != nil {
@@ -140,6 +127,15 @@ func runHookCLI(t *testing.T, stdin string) (hooks.Result, int) {
 	}
 
 	return result, status
+}
+
+func hookOutputDenies(result map[string]any) bool {
+	hookSpecific, ok := result["hookSpecificOutput"].(map[string]any)
+	if !ok {
+		return false
+	}
+
+	return hookSpecific["permissionDecision"] == "deny"
 }
 
 func hookJSON(

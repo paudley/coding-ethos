@@ -282,6 +282,13 @@ The merged config drives:
 - Gemini AI review runtime settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
 
+License and copyright enforcement is repo-specific. Bundle `config.yaml`
+controls this repository's own headers only; consuming repos do not inherit that
+license policy. To opt in, set `repo.license.spdx_identifier` and, if desired,
+`repo.license.copyright` in `repo_config.yaml`. The compiled policy downloads
+the SPDX license text, verifies the repo `LICENSE` file without overwriting it,
+and requires matching SPDX source headers.
+
 See [repo_config.example.yaml](repo_config.example.yaml).
 
 ## Output layout
@@ -383,10 +390,9 @@ not pass tables, internal group names, or timings that do not help fix code.
 
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
-new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
-they are not invoked from agent hooks. Agent hook evaluators are runtime-covered,
-but Claude hook installation and cutover are still tracked in
-[HOOK_REPLACEMENT_PLAN.md](HOOK_REPLACEMENT_PLAN.md).
+Go policy runtime. Gemini review checks remain pre-commit/pre-push checks; they
+are not invoked from agent hooks. Agent hook evaluators are runtime-covered, and
+all supported provider settings are generated together.
 
 Installed Git hook shims compile the policy bundle and enter
 `coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That runtime
@@ -424,22 +430,29 @@ supported repo-local agent surface:
 
 - `.claude/settings.local.json`
 - `.codex/config.toml`
-- `.codex/hooks.json`
 - `.gemini/settings.json`
 
 Claude output preserves Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` and writes native `.codex/hooks.json`. Gemini output
-writes native `.gemini/settings.json` hooks. Generated settings cover the
-events each provider exposes: Claude uses the full runtime set, Codex uses
-Codex's `PreToolUse`, `PostToolUse`, and `SessionStart` hook names, and Gemini
-maps pre-tool checks to `BeforeTool` for `run_shell_command` and `write_file`.
+`[features].codex_hooks` and writes native `[hooks]` entries directly in
+`.codex/config.toml`; stale `.codex/hooks.json` files are removed. Gemini
+output writes native `.gemini/settings.json` hooks with
+`hooksConfig.enabled = true`. Generated settings cover the events each provider
+exposes: Claude uses the full runtime set, Codex uses native `PreToolUse`,
+`PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop` hook names, and
+Gemini maps runtime policy to `BeforeTool`, `AfterTool`, `BeforeAgent`,
+`AfterAgent`, `SessionStart`, and `SessionEnd`.
+Codex runs one native command hook per supported event so current Codex sessions
+enter the same policy runtime without depending on unstable tool matcher names.
 `agent-hooks doctor` verifies those native activation files rather than a
 coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
 the configured hook command with provider-native Claude, Codex, and Gemini
-payloads to prove the installed files point at a runnable policy path. The
-verification probes cover Claude's transparent git rewrite, Codex's block
-response for raw git when rewrite is unavailable, Gemini's `deny` response for
-raw shell git, and Gemini write-tool policy denial.
+payloads to prove the installed files point at a runnable policy path. This is
+settings plus runtime-probe verification; it does not claim that each real
+provider binary has executed a live tool call. The verification probes cover
+Claude's transparent git rewrite, Codex's block response for raw git, absolute
+git paths, nested shell git, and Python subprocess git when rewrite is
+unavailable, Gemini's `deny` response for raw shell git, and Gemini write-tool
+policy denial.
 
 Use the cutover command when preparing a repo to replace old hook surfaces:
 
@@ -451,7 +464,7 @@ pre-commit/hooks/run-go-hook.sh cutover verify
 `cutover install` installs the repo-local Git hook shims, syncs every supported
 agent hook surface, and then runs readiness verification. `cutover verify`
 checks installed Git hook shims, runs `agent-hooks verify`, verifies required
-runtime ignores through the compiled `filesystem.required_ignores` policy, runs
+runtime ignores through the compiled `repo.required_ignores` policy, runs
 the policy runtime validation hook, and emits a concise TOON readiness report
 for Git, agent hooks, repo ignores, and the policy runtime. Blocked reports
 include `fix_first` entries naming missing or stale hook files, missing ignore
@@ -471,9 +484,12 @@ provider-neutral payload shape is:
 
 Gemini CLI callers may use `BeforeTool`, `run_shell_command`, and `write_file`;
 those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
-surface. Codex-style nested `tool_call.name` plus `tool_call.arguments` is also
-accepted. Provider identity is recorded for diagnostics, but policy enforcement
-is intentionally shared across all supported agents.
+surface. Codex callers may use native shell aliases such as `exec_command`,
+`run_command`, `run_shell`, `run_shell_command`, `shell`, or `shell_command`;
+those normalize to the same internal `Bash` policy surface. Codex-style nested
+`tool_call.name` plus `tool_call.arguments` is also accepted. Provider identity
+is recorded for diagnostics, but policy enforcement is intentionally shared
+across all supported agents.
 Agent shell policy includes a forbidden-string gate for hook-system
 reconnaissance: banned strings are rejected when they appear directly in a
 command and when they appear in regular files referenced by the command, so
@@ -488,9 +504,18 @@ Provider output uses the strongest native shape each agent supports:
   supported context events. Codex does not currently support `updatedInput`, so
   raw git is denied rather than rewritten there.
 - Gemini receives native `decision: "deny"` / `systemMessage` for tool blocks
-  and `additionalContext` on supported lifecycle hooks. Gemini does not expose a
-  direct `PostToolUse` equivalent, so post-command hook-output advice remains
-  provider-limited.
+  and `additionalContext` on supported lifecycle hooks. Gemini `AfterTool` maps
+  to the same internal `PostToolUse` policy path for shell and edit feedback.
+
+Post-edit advice for `Write`, `Edit`, and `MultiEdit` includes language-specific
+next steps, compiled file-scope lint state for edited paths, and a fast Ruff
+probe for Python files when `ruff` is already available. The hook path runs only
+deterministic compiled evaluators, such as Python policy checks,
+structured-data syntax validation, merge-conflict detection, private-key
+detection, PII scrubbing, repo-specific license headers, required runtime
+ignore checks, shebang checks, large-file limits, line limits, and shell
+best-practice checks; heavier external suites remain in the Git hook/check path
+where their cost and output can be controlled.
 
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
@@ -503,6 +528,11 @@ the git wrapper accepts `--admin-approved` before the git subcommand, such as
 `pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -m "..."`.
 The flag only changes `git.staged_admin_files` from block to record; it does not
 disable any other policy and it is invalid outside this repository.
+Admin branch setup uses the same gate:
+`pre-commit/hooks/run-go-hook.sh policy-git --admin-approved admin-start-branch hooks_and_crooks_take_6`.
+That wrapper-owned operation requires a clean worktree, checks out `main`, pulls
+with `--ff-only`, and creates the requested branch. Agents must not use
+`/usr/bin/git` or any other raw Git path for that workflow.
 
 Install hooks:
 

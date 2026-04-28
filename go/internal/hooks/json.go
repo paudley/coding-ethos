@@ -28,7 +28,7 @@ func DecodeEvent(reader io.Reader) (Event, error) {
 }
 
 func EncodeResult(writer io.Writer, result Result) error {
-	if result.Provider != "" && result.Provider != "claude" {
+	if result.Provider != "" {
 		return EncodeProviderResult(writer, result)
 	}
 
@@ -76,10 +76,13 @@ func normalizedHookEventName(name string) string {
 
 func normalizedToolName(name string) string {
 	switch name {
-	case "run_shell_command":
+	case "bash", "exec_command", "run_command", "run_shell", "run_shell_command",
+		"shell", "shell_command":
 		return canonicalToolBash
-	case "write_file":
+	case "create_file", "write_file":
 		return canonicalToolWrite
+	case "apply_patch", "edit_file":
+		return "Edit"
 	default:
 		return name
 	}

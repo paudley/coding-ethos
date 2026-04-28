@@ -49,6 +49,30 @@ for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; 
   fi
 done
 
+expect_compiled_file_block() {
+  local file="$1"
+  local policy_id="$2"
+  local compiled_output
+  local compiled_status
+
+  set +e
+  compiled_output="$("$lint_bin" \
+    --bundle "$policy_dir/policy-bundle.json" \
+    --scope files \
+    --cwd "$git_repo" \
+    --files "$file" \
+    --json 2>&1)"
+  compiled_status=$?
+  set -e
+
+  if [[ "$compiled_status" -ne 2 ]] ||
+    ! grep -q "\"policy_id\": \"$policy_id\"" <<<"$compiled_output"; then
+    printf 'expected compiled %s block, got %s:\n%s\n' \
+      "$policy_id" "$compiled_status" "$compiled_output" >&2
+    exit 1
+  fi
+}
+
 printf '==> compiling policy bundle\n'
 "$policy_bin" compile \
   --primary "$repo_root/coding_ethos.yml" \
@@ -88,9 +112,9 @@ if [[ "$hook_status" -ne 2 ]]; then
   printf 'expected hook exit 2, got %s:\n%s\n' "$hook_status" "$hook_output" >&2
   exit 1
 fi
-if ! grep -q '"status": "blocked"' <<<"$hook_output"; then
-  printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
-  exit 1
+if ! grep -q '"permissionDecision": "deny"' <<<"$hook_output"; then
+	printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
+	exit 1
 fi
 
 printf '==> validating hook blocks shell safety policies\n'
@@ -119,6 +143,20 @@ git init "$git_repo" >/dev/null
 git -C "$git_repo" config user.email test@example.com
 git -C "$git_repo" config user.name Test
 git -C "$git_repo" config commit.gpgsign false
+
+printf '==> validating compiled file policy preflight blocks migrated checks\n'
+printf '<<<<<<< HEAD\n' > "$git_repo/conflict.txt"
+expect_compiled_file_block conflict.txt syntax.merge_conflict
+rm -f "$git_repo/conflict.txt"
+
+printf '%s%s\n%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----' 'redacted' > "$git_repo/secret.pem"
+expect_compiled_file_block secret.pem security.private_key
+rm -f "$git_repo/secret.pem"
+
+printf '%s%s\n' 'PLC' '0415' > "$git_repo/forbidden.txt"
+expect_compiled_file_block forbidden.txt shell.forbidden_strings
+rm -f "$git_repo/forbidden.txt"
+
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add file.txt
 
@@ -300,21 +338,29 @@ printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "partial"' /tmp/coding-ethos-agent-doctor.out ||
-  ! grep -q '"PostToolUse shell-output feedback"' /tmp/coding-ethos-agent-doctor.out; then
+  ! grep -q '"PostToolBatch additionalContext"' /tmp/coding-ethos-agent-doctor.out; then
   printf 'expected doctor capability matrix:\n' >&2
   cat /tmp/coding-ethos-agent-doctor.out >&2
   exit 1
 fi
 if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
-  ! grep -q '"PreToolUse"' "$agent_settings_root/.codex/hooks.json" ||
-  ! grep -q '"statusMessage": "coding-ethos policy"' \
-    "$agent_settings_root/.codex/hooks.json"; then
+  ! grep -q 'PreToolUse = \[' "$agent_settings_root/.codex/config.toml" ||
+  ! grep -q 'statusMessage = "coding-ethos policy"' \
+    "$agent_settings_root/.codex/config.toml"; then
   printf 'expected native Codex hook activation:\n' >&2
   cat "$agent_settings_root/.codex/config.toml" >&2
+  exit 1
+fi
+if [[ -e "$agent_settings_root/.codex/hooks.json" ]]; then
+  printf 'stale Codex hooks JSON should have been removed\n' >&2
   cat "$agent_settings_root/.codex/hooks.json" >&2
   exit 1
 fi
 if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"AfterTool"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"BeforeAgent"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"AfterAgent"' "$agent_settings_root/.gemini/settings.json" ||
+  ! grep -q '"hooksConfig"' "$agent_settings_root/.gemini/settings.json" ||
   ! grep -q '"matcher": "run_shell_command"' "$agent_settings_root/.gemini/settings.json" ||
   ! grep -q '"name": "coding-ethos"' "$agent_settings_root/.gemini/settings.json"; then
   printf 'expected native Gemini hook activation:\n' >&2
@@ -405,6 +451,18 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
     "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-refusal.out \
       2>/tmp/coding-ethos-codex-refusal.err
   codex_refusal_status=$?
+  printf '{"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"/usr/bin/git status --short"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-absolute-git.out \
+      2>/tmp/coding-ethos-codex-absolute-git.err
+  codex_absolute_git_status=$?
+  printf '{"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"bash -c '\''git status --short'\''"}}\n' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-nested-shell.out \
+      2>/tmp/coding-ethos-codex-nested-shell.err
+  codex_nested_shell_status=$?
+  python3 -c 'import json; print(json.dumps({"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"python3 -c \"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\""}}))' |
+    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-python-git.out \
+      2>/tmp/coding-ethos-codex-python-git.err
+  codex_python_git_status=$?
   printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git commit --no-verify -m test"}}\n' |
     "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-refusal.out \
       2>/tmp/coding-ethos-gemini-refusal.err
@@ -420,6 +478,18 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
   fi
   if [[ "$codex_refusal_status" -ne 2 ]]; then
     printf 'expected Codex refusal exit 2, got %s\n' "$codex_refusal_status" >&2
+    exit 1
+  fi
+  if [[ "$codex_absolute_git_status" -ne 2 ]]; then
+    printf 'expected Codex absolute git refusal exit 2, got %s\n' "$codex_absolute_git_status" >&2
+    exit 1
+  fi
+  if [[ "$codex_nested_shell_status" -ne 2 ]]; then
+    printf 'expected Codex nested shell refusal exit 2, got %s\n' "$codex_nested_shell_status" >&2
+    exit 1
+  fi
+  if [[ "$codex_python_git_status" -ne 2 ]]; then
+    printf 'expected Codex Python git refusal exit 2, got %s\n' "$codex_python_git_status" >&2
     exit 1
   fi
   if [[ "$gemini_refusal_status" -ne 2 ]]; then
@@ -440,6 +510,17 @@ if ! grep -q '"decision": "block"' /tmp/coding-ethos-codex-refusal.out ||
   cat /tmp/coding-ethos-codex-refusal.err >&2
   exit 1
 fi
+for codex_output in \
+  /tmp/coding-ethos-codex-absolute-git.out \
+  /tmp/coding-ethos-codex-nested-shell.out \
+  /tmp/coding-ethos-codex-python-git.out; do
+  if ! grep -q '"decision": "block"' "$codex_output" ||
+    ! grep -q '"permissionDecision": "deny"' "$codex_output"; then
+    printf 'expected Codex bypass block output in %s:\n' "$codex_output" >&2
+    cat "$codex_output" >&2
+    exit 1
+  fi
+done
 if ! grep -q '"decision": "deny"' /tmp/coding-ethos-gemini-refusal.out ||
   ! grep -q '"systemMessage"' /tmp/coding-ethos-gemini-refusal.out; then
   printf 'expected Gemini native deny output:\n' >&2

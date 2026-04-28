@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -63,11 +64,39 @@ func main() {
 	}
 
 	hookName := args[0]
+	if hookName == "commit-msg" {
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			exitErr(errors.New("commit-msg hook requires a message file"))
+		}
+
+		result, runErr := lint.Run(bundle, lint.Options{
+			Scope: lint.ScopeCommit,
+			Cwd:   *cwd,
+			Files: []string{args[1]},
+		})
+		if runErr != nil {
+			exitErr(runErr)
+		}
+
+		if result.Blocked() {
+			encodeLintResult(result)
+			os.Exit(blockedExitCode)
+		}
+
+		os.Exit(0)
+	}
+
 	if hookName == "pre-commit" || hookName == "pre-push" {
+		files, err := hookFiles(*cwd, hookName)
+		if err != nil {
+			exitErr(err)
+		}
+
 		result, runErr := lint.Run(bundle, lint.Options{
 			AdminApproved: os.Getenv(adminApprovedEnv) == "1",
 			Scope:         lint.ScopeStaged,
 			Cwd:           *cwd,
+			Files:         files,
 		})
 		if runErr != nil {
 			exitErr(runErr)
@@ -80,6 +109,38 @@ func main() {
 	}
 
 	os.Exit(runLegacyRunner(*runnerPath, args))
+}
+
+func hookFiles(cwd string, hookName string) ([]string, error) {
+	if hookName != "pre-commit" {
+		return nil, nil
+	}
+
+	command := exec.CommandContext(
+		context.Background(),
+		"git",
+		"diff",
+		"--cached",
+		"--name-only",
+		"--diff-filter=ACMR",
+		"--",
+	)
+	command.Dir = cwd
+
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list staged files: %w", err)
+	}
+
+	files := []string{}
+	for _, line := range strings.Split(string(output), "\n") {
+		file := strings.TrimSpace(line)
+		if file != "" {
+			files = append(files, file)
+		}
+	}
+
+	return files, nil
 }
 
 func readBundle(path string) (policy.Bundle, error) {
@@ -98,6 +159,10 @@ func readBundle(path string) (policy.Bundle, error) {
 }
 
 func encodeLintResult(result lint.Result) {
+	if result.Blocked() {
+		result = blockedOnlyResult(result)
+	}
+
 	encoder := json.NewEncoder(os.Stderr)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
@@ -106,6 +171,24 @@ func encodeLintResult(result lint.Result) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
 	}
+}
+
+func blockedOnlyResult(result lint.Result) lint.Result {
+	filtered := lint.Result{
+		Scope:  result.Scope,
+		Status: result.Status,
+	}
+
+	for _, decision := range result.Decisions {
+		if decision.Decision != "block" && decision.Severity != "block" {
+			continue
+		}
+
+		filtered.Decisions = append(filtered.Decisions, decision)
+		filtered.Diagnostics = append(filtered.Diagnostics, decision.Diagnostics...)
+	}
+
+	return filtered
 }
 
 func runLegacyRunner(runnerPath string, args []string) int {

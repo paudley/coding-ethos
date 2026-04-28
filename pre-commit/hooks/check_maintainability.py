@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
 """Check maintainability index of Python code.
 
 Pre-commit hook for maintainability monitoring.
@@ -17,9 +19,6 @@ Usage:
 Exit codes:
     0: Always passes (advisory mode)
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import sys
 from typing import Final

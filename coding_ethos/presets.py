@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Preset metadata and helper builders for common ethos principle fields.
 
 This module keeps shared tags, related links, merge topics, and agent hints in
 one place so seeded or hand-authored YAML stays compact and consistent.
 It provides the opinionated defaults that make seeding useful instead of noisy.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 import re
 from typing import TypedDict

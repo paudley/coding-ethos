@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Console launcher for the coding-ethos package entrypoint.
 
 This thin wrapper exists so the repo can run the CLI directly with `python
@@ -8,9 +11,6 @@ See Also:
     coding_ethos/CODING_ETHOS.md: Package overview and generation workflow.
 
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 from coding_ethos import main
 

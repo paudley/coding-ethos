@@ -190,7 +190,11 @@ type scopeFlag struct {
 
 func scopeFlagSet(flags *flag.FlagSet) *scopeFlag {
 	scope := &scopeFlag{value: lint.ScopeFiles}
-	flags.Var(scope, "scope", "Lint scope: files, changed, staged, smoke, full, cutover")
+	flags.Var(
+		scope,
+		"scope",
+		"Lint scope: files, changed, staged, smoke, full, cutover, commit-msg",
+	)
 	flags.BoolFunc("changed", "Use changed-file lint scope", func(string) error {
 		scope.value = lint.ScopeChanged
 

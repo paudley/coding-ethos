@@ -149,7 +149,7 @@ when that evidence appears.
 Example mapping:
 
 - `source`: `ruff`
-- `codes`: `PLC0415`
+- `codes`: `PLC 0415`
 - `policy_id`: `python.conditional_imports`
 - `principle_ids`: `no-conditional-imports`
 - `confidence`: `high`
@@ -802,7 +802,11 @@ Current package layout:
 ```text
 go/
   cmd/
+    coding-ethos-agent-hooks/
+      main.go
     coding-ethos-git/
+      main.go
+    coding-ethos-git-hook/
       main.go
     coding-ethos-hook/
       main.go
@@ -811,6 +815,7 @@ go/
     coding-ethos-policy/
       main.go
   internal/
+    agenthooks/
     evaluators/
     gitwrap/
     hooks/
@@ -885,15 +890,23 @@ The first compiled policy subset covers:
 - `python.catch_and_silence`
 - `python.structured_logging`
 - `python.direct_imports`
+- `python.bare_except`
+- `python.unexplained_type_ignore`
+- `python.pyproject_ignores`
 - `pytest.gate`
 - `generated_config.freshness`
 - `git.hook_bypass`
 - `git.staged_admin_files`
 - `git.commit_head_advanced`
+- git safety policies for destructive commands, checkout, force-push, stash,
+  change-directory shortcuts, background git, and admin CLI use
+- file policies for syntax, merge conflicts, private keys, shebangs, large
+  files, line limits, required ignores, PII scrubbing, and repo-specific
+  license/copyright headers
 
-This is intentionally not the final compiler surface. It establishes the shared
-Go package, the bundle schema, validation, deterministic output, source hashing,
-and the first real YAML-to-policy compilation path.
+The compiled bundle now feeds the agent hook runtime, Git hook runtime, git
+wrapper, and lint entrypoints. Gemini-backed corpus review remains a Git
+hook/check concern; agent hooks stay on deterministic local policy evaluation.
 
 ## Guardrails
 

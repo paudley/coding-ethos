@@ -33,9 +33,7 @@ func Execute(realGit string, options Options) error {
 	cmd.Stdout = os.Stdout
 
 	cmd.Stderr = os.Stderr
-	if options.AdminApproved {
-		cmd.Env = append(os.Environ(), adminApprovedEnv+"=1")
-	}
+	cmd.Env = gitExecutionEnv(options.AdminApproved)
 
 	err = cmd.Run()
 	if err != nil {

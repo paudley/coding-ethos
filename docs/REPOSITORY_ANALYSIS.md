@@ -24,7 +24,11 @@ hook prompt grounding aligned with a shared structured ethos.
   golangci-lint configs.
 - `coding_ethos/gemini_prompt_pack.py`: generated Gemini hook prompt pack.
 - `pre-commit/prompts/`: prompt templates for Gemini review checks.
-- `pre-commit/hooks/go-hooks/`: active hook runtime and policy checks.
+- `pre-commit/hooks/go-hooks/`: active Git hook runtime and external check
+  orchestration.
+- `go/internal/policy`, `go/internal/hooks`, `go/internal/gitwrap`, and
+  `go/internal/agenthooks`: compiled policy runtime, agent hook adapters, and
+  git wrapper enforcement.
 - `pre-commit/hooks/check_*.py`: remaining Python hook wrappers around
   external analyzers.
 
@@ -88,7 +92,9 @@ config, renders every prompt template, attaches check selectors and runtime
 metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
 
 For hooks, the Makefile installs repo-local Git hook shims that call the Go
-helper in `pre-commit/hooks/go-hooks/`.
+helper and compiled policy entrypoints. `cutover` also syncs Claude, Codex, and
+Gemini repo-local agent hook settings, verifies the git wrapper path, and
+checks required runtime ignores before declaring the hook surface ready.
 
 ## Validation boundaries
 

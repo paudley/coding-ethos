@@ -13,7 +13,7 @@ This package provides shared utilities for coding-ethos Go hooks.
 
 The parent `pre-commit/hooks/` directory contains the actual hook implementations:
 
-- `go-hooks/` - Generic file checks, shell checks, commitlint, commit attribution, direct-import enforcement, utility and SQL centralization, file and module doc checks, type-check orchestration, pytest gating, comment suppression enforcement, manifest and plan validation, pyproject ignore enforcement, repo-root Python version consistency checks, shared hook policy, and the active Gemini AI review runner
+- `go-hooks/` - Compiled policy preflight, generic file checks, shell checks, direct-import enforcement, utility and SQL centralization, file and module doc checks, type-check orchestration, pytest gating, comment suppression enforcement, manifest and plan validation, compiled `python.pyproject_ignores` enforcement, repo-specific PII/ignore/license policies, repo-root Python version consistency checks, shared hook policy, and the active Gemini AI review runner
 - `check_complexity.py` - Cyclomatic complexity checks
 - `check_maintainability.py` - Maintainability index checks
 - `check_vulture.py` - Dead-code checks
@@ -22,4 +22,6 @@ The parent `pre-commit/hooks/` directory contains the actual hook implementation
 
 Hooks are installed from the repository root with `make install-hooks` or, in a
 consuming repo, `make -C code-ethos install-hooks`. The bundle reads merged
-policy from the repo-root `config.yaml` plus optional consumer override YAML.
+policy from the repo-root `config.yaml` plus optional consumer override YAML and
+compiles that policy for the Git hook, agent hook, git wrapper, and lint
+entrypoints.

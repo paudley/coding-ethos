@@ -1,12 +1,12 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
 """Typed models shared across ethos loading, rendering, and merge flows.
 
 These dataclasses define the stable in-memory contract for the structured
 ethos bundle so generators and hook tooling can share one vocabulary.
 They keep serialization concerns out of the renderer and CLI layers.
 """
-
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass, field
 
@@ -24,6 +24,30 @@ SECTION_KINDS = (
     "reference",
     "repo_context",
 )
+
+
+def _empty_str_list() -> list[str]:
+    return []
+
+
+def _empty_str_map() -> dict[str, str]:
+    return {}
+
+
+def _empty_command_map() -> dict[str, list[str]]:
+    return {}
+
+
+def _empty_agent_notes() -> dict[str, list[str]]:
+    return {}
+
+
+def _empty_sections() -> list["PrincipleSection"]:
+    return []
+
+
+def _empty_agent_profiles() -> dict[str, "AgentProfile"]:
+    return {}
 
 
 @dataclass(slots=True)
@@ -46,13 +70,13 @@ class Principle:
     title: str
     summary: str
     body: str
-    sections: list[PrincipleSection] = field(default_factory=list)
+    sections: list[PrincipleSection] = field(default_factory=_empty_sections)
     directive: str = ""
-    quick_ref: list[str] = field(default_factory=list)
-    merge_topics: list[str] = field(default_factory=list)
-    tags: list[str] = field(default_factory=list)
-    related: list[str] = field(default_factory=list)
-    agent_hints: dict[str, str] = field(default_factory=dict)
+    quick_ref: list[str] = field(default_factory=_empty_str_list)
+    merge_topics: list[str] = field(default_factory=_empty_str_list)
+    tags: list[str] = field(default_factory=_empty_str_list)
+    related: list[str] = field(default_factory=_empty_str_list)
+    agent_hints: dict[str, str] = field(default_factory=_empty_str_map)
 
 
 @dataclass(slots=True)
@@ -61,8 +85,8 @@ class AgentProfile:
 
     name: str
     root_file: str = ""
-    supporting_files: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
+    supporting_files: list[str] = field(default_factory=_empty_str_list)
+    notes: list[str] = field(default_factory=_empty_str_list)
 
 
 @dataclass(slots=True)
@@ -71,10 +95,10 @@ class RepoContext:
 
     name: str = ""
     overview: str = ""
-    commands: dict[str, list[str]] = field(default_factory=dict)
-    paths: dict[str, str] = field(default_factory=dict)
-    notes: list[str] = field(default_factory=list)
-    agent_notes: dict[str, list[str]] = field(default_factory=dict)
+    commands: dict[str, list[str]] = field(default_factory=_empty_command_map)
+    paths: dict[str, str] = field(default_factory=_empty_str_map)
+    notes: list[str] = field(default_factory=_empty_str_list)
+    agent_notes: dict[str, list[str]] = field(default_factory=_empty_agent_notes)
 
 
 @dataclass(slots=True)
@@ -84,6 +108,8 @@ class EthosBundle:
     title: str
     overview: str
     principles: list[Principle]
-    agent_profiles: dict[str, AgentProfile] = field(default_factory=dict)
+    agent_profiles: dict[str, AgentProfile] = field(
+        default_factory=_empty_agent_profiles
+    )
     repo: RepoContext = field(default_factory=RepoContext)
     source_markdown: str = ""

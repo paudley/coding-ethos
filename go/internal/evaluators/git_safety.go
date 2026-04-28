@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -170,14 +171,12 @@ func EvaluateGitCommitAttribution(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "commit") {
-		return nil, nil
-	}
-
-	messages, err := commitMessagesFromArgv(argv, context.Cwd)
+	messages, err := commitMessagesFromContext(context)
 	if err != nil {
 		return nil, err
+	}
+	if len(messages) == 0 {
+		return nil, nil
 	}
 
 	matches := forbiddenAttributionMatches(messages, attributionNames(context))
@@ -187,11 +186,46 @@ func EvaluateGitCommitAttribution(
 
 	decision := policy.NewDecision(blockDecision, policyDef)
 	decision.Evidence = map[string]any{
-		"argv":    append([]string(nil), argv...),
 		"matches": matches,
+	}
+	if len(context.Argv) > 0 {
+		decision.Evidence["argv"] = append([]string(nil), context.Argv...)
+	}
+	if len(context.Files) > 0 {
+		decision.Evidence["files"] = append([]string(nil), context.Files...)
 	}
 
 	return []policy.Decision{decision}, nil
+}
+
+func EvaluateGitCommitLint(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	messages, err := commitMessagesFromContext(context)
+	if err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		return nil, nil
+	}
+
+	for _, message := range messages {
+		errs := validateCommitMessageText(message, context.EvaluatorOptions)
+		if len(errs) == 0 {
+			continue
+		}
+
+		decision := policy.NewDecision(blockDecision, policyDef)
+		decision.Evidence = map[string]any{
+			"errors":  errs,
+			"example": "fix(hooks): compile commit message checks",
+		}
+
+		return []policy.Decision{decision}, nil
+	}
+
+	return nil, nil
 }
 
 func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision {
@@ -201,6 +235,32 @@ func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision 
 	}
 
 	return []policy.Decision{decision}
+}
+
+func commitMessagesFromContext(context Context) ([]string, error) {
+	messages := []string{}
+	if isGitSubcommand(context.Argv, "commit") {
+		argvMessages, err := commitMessagesFromArgv(context.Argv, context.Cwd)
+		if err != nil {
+			return nil, err
+		}
+
+		messages = append(messages, argvMessages...)
+	}
+
+	if context.Scope == "commit-msg" {
+		for _, file := range context.Files {
+			message, err := readCommitMessageFile(file, context.Cwd)
+			if err != nil {
+				return nil, err
+			}
+			if strings.TrimSpace(message) != "" {
+				messages = append(messages, message)
+			}
+		}
+	}
+
+	return messages, nil
 }
 
 func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
@@ -221,6 +281,85 @@ func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
 	}
 
 	return messages, nil
+}
+
+func validateCommitMessageText(message string, options map[string]any) []string {
+	lines := commitMessageLines(message)
+	if len(lines) == 0 {
+		return []string{"commit message is empty"}
+	}
+
+	header := lines[0]
+	for _, prefix := range stringSliceOption(options, "ignored_prefixes", defaultIgnoredCommitPrefixes()) {
+		if strings.HasPrefix(header, prefix) {
+			return nil
+		}
+	}
+
+	errs := []string{}
+	maxHeaderLength := intOption(options, "max_header_length", 150)
+	if len(header) > maxHeaderLength {
+		errs = append(errs, fmt.Sprintf("header must be <= %d characters", maxHeaderLength))
+	}
+
+	match := regexp.MustCompile(`^([a-z]+)\(([A-Za-z0-9_.-]+)\)!?: (.+)$`).
+		FindStringSubmatch(header)
+	if match == nil {
+		return append(errs, "header must match: type(scope): subject")
+	}
+
+	allowed := stringSliceOption(options, "allowed_types", defaultCommitTypes())
+	if !stringSet(allowed)[match[1]] {
+		sort.Strings(allowed)
+		errs = append(errs, "type must be one of: "+strings.Join(allowed, ", "))
+	}
+
+	if strings.TrimSpace(match[2]) == "" {
+		errs = append(errs, "scope is required")
+	}
+
+	if strings.TrimSpace(match[3]) == "" {
+		errs = append(errs, "subject is required")
+	}
+
+	if commitHasBodyOrFooter(lines) && len(lines) > 1 && strings.TrimSpace(lines[1]) != "" {
+		errs = append(errs, "body/footer must be separated from header by a blank line")
+	}
+
+	return errs
+}
+
+func commitMessageLines(message string) []string {
+	lines := []string{}
+	for _, line := range strings.Split(message, "\n") {
+		if !strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+			lines = append(lines, strings.TrimRight(line, " \t\r"))
+		}
+	}
+
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+
+	return lines
+}
+
+func commitHasBodyOrFooter(lines []string) bool {
+	for _, line := range lines[1:] {
+		if strings.TrimSpace(line) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func defaultCommitTypes() []string {
+	return []string{"chore", "docs", "feat", "fix", "perf", "refactor", "test"}
+}
+
+func defaultIgnoredCommitPrefixes() []string {
+	return []string{"Merge ", "Revert ", "fixup! ", "squash! "}
 }
 
 func commitMessageArg(

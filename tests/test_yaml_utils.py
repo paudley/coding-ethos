@@ -1,6 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
+"""Tests for YAML formatting helpers.
+
+These tests cover the public YAML rendering and in-place formatting behavior.
+They preserve comments while ensuring long prose uses folded YAML scalars.
+"""
+
 from pathlib import Path
 
 from coding_ethos import format_yaml_file, render_yaml

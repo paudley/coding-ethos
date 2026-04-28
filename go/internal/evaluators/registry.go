@@ -23,6 +23,7 @@ func DefaultRegistry() Registry {
 	registerGitEvaluators(registry)
 	registerFilesystemEvaluators(registry)
 	registerShellEvaluators(registry)
+	registerSyntaxEvaluators(registry)
 	registerPythonEvaluators(registry)
 	registerExternalEvaluators(registry)
 
@@ -53,6 +54,7 @@ func registerGitEvaluators(registry Registry) {
 	)
 	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
 	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
+	registry.Register("git.commitlint", EvaluatorFunc(EvaluateGitCommitLint))
 	registry.Register(
 		"git.commit_attribution",
 		EvaluatorFunc(EvaluateGitCommitAttribution),
@@ -80,6 +82,9 @@ func registerFilesystemEvaluators(registry Registry) {
 		"filesystem.required_ignores",
 		EvaluatorFunc(EvaluateRequiredIgnores),
 	)
+	registry.Register("repo.required_ignores", EvaluatorFunc(EvaluateRequiredIgnores))
+	registry.Register("repo.pii_scrubber", EvaluatorFunc(EvaluatePIIScrubber))
+	registry.Register("repo.license_header", EvaluatorFunc(EvaluateLicenseHeader))
 }
 
 func registerShellEvaluators(registry Registry) {
@@ -93,6 +98,19 @@ func registerShellEvaluators(registry Registry) {
 		"shell.forbidden_strings",
 		EvaluatorFunc(EvaluateShellForbiddenStrings),
 	)
+	registry.Register(
+		"shell.best_practices",
+		EvaluatorFunc(EvaluateShellBestPractices),
+	)
+}
+
+func registerSyntaxEvaluators(registry Registry) {
+	registry.Register("syntax.file_syntax", EvaluatorFunc(EvaluateFileSyntax))
+	registry.Register("syntax.merge_conflict", EvaluatorFunc(EvaluateFileMergeConflict))
+	registry.Register("security.private_key", EvaluatorFunc(EvaluateFilePrivateKey))
+	registry.Register("filesystem.shebangs", EvaluatorFunc(EvaluateFileShebang))
+	registry.Register("filesystem.large_files", EvaluatorFunc(EvaluateFileLargeFile))
+	registry.Register("filesystem.line_limits", EvaluatorFunc(EvaluateFileLineLimit))
 }
 
 func registerPythonEvaluators(registry Registry) {
@@ -120,6 +138,10 @@ func registerPythonEvaluators(registry Registry) {
 	registry.Register(
 		"python.unexplained_type_ignore",
 		EvaluatorFunc(EvaluatePythonUnexplainedTypeIgnore),
+	)
+	registry.Register(
+		"python.pyproject_ignores",
+		EvaluatorFunc(EvaluatePythonPyprojectIgnores),
 	)
 }
 

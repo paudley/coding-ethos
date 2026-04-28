@@ -31,19 +31,30 @@ func TestPythonStaticToolsExposeExpectedTools(t *testing.T) {
 func TestPythonStaticToolsRequestStructuredOutput(t *testing.T) {
 	t.Parallel()
 
-	for name, token := range map[string]string{
-		"ruff":    "--output-format",
-		"pyright": "--outputjson",
-		"mypy":    "--output",
-		"pylint":  "--output-format=json",
+	for name, expected := range map[string]struct {
+		token        string
+		outputFormat string
+		fast         bool
+	}{
+		"ruff":    {token: "--output-format", outputFormat: "json", fast: true},
+		"pyright": {token: "--outputjson", outputFormat: "json"},
+		"mypy":    {token: "--output", outputFormat: "json"},
+		"pylint":  {token: "--output-format=json", outputFormat: "json"},
 	} {
 		tool, ok := toolcatalog.PythonStaticTool(name)
 		if !ok {
 			t.Fatalf("PythonStaticTool(%q) missing", name)
 		}
 
-		if !slices.Contains(tool.Command, token) {
-			t.Fatalf("%s command missing %q: %#v", name, token, tool.Command)
+		if !slices.Contains(tool.Command, expected.token) {
+			t.Fatalf("%s command missing %q: %#v", name, expected.token, tool.Command)
+		}
+		if tool.Category != "python-static" ||
+			tool.OutputFormat != expected.outputFormat ||
+			!slices.Contains(tool.Languages, "python") ||
+			tool.Fast != expected.fast ||
+			tool.Advice == "" {
+			t.Fatalf("%s typed metadata mismatch: %#v", name, tool)
 		}
 	}
 }
@@ -86,6 +97,19 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	)
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
+
+	for name, want := range map[string]string{
+		"hadolint":      "docker",
+		"actionlint":    "workflow",
+		"shellcheck":    "shell",
+		"yamllint":      "syntax",
+		"golangci-lint": "go-static",
+	} {
+		tool := tools[name]
+		if tool.Category != want || tool.OutputFormat == "" || tool.Advice == "" {
+			t.Fatalf("%s typed metadata mismatch: %#v", name, tool)
+		}
+	}
 
 	assertToolFileMetadata(t, tools["hadolint"], nil, nil, []string{"Dockerfile"})
 	assertToolFileMetadata(

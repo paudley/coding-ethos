@@ -15,7 +15,7 @@
     {
       "hook": "commit-msg",
       "legacy_behavior": "execute coding-ethos Go runner git-hook commit-msg",
-      "replacement": "coding-ethos-git-hook compiled-policy runtime",
+      "replacement": "coding-ethos-git-hook compiled-policy commit-msg preflight",
       "status": "cutover_ready"
     },
     {

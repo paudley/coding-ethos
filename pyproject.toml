@@ -57,6 +57,7 @@ coding-ethos = "coding_ethos.cli:main"
 
 [dependency-groups]
 dev = [
+    "types-pyyaml>=6.0.12.20260408",
 ]
 
 [tool.hatch.build.targets.wheel]

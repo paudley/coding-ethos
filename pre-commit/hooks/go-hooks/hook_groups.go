@@ -34,11 +34,6 @@ func canonicalHookGroups() map[string]hookGroup {
 			Name: "syntax",
 			Commands: []hookCommand{
 				{Name: "check-runtime-ignores", Run: checkRuntimeIgnoresCommand},
-				{Name: "check-syntax", Run: checkSyntax},
-				{Name: "check-merge-conflict", Run: checkMergeConflict},
-				{Name: "check-shebangs", Run: checkShebangs},
-				{Name: "detect-private-key", Run: detectPrivateKey},
-				{Name: "check-large-files", Run: checkLargeFiles},
 				{Name: "yamllint", Run: runYamllint},
 			},
 		},
@@ -55,7 +50,6 @@ func canonicalHookGroups() map[string]hookGroup {
 				{Name: "check-type-checking-imports", Run: checkTypeCheckingImportsCommand},
 				{Name: "check-structured-logging", Run: checkStructuredLoggingCommand},
 				{Name: "check-sql-centralization", Run: checkSQLCentralizationCommand},
-				{Name: "check-pyproject-ignores", Run: checkPyprojectIgnoresCommand},
 				{
 					Name: "check-python-version-consistency",
 					Run:  checkPythonVersionConsistencyCommand,
@@ -82,16 +76,13 @@ func canonicalHookGroups() map[string]hookGroup {
 		"security": {
 			Name: "security",
 			Commands: []hookCommand{
-				{Name: "detect-private-key", Run: detectPrivateKey},
 				{Name: "check-security-patterns", Run: checkSecurityPatternsCommand},
-				{Name: "check-forbidden-strings", Run: checkForbiddenStrings},
 			},
 		},
 		"shell": {
 			Name: "shell",
 			Commands: []hookCommand{
 				{Name: "shellcheck", Run: runShellcheck},
-				{Name: "check-shell-best-practices", Run: checkShellBestPractices},
 			},
 		},
 		"docker": {
@@ -122,13 +113,6 @@ func canonicalHookGroups() map[string]hookGroup {
 		"ai": {
 			Name:     "ai",
 			Commands: []hookCommand{{Name: "gemini-check", Run: runGeminiCheck}},
-		},
-		"commit-msg": {
-			Name: "commit-msg",
-			Commands: []hookCommand{
-				{Name: "commitlint", Run: checkCommitLint},
-				{Name: "commit-attribution", Run: checkCommitAttribution},
-			},
 		},
 	}
 }

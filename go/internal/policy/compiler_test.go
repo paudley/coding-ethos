@@ -4,11 +4,15 @@
 package policy_test
 
 import (
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
 func TestCompileBuildsBundleFromYAML(t *testing.T) {
@@ -45,6 +49,32 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 
 	if _, ok := bundle.Policies["pytest.gate"]; !ok {
 		t.Fatalf("missing compiled pytest gate policy")
+	}
+	if bundle.Advice.Reminders.QuietFrequency != 3 ||
+		len(bundle.Advice.Reminders.Items) == 0 {
+		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
+	}
+	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
+		t.Fatalf("missing compiled syntax policy")
+	}
+	if _, ok := bundle.Policies["shell.best_practices"]; !ok {
+		t.Fatalf("missing compiled shell best practices policy")
+	}
+	for _, policyID := range []string{
+		"syntax.merge_conflict",
+		"security.private_key",
+		"filesystem.shebangs",
+		"filesystem.large_files",
+		"filesystem.line_limits",
+		"repo.required_ignores",
+		"repo.pii_scrubber",
+		"repo.license_header",
+		"git.commitlint",
+		"git.commit_attribution",
+	} {
+		if _, ok := bundle.Policies[policyID]; !ok {
+			t.Fatalf("missing compiled file guard policy %s", policyID)
+		}
 	}
 
 	if bundle.Policies["git.hook_bypass"].DefenseLayers.Notify != "on_block" {
@@ -114,18 +144,39 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["smoke"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["cutover"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
 	assertPolicyDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
-		"filesystem.required_ignores",
+		"repo.required_ignores",
 	)
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.file_syntax")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.best_practices")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.merge_conflict")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "security.private_key")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.shebangs")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.large_files")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.line_limits")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.pii_scrubber")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.license_header")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.forbidden_strings")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.merge_conflict")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "security.private_key")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.shebangs")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.large_files")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.line_limits")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.pii_scrubber")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.license_header")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commitlint")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commit_attribution")
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -158,6 +209,162 @@ python:
 	}
 }
 
+func TestCompileDoesNotInheritLicensePolicyIntoConsumerRepo(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+filesystem:
+  license_header:
+    enabled: true
+`)
+	writeTestFile(t, repoConfigPath, `
+python:
+  structured_logging:
+    enabled: true
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	if _, ok := bundle.Policies["repo.license_header"]; ok {
+		t.Fatalf("consumer repo should not inherit bundle license policy")
+	}
+}
+
+func TestCompileAddsRepoSpecificLicensePolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, `
+repo:
+  license:
+    spdx_identifier: MIT
+    copyright: 2026 Example Inc.
+    text: |
+      MIT License
+
+      Copyright (c) <year> <copyright holders>
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef, ok := bundle.Policies["repo.license_header"]
+	if !ok {
+		t.Fatalf("missing repo-specific license policy")
+	}
+	if policyDef.Source.File != "repo_config.yaml" || policyDef.Source.Path != "repo.license" {
+		t.Fatalf("source mismatch: %#v", policyDef.Source)
+	}
+
+	options := policyDef.Evaluators[0].Options
+	required := optionStrings(t, policyDef.Evaluators[0], "required")
+	if !slices.Contains(required, "SPDX-License-Identifier: MIT") {
+		t.Fatalf("missing SPDX header requirement: %#v", required)
+	}
+	if !slices.Contains(required, "SPDX-FileCopyrightText: 2026 Example Inc.") {
+		t.Fatalf("missing copyright header requirement: %#v", required)
+	}
+	expected, ok := options["expected_license_text"].(string)
+	if !ok || !strings.Contains(expected, "Copyright (c) 2026 Example Inc.") {
+		t.Fatalf("expected license text mismatch: %#v", options["expected_license_text"])
+	}
+}
+
+func TestCompiledRepoLicensePolicyRunsAgainstSampleConsumer(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	consumerRoot := filepath.Join(dir, "consumer")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, sampleLicenseRepoConfigYAML)
+	if err := os.MkdirAll(consumerRoot, 0o755); err != nil {
+		t.Fatalf("mkdir consumer: %v", err)
+	}
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	writeTestFile(t, filepath.Join(consumerRoot, "LICENSE"), "wrong\n")
+	writeTestFile(t, filepath.Join(consumerRoot, "app.go"), sampleLicensedGoSource)
+
+	result, err := lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	assertBlockedDiagnostic(t, result.Diagnostics, "license_file")
+
+	writeTestFile(t, filepath.Join(consumerRoot, "LICENSE"), sampleExpectedLicenseText)
+	writeTestFile(
+		t,
+		filepath.Join(consumerRoot, "app.go"),
+		"// SPDX-License-Identifier: Apache-2.0\n\npackage main\n",
+	)
+
+	result, err = lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	assertBlockedDiagnostic(t, result.Diagnostics, "license_header")
+
+	writeTestFile(t, filepath.Join(consumerRoot, "app.go"), sampleLicensedGoSource)
+
+	result, err = lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   consumerRoot,
+		Files: []string{"app.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	if result.Status != "resolved" {
+		t.Fatalf("sample consumer should pass, got %#v", result)
+	}
+}
+
 func TestCompileAddsEvaluatorOptionsFromConfig(t *testing.T) {
 	t.Parallel()
 
@@ -179,12 +386,31 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
+  large_files:
+    suffixes: [.txt]
+    exclude_prefixes: [vendor/]
+    max_kb: 7
+  line_limits:
+    python_hard: 12
+    shell_hard: 8
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
 shell:
+  best_practices:
+    require_common_for_prefixes: [bin/]
   forbidden_strings:
+    exempt_paths: [config.yaml]
+    file_strings: [BADCODE]
     strings: [/blocked/settings.json]
+syntax:
+  file_syntax:
+    extensions: [.json]
+  merge_conflict:
+    markers: [CONFLICT]
+security:
+  private_key:
+    pattern: PRIVATE KEY
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -257,6 +483,76 @@ shell:
 	if forbiddenStrings[0] != "/blocked/settings.json" {
 		t.Fatalf("forbidden strings options mismatch: %#v", forbiddenStrings)
 	}
+	forbiddenStringExempts := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"exempt_paths",
+	)
+	if forbiddenStringExempts[0] != "config.yaml" {
+		t.Fatalf("forbidden string exempt options mismatch: %#v", forbiddenStringExempts)
+	}
+	forbiddenFileStrings := optionStrings(
+		t,
+		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
+		"file_strings",
+	)
+	if forbiddenFileStrings[0] != "BADCODE" {
+		t.Fatalf("forbidden file string options mismatch: %#v", forbiddenFileStrings)
+	}
+
+	shellPrefixes := optionStrings(
+		t,
+		bundle.Policies["shell.best_practices"].Evaluators[0],
+		"require_common_for_prefixes",
+	)
+	if shellPrefixes[0] != "bin/" {
+		t.Fatalf("shell best-practices options mismatch: %#v", shellPrefixes)
+	}
+
+	syntaxExtensions := optionStrings(
+		t,
+		bundle.Policies["syntax.file_syntax"].Evaluators[0],
+		"extensions",
+	)
+	if syntaxExtensions[0] != ".json" {
+		t.Fatalf("syntax options mismatch: %#v", syntaxExtensions)
+	}
+
+	mergeMarkers := optionStrings(
+		t,
+		bundle.Policies["syntax.merge_conflict"].Evaluators[0],
+		"markers",
+	)
+	if mergeMarkers[0] != "CONFLICT" {
+		t.Fatalf("merge marker options mismatch: %#v", mergeMarkers)
+	}
+
+	privateKeyPattern := optionString(
+		t,
+		bundle.Policies["security.private_key"].Evaluators[0],
+		"pattern",
+	)
+	if privateKeyPattern != "PRIVATE KEY" {
+		t.Fatalf("private key pattern mismatch: %q", privateKeyPattern)
+	}
+
+	largeFileSuffixes := optionStrings(
+		t,
+		bundle.Policies["filesystem.large_files"].Evaluators[0],
+		"suffixes",
+	)
+	if largeFileSuffixes[0] != ".txt" {
+		t.Fatalf("large file suffix options mismatch: %#v", largeFileSuffixes)
+	}
+
+	lineLimit := optionInt(
+		t,
+		bundle.Policies["filesystem.line_limits"].Evaluators[0],
+		"python_hard",
+	)
+	if lineLimit != 12 {
+		t.Fatalf("line limit option mismatch: %d", lineLimit)
+	}
 }
 
 func TestCompileHonorsConfiguredEvidenceMaps(t *testing.T) {
@@ -304,6 +600,41 @@ policy:
 	}
 }
 
+func TestCompileHonorsConfiguredReminderAdvice(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+agent_advice:
+  reminders:
+    quiet_frequency: 5
+    items:
+      - principle_id: evidence-based-engineering-and-decision-quality
+        axiom: Keep the list alive.
+        action: Update the todo list before claiming completion.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	reminders := bundle.Advice.Reminders
+	if reminders.QuietFrequency != 5 || len(reminders.Items) != 1 {
+		t.Fatalf("reminder config mismatch: %#v", reminders)
+	}
+	if reminders.Items[0].Axiom != "Keep the list alive." {
+		t.Fatalf("reminder item mismatch: %#v", reminders.Items[0])
+	}
+}
+
 func TestCompileHonorsPolicyEnabledFlags(t *testing.T) {
 	t.Parallel()
 
@@ -321,8 +652,17 @@ filesystem:
     enabled: false
   required_ignores:
     enabled: false
+  pii_scrubber:
+    enabled: false
+  license_header:
+    enabled: false
 shell:
   dangerous_command:
+    enabled: false
+go:
+  commitlint:
+    enabled: false
+  commit_attribution:
     enabled: false
 `)
 
@@ -338,7 +678,12 @@ shell:
 		"git.hook_bypass",
 		"filesystem.protected_path",
 		"filesystem.required_ignores",
+		"repo.required_ignores",
+		"repo.pii_scrubber",
+		"repo.license_header",
 		"shell.dangerous_command",
+		"git.commitlint",
+		"git.commit_attribution",
 	} {
 		if _, ok := bundle.Policies[policyID]; ok {
 			t.Fatalf("policy should be disabled: %s", policyID)
@@ -355,6 +700,28 @@ func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	}
 
 	return items
+}
+
+func optionString(t *testing.T, evaluator Evaluator, key string) string {
+	t.Helper()
+
+	item, ok := evaluator.Options[key].(string)
+	if !ok {
+		t.Fatalf("option %q is not string: %#v", key, evaluator.Options[key])
+	}
+
+	return item
+}
+
+func optionInt(t *testing.T, evaluator Evaluator, key string) int {
+	t.Helper()
+
+	item, ok := evaluator.Options[key].(int)
+	if !ok {
+		t.Fatalf("option %q is not int: %#v", key, evaluator.Options[key])
+	}
+
+	return item
 }
 
 func TestCompileRejectsMissingPrinciples(t *testing.T) {
@@ -383,6 +750,22 @@ func assertPolicyDispatched(t *testing.T, policyIDs []string, expected string) {
 	t.Fatalf("dispatch missing %q: %#v", expected, policyIDs)
 }
 
+func assertBlockedDiagnostic(
+	t *testing.T,
+	diagnostics []diagnostics.Diagnostic,
+	tool string,
+) {
+	t.Helper()
+
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Tool == tool {
+			return
+		}
+	}
+
+	t.Fatalf("missing diagnostic tool %q: %#v", tool, diagnostics)
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 
@@ -395,6 +778,16 @@ func writeTestFile(t *testing.T, path string, content string) {
 const testEthosYAML = `
 version: 2
 principles:
+  - id: solid-is-law
+    order: 1
+    title: SOLID is Law
+    summary: Keep design simple.
+    directive: Enforce SOLID and simplicity.
+  - id: security-by-design
+    order: 24
+    title: Security by Design
+    summary: Design for safe defaults.
+    directive: Prevent secrets and unsafe defaults.
   - id: no-conditional-imports
     order: 3
     title: No Conditional Imports
@@ -416,11 +809,21 @@ principles:
     title: Testing as Specification
     summary: Tests are executable behavioral contracts.
     directive: Treat tests as executable behavioral contracts.
+  - id: evidence-based-engineering-and-decision-quality
+    order: 26
+    title: Evidence-Based Engineering and Decision Quality
+    summary: Evidence outranks assumptions.
+    directive: Understand, plan, execute, and validate with evidence.
   - id: radical-visibility
     order: 11
     title: Radical Visibility
     summary: Log important decisions.
     directive: Log important decisions with context.
+  - id: validation-at-the-gate
+    order: 8
+    title: Validation at the Gate
+    summary: Validate inputs before use.
+    directive: Validate configuration and syntax before relying on files.
 `
 
 const testConfigYAML = `
@@ -439,4 +842,26 @@ python:
   pytest_gate:
     enabled: true
     test_command: [uv, run, pytest]
+`
+
+const sampleLicenseRepoConfigYAML = `
+repo:
+  license:
+    spdx_identifier: MIT
+    copyright: 2026 Example Inc.
+    text: |
+      MIT License
+
+      Copyright (c) <year> <copyright holders>
+`
+
+const sampleExpectedLicenseText = `MIT License
+
+Copyright (c) 2026 Example Inc.
+`
+
+const sampleLicensedGoSource = `// SPDX-FileCopyrightText: 2026 Example Inc.
+// SPDX-License-Identifier: MIT
+
+package main
 `

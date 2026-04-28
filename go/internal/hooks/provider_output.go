@@ -47,7 +47,23 @@ func providerOutput(result Result) providerHookOutput {
 	case "gemini":
 		return geminiAllowedOutput(result)
 	default:
-		return providerHookOutput{HookSpecificOutput: result.HookSpecificOutput}
+		return claudeAllowedOutput(result)
+	}
+}
+
+func claudeAllowedOutput(result Result) providerHookOutput {
+	output := result.HookSpecificOutput
+	if output.AdditionalContext == "" {
+		return providerHookOutput{HookSpecificOutput: output}
+	}
+
+	switch output.HookEventName {
+	case "UserPromptSubmit", "PostToolUse", "PostToolBatch":
+		return providerHookOutput{HookSpecificOutput: output}
+	default:
+		return providerHookOutput{
+			SystemMessage: output.AdditionalContext,
+		}
 	}
 }
 

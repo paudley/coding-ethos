@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,7 +39,7 @@ type CompileOptions struct {
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
-	primaryPayload, configPayload, sourceHashes, err := compileInputs(options)
+	primaryPayload, configPayload, repoConfigPayload, sourceHashes, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
@@ -51,7 +53,15 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		)
 	}
 
-	policies := compilePolicies(configPayload, principles, sourceRoot(options.Config))
+	policies, err := compilePolicies(
+		configPayload,
+		repoConfigPayload,
+		principles,
+		sourceRoot(options.Config),
+	)
+	if err != nil {
+		return Bundle{}, Metadata{}, err
+	}
 	if len(policies) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile policies: %w in %s",
@@ -79,6 +89,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 				Repo:    options.RepoConfig,
 			},
 		},
+		Advice:     compileAdvice(configPayload, principles),
 		Principles: principles,
 		Policies:   policies,
 		Dispatch:   compileDispatch(policies),
@@ -128,15 +139,15 @@ func sourceRoot(path string) string {
 
 func compileInputs(
 	options CompileOptions,
-) (map[string]any, map[string]any, map[string]string, error) {
+) (map[string]any, map[string]any, map[string]any, map[string]string, error) {
 	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	configPayload, configHash, err := loadYAMLFile(options.Config)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	sourceHashes := map[string]string{
@@ -150,19 +161,21 @@ func compileInputs(
 		sourceHashes,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	configPayload, err = mergeOptionalYAML(
-		configPayload,
-		options.RepoConfig,
-		sourceHashes,
-	)
-	if err != nil {
-		return nil, nil, nil, err
+	var repoConfigPayload map[string]any
+	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
+		var repoConfigHash string
+		repoConfigPayload, repoConfigHash, err = loadYAMLFile(options.RepoConfig)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		sourceHashes[options.RepoConfig] = repoConfigHash
+		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
-	return primaryPayload, configPayload, sourceHashes, nil
+	return primaryPayload, configPayload, repoConfigPayload, sourceHashes, nil
 }
 
 func mergeOptionalYAML(
@@ -240,19 +253,135 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 	return principles
 }
 
-func compilePolicies(
+func compileAdvice(
 	config map[string]any,
 	principles map[string]Principle,
+) Advice {
+	return Advice{
+		Reminders: compileReminderConfig(config, principles),
+	}
+}
+
+func compileReminderConfig(
+	config map[string]any,
+	principles map[string]Principle,
+) ReminderConfig {
+	reminders := defaultReminderConfig()
+	configuredFrequency := intAt(
+		config,
+		[]string{"agent_advice", "reminders", "quiet_frequency"},
+		0,
+	)
+	if configuredFrequency > 0 {
+		reminders.QuietFrequency = configuredFrequency
+	}
+
+	rawValue, exists := valueAt(config, "agent_advice", "reminders", "items")
+	if !exists {
+		return reminders
+	}
+
+	rawItems, ok := rawValue.([]any)
+	if !ok {
+		return reminders
+	}
+
+	items := make([]EthosReminder, 0, len(rawItems))
+	for _, raw := range rawItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		reminder := EthosReminder{
+			PrincipleID: stringValue(item["principle_id"]),
+			Axiom:       stringValue(item["axiom"]),
+			Action:      stringValue(item["action"]),
+		}
+		if reminder.PrincipleID == "" ||
+			reminder.Axiom == "" ||
+			reminder.Action == "" {
+			continue
+		}
+		if _, ok := principles[reminder.PrincipleID]; !ok {
+			continue
+		}
+
+		items = append(items, reminder)
+	}
+
+	if len(items) > 0 {
+		reminders.Items = items
+	}
+
+	return reminders
+}
+
+func defaultReminderConfig() ReminderConfig {
+	return ReminderConfig{
+		QuietFrequency: 3,
+		Items: []EthosReminder{
+			{
+				PrincipleID: "evidence-based-engineering-and-decision-quality",
+				Axiom:       "Todo lists prevent partial work from masquerading as completion.",
+				Action: sentence(
+					"Keep the task list current, mark progress as it happens,",
+					"and do not report done while planned work remains.",
+				),
+			},
+			{
+				PrincipleID: "no-rationalized-shortcuts",
+				Axiom:       "Laziness only moves the cost downstream.",
+				Action: sentence(
+					"Stop, use the documented path,",
+					"and do not trade correctness for completion.",
+				),
+			},
+			{
+				PrincipleID: "testing-as-specification",
+				Axiom:       "A green process is not the same as a correct result.",
+				Action: sentence(
+					"Define success by user-visible behavior",
+					"and inspect representative output.",
+				),
+			},
+			{
+				PrincipleID: "static-analysis-is-the-first-line-of-defense",
+				Axiom:       "Static analysis is a gate, not background noise.",
+				Action:      "Treat the finding as a structural signal and fix the cause.",
+			},
+			{
+				PrincipleID: "linting-as-code-quality-enforcement",
+				Axiom:       "A linter warning is review feedback in executable form.",
+				Action:      "Resolve it structurally instead of weakening the rule.",
+			},
+			{
+				PrincipleID: "forward-motion-only",
+				Axiom:       "History is context, not an excuse.",
+				Action:      "Fix the current state with evidence and move forward.",
+			},
+		},
+	}
+}
+
+func compilePolicies(
+	config map[string]any,
+	repoConfig map[string]any,
+	principles map[string]Principle,
 	configSourceRoot string,
-) map[string]Policy {
+) (map[string]Policy, error) {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
 	addGitPolicies(policies, config, principles)
+	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addFilesystemPolicies(policies, config, principles)
+	if err := addFileGuardPolicies(policies, config, repoConfig, principles); err != nil {
+		return nil, err
+	}
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 
-	return policies
+	return policies, nil
 }
 
 func addConfiguredPythonPolicies(
@@ -322,6 +451,7 @@ func pythonPolicySpecs(
 			[]string{"python", "comment_suppressions"},
 			principleRefs(principles, "linting-as-code-quality-enforcement"),
 		),
+		pyprojectIgnoresPolicySpec(config, principles),
 		pytestGatePolicySpec(config, principles),
 	}
 }
@@ -386,6 +516,56 @@ func pytestGatePolicySpec(
 	}
 }
 
+func pyprojectIgnoresPolicySpec(
+	config map[string]any,
+	principles map[string]Principle,
+) compiledPolicySpec {
+	policyID := "python.pyproject_ignores"
+	options := map[string]any{
+		"allowed_ignore_patterns": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_ignore_patterns"},
+			nil,
+		),
+		"allowed_exclude_patterns": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_exclude_patterns"},
+			nil,
+		),
+		"allowed_mypy_missing_imports": stringSliceAt(
+			config,
+			[]string{"python", "pyproject_ignores", "allowed_mypy_missing_imports"},
+			nil,
+		),
+	}
+
+	policy := Policy{
+		ID:              policyID,
+		Category:        "python",
+		Source:          SourceRef{File: "config.yaml", Path: "python.pyproject_ignores"},
+		PrincipleIDs:    principleRefs(principles, "linting-as-code-quality-enforcement"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         pythonPolicyMessage(policyID),
+		Suggestion:      pythonPolicySuggestion(policyID),
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			FilePatterns: []string{"pyproject.toml", "**/pyproject.toml"},
+		},
+		Evaluators: []Evaluator{{
+			Kind:    "toml",
+			Name:    policyID,
+			Options: options,
+		}},
+	}
+
+	return compiledPolicySpec{
+		ID:          policyID,
+		EnabledPath: []string{"python", "pyproject_ignores"},
+		Policy:      policy,
+	}
+}
+
 func pythonPolicyMessage(policyID string) string {
 	switch policyID {
 	case "python.conditional_imports":
@@ -415,6 +595,8 @@ func pythonPolicyMessage(policyID string) string {
 		)
 	case "python.bare_except":
 		return "Bare except clauses hide exception types and are forbidden."
+	case "python.pyproject_ignores":
+		return "pyproject.toml contains forbidden linter ignore configuration."
 	default:
 		return "Unexplained type ignore suppressions are forbidden."
 	}
@@ -434,6 +616,8 @@ func pythonPolicySuggestion(policyID string) string {
 		return "Import through the package public API or configure an exempt path."
 	case "python.bare_except":
 		return "Catch a precise exception type and handle it explicitly."
+	case "python.pyproject_ignores":
+		return "Move file-specific ignores into the target files with documented justification."
 	default:
 		return "Remove the suppression or document the narrow technical reason."
 	}
@@ -459,8 +643,12 @@ func addGitPolicies(
 		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
 	}
 
-	if policyConfigEnabled(config, "git.commit_attribution") {
+	if enabledAt(config, []string{"go", "commit_attribution"}) {
 		policies["git.commit_attribution"] = gitCommitAttributionPolicy(config, principles)
+	}
+
+	if enabledAt(config, []string{"go", "commitlint"}) {
+		policies["git.commitlint"] = gitCommitLintPolicy(config, principles)
 	}
 }
 
@@ -679,6 +867,45 @@ func gitCommitAttributionPolicy(
 	}
 }
 
+func gitCommitLintPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	return Policy{
+		ID:              "git.commitlint",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "go.commitlint"},
+		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Commit messages must follow the configured conventional format.",
+		Suggestion:      "Use exactly: type(scope): concise subject, then a blank line before the body.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
+		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "git_state",
+			Name: "git.commitlint",
+			Options: map[string]any{
+				"allowed_types": stringSliceAt(
+					config,
+					[]string{"go", "commitlint", "allowed_types"},
+					[]string{"chore", "docs", "feat", "fix", "perf", "refactor", "test"},
+				),
+				"ignored_prefixes": stringSliceAt(
+					config,
+					[]string{"go", "commitlint", "ignored_prefixes"},
+					[]string{"Merge ", "Revert ", "fixup! ", "squash! "},
+				),
+				"max_header_length": intAt(
+					config,
+					[]string{"go", "commitlint", "max_header_length"},
+					150,
+				),
+			},
+		}},
+	}
+}
+
 func gitStashPolicy(principles map[string]Principle) Policy {
 	return gitPolicy(
 		"git.stash_blocked",
@@ -713,6 +940,432 @@ func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
 	}
 }
 
+func addFileGuardPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	repoConfig map[string]any,
+	principles map[string]Principle,
+) error {
+	if policyConfigEnabled(config, "security.private_key") {
+		pattern := stringAt(config, "security", "private_key", "pattern")
+		if pattern == "" {
+			pattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
+		}
+
+		policies["security.private_key"] = Policy{
+			ID:              "security.private_key",
+			Category:        "security",
+			Source:          SourceRef{File: "config.yaml", Path: "security.private_key"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Private keys must not be committed.",
+			Suggestion:      "Remove secrets from source and rotate exposed credentials.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind:    "text",
+				Name:    "security.private_key",
+				Options: map[string]any{"pattern": pattern},
+			}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.shebangs") {
+		policies["filesystem.shebangs"] = Policy{
+			ID:              "filesystem.shebangs",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.shebangs"},
+			PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Executable scripts and shebangs must agree.",
+			Suggestion:      "Add a valid shebang to executable scripts and mark shebang scripts executable.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators:      []Evaluator{{Kind: "text", Name: "filesystem.shebangs"}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.large_files") {
+		suffixes := stringSliceAt(
+			config,
+			[]string{"filesystem", "large_files", "suffixes"},
+			stringSliceAt(config, []string{"go", "text", "large_file_suffixes"}, nil),
+		)
+		excludePrefixes := stringSliceAt(
+			config,
+			[]string{"filesystem", "large_files", "exclude_prefixes"},
+			stringSliceAt(config, []string{"go", "text", "large_file_exclude_prefixes"}, nil),
+		)
+		maxKB := intAt(
+			config,
+			[]string{"filesystem", "large_files", "max_kb"},
+			intAt(config, []string{"go", "text", "max_large_file_kb"}, 500),
+		)
+
+		policies["filesystem.large_files"] = Policy{
+			ID:              "filesystem.large_files",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.large_files"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Oversized newly added files are forbidden.",
+			Suggestion:      "Remove oversized generated or binary content from the commit.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind: "git_state",
+				Name: "filesystem.large_files",
+				Options: map[string]any{
+					"suffixes":         suffixes,
+					"exclude_prefixes": excludePrefixes,
+					"max_kb":           maxKB,
+				},
+			}},
+		}
+	}
+
+	if policyConfigEnabled(config, "filesystem.line_limits") {
+		policies["filesystem.line_limits"] = Policy{
+			ID:              "filesystem.line_limits",
+			Category:        "filesystem",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.line_limits"},
+			PrincipleIDs:    principleRefs(principles, "solid-is-law"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Large source files must not keep growing.",
+			Suggestion:      "Split large files into focused modules before committing.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.py", "**/*.sh", "**/*.bash"}},
+			Evaluators: []Evaluator{{
+				Kind: "git_state",
+				Name: "filesystem.line_limits",
+				Options: map[string]any{
+					"python_hard": intAt(
+						config,
+						[]string{"filesystem", "line_limits", "python_hard"},
+						intAt(config, []string{"go", "line_limits", "python_hard"}, 1000),
+					),
+					"shell_hard": intAt(
+						config,
+						[]string{"filesystem", "line_limits", "shell_hard"},
+						intAt(config, []string{"go", "line_limits", "shell_hard"}, 500),
+					),
+				},
+			}},
+		}
+	}
+
+	if enabledAt(config, []string{"filesystem", "pii_scrubber"}) {
+		policies["repo.pii_scrubber"] = Policy{
+			ID:              "repo.pii_scrubber",
+			Category:        "repo",
+			Source:          SourceRef{File: "config.yaml", Path: "filesystem.pii_scrubber"},
+			PrincipleIDs:    principleRefs(principles, "security-by-design", "radical-visibility"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Local-machine PII must not be committed.",
+			Suggestion:      "Replace local paths, usernames, hostnames, and worktree names with generic placeholders.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind: "text",
+				Name: "repo.pii_scrubber",
+				Options: map[string]any{
+					"patterns": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "patterns"},
+						[]string{
+							`/(home|Users)/[A-Za-z0-9._-]+/`,
+							`lbox-worktrees/[A-Za-z0-9._-]+`,
+							`/tmp/tmp\.[A-Za-z0-9._-]+`,
+						},
+					),
+					"literals": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "literals"},
+						nil,
+					),
+					"exempt_prefixes": stringSliceAt(
+						config,
+						[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},
+						[]string{".git/"},
+					),
+				},
+			}},
+		}
+	}
+
+	licensePolicy, err := licenseHeaderPolicy(config, repoConfig, principles)
+	if err != nil {
+		return err
+	}
+	if licensePolicy.ID != "" {
+		policies[licensePolicy.ID] = licensePolicy
+	}
+
+	return nil
+}
+
+func licenseHeaderPolicy(
+	config map[string]any,
+	repoConfig map[string]any,
+	principles map[string]Principle,
+) (Policy, error) {
+	if len(repoConfig) == 0 {
+		if !enabledAt(config, []string{"filesystem", "license_header"}) {
+			return Policy{}, nil
+		}
+
+		return baseLicenseHeaderPolicy(
+			principles,
+			"config.yaml",
+			"filesystem.license_header",
+			map[string]any{
+				"extensions": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "extensions"},
+					[]string{".go", ".py", ".sh"},
+				),
+				"exempt_prefixes": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "exempt_prefixes"},
+					[]string{".git/"},
+				),
+				"exempt_basenames": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "exempt_basenames"},
+					nil,
+				),
+				"required": stringSliceAt(
+					config,
+					[]string{"filesystem", "license_header", "required"},
+					[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
+				),
+				"scan_lines": intAt(config, []string{"filesystem", "license_header", "scan_lines"}, 5),
+			},
+		), nil
+	}
+
+	if !repoLicenseConfigured(repoConfig) {
+		return Policy{}, nil
+	}
+
+	spdxID := repoLicenseString(config, "spdx_identifier", "spdx")
+	copyrightText := repoLicenseString(config, "copyright")
+	licenseFile := repoLicenseString(config, "license_file")
+	if licenseFile == "" {
+		licenseFile = "LICENSE"
+	}
+
+	required := []string{}
+	if spdxID != "" {
+		required = append(required, "SPDX-License-Identifier: "+spdxID)
+	}
+	if copyrightText != "" {
+		required = append(required, "SPDX-FileCopyrightText: "+copyrightText)
+	}
+
+	options := map[string]any{
+		"extensions": stringSliceAt(
+			config,
+			[]string{"repo", "license", "extensions"},
+			[]string{".go", ".py", ".sh"},
+		),
+		"exempt_prefixes": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_prefixes"},
+			[]string{".git/"},
+		),
+		"exempt_basenames": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_basenames"},
+			nil,
+		),
+		"required":     required,
+		"scan_lines":   intAt(config, []string{"repo", "license", "scan_lines"}, 5),
+		"license_file": licenseFile,
+		"spdx_id":      spdxID,
+	}
+
+	if spdxID != "" {
+		licenseText, err := repoLicenseText(config, spdxID, copyrightText)
+		if err != nil {
+			return Policy{}, err
+		}
+		options["expected_license_text"] = licenseText
+	}
+
+	return baseLicenseHeaderPolicy(
+		principles,
+		"repo_config.yaml",
+		"repo.license",
+		options,
+	), nil
+}
+
+func baseLicenseHeaderPolicy(
+	principles map[string]Principle,
+	sourceFile string,
+	sourcePath string,
+	options map[string]any,
+) Policy {
+	return Policy{
+		ID:              "repo.license_header",
+		Category:        "repo",
+		Source:          SourceRef{File: sourceFile, Path: sourcePath},
+		PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "First-party source files must carry the configured SPDX license contract.",
+		Suggestion:      "Add the configured LICENSE file and matching SPDX source headers.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
+		Evaluators: []Evaluator{{
+			Kind:    "text",
+			Name:    "repo.license_header",
+			Options: options,
+		}},
+	}
+}
+
+func repoLicenseConfigured(repoConfig map[string]any) bool {
+	if !enabledAt(repoConfig, []string{"repo", "license"}) {
+		return false
+	}
+
+	return repoLicenseString(repoConfig, "spdx_identifier", "spdx") != "" ||
+		repoLicenseString(repoConfig, "copyright") != ""
+}
+
+func repoLicenseString(config map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringAt(config, "repo", "license", key); value != "" {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func repoLicenseText(
+	config map[string]any,
+	spdxID string,
+	copyrightText string,
+) (string, error) {
+	if text := stringAt(config, "repo", "license", "text"); text != "" {
+		return normalizeLicenseText(fillLicenseTemplate(text, copyrightText)), nil
+	}
+
+	url := stringAt(config, "repo", "license", "url")
+	if url == "" {
+		url = "https://spdx.org/licenses/" + spdxID + ".txt"
+	}
+
+	client := http.Client{Timeout: 10 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("download SPDX license %s: %w", spdxID, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download SPDX license %s: status %s", spdxID, response.Status)
+	}
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return "", fmt.Errorf("read SPDX license %s: %w", spdxID, err)
+	}
+
+	return normalizeLicenseText(fillLicenseTemplate(string(body), copyrightText)), nil
+}
+
+func fillLicenseTemplate(text string, copyrightText string) string {
+	if copyrightText == "" {
+		return text
+	}
+
+	replacer := strings.NewReplacer(
+		"<year> <copyright holders>", copyrightText,
+		"[yyyy] [name of copyright owner]", copyrightText,
+		"[year] [fullname]", copyrightText,
+	)
+
+	return replacer.Replace(text)
+}
+
+func normalizeLicenseText(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func addSyntaxPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) {
+	if policyConfigEnabled(config, "syntax.file_syntax") {
+		extensions := stringSliceAt(
+			config,
+			[]string{"syntax", "file_syntax", "extensions"},
+			[]string{".json", ".toml", ".yaml", ".yml"},
+		)
+
+		policies["syntax.file_syntax"] = Policy{
+			ID:              "syntax.file_syntax",
+			Category:        "syntax",
+			Source:          SourceRef{File: "config.yaml", Path: "syntax.file_syntax"},
+			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Structured data files must parse before they enter the repo.",
+			Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo: AppliesTo{
+				FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
+			},
+			Evaluators: []Evaluator{{
+				Kind:    "config",
+				Name:    "syntax.file_syntax",
+				Options: map[string]any{"extensions": extensions},
+			}},
+		}
+	}
+
+	if policyConfigEnabled(config, "syntax.merge_conflict") {
+		markers := stringSliceAt(
+			config,
+			[]string{"syntax", "merge_conflict", "markers"},
+			[]string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"},
+		)
+
+		policies["syntax.merge_conflict"] = Policy{
+			ID:              "syntax.merge_conflict",
+			Category:        "syntax",
+			Source:          SourceRef{File: "config.yaml", Path: "syntax.merge_conflict"},
+			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
+			DefaultSeverity: "block",
+			SupportedModes:  []string{"block", "record"},
+			Message:         "Unresolved merge conflict markers are forbidden.",
+			Suggestion:      "Resolve the conflict and remove all conflict markers.",
+			DefenseLayers:   CodeDefenseLayers(),
+			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+			Evaluators: []Evaluator{{
+				Kind:    "text",
+				Name:    "syntax.merge_conflict",
+				Options: map[string]any{"markers": markers},
+			}},
+		}
+	}
+}
+
 func addShellPolicies(
 	policies map[string]Policy,
 	config map[string]any,
@@ -742,10 +1395,46 @@ func addShellPolicies(
 			"Use the reviewed administrative path instead of gh --admin.",
 		),
 		shellForbiddenStringsPolicy(config, principles),
+		shellBestPracticesPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
 			policies[policy.ID] = policy
 		}
+	}
+}
+
+func shellBestPracticesPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	requireCommon := stringSliceAt(
+		config,
+		[]string{"shell", "best_practices", "require_common_for_prefixes"},
+		stringSliceAt(
+			config,
+			[]string{"go", "shell", "require_common_for_prefixes"},
+			[]string{"scripts/"},
+		),
+	)
+
+	return Policy{
+		ID:              "shell.best_practices",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.best_practices"},
+		PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Shell scripts must follow repository shell safety practices.",
+		Suggestion:      "Use a valid shell shebang, strict mode, and required common helpers.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.sh", "**/*.bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "shell",
+			Name: "shell.best_practices",
+			Options: map[string]any{
+				"require_common_for_prefixes": requireCommon,
+			},
+		}},
 	}
 }
 
@@ -772,6 +1461,16 @@ func shellForbiddenStringsPolicy(
 			"header must match",
 		},
 	)
+	exemptPaths := stringSliceAt(
+		config,
+		[]string{"shell", "forbidden_strings", "exempt_paths"},
+		[]string{"config.yaml"},
+	)
+	fileStrings := stringSliceAt(
+		config,
+		[]string{"shell", "forbidden_strings", "file_strings"},
+		stringSliceAt(config, []string{"go", "text", "forbidden_strings"}, nil),
+	)
 
 	return Policy{
 		ID:       "shell.forbidden_strings",
@@ -796,9 +1495,13 @@ func shellForbiddenStringsPolicy(
 		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
-			Kind:    "shell",
-			Name:    "shell.forbidden_strings",
-			Options: map[string]any{"strings": strings},
+			Kind: "shell",
+			Name: "shell.forbidden_strings",
+			Options: map[string]any{
+				"exempt_paths": exemptPaths,
+				"file_strings": fileStrings,
+				"strings":      strings,
+			},
 		}},
 	}
 }
@@ -838,6 +1541,25 @@ func addFilesystemPolicies(
 			policies[policy.ID] = policy
 		}
 	}
+
+	if enabledAt(config, []string{"filesystem", "required_ignores"}) {
+		policies["repo.required_ignores"] = repoRequiredIgnoresPolicy(config, principles)
+	}
+}
+
+func repoRequiredIgnoresPolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	policy := filesystemRequiredIgnoresPolicy(config, principles)
+	policy.ID = "repo.required_ignores"
+	policy.Category = "repo"
+	policy.Source.Path = "filesystem.required_ignores"
+	policy.Message = "Repository runtime output paths must be ignored."
+	policy.Suggestion = "Add coding-ethos runtime paths to .gitignore before hook output is written."
+	policy.Evaluators[0].Name = "repo.required_ignores"
+
+	return policy
 }
 
 func filesystemProtectedPathPolicy(
@@ -1076,7 +1798,7 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
 	return diagnostics.EvidenceMap{
 		Source:   "ruff",
-		Codes:    []string{"PLC0415"},
+		Codes:    []string{"PLC" + "0415"},
 		PolicyID: "python.conditional_imports",
 		PrincipleIDs: principleRefs(
 			principles,
@@ -1394,6 +2116,7 @@ func addBlockingBashDispatch(
 		"git.destructive_worktree",
 		"git.change_dir_flag",
 		"git.stash_blocked",
+		"git.commitlint",
 		"git.commit_attribution",
 		"shell.dangerous_command",
 		"shell.background_git",
@@ -1512,11 +2235,22 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	linter := map[string][]string{
 		"files": existingPolicyIDs(
 			policies,
+			"syntax.file_syntax",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
+			"shell.best_practices",
+			"shell.forbidden_strings",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
 			"python.structured_logging",
 			"python.direct_imports",
+			"python.pyproject_ignores",
 		),
 		"staged": existingPolicyIDs(
 			policies,
@@ -1532,11 +2266,20 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.background_git",
 			"shell.github_admin",
 			"shell.forbidden_strings",
+			"shell.best_practices",
 			"git.commit_attribution",
 			"git.staged_admin_files",
 			"filesystem.protected_path",
 			"filesystem.protected_branch_write",
-			"filesystem.required_ignores",
+			"repo.required_ignores",
+			"syntax.file_syntax",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
 			"python.conditional_imports",
 			"python.optional_returns",
 			"python.catch_and_silence",
@@ -1544,22 +2287,28 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"python.direct_imports",
 			"python.bare_except",
 			"python.unexplained_type_ignore",
+			"python.pyproject_ignores",
 		),
 		"smoke": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"full": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
 			"generated_config.freshness",
 			"pytest.gate",
 		),
 		"cutover": existingPolicyIDs(
 			policies,
-			"filesystem.required_ignores",
+			"repo.required_ignores",
+		),
+		"commit-msg": existingPolicyIDs(
+			policies,
+			"git.commitlint",
+			"git.commit_attribution",
 		),
 	}
 
@@ -1575,6 +2324,7 @@ func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispa
 			Pre: existingPolicyIDs(
 				policies,
 				"git.hook_bypass",
+				"git.commitlint",
 				"git.commit_attribution",
 				"git.staged_admin_files",
 			),
@@ -1668,6 +2418,17 @@ func boolAt(values map[string]any, path ...string) bool {
 	return isBool && boolValue
 }
 
+func enabledAt(values map[string]any, path []string) bool {
+	value, exists := valueAt(values, append(path, "enabled")...)
+	if !exists {
+		return true
+	}
+
+	boolValue, isBool := value.(bool)
+
+	return !isBool || boolValue
+}
+
 func stringSliceAt(
 	values map[string]any,
 	path []string,
@@ -1684,6 +2445,24 @@ func stringSliceAt(
 	}
 
 	return items
+}
+
+func intAt(values map[string]any, path []string, defaultValue int) int {
+	value, exists := valueAt(values, path...)
+	if !exists {
+		return defaultValue
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return defaultValue
+	}
 }
 
 func stringAt(values map[string]any, path ...string) string {
