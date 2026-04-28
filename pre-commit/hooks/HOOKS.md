@@ -45,15 +45,16 @@ pre-commit/hooks/run-go-hook.sh cutover verify
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` in `.codex/config.toml` and writes native
-`.codex/hooks.json`. Gemini output writes native `.gemini/settings.json`
-hooks. All providers use the same `agent-hook` runtime entrypoint for the
-lifecycle hooks they expose. Single-provider generation is intentionally not
-exposed: partial protection is not a valid install state. The active runtime
-does not call AI systems from agent hooks; AI review stays in Git hook stages
-where output, cost, and caching are controlled by this runner. `agent-hooks
-doctor` checks native provider activation files, so a stale file or missing
-Codex feature flag does not count as an installed provider surface.
+`[features].codex_hooks` in `.codex/config.toml`, writes managed native
+`[hooks]` entries in that same TOML file, and removes stale `.codex/hooks.json`.
+Gemini output writes native `.gemini/settings.json` hooks with
+`hooksConfig.enabled = true`. All providers use the same `agent-hook` runtime
+entrypoint for the lifecycle hooks they expose. Single-provider generation is
+intentionally not exposed: partial protection is not a valid install state. The
+active runtime does not call AI systems from agent hooks; AI review stays in Git
+hook stages where output, cost, and caching are controlled by this runner.
+`agent-hooks doctor` checks native provider activation files, so a stale file or
+missing Codex feature flag does not count as an installed provider surface.
 `agent-hooks verify` additionally executes provider-native smoke payloads
 through the configured hook command, proving that Claude rewrites, Codex blocks
 raw git, absolute git, nested shell git, and Python subprocess git, and Gemini
@@ -76,7 +77,7 @@ provider-neutral payload shape:
 {"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status"}}
 ```
 
-CamelCase hook fields, Gemini `BeforeTool` payloads, and nested
+CamelCase hook fields, Gemini `BeforeTool` / `AfterTool` payloads, and nested
 `tool_call.name`/`tool_call.arguments` are accepted for CLI adapters that expose
 those shapes. Codex native shell aliases (`exec_command`, `run_command`,
 `run_shell`, `run_shell_command`, `shell`, `shell_command`) normalize to the
@@ -90,7 +91,10 @@ output and supported context output without relying on unsupported rewrite
 semantics, and Gemini receives native `deny` / `systemMessage` responses for
 tool gates. Agent-facing post-tool context normalizes absolute repo, home, and
 temporary paths, collapses multiline commands, and renders hook output as TOON
-line tables instead of giant escaped string cells.
+line tables instead of giant escaped string cells. Post-edit feedback for
+`Write`, `Edit`, and `MultiEdit` includes a checkpoint, language-specific next
+steps, compiled lint findings, and a fast Ruff probe for Python files when
+`ruff` is available.
 
 ## Included Hooks
 
@@ -98,18 +102,20 @@ line tables instead of giant escaped string cells.
   enforcement, utility and SQL centralization, file
   and module doc checks, type-check orchestration, Python quality wrappers,
   Dockerfile and workflow validation, Go toolchain checks, pytest gating,
-  pyproject ignore enforcement, repo-root Python version consistency checks,
-  shared hook policy, and the active Gemini AI review runner
+  compiled `python.pyproject_ignores` enforcement, repo-root Python version
+  consistency checks, shared hook policy, and the active Gemini AI review runner
 - **check_complexity.py** - Cyclomatic complexity checks via Radon
 - **check_maintainability.py** - Maintainability index checks via Radon
 - **check_vulture.py** - Dead-code detection via Vulture
 
 Cheap deterministic checks such as syntax parsing, merge-conflict markers,
 private-key detection, shebang consistency, large-file limits, line limits, and
-shell best practices now run through compiled policy preflight. The remaining
-bundled groups are either richer repo-structure checks or external tool
-orchestration. The Python hook files are kept for analyzer integrations that are
-naturally Python-based or already use Python tooling.
+shell best practices now run through compiled policy preflight. Repo-specific
+PII, required-ignore, and license/copyright policies also run through the
+compiled policy bundle when configured. The remaining bundled groups are either
+richer repo-structure checks or external tool orchestration. The Python hook
+files are kept for analyzer integrations that are naturally Python-based or
+already use Python tooling.
 
 ## Installation
 

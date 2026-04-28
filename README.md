@@ -390,9 +390,9 @@ not pass tables, internal group names, or timings that do not help fix code.
 
 The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
 compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
-new Go policy runtime. Gemini review checks remain pre-commit/pre-push checks;
-they are not invoked from agent hooks. Agent hook evaluators are runtime-covered,
-and all supported provider settings are generated together.
+Go policy runtime. Gemini review checks remain pre-commit/pre-push checks; they
+are not invoked from agent hooks. Agent hook evaluators are runtime-covered, and
+all supported provider settings are generated together.
 
 Installed Git hook shims compile the policy bundle and enter
 `coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That runtime
@@ -433,13 +433,14 @@ supported repo-local agent surface:
 - `.gemini/settings.json`
 
 Claude output preserves Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` and writes native `[hooks]` entries in
-`.codex/config.toml`. Gemini output writes native `.gemini/settings.json` hooks
-with `hooksConfig.enabled = true`. Generated settings cover the events each
-provider exposes: Claude uses the full runtime set, Codex uses native
-`PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`
-hook names, and Gemini maps runtime policy to `BeforeTool`, `AfterTool`,
-`BeforeAgent`, `AfterAgent`, `SessionStart`, and `SessionEnd`.
+`[features].codex_hooks` and writes native `[hooks]` entries directly in
+`.codex/config.toml`; stale `.codex/hooks.json` files are removed. Gemini
+output writes native `.gemini/settings.json` hooks with
+`hooksConfig.enabled = true`. Generated settings cover the events each provider
+exposes: Claude uses the full runtime set, Codex uses native `PreToolUse`,
+`PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop` hook names, and
+Gemini maps runtime policy to `BeforeTool`, `AfterTool`, `BeforeAgent`,
+`AfterAgent`, `SessionStart`, and `SessionEnd`.
 Codex runs one native command hook per supported event so current Codex sessions
 enter the same policy runtime without depending on unstable tool matcher names.
 `agent-hooks doctor` verifies those native activation files rather than a
@@ -503,17 +504,18 @@ Provider output uses the strongest native shape each agent supports:
   supported context events. Codex does not currently support `updatedInput`, so
   raw git is denied rather than rewritten there.
 - Gemini receives native `decision: "deny"` / `systemMessage` for tool blocks
-  and `additionalContext` on supported lifecycle hooks. Gemini does not expose a
-  direct `PostToolUse` equivalent, so post-command hook-output advice remains
-  provider-limited.
+  and `additionalContext` on supported lifecycle hooks. Gemini `AfterTool` maps
+  to the same internal `PostToolUse` policy path for shell and edit feedback.
 
-Post-edit advice for `Write`, `Edit`, and `MultiEdit` now includes compiled
-file-scope lint state for the edited paths. The hook path runs only deterministic
-compiled evaluators, such as Python policy checks, structured-data syntax
-validation, merge-conflict detection, private-key detection, shebang checks,
-large-file limits, line limits, and shell best-practice checks; external tool
-suites remain in the Git hook/check path where their cost and output can be
-controlled.
+Post-edit advice for `Write`, `Edit`, and `MultiEdit` includes language-specific
+next steps, compiled file-scope lint state for edited paths, and a fast Ruff
+probe for Python files when `ruff` is already available. The hook path runs only
+deterministic compiled evaluators, such as Python policy checks,
+structured-data syntax validation, merge-conflict detection, private-key
+detection, PII scrubbing, repo-specific license headers, required runtime
+ignore checks, shebang checks, large-file limits, line limits, and shell
+best-practice checks; heavier external suites remain in the Git hook/check path
+where their cost and output can be controlled.
 
 Continuation state is stored under
 `.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or

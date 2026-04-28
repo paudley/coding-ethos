@@ -8,7 +8,8 @@ repo:
   license:
     # Set this per consuming repo to opt into LICENSE file and header checks.
     # When enabled, coding-ethos downloads the SPDX text, validates LICENSE
-    # without overwriting it, and requires matching source headers.
+    # without overwriting it, and requires matching source headers. The
+    # copyright string is also checked when configured.
     # spdx_identifier: MIT
     # copyright: 2026 Example Inc.
     # license_file: LICENSE
@@ -62,6 +63,19 @@ filesystem:
     exempt_path_prefixes:
       - .claude/
       - docs/plans/
+  required_ignores:
+    enabled: true
+    paths:
+      - .coding-ethos/
+      - .coding-ethos/hook-runs/example/stdout.log
+  pii_scrubber:
+    enabled: true
+    patterns:
+      - '/(home|Users)/[A-Za-z0-9._-]+/'
+      - '/tmp/tmp\.[A-Za-z0-9._-]+'
+    literals: []
+    exempt_prefixes:
+      - .git/
 
 shell:
   dangerous_command:
