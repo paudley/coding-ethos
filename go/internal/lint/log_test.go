@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/lint"
@@ -52,5 +53,28 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 		record.Result.Scope != ScopeStaged ||
 		len(record.Result.Findings) != 1 {
 		t.Fatalf("trace record = %#v", record)
+	}
+}
+
+func TestLogResultSanitizesTraceScopeFilename(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	result := Result{
+		Scope:  "tool:ruff/json output",
+		Status: "blocked",
+	}
+
+	path, err := LogResult(repo, result)
+	if err != nil {
+		t.Fatalf("LogResult() returned error: %v", err)
+	}
+
+	name := filepath.Base(path)
+	if !strings.Contains(name, "-tool_ruff_json_output.json") {
+		t.Fatalf("trace filename not sanitized: %q", name)
+	}
+	if strings.ContainsAny(name, `: /\`) {
+		t.Fatalf("trace filename contains unsafe separator: %q", name)
 	}
 }

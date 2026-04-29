@@ -29,7 +29,7 @@ the places contributors actually work:
 | Git hooks | compiled Go policy preflight plus deterministic hook groups |
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
-| Audit data | `.coding-ethos/hook-runs/` logs for later analysis |
+| Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
 
 ## Defense In Depth
 
@@ -332,6 +332,18 @@ Hook output honors `hooks.output_format` (`auto`, `human`, `json`, or `toon`).
 Successful groups are silent by default; failure output is intentionally narrow:
 show the failing checks and actionable findings, not pass tables, internal group
 names, or timings that do not help fix code.
+
+Compiled lint preflights also write normalized JSON traces under
+`.coding-ethos/lint-runs/`. Fresh repos with no trace directory analyze as an
+empty history, and trace filenames use portable scope names so captured tool
+results work across platforms.
+
+Analyze captured lint history:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
+```
 
 ### Agent Hooks
 

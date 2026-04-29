@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -40,7 +41,7 @@ func LogResult(cwd string, result Result) (string, error) {
 
 	path := filepath.Join(
 		dir,
-		fmt.Sprintf("%s-%d-%s.json", timestamp, os.Getpid(), result.Scope),
+		fmt.Sprintf("%s-%d-%s.json", timestamp, os.Getpid(), safeTraceScope(result.Scope)),
 	)
 	file, err := os.OpenFile(
 		filepath.Clean(path),
@@ -64,4 +65,41 @@ func LogResult(cwd string, result Result) (string, error) {
 	}
 
 	return path, nil
+}
+
+func safeTraceScope(scope string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return "unknown"
+	}
+
+	var builder strings.Builder
+	builder.Grow(len(scope))
+	lastWasSeparator := false
+	for _, char := range scope {
+		if isSafeTraceScopeChar(char) {
+			builder.WriteRune(char)
+			lastWasSeparator = false
+			continue
+		}
+		if !lastWasSeparator {
+			builder.WriteByte('_')
+			lastWasSeparator = true
+		}
+	}
+
+	safe := strings.Trim(builder.String(), "._-")
+	if safe == "" {
+		return "unknown"
+	}
+	return safe
+}
+
+func isSafeTraceScopeChar(char rune) bool {
+	return char >= 'a' && char <= 'z' ||
+		char >= 'A' && char <= 'Z' ||
+		char >= '0' && char <= '9' ||
+		char == '.' ||
+		char == '_' ||
+		char == '-'
 }

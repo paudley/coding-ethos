@@ -152,6 +152,23 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 	}
 }
 
+func TestAnalyzeTracesAllowsMissingTraceDirectory(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "missing", "lint-runs")
+	analysis, err := AnalyzeTraces(path)
+	if err != nil {
+		t.Fatalf("AnalyzeTraces() returned error: %v", err)
+	}
+
+	if analysis.Path != path ||
+		analysis.RunsAvailable != 0 ||
+		analysis.RunsAnalyzed != 0 ||
+		analysis.Findings != 0 {
+		t.Fatalf("analysis = %#v", analysis)
+	}
+}
+
 func writeTraceFixture(
 	t *testing.T,
 	root string,

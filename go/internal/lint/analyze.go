@@ -77,6 +77,9 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 	analysis := Analysis{Path: path, Files: files}
 	entries, err := os.ReadDir(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return analysis, nil
+		}
 		return analysis, fmt.Errorf("read lint trace dir %q: %w", path, err)
 	}
 
