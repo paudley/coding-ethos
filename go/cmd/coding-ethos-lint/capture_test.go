@@ -136,6 +136,27 @@ exit 1
 	}
 }
 
+func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
+	t.Parallel()
+
+	findings := capturedFindings(
+		"pyright",
+		[]string{"pkg"},
+		[]string{"--outputjson", "pkg"},
+		2,
+		nil,
+	)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v", findings)
+	}
+	if findings[0].RawOutcome["category"] != "configuration_error" {
+		t.Fatalf("raw outcome = %#v", findings[0].RawOutcome)
+	}
+	if !strings.Contains(findings[0].Message, "configuration or usage failed") {
+		t.Fatalf("message = %q", findings[0].Message)
+	}
+}
+
 func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX sh")

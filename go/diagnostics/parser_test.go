@@ -132,6 +132,73 @@ func TestParsePylintJSON2Diagnostics(t *testing.T) {
 	})
 }
 
+func TestParseTypeCheckerPolicyCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tool   string
+		output string
+		want   diagnostics.Diagnostic
+	}{
+		{
+			name: "pyright optional member",
+			tool: "pyright",
+			output: `{"generalDiagnostics":[{"file":"pkg/app.py","severity":"error",` +
+				`"message":"\"run\" is not a known attribute of \"None\"",` +
+				`"rule":"reportOptionalMemberAccess",` +
+				`"range":{"start":{"line":10,"character":6}}}]}`,
+			want: diagnostics.Diagnostic{
+				Tool:     "pyright",
+				File:     "pkg/app.py",
+				Line:     11,
+				Column:   7,
+				Severity: "error",
+				Code:     "reportOptionalMemberAccess",
+				Message:  `"run" is not a known attribute of "None"`,
+			},
+		},
+		{
+			name:   "mypy no untyped def",
+			tool:   "mypy",
+			output: `pkg/app.py:12:1: error: Function is missing a type annotation [no-untyped-def]`,
+			want: diagnostics.Diagnostic{
+				Tool:     "mypy",
+				File:     "pkg/app.py",
+				Line:     12,
+				Column:   1,
+				Severity: "error",
+				Code:     "no-untyped-def",
+				Message:  "Function is missing a type annotation",
+			},
+		},
+		{
+			name: "pylint no member",
+			tool: "pylint",
+			output: `[{"path":"pkg/app.py","line":20,"column":10,` +
+				`"type":"error","symbol":"no-member","messageId":"E1101",` +
+				`"message":"Instance has no member \"run\""}]`,
+			want: diagnostics.Diagnostic{
+				Tool:     "pylint",
+				File:     "pkg/app.py",
+				Line:     20,
+				Column:   11,
+				Severity: "error",
+				Code:     "no-member",
+				Message:  `Instance has no member "run"`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
+		})
+	}
+}
+
 func TestParseGolangciLintDiagnostics(t *testing.T) {
 	t.Parallel()
 

@@ -105,6 +105,7 @@ func capturedFindings(
 	exitCode int,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
+	outcome := capturedOutcome(tool, exitCode, items)
 	if len(items) == 0 {
 		if exitCode == 0 {
 			return nil
@@ -112,12 +113,13 @@ func capturedFindings(
 
 		return []lint.Finding{{
 			RawOutcome: map[string]any{
+				"category":  outcome.Category,
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
 			},
 			CheckID:    "tool." + tool,
-			Message:    fmt.Sprintf("%s exited with status %d", tool, exitCode),
+			Message:    outcome.Message,
 			Severity:   "error",
 			SourceTool: tool,
 			Status:     "fail",
@@ -129,6 +131,7 @@ func capturedFindings(
 	for _, item := range items {
 		findings = append(findings, lint.Finding{
 			RawOutcome: map[string]any{
+				"category":  outcome.Category,
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
@@ -150,6 +153,45 @@ func capturedFindings(
 	}
 
 	return findings
+}
+
+type capturedOutcomeClass struct {
+	Category string
+	Message  string
+}
+
+func capturedOutcome(
+	tool string,
+	exitCode int,
+	items []diagnostics.Diagnostic,
+) capturedOutcomeClass {
+	if len(items) > 0 {
+		return capturedOutcomeClass{
+			Category: "lint_findings",
+			Message:  fmt.Sprintf("%s reported diagnostics", tool),
+		}
+	}
+	if exitCode == 0 {
+		return capturedOutcomeClass{Category: "success", Message: tool + " passed"}
+	}
+
+	switch exitCode {
+	case 1:
+		return capturedOutcomeClass{
+			Category: "tool_error",
+			Message:  fmt.Sprintf("%s exited with status %d without parseable diagnostics", tool, exitCode),
+		}
+	case 2:
+		return capturedOutcomeClass{
+			Category: "configuration_error",
+			Message:  fmt.Sprintf("%s configuration or usage failed with status %d", tool, exitCode),
+		}
+	default:
+		return capturedOutcomeClass{
+			Category: "tool_error",
+			Message:  fmt.Sprintf("%s exited with status %d without parseable diagnostics", tool, exitCode),
+		}
+	}
 }
 
 func capturedExitCode(err error) int {

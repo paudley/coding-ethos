@@ -1824,6 +1824,12 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultPyrightSuppressionEvidenceMap(principles),
 		defaultRuffDocstringEvidenceMap(principles),
 		defaultPylintDocstringEvidenceMap(principles),
+		defaultMypyOptionalTypeEvidenceMap(principles),
+		defaultPyrightOptionalTypeEvidenceMap(principles),
+		defaultMypyUnknownTypeEvidenceMap(principles),
+		defaultPyrightUnknownTypeEvidenceMap(principles),
+		defaultPylintInterfaceEvidenceMap(principles),
+		defaultPyrightMissingImportEvidenceMap(principles),
 		defaultMypyImportCycleEvidenceMap(principles),
 		defaultPyrightImportCycleEvidenceMap(principles),
 		defaultPylintImportCycleEvidenceMap(principles),
@@ -2081,6 +2087,194 @@ func defaultPylintDocstringEvidenceMap(
 				"Keep generated or private surfaces excluded through policy, not ad hoc suppressions.",
 			},
 			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypyOptionalTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "mypy",
+		Codes: []string{
+			"union-attr",
+			"return-value",
+			"assignment",
+			"arg-type",
+		},
+		PolicyID: "python.optional_required_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "medium",
+		Meaning: "A value used as required is typed as optional or incompatible " +
+			"with the required interface.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the required contract explicit instead of widening types.",
+			Steps: []string{
+				"Identify whether the value is genuinely optional or required.",
+				"For required dependencies, remove None from the type and validate at construction/startup.",
+				"If variants are legitimate, introduce a Protocol or narrower interface instead of passing concrete optionals around.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightOptionalTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportOptionalCall",
+			"reportOptionalIterable",
+			"reportOptionalMemberAccess",
+			"reportOptionalOperand",
+			"reportOptionalSubscript",
+		},
+		PolicyID: "python.optional_required_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "high",
+		Meaning: "Pyright found code using a possibly-None value as if it were " +
+			"required.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Convert required optionals into validated required dependencies.",
+			Steps: []string{
+				"Move absence handling to bootstrap or construction.",
+				"Keep runtime code on the full-strength required path.",
+				"Use Protocols for dependency boundaries when concrete imports create cycles.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultMypyUnknownTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "mypy",
+		Codes: []string{
+			"no-untyped-def",
+			"no-untyped-call",
+			"var-annotated",
+		},
+		PolicyID: "python.unknown_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"protocol-first-design",
+		),
+		Confidence: "medium",
+		Meaning: "Type information is missing at a boundary where static " +
+			"analysis should verify behavior.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Add precise boundary types instead of letting Any spread.",
+			Steps: []string{
+				"Annotate public functions and important locals.",
+				"Add a typed adapter at untyped third-party boundaries.",
+				"Prefer Protocols for behavior contracts instead of concrete catch-all types.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightUnknownTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportUnknownArgumentType",
+			"reportUnknownMemberType",
+			"reportUnknownParameterType",
+			"reportUnknownVariableType",
+		},
+		PolicyID: "python.unknown_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"protocol-first-design",
+		),
+		Confidence: "medium",
+		Meaning:    "Pyright cannot verify a type boundary because unknowns leaked in.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the type boundary explicit and locally verifiable.",
+			Steps: []string{
+				"Add annotations where the value enters the module.",
+				"Use typed wrappers around dynamic data.",
+				"Prefer Protocols when the code depends on behavior rather than a concrete class.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPylintInterfaceEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pylint",
+		Codes: []string{
+			"no-member",
+			"E1101",
+			"undefined-variable",
+			"E0602",
+		},
+		PolicyID: "python.interface_contracts",
+		PrincipleIDs: principleRefs(
+			principles,
+			"protocol-first-design",
+			"solid-is-law",
+		),
+		Confidence: "medium",
+		Meaning: "The code is relying on attributes or names that are not " +
+			"visible through a stable interface.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Expose the required behavior through a real interface.",
+			Steps: []string{
+				"Verify the referenced member or name exists.",
+				"If the object is dynamic, add a typed adapter or Protocol that states the contract.",
+				"Do not hide the issue with a broad Pylint disable.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightMissingImportEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportMissingImports",
+			"reportMissingModuleSource",
+		},
+		PolicyID: "python.required_imports",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-conditional-imports",
+			"fail-fast-fail-hard-overview",
+		),
+		Confidence: "high",
+		Meaning:    "A required import cannot be resolved by the static analyzer.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make required dependencies importable and validated at the gate.",
+			Steps: []string{
+				"Add the dependency to the environment or generated type-checker config.",
+				"Remove fallback or conditional import paths that hide missing dependencies.",
+				"Fail at startup/bootstrap when a required dependency is absent.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

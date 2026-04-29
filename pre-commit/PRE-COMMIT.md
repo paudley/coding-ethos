@@ -306,6 +306,11 @@ Known external diagnostics can be enriched through `policy.evidence_maps`.
 Mapped findings keep their raw tool, code, location, severity, and message, then
 add policy ID, principle IDs, confidence, meaning, advice, and rerun commands.
 Unmapped diagnostics still flow through as ordinary lint findings.
+Type-checker evidence maps cover common mypy, Pyright, and Pylint findings for
+optional required dependencies, unknown type leakage, missing imports, unstable
+interfaces, and import cycles. Those findings point back to ETHOS guidance such
+as Protocol-first design, fail-fast required imports, and structural fixes
+instead of lazy imports or broad suppressions.
 
 Important configurable areas:
 
