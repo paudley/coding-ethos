@@ -227,6 +227,7 @@ func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
 	root := t.TempDir()
 	for _, path := range []string{
 		".claude/settings.local.json",
+		".codex/config.toml",
 		".gemini/settings.json",
 		"nested/.wolf/hooks/session.json",
 	} {
@@ -249,6 +250,7 @@ func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
 			Cwd: root,
 			Files: []string{
 				".claude/settings.local.json",
+				".codex/config.toml",
 				".gemini/settings.json",
 				"nested/.wolf/hooks/session.json",
 			},

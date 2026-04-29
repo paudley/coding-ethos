@@ -5,14 +5,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -159,18 +160,17 @@ func readBundle(path string) (policy.Bundle, error) {
 }
 
 func encodeLintResult(result lint.Result) {
+	if err := encodeLintResultTo(os.Stderr, result); err != nil {
+		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
+	}
+}
+
+func encodeLintResultTo(writer io.Writer, result lint.Result) error {
 	if result.Blocked() {
 		result = blockedOnlyResult(result)
 	}
 
-	encoder := json.NewEncoder(os.Stderr)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(result)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
-	}
+	return hookoutput.EncodeLintResult(writer, result, hookoutput.SelectedFormat())
 }
 
 func blockedOnlyResult(result lint.Result) lint.Result {

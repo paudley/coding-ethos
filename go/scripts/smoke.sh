@@ -313,8 +313,8 @@ if [[ "$wrapper_status" -ne 2 ]]; then
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
 fi
-if ! grep -q '"policy_id": "git.staged_admin_files"' \
-  /tmp/coding-ethos-hook-wrapper-smoke.out; then
+if ! grep -q '^format: toon$' /tmp/coding-ethos-hook-wrapper-smoke.out ||
+  ! grep -q 'git.staged_admin_files' /tmp/coding-ethos-hook-wrapper-smoke.out; then
   printf 'expected compiled preflight staged admin policy output:\n' >&2
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
