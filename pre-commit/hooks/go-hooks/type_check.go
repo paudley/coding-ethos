@@ -108,13 +108,17 @@ func defaultRuffEvidenceMap() diag.EvidenceMap {
 		PolicyID:     "python.conditional_imports",
 		PrincipleIDs: []string{"no-conditional-imports", "fail-fast-fail-hard-overview"},
 		Confidence:   "high",
-		Meaning:      "Import executes away from module scope, usually inside runtime control flow.",
+		Meaning: "Import executes away from module scope, usually inside runtime " +
+			"control flow, hiding a required dependency or masking cyclic design pressure.",
 		Advice: diag.EvidenceAdvice{
-			Summary: "Move required imports to module scope and fail during startup.",
+			Summary: "Move required imports to module scope. If that exposes a cycle, " +
+				"fix the design instead of hiding the dependency.",
 			Steps: []string{
 				"Declare the dependency as required.",
 				"Import it at module scope.",
-				"Replace runtime fallback paths with startup validation.",
+				"Use SOLID boundaries to split responsibilities when modules depend on each other.",
+				"In Python, introduce a Protocol in a neutral module when two concrete implementations would otherwise import each other.",
+				"Replace lazy, conditional, or fallback import paths with explicit startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},

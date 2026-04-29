@@ -351,6 +351,15 @@ func defaultReminderConfig() ReminderConfig {
 				Action:      "Treat the finding as a structural signal and fix the cause.",
 			},
 			{
+				PrincipleID: "no-conditional-imports",
+				Axiom:       "Conditional imports are banned.",
+				Action: sentence(
+					"Use module-scope required imports; if that exposes a cycle,",
+					"refactor with SOLID boundaries or a Python Protocol",
+					"instead of hiding the dependency.",
+				),
+			},
+			{
 				PrincipleID: "linting-as-code-quality-enforcement",
 				Axiom:       "A linter warning is review feedback in executable form.",
 				Action:      "Resolve it structurally instead of weakening the rule.",
@@ -1825,13 +1834,17 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 		),
 		Confidence: "high",
 		Meaning: "Import executes away from module scope, usually inside " +
-			"runtime control flow.",
+			"runtime control flow, hiding a required dependency or masking " +
+			"cyclic design pressure.",
 		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Move required imports to module scope and fail during startup.",
+			Summary: "Move required imports to module scope. If that exposes " +
+				"a cycle, fix the design instead of hiding the dependency.",
 			Steps: []string{
 				"Declare the dependency as required.",
 				"Import it at module scope.",
-				"Replace runtime fallback paths with startup validation.",
+				"Use SOLID boundaries to split responsibilities when modules depend on each other.",
+				"In Python, introduce a Protocol in a neutral module when two concrete implementations would otherwise import each other.",
+				"Replace lazy, conditional, or fallback import paths with explicit startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},

@@ -38,6 +38,19 @@ compiled coding-ethos policy bundle
         +--> generated prompt packs
 ```
 
+The long-term direction is that `coding_ethos.yml` and `repo_ethos.yml` carry
+the semantic policy: what the shop believes, which principle a rule belongs to,
+why the rule matters, and what repair advice should be shown. `config.yaml` and
+`repo_config.yaml` remain necessary runtime inputs, but they should drift toward
+compiled or technical details: evaluator knobs, file limits, tool commands,
+timeouts, generated config paths, repo-specific opt-ins, and integration
+settings that cannot be inferred safely from ethos text alone.
+
+In other words, ethos is the policy source; config is the enforcement
+projection. When a rule can be derived from an ethos principle, future compiler
+work should make that derivation explicit instead of duplicating prose and
+rationale in hook config.
+
 ## Compiled Artifact
 
 The canonical compiled artifact should be JSON:
@@ -146,10 +159,34 @@ which tool codes, AST observations, type-checker diagnostics, or hook outcomes
 indicate a specific ETHOS problem and what deterministic advice should be shown
 when that evidence appears.
 
+Evidence maps are the bridge between tool output and policy meaning. A linter
+code is not automatically an ETHOS violation just because it exists. We should
+capture raw linter traces under `.coding-ethos/`, normalize them, and manually
+review recurring codes to decide which ones deserve policy ownership. Curated
+codes then become evidence maps; uncataloged codes continue to render as normal
+tool diagnostics.
+
+The same principle-owned policy data should also feed pre-advice. Advice is a
+defense-in-depth layer: it continuously nudges agents toward the intended
+behavior before a hard gate has to block them. A policy can publish short axioms
+and repair nudges before a risky edit or command, or as randomized reminders on
+ordinary tool calls, then use the richer evidence map when a linter confirms the
+violation. For conditional imports, the pre-advice can be as small as:
+
+- "Conditional imports are banned."
+- "Use module-scope required imports."
+- "If an import cycle appears, prefer SOLID refactoring or a Python `Protocol`
+  over a lazy import."
+
+Post-run diagnostics can then include the exact file, line, tool code, and full
+repair sequence without changing the underlying policy meaning. The point is not
+to spam the agent; it is to keep the repo's operating rules present in context
+often enough that the agent follows them before reaching the enforcement layer.
+
 Example mapping:
 
 - `source`: `ruff`
-- `codes`: `PLC 0415`
+- `codes`: the Ruff conditional-import diagnostic
 - `policy_id`: `python.conditional_imports`
 - `principle_ids`: `no-conditional-imports`
 - `confidence`: `high`
@@ -157,9 +194,25 @@ Example mapping:
   control flow
 - `advice.summary`: move required imports to module scope and fail during
   startup
-- `advice.steps`: declare the dependency, import it at module scope, replace
-  runtime fallback paths with startup validation
+- `advice.steps`: declare the dependency, import it at module scope, refactor
+  cyclic design pressure with SOLID boundaries or Python Protocols instead of
+  hiding the import, replace runtime fallback paths with startup validation
 - `advice.rerun`: `make pre-commit`, `make check`
+
+Concrete derivation examples:
+
+- `No Conditional Imports` should own Ruff's conditional-import diagnostic, the compiled
+  `python.conditional_imports` AST evaluator, and any repository guard that
+  prevents documenting or configuring that diagnostic as an accepted workaround. The
+  advice must explain the design issue: required dependencies belong at module
+  scope; if that exposes a cycle, fix the structure with SOLID separation or a
+  Python `Protocol` in a neutral module. The same policy should expose concise
+  pre-advice axioms so agents hear the rule before they create the violation,
+  not only after a hook blocks them.
+- `Linting as Code Quality Enforcement` should own suppression and ignore
+  patterns such as `noqa`, `type: ignore`, `pylint: disable`, Ruff
+  `--ignore-noqa`, and generated config guards for broad ignore lists. The
+  guidance should say to repair the code structurally, not silence the reviewer.
 
 Known evidence receives stronger ETHOS-grounded guidance. Unknown or unmapped
 tool diagnostics must still flow through the unified lint result as ordinary
@@ -176,6 +229,12 @@ ETHOS advice.
 This creates a policy-first pipeline:
 
 `ETHOS principle -> policy rule -> tool / AST / type evidence -> normalized finding -> ETHOS-grounded advice and ranking`
+
+The explain surface is part of that contract. `coding-ethos lint --explain`
+should show which policy checks and managed tools are selected for a scope or
+file set, why they are selected, which parser/output format will be forced, and
+which policy evidence can enrich their diagnostics. That makes policy
+derivation inspectable before a hook blocks a commit.
 
 ### Policies
 

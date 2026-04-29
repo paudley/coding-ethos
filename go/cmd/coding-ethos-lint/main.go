@@ -108,14 +108,21 @@ func main() {
 	}
 
 	if *explain {
-		explainResult, explainErr := lint.Explain(bundle, scope.Value())
+		explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
+			Scope: scope.Value(),
+			Files: parseFiles(*filesRaw),
+		})
 		if explainErr != nil {
 			exitErr(explainErr)
+		}
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
 		}
 		if encodeErr := lint.EncodeExplainResult(
 			os.Stdout,
 			explainResult,
-			*jsonOutput,
+			format,
 		); encodeErr != nil {
 			exitErr(encodeErr)
 		}

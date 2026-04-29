@@ -32,12 +32,19 @@ ETHOS principle -> policy rule -> tool evidence -> normalized finding -> advice
 ```
 
 Known tool messages should become stronger when they map to ETHOS. For example,
-Ruff `PLC 0415` is not merely "import not at top of file"; in this repo it can
-be evidence for `No Conditional Imports`, required-dependency validation, and
-startup fail-fast behavior. The advice should explain that ETHOS violation and
-give deterministic repair steps. Unknown or unmapped linter messages should
-still flow through normally as plain diagnostics. ETHOS mappings enrich known
-evidence; they do not filter out everything else.
+Ruff's conditional-import diagnostic is not merely "import not at top of file";
+in this repo it can be evidence for `No Conditional Imports`,
+required-dependency validation, and startup fail-fast behavior. The advice
+should explain that ETHOS violation and give deterministic repair steps. Unknown
+or unmapped linter messages should still flow through normally as plain
+diagnostics. ETHOS mappings enrich known evidence; they do not filter out
+everything else.
+
+The mapping set should be curated from real traces rather than invented in bulk.
+Hook and wrapper runs should persist normalized diagnostics under
+`.coding-ethos/`; maintainers can review those logs to identify recurring lint
+codes, decide whether they express an ETHOS principle, and then add evidence
+maps only for the codes where stronger policy guidance is justified.
 
 ## Feature Deltas
 
@@ -210,9 +217,13 @@ evidence; they do not filter out everything else.
 9. Add ETHOS evidence maps.
    Extend `coding_ethos.yml` / compiled policy data so tool evidence can map to
    policy IDs, principle IDs, confidence, meaning, advice steps, and rerun
-   commands. Start with high-signal mappings such as Ruff `PLC 0415` to
-   `No Conditional Imports`, then add mypy/pyright/ruff/golangci evidence where
-   it clearly supports an ETHOS principle.
+   commands. Start with high-signal mappings such as Ruff's conditional-import
+   diagnostic to `No Conditional Imports`, then add mypy/pyright/ruff/golangci
+   evidence where it clearly supports an ETHOS principle.
+   The target source of truth is ethos YAML: policy authors describe the
+   principle, accepted evidence, and remediation there, while `config.yaml`
+   becomes the runtime projection for technical evaluator settings that cannot
+   be inferred safely.
 
 10. Add `coding-ethos doctor --json` or equivalent Go hook command.
    Report required tools, resolved config files, generated config drift status,
