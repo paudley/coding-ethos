@@ -8,6 +8,7 @@ type Diagnostic struct {
 	Advice       string         `json:"advice,omitempty"`
 	Confidence   string         `json:"confidence,omitempty"`
 	Code         string         `json:"code,omitempty"`
+	Detail       string         `json:"detail,omitempty"`
 	File         string         `json:"file,omitempty"`
 	Function     string         `json:"function,omitempty"`
 	Group        string         `json:"group,omitempty"`

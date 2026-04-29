@@ -35,14 +35,6 @@ func EvaluateFileMergeConflict(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
-		regular, err := isRegularGuardFile(path)
-		if err != nil {
-			return nil, err
-		}
-		if !regular {
-			continue
-		}
-
 		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
 			for _, marker := range markers {
 				if strings.HasPrefix(line, marker) {

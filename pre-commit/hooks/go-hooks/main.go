@@ -38,6 +38,9 @@ const (
 	consumerRootEnv   = "CODE_ETHOS_CONSUMER_ROOT"
 	privateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize     = 8192
+	severityCritical  = "CRITICAL"
+	severityInfo      = "INFO"
+	severityWarning   = "WARNING"
 )
 
 type Config struct {
@@ -2781,9 +2784,22 @@ func stripGeminiCodeFence(text string) string {
 func parseGeminiResult(responseText string) (geminiResult, error) {
 	var result geminiResult
 
-	err := json.Unmarshal([]byte(stripGeminiCodeFence(responseText)), &result)
-	if err != nil {
-		return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+	cleaned := stripGeminiCodeFence(responseText)
+
+	if strings.HasPrefix(cleaned, "[") {
+		var violations []geminiViolation
+
+		err := json.Unmarshal([]byte(cleaned), &violations)
+		if err != nil {
+			return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+		}
+
+		result.Violations = violations
+	} else {
+		err := json.Unmarshal([]byte(cleaned), &result)
+		if err != nil {
+			return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+		}
 	}
 
 	if result.Verdict == "" {
@@ -2795,7 +2811,7 @@ func parseGeminiResult(responseText string) (geminiResult, error) {
 			strings.TrimSpace(result.Violations[index].Severity),
 		)
 		if result.Violations[index].Severity == "" {
-			result.Violations[index].Severity = "INFO"
+			result.Violations[index].Severity = severityInfo
 		}
 
 		result.Violations[index].File = normalizeGeminiPath(
@@ -3078,7 +3094,7 @@ func appendGeminiViolationWithoutChangedLines(
 
 func (filtered geminiFilteredViolations) hasBlockingCriticals() bool {
 	for _, violation := range filtered.InDiff {
-		if violation.Severity == "CRITICAL" {
+		if violation.Severity == severityCritical {
 			return true
 		}
 	}
@@ -3381,7 +3397,7 @@ func geminiOutcomeStatus(outcome geminiCheckOutcome) string {
 	}
 
 	for _, violation := range outcome.Filtered.InDiff {
-		if violation.Severity == "WARNING" {
+		if violation.Severity == severityWarning {
 			return statusWarn
 		}
 	}
@@ -3786,9 +3802,9 @@ func appendGeminiBatchErrors(
 
 func formatSeverityIcon(severity string) string {
 	switch severity {
-	case "CRITICAL":
+	case severityCritical:
 		return "XX"
-	case "WARNING":
+	case severityWarning:
 		return "W "
 	default:
 		return "--"

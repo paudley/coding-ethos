@@ -135,7 +135,7 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONCell(finding.PolicyID),
 			TOONCell(finding.Message),
 			TOONCell(finding.Advice),
-			TOONCell(""),
+			TOONCell(finding.Detail),
 		))
 	}
 	lines = append(

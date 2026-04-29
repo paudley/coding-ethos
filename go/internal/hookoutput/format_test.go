@@ -25,6 +25,7 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 			PolicyID: "repo.pii_scrubber",
 			Message:  "local machine detail detected",
 			Advice:   "Replace local paths with generic placeholders.",
+			Detail:   "matched /" + "home/example/project",
 		}},
 	}
 
@@ -38,7 +39,7 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 		"tool: policy-lint",
 		"scope: staged",
 		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
-		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,local machine detail detected,Replace local paths with generic placeholders.,",
+		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
