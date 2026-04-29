@@ -77,7 +77,7 @@ func captureContinuationOutput(event Event) *HookSpecificOutput {
 
 	return &HookSpecificOutput{
 		HookEventName:     event.HookEventName,
-		AdditionalContext: "captured deterministic continuation context",
+		AdditionalContext: "captured deterministic state",
 	}
 }
 

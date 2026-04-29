@@ -1547,7 +1547,7 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 	if capture.HookSpecificOutput == nil ||
 		!strings.Contains(
 			capture.HookSpecificOutput.AdditionalContext,
-			"captured deterministic continuation context",
+			"captured deterministic state",
 		) {
 		t.Fatalf("missing capture output: %#v", capture.HookSpecificOutput)
 	}
