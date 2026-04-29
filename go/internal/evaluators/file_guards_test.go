@@ -30,6 +30,22 @@ func TestEvaluateFileMergeConflictBlocksMarkers(t *testing.T) {
 	}
 }
 
+func TestEvaluateFileMergeConflictSkipsDirectories(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateFileMergeConflict(
+		fileGuardPolicy("syntax.merge_conflict"),
+		Context{Files: []string{t.TempDir()}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate merge conflicts: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions for directory path, got %#v", decisions)
+	}
+}
+
 func TestEvaluateFilePrivateKeyBlocksKeyMaterial(t *testing.T) {
 	t.Parallel()
 

@@ -357,9 +357,9 @@ Pre-commit includes:
 Pre-push re-runs the higher-signal checks over the pushed diff, including full
 Gemini review when enabled.
 
-Most hook runtime and policy enforcement now lives in `hooks/go-hooks/`. The
-remaining Python hook files are wrappers around external analyzers like Radon
-and Vulture rather than bespoke policy implementations.
+Most hook runtime and policy enforcement now lives in `hooks/go-hooks/`. Python
+quality checks call Radon and Vulture directly from the Go runner so hook output,
+timeouts, and finding normalization stay under one runtime.
 
 Commit-message hooks enforce:
 

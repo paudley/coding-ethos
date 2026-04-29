@@ -100,22 +100,18 @@ steps, compiled lint findings, and a fast Ruff probe for Python files when
 
 - **go-hooks/** - Compiled policy preflight, shell checks, direct-import
   enforcement, utility and SQL centralization, file
-  and module doc checks, type-check orchestration, Python quality wrappers,
+  and module doc checks, type-check orchestration, Python quality orchestration,
   Dockerfile and workflow validation, Go toolchain checks, pytest gating,
   compiled `python.pyproject_ignores` enforcement, repo-root Python version
   consistency checks, shared hook policy, and the active Gemini AI review runner
-- **check_complexity.py** - Cyclomatic complexity checks via Radon
-- **check_maintainability.py** - Maintainability index checks via Radon
-- **check_vulture.py** - Dead-code detection via Vulture
 
 Cheap deterministic checks such as syntax parsing, merge-conflict markers,
 private-key detection, shebang consistency, large-file limits, line limits, and
 shell best practices now run through compiled policy preflight. Repo-specific
 PII, required-ignore, and license/copyright policies also run through the
 compiled policy bundle when configured. The remaining bundled groups are either
-richer repo-structure checks or external tool orchestration. The Python hook
-files are kept for analyzer integrations that are naturally Python-based or
-already use Python tooling.
+richer repo-structure checks or direct external analyzer orchestration from the
+Go runner.
 
 ## Installation
 

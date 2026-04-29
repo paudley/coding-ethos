@@ -35,6 +35,14 @@ func EvaluateFileMergeConflict(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+		regular, err := isRegularGuardFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !regular {
+			continue
+		}
+
 		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
 			for _, marker := range markers {
 				if strings.HasPrefix(line, marker) {
@@ -80,6 +88,14 @@ func EvaluateFilePrivateKey(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+		regular, err := isRegularGuardFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !regular {
+			continue
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -457,6 +473,11 @@ func firstGuardLines(text string, count int) string {
 }
 
 func readGuardText(path string) (string, bool, error) {
+	regular, err := isRegularGuardFile(path)
+	if err != nil || !regular {
+		return "", false, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -523,6 +544,11 @@ func scanGuardLines(
 	path string,
 	visit func(lineNumber int, line string) ([]policy.Decision, bool),
 ) ([]policy.Decision, error) {
+	regular, err := isRegularGuardFile(path)
+	if err != nil || !regular {
+		return nil, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -554,6 +580,19 @@ func scanGuardLines(
 	}
 
 	return nil, nil
+}
+
+func isRegularGuardFile(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("stat file %s: %w", path, err)
+	}
+
+	return info.Mode().IsRegular(), nil
 }
 
 func gitAddedFileSet(cwd string) map[string]bool {

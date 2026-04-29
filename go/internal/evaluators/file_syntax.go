@@ -61,6 +61,11 @@ func extensionSet(extensions []string) map[string]bool {
 }
 
 func validateSyntaxFile(path string) error {
+	regular, err := isRegularGuardFile(path)
+	if err != nil || !regular {
+		return err
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

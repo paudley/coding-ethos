@@ -34,6 +34,19 @@ func TestEvaluateFileSyntaxBlocksInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestEvaluateFileSyntaxSkipsDirectories(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateFileSyntax(syntaxPolicy(), Context{Files: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("evaluate syntax: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions for directory path, got %#v", decisions)
+	}
+}
+
 func syntaxPolicy() policy.Policy {
 	return policy.Policy{
 		ID:              "syntax.file_syntax",
