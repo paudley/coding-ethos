@@ -331,6 +331,38 @@ func TestEnrichMapsWildcardDiagnosticEvidence(t *testing.T) {
 	}
 }
 
+func TestEnrichMapsMessageDiagnosticEvidence(t *testing.T) {
+	t.Parallel()
+
+	enriched := diagnostics.Enrich(
+		[]diagnostics.Diagnostic{
+			{
+				Tool:    "pyright",
+				Message: "Import cycle detected between pkg.a and pkg.b",
+			},
+		},
+		[]diagnostics.EvidenceMap{
+			{
+				Source: "pyright",
+				MessageSubstrings: []string{
+					"import cycle detected",
+				},
+				PolicyID: "python.import_cycles",
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Break the concrete dependency cycle.",
+				},
+			},
+		},
+	)
+
+	if enriched[0].PolicyID != "python.import_cycles" {
+		t.Fatalf("message-mapped policy = %q", enriched[0].PolicyID)
+	}
+	if enriched[0].Advice != "Break the concrete dependency cycle." {
+		t.Fatalf("message-mapped advice = %q", enriched[0].Advice)
+	}
+}
+
 func assertDiagnostic(
 	t *testing.T,
 	parsed []diagnostics.Diagnostic,

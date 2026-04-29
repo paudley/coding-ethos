@@ -1794,8 +1794,13 @@ func compileEvidenceMaps(
 
 func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 	return diagnostics.EvidenceMap{
-		Source:       stringAt(item, "source"),
-		Codes:        stringSliceAt(item, []string{"codes"}, nil),
+		Source: stringAt(item, "source"),
+		Codes:  stringSliceAt(item, []string{"codes"}, nil),
+		MessageSubstrings: stringSliceAt(
+			item,
+			[]string{"message_substrings"},
+			nil,
+		),
 		PolicyID:     stringAt(item, "policy_id"),
 		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
 		Confidence:   stringAt(item, "confidence"),
@@ -1813,6 +1818,9 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultRuffEvidenceMap(principles),
 		defaultRuffImportOrderEvidenceMap(principles),
 		defaultRuffSQLSafetyEvidenceMap(principles),
+		defaultMypyImportCycleEvidenceMap(principles),
+		defaultPyrightImportCycleEvidenceMap(principles),
+		defaultPylintImportCycleEvidenceMap(principles),
 		defaultMypyEvidenceMap(principles),
 		defaultShellcheckEvidenceMap(principles),
 		defaultYamllintEvidenceMap(principles),
@@ -1901,6 +1909,71 @@ func defaultRuffSQLSafetyEvidenceMap(
 				"Keep test-only SQL safety exceptions explicit and narrow.",
 			},
 			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypyImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"mypy",
+		nil,
+		[]string{"Cannot resolve import cycle", "import cycle"},
+		principles,
+	)
+}
+
+func defaultPyrightImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pyright",
+		nil,
+		[]string{"Import cycle detected", "Import cycles detected"},
+		principles,
+	)
+}
+
+func defaultPylintImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pylint",
+		[]string{"cyclic-import", "R0401"},
+		nil,
+		principles,
+	)
+}
+
+func importCycleEvidenceMap(
+	source string,
+	codes []string,
+	messageSubstrings []string,
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:            source,
+		Codes:             append([]string(nil), codes...),
+		MessageSubstrings: append([]string(nil), messageSubstrings...),
+		PolicyID:          "python.import_cycles",
+		PrincipleIDs: principleRefs(
+			principles,
+			"protocol-first-design",
+			"solid-is-law",
+		),
+		Confidence: "medium",
+		Meaning: "Concrete modules depend on each other strongly enough that " +
+			"the type checker or linter sees an import cycle.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Break the concrete dependency cycle with an explicit interface.",
+			Steps: []string{
+				"Identify the two modules that import each other.",
+				"Move the shared contract into a neutral module.",
+				"In Python, model that contract with a Protocol when behavior is required.",
+				"Depend on the Protocol or smaller interface instead of the concrete implementation.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

@@ -209,6 +209,11 @@ Concrete derivation examples:
   Python `Protocol` in a neutral module. The same policy should expose concise
   pre-advice axioms so agents hear the rule before they create the violation,
   not only after a hook blocks them.
+- `Protocol-First Design` should own import-cycle evidence from mypy, pyright,
+  and pylint. These diagnostics are not a reason to hide imports; they are a
+  signal that concrete modules know too much about each other. The advice should
+  point toward a neutral contract module, Python `Protocol` types when behavior
+  is needed, and smaller SOLID boundaries between implementations.
 - `Linting as Code Quality Enforcement` should own suppression and ignore
   patterns such as `noqa`, `type: ignore`, `pylint: disable`, Ruff
   `--ignore-noqa`, and generated config guards for broad ignore lists. The

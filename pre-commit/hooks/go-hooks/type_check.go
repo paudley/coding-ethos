@@ -92,6 +92,9 @@ func defaultPolicyEvidenceMaps() []diag.EvidenceMap {
 		defaultRuffEvidenceMap(),
 		defaultRuffImportOrderEvidenceMap(),
 		defaultRuffSQLSafetyEvidenceMap(),
+		defaultMypyImportCycleEvidenceMap(),
+		defaultPyrightImportCycleEvidenceMap(),
+		defaultPylintImportCycleEvidenceMap(),
 		defaultMypyEvidenceMap(),
 		defaultShellcheckEvidenceMap(),
 		defaultYamllintEvidenceMap(),
@@ -161,6 +164,57 @@ func defaultRuffSQLSafetyEvidenceMap() diag.EvidenceMap {
 				"Keep test-only SQL safety exceptions explicit and narrow.",
 			},
 			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypyImportCycleEvidenceMap() diag.EvidenceMap {
+	return importCycleEvidenceMap(
+		"mypy",
+		nil,
+		[]string{"Cannot resolve import cycle", "import cycle"},
+	)
+}
+
+func defaultPyrightImportCycleEvidenceMap() diag.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pyright",
+		nil,
+		[]string{"Import cycle detected", "Import cycles detected"},
+	)
+}
+
+func defaultPylintImportCycleEvidenceMap() diag.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pylint",
+		[]string{"cyclic-import", "R0401"},
+		nil,
+	)
+}
+
+func importCycleEvidenceMap(
+	source string,
+	codes []string,
+	messageSubstrings []string,
+) diag.EvidenceMap {
+	return diag.EvidenceMap{
+		Source:            source,
+		Codes:             append([]string(nil), codes...),
+		MessageSubstrings: append([]string(nil), messageSubstrings...),
+		PolicyID:          "python.import_cycles",
+		PrincipleIDs:      []string{"protocol-first-design", "solid-is-law"},
+		Confidence:        "medium",
+		Meaning: "Concrete modules depend on each other strongly enough that " +
+			"the type checker or linter sees an import cycle.",
+		Advice: diag.EvidenceAdvice{
+			Summary: "Break the concrete dependency cycle with an explicit interface.",
+			Steps: []string{
+				"Identify the two modules that import each other.",
+				"Move the shared contract into a neutral module.",
+				"In Python, model that contract with a Protocol when behavior is required.",
+				"Depend on the Protocol or smaller interface instead of the concrete implementation.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

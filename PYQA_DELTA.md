@@ -40,6 +40,13 @@ or unmapped linter messages should still flow through normally as plain
 diagnostics. ETHOS mappings enrich known evidence; they do not filter out
 everything else.
 
+Import-cycle diagnostics from mypy, pyright, and pylint should map to
+`Protocol-First Design`, not to the conditional-import rule. They are evidence
+that concrete modules depend on each other too directly. The practical guidance
+should be to extract a neutral contract module, use Python `Protocol` types when
+behavior is required, and refactor the dependency boundary instead of hiding the
+cycle behind lazy imports.
+
 The mapping set should be curated from real traces rather than invented in bulk.
 Hook and wrapper runs should persist normalized diagnostics under
 `.coding-ethos/`; maintainers can review those logs to identify recurring lint

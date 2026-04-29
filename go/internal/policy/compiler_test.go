@@ -108,8 +108,8 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 9 {
-		t.Fatalf("evidence map count = %d, want 9", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 12 {
+		t.Fatalf("evidence map count = %d, want 12", len(bundle.EvidenceMaps))
 	}
 	conditionalImportEvidence := evidenceMapByPolicyID(
 		bundle.EvidenceMaps,
@@ -131,6 +131,28 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	for _, want := range []string{"SOLID", "Protocol", "startup validation"} {
 		if !strings.Contains(conditionalImportAdvice, want) {
 			t.Fatalf("conditional import evidence missing %q: %#v", want, conditionalImportEvidence)
+		}
+	}
+	importCycleEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.import_cycles",
+	)
+	if importCycleEvidence == nil {
+		t.Fatalf("missing import cycle evidence map")
+	}
+	importCycleAdvice := strings.Join(
+		append(
+			[]string{
+				importCycleEvidence.Meaning,
+				importCycleEvidence.Advice.Summary,
+			},
+			importCycleEvidence.Advice.Steps...,
+		),
+		"\n",
+	)
+	for _, want := range []string{"Protocol", "neutral module", "concrete dependency"} {
+		if !strings.Contains(importCycleAdvice, want) {
+			t.Fatalf("import cycle evidence missing %q: %#v", want, importCycleEvidence)
 		}
 	}
 
@@ -643,8 +665,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 10 {
-		t.Fatalf("evidence map count = %d, want 10", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 13 {
+		t.Fatalf("evidence map count = %d, want 13", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]

@@ -143,6 +143,82 @@ policy:
           - make pre-commit
           - make check
     - source: mypy
+      message_substrings:
+        - Cannot resolve import cycle
+        - import cycle
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: medium
+      meaning: >-
+        Concrete modules depend on each other strongly enough that the type
+        checker sees an import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pyright
+      message_substrings:
+        - Import cycle detected
+        - Import cycles detected
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: medium
+      meaning: >-
+        Concrete modules depend on each other strongly enough that the type
+        checker sees an import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pylint
+      codes:
+        - cyclic-import
+        - R0401
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: high
+      meaning: Pylint found a concrete module import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: mypy
       codes:
         - no-any-return
       policy_id: python.optional_returns
