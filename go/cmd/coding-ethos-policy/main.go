@@ -88,13 +88,13 @@ func configTrace(args []string) error {
 		return fmt.Errorf("parse config-trace flags: %w", err)
 	}
 
-	configSections, err := validatedConfigSections(*config)
+	configShape, configSections, err := validatedConfigSections(*config, nil)
 	if err != nil {
 		return err
 	}
 	repoConfigSections := []string{}
 	if strings.TrimSpace(*repoConfig) != "" {
-		repoConfigSections, err = validatedConfigSections(*repoConfig)
+		repoConfigSections, err = validateRepoConfigSections(*repoConfig, configShape)
 		if err != nil {
 			return err
 		}
@@ -151,7 +151,36 @@ func configTrace(args []string) error {
 	return nil
 }
 
-func validatedConfigSections(path string) ([]string, error) {
+func validatedConfigSections(
+	path string,
+	reference map[string]any,
+) (map[string]any, []string, error) {
+	decoded, err := readConfigMap(path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateConfigPathKeys(path, decoded, reference, nil); err != nil {
+		return nil, nil, err
+	}
+
+	sections := sortedMapKeys(decoded)
+
+	return decoded, sections, nil
+}
+
+func validateRepoConfigSections(
+	path string,
+	configShape map[string]any,
+) ([]string, error) {
+	reference := cloneAnyMap(configShape)
+	addRepoConfigOnlyShape(reference)
+
+	_, sections, err := validatedConfigSections(path, reference)
+	return sections, err
+}
+
+func readConfigMap(path string) (map[string]any, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
@@ -162,7 +191,156 @@ func validatedConfigSections(path string) ([]string, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
-	sections := make([]string, 0, len(decoded))
+	return decoded, nil
+}
+
+func validateConfigPathKeys(
+	file string,
+	values map[string]any,
+	reference map[string]any,
+	path []string,
+) error {
+	for key, value := range values {
+		nextPath := append(append([]string(nil), path...), key)
+		if len(path) == 0 {
+			if !knownConfigSection(key) {
+				return fmt.Errorf(
+					"unknown top-level config section %q in %s",
+					key,
+					file,
+				)
+			}
+		} else if reference != nil {
+			if _, ok := reference[key]; !ok {
+				return fmt.Errorf(
+					"unknown config path %q in %s",
+					strings.Join(nextPath, "."),
+					file,
+				)
+			}
+		}
+
+		if err := validateConfigChildKeys(file, value, referenceValue(reference, key), nextPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateConfigChildKeys(
+	file string,
+	value any,
+	reference any,
+	path []string,
+) error {
+	valueMap, isMap := value.(map[string]any)
+	if isMap {
+		referenceMap, _ := reference.(map[string]any)
+		return validateConfigPathKeys(file, valueMap, referenceMap, path)
+	}
+
+	items, isSlice := value.([]any)
+	if !isSlice {
+		return nil
+	}
+
+	referenceItems, _ := reference.([]any)
+	referenceItem := firstMapItem(referenceItems)
+	if referenceItem == nil {
+		return nil
+	}
+
+	for index, item := range items {
+		itemMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemPath := append(append([]string(nil), path...), fmt.Sprintf("[%d]", index))
+		if err := validateConfigPathKeys(file, itemMap, referenceItem, itemPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func firstMapItem(items []any) map[string]any {
+	for _, item := range items {
+		itemMap, ok := item.(map[string]any)
+		if ok {
+			return itemMap
+		}
+	}
+
+	return nil
+}
+
+func referenceValue(reference map[string]any, key string) any {
+	if reference == nil {
+		return nil
+	}
+
+	return reference[key]
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	sections := make([]string, 0, len(values))
+	for section := range values {
+		sections = append(sections, section)
+	}
+	sort.Strings(sections)
+
+	return sections
+}
+
+func addRepoConfigOnlyShape(reference map[string]any) {
+	repo, ok := reference["repo"].(map[string]any)
+	if !ok {
+		repo = map[string]any{}
+		reference["repo"] = repo
+	}
+	repo["license"] = map[string]any{
+		"copyright":       "",
+		"license_file":    "",
+		"scan_lines":      0,
+		"spdx_identifier": "",
+		"text":            "",
+		"url":             "",
+	}
+}
+
+func cloneAnyMap(values map[string]any) map[string]any {
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = cloneAny(value)
+	}
+
+	return cloned
+}
+
+func cloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		cloned := make([]any, 0, len(typed))
+		for _, item := range typed {
+			cloned = append(cloned, cloneAny(item))
+		}
+
+		return cloned
+	default:
+		return typed
+	}
+}
+
+func validateTopLevelConfigSections(path string) ([]string, error) {
+	decoded, err := readConfigMap(path)
+	if err != nil {
+		return nil, err
+	}
+
 	for section := range decoded {
 		if !knownConfigSection(section) {
 			return nil, fmt.Errorf(
@@ -171,11 +349,9 @@ func validatedConfigSections(path string) ([]string, error) {
 				path,
 			)
 		}
-		sections = append(sections, section)
 	}
-	sort.Strings(sections)
 
-	return sections, nil
+	return sortedMapKeys(decoded), nil
 }
 
 func knownConfigSection(section string) bool {
