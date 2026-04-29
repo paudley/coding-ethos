@@ -110,6 +110,28 @@ func TestParseMypyTextDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParsePylintJSON2Diagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"pylint",
+		`{"messages":[{"path":"pkg/app.py","line":7,"column":4,`+
+			`"type":"warning","symbol":"unused-import",`+
+			`"messageId":"W0611","message":"Unused import os"}]}`,
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "pylint",
+		File:     "pkg/app.py",
+		Line:     7,
+		Column:   5,
+		Severity: "warning",
+		Code:     "unused-import",
+		Message:  "Unused import os",
+	})
+}
+
 func TestParseGolangciLintDiagnostics(t *testing.T) {
 	t.Parallel()
 

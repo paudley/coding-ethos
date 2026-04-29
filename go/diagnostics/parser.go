@@ -296,6 +296,10 @@ func parseMypyItems(output string) []mypyItem {
 }
 
 func parsePylint(output string) []Diagnostic {
+	if diagnostics := parsePylintJSON2(output); len(diagnostics) > 0 {
+		return diagnostics
+	}
+
 	var items []struct {
 		Path      string `json:"path"`
 		Type      string `json:"type"`
@@ -313,6 +317,40 @@ func parsePylint(output string) []Diagnostic {
 
 	diagnostics := make([]Diagnostic, 0, len(items))
 	for _, item := range items {
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "pylint",
+			File:     item.Path,
+			Severity: item.Type,
+			Code:     firstNonEmpty(item.Symbol, item.MessageID),
+			Message:  item.Message,
+			Line:     item.Line,
+			Column:   item.Column + 1,
+		})
+	}
+
+	return diagnostics
+}
+
+func parsePylintJSON2(output string) []Diagnostic {
+	var payload struct {
+		Messages []struct {
+			Path      string `json:"path"`
+			Type      string `json:"type"`
+			Symbol    string `json:"symbol"`
+			MessageID string `json:"messageId"`
+			Message   string `json:"message"`
+			Line      int    `json:"line"`
+			Column    int    `json:"column"`
+		} `json:"messages"`
+	}
+
+	err := json.Unmarshal([]byte(output), &payload)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(payload.Messages))
+	for _, item := range payload.Messages {
 		diagnostics = append(diagnostics, Diagnostic{
 			Tool:     "pylint",
 			File:     item.Path,

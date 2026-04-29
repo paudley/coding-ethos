@@ -245,7 +245,9 @@ for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
 covers plain tool names, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools. The installed hook PATH also
 contains managed shims for tools that execute by name. Captured runs preserve
-normal output and exit codes while writing normalized lint traces.
+exit codes while forcing machine-readable tool output, parsing diagnostics into
+the shared lint schema, writing normalized lint traces, and returning
+coding-ethos human or TOON output instead of raw linter output.
 
 ## Configuration
 

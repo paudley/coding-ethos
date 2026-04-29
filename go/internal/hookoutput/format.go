@@ -112,11 +112,12 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 
 func FormatLintResultTOON(result lint.Result) string {
 	findings := lintFindings(result)
+	status := lintResultStatus(result)
 	lines := []string{
 		"format: toon",
-		"tool: policy-lint",
-		"status: FAIL",
-		"title: POLICY PREFLIGHT FAILED",
+		"tool: " + TOONCell(lintResultTool(result)),
+		"status: " + TOONCell(status),
+		"title: " + TOONCell(lintResultTitle(result)),
 		"scope: " + TOONCell(result.Scope),
 		fmt.Sprintf(
 			"findings[%d]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
@@ -138,11 +139,13 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONCell(finding.Detail),
 		))
 	}
-	lines = append(
-		lines,
-		"guidance[1]{message}:",
-		"  Fix the reported policy diagnostics before committing.",
-	)
+	if result.Blocked() {
+		lines = append(
+			lines,
+			"guidance[1]{message}:",
+			"  Fix the reported diagnostics before continuing.",
+		)
+	}
 
 	return strings.Join(lines, "\n")
 }
@@ -150,7 +153,8 @@ func FormatLintResultTOON(result lint.Result) string {
 func FormatLintResultHuman(result lint.Result) string {
 	findings := lintFindings(result)
 	lines := []string{
-		"coding-ethos policy preflight failed",
+		"coding-ethos lint result: " + lintResultStatus(result),
+		"tool: " + lintResultTool(result),
 		"scope: " + result.Scope,
 	}
 	for _, finding := range findings {
@@ -168,9 +172,35 @@ func FormatLintResultHuman(result lint.Result) string {
 			lines = append(lines, "  advice: "+finding.Advice)
 		}
 	}
-	lines = append(lines, "Fix the reported policy diagnostics before committing.")
+	if result.Blocked() {
+		lines = append(lines, "Fix the reported diagnostics before continuing.")
+	}
 
 	return strings.Join(lines, "\n")
+}
+
+func lintResultStatus(result lint.Result) string {
+	if result.Blocked() {
+		return "FAIL"
+	}
+
+	return "PASS"
+}
+
+func lintResultTitle(result lint.Result) string {
+	if result.Blocked() {
+		return "LINT FAILED"
+	}
+
+	return "LINT RESULTS"
+}
+
+func lintResultTool(result lint.Result) string {
+	if tool, ok := strings.CutPrefix(result.Scope, "tool:"); ok && tool != "" {
+		return tool
+	}
+
+	return "policy-lint"
 }
 
 func lintFindings(result lint.Result) []diagnostics.Diagnostic {

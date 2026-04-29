@@ -48,8 +48,10 @@ and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools are normalized to
 `run-go-hook.sh policy-tool <tool> ...` when the provider supports command
 rewrites; unsupported providers must use the managed shims injected into the
-hook PATH. The wrapper preserves stdout, stderr, and exit code while recording
-parsed diagnostics in the lint trace log.
+hook PATH. The wrapper owns output formatting: it forces the tool's
+machine-readable output option, parses diagnostics into the shared lint schema,
+records them in the lint trace log, and prints coding-ethos human or TOON output
+instead of raw tool output.
 Post-edit advice uses the same traces quietly: when a touched file has relevant
 prior lint failures, hooks surface a capped `lint_history` section with the top
 three recurring checks, top three tool codes, and top two guidance candidates.
