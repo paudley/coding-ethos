@@ -24,6 +24,7 @@ func runCapturedTool(
 	toolPath string,
 	cwd string,
 	args []string,
+	evidenceMaps []diagnostics.EvidenceMap,
 ) int {
 	if strings.TrimSpace(toolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
@@ -45,7 +46,15 @@ func runCapturedTool(
 	exitCode := capturedExitCode(err)
 	stdoutText := stdout.String()
 	stderrText := stderr.String()
-	result := capturedToolResult(tool, args, runArgs, exitCode, stdoutText, stderrText)
+	result := capturedToolResult(
+		tool,
+		args,
+		runArgs,
+		exitCode,
+		stdoutText,
+		stderrText,
+		evidenceMaps,
+	)
 	logCapturedToolResult(cwd, result)
 	if result.Blocked() || len(result.Diagnostics) > 0 {
 		if encodeErr := hookoutput.EncodeLintResult(
@@ -76,8 +85,10 @@ func capturedToolResult(
 	exitCode int,
 	stdout string,
 	stderr string,
+	evidenceMaps []diagnostics.EvidenceMap,
 ) lint.Result {
 	parsed := diagnostics.Parse(tool, stdout, stderr)
+	parsed = diagnostics.Enrich(parsed, evidenceMaps)
 
 	return lint.Result{
 		Scope:       "tool:" + tool,

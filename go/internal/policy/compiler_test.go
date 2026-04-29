@@ -108,8 +108,8 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 12 {
-		t.Fatalf("evidence map count = %d, want 12", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 18 {
+		t.Fatalf("evidence map count = %d, want 18", len(bundle.EvidenceMaps))
 	}
 	conditionalImportEvidence := evidenceMapByPolicyID(
 		bundle.EvidenceMaps,
@@ -154,6 +154,23 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		if !strings.Contains(importCycleAdvice, want) {
 			t.Fatalf("import cycle evidence missing %q: %#v", want, importCycleEvidence)
 		}
+	}
+	suppressionEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.comment_suppressions",
+	)
+	if suppressionEvidence == nil {
+		t.Fatalf("missing suppression evidence map")
+	}
+	if !strings.Contains(suppressionEvidence.Advice.Summary, "suppression") {
+		t.Fatalf("suppression evidence advice mismatch: %#v", suppressionEvidence)
+	}
+	docEvidence := evidenceMapByPolicyID(bundle.EvidenceMaps, "docs.public_contract")
+	if docEvidence == nil {
+		t.Fatalf("missing docstring evidence map")
+	}
+	if !strings.Contains(docEvidence.Advice.Summary, "contract") {
+		t.Fatalf("docstring evidence advice mismatch: %#v", docEvidence)
 	}
 
 	forbiddenStrings := optionStrings(
@@ -665,8 +682,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 13 {
-		t.Fatalf("evidence map count = %d, want 13", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 19 {
+		t.Fatalf("evidence map count = %d, want 19", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]

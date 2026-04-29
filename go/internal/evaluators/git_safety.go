@@ -105,12 +105,8 @@ func EvaluateGitCheckoutProtectedBranch(
 		return nil, nil
 	}
 
-	for _, arg := range argv[2:] {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-
-		if isProtectedBranchRef(arg) {
+	for _, target := range protectedCheckoutTargets(argv) {
+		if isProtectedBranchRef(target) {
 			return blockGitDecision(policyDef, argv), nil
 		}
 	}
@@ -697,6 +693,72 @@ func hasForcePush(argv []string) bool {
 
 func hasProtectedBranchArg(argv []string) bool {
 	return slices.ContainsFunc(argv[2:], isProtectedBranchRef)
+}
+
+func protectedCheckoutTargets(argv []string) []string {
+	if len(argv) < gitSubcommandArgc {
+		return nil
+	}
+
+	switch gitSubcommand(argv) {
+	case "checkout":
+		return checkoutBranchTargets(argv[2:])
+	case "switch":
+		return switchBranchTargets(argv[2:])
+	default:
+		return nil
+	}
+}
+
+func checkoutBranchTargets(args []string) []string {
+	targets := []string{}
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "-b" || arg == "-B":
+			if index+1 < len(args) {
+				targets = append(targets, args[index+1])
+				index++
+			}
+			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
+				index++
+			}
+		case arg == "--branch" || arg == "--orphan":
+			if index+1 < len(args) {
+				targets = append(targets, args[index+1])
+				index++
+			}
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			targets = append(targets, arg)
+		}
+	}
+
+	return targets
+}
+
+func switchBranchTargets(args []string) []string {
+	targets := []string{}
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "-c" || arg == "-C" || arg == "--create" || arg == "--force-create":
+			if index+1 < len(args) {
+				targets = append(targets, args[index+1])
+				index++
+			}
+			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
+				index++
+			}
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			targets = append(targets, arg)
+		}
+	}
+
+	return targets
 }
 
 func isProtectedBranchRef(value string) bool {

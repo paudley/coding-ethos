@@ -296,8 +296,8 @@ git -C "$wrapper_repo" config user.name Test
 git -C "$wrapper_repo" checkout -b feature/wrapper-smoke > /dev/null
 "$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$wrapper_repo"
 printf '.coding-ethos/\n' > "$wrapper_repo/.gitignore"
-printf '[project]\nname = "blocked"\n' > "$wrapper_repo/pyproject.toml"
-git -C "$wrapper_repo" add .gitignore pyproject.toml
+printf '%s\nours\n%s\ntheirs\n%s\n' '<''<<<<<< HEAD' '=======' '>''>>>>>> feature' > "$wrapper_repo/conflict.txt"
+git -C "$wrapper_repo" add .gitignore conflict.txt
 set +e
 (
   cd "$wrapper_repo"
@@ -312,8 +312,8 @@ if [[ "$wrapper_status" -ne 2 ]]; then
   exit 1
 fi
 if ! grep -q '^format: toon$' /tmp/coding-ethos-hook-wrapper-smoke.out ||
-  ! grep -q 'git.staged_admin_files' /tmp/coding-ethos-hook-wrapper-smoke.out; then
-  printf 'expected compiled preflight staged admin policy output:\n' >&2
+  ! grep -q 'syntax.merge_conflict' /tmp/coding-ethos-hook-wrapper-smoke.out; then
+  printf 'expected compiled preflight merge-conflict policy output:\n' >&2
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
 fi

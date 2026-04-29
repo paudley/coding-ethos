@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
@@ -38,7 +40,21 @@ exit 1
 
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 	output := captureStdout(t, func() {
-		exitCode := runCapturedTool("ruff", tool, repo, []string{"check", "pkg/app.py"})
+		exitCode := runCapturedTool(
+			"ruff",
+			tool,
+			repo,
+			[]string{"check", "pkg/app.py"},
+			[]diagnostics.EvidenceMap{{
+				Source:       "ruff",
+				Codes:        []string{"F401"},
+				PolicyID:     "python.unused_imports",
+				PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Remove unused imports instead of suppressing Ruff.",
+				},
+			}},
+		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
 		}
@@ -47,7 +63,7 @@ exit 1
 		"format: toon",
 		"tool: ruff",
 		"status: FAIL",
-		"ruff,pkg/app.py,4,8,error,F401,,unused import",
+		"ruff,pkg/app.py,4,8,error,F401,python.unused_imports,unused import,Remove unused imports instead of suppressing Ruff.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("normalized output missing %q:\n%s", want, output)
@@ -70,7 +86,9 @@ exit 1
 		`"scope": "tool:ruff"`,
 		`"source_tool": "ruff"`,
 		`"code": "F401"`,
+		`"policy_id": "python.unused_imports"`,
 		`"message": "unused import"`,
+		`"advice": "Remove unused imports instead of suppressing Ruff."`,
 	} {
 		if !strings.Contains(string(content), want) {
 			t.Fatalf("trace missing %q:\n%s", want, content)
@@ -100,7 +118,7 @@ exit 1
 		t.Fatalf("write fixture tool: %v", err)
 	}
 
-	exitCode := runCapturedTool("shellcheck", tool, repo, []string{"script.sh"})
+	exitCode := runCapturedTool("shellcheck", tool, repo, []string{"script.sh"}, nil)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -115,6 +133,118 @@ exit 1
 		if !strings.Contains(content, want) {
 			t.Fatalf("trace missing %q:\n%s", want, content)
 		}
+	}
+}
+
+func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	tests := []struct {
+		name      string
+		tool      string
+		args      []string
+		required  string
+		output    string
+		wantCode  string
+		wantTool  string
+		wantFile  string
+		wantError string
+	}{
+		{
+			name:     "mypy",
+			tool:     "mypy",
+			args:     []string{"pkg"},
+			required: "--output=json",
+			output:   `{"file":"pkg/app.py","line":3,"column":4,"severity":"error","code":"no-any-return","message":"Returning Any"}`,
+			wantCode: "no-any-return",
+			wantTool: "mypy",
+			wantFile: "pkg/app.py",
+		},
+		{
+			name:     "pyright",
+			tool:     "pyright",
+			args:     []string{"pkg"},
+			required: "--outputjson",
+			output:   `{"generalDiagnostics":[{"file":"pkg/app.py","severity":"error","message":"bad type","rule":"reportAssignmentType","range":{"start":{"line":1,"character":2}}}]}`,
+			wantCode: "reportAssignmentType",
+			wantTool: "pyright",
+			wantFile: "pkg/app.py",
+		},
+		{
+			name:     "pylint",
+			tool:     "pylint",
+			args:     []string{"pkg"},
+			required: "--output-format=json",
+			output:   `[{"path":"pkg/app.py","type":"warning","symbol":"cyclic-import","message":"Cyclic import","line":9,"column":0}]`,
+			wantCode: "cyclic-import",
+			wantTool: "pylint",
+			wantFile: "pkg/app.py",
+		},
+		{
+			name:     "golangci-lint",
+			tool:     "golangci-lint",
+			args:     []string{"run", "./..."},
+			required: "--output.json.path=stdout",
+			output:   `{"Issues":[{"FromLinter":"errcheck","Text":"unchecked error","Severity":"error","Pos":{"Filename":"pkg/app.go","Line":8,"Column":2}}]}`,
+			wantCode: "errcheck",
+			wantTool: "golangci-lint",
+			wantFile: "pkg/app.go",
+		},
+		{
+			name:     "actionlint",
+			tool:     "actionlint",
+			args:     []string{".github/workflows/ci.yml"},
+			required: "{{json .}}",
+			output:   `{"filepath":".github/workflows/ci.yml","line":12,"column":5,"kind":"syntax-check","message":"property run is not defined"}`,
+			wantCode: "syntax-check",
+			wantTool: "actionlint",
+			wantFile: ".github/workflows/ci.yml",
+		},
+		{
+			name:     "hadolint",
+			tool:     "hadolint",
+			args:     []string{"Dockerfile"},
+			required: "--format json",
+			output:   `[{"file":"Dockerfile","line":3,"column":1,"level":"warning","code":"DL3008","message":"Pin versions in apt get install."}]`,
+			wantCode: "DL3008",
+			wantTool: "hadolint",
+			wantFile: "Dockerfile",
+		},
+		{
+			name:     "yamllint",
+			tool:     "yamllint",
+			args:     []string{"config.yaml"},
+			required: "-f parsable",
+			output:   `config.yaml:2:5: [error] wrong indentation (indentation)`,
+			wantCode: "indentation",
+			wantTool: "yamllint",
+			wantFile: "config.yaml",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			tool := writeCaptureFixtureTool(t, repo, test.required, test.output)
+
+			exitCode := runCapturedTool(test.tool, tool, repo, test.args, nil)
+			if exitCode != 1 {
+				t.Fatalf("exit code = %d, want 1", exitCode)
+			}
+
+			content := singleTraceContent(t, repo)
+			for _, want := range []string{
+				`"source_tool": "` + test.wantTool + `"`,
+				`"file": "` + test.wantFile + `"`,
+				`"code": "` + test.wantCode + `"`,
+			} {
+				if !strings.Contains(content, want) {
+					t.Fatalf("trace missing %q:\n%s", want, content)
+				}
+			}
+		})
 	}
 }
 
@@ -209,6 +339,32 @@ func TestCapturedToolArgsOverrideExplicitOutputFormat(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("capturedToolArgs() = %#v, want %#v", got, want)
 	}
+}
+
+func writeCaptureFixtureTool(
+	t *testing.T,
+	repo string,
+	required string,
+	output string,
+) string {
+	t.Helper()
+
+	tool := filepath.Join(repo, "tool-fixture")
+	script := `#!/usr/bin/env sh
+case " $* " in
+  *"` + required + `"*) ;;
+  *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
+esac
+cat <<'EOF'
+` + output + `
+EOF
+exit 1
+`
+	if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	return tool
 }
 
 func singleTraceContent(t *testing.T, repo string) string {

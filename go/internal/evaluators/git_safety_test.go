@@ -88,6 +88,12 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			argv:      []string{"git", "checkout", "main"},
 		},
 		{
+			name:      "checkout creates protected branch",
+			policyID:  "git.checkout_protected_branch",
+			evaluator: EvaluateGitCheckoutProtectedBranch,
+			argv:      []string{"git", "checkout", "-b", "main", "origin/feature"},
+		},
+		{
 			name:      "worktree prune",
 			policyID:  "git.destructive_worktree",
 			evaluator: EvaluateGitDestructiveWorktree,
@@ -200,6 +206,18 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			policyID:  "git.checkout_protected_branch",
 			evaluator: EvaluateGitCheckoutProtectedBranch,
 			argv:      []string{"git", "checkout", "feature"},
+		},
+		{
+			name:      "checkout new branch from origin main",
+			policyID:  "git.checkout_protected_branch",
+			evaluator: EvaluateGitCheckoutProtectedBranch,
+			argv:      []string{"git", "checkout", "-b", "feature", "origin/main"},
+		},
+		{
+			name:      "switch new branch from origin main",
+			policyID:  "git.checkout_protected_branch",
+			evaluator: EvaluateGitCheckoutProtectedBranch,
+			argv:      []string{"git", "switch", "-c", "feature", "origin/main"},
 		},
 		{
 			name:      "worktree list",

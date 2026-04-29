@@ -163,6 +163,12 @@ Check generated tool config drift:
 uv run coding-ethos --repo /path/to/repo --check-tool-configs
 ```
 
+Trace and validate enforcement config:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy config-trace --json
+```
+
 Sync the Gemini hook prompt pack:
 
 ```bash
@@ -259,6 +265,11 @@ The merged config drives:
 - hook policy for Python, shell, text, commit-message, and Go checks
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
+
+`coding-ethos-policy config-trace` validates known top-level enforcement
+sections, compiles the merged bundle, validates it, and reports policy,
+evidence-map, and dispatch counts. Use it when changing `config.yaml` or a
+consumer `repo_config.yaml` so unknown sections do not silently drift.
 
 License and copyright enforcement is repo-specific. Consumer repos do not
 inherit this repo's license policy. To opt in, set

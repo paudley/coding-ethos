@@ -127,8 +127,9 @@ run_captured_lint_tool() {
     exit 127
   fi
 
-  build_policy_tool coding-ethos-lint
+  require_policy_tool coding-ethos-lint
   exec "${TOOLS_BIN_DIR}/coding-ethos-lint" \
+    --bundle "$POLICY_BUNDLE" \
     --capture-tool "$tool" \
     --tool-path "$real_tool" \
     --cwd "$ROOT" \

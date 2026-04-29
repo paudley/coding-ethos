@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -65,7 +66,13 @@ func main() {
 	}
 
 	if *captureTool != "" {
-		os.Exit(runCapturedTool(*captureTool, *toolPath, *cwd, flags.Args()))
+		os.Exit(runCapturedTool(
+			*captureTool,
+			*toolPath,
+			*cwd,
+			flags.Args(),
+			captureEvidenceMaps(*bundlePath),
+		))
 	}
 
 	if *analyzeLog {
@@ -162,6 +169,25 @@ func main() {
 	if result.Blocked() {
 		os.Exit(blockedExitCode)
 	}
+}
+
+func captureEvidenceMaps(bundlePath string) []diagnostics.EvidenceMap {
+	if strings.TrimSpace(bundlePath) == "" {
+		return nil
+	}
+
+	bundle, err := readBundle(bundlePath)
+	if err != nil {
+		exitErr(err)
+	}
+
+	if err := bundle.Validate(); err != nil {
+		exitErr(
+			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
+		)
+	}
+
+	return bundle.EvidenceMaps
 }
 
 func readBundle(path string) (policy.Bundle, error) {

@@ -1818,6 +1818,12 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultRuffEvidenceMap(principles),
 		defaultRuffImportOrderEvidenceMap(principles),
 		defaultRuffSQLSafetyEvidenceMap(principles),
+		defaultRuffSecurityEvidenceMap(principles),
+		defaultRuffSuppressionEvidenceMap(principles),
+		defaultMypySuppressionEvidenceMap(principles),
+		defaultPyrightSuppressionEvidenceMap(principles),
+		defaultRuffDocstringEvidenceMap(principles),
+		defaultPylintDocstringEvidenceMap(principles),
 		defaultMypyImportCycleEvidenceMap(principles),
 		defaultPyrightImportCycleEvidenceMap(principles),
 		defaultPylintImportCycleEvidenceMap(principles),
@@ -1907,6 +1913,172 @@ func defaultRuffSQLSafetyEvidenceMap(
 				"Replace string-built SQL with placeholders and bound parameters.",
 				"If dynamic identifiers are required, validate them against an allowlist.",
 				"Keep test-only SQL safety exceptions explicit and narrow.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultRuffSecurityEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"S*"},
+		PolicyID: "python.security_patterns",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "high",
+		Meaning:    "Ruff security rules found code that weakens safe defaults.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the security finding structurally instead of suppressing it.",
+			Steps: []string{
+				"Prefer validated inputs and least-privilege behavior.",
+				"Replace suspicious APIs or unsafe construction with reviewed helpers.",
+				"Keep security exceptions narrow, documented, and reviewable.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffSuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"RUF100", "PGH003", "PGH004"},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning: "A lint suppression is stale, broad, or too weakly " +
+			"explained to satisfy the code-quality contract.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove the suppression or replace it with the narrowest documented exception.",
+			Steps: []string{
+				"Try the structural fix first.",
+				"Remove stale noqa/type-ignore comments.",
+				"When an exception is genuinely required, make it narrow and document the reason.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypySuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "mypy",
+		Codes:    []string{"unused-ignore", "ignore-without-code"},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning:    "A type-ignore suppression is stale or too broad.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove broad type ignores and fix the type boundary directly.",
+			Steps: []string{
+				"Delete stale type-ignore comments.",
+				"Replace broad ignores with precise types, adapters, or Protocol boundaries.",
+				"If an ignore remains necessary, include the exact code and a local reason.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightSuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportUnnecessaryTypeIgnoreComment",
+			"reportIgnoreCommentWithoutRule",
+		},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning:    "A Pyright ignore comment is stale or missing a precise rule.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove unnecessary Pyright ignores or make the remaining exception explicit.",
+			Steps: []string{
+				"Delete unnecessary ignore comments.",
+				"Fix the underlying type issue when Pyright still reports one.",
+				"Do not use broad ignore comments as a substitute for correct interfaces.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffDocstringEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"D*"},
+		PolicyID: "docs.public_contract",
+		PrincipleIDs: principleRefs(
+			principles,
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning: "A public module, class, or function is missing contract " +
+			"documentation.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Document the public contract instead of leaving behavior implicit.",
+			Steps: []string{
+				"Add a concise docstring that states purpose, arguments, returns, and raised errors where relevant.",
+				"Keep implementation narration out of the docstring.",
+				"Update tests when the documented behavior changes.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultPylintDocstringEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pylint",
+		Codes: []string{
+			"missing-module-docstring",
+			"missing-class-docstring",
+			"missing-function-docstring",
+			"C0114",
+			"C0115",
+			"C0116",
+		},
+		PolicyID: "docs.public_contract",
+		PrincipleIDs: principleRefs(
+			principles,
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning:    "Pylint found an undocumented public Python contract.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Document the public contract in the code surface that owns it.",
+			Steps: []string{
+				"Add a useful docstring at the reported module, class, or function.",
+				"Explain behavior and constraints, not obvious implementation details.",
+				"Keep generated or private surfaces excluded through policy, not ad hoc suppressions.",
 			},
 			Rerun: []string{"make pre-commit"},
 		},

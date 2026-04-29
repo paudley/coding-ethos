@@ -109,6 +109,7 @@ func externalToolEnvBlocked(item string) bool {
 	}
 
 	if name == consumerRootEnv ||
+		name == precommitRootEnv ||
 		name == hookGroupChildEnv ||
 		name == hookGroupResultPathEnv {
 		return true

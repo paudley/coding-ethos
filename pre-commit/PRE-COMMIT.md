@@ -250,8 +250,9 @@ covers plain tool names, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools. The installed hook PATH also
 contains managed shims for tools that execute by name. Captured runs preserve
 exit codes while forcing machine-readable tool output, parsing diagnostics into
-the shared lint schema, writing normalized lint traces, and returning
-coding-ethos human or TOON output instead of raw linter output.
+the shared lint schema, enriching known findings with ETHOS evidence-map advice,
+writing normalized lint traces, and returning coding-ethos human or TOON output
+instead of raw linter output.
 
 ## Configuration
 
@@ -263,6 +264,10 @@ can override them with one of these root-level files:
 
 You can also point the bundle at an explicit override file with
 `CODE_ETHOS_PRECOMMIT_CONFIG`.
+
+Use `pre-commit/hooks/run-go-hook.sh policy config-trace --json` after
+enforcement config edits to validate known top-level sections, compile the
+merged policy bundle, and report policy/evidence/dispatch counts.
 
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.

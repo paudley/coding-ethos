@@ -18,6 +18,7 @@ HOOKS_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-path 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
+export CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT"
 # shellcheck source=pre-commit/hooks/go-build-report.sh
 source "${SCRIPT_DIR}/go-build-report.sh"
 # shellcheck source=pre-commit/hooks/go-build-cache.sh
@@ -203,6 +204,11 @@ run_policy_lint() {
   exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" "$@"
 }
 
+run_policy_command() {
+  require_policy_tool coding-ethos-policy
+  exec "${TOOLS_BIN_DIR}/coding-ethos-policy" "$@"
+}
+
 run_policy_lint_check() {
   require_policy_bundle
   require_policy_tool coding-ethos-lint
@@ -231,8 +237,15 @@ run_policy_git() {
 }
 
 run_policy_tool() {
-  require_policy_tool coding-ethos-policy
-  exec "${TOOLS_BIN_DIR}/coding-ethos-policy" "$@"
+  local tool_name="${1:-}"
+  shift || true
+
+  if ! captured_lint_tool "$tool_name"; then
+    printf 'FATAL: unknown policy tool %q\n' "$tool_name" >&2
+    exit 2
+  fi
+
+  run_captured_lint_tool "$tool_name" "$@"
 }
 
 run_agent_hooks() {
@@ -460,6 +473,10 @@ case "${1:-}" in
   policy-lint)
     shift
     run_policy_lint "$@"
+    ;;
+  policy)
+    shift
+    run_policy_command "$@"
     ;;
   policy-tool)
     shift
