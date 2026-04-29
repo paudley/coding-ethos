@@ -8,16 +8,16 @@ REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
 HOOK_NAME="$(basename "$0")"
 ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
 if [[ -n "${CODE_ETHOS_PRECOMMIT_ROOT:-}" && -d "${CODE_ETHOS_PRECOMMIT_ROOT}" ]]; then
-    BUNDLE_ROOT="${CODE_ETHOS_PRECOMMIT_ROOT}"
+  BUNDLE_ROOT="${CODE_ETHOS_PRECOMMIT_ROOT}"
 elif [[ -d "${ROOT}/coding-ethos/pre-commit" ]]; then
-    BUNDLE_ROOT="${ROOT}/coding-ethos/pre-commit"
+  BUNDLE_ROOT="${ROOT}/coding-ethos/pre-commit"
 elif [[ -d "${ROOT}/code-ethos/pre-commit" ]]; then
-    BUNDLE_ROOT="${ROOT}/code-ethos/pre-commit"
+  BUNDLE_ROOT="${ROOT}/code-ethos/pre-commit"
 elif [[ -d "${ROOT}/pre-commit" ]]; then
-    BUNDLE_ROOT="${ROOT}/pre-commit"
+  BUNDLE_ROOT="${ROOT}/pre-commit"
 else
-    echo "FATAL: could not locate pre-commit bundle under ${ROOT}" >&2
-    exit 127
+  echo "FATAL: could not locate pre-commit bundle under ${ROOT}" >&2
+  exit 127
 fi
 
 exec "${BUNDLE_ROOT}/hooks/run-go-hook.sh" git-hook "${HOOK_NAME}" "$@"

@@ -54,6 +54,17 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		len(bundle.Advice.Reminders.Items) == 0 {
 		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
 	}
+	conditionalImportReminder := reminderByPrincipleID(
+		bundle.Advice.Reminders.Items,
+		"no-conditional-imports",
+	)
+	if conditionalImportReminder == nil {
+		t.Fatalf("missing conditional import reminder: %#v", bundle.Advice.Reminders.Items)
+	}
+	if !strings.Contains(conditionalImportReminder.Axiom, "Conditional imports are banned") ||
+		!strings.Contains(conditionalImportReminder.Action, "Protocol") {
+		t.Fatalf("conditional import reminder missing expected guidance: %#v", conditionalImportReminder)
+	}
 	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
 		t.Fatalf("missing compiled syntax policy")
 	}
@@ -97,8 +108,52 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 9 {
-		t.Fatalf("evidence map count = %d, want 9", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 12 {
+		t.Fatalf("evidence map count = %d, want 12", len(bundle.EvidenceMaps))
+	}
+	conditionalImportEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.conditional_imports",
+	)
+	if conditionalImportEvidence == nil {
+		t.Fatalf("missing conditional import evidence map")
+	}
+	conditionalImportAdvice := strings.Join(
+		append(
+			[]string{
+				conditionalImportEvidence.Meaning,
+				conditionalImportEvidence.Advice.Summary,
+			},
+			conditionalImportEvidence.Advice.Steps...,
+		),
+		"\n",
+	)
+	for _, want := range []string{"SOLID", "Protocol", "startup validation"} {
+		if !strings.Contains(conditionalImportAdvice, want) {
+			t.Fatalf("conditional import evidence missing %q: %#v", want, conditionalImportEvidence)
+		}
+	}
+	importCycleEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.import_cycles",
+	)
+	if importCycleEvidence == nil {
+		t.Fatalf("missing import cycle evidence map")
+	}
+	importCycleAdvice := strings.Join(
+		append(
+			[]string{
+				importCycleEvidence.Meaning,
+				importCycleEvidence.Advice.Summary,
+			},
+			importCycleEvidence.Advice.Steps...,
+		),
+		"\n",
+	)
+	for _, want := range []string{"Protocol", "neutral module", "concrete dependency"} {
+		if !strings.Contains(importCycleAdvice, want) {
+			t.Fatalf("import cycle evidence missing %q: %#v", want, importCycleEvidence)
+		}
 	}
 
 	forbiddenStrings := optionStrings(
@@ -610,8 +665,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 10 {
-		t.Fatalf("evidence map count = %d, want 10", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 13 {
+		t.Fatalf("evidence map count = %d, want 13", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]
@@ -724,6 +779,32 @@ func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	}
 
 	return items
+}
+
+func evidenceMapByPolicyID(
+	maps []diagnostics.EvidenceMap,
+	policyID string,
+) *diagnostics.EvidenceMap {
+	for index := range maps {
+		if maps[index].PolicyID == policyID {
+			return &maps[index]
+		}
+	}
+
+	return nil
+}
+
+func reminderByPrincipleID(
+	items []EthosReminder,
+	principleID string,
+) *EthosReminder {
+	for index := range items {
+		if items[index].PrincipleID == principleID {
+			return &items[index]
+		}
+	}
+
+	return nil
 }
 
 func optionString(t *testing.T, evaluator Evaluator, key string) string {

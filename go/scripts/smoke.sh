@@ -41,7 +41,6 @@ hook_bin="$go_bin/coding-ethos-hook"
 git_bin="$go_bin/coding-ethos-git"
 agent_hooks_bin="$go_bin/coding-ethos-agent-hooks"
 run_go_hook="$repo_root/pre-commit/hooks/run-go-hook.sh"
-
 for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; do
   if [[ ! -x "$bin" ]]; then
     printf 'missing executable: %s\n' "$bin" >&2
@@ -66,19 +65,18 @@ expect_compiled_file_block() {
   set -e
 
   if [[ "$compiled_status" -ne 2 ]] ||
-    ! grep -q "\"policy_id\": \"$policy_id\"" <<<"$compiled_output"; then
+    ! grep -q "\"policy_id\": \"$policy_id\"" <<< "$compiled_output"; then
     printf 'expected compiled %s block, got %s:\n%s\n' \
       "$policy_id" "$compiled_status" "$compiled_output" >&2
     exit 1
   fi
 }
-
 printf '==> compiling policy bundle\n'
 "$policy_bin" compile \
   --primary "$repo_root/coding_ethos.yml" \
   --config "$repo_root/config.yaml" \
   --out-dir "$policy_dir" \
-  --generated-at "2026-04-24T00:00:00Z" >/dev/null
+  --generated-at "2026-04-24T00:00:00Z" > /dev/null
 
 printf '==> validating lint block decision\n'
 set +e
@@ -93,28 +91,27 @@ if [[ "$lint_status" -ne 2 ]]; then
   printf 'expected lint exit 2, got %s:\n%s\n' "$lint_status" "$lint_output" >&2
   exit 1
 fi
-if ! grep -q '"status": "blocked"' <<<"$lint_output"; then
+if ! grep -q '"status": "blocked"' <<< "$lint_output"; then
   printf 'expected lint status blocked, got:\n%s\n' "$lint_output" >&2
   exit 1
 fi
-if ! grep -q '"policy_id": "git.hook_bypass"' <<<"$lint_output"; then
+if ! grep -q '"policy_id": "git.hook_bypass"' <<< "$lint_output"; then
   printf 'expected lint hook bypass decision, got:\n%s\n' "$lint_output" >&2
   exit 1
 fi
-
 printf '==> validating hook block exit\n'
 set +e
-hook_output="$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}' \
-  | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json 2>&1)"
+hook_output="$(printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m test"}}' |
+  "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json 2>&1)"
 hook_status=$?
 set -e
 if [[ "$hook_status" -ne 2 ]]; then
   printf 'expected hook exit 2, got %s:\n%s\n' "$hook_status" "$hook_output" >&2
   exit 1
 fi
-if ! grep -q '"permissionDecision": "deny"' <<<"$hook_output"; then
-	printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
-	exit 1
+if ! grep -q '"permissionDecision": "deny"' <<< "$hook_output"; then
+  printf 'expected hook status blocked, got:\n%s\n' "$hook_output" >&2
+  exit 1
 fi
 
 printf '==> validating hook blocks shell safety policies\n'
@@ -128,8 +125,8 @@ shell_block_cases=(
 )
 for shell_case in "${shell_block_cases[@]}"; do
   set +e
-  hook_output="$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$shell_case" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" \
-    | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json 2>&1)"
+  hook_output="$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$shell_case" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" |
+    "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json 2>&1)"
   hook_status=$?
   set -e
   if [[ "$hook_status" -ne 2 ]]; then
@@ -139,7 +136,7 @@ for shell_case in "${shell_block_cases[@]}"; do
 done
 
 printf '==> creating disposable git repo\n'
-git init "$git_repo" >/dev/null
+git init "$git_repo" > /dev/null
 git -C "$git_repo" config user.email test@example.com
 git -C "$git_repo" config user.name Test
 git -C "$git_repo" config commit.gpgsign false
@@ -166,16 +163,16 @@ printf '==> validating git wrapper allows normal commit\n'
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$(command -v git)" \
-    commit -m "test(seed): create smoke fixture" >/dev/null
+    commit -m "test(seed): create smoke fixture" > /dev/null
 )
 first_head="$(git -C "$git_repo" rev-parse HEAD)"
 "$repo_root/go/scripts/smoke_hook_edges.sh" gitlink "$lint_bin" "$policy_dir" "$git_repo" "$first_head"
 printf '==> validating hook detects unchanged commit HEAD\n'
 pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
 post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
-printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out
+printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out
 set +e
-printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out 2>&1
+printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out 2>&1
 hook_status=$?
 set -e
 if [[ "$hook_status" -ne 2 ]]; then
@@ -194,7 +191,7 @@ set +e
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$fake_git" \
-    commit -m "test(seed): false success" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit -m "test(seed): false success" > /tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -217,7 +214,7 @@ set +e
     --bundle "$policy_dir/policy-bundle.json" \
     --check-only \
     --json \
-    commit -m "test(seed): admin approval" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit -m "test(seed): admin approval" > /tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -236,7 +233,7 @@ set +e
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$(command -v git)" \
-    commit --no-verify -m "test(seed): bypass" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit --no-verify -m "test(seed): bypass" > /tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -268,7 +265,7 @@ for git_case in "${blocked_git_cases[@]}"; do
     --bundle "$policy_dir/policy-bundle.json" \
     --check-only \
     --json \
-    $git_case >/tmp/coding-ethos-git-smoke.out 2>&1
+    $git_case > /tmp/coding-ethos-git-smoke.out 2>&1
   git_status=$?
   set -e
   if [[ "$git_status" -ne 2 ]]; then
@@ -283,7 +280,7 @@ set +e
   --bundle "$policy_dir/policy-bundle.json" \
   --check-only \
   --json \
-  -- -C "$git_repo" status >/tmp/coding-ethos-git-smoke.out 2>&1
+  -- -C "$git_repo" status > /tmp/coding-ethos-git-smoke.out 2>&1
 git_status=$?
 set -e
 if [[ "$git_status" -ne 2 ]]; then
@@ -293,10 +290,11 @@ if [[ "$git_status" -ne 2 ]]; then
 fi
 
 printf '==> validating installed hook wrapper runs compiled policy preflight\n'
-git init "$wrapper_repo" >/dev/null
+git init "$wrapper_repo" > /dev/null
 git -C "$wrapper_repo" config user.email test@example.com
 git -C "$wrapper_repo" config user.name Test
-git -C "$wrapper_repo" checkout -b feature/wrapper-smoke >/dev/null
+git -C "$wrapper_repo" checkout -b feature/wrapper-smoke > /dev/null
+"$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$wrapper_repo"
 printf '.coding-ethos/\n' > "$wrapper_repo/.gitignore"
 printf '[project]\nname = "blocked"\n' > "$wrapper_repo/pyproject.toml"
 git -C "$wrapper_repo" add .gitignore pyproject.toml
@@ -304,7 +302,7 @@ set +e
 (
   cd "$wrapper_repo"
   "$repo_root/pre-commit/hooks/run-go-hook.sh" \
-    git-hook pre-commit >/tmp/coding-ethos-hook-wrapper-smoke.out 2>&1
+    git-hook pre-commit > /tmp/coding-ethos-hook-wrapper-smoke.out 2>&1
 )
 wrapper_status=$?
 set -e
@@ -323,10 +321,10 @@ fi
 printf '==> validating agent hook settings sync, doctor, and verify\n'
 agent_settings_root="$tmp_root/agent-settings"
 mkdir -p "$agent_settings_root"
-git -C "$agent_settings_root" init >/dev/null
+git -C "$agent_settings_root" init > /dev/null
 printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
+  --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
   cat /tmp/coding-ethos-agent-doctor-missing.out >&2
   exit 1
@@ -334,7 +332,7 @@ printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
   --root "$agent_settings_root"
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
-  --root "$agent_settings_root" >/tmp/coding-ethos-agent-doctor.out
+  --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor.out
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "partial"' /tmp/coding-ethos-agent-doctor.out ||
@@ -368,7 +366,7 @@ if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
   exit 1
 fi
 "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks verify \
-  --root "$agent_settings_root" >/tmp/coding-ethos-agent-verify.out
+  --root "$agent_settings_root" > /tmp/coding-ethos-agent-verify.out
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
   ! grep -q '"provider": "claude"' /tmp/coding-ethos-agent-verify.out ||
   ! grep -q '"provider": "codex"' /tmp/coding-ethos-agent-verify.out ||
@@ -382,12 +380,13 @@ fi
 printf '==> validating cutover install and readiness report\n'
 cutover_unignored_repo="$tmp_root/cutover-unignored-repo"
 mkdir -p "$cutover_unignored_repo"
-git -C "$cutover_unignored_repo" init >/dev/null
+git -C "$cutover_unignored_repo" init > /dev/null
+"$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$cutover_unignored_repo"
 set +e
 (
   cd "$cutover_unignored_repo"
   "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
-    >/tmp/coding-ethos-cutover-unignored.out 2>&1
+    > /tmp/coding-ethos-cutover-unignored.out 2>&1
 )
 cutover_unignored_status=$?
 set -e
@@ -402,13 +401,14 @@ fi
 
 cutover_repo="$tmp_root/cutover-repo"
 mkdir -p "$cutover_repo"
-git -C "$cutover_repo" init >/dev/null
+git -C "$cutover_repo" init > /dev/null
+"$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$cutover_repo"
 printf '.coding-ethos/\n' > "$cutover_repo/.gitignore"
 set +e
 (
   cd "$cutover_repo"
   "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
-    >/tmp/coding-ethos-cutover-missing.out 2>&1
+    > /tmp/coding-ethos-cutover-missing.out 2>&1
 )
 cutover_missing_status=$?
 set -e
@@ -427,7 +427,7 @@ fi
 (
   cd "$cutover_repo"
   "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover install \
-    >/tmp/coding-ethos-cutover-install.out
+    > /tmp/coding-ethos-cutover-install.out
 )
 if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
   ! grep -q 'git-hooks,PASS' /tmp/coding-ethos-cutover-install.out ||
@@ -443,33 +443,33 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
 (
   cd "$wrapper_repo"
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-rewrite.out
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-git-rewrite.out
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-chain-rewrite.out
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-git-chain-rewrite.out
   set +e
   printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git commit --no-verify -m test"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-refusal.out \
-      2>/tmp/coding-ethos-codex-refusal.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-refusal.out \
+      2> /tmp/coding-ethos-codex-refusal.err
   codex_refusal_status=$?
   printf '{"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"/usr/bin/git status --short"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-absolute-git.out \
-      2>/tmp/coding-ethos-codex-absolute-git.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-absolute-git.out \
+      2> /tmp/coding-ethos-codex-absolute-git.err
   codex_absolute_git_status=$?
   printf '{"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"bash -c '\''git status --short'\''"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-nested-shell.out \
-      2>/tmp/coding-ethos-codex-nested-shell.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-nested-shell.out \
+      2> /tmp/coding-ethos-codex-nested-shell.err
   codex_nested_shell_status=$?
   python3 -c 'import json; print(json.dumps({"provider":"codex","event":"PreToolUse","tool":"exec_command","input":{"command":"python3 -c \"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\""}}))' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-codex-python-git.out \
-      2>/tmp/coding-ethos-codex-python-git.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-python-git.out \
+      2> /tmp/coding-ethos-codex-python-git.err
   codex_python_git_status=$?
   printf '{"provider":"gemini-cli","hookEventName":"BeforeTool","toolName":"run_shell_command","toolInput":{"command":"git commit --no-verify -m test"}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-gemini-refusal.out \
-      2>/tmp/coding-ethos-gemini-refusal.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-gemini-refusal.out \
+      2> /tmp/coding-ethos-gemini-refusal.err
   gemini_refusal_status=$?
   printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"python -c \\"import subprocess; subprocess.run(['\''/usr/bin/git'\'','\''status'\''])\\""}}\n' |
-    "$run_go_hook" agent-hook >/tmp/coding-ethos-git-refusal.out \
-      2>/tmp/coding-ethos-git-refusal.err
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-git-refusal.out \
+      2> /tmp/coding-ethos-git-refusal.err
   refusal_status=$?
   set -e
   if [[ "$refusal_status" -ne 2 ]]; then
@@ -555,12 +555,12 @@ printf '{"role":"user","content":"finish the hook cutover"}\n' > "$transcript"
   printf '{"hook_event_name":"PreCompact","session_id":"smoke-session","transcript_path":"%s"}\n' \
     "$transcript" |
     "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
-      >/tmp/coding-ethos-precompact-smoke.out
+      > /tmp/coding-ethos-precompact-smoke.out
   printf '{"hook_event_name":"SessionStart","matcher":"compact","session_id":"smoke-session"}\n' |
     "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
-      >/tmp/coding-ethos-sessionstart-smoke.out
+      > /tmp/coding-ethos-sessionstart-smoke.out
 )
-if ! grep -q 'CODING-ETHOS CONTINUATION' /tmp/coding-ethos-sessionstart-smoke.out; then
+if ! grep -q 'deterministic carry-forward context' /tmp/coding-ethos-sessionstart-smoke.out; then
   printf 'expected continuation replay output:\n' >&2
   cat /tmp/coding-ethos-sessionstart-smoke.out >&2
   exit 1
@@ -570,7 +570,7 @@ printf '==> validating git lfs delegation hook\n'
 mkdir -p "$lfs_hook_dir" "$fake_bin"
 cp "$repo_root/pre-commit/hooks/run-lfs-hook.sh" "$lfs_hook_dir/post-commit"
 chmod +x "$lfs_hook_dir/post-commit"
-cat > "$fake_bin/git" <<'FAKEGIT'
+cat > "$fake_bin/git" << 'FAKEGIT'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" != "lfs" ]]; then

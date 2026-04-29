@@ -95,6 +95,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		tools["shellcheck"],
 		[]string{"shellcheck", "--severity=warning", "-x", "--format=json"},
 	)
+	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
 
@@ -102,6 +103,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"hadolint":      "docker",
 		"actionlint":    "workflow",
 		"shellcheck":    "shell",
+		"shfmt":         "shell",
 		"yamllint":      "syntax",
 		"golangci-lint": "go-static",
 	} {
@@ -122,6 +124,13 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	assertToolFileMetadata(
 		t,
 		tools["shellcheck"],
+		[]string{".sh", ".bash", ".zsh", ".ksh"},
+		nil,
+		nil,
+	)
+	assertToolFileMetadata(
+		t,
+		tools["shfmt"],
 		[]string{".sh", ".bash", ".zsh", ".ksh"},
 		nil,
 		nil,
@@ -158,6 +167,153 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 			golangci.PostConfigArgs,
 			wantPostConfig,
 		)
+	}
+}
+
+func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
+	t.Parallel()
+
+	tools := mapByName(toolcatalog.HookOwnedTools())
+	for _, name := range []string{
+		"pyupgrade",
+		"ruff-format",
+		"ruff-autofix",
+		"gofmt",
+		"go-vet",
+		"go-test",
+		"python-complexity",
+		"python-maintainability",
+		"python-vulture",
+		"interrogate",
+		"pytest-gate",
+		"gemini-check",
+	} {
+		tool, ok := tools[name]
+		if !ok {
+			t.Fatalf("HookOwnedTools() missing %q", name)
+		}
+		if tool.Category == "" || tool.OutputFormat == "" || tool.Advice == "" {
+			t.Fatalf("%s metadata is incomplete: %#v", name, tool)
+		}
+	}
+}
+
+func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{
+		"ruff",
+		"pyright",
+		"mypy",
+		"pylint",
+		"shellcheck",
+		"golangci-lint",
+		"actionlint",
+		"yamllint",
+		"hadolint",
+	} {
+		tool, found := toolcatalog.HookOwnedTool(name)
+		if !found {
+			t.Fatalf("HookOwnedTool(%q) missing", name)
+		}
+		if tool.Parser == "" || len(tool.CaptureOutputArgs) == 0 {
+			t.Fatalf("%s missing parser or capture metadata: %#v", name, tool)
+		}
+		if len(tool.CaptureStripArgs) == 0 && len(tool.CaptureStripFlags) == 0 {
+			t.Fatalf("%s cannot strip caller output flags: %#v", name, tool)
+		}
+	}
+}
+
+func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "ruff",
+			args: []string{"check", "--output-format=github", "pkg"},
+			want: []string{"check", "--output-format=json", "pkg"},
+		},
+		{
+			name: "pyright",
+			args: []string{"--outputjson", "pkg"},
+			want: []string{"--outputjson", "pkg"},
+		},
+		{
+			name: "mypy",
+			args: []string{"--output", "pretty", "pkg"},
+			want: []string{"--output=json", "pkg"},
+		},
+		{
+			name: "pylint",
+			args: []string{"-f", "text", "pkg"},
+			want: []string{"--output-format=json", "pkg"},
+		},
+		{
+			name: "shellcheck",
+			args: []string{"-f", "gcc", "script.sh"},
+			want: []string{"--format=json", "script.sh"},
+		},
+		{
+			name: "yamllint",
+			args: []string{"--format", "standard", "config.yaml"},
+			want: []string{"-f", "parsable", "config.yaml"},
+		},
+		{
+			name: "hadolint",
+			args: []string{"--format=tty", "Dockerfile"},
+			want: []string{"--format", "json", "Dockerfile"},
+		},
+		{
+			name: "actionlint",
+			args: []string{"-format", "{{.Message}}", ".github/workflows/ci.yml"},
+			want: []string{"-format", "{{json .}}", ".github/workflows/ci.yml"},
+		},
+		{
+			name: "golangci-lint",
+			args: []string{"run", "--out-format", "colored-line-number", "./..."},
+			want: []string{
+				"run",
+				"--output.json.path=stdout",
+				"--output.text.path=stderr",
+				"./...",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			tool, found := toolcatalog.HookOwnedTool(test.name)
+			if !found {
+				t.Fatalf("missing tool %q", test.name)
+			}
+			got, ok := tool.CaptureArgs(test.args)
+			if !ok {
+				t.Fatalf("CaptureArgs(%s) did not apply", test.name)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("CaptureArgs(%s) = %#v, want %#v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+func TestToolCaptureArgsSkipsMutatingCommands(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff")
+	}
+	got, ok := tool.CaptureArgs([]string{"format", "pkg"})
+	if ok {
+		t.Fatalf("CaptureArgs applied to mutating ruff format: %#v", got)
 	}
 }
 

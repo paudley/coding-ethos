@@ -20,8 +20,7 @@ func lifecycleOutput(event Event) *HookSpecificOutput {
 func lifecycleContext(event Event) string {
 	switch event.HookEventName {
 	case "UserPromptSubmit":
-		return buildLifecycleContext(
-			"CODING-ETHOS PROMPT GUIDANCE",
+		return buildGuidanceContext(
 			[]string{
 				"Read relevant repo instructions before acting.",
 				"Use and maintain a todo list for multi-step work.",
@@ -31,8 +30,7 @@ func lifecycleContext(event Event) string {
 			event.Content(),
 		)
 	case "PostToolBatch":
-		return buildLifecycleContext(
-			"CODING-ETHOS TOOL BATCH CHECKPOINT",
+		return buildGuidanceContext(
 			[]string{
 				"Review tool results before continuing.",
 				"Update the todo list to reflect completed and remaining work.",
@@ -41,8 +39,7 @@ func lifecycleContext(event Event) string {
 			"",
 		)
 	case "Stop", "SessionEnd":
-		return buildLifecycleContext(
-			"CODING-ETHOS STOP CHECKPOINT",
+		return buildGuidanceContext(
 			[]string{
 				"Do not report completion while planned work remains.",
 				"Summarize evidence: files changed, checks run, and unresolved risks.",
@@ -51,8 +48,7 @@ func lifecycleContext(event Event) string {
 			"",
 		)
 	case "SubagentStart":
-		return buildLifecycleContext(
-			"CODING-ETHOS SUBAGENT START",
+		return buildGuidanceContext(
 			[]string{
 				"Keep delegated work scoped and concrete.",
 				"Do not overwrite edits made by other agents or the user.",
@@ -61,8 +57,7 @@ func lifecycleContext(event Event) string {
 			event.Content(),
 		)
 	case "SubagentStop":
-		return buildLifecycleContext(
-			"CODING-ETHOS SUBAGENT COMPLETION",
+		return buildGuidanceContext(
 			[]string{
 				"Check the subagent result against the assigned scope.",
 				"Integrate only verified changes and preserve unrelated user work.",
@@ -75,8 +70,8 @@ func lifecycleContext(event Event) string {
 	}
 }
 
-func buildLifecycleContext(title string, guidance []string, prompt string) string {
-	lines := []string{title, ""}
+func buildGuidanceContext(guidance []string, prompt string) string {
+	lines := []string{}
 	if trimmed := strings.TrimSpace(prompt); trimmed != "" {
 		lines = append(lines, "prompt:", trimmed, "")
 	}

@@ -26,19 +26,69 @@ func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
+	forFilesRaw := flags.String(
+		"for-files",
+		"",
+		"Comma-separated files to filter --analyze-log results",
+	)
 	argvRaw := flags.String(
 		"argv",
 		"",
 		"Command argv to evaluate, separated by NUL when possible or spaces",
 	)
 	command := flags.String("command", "", "Raw shell command to evaluate")
+	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
+	analyzeLog := flags.Bool(
+		"analyze-log",
+		false,
+		"Analyze persisted .coding-ethos/lint-runs traces",
+	)
+	explain := flags.Bool("explain", false, "Explain selected lint checks without running them")
+	logDir := flags.String(
+		"log-dir",
+		"",
+		"Lint trace directory for --analyze-log",
+	)
+	logOutput := flags.Bool(
+		"log",
+		true,
+		"Persist normalized lint result under .coding-ethos/lint-runs",
+	)
+	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
 	scope := scopeFlagSet(flags)
 
 	err := flags.Parse(os.Args[1:])
 	if err != nil {
 		exitErr(err)
+	}
+
+	if *captureTool != "" {
+		os.Exit(runCapturedTool(*captureTool, *toolPath, *cwd, flags.Args()))
+	}
+
+	if *analyzeLog {
+		path := *logDir
+		if path == "" {
+			var pathErr error
+			path, pathErr = lint.DefaultTraceDir(*cwd)
+			if pathErr != nil {
+				exitErr(pathErr)
+			}
+		}
+
+		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(path, lint.AnalysisOptions{
+			Files: parseFiles(*forFilesRaw),
+		})
+		if analyzeErr != nil {
+			exitErr(analyzeErr)
+		}
+		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, *jsonOutput); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+
+		return
 	}
 
 	if *bundlePath == "" {
@@ -57,6 +107,29 @@ func main() {
 		)
 	}
 
+	if *explain {
+		explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
+			Scope: scope.Value(),
+			Files: parseFiles(*filesRaw),
+		})
+		if explainErr != nil {
+			exitErr(explainErr)
+		}
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
+		}
+		if encodeErr := lint.EncodeExplainResult(
+			os.Stdout,
+			explainResult,
+			format,
+		); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+
+		return
+	}
+
 	result, err := lint.Run(bundle, lint.Options{
 		Scope:   scope.Value(),
 		Files:   parseFiles(*filesRaw),
@@ -66,6 +139,12 @@ func main() {
 	})
 	if err != nil {
 		exitErr(err)
+	}
+
+	if *logOutput {
+		if _, logErr := lint.LogResult(*cwd, result); logErr != nil {
+			fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
+		}
 	}
 
 	if *jsonOutput {

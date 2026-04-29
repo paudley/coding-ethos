@@ -891,6 +891,49 @@ func TestParseShellcheckFindings(t *testing.T) {
 	}
 }
 
+func TestParseShfmtFindings(t *testing.T) {
+	t.Parallel()
+
+	findings := parseShfmtFindings("--- scripts/run.sh.orig\n+++ scripts/run.sh\n@@ -1 +1 @@\n")
+	if len(findings) != 1 {
+		t.Fatalf("parseShfmtFindings() = %#v, want one finding", findings)
+	}
+
+	want := hookFinding{
+		Tool:     "shfmt",
+		File:     "scripts/run.sh",
+		Severity: "error",
+		Code:     "format",
+		Message:  "shell file is not shfmt-formatted",
+		Advice:   "Run shfmt with the repo formatting settings.",
+	}
+	if !reflect.DeepEqual(findings[0], want) {
+		t.Fatalf("finding = %#v, want %#v", findings[0], want)
+	}
+}
+
+func TestParseShfmtFindingsHandlesSyntaxErrors(t *testing.T) {
+	t.Parallel()
+
+	findings := parseShfmtFindings("scripts/run.sh:7:3: reached EOF without closing quote")
+	if len(findings) != 1 {
+		t.Fatalf("parseShfmtFindings() = %#v, want one finding", findings)
+	}
+
+	want := hookFinding{
+		Tool:     "shfmt",
+		File:     "scripts/run.sh",
+		Line:     7,
+		Column:   3,
+		Severity: "error",
+		Code:     "syntax",
+		Message:  "reached EOF without closing quote",
+	}
+	if !reflect.DeepEqual(findings[0], want) {
+		t.Fatalf("finding = %#v, want %#v", findings[0], want)
+	}
+}
+
 func TestParseYamllintFindings(t *testing.T) {
 	t.Parallel()
 

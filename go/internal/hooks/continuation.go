@@ -77,7 +77,7 @@ func captureContinuationOutput(event Event) *HookSpecificOutput {
 
 	return &HookSpecificOutput{
 		HookEventName:     event.HookEventName,
-		AdditionalContext: "coding-ethos captured deterministic continuation context",
+		AdditionalContext: "captured deterministic state",
 	}
 }
 
@@ -132,7 +132,6 @@ func injectContinuationOutput(event Event) *HookSpecificOutput {
 
 func formatContinuationContext(record continuationRecord) string {
 	lines := []string{
-		"CODING-ETHOS CONTINUATION",
 		"session_id: " + record.SessionID,
 		"captured_at_utc: " + record.CapturedAtUTC,
 	}

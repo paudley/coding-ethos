@@ -32,6 +32,30 @@ Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 `policy.evidence_maps`. Mapped findings receive policy-grounded advice in
 human, JSON, and TOON output; unmapped findings keep their normal diagnostic
 shape.
+The compiled lint path also writes normalized JSON traces under
+`.coding-ethos/lint-runs/` for later analysis. Those traces keep the full
+policy decision, normalized finding, diagnostic, and evidence payloads out of
+agent-facing output while preserving enough data to identify recurring lint
+failures and improve deterministic guidance.
+Use `policy-lint --analyze-log` to rank top failing checks, top tool/code
+pairs, repeated file-policy patterns, ETHOS IDs, and guidance candidates. Add
+`--for-files path/to/file.py` to filter the analysis to prior findings from the
+same file or file-area pattern.
+Agent shell commands that invoke common lint tools are routed through the
+managed lint capture wrapper. Captured tools currently include `ruff`, `mypy`,
+`pyright`, `pylint`, `shellcheck`, `golangci-lint`, `actionlint`, `yamllint`,
+and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
+`python -m <tool>` for Python-backed tools are normalized to
+`run-go-hook.sh policy-tool <tool> ...` when the provider supports command
+rewrites; unsupported providers must use the managed shims injected into the
+hook PATH. The wrapper owns output formatting: it forces the tool's
+machine-readable output option, parses diagnostics into the shared lint schema,
+records them in the lint trace log, and prints coding-ethos human or TOON output
+instead of raw tool output.
+Post-edit advice uses the same traces quietly: when a touched file has relevant
+prior lint failures, hooks surface a capped `lint_history` section with the top
+three recurring checks, top three tool codes, and top two guidance candidates.
+No history section is emitted when there is no relevant captured history.
 
 Agent settings rendering covers every supported provider:
 
@@ -127,8 +151,8 @@ make -C code-ethos install-hooks
 - pyyaml >= 6.0
 - go >= 1.26
 - uv
-- shellcheck, hadolint, actionlint, and golangci-lint for their corresponding
-  hook groups
+- shellcheck, shfmt, hadolint, actionlint, and golangci-lint for their
+  corresponding hook groups
 
 ## Development
 

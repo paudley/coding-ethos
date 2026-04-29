@@ -351,6 +351,15 @@ func defaultReminderConfig() ReminderConfig {
 				Action:      "Treat the finding as a structural signal and fix the cause.",
 			},
 			{
+				PrincipleID: "no-conditional-imports",
+				Axiom:       "Conditional imports are banned.",
+				Action: sentence(
+					"Use module-scope required imports; if that exposes a cycle,",
+					"refactor with SOLID boundaries or a Python Protocol",
+					"instead of hiding the dependency.",
+				),
+			},
+			{
 				PrincipleID: "linting-as-code-quality-enforcement",
 				Axiom:       "A linter warning is review feedback in executable form.",
 				Action:      "Resolve it structurally instead of weakening the rule.",
@@ -1785,8 +1794,13 @@ func compileEvidenceMaps(
 
 func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 	return diagnostics.EvidenceMap{
-		Source:       stringAt(item, "source"),
-		Codes:        stringSliceAt(item, []string{"codes"}, nil),
+		Source: stringAt(item, "source"),
+		Codes:  stringSliceAt(item, []string{"codes"}, nil),
+		MessageSubstrings: stringSliceAt(
+			item,
+			[]string{"message_substrings"},
+			nil,
+		),
 		PolicyID:     stringAt(item, "policy_id"),
 		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
 		Confidence:   stringAt(item, "confidence"),
@@ -1804,6 +1818,9 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultRuffEvidenceMap(principles),
 		defaultRuffImportOrderEvidenceMap(principles),
 		defaultRuffSQLSafetyEvidenceMap(principles),
+		defaultMypyImportCycleEvidenceMap(principles),
+		defaultPyrightImportCycleEvidenceMap(principles),
+		defaultPylintImportCycleEvidenceMap(principles),
 		defaultMypyEvidenceMap(principles),
 		defaultShellcheckEvidenceMap(principles),
 		defaultYamllintEvidenceMap(principles),
@@ -1825,13 +1842,17 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 		),
 		Confidence: "high",
 		Meaning: "Import executes away from module scope, usually inside " +
-			"runtime control flow.",
+			"runtime control flow, hiding a required dependency or masking " +
+			"cyclic design pressure.",
 		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Move required imports to module scope and fail during startup.",
+			Summary: "Move required imports to module scope. If that exposes " +
+				"a cycle, fix the design instead of hiding the dependency.",
 			Steps: []string{
 				"Declare the dependency as required.",
 				"Import it at module scope.",
-				"Replace runtime fallback paths with startup validation.",
+				"Use SOLID boundaries to split responsibilities when modules depend on each other.",
+				"In Python, introduce a Protocol in a neutral module when two concrete implementations would otherwise import each other.",
+				"Replace lazy, conditional, or fallback import paths with explicit startup validation.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},
@@ -1888,6 +1909,71 @@ func defaultRuffSQLSafetyEvidenceMap(
 				"Keep test-only SQL safety exceptions explicit and narrow.",
 			},
 			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypyImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"mypy",
+		nil,
+		[]string{"Cannot resolve import cycle", "import cycle"},
+		principles,
+	)
+}
+
+func defaultPyrightImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pyright",
+		nil,
+		[]string{"Import cycle detected", "Import cycles detected"},
+		principles,
+	)
+}
+
+func defaultPylintImportCycleEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return importCycleEvidenceMap(
+		"pylint",
+		[]string{"cyclic-import", "R0401"},
+		nil,
+		principles,
+	)
+}
+
+func importCycleEvidenceMap(
+	source string,
+	codes []string,
+	messageSubstrings []string,
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:            source,
+		Codes:             append([]string(nil), codes...),
+		MessageSubstrings: append([]string(nil), messageSubstrings...),
+		PolicyID:          "python.import_cycles",
+		PrincipleIDs: principleRefs(
+			principles,
+			"protocol-first-design",
+			"solid-is-law",
+		),
+		Confidence: "medium",
+		Meaning: "Concrete modules depend on each other strongly enough that " +
+			"the type checker or linter sees an import cycle.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Break the concrete dependency cycle with an explicit interface.",
+			Steps: []string{
+				"Identify the two modules that import each other.",
+				"Move the shared contract into a neutral module.",
+				"In Python, model that contract with a Protocol when behavior is required.",
+				"Depend on the Protocol or smaller interface instead of the concrete implementation.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

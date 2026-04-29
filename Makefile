@@ -137,6 +137,7 @@ endef
 	doctor \
 	install \
 	install-runtime \
+	build \
 	test \
 	check \
 	cutover-install \
@@ -155,6 +156,8 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
+	go-hook-runner-install \
+	policy-bundle-install \
 	go-tools-smoke \
 	go-tools-clean \
 	clean-cache \
@@ -304,7 +307,27 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git hook shims.
+build: sync-tool-configs sync-gemini-prompts go-tools-install go-hook-runner-install policy-bundle-install ## Build and install hook runtime artifacts.
+
+go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the repo-local hook bin directory.
+	@$(call print_step,Installing bundled Go hook runner)
+	@mkdir -p "$(LOCAL_BIN_DIR)"
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build -buildvcs=false -o "$(LOCAL_BIN_DIR)/coding-ethos-git-hook" .
+	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-git-hook)
+
+policy-bundle-install: ensure-go go-tools-install ## Compile the policy bundle into the repo-local hook directory.
+	@$(call print_step,Compiling policy bundle)
+	@mkdir -p "$(LOCAL_BIN_DIR)/policy"
+	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(LOCAL_BIN_DIR)/policy"); \
+	if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then \
+		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"); \
+	elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then \
+		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yml"); \
+	fi; \
+	"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" "$${args[@]}" >/dev/null
+	@$(call print_info,compiled: $(LOCAL_BIN_DIR)/policy/policy-bundle.json)
+
+install-hooks: build ## Install Git hook shims.
 	@$(call print_step,Installing Git hook shims)
 	@mkdir -p "$(HOOKS_DIR)"
 	@for hook in $(GIT_HOOKS); do \
@@ -318,7 +341,7 @@ install-hooks: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git ho
 	@$(call print_info,installed: Go hook runner)
 	@$(call print_info,installed: Git LFS delegation hooks)
 
-cutover-install: sync-tool-configs sync-gemini-prompts ensure-go ## Install Git and agent hooks, then verify cutover readiness.
+cutover-install: build ## Install Git and agent hooks, then verify cutover readiness.
 	@$(call print_step,Installing and verifying repo-local hook cutover)
 	@"$(GO_HOOK)" cutover install
 

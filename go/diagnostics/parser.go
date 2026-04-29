@@ -32,6 +32,7 @@ var (
 	hadolintPattern = regexp.MustCompile(
 		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
 	)
+	ruffCodePattern = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
 )
 
 const (
@@ -114,7 +115,7 @@ func parseRuff(output string) []Diagnostic {
 
 	err := json.Unmarshal([]byte(output), &items)
 	if err != nil {
-		return nil
+		return parseRuffText(output)
 	}
 
 	diagnostics := make([]Diagnostic, 0, len(items))
@@ -131,6 +132,48 @@ func parseRuff(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func parseRuffText(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		matches := fallbackPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != fallbackMatchParts {
+			continue
+		}
+
+		lineNo, validLine := parseInt(matches[2])
+		if !validLine {
+			continue
+		}
+
+		column, _ := parseInt(matches[3])
+		code, message := splitRuffCodeMessage(matches[5])
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "ruff",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: firstNonEmpty(matches[4], "error"),
+			Code:     code,
+			Message:  message,
+		})
+	}
+
+	return diagnostics
+}
+
+func splitRuffCodeMessage(raw string) (string, string) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return "", ""
+	}
+	if ruffCodePattern.MatchString(fields[0]) {
+		return fields[0], strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
+	}
+
+	return "", strings.TrimSpace(raw)
 }
 
 func parsePyright(output string) []Diagnostic {
@@ -173,7 +216,7 @@ func parsePyright(output string) []Diagnostic {
 func parseMypy(output string) []Diagnostic {
 	items := parseMypyItems(output)
 	if len(items) == 0 {
-		return nil
+		return parseMypyText(output)
 	}
 
 	diagnostics := make([]Diagnostic, 0, len(items))
@@ -190,6 +233,27 @@ func parseMypy(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func parseMypyText(output string) []Diagnostic {
+	items := parseFallback("mypy", output)
+	for index, item := range items {
+		message, code := splitTrailingBracketCode(item.Message)
+		items[index].Message = message
+		items[index].Code = code
+	}
+
+	return items
+}
+
+func splitTrailingBracketCode(message string) (string, string) {
+	trimmed := strings.TrimSpace(message)
+	start := strings.LastIndex(trimmed, "[")
+	if start < 0 || !strings.HasSuffix(trimmed, "]") {
+		return trimmed, ""
+	}
+
+	return strings.TrimSpace(trimmed[:start]), strings.TrimSuffix(trimmed[start+1:], "]")
 }
 
 type mypyItem struct {
@@ -232,6 +296,10 @@ func parseMypyItems(output string) []mypyItem {
 }
 
 func parsePylint(output string) []Diagnostic {
+	if diagnostics := parsePylintJSON2(output); len(diagnostics) > 0 {
+		return diagnostics
+	}
+
 	var items []struct {
 		Path      string `json:"path"`
 		Type      string `json:"type"`
@@ -249,6 +317,40 @@ func parsePylint(output string) []Diagnostic {
 
 	diagnostics := make([]Diagnostic, 0, len(items))
 	for _, item := range items {
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "pylint",
+			File:     item.Path,
+			Severity: item.Type,
+			Code:     firstNonEmpty(item.Symbol, item.MessageID),
+			Message:  item.Message,
+			Line:     item.Line,
+			Column:   item.Column + 1,
+		})
+	}
+
+	return diagnostics
+}
+
+func parsePylintJSON2(output string) []Diagnostic {
+	var payload struct {
+		Messages []struct {
+			Path      string `json:"path"`
+			Type      string `json:"type"`
+			Symbol    string `json:"symbol"`
+			MessageID string `json:"messageId"`
+			Message   string `json:"message"`
+			Line      int    `json:"line"`
+			Column    int    `json:"column"`
+		} `json:"messages"`
+	}
+
+	err := json.Unmarshal([]byte(output), &payload)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(payload.Messages))
+	for _, item := range payload.Messages {
 		diagnostics = append(diagnostics, Diagnostic{
 			Tool:     "pylint",
 			File:     item.Path,

@@ -78,6 +78,7 @@ func main() {
 		if runErr != nil {
 			exitErr(runErr)
 		}
+		logLintResult(*cwd, result)
 
 		if result.Blocked() {
 			encodeLintResult(result)
@@ -102,6 +103,7 @@ func main() {
 		if runErr != nil {
 			exitErr(runErr)
 		}
+		logLintResult(*cwd, result)
 
 		if result.Blocked() {
 			encodeLintResult(result)
@@ -165,6 +167,12 @@ func encodeLintResult(result lint.Result) {
 	}
 }
 
+func logLintResult(cwd string, result lint.Result) {
+	if _, err := lint.LogResult(cwd, result); err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", err)
+	}
+}
+
 func encodeLintResultTo(writer io.Writer, result lint.Result) error {
 	if result.Blocked() {
 		result = blockedOnlyResult(result)
@@ -186,6 +194,13 @@ func blockedOnlyResult(result lint.Result) lint.Result {
 
 		filtered.Decisions = append(filtered.Decisions, decision)
 		filtered.Diagnostics = append(filtered.Diagnostics, decision.Diagnostics...)
+	}
+	for _, finding := range result.Findings {
+		if !finding.Blocking {
+			continue
+		}
+
+		filtered.Findings = append(filtered.Findings, finding)
 	}
 
 	return filtered

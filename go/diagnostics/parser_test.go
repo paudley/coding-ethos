@@ -30,6 +30,26 @@ func TestParseRuffDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseRuffTextDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"ruff",
+		"pkg/app.py:4:8: F401 unused import\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "ruff",
+		File:     "pkg/app.py",
+		Line:     4,
+		Column:   8,
+		Severity: "error",
+		Code:     "F401",
+		Message:  "unused import",
+	})
+}
+
 func TestParsePyrightDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -67,6 +87,48 @@ func TestParseMypyJSONLinesDiagnostics(t *testing.T) {
 		Severity: "error",
 		Code:     "no-any-return",
 		Message:  "Returning Any",
+	})
+}
+
+func TestParseMypyTextDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"mypy",
+		"pkg/app.py:88:12: error: Returning Any [no-any-return]\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "mypy",
+		File:     "pkg/app.py",
+		Line:     88,
+		Column:   12,
+		Severity: "error",
+		Code:     "no-any-return",
+		Message:  "Returning Any",
+	})
+}
+
+func TestParsePylintJSON2Diagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"pylint",
+		`{"messages":[{"path":"pkg/app.py","line":7,"column":4,`+
+			`"type":"warning","symbol":"unused-import",`+
+			`"messageId":"W0611","message":"Unused import os"}]}`,
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "pylint",
+		File:     "pkg/app.py",
+		Line:     7,
+		Column:   5,
+		Severity: "warning",
+		Code:     "unused-import",
+		Message:  "Unused import os",
 	})
 }
 
@@ -266,6 +328,38 @@ func TestEnrichMapsWildcardDiagnosticEvidence(t *testing.T) {
 
 	if enriched[0].PolicyID != "shell.static_analysis" {
 		t.Fatalf("wildcard policy = %q", enriched[0].PolicyID)
+	}
+}
+
+func TestEnrichMapsMessageDiagnosticEvidence(t *testing.T) {
+	t.Parallel()
+
+	enriched := diagnostics.Enrich(
+		[]diagnostics.Diagnostic{
+			{
+				Tool:    "pyright",
+				Message: "Import cycle detected between pkg.a and pkg.b",
+			},
+		},
+		[]diagnostics.EvidenceMap{
+			{
+				Source: "pyright",
+				MessageSubstrings: []string{
+					"import cycle detected",
+				},
+				PolicyID: "python.import_cycles",
+				Advice: diagnostics.EvidenceAdvice{
+					Summary: "Break the concrete dependency cycle.",
+				},
+			},
+		},
+	)
+
+	if enriched[0].PolicyID != "python.import_cycles" {
+		t.Fatalf("message-mapped policy = %q", enriched[0].PolicyID)
+	}
+	if enriched[0].Advice != "Break the concrete dependency cycle." {
+		t.Fatalf("message-mapped advice = %q", enriched[0].Advice)
 	}
 }
 

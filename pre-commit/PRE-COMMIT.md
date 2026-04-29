@@ -35,8 +35,10 @@ consuming-repo overrides.
 
 `make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
-The cached Go helper binary lives under `.git/coding-ethos-hooks/` and rebuilds
-when its sources or config inputs change.
+The installed Go helper binaries and compiled policy bundle live under
+`.git/coding-ethos-hooks/`. Normal hook execution does not rebuild these
+artifacts; run `make build` from the coding-ethos repository to update the
+installed runtime.
 
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -58,6 +60,7 @@ Required tools:
 - `go` 1.26 or newer
 - `uv`
 - `shellcheck`
+- `shfmt`
 - `hadolint`
 - `actionlint`
 - `golangci-lint`
@@ -65,6 +68,7 @@ Required tools:
 Useful install commands:
 
 ```bash
+go install mvdan.cc/sh/v3/cmd/shfmt@latest
 go install github.com/rhysd/actionlint/cmd/actionlint@latest
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 ```
@@ -124,8 +128,10 @@ Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
 merged `config.yaml` plus `repo_config.yaml`.
 
-The cached Go helper binary lives in `.git/coding-ethos-hooks/`. It rebuilds
-when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
+The hook runtime lives in `.git/coding-ethos-hooks/`. It is updated by explicit
+build/install targets, not by normal hook execution. If the runtime is missing
+or stale, hooks fail with an instruction to run `make build` or ask an admin to
+update the installed runtime.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 
@@ -218,6 +224,34 @@ as raw output, escaped newline cells, or leaked absolute repo paths. The
 analyzer scans newest runs first and caps scanned runs plus examples so it stays
 interactive on large agent log directories. Both commands honor the same human,
 JSON, and TOON output selection as hook execution output.
+Compiled lint preflights also persist normalized result traces under
+`.coding-ethos/lint-runs/`. These are intended for offline trend analysis:
+which policies fail most often, which linter codes drive the most churn, and
+which ETHOS-backed advice should become more specific. Future guidance synthesis
+may use a very small LLM or local model over these traces, but hook-time
+enforcement remains deterministic and policy-bundle driven.
+Analyze those traces with:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
+```
+
+The analyzer reports top failing checks, top tool/code pairs, repeated
+file-policy patterns, ETHOS IDs, and deterministic guidance candidates. The
+`--for-files` filter narrows output to prior findings from the same file or
+same high-level file area so post-edit feedback can stay focused.
+Direct agent lint runs are captured too. The agent hook rewrites common forms
+for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
+`actionlint`, `yamllint`, and `hadolint` to the managed
+`policy-tool <tool>` wrapper when the provider supports command rewrites. This
+covers plain tool names, absolute tool paths, `uv run <tool>`, and
+`python -m <tool>` for Python-backed tools. The installed hook PATH also
+contains managed shims for tools that execute by name. Captured runs preserve
+exit codes while forcing machine-readable tool output, parsing diagnostics into
+the shared lint schema, writing normalized lint traces, and returning
+coding-ethos human or TOON output instead of raw linter output.
 
 ## Configuration
 
@@ -336,6 +370,16 @@ Typical consuming-repo overrides include:
 
 See [../repo_config.example.yaml](../repo_config.example.yaml) for a minimal
 consumer-repo override file.
+
+Policy lint selection can be inspected without running checks:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain
+pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain --json
+```
+
+The explain output reports the selected policy checks, evaluator names,
+severity, and ETHOS IDs for the requested scope.
 
 ## Hook Inventory
 

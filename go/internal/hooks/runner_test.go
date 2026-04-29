@@ -6,6 +6,7 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -128,6 +130,141 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	last := result.Decisions[len(result.Decisions)-1]
 	if last.PolicyID != "git.commit_attribution" {
 		t.Fatalf("policy mismatch: %#v", result.Decisions)
+	}
+}
+
+func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "uv run ruff check pkg && python -m ruff format pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatal("missing hook output")
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-tool ruff 'check' 'pkg'") ||
+		!strings.Contains(rewritten, "policy-tool ruff 'format' 'pkg'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{
+			name:    "mypy",
+			command: "uv run mypy pkg",
+			want:    "policy-tool mypy 'pkg'",
+		},
+		{
+			name:    "pyright",
+			command: "python -m pyright pkg",
+			want:    "policy-tool pyright 'pkg'",
+		},
+		{
+			name:    "shellcheck",
+			command: "/usr/bin/shellcheck script.sh",
+			want:    "policy-tool shellcheck 'script.sh'",
+		},
+		{
+			name:    "golangci",
+			command: "golangci-lint run ./...",
+			want:    "policy-tool golangci-lint 'run' './...'",
+		},
+		{
+			name:    "actionlint",
+			command: "actionlint -color",
+			want:    "policy-tool actionlint '-color'",
+		},
+		{
+			name:    "yamllint",
+			command: "uv run yamllint config.yaml",
+			want:    "policy-tool yamllint 'config.yaml'",
+		},
+		{
+			name:    "pylint",
+			command: "python -m pylint pkg",
+			want:    "policy-tool pylint 'pkg'",
+		},
+		{
+			name:    "hadolint",
+			command: "hadolint Dockerfile",
+			want:    "policy-tool hadolint 'Dockerfile'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: preToolUse,
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": test.command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+				t.Fatalf("result = %#v", result)
+			}
+
+			rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+			if !ok || !strings.Contains(rewritten, test.want) {
+				t.Fatalf("rewrite for %q = %q, want %q", test.command, rewritten, test.want)
+			}
+		})
+	}
+}
+
+func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "/usr/bin/ruff check pkg",
+			},
+			Source: "codex",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if !strings.Contains(result.Decisions[0].Message, "Ruff must run through") {
+		t.Fatalf("unexpected decision: %#v", result.Decisions)
 	}
 }
 
@@ -1411,9 +1548,10 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
 	}
 	if !strings.Contains(output, `"systemMessage"`) ||
-		!strings.Contains(output, "CODING-ETHOS STOP CHECKPOINT") {
+		!strings.Contains(output, "planned work remains") {
 		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
 	}
+	assertNoRoutineContextClutter(t, output)
 }
 
 func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
@@ -1546,7 +1684,7 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 	if capture.HookSpecificOutput == nil ||
 		!strings.Contains(
 			capture.HookSpecificOutput.AdditionalContext,
-			"captured deterministic continuation context",
+			"captured deterministic state",
 		) {
 		t.Fatalf("missing capture output: %#v", capture.HookSpecificOutput)
 	}
@@ -1568,10 +1706,11 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 	}
 
 	additionalContext := inject.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(additionalContext, "CODING-ETHOS CONTINUATION") ||
+	if !strings.Contains(additionalContext, "session_id: session-001") ||
 		!strings.Contains(additionalContext, "finish the hook cutover") {
 		t.Fatalf("unexpected inject output: %#v", inject.HookSpecificOutput)
 	}
+	assertNoRoutineContextClutter(t, additionalContext)
 	if strings.Contains(additionalContext, transcript) {
 		t.Fatalf("continuation context leaked transcript path: %s", additionalContext)
 	}
@@ -1627,11 +1766,13 @@ func TestRunAddsUserPromptGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS PROMPT GUIDANCE") ||
+	if !strings.Contains(context, "prompt:") ||
+		!strings.Contains(context, "guidance:") ||
 		!strings.Contains(context, "todo list") ||
 		!strings.Contains(context, "finish hook replacement") {
 		t.Fatalf("unexpected prompt guidance: %s", context)
 	}
+	assertNoRoutineContextClutter(t, context)
 }
 
 func TestRunAddsStopCheckpointGuidance(t *testing.T) {
@@ -1655,10 +1796,11 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS STOP CHECKPOINT") ||
+	if !strings.HasPrefix(context, "guidance:\n") ||
 		!strings.Contains(context, "planned work remains") {
 		t.Fatalf("unexpected stop guidance: %s", context)
 	}
+	assertNoRoutineContextClutter(t, context)
 }
 
 func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
@@ -1684,12 +1826,31 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS POST-EDIT CHECKPOINT") ||
+	if !strings.HasPrefix(context, "tool: Write\n") ||
 		!strings.Contains(context, "src/app.py") ||
 		!strings.Contains(context, "language_advice:") ||
 		!strings.Contains(context, "python: run ruff/mypy/pyright") ||
 		!strings.Contains(context, "Run focused formatting") {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
+	}
+	assertNoRoutineContextClutter(t, context)
+}
+
+func assertNoRoutineContextClutter(t *testing.T, context string) {
+	t.Helper()
+
+	for _, forbidden := range []string{
+		"CODING-ETHOS",
+		"checkpoint",
+		"stop guidance",
+		"prompt guidance",
+		"tool batch checkpoint",
+		"post-edit checkpoint",
+		"continuation context",
+	} {
+		if strings.Contains(context, forbidden) {
+			t.Fatalf("routine context contains clutter %q:\n%s", forbidden, context)
+		}
 	}
 }
 
@@ -1777,6 +1938,96 @@ exit 1
 		!strings.Contains(context, "F401") ||
 		!strings.Contains(context, "unused import") {
 		t.Fatalf("missing fast ruff finding: %s", context)
+	}
+}
+
+func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	err := os.MkdirAll(filepath.Join(dir, ".coding-ethos", "lint-runs"), 0o700)
+	if err != nil {
+		t.Fatalf("create lint trace dir: %v", err)
+	}
+	writeHookTraceFixture(t, filepath.Join(dir, ".coding-ethos", "lint-runs", "trace.json"))
+
+	sourcePath := filepath.Join(dir, "lib", "python", "new_module.py")
+	err = os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	err = os.WriteFile(sourcePath, []byte("print(1)\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": %q}
+	}`, dir, sourcePath)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_history:") ||
+		!strings.Contains(context, "recurring_tool_codes: ruff:E402=1") ||
+		!strings.Contains(context, "Move imports to module scope.") {
+		t.Fatalf("missing relevant lint history: %s", context)
+	}
+	if strings.Contains(context, "go.license") {
+		t.Fatalf("irrelevant lint history leaked into post-edit context: %s", context)
+	}
+	assertNoRoutineContextClutter(t, context)
+}
+
+func writeHookTraceFixture(t *testing.T, path string) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create trace fixture: %v", err)
+	}
+	defer file.Close()
+
+	err = json.NewEncoder(file).Encode(lint.TraceRecord{
+		RecordedAtUTC: "20260429T000000Z",
+		RepoRoot:      filepath.Dir(filepath.Dir(path)),
+		Result: lint.Result{
+			Scope:  lint.ScopeFiles,
+			Status: "blocked",
+			Findings: []lint.Finding{
+				{
+					CheckID:    "python.import_order",
+					SourceTool: "ruff",
+					Code:       "E402",
+					File:       "lib/python/app.py",
+					Status:     "fail",
+					Message:    "Module import not at top",
+					Advice:     "Move imports to module scope.",
+					Blocking:   true,
+				},
+				{
+					CheckID:    "go.license",
+					SourceTool: "license_header",
+					File:       "go/internal/app.go",
+					Status:     "fail",
+					Message:    "missing required license header text",
+					Blocking:   true,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode trace fixture: %v", err)
 	}
 }
 

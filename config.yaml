@@ -122,13 +122,99 @@ policy:
       confidence: high
       meaning: >-
         Import executes away from module scope, usually inside runtime control
-        flow.
+        flow, hiding a required dependency or masking cyclic design pressure.
       advice:
-        summary: Move required imports to module scope and fail during startup.
+        summary: >-
+          Move required imports to module scope. If that exposes a cycle, fix
+          the design instead of hiding the dependency.
         steps:
           - Declare the dependency as required.
           - Import it at module scope.
-          - Replace runtime fallback paths with startup validation.
+          - >-
+            Use SOLID boundaries to split responsibilities when modules depend
+            on each other.
+          - >-
+            In Python, introduce a Protocol in a neutral module when two
+            concrete implementations would otherwise import each other.
+          - >-
+            Replace lazy, conditional, or fallback import paths with explicit
+            startup validation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: mypy
+      message_substrings:
+        - Cannot resolve import cycle
+        - import cycle
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: medium
+      meaning: >-
+        Concrete modules depend on each other strongly enough that the type
+        checker sees an import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pyright
+      message_substrings:
+        - Import cycle detected
+        - Import cycles detected
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: medium
+      meaning: >-
+        Concrete modules depend on each other strongly enough that the type
+        checker sees an import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pylint
+      codes:
+        - cyclic-import
+        - R0401
+      policy_id: python.import_cycles
+      principle_ids:
+        - protocol-first-design
+        - solid-is-law
+      confidence: high
+      meaning: Pylint found a concrete module import cycle.
+      advice:
+        summary: Break the concrete dependency cycle with an explicit interface.
+        steps:
+          - Identify the two modules that import each other.
+          - Move the shared contract into a neutral module.
+          - >-
+            In Python, model that contract with a Protocol when behavior is
+            required.
+          - >-
+            Depend on the Protocol or smaller interface instead of the concrete
+            implementation.
         rerun:
           - make pre-commit
           - make check
@@ -410,6 +496,12 @@ agent_advice:
       - principle_id: static-analysis-is-the-first-line-of-defense
         axiom: Static analysis is a gate, not background noise.
         action: Treat the finding as a structural signal and fix the cause.
+      - principle_id: no-conditional-imports
+        axiom: Conditional imports are banned.
+        action: >-
+          Use module-scope required imports; if that exposes a cycle, refactor
+          with SOLID boundaries or a Python Protocol instead of hiding the
+          dependency.
       - principle_id: linting-as-code-quality-enforcement
         axiom: A linter warning is review feedback in executable form.
         action: Resolve it structurally instead of weakening the rule.

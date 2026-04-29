@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -91,6 +92,7 @@ func RunWithRegistry(
 		Status:      resultStatus(decisions),
 		Decisions:   decisions,
 		Diagnostics: diagnosticsFromDecisions(decisions),
+		Findings:    findingsFromDecisions(decisions, options.Files),
 	}, nil
 }
 
@@ -144,7 +146,7 @@ func evaluatePolicy(
 		}
 
 		if len(decisions) > 0 {
-			return decisions, nil
+			return attachPolicySource(decisions, policyDef), nil
 		}
 	}
 
@@ -153,6 +155,37 @@ func evaluatePolicy(
 	}
 
 	return []policy.Decision{recordDecision(policyDef, scope, options)}, nil
+}
+
+func attachPolicySource(
+	decisions []policy.Decision,
+	policyDef policy.Policy,
+) []policy.Decision {
+	source := policySource(policyDef)
+	if source == "" {
+		return decisions
+	}
+
+	withSource := make([]policy.Decision, 0, len(decisions))
+	for _, decision := range decisions {
+		if decision.Evidence == nil {
+			decision.Evidence = map[string]any{}
+		}
+		if _, exists := decision.Evidence["policy_source"]; !exists {
+			decision.Evidence["policy_source"] = source
+		}
+		withSource = append(withSource, decision)
+	}
+
+	return withSource
+}
+
+func policySource(policyDef policy.Policy) string {
+	if policyDef.Source.Path != "" {
+		return policyDef.Source.File + ":" + policyDef.Source.Path
+	}
+
+	return policyDef.Source.File
 }
 
 func recordDecision(
@@ -164,7 +197,8 @@ func recordDecision(
 	decision.Severity = decisionRecord
 
 	decision.Evidence = map[string]any{
-		"scope": scope,
+		"policy_source": policySource(policyDef),
+		"scope":         scope,
 	}
 	if len(options.Files) > 0 {
 		decision.Evidence["files"] = append([]string(nil), options.Files...)
@@ -198,6 +232,167 @@ func diagnosticsFromDecisions(decisions []policy.Decision) []diagnostics.Diagnos
 	}
 
 	return diagnosticItems
+}
+
+func findingsFromDecisions(
+	decisions []policy.Decision,
+	files []string,
+) []Finding {
+	findings := []Finding{}
+	for _, decision := range decisions {
+		if len(decision.Diagnostics) == 0 {
+			findings = append(findings, findingFromDecision(decision, files))
+
+			continue
+		}
+
+		for _, diagnostic := range decision.Diagnostics {
+			findings = append(
+				findings,
+				findingFromDiagnostic(decision, diagnostic, files),
+			)
+		}
+	}
+
+	return findings
+}
+
+func findingFromDecision(
+	decision policy.Decision,
+	files []string,
+) Finding {
+	return Finding{
+		CheckID:      decision.PolicyID,
+		PolicyID:     decision.PolicyID,
+		PolicySource: policySourceFromEvidence(decision.Evidence),
+		Status:       statusFromDecision(decision),
+		Severity:     decision.Severity,
+		Message:      decision.Message,
+		Advice:       decision.Suggestion,
+		EthosIDs:     append([]string(nil), decision.PrincipleIDs...),
+		Files:        filesFromDecision(decision, files),
+		RawOutcome:   rawOutcomeFromDecision(decision),
+		Blocking:     decisionBlocks(decision),
+	}
+}
+
+func findingFromDiagnostic(
+	decision policy.Decision,
+	diagnostic diagnostics.Diagnostic,
+	files []string,
+) Finding {
+	return Finding{
+		CheckID:      firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
+		PolicyID:     firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
+		PolicySource: policySourceFromEvidence(decision.Evidence),
+		SourceTool:   firstNonEmpty(diagnostic.Tool, toolFromEvidence(decision.Evidence)),
+		Status:       statusFromDecision(decision),
+		Severity:     firstNonEmpty(diagnostic.Severity, decision.Severity),
+		Code:         diagnostic.Code,
+		File:         diagnostic.File,
+		Line:         diagnostic.Line,
+		Column:       diagnostic.Column,
+		Message:      diagnostic.Message,
+		Advice:       firstNonEmpty(diagnostic.Advice, decision.Suggestion),
+		EthosIDs: firstNonEmptySlice(
+			diagnostic.PrincipleIDs,
+			decision.PrincipleIDs,
+		),
+		Files:      filesFromDecision(decision, files),
+		RawOutcome: rawOutcomeFromDecision(decision),
+		Blocking:   decisionBlocks(decision),
+	}
+}
+
+func statusFromDecision(decision policy.Decision) string {
+	if decisionBlocks(decision) {
+		return "fail"
+	}
+	if decision.Decision == decisionRecord || decision.Severity == decisionRecord {
+		return "pass"
+	}
+
+	return decision.Decision
+}
+
+func decisionBlocks(decision policy.Decision) bool {
+	return decision.Decision == decisionBlock || decision.Severity == decisionBlock
+}
+
+func filesFromDecision(decision policy.Decision, fallback []string) []string {
+	if files, ok := decision.Evidence["files"].([]string); ok {
+		return append([]string(nil), files...)
+	}
+
+	return append([]string(nil), fallback...)
+}
+
+func rawOutcomeFromDecision(decision policy.Decision) map[string]any {
+	if len(decision.Evidence) == 0 {
+		return nil
+	}
+
+	raw := make(map[string]any, len(decision.Evidence))
+	for key, value := range decision.Evidence {
+		switch key {
+		case "stdout", "stderr":
+			if text, ok := value.(string); ok && len(text) > 500 {
+				raw[key] = text[:500]
+
+				continue
+			}
+		}
+		raw[key] = value
+	}
+
+	return raw
+}
+
+func policySourceFromEvidence(evidence map[string]any) string {
+	return firstNonEmpty(
+		stringEvidence(evidence, "policy_source"),
+		stringEvidence(evidence, "command"),
+	)
+}
+
+func toolFromEvidence(evidence map[string]any) string {
+	return stringEvidence(evidence, "tool")
+}
+
+func stringEvidence(evidence map[string]any, key string) string {
+	value, ok := evidence[key]
+	if !ok {
+		return ""
+	}
+
+	if value, ok := value.(string); ok {
+		return value
+	}
+	if value, ok := value.([]string); ok {
+		return strings.Join(value, " ")
+	}
+
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func firstNonEmptySlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return append([]string(nil), value...)
+		}
+	}
+
+	return nil
 }
 
 func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {

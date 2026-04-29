@@ -29,10 +29,11 @@ const (
 )
 
 type gitWrapperRoute struct {
-	UpdatedInput map[string]any
-	Reason       string
-	Block        bool
-	Rewrite      bool
+	UpdatedInput  map[string]any
+	BlockPolicyID string
+	Reason        string
+	Block         bool
+	Rewrite       bool
 }
 
 func gitWrapperRouteFor(event Event) gitWrapperRoute {
@@ -344,14 +345,28 @@ func evasiveGitShell(command string) bool {
 }
 
 func gitWrapperBlockDecision(bundle policy.Bundle, reason string) policy.Decision {
+	return routeBlockDecision(bundle, gitWrapperPolicyID, reason)
+}
+
+func routeBlockDecision(
+	bundle policy.Bundle,
+	policyID string,
+	reason string,
+) policy.Decision {
+	if policyID == "" {
+		policyID = gitWrapperPolicyID
+	}
+
 	policyDef, ok := bundle.Policies[gitWrapperPolicyID]
+	if policyID != gitWrapperPolicyID {
+		policyDef, ok = bundle.Policies[policyID]
+	}
 	if !ok {
 		policyDef = policy.Policy{
-			ID:              gitWrapperPolicyID,
-			Category:        "git",
+			ID:              policyID,
+			Category:        "tooling",
 			DefaultSeverity: "block",
-			Message:         gitWrapperCircumventionRefusal,
-			Suggestion:      gitWrapperUseManagedSuggestion,
+			Message:         reason,
 			SupportedModes:  []string{modeBlock},
 			DefenseLayers:   policy.GitDefenseLayers("block", "wrapper", "block", "", ""),
 		}

@@ -37,15 +37,51 @@ func evidenceMapForDiagnostic(
 		if !strings.EqualFold(strings.TrimSpace(mapping.Source), item.Tool) {
 			continue
 		}
+		if len(mapping.Codes) == 0 && len(mapping.MessageSubstrings) == 0 {
+			continue
+		}
 
-		for _, code := range mapping.Codes {
-			if diagnosticCodeMatches(code, item.Code) {
-				return mapping, true
-			}
+		if evidenceCodesMatch(mapping.Codes, item.Code) &&
+			evidenceMessagesMatch(mapping.MessageSubstrings, item.Message) {
+			return mapping, true
 		}
 	}
 
 	return EvidenceMap{}, false
+}
+
+func evidenceCodesMatch(patterns []string, code string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+
+	for _, pattern := range patterns {
+		if diagnosticCodeMatches(pattern, code) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func evidenceMessagesMatch(patterns []string, message string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+
+	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
+	if normalizedMessage == "" {
+		return false
+	}
+
+	for _, pattern := range patterns {
+		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
+		if normalizedPattern != "" && strings.Contains(normalizedMessage, normalizedPattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func diagnosticCodeMatches(pattern string, code string) bool {
