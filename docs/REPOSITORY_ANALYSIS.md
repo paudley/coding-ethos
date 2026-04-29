@@ -29,8 +29,8 @@ hook prompt grounding aligned with a shared structured ethos.
 - `go/internal/policy`, `go/internal/hooks`, `go/internal/gitwrap`, and
   `go/internal/agenthooks`: compiled policy runtime, agent hook adapters, and
   git wrapper enforcement.
-- `pre-commit/hooks/check_*.py`: remaining Python hook wrappers around
-  external analyzers.
+- `pre-commit/hooks/go-hooks/`: Go-owned policy checks, external analyzer
+  orchestration, and normalized hook feedback.
 
 The CLI is intentionally thin. New behavior should usually land in one of the
 narrow modules above, with `cli.py` limited to wiring and exit-code handling.

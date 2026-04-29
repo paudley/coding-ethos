@@ -1,0 +1,207 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package hookoutput
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/lint"
+)
+
+const (
+	FormatAuto  = "auto"
+	FormatHuman = "human"
+	FormatJSON  = "json"
+	FormatTOON  = "toon"
+	FormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+)
+
+func SelectedFormat() string {
+	return SelectedFormatWithEnv(os.Getenv)
+}
+
+func SelectedFormatWithEnv(getenv func(string) string) string {
+	format := strings.ToLower(strings.TrimSpace(getenv(FormatEnv)))
+	switch format {
+	case FormatHuman, FormatJSON, FormatTOON:
+		return format
+	case "", FormatAuto:
+		if IsAgentEnvironment(getenv) {
+			return FormatTOON
+		}
+		return FormatHuman
+	default:
+		return FormatHuman
+	}
+}
+
+func IsAgentEnvironment(getenv func(string) string) bool {
+	for _, marker := range AgentEnvironmentMarkers() {
+		if strings.TrimSpace(getenv(marker)) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func AgentEnvironmentMarkers() []string {
+	return []string{
+		"CODEX_THREAD_ID",
+		"CODEX_CI",
+		"CODEX_MANAGED_BY_NPM",
+		"CLAUDECODE",
+		"CLAUDE_CODE_ENTRYPOINT",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+		"GEMINI_CLI",
+		"AIDER_MODEL",
+		"CURSOR_TRACE_ID",
+	}
+}
+
+func TOONCell(value string) string {
+	cleaned := strings.TrimSpace(value)
+	cleaned = strings.ReplaceAll(cleaned, "\\", "\\\\")
+	cleaned = strings.ReplaceAll(cleaned, "\r\n", "\\n")
+	cleaned = strings.ReplaceAll(cleaned, "\n", "\\n")
+	cleaned = strings.ReplaceAll(cleaned, ",", "\\,")
+
+	return cleaned
+}
+
+func FormatLintResult(result lint.Result, format string) (string, error) {
+	switch format {
+	case FormatJSON:
+		return FormatLintResultJSON(result)
+	case FormatTOON:
+		return FormatLintResultTOON(result), nil
+	default:
+		return FormatLintResultHuman(result), nil
+	}
+}
+
+func EncodeLintResult(writer io.Writer, result lint.Result, format string) error {
+	output, err := FormatLintResult(result, format)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(writer, output)
+
+	return err
+}
+
+func FormatLintResultJSON(result lint.Result) (string, error) {
+	var builder strings.Builder
+	encoder := json.NewEncoder(&builder)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(result); err != nil {
+		return "", err
+	}
+
+	return strings.TrimRight(builder.String(), "\n"), nil
+}
+
+func FormatLintResultTOON(result lint.Result) string {
+	findings := lintFindings(result)
+	lines := []string{
+		"format: toon",
+		"tool: policy-lint",
+		"status: FAIL",
+		"title: POLICY PREFLIGHT FAILED",
+		"scope: " + TOONCell(result.Scope),
+		fmt.Sprintf(
+			"findings[%d]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+			len(findings),
+		),
+	}
+	for _, finding := range findings {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s",
+			TOONCell(finding.Tool),
+			TOONCell(finding.File),
+			finding.Line,
+			finding.Column,
+			TOONCell(finding.Severity),
+			TOONCell(finding.Code),
+			TOONCell(finding.PolicyID),
+			TOONCell(finding.Message),
+			TOONCell(finding.Advice),
+			TOONCell(finding.Detail),
+		))
+	}
+	lines = append(
+		lines,
+		"guidance[1]{message}:",
+		"  Fix the reported policy diagnostics before committing.",
+	)
+
+	return strings.Join(lines, "\n")
+}
+
+func FormatLintResultHuman(result lint.Result) string {
+	findings := lintFindings(result)
+	lines := []string{
+		"coding-ethos policy preflight failed",
+		"scope: " + result.Scope,
+	}
+	for _, finding := range findings {
+		location := finding.File
+		if finding.Line > 0 {
+			location += ":" + strconv.Itoa(finding.Line)
+		}
+		lines = append(lines, fmt.Sprintf(
+			"- %s [%s] %s",
+			location,
+			firstNonEmpty(finding.PolicyID, finding.Tool),
+			finding.Message,
+		))
+		if finding.Advice != "" {
+			lines = append(lines, "  advice: "+finding.Advice)
+		}
+	}
+	lines = append(lines, "Fix the reported policy diagnostics before committing.")
+
+	return strings.Join(lines, "\n")
+}
+
+func lintFindings(result lint.Result) []diagnostics.Diagnostic {
+	if len(result.Diagnostics) > 0 {
+		return result.Diagnostics
+	}
+
+	findings := []diagnostics.Diagnostic{}
+	for _, decision := range result.Decisions {
+		if len(decision.Diagnostics) > 0 {
+			findings = append(findings, decision.Diagnostics...)
+			continue
+		}
+		findings = append(findings, diagnostics.Diagnostic{
+			Tool:     "policy",
+			Severity: decision.Severity,
+			PolicyID: decision.PolicyID,
+			Message:  decision.Message,
+			Advice:   decision.Suggestion,
+		})
+	}
+
+	return findings
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
+}

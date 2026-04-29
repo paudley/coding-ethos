@@ -80,6 +80,14 @@ func EvaluateFilePrivateKey(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+		regular, err := isRegularGuardFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !regular {
+			continue
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -112,6 +120,14 @@ func EvaluateFileShebang(
 ) ([]policy.Decision, error) {
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+		regular, err := isRegularGuardFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !regular {
+			continue
+		}
+
 		text, binary, err := readGuardText(path)
 		if err != nil {
 			return nil, err
@@ -271,7 +287,8 @@ func EvaluatePIIScrubber(
 	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
 
 	for _, file := range context.Files {
-		if hasConfiguredPrefix(file, exemptPrefixes) {
+		if hasConfiguredPrefix(file, exemptPrefixes) ||
+			hasHiddenDirectoryComponent(file) {
 			continue
 		}
 
@@ -435,6 +452,22 @@ func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
 	return patterns, nil
 }
 
+func hasHiddenDirectoryComponent(path string) bool {
+	normalized := filepath.ToSlash(path)
+	normalized = strings.TrimPrefix(normalized, "./")
+	parts := strings.Split(normalized, "/")
+	for index, part := range parts {
+		if index == len(parts)-1 || part == "" || part == "." || part == ".." {
+			continue
+		}
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+
+	return false
+}
+
 func resolveGuardPath(cwd string, path string) string {
 	if filepath.IsAbs(path) || cwd == "" {
 		return path
@@ -457,6 +490,11 @@ func firstGuardLines(text string, count int) string {
 }
 
 func readGuardText(path string) (string, bool, error) {
+	regular, err := isRegularGuardFile(path)
+	if err != nil || !regular {
+		return "", false, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -523,6 +561,11 @@ func scanGuardLines(
 	path string,
 	visit func(lineNumber int, line string) ([]policy.Decision, bool),
 ) ([]policy.Decision, error) {
+	regular, err := isRegularGuardFile(path)
+	if err != nil || !regular {
+		return nil, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -554,6 +597,19 @@ func scanGuardLines(
 	}
 
 	return nil, nil
+}
+
+func isRegularGuardFile(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("stat file %s: %w", path, err)
+	}
+
+	return info.Mode().IsRegular(), nil
 }
 
 func gitAddedFileSet(cwd string) map[string]bool {

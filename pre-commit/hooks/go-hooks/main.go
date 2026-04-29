@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:tagliatelle,gosec,funlen,lll,embeddedstructfieldcheck,modernize // External schemas and legacy hook orchestration.
+//nolint:tagliatelle,gosec,funlen,lll,embeddedstructfieldcheck,modernize // External schemas and bundled hook orchestration.
 package main
 
 import (
@@ -38,6 +38,9 @@ const (
 	consumerRootEnv   = "CODE_ETHOS_CONSUMER_ROOT"
 	privateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize     = 8192
+	severityCritical  = "CRITICAL"
+	severityInfo      = "INFO"
+	severityWarning   = "WARNING"
 )
 
 type Config struct {
@@ -2781,9 +2784,22 @@ func stripGeminiCodeFence(text string) string {
 func parseGeminiResult(responseText string) (geminiResult, error) {
 	var result geminiResult
 
-	err := json.Unmarshal([]byte(stripGeminiCodeFence(responseText)), &result)
-	if err != nil {
-		return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+	cleaned := stripGeminiCodeFence(responseText)
+
+	if strings.HasPrefix(cleaned, "[") {
+		var violations []geminiViolation
+
+		err := json.Unmarshal([]byte(cleaned), &violations)
+		if err != nil {
+			return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+		}
+
+		result.Violations = violations
+	} else {
+		err := json.Unmarshal([]byte(cleaned), &result)
+		if err != nil {
+			return result, fmt.Errorf("parse Gemini JSON response: %w", err)
+		}
 	}
 
 	if result.Verdict == "" {
@@ -2795,7 +2811,7 @@ func parseGeminiResult(responseText string) (geminiResult, error) {
 			strings.TrimSpace(result.Violations[index].Severity),
 		)
 		if result.Violations[index].Severity == "" {
-			result.Violations[index].Severity = "INFO"
+			result.Violations[index].Severity = severityInfo
 		}
 
 		result.Violations[index].File = normalizeGeminiPath(
@@ -3078,7 +3094,7 @@ func appendGeminiViolationWithoutChangedLines(
 
 func (filtered geminiFilteredViolations) hasBlockingCriticals() bool {
 	for _, violation := range filtered.InDiff {
-		if violation.Severity == "CRITICAL" {
+		if violation.Severity == severityCritical {
 			return true
 		}
 	}
@@ -3381,7 +3397,7 @@ func geminiOutcomeStatus(outcome geminiCheckOutcome) string {
 	}
 
 	for _, violation := range outcome.Filtered.InDiff {
-		if violation.Severity == "WARNING" {
+		if violation.Severity == severityWarning {
 			return statusWarn
 		}
 	}
@@ -3786,9 +3802,9 @@ func appendGeminiBatchErrors(
 
 func formatSeverityIcon(severity string) string {
 	switch severity {
-	case "CRITICAL":
+	case severityCritical:
 		return "XX"
-	case "WARNING":
+	case severityWarning:
 		return "W "
 	default:
 		return "--"
@@ -5496,33 +5512,12 @@ func runShellcheck(_ Config, paths []string) int {
 		return 0
 	}
 
-	result := runExternalTool(externalToolRequest{
-		Name:    "shellcheck",
-		Command: toolchainCommandWithFiles("shellcheck", files),
-	})
-	outputText := result.Combined
-
-	findings := parseShellcheckFindings(outputText)
-	if len(findings) > 0 {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     "shellcheck",
-			Title:    "SHELLCHECK FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix shellcheck diagnostics before committing."},
-		}, selectedHookOutputFormat()))
-
-		return 1
-	}
-
-	if outputText != "" {
-		fmt.Fprintln(os.Stdout, outputText)
-	}
-
-	if result.RunnerFailure != nil || result.ExitCode != 0 {
-		return 1
-	}
-
-	return 0
+	return runHookToolWithParser(
+		"shellcheck",
+		repoRoot(),
+		toolchainCommandWithFiles("shellcheck", files),
+		parseShellcheckFindings,
+	)
 }
 
 func parseShellcheckFindings(output string) []hookFinding {
@@ -5535,34 +5530,12 @@ func runYamllint(_ Config, paths []string) int {
 		return 0
 	}
 
-	result := runExternalTool(externalToolRequest{
-		Name:    "yamllint",
-		Dir:     repoRoot(),
-		Command: uvToolchainCommandWithRepoConfig("yamllint", ".yamllint.yml", files),
-	})
-	outputText := result.Combined
-
-	findings := parseYamllintFindings(outputText)
-	if len(findings) > 0 {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     "yamllint",
-			Title:    "YAMLLINT FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix yamllint diagnostics before committing."},
-		}, selectedHookOutputFormat()))
-
-		return 1
-	}
-
-	if outputText != "" {
-		fmt.Fprintln(os.Stdout, outputText)
-	}
-
-	if result.RunnerFailure != nil || result.ExitCode != 0 {
-		return 1
-	}
-
-	return 0
+	return runHookToolWithParser(
+		"yamllint",
+		repoRoot(),
+		uvToolchainCommandWithRepoConfig("yamllint", ".yamllint.yml", files),
+		parseYamllintFindings,
+	)
 }
 
 func parseYamllintFindings(output string) []hookFinding {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -68,12 +69,15 @@ func main() {
 	}
 
 	if *jsonOutput {
-		err = lint.EncodeResult(os.Stdout, result)
+		err = hookoutput.EncodeLintResult(os.Stdout, result, hookoutput.FormatJSON)
 		if err != nil {
 			exitErr(err)
 		}
 	} else {
-		printHuman(result)
+		err = hookoutput.EncodeLintResult(os.Stdout, result, hookoutput.FormatHuman)
+		if err != nil {
+			exitErr(err)
+		}
 	}
 
 	if result.Blocked() {
@@ -137,46 +141,6 @@ func splitNonEmpty(raw string, separator string) []string {
 	}
 
 	return items
-}
-
-func printHuman(result lint.Result) {
-	fmt.Fprintf(os.Stdout, "coding-ethos lint scope: %s\n", result.Scope)
-	fmt.Fprintf(os.Stdout, "status: %s\n", result.Status)
-	fmt.Fprintf(os.Stdout, "policies: %d\n", len(result.Decisions))
-
-	for _, decision := range result.Decisions {
-		fmt.Fprintf(
-			os.Stdout,
-			"- %s [%s]: %s\n",
-			decision.PolicyID,
-			decision.Severity,
-			decision.Message,
-		)
-	}
-
-	for _, diagnostic := range result.Diagnostics {
-		location := diagnostic.File
-		if diagnostic.Line > 0 {
-			location += fmt.Sprintf(":%d", diagnostic.Line)
-			if diagnostic.Column > 0 {
-				location += fmt.Sprintf(":%d", diagnostic.Column)
-			}
-		}
-
-		code := diagnostic.Code
-		if code != "" {
-			code = " " + code
-		}
-
-		fmt.Fprintf(
-			os.Stdout,
-			"  %s [%s%s] %s\n",
-			location,
-			diagnostic.Tool,
-			code,
-			diagnostic.Message,
-		)
-	}
 }
 
 func exitErr(err error) {

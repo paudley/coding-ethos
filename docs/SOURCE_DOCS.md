@@ -15,4 +15,4 @@
 - `pre-commit/hooks/HOOKS.md`: hook implementation overview and development
   commands.
 - `pre-commit/hooks/coding_ethos_hooks/CODING_ETHOS_HOOKS.md`: hook package
-  overview, installation flow, and remaining Python wrappers.
+  overview, installation flow, and runtime boundaries.

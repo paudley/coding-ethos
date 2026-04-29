@@ -106,6 +106,17 @@ func assertComplexityFinding(t *testing.T) {
 		complexity[0].Line != 42 {
 		t.Fatalf("parseComplexityFindings() = %#v", complexity)
 	}
+
+	radon := parseRadonComplexityFindings(
+		`{"pkg/app.py":[{"type":"function","rank":"C","lineno":42,"name":"build_payload","complexity":19}]}`,
+		15,
+	)
+	if len(radon) != 1 ||
+		radon[0].Code != "cyclomatic-complexity" ||
+		radon[0].Message != "build_payload" ||
+		radon[0].Detail != "complexity: 19" {
+		t.Fatalf("parseRadonComplexityFindings() = %#v", radon)
+	}
 }
 
 func assertMaintainabilityFinding(t *testing.T) {
@@ -115,6 +126,16 @@ func assertMaintainabilityFinding(t *testing.T) {
 	if len(maintainability) != 1 || maintainability[0].Code != "maintainability-index" {
 		t.Fatalf("parseMaintainabilityFindings() = %#v", maintainability)
 	}
+
+	radon := parseRadonMaintainabilityFindings(
+		`{"pkg/app.py":{"mi":42.5,"rank":"C"}}`,
+		50,
+	)
+	if len(radon) != 1 ||
+		radon[0].Code != "maintainability-index" ||
+		radon[0].Detail != "MI: 42.50" {
+		t.Fatalf("parseRadonMaintainabilityFindings() = %#v", radon)
+	}
 }
 
 func assertMaintainabilityTimeoutFinding(t *testing.T) {
@@ -122,7 +143,7 @@ func assertMaintainabilityTimeoutFinding(t *testing.T) {
 
 	timeout := parseMaintainabilityFindings("Error: radon timed out after 60s")
 	if len(timeout) != 1 ||
-		timeout[0].Code != "timeout" ||
+		timeout[0].Code != timeoutCode ||
 		timeout[0].Message != "radon timed out after 60s" ||
 		timeout[0].Advice == "" {
 		t.Fatalf("parseMaintainabilityFindings(timeout) = %#v", timeout)

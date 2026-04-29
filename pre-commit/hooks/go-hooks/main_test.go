@@ -738,6 +738,39 @@ func TestFilterGeminiModalAllowlistedViolations(t *testing.T) {
 	}
 }
 
+func TestParseGeminiResultAcceptsViolationArray(t *testing.T) {
+	t.Parallel()
+
+	result, err := parseGeminiResult(`[
+		{
+			"severity": "warning",
+			"file": "./pkg/app.py",
+			"line": -1,
+			"ethosSection": "Section 18",
+			"message": "  Add documentation.  "
+		}
+	]`)
+	if err != nil {
+		t.Fatalf("parseGeminiResult() returned error: %v", err)
+	}
+
+	if result.Verdict != passVerdict {
+		t.Fatalf("Verdict = %q, want %q", result.Verdict, passVerdict)
+	}
+
+	if len(result.Violations) != 1 {
+		t.Fatalf("violation count = %d, want 1", len(result.Violations))
+	}
+
+	violation := result.Violations[0]
+	if violation.Severity != severityWarning ||
+		violation.File != "pkg/app.py" ||
+		violation.Line != 0 ||
+		violation.Message != "Add documentation." {
+		t.Fatalf("violation was not normalized: %#v", violation)
+	}
+}
+
 func TestFormatGeminiReportTOON(t *testing.T) {
 	t.Parallel()
 

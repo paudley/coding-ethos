@@ -4,12 +4,15 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
 
 const persistExtraRecordsTestPath = "lib/python/tests/parsing/" +
 	"test_persist_extra_records_integration.py"
+
+var errTestRunnerFailure = errors.New("test runner failure")
 
 func TestParseRuffAutofixFindingsUsesStructuredDiagnostics(t *testing.T) {
 	t.Parallel()
@@ -262,5 +265,41 @@ func TestHookReportTOONKeepsRawOutputOutsideFindingsTable(t *testing.T) {
 		if strings.Contains(findingsLine, unwanted) {
 			t.Fatalf("finding row contains raw output %q:\n%s", unwanted, report)
 		}
+	}
+}
+
+func TestGenericToolFailureFindingReportsTimeout(t *testing.T) {
+	t.Parallel()
+
+	finding := genericToolFailureFindingForResult("shellcheck", externalToolResult{
+		ExitCode: -1,
+		TimedOut: true,
+	})
+
+	if finding.Code != timeoutCode ||
+		finding.Message != "external tool timed out" ||
+		finding.Detail == "" {
+		t.Fatalf("timeout finding mismatch: %#v", finding)
+	}
+}
+
+func TestReportSharedToolResultFormatsRunnerFailure(t *testing.T) {
+	t.Parallel()
+
+	output := captureStdout(t, func() {
+		status := reportSharedToolResult(
+			"yamllint",
+			externalToolResult{RunnerFailure: errTestRunnerFailure, ExitCode: 1},
+			parseYamllintFindings,
+			[]string{"Fix yamllint diagnostics before committing."},
+		)
+		if status != 1 {
+			t.Fatalf("status = %d, want 1", status)
+		}
+	})
+
+	if !strings.Contains(output, "YAMLLINT RUNNER FAILED") ||
+		!strings.Contains(output, "test runner failure") {
+		t.Fatalf("runner failure output mismatch:\n%s", output)
 	}
 }

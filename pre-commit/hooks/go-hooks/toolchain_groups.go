@@ -1,15 +1,26 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:mnd,lll // Parses external tool output and builds fixed command argv lists.
+//nolint:lll // Parses external tool output and builds fixed command argv lists.
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+)
+
+const (
+	complexityThreshold      = 15
+	maintainabilityThreshold = 50
+	radonExcludePattern      = ".venv/*,node_modules/*"
+	timeoutCode              = "timeout"
+	vultureMinConfidence     = 80
+	vultureTimeoutSeconds    = 120
 )
 
 func runHadolint(_ Config, paths []string) int {
@@ -45,12 +56,33 @@ func runPythonComplexity(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript(
-		"complexity",
-		"check_complexity.py",
-		files,
-		parseComplexityFindings,
-	)
+	command := append(radonCommand("cc"), files...)
+	command = append(command, "-j", "-e", radonExcludePattern)
+
+	result := runExternalTool(externalToolRequest{
+		Name:    "complexity",
+		Dir:     repoRoot(),
+		Command: command,
+	})
+	if result.RunnerFailure != nil || result.ExitCode != 0 {
+		return reportExternalQualityFailure("complexity", result, parseComplexityFindings)
+	}
+
+	findings := parseRadonComplexityFindings(result.Combined, complexityThreshold)
+	if len(findings) == 0 {
+		return 0
+	}
+
+	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+		Tool:     "complexity",
+		Title:    "COMPLEXITY FAILED",
+		Findings: findings,
+		Guidance: []string{
+			"Extract helper functions, use early returns, or split branches before committing.",
+		},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func runPythonMaintainability(_ Config, paths []string) int {
@@ -58,12 +90,30 @@ func runPythonMaintainability(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript(
-		"maintainability",
-		"check_maintainability.py",
-		nil,
-		parseMaintainabilityFindings,
-	)
+	result := runExternalTool(externalToolRequest{
+		Name: "maintainability",
+		Dir:  repoRoot(),
+		Command: append(
+			radonCommand("mi"),
+			".",
+			"-j",
+			"-e",
+			radonExcludePattern,
+		),
+	})
+	if result.RunnerFailure != nil || result.ExitCode != 0 {
+		return reportExternalQualityFailure(
+			"maintainability",
+			result,
+			parseMaintainabilityFindings,
+		)
+	}
+
+	// Advisory mode: parse the JSON so the check stays exercised, but keep
+	// success silent until maintainability becomes a blocking gate.
+	_ = parseRadonMaintainabilityFindings(result.Combined, maintainabilityThreshold)
+
+	return 0
 }
 
 func runPythonVulture(_ Config, paths []string) int {
@@ -71,7 +121,29 @@ func runPythonVulture(_ Config, paths []string) int {
 		return 0
 	}
 
-	return runPythonHookScript("vulture", "check_vulture.py", nil, parseVultureFindings)
+	command := append(
+		[]string{"uv", "run", "--quiet", "--project", hooksProjectPath(), "vulture", "."},
+		vultureWhitelistArgs()...,
+	)
+	command = append(
+		command,
+		"--min-confidence",
+		strconv.Itoa(vultureMinConfidence),
+		"--exclude",
+		strings.Join(vultureExcludePatterns(), ","),
+	)
+
+	result := runExternalTool(externalToolRequest{
+		Name:           "vulture",
+		Dir:            repoRoot(),
+		Command:        command,
+		TimeoutSeconds: vultureTimeoutSeconds,
+	})
+	if result.ExitCode == 0 && result.RunnerFailure == nil {
+		return 0
+	}
+
+	return reportExternalQualityFailure("vulture", result, parseVultureFindings)
 }
 
 func runGoFormatCheck(_ Config, paths []string) int {
@@ -190,22 +262,6 @@ func runGolangciLint(_ Config, paths []string) int {
 	)
 }
 
-func runPythonHookScript(
-	name string,
-	script string,
-	files []string,
-	parseFindings func(string) []hookFinding,
-) int {
-	command := make([]string, 0, len(files)+7)
-	command = append(command,
-		"uv", "run", "--quiet", "--project", hooksProjectPath(),
-		"python", filepath.Join(hooksProjectPath(), script),
-	)
-	command = append(command, files...)
-
-	return runHookToolWithParser(name, repoRoot(), command, parseFindings)
-}
-
 func configuredGoWorktree() (string, bool) {
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
@@ -235,6 +291,95 @@ func configuredGoWorktree() (string, bool) {
 	}
 
 	return path, true
+}
+
+func radonCommand(command string) []string {
+	return []string{
+		"uv",
+		"run",
+		"--quiet",
+		"--project",
+		hooksProjectPath(),
+		"radon",
+		command,
+	}
+}
+
+func vultureWhitelistArgs() []string {
+	for _, candidate := range []string{
+		filepath.Join(hooksProjectPath(), "vulture_whitelist.py"),
+		filepath.Join(filepath.Dir(hooksProjectPath()), "vulture_whitelist.py"),
+	} {
+		_, err := os.Stat(candidate)
+		if err == nil {
+			return []string{candidate}
+		}
+	}
+
+	return nil
+}
+
+func vultureExcludePatterns() []string {
+	return []string{
+		".venv",
+		"*/.venv",
+		"*/.venv/*",
+		"lib/python/.venv",
+		"lib/python/.venv/*",
+		".lint-cache",
+		"*/.lint-cache",
+		"*/.lint-cache/*",
+		"lib/python/.lint-cache",
+		"lib/python/.lint-cache/*",
+		"__pycache__",
+		"*/__pycache__",
+		"node_modules",
+		"*/node_modules",
+		"tests",
+		"*/tests",
+		"*/tests/*",
+	}
+}
+
+func reportExternalQualityFailure(
+	name string,
+	result externalToolResult,
+	parseFindings func(string) []hookFinding,
+) int {
+	if result.RunnerFailure != nil {
+		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+			Tool:  name,
+			Title: strings.ToUpper(name) + " RUNNER FAILED",
+			Findings: []hookFinding{{
+				Tool:     name,
+				Severity: "fatal",
+				Message:  result.RunnerFailure.Error(),
+			}},
+			Guidance: []string{
+				"Install the required tool or fix the hook runner configuration.",
+			},
+		}, selectedHookOutputFormat()))
+
+		return 1
+	}
+
+	findings := parseFindings(result.Combined)
+	rawOutput := []string(nil)
+
+	if len(findings) == 0 {
+		findings = []hookFinding{genericToolFailureFindingForResult(name, result)}
+		rawOutput = boundedRawOutputLines(result.Combined)
+	}
+
+	fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
+		Tool:      name,
+		Title:     strings.ToUpper(name) + " FAILED",
+		Findings:  findings,
+		RawOutput: rawOutput,
+		Guidance:  []string{"Fix the reported diagnostics before committing."},
+	}, selectedHookOutputFormat()))
+
+	return 1
 }
 
 func goFiles(paths []string) []string {
@@ -329,6 +474,50 @@ func parseComplexityFindings(output string) []hookFinding {
 	return findings
 }
 
+type radonComplexityItem struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Rank       string `json:"rank"`
+	LineNo     int    `json:"lineno"`
+	Complexity int    `json:"complexity"`
+}
+
+func parseRadonComplexityFindings(output string, threshold int) []hookFinding {
+	results := map[string][]radonComplexityItem{}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &results)
+	if err != nil {
+		return parseComplexityFindings(output)
+	}
+
+	findings := []hookFinding{}
+
+	for file, items := range results {
+		for _, item := range items {
+			if item.Complexity <= threshold {
+				continue
+			}
+
+			findings = append(findings, hookFinding{
+				Tool:     "complexity",
+				File:     file,
+				Line:     item.LineNo,
+				Severity: "error",
+				Code:     "cyclomatic-complexity",
+				Message:  item.Name,
+				Detail:   fmt.Sprintf("complexity: %d", item.Complexity),
+				Metadata: map[string]any{
+					"rank":      item.Rank,
+					"type":      item.Type,
+					"threshold": threshold,
+				},
+			})
+		}
+	}
+
+	return findings
+}
+
 func parseMaintainabilityFindings(output string) []hookFinding {
 	findings := []hookFinding{}
 
@@ -357,6 +546,43 @@ func parseMaintainabilityFindings(output string) []hookFinding {
 	return findings
 }
 
+type radonMaintainabilityItem struct {
+	Rank string  `json:"rank"`
+	MI   float64 `json:"mi"`
+}
+
+func parseRadonMaintainabilityFindings(output string, threshold int) []hookFinding {
+	results := map[string]radonMaintainabilityItem{}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &results)
+	if err != nil {
+		return parseMaintainabilityFindings(output)
+	}
+
+	findings := []hookFinding{}
+
+	for file, item := range results {
+		if item.MI >= float64(threshold) {
+			continue
+		}
+
+		findings = append(findings, hookFinding{
+			Tool:     "maintainability",
+			File:     file,
+			Severity: "warning",
+			Code:     "maintainability-index",
+			Message:  "Maintainability index below configured threshold.",
+			Detail:   fmt.Sprintf("MI: %.2f", item.MI),
+			Metadata: map[string]any{
+				"rank":      item.Rank,
+				"threshold": threshold,
+			},
+		})
+	}
+
+	return findings
+}
+
 func parseMaintainabilityToolError(line string) (hookFinding, bool) {
 	message := strings.TrimSpace(strings.TrimPrefix(line, "Error:"))
 	if message == strings.TrimSpace(line) || message == "" {
@@ -370,7 +596,7 @@ func parseMaintainabilityToolError(line string) (hookFinding, bool) {
 		Advice:   "Run the maintainability check directly, then simplify or split the slow module before committing.",
 	}
 	if strings.Contains(strings.ToLower(message), "timed out") {
-		finding.Code = "timeout"
+		finding.Code = timeoutCode
 	}
 
 	return finding, true

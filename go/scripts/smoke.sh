@@ -157,22 +157,22 @@ printf '%s%s\n' 'PLC' '0415' > "$git_repo/forbidden.txt"
 expect_compiled_file_block forbidden.txt shell.forbidden_strings
 rm -f "$git_repo/forbidden.txt"
 
+printf '.coding-ethos/\n' > "$git_repo/.gitignore"
 printf 'x\n' > "$git_repo/file.txt"
-git -C "$git_repo" add file.txt
-
+git -C "$git_repo" add .gitignore file.txt
 printf '==> validating git wrapper allows normal commit\n'
 (
   cd "$git_repo"
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$(command -v git)" \
-    commit -m "test" >/dev/null
+    commit -m "test(seed): create smoke fixture" >/dev/null
 )
 first_head="$(git -C "$git_repo" rev-parse HEAD)"
-
+"$repo_root/go/scripts/smoke_hook_edges.sh" gitlink "$lint_bin" "$policy_dir" "$git_repo" "$first_head"
 printf '==> validating hook detects unchanged commit HEAD\n'
-pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m noop"}}))' "$git_repo")"
-post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m noop"}}))' "$git_repo")"
+pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
+post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
 printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out
 set +e
 printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json >/tmp/coding-ethos-hook-smoke.out 2>&1
@@ -194,7 +194,7 @@ set +e
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$fake_git" \
-    commit -m "false-success" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit -m "test(seed): false success" >/tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -217,7 +217,7 @@ set +e
     --bundle "$policy_dir/policy-bundle.json" \
     --check-only \
     --json \
-    commit -m "admin" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit -m "test(seed): admin approval" >/tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -236,7 +236,7 @@ set +e
   "$git_bin" \
     --bundle "$policy_dir/policy-bundle.json" \
     --real-git "$(command -v git)" \
-    commit --no-verify -m "bypass" >/tmp/coding-ethos-git-smoke.out 2>&1
+    commit --no-verify -m "test(seed): bypass" >/tmp/coding-ethos-git-smoke.out 2>&1
 )
 git_status=$?
 set -e
@@ -313,8 +313,8 @@ if [[ "$wrapper_status" -ne 2 ]]; then
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
 fi
-if ! grep -q '"policy_id": "git.staged_admin_files"' \
-  /tmp/coding-ethos-hook-wrapper-smoke.out; then
+if ! grep -q '^format: toon$' /tmp/coding-ethos-hook-wrapper-smoke.out ||
+  ! grep -q 'git.staged_admin_files' /tmp/coding-ethos-hook-wrapper-smoke.out; then
   printf 'expected compiled preflight staged admin policy output:\n' >&2
   cat /tmp/coding-ethos-hook-wrapper-smoke.out >&2
   exit 1
@@ -438,7 +438,7 @@ if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
   cat /tmp/coding-ethos-cutover-install.out >&2
   exit 1
 fi
-
+"$repo_root/go/scripts/smoke_hook_edges.sh" build-failure "$run_go_hook" "$cutover_repo"
 printf '==> validating agent git wrapper rewrite and refusal\n'
 (
   cd "$wrapper_repo"

@@ -13,10 +13,13 @@ This package provides shared utilities for coding-ethos Go hooks.
 
 The parent `pre-commit/hooks/` directory contains the actual hook implementations:
 
-- `go-hooks/` - Compiled policy preflight, generic file checks, shell checks, direct-import enforcement, utility and SQL centralization, file and module doc checks, type-check orchestration, pytest gating, comment suppression enforcement, manifest and plan validation, compiled `python.pyproject_ignores` enforcement, repo-specific PII/ignore/license policies, repo-root Python version consistency checks, shared hook policy, and the active Gemini AI review runner
-- `check_complexity.py` - Cyclomatic complexity checks
-- `check_maintainability.py` - Maintainability index checks
-- `check_vulture.py` - Dead-code checks
+- `go-hooks/` - Compiled policy preflight, generic file checks, shell checks,
+  direct-import enforcement, utility and SQL centralization, file and module doc
+  checks, type-check orchestration, Python quality orchestration, pytest gating,
+  comment suppression enforcement, manifest and plan validation, compiled
+  `python.pyproject_ignores` enforcement, repo-specific PII/ignore/license
+  policies, repo-root Python version consistency checks, shared hook policy, and
+  the active Gemini AI review runner
 
 ## Installation
 
