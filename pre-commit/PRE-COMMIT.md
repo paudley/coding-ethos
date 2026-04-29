@@ -306,8 +306,8 @@ Failed grouped hook runs emit a runner-owned execution summary before captured
 tool output, including group status, duration, failed groups, and per-command
 timing for in-process group execution.
 Go-owned policy checks, Python static checks, Gemini AI checks, docstring
-coverage, shellcheck/yamllint, and the remaining external tool wrappers use
-this normalized report path.
+coverage, shellcheck/yamllint, and external analyzer orchestration use this
+normalized report path.
 Pylint config is generated as `.pylintrc`, but the Pylint checker is disabled
 by default in `python.type_check.checkers`; re-enable it per repo after the
 local `.pylintrc` policy has been reviewed.
@@ -358,8 +358,8 @@ Pre-push re-runs the higher-signal checks over the pushed diff, including full
 Gemini review when enabled.
 
 Most hook runtime and policy enforcement now lives in `hooks/go-hooks/`. Python
-quality checks call Radon and Vulture directly from the Go runner so hook output,
-timeouts, and finding normalization stay under one runtime.
+quality checks call Radon and Vulture directly from the Go runner, and shell,
+YAML, Docker, workflow, Go, and AI analyzer output is normalized there as well.
 
 Commit-message hooks enforce:
 

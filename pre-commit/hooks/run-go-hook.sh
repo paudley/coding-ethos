@@ -13,6 +13,10 @@ HOOKS_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
+# shellcheck source=pre-commit/hooks/go-build-report.sh
+source "${SCRIPT_DIR}/go-build-report.sh"
+# shellcheck source=pre-commit/hooks/go-build-cache.sh
+source "${SCRIPT_DIR}/go-build-cache.sh"
 if [[ -z "${CODE_ETHOS_CONSUMER_ROOT:-}" && "${ROOT}" == "${ETHOS_ROOT}" ]]; then
 	export CODE_ETHOS_CONSUMER_ROOT="${ROOT}"
 fi
@@ -161,42 +165,6 @@ persist_agent_environment() {
 		# shellcheck disable=SC2016
 		printf 'export PATH=%q:"$PATH"\n' "$TOOLS_BIN_DIR"
 	} >>"$CLAUDE_ENV_FILE"
-}
-
-go_source_hash() {
-	local hash_cmd=(sha256sum)
-	command -v sha256sum >/dev/null || hash_cmd=(shasum -a 256)
-	find "$@" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -print0 |
-		sort -z | xargs -0 "${hash_cmd[@]}" | "${hash_cmd[@]}" | awk '{print $1}'
-}
-
-build_cached_go() {
-	local src_dir="${1:?src dir required}"
-	local bin="${2:?bin required}"
-	shift 2
-	local source_hash
-	source_hash="$(go_source_hash "$@")"
-	local stamp="${bin}.stamp"
-	if [[ -x "$bin" && -f "$stamp" && ! "$bin" -nt "$stamp" &&
-		"$(cat "$stamp")" == "$source_hash" ]]; then
-		return
-	fi
-
-	local tmp_bin="${bin}.tmp.$$"
-	rm -f "$tmp_bin"
-	go build -C "$src_dir" -buildvcs=false -o "$tmp_bin" .
-	mv -f "$tmp_bin" "$bin"
-	printf '%s\n' "$source_hash" >"$stamp"
-}
-
-build_go_binary() {
-	build_cached_go "${1:?src dir required}" "${2:?bin required}" "$1"
-}
-
-build_policy_tool() {
-	local name="${1:?tool name required}"
-	local src_dir="${TOOLS_SRC_DIR}/cmd/${name}"
-	build_cached_go "$src_dir" "${TOOLS_BIN_DIR}/${name}" "$src_dir" "${TOOLS_SRC_DIR}/internal"
 }
 
 has_arg() {

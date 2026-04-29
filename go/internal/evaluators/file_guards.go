@@ -295,7 +295,8 @@ func EvaluatePIIScrubber(
 	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
 
 	for _, file := range context.Files {
-		if hasConfiguredPrefix(file, exemptPrefixes) {
+		if hasConfiguredPrefix(file, exemptPrefixes) ||
+			hasHiddenDirectoryComponent(file) {
 			continue
 		}
 
@@ -457,6 +458,22 @@ func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
 	}
 
 	return patterns, nil
+}
+
+func hasHiddenDirectoryComponent(path string) bool {
+	normalized := filepath.ToSlash(path)
+	normalized = strings.TrimPrefix(normalized, "./")
+	parts := strings.Split(normalized, "/")
+	for index, part := range parts {
+		if index == len(parts)-1 || part == "" || part == "." || part == ".." {
+			continue
+		}
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func resolveGuardPath(cwd string, path string) string {

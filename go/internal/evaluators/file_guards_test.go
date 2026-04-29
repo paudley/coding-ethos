@@ -221,6 +221,63 @@ func TestEvaluatePIIScrubberBlocksConfiguredLiteral(t *testing.T) {
 	}
 }
 
+func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, path := range []string{
+		".claude/settings.local.json",
+		".gemini/settings.json",
+		"nested/.wolf/hooks/session.json",
+	} {
+		fullPath := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", filepath.Dir(fullPath), err)
+		}
+		if err := os.WriteFile(
+			fullPath,
+			[]byte("path: /"+"home/example/project\n"),
+			0o600,
+		); err != nil {
+			t.Fatalf("write %s: %v", fullPath, err)
+		}
+	}
+
+	decisions, err := EvaluatePIIScrubber(
+		fileGuardPolicy("repo.pii_scrubber"),
+		Context{
+			Cwd: root,
+			Files: []string{
+				".claude/settings.local.json",
+				".gemini/settings.json",
+				"nested/.wolf/hooks/session.json",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate PII scrubber: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("expected hidden directories to be skipped, got %#v", decisions)
+	}
+}
+
+func TestEvaluatePIIScrubberStillScansDotFiles(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, ".env", "path: /"+"home/example/project\n")
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.pii_scrubber",
+		EvaluatePIIScrubber,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Tool != "pii" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
 func TestEvaluateLicenseHeaderBlocksMissingSPDX(t *testing.T) {
 	t.Parallel()
 

@@ -43,7 +43,7 @@ immediately upon container initialization.
 - The Makefile is the preferred repo-local operator interface for generation, generated repo-root tool configs, the generated Gemini prompt pack, and bundled Go hook workflows.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/ and installs direct Go runner shims into `.git/hooks/`.
 - style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and .golangci.yml's lll line-length setting.
-- Most hook runtime and policy enforcement now lives in pre-commit/hooks/go-hooks/; the remaining Python hook files are third-party analysis wrappers rather than bespoke policy engines.
+- Hook runtime, policy enforcement, Python policy checks, and bundled analyzer orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
 - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.

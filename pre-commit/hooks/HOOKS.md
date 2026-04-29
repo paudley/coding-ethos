@@ -149,5 +149,5 @@ make pre-commit-all
 When adding or changing Go-backed checks, keep tunable policy in `config.yaml`
 and add or update Go tests in this directory. `make go-fmt` formats every Go
 source file in `go-hooks/`, and `make go-tidy` runs that formatter before
-tidying module metadata. When changing analyzer wrappers, keep wrapper behavior
-narrow and prefer structural fixes over broad suppressions.
+tidying module metadata. Shell files in this directory are bootstrap shims only;
+new check behavior belongs in the Go runner.
