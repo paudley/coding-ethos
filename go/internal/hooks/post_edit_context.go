@@ -16,8 +16,12 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const maxPostEditFindings = 8
-const fastPostEditTimeout = 5 * time.Second
+const (
+	maxPostEditFindings        = 8
+	maxPostEditHistoryCounts   = 3
+	maxPostEditHistoryGuidance = 2
+	fastPostEditTimeout        = 5 * time.Second
+)
 
 func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	if event.HookEventName != "PostToolUse" || !isEditTool(event.ToolName) {
@@ -30,6 +34,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 		files,
 		postEditLintState(bundle, event),
 		postEditFastLintState(event),
+		postEditLintHistory(event),
 	)
 
 	return &HookSpecificOutput{
@@ -52,6 +57,7 @@ func buildPostEditContext(
 	files []string,
 	lintState postEditLintResult,
 	fastLintState postEditLintResult,
+	lintHistory postEditLintHistoryResult,
 ) string {
 	lines := []string{
 		"tool: " + tool,
@@ -66,6 +72,7 @@ func buildPostEditContext(
 
 	lines = appendPostEditLintState(lines, lintState)
 	lines = appendPostEditFastLintState(lines, fastLintState)
+	lines = appendPostEditLintHistory(lines, lintHistory)
 
 	if advice := postEditLanguageAdvice(files); len(advice) > 0 {
 		lines = append(lines, "", "language_advice:")
@@ -144,6 +151,11 @@ type postEditLintResult struct {
 	Checked     bool
 }
 
+type postEditLintHistoryResult struct {
+	Analysis lint.Analysis
+	Checked  bool
+}
+
 func postEditLintState(bundle policy.Bundle, event Event) postEditLintResult {
 	files := event.Files()
 	if len(files) == 0 {
@@ -164,6 +176,46 @@ func postEditLintState(bundle policy.Bundle, event Event) postEditLintResult {
 		Status:      result.Status,
 		Diagnostics: result.Diagnostics,
 	}
+}
+
+func postEditLintHistory(event Event) postEditLintHistoryResult {
+	files := postEditHistoryFiles(event)
+	if len(files) == 0 {
+		return postEditLintHistoryResult{}
+	}
+
+	traceDir, err := lint.DefaultTraceDir(event.Cwd)
+	if err != nil {
+		return postEditLintHistoryResult{}
+	}
+
+	analysis, err := lint.AnalyzeTracesWithOptions(traceDir, lint.AnalysisOptions{
+		Files:                 files,
+		MaxCounts:             maxPostEditHistoryCounts,
+		MaxGuidanceCandidates: maxPostEditHistoryGuidance,
+	})
+	if err != nil || analysis.Findings == 0 {
+		return postEditLintHistoryResult{}
+	}
+
+	return postEditLintHistoryResult{Analysis: analysis, Checked: true}
+}
+
+func postEditHistoryFiles(event Event) []string {
+	files := []string{}
+	for _, file := range event.Files() {
+		item := file
+		if event.Cwd != "" && filepath.IsAbs(item) {
+			if relative, err := filepath.Rel(event.Cwd, item); err == nil &&
+				relative != ".." &&
+				!strings.HasPrefix(filepath.ToSlash(relative), "../") {
+				item = relative
+			}
+		}
+		files = append(files, item)
+	}
+
+	return files
 }
 
 func postEditFastLintState(event Event) postEditLintResult {
@@ -207,6 +259,72 @@ func pythonPostEditFiles(files []string) []string {
 	}
 
 	return pythonFiles
+}
+
+func appendPostEditLintHistory(
+	lines []string,
+	history postEditLintHistoryResult,
+) []string {
+	if !history.Checked {
+		return lines
+	}
+
+	analysis := history.Analysis
+	lines = append(
+		lines,
+		"",
+		"lint_history:",
+		fmt.Sprintf("- findings: %d from prior captured runs", analysis.Findings),
+	)
+	if len(analysis.TopChecks) > 0 {
+		lines = append(lines, "- recurring_checks: "+postEditCountsLine(analysis.TopChecks))
+	}
+	if len(analysis.TopCodes) > 0 {
+		lines = append(lines, "- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes))
+	}
+	if len(analysis.GuidanceCandidates) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "guidance_candidates:")
+	for _, candidate := range analysis.GuidanceCandidates {
+		lines = append(lines, "- "+postEditGuidanceCandidateLine(candidate))
+	}
+
+	return lines
+}
+
+func postEditCountsLine(counts []lint.Count) string {
+	items := make([]string, 0, len(counts))
+	for _, count := range counts {
+		items = append(items, fmt.Sprintf("%s=%d", count.Key, count.Count))
+	}
+
+	return strings.Join(items, ", ")
+}
+
+func postEditGuidanceCandidateLine(candidate lint.GuidanceCandidate) string {
+	code := candidate.Code
+	if code == "" {
+		code = candidate.CheckID
+	}
+	if code != "" {
+		code = " [" + code + "]"
+	}
+
+	advice := candidate.Advice
+	if advice != "" {
+		advice = " advice: " + advice
+	}
+
+	return fmt.Sprintf(
+		"%s%s count=%d: %s%s",
+		candidate.CheckID,
+		code,
+		candidate.Count,
+		candidate.Message,
+		advice,
+	)
 }
 
 func appendPostEditLintState(

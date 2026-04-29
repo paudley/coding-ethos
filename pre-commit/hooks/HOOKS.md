@@ -38,7 +38,9 @@ policy decision, normalized finding, diagnostic, and evidence payloads out of
 agent-facing output while preserving enough data to identify recurring lint
 failures and improve deterministic guidance.
 Use `policy-lint --analyze-log` to rank top failing checks, top tool/code
-pairs, repeated file-policy patterns, ETHOS IDs, and guidance candidates.
+pairs, repeated file-policy patterns, ETHOS IDs, and guidance candidates. Add
+`--for-files path/to/file.py` to filter the analysis to prior findings from the
+same file or file-area pattern.
 Agent shell commands that invoke common lint tools are routed through the
 managed lint capture wrapper. Captured tools currently include `ruff`, `mypy`,
 `pyright`, `pylint`, `shellcheck`, `golangci-lint`, `actionlint`, `yamllint`,
@@ -48,6 +50,10 @@ and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
 rewrites; unsupported providers must use the managed shims injected into the
 hook PATH. The wrapper preserves stdout, stderr, and exit code while recording
 parsed diagnostics in the lint trace log.
+Post-edit advice uses the same traces quietly: when a touched file has relevant
+prior lint failures, hooks surface a capped `lint_history` section with the top
+three recurring checks, top three tool codes, and top two guidance candidates.
+No history section is emitted when there is no relevant captured history.
 
 Agent settings rendering covers every supported provider:
 

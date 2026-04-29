@@ -26,6 +26,11 @@ func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
+	forFilesRaw := flags.String(
+		"for-files",
+		"",
+		"Comma-separated files to filter --analyze-log results",
+	)
 	argvRaw := flags.String(
 		"argv",
 		"",
@@ -73,7 +78,9 @@ func main() {
 			}
 		}
 
-		analysis, analyzeErr := lint.AnalyzeTraces(path)
+		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(path, lint.AnalysisOptions{
+			Files: parseFiles(*forFilesRaw),
+		})
 		if analyzeErr != nil {
 			exitErr(analyzeErr)
 		}

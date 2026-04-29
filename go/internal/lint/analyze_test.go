@@ -103,6 +103,55 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	}
 }
 
+func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTraceFixture(t, root, "python.json", []Finding{
+		{
+			CheckID:    "python.import_order",
+			SourceTool: "ruff",
+			Code:       "E402",
+			File:       filepath.Join(root, "lib", "python", "app.py"),
+			Status:     "fail",
+			Message:    "Module import not at top",
+			Advice:     "Move imports to module scope.",
+			Blocking:   true,
+		},
+	})
+	writeTraceFixture(t, root, "go.json", []Finding{
+		{
+			CheckID:    "repo.license_header",
+			SourceTool: "license_header",
+			File:       "go/internal/app.go",
+			Status:     "fail",
+			Message:    "missing required license header text",
+			Blocking:   true,
+		},
+	})
+
+	analysis, err := AnalyzeTracesWithOptions(root, AnalysisOptions{
+		Files:                 []string{"lib/python/new_module.py"},
+		MaxCounts:             3,
+		MaxGuidanceCandidates: 2,
+	})
+	if err != nil {
+		t.Fatalf("AnalyzeTracesWithOptions() returned error: %v", err)
+	}
+
+	if analysis.Findings != 1 {
+		t.Fatalf("analysis should only include relevant Python finding: %#v", analysis)
+	}
+	if len(analysis.TopCodes) != 1 ||
+		analysis.TopCodes[0] != (Count{Key: "ruff:E402", Count: 1}) {
+		t.Fatalf("top codes = %#v", analysis.TopCodes)
+	}
+	if len(analysis.GuidanceCandidates) != 1 ||
+		analysis.GuidanceCandidates[0].CheckID != "python.import_order" {
+		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
+	}
+}
+
 func writeTraceFixture(
 	t *testing.T,
 	root string,

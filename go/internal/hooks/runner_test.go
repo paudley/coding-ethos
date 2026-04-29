@@ -6,6 +6,7 @@ package hooks_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -1936,6 +1938,96 @@ exit 1
 		!strings.Contains(context, "F401") ||
 		!strings.Contains(context, "unused import") {
 		t.Fatalf("missing fast ruff finding: %s", context)
+	}
+}
+
+func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	err := os.MkdirAll(filepath.Join(dir, ".coding-ethos", "lint-runs"), 0o700)
+	if err != nil {
+		t.Fatalf("create lint trace dir: %v", err)
+	}
+	writeHookTraceFixture(t, filepath.Join(dir, ".coding-ethos", "lint-runs", "trace.json"))
+
+	sourcePath := filepath.Join(dir, "lib", "python", "new_module.py")
+	err = os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	err = os.WriteFile(sourcePath, []byte("print(1)\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": %q}
+	}`, dir, sourcePath)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_history:") ||
+		!strings.Contains(context, "recurring_tool_codes: ruff:E402=1") ||
+		!strings.Contains(context, "Move imports to module scope.") {
+		t.Fatalf("missing relevant lint history: %s", context)
+	}
+	if strings.Contains(context, "go.license") {
+		t.Fatalf("irrelevant lint history leaked into post-edit context: %s", context)
+	}
+	assertNoRoutineContextClutter(t, context)
+}
+
+func writeHookTraceFixture(t *testing.T, path string) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create trace fixture: %v", err)
+	}
+	defer file.Close()
+
+	err = json.NewEncoder(file).Encode(lint.TraceRecord{
+		RecordedAtUTC: "20260429T000000Z",
+		RepoRoot:      filepath.Dir(filepath.Dir(path)),
+		Result: lint.Result{
+			Scope:  lint.ScopeFiles,
+			Status: "blocked",
+			Findings: []lint.Finding{
+				{
+					CheckID:    "python.import_order",
+					SourceTool: "ruff",
+					Code:       "E402",
+					File:       "lib/python/app.py",
+					Status:     "fail",
+					Message:    "Module import not at top",
+					Advice:     "Move imports to module scope.",
+					Blocking:   true,
+				},
+				{
+					CheckID:    "go.license",
+					SourceTool: "license_header",
+					File:       "go/internal/app.go",
+					Status:     "fail",
+					Message:    "missing required license header text",
+					Blocking:   true,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode trace fixture: %v", err)
 	}
 }
 

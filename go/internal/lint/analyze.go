@@ -21,6 +21,7 @@ const (
 
 type Analysis struct {
 	Path               string              `json:"path"`
+	Files              []string            `json:"files,omitempty"`
 	TopChecks          []Count             `json:"top_checks"`
 	TopCodes           []Count             `json:"top_codes"`
 	RepeatedPatterns   []Count             `json:"repeated_patterns"`
@@ -30,6 +31,12 @@ type Analysis struct {
 	RunsAvailable      int                 `json:"runs_available"`
 	RunsSkipped        int                 `json:"runs_skipped"`
 	Findings           int                 `json:"findings"`
+}
+
+type AnalysisOptions struct {
+	Files                 []string
+	MaxCounts             int
+	MaxGuidanceCandidates int
 }
 
 type Count struct {
@@ -62,7 +69,12 @@ func DefaultTraceDir(cwd string) (string, error) {
 }
 
 func AnalyzeTraces(path string) (Analysis, error) {
-	analysis := Analysis{Path: path}
+	return AnalyzeTracesWithOptions(path, AnalysisOptions{})
+}
+
+func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, error) {
+	files := normalizeAnalysisFiles(options.Files)
+	analysis := Analysis{Path: path, Files: files}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return analysis, fmt.Errorf("read lint trace dir %q: %w", path, err)
@@ -97,7 +109,7 @@ func AnalyzeTraces(path string) (Analysis, error) {
 		analysis.RunsAnalyzed++
 
 		for _, finding := range record.Result.Findings {
-			if !findingFailed(finding) {
+			if !findingFailed(finding) || !findingRelevantToFiles(finding, files) {
 				continue
 			}
 
@@ -113,11 +125,14 @@ func AnalyzeTraces(path string) (Analysis, error) {
 		}
 	}
 
-	analysis.TopChecks = topCounts(checkCounts)
-	analysis.TopCodes = topCounts(codeCounts)
-	analysis.RepeatedPatterns = topCounts(patternCounts)
-	analysis.TopEthosIDs = topCounts(ethosCounts)
-	analysis.GuidanceCandidates = topGuidanceCandidates(candidates)
+	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
+	analysis.TopCodes = topCountsLimit(codeCounts, options.MaxCounts)
+	analysis.RepeatedPatterns = topCountsLimit(patternCounts, options.MaxCounts)
+	analysis.TopEthosIDs = topCountsLimit(ethosCounts, options.MaxCounts)
+	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
+		candidates,
+		options.MaxGuidanceCandidates,
+	)
 
 	return analysis, nil
 }
@@ -139,6 +154,80 @@ func loadTraceRecord(path string) (TraceRecord, error) {
 
 func findingFailed(finding Finding) bool {
 	return finding.Blocking || finding.Status == "fail"
+}
+
+func normalizeAnalysisFiles(files []string) []string {
+	normalized := []string{}
+	seen := map[string]bool{}
+	for _, file := range files {
+		cleaned := normalizeAnalysisFile(file)
+		if cleaned == "" || seen[cleaned] {
+			continue
+		}
+
+		normalized = append(normalized, cleaned)
+		seen[cleaned] = true
+	}
+
+	return normalized
+}
+
+func normalizeAnalysisFile(file string) string {
+	trimmed := strings.TrimSpace(file)
+	if trimmed == "" {
+		return ""
+	}
+
+	return strings.TrimPrefix(filepath.ToSlash(filepath.Clean(trimmed)), "./")
+}
+
+func findingRelevantToFiles(finding Finding, files []string) bool {
+	if len(files) == 0 {
+		return true
+	}
+
+	candidates := []string{finding.File}
+	if finding.File == "" {
+		candidates = append(candidates, finding.Files...)
+	}
+	for _, candidate := range candidates {
+		if fileRelevantToFiles(candidate, files) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func fileRelevantToFiles(candidate string, files []string) bool {
+	normalized := normalizeAnalysisFile(candidate)
+	if normalized == "" {
+		return false
+	}
+
+	pattern := normalizedFilePattern(normalized)
+	for _, file := range files {
+		filePattern := normalizedFilePattern(file)
+		if normalized == file ||
+			strings.HasSuffix(normalized, "/"+file) ||
+			strings.HasSuffix(file, "/"+normalized) ||
+			pattern == filePattern ||
+			pathMatchesFileArea(normalized, filePattern) ||
+			pathMatchesFileArea(file, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func pathMatchesFileArea(path string, pattern string) bool {
+	prefix := strings.TrimSuffix(pattern, "/...")
+	if prefix == "" || prefix == pattern {
+		return false
+	}
+
+	return strings.HasPrefix(path, prefix+"/") || strings.Contains(path, "/"+prefix+"/")
 }
 
 func incrementFindingCounts(
@@ -225,6 +314,14 @@ func normalizedFilePattern(path string) string {
 }
 
 func topCounts(counts map[string]int) []Count {
+	return topCountsLimit(counts, maxTraceTopCounts)
+}
+
+func topCountsLimit(counts map[string]int, limit int) []Count {
+	if limit <= 0 {
+		limit = maxTraceTopCounts
+	}
+
 	items := make([]Count, 0, len(counts))
 	for key, count := range counts {
 		items = append(items, Count{Key: key, Count: count})
@@ -238,8 +335,8 @@ func topCounts(counts map[string]int) []Count {
 		return items[left].Key < items[right].Key
 	})
 
-	if len(items) > maxTraceTopCounts {
-		return items[:maxTraceTopCounts]
+	if len(items) > limit {
+		return items[:limit]
 	}
 
 	return items
@@ -248,6 +345,17 @@ func topCounts(counts map[string]int) []Count {
 func topGuidanceCandidates(
 	candidates map[string]GuidanceCandidate,
 ) []GuidanceCandidate {
+	return topGuidanceCandidatesLimit(candidates, maxGuidanceCandidateRows)
+}
+
+func topGuidanceCandidatesLimit(
+	candidates map[string]GuidanceCandidate,
+	limit int,
+) []GuidanceCandidate {
+	if limit <= 0 {
+		limit = maxGuidanceCandidateRows
+	}
+
 	items := make([]GuidanceCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		items = append(items, candidate)
@@ -261,8 +369,8 @@ func topGuidanceCandidates(
 		return items[left].Key < items[right].Key
 	})
 
-	if len(items) > maxGuidanceCandidateRows {
-		return items[:maxGuidanceCandidateRows]
+	if len(items) > limit {
+		return items[:limit]
 	}
 
 	return items
