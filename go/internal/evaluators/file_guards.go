@@ -167,7 +167,7 @@ func EvaluateFileLargeFile(
 	suffixes := stringSet(normalizedSuffixes(stringSliceOption(
 		context.EvaluatorOptions,
 		"suffixes",
-		[]string{".bash", ".json", ".py", ".pyi", ".sh", ".toml", ".yaml", ".yml"},
+		[]string{".bash", ".json", ".sh", ".toml", ".yaml", ".yml"},
 	)))
 	excludePrefixes := stringSliceOption(
 		context.EvaluatorOptions,

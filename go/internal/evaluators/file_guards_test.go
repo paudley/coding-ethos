@@ -96,6 +96,33 @@ func TestEvaluateFileLargeFileBlocksNewOversizedFile(t *testing.T) {
 	}
 }
 
+func TestEvaluateFileLargeFileDefaultsDoNotBlockPythonSource(t *testing.T) {
+	t.Parallel()
+
+	repo := initGuardRepo(t)
+	path := filepath.Join(repo, "large.py")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 2048)), 0o600); err != nil {
+		t.Fatalf("write large file: %v", err)
+	}
+	runGuardGit(t, repo, "add", "large.py")
+
+	decisions, err := EvaluateFileLargeFile(
+		fileGuardPolicy("filesystem.large_files"),
+		Context{
+			Cwd:              repo,
+			Files:            []string{"large.py"},
+			EvaluatorOptions: map[string]any{"max_kb": 1},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate large file: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected Python source to be governed by line limits, got %#v", decisions)
+	}
+}
+
 func TestEvaluateFileLineLimitBlocksGrowthOverLimit(t *testing.T) {
 	t.Parallel()
 

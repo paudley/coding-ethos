@@ -329,8 +329,6 @@ filesystem:
     suffixes:
       - .bash
       - .json
-      - .py
-      - .pyi
       - .sh
       - .toml
       - .yaml
@@ -1094,8 +1092,6 @@ go:
     large_file_suffixes:
       - .bash
       - .json
-      - .py
-      - .pyi
       - .sh
       - .toml
       - .yaml
