@@ -32,6 +32,7 @@ var (
 	hadolintPattern = regexp.MustCompile(
 		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
 	)
+	ruffCodePattern = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
 )
 
 const (
@@ -114,7 +115,7 @@ func parseRuff(output string) []Diagnostic {
 
 	err := json.Unmarshal([]byte(output), &items)
 	if err != nil {
-		return nil
+		return parseRuffText(output)
 	}
 
 	diagnostics := make([]Diagnostic, 0, len(items))
@@ -131,6 +132,48 @@ func parseRuff(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func parseRuffText(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		matches := fallbackPattern.FindStringSubmatch(strings.TrimSpace(line))
+		if len(matches) != fallbackMatchParts {
+			continue
+		}
+
+		lineNo, validLine := parseInt(matches[2])
+		if !validLine {
+			continue
+		}
+
+		column, _ := parseInt(matches[3])
+		code, message := splitRuffCodeMessage(matches[5])
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "ruff",
+			File:     matches[1],
+			Line:     lineNo,
+			Column:   column,
+			Severity: firstNonEmpty(matches[4], "error"),
+			Code:     code,
+			Message:  message,
+		})
+	}
+
+	return diagnostics
+}
+
+func splitRuffCodeMessage(raw string) (string, string) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return "", ""
+	}
+	if ruffCodePattern.MatchString(fields[0]) {
+		return fields[0], strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
+	}
+
+	return "", strings.TrimSpace(raw)
 }
 
 func parsePyright(output string) []Diagnostic {

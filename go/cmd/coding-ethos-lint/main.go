@@ -32,6 +32,7 @@ func main() {
 		"Command argv to evaluate, separated by NUL when possible or spaces",
 	)
 	command := flags.String("command", "", "Raw shell command to evaluate")
+	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	analyzeLog := flags.Bool(
@@ -50,11 +51,16 @@ func main() {
 		true,
 		"Persist normalized lint result under .coding-ethos/lint-runs",
 	)
+	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
 	scope := scopeFlagSet(flags)
 
 	err := flags.Parse(os.Args[1:])
 	if err != nil {
 		exitErr(err)
+	}
+
+	if *captureTool != "" {
+		os.Exit(runCapturedTool(*captureTool, *toolPath, *cwd, flags.Args()))
 	}
 
 	if *analyzeLog {

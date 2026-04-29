@@ -30,6 +30,26 @@ func TestParseRuffDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseRuffTextDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"ruff",
+		"pkg/app.py:4:8: F401 unused import\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "ruff",
+		File:     "pkg/app.py",
+		Line:     4,
+		Column:   8,
+		Severity: "error",
+		Code:     "F401",
+		Message:  "unused import",
+	})
+}
+
 func TestParsePyrightDiagnostics(t *testing.T) {
 	t.Parallel()
 

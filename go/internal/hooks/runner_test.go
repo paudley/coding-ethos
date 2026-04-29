@@ -131,6 +131,62 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	}
 }
 
+func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "uv run ruff check pkg && python -m ruff format pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatal("missing hook output")
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-tool ruff 'check' 'pkg'") ||
+		!strings.Contains(rewritten, "policy-tool ruff 'format' 'pkg'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "/usr/bin/ruff check pkg",
+			},
+			Source: "codex",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if !strings.Contains(result.Decisions[0].Message, "Ruff must run through") {
+		t.Fatalf("unexpected decision: %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 	t.Parallel()
 

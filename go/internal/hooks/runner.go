@@ -48,6 +48,9 @@ func RunWithRegistry(
 ) (Result, error) {
 	event := options.Event
 	route := gitWrapperRouteFor(event)
+	if !route.Block && !route.Rewrite {
+		route = lintToolRouteFor(event)
+	}
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 	decisions := make([]policy.Decision, 0, len(entries))
 
@@ -73,7 +76,10 @@ func RunWithRegistry(
 	}
 
 	if route.Block && resultStatus(decisions) != statusBlocked {
-		decisions = append(decisions, gitWrapperBlockDecision(bundle, route.Reason))
+		decisions = append(
+			decisions,
+			routeBlockDecision(bundle, route.BlockPolicyID, route.Reason),
+		)
 	}
 
 	status := resultStatus(decisions)
