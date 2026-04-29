@@ -216,7 +216,7 @@ func parsePyright(output string) []Diagnostic {
 func parseMypy(output string) []Diagnostic {
 	items := parseMypyItems(output)
 	if len(items) == 0 {
-		return nil
+		return parseMypyText(output)
 	}
 
 	diagnostics := make([]Diagnostic, 0, len(items))
@@ -233,6 +233,27 @@ func parseMypy(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func parseMypyText(output string) []Diagnostic {
+	items := parseFallback("mypy", output)
+	for index, item := range items {
+		message, code := splitTrailingBracketCode(item.Message)
+		items[index].Message = message
+		items[index].Code = code
+	}
+
+	return items
+}
+
+func splitTrailingBracketCode(message string) (string, string) {
+	trimmed := strings.TrimSpace(message)
+	start := strings.LastIndex(trimmed, "[")
+	if start < 0 || !strings.HasSuffix(trimmed, "]") {
+		return trimmed, ""
+	}
+
+	return strings.TrimSpace(trimmed[:start]), strings.TrimSuffix(trimmed[start+1:], "]")
 }
 
 type mypyItem struct {

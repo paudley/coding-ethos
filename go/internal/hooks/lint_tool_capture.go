@@ -6,14 +6,30 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-const (
-	tokenRuff           = "ruff"
-	tokenPolicyTool     = "policy-tool"
-	ruffCapturePolicyID = "tool.ruff_capture_required"
-)
+const tokenPolicyTool = "policy-tool"
+
+type capturedLintTool struct {
+	Name         string
+	ModuleNames  []string
+	Description  string
+	PythonModule bool
+}
+
+var capturedLintTools = []capturedLintTool{
+	{Name: "ruff", ModuleNames: []string{"ruff"}, Description: "Ruff", PythonModule: true},
+	{Name: "mypy", ModuleNames: []string{"mypy"}, Description: "mypy", PythonModule: true},
+	{Name: "pyright", ModuleNames: []string{"pyright"}, Description: "Pyright", PythonModule: true},
+	{Name: "pylint", ModuleNames: []string{"pylint"}, Description: "Pylint", PythonModule: true},
+	{Name: "shellcheck", Description: "ShellCheck"},
+	{Name: "golangci-lint", Description: "golangci-lint"},
+	{Name: "actionlint", Description: "actionlint"},
+	{Name: "yamllint", ModuleNames: []string{"yamllint"}, Description: "yamllint", PythonModule: true},
+	{Name: "hadolint", Description: "hadolint"},
+}
 
 func lintToolRouteFor(event Event) gitWrapperRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
@@ -25,31 +41,36 @@ func lintToolRouteFor(event Event) gitWrapperRoute {
 		return gitWrapperRoute{}
 	}
 
-	rewritten, rewrite, routeOK := rewriteRuffCommandChain(command)
+	rewritten, tool, rewrite, routeOK := rewriteLintToolCommandChain(command)
 	if rewrite && routeOK {
 		if event.Provider() != providerClaude {
 			return gitWrapperRoute{
-				BlockPolicyID: ruffCapturePolicyID,
-				Reason:        ruffWrapperRequiredMessage(),
+				BlockPolicyID: lintCapturePolicyID(tool.Name),
+				Reason:        lintCaptureRequiredMessage(tool),
 				Block:         true,
 			}
 		}
 
 		return gitWrapperRoute{
 			UpdatedInput: updatedBashInput(event.ToolInput, rewritten),
-			Reason:       "Routed ruff through coding-ethos lint capture.",
+			Reason:       "Routed " + tool.Name + " through coding-ethos lint capture.",
 			Rewrite:      true,
 		}
 	}
 
-	if routeOK && managedRuffCommandChain(command) {
+	if routeOK && managedLintToolCommandChain(command) {
 		return gitWrapperRoute{}
 	}
 
-	if !routeOK || evasiveRuffShell(command) {
+	if !routeOK || evasiveLintToolShell(command) {
+		blockTool := tool
+		if blockTool.Name == "" {
+			blockTool = firstMentionedCapturedTool(command)
+		}
+
 		return gitWrapperRoute{
-			BlockPolicyID: ruffCapturePolicyID,
-			Reason:        ruffWrapperRequiredMessage(),
+			BlockPolicyID: lintCapturePolicyID(blockTool.Name),
+			Reason:        lintCaptureRequiredMessage(blockTool),
 			Block:         true,
 		}
 	}
@@ -57,20 +78,31 @@ func lintToolRouteFor(event Event) gitWrapperRoute {
 	return gitWrapperRoute{}
 }
 
-func ruffWrapperRequiredMessage() string {
-	return "Ruff must run through the coding-ethos lint capture wrapper so " +
-		"diagnostics are logged under .coding-ethos/lint-runs. Use the managed " +
-		"ruff wrapper from the hook PATH instead of absolute ruff paths, " +
-		"python -m ruff, uv run ruff, PATH edits, subprocesses, or shell bypasses."
+func lintCapturePolicyID(toolName string) string {
+	if toolName == "" {
+		return "tool.lint_capture_required"
+	}
+
+	return "tool." + strings.ReplaceAll(toolName, "-", "_") + "_capture_required"
 }
 
-func rewriteRuffCommandChain(command string) (string, bool, bool) {
+func lintCaptureRequiredMessage(tool capturedLintTool) string {
+	name := firstCaptureNonEmpty(tool.Description, tool.Name, "Lint tools")
+
+	return name + " must run through the coding-ethos lint capture wrapper so " +
+		"diagnostics are logged under .coding-ethos/lint-runs. Use the managed " +
+		"tool wrapper from the hook PATH instead of absolute tool paths, " +
+		"python -m, uv run, PATH edits, subprocesses, or shell bypasses."
+}
+
+func rewriteLintToolCommandChain(command string) (string, capturedLintTool, bool, bool) {
 	tokens := shellControlFields(command)
 	if len(tokens) == 0 {
-		return "", false, true
+		return "", capturedLintTool{}, false, true
 	}
 
 	rewritten := make([]string, 0, len(tokens))
+	var routedTool capturedLintTool
 	rewrite := false
 
 	for index := 0; index < len(tokens); {
@@ -87,12 +119,13 @@ func rewriteRuffCommandChain(command string) (string, bool, bool) {
 		}
 
 		segment := tokens[start:index]
-		segmentRewrite, segmentOK := rewriteRuffSegment(segment)
+		segmentRewrite, segmentTool, segmentOK := rewriteLintToolSegment(segment)
 		if !segmentOK {
-			return "", false, false
+			return "", segmentTool, false, false
 		}
 		if segmentRewrite != "" {
 			rewritten = append(rewritten, segmentRewrite)
+			routedTool = segmentTool
 			rewrite = true
 
 			continue
@@ -101,65 +134,70 @@ func rewriteRuffCommandChain(command string) (string, bool, bool) {
 		rewritten = appendQuotedTokens(rewritten, segment)
 	}
 
-	return strings.Join(rewritten, " "), rewrite, true
+	return strings.Join(rewritten, " "), routedTool, rewrite, true
 }
 
-func rewriteRuffSegment(segment []string) (string, bool) {
+func rewriteLintToolSegment(
+	segment []string,
+) (string, capturedLintTool, bool) {
 	if len(segment) == 0 {
-		return "", true
+		return "", capturedLintTool{}, true
 	}
-	if managedRuffSegment(segment) {
-		return "", true
+	if managedLintToolSegment(segment) {
+		return "", capturedLintTool{}, true
 	}
 
 	args, redirections := splitShellRedirections(segment)
-	ruffArgs, ok := unmanagedRuffArgs(args)
+	tool, toolArgs, ok := unmanagedLintToolArgs(args)
 	if ok {
-		command := ruffCaptureCommand(ruffArgs)
+		command := lintCaptureCommand(tool.Name, toolArgs)
 		if len(redirections) > 0 {
 			command += " " + strings.Join(redirections, " ")
 		}
 
-		return command, true
+		return command, tool, true
 	}
 
-	if segmentMentionsUnmanagedRuff(segment) {
-		return "", false
+	if tool := segmentMentionsUnmanagedLintTool(segment); tool.Name != "" {
+		return "", tool, false
 	}
 
-	return "", true
+	return "", capturedLintTool{}, true
 }
 
-func unmanagedRuffArgs(segment []string) ([]string, bool) {
+func unmanagedLintToolArgs(segment []string) (capturedLintTool, []string, bool) {
 	if len(segment) == 0 {
-		return nil, false
+		return capturedLintTool{}, nil, false
 	}
 
-	if isRuffCommand(segment[0]) {
-		return append([]string(nil), segment[1:]...), true
+	if tool, ok := capturedToolForCommand(segment[0]); ok {
+		return tool, append([]string(nil), segment[1:]...), true
 	}
 
-	if len(segment) >= 3 && isPythonCommand(segment[0]) &&
-		segment[1] == "-m" && segment[2] == tokenRuff {
-		return append([]string(nil), segment[3:]...), true
-	}
-
-	for index, token := range segment {
-		if token == tokenRuff && index > 0 && filepath.Base(segment[0]) == "uv" {
-			return append([]string(nil), segment[index+1:]...), true
+	if len(segment) >= 3 && isPythonCommand(segment[0]) && segment[1] == "-m" {
+		if tool, ok := capturedToolForModule(segment[2]); ok && tool.PythonModule {
+			return tool, append([]string(nil), segment[3:]...), true
 		}
 	}
 
-	return nil, false
+	if filepath.Base(segment[0]) == "uv" {
+		for index, token := range segment {
+			if tool, ok := capturedToolForCommand(token); ok {
+				return tool, append([]string(nil), segment[index+1:]...), true
+			}
+		}
+	}
+
+	return capturedLintTool{}, nil, false
 }
 
-func ruffCaptureCommand(args []string) string {
+func lintCaptureCommand(toolName string, args []string) string {
 	runGoHook := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
 	if runGoHook == "" {
 		runGoHook = "pre-commit/hooks/run-go-hook.sh"
 	}
 
-	parts := []string{shellQuote(runGoHook), tokenPolicyTool, tokenRuff}
+	parts := []string{shellQuote(runGoHook), tokenPolicyTool, toolName}
 	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
 	}
@@ -167,7 +205,7 @@ func ruffCaptureCommand(args []string) string {
 	return strings.Join(parts, " ")
 }
 
-func managedRuffCommandChain(command string) bool {
+func managedLintToolCommandChain(command string) bool {
 	tokens := shellControlFields(command)
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
@@ -181,7 +219,7 @@ func managedRuffCommandChain(command string) bool {
 			index++
 		}
 
-		if managedRuffSegment(tokens[start:index]) {
+		if managedLintToolSegment(tokens[start:index]) {
 			return true
 		}
 	}
@@ -189,7 +227,17 @@ func managedRuffCommandChain(command string) bool {
 	return false
 }
 
-func managedRuffSegment(segment []string) bool {
+func firstCaptureNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func managedLintToolSegment(segment []string) bool {
 	if len(segment) < 3 {
 		return false
 	}
@@ -197,17 +245,51 @@ func managedRuffSegment(segment []string) bool {
 	return filepath.Base(segment[0]) == "run-go-hook.sh" &&
 		isTrustedRunGoHookCommand(segment[0]) &&
 		segment[1] == tokenPolicyTool &&
-		segment[2] == tokenRuff
+		capturedToolName(segment[2])
 }
 
-func isRuffCommand(token string) bool {
-	if token == tokenRuff {
-		return true
+func capturedToolForCommand(token string) (capturedLintTool, bool) {
+	base := filepath.Base(token)
+	for _, tool := range capturedLintTools {
+		if base == tool.Name && (token == tool.Name || strings.Contains(filepath.ToSlash(token), "/")) {
+			return tool, true
+		}
 	}
 
-	base := filepath.Base(token)
+	return capturedLintTool{}, false
+}
 
-	return base == tokenRuff && strings.Contains(filepath.ToSlash(token), "/")
+func capturedToolForModule(module string) (capturedLintTool, bool) {
+	for _, tool := range capturedLintTools {
+		if slices.Contains(tool.ModuleNames, module) {
+			return tool, true
+		}
+	}
+
+	return capturedLintTool{}, false
+}
+
+func capturedToolName(name string) bool {
+	for _, tool := range capturedLintTools {
+		if tool.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func firstMentionedCapturedTool(command string) capturedLintTool {
+	for _, token := range shellControlFields(command) {
+		if tool, ok := capturedToolForCommand(token); ok {
+			return tool
+		}
+		if tool, ok := capturedToolForModule(token); ok {
+			return tool
+		}
+	}
+
+	return capturedLintTool{}
 }
 
 func isPythonCommand(token string) bool {
@@ -216,19 +298,19 @@ func isPythonCommand(token string) bool {
 	return base == "python" || base == "python3"
 }
 
-func segmentMentionsUnmanagedRuff(segment []string) bool {
+func segmentMentionsUnmanagedLintTool(segment []string) capturedLintTool {
 	for _, token := range segment {
-		if isRuffCommand(token) {
-			return true
+		if tool, ok := capturedToolForCommand(token); ok {
+			return tool
 		}
 	}
 
-	return false
+	return capturedLintTool{}
 }
 
-func evasiveRuffShell(command string) bool {
+func evasiveLintToolShell(command string) bool {
 	lower := strings.ToLower(command)
-	if !strings.Contains(lower, "ruff") {
+	if firstMentionedCapturedTool(command).Name == "" {
 		return false
 	}
 

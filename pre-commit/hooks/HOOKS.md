@@ -39,13 +39,15 @@ agent-facing output while preserving enough data to identify recurring lint
 failures and improve deterministic guidance.
 Use `policy-lint --analyze-log` to rank top failing checks, top tool/code
 pairs, repeated file-policy patterns, ETHOS IDs, and guidance candidates.
-Agent shell commands that invoke `ruff` are routed through the managed lint
-capture wrapper. Plain `ruff`, absolute ruff paths, `uv run ruff`, and
-`python -m ruff` are normalized to `run-go-hook.sh policy-tool ruff ...` when
-the provider supports command rewrites; unsupported providers must use the
-managed `ruff` shim injected into the hook PATH. The wrapper preserves ruff's
-stdout, stderr, and exit code while recording parsed diagnostics in the lint
-trace log.
+Agent shell commands that invoke common lint tools are routed through the
+managed lint capture wrapper. Captured tools currently include `ruff`, `mypy`,
+`pyright`, `pylint`, `shellcheck`, `golangci-lint`, `actionlint`, `yamllint`,
+and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
+`python -m <tool>` for Python-backed tools are normalized to
+`run-go-hook.sh policy-tool <tool> ...` when the provider supports command
+rewrites; unsupported providers must use the managed shims injected into the
+hook PATH. The wrapper preserves stdout, stderr, and exit code while recording
+parsed diagnostics in the lint trace log.
 
 Agent settings rendering covers every supported provider:
 

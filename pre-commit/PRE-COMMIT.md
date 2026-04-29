@@ -235,12 +235,14 @@ pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
 
 The analyzer reports top failing checks, top tool/code pairs, repeated
 file-policy patterns, ETHOS IDs, and deterministic guidance candidates.
-Direct agent `ruff` runs are captured too. The agent hook rewrites common ruff
-forms such as `ruff`, absolute ruff paths, `uv run ruff`, and `python -m ruff`
-to the managed `policy-tool ruff` wrapper when the provider supports command
-rewrites. The installed hook PATH also contains a managed `ruff` shim for tools
-that execute by name. Captured ruff runs preserve normal output and exit codes
-while writing normalized lint traces.
+Direct agent lint runs are captured too. The agent hook rewrites common forms
+for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
+`actionlint`, `yamllint`, and `hadolint` to the managed
+`policy-tool <tool>` wrapper when the provider supports command rewrites. This
+covers plain tool names, absolute tool paths, `uv run <tool>`, and
+`python -m <tool>` for Python-backed tools. The installed hook PATH also
+contains managed shims for tools that execute by name. Captured runs preserve
+normal output and exit codes while writing normalized lint traces.
 
 ## Configuration
 

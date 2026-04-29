@@ -56,3 +56,57 @@ func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
 		}
 	}
 }
+
+func TestRunCapturedToolLogsShellcheckTrace(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "shellcheck-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte("#!/usr/bin/env sh\nprintf '%s\\n' '{\"comments\":[{\"file\":\"script.sh\",\"line\":3,\"column\":7,\"level\":\"warning\",\"code\":2086,\"message\":\"Double quote\"}]}'\nexit 1\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	exitCode := runCapturedTool("shellcheck", tool, repo, []string{"script.sh"})
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"scope": "tool:shellcheck"`,
+		`"source_tool": "shellcheck"`,
+		`"code": "SC2086"`,
+		`"message": "Double quote"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func singleTraceContent(t *testing.T, repo string) string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(repo, ".coding-ethos", "lint-runs", "*.json"))
+	if err != nil {
+		t.Fatalf("glob traces: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("trace files = %#v", matches)
+	}
+
+	content, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read trace: %v", err)
+	}
+
+	return string(content)
+}

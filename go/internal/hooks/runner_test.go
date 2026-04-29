@@ -162,6 +162,85 @@ func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 	}
 }
 
+func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{
+			name:    "mypy",
+			command: "uv run mypy pkg",
+			want:    "policy-tool mypy 'pkg'",
+		},
+		{
+			name:    "pyright",
+			command: "python -m pyright pkg",
+			want:    "policy-tool pyright 'pkg'",
+		},
+		{
+			name:    "shellcheck",
+			command: "/usr/bin/shellcheck script.sh",
+			want:    "policy-tool shellcheck 'script.sh'",
+		},
+		{
+			name:    "golangci",
+			command: "golangci-lint run ./...",
+			want:    "policy-tool golangci-lint 'run' './...'",
+		},
+		{
+			name:    "actionlint",
+			command: "actionlint -color",
+			want:    "policy-tool actionlint '-color'",
+		},
+		{
+			name:    "yamllint",
+			command: "uv run yamllint config.yaml",
+			want:    "policy-tool yamllint 'config.yaml'",
+		},
+		{
+			name:    "pylint",
+			command: "python -m pylint pkg",
+			want:    "policy-tool pylint 'pkg'",
+		},
+		{
+			name:    "hadolint",
+			command: "hadolint Dockerfile",
+			want:    "policy-tool hadolint 'Dockerfile'",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: preToolUse,
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": test.command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+				t.Fatalf("result = %#v", result)
+			}
+
+			rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+			if !ok || !strings.Contains(rewritten, test.want) {
+				t.Fatalf("rewrite for %q = %q, want %q", test.command, rewritten, test.want)
+			}
+		})
+	}
+}
+
 func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
 	t.Parallel()
 

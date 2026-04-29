@@ -90,6 +90,26 @@ func TestParseMypyJSONLinesDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseMypyTextDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"mypy",
+		"pkg/app.py:88:12: error: Returning Any [no-any-return]\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "mypy",
+		File:     "pkg/app.py",
+		Line:     88,
+		Column:   12,
+		Severity: "error",
+		Code:     "no-any-return",
+		Message:  "Returning Any",
+	})
+}
+
 func TestParseGolangciLintDiagnostics(t *testing.T) {
 	t.Parallel()
 
