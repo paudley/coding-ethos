@@ -32,6 +32,11 @@ Known linter/type-checker diagnostics can map to ETHOS policy evidence through
 `policy.evidence_maps`. Mapped findings receive policy-grounded advice in
 human, JSON, and TOON output; unmapped findings keep their normal diagnostic
 shape.
+The compiled lint path also writes normalized JSON traces under
+`.coding-ethos/lint-runs/` for later analysis. Those traces keep the full
+policy decision, normalized finding, diagnostic, and evidence payloads out of
+agent-facing output while preserving enough data to identify recurring lint
+failures and improve deterministic guidance.
 
 Agent settings rendering covers every supported provider:
 

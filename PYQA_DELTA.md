@@ -218,6 +218,15 @@ evidence; they do not filter out everything else.
    Report required tools, resolved config files, generated config drift status,
    prompt-pack drift status, hook group availability, and linter state freshness.
 
+11. Add lint-trace guidance synthesis.
+   Persist normalized lint results under `.coding-ethos/` in consuming repos so
+   repeated failures can be analyzed across real work. Keep hook feedback
+   deterministic, but leave room for a very small LLM or local model to review
+   accumulated traces offline and suggest repo-specific guidance updates for the
+   most common lint and policy issues. The model should summarize patterns and
+   candidate advice; deterministic policy data remains the enforcement source of
+   truth.
+
 11. Keep `coding-ethos` output modes aligned.
    Any new lint/explain/doctor command should support human output for local use,
    JSON for scripts, and TOON for agent contexts through the existing output

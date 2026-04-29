@@ -13,9 +13,31 @@ type Result struct {
 	Status      string                   `json:"status"`
 	Decisions   []policy.Decision        `json:"decisions"`
 	Diagnostics []diagnostics.Diagnostic `json:"diagnostics,omitempty"`
+	Findings    []Finding                `json:"findings,omitempty"`
 	Files       []string                 `json:"files,omitempty"`
 }
 
 func (result Result) Blocked() bool {
 	return result.Status == "blocked"
 }
+
+type Finding struct {
+	RawOutcome   map[string]any `json:"raw_outcome,omitempty"`
+	Advice       string         `json:"advice,omitempty"`
+	CheckID      string         `json:"check_id"`
+	Code         string         `json:"code,omitempty"`
+	File         string         `json:"file,omitempty"`
+	Message      string         `json:"message"`
+	PolicyID     string         `json:"policy_id,omitempty"`
+	PolicySource string         `json:"policy_source,omitempty"`
+	Severity     string         `json:"severity"`
+	SourceTool   string         `json:"source_tool,omitempty"`
+	Status       string         `json:"status"`
+	EthosIDs     []string       `json:"ethos_ids,omitempty"`
+	Files        []string       `json:"files,omitempty"`
+	Blocking     bool           `json:"blocking"`
+	Column       int            `json:"column,omitempty"`
+	Line         int            `json:"line,omitempty"`
+}
+
+type RunResult = Result

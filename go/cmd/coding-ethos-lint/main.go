@@ -34,6 +34,12 @@ func main() {
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
+	explain := flags.Bool("explain", false, "Explain selected lint checks without running them")
+	logOutput := flags.Bool(
+		"log",
+		true,
+		"Persist normalized lint result under .coding-ethos/lint-runs",
+	)
 	scope := scopeFlagSet(flags)
 
 	err := flags.Parse(os.Args[1:])
@@ -57,6 +63,22 @@ func main() {
 		)
 	}
 
+	if *explain {
+		explainResult, explainErr := lint.Explain(bundle, scope.Value())
+		if explainErr != nil {
+			exitErr(explainErr)
+		}
+		if encodeErr := lint.EncodeExplainResult(
+			os.Stdout,
+			explainResult,
+			*jsonOutput,
+		); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+
+		return
+	}
+
 	result, err := lint.Run(bundle, lint.Options{
 		Scope:   scope.Value(),
 		Files:   parseFiles(*filesRaw),
@@ -66,6 +88,12 @@ func main() {
 	})
 	if err != nil {
 		exitErr(err)
+	}
+
+	if *logOutput {
+		if _, logErr := lint.LogResult(*cwd, result); logErr != nil {
+			fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
+		}
 	}
 
 	if *jsonOutput {

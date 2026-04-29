@@ -220,6 +220,12 @@ as raw output, escaped newline cells, or leaked absolute repo paths. The
 analyzer scans newest runs first and caps scanned runs plus examples so it stays
 interactive on large agent log directories. Both commands honor the same human,
 JSON, and TOON output selection as hook execution output.
+Compiled lint preflights also persist normalized result traces under
+`.coding-ethos/lint-runs/`. These are intended for offline trend analysis:
+which policies fail most often, which linter codes drive the most churn, and
+which ETHOS-backed advice should become more specific. Future guidance synthesis
+may use a very small LLM or local model over these traces, but hook-time
+enforcement remains deterministic and policy-bundle driven.
 
 ## Configuration
 
@@ -338,6 +344,16 @@ Typical consuming-repo overrides include:
 
 See [../repo_config.example.yaml](../repo_config.example.yaml) for a minimal
 consumer-repo override file.
+
+Policy lint selection can be inspected without running checks:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain
+pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain --json
+```
+
+The explain output reports the selected policy checks, evaluator names,
+severity, and ETHOS IDs for the requested scope.
 
 ## Hook Inventory
 

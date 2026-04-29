@@ -282,6 +282,16 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 	if result.Diagnostics[0].Advice != "Remove the unused import or use the protocol." {
 		t.Fatalf("diagnostic advice = %q", result.Diagnostics[0].Advice)
 	}
+
+	if len(result.Findings) != 1 {
+		t.Fatalf("findings = %#v", result.Findings)
+	}
+	if result.Findings[0].CheckID != "python.direct_imports" ||
+		result.Findings[0].SourceTool != "ruff" ||
+		result.Findings[0].Advice != "Remove the unused import or use the protocol." ||
+		!result.Findings[0].Blocking {
+		t.Fatalf("normalized finding = %#v", result.Findings[0])
+	}
 }
 
 const printRuffDiagnosticCommand = `printf '%s\n' ` +
