@@ -58,6 +58,7 @@ Required tools:
 - `go` 1.26 or newer
 - `uv`
 - `shellcheck`
+- `shfmt`
 - `hadolint`
 - `actionlint`
 - `golangci-lint`
@@ -65,6 +66,7 @@ Required tools:
 Useful install commands:
 
 ```bash
+go install mvdan.cc/sh/v3/cmd/shfmt@latest
 go install github.com/rhysd/actionlint/cmd/actionlint@latest
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 ```

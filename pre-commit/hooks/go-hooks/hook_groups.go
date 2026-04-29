@@ -82,6 +82,7 @@ func canonicalHookGroups() map[string]hookGroup {
 		"shell": {
 			Name: "shell",
 			Commands: []hookCommand{
+				{Name: "shfmt", Run: runShfmt},
 				{Name: "shellcheck", Run: runShellcheck},
 			},
 		},

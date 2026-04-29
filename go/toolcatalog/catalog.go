@@ -51,6 +51,17 @@ func ToolchainTool(name string) (Tool, bool) {
 	return findTool(name, toolchainToolDefinitions())
 }
 
+func HookOwnedTools() []Tool {
+	tools := append(PythonStaticTools(), ToolchainTools()...)
+	tools = append(tools, hookOwnedToolDefinitions()...)
+
+	return cloneTools(tools)
+}
+
+func HookOwnedTool(name string) (Tool, bool) {
+	return findTool(name, HookOwnedTools())
+}
+
 func pythonStaticToolDefinitions() []Tool {
 	return []Tool{
 		ruffTool(),
@@ -65,8 +76,26 @@ func toolchainToolDefinitions() []Tool {
 		hadolintTool(),
 		actionlintTool(),
 		shellcheckTool(),
+		shfmtTool(),
 		yamllintTool(),
 		golangciLintTool(),
+	}
+}
+
+func hookOwnedToolDefinitions() []Tool {
+	return []Tool{
+		pyupgradeTool(),
+		ruffFormatTool(),
+		ruffAutofixTool(),
+		gofmtTool(),
+		goVetTool(),
+		goTestTool(),
+		radonComplexityTool(),
+		radonMaintainabilityTool(),
+		vultureTool(),
+		interrogateTool(),
+		pytestGateTool(),
+		geminiCheckTool(),
 	}
 }
 
@@ -204,6 +233,23 @@ func shellcheckTool() Tool {
 	}
 }
 
+func shfmtTool() Tool {
+	return Tool{
+		Name:             "shfmt",
+		Parser:           "shfmt",
+		Category:         "shell",
+		OutputFormat:     "diff",
+		Advice:           "Format shell scripts with shfmt so shell changes stay reviewable and deterministic.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"},
+		FileExtensions:   []string{".sh", ".bash", ".zsh", ".ksh"},
+		Languages:        []string{"shell"},
+		PassFilesAsArgs:  true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
 func yamllintTool() Tool {
 	return Tool{
 		Name:             "yamllint",
@@ -221,6 +267,212 @@ func yamllintTool() Tool {
 		PassFilesAsArgs:  true,
 		UseHookProject:   true,
 		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func pyupgradeTool() Tool {
+	return Tool{
+		Name:             "pyupgrade",
+		Parser:           "fallback",
+		Category:         "format",
+		OutputFormat:     "text",
+		Advice:           "Apply syntax upgrades for the configured Python version.",
+		Runtime:          RuntimePython,
+		Command:          []string{"pyupgrade"},
+		FileExtensions:   []string{".py", ".pyi"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func ruffFormatTool() Tool {
+	return Tool{
+		Name:             "ruff-format",
+		Parser:           "fallback",
+		Category:         "format",
+		OutputFormat:     "text",
+		Advice:           "Run Ruff format before reviewing Python diffs.",
+		Runtime:          RuntimePython,
+		Command:          []string{"ruff", "format", "--quiet"},
+		ConfigFlags:      []string{"--config"},
+		FileExtensions:   []string{".py", ".pyi"},
+		Languages:        []string{"python"},
+		RepoConfig:       "ruff.toml",
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func ruffAutofixTool() Tool {
+	return Tool{
+		Name:             "ruff-autofix",
+		Parser:           "ruff",
+		Category:         "format",
+		OutputFormat:     "json",
+		Advice:           "Apply Ruff autofixes, then resolve remaining diagnostics structurally.",
+		Runtime:          RuntimePython,
+		Command:          []string{"ruff", "check", "--fix", "--quiet", "--ignore-noqa", "--output-format", "json"},
+		ConfigFlags:      []string{"--config"},
+		FileExtensions:   []string{".py", ".pyi"},
+		Languages:        []string{"python"},
+		RepoConfig:       "ruff.toml",
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func gofmtTool() Tool {
+	return Tool{
+		Name:             "gofmt",
+		Parser:           "fallback",
+		Category:         "go",
+		OutputFormat:     "text",
+		Advice:           "Run gofmt before reviewing Go diffs.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"gofmt", "-l", "."},
+		FileExtensions:   []string{".go"},
+		Languages:        []string{"go"},
+		PassFilesAsArgs:  false,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func goVetTool() Tool {
+	return Tool{
+		Name:             "go-vet",
+		Parser:           "fallback",
+		Category:         "go",
+		OutputFormat:     "text",
+		Advice:           "Fix go vet findings before relying on runtime behavior.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"go", "vet", "./..."},
+		FileExtensions:   []string{".go"},
+		Languages:        []string{"go"},
+		PassFilesAsArgs:  false,
+		EnabledByDefault: true,
+	}
+}
+
+func goTestTool() Tool {
+	return Tool{
+		Name:             "go-test",
+		Parser:           "fallback",
+		Category:         "test",
+		OutputFormat:     "text",
+		Advice:           "Fix Go test failures as executable behavioral contract failures.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"go", "test", "./..."},
+		FileExtensions:   []string{".go"},
+		Languages:        []string{"go"},
+		PassFilesAsArgs:  false,
+		EnabledByDefault: true,
+	}
+}
+
+func radonComplexityTool() Tool {
+	return Tool{
+		Name:             "python-complexity",
+		Parser:           "radon-complexity",
+		Category:         "python-quality",
+		OutputFormat:     "json",
+		Advice:           "Reduce cyclomatic complexity by splitting responsibilities and control flow.",
+		Runtime:          RuntimePython,
+		Command:          []string{"radon", "cc", "-j"},
+		FileExtensions:   []string{".py"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		EnabledByDefault: true,
+	}
+}
+
+func radonMaintainabilityTool() Tool {
+	return Tool{
+		Name:             "python-maintainability",
+		Parser:           "radon-maintainability",
+		Category:         "python-quality",
+		OutputFormat:     "json",
+		Advice:           "Improve maintainability by simplifying dense modules.",
+		Runtime:          RuntimePython,
+		Command:          []string{"radon", "mi", "-j"},
+		FileExtensions:   []string{".py"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		EnabledByDefault: true,
+	}
+}
+
+func vultureTool() Tool {
+	return Tool{
+		Name:             "python-vulture",
+		Parser:           "vulture",
+		Category:         "python-quality",
+		OutputFormat:     "text",
+		Advice:           "Remove genuinely unused code or add a narrow whitelist entry for dynamic entry points.",
+		Runtime:          RuntimePython,
+		Command:          []string{"vulture", "."},
+		FileExtensions:   []string{".py"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  false,
+		UseHookProject:   true,
+		EnabledByDefault: true,
+	}
+}
+
+func interrogateTool() Tool {
+	return Tool{
+		Name:             "interrogate",
+		Parser:           "fallback",
+		Category:         "docs",
+		OutputFormat:     "text",
+		Advice:           "Add useful docstrings where documentation coverage falls below policy.",
+		Runtime:          RuntimePython,
+		Command:          []string{"interrogate"},
+		FileExtensions:   []string{".py"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		EnabledByDefault: true,
+	}
+}
+
+func pytestGateTool() Tool {
+	return Tool{
+		Name:             "pytest-gate",
+		Parser:           "fallback",
+		Category:         "test",
+		OutputFormat:     "text",
+		Advice:           "Fix pytest failures before committing; tests are executable specifications.",
+		Runtime:          RuntimePython,
+		Command:          []string{"pytest"},
+		FileExtensions:   []string{".py"},
+		Languages:        []string{"python"},
+		PassFilesAsArgs:  false,
+		UseHookProject:   true,
+		EnabledByDefault: true,
+	}
+}
+
+func geminiCheckTool() Tool {
+	return Tool{
+		Name:             "gemini-check",
+		Parser:           "gemini",
+		Category:         "ai",
+		OutputFormat:     "json",
+		Advice:           "Resolve Gemini critical findings or parser/API errors before committing.",
+		Runtime:          RuntimeBinary,
+		Command:          []string{"gemini"},
+		PassFilesAsArgs:  false,
 		EnabledByDefault: true,
 	}
 }

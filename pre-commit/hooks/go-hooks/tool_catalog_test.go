@@ -38,6 +38,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		".github/workflows/ci.yml",
 		toolCatalogGoFile,
 		"config.yaml",
+		"script.sh",
 	}
 
 	if got := toolchainFiles("hadolint", paths); len(got) != 1 || got[0] != "Dockerfile" {
@@ -56,5 +57,9 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 
 	if got := toolchainFiles("yamllint", paths); len(got) != 2 {
 		t.Fatalf("yamllint files = %#v", got)
+	}
+
+	if got := toolchainFiles("shfmt", paths); len(got) != 1 || got[0] != "script.sh" {
+		t.Fatalf("shfmt files = %#v", got)
 	}
 }

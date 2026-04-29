@@ -95,6 +95,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		tools["shellcheck"],
 		[]string{"shellcheck", "--severity=warning", "-x", "--format=json"},
 	)
+	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
 
@@ -102,6 +103,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"hadolint":      "docker",
 		"actionlint":    "workflow",
 		"shellcheck":    "shell",
+		"shfmt":         "shell",
 		"yamllint":      "syntax",
 		"golangci-lint": "go-static",
 	} {
@@ -122,6 +124,13 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	assertToolFileMetadata(
 		t,
 		tools["shellcheck"],
+		[]string{".sh", ".bash", ".zsh", ".ksh"},
+		nil,
+		nil,
+	)
+	assertToolFileMetadata(
+		t,
+		tools["shfmt"],
 		[]string{".sh", ".bash", ".zsh", ".ksh"},
 		nil,
 		nil,
@@ -158,6 +167,34 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 			golangci.PostConfigArgs,
 			wantPostConfig,
 		)
+	}
+}
+
+func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
+	t.Parallel()
+
+	tools := mapByName(toolcatalog.HookOwnedTools())
+	for _, name := range []string{
+		"pyupgrade",
+		"ruff-format",
+		"ruff-autofix",
+		"gofmt",
+		"go-vet",
+		"go-test",
+		"python-complexity",
+		"python-maintainability",
+		"python-vulture",
+		"interrogate",
+		"pytest-gate",
+		"gemini-check",
+	} {
+		tool, ok := tools[name]
+		if !ok {
+			t.Fatalf("HookOwnedTools() missing %q", name)
+		}
+		if tool.Category == "" || tool.OutputFormat == "" || tool.Advice == "" {
+			t.Fatalf("%s metadata is incomplete: %#v", name, tool)
+		}
 	}
 }
 

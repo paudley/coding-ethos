@@ -127,8 +127,8 @@ make -C code-ethos install-hooks
 - pyyaml >= 6.0
 - go >= 1.26
 - uv
-- shellcheck, hadolint, actionlint, and golangci-lint for their corresponding
-  hook groups
+- shellcheck, shfmt, hadolint, actionlint, and golangci-lint for their
+  corresponding hook groups
 
 ## Development
 
