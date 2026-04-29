@@ -188,6 +188,14 @@ The decoder also accepts camelCase hook fields (`hookEventName`, `toolName`,
 wrapper, filesystem, Python-edit, continuation, and post-tool output rules
 apply wherever the provider exposes the corresponding lifecycle hook.
 
+Tamper and bypass blocks are intentionally louder than normal lint findings.
+Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
+hook binaries under `.git/coding-ethos-hooks/` are treated as employment
+violations. Agent-facing output starts with a uniform
+`CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific message,
+states that the actor has done something wrong, and warns that continued
+circumvention attempts may result in termination.
+
 Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
 contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
 does not currently support `updatedInput`, so coding-ethos returns native block

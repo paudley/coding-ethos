@@ -452,7 +452,9 @@ provider binary has executed a live tool call. The verification probes cover
 Claude's transparent git rewrite, Codex's block response for raw git, absolute
 git paths, nested shell git, and Python subprocess git when rewrite is
 unavailable, Gemini's `deny` response for raw shell git, and Gemini write-tool
-policy denial.
+policy denial. The probes also cover the managed hook-binary tamper sequence
+`rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook` across
+Claude, Codex, and Gemini so generated settings cannot regress on that defense.
 
 Use the cutover command when preparing a repo to replace old hook surfaces:
 
@@ -494,6 +496,12 @@ Agent shell policy includes a forbidden-string gate for hook-system
 reconnaissance: banned strings are rejected when they appear directly in a
 command and when they appear in regular files referenced by the command, so
 agents cannot hide hook inspection in helper scripts.
+Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
+hook binaries under `.git/coding-ethos-hooks/` are treated as tampering, not as
+ordinary lint failures. Blocked tamper and git-bypass responses start with a
+uniform `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the specific policy
+finding, including explicit language that the actor has done something wrong
+and that continued circumvention attempts may result in termination.
 
 Provider output uses the strongest native shape each agent supports:
 
