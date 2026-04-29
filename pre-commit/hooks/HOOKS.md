@@ -37,6 +37,8 @@ The compiled lint path also writes normalized JSON traces under
 policy decision, normalized finding, diagnostic, and evidence payloads out of
 agent-facing output while preserving enough data to identify recurring lint
 failures and improve deterministic guidance.
+Use `policy-lint --analyze-log` to rank top failing checks, top tool/code
+pairs, repeated file-policy patterns, ETHOS IDs, and guidance candidates.
 
 Agent settings rendering covers every supported provider:
 

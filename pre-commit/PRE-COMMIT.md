@@ -226,6 +226,15 @@ which policies fail most often, which linter codes drive the most churn, and
 which ETHOS-backed advice should become more specific. Future guidance synthesis
 may use a very small LLM or local model over these traces, but hook-time
 enforcement remains deterministic and policy-bundle driven.
+Analyze those traces with:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
+pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
+```
+
+The analyzer reports top failing checks, top tool/code pairs, repeated
+file-policy patterns, ETHOS IDs, and deterministic guidance candidates.
 
 ## Configuration
 

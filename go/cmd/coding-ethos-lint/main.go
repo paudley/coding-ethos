@@ -34,7 +34,17 @@ func main() {
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
+	analyzeLog := flags.Bool(
+		"analyze-log",
+		false,
+		"Analyze persisted .coding-ethos/lint-runs traces",
+	)
 	explain := flags.Bool("explain", false, "Explain selected lint checks without running them")
+	logDir := flags.String(
+		"log-dir",
+		"",
+		"Lint trace directory for --analyze-log",
+	)
 	logOutput := flags.Bool(
 		"log",
 		true,
@@ -45,6 +55,27 @@ func main() {
 	err := flags.Parse(os.Args[1:])
 	if err != nil {
 		exitErr(err)
+	}
+
+	if *analyzeLog {
+		path := *logDir
+		if path == "" {
+			var pathErr error
+			path, pathErr = lint.DefaultTraceDir(*cwd)
+			if pathErr != nil {
+				exitErr(pathErr)
+			}
+		}
+
+		analysis, analyzeErr := lint.AnalyzeTraces(path)
+		if analyzeErr != nil {
+			exitErr(analyzeErr)
+		}
+		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, *jsonOutput); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+
+		return
 	}
 
 	if *bundlePath == "" {
