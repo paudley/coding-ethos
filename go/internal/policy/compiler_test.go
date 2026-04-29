@@ -112,6 +112,12 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if !slices.Contains(forbiddenStrings, "coding-ethos-hooks/coding-ethos-git-hook") {
 		t.Fatalf("default forbidden strings missing hook binary path: %#v", forbiddenStrings)
 	}
+	if !slices.Contains(forbiddenStrings, "coding-ethos-hooks/bin/coding-ethos-policy") {
+		t.Fatalf("default forbidden strings missing shared policy tool path: %#v", forbiddenStrings)
+	}
+	if slices.Contains(forbiddenStrings, "coding-ethos-hooks/coding-ethos-legacy-hook") {
+		t.Fatalf("default forbidden strings still include removed legacy hook path: %#v", forbiddenStrings)
+	}
 
 	protectedPaths := optionStrings(
 		t,
@@ -120,6 +126,12 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	)
 	if !slices.Contains(protectedPaths, "coding-ethos-hooks/coding-ethos-git-hook") {
 		t.Fatalf("default protected paths missing hook cache: %#v", protectedPaths)
+	}
+	if !slices.Contains(protectedPaths, "coding-ethos-hooks/bin/coding-ethos-git") {
+		t.Fatalf("default protected paths missing shared git wrapper: %#v", protectedPaths)
+	}
+	if slices.Contains(protectedPaths, "coding-ethos-hooks/coding-ethos-legacy-hook") {
+		t.Fatalf("default protected paths still include removed legacy hook path: %#v", protectedPaths)
 	}
 }
 

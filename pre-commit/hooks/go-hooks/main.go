@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:tagliatelle,gosec,funlen,lll,embeddedstructfieldcheck,modernize // External schemas and legacy hook orchestration.
+//nolint:tagliatelle,gosec,funlen,lll,embeddedstructfieldcheck,modernize // External schemas and bundled hook orchestration.
 package main
 
 import (

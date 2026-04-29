@@ -283,8 +283,12 @@ filesystem:
     enabled: true
     paths:
       - coding-ethos-hooks/coding-ethos-git-hook
-      - coding-ethos-hooks/coding-ethos-hook
-      - coding-ethos-hooks/coding-ethos-legacy-hook
+      - coding-ethos-hooks/bin/coding-ethos-agent-hooks
+      - coding-ethos-hooks/bin/coding-ethos-git
+      - coding-ethos-hooks/bin/coding-ethos-git-hook
+      - coding-ethos-hooks/bin/coding-ethos-hook
+      - coding-ethos-hooks/bin/coding-ethos-lint
+      - coding-ethos-hooks/bin/coding-ethos-policy
       - coding-ethos-hooks/lefthook
   protected_branch_write:
     enabled: true
@@ -365,8 +369,12 @@ shell:
       - /.codex/hooks.json
       - /.gemini/settings.json
       - coding-ethos-hooks/coding-ethos-git-hook
-      - coding-ethos-hooks/coding-ethos-hook
-      - coding-ethos-hooks/coding-ethos-legacy-hook
+      - coding-ethos-hooks/bin/coding-ethos-agent-hooks
+      - coding-ethos-hooks/bin/coding-ethos-git
+      - coding-ethos-hooks/bin/coding-ethos-git-hook
+      - coding-ethos-hooks/bin/coding-ethos-hook
+      - coding-ethos-hooks/bin/coding-ethos-lint
+      - coding-ethos-hooks/bin/coding-ethos-policy
       - coding-ethos-hooks/lefthook
       - /coding-ethos/pre-commit/hooks/
       - /coding-ethos/go/internal/
