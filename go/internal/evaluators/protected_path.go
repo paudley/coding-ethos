@@ -13,12 +13,14 @@ func EvaluateProtectedPath(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	for _, protectedPath := range protectedPaths(context) {
-		if strings.Contains(context.Command, protectedPath) {
+	command := normalizeProtectedPath(context.Command)
+	files := normalizedProtectedFiles(context.Files)
+	for _, protectedPath := range normalizedProtectedPaths(context) {
+		if strings.Contains(command, protectedPath) {
 			return blockProtectedPathDecision(policyDef, protectedPath), nil
 		}
 
-		for _, file := range context.Files {
+		for _, file := range files {
 			if protectedPathMatches(file, protectedPath) {
 				return blockProtectedPathDecision(policyDef, protectedPath), nil
 			}
@@ -32,24 +34,43 @@ func protectedPaths(context Context) []string {
 	return stringSliceOption(
 		context.EvaluatorOptions,
 		"paths",
-		[]string{"/coding-ethos-hooks/coding-ethos-git-hook"},
+		[]string{"coding-ethos-hooks/coding-ethos-git-hook"},
 	)
 }
 
 func protectedPathMatches(file string, protectedPath string) bool {
-	cleanFile := strings.Trim(strings.ReplaceAll(file, "\\", "/"), "/")
-	cleanProtected := strings.Trim(strings.ReplaceAll(protectedPath, "\\", "/"), "/")
-	if cleanFile == cleanProtected {
+	if file == protectedPath {
 		return true
 	}
 
-	if strings.HasPrefix(cleanProtected, "coding-ethos-hooks/") &&
-		strings.HasSuffix(cleanFile, cleanProtected) {
+	if strings.HasSuffix(file, protectedPath) {
 		return true
 	}
 
-	return strings.HasSuffix(protectedPath, "/") &&
-		strings.HasPrefix(cleanFile, cleanProtected+"/")
+	return strings.HasPrefix(file, protectedPath+"/")
+}
+
+func normalizedProtectedPaths(context Context) []string {
+	paths := protectedPaths(context)
+	cleaned := make([]string, 0, len(paths))
+	for _, path := range paths {
+		cleaned = append(cleaned, normalizeProtectedPath(path))
+	}
+
+	return cleaned
+}
+
+func normalizedProtectedFiles(files []string) []string {
+	cleaned := make([]string, 0, len(files))
+	for _, file := range files {
+		cleaned = append(cleaned, normalizeProtectedPath(file))
+	}
+
+	return cleaned
+}
+
+func normalizeProtectedPath(path string) string {
+	return strings.Trim(strings.ReplaceAll(path, "\\", "/"), "/")
 }
 
 func blockProtectedPathDecision(

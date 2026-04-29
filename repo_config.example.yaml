@@ -54,7 +54,7 @@ filesystem:
   protected_path:
     enabled: true
     paths:
-      - /coding-ethos-hooks/coding-ethos-git-hook
+      - coding-ethos-hooks/coding-ethos-git-hook
   protected_branch_write:
     enabled: true
     branches:

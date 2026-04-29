@@ -158,7 +158,7 @@ func TestEvaluateShellForbiddenStringsBlocksHookBinaryTampering(t *testing.T) {
 		Context{
 			Command: `rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook .`,
 			EvaluatorOptions: map[string]any{
-				"strings": []string{"/coding-ethos-hooks/coding-ethos-git-hook"},
+				"strings": []string{"coding-ethos-hooks/coding-ethos-git-hook"},
 			},
 		},
 	)

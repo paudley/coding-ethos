@@ -164,11 +164,10 @@ persist_agent_environment() {
 }
 
 go_source_hash() {
+	local hash_cmd=(sha256sum)
+	command -v sha256sum >/dev/null || hash_cmd=(shasum -a 256)
 	find "$@" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -print0 |
-		sort -z |
-		xargs -0 sha256sum |
-		sha256sum |
-		awk '{print $1}'
+		sort -z | xargs -0 "${hash_cmd[@]}" | "${hash_cmd[@]}" | awk '{print $1}'
 }
 
 build_cached_go() {
@@ -299,7 +298,7 @@ run_agent_hooks() {
 }
 
 agent_hook_command() {
-	printf 'PATH=%s:$PATH %s agent-hook' "$TOOLS_BIN_DIR" "${SCRIPT_DIR}/run-go-hook.sh"
+	printf 'PATH=%s:$%s %s agent-hook' "$TOOLS_BIN_DIR" PATH "${SCRIPT_DIR}/run-go-hook.sh"
 }
 
 run_agent_hooks_tool() {
