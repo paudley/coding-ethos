@@ -54,7 +54,6 @@ func buildPostEditContext(
 	fastLintState postEditLintResult,
 ) string {
 	lines := []string{
-		"CODING-ETHOS POST-EDIT CHECKPOINT",
 		"tool: " + tool,
 	}
 

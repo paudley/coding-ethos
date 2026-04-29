@@ -1411,9 +1411,10 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
 	}
 	if !strings.Contains(output, `"systemMessage"`) ||
-		!strings.Contains(output, "CODING-ETHOS STOP CHECKPOINT") {
+		!strings.Contains(output, "planned work remains") {
 		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
 	}
+	assertNoRoutineContextClutter(t, output)
 }
 
 func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
@@ -1568,10 +1569,11 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 	}
 
 	additionalContext := inject.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(additionalContext, "CODING-ETHOS CONTINUATION") ||
+	if !strings.Contains(additionalContext, "session_id: session-001") ||
 		!strings.Contains(additionalContext, "finish the hook cutover") {
 		t.Fatalf("unexpected inject output: %#v", inject.HookSpecificOutput)
 	}
+	assertNoRoutineContextClutter(t, additionalContext)
 	if strings.Contains(additionalContext, transcript) {
 		t.Fatalf("continuation context leaked transcript path: %s", additionalContext)
 	}
@@ -1627,11 +1629,13 @@ func TestRunAddsUserPromptGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS PROMPT GUIDANCE") ||
+	if !strings.Contains(context, "prompt:") ||
+		!strings.Contains(context, "guidance:") ||
 		!strings.Contains(context, "todo list") ||
 		!strings.Contains(context, "finish hook replacement") {
 		t.Fatalf("unexpected prompt guidance: %s", context)
 	}
+	assertNoRoutineContextClutter(t, context)
 }
 
 func TestRunAddsStopCheckpointGuidance(t *testing.T) {
@@ -1655,10 +1659,11 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS STOP CHECKPOINT") ||
+	if !strings.HasPrefix(context, "guidance:\n") ||
 		!strings.Contains(context, "planned work remains") {
 		t.Fatalf("unexpected stop guidance: %s", context)
 	}
+	assertNoRoutineContextClutter(t, context)
 }
 
 func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
@@ -1684,12 +1689,31 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "CODING-ETHOS POST-EDIT CHECKPOINT") ||
+	if !strings.HasPrefix(context, "tool: Write\n") ||
 		!strings.Contains(context, "src/app.py") ||
 		!strings.Contains(context, "language_advice:") ||
 		!strings.Contains(context, "python: run ruff/mypy/pyright") ||
 		!strings.Contains(context, "Run focused formatting") {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
+	}
+	assertNoRoutineContextClutter(t, context)
+}
+
+func assertNoRoutineContextClutter(t *testing.T, context string) {
+	t.Helper()
+
+	for _, forbidden := range []string{
+		"CODING-ETHOS",
+		"checkpoint",
+		"stop guidance",
+		"prompt guidance",
+		"tool batch checkpoint",
+		"post-edit checkpoint",
+		"continuation context",
+	} {
+		if strings.Contains(context, forbidden) {
+			t.Fatalf("routine context contains clutter %q:\n%s", forbidden, context)
+		}
 	}
 }
 
