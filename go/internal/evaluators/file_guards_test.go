@@ -86,6 +86,22 @@ func TestEvaluateFileShebangBlocksExecutableWithoutShebang(t *testing.T) {
 	}
 }
 
+func TestEvaluateFileShebangSkipsDirectories(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateFileShebang(
+		fileGuardPolicy("filesystem.shebangs"),
+		Context{Files: []string{t.TempDir()}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate shebangs: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions for directory path, got %#v", decisions)
+	}
+}
+
 func TestEvaluateFileLargeFileBlocksNewOversizedFile(t *testing.T) {
 	t.Parallel()
 

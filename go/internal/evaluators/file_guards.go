@@ -128,6 +128,14 @@ func EvaluateFileShebang(
 ) ([]policy.Decision, error) {
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+		regular, err := isRegularGuardFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if !regular {
+			continue
+		}
+
 		text, binary, err := readGuardText(path)
 		if err != nil {
 			return nil, err

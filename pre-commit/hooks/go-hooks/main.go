@@ -5496,33 +5496,12 @@ func runShellcheck(_ Config, paths []string) int {
 		return 0
 	}
 
-	result := runExternalTool(externalToolRequest{
-		Name:    "shellcheck",
-		Command: toolchainCommandWithFiles("shellcheck", files),
-	})
-	outputText := result.Combined
-
-	findings := parseShellcheckFindings(outputText)
-	if len(findings) > 0 {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     "shellcheck",
-			Title:    "SHELLCHECK FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix shellcheck diagnostics before committing."},
-		}, selectedHookOutputFormat()))
-
-		return 1
-	}
-
-	if outputText != "" {
-		fmt.Fprintln(os.Stdout, outputText)
-	}
-
-	if result.RunnerFailure != nil || result.ExitCode != 0 {
-		return 1
-	}
-
-	return 0
+	return runHookToolWithParser(
+		"shellcheck",
+		repoRoot(),
+		toolchainCommandWithFiles("shellcheck", files),
+		parseShellcheckFindings,
+	)
 }
 
 func parseShellcheckFindings(output string) []hookFinding {
@@ -5535,34 +5514,12 @@ func runYamllint(_ Config, paths []string) int {
 		return 0
 	}
 
-	result := runExternalTool(externalToolRequest{
-		Name:    "yamllint",
-		Dir:     repoRoot(),
-		Command: uvToolchainCommandWithRepoConfig("yamllint", ".yamllint.yml", files),
-	})
-	outputText := result.Combined
-
-	findings := parseYamllintFindings(outputText)
-	if len(findings) > 0 {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:     "yamllint",
-			Title:    "YAMLLINT FAILED",
-			Findings: findings,
-			Guidance: []string{"Fix yamllint diagnostics before committing."},
-		}, selectedHookOutputFormat()))
-
-		return 1
-	}
-
-	if outputText != "" {
-		fmt.Fprintln(os.Stdout, outputText)
-	}
-
-	if result.RunnerFailure != nil || result.ExitCode != 0 {
-		return 1
-	}
-
-	return 0
+	return runHookToolWithParser(
+		"yamllint",
+		repoRoot(),
+		uvToolchainCommandWithRepoConfig("yamllint", ".yamllint.yml", files),
+		parseYamllintFindings,
+	)
 }
 
 func parseYamllintFindings(output string) []hookFinding {

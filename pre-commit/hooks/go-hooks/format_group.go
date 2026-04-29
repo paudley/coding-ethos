@@ -150,6 +150,21 @@ func runHookToolWithParser(
 	parseFindings func(string) []hookFinding,
 ) int {
 	result := runExternalTool(externalToolRequest{Name: name, Dir: dir, Command: command})
+
+	return reportSharedToolResult(
+		name,
+		result,
+		parseFindings,
+		[]string{"Fix the reported diagnostics before committing."},
+	)
+}
+
+func reportSharedToolResult(
+	name string,
+	result externalToolResult,
+	parseFindings func(string) []hookFinding,
+	guidance []string,
+) int {
 	if result.RunnerFailure != nil {
 		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
 			Tool:  name,
@@ -178,7 +193,7 @@ func runHookToolWithParser(
 		}
 
 		if len(findings) == 0 {
-			findings = []hookFinding{genericToolFailureFinding(name, result.ExitCode)}
+			findings = []hookFinding{genericToolFailureFindingForResult(name, result)}
 			rawOutput = boundedRawOutputLines(result.Combined)
 		}
 
@@ -187,7 +202,7 @@ func runHookToolWithParser(
 			Title:     strings.ToUpper(name) + " FAILED",
 			Findings:  findings,
 			RawOutput: rawOutput,
-			Guidance:  []string{"Fix the reported diagnostics before committing."},
+			Guidance:  guidance,
 		}, selectedHookOutputFormat()))
 	}
 
@@ -200,6 +215,23 @@ func genericToolFailureFinding(name string, exitCode int) hookFinding {
 		Severity: "error",
 		Message:  "external tool exited with status " + strconv.Itoa(exitCode),
 	}
+}
+
+func genericToolFailureFindingForResult(
+	name string,
+	result externalToolResult,
+) hookFinding {
+	if result.TimedOut {
+		return hookFinding{
+			Tool:     name,
+			Severity: "error",
+			Code:     timeoutCode,
+			Message:  "external tool timed out",
+			Detail:   "timeout exceeded before the tool completed",
+		}
+	}
+
+	return genericToolFailureFinding(name, result.ExitCode)
 }
 
 func parseGenericHookFindings(name string, output string) []hookFinding {

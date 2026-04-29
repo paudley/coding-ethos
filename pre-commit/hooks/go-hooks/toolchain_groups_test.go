@@ -143,7 +143,7 @@ func assertMaintainabilityTimeoutFinding(t *testing.T) {
 
 	timeout := parseMaintainabilityFindings("Error: radon timed out after 60s")
 	if len(timeout) != 1 ||
-		timeout[0].Code != "timeout" ||
+		timeout[0].Code != timeoutCode ||
 		timeout[0].Message != "radon timed out after 60s" ||
 		timeout[0].Advice == "" {
 		t.Fatalf("parseMaintainabilityFindings(timeout) = %#v", timeout)

@@ -18,6 +18,7 @@ const (
 	complexityThreshold      = 15
 	maintainabilityThreshold = 50
 	radonExcludePattern      = ".venv/*,node_modules/*"
+	timeoutCode              = "timeout"
 	vultureMinConfidence     = 80
 	vultureTimeoutSeconds    = 120
 )
@@ -366,7 +367,7 @@ func reportExternalQualityFailure(
 	rawOutput := []string(nil)
 
 	if len(findings) == 0 {
-		findings = []hookFinding{genericToolFailureFinding(name, result.ExitCode)}
+		findings = []hookFinding{genericToolFailureFindingForResult(name, result)}
 		rawOutput = boundedRawOutputLines(result.Combined)
 	}
 
@@ -595,7 +596,7 @@ func parseMaintainabilityToolError(line string) (hookFinding, bool) {
 		Advice:   "Run the maintainability check directly, then simplify or split the slow module before committing.",
 	}
 	if strings.Contains(strings.ToLower(message), "timed out") {
-		finding.Code = "timeout"
+		finding.Code = timeoutCode
 	}
 
 	return finding, true
