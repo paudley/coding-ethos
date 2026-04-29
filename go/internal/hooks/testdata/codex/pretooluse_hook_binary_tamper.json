@@ -1,0 +1,8 @@
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "exec_command",
+  "input": {
+    "command": "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook && go build -o /repo/.git/coding-ethos-hooks/coding-ethos-git-hook ."
+  }
+}

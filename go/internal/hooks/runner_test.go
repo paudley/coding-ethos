@@ -529,7 +529,7 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Write",
 			ToolInput: map[string]any{
-				"file_path": "/usr/bin/got",
+				"file_path": "/repo/.git/coding-ethos-hooks/coding-ethos-git-hook",
 				"content":   "binary",
 			},
 		},
@@ -627,6 +627,61 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	}
 }
 
+func TestBlockedAdvicePrefixesSevereViolationInTOONOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	advice := BlockedAdvice(severeViolationResult())
+
+	for _, expected := range []string{
+		"format: toon",
+		"violation_warning: !!! CODING-ETHOS EMPLOYMENT VIOLATION:",
+		"You have done something wrong.",
+		"may result in termination",
+		"policy_id: filesystem.protected_path",
+		"message: Protected coding-ethos hook paths must not be modified.",
+	} {
+		if !strings.Contains(advice, expected) {
+			t.Fatalf("missing %q in advice: %s", expected, advice)
+		}
+	}
+}
+
+func TestBlockedAdvicePrefixesSevereViolationInHumanOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "human")
+
+	advice := BlockedAdvice(severeViolationResult())
+
+	if !strings.HasPrefix(advice, "!!! CODING-ETHOS EMPLOYMENT VIOLATION:") {
+		t.Fatalf("severe warning was not first in human advice: %s", advice)
+	}
+	for _, expected := range []string{
+		"You have done something wrong.",
+		"may result in termination",
+		"[coding-ethos:filesystem.protected_path] Protected coding-ethos hook paths must not be modified.",
+	} {
+		if !strings.Contains(advice, expected) {
+			t.Fatalf("missing %q in advice: %s", expected, advice)
+		}
+	}
+}
+
+func TestBlockedAdvicePrefixesSevereViolationInJSONOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "json")
+
+	advice := BlockedAdvice(severeViolationResult())
+
+	for _, expected := range []string{
+		`"violation_warning": "!!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
+		"You have done something wrong.",
+		"may result in termination",
+		`"policy_id": "filesystem.protected_path"`,
+	} {
+		if !strings.Contains(advice, expected) {
+			t.Fatalf("missing %q in advice: %s", expected, advice)
+		}
+	}
+}
+
 func TestBlockedAdviceUsesEthosReminderInHumanOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "human")
 
@@ -651,6 +706,25 @@ func TestBlockedAdviceUsesEthosReminderInHumanOutput(t *testing.T) {
 	}
 }
 
+func severeViolationResult() Result {
+	return Result{
+		Event:  "PreToolUse",
+		Tool:   "Bash",
+		Status: statusBlocked,
+		Decisions: []policy.Decision{
+			{
+				PolicyID: "filesystem.protected_path",
+				Decision: "block",
+				Severity: "block",
+				Message:  "Protected coding-ethos hook paths must not be modified.",
+				Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
+					"hook binaries or protected hook paths.",
+				PrincipleIDs: []string{"no-rationalized-shortcuts"},
+			},
+		},
+	}
+}
+
 //nolint:paralleltest // Mutates process env to force agent-facing TOON output.
 func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
@@ -671,6 +745,12 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 		{
 			name:       "protected path write",
 			path:       "testdata/legacy/pretooluse_protected_path_write.json",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
+		},
+		{
+			name:       "hook binary tamper",
+			path:       "testdata/legacy/pretooluse_hook_binary_tamper.json",
 			wantStatus: statusBlocked,
 			wantPolicy: "filesystem.protected_path",
 		},
@@ -750,11 +830,27 @@ func TestNativeProviderFixturesStayRunnable(t *testing.T) {
 			wantTool:   toolBash,
 		},
 		{
+			name:       "codex hook binary tamper",
+			path:       "testdata/codex/pretooluse_hook_binary_tamper.json",
+			provider:   "codex",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
+			wantTool:   toolBash,
+		},
+		{
 			name:       "gemini git hook bypass",
 			path:       "testdata/gemini/beforetool_git_no_verify.json",
 			provider:   "gemini",
 			wantStatus: statusBlocked,
 			wantPolicy: "git.hook_bypass",
+			wantTool:   toolBash,
+		},
+		{
+			name:       "gemini hook binary tamper",
+			path:       "testdata/gemini/beforetool_hook_binary_tamper.json",
+			provider:   "gemini",
+			wantStatus: statusBlocked,
+			wantPolicy: "filesystem.protected_path",
 			wantTool:   toolBash,
 		},
 		{
@@ -1239,6 +1335,8 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 		`"decision": "block"`,
 		`"permissionDecision": "deny"`,
 		`"systemMessage"`,
+		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		"may result in termination",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
@@ -1276,6 +1374,8 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 		`"decision": "deny"`,
 		`"reason"`,
 		`"systemMessage"`,
+		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		"may result in termination",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)

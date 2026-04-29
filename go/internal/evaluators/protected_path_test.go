@@ -17,7 +17,25 @@ func TestEvaluateProtectedPathBlocksCommandReference(t *testing.T) {
 
 	decisions, err := EvaluateProtectedPath(
 		policyDef,
-		Context{Command: "sudo chmod +x /usr/bin/got"},
+		Context{Command: "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook"},
+	)
+	if err != nil {
+		t.Fatalf("evaluate protected path: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluateProtectedPathBlocksRelativeCommandReference(t *testing.T) {
+	t.Parallel()
+
+	policyDef := protectedPathPolicy()
+
+	decisions, err := EvaluateProtectedPath(
+		policyDef,
+		Context{Command: "rm .git/coding-ethos-hooks/coding-ethos-git-hook"},
 	)
 	if err != nil {
 		t.Fatalf("evaluate protected path: %v", err)
@@ -35,7 +53,30 @@ func TestEvaluateProtectedPathBlocksFileTarget(t *testing.T) {
 
 	decisions, err := EvaluateProtectedPath(
 		policyDef,
-		Context{Files: []string{"/usr/bin/got"}},
+		Context{Files: []string{"/repo/.git/coding-ethos-hooks/coding-ethos-git-hook"}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate protected path: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluateProtectedPathBlocksDirectoryChildren(t *testing.T) {
+	t.Parallel()
+
+	policyDef := protectedPathPolicy()
+
+	decisions, err := EvaluateProtectedPath(
+		policyDef,
+		Context{
+			Files: []string{"/opt/blocked/child"},
+			EvaluatorOptions: map[string]any{
+				"paths": []string{"/opt/blocked/"},
+			},
+		},
 	)
 	if err != nil {
 		t.Fatalf("evaluate protected path: %v", err)
@@ -79,7 +120,7 @@ func protectedPathPolicy() policy.Policy {
 		},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected paths must not be modified.",
+		Message:         "Protected coding-ethos hook paths must not be modified.",
 		DefenseLayers:   policy.GitDefenseLayers("block", "", "block", "", ""),
 		Evaluators: []policy.Evaluator{{
 			Kind: "path",

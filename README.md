@@ -3,57 +3,38 @@
 
 # coding-ethos
 
-`coding-ethos` turns an engineering ethos into runnable repository policy.
+`coding-ethos` turns engineering principles into runnable repository policy.
 
 It keeps agent instructions, generated documentation, static-analysis config,
-Git hooks, and agent tool-use guards on the same source contract. The result is
-defense in depth for human and AI contributors: the repo tells agents what good
-work looks like, gives developers the same standards in normal tool output, and
-blocks critical bypasses before bad changes land.
+Git hooks, and agent tool-use guards on one source contract. Human contributors
+and AI agents see the same standards, run the same checks, and hit the same
+critical safety gates before bad changes land.
 
-## Why it exists
+## Why It Matters
 
-AI coding agents fail most dangerously when advice, tooling, and enforcement
-disagree. A Markdown rule says one thing, a linter checks another thing, and a
-hook lets a third thing through. `coding-ethos` closes that gap by compiling the
-repo's working agreement into every place contributors interact with the code:
+AI coding work fails hardest when guidance and enforcement drift apart:
 
-- **Agent context**: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`, and
-  deep per-principle reference docs.
-- **Tool configuration**: Pyright, mypy, Ruff, yamllint, and golangci-lint
-  config generated from the same policy inputs.
-- **Git enforcement**: repo-local Git hooks backed by Go policy evaluators and
-  deterministic failure output.
-- **Agent tool-use enforcement**: Claude hook settings and runtime policy that
-  can rewrite safe Git commands, block bypass attempts, capture continuation
-  context, and preserve audit logs.
-- **AI review grounding**: Gemini prompt packs generated from ethos, repo
-  overlays, enforcement config, and checked-in prompt templates.
+- a Markdown rule says one thing
+- a linter checks another thing
+- a Git hook allows a third thing through
+- an agent sees the mismatch and treats the safety system as broken
 
-## Defense in depth
+`coding-ethos` closes that gap by compiling the repo's working agreement into
+the places contributors actually work:
 
-`coding-ethos` does not rely on one hook or one instruction file. Policy is
-layered so failures are caught at multiple points:
+| Surface | What it gets |
+| --- | --- |
+| Agent context | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`, and deep principle docs |
+| Tool config | Pyright, mypy, Ruff, yamllint, and golangci-lint config |
+| Git hooks | compiled Go policy preflight plus deterministic hook groups |
+| Agent hooks | Claude, Codex, and Gemini tool-use guards |
+| AI review | Gemini prompt packs grounded in ethos and repo config |
+| Audit data | `.coding-ethos/hook-runs/` logs for later analysis |
 
-1. **Source policy** lives in YAML: `coding_ethos.yml` for shared principles,
-   `repo_ethos.yml` for repo-local context, `config.yaml` for enforcement, and
-   optional `repo_config.yaml` for consumer overrides.
-2. **Generated guidance** makes the same contract visible to agents and humans
-   through root agent files and deep reference docs.
-3. **Generated tool config** aligns standard linters and type checkers with the
-   policy instead of relying on hand-maintained config drift.
-4. **Git hooks** run compiled policy preflight, static checks, AI review checks,
-   and repo-specific gates before commits and pushes.
-5. **Agent hooks** protect high-risk tool paths during the work session, before
-   a commit even exists.
-6. **Audit output** is written under `.coding-ethos/` so noisy or expensive hook
-   runs can be analyzed later without flooding the calling agent.
+## Defense In Depth
 
-Unknown linter output still flows through normally. Findings tied to ETHOS
-principles can receive stronger, policy-grounded advice instead of generic
-tool messages.
-
-## How policy flows
+Policy is intentionally layered. No single hook, file, or agent instruction is
+trusted as the only line of defense.
 
 ```text
 coding_ethos.yml      repo_ethos.yml
@@ -71,33 +52,16 @@ config.yaml          repo_config.yaml
        │
        ├── generated tool configs
        ├── Gemini prompt pack
-       ├── Go hook policy bundle
-       ├── Git hook runner
+       ├── Go policy bundle
+       ├── Git hook runtime
        └── agent hook runtime
 ```
 
-The same inputs drive both guidance and enforcement. If a rule changes, update
-the source YAML or renderer, regenerate, and review the derived diff.
+The same inputs drive guidance and enforcement. Unknown linter findings still
+flow through normally; findings tied to ETHOS principles can receive stronger,
+policy-grounded advice instead of generic tool text.
 
-## Repository model
-
-The project has four related surfaces:
-
-- Agent docs: `coding_ethos.yml` plus optional `repo_ethos.yml` render
-  `ETHOS.md`, root agent docs, `.agents/ethos/`, `.claude/ethos/`, and
-  `.agent-context/`.
-- Enforcement config: `config.yaml` plus optional `repo_config.yaml` render
-  Pyright, mypy, Ruff, yamllint, and golangci-lint config files.
-- Gemini hook prompts: ethos YAML, repo overlays, enforcement config, and
-  `pre-commit/prompts/` templates render
-  `.code-ethos/gemini/prompt-pack.json`.
-- Hook runtime: `pre-commit/`, generated configs, and the generated prompt pack
-  run through repo-local Go hook shims and Go-backed policy checks.
-
-Generated Markdown files are derived artifacts. Change the YAML source or
-renderer first, then regenerate and review the generated diff.
-
-## Quick start
+## Quick Start
 
 Install dependencies and generated local artifacts:
 
@@ -105,47 +69,73 @@ Install dependencies and generated local artifacts:
 make install
 ```
 
-Run the Python test suite:
-
-```bash
-make test
-```
-
-Run the current verification gate:
+Run the standard verification gate:
 
 ```bash
 make check
 ```
 
-Check the local toolchain and resolved hook paths:
+Install repo-local Git hooks:
 
 ```bash
-make doctor
+make install-hooks
 ```
 
-Generate this repo's checked-in agent files:
+Install and verify the full Git plus agent hook cutover:
+
+```bash
+make cutover-install
+```
+
+Generate agent-facing files for this repo:
 
 ```bash
 make generate
 ```
 
-Generate agent files into another repository:
+Generate files for another repo:
 
 ```bash
 make generate REPO=/path/to/repo
 ```
 
-Preserve existing root agent files in a target repo:
+## Common Workflows
+
+| Goal | Command |
+| --- | --- |
+| Show resolved paths and config | `make status` |
+| Check required local tools | `make doctor` |
+| Run Python tests | `make test` |
+| Run full local check | `make check` |
+| Validate hook runtime | `make validate` |
+| Run Go tests | `make go-test` |
+| Format Go helper code | `make go-fmt` |
+| Sync generated tool configs | `make sync-tool-configs` |
+| Check generated tool config drift | `make check-tool-configs` |
+| Sync Gemini prompt pack | `make sync-gemini-prompts` |
+| Check Gemini prompt-pack drift | `make check-gemini-prompts` |
+| Run staged-file hooks | `make pre-commit` |
+| Run hooks over all files | `make pre-commit-all` |
+| Run pre-push hooks | `make pre-push` |
+| Generate agent docs | `make generate` |
+| Preserve existing root agent docs while generating | `make generate-merge` |
+| Use an external agent CLI for root-file merges | `make generate-merge-llm` |
+
+Useful overrides:
 
 ```bash
-make generate-merge REPO=/path/to/repo
+make generate REPO=/path/to/repo PRIMARY=/path/to/coding_ethos.yml
+make generate REPO=/path/to/repo REPO_ETHOS=/path/to/repo_ethos.yml
+make sync-tool-configs \
+  TOOL_CONFIG_REPO=/path/to/repo \
+  REPO_CONFIG=/path/to/repo_config.yaml
+make seed SEED_FROM=/path/to/ETHOS.md PRIMARY=/path/to/coding_ethos.yml
 ```
 
-## Direct CLI usage
+## Direct CLI Usage
 
-The package exposes the `coding-ethos` command. During local development, the
-Makefile runs it through `uv run python main.py` so the repo-local sources are
-used.
+The package exposes `coding-ethos`. During local development the Makefile runs
+through `uv run python main.py` so repo-local sources are used.
 
 Generate agent docs:
 
@@ -167,7 +157,7 @@ Sync generated tool configs:
 uv run coding-ethos --repo /path/to/repo --sync-tool-configs
 ```
 
-Check generated tool configs for drift:
+Check generated tool config drift:
 
 ```bash
 uv run coding-ethos --repo /path/to/repo --check-tool-configs
@@ -182,118 +172,23 @@ uv run coding-ethos \
   --sync-gemini-prompts
 ```
 
-## Make targets
+## Repository Model
 
-The Makefile is the preferred operator interface.
+| Source | Purpose | Derived output |
+| --- | --- | --- |
+| `coding_ethos.yml` | shared ethos contract | root agent docs and deep principle docs |
+| `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance |
+| `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
+| `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
+| `pre-commit/prompts/` | Gemini prompt templates | `.code-ethos/gemini/prompt-pack.json` |
+| `pre-commit/` | hook bundle | repo-local Git and agent hook runtime |
 
-- `make install`: sync dev dependencies, generated tool configs, and Gemini
-  prompt pack.
-- `make install-runtime`: sync runtime dependencies and generated local
-  artifacts.
-- `make status`: print resolved paths and generation settings.
-- `make doctor`: check required local tools and important resolved paths.
-- `make test`: run `uv run pytest`.
-- `make check`: run tests plus generated config and prompt-pack drift checks.
-- `make validate`: validate the bundled Go hook runtime.
-- `make go-test`: run tests for the Go hook runner.
-- `make go-fmt`: format all Go hook helper source files.
-- `make go-tidy`: format Go hook helper sources and run `go mod tidy`.
-- `make fmt`: run repo-owned source formatters currently exposed by Make.
-- `make install-hooks`: install repo-local Git hook shims.
-- `make cutover-install`: install Git and agent hooks, then verify readiness.
-- `make cutover-verify`: verify Git, agent hook, and policy runtime readiness.
-- `make pre-commit`: run staged-file pre-commit hooks.
-- `make pre-commit-all`: run pre-commit hooks over all files.
-- `make pre-push`: run pre-push hooks.
-- `make sync-tool-configs`: write generated repo-root tool configs.
-- `make check-tool-configs`: fail if generated repo-root tool configs drift.
-- `make sync-gemini-prompts`: write `.code-ethos/gemini/prompt-pack.json`.
-- `make check-gemini-prompts`: fail if the prompt pack drifts.
-- `make seed`: seed or refresh `PRIMARY` from `SEED_FROM`.
-- `make generate`: generate agent-facing files into `REPO`.
-- `make generate-merge`: generate while preserving existing root agent docs.
-- `make generate-merge-llm`: use an external agent CLI for root-file merges.
+Generated Markdown files are derived artifacts. Change the YAML source or
+renderer first, then regenerate and review the generated diff.
 
-Useful overrides:
+## Generated Output
 
-```bash
-make generate REPO=/path/to/repo PRIMARY=/path/to/coding_ethos.yml
-make generate REPO=/path/to/repo REPO_ETHOS=/path/to/repo_ethos.yml
-make sync-tool-configs \
-  TOOL_CONFIG_REPO=/path/to/repo \
-  REPO_CONFIG=/path/to/repo_config.yaml
-make go-test GO=/path/to/go
-make go-fmt GOFMT=/path/to/gofmt
-make seed SEED_FROM=/path/to/ETHOS.md PRIMARY=/path/to/coding_ethos.yml
-```
-
-## Source files
-
-### `coding_ethos.yml`
-
-The primary ethos YAML is the shared source contract. It must use
-`version: 2`, include metadata, and define a non-empty ordered list of
-principles. Each principle needs an `id`, `order`, `title`, `directive`, and at
-least one section or inline body.
-
-Supported section kinds are:
-
-```text
-overview, guidance, rule, policy, workflow, anti_patterns, correct_way,
-rationale, examples, reference, repo_context
-```
-
-The loader validates duplicate ids, duplicate orders, unknown related ids,
-unsupported agents, malformed sections, and empty required prose.
-
-Primary file aliases are also accepted when `--primary` is omitted:
-
-- `coding_ethos.yml`
-- `coding_ethos.yaml`
-- `code_ethos.yml`
-- `code_ethos.yaml`
-
-### `repo_ethos.yml`
-
-The optional repo overlay adds local commands, paths, notes, per-agent notes,
-principle overrides, and additional repo-specific principles. By default the CLI
-looks for `repo_ethos.yml` or `repo_ethos.yaml` inside the target repo.
-
-Overlay capabilities:
-
-- `repo.name`, `repo.overview`, `repo.commands`, `repo.paths`, and `repo.notes`
-- `agent_notes.codex`, `agent_notes.claude`, and `agent_notes.gemini`
-- `principles.overrides.<id>` for summary, directive, tags, related ids,
-  quick refs, merge topics, agent hints, prepend text, and append text
-- `principles.additional` for new repo-local principles
-
-See [repo_ethos.example.yml](repo_ethos.example.yml).
-
-### `config.yaml` and `repo_config.yaml`
-
-`config.yaml` is the bundle-wide enforcement source of truth. A consuming repo
-can refine it with `repo_config.yaml` or `repo_config.yml` at the repo root, or
-by passing `--repo-config`.
-
-The merged config drives:
-
-- generated Pyright, mypy, Ruff, yamllint, and golangci-lint config files
-- hook policy for Python, shell, text, commit-message, and Go checks
-- Gemini AI review runtime settings and prompt grounding
-- shared style settings such as `style.python_version` and `style.line_length`
-
-License and copyright enforcement is repo-specific. Bundle `config.yaml`
-controls this repository's own headers only; consuming repos do not inherit that
-license policy. To opt in, set `repo.license.spdx_identifier` and, if desired,
-`repo.license.copyright` in `repo_config.yaml`. The compiled policy downloads
-the SPDX license text, verifies the repo `LICENSE` file without overwriting it,
-and requires matching SPDX source headers.
-
-See [repo_config.example.yaml](repo_config.example.yaml).
-
-## Output layout
-
-Generated agent output in a target repo looks like this:
+Agent-facing output:
 
 ```text
 repo/
@@ -316,7 +211,7 @@ repo/
         └── MEMORY.md
 ```
 
-Generated enforcement output in a target repo can include:
+Enforcement output:
 
 ```text
 repo/
@@ -330,9 +225,53 @@ repo/
         └── prompt-pack.json
 ```
 
-## Merge behavior
+## Configuration
 
-`--merge-existing` only preserves root agent files:
+### `coding_ethos.yml`
+
+The primary ethos YAML is the shared source contract. It uses `version: 2`,
+metadata, and an ordered list of principles. Each principle needs an `id`,
+`order`, `title`, `directive`, and at least one section or inline body.
+
+Accepted primary aliases when `--primary` is omitted:
+
+- `coding_ethos.yml`
+- `coding_ethos.yaml`
+- `code_ethos.yml`
+- `code_ethos.yaml`
+
+### `repo_ethos.yml`
+
+The optional repo overlay adds local commands, paths, notes, per-agent notes,
+principle overrides, and additional repo-specific principles.
+
+See [repo_ethos.example.yml](repo_ethos.example.yml).
+
+### `config.yaml` and `repo_config.yaml`
+
+`config.yaml` is the bundle-wide enforcement source of truth. A consuming repo
+can refine it with `repo_config.yaml` or `repo_config.yml` at the repo root, or
+by passing `--repo-config`.
+
+The merged config drives:
+
+- generated Pyright, mypy, Ruff, yamllint, and golangci-lint config
+- hook policy for Python, shell, text, commit-message, and Go checks
+- Gemini AI review settings and prompt grounding
+- shared style settings such as `style.python_version` and `style.line_length`
+
+License and copyright enforcement is repo-specific. Consumer repos do not
+inherit this repo's license policy. To opt in, set
+`repo.license.spdx_identifier` and, if desired, `repo.license.copyright` in
+`repo_config.yaml`. The compiled policy downloads the SPDX license text,
+verifies the repo `LICENSE` file without overwriting it, and requires matching
+SPDX source headers.
+
+See [repo_config.example.yaml](repo_config.example.yaml).
+
+## Merge Behavior
+
+`--merge-existing` preserves root agent files:
 
 - `AGENTS.md`
 - `CLAUDE.md`
@@ -341,22 +280,18 @@ repo/
 `ETHOS.md` and supporting generated files are replaced with deterministic
 output.
 
-### Inject merge
-
 Inject merge is the default strategy:
 
 ```bash
 uv run coding-ethos --repo /path/to/repo --merge-existing
 ```
 
-It inserts managed import blocks and managed addendum blocks into existing root
-files. Re-running is idempotent, and locally authored content outside managed
-blocks is preserved.
+It inserts managed import blocks and addendum blocks into existing root files.
+Re-running is idempotent, and locally authored content outside managed blocks
+is preserved.
 
-### LLM merge
-
-LLM merge asks an installed agent CLI to merge `existing.md` and `generated.md`
-inside an isolated temporary workspace:
+LLM merge asks an installed `codex`, `gemini`, or `claude` CLI to merge
+`existing.md` and `generated.md` inside an isolated temporary workspace:
 
 ```bash
 uv run coding-ethos \
@@ -368,55 +303,39 @@ uv run coding-ethos \
   --merge-timeout-seconds 300
 ```
 
-Supported merge engines are `codex`, `gemini`, and `claude`. The selected CLI
-must already be installed and authenticated. The merge process must write
-`merged.md`; otherwise the command fails.
+The selected CLI must already be installed and authenticated. The merge process
+must write `merged.md`; otherwise the command fails.
 
-## Hook bundle
+## Hook Runtime
 
-The bundled ETHOS enforcement package lives under [pre-commit/](pre-commit/).
-It uses repo-local Git hook shims that call the Go runner under
+The bundled enforcement package lives under [pre-commit/](pre-commit/). It uses
+repo-local Git hook shims that call the Go runner under
 `pre-commit/hooks/go-hooks/`.
 
-The Go hook runner owns hook output policy. Reports honor
-`hooks.output_format` (`auto`, `human`, `json`, or `toon`), with `auto`
-selecting TOON when known agent/LLM environment markers are present. Successful
-groups are silent by default through `hooks.success_output: silent`; set it to
-`verbose` only when operator-facing pass summaries are useful. Enabled hook
-groups run in parallel when `hooks.parallel_groups: true`, with group output
-captured and replayed deterministically on failure. Default failure output is
-intentionally narrow: show the failing checks and their actionable findings,
-not pass tables, internal group names, or timings that do not help fix code.
-
-The agent hook path is local-only: `pre-commit/hooks/run-go-hook.sh agent-hook`
-compiles a policy bundle under `.git/coding-ethos-hooks/policy/` and runs the
-Go policy runtime. Gemini review checks remain pre-commit/pre-push checks; they
-are not invoked from agent hooks. Agent hook evaluators are runtime-covered, and
-all supported provider settings are generated together.
+### Git Hooks
 
 Installed Git hook shims compile the policy bundle and enter
-`coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That runtime
-runs policy preflight and then executes the bundled hook groups as the active
-quality gate. `make install-hooks` also installs `post-commit`, `post-merge`,
-and `post-checkout` shims that delegate to Git LFS when it is available.
-The standalone `coding-ethos-lint` path can now execute compiled smoke/full
-policies for generated tool-config freshness and the configured pytest gate, so
-those checks are no longer inert policy metadata.
-External command failures can carry normalized diagnostics in the lint JSON
-result. The initial parser registry covers Ruff, Pyright, mypy, Pylint,
-golangci-lint, and generic `file:line:column` text output.
-Known diagnostic codes are enriched from compiled `policy.evidence_maps`, so
-ETHOS-significant findings can carry `policy_id`, `principle_ids`, confidence,
-meaning, and repair advice while unmapped tool findings still flow through
-unchanged.
-The bundled Python type-check hook uses this same shared diagnostic package, so
-Ruff, Pyright, mypy, and Pylint parsing have one implementation across compiled
-lint and hook execution.
-Python static-tool defaults now come from the shared Go tool catalog, which
-captures command, parser, config flags, repo config, runtime, file-argument
-behavior, and enabled-by-default state in one typed definition.
+`coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That
+runtime runs policy preflight and then executes the bundled hook groups as the
+active quality gate.
 
-Render or verify repo-local agent hook settings without touching global files:
+Run Git hooks:
+
+```bash
+make pre-commit
+make pre-commit-all
+make pre-push
+```
+
+Hook output honors `hooks.output_format` (`auto`, `human`, `json`, or `toon`).
+`auto` selects TOON when known agent or LLM environment markers are present.
+Successful groups are silent by default; failure output is intentionally narrow:
+show the failing checks and actionable findings, not pass tables, internal group
+names, or timings that do not help fix code.
+
+### Agent Hooks
+
+Render or verify repo-local agent hook settings:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh agent-hooks print
@@ -425,144 +344,106 @@ pre-commit/hooks/run-go-hook.sh agent-hooks doctor
 pre-commit/hooks/run-go-hook.sh agent-hooks verify
 ```
 
-Agent hook generation is all-or-nothing by design. `sync` writes every
-supported repo-local agent surface:
+Agent hook generation is all-or-nothing. `sync` writes every supported
+repo-local surface:
 
-- `.claude/settings.local.json`
-- `.codex/config.toml`
-- `.gemini/settings.json`
+| Provider | Native file | Coverage |
+| --- | --- | --- |
+| Claude | `.claude/settings.local.json` | full runtime hook set |
+| Codex | `.codex/config.toml` | native supported hook events |
+| Gemini CLI | `.gemini/settings.json` | native supported hook events |
 
-Claude output preserves Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` and writes native `[hooks]` entries directly in
-`.codex/config.toml`; stale `.codex/hooks.json` files are removed. Gemini
-output writes native `.gemini/settings.json` hooks with
-`hooksConfig.enabled = true`. Generated settings cover the events each provider
-exposes: Claude uses the full runtime set, Codex uses native `PreToolUse`,
-`PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop` hook names, and
-Gemini maps runtime policy to `BeforeTool`, `AfterTool`, `BeforeAgent`,
-`AfterAgent`, `SessionStart`, and `SessionEnd`.
-Codex runs one native command hook per supported event so current Codex sessions
-enter the same policy runtime without depending on unstable tool matcher names.
-`agent-hooks doctor` verifies those native activation files rather than a
-coding-ethos-only sidecar. `agent-hooks verify` runs doctor first, then invokes
-the configured hook command with provider-native Claude, Codex, and Gemini
-payloads to prove the installed files point at a runnable policy path. This is
-settings plus runtime-probe verification; it does not claim that each real
-provider binary has executed a live tool call. The verification probes cover
-Claude's transparent git rewrite, Codex's block response for raw git, absolute
-git paths, nested shell git, and Python subprocess git when rewrite is
-unavailable, Gemini's `deny` response for raw shell git, and Gemini write-tool
-policy denial.
+Codex runs one native command hook per supported event so current Codex
+sessions enter the same policy runtime without depending on unstable tool
+matcher names.
 
-Use the cutover command when preparing a repo to replace old hook surfaces:
+`agent-hooks verify` runs doctor first, then invokes the configured hook command
+with provider-native Claude, Codex, and Gemini payloads. The probes cover:
+
+- Claude transparent Git wrapper rewrite
+- Codex blocks for raw Git, absolute Git paths, nested shell Git, and Python
+  subprocess Git when rewrite is unavailable
+- Gemini deny responses for raw shell Git and write-tool policy denial
+- managed hook-binary tampering:
+  `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
+
+### Cutover
+
+Use cutover commands when preparing a repo to replace old hook surfaces:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh cutover install
 pre-commit/hooks/run-go-hook.sh cutover verify
 ```
 
-`cutover install` installs the repo-local Git hook shims, syncs every supported
-agent hook surface, and then runs readiness verification. `cutover verify`
-checks installed Git hook shims, runs `agent-hooks verify`, verifies required
-runtime ignores through the compiled `repo.required_ignores` policy, runs
-the policy runtime validation hook, and emits a concise TOON readiness report
-for Git, agent hooks, repo ignores, and the policy runtime. Blocked reports
-include `fix_first` entries naming missing or stale hook files, missing ignore
-rules, and the next command or file to fix.
-At runtime, `agent-hook` normalizes Claude native payloads and first-class
-Codex/Gemini CLI payloads into one internal policy event. The preferred
-provider-neutral payload shape is:
+`cutover install` installs repo-local Git hook shims, syncs every supported
+agent hook surface, and runs readiness verification. `cutover verify` checks
+Git hooks, agent hooks, required runtime ignores, and policy runtime
+validation, then emits a concise TOON readiness report.
 
-```json
-{
-  "provider": "codex",
-  "event": "PreToolUse",
-  "tool": "Bash",
-  "input": {"command": "git status"}
-}
-```
+### Tamper And Bypass Handling
 
-Gemini CLI callers may use `BeforeTool`, `run_shell_command`, and `write_file`;
-those are normalized to the internal `PreToolUse`, `Bash`, and `Write` policy
-surface. Codex callers may use native shell aliases such as `exec_command`,
-`run_command`, `run_shell`, `run_shell_command`, `shell`, or `shell_command`;
-those normalize to the same internal `Bash` policy surface. Codex-style nested
-`tool_call.name` plus `tool_call.arguments` is also accepted. Provider identity
-is recorded for diagnostics, but policy enforcement is intentionally shared
-across all supported agents.
-Agent shell policy includes a forbidden-string gate for hook-system
-reconnaissance: banned strings are rejected when they appear directly in a
-command and when they appear in regular files referenced by the command, so
-agents cannot hide hook inspection in helper scripts.
+Agent shell policy rejects hook-system reconnaissance and protected hook binary
+tampering. Banned strings are rejected when they appear directly in a command
+and when they appear in regular files referenced by the command.
+
+Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
+hook binaries under `.git/coding-ethos-hooks/` are treated as tampering, not as
+ordinary lint failures. Blocked tamper and Git-bypass responses start with a
+uniform `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific
+finding, including explicit language that the actor has done something wrong
+and that continued circumvention attempts may result in termination.
 
 Provider output uses the strongest native shape each agent supports:
 
-- Claude receives full `hookSpecificOutput`, including `updatedInput` for
-  transparent git wrapper rewrites.
-- Codex receives native `decision: "block"` plus
-  `permissionDecision: "deny"` for blocks, and `additionalContext` for
-  supported context events. Codex does not currently support `updatedInput`, so
-  raw git is denied rather than rewritten there.
-- Gemini receives native `decision: "deny"` / `systemMessage` for tool blocks
-  and `additionalContext` on supported lifecycle hooks. Gemini `AfterTool` maps
-  to the same internal `PostToolUse` policy path for shell and edit feedback.
+| Provider | Block shape | Context/advice shape |
+| --- | --- | --- |
+| Claude | `hookSpecificOutput.permissionDecision = deny` | full `hookSpecificOutput`, including `updatedInput` |
+| Codex | `decision: "block"` plus `permissionDecision: "deny"` | `additionalContext` for supported context events |
+| Gemini | `decision: "deny"` plus `systemMessage` | `additionalContext` on supported lifecycle hooks |
 
-Post-edit advice for `Write`, `Edit`, and `MultiEdit` includes language-specific
-next steps, compiled file-scope lint state for edited paths, and a fast Ruff
-probe for Python files when `ruff` is already available. The hook path runs only
-deterministic compiled evaluators, such as Python policy checks,
-structured-data syntax validation, merge-conflict detection, private-key
-detection, PII scrubbing, repo-specific license headers, required runtime
-ignore checks, shebang checks, large-file limits, line limits, and shell
-best-practice checks; heavier external suites remain in the Git hook/check path
-where their cost and output can be controlled.
+### Agent-Hook Scope
 
-Continuation state is stored under
-`.git/coding-ethos-hooks/continuation/`; hook execution never calls Gemini or
-another model from the agent-hook path.
+The agent-hook path runs deterministic compiled evaluators only: Python policy
+checks, structured-data syntax validation, merge-conflict detection,
+private-key detection, PII scrubbing, repo-specific license headers, required
+runtime ignore checks, shebang checks, large-file limits, line limits, and
+shell best-practice checks.
 
-For work directly on this `coding-ethos` repository, an admin may authorize a
-specific agent session by placing an approved process PID in
-`/etc/coding-ethos-admin.pids`. In that repo-local, admin-supervised case only,
-the git wrapper accepts `--admin-approved` before the git subcommand, such as
-`pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -m "..."`.
-The flag only changes `git.staged_admin_files` from block to record; it does not
-disable any other policy and it is invalid outside this repository.
-Admin branch setup uses the same gate:
-`pre-commit/hooks/run-go-hook.sh policy-git --admin-approved admin-start-branch hooks_and_crooks_take_6`.
-That wrapper-owned operation requires a clean worktree, checks out `main`, pulls
-with `--ff-only`, and creates the requested branch. Agents must not use
-`/usr/bin/git` or any other raw Git path for that workflow.
+Gemini review checks remain in pre-commit/pre-push. Agent hooks never call
+Gemini or another model from the tool-use path.
 
-Install hooks:
+Continuation state is stored under `.git/coding-ethos-hooks/continuation/`.
+
+## Admin-Gated Work On This Repo
+
+For work directly on `coding-ethos`, an admin may authorize a specific agent
+session by placing an approved process PID in `/etc/coding-ethos-admin.pids`.
+In that repo-local, admin-supervised case only, the Git wrapper accepts
+`--admin-approved` before the Git subcommand:
 
 ```bash
-make install-hooks
+pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -F /tmp/msg
 ```
 
-Run hooks:
+The flag only changes `git.staged_admin_files` from block to record. It does
+not disable other policy and is invalid outside this repository.
 
-```bash
-make pre-commit
-make pre-commit-all
-make pre-push
-make hook-plan
-```
+Agents must not use `/usr/bin/git` or any other raw Git path for this workflow.
 
-See [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) and
-[pre-commit/hooks/HOOKS.md](pre-commit/hooks/HOOKS.md).
-
-## Development notes
+## Development
 
 The CLI stays thin. Behavior belongs in focused modules:
 
-- `coding_ethos/loaders.py` validates and merges ethos YAML.
-- `coding_ethos/renderers.py` renders deterministic Markdown.
-- `coding_ethos/merging.py` owns managed-block injection and external merge
-  orchestration.
-- `coding_ethos/tool_configs.py` renders generated repo-root tool configs.
-- `coding_ethos/gemini_prompt_pack.py` renders hook prompt packs from templates.
-- `pre-commit/hooks/go-hooks/` owns active hook runtime and policy checks.
+| Path | Responsibility |
+| --- | --- |
+| `coding_ethos/loaders.py` | validate and merge ethos YAML |
+| `coding_ethos/renderers.py` | render deterministic Markdown |
+| `coding_ethos/merging.py` | managed-block injection and external merge orchestration |
+| `coding_ethos/tool_configs.py` | generated repo-root tool configs |
+| `coding_ethos/gemini_prompt_pack.py` | Gemini prompt packs from templates |
+| `pre-commit/hooks/go-hooks/` | active hook runtime and hook groups |
+| `go/` | compiled policy, hook, lint, and wrapper tools |
 
 When flags, output layout, merge behavior, overlay semantics, or enforcement
 config behavior change, update this README, the relevant example YAML, and the
@@ -586,7 +467,14 @@ make go-tools-smoke
 make pre-commit-all
 ```
 
-Run `make generate` after changing `coding_ethos.yml`, `repo_ethos.yml`, or
-renderer behavior. Run `make sync-tool-configs` after changing generated
-tool-config behavior. Run `make sync-gemini-prompts` after changing prompt
-templates, ethos grounding, or Gemini prompt-pack behavior.
+After source changes:
+
+| Change | Follow-up |
+| --- | --- |
+| `coding_ethos.yml`, `repo_ethos.yml`, or renderers | `make generate` |
+| generated tool-config behavior | `make sync-tool-configs` |
+| Gemini prompt templates or grounding | `make sync-gemini-prompts` |
+| hook runtime or cutover behavior | `make cutover-verify` |
+
+See [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) and
+[pre-commit/hooks/HOOKS.md](pre-commit/hooks/HOOKS.md) for hook internals.

@@ -163,35 +163,22 @@ persist_agent_environment() {
 	} >>"$CLAUDE_ENV_FILE"
 }
 
-needs_go_build() {
-	local src_dir="${1:?src dir required}"
-	local bin="${2:?bin required}"
-
-	[[ ! -x "$bin" ]] && return 0
-	find "$src_dir" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -newer "$bin" | grep -q .
+go_source_hash() {
+	local hash_cmd=(sha256sum)
+	command -v sha256sum >/dev/null || hash_cmd=(shasum -a 256)
+	find "$@" -type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) -print0 |
+		sort -z | xargs -0 "${hash_cmd[@]}" | "${hash_cmd[@]}" | awk '{print $1}'
 }
 
-build_go_binary() {
+build_cached_go() {
 	local src_dir="${1:?src dir required}"
 	local bin="${2:?bin required}"
-	if needs_go_build "$src_dir" "$bin"; then
-		local tmp_bin="${bin}.tmp.$$"
-		rm -f "$tmp_bin"
-		go build -C "$src_dir" -buildvcs=false -o "$tmp_bin" .
-		mv -f "$tmp_bin" "$bin"
-	fi
-}
-
-build_policy_tool() {
-	local name="${1:?tool name required}"
-	local src_dir="${TOOLS_SRC_DIR}/cmd/${name}"
-	local bin="${TOOLS_BIN_DIR}/${name}"
-
-	if [[ -x "$bin" ]] && ! find \
-		"${TOOLS_SRC_DIR}/cmd/${name}" \
-		"${TOOLS_SRC_DIR}/internal" \
-		-type f \( -name "*.go" -o -name "go.mod" -o -name "go.sum" \) \
-		-newer "$bin" | grep -q .; then
+	shift 2
+	local source_hash
+	source_hash="$(go_source_hash "$@")"
+	local stamp="${bin}.stamp"
+	if [[ -x "$bin" && -f "$stamp" && ! "$bin" -nt "$stamp" &&
+		"$(cat "$stamp")" == "$source_hash" ]]; then
 		return
 	fi
 
@@ -199,6 +186,17 @@ build_policy_tool() {
 	rm -f "$tmp_bin"
 	go build -C "$src_dir" -buildvcs=false -o "$tmp_bin" .
 	mv -f "$tmp_bin" "$bin"
+	printf '%s\n' "$source_hash" >"$stamp"
+}
+
+build_go_binary() {
+	build_cached_go "${1:?src dir required}" "${2:?bin required}" "$1"
+}
+
+build_policy_tool() {
+	local name="${1:?tool name required}"
+	local src_dir="${TOOLS_SRC_DIR}/cmd/${name}"
+	build_cached_go "$src_dir" "${TOOLS_BIN_DIR}/${name}" "$src_dir" "${TOOLS_SRC_DIR}/internal"
 }
 
 has_arg() {
@@ -300,7 +298,7 @@ run_agent_hooks() {
 }
 
 agent_hook_command() {
-	printf 'PATH=%s:$PATH %s agent-hook' "$TOOLS_BIN_DIR" "${SCRIPT_DIR}/run-go-hook.sh"
+	printf 'PATH=%s:$%s %s agent-hook' "$TOOLS_BIN_DIR" PATH "${SCRIPT_DIR}/run-go-hook.sh"
 }
 
 run_agent_hooks_tool() {

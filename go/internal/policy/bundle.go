@@ -240,11 +240,17 @@ func exampleProtectedPathPolicy() Policy {
 		PrincipleIDs:    []string{"one-path-for-critical-operations"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected paths must not be modified.",
-		Suggestion:      "Do not write to protected system paths.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		Message:         "Protected coding-ethos hook paths must not be modified.",
+		Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
+			"hook binaries or protected hook paths.",
+		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo: AppliesTo{
-			Paths: []string{"/usr/bin/got"},
+			Paths: []string{
+				"coding-ethos-hooks/coding-ethos-git-hook",
+				"coding-ethos-hooks/coding-ethos-hook",
+				"coding-ethos-hooks/coding-ethos-legacy-hook",
+				"coding-ethos-hooks/lefthook",
+			},
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
 		},
 		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
@@ -306,10 +312,13 @@ func exampleShellForbiddenStringsPolicy() Policy {
 		PrincipleIDs:    []string{"one-path-for-critical-operations"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "Commands must not contain forbidden hook-system strings.",
-		Suggestion:      "Do not inspect or route around agent hook settings.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
-		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
+		Message: "Commands must not inspect, tamper with, or execute files " +
+			"containing protected hook-system internals.",
+		Suggestion: "Do not inspect, enumerate, delete, rebuild, replace, or " +
+			"route around coding-ethos hook implementation internals. Use the " +
+			"installed hook surfaces and documented commands.",
+		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
 			Kind: "shell",
 			Name: "shell.forbidden_strings",
@@ -322,6 +331,10 @@ func exampleShellForbiddenStringsPolicy() Policy {
 					"/.codex/config.toml",
 					"/.codex/hooks.json",
 					"/.gemini/settings.json",
+					"coding-ethos-hooks/coding-ethos-git-hook",
+					"coding-ethos-hooks/coding-ethos-hook",
+					"coding-ethos-hooks/coding-ethos-legacy-hook",
+					"coding-ethos-hooks/lefthook",
 					"/coding-ethos/pre-commit/hooks/",
 					"/coding-ethos/go/internal/",
 					"/coding-ethos/config.yaml",
