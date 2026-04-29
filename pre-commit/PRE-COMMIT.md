@@ -35,8 +35,10 @@ consuming-repo overrides.
 
 `make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
-The cached Go helper binary lives under `.git/coding-ethos-hooks/` and rebuilds
-when its sources or config inputs change.
+The installed Go helper binaries and compiled policy bundle live under
+`.git/coding-ethos-hooks/`. Normal hook execution does not rebuild these
+artifacts; run `make build` from the coding-ethos repository to update the
+installed runtime.
 
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -126,8 +128,10 @@ Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
 merged `config.yaml` plus `repo_config.yaml`.
 
-The cached Go helper binary lives in `.git/coding-ethos-hooks/`. It rebuilds
-when Go sources, `go.mod`, `go.sum`, or the repo-root `config.yaml` change.
+The hook runtime lives in `.git/coding-ethos-hooks/`. It is updated by explicit
+build/install targets, not by normal hook execution. If the runtime is missing
+or stale, hooks fail with an instruction to run `make build` or ask an admin to
+update the installed runtime.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 

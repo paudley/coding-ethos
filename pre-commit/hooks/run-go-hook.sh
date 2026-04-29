@@ -7,9 +7,14 @@
 set -euo pipefail
 
 REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
-ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
-GIT_COMMON_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-common-dir)"
-HOOKS_DIR="$("$REAL_GIT" rev-parse --path-format=absolute --git-path hooks)"
+LOCAL_ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
+if [[ -n "${CODE_ETHOS_CONSUMER_ROOT:-}" ]]; then
+  ROOT="${CODE_ETHOS_CONSUMER_ROOT}"
+else
+  ROOT="$LOCAL_ROOT"
+fi
+GIT_COMMON_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)"
+HOOKS_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
@@ -19,9 +24,9 @@ source "${SCRIPT_DIR}/go-build-report.sh"
 source "${SCRIPT_DIR}/go-build-cache.sh"
 # shellcheck source=pre-commit/hooks/tool-capture.sh
 source "${SCRIPT_DIR}/tool-capture.sh"
-if [[ -z "${CODE_ETHOS_CONSUMER_ROOT:-}" && "${ROOT}" == "${ETHOS_ROOT}" ]]; then
-  export CODE_ETHOS_CONSUMER_ROOT="${ROOT}"
-fi
+# shellcheck source=pre-commit/hooks/go-runtime.sh
+source "${SCRIPT_DIR}/go-runtime.sh"
+export CODE_ETHOS_CONSUMER_ROOT="$ROOT"
 BIN_DIR="${GIT_COMMON_DIR}/coding-ethos-hooks"
 GIT_HOOK_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
 GIT_HOOK_BIN="${BIN_DIR}/coding-ethos-git-hook"
@@ -181,60 +186,26 @@ has_arg() {
   return 1
 }
 
-needs_policy_compile() {
-  [[ ! -f "$POLICY_BUNDLE" ]] && return 0
-  for source in \
-    "${ETHOS_ROOT}/coding_ethos.yml" \
-    "${ETHOS_ROOT}/repo_ethos.yml" \
-    "${ETHOS_ROOT}/config.yaml" \
-    "${ROOT}/repo_config.yaml" \
-    "${ROOT}/repo_config.yml"; do
-    [[ -f "$source" && "$source" -nt "$POLICY_BUNDLE" ]] && return 0
-  done
-  return 1
-}
-
-compile_policy_bundle() {
-  if [[ ! -d "$TOOLS_SRC_DIR" ]]; then
-    echo "FATAL: policy tool source not found at ${TOOLS_SRC_DIR}" >&2
-    exit 127
-  fi
-  build_policy_tool coding-ethos-policy
-  if needs_policy_compile; then
-    local -a args=(
-      compile
-      --primary "${ETHOS_ROOT}/coding_ethos.yml"
-      --config "${ETHOS_ROOT}/config.yaml"
-      --out-dir "$POLICY_DIR"
-    )
-    if [[ -f "${ROOT}/repo_config.yaml" ]]; then
-      args+=(--repo-config "${ROOT}/repo_config.yaml")
-    elif [[ -f "${ROOT}/repo_config.yml" ]]; then
-      args+=(--repo-config "${ROOT}/repo_config.yml")
-    fi
-    "${TOOLS_BIN_DIR}/coding-ethos-policy" "${args[@]}" > /dev/null
-  fi
-}
-
 run_agent_hook() {
-  compile_policy_bundle
+  require_policy_bundle
   install_git_wrapper_shim
   install_lint_tool_shims
   persist_agent_environment
-  build_policy_tool coding-ethos-hook
+  require_policy_tool coding-ethos-hook
   export CODING_ETHOS_RUN_GO_HOOK="${SCRIPT_DIR}/run-go-hook.sh"
   export CODING_ETHOS_GIT_SHIM_DIR="$TOOLS_BIN_DIR"
   exec "${TOOLS_BIN_DIR}/coding-ethos-hook" --bundle "$POLICY_BUNDLE" --json "$@"
 }
 
 run_policy_lint() {
-  compile_policy_bundle
-  build_policy_tool coding-ethos-lint
+  require_policy_bundle
+  require_policy_tool coding-ethos-lint
   exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" "$@"
 }
 
 run_policy_lint_check() {
-  build_policy_tool coding-ethos-lint
+  require_policy_bundle
+  require_policy_tool coding-ethos-lint
   local output
   set +e
   output="$("${TOOLS_BIN_DIR}/coding-ethos-lint" \
@@ -253,10 +224,15 @@ run_policy_lint_check() {
 }
 
 run_policy_git() {
-  compile_policy_bundle
+  require_policy_bundle
   install_git_wrapper_shim
-  build_policy_tool coding-ethos-git
+  require_policy_tool coding-ethos-git
   exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
+}
+
+run_policy_tool() {
+  require_policy_tool coding-ethos-policy
+  exec "${TOOLS_BIN_DIR}/coding-ethos-policy" "$@"
 }
 
 run_agent_hooks() {
@@ -276,7 +252,11 @@ agent_hook_command() {
 run_agent_hooks_tool() {
   install_git_wrapper_shim
   install_lint_tool_shims
-  build_policy_tool coding-ethos-agent-hooks
+  if [[ "${1:-}" == "sync" ]]; then
+    build_policy_tool coding-ethos-agent-hooks
+  else
+    require_policy_tool coding-ethos-agent-hooks
+  fi
   if ! has_arg --hook-command "$@"; then
     set -- "$@" --hook-command "$(agent_hook_command)"
   fi
@@ -425,6 +405,7 @@ run_cutover() {
       run_cutover_verify
       ;;
     install)
+      install_runtime_artifacts
       install_git_hook_shims
       run_agent_hooks_tool sync --root "$ROOT"
       run_cutover_verify install
@@ -440,7 +421,7 @@ run_cutover() {
 run_git_hook() {
   local hook_name="${1:-}"
 
-  compile_policy_bundle
+  require_policy_bundle
   case "$hook_name" in
     pre-commit | pre-push | commit-msg | validate)
       ;;
@@ -450,8 +431,8 @@ run_git_hook() {
       ;;
   esac
 
-  build_policy_tool coding-ethos-git-hook
-  build_go_binary "$GIT_HOOK_SRC_DIR" "$GIT_HOOK_BIN"
+  require_policy_tool coding-ethos-git-hook
+  require_runtime_binary "$GIT_HOOK_BIN" "bundled Go hook runner"
   exec "${TOOLS_BIN_DIR}/coding-ethos-git-hook" \
     --bundle "$POLICY_BUNDLE" \
     --runner "$GIT_HOOK_BIN" \
@@ -489,7 +470,7 @@ case "${1:-}" in
     run_policy_git "$@"
     ;;
   *)
-    build_go_binary "$GIT_HOOK_SRC_DIR" "$GIT_HOOK_BIN"
+    require_runtime_binary "$GIT_HOOK_BIN" "bundled Go hook runner"
     exec "$GIT_HOOK_BIN" "$@"
     ;;
 esac
