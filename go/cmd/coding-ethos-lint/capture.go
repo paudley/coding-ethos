@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -265,8 +266,20 @@ func redactCapturedOutputPaths(output string, repoRoot string, toolRoot string) 
 		replacements[home] = "<home>"
 	}
 
-	for path, marker := range replacements {
-		redacted = strings.ReplaceAll(redacted, path, marker)
+	paths := make([]string, 0, len(replacements))
+	for path := range replacements {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i int, j int) bool {
+		if len(paths[i]) == len(paths[j]) {
+			return paths[i] < paths[j]
+		}
+
+		return len(paths[i]) > len(paths[j])
+	})
+
+	for _, path := range paths {
+		redacted = strings.ReplaceAll(redacted, path, replacements[path])
 	}
 
 	return redacted
@@ -293,11 +306,6 @@ func capturedOutcome(
 	}
 
 	switch exitCode {
-	case 1:
-		return capturedOutcomeClass{
-			Category: "tool_error",
-			Message:  fmt.Sprintf("%s exited with status %d without parseable diagnostics", tool, exitCode),
-		}
 	case 2:
 		return capturedOutcomeClass{
 			Category: "configuration_error",

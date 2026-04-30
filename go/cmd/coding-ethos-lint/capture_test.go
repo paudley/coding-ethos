@@ -441,6 +441,19 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 	}
 }
 
+func TestRedactCapturedOutputPathsPrefersLongestPath(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := filepath.Join(string(filepath.Separator), "home", "dev", "repo")
+	output := "error in " + filepath.Join(repoRoot, "pkg", "app.py")
+
+	redacted := redactCapturedOutputPaths(output, repoRoot, "")
+
+	if redacted != "error in <repo>/pkg/app.py" {
+		t.Fatalf("redacted output = %q", redacted)
+	}
+}
+
 func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX sh")

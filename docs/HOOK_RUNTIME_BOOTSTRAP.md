@@ -96,7 +96,9 @@ bootstrap path as missing policy binaries.
 
 The managed toolchain has two installer surfaces:
 
-- a GitHub release binary installer for pinned release assets
+- a GitHub release binary installer for pinned release assets with mandatory
+  SHA-256 verification and optional `GITHUB_TOKEN` authentication for GitHub API
+  and asset requests
 - a source install wrapper that sets `GOBIN` or `PREFIX` to checkout-local
   directories before running a tool build
 

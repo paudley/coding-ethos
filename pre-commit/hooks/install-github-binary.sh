@@ -7,12 +7,15 @@ set -euo pipefail
 usage() {
   cat >&2 << 'USAGE'
 Usage:
-  install-github-binary.sh <owner/repo> <tag> <asset-substring> <binary-name> <dest-dir>
+  install-github-binary.sh <owner/repo> <tag> <asset-substring> <binary-name> <dest-dir> <sha256>
 
 Downloads a GitHub release asset whose name contains <asset-substring>,
 extracts it when it is a .tar.gz, .tgz, or .zip archive, and installs
 <binary-name> into <dest-dir>. This helper is intentionally GitHub-only until
 the managed toolchain has stronger provenance support for other sources.
+The downloaded asset must match the exact expected SHA-256 digest.
+
+If GITHUB_TOKEN is set, it is used for GitHub API and asset requests.
 USAGE
   exit 2
 }
@@ -33,12 +36,18 @@ release_asset_url() {
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.request
 
 repo, tag, asset_substring = sys.argv[1:]
 url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-with urllib.request.urlopen(url, timeout=30) as response:
+request = urllib.request.Request(url)
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+with urllib.request.urlopen(request, timeout=30) as response:
     release = json.load(response)
 
 for asset in release.get("assets", []):
@@ -49,6 +58,43 @@ for asset in release.get("assets", []):
 
 raise SystemExit(f"no release asset for {repo}@{tag} contains {asset_substring!r}")
 PY
+}
+
+verify_sha256() {
+  local path="${1:?path required}"
+  local expected="${2:?expected sha256 required}"
+
+  local actual
+  actual="$(
+    python3 - "$path" << 'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+  )"
+  if [[ "$actual" != "$expected" ]]; then
+    printf 'FATAL: SHA-256 mismatch for %s\n' "$path" >&2
+    printf 'expected: %s\n' "$expected" >&2
+    printf 'actual:   %s\n' "$actual" >&2
+    exit 1
+  fi
+}
+
+curl_github_asset() {
+  local url="${1:?url required}"
+  local output="${2:?output required}"
+  local -a curl_args=(-fsSL "$url" -o "$output")
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_args=(
+      -H "Authorization: Bearer ${GITHUB_TOKEN}"
+      -H "X-GitHub-Api-Version: 2022-11-28"
+      "${curl_args[@]}"
+    )
+  fi
+
+  curl "${curl_args[@]}"
 }
 
 install_asset() {
@@ -84,7 +130,7 @@ install_asset() {
 }
 
 main() {
-  [[ "$#" -eq 5 ]] || usage
+  [[ "$#" -eq 6 ]] || usage
   require_tool python3
   require_tool curl
 
@@ -93,6 +139,7 @@ main() {
   local asset_substring="$3"
   local binary_name="$4"
   local dest_dir="$5"
+  local expected_sha256="$6"
   local url
   url="$(release_asset_url "$repo" "$tag" "$asset_substring")"
 
@@ -101,7 +148,8 @@ main() {
   trap 'rm -rf "$work_dir"' EXIT
 
   local archive="${work_dir}/${url##*/}"
-  curl -fsSL "$url" -o "$archive"
+  curl_github_asset "$url" "$archive"
+  verify_sha256 "$archive" "$expected_sha256"
   install_asset "$archive" "$binary_name" "$dest_dir" "$work_dir"
 }
 
