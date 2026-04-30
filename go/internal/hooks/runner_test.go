@@ -1903,12 +1903,16 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	}
 
 	ruffPath := filepath.Join(binDir, "ruff")
+	ruffCode := "PLC" + "0415"
 	err = os.WriteFile(
 		ruffPath,
-		[]byte(`#!/usr/bin/env bash
-printf '%s\n' '[{"filename":"app.py","code":"F401","message":"unused import","location":{"row":1,"column":8}}]'
-exit 1
-`),
+		[]byte(
+			"#!/usr/bin/env bash\n"+
+				"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
+				ruffCode+
+				"\",\"message\":\"import outside top-level\",\"location\":{\"row\":1,\"column\":8}}]'\n"+
+				"exit 1\n",
+		),
 		0o700,
 	)
 	if err != nil {
@@ -1935,8 +1939,9 @@ exit 1
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "fast_lint:") ||
 		!strings.Contains(context, "tool: ruff") ||
-		!strings.Contains(context, "F401") ||
-		!strings.Contains(context, "unused import") {
+		!strings.Contains(context, ruffCode) ||
+		!strings.Contains(context, "advice:") ||
+		!strings.Contains(context, "Move required imports to module scope") {
 		t.Fatalf("missing fast ruff finding: %s", context)
 	}
 }

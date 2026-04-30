@@ -217,6 +217,8 @@ Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes focused context
 language-specific advice, compiled lint findings for the edited files, and a
 fast Ruff probe for Python files when `ruff` is available. Expensive external
 tool suites still belong to the Git hook/check path.
+Fast Ruff findings use the same ETHOS evidence maps as captured lint output,
+so known codes carry policy-grounded repair advice in post-edit context.
 When captured lint history has relevant failures for the same file area,
 post-edit feedback also surfaces recurring checks, recurring tool/code pairs,
 and unmapped tool/code pairs that still need ETHOS evidence-map coverage.
