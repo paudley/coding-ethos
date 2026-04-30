@@ -393,7 +393,8 @@ pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain --json
 ```
 
 The explain output reports the selected policy checks, evaluator names,
-severity, and ETHOS IDs for the requested scope.
+severity, ETHOS IDs, hook-owned tool selection, and the active evidence maps
+that turn external linter codes/messages into ETHOS-backed policy advice.
 
 ## Hook Inventory
 
