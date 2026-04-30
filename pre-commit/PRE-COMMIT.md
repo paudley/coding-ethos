@@ -213,10 +213,13 @@ Agent-facing post-tool context replaces absolute repo, home, and temp paths
 with stable tokens, collapses multiline commands, and renders hook output as
 TOON line tables instead of escaped newline cells.
 
-Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes a checkpoint,
+Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes focused context,
 language-specific advice, compiled lint findings for the edited files, and a
 fast Ruff probe for Python files when `ruff` is available. Expensive external
 tool suites still belong to the Git hook/check path.
+When captured lint history has relevant failures for the same file area,
+post-edit feedback also surfaces recurring checks, recurring tool/code pairs,
+and unmapped tool/code pairs that still need ETHOS evidence-map coverage.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
 ranks failed tools, codes, repeated findings, and output-quality problems such

@@ -1979,7 +1979,9 @@ func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
 
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "lint_history:") ||
-		!strings.Contains(context, "recurring_tool_codes: ruff:E402=1") ||
+		!strings.Contains(context, "recurring_tool_codes:") ||
+		!strings.Contains(context, "ruff:E402=1") ||
+		!strings.Contains(context, "unmapped_tool_codes: pylint:no-member=1") ||
 		!strings.Contains(context, "Move imports to module scope.") {
 		t.Fatalf("missing relevant lint history: %s", context)
 	}
@@ -2007,12 +2009,23 @@ func writeHookTraceFixture(t *testing.T, path string) {
 			Findings: []lint.Finding{
 				{
 					CheckID:    "python.import_order",
+					PolicyID:   "python.import_order",
 					SourceTool: "ruff",
 					Code:       "E402",
 					File:       "lib/python/app.py",
 					Status:     "fail",
 					Message:    "Module import not at top",
 					Advice:     "Move imports to module scope.",
+					EthosIDs:   []string{"static-analysis-is-the-first-line-of-defense"},
+					Blocking:   true,
+				},
+				{
+					CheckID:    "tool.pylint",
+					SourceTool: "pylint",
+					Code:       "no-member",
+					File:       "lib/python/app.py",
+					Status:     "fail",
+					Message:    "Instance has no member",
 					Blocking:   true,
 				},
 				{

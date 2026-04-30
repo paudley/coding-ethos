@@ -282,6 +282,9 @@ func appendPostEditLintHistory(
 	if len(analysis.TopCodes) > 0 {
 		lines = append(lines, "- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes))
 	}
+	if len(analysis.UnmappedCodes) > 0 {
+		lines = append(lines, "- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes))
+	}
 	if len(analysis.GuidanceCandidates) == 0 {
 		return lines
 	}
