@@ -269,6 +269,15 @@ the shared lint schema, enriching known findings with ETHOS evidence-map advice,
 writing normalized lint traces, and returning coding-ethos human or TOON output
 instead of raw linter output.
 
+Raw Python execution follows the same repo-owned environment rule. The hook
+runtime prepends `<repo>/.venv/bin` after coding-ethos-managed directories so
+repo virtualenv tools are found after protected shims. Agent shell commands that
+invoke `python`, `python3`, or `python3.x` are rewritten, when possible, to
+`uv run --project <repo> python ...` for uv projects, or to
+`<repo>/.venv/bin/python ...` when only a virtualenv is present. Providers that
+cannot accept command rewrites are blocked with a message telling them to use
+the documented repo Python command.
+
 Captured tool execution is intentionally controlled by coding-ethos. The target
 repo is an untrusted file tree and trace destination, not a source of trusted
 tool binaries, tool configuration, `PATH`, aliases, shell state, or `uv`

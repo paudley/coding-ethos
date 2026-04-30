@@ -243,6 +243,123 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 	}
 }
 
+func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, "pyproject.toml"),
+		[]byte("[project]\nname = \"demo\"\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write pyproject: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	nested := filepath.Join(root, "pkg")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(nested, "pyproject.toml"),
+		[]byte("[project]\nname = \"nested\"\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write nested pyproject: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           nested,
+			ToolInput: map[string]any{
+				"command": "python scripts/check.py --flag && python3 -m pytest tests",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("result = %#v", result)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "uv run --project '"+root+"' python 'scripts/check.py' '--flag'") ||
+		!strings.Contains(rewritten, "uv run --project '"+root+"' python '-m' 'pytest' 'tests'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	venvBin := filepath.Join(root, ".venv", "bin")
+	if err := os.MkdirAll(venvBin, 0o755); err != nil {
+		t.Fatalf("mkdir venv: %v", err)
+	}
+	pythonPath := filepath.Join(venvBin, "python")
+	if err := os.WriteFile(pythonPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o644); err != nil {
+		t.Fatalf("write python: %v", err)
+	}
+	if err := os.Chmod(pythonPath, 0o755); err != nil {
+		t.Fatalf("chmod python: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok || !strings.Contains(rewritten, "'"+pythonPath+"' 'script.py'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunBlocksUnsupportedProviderPythonRewrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "uv.lock"), nil, 0o644); err != nil {
+		t.Fatalf("write uv.lock: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "codex",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != statusBlocked {
+		t.Fatalf("status = %q, want blocked: %#v", result.Status, result)
+	}
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.python_runtime_required" {
+		t.Fatalf("decisions = %#v", result.Decisions)
+	}
+}
+
 func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
 	t.Parallel()
 

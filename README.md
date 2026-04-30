@@ -367,6 +367,11 @@ Python linters are run from the coding-ethos hook project with coding-ethos
 versions and explicit coding-ethos generated config flags (`ruff.toml`,
 `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and `.yamllint.yml`). Parent
 repo config files with the same names must not be discovered accidentally.
+For non-linter Python commands, hooks prefer the consumer repo environment:
+`uv run --project <repo> python ...` for uv projects, then
+`<repo>/.venv/bin/python ...` when only a virtualenv exists. The runtime also
+adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
+protected shims remain first.
 Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
 likewise become coding-ethos-installed managed tools during init before they are
 considered trusted capture backends.

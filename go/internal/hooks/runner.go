@@ -51,6 +51,9 @@ func RunWithRegistry(
 	if !route.Block && !route.Rewrite {
 		route = lintToolRouteFor(event)
 	}
+	if !route.Block && !route.Rewrite {
+		route = pythonRuntimeRouteFor(event)
+	}
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 	decisions := make([]policy.Decision, 0, len(entries))
 
