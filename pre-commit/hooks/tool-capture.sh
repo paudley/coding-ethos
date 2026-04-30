@@ -20,6 +20,7 @@ CAPTURED_LINT_TOOLS=(
   tombi
   dotenv-linter
 )
+LINT_SOURCE_ROOTS=()
 
 real_tool_env_var() {
   local tool="${1:?tool required}"
@@ -309,6 +310,7 @@ resolve_lint_target_args() {
   : "${resolved_args_ref[@]+${resolved_args_ref[*]}}"
   shift || true
 
+  load_configured_lint_source_roots LINT_SOURCE_ROOTS
   resolved_args_ref=()
   local arg
   for arg in "$@"; do
@@ -360,6 +362,14 @@ append_lint_target_glob_matches() {
       return
     fi
   done
+  local source_root
+  for source_root in "${LINT_SOURCE_ROOTS[@]}"; do
+    lint_target_glob_matches_from_base matches "${ROOT}/${source_root}" "$arg"
+    if [[ "${#matches[@]}" -gt 0 ]]; then
+      glob_args_ref+=("${matches[@]}")
+      return
+    fi
+  done
 
   glob_args_ref+=("$arg")
 }
@@ -373,7 +383,7 @@ lint_target_glob_matches_from_base() {
   local match
   while IFS= read -r match; do
     [[ -n "$match" ]] || continue
-    matches_ref+=("$(resolve_lint_target_path "$match")")
+    matches_ref+=("$(canonical_lint_target_path "${base}/${match}")")
   done < <(
     cd "$base" &&
       compgen -G "$pattern" |
@@ -402,7 +412,44 @@ resolve_lint_target_path() {
     return
   fi
 
+  local source_root
+  for source_root in "${LINT_SOURCE_ROOTS[@]}"; do
+    candidate="${ROOT}/${source_root}/${arg}"
+    if [[ -e "$candidate" ]]; then
+      canonical_lint_target_path "$candidate"
+      return
+    fi
+  done
+
+  if [[ "$arg" == */* ]]; then
+    printf '%s/%s\n' "${base%/}" "$arg"
+    return
+  fi
+
   printf '%s\n' "$arg"
+}
+
+canonical_lint_target_path() {
+  local path="${1:?path required}"
+  (cd "$(dirname "$path")" && printf '%s/%s\n' "$PWD" "$(basename "$path")")
+}
+
+load_configured_lint_source_roots() {
+  local -n roots_ref="${1:?roots array required}"
+  roots_ref=()
+
+  local output
+  if ! output="$(uv run --quiet --project "$ETHOS_ROOT" python \
+    -m coding_ethos.lint_source_roots "$ROOT" 2>&1)"; then
+    printf '%s\n' "$output" >&2
+    exit 2
+  fi
+
+  local root
+  while IFS= read -r root; do
+    [[ -n "$root" ]] || continue
+    roots_ref+=("$root")
+  done <<< "$output"
 }
 
 managed_uv_tool_wrapper() {

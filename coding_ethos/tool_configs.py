@@ -11,7 +11,7 @@ It keeps cross-tool settings like Python version and line length synchronized.
 import configparser
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import yaml
@@ -256,6 +256,69 @@ def load_enforcement_config(
     return _deep_merge(
         base_config, _load_yaml(resolved_repo_config)
     ), resolved_repo_config
+
+
+class ConfiguredLintRootError(ValueError):
+    """Configured lint source root is invalid."""
+
+
+def resolve_lint_source_roots(repo_root: Path) -> list[str]:
+    """Return repo-contained lint source roots from merged policy config.
+
+    Args:
+        repo_root: Consumer repository root whose config should be loaded.
+
+    Returns:
+        Unique repo-relative source roots used for lint target resolution.
+
+    Raises:
+        ConfiguredLintRootError: A configured root is absolute or escapes the repo.
+
+    """
+    resolved_repo_root = repo_root.resolve()
+    config, _ = load_enforcement_config(resolved_repo_root)
+    roots: list[str] = []
+
+    for value in _config_values(config, "python.extra_paths"):
+        _add_lint_source_root(roots, resolved_repo_root, value)
+    for value in _config_values(config, "python.source_paths"):
+        text = str(value).strip().strip("/")
+        if not text:
+            continue
+        path = PurePosixPath(text)
+        if path.name and path.parent != PurePosixPath("."):
+            _add_lint_source_root(roots, resolved_repo_root, str(path.parent))
+        _add_lint_source_root(roots, resolved_repo_root, text)
+
+    return list(dict.fromkeys(roots))
+
+
+def _config_values(config: dict[str, Any], path: str) -> list[object]:
+    section_name, value_name = path.split(".", maxsplit=1)
+    section = config.get(section_name, {})
+    if not isinstance(section, dict):
+        return []
+    value = cast(dict[str, object], section).get(value_name, [])
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _add_lint_source_root(roots: list[str], repo_root: Path, value: object) -> None:
+    text = str(value).strip().rstrip("/")
+    if not text:
+        return
+    path = Path(text)
+    if path.is_absolute():
+        message = f"configured lint source root must be repo-relative: {text}"
+        raise ConfiguredLintRootError(message)
+    resolved = (repo_root / text).resolve()
+    try:
+        relative = resolved.relative_to(repo_root)
+    except ValueError as err:
+        message = f"configured lint source root escapes repo: {text}"
+        raise ConfiguredLintRootError(message) from err
+    if str(relative) == ".":
+        return
+    roots.append(relative.as_posix())
 
 
 def _toml_string(value: str) -> str:

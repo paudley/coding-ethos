@@ -140,6 +140,224 @@ def test_policy_tool_ruff_uses_managed_tool_and_normalizes_paths(
     assert "findings[0]" not in output
 
 
+def test_policy_tool_resolves_package_paths_from_repo_root(
+    tmp_path: Path,
+) -> None:
+    consumer = _prepare_consumer_repo(tmp_path)
+    (consumer / "repo_config.yml").write_text(
+        """
+version: 1
+python:
+  source_paths:
+    - lbox-platform/lib/python/lbox
+  extra_paths:
+    - lbox-platform/lib/python
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _run(
+        [
+            "uv",
+            "run",
+            "python",
+            "main.py",
+            "--repo",
+            str(consumer),
+            "--sync-tool-configs",
+        ],
+        cwd=REPO_ROOT,
+        timeout=120,
+    )
+    nested = consumer / "lbox-platform" / "lib" / "python"
+    package = nested / "lbox" / "corpus"
+    package.mkdir(parents=True)
+    target = package / "inline_migration.py"
+    target.write_text("import os\n\nVALUE = 1\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
+    result = _run(
+        [
+            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            "policy-tool",
+            "ruff",
+            "check",
+            "lbox/corpus/inline_migration.py",
+        ],
+        cwd=consumer,
+        env=env,
+        check=False,
+        timeout=180,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "F401" in output
+    assert "lbox-platform/lib/python/lbox/corpus/inline_migration.py" in output
+    assert "coding-ethos/lbox/corpus/inline_migration.py" not in output
+    assert str(consumer) not in output
+
+
+def test_policy_tool_resolves_package_globs_from_policy_roots(
+    tmp_path: Path,
+) -> None:
+    consumer = _prepare_consumer_repo(tmp_path)
+    (consumer / "repo_config.yml").write_text(
+        """
+version: 1
+python:
+  source_paths:
+    - lbox-platform/lib/python/lbox
+  extra_paths:
+    - lbox-platform/lib/python
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _run(
+        [
+            "uv",
+            "run",
+            "python",
+            "main.py",
+            "--repo",
+            str(consumer),
+            "--sync-tool-configs",
+        ],
+        cwd=REPO_ROOT,
+        timeout=120,
+    )
+    package = consumer / "lbox-platform" / "lib" / "python" / "lbox" / "corpus"
+    package.mkdir(parents=True)
+    (package / "inline_migration.py").write_text(
+        "import os\n\nVALUE = 1\n", encoding="utf-8"
+    )
+    (package / "audit.py").write_text("import sys\n\nVALUE = 2\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
+    result = _run(
+        [
+            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            "policy-tool",
+            "ruff",
+            "check",
+            "lbox/corpus/*.py",
+        ],
+        cwd=consumer,
+        env=env,
+        check=False,
+        timeout=180,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "F401" in output
+    assert "lbox-platform/lib/python/lbox/corpus/audit.py" in output
+    assert "lbox-platform/lib/python/lbox/corpus/inline_migration.py" in output
+    assert "coding-ethos/lbox/corpus" not in output
+    assert str(consumer) not in output
+
+
+def test_policy_tool_blocks_configured_lint_roots_that_escape_repo(
+    tmp_path: Path,
+) -> None:
+    consumer = _prepare_consumer_repo(tmp_path)
+    (consumer / "repo_config.yml").write_text(
+        """
+version: 1
+python:
+  extra_paths:
+    - ..
+""".lstrip(),
+        encoding="utf-8",
+    )
+    _run(
+        [
+            "uv",
+            "run",
+            "python",
+            "main.py",
+            "--repo",
+            str(consumer),
+            "--sync-tool-configs",
+        ],
+        cwd=REPO_ROOT,
+        timeout=120,
+    )
+    (consumer / "pkg").mkdir()
+    (consumer / "pkg" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    result = _run(
+        [
+            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            "policy-tool",
+            "ruff",
+            "check",
+            "pkg/app.py",
+        ],
+        cwd=consumer,
+        check=False,
+        timeout=180,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 2, output
+    assert "configured lint source root escapes repo: .." in output
+    assert "tool: ruff" not in output
+
+
+def test_lint_target_source_roots_come_from_policy_config() -> None:
+    helper = (REPO_ROOT / "coding_ethos" / "lint_source_roots.py").read_text(
+        encoding="utf-8"
+    )
+    script = (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "-m coding_ethos.lint_source_roots" in script
+    assert "resolve_lint_source_roots" in helper
+    assert "ConfiguredLintRootError" in helper
+    policy_source = (REPO_ROOT / "coding_ethos" / "tool_configs.py").read_text(
+        encoding="utf-8"
+    )
+    assert "load_enforcement_config" in policy_source
+    assert "python.source_paths" in policy_source
+    assert "python.extra_paths" in policy_source
+    assert "relative_to(repo_root)" in policy_source
+    assert "pyrightconfig" not in helper
+
+
+def test_lint_source_roots_helper_rejects_repo_escape(tmp_path: Path) -> None:
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    (consumer / "repo_config.yml").write_text(
+        """
+version: 1
+python:
+  extra_paths:
+    - ..
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = _run(
+        [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "coding_ethos.lint_source_roots",
+            str(consumer),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "configured lint source root escapes repo: .." in output
+
+
 def test_policy_tool_blocks_generated_config_drift_before_linter_runs(
     tmp_path: Path,
 ) -> None:

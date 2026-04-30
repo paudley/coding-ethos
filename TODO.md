@@ -153,3 +153,30 @@ Acceptance criteria:
   build`.
 - [x] All binary linters used by hook groups resolve from the managed
   toolchain before host `PATH`.
+
+## Go Hook Architecture Follow-Ups
+
+These items came from an adversarial SOLID review of the hook runtime. They are
+not blockers for the package-relative path fix, but they should be handled
+before the next broad hook expansion.
+
+- [ ] Consolidate tool/runtime policy metadata currently split across
+  `go/toolcatalog/catalog.go`, `go/internal/hooks/lint_tool_capture.go`,
+  `pre-commit/hooks/go-hooks/hook_groups.go`, and
+  `pre-commit/hooks/go-hooks/toolchain_groups.go`.
+- [ ] Move duplicated evidence-map policy out of the legacy hook path and the
+  compiled policy path into one shared policy source.
+- [ ] Split `hooks.RunWithRegistry` so event parsing, policy evaluation,
+  tool rewriting, output rendering, and trace logging have narrower ownership.
+- [ ] Keep lint and policy semantics out of generic hook-output formatting;
+  output packages should render normalized results, not decide enforcement
+  behavior.
+- [ ] Slim `toolcatalog.Tool` into smaller capability interfaces so adding a
+  captured tool does not require unrelated fields and switch expansion.
+- [ ] Replace hook-group switch dispatch with registry-driven evaluators that
+  can be extended from compiled config data.
+- [ ] Separate capture execution IO, parser selection, lint-log persistence,
+  and user-facing rendering into testable components.
+- [ ] Replace `pre-commit/hooks/tool-capture.sh` with a Go entrypoint so lint
+  capture, target resolution, config enforcement, and output normalization all
+  live in compiled hook code instead of shell glue.
