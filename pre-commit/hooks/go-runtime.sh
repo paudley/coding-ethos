@@ -136,7 +136,15 @@ runtime_artifacts_missing() {
     coding-ethos-git; do
     [[ ! -x "${TOOLS_BIN_DIR}/${tool}" ]] && return 0
   done
-  [[ ! -x "${MANAGED_GO_BIN_DIR}/shfmt" ]] && return 0
+  [[ ! -f "$MANAGED_TOOLCHAIN_MANIFEST" ]] && return 0
+  for tool in \
+    "${MANAGED_GO_BIN_DIR}/shfmt" \
+    "${MANAGED_GO_BIN_DIR}/golangci-lint" \
+    "${MANAGED_GITHUB_BIN_DIR}/shellcheck" \
+    "${MANAGED_GITHUB_BIN_DIR}/actionlint" \
+    "${MANAGED_GITHUB_BIN_DIR}/hadolint"; do
+    [[ ! -x "$tool" ]] && return 0
+  done
 
   return 1
 }

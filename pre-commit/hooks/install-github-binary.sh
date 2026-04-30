@@ -10,7 +10,7 @@ Usage:
   install-github-binary.sh <owner/repo> <tag> <asset-substring> <binary-name> <dest-dir> <sha256>
 
 Downloads a GitHub release asset whose name contains <asset-substring>,
-extracts it when it is a .tar.gz, .tgz, or .zip archive, and installs
+extracts it when it is a .tar.gz, .tgz, .tar.xz, .txz, or .zip archive, and installs
 <binary-name> into <dest-dir>. This helper is intentionally GitHub-only until
 the managed toolchain has stronger provenance support for other sources.
 The downloaded asset must match the exact expected SHA-256 digest.
@@ -107,6 +107,9 @@ install_asset() {
     *.tar.gz | *.tgz)
       tar -xzf "$archive" -C "$work_dir"
       ;;
+    *.tar.xz | *.txz)
+      tar -xJf "$archive" -C "$work_dir"
+      ;;
     *.zip)
       require_tool unzip
       unzip -q "$archive" -d "$work_dir"
@@ -145,7 +148,7 @@ main() {
 
   local work_dir
   work_dir="$(mktemp -d)"
-  trap 'rm -rf "$work_dir"' EXIT
+  trap 'rm -rf -- '"$(printf '%q' "$work_dir")" EXIT
 
   local archive="${work_dir}/${url##*/}"
   curl_github_asset "$url" "$archive"

@@ -35,6 +35,16 @@ managed_tool_path() {
     ruff | mypy | pyright | pylint | yamllint)
       managed_uv_tool_wrapper "$tool"
       ;;
+    shellcheck | actionlint | hadolint)
+      local binary="${MANAGED_GITHUB_BIN_DIR}/${tool}"
+      [[ -x "$binary" ]] || return 1
+      printf '%s\n' "$binary"
+      ;;
+    golangci-lint)
+      local binary="${MANAGED_GO_BIN_DIR}/${tool}"
+      [[ -x "$binary" ]] || return 1
+      printf '%s\n' "$binary"
+      ;;
     *)
       return 1
       ;;

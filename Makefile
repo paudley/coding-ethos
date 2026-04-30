@@ -13,20 +13,6 @@ PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
 HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
 GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
 GO_TOOLS_DIR := $(LOCAL_REPO_ROOT)/go
-
-define resolve_hook_consumer_root
-super="$$(git -C "$(LOCAL_REPO_ROOT)" rev-parse \
-	--show-superproject-working-tree 2>/dev/null)"; \
-if [ -n "$$super" ]; then \
-	printf '%s' "$$super"; \
-else \
-	git -C "$(LOCAL_REPO_ROOT)" rev-parse --show-toplevel; \
-fi
-endef
-
-HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
-GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
-HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
 LOCAL_BIN_DIR := $(LOCAL_REPO_ROOT)/bin
 LOCAL_BUILD_DIR := $(LOCAL_REPO_ROOT)/build
@@ -35,10 +21,43 @@ TOOLCHAIN_DIR := $(LOCAL_BUILD_DIR)/toolchain
 MANAGED_GO_BIN_DIR := $(TOOLCHAIN_DIR)/go-bin
 MANAGED_PREFIX_DIR := $(TOOLCHAIN_DIR)/prefix
 MANAGED_GITHUB_BIN_DIR := $(TOOLCHAIN_DIR)/github-bin
+MANAGED_TOOLCHAIN_SOURCE := $(PRECOMMIT_DIR)hooks/managed-toolchain.tsv
+MANAGED_TOOLCHAIN_MANIFEST := $(TOOLCHAIN_DIR)/manifest.tsv
+
+GIT ?= /usr/bin/git
+UV ?= uv
+PYTHON ?= python
+GO ?= go
+GOFMT ?= gofmt
+
+empty :=
+space := $(empty) $(empty)
+path_entries := $(subst :, ,$(PATH))
+build_path_entries := $(filter-out \
+	$(LOCAL_BIN_DIR) \
+	$(MANAGED_GO_BIN_DIR) \
+	$(MANAGED_PREFIX_DIR)/bin \
+	$(MANAGED_GITHUB_BIN_DIR) \
+	%/.venv/bin, \
+	$(path_entries))
+export PATH := $(subst $(space),:,$(build_path_entries))
+
+define resolve_hook_consumer_root
+super="$$("$(GIT)" -C "$(LOCAL_REPO_ROOT)" rev-parse \
+	--show-superproject-working-tree 2>/dev/null)"; \
+if [ -n "$$super" ]; then \
+	printf '%s' "$$super"; \
+else \
+	"$(GIT)" -C "$(LOCAL_REPO_ROOT)" rev-parse --show-toplevel; \
+fi
+endef
+
+HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
+GIT_COMMON_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
+HOOKS_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
 GIT_HOOKS := pre-commit pre-push commit-msg
 GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
-SHFMT_VERSION ?= v3.13.1
 GO_TOOL_CMDS := \
 	coding-ethos-agent-hooks \
 	coding-ethos-policy \
@@ -47,10 +66,6 @@ GO_TOOL_CMDS := \
 	coding-ethos-git-hook \
 	coding-ethos-git
 
-UV ?= uv
-PYTHON ?= python
-GO ?= go
-GOFMT ?= gofmt
 GO_TOOLS_CACHE_DIR ?= $(GO_TOOLS_DIR)/.cache/go-build
 REPO ?= $(LOCAL_REPO_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
@@ -322,16 +337,18 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-build: sync-tool-configs sync-gemini-prompts go-tools-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-gemini-prompts go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
-managed-toolchain-install: managed-go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
+managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
+	@$(call print_step,Installing managed hook toolchain)
+	@"$(PRECOMMIT_DIR)hooks/install-managed-toolchain.sh" \
+		"$(MANAGED_TOOLCHAIN_SOURCE)" \
+		"$(MANAGED_GO_BIN_DIR)" \
+		"$(MANAGED_GITHUB_BIN_DIR)" \
+		"$(MANAGED_TOOLCHAIN_MANIFEST)"
+	@$(call print_info,manifest: $(MANAGED_TOOLCHAIN_MANIFEST))
 
-managed-go-tools-install: ensure-go ## Install Go-distributed hook tools into the managed Go bin dir.
-	@$(call print_step,Installing managed Go toolchain tools)
-	@mkdir -p "$(MANAGED_GO_BIN_DIR)"
-	@GOBIN="$(MANAGED_GO_BIN_DIR)" "$(PRECOMMIT_DIR)hooks/install-source-tool.sh" \
-		go mvdan.cc/sh/v3/cmd/shfmt@$(SHFMT_VERSION)
-	@$(call print_info,installed: $(MANAGED_GO_BIN_DIR)/shfmt)
+managed-go-tools-install: managed-toolchain-install ## Alias for installing managed hook toolchain tools.
 
 go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the checkout-local bin directory.
 	@$(call print_step,Installing bundled Go hook runner)

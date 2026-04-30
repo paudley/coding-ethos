@@ -295,7 +295,7 @@ func firstMentionedCapturedTool(command string) capturedLintTool {
 func isPythonCommand(token string) bool {
 	base := filepath.Base(token)
 
-	return base == "python" || base == "python3"
+	return base == "python" || base == "python3" || strings.HasPrefix(base, "python3.")
 }
 
 func segmentMentionsUnmanagedLintTool(segment []string) capturedLintTool {

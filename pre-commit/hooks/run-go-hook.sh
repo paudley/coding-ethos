@@ -14,6 +14,7 @@ else
 fi
 HOOKS_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_GO_HOOK="${SCRIPT_DIR}/run-go-hook.sh"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
 export CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT"
@@ -34,8 +35,8 @@ TOOLCHAIN_DIR="${ETHOS_ROOT}/build/toolchain"
 MANAGED_GO_BIN_DIR="${TOOLCHAIN_DIR}/go-bin"
 MANAGED_PREFIX_DIR="${TOOLCHAIN_DIR}/prefix"
 MANAGED_GITHUB_BIN_DIR="${TOOLCHAIN_DIR}/github-bin"
-export PATH="${MANAGED_GO_BIN_DIR}:${MANAGED_PREFIX_DIR}/bin:${MANAGED_GITHUB_BIN_DIR}:${TOOLS_BIN_DIR}:${PATH}"
-
+export MANAGED_TOOLCHAIN_MANIFEST="${TOOLCHAIN_DIR}/manifest.tsv"
+export PATH="${MANAGED_GO_BIN_DIR}:${MANAGED_PREFIX_DIR}/bin:${MANAGED_GITHUB_BIN_DIR}:${TOOLS_BIN_DIR}:${ROOT}/.venv/bin:${PATH}"
 start_hook_log() {
   if [[ -n "${CODE_ETHOS_HOOK_LOGGING_ACTIVE:-}" ]]; then
     return
@@ -69,7 +70,7 @@ start_hook_log() {
     printf '\n'
   } > "$metadata_log"
   set +e
-  CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$0" "$@" \
+  CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$RUN_GO_HOOK" "$@" \
     > >(tee -a "$stdout_log") \
     2> >(tee -a "$stderr_log" >&2)
   local status=$?
@@ -370,7 +371,7 @@ run_cutover_verify() {
     agent_hook_fix_items "$agent_verify_output" >> "$fix_items_output"
   fi
 
-  if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$0" policy-lint \
+  if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$RUN_GO_HOOK" policy-lint \
     --scope cutover \
     --cwd "$ROOT" \
     --json \
@@ -381,7 +382,7 @@ run_cutover_verify() {
   fi
 
   if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT" \
-    "$0" git-hook validate \
+    "$RUN_GO_HOOK" git-hook validate \
     > "$runtime_verify_output" 2>&1; then
     runtime=FAIL
     status=blocked

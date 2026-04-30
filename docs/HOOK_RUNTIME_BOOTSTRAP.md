@@ -64,11 +64,10 @@ coding-ethos/
     gemini/
       prompt-pack.json
     toolchain/
-      go-bin/
-        shfmt
-      github-bin/
-      prefix/
-        bin/
+      manifest.tsv
+      go-bin/{golangci-lint,shfmt}
+      github-bin/{actionlint,hadolint,shellcheck}
+      prefix/bin/
 ```
 
 Consumer repository hooks should not install or validate policy bundles under
@@ -87,11 +86,17 @@ Hook execution must not depend on host linters or formatters being installed on
   tools that need a Unix-style install root.
 
 `make build` is responsible for ensuring required managed tools exist before
-hook execution. `run-go-hook.sh` prepends the managed tool directories to
-`PATH` before dispatching to the Go hook runtime, so hook commands like
-`shfmt`, `shellcheck`, `actionlint`, `hadolint`, and `golangci-lint` resolve to
-coding-ethos-managed tools as they are onboarded. Missing required managed
-tools are runtime artifact failures and should self-repair through the same
+hook execution. `pre-commit/hooks/managed-toolchain.tsv` is the checked-in
+source manifest for required tool versions, release assets, and SHA-256
+digests. `make managed-toolchain-install` installs those tools and writes
+`build/toolchain/manifest.tsv` with the installed paths.
+
+`run-go-hook.sh` prepends the managed tool directories to `PATH` before
+dispatching to the Go hook runtime. The Go hook runtime also resolves binary
+tool commands to checkout-local managed paths when possible, so `shfmt`,
+`shellcheck`, `actionlint`, `hadolint`, and `golangci-lint` do not silently fall
+back to host binaries. Missing required managed tools or a missing installed
+manifest are runtime artifact failures and should self-repair through the same
 bootstrap path as missing policy binaries.
 
 The managed toolchain has two installer surfaces:
@@ -144,7 +149,9 @@ Examples that should trigger repair:
 - non-executable hook binary
 - missing compiled policy bundle
 - unreadable compiled policy bundle
-- missing required managed tool, such as `build/toolchain/go-bin/shfmt`
+- missing managed toolchain manifest
+- missing required managed tool, such as `build/toolchain/go-bin/shfmt` or
+  `build/toolchain/github-bin/shellcheck`
 
 Examples that should not block lifecycle hooks:
 

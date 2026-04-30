@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+#
+# tool	installer	source	version	asset_substring	binary	sha256	dest
+shfmt	go	mvdan.cc/sh/v3/cmd/shfmt	v3.13.1	-	shfmt	-	go-bin
+shellcheck	github	koalaman/shellcheck	v0.10.0	linux.x86_64	shellcheck	6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87	github-bin
+actionlint	github	rhysd/actionlint	v1.7.7	linux_amd64	actionlint	023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757	github-bin
+hadolint	github	hadolint/hadolint	v2.12.0	Linux-x86_64	hadolint	56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010	github-bin
+golangci-lint	go	github.com/golangci/golangci-lint/v2/cmd/golangci-lint	v2.11.4	-	golangci-lint	-	go-bin

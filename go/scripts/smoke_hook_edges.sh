@@ -65,6 +65,7 @@ case "${1:?usage: smoke_hook_edges.sh <gitlink|build-failure> ...}" in
       exit 1
     fi
 
+    printf '==> validating legacy runtime cache is not the hook source of truth\n'
     hook_bin="$cutover_repo/.git/coding-ethos-hooks/bin/coding-ethos-hook"
     hook_bin_backup="${hook_bin}.smoke-backup"
     mv "$hook_bin" "$hook_bin_backup"
@@ -77,13 +78,11 @@ case "${1:?usage: smoke_hook_edges.sh <gitlink|build-failure> ...}" in
     missing_runtime_status=$?
     set -e
     mv "$hook_bin_backup" "$hook_bin"
-    if [[ "$missing_runtime_status" -eq 0 ]] ||
-      ! grep -q 'hook runtime is not installed or is stale' \
-        /tmp/coding-ethos-missing-runtime.out ||
+    if [[ "$missing_runtime_status" -ne 0 ]] ||
       grep -q 'go build' /tmp/coding-ethos-missing-runtime.out ||
-      ! grep -q 'run make build' \
+      grep -q 'hook runtime is not installed or is stale' \
         /tmp/coding-ethos-missing-runtime.out; then
-      printf 'expected actionable missing-runtime failure without rebuild:\n' >&2
+      printf 'expected checkout runtime to ignore stale legacy cache:\n' >&2
       cat /tmp/coding-ethos-missing-runtime.out >&2
       exit 1
     fi

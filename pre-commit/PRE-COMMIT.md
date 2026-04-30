@@ -60,14 +60,12 @@ Required tools:
 - `uv`
 
 `make build` installs required checkout-local managed tools under
-`build/toolchain/`. `shfmt` is installed into `build/toolchain/go-bin/` and
-hook execution prepends that directory to `PATH`; host-global `shfmt` is not a
-runtime contract.
-
-ShellCheck, actionlint, hadolint, and golangci-lint are still being migrated to
-managed installers. Until then, they may be required by hook groups that invoke
-them directly, but new hook-tool work should route them through the managed
-toolchain rather than host installation instructions.
+`build/toolchain/`. `shfmt` and golangci-lint are built into
+`build/toolchain/go-bin/`; ShellCheck, actionlint, and hadolint are installed
+from pinned GitHub release assets into `build/toolchain/github-bin/`.
+`build/toolchain/manifest.tsv` records the installed toolchain. Hook execution
+prepends managed tool directories to `PATH`, and Go hook commands resolve
+managed absolute paths; host-global linter installs are not a runtime contract.
 
 ## Run
 
@@ -269,6 +267,15 @@ the shared lint schema, enriching known findings with ETHOS evidence-map advice,
 writing normalized lint traces, and returning coding-ethos human or TOON output
 instead of raw linter output.
 
+Raw Python execution follows the same repo-owned environment rule. The hook
+runtime prepends `<repo>/.venv/bin` after coding-ethos-managed directories so
+repo virtualenv tools are found after protected shims. Agent shell commands that
+invoke `python`, `python3`, or `python3.x` are rewritten, when possible, to
+`uv run --project <repo> python ...` for uv projects, or to
+`<repo>/.venv/bin/python ...` when only a virtualenv is present. Providers that
+cannot accept command rewrites are blocked with a message telling them to use
+the documented repo Python command.
+
 Captured tool execution is intentionally controlled by coding-ethos. The target
 repo is an untrusted file tree and trace destination, not a source of trusted
 tool binaries, tool configuration, `PATH`, aliases, shell state, or `uv`
@@ -276,8 +283,8 @@ project behavior. Python linters execute from the coding-ethos hook project via
 coding-ethos-managed versions and explicit generated config flags
 (`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and
 `.yamllint.yml`). Parent repo config files with matching names are ignored.
-Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
-be installed by coding-ethos init into a managed runtime before they are trusted
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint are
+installed by coding-ethos init into the managed runtime before they are trusted
 capture backends; host binaries are not a policy boundary.
 
 Captured lint runs are treated as structured events. Each trace should preserve

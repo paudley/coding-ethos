@@ -60,6 +60,14 @@ machine-readable output option, parses diagnostics into the shared lint schema,
 enriches known findings with ETHOS evidence-map advice, records them in the
 lint trace log, and prints coding-ethos human or TOON output instead of raw
 tool output.
+Raw Python execution is also normalized when the consumer repo has a Python
+environment. Hooks prepend `<repo>/.venv/bin` after coding-ethos-managed
+directories, and Claude shell commands using `python`, `python3`, or
+`python3.x` are rewritten to `uv run --project <repo> python ...` when the repo
+has `uv.lock` or `pyproject.toml`; otherwise they are rewritten to
+`<repo>/.venv/bin/python ...` when that interpreter exists. Providers that
+cannot accept command rewrites are blocked and must invoke the documented repo
+Python command directly.
 Post-edit advice uses the same traces quietly: when a touched file has relevant
 prior lint failures, hooks surface a capped `lint_history` section with the top
 three recurring checks, top three tool codes, and top two guidance candidates.

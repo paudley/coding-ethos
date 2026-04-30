@@ -367,9 +367,19 @@ Python linters are run from the coding-ethos hook project with coding-ethos
 versions and explicit coding-ethos generated config flags (`ruff.toml`,
 `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and `.yamllint.yml`). Parent
 repo config files with the same names must not be discovered accidentally.
-Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
-likewise become coding-ethos-installed managed tools during init before they are
-considered trusted capture backends.
+For non-linter Python commands, hooks prefer the consumer repo environment:
+`uv run --project <repo> python ...` for uv projects, then
+`<repo>/.venv/bin/python ...` when only a virtualenv exists. The runtime also
+adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
+protected shims remain first.
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint are
+installed into `build/toolchain/` through the managed installer. ShellCheck,
+actionlint, and hadolint use pinned GitHub release assets with SHA-256 digests;
+golangci-lint is built into the managed Go bin directory with the repo Go
+toolchain. The source manifest lives at
+`pre-commit/hooks/managed-toolchain.tsv`, and the installed toolchain writes
+`build/toolchain/manifest.tsv`. Hook execution treats missing managed binaries
+as runtime artifact failures instead of falling back to host tools.
 
 Analyze captured lint history:
 
