@@ -117,6 +117,9 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 
 	uvFixture := filepath.Join(t.TempDir(), "uv")
 	writeManagedCaptureFile(t, uvFixture, `#!/usr/bin/env sh
+case " $* " in
+  *" --check-tool-configs"*) exit 0 ;;
+esac
 case "$PWD" in
   *"/consumer") ;;
   *) echo "wrong cwd: $PWD" >&2; exit 2 ;;

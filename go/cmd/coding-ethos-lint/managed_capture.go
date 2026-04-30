@@ -49,7 +49,7 @@ func runManagedCapture(options managedCaptureOptions) int {
 		exitErr(err)
 	}
 
-	if drift := generatedConfigDrift(options.ConsumerRoot); len(drift) > 0 {
+	if drift := generatedConfigDrift(options.EthosRoot, options.ConsumerRoot); len(drift) > 0 {
 		printConfigDriftAndExit(drift)
 	}
 
@@ -109,8 +109,8 @@ func runCapturedToolWithRequest(request captureRequest) int {
 	return execution.ExitCode
 }
 
-func generatedConfigDrift(repoRoot string) []lintcapture.ConfigDrift {
-	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(repoRoot)
+func generatedConfigDrift(ethosRoot string, repoRoot string) []lintcapture.ConfigDrift {
+	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethosRoot, repoRoot)
 	if err != nil {
 		return []lintcapture.ConfigDrift{{File: lintcapture.ToolConfigHashManifest}}
 	}

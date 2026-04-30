@@ -4,11 +4,11 @@
 package lintcapture_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/lintcapture"
@@ -51,16 +51,34 @@ python:
 	}
 }
 
-func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
+func TestLoadRuntimeConfigRejectsAbsoluteSourcePaths(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "ruff.toml"), "line-length = 88\n")
-	writeManifest(t, root, map[string]string{
-		"ruff.toml": configHash("different\n"),
-	})
+	ethos := filepath.Join(root, "coding-ethos")
+	consumer := filepath.Join(root, "consumer")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), `
+bundle:
+  consumer_override_candidates:
+    - repo_config.yml
+python:
+  source_paths:
+    - /opt/app/src
+`)
 
-	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(root)
+	config, err := lintcapture.LoadRuntimeConfig(ethos, consumer)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig(): %v", err)
+	}
+	if _, err := config.LintSourceRoots(); err == nil {
+		t.Fatal("LintSourceRoots() accepted absolute python.source_paths entry")
+	}
+}
+
+func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
+	ethos, root := setupToolConfigChecker(t, 1, "ruff.toml\n")
+
+	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {
 		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
 	}
@@ -69,17 +87,24 @@ func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
 	}
 }
 
-func TestCheckGeneratedToolConfigIntegrityPassesMatchingManifest(t *testing.T) {
-	t.Parallel()
+func TestCheckGeneratedToolConfigIntegrityDoesNotTrustManifestOnly(t *testing.T) {
+	ethos, root := setupToolConfigChecker(t, 1, filepath.Join(rootPlaceholder, "ruff.toml")+"\n")
+	writeFile(t, filepath.Join(root, lintcapture.ToolConfigHashManifest), `{"configs":{}}
+`)
 
-	root := t.TempDir()
-	content := "line-length = 88\n"
-	writeFile(t, filepath.Join(root, "ruff.toml"), content)
-	writeManifest(t, root, map[string]string{
-		"ruff.toml": configHash(content),
-	})
+	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
+	if err != nil {
+		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
+	}
+	if len(drift) != 1 || drift[0].File != "ruff.toml" {
+		t.Fatalf("drift = %#v", drift)
+	}
+}
 
-	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(root)
+func TestCheckGeneratedToolConfigIntegrityPassesRendererCheck(t *testing.T) {
+	ethos, root := setupToolConfigChecker(t, 0, "")
+
+	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {
 		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
 	}
@@ -88,26 +113,24 @@ func TestCheckGeneratedToolConfigIntegrityPassesMatchingManifest(t *testing.T) {
 	}
 }
 
-func writeManifest(t *testing.T, root string, configs map[string]string) {
+const rootPlaceholder = "__ROOT__"
+
+func setupToolConfigChecker(t *testing.T, exitCode int, output string) (string, string) {
 	t.Helper()
 
-	body := "{\n  \"configs\": {\n"
-	first := true
-	for path, hash := range configs {
-		if !first {
-			body += ",\n"
-		}
-		first = false
-		body += fmt.Sprintf("    %q: %q", path, hash)
+	root := t.TempDir()
+	ethos := filepath.Join(root, "coding-ethos")
+	consumer := filepath.Join(root, "consumer")
+	uv := filepath.Join(root, "bin", "uv")
+	scriptOutput := filepath.ToSlash(strings.ReplaceAll(output, rootPlaceholder, consumer))
+	writeFile(t, filepath.Join(ethos, "main.py"), "raise SystemExit(0)\n")
+	writeFile(t, uv, "#!/usr/bin/env sh\nprintf '%s' '"+scriptOutput+"'\nexit "+strconv.Itoa(exitCode)+"\n")
+	if err := os.Chmod(uv, 0o700); err != nil {
+		t.Fatalf("chmod uv fixture: %v", err)
 	}
-	body += "\n  },\n  \"version\": 1\n}\n"
-	writeFile(t, filepath.Join(root, lintcapture.ToolConfigHashManifest), body)
-}
+	t.Setenv("UV", uv)
 
-func configHash(content string) string {
-	sum := sha256.Sum256([]byte(content))
-
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return ethos, consumer
 }
 
 func TestRequestCloneCopiesArgv(t *testing.T) {

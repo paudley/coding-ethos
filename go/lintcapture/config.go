@@ -67,10 +67,16 @@ func (config RuntimeConfig) LintSourceRoots() ([]string, error) {
 func parentRoots(values []string) []string {
 	roots := make([]string, 0, len(values)*2)
 	for _, value := range values {
-		text := strings.Trim(strings.TrimSpace(value), "/")
+		text := strings.TrimSpace(value)
 		if text == "" {
 			continue
 		}
+		if filepath.IsAbs(filepath.FromSlash(text)) {
+			roots = append(roots, text)
+
+			continue
+		}
+		text = strings.Trim(text, "/")
 		parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(text)))
 		if parent != "." {
 			roots = append(roots, parent)
