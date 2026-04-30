@@ -88,6 +88,30 @@ func TestTargetResolverPreservesMissingPackagePathIntent(t *testing.T) {
 	}
 }
 
+func TestTargetResolverRelativizesResolvedConsumerPaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	resolver, err := lintcapture.NewTargetResolver(root, root, nil)
+	if err != nil {
+		t.Fatalf("NewTargetResolver(): %v", err)
+	}
+
+	got := resolver.RelativizeArgs([]string{
+		"--check",
+		filepath.Join(root, "lbox-platform", "lib", "python", "tests", "app.py"),
+		"/outside/app.py",
+	})
+	want := []string{
+		"--check",
+		"lbox-platform/lib/python/tests/app.py",
+		"/outside/app.py",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("RelativizeArgs() = %#v, want %#v", got, want)
+	}
+}
+
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 

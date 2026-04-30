@@ -70,7 +70,8 @@ func runManagedCapture(options managedCaptureOptions) int {
 	if err != nil {
 		exitErr(err)
 	}
-	enforcedArgs := enforceManagedToolArgs(tool, resolvedArgs, options.ConsumerRoot, options.EthosRoot)
+	toolArgs := resolver.RelativizeArgs(resolvedArgs)
+	enforcedArgs := enforceManagedToolArgs(tool, toolArgs, options.ConsumerRoot, options.EthosRoot)
 	command := managedToolCommandFor(tool, options.EthosRoot)
 	if command.Path == "" {
 		exitErr(fmt.Errorf("coding-ethos managed %s runner is not configured for lint capture", options.Tool))
@@ -80,7 +81,7 @@ func runManagedCapture(options managedCaptureOptions) int {
 		Tool:         options.Tool,
 		ToolPath:     command.Path,
 		ToolPrefix:   command.Prefix,
-		Cwd:          options.EthosRoot,
+		Cwd:          options.ConsumerRoot,
 		TraceRoot:    options.ConsumerRoot,
 		Args:         enforcedArgs,
 		EvidenceMaps: options.EvidenceMaps,
@@ -185,9 +186,9 @@ func enforceManagedToolArgs(
 
 	switch tool.Name {
 	case "ruff":
-		return enforceRuffArgs(args, ethosRoot)
+		return enforceRuffArgs(args, consumerRoot)
 	case "mypy":
-		return enforceMypyArgs(args, consumerRoot, ethosRoot)
+		return enforceMypyArgs(args, consumerRoot)
 	case "dotenv-linter":
 		return enforceDotenvLinterArgs(args)
 	case "sqlfluff":
@@ -197,7 +198,7 @@ func enforceManagedToolArgs(
 			args,
 			"lint",
 			"--config",
-			filepath.Join(ethosRoot, config.RepoConfig),
+			filepath.Join(consumerRoot, config.RepoConfig),
 		)
 	case "tombi":
 		return enforceFirstCommandArgs(args, "lint", []string{"--quiet", "--error-on-warnings"})
@@ -208,10 +209,10 @@ func enforceManagedToolArgs(
 			args,
 			"run",
 			"--config",
-			filepath.Join(ethosRoot, config.RepoConfig),
+			filepath.Join(consumerRoot, config.RepoConfig),
 		)
 	default:
-		return enforceCatalogConfigArgs(tool, args, ethosRoot)
+		return enforceCatalogConfigArgs(tool, args, consumerRoot)
 	}
 }
 
@@ -227,8 +228,8 @@ func captureArgsInformational(args []string) bool {
 	return false
 }
 
-func enforceRuffArgs(args []string, ethosRoot string) []string {
-	configArgs := []string{"--config", filepath.Join(ethosRoot, "ruff.toml")}
+func enforceRuffArgs(args []string, consumerRoot string) []string {
+	configArgs := []string{"--config", filepath.Join(consumerRoot, "ruff.toml")}
 	if len(args) > 0 && args[0] == "check" {
 		return append(append([]string{"check"}, configArgs...), args[1:]...)
 	}
@@ -239,8 +240,8 @@ func enforceRuffArgs(args []string, ethosRoot string) []string {
 	return append(configArgs, args...)
 }
 
-func enforceMypyArgs(args []string, consumerRoot string, ethosRoot string) []string {
-	enforced := []string{"--config-file", filepath.Join(ethosRoot, "mypy.ini")}
+func enforceMypyArgs(args []string, consumerRoot string) []string {
+	enforced := []string{"--config-file", filepath.Join(consumerRoot, "mypy.ini")}
 	if python := consumerPythonExecutable(consumerRoot); python != "" {
 		enforced = append(enforced, "--python-executable", python)
 	}
@@ -279,11 +280,11 @@ func enforceSubcommandConfigArgs(
 	return append(configArgs, args...)
 }
 
-func enforceCatalogConfigArgs(tool toolcatalog.Tool, args []string, ethosRoot string) []string {
+func enforceCatalogConfigArgs(tool toolcatalog.Tool, args []string, consumerRoot string) []string {
 	enforced := append([]string(nil), args...)
 	config := tool.ConfigSpec()
 	if config.RepoConfig != "" && len(config.Flags) > 0 {
-		enforced = append([]string{config.Flags[0], filepath.Join(ethosRoot, config.RepoConfig)}, enforced...)
+		enforced = append([]string{config.Flags[0], filepath.Join(consumerRoot, config.RepoConfig)}, enforced...)
 	}
 	if len(config.PostArgs) > 0 {
 		enforced = append(enforced, config.PostArgs...)

@@ -60,6 +60,15 @@ func (resolver TargetResolver) ResolveArgs(args []string) ([]string, error) {
 	return resolved, nil
 }
 
+func (resolver TargetResolver) RelativizeArgs(args []string) []string {
+	relativized := make([]string, 0, len(args))
+	for _, arg := range args {
+		relativized = append(relativized, resolver.RelativizePath(arg))
+	}
+
+	return relativized
+}
+
 func (resolver TargetResolver) resolveArg(arg string) ([]string, error) {
 	if passthroughArg(arg) {
 		return []string{arg}, nil
@@ -96,6 +105,20 @@ func (resolver TargetResolver) ResolvePath(arg string) string {
 	}
 
 	return arg
+}
+
+func (resolver TargetResolver) RelativizePath(arg string) string {
+	if passthroughArg(arg) || hasGlob(arg) || !filepath.IsAbs(arg) {
+		return arg
+	}
+
+	rel, err := filepath.Rel(resolver.ConsumerRoot, filepath.Clean(arg))
+	if err != nil || rel == "." || rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return arg
+	}
+
+	return filepath.ToSlash(rel)
 }
 
 func (resolver TargetResolver) resolveGlob(pattern string) ([]string, error) {

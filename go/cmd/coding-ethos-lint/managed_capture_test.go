@@ -4,8 +4,11 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/toolcatalog"
@@ -15,6 +18,7 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 	t.Parallel()
 
 	ethosRoot := filepath.Join("tmp", "coding-ethos")
+	consumerRoot := filepath.Join("tmp", "consumer")
 	tool, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
 		t.Fatal("missing ruff tool")
@@ -23,14 +27,14 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 	enforced := enforceManagedToolArgs(
 		tool,
 		[]string{"format", "--check", "lib/python/pkg.py"},
-		"/repo",
+		consumerRoot,
 		ethosRoot,
 	)
 	got := capturedToolArgs("ruff", enforced)
 	want := []string{
 		"format",
 		"--config",
-		filepath.Join(ethosRoot, "ruff.toml"),
+		filepath.Join(consumerRoot, "ruff.toml"),
 		"--check",
 		"lib/python/pkg.py",
 	}
@@ -43,6 +47,7 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 	t.Parallel()
 
 	ethosRoot := filepath.Join("tmp", "coding-ethos")
+	consumerRoot := filepath.Join("tmp", "consumer")
 	tests := []struct {
 		name string
 		args []string
@@ -56,7 +61,7 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 				"--format",
 				"json",
 				"--config",
-				filepath.Join(ethosRoot, ".sqlfluff"),
+				filepath.Join(consumerRoot, ".sqlfluff"),
 				"queries/report.sql",
 			},
 		},
@@ -68,7 +73,7 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 				"--output.json.path=stdout",
 				"--output.text.path=stderr",
 				"--config",
-				filepath.Join(ethosRoot, ".golangci.yml"),
+				filepath.Join(consumerRoot, ".golangci.yml"),
 				"./...",
 			},
 		},
@@ -84,11 +89,78 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 				t.Fatalf("missing %s tool", test.name)
 			}
 
-			enforced := enforceManagedToolArgs(tool, test.args, "/repo", ethosRoot)
+			enforced := enforceManagedToolArgs(tool, test.args, consumerRoot, ethosRoot)
 			got := capturedToolArgs(test.name, enforced)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("managed %s args = %#v, want %#v", test.name, got, test.want)
 			}
 		})
+	}
+}
+
+func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	consumerParent := t.TempDir()
+	consumerRoot := filepath.Join(consumerParent, "consumer")
+	ethosRoot := t.TempDir()
+	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
+	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "ruff.toml"), "line-length = 88\n")
+	writeManagedCaptureFile(t, filepath.Join(consumerRoot, ".code-ethos", "tool-config-hashes.json"), "{}\n")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
+		"import os\n",
+	)
+
+	uvFixture := filepath.Join(t.TempDir(), "uv")
+	writeManagedCaptureFile(t, uvFixture, `#!/usr/bin/env sh
+case "$PWD" in
+  *"/consumer") ;;
+  *) echo "wrong cwd: $PWD" >&2; exit 2 ;;
+esac
+case " $* " in
+  *" lbox-platform/lib/python/tests/app.py "*) ;;
+  *) echo "missing repo-relative target: $*" >&2; exit 2 ;;
+esac
+printf '%s\n' '[{"filename":"lbox-platform/lib/python/tests/app.py","code":"F401","message":"unused import","location":{"row":1,"column":8}}]'
+exit 1
+`)
+	if err := os.Chmod(uvFixture, 0o700); err != nil {
+		t.Fatalf("chmod fixture: %v", err)
+	}
+	t.Setenv("UV", uvFixture)
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	output := captureStdout(t, func() {
+		exitCode := runManagedCapture(managedCaptureOptions{
+			Tool:          "ruff",
+			EthosRoot:     ethosRoot,
+			ConsumerRoot:  consumerRoot,
+			InvocationCwd: consumerRoot,
+			Args: []string{
+				"check",
+				filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
+			},
+		})
+		if exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1", exitCode)
+		}
+	})
+	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
+		t.Fatalf("output missing repo-relative file:\n%s", output)
+	}
+}
+
+func writeManagedCaptureFile(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 }
