@@ -402,18 +402,23 @@ func firstString(values []string) string {
 	return ""
 }
 
-func EncodeAnalysis(writer io.Writer, analysis Analysis, jsonOutput bool) error {
-	if jsonOutput {
+func EncodeAnalysis(writer io.Writer, analysis Analysis, format string) error {
+	switch format {
+	case "json":
 		encoder := json.NewEncoder(writer)
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 
 		return encoder.Encode(analysis)
+	case "toon":
+		_, err := fmt.Fprintln(writer, FormatAnalysisTOON(analysis))
+
+		return err
+	default:
+		_, err := fmt.Fprintln(writer, FormatAnalysisHuman(analysis))
+
+		return err
 	}
-
-	_, err := fmt.Fprintln(writer, FormatAnalysisHuman(analysis))
-
-	return err
 }
 
 func FormatAnalysisHuman(analysis Analysis) string {
@@ -458,4 +463,58 @@ func countsHuman(counts []Count) string {
 	}
 
 	return strings.Join(items, ", ")
+}
+
+func FormatAnalysisTOON(analysis Analysis) string {
+	lines := []string{
+		"format: toon",
+		"tool: policy-lint",
+		"operation: analyze-log",
+		"path: " + toonCell(analysis.Path),
+		fmt.Sprintf("runs_analyzed: %d", analysis.RunsAnalyzed),
+		fmt.Sprintf("runs_available: %d", analysis.RunsAvailable),
+		fmt.Sprintf("runs_skipped: %d", analysis.RunsSkipped),
+		fmt.Sprintf("findings: %d", analysis.Findings),
+	}
+	if len(analysis.Files) > 0 {
+		lines = append(lines, fmt.Sprintf("files[%d]{path}:", len(analysis.Files)))
+		for _, file := range analysis.Files {
+			lines = append(lines, "  "+toonCell(file))
+		}
+	}
+	lines = appendAnalysisCountsTOON(lines, "top_checks", analysis.TopChecks)
+	lines = appendAnalysisCountsTOON(lines, "top_codes", analysis.TopCodes)
+	lines = appendAnalysisCountsTOON(lines, "unmapped_codes", analysis.UnmappedCodes)
+	lines = appendAnalysisCountsTOON(lines, "repeated_patterns", analysis.RepeatedPatterns)
+	lines = appendAnalysisCountsTOON(lines, "top_ethos_ids", analysis.TopEthosIDs)
+	lines = append(
+		lines,
+		fmt.Sprintf(
+			"guidance_candidates[%d]{check_id,code,ethos_id,count,blocking,message,advice}:",
+			len(analysis.GuidanceCandidates),
+		),
+	)
+	for _, candidate := range analysis.GuidanceCandidates {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%s,%d,%t,%s,%s",
+			toonCell(candidate.CheckID),
+			toonCell(candidate.Code),
+			toonCell(candidate.EthosID),
+			candidate.Count,
+			candidate.Blocking,
+			toonCell(candidate.Message),
+			toonCell(candidate.Advice),
+		))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func appendAnalysisCountsTOON(lines []string, name string, counts []Count) []string {
+	lines = append(lines, fmt.Sprintf("%s[%d]{key,count}:", name, len(counts)))
+	for _, count := range counts {
+		lines = append(lines, fmt.Sprintf("  %s,%d", toonCell(count.Key), count.Count))
+	}
+
+	return lines
 }

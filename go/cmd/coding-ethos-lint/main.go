@@ -91,7 +91,11 @@ func main() {
 		if analyzeErr != nil {
 			exitErr(analyzeErr)
 		}
-		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, *jsonOutput); encodeErr != nil {
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
+		}
+		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, format); encodeErr != nil {
 			exitErr(encodeErr)
 		}
 

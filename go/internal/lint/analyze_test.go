@@ -4,6 +4,7 @@
 package lint_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -115,6 +116,50 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("analysis output missing %q:\n%s", want, output)
 		}
+	}
+
+	toonOutput := FormatAnalysisTOON(analysis)
+	for _, want := range []string{
+		"format: toon",
+		"operation: analyze-log",
+		"top_codes[",
+		"unmapped_codes[1]{key,count}:",
+		"pylint:no-member,1",
+		"guidance_candidates[",
+	} {
+		if !strings.Contains(toonOutput, want) {
+			t.Fatalf("TOON analysis output missing %q:\n%s", want, toonOutput)
+		}
+	}
+}
+
+func TestEncodeAnalysisHonorsFormat(t *testing.T) {
+	t.Parallel()
+
+	analysis := Analysis{
+		Path:          "lint-runs",
+		TopCodes:      []Count{{Key: "ruff:E402", Count: 2}},
+		UnmappedCodes: []Count{{Key: "pylint:no-member", Count: 1}},
+		RunsAnalyzed:  1,
+		RunsAvailable: 1,
+		Findings:      3,
+	}
+
+	var buffer bytes.Buffer
+	if err := EncodeAnalysis(&buffer, analysis, "toon"); err != nil {
+		t.Fatalf("EncodeAnalysis() returned error: %v", err)
+	}
+	if !strings.Contains(buffer.String(), "format: toon") ||
+		!strings.Contains(buffer.String(), "unmapped_codes[1]{key,count}:") {
+		t.Fatalf("TOON analysis missing expected content:\n%s", buffer.String())
+	}
+
+	buffer.Reset()
+	if err := EncodeAnalysis(&buffer, analysis, "json"); err != nil {
+		t.Fatalf("EncodeAnalysis(json) returned error: %v", err)
+	}
+	if !strings.Contains(buffer.String(), `"unmapped_codes"`) {
+		t.Fatalf("JSON analysis missing expected content:\n%s", buffer.String())
 	}
 }
 

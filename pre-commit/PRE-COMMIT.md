@@ -243,6 +243,8 @@ pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
 ```
 
+Analysis output uses the same human, JSON, and auto-selected TOON formats as
+other lint output, so agent callers get compact structured summaries by default.
 The analyzer reports top failing checks, top tool/code pairs, unmapped
 tool/code pairs, repeated file-policy patterns, ETHOS IDs, and deterministic
 guidance candidates. The
