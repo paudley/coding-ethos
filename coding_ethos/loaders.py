@@ -20,6 +20,7 @@ from coding_ethos.models import (
     SUPPORTED_AGENTS,
     AgentProfile,
     EthosBundle,
+    EthosSkill,
     Principle,
     PrincipleSection,
     RepoContext,
@@ -129,6 +130,50 @@ def _normalize_agent_hints(raw: object) -> dict[str, str]:
         for agent, value in raw_hints.items()
         if agent in SUPPORTED_AGENTS and str(value).strip()
     }
+
+
+def _normalize_skill_id(raw: object, *, source: str, field_name: str) -> str:
+    value = str(raw or "").strip()
+    if not value:
+        _error(source, f"skill `{field_name}` must be non-empty.")
+    if value.startswith("-") or value.endswith("-") or "--" in value:
+        _error(source, f"skill `{field_name}` must be a valid skill slug.")
+    if any(not (char.islower() or char.isdigit() or char == "-") for char in value):
+        _error(
+            source,
+            (
+                f"skill `{field_name}` may only contain lowercase letters, "
+                "digits, and hyphens."
+            ),
+        )
+    return value
+
+
+def _skill_from_item(item: dict[str, Any], *, source: str) -> EthosSkill:
+    skill_id = _normalize_skill_id(item.get("id"), source=source, field_name="id")
+    title = str(item.get("title", "")).strip()
+    if not title:
+        _error(source, f"skill `{skill_id}` must define a non-empty `title`.")
+    description = str(item.get("description", "")).strip()
+    if not description:
+        _error(source, f"skill `{skill_id}` must define a non-empty `description`.")
+    principle_ids = _normalize_string_list(
+        item.get("principle_ids"),
+        source=source,
+        field_name="principle_ids",
+    )
+    if not principle_ids:
+        _error(source, f"skill `{skill_id}` must reference at least one principle.")
+    return EthosSkill(
+        id=skill_id,
+        title=title,
+        description=description,
+        principle_ids=principle_ids,
+        trigger_terms=_normalize_lines(item.get("trigger_terms")),
+        short_hint=str(item.get("short_hint", "")).strip(),
+        focus=str(item.get("focus", "")).strip(),
+        remediation_steps=_normalize_lines(item.get("remediation_steps")),
+    )
 
 
 def _body_from_item(item: dict[str, Any]) -> str:
@@ -357,6 +402,7 @@ def _validate_primary_payload(payload: dict[str, Any], primary_path: Path) -> No
             )
         )
     _validate_principle_collection(normalized_principles, source)
+    _validate_skill_collection(payload, normalized_principles, source)
 
 
 def _validate_principle_collection(principles: list[Principle], source: str) -> None:
@@ -404,6 +450,66 @@ def _principles_from_payload(
     )
 
 
+def _skills_from_payload(payload: dict[str, Any], *, source: str) -> list[EthosSkill]:
+    raw_skills = payload.get("skills")
+    if raw_skills is None:
+        return []
+
+    skill_items = _as_sequence(raw_skills, "`skills`")
+    if not skill_items:
+        return []
+
+    skills: list[EthosSkill] = []
+    for index, item in enumerate(skill_items, start=1):
+        if not isinstance(item, dict):
+            _error(source, f"skills[{index}] must be a mapping.")
+        skills.append(
+            _skill_from_item(
+                cast(dict[str, Any], item),
+                source=f"{source} skills[{index}]",
+            )
+        )
+    return skills
+
+
+def _validate_skill_collection(
+    payload: dict[str, Any], principles: list[Principle], source: str
+) -> None:
+    raw_skills = payload.get("skills")
+    if raw_skills is None:
+        return
+
+    skill_items = _as_sequence(raw_skills, "`skills`")
+    if not skill_items:
+        return
+
+    principle_ids = {principle.id for principle in principles}
+    seen_skill_ids: set[str] = set()
+    for index, item in enumerate(skill_items, start=1):
+        if not isinstance(item, dict):
+            _error(source, f"skills[{index}] must be a mapping.")
+        skill = _skill_from_item(
+            cast(dict[str, Any], item),
+            source=f"{source} skills[{index}]",
+        )
+        if skill.id in seen_skill_ids:
+            _error(source, f"duplicate skill id `{skill.id}`.")
+        seen_skill_ids.add(skill.id)
+        unknown_principles = sorted(
+            principle_id
+            for principle_id in skill.principle_ids
+            if principle_id not in principle_ids
+        )
+        if unknown_principles:
+            _error(
+                source,
+                (
+                    f"skill `{skill.id}` references unknown principle ids: "
+                    f"{', '.join(unknown_principles)}."
+                ),
+            )
+
+
 def _agent_profiles_from_payload(payload: dict[str, Any]) -> dict[str, AgentProfile]:
     raw_profiles: dict[str, Any] = dict(AGENT_PROFILES)
     raw_agents = cast(object, payload.get("agents", {}) or {})
@@ -448,6 +554,7 @@ def load_primary_bundle(primary_path: Path) -> EthosBundle:
         source_markdown=str(metadata.get("source_markdown", "")).strip(),
         principles=_principles_from_payload(payload, source=str(primary_path)),
         agent_profiles=_agent_profiles_from_payload(payload),
+        skills=_skills_from_payload(payload, source=str(primary_path)),
     )
 
 

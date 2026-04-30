@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
@@ -26,7 +25,7 @@ type managedCaptureOptions struct {
 	ConsumerRoot  string
 	InvocationCwd string
 	Args          []string
-	EvidenceMaps  []diagnostics.EvidenceMap
+	PolicyContext capturePolicyData
 }
 
 type managedToolCommand struct {
@@ -84,7 +83,8 @@ func runManagedCapture(options managedCaptureOptions) int {
 		Cwd:          options.ConsumerRoot,
 		TraceRoot:    options.ConsumerRoot,
 		Args:         enforcedArgs,
-		EvidenceMaps: options.EvidenceMaps,
+		EvidenceMaps: options.PolicyContext.EvidenceMaps,
+		Skills:       options.PolicyContext.Skills,
 	})
 }
 

@@ -15,6 +15,7 @@ type Result struct {
 	Capture     *ToolCapture             `json:"capture,omitempty"`
 	Diagnostics []diagnostics.Diagnostic `json:"diagnostics,omitempty"`
 	Findings    []Finding                `json:"findings,omitempty"`
+	SkillHints  []SkillHint              `json:"skill_hints,omitempty"`
 	Files       []string                 `json:"files,omitempty"`
 }
 
@@ -32,6 +33,7 @@ type Finding struct {
 	PolicyID     string         `json:"policy_id,omitempty"`
 	PolicySource string         `json:"policy_source,omitempty"`
 	Severity     string         `json:"severity"`
+	SkillID      string         `json:"skill_id,omitempty"`
 	SourceTool   string         `json:"source_tool,omitempty"`
 	Status       string         `json:"status"`
 	EthosIDs     []string       `json:"ethos_ids,omitempty"`
@@ -42,6 +44,13 @@ type Finding struct {
 }
 
 type RunResult = Result
+
+type SkillHint struct {
+	PrincipleID string `json:"principle_id,omitempty"`
+	SkillID     string `json:"skill_id"`
+	Message     string `json:"message"`
+	Next        string `json:"next"`
+}
 
 type ToolCapture struct {
 	Tool          string   `json:"tool"`

@@ -86,14 +86,17 @@ func RunWithRegistry(
 
 	decisions = enrichDecisionDiagnostics(decisions, bundle.EvidenceMaps)
 
-	return Result{
+	result := Result{
 		Scope:       scope,
 		Files:       append([]string(nil), options.Files...),
 		Status:      resultStatus(decisions),
 		Decisions:   decisions,
 		Diagnostics: diagnosticsFromDecisions(decisions),
 		Findings:    findingsFromDecisions(decisions, options.Files),
-	}, nil
+	}
+	result.SkillHints = SkillHintsForDiagnostics(OutputDiagnostics(result), bundle.Skills)
+
+	return result, nil
 }
 
 func enrichDecisionDiagnostics(
@@ -267,6 +270,7 @@ func findingFromDecision(
 		PolicySource: policySourceFromEvidence(decision.Evidence),
 		Status:       statusFromDecision(decision),
 		Severity:     decision.Severity,
+		SkillID:      stringEvidence(decision.Evidence, "skill_id"),
 		Message:      decision.Message,
 		Advice:       decision.Suggestion,
 		EthosIDs:     append([]string(nil), decision.PrincipleIDs...),
@@ -292,6 +296,7 @@ func findingFromDiagnostic(
 		File:         diagnostic.File,
 		Line:         diagnostic.Line,
 		Column:       diagnostic.Column,
+		SkillID:      firstNonEmpty(diagnostic.SkillID, stringEvidence(decision.Evidence, "skill_id")),
 		Message:      diagnostic.Message,
 		Advice:       firstNonEmpty(diagnostic.Advice, decision.Suggestion),
 		EthosIDs: firstNonEmptySlice(

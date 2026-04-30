@@ -32,6 +32,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	context := buildPostEditContext(
 		event.ToolName,
 		files,
+		bundle.Skills,
 		postEditLintState(bundle, event),
 		postEditFastLintState(bundle, event),
 		postEditLintHistory(event),
@@ -55,6 +56,7 @@ func isEditTool(tool string) bool {
 func buildPostEditContext(
 	tool string,
 	files []string,
+	skills map[string]policy.Skill,
 	lintState postEditLintResult,
 	fastLintState postEditLintResult,
 	lintHistory postEditLintHistoryResult,
@@ -73,6 +75,7 @@ func buildPostEditContext(
 	lines = appendPostEditLintState(lines, lintState)
 	lines = appendPostEditFastLintState(lines, fastLintState)
 	lines = appendPostEditLintHistory(lines, lintHistory)
+	lines = appendPostEditSkillAdvice(lines, skills, lintState, fastLintState)
 
 	if advice := postEditLanguageAdvice(files); len(advice) > 0 {
 		lines = append(lines, "", "language_advice:")
@@ -299,6 +302,31 @@ func appendPostEditLintHistory(
 	return lines
 }
 
+func appendPostEditSkillAdvice(
+	lines []string,
+	skills map[string]policy.Skill,
+	states ...postEditLintResult,
+) []string {
+	diagnostics := []diagnostics.Diagnostic{}
+	for _, state := range states {
+		diagnostics = append(diagnostics, state.Diagnostics...)
+	}
+	hints := lint.SkillHintsForDiagnostics(diagnostics, skills)
+	if len(hints) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", "skill_advice:")
+	for _, hint := range hints {
+		lines = append(
+			lines,
+			"- "+hint.SkillID+": "+hint.Message+" Next: "+hint.Next,
+		)
+	}
+
+	return lines
+}
+
 func postEditCountsLine(counts []lint.Count) string {
 	items := make([]string, 0, len(counts))
 	for _, count := range counts {
@@ -434,6 +462,10 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 	if advice != "" {
 		advice = " advice: " + advice
 	}
+	skill := item.SkillID
+	if skill != "" {
+		skill = " skill: " + skill
+	}
 
-	return location + code + " " + item.Message + advice
+	return location + code + " " + item.Message + advice + skill
 }

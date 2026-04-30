@@ -92,6 +92,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		Advice:     compileAdvice(configPayload, principles),
 		Principles: principles,
 		Policies:   policies,
+		Skills:     compileSkills(primaryPayload, principles, options.Primary),
 		Dispatch:   compileDispatch(policies),
 		EvidenceMaps: compileEvidenceMaps(
 			configPayload,
@@ -251,6 +252,57 @@ func compilePrinciples(payload map[string]any) map[string]Principle {
 	}
 
 	return principles
+}
+
+func compileSkills(
+	payload map[string]any,
+	principles map[string]Principle,
+	sourceFile string,
+) map[string]Skill {
+	rawSkills, ok := payload["skills"].([]any)
+	if !ok {
+		return nil
+	}
+
+	skills := map[string]Skill{}
+	for _, raw := range rawSkills {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		skillID := stringValue(item["id"])
+		if skillID == "" {
+			continue
+		}
+
+		skill := Skill{
+			ID:               skillID,
+			Title:            stringValue(item["title"]),
+			Description:      stringValue(item["description"]),
+			ShortHint:        stringValue(item["short_hint"]),
+			Focus:            stringValue(item["focus"]),
+			PrincipleIDs:     principleRefs(principles, stringSlice(item["principle_ids"])...),
+			TriggerTerms:     stringSlice(item["trigger_terms"]),
+			RemediationSteps: stringSlice(item["remediation_steps"]),
+			Source: SourceRef{
+				File: sourceFile,
+				Path: "skills." + skillID,
+			},
+		}
+		if skill.Title == "" || skill.Description == "" ||
+			len(skill.PrincipleIDs) == 0 {
+			continue
+		}
+
+		skills[skillID] = skill
+	}
+
+	if len(skills) == 0 {
+		return nil
+	}
+
+	return skills
 }
 
 func compileAdvice(
@@ -1854,6 +1906,7 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 		Source:   "ruff",
 		Codes:    []string{"PLC" + "0415"},
 		PolicyID: "python.conditional_imports",
+		SkillID:  "conditional-imports",
 		PrincipleIDs: principleRefs(
 			principles,
 			"no-conditional-imports",
@@ -1885,6 +1938,7 @@ func defaultRuffImportOrderEvidenceMap(
 		Source:   "ruff",
 		Codes:    []string{"E402"},
 		PolicyID: "python.import_order",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"static-analysis-is-the-first-line-of-defense",
@@ -1912,6 +1966,7 @@ func defaultRuffSQLSafetyEvidenceMap(
 		Source:   "ruff",
 		Codes:    []string{"S608"},
 		PolicyID: "python.sql_safety",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"security-by-design",
@@ -1939,6 +1994,7 @@ func defaultRuffSecurityEvidenceMap(
 		Source:   "ruff",
 		Codes:    []string{"S*"},
 		PolicyID: "python.security_patterns",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"security-by-design",
@@ -1965,6 +2021,7 @@ func defaultRuffSuppressionEvidenceMap(
 		Source:   "ruff",
 		Codes:    []string{"RUF100", "PGH003", "PGH004"},
 		PolicyID: "python.comment_suppressions",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"linting-as-code-quality-enforcement",
@@ -1992,6 +2049,7 @@ func defaultMypySuppressionEvidenceMap(
 		Source:   "mypy",
 		Codes:    []string{"unused-ignore", "ignore-without-code"},
 		PolicyID: "python.comment_suppressions",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"linting-as-code-quality-enforcement",
@@ -2021,6 +2079,7 @@ func defaultPyrightSuppressionEvidenceMap(
 			"reportIgnoreCommentWithoutRule",
 		},
 		PolicyID: "python.comment_suppressions",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"linting-as-code-quality-enforcement",
@@ -2047,6 +2106,7 @@ func defaultRuffDocstringEvidenceMap(
 		Source:   "ruff",
 		Codes:    []string{"D*"},
 		PolicyID: "docs.public_contract",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"documentation-as-contract",
@@ -2080,6 +2140,7 @@ func defaultPylintDocstringEvidenceMap(
 			"C0116",
 		},
 		PolicyID: "docs.public_contract",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"documentation-as-contract",
@@ -2110,6 +2171,7 @@ func defaultMypyOptionalTypeEvidenceMap(
 			"arg-type",
 		},
 		PolicyID: "python.optional_required_types",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"no-optional-types-for-required-dependencies",
@@ -2143,6 +2205,7 @@ func defaultPyrightOptionalTypeEvidenceMap(
 			"reportOptionalSubscript",
 		},
 		PolicyID: "python.optional_required_types",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"no-optional-types-for-required-dependencies",
@@ -2174,6 +2237,7 @@ func defaultMypyUnknownTypeEvidenceMap(
 			"var-annotated",
 		},
 		PolicyID: "python.unknown_types",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"static-analysis-is-the-first-line-of-defense",
@@ -2206,6 +2270,7 @@ func defaultPyrightUnknownTypeEvidenceMap(
 			"reportUnknownVariableType",
 		},
 		PolicyID: "python.unknown_types",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"static-analysis-is-the-first-line-of-defense",
@@ -2237,6 +2302,7 @@ func defaultPylintInterfaceEvidenceMap(
 			"E0602",
 		},
 		PolicyID: "python.interface_contracts",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"protocol-first-design",
@@ -2267,6 +2333,7 @@ func defaultPyrightMissingImportEvidenceMap(
 			"reportMissingModuleSource",
 		},
 		PolicyID: "python.required_imports",
+		SkillID:  "conditional-imports",
 		PrincipleIDs: principleRefs(
 			principles,
 			"no-conditional-imports",
@@ -2330,6 +2397,7 @@ func importCycleEvidenceMap(
 		Codes:             append([]string(nil), codes...),
 		MessageSubstrings: append([]string(nil), messageSubstrings...),
 		PolicyID:          "python.import_cycles",
+		SkillID:           "conditional-imports",
 		PrincipleIDs: principleRefs(
 			principles,
 			"protocol-first-design",
@@ -2356,6 +2424,7 @@ func defaultMypyEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 		Source:   "mypy",
 		Codes:    []string{"no-any-return"},
 		PolicyID: "python.optional_returns",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"no-optional-types-for-required-dependencies",
@@ -2382,6 +2451,7 @@ func defaultShellcheckEvidenceMap(
 		Source:   "shellcheck",
 		Codes:    []string{"SC*"},
 		PolicyID: "shell.static_analysis",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"static-analysis-is-the-first-line-of-defense",
@@ -2408,6 +2478,7 @@ func defaultYamllintEvidenceMap(
 		Source:   "yamllint",
 		Codes:    []string{"indentation", "truthy"},
 		PolicyID: "yaml.config_clarity",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"validation-at-the-gate",
@@ -2435,6 +2506,7 @@ func defaultBanditEvidenceMap(
 		Source:   "bandit",
 		Codes:    []string{"B*"},
 		PolicyID: "python.security_patterns",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"security-by-design",
@@ -2461,6 +2533,7 @@ func defaultSQLFluffEvidenceMap(
 		Source:   "sqlfluff",
 		Codes:    []string{"*"},
 		PolicyID: "sql.static_analysis",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"validation-at-the-gate",
@@ -2487,6 +2560,7 @@ func defaultTombiEvidenceMap(
 		Source:   "tombi",
 		Codes:    []string{"*"},
 		PolicyID: "toml.config_clarity",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"validation-at-the-gate",
@@ -2513,6 +2587,7 @@ func defaultDotenvLinterEvidenceMap(
 		Source:   "dotenv-linter",
 		Codes:    []string{"*"},
 		PolicyID: "dotenv.config_clarity",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"security-by-design",
@@ -2539,6 +2614,7 @@ func defaultHadolintEvidenceMap(
 		Source:   "hadolint",
 		Codes:    []string{"DL*"},
 		PolicyID: "docker.reproducible_builds",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"security-by-design",
@@ -2566,6 +2642,7 @@ func defaultActionlintEvidenceMap(
 		Source:   "actionlint",
 		Codes:    []string{"*"},
 		PolicyID: "workflow.validation",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"validation-at-the-gate",
@@ -2598,6 +2675,7 @@ func defaultGolangciEvidenceMap(
 			"revive",
 		},
 		PolicyID: "go.static_analysis",
+		SkillID:  "lint-remediation",
 		PrincipleIDs: principleRefs(
 			principles,
 			"static-analysis-is-the-first-line-of-defense",

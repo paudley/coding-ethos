@@ -50,6 +50,15 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	if _, ok := bundle.Policies["pytest.gate"]; !ok {
 		t.Fatalf("missing compiled pytest gate policy")
 	}
+	conditionalImportSkill, ok := bundle.Skills["conditional-imports"]
+	if !ok {
+		t.Fatalf("missing compiled conditional import skill: %#v", bundle.Skills)
+	}
+	if conditionalImportSkill.Source.Path != "skills.conditional-imports" ||
+		!slices.Contains(conditionalImportSkill.PrincipleIDs, "no-conditional-imports") ||
+		!strings.Contains(conditionalImportSkill.ShortHint, "Protocol") {
+		t.Fatalf("compiled conditional import skill mismatch: %#v", conditionalImportSkill)
+	}
 	if bundle.Advice.Reminders.QuietFrequency != 3 ||
 		len(bundle.Advice.Reminders.Items) == 0 {
 		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
@@ -973,6 +982,17 @@ principles:
     title: Validation at the Gate
     summary: Validate inputs before use.
     directive: Validate configuration and syntax before relying on files.
+skills:
+  - id: conditional-imports
+    title: Conditional Imports
+    description: Replace conditional imports with explicit dependencies or protocol boundaries.
+    principle_ids: [no-conditional-imports]
+    trigger_terms: [ruff local import, import cycle]
+    short_hint: Use Protocol boundaries when module-scope imports expose cycles.
+    focus: Remove hidden dependency paths.
+    remediation_steps:
+      - Move required imports to module scope.
+      - Use a neutral Protocol when concrete modules would otherwise cycle.
 `
 
 const testConfigYAML = `

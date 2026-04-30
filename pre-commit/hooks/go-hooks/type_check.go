@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:gocognit,lll // Type-check orchestration has several tool paths.
+//nolint:lll // Type-check orchestration has several tool paths.
 package main
 
 import (
@@ -22,6 +22,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+const typeCheckTOONSummaryRows = 7
+
 type typeCheckerConfig struct {
 	Name                 string
 	Parser               string
@@ -40,6 +42,7 @@ type typeCheckSettings struct {
 	HooksProject          string
 	Checkers              []typeCheckerConfig
 	EvidenceMaps          []diag.EvidenceMap
+	Skills                map[string]hookSkill
 	ExcludedPathFragments []string
 	Enabled               bool
 }
@@ -118,6 +121,7 @@ func loadTypeCheckSettings() (typeCheckSettings, error) {
 	}
 
 	settings.EvidenceMaps = loadHookEvidenceMaps()
+	settings.Skills = loadHookSkills()
 
 	for checkerIndex := range settings.Checkers {
 		applyTypeCheckerDefaults(&settings.Checkers[checkerIndex], rootConfig)
@@ -595,13 +599,22 @@ func formatTypeCheckResults(
 	fileCount int,
 	format string,
 ) string {
+	return formatTypeCheckResultsWithSkills(results, fileCount, format, nil)
+}
+
+func formatTypeCheckResultsWithSkills(
+	results []typeCheckResult,
+	fileCount int,
+	format string,
+	skills map[string]hookSkill,
+) string {
 	switch format {
 	case hookOutputFormatJSON:
 		return formatTypeCheckResultsJSON(results, fileCount)
 	case hookOutputFormatTOON:
-		return formatTypeCheckResultsTOON(results, fileCount)
+		return formatTypeCheckResultsTOON(results, fileCount, skills)
 	default:
-		return formatTypeCheckResultsHuman(results, fileCount)
+		return formatTypeCheckResultsHuman(results, fileCount, skills)
 	}
 }
 
@@ -614,27 +627,45 @@ func formatTypeCheckResultsJSON(results []typeCheckResult, fileCount int) string
 
 	content, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return formatTypeCheckResultsHuman(results, fileCount)
+		return formatTypeCheckResultsHuman(results, fileCount, nil)
 	}
 
 	return string(content)
 }
 
-func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string {
+func formatTypeCheckResultsTOON(
+	results []typeCheckResult,
+	fileCount int,
+	skills map[string]hookSkill,
+) string {
 	summary := typeCheckSummaryForResults(
 		results,
 		fileCount,
 		hookOutputFormatTOON,
 	)
-	lines := []string{
-		"format: " + summary.Format,
-		"status: " + summary.Status,
+	lines := make([]string, 0, typeCheckTOONSummaryRows+len(results))
+	lines = append(lines,
+		"format: "+summary.Format,
+		"status: "+summary.Status,
 		fmt.Sprintf("file_count: %d", summary.FileCount),
 		fmt.Sprintf("passed: %d", summary.Passed),
 		fmt.Sprintf("failed: %d", summary.Failed),
 		fmt.Sprintf("duration_ms: %.0f", summary.Duration),
 		"checks{name,status,exit_code,duration_ms}:",
-	}
+	)
+
+	lines = append(lines, typeCheckResultRowsTOON(results)...)
+
+	diagnostics := typeCheckDiagnosticsForResults(results)
+	lines = append(lines, typeCheckDiagnosticRowsTOON(diagnostics)...)
+	lines = append(lines, typeCheckRawOutputRowsTOON(results)...)
+	lines = append(lines, typeCheckSkillAdviceRowsTOON(diagnostics, skills)...)
+
+	return strings.Join(lines, "\n")
+}
+
+func typeCheckResultRowsTOON(results []typeCheckResult) []string {
+	lines := make([]string, 0, len(results))
 
 	for _, result := range results {
 		status := statusPass
@@ -654,51 +685,79 @@ func formatTypeCheckResultsTOON(results []typeCheckResult, fileCount int) string
 		)
 	}
 
-	diagnostics := typeCheckDiagnosticsForResults(results)
+	return lines
+}
+
+func typeCheckDiagnosticRowsTOON(diagnostics []diag.Diagnostic) []string {
+	header := "diagnostics[%d]{tool,file,line,column,severity,code," +
+		"policy_id,skill_id,message,advice}:"
 	if len(diagnostics) == 0 {
-		lines = append(lines, "diagnostics[0]{tool,file,line,column,severity,code,policy_id,message,advice}:")
-	} else {
+		return []string{fmt.Sprintf(header, 0)}
+	}
+
+	lines := []string{fmt.Sprintf(header, len(diagnostics))}
+	for _, diagnostic := range diagnostics {
 		lines = append(
 			lines,
 			fmt.Sprintf(
-				"diagnostics[%d]{tool,file,line,column,severity,code,policy_id,message,advice}:",
-				len(diagnostics),
+				"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s",
+				toonCell(diagnostic.Tool),
+				toonCell(diagnostic.File),
+				diagnostic.Line,
+				diagnostic.Column,
+				toonCell(defaultString(diagnostic.Severity, "error")),
+				toonCell(diagnostic.Code),
+				toonCell(diagnostic.PolicyID),
+				toonCell(diagnostic.SkillID),
+				toonCell(diagnostic.Message),
+				toonCell(diagnostic.Advice),
 			),
 		)
-		for _, diagnostic := range diagnostics {
-			lines = append(
-				lines,
-				fmt.Sprintf(
-					"  %s,%s,%d,%d,%s,%s,%s,%s,%s",
-					toonCell(diagnostic.Tool),
-					toonCell(diagnostic.File),
-					diagnostic.Line,
-					diagnostic.Column,
-					toonCell(defaultString(diagnostic.Severity, "error")),
-					toonCell(diagnostic.Code),
-					toonCell(diagnostic.PolicyID),
-					toonCell(diagnostic.Message),
-					toonCell(diagnostic.Advice),
-				),
-			)
-		}
 	}
 
+	return lines
+}
+
+func typeCheckRawOutputRowsTOON(results []typeCheckResult) []string {
 	rawOutputs := typeCheckRawOutputsForResults(results)
-	if len(rawOutputs) > 0 {
+	if len(rawOutputs) == 0 {
+		return nil
+	}
+
+	lines := []string{fmt.Sprintf("raw_outputs[%d]{tool,output}:", len(rawOutputs))}
+	for _, item := range rawOutputs {
 		lines = append(
 			lines,
-			fmt.Sprintf("raw_outputs[%d]{tool,output}:", len(rawOutputs)),
+			fmt.Sprintf("  %s,%s", toonCell(item.Name), toonCell(item.Output)),
 		)
-		for _, item := range rawOutputs {
-			lines = append(
-				lines,
-				fmt.Sprintf("  %s,%s", toonCell(item.Name), toonCell(item.Output)),
-			)
-		}
 	}
 
-	return strings.Join(lines, "\n")
+	return lines
+}
+
+func typeCheckSkillAdviceRowsTOON(
+	diagnostics []diag.Diagnostic,
+	skills map[string]hookSkill,
+) []string {
+	hints := typeCheckSkillHints(diagnostics, skills)
+	if len(hints) == 0 {
+		return nil
+	}
+
+	lines := []string{
+		fmt.Sprintf("advice[%d]{principle_id,skill_id,message,next}:", len(hints)),
+	}
+	for _, hint := range hints {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%s,%s",
+			toonCell(hint.PrincipleID),
+			toonCell(hint.SkillID),
+			toonCell(hint.Message),
+			toonCell(hint.Next),
+		))
+	}
+
+	return lines
 }
 
 func typeCheckDiagnosticsForResults(
@@ -743,6 +802,65 @@ func typeCheckRawOutputsForResults(results []typeCheckResult) []typeCheckResult 
 	return rawOutputs
 }
 
+type typeCheckSkillHint struct {
+	PrincipleID string
+	SkillID     string
+	Message     string
+	Next        string
+}
+
+func typeCheckSkillHints(
+	diagnostics []diag.Diagnostic,
+	skills map[string]hookSkill,
+) []typeCheckSkillHint {
+	if len(diagnostics) == 0 || len(skills) == 0 {
+		return nil
+	}
+
+	hints := []typeCheckSkillHint{}
+	seen := map[string]bool{}
+
+	for _, diagnostic := range diagnostics {
+		skillID := strings.TrimSpace(diagnostic.SkillID)
+		if skillID == "" || seen[skillID] {
+			continue
+		}
+
+		skill, ok := skills[skillID]
+		if !ok {
+			continue
+		}
+
+		message := firstNonEmpty(skill.ShortHint, skill.Description)
+		if message == "" {
+			continue
+		}
+
+		hints = append(hints, typeCheckSkillHint{
+			PrincipleID: firstNonEmpty(
+				firstTypeCheckPrinciple(diagnostic.PrincipleIDs),
+				firstTypeCheckPrinciple(skill.PrincipleIDs),
+			),
+			SkillID: skillID,
+			Message: message,
+			Next:    "Load the " + skillID + " skill for the remediation playbook.",
+		})
+		seen[skillID] = true
+	}
+
+	return hints
+}
+
+func firstTypeCheckPrinciple(principles []string) string {
+	for _, principle := range principles {
+		if strings.TrimSpace(principle) != "" {
+			return principle
+		}
+	}
+
+	return ""
+}
+
 func toonCell(value string) string {
 	cleaned := strings.TrimSpace(value)
 	cleaned = strings.ReplaceAll(cleaned, "\\", "\\\\")
@@ -762,7 +880,11 @@ func defaultString(value string, fallback string) string {
 	return value
 }
 
-func formatTypeCheckResultsHuman(results []typeCheckResult, fileCount int) string {
+func formatTypeCheckResultsHuman(
+	results []typeCheckResult,
+	fileCount int,
+	skills map[string]hookSkill,
+) string {
 	lines := []string{
 		"",
 		strings.Repeat("=", reportDividerWidth),
@@ -821,6 +943,13 @@ func formatTypeCheckResultsHuman(results []typeCheckResult, fileCount int) strin
 		}
 	}
 
+	if hints := typeCheckSkillHints(typeCheckDiagnosticsForResults(results), skills); len(hints) > 0 {
+		lines = append(lines, "skill advice:")
+		for _, hint := range hints {
+			lines = append(lines, "- "+hint.SkillID+": "+hint.Message+" Next: "+hint.Next)
+		}
+	}
+
 	lines = append(lines, strings.Repeat("=", reportDividerWidth))
 
 	return strings.Join(lines, "\n")
@@ -849,54 +978,72 @@ func formatTypeCheckDiagnostics(diagnostics []diag.Diagnostic) []string {
 	for _, file := range files {
 		lines = append(lines, "   "+file)
 		for _, diagnostic := range grouped[file] {
-			location := ""
-			if diagnostic.Line > 0 {
-				location = fmt.Sprintf(":%d", diagnostic.Line)
-				if diagnostic.Column > 0 {
-					location += fmt.Sprintf(":%d", diagnostic.Column)
-				}
-			}
-
-			code := diagnostic.Code
-			if code != "" {
-				code = " " + code
-			}
-
-			severity := diagnostic.Severity
-			if severity == "" {
-				severity = "error"
-			}
-
-			lines = append(
-				lines,
-				fmt.Sprintf(
-					"      %s%s [%s%s] %s",
-					filepath.Base(file),
-					location,
-					severity,
-					code,
-					diagnostic.Message,
-				),
-			)
-			if diagnostic.PolicyID != "" {
-				lines = append(
-					lines,
-					fmt.Sprintf(
-						"         policy: %s (%s)",
-						diagnostic.PolicyID,
-						defaultString(diagnostic.Confidence, "mapped"),
-					),
-				)
-				if diagnostic.Advice != "" {
-					lines = append(lines, "         advice: "+diagnostic.Advice)
-				}
-			}
+			lines = append(lines, formatTypeCheckDiagnosticHuman(file, diagnostic)...)
 		}
 
 		lines = append(lines, "")
 	}
 
 	return lines
+}
+
+func formatTypeCheckDiagnosticHuman(file string, diagnostic diag.Diagnostic) []string {
+	location := typeCheckLocationSuffix(diagnostic)
+	code := typeCheckCodeSuffix(diagnostic)
+	severity := defaultString(diagnostic.Severity, "error")
+
+	lines := []string{
+		fmt.Sprintf(
+			"      %s%s [%s%s] %s",
+			filepath.Base(file),
+			location,
+			severity,
+			code,
+			diagnostic.Message,
+		),
+	}
+	if diagnostic.PolicyID == "" {
+		return lines
+	}
+
+	lines = append(
+		lines,
+		fmt.Sprintf(
+			"         policy: %s (%s)",
+			diagnostic.PolicyID,
+			defaultString(diagnostic.Confidence, "mapped"),
+		),
+	)
+	if diagnostic.Advice != "" {
+		lines = append(lines, "         advice: "+diagnostic.Advice)
+	}
+
+	if diagnostic.SkillID != "" {
+		lines = append(lines, "         skill: "+diagnostic.SkillID)
+	}
+
+	return lines
+}
+
+func typeCheckLocationSuffix(diagnostic diag.Diagnostic) string {
+	if diagnostic.Line <= 0 {
+		return ""
+	}
+
+	location := fmt.Sprintf(":%d", diagnostic.Line)
+	if diagnostic.Column > 0 {
+		location += fmt.Sprintf(":%d", diagnostic.Column)
+	}
+
+	return location
+}
+
+func typeCheckCodeSuffix(diagnostic diag.Diagnostic) string {
+	if diagnostic.Code == "" {
+		return ""
+	}
+
+	return " " + diagnostic.Code
 }
 
 func configuredTypeCheckers(settings typeCheckSettings) []typeCheckerConfig {
@@ -988,10 +1135,11 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 		if result.ExitCode != 0 {
 			_, _ = fmt.Fprintln(
 				os.Stdout,
-				formatTypeCheckResults(
+				formatTypeCheckResultsWithSkills(
 					results,
 					len(files),
 					selectedHookOutputFormat(),
+					settings.Skills,
 				),
 			)
 			_, _ = fmt.Fprintln(os.Stderr)

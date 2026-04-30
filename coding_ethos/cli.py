@@ -41,6 +41,7 @@ from coding_ethos.renderers import (
     render_principle_detail,
     render_prompt_addon,
     render_shared_ethos_index,
+    render_skill_outputs,
     required_root_imports,
 )
 from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
@@ -239,6 +240,7 @@ def _render_contents(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
         rendered[f".agent-context/prompt-addons/{agent}.md"] = render_prompt_addon(
             bundle, agent, repo_root
         )
+    rendered.update(render_skill_outputs(bundle, repo_root))
 
     return rendered
 

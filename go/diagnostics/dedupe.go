@@ -68,6 +68,9 @@ func mergeDiagnostic(primary Diagnostic, duplicate Diagnostic) Diagnostic {
 	if primary.PolicyID == "" && duplicate.PolicyID != "" {
 		primary.PolicyID = duplicate.PolicyID
 	}
+	if primary.SkillID == "" && duplicate.SkillID != "" {
+		primary.SkillID = duplicate.SkillID
+	}
 	if primary.Advice == "" && duplicate.Advice != "" {
 		primary.Advice = duplicate.Advice
 	}

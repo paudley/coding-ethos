@@ -50,6 +50,10 @@ def _empty_agent_profiles() -> dict[str, "AgentProfile"]:
     return {}
 
 
+def _empty_skills() -> list["EthosSkill"]:
+    return []
+
+
 @dataclass(slots=True)
 class PrincipleSection:
     """One rendered section within a principle detail document."""
@@ -102,6 +106,20 @@ class RepoContext:
 
 
 @dataclass(slots=True)
+class EthosSkill:
+    """One generated agent skill sourced from ETHOS principles."""
+
+    id: str
+    title: str
+    description: str
+    principle_ids: list[str]
+    trigger_terms: list[str] = field(default_factory=_empty_str_list)
+    short_hint: str = ""
+    focus: str = ""
+    remediation_steps: list[str] = field(default_factory=_empty_str_list)
+
+
+@dataclass(slots=True)
 class EthosBundle:
     """Complete normalized ethos payload used by all renderers and generators."""
 
@@ -111,5 +129,6 @@ class EthosBundle:
     agent_profiles: dict[str, AgentProfile] = field(
         default_factory=_empty_agent_profiles
     )
+    skills: list[EthosSkill] = field(default_factory=_empty_skills)
     repo: RepoContext = field(default_factory=RepoContext)
     source_markdown: str = ""

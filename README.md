@@ -59,7 +59,9 @@ config.yaml          repo_config.yaml
 
 The same inputs drive guidance and enforcement. Unknown linter findings still
 flow through normally; findings tied to ETHOS principles can receive stronger,
-policy-grounded advice instead of generic tool text.
+policy-grounded advice instead of generic tool text. When a finding maps to a
+generated skill, agent-facing output includes a compact `skill_id` hint and a
+next action to load that remediation playbook.
 
 ## Quick Start
 
@@ -182,7 +184,7 @@ uv run coding-ethos \
 
 | Source | Purpose | Derived output |
 | --- | --- | --- |
-| `coding_ethos.yml` | shared ethos contract | root agent docs and deep principle docs |
+| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, and ETHOS skills |
 | `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
@@ -208,13 +210,29 @@ repo/
 │       ├── codex.md
 │       └── gemini.md
 ├── .agents/
-│   └── ethos/
-│       ├── README.md
-│       ├── solid-is-law.md
+│   ├── ethos/
+│   │   ├── README.md
+│   │   ├── solid-is-law.md
+│   │   └── ...
+│   └── skills/
+│       ├── conditional-imports/
+│       │   └── SKILL.md
+│       └── lint-remediation/
+│           └── SKILL.md
+├── .codex/
+│   └── skills/
 │       └── ...
+├── .gemini/
+│   └── extensions/
+│       └── coding-ethos/
+│           ├── gemini-extension.json
+│           └── skills/
+│               └── ...
 └── .claude/
-    └── ethos/
-        └── MEMORY.md
+    ├── ethos/
+    │   └── MEMORY.md
+    └── skills/
+        └── ...
 ```
 
 Enforcement output:
@@ -241,6 +259,13 @@ repo/
 The primary ethos YAML is the shared source contract. It uses `version: 2`,
 metadata, and an ordered list of principles. Each principle needs an `id`,
 `order`, `title`, `directive`, and at least one section or inline body.
+
+The optional top-level `skills` list defines provider-portable skills grounded
+in ETHOS principles. Generation emits the same skill body into the portable
+`.agents/skills/` tree and the native Claude, Codex, and Gemini locations. The
+compiled Go policy bundle also carries those skill definitions so linter
+evidence can point at `skill_id` and runtime output can steer agents to the
+right remediation playbook.
 
 Accepted primary aliases when `--primary` is omitted:
 
@@ -398,6 +423,8 @@ The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.
 Replay renders the saved normalized result without invoking the underlying
 linter, which makes bad agent output reproducible from a trace file.
+Captured traces include emitted skill hints so later analysis can show which
+ETHOS remediation playbooks are being suggested in real work.
 Output quality is part of the contract: blocked results must not render empty
 finding tables, absolute local paths, internal timing/group noise, or generic
 guidance without at least one actionable finding. Golden-output tests should

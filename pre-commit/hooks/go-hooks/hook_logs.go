@@ -19,8 +19,9 @@ const (
 	maxHookLogAnalyzeBytesPerRun  = 2 * 1024 * 1024
 	maxHookLogQualityIssueSamples = 20
 	hookLogFindingCellCount       = 10
+	hookLogFindingCellCountSkill  = 11
 	hookLogFindingColumns         = "{tool,file,line,column,severity,code," +
-		"policy_id,message,advice,detail}"
+		"policy_id,skill_id,message,advice,detail}"
 	hookLogTopCountLimit           = 10
 	hookLogTruncatedOutputIssueKey = "truncated_output"
 )
@@ -401,6 +402,22 @@ func parseHookLogFindingRow(line string) hookFinding {
 	column, err := strconv.Atoi(cells[3])
 	if err != nil {
 		return hookFinding{}
+	}
+
+	if len(cells) >= hookLogFindingCellCountSkill {
+		return hookFinding{
+			Tool:     cells[0],
+			File:     cells[1],
+			Line:     lineNumber,
+			Column:   column,
+			Severity: cells[4],
+			Code:     cells[5],
+			PolicyID: cells[6],
+			SkillID:  cells[7],
+			Message:  cells[8],
+			Advice:   cells[9],
+			Detail:   cells[10],
+		}
 	}
 
 	return hookFinding{

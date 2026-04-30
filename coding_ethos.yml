@@ -44,6 +44,88 @@ agents:
         Prefer targeted reads of linked detail docs instead of loading the
 
         full corpus every time.
+skills:
+  - id: conditional-imports
+    title: Conditional Imports Remediation
+    description: >-
+      Use when Python code uses conditional imports, TYPE_CHECKING import
+      branches, local imports that hide dependency problems, Ruff local-import
+      diagnostics, or cyclic import diagnostics that need an ETHOS-grounded
+      repair.
+    principle_ids:
+      - no-conditional-imports
+      - protocol-first-design
+      - solid-is-law
+    trigger_terms:
+      - conditional import
+      - TYPE_CHECKING
+      - local import
+      - ruff local import
+      - cyclic import
+      - import cycle
+      - soft dependency
+    short_hint: >-
+      Conditional imports are banned. Treat required imports as hard
+      dependencies and use protocols, dependency inversion, or cleaner module
+      boundaries to break cycles.
+    focus: >-
+      Use this skill to turn import-related lint and type-check findings into
+      structural Python refactors instead of hiding imports behind runtime
+      branches.
+    remediation_steps:
+      - Identify whether the import is required for correct operation. If it is
+        required, make it a normal module-level import.
+      - If the import was conditional to avoid a cycle, find the interface the
+        caller actually needs and extract or reuse a Protocol-oriented boundary.
+      - Move shared interfaces, lightweight data contracts, or registration
+        seams to a lower-level module instead of importing concrete
+        implementations both ways.
+      - Remove TYPE_CHECKING-only imports when runtime behavior depends on the
+        imported symbol; annotations must not mask missing runtime dependencies.
+      - Re-run the relevant lint/type checks and explain the structural boundary
+        that replaced the conditional import.
+  - id: lint-remediation
+    title: ETHOS-Grounded Lint Remediation
+    description: >-
+      Use when Ruff, mypy, pyright, pylint, Bandit, SQLFluff, Tombi, or another
+      managed checker reports findings that need structural code-quality
+      remediation rather than suppressions or config weakening.
+    principle_ids:
+      - static-analysis-is-the-first-line-of-defense
+      - linting-as-code-quality-enforcement
+      - universal-responsibility
+      - solid-is-law
+    trigger_terms:
+      - ruff
+      - mypy
+      - pyright
+      - pylint
+      - bandit
+      - sqlfluff
+      - lint failure
+      - type error
+      - noqa
+      - suppression
+    short_hint: >-
+      Linters are enforced code reviewers. Fix findings structurally, keep
+      managed config intact, and suppress only when technically necessary and
+      fully documented.
+    focus: >-
+      Use this skill to convert linter output into concrete refactoring work
+      grounded in ETHOS, especially when an agent is tempted to silence the
+      finding or weaken the rules.
+    remediation_steps:
+      - Classify each finding by the code-quality concern it represents, not by
+        the tool name alone.
+      - >-
+        Prefer structural fixes: split responsibilities, tighten types, remove
+        dead paths, parameterize unsafe operations, or clarify contracts.
+      - Do not edit generated lint config, broaden ignores, or add suppressions
+        to get green faster.
+      - If a suppression is genuinely necessary, document why the alternatives
+        are worse and keep the scope as small as possible.
+      - Verify with the managed coding-ethos tool path and report the exact
+        checks that now pass or still fail.
 principles:
   - id: solid-is-law
     order: 1

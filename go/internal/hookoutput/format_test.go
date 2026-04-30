@@ -39,8 +39,8 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 		"format: toon",
 		"tool: policy-lint",
 		"scope: staged",
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
-		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -86,8 +86,47 @@ func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 		"also reported by pyright:reportOptionalMemberAccess",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestFormatLintResultTOONIncludesSkillAdvice(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:ruff",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     12,
+			Severity: "error",
+			Code:     "PLC" + "0415",
+			PolicyID: "python.conditional_imports",
+			SkillID:  "conditional-imports",
+			Message:  "import outside top-level",
+		}},
+		SkillHints: []lint.SkillHint{{
+			PrincipleID: "no-conditional-imports",
+			SkillID:     "conditional-imports",
+			Message:     "Conditional imports are banned; use protocols.",
+			Next:        "Load the conditional-imports skill for the remediation playbook.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"advice[1]{principle_id,skill_id,message,next}:",
+		"no-conditional-imports,conditional-imports,Conditional imports are banned; use protocols.,Load the conditional-imports skill for the remediation playbook.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -125,8 +164,8 @@ func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
-		"policy,,0,0,block,,git.staged_admin_files,Administrative staged files require explicit handling.,Confirm the policy change is intentional.,",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		"policy,,0,0,block,,git.staged_admin_files,,Administrative staged files require explicit handling.,Confirm the policy change is intentional.,",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -164,8 +203,8 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
-		"mypy,,0,0,error,,tool.mypy,mypy configuration or usage failed with status 2,,category=configuration_error; exit_code=2; output=mypy: error: cannot read file 'lbox/parsing/analyzer_base.py'",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		"mypy,,0,0,error,,tool.mypy,,mypy configuration or usage failed with status 2,,category=configuration_error; exit_code=2; output=mypy: error: cannot read file 'lbox/parsing/analyzer_base.py'",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -211,7 +250,7 @@ func TestFormatLintResultTOONBlockedOutputQuality(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 		"tool.pyright",
 		"pyright configuration or usage failed with status 2",
 		"output=pyright: config failure in <repo>/pyrightconfig.json",
