@@ -144,8 +144,9 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 		[]string{"pkg"},
 		[]string{"--outputjson", "pkg"},
 		2,
+		"/work/repo",
 		"",
-		"pyright: config file not found",
+		"pyright: config file not found in /work/repo/pyrightconfig.json",
 		nil,
 	)
 	if len(findings) != 1 {
@@ -157,7 +158,7 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 	if !strings.Contains(findings[0].Message, "configuration or usage failed") {
 		t.Fatalf("message = %q", findings[0].Message)
 	}
-	if findings[0].RawOutcome["output"] != "pyright: config file not found" {
+	if findings[0].RawOutcome["output"] != "pyright: config file not found in <repo>/pyrightconfig.json" {
 		t.Fatalf("raw outcome output = %#v", findings[0].RawOutcome)
 	}
 }

@@ -51,6 +51,7 @@ func runCapturedTool(
 		args,
 		runArgs,
 		exitCode,
+		cwd,
 		stdoutText,
 		stderrText,
 		evidenceMaps,
@@ -83,6 +84,7 @@ func capturedToolResult(
 	args []string,
 	runArgs []string,
 	exitCode int,
+	cwd string,
 	stdout string,
 	stderr string,
 	evidenceMaps []diagnostics.EvidenceMap,
@@ -95,7 +97,7 @@ func capturedToolResult(
 		Scope:       "tool:" + tool,
 		Status:      capturedStatus(exitCode),
 		Diagnostics: parsed,
-		Findings:    capturedFindings(tool, args, runArgs, exitCode, stdout, stderr, parsed),
+		Findings:    capturedFindings(tool, args, runArgs, exitCode, cwd, stdout, stderr, parsed),
 	}
 }
 
@@ -104,6 +106,7 @@ func capturedFindings(
 	args []string,
 	runArgs []string,
 	exitCode int,
+	cwd string,
 	stdout string,
 	stderr string,
 	items []diagnostics.Diagnostic,
@@ -120,7 +123,7 @@ func capturedFindings(
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
-				"output":    capturedOutputExcerpt(stdout, stderr),
+				"output":    capturedOutputExcerpt(stdout, stderr, cwd),
 			},
 			CheckID:    "tool." + tool,
 			Message:    outcome.Message,
@@ -161,18 +164,36 @@ func capturedFindings(
 
 const maxCapturedOutputExcerpt = 600
 
-func capturedOutputExcerpt(stdout string, stderr string) string {
+func capturedOutputExcerpt(stdout string, stderr string, cwd string) string {
 	output := strings.TrimSpace(firstCaptureNonEmpty(stderr, stdout))
 	if output == "" {
 		return ""
 	}
 
+	output = redactCapturedOutputPaths(output, cwd)
 	output = strings.Join(strings.Fields(output), " ")
 	if len(output) <= maxCapturedOutputExcerpt {
 		return output
 	}
 
 	return output[:maxCapturedOutputExcerpt] + "..."
+}
+
+func redactCapturedOutputPaths(output string, cwd string) string {
+	redacted := output
+	replacements := map[string]string{}
+	if cwd = strings.TrimSpace(cwd); cwd != "" {
+		replacements[cwd] = "<repo>"
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		replacements[home] = "<home>"
+	}
+
+	for path, marker := range replacements {
+		redacted = strings.ReplaceAll(redacted, path, marker)
+	}
+
+	return redacted
 }
 
 type capturedOutcomeClass struct {

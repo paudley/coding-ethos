@@ -351,6 +351,13 @@ Compiled lint preflights also write normalized JSON traces under
 `.coding-ethos/lint-runs/`. Fresh repos with no trace directory analyze as an
 empty history, and trace filenames use portable scope names so captured tool
 results work across platforms.
+Captured linter runs follow a single event contract: store the original argv,
+the rewritten argv, exit code, parser identity, parser outcome, redacted
+stdout/stderr excerpt for tool/config failures, normalized diagnostics, and any
+ETHOS mapping that was applied. A nonzero tool run with no parsed diagnostics is
+itself a finding, not an empty result; the agent-facing output must explain
+which tool failed, why it could not produce normal diagnostics, and what command
+or configuration should be checked next.
 
 Analyze captured lint history:
 
@@ -361,6 +368,11 @@ pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.
+Output quality is part of the contract: blocked results must not render empty
+finding tables, absolute local paths, internal timing/group noise, or generic
+guidance without at least one actionable finding. Golden-output tests should
+cover normal lint failures, clean runs, invalid config, malformed tool output,
+and tool crashes for every managed linter.
 
 ### Agent Hooks
 

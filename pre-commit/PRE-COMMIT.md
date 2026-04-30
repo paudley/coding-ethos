@@ -262,6 +262,25 @@ the shared lint schema, enriching known findings with ETHOS evidence-map advice,
 writing normalized lint traces, and returning coding-ethos human or TOON output
 instead of raw linter output.
 
+Captured lint runs are treated as structured events. Each trace should preserve
+the original argv, rewritten argv, exit code, selected parser, parser outcome,
+normalized diagnostics, normalized findings, and a bounded redacted
+stdout/stderr excerpt when a tool fails before producing parseable diagnostics.
+Tool/config failures are first-class findings: a failed run with no parsed
+diagnostics must never render as `findings[0]`.
+
+Troubleshooting and regression coverage should work from the same contract:
+
+- replay a saved `.coding-ethos/lint-runs/*.json` trace without rerunning the
+  underlying linter
+- maintain golden TOON output tests for normal findings, clean runs, invalid
+  config, malformed JSON/text output, timeouts, and tool crashes
+- fail tests if blocked output contains empty finding tables, unredacted local
+  paths, internal group/duration noise, or generic guidance without an
+  actionable finding
+- keep parser failures visible as parser/tool failures instead of degrading to
+  silent success or empty diagnostics
+
 ## Configuration
 
 Bundle defaults live in the code-ethos repo-root `config.yaml`. Consuming repos
