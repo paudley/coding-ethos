@@ -124,8 +124,8 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"format: toon",
 		"tool: policy-lint",
-		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
-		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
+		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("encoded output missing %q:\n%s", want, rendered)

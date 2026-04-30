@@ -131,13 +131,13 @@ func FormatLintResultTOON(result lint.Result) string {
 		"title: " + TOONCell(lintResultTitle(result)),
 		"scope: " + TOONCell(result.Scope),
 		fmt.Sprintf(
-			"findings[%d]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+			"findings[%d]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 			len(findings),
 		),
 	}
 	for _, finding := range findings {
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s",
+			"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s,%s",
 			TOONCell(finding.Tool),
 			TOONCell(finding.File),
 			finding.Line,
@@ -145,10 +145,29 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONCell(finding.Severity),
 			TOONCell(finding.Code),
 			TOONCell(finding.PolicyID),
+			TOONCell(finding.SkillID),
 			TOONFindingCell(finding.Message),
 			TOONFindingCell(finding.Advice),
 			TOONFindingCell(finding.Detail),
 		))
+	}
+	if len(result.SkillHints) > 0 {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"advice[%d]{principle_id,skill_id,message,next}:",
+				len(result.SkillHints),
+			),
+		)
+		for _, hint := range result.SkillHints {
+			lines = append(lines, fmt.Sprintf(
+				"  %s,%s,%s,%s",
+				TOONCell(hint.PrincipleID),
+				TOONCell(hint.SkillID),
+				TOONFindingCell(hint.Message),
+				TOONFindingCell(hint.Next),
+			))
+		}
 	}
 	if result.Blocked() {
 		lines = append(
@@ -181,6 +200,15 @@ func FormatLintResultHuman(result lint.Result) string {
 		))
 		if finding.Advice != "" {
 			lines = append(lines, "  advice: "+finding.Advice)
+		}
+	}
+	if len(result.SkillHints) > 0 {
+		lines = append(lines, "skill advice:")
+		for _, hint := range result.SkillHints {
+			lines = append(
+				lines,
+				"- "+hint.SkillID+": "+hint.Message+" Next: "+hint.Next,
+			)
 		}
 	}
 	if result.Blocked() {

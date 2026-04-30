@@ -99,7 +99,7 @@ func main() {
 			*cwd,
 			*traceRoot,
 			flags.Args(),
-			captureEvidenceMaps(*bundlePath),
+			capturePolicyContext(*bundlePath),
 		))
 	}
 
@@ -110,7 +110,7 @@ func main() {
 			ConsumerRoot:  *consumerRoot,
 			InvocationCwd: *invocationCwd,
 			Args:          flags.Args(),
-			EvidenceMaps:  captureEvidenceMaps(*bundlePath),
+			PolicyContext: capturePolicyContext(*bundlePath),
 		}))
 	}
 
@@ -251,9 +251,14 @@ func printCapturedTools() {
 	}
 }
 
-func captureEvidenceMaps(bundlePath string) []diagnostics.EvidenceMap {
+type capturePolicyData struct {
+	EvidenceMaps []diagnostics.EvidenceMap
+	Skills       map[string]policy.Skill
+}
+
+func capturePolicyContext(bundlePath string) capturePolicyData {
 	if strings.TrimSpace(bundlePath) == "" {
-		return nil
+		return capturePolicyData{}
 	}
 
 	bundle, err := readBundle(bundlePath)
@@ -267,7 +272,10 @@ func captureEvidenceMaps(bundlePath string) []diagnostics.EvidenceMap {
 		)
 	}
 
-	return bundle.EvidenceMaps
+	return capturePolicyData{
+		EvidenceMaps: bundle.EvidenceMaps,
+		Skills:       bundle.Skills,
+	}
 }
 
 func readBundle(path string) (policy.Bundle, error) {

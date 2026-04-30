@@ -116,6 +116,7 @@ policy:
       codes:
         - PLC0415
       policy_id: python.conditional_imports
+      skill_id: conditional-imports
       principle_ids:
         - no-conditional-imports
         - fail-fast-fail-hard-overview
@@ -147,6 +148,7 @@ policy:
         - Cannot resolve import cycle
         - import cycle
       policy_id: python.import_cycles
+      skill_id: conditional-imports
       principle_ids:
         - protocol-first-design
         - solid-is-law
@@ -173,6 +175,7 @@ policy:
         - Import cycle detected
         - Import cycles detected
       policy_id: python.import_cycles
+      skill_id: conditional-imports
       principle_ids:
         - protocol-first-design
         - solid-is-law
@@ -199,6 +202,7 @@ policy:
         - cyclic-import
         - R0401
       policy_id: python.import_cycles
+      skill_id: conditional-imports
       principle_ids:
         - protocol-first-design
         - solid-is-law
@@ -222,6 +226,7 @@ policy:
       codes:
         - no-any-return
       policy_id: python.optional_returns
+      skill_id: lint-remediation
       principle_ids:
         - no-optional-types-for-required-dependencies
         - static-analysis-is-the-first-line-of-defense
@@ -240,6 +245,7 @@ policy:
       codes:
         - SC*
       policy_id: shell.static_analysis
+      skill_id: lint-remediation
       principle_ids:
         - static-analysis-is-the-first-line-of-defense
         - linting-as-code-quality-enforcement
@@ -258,6 +264,7 @@ policy:
         - indentation
         - truthy
       policy_id: yaml.config_clarity
+      skill_id: lint-remediation
       principle_ids:
         - validation-at-the-gate
         - documentation-as-contract
@@ -275,6 +282,7 @@ policy:
       codes:
         - DL*
       policy_id: docker.reproducible_builds
+      skill_id: lint-remediation
       principle_ids:
         - security-by-design
         - evidence-based-engineering-and-decision-quality
@@ -294,6 +302,7 @@ policy:
       codes:
         - "*"
       policy_id: workflow.validation
+      skill_id: lint-remediation
       principle_ids:
         - validation-at-the-gate
         - testing-as-specification
@@ -314,6 +323,7 @@ policy:
         - staticcheck
         - revive
       policy_id: go.static_analysis
+      skill_id: lint-remediation
       principle_ids:
         - static-analysis-is-the-first-line-of-defense
         - linting-as-code-quality-enforcement
@@ -328,6 +338,101 @@ policy:
         rerun:
           - make pre-commit
           - make check
+    - source: ruff
+      message_substrings:
+        - configuration or usage failed
+        - unexpected argument
+        - No such file or directory
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        Ruff failed before producing normal diagnostics, usually because the
+        invocation, target paths, managed binary, or generated config drifted
+        away from the coding-ethos runtime contract.
+      advice:
+        summary: Restore the managed coding-ethos toolchain path and rerun Ruff.
+        steps:
+          - Keep the caller's target paths, but execute Ruff through the captured
+            coding-ethos wrapper.
+          - Do not trust consumer-repo Ruff config or host binaries.
+          - Restore generated config drift with make -C coding-ethos fix-configs.
+        rerun:
+          - make pre-commit
+    - source: mypy
+      message_substrings:
+        - configuration or usage failed
+        - cannot read file
+        - No such file or directory
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        Mypy failed before producing normal diagnostics, usually because target
+        resolution, generated config, or managed execution context is wrong.
+      advice:
+        summary: Run mypy through the managed coding-ethos wrapper and config.
+        steps:
+          - Resolve target files relative to the caller as requested.
+          - Execute mypy from the coding-ethos managed environment and config.
+          - Restore generated config drift before trusting type-check output.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pyright
+      message_substrings:
+        - configuration or usage failed
+        - File or directory
+        - No such file or directory
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        Pyright failed before producing normal diagnostics, usually because the
+        managed project/config boundary or target resolution is wrong.
+      advice:
+        summary: Restore managed Pyright execution before interpreting results.
+        steps:
+          - Keep caller target intent but normalize paths through coding-ethos.
+          - Use the generated pyrightconfig from the coding-ethos checkout.
+          - Treat drifted generated configs as blocking infrastructure failures.
+        rerun:
+          - make pre-commit
+          - make check
+    - source: pylint
+      message_substrings:
+        - configuration or usage failed
+        - No such file or directory
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        Pylint failed before producing normal diagnostics, usually because
+        managed execution or generated config is not being used.
+      advice:
+        summary: Restore managed Pylint execution and generated config first.
+        steps:
+          - Run Pylint through the coding-ethos capture wrapper.
+          - Do not fall back to host or consumer-repo Pylint settings.
+          - Rebuild or restore generated configs before rerunning.
+        rerun:
+          - make pre-commit
 
 git:
   hook_bypass:

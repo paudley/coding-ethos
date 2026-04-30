@@ -95,14 +95,14 @@ func TestExplainReportsToolSelectionForFiles(t *testing.T) {
 		"ruff,selected,python-static,ruff,json,file selector matched pkg/app.py",
 		"pylint,skipped,python-static,pylint,json,tool is disabled by default",
 		"evidence_maps[",
-		"ruff,codes=" + "PLC" + "0415,python.conditional_imports,high",
+		"ruff,codes=" + "PLC" + "0415,python.conditional_imports,conditional-imports,high",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
 		}
 	}
 	conditionalImportEvidence := "ruff,codes=" +
-		"PLC" + "0415,python.conditional_imports,high"
+		"PLC" + "0415,python.conditional_imports,conditional-imports,high"
 	if strings.Count(output, conditionalImportEvidence) != 1 {
 		t.Fatalf("TOON output should dedupe repeated evidence maps:\n%s", output)
 	}

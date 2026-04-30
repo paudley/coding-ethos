@@ -110,6 +110,7 @@ func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
 		Severity: finding.Severity,
 		Code:     finding.Code,
 		PolicyID: firstOutputNonEmpty(finding.PolicyID, finding.CheckID),
+		SkillID:  finding.SkillID,
 		Message:  finding.Message,
 		Advice:   finding.Advice,
 		Detail:   findingDetail(finding),

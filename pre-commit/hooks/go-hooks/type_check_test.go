@@ -307,8 +307,52 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 		"format: toon",
 		"status: FAIL",
 		"checks{name,status,exit_code,duration_ms}:",
-		"diagnostics[1]{tool,file,line,column,severity,code,policy_id,message,advice}:",
-		"mypy,pkg/app.py,88,12,error,no-any-return,,Returning Any from function declared to return bool,",
+		"diagnostics[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice}:",
+		"mypy,pkg/app.py,88,12,error,no-any-return,,,Returning Any from function declared to return bool,",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("TOON output missing %q:\n%s", fragment, output)
+		}
+	}
+}
+
+func TestFormatTypeCheckResultsTOONIncludesSkillAdvice(t *testing.T) {
+	t.Parallel()
+
+	output := formatTypeCheckResultsWithSkills(
+		[]typeCheckResult{
+			{
+				Name:     "ruff",
+				ExitCode: 1,
+				Diagnostics: []diag.Diagnostic{
+					{
+						Tool:         "ruff",
+						File:         "pkg/app.py",
+						Severity:     "error",
+						Code:         "PLC" + "0415",
+						PolicyID:     "python.conditional_imports",
+						SkillID:      "conditional-imports",
+						PrincipleIDs: []string{"no-conditional-imports"},
+						Message:      "import outside top-level",
+						Line:         12,
+					},
+				},
+			},
+		},
+		1,
+		hookOutputFormatTOON,
+		map[string]hookSkill{
+			"conditional-imports": {
+				ID:           "conditional-imports",
+				ShortHint:    "Conditional imports are banned; use protocols to break cycles.",
+				PrincipleIDs: []string{"no-conditional-imports"},
+			},
+		},
+	)
+
+	for _, fragment := range []string{
+		"advice[1]{principle_id,skill_id,message,next}:",
+		"no-conditional-imports,conditional-imports,Conditional imports are banned; use protocols to break cycles.,Load the conditional-imports skill for the remediation playbook.",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("TOON output missing %q:\n%s", fragment, output)
@@ -335,6 +379,7 @@ func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 				Source:       "ruff",
 				Codes:        []string{"PLC" + "0415"},
 				PolicyID:     "python.conditional_imports",
+				SkillID:      "conditional-imports",
 				PrincipleIDs: []string{"no-conditional-imports"},
 				Confidence:   "high",
 				Meaning:      "import away from module scope",
@@ -353,6 +398,10 @@ func TestEnrichTypeCheckDiagnosticsMapsPolicyEvidence(t *testing.T) {
 
 	if diagnostics[0].Advice != "Move required imports to module scope." {
 		t.Fatalf("mapped diagnostic advice = %q", diagnostics[0].Advice)
+	}
+
+	if diagnostics[0].SkillID != "conditional-imports" {
+		t.Fatalf("mapped diagnostic skill = %q", diagnostics[0].SkillID)
 	}
 
 	if len(diagnostics[0].PrincipleIDs) != 1 ||

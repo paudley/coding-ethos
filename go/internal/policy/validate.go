@@ -38,6 +38,7 @@ func (bundle Bundle) Validate() error {
 
 	errs = append(errs, validateBundleFields(bundle)...)
 	errs = append(errs, validatePrinciples(bundle.Principles)...)
+	errs = append(errs, validateSkills(bundle.Skills, bundle.Principles)...)
 
 	for policyID, policy := range bundle.Policies {
 		errs = append(errs, validatePolicy(policyID, policy, bundle.Principles)...)
@@ -103,6 +104,52 @@ func validatePrinciples(principles map[string]Principle) []error {
 					principleID,
 				),
 			)
+		}
+	}
+
+	return errs
+}
+
+func validateSkills(
+	skills map[string]Skill,
+	principles map[string]Principle,
+) []error {
+	errs := []error{}
+
+	for skillID, skill := range skills {
+		if skill.ID != skillID {
+			errs = append(
+				errs,
+				fmt.Errorf(
+					"%w: skill %q has mismatched id %q",
+					errValidationFailed,
+					skillID,
+					skill.ID,
+				),
+			)
+		}
+		if skill.Title == "" || skill.Description == "" {
+			errs = append(
+				errs,
+				fmt.Errorf(
+					"%w: skill %q title and description are required",
+					errValidationFailed,
+					skillID,
+				),
+			)
+		}
+		for _, principleID := range skill.PrincipleIDs {
+			if _, ok := principles[principleID]; !ok {
+				errs = append(
+					errs,
+					fmt.Errorf(
+						"%w: skill %q references unknown principle %q",
+						errValidationFailed,
+						skillID,
+						principleID,
+					),
+				)
+			}
 		}
 	}
 

@@ -423,6 +423,7 @@ func TestEnrichMapsKnownDiagnosticEvidence(t *testing.T) {
 				Source:       "ruff",
 				Codes:        []string{"PLC" + "0415"},
 				PolicyID:     "python.conditional_imports",
+				SkillID:      "conditional-imports",
 				PrincipleIDs: []string{"no-conditional-imports"},
 				Confidence:   "high",
 				Meaning:      "import away from module scope",
@@ -441,6 +442,10 @@ func TestEnrichMapsKnownDiagnosticEvidence(t *testing.T) {
 
 	if enriched[0].Advice != "Move required imports to module scope." {
 		t.Fatalf("mapped advice = %q", enriched[0].Advice)
+	}
+
+	if enriched[0].SkillID != "conditional-imports" {
+		t.Fatalf("mapped skill = %q", enriched[0].SkillID)
 	}
 
 	if len(enriched[0].PrincipleIDs) != 1 ||

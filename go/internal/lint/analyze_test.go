@@ -30,6 +30,7 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 			Message:    "Module import not at top",
 			Advice:     "Move imports to module scope.",
 			EthosIDs:   []string{"no-conditional-imports"},
+			SkillID:    "conditional-imports",
 			Blocking:   true,
 		},
 		{
@@ -51,6 +52,7 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 			Message:    "Module import not at top",
 			Advice:     "Move imports to module scope.",
 			EthosIDs:   []string{"no-conditional-imports"},
+			SkillID:    "conditional-imports",
 			Blocking:   true,
 		},
 	})
@@ -97,6 +99,12 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	if analysis.TopEthosIDs[0] != (Count{Key: "no-conditional-imports", Count: 2}) {
 		t.Fatalf("ethos IDs = %#v", analysis.TopEthosIDs)
 	}
+	if analysis.TopSkillIDs[0] != (Count{Key: "conditional-imports", Count: 2}) {
+		t.Fatalf("skill IDs = %#v", analysis.TopSkillIDs)
+	}
+	if analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 2}) {
+		t.Fatalf("skill hints = %#v", analysis.TopSkillHints)
+	}
 	if len(analysis.UnmappedCodes) == 0 ||
 		analysis.UnmappedCodes[0] != (Count{Key: "pylint:no-member", Count: 1}) {
 		t.Fatalf("unmapped codes = %#v", analysis.UnmappedCodes)
@@ -111,6 +119,8 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		"Top checks: python.import_order=2",
 		"Top tool codes: ruff:E402=2",
 		"Unmapped tool codes: pylint:no-member=1",
+		"Top skill IDs: conditional-imports=2",
+		"Top emitted skill hints: conditional-imports=2",
 		"Guidance candidates:",
 	} {
 		if !strings.Contains(output, want) {
@@ -125,6 +135,8 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		"top_codes[",
 		"unmapped_codes[1]{key,count}:",
 		"pylint:no-member,1",
+		"top_skill_ids[1]{key,count}:",
+		"top_skill_hints[1]{key,count}:",
 		"guidance_candidates[",
 	} {
 		if !strings.Contains(toonOutput, want) {
@@ -176,6 +188,7 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 			Status:     "fail",
 			Message:    "Module import not at top",
 			Advice:     "Move imports to module scope.",
+			SkillID:    "conditional-imports",
 			Blocking:   true,
 		},
 	})
@@ -186,6 +199,7 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 			File:       "go/internal/app.go",
 			Status:     "fail",
 			Message:    "missing required license header text",
+			SkillID:    "managed-toolchain",
 			Blocking:   true,
 		},
 	})
@@ -209,6 +223,10 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 	if len(analysis.GuidanceCandidates) != 1 ||
 		analysis.GuidanceCandidates[0].CheckID != "python.import_order" {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
+	}
+	if len(analysis.TopSkillHints) != 1 ||
+		analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 1}) {
+		t.Fatalf("scoped skill hints = %#v", analysis.TopSkillHints)
 	}
 }
 
@@ -279,12 +297,31 @@ func writeTraceFixture(
 		RecordedAtUTC: "20260429T000000Z",
 		RepoRoot:      root,
 		Result: Result{
-			Scope:    ScopeStaged,
-			Status:   "blocked",
-			Findings: findings,
+			Scope:      ScopeStaged,
+			Status:     "blocked",
+			Findings:   findings,
+			SkillHints: skillHintsForFixture(findings),
 		},
 	})
 	if err != nil {
 		t.Fatalf("encode fixture: %v", err)
 	}
+}
+
+func skillHintsForFixture(findings []Finding) []SkillHint {
+	hints := []SkillHint{}
+	seen := map[string]bool{}
+	for _, finding := range findings {
+		if finding.SkillID == "" || seen[finding.SkillID] {
+			continue
+		}
+
+		hints = append(hints, SkillHint{
+			SkillID: finding.SkillID,
+			Message: "fixture skill hint",
+		})
+		seen[finding.SkillID] = true
+	}
+
+	return hints
 }

@@ -237,6 +237,7 @@ func diagnosticsToHookFindings(items []diag.Diagnostic) []hookFinding {
 			Severity:     item.Severity,
 			Code:         item.Code,
 			PolicyID:     item.PolicyID,
+			SkillID:      item.SkillID,
 			Message:      item.Message,
 			Meaning:      item.Meaning,
 			AdviceSteps:  append([]string(nil), item.AdviceSteps...),
@@ -290,6 +291,52 @@ func loadCompiledEvidenceMaps(bundleRoot string) ([]diag.EvidenceMap, error) {
 	}
 
 	return payload.EvidenceMaps, nil
+}
+
+type hookSkill struct {
+	ID           string   `json:"id"`
+	Description  string   `json:"description"`
+	ShortHint    string   `json:"short_hint"`
+	PrincipleIDs []string `json:"principle_ids"`
+}
+
+func loadHookSkills() map[string]hookSkill {
+	bundleRoot, _, _, err := loadBundleConsumerAndConfig()
+	if err != nil {
+		return nil
+	}
+
+	skills, err := loadCompiledSkills(bundleRoot)
+	if err != nil {
+		return nil
+	}
+
+	return skills
+}
+
+func loadCompiledSkills(bundleRoot string) (map[string]hookSkill, error) {
+	bundlePath := filepath.Join(
+		filepath.Dir(bundleRoot),
+		"build",
+		"policy",
+		"policy-bundle.json",
+	)
+
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("read policy bundle skills: %w", err)
+	}
+
+	var payload struct {
+		Skills map[string]hookSkill `json:"skills"`
+	}
+
+	err = json.Unmarshal(data, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode policy bundle skills: %w", err)
+	}
+
+	return payload.Skills, nil
 }
 
 func configuredEvidenceMaps(rootConfig map[string]any) []diag.EvidenceMap {

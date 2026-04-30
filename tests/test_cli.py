@@ -7,6 +7,7 @@ These tests exercise the public command surface rather than private helpers.
 They verify that generated files, tool configs, and merge behavior stay aligned.
 """
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -364,7 +365,11 @@ class CliRenderTests(unittest.TestCase):
                         "kind": "overview",
                         "title": "Overview",
                         "summary": "Structure wins over convenience.",
-                        "body": "Long form guidance.",
+                        "body": (
+                            "Long form guidance. See [Section 2: Testing as "
+                            "Specification](#2-testing-as-specification) and "
+                            "Section 99: Missing Principle."
+                        ),
                     }
                 ],
             }
@@ -529,6 +534,122 @@ class CliRenderTests(unittest.TestCase):
             exit_code = main(["--repo", str(repo_root), "--primary", str(primary_path)])
             assert exit_code == 0
             self._assert_rendered_targets(repo_root)
+
+    def test_cli_renders_ethos_skills_for_supported_agents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            primary_path = tmp_path / "coding_ethos.yml"
+            repo_root = tmp_path / "target"
+            payload = self._primary_payload(include_testing_principle=True)
+            payload["skills"] = [
+                {
+                    "id": "lint-remediation",
+                    "title": "Lint Remediation",
+                    "description": "Use when lint findings need structural fixes.",
+                    "principle_ids": ["solid-is-law", "testing-as-specification"],
+                    "trigger_terms": ["ruff", "mypy"],
+                    "short_hint": "Fix structurally.",
+                    "focus": "Use this skill for lint failures.",
+                    "remediation_steps": ["Classify the finding.", "Fix the code."],
+                }
+            ]
+            self._write_yaml(primary_path, payload)
+
+            repo_root.mkdir()
+            self._write_yaml(
+                repo_root / "repo_ethos.yml",
+                {
+                    "repo": {
+                        "name": 'Widget "Service" \\ Alpha',
+                        "overview": "Processes widgets.",
+                    }
+                },
+            )
+            exit_code = main(["--repo", str(repo_root), "--primary", str(primary_path)])
+
+            assert exit_code == 0
+            skill_paths = [
+                ".agents/skills/lint-remediation/SKILL.md",
+                ".claude/skills/lint-remediation/SKILL.md",
+                ".codex/skills/lint-remediation/SKILL.md",
+                ".gemini/extensions/coding-ethos/skills/lint-remediation/SKILL.md",
+            ]
+            for relative_path in skill_paths:
+                skill_text = (repo_root / relative_path).read_text(encoding="utf-8")
+                assert "name: lint-remediation" in skill_text
+                assert "source: coding_ethos.yml" in skill_text
+                assert "`solid-is-law`: Enforce simple SOLID designs." in skill_text
+                assert "## Remediation Workflow" in skill_text
+                assert "[Section 2: Testing as Specification]" not in skill_text
+                assert (
+                    "[Testing as Specification](#testing-as-specification)"
+                    in skill_text
+                )
+                assert "Section 99: Missing Principle" not in skill_text
+                assert "Missing Principle" in skill_text
+            manifest = (
+                repo_root / ".gemini/extensions/coding-ethos/gemini-extension.json"
+            ).read_text(encoding="utf-8")
+            manifest_payload = json.loads(manifest)
+            assert manifest_payload["name"] == "coding-ethos"
+            assert manifest_payload["description"] == (
+                'ETHOS skills for Widget "Service" \\ Alpha: lint-remediation'
+            )
+
+    def test_cli_sync_agent_skills_does_not_rewrite_root_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            primary_path = tmp_path / "coding_ethos.yml"
+            repo_root = tmp_path / "target"
+            payload = self._primary_payload(include_testing_principle=False)
+            payload["skills"] = [
+                {
+                    "id": "managed-toolchain",
+                    "title": "Managed Toolchain",
+                    "description": "Use when generated config or managed tools drift.",
+                    "principle_ids": ["solid-is-law"],
+                    "trigger_terms": ["config drift"],
+                    "short_hint": "Use managed tools.",
+                    "focus": "Use this skill for toolchain failures.",
+                    "remediation_steps": ["Restore generated config."],
+                }
+            ]
+            self._write_yaml(primary_path, payload)
+
+            repo_root.mkdir()
+            exit_code = main(
+                [
+                    "--repo",
+                    str(repo_root),
+                    "--primary",
+                    str(primary_path),
+                    "--sync-agent-skills",
+                ]
+            )
+
+            assert exit_code == 0
+            assert not (repo_root / "AGENTS.md").exists()
+            assert (repo_root / ".agents/skills/managed-toolchain/SKILL.md").exists()
+            assert (repo_root / ".claude/skills/managed-toolchain/SKILL.md").exists()
+            assert (repo_root / ".codex/skills/managed-toolchain/SKILL.md").exists()
+            assert (
+                repo_root
+                / ".gemini/extensions/coding-ethos/skills/managed-toolchain/SKILL.md"
+            ).exists()
+
+            skill_path = repo_root / ".codex/skills/managed-toolchain/SKILL.md"
+            skill_path.write_text("drifted\n", encoding="utf-8")
+
+            drift_exit_code = main(
+                [
+                    "--repo",
+                    str(repo_root),
+                    "--primary",
+                    str(primary_path),
+                    "--check-agent-skills",
+                ]
+            )
+            assert drift_exit_code == 1
 
     def test_cli_merge_existing_injects_managed_blocks_for_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

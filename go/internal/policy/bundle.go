@@ -10,6 +10,7 @@ type Bundle struct {
 	Advice       Advice                    `json:"advice,omitempty"`
 	Principles   map[string]Principle      `json:"principles"`
 	Policies     map[string]Policy         `json:"policies"`
+	Skills       map[string]Skill          `json:"skills,omitempty"`
 	Sources      Sources                   `json:"sources"`
 	BundleID     string                    `json:"bundle_id"`
 	GeneratedAt  string                    `json:"generated_at"`
@@ -53,6 +54,18 @@ type Principle struct {
 	Related    []string          `json:"related,omitempty"`
 	Tags       []string          `json:"tags,omitempty"`
 	Order      int               `json:"order,omitempty"`
+}
+
+type Skill struct {
+	Source           SourceRef `json:"source"`
+	ID               string    `json:"id"`
+	Title            string    `json:"title"`
+	Description      string    `json:"description"`
+	ShortHint        string    `json:"short_hint,omitempty"`
+	Focus            string    `json:"focus,omitempty"`
+	PrincipleIDs     []string  `json:"principle_ids,omitempty"`
+	TriggerTerms     []string  `json:"trigger_terms,omitempty"`
+	RemediationSteps []string  `json:"remediation_steps,omitempty"`
 }
 
 type Policy struct {
@@ -133,6 +146,7 @@ func ExampleBundle() Bundle {
 		Advice:       exampleAdvice(),
 		Principles:   principles,
 		Policies:     examplePolicies(),
+		Skills:       exampleSkills(),
 		Dispatch:     exampleDispatch(),
 		EvidenceMaps: defaultEvidenceMaps(principles),
 	}
@@ -182,6 +196,28 @@ func examplePolicies() map[string]Policy {
 		"git.commit_head_advanced":   exampleCommitHeadPolicy(),
 		"filesystem.protected_path":  exampleProtectedPathPolicy(),
 		"shell.forbidden_strings":    exampleShellForbiddenStringsPolicy(),
+	}
+}
+
+func exampleSkills() map[string]Skill {
+	return map[string]Skill{
+		"conditional-imports": {
+			ID:          "conditional-imports",
+			Title:       "Conditional Imports",
+			Description: "Replace conditional imports with explicit dependencies or protocol boundaries.",
+			Source: SourceRef{
+				File: "coding_ethos.yml",
+				Path: "skills.conditional-imports",
+			},
+			PrincipleIDs: []string{"no-conditional-imports"},
+			TriggerTerms: []string{"PLC" + "0415", "conditional import", "import cycle"},
+			ShortHint:    "Conditional imports are banned; use module-scope imports or Protocol boundaries.",
+			Focus:        "Remove hidden dependency paths without weakening lint gates.",
+			RemediationSteps: []string{
+				"Move required imports to module scope.",
+				"Use a neutral Protocol when concrete modules would otherwise cycle.",
+			},
+		},
 	}
 }
 

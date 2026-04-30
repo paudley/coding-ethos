@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
@@ -47,15 +48,26 @@ exit 1
 			repo,
 			"",
 			[]string{"check", "pkg/app.py"},
-			[]diagnostics.EvidenceMap{{
-				Source:       "ruff",
-				Codes:        []string{"F401"},
-				PolicyID:     "python.unused_imports",
-				PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
-				Advice: diagnostics.EvidenceAdvice{
-					Summary: "Remove unused imports instead of suppressing Ruff.",
+			capturePolicyData{
+				EvidenceMaps: []diagnostics.EvidenceMap{{
+					Source:       "ruff",
+					Codes:        []string{"F401"},
+					PolicyID:     "python.unused_imports",
+					SkillID:      "lint-remediation",
+					PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+					Advice: diagnostics.EvidenceAdvice{
+						Summary: "Remove unused imports instead of suppressing Ruff.",
+					},
+				}},
+				Skills: map[string]policy.Skill{
+					"lint-remediation": {
+						ID:           "lint-remediation",
+						Description:  "Fix lint structurally.",
+						ShortHint:    "Fix lint structurally; do not weaken policy or add suppressions.",
+						PrincipleIDs: []string{"linting-as-code-quality-enforcement"},
+					},
 				},
-			}},
+			},
 		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
@@ -65,7 +77,9 @@ exit 1
 		"format: toon",
 		"tool: ruff",
 		"status: FAIL",
-		"ruff,pkg/app.py,4,8,error,F401,python.unused_imports,unused import,Remove unused imports instead of suppressing Ruff.",
+		"ruff,pkg/app.py,4,8,error,F401,python.unused_imports,lint-remediation,unused import,Remove unused imports instead of suppressing Ruff.",
+		"advice[1]{principle_id,skill_id,message,next}:",
+		"static-analysis-is-the-first-line-of-defense,lint-remediation,Fix lint structurally; do not weaken policy or add suppressions.,Load the lint-remediation skill for the remediation playbook.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("normalized output missing %q:\n%s", want, output)
@@ -89,6 +103,8 @@ exit 1
 		`"source_tool": "ruff"`,
 		`"code": "F401"`,
 		`"policy_id": "python.unused_imports"`,
+		`"skill_id": "lint-remediation"`,
+		`"skill_hints": [`,
 		`"message": "unused import"`,
 		`"advice": "Remove unused imports instead of suppressing Ruff."`,
 	} {
@@ -120,7 +136,7 @@ exit 1
 		t.Fatalf("write fixture tool: %v", err)
 	}
 
-	exitCode := runCapturedTool("shellcheck", tool, repo, "", []string{"script.sh"}, nil)
+	exitCode := runCapturedTool("shellcheck", tool, repo, "", []string{"script.sh"}, capturePolicyData{})
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -165,7 +181,7 @@ exit 1
 		t.Fatalf("write package file: %v", err)
 	}
 
-	exitCode := runCapturedTool("mypy", tool, execRoot, traceRoot, []string{"pkg/app.py"}, nil)
+	exitCode := runCapturedTool("mypy", tool, execRoot, traceRoot, []string{"pkg/app.py"}, capturePolicyData{})
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -368,7 +384,7 @@ func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 			repo := t.TempDir()
 			tool := writeCaptureFixtureTool(t, repo, test.required, test.output)
 
-			exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, nil)
+			exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{})
 			if exitCode != 1 {
 				t.Fatalf("exit code = %d, want 1", exitCode)
 			}
@@ -422,7 +438,7 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 
 			t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 			output := captureStdout(t, func() {
-				exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, nil)
+				exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{})
 				if exitCode != 2 {
 					t.Fatalf("exit code = %d, want 2", exitCode)
 				}
@@ -432,7 +448,7 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 				"format: toon",
 				"tool: " + test.tool,
 				"status: FAIL",
-				"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+				"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 				test.tool + ",,0,0,error,,tool." + test.tool,
 				"category=configuration_error; exit_code=2; output=" + test.tool + ": failed to load config from <repo>/tool.conf",
 			} {
@@ -470,7 +486,7 @@ func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
 
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 	output := captureStdout(t, func() {
-		exitCode := runCapturedTool("mypy", tool, repo, "", []string{"pkg"}, nil)
+		exitCode := runCapturedTool("mypy", tool, repo, "", []string{"pkg"}, capturePolicyData{})
 		if exitCode != 0 {
 			t.Fatalf("exit code = %d, want 0", exitCode)
 		}

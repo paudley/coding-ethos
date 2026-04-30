@@ -63,6 +63,7 @@ type ExplainEvidenceMap struct {
 	Confidence   string   `json:"confidence,omitempty"`
 	Meaning      string   `json:"meaning,omitempty"`
 	Advice       string   `json:"advice,omitempty"`
+	SkillID      string   `json:"skill_id,omitempty"`
 	EthosIDs     []string `json:"ethos_ids,omitempty"`
 	AdviceSteps  []string `json:"advice_steps,omitempty"`
 	Rerun        []string `json:"rerun,omitempty"`
@@ -274,15 +275,16 @@ func FormatExplainResultTOON(result ExplainResult) string {
 	}
 	lines = append(
 		lines,
-		fmt.Sprintf("evidence_maps[%d]{source,match,policy_id,confidence,ethos_ids,advice}:",
+		fmt.Sprintf("evidence_maps[%d]{source,match,policy_id,skill_id,confidence,ethos_ids,advice}:",
 			len(result.EvidenceMaps)),
 	)
 	for _, evidenceMap := range result.EvidenceMaps {
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%s,%s,%s,%s,%s",
+			"  %s,%s,%s,%s,%s,%s,%s",
 			toonCell(evidenceMap.Source),
 			toonCell(evidenceMap.Match),
 			toonCell(evidenceMap.PolicyID),
+			toonCell(evidenceMap.SkillID),
 			toonCell(evidenceMap.Confidence),
 			toonCell(strings.Join(evidenceMap.EthosIDs, "+")),
 			toonCell(evidenceMap.Advice),
@@ -375,6 +377,7 @@ func explainEvidenceMaps(
 			Confidence:   mapping.Confidence,
 			Meaning:      mapping.Meaning,
 			Advice:       mapping.Advice.Summary,
+			SkillID:      mapping.SkillID,
 			EthosIDs:     append([]string(nil), mapping.PrincipleIDs...),
 			AdviceSteps:  append([]string(nil), mapping.Advice.Steps...),
 			Rerun:        append([]string(nil), mapping.Advice.Rerun...),

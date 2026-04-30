@@ -27,6 +27,8 @@ type Analysis struct {
 	UnmappedCodes      []Count             `json:"unmapped_codes,omitempty"`
 	RepeatedPatterns   []Count             `json:"repeated_patterns"`
 	TopEthosIDs        []Count             `json:"top_ethos_ids"`
+	TopSkillIDs        []Count             `json:"top_skill_ids"`
+	TopSkillHints      []Count             `json:"top_skill_hints"`
 	GuidanceCandidates []GuidanceCandidate `json:"guidance_candidates"`
 	RunsAnalyzed       int                 `json:"runs_analyzed"`
 	RunsAvailable      int                 `json:"runs_available"`
@@ -52,6 +54,7 @@ type GuidanceCandidate struct {
 	Advice   string `json:"advice,omitempty"`
 	Message  string `json:"message"`
 	EthosID  string `json:"ethos_id,omitempty"`
+	SkillID  string `json:"skill_id,omitempty"`
 	Count    int    `json:"count"`
 	Blocking bool   `json:"blocking"`
 }
@@ -102,6 +105,8 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 	unmappedCodeCounts := map[string]int{}
 	patternCounts := map[string]int{}
 	ethosCounts := map[string]int{}
+	skillCounts := map[string]int{}
+	skillHintCounts := map[string]int{}
 	candidates := map[string]GuidanceCandidate{}
 
 	for _, entry := range entries {
@@ -122,9 +127,13 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 		}
 		analysis.RunsAnalyzed++
 
+		relevantSkillIDs := map[string]bool{}
 		for _, finding := range record.Result.Findings {
 			if !findingFailed(finding) || !findingRelevantToFiles(finding, files) {
 				continue
+			}
+			if finding.SkillID != "" {
+				relevantSkillIDs[finding.SkillID] = true
 			}
 
 			analysis.Findings++
@@ -135,9 +144,11 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				unmappedCodeCounts,
 				patternCounts,
 				ethosCounts,
+				skillCounts,
 				candidates,
 			)
 		}
+		incrementSkillHintCounts(record.Result.SkillHints, skillHintCounts, relevantSkillIDs, files)
 	}
 
 	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
@@ -145,6 +156,8 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 	analysis.UnmappedCodes = topCountsLimit(unmappedCodeCounts, options.MaxCounts)
 	analysis.RepeatedPatterns = topCountsLimit(patternCounts, options.MaxCounts)
 	analysis.TopEthosIDs = topCountsLimit(ethosCounts, options.MaxCounts)
+	analysis.TopSkillIDs = topCountsLimit(skillCounts, options.MaxCounts)
+	analysis.TopSkillHints = topCountsLimit(skillHintCounts, options.MaxCounts)
 	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
 		candidates,
 		options.MaxGuidanceCandidates,
@@ -253,6 +266,7 @@ func incrementFindingCounts(
 	unmappedCodeCounts map[string]int,
 	patternCounts map[string]int,
 	ethosCounts map[string]int,
+	skillCounts map[string]int,
 	candidates map[string]GuidanceCandidate,
 ) {
 	checkID := firstNonEmpty(finding.CheckID, finding.PolicyID, "unknown")
@@ -276,6 +290,9 @@ func incrementFindingCounts(
 			ethosCounts[ethosID]++
 		}
 	}
+	if finding.SkillID != "" {
+		skillCounts[finding.SkillID]++
+	}
 
 	candidateKey := guidanceCandidateKey(finding)
 	candidate := candidates[candidateKey]
@@ -287,11 +304,31 @@ func incrementFindingCounts(
 			Advice:   finding.Advice,
 			Message:  finding.Message,
 			EthosID:  firstString(finding.EthosIDs),
+			SkillID:  finding.SkillID,
 			Blocking: finding.Blocking,
 		}
 	}
 	candidate.Count++
 	candidates[candidateKey] = candidate
+}
+
+func incrementSkillHintCounts(
+	hints []SkillHint,
+	counts map[string]int,
+	relevantSkillIDs map[string]bool,
+	files []string,
+) {
+	for _, hint := range hints {
+		skillID := strings.TrimSpace(hint.SkillID)
+		if skillID == "" {
+			continue
+		}
+		if len(files) > 0 && !relevantSkillIDs[skillID] {
+			continue
+		}
+
+		counts[skillID]++
+	}
 }
 
 func findingUnmapped(finding Finding) bool {
@@ -440,6 +477,8 @@ func FormatAnalysisHuman(analysis Analysis) string {
 		"Unmapped tool codes: " + countsHuman(analysis.UnmappedCodes),
 		"Repeated file/policy patterns: " + countsHuman(analysis.RepeatedPatterns),
 		"Top ETHOS IDs: " + countsHuman(analysis.TopEthosIDs),
+		"Top skill IDs: " + countsHuman(analysis.TopSkillIDs),
+		"Top emitted skill hints: " + countsHuman(analysis.TopSkillHints),
 	}
 	if len(analysis.GuidanceCandidates) > 0 {
 		lines = append(lines, "Guidance candidates:")
@@ -451,6 +490,9 @@ func FormatAnalysisHuman(analysis Analysis) string {
 				firstNonEmpty(candidate.Code, "none"),
 				firstNonEmpty(candidate.EthosID, "none"),
 			))
+			if candidate.SkillID != "" {
+				lines = append(lines, "  skill: "+candidate.SkillID)
+			}
 			lines = append(lines, "  message: "+candidate.Message)
 			if candidate.Advice != "" {
 				lines = append(lines, "  advice: "+candidate.Advice)
@@ -496,19 +538,22 @@ func FormatAnalysisTOON(analysis Analysis) string {
 	lines = appendAnalysisCountsTOON(lines, "unmapped_codes", analysis.UnmappedCodes)
 	lines = appendAnalysisCountsTOON(lines, "repeated_patterns", analysis.RepeatedPatterns)
 	lines = appendAnalysisCountsTOON(lines, "top_ethos_ids", analysis.TopEthosIDs)
+	lines = appendAnalysisCountsTOON(lines, "top_skill_ids", analysis.TopSkillIDs)
+	lines = appendAnalysisCountsTOON(lines, "top_skill_hints", analysis.TopSkillHints)
 	lines = append(
 		lines,
 		fmt.Sprintf(
-			"guidance_candidates[%d]{check_id,code,ethos_id,count,blocking,message,advice}:",
+			"guidance_candidates[%d]{check_id,code,ethos_id,skill_id,count,blocking,message,advice}:",
 			len(analysis.GuidanceCandidates),
 		),
 	)
 	for _, candidate := range analysis.GuidanceCandidates {
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%s,%s,%d,%t,%s,%s",
+			"  %s,%s,%s,%s,%d,%t,%s,%s",
 			toonCell(candidate.CheckID),
 			toonCell(candidate.Code),
 			toonCell(candidate.EthosID),
+			toonCell(candidate.SkillID),
 			candidate.Count,
 			candidate.Blocking,
 			toonCell(candidate.Message),

@@ -44,6 +44,163 @@ agents:
         Prefer targeted reads of linked detail docs instead of loading the
 
         full corpus every time.
+skills:
+  - id: conditional-imports
+    title: Conditional Imports Remediation
+    description: >-
+      Use when Python code uses conditional imports, TYPE_CHECKING import
+      branches, local imports that hide dependency problems, Ruff local-import
+      diagnostics, or cyclic import diagnostics that need an ETHOS-grounded
+      repair.
+    principle_ids:
+      - no-conditional-imports
+      - protocol-first-design
+      - solid-is-law
+    trigger_terms:
+      - conditional import
+      - TYPE_CHECKING
+      - local import
+      - ruff local import
+      - cyclic import
+      - import cycle
+      - soft dependency
+    short_hint: >-
+      Conditional imports are banned. Treat required imports as hard
+      dependencies and use protocols, dependency inversion, or cleaner module
+      boundaries to break cycles.
+    focus: >-
+      Use this skill to turn import-related lint and type-check findings into
+      structural Python refactors instead of hiding imports behind runtime
+      branches.
+    remediation_steps:
+      - Identify whether the import is required for correct operation. If it is
+        required, make it a normal module-level import.
+      - If the import was conditional to avoid a cycle, find the interface the
+        caller actually needs and extract or reuse a Protocol-oriented boundary.
+      - Move shared interfaces, lightweight data contracts, or registration
+        seams to a lower-level module instead of importing concrete
+        implementations both ways.
+      - Remove TYPE_CHECKING-only imports when runtime behavior depends on the
+        imported symbol; annotations must not mask missing runtime dependencies.
+      - Re-run the relevant lint/type checks and explain the structural boundary
+        that replaced the conditional import.
+  - id: lint-remediation
+    title: ETHOS-Grounded Lint Remediation
+    description: >-
+      Use when Ruff, mypy, pyright, pylint, Bandit, SQLFluff, Tombi, or another
+      managed checker reports findings that need structural code-quality
+      remediation rather than suppressions or config weakening.
+    principle_ids:
+      - static-analysis-is-the-first-line-of-defense
+      - linting-as-code-quality-enforcement
+      - universal-responsibility
+      - solid-is-law
+    trigger_terms:
+      - ruff
+      - mypy
+      - pyright
+      - pylint
+      - bandit
+      - sqlfluff
+      - lint failure
+      - type error
+      - noqa
+      - suppression
+    short_hint: >-
+      Linters are enforced code reviewers. Fix findings structurally, keep
+      managed config intact, and suppress only when technically necessary and
+      fully documented.
+    focus: >-
+      Use this skill to convert linter output into concrete refactoring work
+      grounded in ETHOS, especially when an agent is tempted to silence the
+      finding or weaken the rules.
+    remediation_steps:
+      - Classify each finding by the code-quality concern it represents, not by
+        the tool name alone.
+      - >-
+        Prefer structural fixes: split responsibilities, tighten types, remove
+        dead paths, parameterize unsafe operations, or clarify contracts.
+      - Do not edit generated lint config, broaden ignores, or add suppressions
+        to get green faster.
+      - If a suppression is genuinely necessary, document why the alternatives
+        are worse and keep the scope as small as possible.
+      - Verify with the managed coding-ethos tool path and report the exact
+        checks that now pass or still fail.
+  - id: safe-git-workflow
+    title: Safe Git Workflow
+    description: >-
+      Use when git commands, commit hooks, admin-approved commits, protected
+      hook paths, raw git bypass attempts, or commit attribution failures appear
+      in agent or developer workflows.
+    principle_ids:
+      - one-path-for-critical-operations
+      - no-rationalized-shortcuts
+      - forward-motion-only
+      - evidence-based-engineering-and-decision-quality
+    trigger_terms:
+      - git wrapper
+      - raw git
+      - admin-approved
+      - commit attribution
+      - hook bypass
+      - no-verify
+      - protected hook
+      - commit failed
+    short_hint: >-
+      Git is a protected critical operation. Use the coding-ethos wrapper path,
+      keep hook failures visible, and ask an admin when policy blocks protected
+      files.
+    focus: >-
+      Use this skill to recover from blocked git operations without bypassing
+      hooks, rewriting protected runtime files, or hiding the state that needs
+      review.
+    remediation_steps:
+      - Read the hook failure as policy feedback, not as a broken local setup.
+      - Use the repo-local coding-ethos git wrapper for all git operations.
+      - Do not try alternate shells, absolute git paths, subprocesses, aliases,
+        PATH edits, no-verify flags, or direct hook edits.
+      - If protected coding-ethos files must change, prepare the work and ask
+        the admin to review and finalize the commit using the documented
+        admin-approved flow.
+      - Report the files changed, checks run, hook output, and unresolved risks
+        before asking for commit or push approval.
+  - id: managed-toolchain
+    title: Managed Toolchain And Config Integrity
+    description: >-
+      Use when captured linters, generated tool configs, managed binaries,
+      config drift, missing tools, package-relative path resolution, or host
+      tool usage causes lint or hook failures.
+    principle_ids:
+      - static-analysis-is-the-first-line-of-defense
+      - validation-at-the-gate
+      - one-path-for-critical-operations
+      - security-by-design
+    trigger_terms:
+      - managed toolchain
+      - config drift
+      - generated config
+      - real binary not found
+      - host linter
+      - package-relative path
+      - tool capture
+      - fix-configs
+    short_hint: >-
+      Linters and configs must resolve through coding-ethos managed paths.
+      Restore generated configs and run captured tools through the wrapper.
+    focus: >-
+      Use this skill when lint behavior differs between repos, a generated
+      config drift check fails, or a tool invocation is using consumer or host
+      settings instead of the managed coding-ethos toolchain.
+    remediation_steps:
+      - Treat the consumer repo as untrusted for linter binaries and config.
+      - Keep target file resolution faithful to the caller, but run the managed
+        linter and managed config from the coding-ethos checkout.
+      - If generated configs drift, restore them with the documented
+        coding-ethos fix-configs path instead of editing hashes or ignores.
+      - When a managed binary is missing, repair through make build rather than
+        installing host-global tools or editing shims.
+      - Capture the normalized lint output and trace so repeated failures can
+        become stronger ETHOS mappings.
 principles:
   - id: solid-is-law
     order: 1
@@ -3231,8 +3388,8 @@ principles:
 
           * **API endpoints:** Validate all request parameters with Pydantic
           * **File inputs:** Validate file types, sizes, and content
-          * **Configuration:** Validate at startup, not at use time (see Section
-            2)
+          * **Configuration:** Validate at startup, not at use time (see
+            [Validation at the Gate](#validation-at-the-gate))
       - id: production-database-detection
         kind: guidance
         title: Production Database Detection

@@ -19,6 +19,7 @@ func Enrich(items []Diagnostic, evidenceMaps []EvidenceMap) []Diagnostic {
 			item.Confidence = mapping.Confidence
 			item.Meaning = mapping.Meaning
 			item.Advice = mapping.Advice.Summary
+			item.SkillID = mapping.SkillID
 			item.AdviceSteps = append([]string(nil), mapping.Advice.Steps...)
 			item.Rerun = append([]string(nil), mapping.Advice.Rerun...)
 		}

@@ -2085,7 +2085,10 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 		!strings.Contains(context, "tool: ruff") ||
 		!strings.Contains(context, ruffCode) ||
 		!strings.Contains(context, "advice:") ||
-		!strings.Contains(context, "Move required imports to module scope") {
+		!strings.Contains(context, "Move required imports to module scope") ||
+		!strings.Contains(context, "skill_advice:") ||
+		!strings.Contains(context, "conditional-imports") ||
+		!strings.Contains(context, "Load the conditional-imports skill") {
 		t.Fatalf("missing fast ruff finding: %s", context)
 	}
 }

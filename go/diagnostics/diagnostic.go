@@ -16,6 +16,7 @@ type Diagnostic struct {
 	Message      string         `json:"message"`
 	PolicyID     string         `json:"policy_id,omitempty"`
 	Severity     string         `json:"severity,omitempty"`
+	SkillID      string         `json:"skill_id,omitempty"`
 	Tool         string         `json:"tool"`
 	AdviceSteps  []string       `json:"advice_steps,omitempty"`
 	PrincipleIDs []string       `json:"principle_ids,omitempty"`
@@ -40,4 +41,5 @@ type EvidenceMap struct {
 	Codes             []string       `json:"codes,omitempty"`
 	MessageSubstrings []string       `json:"message_substrings,omitempty"`
 	PrincipleIDs      []string       `json:"principle_ids,omitempty"`
+	SkillID           string         `json:"skill_id,omitempty"`
 }

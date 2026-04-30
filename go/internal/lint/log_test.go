@@ -28,6 +28,12 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 			SourceTool: "ruff",
 			Blocking:   true,
 		}},
+		SkillHints: []SkillHint{{
+			PrincipleID: "linting-as-code-quality-enforcement",
+			SkillID:     "lint-remediation",
+			Message:     "Fix lint structurally.",
+			Next:        "Load the lint-remediation skill for the remediation playbook.",
+		}},
 	}
 
 	path, err := LogResult(repo, result)
@@ -51,7 +57,8 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 
 	if record.RepoRoot != repo ||
 		record.Result.Scope != ScopeStaged ||
-		len(record.Result.Findings) != 1 {
+		len(record.Result.Findings) != 1 ||
+		len(record.Result.SkillHints) != 1 {
 		t.Fatalf("trace record = %#v", record)
 	}
 }

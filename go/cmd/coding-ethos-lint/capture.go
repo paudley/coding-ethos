@@ -15,6 +15,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -28,6 +29,7 @@ type captureRequest struct {
 	TraceRoot    string
 	Args         []string
 	EvidenceMaps []diagnostics.EvidenceMap
+	Skills       map[string]policy.Skill
 }
 
 type captureExecution struct {
@@ -43,7 +45,7 @@ func runCapturedTool(
 	cwd string,
 	traceRoot string,
 	args []string,
-	evidenceMaps []diagnostics.EvidenceMap,
+	policyContext capturePolicyData,
 ) int {
 	request := captureRequest{
 		Tool:         tool,
@@ -51,7 +53,8 @@ func runCapturedTool(
 		Cwd:          cwd,
 		TraceRoot:    traceRoot,
 		Args:         append([]string(nil), args...),
-		EvidenceMaps: evidenceMaps,
+		EvidenceMaps: policyContext.EvidenceMaps,
+		Skills:       policyContext.Skills,
 	}
 	if strings.TrimSpace(request.ToolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
@@ -107,13 +110,16 @@ func capturedToolResult(
 		request.Cwd,
 	)
 
-	return lint.Result{
+	result := lint.Result{
 		Scope:       "tool:" + request.Tool,
 		Status:      capturedStatus(execution.ExitCode),
 		Capture:     capturedToolMetadata(request, execution, outputExcerpt, parsed),
 		Diagnostics: parsed,
 		Findings:    capturedFindings(request, execution, outputExcerpt, parsed),
 	}
+	result.SkillHints = lint.SkillHintsForDiagnostics(parsed, request.Skills)
+
+	return result
 }
 
 func capturedFindings(
@@ -160,6 +166,7 @@ func capturedFindings(
 			File:       item.File,
 			Message:    item.Message,
 			PolicyID:   item.PolicyID,
+			SkillID:    item.SkillID,
 			Severity:   firstCaptureNonEmpty(item.Severity, "error"),
 			SourceTool: firstCaptureNonEmpty(item.Tool, request.Tool),
 			Status:     capturedStatus(execution.ExitCode),
