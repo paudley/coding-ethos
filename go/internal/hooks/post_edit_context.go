@@ -33,7 +33,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 		event.ToolName,
 		files,
 		postEditLintState(bundle, event),
-		postEditFastLintState(event),
+		postEditFastLintState(bundle, event),
 		postEditLintHistory(event),
 	)
 
@@ -218,7 +218,7 @@ func postEditHistoryFiles(event Event) []string {
 	return files
 }
 
-func postEditFastLintState(event Event) postEditLintResult {
+func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult {
 	files := pythonPostEditFiles(event.Files())
 	if len(files) == 0 {
 		return postEditLintResult{}
@@ -237,6 +237,8 @@ func postEditFastLintState(event Event) postEditLintResult {
 	output, err := command.CombinedOutput()
 	parsed := diagnostics.Parse("ruff", string(output), "")
 	if len(parsed) > 0 {
+		parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
+		parsed = diagnostics.Dedupe(parsed)
 		return postEditLintResult{Checked: true, Status: statusBlocked, Diagnostics: parsed}
 	}
 	if err != nil {
@@ -281,6 +283,9 @@ func appendPostEditLintHistory(
 	}
 	if len(analysis.TopCodes) > 0 {
 		lines = append(lines, "- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes))
+	}
+	if len(analysis.UnmappedCodes) > 0 {
+		lines = append(lines, "- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes))
 	}
 	if len(analysis.GuidanceCandidates) == 0 {
 		return lines

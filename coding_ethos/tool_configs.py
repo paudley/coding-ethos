@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
 """Generate repo-root linter and type-checker config files from policy YAML.
@@ -9,6 +9,7 @@ It keeps cross-tool settings like Python version and line length synchronized.
 """
 
 import configparser
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -25,6 +26,7 @@ GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
     ".yamllint.yml",
     ".golangci.yml",
 )
+TOOL_CONFIG_HASH_MANIFEST = ".code-ethos/tool-config-hashes.json"
 
 _DEFAULT_REPO_CONFIG_NAMES: tuple[str, ...] = (
     "repo_config.yaml",
@@ -62,6 +64,21 @@ def _load_yaml(path: Path) -> ConfigMap:
 
 def _with_hash_spdx_header(content: str) -> str:
     return f"{HASH_SPDX_HEADER}{content.lstrip()}"
+
+
+def _sha256(content: str) -> str:
+    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def render_tool_config_hash_manifest(rendered: dict[str, str]) -> str:
+    """Render a deterministic manifest of generated tool-config hashes."""
+    payload = {
+        "version": 1,
+        "configs": {
+            path: _sha256(content) for path, content in sorted(rendered.items())
+        },
+    }
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
 def _as_config_map(value: object, label: str) -> ConfigMap:
@@ -608,6 +625,13 @@ def sync_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Pa
         absolute_path = repo_root / relative_path
         absolute_path.write_text(content, encoding="utf-8")
         written.append(absolute_path)
+    manifest_path = repo_root / TOOL_CONFIG_HASH_MANIFEST
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        render_tool_config_hash_manifest(rendered),
+        encoding="utf-8",
+    )
+    written.append(manifest_path)
     return written
 
 
@@ -625,4 +649,11 @@ def check_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[P
         )
         if current != expected:
             mismatched.append(absolute_path)
+    manifest_path = repo_root / TOOL_CONFIG_HASH_MANIFEST
+    expected_manifest = render_tool_config_hash_manifest(rendered)
+    current_manifest = (
+        manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else None
+    )
+    if current_manifest != expected_manifest:
+        mismatched.append(manifest_path)
     return mismatched

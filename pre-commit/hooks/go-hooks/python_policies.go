@@ -904,6 +904,7 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 		settings.TestCommand[1:]...,
 	)
 	cmd.Dir = settings.ConsumerRoot
+	cmd.Env = externalToolEnv(nil)
 
 	var (
 		stdout bytes.Buffer

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -23,7 +25,9 @@ func runCapturedTool(
 	tool string,
 	toolPath string,
 	cwd string,
+	traceRoot string,
 	args []string,
+	evidenceMaps []diagnostics.EvidenceMap,
 ) int {
 	if strings.TrimSpace(toolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
@@ -45,8 +49,18 @@ func runCapturedTool(
 	exitCode := capturedExitCode(err)
 	stdoutText := stdout.String()
 	stderrText := stderr.String()
-	result := capturedToolResult(tool, args, runArgs, exitCode, stdoutText, stderrText)
-	logCapturedToolResult(cwd, result)
+	result := capturedToolResult(
+		tool,
+		args,
+		runArgs,
+		exitCode,
+		cwd,
+		traceRoot,
+		stdoutText,
+		stderrText,
+		evidenceMaps,
+	)
+	logCapturedToolResult(firstCaptureNonEmpty(traceRoot, cwd), result)
 	if result.Blocked() || len(result.Diagnostics) > 0 {
 		if encodeErr := hookoutput.EncodeLintResult(
 			os.Stdout,
@@ -74,16 +88,24 @@ func capturedToolResult(
 	args []string,
 	runArgs []string,
 	exitCode int,
+	cwd string,
+	traceRoot string,
 	stdout string,
 	stderr string,
+	evidenceMaps []diagnostics.EvidenceMap,
 ) lint.Result {
 	parsed := diagnostics.Parse(tool, stdout, stderr)
+	parsed = normalizeCapturedDiagnosticPaths(parsed, traceRoot)
+	parsed = diagnostics.Enrich(parsed, evidenceMaps)
+	parsed = diagnostics.Dedupe(parsed)
+	outputExcerpt := capturedOutputExcerpt(stdout, stderr, firstCaptureNonEmpty(traceRoot, cwd), cwd)
 
 	return lint.Result{
 		Scope:       "tool:" + tool,
 		Status:      capturedStatus(exitCode),
+		Capture:     capturedToolMetadata(tool, args, runArgs, exitCode, outputExcerpt, parsed),
 		Diagnostics: parsed,
-		Findings:    capturedFindings(tool, args, runArgs, exitCode, parsed),
+		Findings:    capturedFindings(tool, args, runArgs, exitCode, outputExcerpt, parsed),
 	}
 }
 
@@ -92,8 +114,10 @@ func capturedFindings(
 	args []string,
 	runArgs []string,
 	exitCode int,
+	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
+	outcome := capturedOutcome(tool, exitCode, items)
 	if len(items) == 0 {
 		if exitCode == 0 {
 			return nil
@@ -101,12 +125,14 @@ func capturedFindings(
 
 		return []lint.Finding{{
 			RawOutcome: map[string]any{
+				"category":  outcome.Category,
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
+				"output":    outputExcerpt,
 			},
 			CheckID:    "tool." + tool,
-			Message:    fmt.Sprintf("%s exited with status %d", tool, exitCode),
+			Message:    outcome.Message,
 			Severity:   "error",
 			SourceTool: tool,
 			Status:     "fail",
@@ -118,6 +144,7 @@ func capturedFindings(
 	for _, item := range items {
 		findings = append(findings, lint.Finding{
 			RawOutcome: map[string]any{
+				"category":  outcome.Category,
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
@@ -139,6 +166,157 @@ func capturedFindings(
 	}
 
 	return findings
+}
+
+func capturedToolMetadata(
+	tool string,
+	args []string,
+	runArgs []string,
+	exitCode int,
+	outputExcerpt string,
+	items []diagnostics.Diagnostic,
+) *lint.ToolCapture {
+	return &lint.ToolCapture{
+		Tool:          tool,
+		Parser:        tool,
+		ParseStatus:   capturedParseStatus(exitCode, items),
+		OutputExcerpt: outputExcerpt,
+		Args:          append([]string(nil), args...),
+		RunArgs:       append([]string(nil), runArgs...),
+		ExitCode:      exitCode,
+	}
+}
+
+func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic) string {
+	if len(items) > 0 {
+		return "parsed"
+	}
+	if exitCode == 0 {
+		return "empty"
+	}
+	if exitCode == 2 {
+		return "tool_config_error"
+	}
+
+	return "parse_error"
+}
+
+const maxCapturedOutputExcerpt = 600
+
+func normalizeCapturedDiagnosticPaths(
+	items []diagnostics.Diagnostic,
+	traceRoot string,
+) []diagnostics.Diagnostic {
+	traceRoot = strings.TrimSpace(traceRoot)
+	if traceRoot == "" {
+		return items
+	}
+
+	absRoot, err := filepath.Abs(traceRoot)
+	if err != nil {
+		return items
+	}
+
+	out := append([]diagnostics.Diagnostic(nil), items...)
+	for index := range out {
+		file := strings.TrimSpace(out[index].File)
+		if file == "" || !filepath.IsAbs(file) {
+			continue
+		}
+
+		rel, err := filepath.Rel(absRoot, file)
+		if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			continue
+		}
+
+		out[index].File = filepath.ToSlash(rel)
+		out[index].Message = redactCapturedOutputPaths(out[index].Message, absRoot, "")
+		out[index].Advice = redactCapturedOutputPaths(out[index].Advice, absRoot, "")
+		out[index].Detail = redactCapturedOutputPaths(out[index].Detail, absRoot, "")
+	}
+
+	return out
+}
+
+func capturedOutputExcerpt(stdout string, stderr string, repoRoot string, toolRoot string) string {
+	output := strings.TrimSpace(firstCaptureNonEmpty(stderr, stdout))
+	if output == "" {
+		return ""
+	}
+
+	output = redactCapturedOutputPaths(output, repoRoot, toolRoot)
+	output = strings.Join(strings.Fields(output), " ")
+	if len(output) <= maxCapturedOutputExcerpt {
+		return output
+	}
+
+	return output[:maxCapturedOutputExcerpt] + "..."
+}
+
+func redactCapturedOutputPaths(output string, repoRoot string, toolRoot string) string {
+	redacted := output
+	replacements := map[string]string{}
+	if repoRoot = strings.TrimSpace(repoRoot); repoRoot != "" {
+		replacements[repoRoot] = "<repo>"
+	}
+	if toolRoot = strings.TrimSpace(toolRoot); toolRoot != "" && toolRoot != repoRoot {
+		replacements[toolRoot] = "<tool-project>"
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		replacements[home] = "<home>"
+	}
+
+	paths := make([]string, 0, len(replacements))
+	for path := range replacements {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i int, j int) bool {
+		if len(paths[i]) == len(paths[j]) {
+			return paths[i] < paths[j]
+		}
+
+		return len(paths[i]) > len(paths[j])
+	})
+
+	for _, path := range paths {
+		redacted = strings.ReplaceAll(redacted, path, replacements[path])
+	}
+
+	return redacted
+}
+
+type capturedOutcomeClass struct {
+	Category string
+	Message  string
+}
+
+func capturedOutcome(
+	tool string,
+	exitCode int,
+	items []diagnostics.Diagnostic,
+) capturedOutcomeClass {
+	if len(items) > 0 {
+		return capturedOutcomeClass{
+			Category: "lint_findings",
+			Message:  fmt.Sprintf("%s reported diagnostics", tool),
+		}
+	}
+	if exitCode == 0 {
+		return capturedOutcomeClass{Category: "success", Message: tool + " passed"}
+	}
+
+	switch exitCode {
+	case 2:
+		return capturedOutcomeClass{
+			Category: "configuration_error",
+			Message:  fmt.Sprintf("%s configuration or usage failed with status %d", tool, exitCode),
+		}
+	default:
+		return capturedOutcomeClass{
+			Category: "tool_error",
+			Message:  fmt.Sprintf("%s exited with status %d without parseable diagnostics", tool, exitCode),
+		}
+	}
 }
 
 func capturedExitCode(err error) int {

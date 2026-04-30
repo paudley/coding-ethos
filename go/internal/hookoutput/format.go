@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 const (
@@ -205,11 +207,22 @@ func lintResultTool(result lint.Result) string {
 
 func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 {
-		return result.Diagnostics
+		return diagnostics.Dedupe(result.Diagnostics)
+	}
+	if len(result.Findings) > 0 {
+		return lintResultFindings(result.Findings, result.Blocked())
 	}
 
-	findings := []diagnostics.Diagnostic{}
-	for _, decision := range result.Decisions {
+	decisions := result.Decisions
+	if result.Blocked() {
+		blocking := blockingLintDecisions(decisions)
+		if len(blocking) > 0 {
+			decisions = blocking
+		}
+	}
+
+	findings := make([]diagnostics.Diagnostic, 0, len(decisions))
+	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
 			findings = append(findings, decision.Diagnostics...)
 			continue
@@ -223,7 +236,121 @@ func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 		})
 	}
 
+	findings = diagnostics.Dedupe(findings)
+	slices.SortStableFunc(findings, compareLintFindings)
+
 	return findings
+}
+
+func lintResultFindings(
+	findings []lint.Finding,
+	blocked bool,
+) []diagnostics.Diagnostic {
+	selected := findings
+	if blocked {
+		blocking := blockingResultFindings(findings)
+		if len(blocking) > 0 {
+			selected = blocking
+		}
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(selected))
+	for _, finding := range selected {
+		items = append(items, diagnosticsFromFinding(finding))
+	}
+
+	items = diagnostics.Dedupe(items)
+	slices.SortStableFunc(items, compareLintFindings)
+
+	return items
+}
+
+func blockingResultFindings(findings []lint.Finding) []lint.Finding {
+	blocking := []lint.Finding{}
+	for _, finding := range findings {
+		if finding.Blocking || finding.Status == "fail" ||
+			finding.Severity == "block" || finding.Severity == "error" {
+			blocking = append(blocking, finding)
+		}
+	}
+
+	return blocking
+}
+
+func diagnosticsFromFinding(finding lint.Finding) diagnostics.Diagnostic {
+	return diagnostics.Diagnostic{
+		Tool:     firstNonEmpty(finding.SourceTool, "policy"),
+		File:     finding.File,
+		Line:     finding.Line,
+		Column:   finding.Column,
+		Severity: finding.Severity,
+		Code:     finding.Code,
+		PolicyID: firstNonEmpty(finding.PolicyID, finding.CheckID),
+		Message:  finding.Message,
+		Advice:   finding.Advice,
+		Detail:   findingDetail(finding),
+	}
+}
+
+func findingDetail(finding lint.Finding) string {
+	parts := []string{}
+	appendRawOutcomeString := func(key string, label string) {
+		value, ok := finding.RawOutcome[key]
+		if !ok || value == nil {
+			return
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			return
+		}
+		parts = append(parts, label+"="+text)
+	}
+
+	appendRawOutcomeString("category", "category")
+	appendRawOutcomeString("exit_code", "exit_code")
+	appendRawOutcomeString("output", "output")
+
+	return strings.Join(parts, "; ")
+}
+
+func blockingLintDecisions(decisions []policy.Decision) []policy.Decision {
+	blocking := []policy.Decision{}
+	for _, decision := range decisions {
+		if decision.Decision == "block" || decision.Severity == "block" {
+			blocking = append(blocking, decision)
+		}
+	}
+
+	return blocking
+}
+
+func compareLintFindings(left diagnostics.Diagnostic, right diagnostics.Diagnostic) int {
+	leftBlock := findingBlocks(left)
+	rightBlock := findingBlocks(right)
+	if leftBlock != rightBlock {
+		if leftBlock {
+			return -1
+		}
+
+		return 1
+	}
+
+	return strings.Compare(findingSortKey(left), findingSortKey(right))
+}
+
+func findingBlocks(finding diagnostics.Diagnostic) bool {
+	return finding.Severity == "block" || finding.Severity == "error"
+}
+
+func findingSortKey(finding diagnostics.Diagnostic) string {
+	return strings.Join([]string{
+		finding.File,
+		strconv.Itoa(finding.Line),
+		finding.PolicyID,
+		finding.Tool,
+		finding.Code,
+		finding.Message,
+	}, "\x00")
 }
 
 func firstNonEmpty(values ...string) string {

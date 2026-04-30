@@ -28,10 +28,17 @@ HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 GIT_COMMON_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
 HOOKS_DIR := $(shell git -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
 GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
-LOCAL_BIN_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
+LOCAL_BIN_DIR := $(LOCAL_REPO_ROOT)/bin
+LOCAL_BUILD_DIR := $(LOCAL_REPO_ROOT)/build
+POLICY_DIR := $(LOCAL_BUILD_DIR)/policy
+TOOLCHAIN_DIR := $(LOCAL_BUILD_DIR)/toolchain
+MANAGED_GO_BIN_DIR := $(TOOLCHAIN_DIR)/go-bin
+MANAGED_PREFIX_DIR := $(TOOLCHAIN_DIR)/prefix
+MANAGED_GITHUB_BIN_DIR := $(TOOLCHAIN_DIR)/github-bin
 GIT_HOOKS := pre-commit pre-push commit-msg
 GIT_LFS_HOOKS := post-commit post-merge post-checkout
-GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)/bin
+GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
+SHFMT_VERSION ?= v3.13.1
 GO_TOOL_CMDS := \
 	coding-ethos-agent-hooks \
 	coding-ethos-policy \
@@ -156,12 +163,15 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
+	managed-toolchain-install \
+	managed-go-tools-install \
 	go-hook-runner-install \
 	policy-bundle-install \
 	go-tools-smoke \
 	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
+	fix-configs \
 	check-tool-configs \
 	sync-gemini-prompts \
 	check-gemini-prompts \
@@ -290,6 +300,11 @@ sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, 
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
 
+fix-configs: ensure-uv ## Restore generated consumer repo tool configs.
+	@$(call print_step,Restoring generated consumer tool configs)
+	@$(call print_info,repo: $(HOOK_CONSUMER_ROOT))
+	@$(APP) --repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG) --sync-tool-configs
+
 check-tool-configs: ensure-uv ## Fail if repo-root generated tool configs are out of sync.
 	@$(call print_step,Checking generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
@@ -307,25 +322,34 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-build: sync-tool-configs sync-gemini-prompts go-tools-install go-hook-runner-install policy-bundle-install ## Build and install hook runtime artifacts.
+build: sync-tool-configs sync-gemini-prompts go-tools-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
-go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the repo-local hook bin directory.
+managed-toolchain-install: managed-go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
+
+managed-go-tools-install: ensure-go ## Install Go-distributed hook tools into the managed Go bin dir.
+	@$(call print_step,Installing managed Go toolchain tools)
+	@mkdir -p "$(MANAGED_GO_BIN_DIR)"
+	@GOBIN="$(MANAGED_GO_BIN_DIR)" "$(PRECOMMIT_DIR)hooks/install-source-tool.sh" \
+		go mvdan.cc/sh/v3/cmd/shfmt@$(SHFMT_VERSION)
+	@$(call print_info,installed: $(MANAGED_GO_BIN_DIR)/shfmt)
+
+go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the checkout-local bin directory.
 	@$(call print_step,Installing bundled Go hook runner)
 	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build -buildvcs=false -o "$(LOCAL_BIN_DIR)/coding-ethos-git-hook" .
-	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-git-hook)
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build -buildvcs=false -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" .
+	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
 
-policy-bundle-install: ensure-go go-tools-install ## Compile the policy bundle into the repo-local hook directory.
+policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## Compile the policy bundle into the checkout-local build directory.
 	@$(call print_step,Compiling policy bundle)
-	@mkdir -p "$(LOCAL_BIN_DIR)/policy"
-	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(LOCAL_BIN_DIR)/policy"); \
+	@mkdir -p "$(POLICY_DIR)"
+	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(POLICY_DIR)"); \
 	if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then \
 		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"); \
 	elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then \
 		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yml"); \
 	fi; \
 	"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" "$${args[@]}" >/dev/null
-	@$(call print_info,compiled: $(LOCAL_BIN_DIR)/policy/policy-bundle.json)
+	@$(call print_info,compiled: $(POLICY_DIR)/policy-bundle.json)
 
 install-hooks: build ## Install Git hook shims.
 	@$(call print_step,Installing Git hook shims)
@@ -425,10 +449,10 @@ go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
 	@$(call print_step,Removing shared Go tool build outputs)
 	@rm -rf "$(GO_TOOLS_DIR)/bin" "$(GO_TOOLS_DIR)/.cache"
 
-clean-cache: ## Remove cached bundled hook binaries from .git.
-	@$(call print_step,Removing cached bundled hook binaries)
-	@rm -rf "$(LOCAL_BIN_DIR)"
-	@$(call print_warn,Removed $(LOCAL_BIN_DIR).)
+clean-cache: ## Remove checkout-local hook runtime artifacts.
+	@$(call print_step,Removing checkout-local hook runtime artifacts)
+	@rm -rf "$(LOCAL_BIN_DIR)" "$(LOCAL_BUILD_DIR)/policy" "$(TOOLCHAIN_DIR)"
+	@$(call print_warn,Removed $(LOCAL_BIN_DIR), $(LOCAL_BUILD_DIR)/policy, and $(TOOLCHAIN_DIR).)
 
 hooks-validate: validate ## Alias for validate.
 hooks-install: install-hooks ## Alias for install-hooks.

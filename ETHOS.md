@@ -262,6 +262,23 @@ workflow, update the repo commands, and treat it as part of the
 contract
 instead of a local preference.
 
+This repo exists to bring consistent policy, settings, and linters to
+diverse consuming repos. Treat each consuming repo as an untrusted
+execution target: its binaries, `PATH`, aliases, shell state,
+`pyproject.toml`, `uv` project state, and same-named tool config files
+are minefields, not sources of authority.
+
+Captured lint commands must run coding-ethos-managed tool versions from
+the controlled hook project, with explicit coding-ethos-generated config
+flags. Resolve the caller's target paths and globs first, then execute
+the managed linter with those resolved targets. Do not execute the
+parent repo's linter binary or inherit its config discovery.
+
+Generated linter configs are part of the enforcement boundary. If a
+generated config or its hash manifest drifts, fail before invoking any
+linter and tell the caller to restore the generated files before
+continuing.
+
 
 ## 05. No Optional Types for Required Dependencies
 

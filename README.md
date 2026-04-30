@@ -163,6 +163,12 @@ Check generated tool config drift:
 uv run coding-ethos --repo /path/to/repo --check-tool-configs
 ```
 
+Trace and validate enforcement config:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy config-trace --json
+```
+
 Sync the Gemini hook prompt pack:
 
 ```bash
@@ -260,6 +266,11 @@ The merged config drives:
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
 
+`coding-ethos-policy config-trace` validates known top-level enforcement
+sections, compiles the merged bundle, validates it, and reports policy,
+evidence-map, and dispatch counts. Use it when changing `config.yaml` or a
+consumer `repo_config.yaml` so unknown sections do not silently drift.
+
 License and copyright enforcement is repo-specific. Consumer repos do not
 inherit this repo's license policy. To opt in, set
 `repo.license.spdx_identifier` and, if desired, `repo.license.copyright` in
@@ -314,10 +325,11 @@ repo-local Git hook shims that call the Go runner under
 
 ### Git Hooks
 
-Installed Git hook shims compile the policy bundle and enter
-`coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That
-runtime runs policy preflight and then executes the bundled hook groups as the
-active quality gate.
+Installed Git hook shims locate the checked-out `coding-ethos` repository,
+repair missing checkout-local runtime artifacts with `make build`, and dispatch
+to the built hook binary. Policy selection and validation remain inside the
+`coding-ethos` checkout; the consumer shim is only discovery, repair, and
+dispatch.
 
 Run Git hooks:
 
@@ -332,18 +344,50 @@ Hook output honors `hooks.output_format` (`auto`, `human`, `json`, or `toon`).
 Successful groups are silent by default; failure output is intentionally narrow:
 show the failing checks and actionable findings, not pass tables, internal group
 names, or timings that do not help fix code.
+When policy preflight has both record-only context and blocking decisions, the
+agent-facing result reports the blockers first and omits non-blocking record
+rows from the compact finding table.
 
 Compiled lint preflights also write normalized JSON traces under
 `.coding-ethos/lint-runs/`. Fresh repos with no trace directory analyze as an
 empty history, and trace filenames use portable scope names so captured tool
 results work across platforms.
+Captured linter runs follow a single event contract: store the original argv,
+the rewritten argv, exit code, parser identity, parser outcome, redacted
+stdout/stderr excerpt for tool/config failures, normalized diagnostics, and any
+ETHOS mapping that was applied. A nonzero tool run with no parsed diagnostics is
+itself a finding, not an empty result; the agent-facing output must explain
+which tool failed, why it could not produce normal diagnostics, and what command
+or configuration should be checked next.
+Captured tool execution is controlled by coding-ethos, not by the target repo:
+the target repo is treated as an untrusted file tree and trace destination.
+Wrappers must not trust target-repo `PATH`, absolute binaries, `uv run`
+settings, `pyproject.toml`, shell state, aliases, or local tool installs.
+Python linters are run from the coding-ethos hook project with coding-ethos
+versions and explicit coding-ethos generated config flags (`ruff.toml`,
+`mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and `.yamllint.yml`). Parent
+repo config files with the same names must not be discovered accidentally.
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
+likewise become coding-ethos-installed managed tools during init before they are
+considered trusted capture backends.
 
 Analyze captured lint history:
 
 ```bash
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
+pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
+
+The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
+findings so real lint traces can drive the next evidence-map additions.
+Replay renders the saved normalized result without invoking the underlying
+linter, which makes bad agent output reproducible from a trace file.
+Output quality is part of the contract: blocked results must not render empty
+finding tables, absolute local paths, internal timing/group noise, or generic
+guidance without at least one actionable finding. Golden-output tests should
+cover normal lint failures, clean runs, invalid config, malformed tool output,
+and tool crashes for every managed linter.
 
 ### Agent Hooks
 
@@ -400,7 +444,7 @@ tampering. Banned strings are rejected when they appear directly in a command
 and when they appear in regular files referenced by the command.
 
 Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
-hook binaries under `.git/coding-ethos-hooks/` are treated as tampering, not as
+hook binaries under `coding-ethos/bin/` are treated as tampering, not as
 ordinary lint failures. Blocked tamper and Git-bypass responses start with a
 uniform `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific
 finding, including explicit language that the actor has done something wrong
@@ -425,7 +469,7 @@ shell best-practice checks.
 Gemini review checks remain in pre-commit/pre-push. Agent hooks never call
 Gemini or another model from the tool-use path.
 
-Continuation state is stored under `.git/coding-ethos-hooks/continuation/`.
+Continuation state is stored under the configured hook continuation directory.
 
 ## Admin-Gated Work On This Repo
 

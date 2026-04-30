@@ -254,7 +254,7 @@ func runGitTestCommand(t *testing.T, args ...string) {
 func runGitTestCommandInDir(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitTestEnv()
 
@@ -267,7 +267,7 @@ func runGitTestCommandInDir(t *testing.T, dir string, args ...string) {
 func gitTestOutput(t *testing.T, args ...string) string {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", args...)
 	cmd.Dir = repoRoot()
 	cmd.Env = cleanGitTestEnv()
 

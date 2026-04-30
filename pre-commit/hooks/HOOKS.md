@@ -5,6 +5,13 @@
 
 Go-backed Git hooks for coding-ethos bundles.
 
+Installed consumer repository shims are intentionally thin. They discover the
+consumer repo, locate the checked-out `coding-ethos` bundle, repair missing
+checkout-local runtime artifacts with `make -C <coding-ethos> build`, and
+dispatch to binaries under `coding-ethos/bin/`. Policy selection and strict
+policy freshness checks stay inside the `coding-ethos` checkout; lifecycle
+hooks do not use a consumer `.git/coding-ethos-hooks` runtime cache.
+
 The Go runner is the output-control layer for Git hooks. It supports
 `hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`
 selects TOON when known agent/LLM environment markers are present. Successful
@@ -50,8 +57,9 @@ and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
 rewrites; unsupported providers must use the managed shims injected into the
 hook PATH. The wrapper owns output formatting: it forces the tool's
 machine-readable output option, parses diagnostics into the shared lint schema,
-records them in the lint trace log, and prints coding-ethos human or TOON output
-instead of raw tool output.
+enriches known findings with ETHOS evidence-map advice, records them in the
+lint trace log, and prints coding-ethos human or TOON output instead of raw
+tool output.
 Post-edit advice uses the same traces quietly: when a touched file has relevant
 prior lint failures, hooks surface a capped `lint_history` section with the top
 three recurring checks, top three tool codes, and top two guidance candidates.

@@ -146,7 +146,7 @@ python_version = 3.12
 
 func TestCheckPythonVersionConsistencyCommandUsesConsumerRoot(t *testing.T) {
 	tempDir := t.TempDir()
-	cmd := exec.CommandContext(context.Background(), "git", "init")
+	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", "init")
 	cmd.Dir = tempDir
 	cmd.Env = cleanGitTestEnv()
 
@@ -211,6 +211,7 @@ requires-python = ">=3.13"
 	)
 
 	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
 
 	stderrOutput := captureStderr(t, func() {
 		if got := checkPythonVersionConsistencyCommand(Config{}, nil); got != 1 {

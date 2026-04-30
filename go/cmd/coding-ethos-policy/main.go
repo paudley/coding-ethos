@@ -4,13 +4,17 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -27,6 +31,17 @@ var (
 	errExplainPolicyIDRequired    = errors.New("explain requires exactly one policy ID")
 	errInvalidBundle              = errors.New("invalid policy bundle")
 )
+
+type configTraceReport struct {
+	ConfigSections     []string `json:"config_sections"`
+	RepoConfigSections []string `json:"repo_config_sections,omitempty"`
+	Config             string   `json:"config"`
+	RepoConfig         string   `json:"repo_config,omitempty"`
+	Status             string   `json:"status"`
+	DispatchScopes     int      `json:"dispatch_scopes"`
+	EvidenceMaps       int      `json:"evidence_maps"`
+	Policies           int      `json:"policies"`
+}
 
 func main() {
 	if len(os.Args) < commandArgsOffset {
@@ -47,6 +62,8 @@ func main() {
 		err = validate(os.Args[commandArgsOffset:])
 	case "explain":
 		err = explain(os.Args[commandArgsOffset:])
+	case "config-trace":
+		err = configTrace(os.Args[commandArgsOffset:])
 	default:
 		usage()
 		os.Exit(commandArgsOffset)
@@ -56,6 +73,317 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
+}
+
+func configTrace(args []string) error {
+	flags := flag.NewFlagSet("config-trace", flag.ExitOnError)
+	primary := flags.String("primary", "coding_ethos.yml", "Path to coding_ethos.yml")
+	config := flags.String("config", "config.yaml", "Path to config.yaml")
+	repoEthos := flags.String("repo-ethos", "", "Optional path to repo_ethos.yml")
+	repoConfig := flags.String("repo-config", "", "Optional path to repo_config.yaml")
+	jsonOutput := flags.Bool("json", false, "Emit JSON output")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse config-trace flags: %w", err)
+	}
+
+	configShape, configSections, err := validatedConfigSections(*config, nil)
+	if err != nil {
+		return err
+	}
+	repoConfigSections := []string{}
+	if strings.TrimSpace(*repoConfig) != "" {
+		repoConfigSections, err = validateRepoConfigSections(*repoConfig, configShape)
+		if err != nil {
+			return err
+		}
+	}
+
+	bundle, _, err := policy.Compile(policy.CompileOptions{
+		Primary:    *primary,
+		RepoEthos:  *repoEthos,
+		Config:     *config,
+		RepoConfig: *repoConfig,
+	})
+	if err != nil {
+		return fmt.Errorf("compile policy bundle: %w", err)
+	}
+	if err := bundle.Validate(); err != nil {
+		return fmt.Errorf(
+			"%w:\n%s",
+			errInvalidBundle,
+			policy.FormatValidationError(err),
+		)
+	}
+
+	report := configTraceReport{
+		Config:             *config,
+		RepoConfig:         *repoConfig,
+		ConfigSections:     configSections,
+		RepoConfigSections: repoConfigSections,
+		Status:             "valid",
+		Policies:           len(bundle.Policies),
+		EvidenceMaps:       len(bundle.EvidenceMaps),
+		DispatchScopes:     dispatchScopeCount(bundle),
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(report)
+	}
+
+	fmt.Fprintf(os.Stdout, "status: %s\n", report.Status)
+	fmt.Fprintf(os.Stdout, "config: %s\n", report.Config)
+	fmt.Fprintf(os.Stdout, "config_sections: %s\n", strings.Join(report.ConfigSections, ", "))
+	if report.RepoConfig != "" {
+		fmt.Fprintf(os.Stdout, "repo_config: %s\n", report.RepoConfig)
+		fmt.Fprintf(
+			os.Stdout,
+			"repo_config_sections: %s\n",
+			strings.Join(report.RepoConfigSections, ", "),
+		)
+	}
+	fmt.Fprintf(os.Stdout, "policies: %d\n", report.Policies)
+	fmt.Fprintf(os.Stdout, "evidence_maps: %d\n", report.EvidenceMaps)
+	fmt.Fprintf(os.Stdout, "dispatch_scopes: %d\n", report.DispatchScopes)
+
+	return nil
+}
+
+func validatedConfigSections(
+	path string,
+	reference map[string]any,
+) (map[string]any, []string, error) {
+	decoded, err := readConfigMap(path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := validateConfigPathKeys(path, decoded, reference, nil); err != nil {
+		return nil, nil, err
+	}
+
+	sections := sortedMapKeys(decoded)
+
+	return decoded, sections, nil
+}
+
+func validateRepoConfigSections(
+	path string,
+	configShape map[string]any,
+) ([]string, error) {
+	reference := cloneAnyMap(configShape)
+	addRepoConfigOnlyShape(reference)
+
+	_, sections, err := validatedConfigSections(path, reference)
+	return sections, err
+}
+
+func readConfigMap(path string) (map[string]any, error) {
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+
+	decoded := map[string]any{}
+	if err := yaml.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+
+	return decoded, nil
+}
+
+func validateConfigPathKeys(
+	file string,
+	values map[string]any,
+	reference map[string]any,
+	path []string,
+) error {
+	for key, value := range values {
+		nextPath := append(append([]string(nil), path...), key)
+		if len(path) == 0 {
+			if !knownConfigSection(key) {
+				return fmt.Errorf(
+					"unknown top-level config section %q in %s",
+					key,
+					file,
+				)
+			}
+		} else if reference != nil {
+			if _, ok := reference[key]; !ok {
+				return fmt.Errorf(
+					"unknown config path %q in %s",
+					strings.Join(nextPath, "."),
+					file,
+				)
+			}
+		}
+
+		if err := validateConfigChildKeys(file, value, referenceValue(reference, key), nextPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateConfigChildKeys(
+	file string,
+	value any,
+	reference any,
+	path []string,
+) error {
+	valueMap, isMap := value.(map[string]any)
+	if isMap {
+		referenceMap, _ := reference.(map[string]any)
+		return validateConfigPathKeys(file, valueMap, referenceMap, path)
+	}
+
+	items, isSlice := value.([]any)
+	if !isSlice {
+		return nil
+	}
+
+	referenceItems, _ := reference.([]any)
+	referenceItem := firstMapItem(referenceItems)
+	if referenceItem == nil {
+		return nil
+	}
+
+	for index, item := range items {
+		itemMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemPath := append(append([]string(nil), path...), fmt.Sprintf("[%d]", index))
+		if err := validateConfigPathKeys(file, itemMap, referenceItem, itemPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func firstMapItem(items []any) map[string]any {
+	for _, item := range items {
+		itemMap, ok := item.(map[string]any)
+		if ok {
+			return itemMap
+		}
+	}
+
+	return nil
+}
+
+func referenceValue(reference map[string]any, key string) any {
+	if reference == nil {
+		return nil
+	}
+
+	return reference[key]
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	sections := make([]string, 0, len(values))
+	for section := range values {
+		sections = append(sections, section)
+	}
+	sort.Strings(sections)
+
+	return sections
+}
+
+func addRepoConfigOnlyShape(reference map[string]any) {
+	repo, ok := reference["repo"].(map[string]any)
+	if !ok {
+		repo = map[string]any{}
+		reference["repo"] = repo
+	}
+	repo["license"] = map[string]any{
+		"copyright":       "",
+		"license_file":    "",
+		"scan_lines":      0,
+		"spdx_identifier": "",
+		"text":            "",
+		"url":             "",
+	}
+}
+
+func cloneAnyMap(values map[string]any) map[string]any {
+	cloned := make(map[string]any, len(values))
+	for key, value := range values {
+		cloned[key] = cloneAny(value)
+	}
+
+	return cloned
+}
+
+func cloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAnyMap(typed)
+	case []any:
+		cloned := make([]any, 0, len(typed))
+		for _, item := range typed {
+			cloned = append(cloned, cloneAny(item))
+		}
+
+		return cloned
+	default:
+		return typed
+	}
+}
+
+func validateTopLevelConfigSections(path string) ([]string, error) {
+	decoded, err := readConfigMap(path)
+	if err != nil {
+		return nil, err
+	}
+
+	for section := range decoded {
+		if !knownConfigSection(section) {
+			return nil, fmt.Errorf(
+				"unknown top-level config section %q in %s",
+				section,
+				path,
+			)
+		}
+	}
+
+	return sortedMapKeys(decoded), nil
+}
+
+func knownConfigSection(section string) bool {
+	switch section {
+	case "agent_advice",
+		"bundle",
+		"filesystem",
+		"gemini",
+		"generated_config",
+		"git",
+		"go",
+		"hooks",
+		"policy",
+		"project",
+		"python",
+		"repo",
+		"security",
+		"shell",
+		"style",
+		"syntax",
+		"tooling",
+		"version":
+		return true
+	default:
+		return false
+	}
+}
+
+func dispatchScopeCount(bundle policy.Bundle) int {
+	return len(bundle.Dispatch.Git) +
+		len(bundle.Dispatch.Linter) +
+		len(bundle.Dispatch.Hooks)
 }
 
 func compile(args []string) error {
@@ -310,5 +638,7 @@ func usage() {
   coding-ethos-policy write-example --out-dir .git/coding-ethos-hooks/policy
   coding-ethos-policy validate --bundle policy-bundle.json
   coding-ethos-policy explain --bundle policy-bundle.json POLICY_ID
+  coding-ethos-policy config-trace [--primary coding_ethos.yml] [--config config.yaml]
+      [--repo-config repo_config.yaml] [--json]
 `)
 }

@@ -11,17 +11,20 @@ import (
 	"sort"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 type ExplainResult struct {
-	Scope         string         `json:"scope"`
-	Files         []string       `json:"files,omitempty"`
-	Checks        []ExplainCheck `json:"checks"`
-	Tools         []ExplainTool  `json:"tools,omitempty"`
-	Selected      int            `json:"selected"`
-	SelectedTools int            `json:"selected_tools"`
+	Scope                string               `json:"scope"`
+	Files                []string             `json:"files,omitempty"`
+	Checks               []ExplainCheck       `json:"checks"`
+	Tools                []ExplainTool        `json:"tools,omitempty"`
+	EvidenceMaps         []ExplainEvidenceMap `json:"evidence_maps,omitempty"`
+	Selected             int                  `json:"selected"`
+	SelectedTools        int                  `json:"selected_tools"`
+	SelectedEvidenceMaps int                  `json:"selected_evidence_maps"`
 }
 
 type ExplainCheck struct {
@@ -51,6 +54,21 @@ type ExplainTool struct {
 	BasenamePrefixes []string `json:"basename_prefixes,omitempty"`
 	Languages        []string `json:"languages,omitempty"`
 	EnabledByDefault bool     `json:"enabled_by_default"`
+}
+
+type ExplainEvidenceMap struct {
+	Source       string   `json:"source"`
+	Match        string   `json:"match"`
+	PolicyID     string   `json:"policy_id"`
+	Confidence   string   `json:"confidence,omitempty"`
+	Meaning      string   `json:"meaning,omitempty"`
+	Advice       string   `json:"advice,omitempty"`
+	EthosIDs     []string `json:"ethos_ids,omitempty"`
+	AdviceSteps  []string `json:"advice_steps,omitempty"`
+	Rerun        []string `json:"rerun,omitempty"`
+	Codes        []string `json:"codes,omitempty"`
+	MessageHints []string `json:"message_hints,omitempty"`
+	SelectedTool bool     `json:"selected_tool"`
 }
 
 type ExplainOptions struct {
@@ -113,6 +131,8 @@ func ExplainWithOptions(bundle policy.Bundle, options ExplainOptions) (ExplainRe
 			result.SelectedTools++
 		}
 	}
+	result.EvidenceMaps = explainEvidenceMaps(bundle.EvidenceMaps, result.Tools)
+	result.SelectedEvidenceMaps = len(result.EvidenceMaps)
 
 	return result, nil
 }
@@ -145,6 +165,7 @@ func FormatExplainResultHuman(result ExplainResult) string {
 		"lint scope: " + result.Scope,
 		fmt.Sprintf("selected checks: %d", result.Selected),
 		fmt.Sprintf("selected tools: %d", result.SelectedTools),
+		fmt.Sprintf("evidence maps: %d", result.SelectedEvidenceMaps),
 	}
 	if len(result.Files) > 0 {
 		lines = append(lines, "files: "+strings.Join(result.Files, ", "))
@@ -181,6 +202,27 @@ func FormatExplainResultHuman(result ExplainResult) string {
 			"  reason: "+tool.Reason,
 		)
 	}
+	if len(result.EvidenceMaps) > 0 {
+		lines = append(lines, "evidence maps:")
+	}
+	for _, evidenceMap := range result.EvidenceMaps {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"- %s %s -> %s: %s",
+				evidenceMap.Source,
+				evidenceMap.Match,
+				evidenceMap.PolicyID,
+				evidenceMap.Advice,
+			),
+		)
+		if evidenceMap.Meaning != "" {
+			lines = append(lines, "  meaning: "+evidenceMap.Meaning)
+		}
+		if len(evidenceMap.EthosIDs) > 0 {
+			lines = append(lines, "  ethos: "+strings.Join(evidenceMap.EthosIDs, ", "))
+		}
+	}
 
 	return strings.Join(lines, "\n")
 }
@@ -193,6 +235,7 @@ func FormatExplainResultTOON(result ExplainResult) string {
 		"scope: " + toonCell(result.Scope),
 		fmt.Sprintf("selected_checks: %d", result.Selected),
 		fmt.Sprintf("selected_tools: %d", result.SelectedTools),
+		fmt.Sprintf("selected_evidence_maps: %d", result.SelectedEvidenceMaps),
 	}
 	if len(result.Files) > 0 {
 		lines = append(lines, fmt.Sprintf("files[%d]{path}:", len(result.Files)))
@@ -227,6 +270,22 @@ func FormatExplainResultTOON(result ExplainResult) string {
 			toonCell(tool.Parser),
 			toonCell(tool.OutputFormat),
 			toonCell(tool.Reason),
+		))
+	}
+	lines = append(
+		lines,
+		fmt.Sprintf("evidence_maps[%d]{source,match,policy_id,confidence,ethos_ids,advice}:",
+			len(result.EvidenceMaps)),
+	)
+	for _, evidenceMap := range result.EvidenceMaps {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%s,%s,%s,%s",
+			toonCell(evidenceMap.Source),
+			toonCell(evidenceMap.Match),
+			toonCell(evidenceMap.PolicyID),
+			toonCell(evidenceMap.Confidence),
+			toonCell(strings.Join(evidenceMap.EthosIDs, "+")),
+			toonCell(evidenceMap.Advice),
 		))
 	}
 
@@ -279,6 +338,82 @@ func explainTools(files []string) []ExplainTool {
 	})
 
 	return result
+}
+
+func explainEvidenceMaps(
+	maps []diagnostics.EvidenceMap,
+	tools []ExplainTool,
+) []ExplainEvidenceMap {
+	if len(maps) == 0 {
+		return nil
+	}
+
+	selectedTools := map[string]bool{}
+	for _, tool := range tools {
+		if tool.Status == "selected" {
+			selectedTools[strings.ToLower(tool.Name)] = true
+		}
+	}
+
+	result := make([]ExplainEvidenceMap, 0, len(maps))
+	seen := map[string]bool{}
+	for _, mapping := range maps {
+		selected := selectedTools[strings.ToLower(mapping.Source)]
+		if len(selectedTools) > 0 && !selected {
+			continue
+		}
+		match := evidenceMapMatch(mapping)
+		key := strings.ToLower(mapping.Source + "|" + match + "|" + mapping.PolicyID)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, ExplainEvidenceMap{
+			Source:       mapping.Source,
+			Match:        match,
+			PolicyID:     mapping.PolicyID,
+			Confidence:   mapping.Confidence,
+			Meaning:      mapping.Meaning,
+			Advice:       mapping.Advice.Summary,
+			EthosIDs:     append([]string(nil), mapping.PrincipleIDs...),
+			AdviceSteps:  append([]string(nil), mapping.Advice.Steps...),
+			Rerun:        append([]string(nil), mapping.Advice.Rerun...),
+			Codes:        append([]string(nil), mapping.Codes...),
+			MessageHints: append([]string(nil), mapping.MessageSubstrings...),
+			SelectedTool: selected,
+		})
+	}
+
+	sort.Slice(result, func(left int, right int) bool {
+		if result[left].Source != result[right].Source {
+			return result[left].Source < result[right].Source
+		}
+		if result[left].PolicyID != result[right].PolicyID {
+			return result[left].PolicyID < result[right].PolicyID
+		}
+
+		return result[left].Match < result[right].Match
+	})
+
+	return result
+}
+
+func evidenceMapMatch(mapping diagnostics.EvidenceMap) string {
+	parts := []string{}
+	if len(mapping.Codes) > 0 {
+		parts = append(parts, "codes="+strings.Join(mapping.Codes, "+"))
+	}
+	if len(mapping.MessageSubstrings) > 0 {
+		parts = append(
+			parts,
+			"messages="+strings.Join(mapping.MessageSubstrings, "+"),
+		)
+	}
+	if len(parts) == 0 {
+		return "all"
+	}
+
+	return strings.Join(parts, ";")
 }
 
 func explainToolStatus(tool toolcatalog.Tool, files []string) (string, string) {

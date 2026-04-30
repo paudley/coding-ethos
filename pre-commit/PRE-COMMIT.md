@@ -35,10 +35,9 @@ consuming-repo overrides.
 
 `make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
-The installed Go helper binaries and compiled policy bundle live under
-`.git/coding-ethos-hooks/`. Normal hook execution does not rebuild these
-artifacts; run `make build` from the coding-ethos repository to update the
-installed runtime.
+The shims locate the checked-out `coding-ethos` repository, repair missing
+checkout-local runtime artifacts with `make build`, and dispatch to the built
+hook binary under `coding-ethos/bin/`.
 
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -59,19 +58,16 @@ Required tools:
 
 - `go` 1.26 or newer
 - `uv`
-- `shellcheck`
-- `shfmt`
-- `hadolint`
-- `actionlint`
-- `golangci-lint`
 
-Useful install commands:
+`make build` installs required checkout-local managed tools under
+`build/toolchain/`. `shfmt` is installed into `build/toolchain/go-bin/` and
+hook execution prepends that directory to `PATH`; host-global `shfmt` is not a
+runtime contract.
 
-```bash
-go install mvdan.cc/sh/v3/cmd/shfmt@latest
-go install github.com/rhysd/actionlint/cmd/actionlint@latest
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-```
+ShellCheck, actionlint, hadolint, and golangci-lint are still being migrated to
+managed installers. Until then, they may be required by hook groups that invoke
+them directly, but new hook-tool work should route them through the managed
+toolchain rather than host installation instructions.
 
 ## Run
 
@@ -122,16 +118,23 @@ Primary files:
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
-repo-local response caching under `.git/coding-ethos-hooks/gemini-cache/`,
+repo-local response caching under the configured hook cache directory,
 supports per-check `model_overrides` and `service_tier_overrides`, reuses
 Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
 merged `config.yaml` plus `repo_config.yaml`.
 
-The hook runtime lives in `.git/coding-ethos-hooks/`. It is updated by explicit
-build/install targets, not by normal hook execution. If the runtime is missing
-or stale, hooks fail with an instruction to run `make build` or ask an admin to
-update the installed runtime.
+The hook runtime is built into the checked-out `coding-ethos` repository:
+
+- `bin/` contains built hook and policy binaries.
+- `build/policy/` contains the compiled policy bundle and source-hash
+  metadata.
+
+The old `.git/coding-ethos-hooks/` runtime cache is legacy. The current runtime
+model is documented in `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer
+hooks act only as repo-discovery, build-repair, and dispatch shims, while
+binaries and compiled runtime files are built and executed from the checked-out
+`coding-ethos` repository.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 
@@ -196,7 +199,7 @@ apply wherever the provider exposes the corresponding lifecycle hook.
 
 Tamper and bypass blocks are intentionally louder than normal lint findings.
 Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
-hook binaries under `.git/coding-ethos-hooks/` are treated as employment
+hook binaries under `coding-ethos/bin/` are treated as employment
 violations. Agent-facing output starts with a uniform
 `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific message,
 states that the actor has done something wrong, and warns that continued
@@ -213,10 +216,15 @@ Agent-facing post-tool context replaces absolute repo, home, and temp paths
 with stable tokens, collapses multiline commands, and renders hook output as
 TOON line tables instead of escaped newline cells.
 
-Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes a checkpoint,
+Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes focused context,
 language-specific advice, compiled lint findings for the edited files, and a
 fast Ruff probe for Python files when `ruff` is available. Expensive external
 tool suites still belong to the Git hook/check path.
+Fast Ruff findings use the same ETHOS evidence maps as captured lint output,
+so known codes carry policy-grounded repair advice in post-edit context.
+When captured lint history has relevant failures for the same file area,
+post-edit feedback also surfaces recurring checks, recurring tool/code pairs,
+and unmapped tool/code pairs that still need ETHOS evidence-map coverage.
 
 `hook-log-summary` summarizes `.coding-ethos/hook-runs/` and `hook-log-analyze`
 ranks failed tools, codes, repeated findings, and output-quality problems such
@@ -236,12 +244,19 @@ Analyze those traces with:
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
+pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
-The analyzer reports top failing checks, top tool/code pairs, repeated
-file-policy patterns, ETHOS IDs, and deterministic guidance candidates. The
+Analysis output uses the same human, JSON, and auto-selected TOON formats as
+other lint output, so agent callers get compact structured summaries by default.
+The analyzer reports top failing checks, top tool/code pairs, unmapped
+tool/code pairs, repeated file-policy patterns, ETHOS IDs, and deterministic
+guidance candidates. The
 `--for-files` filter narrows output to prior findings from the same file or
 same high-level file area so post-edit feedback can stay focused.
+Replay renders one saved normalized result without invoking the underlying
+linter, so malformed or low-quality agent output can be reproduced from the
+persisted trace.
 Direct agent lint runs are captured too. The agent hook rewrites common forms
 for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
 `actionlint`, `yamllint`, and `hadolint` to the managed
@@ -250,8 +265,39 @@ covers plain tool names, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools. The installed hook PATH also
 contains managed shims for tools that execute by name. Captured runs preserve
 exit codes while forcing machine-readable tool output, parsing diagnostics into
-the shared lint schema, writing normalized lint traces, and returning
-coding-ethos human or TOON output instead of raw linter output.
+the shared lint schema, enriching known findings with ETHOS evidence-map advice,
+writing normalized lint traces, and returning coding-ethos human or TOON output
+instead of raw linter output.
+
+Captured tool execution is intentionally controlled by coding-ethos. The target
+repo is an untrusted file tree and trace destination, not a source of trusted
+tool binaries, tool configuration, `PATH`, aliases, shell state, or `uv`
+project behavior. Python linters execute from the coding-ethos hook project via
+coding-ethos-managed versions and explicit generated config flags
+(`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and
+`.yamllint.yml`). Parent repo config files with matching names are ignored.
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
+be installed by coding-ethos init into a managed runtime before they are trusted
+capture backends; host binaries are not a policy boundary.
+
+Captured lint runs are treated as structured events. Each trace should preserve
+the original argv, rewritten argv, exit code, selected parser, parser outcome,
+normalized diagnostics, normalized findings, and a bounded redacted
+stdout/stderr excerpt when a tool fails before producing parseable diagnostics.
+Tool/config failures are first-class findings: a failed run with no parsed
+diagnostics must never render as `findings[0]`.
+
+Troubleshooting and regression coverage should work from the same contract:
+
+- replay a saved `.coding-ethos/lint-runs/*.json` trace without rerunning the
+  underlying linter
+- maintain golden TOON output tests for normal findings, clean runs, invalid
+  config, malformed JSON/text output, timeouts, and tool crashes
+- fail tests if blocked output contains empty finding tables, unredacted local
+  paths, internal group/duration noise, or generic guidance without an
+  actionable finding
+- keep parser failures visible as parser/tool failures instead of degrading to
+  silent success or empty diagnostics
 
 ## Configuration
 
@@ -263,6 +309,10 @@ can override them with one of these root-level files:
 
 You can also point the bundle at an explicit override file with
 `CODE_ETHOS_PRECOMMIT_CONFIG`.
+
+Use `pre-commit/hooks/run-go-hook.sh policy config-trace --json` after
+enforcement config edits to validate known top-level sections, compile the
+merged policy bundle, and report policy/evidence/dispatch counts.
 
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
@@ -301,6 +351,15 @@ Known external diagnostics can be enriched through `policy.evidence_maps`.
 Mapped findings keep their raw tool, code, location, severity, and message, then
 add policy ID, principle IDs, confidence, meaning, advice, and rerun commands.
 Unmapped diagnostics still flow through as ordinary lint findings.
+Type-checker evidence maps cover common mypy, Pyright, and Pylint findings for
+optional required dependencies, unknown type leakage, missing imports, unstable
+interfaces, and import cycles. Those findings point back to ETHOS guidance such
+as Protocol-first design, fail-fast required imports, and structural fixes
+instead of lazy imports or broad suppressions.
+When multiple tools report the same mapped policy at the same location, the
+lint result keeps one actionable finding and records the secondary tool/code in
+the finding detail. This keeps agent context focused on the repair instead of
+repeating equivalent diagnostics.
 
 Important configurable areas:
 
@@ -379,7 +438,8 @@ pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain --json
 ```
 
 The explain output reports the selected policy checks, evaluator names,
-severity, and ETHOS IDs for the requested scope.
+severity, ETHOS IDs, hook-owned tool selection, and the active evidence maps
+that turn external linter codes/messages into ETHOS-backed policy advice.
 
 ## Hook Inventory
 

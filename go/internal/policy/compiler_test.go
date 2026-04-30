@@ -108,8 +108,8 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
 
-	if len(bundle.EvidenceMaps) != 12 {
-		t.Fatalf("evidence map count = %d, want 12", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 24 {
+		t.Fatalf("evidence map count = %d, want 24", len(bundle.EvidenceMaps))
 	}
 	conditionalImportEvidence := evidenceMapByPolicyID(
 		bundle.EvidenceMaps,
@@ -154,6 +154,50 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		if !strings.Contains(importCycleAdvice, want) {
 			t.Fatalf("import cycle evidence missing %q: %#v", want, importCycleEvidence)
 		}
+	}
+	suppressionEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.comment_suppressions",
+	)
+	if suppressionEvidence == nil {
+		t.Fatalf("missing suppression evidence map")
+	}
+	if !strings.Contains(suppressionEvidence.Advice.Summary, "suppression") {
+		t.Fatalf("suppression evidence advice mismatch: %#v", suppressionEvidence)
+	}
+	docEvidence := evidenceMapByPolicyID(bundle.EvidenceMaps, "docs.public_contract")
+	if docEvidence == nil {
+		t.Fatalf("missing docstring evidence map")
+	}
+	if !strings.Contains(docEvidence.Advice.Summary, "contract") {
+		t.Fatalf("docstring evidence advice mismatch: %#v", docEvidence)
+	}
+	optionalTypeEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.optional_required_types",
+	)
+	if optionalTypeEvidence == nil {
+		t.Fatalf("missing optional type evidence map")
+	}
+	if !strings.Contains(optionalTypeEvidence.Advice.Summary, "required") {
+		t.Fatalf("optional type advice mismatch: %#v", optionalTypeEvidence)
+	}
+	unknownTypeEvidence := evidenceMapByPolicyID(bundle.EvidenceMaps, "python.unknown_types")
+	if unknownTypeEvidence == nil {
+		t.Fatalf("missing unknown type evidence map")
+	}
+	if !strings.Contains(unknownTypeEvidence.Advice.Summary, "Any") {
+		t.Fatalf("unknown type advice mismatch: %#v", unknownTypeEvidence)
+	}
+	interfaceEvidence := evidenceMapByPolicyID(
+		bundle.EvidenceMaps,
+		"python.interface_contracts",
+	)
+	if interfaceEvidence == nil {
+		t.Fatalf("missing interface evidence map")
+	}
+	if !strings.Contains(interfaceEvidence.Advice.Summary, "interface") {
+		t.Fatalf("interface advice mismatch: %#v", interfaceEvidence)
 	}
 
 	forbiddenStrings := optionStrings(
@@ -665,8 +709,8 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if len(bundle.EvidenceMaps) != 13 {
-		t.Fatalf("evidence map count = %d, want 13", len(bundle.EvidenceMaps))
+	if len(bundle.EvidenceMaps) != 25 {
+		t.Fatalf("evidence map count = %d, want 25", len(bundle.EvidenceMaps))
 	}
 
 	evidenceMap := bundle.EvidenceMaps[0]

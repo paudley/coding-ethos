@@ -69,6 +69,7 @@ logs/
 *.orig
 *.rej
 *~
+bin/
 go/bin/
 
 # Editor and OS noise

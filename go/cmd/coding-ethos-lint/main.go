@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -39,6 +40,7 @@ func main() {
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
+	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	analyzeLog := flags.Bool(
 		"analyze-log",
@@ -50,6 +52,11 @@ func main() {
 		"log-dir",
 		"",
 		"Lint trace directory for --analyze-log",
+	)
+	replayTrace := flags.String(
+		"replay",
+		"",
+		"Replay a persisted .coding-ethos/lint-runs trace",
 	)
 	logOutput := flags.Bool(
 		"log",
@@ -65,7 +72,14 @@ func main() {
 	}
 
 	if *captureTool != "" {
-		os.Exit(runCapturedTool(*captureTool, *toolPath, *cwd, flags.Args()))
+		os.Exit(runCapturedTool(
+			*captureTool,
+			*toolPath,
+			*cwd,
+			*traceRoot,
+			flags.Args(),
+			captureEvidenceMaps(*bundlePath),
+		))
 	}
 
 	if *analyzeLog {
@@ -84,8 +98,31 @@ func main() {
 		if analyzeErr != nil {
 			exitErr(analyzeErr)
 		}
-		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, *jsonOutput); encodeErr != nil {
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
+		}
+		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, format); encodeErr != nil {
 			exitErr(encodeErr)
+		}
+
+		return
+	}
+
+	if *replayTrace != "" {
+		result, replayErr := lint.ReplayTrace(*replayTrace)
+		if replayErr != nil {
+			exitErr(replayErr)
+		}
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
+		}
+		if encodeErr := hookoutput.EncodeLintResult(os.Stdout, result, format); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+		if result.Blocked() {
+			os.Exit(blockedExitCode)
 		}
 
 		return
@@ -162,6 +199,25 @@ func main() {
 	if result.Blocked() {
 		os.Exit(blockedExitCode)
 	}
+}
+
+func captureEvidenceMaps(bundlePath string) []diagnostics.EvidenceMap {
+	if strings.TrimSpace(bundlePath) == "" {
+		return nil
+	}
+
+	bundle, err := readBundle(bundlePath)
+	if err != nil {
+		exitErr(err)
+	}
+
+	if err := bundle.Validate(); err != nil {
+		exitErr(
+			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
+		)
+	}
+
+	return bundle.EvidenceMaps
 }
 
 func readBundle(path string) (policy.Bundle, error) {

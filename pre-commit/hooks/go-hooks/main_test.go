@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -50,7 +51,12 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 func TestLoadGeminiPromptPackParsesGeneratedContract(t *testing.T) {
 	t.Parallel()
 
-	bundleRoot := filepath.Clean(filepath.Join("..", ".."))
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed")
+	}
+
+	bundleRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 
 	pack, err := loadGeminiPromptPack(bundleRoot)
 	if err != nil {

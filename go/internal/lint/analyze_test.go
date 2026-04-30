@@ -4,6 +4,7 @@
 package lint_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -64,6 +65,16 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 			EthosIDs:   []string{"documentation-as-contract"},
 			Blocking:   true,
 		},
+		{
+			CheckID:    "tool.pylint",
+			SourceTool: "pylint",
+			Code:       "no-member",
+			File:       "lib/python/app.py",
+			Status:     "fail",
+			Severity:   "error",
+			Message:    "Instance has no member",
+			Blocking:   true,
+		},
 	})
 
 	analysis, err := AnalyzeTraces(root)
@@ -71,7 +82,7 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		t.Fatalf("AnalyzeTraces() returned error: %v", err)
 	}
 
-	if analysis.RunsAnalyzed != 3 || analysis.Findings != 3 {
+	if analysis.RunsAnalyzed != 3 || analysis.Findings != 4 {
 		t.Fatalf("analysis counts = %#v", analysis)
 	}
 	if analysis.TopChecks[0] != (Count{Key: "python.import_order", Count: 2}) {
@@ -86,6 +97,10 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	if analysis.TopEthosIDs[0] != (Count{Key: "no-conditional-imports", Count: 2}) {
 		t.Fatalf("ethos IDs = %#v", analysis.TopEthosIDs)
 	}
+	if len(analysis.UnmappedCodes) == 0 ||
+		analysis.UnmappedCodes[0] != (Count{Key: "pylint:no-member", Count: 1}) {
+		t.Fatalf("unmapped codes = %#v", analysis.UnmappedCodes)
+	}
 	if len(analysis.GuidanceCandidates) == 0 ||
 		analysis.GuidanceCandidates[0].Advice != "Move imports to module scope." {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
@@ -95,11 +110,56 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	for _, want := range []string{
 		"Top checks: python.import_order=2",
 		"Top tool codes: ruff:E402=2",
+		"Unmapped tool codes: pylint:no-member=1",
 		"Guidance candidates:",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("analysis output missing %q:\n%s", want, output)
 		}
+	}
+
+	toonOutput := FormatAnalysisTOON(analysis)
+	for _, want := range []string{
+		"format: toon",
+		"operation: analyze-log",
+		"top_codes[",
+		"unmapped_codes[1]{key,count}:",
+		"pylint:no-member,1",
+		"guidance_candidates[",
+	} {
+		if !strings.Contains(toonOutput, want) {
+			t.Fatalf("TOON analysis output missing %q:\n%s", want, toonOutput)
+		}
+	}
+}
+
+func TestEncodeAnalysisHonorsFormat(t *testing.T) {
+	t.Parallel()
+
+	analysis := Analysis{
+		Path:          "lint-runs",
+		TopCodes:      []Count{{Key: "ruff:E402", Count: 2}},
+		UnmappedCodes: []Count{{Key: "pylint:no-member", Count: 1}},
+		RunsAnalyzed:  1,
+		RunsAvailable: 1,
+		Findings:      3,
+	}
+
+	var buffer bytes.Buffer
+	if err := EncodeAnalysis(&buffer, analysis, "toon"); err != nil {
+		t.Fatalf("EncodeAnalysis() returned error: %v", err)
+	}
+	if !strings.Contains(buffer.String(), "format: toon") ||
+		!strings.Contains(buffer.String(), "unmapped_codes[1]{key,count}:") {
+		t.Fatalf("TOON analysis missing expected content:\n%s", buffer.String())
+	}
+
+	buffer.Reset()
+	if err := EncodeAnalysis(&buffer, analysis, "json"); err != nil {
+		t.Fatalf("EncodeAnalysis(json) returned error: %v", err)
+	}
+	if !strings.Contains(buffer.String(), `"unmapped_codes"`) {
+		t.Fatalf("JSON analysis missing expected content:\n%s", buffer.String())
 	}
 }
 
@@ -166,6 +226,37 @@ func TestAnalyzeTracesAllowsMissingTraceDirectory(t *testing.T) {
 		analysis.RunsAnalyzed != 0 ||
 		analysis.Findings != 0 {
 		t.Fatalf("analysis = %#v", analysis)
+	}
+}
+
+func TestReplayTraceReturnsSavedResult(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTraceFixture(t, root, "tool-mypy.json", []Finding{{
+		RawOutcome: map[string]any{
+			"category":  "configuration_error",
+			"exit_code": float64(2),
+			"output":    "mypy: error: cannot read file '<repo>/pkg/app.py'",
+		},
+		CheckID:    "tool.mypy",
+		SourceTool: "mypy",
+		Status:     "fail",
+		Severity:   "error",
+		Message:    "mypy configuration or usage failed with status 2",
+		Blocking:   true,
+	}})
+
+	result, err := ReplayTrace(filepath.Join(root, "tool-mypy.json"))
+	if err != nil {
+		t.Fatalf("ReplayTrace() returned error: %v", err)
+	}
+
+	if !result.Blocked() || len(result.Findings) != 1 {
+		t.Fatalf("replayed result = %#v", result)
+	}
+	if result.Findings[0].CheckID != "tool.mypy" {
+		t.Fatalf("replayed finding = %#v", result.Findings[0])
 	}
 }
 

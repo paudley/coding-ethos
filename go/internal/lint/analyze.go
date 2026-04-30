@@ -24,6 +24,7 @@ type Analysis struct {
 	Files              []string            `json:"files,omitempty"`
 	TopChecks          []Count             `json:"top_checks"`
 	TopCodes           []Count             `json:"top_codes"`
+	UnmappedCodes      []Count             `json:"unmapped_codes,omitempty"`
 	RepeatedPatterns   []Count             `json:"repeated_patterns"`
 	TopEthosIDs        []Count             `json:"top_ethos_ids"`
 	GuidanceCandidates []GuidanceCandidate `json:"guidance_candidates"`
@@ -72,6 +73,15 @@ func AnalyzeTraces(path string) (Analysis, error) {
 	return AnalyzeTracesWithOptions(path, AnalysisOptions{})
 }
 
+func ReplayTrace(path string) (Result, error) {
+	record, err := loadTraceRecord(path)
+	if err != nil {
+		return Result{}, err
+	}
+
+	return record.Result, nil
+}
+
 func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, error) {
 	files := normalizeAnalysisFiles(options.Files)
 	analysis := Analysis{Path: path, Files: files}
@@ -89,6 +99,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 
 	checkCounts := map[string]int{}
 	codeCounts := map[string]int{}
+	unmappedCodeCounts := map[string]int{}
 	patternCounts := map[string]int{}
 	ethosCounts := map[string]int{}
 	candidates := map[string]GuidanceCandidate{}
@@ -121,6 +132,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				finding,
 				checkCounts,
 				codeCounts,
+				unmappedCodeCounts,
 				patternCounts,
 				ethosCounts,
 				candidates,
@@ -130,6 +142,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 
 	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
 	analysis.TopCodes = topCountsLimit(codeCounts, options.MaxCounts)
+	analysis.UnmappedCodes = topCountsLimit(unmappedCodeCounts, options.MaxCounts)
 	analysis.RepeatedPatterns = topCountsLimit(patternCounts, options.MaxCounts)
 	analysis.TopEthosIDs = topCountsLimit(ethosCounts, options.MaxCounts)
 	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
@@ -237,6 +250,7 @@ func incrementFindingCounts(
 	finding Finding,
 	checkCounts map[string]int,
 	codeCounts map[string]int,
+	unmappedCodeCounts map[string]int,
 	patternCounts map[string]int,
 	ethosCounts map[string]int,
 	candidates map[string]GuidanceCandidate,
@@ -245,7 +259,11 @@ func incrementFindingCounts(
 	checkCounts[checkID]++
 
 	if finding.SourceTool != "" && finding.Code != "" {
-		codeCounts[finding.SourceTool+":"+finding.Code]++
+		toolCode := finding.SourceTool + ":" + finding.Code
+		codeCounts[toolCode]++
+		if findingUnmapped(finding) {
+			unmappedCodeCounts[toolCode]++
+		}
 	}
 
 	pattern := repeatedPatternKey(finding)
@@ -274,6 +292,10 @@ func incrementFindingCounts(
 	}
 	candidate.Count++
 	candidates[candidateKey] = candidate
+}
+
+func findingUnmapped(finding Finding) bool {
+	return finding.PolicyID == "" && len(finding.EthosIDs) == 0
 }
 
 func repeatedPatternKey(finding Finding) string {
@@ -389,18 +411,23 @@ func firstString(values []string) string {
 	return ""
 }
 
-func EncodeAnalysis(writer io.Writer, analysis Analysis, jsonOutput bool) error {
-	if jsonOutput {
+func EncodeAnalysis(writer io.Writer, analysis Analysis, format string) error {
+	switch format {
+	case "json":
 		encoder := json.NewEncoder(writer)
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 
 		return encoder.Encode(analysis)
+	case "toon":
+		_, err := fmt.Fprintln(writer, FormatAnalysisTOON(analysis))
+
+		return err
+	default:
+		_, err := fmt.Fprintln(writer, FormatAnalysisHuman(analysis))
+
+		return err
 	}
-
-	_, err := fmt.Fprintln(writer, FormatAnalysisHuman(analysis))
-
-	return err
 }
 
 func FormatAnalysisHuman(analysis Analysis) string {
@@ -410,6 +437,7 @@ func FormatAnalysisHuman(analysis Analysis) string {
 		fmt.Sprintf("Findings: %d", analysis.Findings),
 		"Top checks: " + countsHuman(analysis.TopChecks),
 		"Top tool codes: " + countsHuman(analysis.TopCodes),
+		"Unmapped tool codes: " + countsHuman(analysis.UnmappedCodes),
 		"Repeated file/policy patterns: " + countsHuman(analysis.RepeatedPatterns),
 		"Top ETHOS IDs: " + countsHuman(analysis.TopEthosIDs),
 	}
@@ -444,4 +472,58 @@ func countsHuman(counts []Count) string {
 	}
 
 	return strings.Join(items, ", ")
+}
+
+func FormatAnalysisTOON(analysis Analysis) string {
+	lines := []string{
+		"format: toon",
+		"tool: policy-lint",
+		"operation: analyze-log",
+		"path: " + toonCell(analysis.Path),
+		fmt.Sprintf("runs_analyzed: %d", analysis.RunsAnalyzed),
+		fmt.Sprintf("runs_available: %d", analysis.RunsAvailable),
+		fmt.Sprintf("runs_skipped: %d", analysis.RunsSkipped),
+		fmt.Sprintf("findings: %d", analysis.Findings),
+	}
+	if len(analysis.Files) > 0 {
+		lines = append(lines, fmt.Sprintf("files[%d]{path}:", len(analysis.Files)))
+		for _, file := range analysis.Files {
+			lines = append(lines, "  "+toonCell(file))
+		}
+	}
+	lines = appendAnalysisCountsTOON(lines, "top_checks", analysis.TopChecks)
+	lines = appendAnalysisCountsTOON(lines, "top_codes", analysis.TopCodes)
+	lines = appendAnalysisCountsTOON(lines, "unmapped_codes", analysis.UnmappedCodes)
+	lines = appendAnalysisCountsTOON(lines, "repeated_patterns", analysis.RepeatedPatterns)
+	lines = appendAnalysisCountsTOON(lines, "top_ethos_ids", analysis.TopEthosIDs)
+	lines = append(
+		lines,
+		fmt.Sprintf(
+			"guidance_candidates[%d]{check_id,code,ethos_id,count,blocking,message,advice}:",
+			len(analysis.GuidanceCandidates),
+		),
+	)
+	for _, candidate := range analysis.GuidanceCandidates {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%s,%d,%t,%s,%s",
+			toonCell(candidate.CheckID),
+			toonCell(candidate.Code),
+			toonCell(candidate.EthosID),
+			candidate.Count,
+			candidate.Blocking,
+			toonCell(candidate.Message),
+			toonCell(candidate.Advice),
+		))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func appendAnalysisCountsTOON(lines []string, name string, counts []Count) []string {
+	lines = append(lines, fmt.Sprintf("%s[%d]{key,count}:", name, len(counts)))
+	for _, count := range counts {
+		lines = append(lines, fmt.Sprintf("  %s,%d", toonCell(count.Key), count.Count))
+	}
+
+	return lines
 }

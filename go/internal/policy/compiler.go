@@ -1818,6 +1818,18 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultRuffEvidenceMap(principles),
 		defaultRuffImportOrderEvidenceMap(principles),
 		defaultRuffSQLSafetyEvidenceMap(principles),
+		defaultRuffSecurityEvidenceMap(principles),
+		defaultRuffSuppressionEvidenceMap(principles),
+		defaultMypySuppressionEvidenceMap(principles),
+		defaultPyrightSuppressionEvidenceMap(principles),
+		defaultRuffDocstringEvidenceMap(principles),
+		defaultPylintDocstringEvidenceMap(principles),
+		defaultMypyOptionalTypeEvidenceMap(principles),
+		defaultPyrightOptionalTypeEvidenceMap(principles),
+		defaultMypyUnknownTypeEvidenceMap(principles),
+		defaultPyrightUnknownTypeEvidenceMap(principles),
+		defaultPylintInterfaceEvidenceMap(principles),
+		defaultPyrightMissingImportEvidenceMap(principles),
 		defaultMypyImportCycleEvidenceMap(principles),
 		defaultPyrightImportCycleEvidenceMap(principles),
 		defaultPylintImportCycleEvidenceMap(principles),
@@ -1909,6 +1921,360 @@ func defaultRuffSQLSafetyEvidenceMap(
 				"Keep test-only SQL safety exceptions explicit and narrow.",
 			},
 			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultRuffSecurityEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"S*"},
+		PolicyID: "python.security_patterns",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "high",
+		Meaning:    "Ruff security rules found code that weakens safe defaults.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the security finding structurally instead of suppressing it.",
+			Steps: []string{
+				"Prefer validated inputs and least-privilege behavior.",
+				"Replace suspicious APIs or unsafe construction with reviewed helpers.",
+				"Keep security exceptions narrow, documented, and reviewable.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffSuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"RUF100", "PGH003", "PGH004"},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning: "A lint suppression is stale, broad, or too weakly " +
+			"explained to satisfy the code-quality contract.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove the suppression or replace it with the narrowest documented exception.",
+			Steps: []string{
+				"Try the structural fix first.",
+				"Remove stale noqa/type-ignore comments.",
+				"When an exception is genuinely required, make it narrow and document the reason.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypySuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "mypy",
+		Codes:    []string{"unused-ignore", "ignore-without-code"},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning:    "A type-ignore suppression is stale or too broad.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove broad type ignores and fix the type boundary directly.",
+			Steps: []string{
+				"Delete stale type-ignore comments.",
+				"Replace broad ignores with precise types, adapters, or Protocol boundaries.",
+				"If an ignore remains necessary, include the exact code and a local reason.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightSuppressionEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportUnnecessaryTypeIgnoreComment",
+			"reportIgnoreCommentWithoutRule",
+		},
+		PolicyID: "python.comment_suppressions",
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+			"universal-responsibility",
+		),
+		Confidence: "high",
+		Meaning:    "A Pyright ignore comment is stale or missing a precise rule.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Remove unnecessary Pyright ignores or make the remaining exception explicit.",
+			Steps: []string{
+				"Delete unnecessary ignore comments.",
+				"Fix the underlying type issue when Pyright still reports one.",
+				"Do not use broad ignore comments as a substitute for correct interfaces.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultRuffDocstringEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "ruff",
+		Codes:    []string{"D*"},
+		PolicyID: "docs.public_contract",
+		PrincipleIDs: principleRefs(
+			principles,
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning: "A public module, class, or function is missing contract " +
+			"documentation.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Document the public contract instead of leaving behavior implicit.",
+			Steps: []string{
+				"Add a concise docstring that states purpose, arguments, returns, and raised errors where relevant.",
+				"Keep implementation narration out of the docstring.",
+				"Update tests when the documented behavior changes.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultPylintDocstringEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pylint",
+		Codes: []string{
+			"missing-module-docstring",
+			"missing-class-docstring",
+			"missing-function-docstring",
+			"C0114",
+			"C0115",
+			"C0116",
+		},
+		PolicyID: "docs.public_contract",
+		PrincipleIDs: principleRefs(
+			principles,
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning:    "Pylint found an undocumented public Python contract.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Document the public contract in the code surface that owns it.",
+			Steps: []string{
+				"Add a useful docstring at the reported module, class, or function.",
+				"Explain behavior and constraints, not obvious implementation details.",
+				"Keep generated or private surfaces excluded through policy, not ad hoc suppressions.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultMypyOptionalTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "mypy",
+		Codes: []string{
+			"union-attr",
+			"return-value",
+			"assignment",
+			"arg-type",
+		},
+		PolicyID: "python.optional_required_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "medium",
+		Meaning: "A value used as required is typed as optional or incompatible " +
+			"with the required interface.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the required contract explicit instead of widening types.",
+			Steps: []string{
+				"Identify whether the value is genuinely optional or required.",
+				"For required dependencies, remove None from the type and validate at construction/startup.",
+				"If variants are legitimate, introduce a Protocol or narrower interface instead of passing concrete optionals around.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightOptionalTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportOptionalCall",
+			"reportOptionalIterable",
+			"reportOptionalMemberAccess",
+			"reportOptionalOperand",
+			"reportOptionalSubscript",
+		},
+		PolicyID: "python.optional_required_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-optional-types-for-required-dependencies",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "high",
+		Meaning: "Pyright found code using a possibly-None value as if it were " +
+			"required.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Convert required optionals into validated required dependencies.",
+			Steps: []string{
+				"Move absence handling to bootstrap or construction.",
+				"Keep runtime code on the full-strength required path.",
+				"Use Protocols for dependency boundaries when concrete imports create cycles.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultMypyUnknownTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "mypy",
+		Codes: []string{
+			"no-untyped-def",
+			"no-untyped-call",
+			"var-annotated",
+		},
+		PolicyID: "python.unknown_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"protocol-first-design",
+		),
+		Confidence: "medium",
+		Meaning: "Type information is missing at a boundary where static " +
+			"analysis should verify behavior.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Add precise boundary types instead of letting Any spread.",
+			Steps: []string{
+				"Annotate public functions and important locals.",
+				"Add a typed adapter at untyped third-party boundaries.",
+				"Prefer Protocols for behavior contracts instead of concrete catch-all types.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightUnknownTypeEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportUnknownArgumentType",
+			"reportUnknownMemberType",
+			"reportUnknownParameterType",
+			"reportUnknownVariableType",
+		},
+		PolicyID: "python.unknown_types",
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"protocol-first-design",
+		),
+		Confidence: "medium",
+		Meaning:    "Pyright cannot verify a type boundary because unknowns leaked in.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make the type boundary explicit and locally verifiable.",
+			Steps: []string{
+				"Add annotations where the value enters the module.",
+				"Use typed wrappers around dynamic data.",
+				"Prefer Protocols when the code depends on behavior rather than a concrete class.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPylintInterfaceEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pylint",
+		Codes: []string{
+			"no-member",
+			"E1101",
+			"undefined-variable",
+			"E0602",
+		},
+		PolicyID: "python.interface_contracts",
+		PrincipleIDs: principleRefs(
+			principles,
+			"protocol-first-design",
+			"solid-is-law",
+		),
+		Confidence: "medium",
+		Meaning: "The code is relying on attributes or names that are not " +
+			"visible through a stable interface.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Expose the required behavior through a real interface.",
+			Steps: []string{
+				"Verify the referenced member or name exists.",
+				"If the object is dynamic, add a typed adapter or Protocol that states the contract.",
+				"Do not hide the issue with a broad Pylint disable.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultPyrightMissingImportEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source: "pyright",
+		Codes: []string{
+			"reportMissingImports",
+			"reportMissingModuleSource",
+		},
+		PolicyID: "python.required_imports",
+		PrincipleIDs: principleRefs(
+			principles,
+			"no-conditional-imports",
+			"fail-fast-fail-hard-overview",
+		),
+		Confidence: "high",
+		Meaning:    "A required import cannot be resolved by the static analyzer.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make required dependencies importable and validated at the gate.",
+			Steps: []string{
+				"Add the dependency to the environment or generated type-checker config.",
+				"Remove fallback or conditional import paths that hide missing dependencies.",
+				"Fail at startup/bootstrap when a required dependency is absent.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
 		},
 	}
 }

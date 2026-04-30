@@ -123,15 +123,18 @@ const (
 )
 
 func ExampleBundle() Bundle {
+	principles := examplePrinciples()
+
 	return Bundle{
-		Version:     1,
-		BundleID:    "example-policy-bundle",
-		GeneratedAt: "1970-01-01T00:00:00Z",
-		Sources:     exampleSources(),
-		Advice:      exampleAdvice(),
-		Principles:  examplePrinciples(),
-		Policies:    examplePolicies(),
-		Dispatch:    exampleDispatch(),
+		Version:      1,
+		BundleID:     "example-policy-bundle",
+		GeneratedAt:  "1970-01-01T00:00:00Z",
+		Sources:      exampleSources(),
+		Advice:       exampleAdvice(),
+		Principles:   principles,
+		Policies:     examplePolicies(),
+		Dispatch:     exampleDispatch(),
+		EvidenceMaps: defaultEvidenceMaps(principles),
 	}
 }
 

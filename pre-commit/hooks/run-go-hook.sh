@@ -2,38 +2,39 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
-# Build and run cached Go hook helpers.
-
 set -euo pipefail
 
 REAL_GIT="${CODING_ETHOS_REAL_GIT:-/usr/bin/git}"
+export INVOCATION_CWD="$PWD"
 LOCAL_ROOT="$("$REAL_GIT" rev-parse --show-toplevel)"
 if [[ -n "${CODE_ETHOS_CONSUMER_ROOT:-}" ]]; then
   ROOT="${CODE_ETHOS_CONSUMER_ROOT}"
 else
   ROOT="$LOCAL_ROOT"
 fi
-GIT_COMMON_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)"
 HOOKS_DIR="$("$REAL_GIT" -C "$ROOT" rev-parse --path-format=absolute --git-path hooks)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
-# shellcheck source=pre-commit/hooks/go-build-report.sh
+export CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT"
 source "${SCRIPT_DIR}/go-build-report.sh"
-# shellcheck source=pre-commit/hooks/go-build-cache.sh
 source "${SCRIPT_DIR}/go-build-cache.sh"
-# shellcheck source=pre-commit/hooks/tool-capture.sh
 source "${SCRIPT_DIR}/tool-capture.sh"
-# shellcheck source=pre-commit/hooks/go-runtime.sh
 source "${SCRIPT_DIR}/go-runtime.sh"
 export CODE_ETHOS_CONSUMER_ROOT="$ROOT"
-BIN_DIR="${GIT_COMMON_DIR}/coding-ethos-hooks"
-GIT_HOOK_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
-GIT_HOOK_BIN="${BIN_DIR}/coding-ethos-git-hook"
-TOOLS_SRC_DIR="${ETHOS_ROOT}/go"
-TOOLS_BIN_DIR="${BIN_DIR}/bin"
-POLICY_DIR="${BIN_DIR}/policy"
+BIN_DIR="${ETHOS_ROOT}/bin"
+export GIT_HOOK_SRC_DIR="${BUNDLE_ROOT}/hooks/go-hooks"
+GIT_HOOK_BIN="${BIN_DIR}/coding-ethos-hook-runner"
+export TOOLS_SRC_DIR="${ETHOS_ROOT}/go"
+TOOLS_BIN_DIR="${BIN_DIR}"
+POLICY_DIR="${ETHOS_ROOT}/build/policy"
 POLICY_BUNDLE="${POLICY_DIR}/policy-bundle.json"
+export POLICY_METADATA="${POLICY_DIR}/policy-metadata.json"
+TOOLCHAIN_DIR="${ETHOS_ROOT}/build/toolchain"
+MANAGED_GO_BIN_DIR="${TOOLCHAIN_DIR}/go-bin"
+MANAGED_PREFIX_DIR="${TOOLCHAIN_DIR}/prefix"
+MANAGED_GITHUB_BIN_DIR="${TOOLCHAIN_DIR}/github-bin"
+export PATH="${MANAGED_GO_BIN_DIR}:${MANAGED_PREFIX_DIR}/bin:${MANAGED_GITHUB_BIN_DIR}:${TOOLS_BIN_DIR}:${PATH}"
 
 start_hook_log() {
   if [[ -n "${CODE_ETHOS_HOOK_LOGGING_ACTIVE:-}" ]]; then
@@ -42,7 +43,6 @@ start_hook_log() {
   if [[ "${1:-}" == "cutover" ]]; then
     return
   fi
-
   local required_ignore
   for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
     if ! "$REAL_GIT" -C "$ROOT" check-ignore --quiet "$required_ignore"; then
@@ -50,14 +50,12 @@ start_hook_log() {
       exit 1
     fi
   done
-
   local log_root="${ROOT}/.coding-ethos/hook-runs"
   local timestamp
   timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
   local run_id="${timestamp}-$PPID-$$"
   local run_dir="${log_root}/${run_id}"
   mkdir -p "$run_dir"
-
   local stdout_log="${run_dir}/stdout.log"
   local stderr_log="${run_dir}/stderr.log"
   local metadata_log="${run_dir}/metadata.env"
@@ -66,24 +64,20 @@ start_hook_log() {
     printf 'started_at_utc=%q\n' "$timestamp"
     printf 'repo_root=%q\n' "$ROOT"
     printf 'bundle_root=%q\n' "$BUNDLE_ROOT"
-    printf 'git_common_dir=%q\n' "$GIT_COMMON_DIR"
     printf 'command=%q' "$0"
     printf ' %q' "$@"
     printf '\n'
   } > "$metadata_log"
-
   set +e
   CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$0" "$@" \
     > >(tee -a "$stdout_log") \
     2> >(tee -a "$stderr_log" >&2)
   local status=$?
   set -e
-
   {
     printf 'finished_at_utc=%q\n' "$(date -u +%Y%m%dT%H%M%SZ)"
     printf 'exit_code=%q\n' "$status"
   } >> "$metadata_log"
-
   exit "$status"
 }
 
@@ -187,6 +181,7 @@ has_arg() {
 }
 
 run_agent_hook() {
+  bootstrap_runtime_if_missing
   require_policy_bundle
   install_git_wrapper_shim
   install_lint_tool_shims
@@ -198,12 +193,20 @@ run_agent_hook() {
 }
 
 run_policy_lint() {
+  bootstrap_runtime_if_missing
   require_policy_bundle
   require_policy_tool coding-ethos-lint
   exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" "$@"
 }
 
+run_policy_command() {
+  bootstrap_runtime_if_missing
+  require_policy_tool coding-ethos-policy
+  exec "${TOOLS_BIN_DIR}/coding-ethos-policy" "$@"
+}
+
 run_policy_lint_check() {
+  bootstrap_runtime_if_missing
   require_policy_bundle
   require_policy_tool coding-ethos-lint
   local output
@@ -224,6 +227,7 @@ run_policy_lint_check() {
 }
 
 run_policy_git() {
+  bootstrap_runtime_if_missing
   require_policy_bundle
   install_git_wrapper_shim
   require_policy_tool coding-ethos-git
@@ -231,11 +235,19 @@ run_policy_git() {
 }
 
 run_policy_tool() {
-  require_policy_tool coding-ethos-policy
-  exec "${TOOLS_BIN_DIR}/coding-ethos-policy" "$@"
+  local tool_name="${1:-}"
+  shift || true
+
+  if ! captured_lint_tool "$tool_name"; then
+    printf 'FATAL: unknown policy tool %q\n' "$tool_name" >&2
+    exit 2
+  fi
+
+  run_captured_lint_tool "$tool_name" "$@"
 }
 
 run_agent_hooks() {
+  bootstrap_runtime_if_missing
   install_git_wrapper_shim
   install_lint_tool_shims
   build_policy_tool coding-ethos-agent-hooks
@@ -255,6 +267,7 @@ run_agent_hooks_tool() {
   if [[ "${1:-}" == "sync" ]]; then
     build_policy_tool coding-ethos-agent-hooks
   else
+    bootstrap_runtime_if_missing
     require_policy_tool coding-ethos-agent-hooks
   fi
   if ! has_arg --hook-command "$@"; then
@@ -421,7 +434,11 @@ run_cutover() {
 run_git_hook() {
   local hook_name="${1:-}"
 
+  bootstrap_runtime_if_missing
   require_policy_bundle
+  if [[ "$hook_name" == "validate" ]]; then
+    require_fresh_policy_bundle
+  fi
   case "$hook_name" in
     pre-commit | pre-push | commit-msg | validate)
       ;;
@@ -433,6 +450,7 @@ run_git_hook() {
 
   require_policy_tool coding-ethos-git-hook
   require_runtime_binary "$GIT_HOOK_BIN" "bundled Go hook runner"
+  install_lint_tool_shims
   exec "${TOOLS_BIN_DIR}/coding-ethos-git-hook" \
     --bundle "$POLICY_BUNDLE" \
     --runner "$GIT_HOOK_BIN" \
@@ -461,6 +479,10 @@ case "${1:-}" in
     shift
     run_policy_lint "$@"
     ;;
+  policy)
+    shift
+    run_policy_command "$@"
+    ;;
   policy-tool)
     shift
     run_policy_tool "$@"
@@ -470,6 +492,7 @@ case "${1:-}" in
     run_policy_git "$@"
     ;;
   *)
+    bootstrap_runtime_if_missing
     require_runtime_binary "$GIT_HOOK_BIN" "bundled Go hook runner"
     exec "$GIT_HOOK_BIN" "$@"
     ;;

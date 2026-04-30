@@ -1548,8 +1548,12 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
 	}
 	if !strings.Contains(output, `"systemMessage"`) ||
+		!strings.Contains(output, "Before ending:") ||
 		!strings.Contains(output, "planned work remains") {
 		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
+	}
+	if strings.Contains(output, "guidance:") {
+		t.Fatalf("Claude terminal lifecycle output should not begin with generic guidance label:\n%s", output)
 	}
 	assertNoRoutineContextClutter(t, output)
 }
@@ -1796,9 +1800,12 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.HasPrefix(context, "guidance:\n") ||
+	if !strings.HasPrefix(context, "Before ending:\n") ||
 		!strings.Contains(context, "planned work remains") {
 		t.Fatalf("unexpected stop guidance: %s", context)
+	}
+	if strings.Contains(context, "guidance:") {
+		t.Fatalf("terminal lifecycle context should not start with generic guidance label: %s", context)
 	}
 	assertNoRoutineContextClutter(t, context)
 }
@@ -1903,12 +1910,16 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	}
 
 	ruffPath := filepath.Join(binDir, "ruff")
+	ruffCode := "PLC" + "0415"
 	err = os.WriteFile(
 		ruffPath,
-		[]byte(`#!/usr/bin/env bash
-printf '%s\n' '[{"filename":"app.py","code":"F401","message":"unused import","location":{"row":1,"column":8}}]'
-exit 1
-`),
+		[]byte(
+			"#!/usr/bin/env bash\n"+
+				"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
+				ruffCode+
+				"\",\"message\":\"import outside top-level\",\"location\":{\"row\":1,\"column\":8}}]'\n"+
+				"exit 1\n",
+		),
 		0o700,
 	)
 	if err != nil {
@@ -1935,8 +1946,9 @@ exit 1
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "fast_lint:") ||
 		!strings.Contains(context, "tool: ruff") ||
-		!strings.Contains(context, "F401") ||
-		!strings.Contains(context, "unused import") {
+		!strings.Contains(context, ruffCode) ||
+		!strings.Contains(context, "advice:") ||
+		!strings.Contains(context, "Move required imports to module scope") {
 		t.Fatalf("missing fast ruff finding: %s", context)
 	}
 }
@@ -1979,7 +1991,9 @@ func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
 
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "lint_history:") ||
-		!strings.Contains(context, "recurring_tool_codes: ruff:E402=1") ||
+		!strings.Contains(context, "recurring_tool_codes:") ||
+		!strings.Contains(context, "ruff:E402=1") ||
+		!strings.Contains(context, "unmapped_tool_codes: pylint:no-member=1") ||
 		!strings.Contains(context, "Move imports to module scope.") {
 		t.Fatalf("missing relevant lint history: %s", context)
 	}
@@ -2007,12 +2021,23 @@ func writeHookTraceFixture(t *testing.T, path string) {
 			Findings: []lint.Finding{
 				{
 					CheckID:    "python.import_order",
+					PolicyID:   "python.import_order",
 					SourceTool: "ruff",
 					Code:       "E402",
 					File:       "lib/python/app.py",
 					Status:     "fail",
 					Message:    "Module import not at top",
 					Advice:     "Move imports to module scope.",
+					EthosIDs:   []string{"static-analysis-is-the-first-line-of-defense"},
+					Blocking:   true,
+				},
+				{
+					CheckID:    "tool.pylint",
+					SourceTool: "pylint",
+					Code:       "no-member",
+					File:       "lib/python/app.py",
+					Status:     "fail",
+					Message:    "Instance has no member",
 					Blocking:   true,
 				},
 				{
