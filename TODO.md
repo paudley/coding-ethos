@@ -142,14 +142,14 @@ Acceptance criteria:
   required runtime artifact.
 - [x] Prepend managed toolchain directories to hook runtime `PATH` before
   dispatching to Go hook code.
-- [ ] Migrate ShellCheck, actionlint, hadolint, and golangci-lint to pinned
+- [x] Migrate ShellCheck, actionlint, hadolint, and golangci-lint to pinned
   managed installers.
-- [ ] Record managed tool versions and checksums in a toolchain manifest.
+- [x] Record managed tool versions and checksums in a toolchain manifest.
 
 Acceptance criteria:
 
 - [x] Hook execution does not require host `shfmt` on `PATH`.
 - [x] Missing managed `shfmt` self-repairs through `make -C <coding-ethos>
   build`.
-- [ ] All binary linters used by hook groups resolve from the managed
+- [x] All binary linters used by hook groups resolve from the managed
   toolchain before host `PATH`.

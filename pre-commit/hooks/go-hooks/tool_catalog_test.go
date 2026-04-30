@@ -3,7 +3,12 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const toolCatalogGoFile = "pkg/app.go"
 
@@ -61,5 +66,55 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 
 	if got := toolchainFiles("shfmt", paths); len(got) != 1 || got[0] != "script.sh" {
 		t.Fatalf("shfmt files = %#v", got)
+	}
+}
+
+func TestToolchainCommandUsesManagedBinaryPath(t *testing.T) {
+	root := t.TempDir()
+	bundleRoot := filepath.Join(root, "pre-commit")
+	hooksRoot := filepath.Join(bundleRoot, "hooks")
+	goHooksRoot := filepath.Join(hooksRoot, "go-hooks")
+	githubBin := filepath.Join(root, "build", "toolchain", "github-bin")
+
+	err := os.MkdirAll(goHooksRoot, 0o755)
+	if err != nil {
+		t.Fatalf("mkdir hook root: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(hooksRoot, "run-go-hook.sh"),
+		[]byte("#!/usr/bin/env bash\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write run-go-hook.sh: %v", err)
+	}
+
+	err = os.MkdirAll(githubBin, 0o755)
+	if err != nil {
+		t.Fatalf("mkdir github bin: %v", err)
+	}
+
+	managedShellcheck := filepath.Join(githubBin, "shellcheck")
+
+	err = os.WriteFile(managedShellcheck, []byte("#!/usr/bin/env bash\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write shellcheck: %v", err)
+	}
+
+	err = os.Chmod(managedShellcheck, 0o755)
+	if err != nil {
+		t.Fatalf("chmod shellcheck: %v", err)
+	}
+
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	command := toolchainCommand("shellcheck")
+	if len(command) == 0 || command[0] != managedShellcheck {
+		t.Fatalf("toolchainCommand(shellcheck) = %#v, want managed binary", command)
+	}
+
+	if strings.Contains(strings.Join(command, " "), "/usr/bin/shellcheck") {
+		t.Fatalf("toolchain command used host binary: %#v", command)
 	}
 }

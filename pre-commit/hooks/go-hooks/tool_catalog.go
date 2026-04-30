@@ -22,8 +22,19 @@ func toolchainCatalogTool(name string) toolcatalog.Tool {
 
 func toolchainCommand(name string) []string {
 	tool := toolchainCatalogTool(name)
+	command := append([]string(nil), tool.Command...)
 
-	return append([]string(nil), tool.Command...)
+	if len(command) == 0 {
+		return command
+	}
+
+	if managed := managedToolchainBinaryPath(tool); managed != "" {
+		command[0] = managed
+
+		return command
+	}
+
+	return command
 }
 
 func toolchainCommandWithFiles(name string, files []string) []string {
@@ -143,6 +154,31 @@ func parseCatalogFindings(tool string, output string) []hookFinding {
 	diagnostics = diag.Enrich(diagnostics, loadHookEvidenceMaps())
 
 	return diagnosticsToHookFindings(diagnostics)
+}
+
+func managedToolchainBinaryPath(tool toolcatalog.Tool) string {
+	if tool.Name == "" {
+		return ""
+	}
+
+	bundleRoot, err := findBundleRoot()
+	if err != nil {
+		return ""
+	}
+
+	ethosRoot := filepath.Dir(bundleRoot)
+	runtime := tool.Runtime
+
+	switch runtime {
+	case toolcatalog.RuntimeGo:
+		return filepath.Join(ethosRoot, "build", "toolchain", "go-bin", tool.Name)
+	case toolcatalog.RuntimeBinary:
+		return filepath.Join(ethosRoot, "build", "toolchain", "github-bin", tool.Name)
+	case toolcatalog.RuntimePython, toolcatalog.RuntimeUV:
+		return ""
+	default:
+		return ""
+	}
 }
 
 func diagnosticsToHookFindings(items []diag.Diagnostic) []hookFinding {

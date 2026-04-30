@@ -541,9 +541,9 @@ if ! grep -q 'This is a SYSTEM rule' /tmp/coding-ethos-git-refusal.err; then
   cat /tmp/coding-ethos-git-refusal.out >&2
   exit 1
 fi
-shim_dir="$(git -C "$wrapper_repo" rev-parse --path-format=absolute --git-common-dir)/coding-ethos-hooks/bin"
+shim_dir="$repo_root/bin"
 if [[ ! -x "$shim_dir/git" ]]; then
-  printf 'expected executable git shim at %s/git\n' "$shim_dir" >&2
+  printf 'expected executable checkout git shim at %s/git\n' "$shim_dir" >&2
   exit 1
 fi
 
