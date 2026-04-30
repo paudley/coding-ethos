@@ -4,6 +4,9 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -212,17 +215,55 @@ func diagnosticsToHookFindings(items []diag.Diagnostic) []hookFinding {
 }
 
 func loadHookEvidenceMaps() []diag.EvidenceMap {
-	_, _, rootConfig, err := loadBundleConsumerAndConfig()
+	bundleRoot, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
-		return defaultPolicyEvidenceMaps()
+		return nil
 	}
 
-	maps := make([]diag.EvidenceMap, 0, len(defaultPolicyEvidenceMaps()))
-
-	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &maps)
+	maps, err := loadCompiledEvidenceMaps(bundleRoot)
 	if err != nil || len(maps) == 0 {
-		return defaultPolicyEvidenceMaps()
+		maps = configuredEvidenceMaps(rootConfig)
 	}
 
-	return append(maps, defaultPolicyEvidenceMaps()...)
+	if len(maps) == 0 {
+		return nil
+	}
+
+	return maps
+}
+
+func loadCompiledEvidenceMaps(bundleRoot string) ([]diag.EvidenceMap, error) {
+	bundlePath := filepath.Join(
+		filepath.Dir(bundleRoot),
+		"build",
+		"policy",
+		"policy-bundle.json",
+	)
+
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("read policy bundle evidence maps: %w", err)
+	}
+
+	var payload struct {
+		EvidenceMaps []diag.EvidenceMap `json:"evidence_maps"`
+	}
+
+	err = json.Unmarshal(data, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode policy bundle evidence maps: %w", err)
+	}
+
+	return payload.EvidenceMaps, nil
+}
+
+func configuredEvidenceMaps(rootConfig map[string]any) []diag.EvidenceMap {
+	var maps []diag.EvidenceMap
+
+	err := decodeConfigSection(rootConfig, "policy.evidence_maps", &maps)
+	if err != nil {
+		return nil
+	}
+
+	return maps
 }

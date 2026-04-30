@@ -47,20 +47,47 @@ func RunWithRegistry(
 	registry evaluators.Registry,
 ) (Result, error) {
 	event := options.Event
-	route := gitWrapperRouteFor(event)
-	if !route.Block && !route.Rewrite {
-		route = lintToolRouteFor(event)
+	route := routeToolUse(event)
+	decisions, err := evaluateDispatchedPolicies(bundle, event, registry)
+	if err != nil {
+		return Result{}, err
 	}
-	if !route.Block && !route.Rewrite {
-		route = pythonRuntimeRouteFor(event)
+
+	decisions = appendRouteBlockDecision(bundle, route, decisions)
+	status := resultStatus(decisions)
+	if status == statusBlocked {
+		route = gitWrapperRoute{}
 	}
+
+	return buildResult(bundle, event, route, decisions, status), nil
+}
+
+func routeToolUse(event Event) gitWrapperRoute {
+	for _, routeFor := range []func(Event) gitWrapperRoute{
+		gitWrapperRouteFor,
+		lintToolRouteFor,
+		pythonRuntimeRouteFor,
+	} {
+		route := routeFor(event)
+		if route.Block || route.Rewrite {
+			return route
+		}
+	}
+
+	return gitWrapperRoute{}
+}
+
+func evaluateDispatchedPolicies(
+	bundle policy.Bundle,
+	event Event,
+	registry evaluators.Registry,
+) ([]policy.Decision, error) {
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 	decisions := make([]policy.Decision, 0, len(entries))
-
 	for _, entry := range entries {
 		policyDef, ok := bundle.Policies[entry.PolicyID]
 		if !ok {
-			return Result{}, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"%w: %q",
 				errUnknownHookPolicy,
 				entry.PolicyID,
@@ -69,7 +96,7 @@ func RunWithRegistry(
 
 		evaluated, err := evaluateHookPolicy(policyDef, entry, event, registry)
 		if err != nil {
-			return Result{}, err
+			return nil, err
 		}
 
 		decisions = append(decisions, evaluated...)
@@ -78,18 +105,31 @@ func RunWithRegistry(
 		}
 	}
 
+	return decisions, nil
+}
+
+func appendRouteBlockDecision(
+	bundle policy.Bundle,
+	route gitWrapperRoute,
+	decisions []policy.Decision,
+) []policy.Decision {
 	if route.Block && resultStatus(decisions) != statusBlocked {
-		decisions = append(
-			decisions,
+		return append(
+			append([]policy.Decision(nil), decisions...),
 			routeBlockDecision(bundle, route.BlockPolicyID, route.Reason),
 		)
 	}
 
-	status := resultStatus(decisions)
-	if status == statusBlocked {
-		route = gitWrapperRoute{}
-	}
+	return decisions
+}
 
+func buildResult(
+	bundle policy.Bundle,
+	event Event,
+	route gitWrapperRoute,
+	decisions []policy.Decision,
+	status string,
+) Result {
 	return Result{
 		Event:              event.HookEventName,
 		Advice:             bundle.Advice,
@@ -98,7 +138,7 @@ func RunWithRegistry(
 		Status:             status,
 		Decisions:          decisions,
 		HookSpecificOutput: hookSpecificOutput(bundle, event, route),
-	}, nil
+	}
 }
 
 func hookSpecificOutput(

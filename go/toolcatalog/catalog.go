@@ -41,6 +41,13 @@ type Tool struct {
 	EnabledByDefault     bool     `json:"enabled_by_default"`
 }
 
+type CapturedTool struct {
+	Name         string
+	ModuleNames  []string
+	Description  string
+	PythonModule bool
+}
+
 func PythonStaticTools() []Tool {
 	return cloneTools(pythonStaticToolDefinitions())
 }
@@ -68,12 +75,102 @@ func HookOwnedTool(name string) (Tool, bool) {
 	return findTool(name, HookOwnedTools())
 }
 
+func CapturedLintTools() []CapturedTool {
+	tools := []Tool{
+		ruffTool(),
+		mypyTool(),
+		pyrightTool(),
+		pylintTool(),
+		banditTool(),
+		sqlfluffTool(),
+		tombiTool(),
+		shellcheckTool(),
+		golangciLintTool(),
+		actionlintTool(),
+		yamllintTool(),
+		hadolintTool(),
+		dotenvLinterTool(),
+	}
+
+	captured := make([]CapturedTool, 0, len(tools))
+	for _, tool := range tools {
+		captured = append(captured, capturedToolFromTool(tool))
+	}
+
+	return captured
+}
+
+func CapturedLintTool(name string) (CapturedTool, bool) {
+	for _, tool := range CapturedLintTools() {
+		if tool.Name == name {
+			return tool.clone(), true
+		}
+	}
+
+	return CapturedTool{}, false
+}
+
 func pythonStaticToolDefinitions() []Tool {
 	return []Tool{
 		ruffTool(),
 		pyrightTool(),
 		mypyTool(),
 		pylintTool(),
+	}
+}
+
+func capturedToolFromTool(tool Tool) CapturedTool {
+	return CapturedTool{
+		Name:         tool.Name,
+		ModuleNames:  moduleNamesForTool(tool),
+		Description:  displayNameForTool(tool.Name),
+		PythonModule: tool.Runtime == RuntimePython || tool.Runtime == RuntimeUV,
+	}
+}
+
+func moduleNamesForTool(tool Tool) []string {
+	if tool.Runtime != RuntimePython && tool.Runtime != RuntimeUV {
+		return nil
+	}
+
+	commandName := tool.Name
+	if len(tool.Command) > 0 {
+		commandName = tool.Command[0]
+	}
+
+	return []string{commandName}
+}
+
+func displayNameForTool(name string) string {
+	switch name {
+	case "ruff":
+		return "Ruff"
+	case "mypy":
+		return "mypy"
+	case "pyright":
+		return "Pyright"
+	case "pylint":
+		return "Pylint"
+	case "shellcheck":
+		return "ShellCheck"
+	case "golangci-lint":
+		return "golangci-lint"
+	case "actionlint":
+		return "actionlint"
+	case "yamllint":
+		return "yamllint"
+	case "hadolint":
+		return "hadolint"
+	case "bandit":
+		return "Bandit"
+	case "sqlfluff":
+		return "sqlfluff"
+	case "tombi":
+		return "Tombi"
+	case "dotenv-linter":
+		return "dotenv-linter"
+	default:
+		return name
 	}
 }
 
@@ -657,6 +754,12 @@ func (tool Tool) clone() Tool {
 	tool.BaseNamePrefixes = append([]string(nil), tool.BaseNamePrefixes...)
 	tool.Languages = append([]string(nil), tool.Languages...)
 	tool.PostConfigArgs = append([]string(nil), tool.PostConfigArgs...)
+
+	return tool
+}
+
+func (tool CapturedTool) clone() CapturedTool {
+	tool.ModuleNames = append([]string(nil), tool.ModuleNames...)
 
 	return tool
 }

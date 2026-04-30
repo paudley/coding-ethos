@@ -189,10 +189,8 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 	t.Parallel()
 
 	findings := capturedFindings(
-		"pyright",
-		[]string{"pkg"},
-		[]string{"--outputjson", "pkg"},
-		2,
+		captureRequest{Tool: "pyright", Args: []string{"pkg"}},
+		captureExecution{RunArgs: []string{"--outputjson", "pkg"}, ExitCode: 2},
 		"pyright: config file not found in <repo>/pyrightconfig.json",
 		nil,
 	)
@@ -214,15 +212,17 @@ func TestCapturedToolResultRecordsCaptureMetadata(t *testing.T) {
 	t.Parallel()
 
 	result := capturedToolResult(
-		"mypy",
-		[]string{"pkg/app.py"},
-		[]string{"--output=json", "pkg/app.py"},
-		2,
-		"/work/repo",
-		"/work/repo",
-		"",
-		"mypy: error: cannot read file '/work/repo/pkg/app.py'",
-		nil,
+		captureRequest{
+			Tool:      "mypy",
+			Cwd:       "/work/repo",
+			TraceRoot: "/work/repo",
+			Args:      []string{"pkg/app.py"},
+		},
+		captureExecution{
+			RunArgs:  []string{"--output=json", "pkg/app.py"},
+			Stderr:   "mypy: error: cannot read file '/work/repo/pkg/app.py'",
+			ExitCode: 2,
+		},
 	)
 
 	if result.Capture == nil {
@@ -247,15 +247,21 @@ func TestCapturedToolResultNormalizesAbsoluteDiagnosticsToTraceRoot(t *testing.T
 	absoluteFile := filepath.Join(traceRoot, "pkg", "app.py")
 
 	result := capturedToolResult(
-		"ruff",
-		[]string{"check", absoluteFile},
-		[]string{"check", "--output-format=json", absoluteFile},
-		1,
-		toolRoot,
-		traceRoot,
-		`[{"filename":"`+filepath.ToSlash(absoluteFile)+`","code":"F401","message":"unused import","location":{"row":4,"column":8}}]`,
-		"",
-		nil,
+		captureRequest{
+			Tool:      "ruff",
+			Cwd:       toolRoot,
+			TraceRoot: traceRoot,
+			Args:      []string{"check", absoluteFile},
+		},
+		captureExecution{
+			RunArgs: []string{"check", "--output-format=json", absoluteFile},
+			Stdout: `[` +
+				`{"filename":"` + filepath.ToSlash(absoluteFile) + `",` +
+				`"code":"F401","message":"unused import",` +
+				`"location":{"row":4,"column":8}}` +
+				`]`,
+			ExitCode: 1,
+		},
 	)
 
 	if len(result.Diagnostics) != 1 {

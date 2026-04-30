@@ -1,0 +1,183 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package lint
+
+import (
+	"cmp"
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+)
+
+func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
+	if len(result.Diagnostics) > 0 {
+		return diagnostics.Dedupe(result.Diagnostics)
+	}
+	if len(result.Findings) > 0 {
+		return findingDiagnostics(result.Findings, result.Blocked())
+	}
+
+	decisions := result.Decisions
+	if result.Blocked() {
+		blocking := []int{}
+		for index, decision := range decisions {
+			if decision.Decision == "block" || decision.Severity == "block" {
+				blocking = append(blocking, index)
+			}
+		}
+		if len(blocking) > 0 {
+			blockingDecisions := decisions[:0:0]
+			for _, index := range blocking {
+				blockingDecisions = append(blockingDecisions, decisions[index])
+			}
+			decisions = blockingDecisions
+		}
+	}
+
+	findings := make([]diagnostics.Diagnostic, 0, len(decisions))
+	for _, decision := range decisions {
+		if len(decision.Diagnostics) > 0 {
+			findings = append(findings, decision.Diagnostics...)
+			continue
+		}
+		findings = append(findings, diagnostics.Diagnostic{
+			Tool:     "policy",
+			Severity: decision.Severity,
+			PolicyID: decision.PolicyID,
+			Message:  decision.Message,
+			Advice:   decision.Suggestion,
+		})
+	}
+
+	return sortDiagnostics(diagnostics.Dedupe(findings))
+}
+
+func ResultTool(result Result) string {
+	if tool, ok := strings.CutPrefix(result.Scope, "tool:"); ok && tool != "" {
+		return tool
+	}
+
+	return "policy-lint"
+}
+
+func ResultStatus(result Result) string {
+	if result.Blocked() {
+		return "FAIL"
+	}
+
+	return "PASS"
+}
+
+func findingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnostic {
+	selected := findings
+	if blocked {
+		blocking := blockingFindings(findings)
+		if len(blocking) > 0 {
+			selected = blocking
+		}
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(selected))
+	for _, finding := range selected {
+		items = append(items, diagnosticFromFinding(finding))
+	}
+
+	return sortDiagnostics(diagnostics.Dedupe(items))
+}
+
+func blockingFindings(findings []Finding) []Finding {
+	blocking := []Finding{}
+	for _, finding := range findings {
+		if finding.Blocking || finding.Status == "fail" ||
+			finding.Severity == "block" || finding.Severity == "error" {
+			blocking = append(blocking, finding)
+		}
+	}
+
+	return blocking
+}
+
+func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
+	return diagnostics.Diagnostic{
+		Tool:     firstOutputNonEmpty(finding.SourceTool, "policy"),
+		File:     finding.File,
+		Line:     finding.Line,
+		Column:   finding.Column,
+		Severity: finding.Severity,
+		Code:     finding.Code,
+		PolicyID: firstOutputNonEmpty(finding.PolicyID, finding.CheckID),
+		Message:  finding.Message,
+		Advice:   finding.Advice,
+		Detail:   findingDetail(finding),
+	}
+}
+
+func findingDetail(finding Finding) string {
+	parts := []string{}
+	appendRawOutcomeString := func(key string, label string) {
+		value, ok := finding.RawOutcome[key]
+		if !ok || value == nil {
+			return
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			return
+		}
+		parts = append(parts, label+"="+text)
+	}
+
+	appendRawOutcomeString("category", "category")
+	appendRawOutcomeString("exit_code", "exit_code")
+	appendRawOutcomeString("output", "output")
+
+	return strings.Join(parts, "; ")
+}
+
+func sortDiagnostics(items []diagnostics.Diagnostic) []diagnostics.Diagnostic {
+	slices.SortStableFunc(items, compareDiagnostics)
+
+	return items
+}
+
+func compareDiagnostics(left diagnostics.Diagnostic, right diagnostics.Diagnostic) int {
+	leftBlock := diagnosticBlocks(left)
+	rightBlock := diagnosticBlocks(right)
+	if leftBlock != rightBlock {
+		if leftBlock {
+			return -1
+		}
+
+		return 1
+	}
+
+	return cmp.Compare(diagnosticSortKey(left), diagnosticSortKey(right))
+}
+
+func diagnosticBlocks(finding diagnostics.Diagnostic) bool {
+	return finding.Severity == "block" || finding.Severity == "error"
+}
+
+func diagnosticSortKey(finding diagnostics.Diagnostic) string {
+	return strings.Join([]string{
+		finding.File,
+		strconv.Itoa(finding.Line),
+		finding.PolicyID,
+		finding.Tool,
+		finding.Code,
+		finding.Message,
+	}, "\x00")
+}
+
+func firstOutputNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
+}

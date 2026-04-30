@@ -21,6 +21,22 @@ import (
 
 var errCaptureToolPathRequired = errors.New("--tool-path is required with --capture-tool")
 
+type captureRequest struct {
+	Tool         string
+	ToolPath     string
+	Cwd          string
+	TraceRoot    string
+	Args         []string
+	EvidenceMaps []diagnostics.EvidenceMap
+}
+
+type captureExecution struct {
+	Stdout   string
+	Stderr   string
+	RunArgs  []string
+	ExitCode int
+}
+
 func runCapturedTool(
 	tool string,
 	toolPath string,
@@ -29,38 +45,21 @@ func runCapturedTool(
 	args []string,
 	evidenceMaps []diagnostics.EvidenceMap,
 ) int {
-	if strings.TrimSpace(toolPath) == "" {
+	request := captureRequest{
+		Tool:         tool,
+		ToolPath:     toolPath,
+		Cwd:          cwd,
+		TraceRoot:    traceRoot,
+		Args:         append([]string(nil), args...),
+		EvidenceMaps: evidenceMaps,
+	}
+	if strings.TrimSpace(request.ToolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
 	}
 
-	runArgs := capturedToolArgs(tool, args)
-	command := exec.Command(toolPath, runArgs...)
-	if cwd != "" {
-		command.Dir = cwd
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	command.Stdin = os.Stdin
-
-	err := command.Run()
-	exitCode := capturedExitCode(err)
-	stdoutText := stdout.String()
-	stderrText := stderr.String()
-	result := capturedToolResult(
-		tool,
-		args,
-		runArgs,
-		exitCode,
-		cwd,
-		traceRoot,
-		stdoutText,
-		stderrText,
-		evidenceMaps,
-	)
-	logCapturedToolResult(firstCaptureNonEmpty(traceRoot, cwd), result)
+	execution := executeCapturedTool(request)
+	result := capturedToolResult(request, execution)
+	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
 	if result.Blocked() || len(result.Diagnostics) > 0 {
 		if encodeErr := hookoutput.EncodeLintResult(
 			os.Stdout,
@@ -71,7 +70,29 @@ func runCapturedTool(
 		}
 	}
 
-	return exitCode
+	return execution.ExitCode
+}
+
+func executeCapturedTool(request captureRequest) captureExecution {
+	runArgs := capturedToolArgs(request.Tool, request.Args)
+	command := exec.Command(request.ToolPath, runArgs...)
+	if request.Cwd != "" {
+		command.Dir = request.Cwd
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	command.Stdin = os.Stdin
+	err := command.Run()
+
+	return captureExecution{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		RunArgs:  runArgs,
+		ExitCode: capturedExitCode(err),
+	}
 }
 
 func logCapturedToolResult(
@@ -84,57 +105,53 @@ func logCapturedToolResult(
 }
 
 func capturedToolResult(
-	tool string,
-	args []string,
-	runArgs []string,
-	exitCode int,
-	cwd string,
-	traceRoot string,
-	stdout string,
-	stderr string,
-	evidenceMaps []diagnostics.EvidenceMap,
+	request captureRequest,
+	execution captureExecution,
 ) lint.Result {
-	parsed := diagnostics.Parse(tool, stdout, stderr)
-	parsed = normalizeCapturedDiagnosticPaths(parsed, traceRoot)
-	parsed = diagnostics.Enrich(parsed, evidenceMaps)
+	parsed := diagnostics.Parse(request.Tool, execution.Stdout, execution.Stderr)
+	parsed = normalizeCapturedDiagnosticPaths(parsed, request.TraceRoot)
+	parsed = diagnostics.Enrich(parsed, request.EvidenceMaps)
 	parsed = diagnostics.Dedupe(parsed)
-	outputExcerpt := capturedOutputExcerpt(stdout, stderr, firstCaptureNonEmpty(traceRoot, cwd), cwd)
+	outputExcerpt := capturedOutputExcerpt(
+		execution.Stdout,
+		execution.Stderr,
+		firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
+		request.Cwd,
+	)
 
 	return lint.Result{
-		Scope:       "tool:" + tool,
-		Status:      capturedStatus(exitCode),
-		Capture:     capturedToolMetadata(tool, args, runArgs, exitCode, outputExcerpt, parsed),
+		Scope:       "tool:" + request.Tool,
+		Status:      capturedStatus(execution.ExitCode),
+		Capture:     capturedToolMetadata(request, execution, outputExcerpt, parsed),
 		Diagnostics: parsed,
-		Findings:    capturedFindings(tool, args, runArgs, exitCode, outputExcerpt, parsed),
+		Findings:    capturedFindings(request, execution, outputExcerpt, parsed),
 	}
 }
 
 func capturedFindings(
-	tool string,
-	args []string,
-	runArgs []string,
-	exitCode int,
+	request captureRequest,
+	execution captureExecution,
 	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
-	outcome := capturedOutcome(tool, exitCode, items)
+	outcome := capturedOutcome(request.Tool, execution.ExitCode, items)
 	if len(items) == 0 {
-		if exitCode == 0 {
+		if execution.ExitCode == 0 {
 			return nil
 		}
 
 		return []lint.Finding{{
 			RawOutcome: map[string]any{
 				"category":  outcome.Category,
-				"args":      append([]string(nil), args...),
-				"exit_code": exitCode,
-				"run_args":  append([]string(nil), runArgs...),
+				"args":      append([]string(nil), request.Args...),
+				"exit_code": execution.ExitCode,
+				"run_args":  append([]string(nil), execution.RunArgs...),
 				"output":    outputExcerpt,
 			},
-			CheckID:    "tool." + tool,
+			CheckID:    "tool." + request.Tool,
 			Message:    outcome.Message,
 			Severity:   "error",
-			SourceTool: tool,
+			SourceTool: request.Tool,
 			Status:     "fail",
 			Blocking:   true,
 		}}
@@ -145,21 +162,21 @@ func capturedFindings(
 		findings = append(findings, lint.Finding{
 			RawOutcome: map[string]any{
 				"category":  outcome.Category,
-				"args":      append([]string(nil), args...),
-				"exit_code": exitCode,
-				"run_args":  append([]string(nil), runArgs...),
+				"args":      append([]string(nil), request.Args...),
+				"exit_code": execution.ExitCode,
+				"run_args":  append([]string(nil), execution.RunArgs...),
 			},
 			Advice:     item.Advice,
-			CheckID:    firstCaptureNonEmpty(item.PolicyID, "tool."+tool),
+			CheckID:    firstCaptureNonEmpty(item.PolicyID, "tool."+request.Tool),
 			Code:       item.Code,
 			File:       item.File,
 			Message:    item.Message,
 			PolicyID:   item.PolicyID,
 			Severity:   firstCaptureNonEmpty(item.Severity, "error"),
-			SourceTool: firstCaptureNonEmpty(item.Tool, tool),
-			Status:     capturedStatus(exitCode),
+			SourceTool: firstCaptureNonEmpty(item.Tool, request.Tool),
+			Status:     capturedStatus(execution.ExitCode),
 			EthosIDs:   append([]string(nil), item.PrincipleIDs...),
-			Blocking:   exitCode != 0,
+			Blocking:   execution.ExitCode != 0,
 			Column:     item.Column,
 			Line:       item.Line,
 		})
@@ -169,21 +186,19 @@ func capturedFindings(
 }
 
 func capturedToolMetadata(
-	tool string,
-	args []string,
-	runArgs []string,
-	exitCode int,
+	request captureRequest,
+	execution captureExecution,
 	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) *lint.ToolCapture {
 	return &lint.ToolCapture{
-		Tool:          tool,
-		Parser:        tool,
-		ParseStatus:   capturedParseStatus(exitCode, items),
+		Tool:          request.Tool,
+		Parser:        request.Tool,
+		ParseStatus:   capturedParseStatus(execution.ExitCode, items),
 		OutputExcerpt: outputExcerpt,
-		Args:          append([]string(nil), args...),
-		RunArgs:       append([]string(nil), runArgs...),
-		ExitCode:      exitCode,
+		Args:          append([]string(nil), request.Args...),
+		RunArgs:       append([]string(nil), execution.RunArgs...),
+		ExitCode:      execution.ExitCode,
 	}
 }
 

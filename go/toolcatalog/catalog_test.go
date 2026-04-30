@@ -239,6 +239,49 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 	}
 }
 
+func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	captured := map[string]toolcatalog.CapturedTool{}
+	for _, tool := range toolcatalog.CapturedLintTools() {
+		captured[tool.Name] = tool
+	}
+
+	for _, name := range []string{
+		"ruff",
+		"mypy",
+		"pyright",
+		"pylint",
+		"bandit",
+		"sqlfluff",
+		"tombi",
+		"shellcheck",
+		"golangci-lint",
+		"actionlint",
+		"yamllint",
+		"hadolint",
+		"dotenv-linter",
+	} {
+		tool, found := toolcatalog.HookOwnedTool(name)
+		if !found {
+			t.Fatalf("HookOwnedTool(%q) missing", name)
+		}
+		capture, found := captured[name]
+		if !found {
+			t.Fatalf("CapturedLintTools() missing %q", name)
+		}
+		if capture.Description == "" {
+			t.Fatalf("CapturedLintTools(%q) missing description", name)
+		}
+		if tool.Runtime == toolcatalog.RuntimePython ||
+			tool.Runtime == toolcatalog.RuntimeUV {
+			if !capture.PythonModule || len(capture.ModuleNames) == 0 {
+				t.Fatalf("%s missing Python module capture metadata: %#v", name, capture)
+			}
+		}
+	}
+}
+
 func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 	t.Parallel()
 

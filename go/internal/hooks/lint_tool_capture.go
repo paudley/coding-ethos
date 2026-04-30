@@ -8,32 +8,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 const tokenPolicyTool = "policy-tool"
-
-type capturedLintTool struct {
-	Name         string
-	ModuleNames  []string
-	Description  string
-	PythonModule bool
-}
-
-var capturedLintTools = []capturedLintTool{
-	{Name: "ruff", ModuleNames: []string{"ruff"}, Description: "Ruff", PythonModule: true},
-	{Name: "mypy", ModuleNames: []string{"mypy"}, Description: "mypy", PythonModule: true},
-	{Name: "pyright", ModuleNames: []string{"pyright"}, Description: "Pyright", PythonModule: true},
-	{Name: "pylint", ModuleNames: []string{"pylint"}, Description: "Pylint", PythonModule: true},
-	{Name: "bandit", ModuleNames: []string{"bandit"}, Description: "Bandit", PythonModule: true},
-	{Name: "sqlfluff", ModuleNames: []string{"sqlfluff"}, Description: "sqlfluff", PythonModule: true},
-	{Name: "tombi", ModuleNames: []string{"tombi"}, Description: "Tombi", PythonModule: true},
-	{Name: "shellcheck", Description: "ShellCheck"},
-	{Name: "golangci-lint", Description: "golangci-lint"},
-	{Name: "actionlint", Description: "actionlint"},
-	{Name: "yamllint", ModuleNames: []string{"yamllint"}, Description: "yamllint", PythonModule: true},
-	{Name: "hadolint", Description: "hadolint"},
-	{Name: "dotenv-linter", Description: "dotenv-linter"},
-}
 
 func lintToolRouteFor(event Event) gitWrapperRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
@@ -90,7 +69,7 @@ func lintCapturePolicyID(toolName string) string {
 	return "tool." + strings.ReplaceAll(toolName, "-", "_") + "_capture_required"
 }
 
-func lintCaptureRequiredMessage(tool capturedLintTool) string {
+func lintCaptureRequiredMessage(tool toolcatalog.CapturedTool) string {
 	name := firstCaptureNonEmpty(tool.Description, tool.Name, "Lint tools")
 
 	return name + " must run through the coding-ethos lint capture wrapper so " +
@@ -99,14 +78,14 @@ func lintCaptureRequiredMessage(tool capturedLintTool) string {
 		"python -m, uv run, PATH edits, subprocesses, or shell bypasses."
 }
 
-func rewriteLintToolCommandChain(command string) (string, capturedLintTool, bool, bool) {
+func rewriteLintToolCommandChain(command string) (string, toolcatalog.CapturedTool, bool, bool) {
 	tokens := shellControlFields(command)
 	if len(tokens) == 0 {
-		return "", capturedLintTool{}, false, true
+		return "", toolcatalog.CapturedTool{}, false, true
 	}
 
 	rewritten := make([]string, 0, len(tokens))
-	var routedTool capturedLintTool
+	var routedTool toolcatalog.CapturedTool
 	rewrite := false
 
 	for index := 0; index < len(tokens); {
@@ -143,12 +122,12 @@ func rewriteLintToolCommandChain(command string) (string, capturedLintTool, bool
 
 func rewriteLintToolSegment(
 	segment []string,
-) (string, capturedLintTool, bool) {
+) (string, toolcatalog.CapturedTool, bool) {
 	if len(segment) == 0 {
-		return "", capturedLintTool{}, true
+		return "", toolcatalog.CapturedTool{}, true
 	}
 	if managedLintToolSegment(segment) {
-		return "", capturedLintTool{}, true
+		return "", toolcatalog.CapturedTool{}, true
 	}
 
 	args, redirections := splitShellRedirections(segment)
@@ -166,12 +145,12 @@ func rewriteLintToolSegment(
 		return "", tool, false
 	}
 
-	return "", capturedLintTool{}, true
+	return "", toolcatalog.CapturedTool{}, true
 }
 
-func unmanagedLintToolArgs(segment []string) (capturedLintTool, []string, bool) {
+func unmanagedLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
 	if len(segment) == 0 {
-		return capturedLintTool{}, nil, false
+		return toolcatalog.CapturedTool{}, nil, false
 	}
 
 	if tool, ok := capturedToolForCommand(segment[0]); ok {
@@ -192,7 +171,7 @@ func unmanagedLintToolArgs(segment []string) (capturedLintTool, []string, bool) 
 		}
 	}
 
-	return capturedLintTool{}, nil, false
+	return toolcatalog.CapturedTool{}, nil, false
 }
 
 func lintCaptureCommand(toolName string, args []string) string {
@@ -252,38 +231,34 @@ func managedLintToolSegment(segment []string) bool {
 		capturedToolName(segment[2])
 }
 
-func capturedToolForCommand(token string) (capturedLintTool, bool) {
+func capturedToolForCommand(token string) (toolcatalog.CapturedTool, bool) {
 	base := filepath.Base(token)
-	for _, tool := range capturedLintTools {
+	for _, tool := range toolcatalog.CapturedLintTools() {
 		if base == tool.Name && (token == tool.Name || strings.Contains(filepath.ToSlash(token), "/")) {
 			return tool, true
 		}
 	}
 
-	return capturedLintTool{}, false
+	return toolcatalog.CapturedTool{}, false
 }
 
-func capturedToolForModule(module string) (capturedLintTool, bool) {
-	for _, tool := range capturedLintTools {
+func capturedToolForModule(module string) (toolcatalog.CapturedTool, bool) {
+	for _, tool := range toolcatalog.CapturedLintTools() {
 		if slices.Contains(tool.ModuleNames, module) {
 			return tool, true
 		}
 	}
 
-	return capturedLintTool{}, false
+	return toolcatalog.CapturedTool{}, false
 }
 
 func capturedToolName(name string) bool {
-	for _, tool := range capturedLintTools {
-		if tool.Name == name {
-			return true
-		}
-	}
+	_, found := toolcatalog.CapturedLintTool(name)
 
-	return false
+	return found
 }
 
-func firstMentionedCapturedTool(command string) capturedLintTool {
+func firstMentionedCapturedTool(command string) toolcatalog.CapturedTool {
 	for _, token := range shellControlFields(command) {
 		if tool, ok := capturedToolForCommand(token); ok {
 			return tool
@@ -293,7 +268,7 @@ func firstMentionedCapturedTool(command string) capturedLintTool {
 		}
 	}
 
-	return capturedLintTool{}
+	return toolcatalog.CapturedTool{}
 }
 
 func isPythonCommand(token string) bool {
@@ -302,14 +277,14 @@ func isPythonCommand(token string) bool {
 	return base == "python" || base == "python3" || strings.HasPrefix(base, "python3.")
 }
 
-func segmentMentionsUnmanagedLintTool(segment []string) capturedLintTool {
+func segmentMentionsUnmanagedLintTool(segment []string) toolcatalog.CapturedTool {
 	for _, token := range segment {
 		if tool, ok := capturedToolForCommand(token); ok {
 			return tool
 		}
 	}
 
-	return capturedLintTool{}
+	return toolcatalog.CapturedTool{}
 }
 
 func evasiveLintToolShell(command string) bool {
