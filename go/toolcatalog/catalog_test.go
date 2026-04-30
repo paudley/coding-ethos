@@ -317,6 +317,19 @@ func TestToolCaptureArgsSkipsMutatingCommands(t *testing.T) {
 	}
 }
 
+func TestToolCaptureArgsSkipsInformationalCommands(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff")
+	}
+	got, ok := tool.CaptureArgs([]string{"--version"})
+	if ok {
+		t.Fatalf("CaptureArgs applied to informational ruff call: %#v", got)
+	}
+}
+
 func mapByName(tools []toolcatalog.Tool) map[string]toolcatalog.Tool {
 	byName := make(map[string]toolcatalog.Tool, len(tools))
 	for _, tool := range tools {

@@ -195,6 +195,11 @@ enforce_lint_tool_config() {
   : "${out_ref[@]+${out_ref[*]}}"
   shift 2 || true
 
+  if lint_info_command "$@"; then
+    out_ref=("$@")
+    return
+  fi
+
   case "$tool" in
     ruff)
       if [[ "${1:-}" == "check" ]]; then
@@ -220,6 +225,19 @@ enforce_lint_tool_config() {
       out_ref=("$@")
       ;;
   esac
+}
+
+lint_info_command() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --help | -h | help | --version | -V | version)
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
 }
 
 resolve_lint_target_args() {

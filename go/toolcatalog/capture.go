@@ -6,7 +6,9 @@ package toolcatalog
 import "strings"
 
 func (tool Tool) CaptureArgs(args []string) ([]string, bool) {
-	if len(tool.CaptureOutputArgs) == 0 || tool.captureArgsMutate(args) {
+	if len(tool.CaptureOutputArgs) == 0 ||
+		captureArgsInformational(args) ||
+		tool.captureArgsMutate(args) {
 		return append([]string(nil), args...), false
 	}
 
@@ -19,6 +21,18 @@ func (tool Tool) CaptureArgs(args []string) ([]string, bool) {
 	}
 
 	return appendCopy(tool.CaptureOutputArgs, stripped...), true
+}
+
+func captureArgsInformational(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h", "help", "--version", "-V", "version":
+			return true
+		default:
+		}
+	}
+
+	return false
 }
 
 func (tool Tool) captureArgsMutate(args []string) bool {
