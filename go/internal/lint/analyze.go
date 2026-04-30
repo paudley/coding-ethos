@@ -24,6 +24,7 @@ type Analysis struct {
 	Files              []string            `json:"files,omitempty"`
 	TopChecks          []Count             `json:"top_checks"`
 	TopCodes           []Count             `json:"top_codes"`
+	UnmappedCodes      []Count             `json:"unmapped_codes,omitempty"`
 	RepeatedPatterns   []Count             `json:"repeated_patterns"`
 	TopEthosIDs        []Count             `json:"top_ethos_ids"`
 	GuidanceCandidates []GuidanceCandidate `json:"guidance_candidates"`
@@ -89,6 +90,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 
 	checkCounts := map[string]int{}
 	codeCounts := map[string]int{}
+	unmappedCodeCounts := map[string]int{}
 	patternCounts := map[string]int{}
 	ethosCounts := map[string]int{}
 	candidates := map[string]GuidanceCandidate{}
@@ -121,6 +123,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				finding,
 				checkCounts,
 				codeCounts,
+				unmappedCodeCounts,
 				patternCounts,
 				ethosCounts,
 				candidates,
@@ -130,6 +133,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 
 	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
 	analysis.TopCodes = topCountsLimit(codeCounts, options.MaxCounts)
+	analysis.UnmappedCodes = topCountsLimit(unmappedCodeCounts, options.MaxCounts)
 	analysis.RepeatedPatterns = topCountsLimit(patternCounts, options.MaxCounts)
 	analysis.TopEthosIDs = topCountsLimit(ethosCounts, options.MaxCounts)
 	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
@@ -237,6 +241,7 @@ func incrementFindingCounts(
 	finding Finding,
 	checkCounts map[string]int,
 	codeCounts map[string]int,
+	unmappedCodeCounts map[string]int,
 	patternCounts map[string]int,
 	ethosCounts map[string]int,
 	candidates map[string]GuidanceCandidate,
@@ -245,7 +250,11 @@ func incrementFindingCounts(
 	checkCounts[checkID]++
 
 	if finding.SourceTool != "" && finding.Code != "" {
-		codeCounts[finding.SourceTool+":"+finding.Code]++
+		toolCode := finding.SourceTool + ":" + finding.Code
+		codeCounts[toolCode]++
+		if findingUnmapped(finding) {
+			unmappedCodeCounts[toolCode]++
+		}
 	}
 
 	pattern := repeatedPatternKey(finding)
@@ -274,6 +283,10 @@ func incrementFindingCounts(
 	}
 	candidate.Count++
 	candidates[candidateKey] = candidate
+}
+
+func findingUnmapped(finding Finding) bool {
+	return finding.PolicyID == "" && len(finding.EthosIDs) == 0
 }
 
 func repeatedPatternKey(finding Finding) string {
@@ -410,6 +423,7 @@ func FormatAnalysisHuman(analysis Analysis) string {
 		fmt.Sprintf("Findings: %d", analysis.Findings),
 		"Top checks: " + countsHuman(analysis.TopChecks),
 		"Top tool codes: " + countsHuman(analysis.TopCodes),
+		"Unmapped tool codes: " + countsHuman(analysis.UnmappedCodes),
 		"Repeated file/policy patterns: " + countsHuman(analysis.RepeatedPatterns),
 		"Top ETHOS IDs: " + countsHuman(analysis.TopEthosIDs),
 	}

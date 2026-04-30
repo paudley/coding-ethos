@@ -64,6 +64,16 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 			EthosIDs:   []string{"documentation-as-contract"},
 			Blocking:   true,
 		},
+		{
+			CheckID:    "tool.pylint",
+			SourceTool: "pylint",
+			Code:       "no-member",
+			File:       "lib/python/app.py",
+			Status:     "fail",
+			Severity:   "error",
+			Message:    "Instance has no member",
+			Blocking:   true,
+		},
 	})
 
 	analysis, err := AnalyzeTraces(root)
@@ -71,7 +81,7 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		t.Fatalf("AnalyzeTraces() returned error: %v", err)
 	}
 
-	if analysis.RunsAnalyzed != 3 || analysis.Findings != 3 {
+	if analysis.RunsAnalyzed != 3 || analysis.Findings != 4 {
 		t.Fatalf("analysis counts = %#v", analysis)
 	}
 	if analysis.TopChecks[0] != (Count{Key: "python.import_order", Count: 2}) {
@@ -86,6 +96,10 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	if analysis.TopEthosIDs[0] != (Count{Key: "no-conditional-imports", Count: 2}) {
 		t.Fatalf("ethos IDs = %#v", analysis.TopEthosIDs)
 	}
+	if len(analysis.UnmappedCodes) == 0 ||
+		analysis.UnmappedCodes[0] != (Count{Key: "pylint:no-member", Count: 1}) {
+		t.Fatalf("unmapped codes = %#v", analysis.UnmappedCodes)
+	}
 	if len(analysis.GuidanceCandidates) == 0 ||
 		analysis.GuidanceCandidates[0].Advice != "Move imports to module scope." {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
@@ -95,6 +109,7 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	for _, want := range []string{
 		"Top checks: python.import_order=2",
 		"Top tool codes: ruff:E402=2",
+		"Unmapped tool codes: pylint:no-member=1",
 		"Guidance candidates:",
 	} {
 		if !strings.Contains(output, want) {

@@ -356,6 +356,9 @@ pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
 ```
 
+The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
+findings so real lint traces can drive the next evidence-map additions.
+
 ### Agent Hooks
 
 Render or verify repo-local agent hook settings:

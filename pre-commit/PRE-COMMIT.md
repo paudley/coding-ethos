@@ -238,8 +238,9 @@ pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
 ```
 
-The analyzer reports top failing checks, top tool/code pairs, repeated
-file-policy patterns, ETHOS IDs, and deterministic guidance candidates. The
+The analyzer reports top failing checks, top tool/code pairs, unmapped
+tool/code pairs, repeated file-policy patterns, ETHOS IDs, and deterministic
+guidance candidates. The
 `--for-files` filter narrows output to prior findings from the same file or
 same high-level file area so post-edit feedback can stay focused.
 Direct agent lint runs are captured too. The agent hook rewrites common forms
