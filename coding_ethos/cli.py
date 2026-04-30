@@ -182,12 +182,25 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--sync-agent-skills",
+        action="store_true",
+        help=(
+            "Generate provider skill surfaces into --repo without rewriting root "
+            "agent docs."
+        ),
+    )
+    parser.add_argument(
         "--check-gemini-prompts",
         action="store_true",
         help=(
             "Fail if the generated Gemini prompt pack in --repo is missing or "
             "out of sync."
         ),
+    )
+    parser.add_argument(
+        "--check-agent-skills",
+        action="store_true",
+        help="Fail if provider skill surfaces in --repo are missing or out of sync.",
     )
     return parser
 
@@ -363,6 +376,8 @@ def _tool_actions_requested(args: argparse.Namespace) -> bool:
         or args.check_tool_configs
         or args.sync_gemini_prompts
         or args.check_gemini_prompts
+        or args.sync_agent_skills
+        or args.check_agent_skills
     )
 
 
@@ -372,7 +387,8 @@ def _require_repo_root(
     if not _has_repo_root(args):
         parser.error(
             "--sync-tool-configs, --check-tool-configs, --sync-gemini-prompts, "
-            "and --check-gemini-prompts require --repo."
+            "--check-gemini-prompts, --sync-agent-skills, and "
+            "--check-agent-skills require --repo."
         )
     return _repo_root_from_args(args)
 
@@ -433,6 +449,76 @@ def _run_gemini_prompt_actions(
     return 0
 
 
+def _sync_agent_skills(
+    *,
+    repo_root: Path,
+    primary_path: Path,
+    repo_ethos_path: Path,
+) -> list[Path]:
+    bundle = _load_bundle(primary_path, repo_ethos_path)
+    rendered = render_skill_outputs(bundle, repo_root)
+    written: list[Path] = []
+    for relative_path, content in rendered.items():
+        absolute_path = repo_root / relative_path
+        _write_file(absolute_path, content)
+        written.append(absolute_path)
+
+    return written
+
+
+def _check_agent_skills(
+    *,
+    repo_root: Path,
+    primary_path: Path,
+    repo_ethos_path: Path,
+) -> list[Path]:
+    bundle = _load_bundle(primary_path, repo_ethos_path)
+    rendered = render_skill_outputs(bundle, repo_root)
+    mismatched: list[Path] = []
+    for relative_path, expected in rendered.items():
+        absolute_path = repo_root / relative_path
+        if (
+            not absolute_path.exists()
+            or absolute_path.read_text(encoding="utf-8") != expected
+        ):
+            mismatched.append(absolute_path)
+
+    return mismatched
+
+
+def _run_agent_skill_actions(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> int:
+    if not args.sync_agent_skills and not args.check_agent_skills:
+        return 0
+
+    resolved_repo_root = _require_repo_root(parser, args)
+    primary_path = _resolve_primary_path(args.primary)
+    _require_primary_path(parser, primary_path)
+    repo_ethos_path = _resolve_repo_ethos(resolved_repo_root, args.repo_ethos)
+    resolved_repo_root.mkdir(parents=True, exist_ok=True)
+    if args.sync_agent_skills:
+        _print_written_paths(
+            _sync_agent_skills(
+                repo_root=resolved_repo_root,
+                primary_path=primary_path,
+                repo_ethos_path=repo_ethos_path,
+            )
+        )
+    if args.check_agent_skills:
+        mismatched = _check_agent_skills(
+            repo_root=resolved_repo_root,
+            primary_path=primary_path,
+            repo_ethos_path=repo_ethos_path,
+        )
+        if mismatched:
+            _print_written_paths(mismatched)
+            return 1
+
+    return 0
+
+
 def _maybe_seed_primary(args: argparse.Namespace, primary_path: Path) -> None:
     if not args.seed_from_markdown:
         return
@@ -486,6 +572,10 @@ def main(argv: list[str] | None = None) -> int:
     gemini_result = _run_gemini_prompt_actions(args, parser)
     if gemini_result != 0:
         return gemini_result
+
+    skill_result = _run_agent_skill_actions(args, parser)
+    if skill_result != 0:
+        return skill_result
 
     if _tool_actions_requested(args):
         return 0

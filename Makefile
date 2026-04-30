@@ -111,6 +111,7 @@ endif
 COMMON_GENERATE_FLAGS := --repo "$(REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG)
 TOOL_CONFIG_FLAGS := --repo "$(TOOL_CONFIG_REPO)" $(REPO_CONFIG_FLAG)
 GEMINI_PROMPT_FLAGS := --repo "$(TOOL_CONFIG_REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG) $(REPO_CONFIG_FLAG)
+AGENT_SKILL_FLAGS := --repo "$(REPO)" --primary "$(PRIMARY)" $(REPO_ETHOS_FLAG)
 MERGE_FLAGS = \
 	--merge-existing \
 	--merge-strategy "$(MERGE_STRATEGY)" \
@@ -190,10 +191,14 @@ endef
 	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
+	sync-consumer-tool-configs \
 	fix-configs \
 	check-tool-configs \
 	sync-gemini-prompts \
 	check-gemini-prompts \
+	sync-agent-skills \
+	sync-consumer-agent-skills \
+	check-agent-skills \
 	hooks-validate \
 	hooks-install \
 	hooks-go-test \
@@ -348,7 +353,26 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+sync-agent-skills: ensure-uv ## Generate provider skill surfaces without rewriting root agent docs.
+	@$(call print_step,Syncing generated agent skill surfaces)
+	@$(call print_info,repo: $(REPO))
+	@$(call print_info,primary: $(PRIMARY))
+	@$(APP) $(AGENT_SKILL_FLAGS) --sync-agent-skills
+
+sync-consumer-agent-skills: ensure-uv ## Generate consumer repo skill surfaces when installed in a parent repo.
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
+		$(call print_step,Syncing generated consumer agent skill surfaces); \
+		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
+		$(APP) --repo "$(HOOK_CONSUMER_ROOT)" --primary "$(PRIMARY)" --sync-agent-skills; \
+	fi
+
+check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync.
+	@$(call print_step,Checking generated agent skill surfaces)
+	@$(call print_info,repo: $(REPO))
+	@$(call print_info,primary: $(PRIMARY))
+	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
+
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts sync-agent-skills sync-consumer-agent-skills go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)

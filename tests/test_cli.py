@@ -585,6 +585,61 @@ class CliRenderTests(unittest.TestCase):
                 'ETHOS skills for Widget "Service" \\ Alpha: lint-remediation'
             )
 
+    def test_cli_sync_agent_skills_does_not_rewrite_root_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            primary_path = tmp_path / "coding_ethos.yml"
+            repo_root = tmp_path / "target"
+            payload = self._primary_payload(include_testing_principle=False)
+            payload["skills"] = [
+                {
+                    "id": "managed-toolchain",
+                    "title": "Managed Toolchain",
+                    "description": "Use when generated config or managed tools drift.",
+                    "principle_ids": ["solid-is-law"],
+                    "trigger_terms": ["config drift"],
+                    "short_hint": "Use managed tools.",
+                    "focus": "Use this skill for toolchain failures.",
+                    "remediation_steps": ["Restore generated config."],
+                }
+            ]
+            self._write_yaml(primary_path, payload)
+
+            repo_root.mkdir()
+            exit_code = main(
+                [
+                    "--repo",
+                    str(repo_root),
+                    "--primary",
+                    str(primary_path),
+                    "--sync-agent-skills",
+                ]
+            )
+
+            assert exit_code == 0
+            assert not (repo_root / "AGENTS.md").exists()
+            assert (repo_root / ".agents/skills/managed-toolchain/SKILL.md").exists()
+            assert (repo_root / ".claude/skills/managed-toolchain/SKILL.md").exists()
+            assert (repo_root / ".codex/skills/managed-toolchain/SKILL.md").exists()
+            assert (
+                repo_root
+                / ".gemini/extensions/coding-ethos/skills/managed-toolchain/SKILL.md"
+            ).exists()
+
+            skill_path = repo_root / ".codex/skills/managed-toolchain/SKILL.md"
+            skill_path.write_text("drifted\n", encoding="utf-8")
+
+            drift_exit_code = main(
+                [
+                    "--repo",
+                    str(repo_root),
+                    "--primary",
+                    str(primary_path),
+                    "--check-agent-skills",
+                ]
+            )
+            assert drift_exit_code == 1
+
     def test_cli_merge_existing_injects_managed_blocks_for_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

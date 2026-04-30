@@ -116,6 +116,8 @@ make generate REPO=/path/to/repo
 | Check generated tool config drift | `make check-tool-configs` |
 | Sync Gemini prompt pack | `make sync-gemini-prompts` |
 | Check Gemini prompt-pack drift | `make check-gemini-prompts` |
+| Sync generated agent skill surfaces | `make sync-agent-skills` |
+| Check generated agent skill drift | `make check-agent-skills` |
 | Run staged-file hooks | `make pre-commit` |
 | Run hooks over all files | `make pre-commit-all` |
 | Run pre-push hooks | `make pre-push` |
@@ -455,6 +457,12 @@ Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
 matcher names.
 
+Generated ETHOS skills use the same managed-output model. `make build` refreshes
+the checkout-local skill surfaces and, when `coding-ethos` is installed inside a
+parent repository, refreshes the parent repo's `.agents/skills/`,
+`.claude/skills/`, `.codex/skills/`, and Gemini extension skill surfaces without
+rewriting parent root agent docs.
+
 `agent-hooks verify` runs doctor first, then invokes the configured hook command
 with provider-native Claude, Codex, and Gemini payloads. The probes cover:
 
@@ -572,6 +580,7 @@ After source changes:
 | `coding_ethos.yml`, `repo_ethos.yml`, or renderers | `make generate` |
 | generated tool-config behavior | `make sync-tool-configs` |
 | Gemini prompt templates or grounding | `make sync-gemini-prompts` |
+| ETHOS skill source or renderer behavior | `make sync-agent-skills` |
 | hook runtime or cutover behavior | `make cutover-verify` |
 
 See [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) and
