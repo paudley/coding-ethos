@@ -325,10 +325,11 @@ repo-local Git hook shims that call the Go runner under
 
 ### Git Hooks
 
-Installed Git hook shims compile the policy bundle and enter
-`coding-ethos-git-hook`, the compiled-policy-owned Git hook runtime. That
-runtime runs policy preflight and then executes the bundled hook groups as the
-active quality gate.
+Installed Git hook shims locate the checked-out `coding-ethos` repository,
+repair missing checkout-local runtime artifacts with `make build`, and dispatch
+to the built hook binary. Policy selection and validation remain inside the
+`coding-ethos` checkout; the consumer shim is only discovery, repair, and
+dispatch.
 
 Run Git hooks:
 
@@ -358,6 +359,17 @@ ETHOS mapping that was applied. A nonzero tool run with no parsed diagnostics is
 itself a finding, not an empty result; the agent-facing output must explain
 which tool failed, why it could not produce normal diagnostics, and what command
 or configuration should be checked next.
+Captured tool execution is controlled by coding-ethos, not by the target repo:
+the target repo is treated as an untrusted file tree and trace destination.
+Wrappers must not trust target-repo `PATH`, absolute binaries, `uv run`
+settings, `pyproject.toml`, shell state, aliases, or local tool installs.
+Python linters are run from the coding-ethos hook project with coding-ethos
+versions and explicit coding-ethos generated config flags (`ruff.toml`,
+`mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and `.yamllint.yml`). Parent
+repo config files with the same names must not be discovered accidentally.
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
+likewise become coding-ethos-installed managed tools during init before they are
+considered trusted capture backends.
 
 Analyze captured lint history:
 
@@ -432,7 +444,7 @@ tampering. Banned strings are rejected when they appear directly in a command
 and when they appear in regular files referenced by the command.
 
 Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
-hook binaries under `.git/coding-ethos-hooks/` are treated as tampering, not as
+hook binaries under `coding-ethos/bin/` are treated as tampering, not as
 ordinary lint failures. Blocked tamper and Git-bypass responses start with a
 uniform `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific
 finding, including explicit language that the actor has done something wrong
@@ -457,7 +469,7 @@ shell best-practice checks.
 Gemini review checks remain in pre-commit/pre-push. Agent hooks never call
 Gemini or another model from the tool-use path.
 
-Continuation state is stored under `.git/coding-ethos-hooks/continuation/`.
+Continuation state is stored under the configured hook continuation directory.
 
 ## Admin-Gated Work On This Repo
 

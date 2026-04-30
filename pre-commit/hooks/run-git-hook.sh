@@ -16,7 +16,12 @@ elif [[ -d "${ROOT}/code-ethos/pre-commit" ]]; then
 elif [[ -d "${ROOT}/pre-commit" ]]; then
   BUNDLE_ROOT="${ROOT}/pre-commit"
 else
-  echo "FATAL: could not locate pre-commit bundle under ${ROOT}" >&2
+  {
+    echo "FATAL: could not locate coding-ethos pre-commit bundle under ${ROOT}"
+    echo "Expected ${ROOT}/coding-ethos/pre-commit."
+    echo "If coding-ethos is a submodule, run:"
+    echo "  git submodule update --init coding-ethos"
+  } >&2
   exit 127
 fi
 

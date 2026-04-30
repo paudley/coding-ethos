@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -23,6 +24,7 @@ func runCapturedTool(
 	tool string,
 	toolPath string,
 	cwd string,
+	traceRoot string,
 	args []string,
 	evidenceMaps []diagnostics.EvidenceMap,
 ) int {
@@ -52,11 +54,12 @@ func runCapturedTool(
 		runArgs,
 		exitCode,
 		cwd,
+		traceRoot,
 		stdoutText,
 		stderrText,
 		evidenceMaps,
 	)
-	logCapturedToolResult(cwd, result)
+	logCapturedToolResult(firstCaptureNonEmpty(traceRoot, cwd), result)
 	if result.Blocked() || len(result.Diagnostics) > 0 {
 		if encodeErr := hookoutput.EncodeLintResult(
 			os.Stdout,
@@ -85,14 +88,16 @@ func capturedToolResult(
 	runArgs []string,
 	exitCode int,
 	cwd string,
+	traceRoot string,
 	stdout string,
 	stderr string,
 	evidenceMaps []diagnostics.EvidenceMap,
 ) lint.Result {
 	parsed := diagnostics.Parse(tool, stdout, stderr)
+	parsed = normalizeCapturedDiagnosticPaths(parsed, traceRoot)
 	parsed = diagnostics.Enrich(parsed, evidenceMaps)
 	parsed = diagnostics.Dedupe(parsed)
-	outputExcerpt := capturedOutputExcerpt(stdout, stderr, cwd)
+	outputExcerpt := capturedOutputExcerpt(stdout, stderr, firstCaptureNonEmpty(traceRoot, cwd), cwd)
 
 	return lint.Result{
 		Scope:       "tool:" + tool,
@@ -197,13 +202,48 @@ func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic) string {
 
 const maxCapturedOutputExcerpt = 600
 
-func capturedOutputExcerpt(stdout string, stderr string, cwd string) string {
+func normalizeCapturedDiagnosticPaths(
+	items []diagnostics.Diagnostic,
+	traceRoot string,
+) []diagnostics.Diagnostic {
+	traceRoot = strings.TrimSpace(traceRoot)
+	if traceRoot == "" {
+		return items
+	}
+
+	absRoot, err := filepath.Abs(traceRoot)
+	if err != nil {
+		return items
+	}
+
+	out := append([]diagnostics.Diagnostic(nil), items...)
+	for index := range out {
+		file := strings.TrimSpace(out[index].File)
+		if file == "" || !filepath.IsAbs(file) {
+			continue
+		}
+
+		rel, err := filepath.Rel(absRoot, file)
+		if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			continue
+		}
+
+		out[index].File = filepath.ToSlash(rel)
+		out[index].Message = redactCapturedOutputPaths(out[index].Message, absRoot, "")
+		out[index].Advice = redactCapturedOutputPaths(out[index].Advice, absRoot, "")
+		out[index].Detail = redactCapturedOutputPaths(out[index].Detail, absRoot, "")
+	}
+
+	return out
+}
+
+func capturedOutputExcerpt(stdout string, stderr string, repoRoot string, toolRoot string) string {
 	output := strings.TrimSpace(firstCaptureNonEmpty(stderr, stdout))
 	if output == "" {
 		return ""
 	}
 
-	output = redactCapturedOutputPaths(output, cwd)
+	output = redactCapturedOutputPaths(output, repoRoot, toolRoot)
 	output = strings.Join(strings.Fields(output), " ")
 	if len(output) <= maxCapturedOutputExcerpt {
 		return output
@@ -212,11 +252,14 @@ func capturedOutputExcerpt(stdout string, stderr string, cwd string) string {
 	return output[:maxCapturedOutputExcerpt] + "..."
 }
 
-func redactCapturedOutputPaths(output string, cwd string) string {
+func redactCapturedOutputPaths(output string, repoRoot string, toolRoot string) string {
 	redacted := output
 	replacements := map[string]string{}
-	if cwd = strings.TrimSpace(cwd); cwd != "" {
-		replacements[cwd] = "<repo>"
+	if repoRoot = strings.TrimSpace(repoRoot); repoRoot != "" {
+		replacements[repoRoot] = "<repo>"
+	}
+	if toolRoot = strings.TrimSpace(toolRoot); toolRoot != "" && toolRoot != repoRoot {
+		replacements[toolRoot] = "<tool-project>"
 	}
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		replacements[home] = "<home>"

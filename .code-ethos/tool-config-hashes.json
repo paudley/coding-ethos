@@ -1,0 +1,11 @@
+{
+  "configs": {
+    ".golangci.yml": "sha256:6cf1a42d614d34bc142658d508ca8180f55984af3cc82be39f7c4bed2ef51cc8",
+    ".pylintrc": "sha256:7d4e8d2f3306a9affd66cab77bc35855fed9c78085d5dc43f087929f8e995bd0",
+    ".yamllint.yml": "sha256:d517a00904f566c4adc7f35f39d22e55956a9967def45db18ddf522a609c59f8",
+    "mypy.ini": "sha256:00da34e86ced1b7bdf7cf71bcd56b46d58d2231b32b986c941fe300cfcfce3c0",
+    "pyrightconfig.json": "sha256:6453d3ad216d2c3b4f78870bfb6ab3d4c3a7a1f56f5621731837082a289f6d4b",
+    "ruff.toml": "sha256:74a572221ef179fe4dd467bca6246b859f1b3f8beb06f7459b0147b8a4844b21"
+  },
+  "version": 1
+}

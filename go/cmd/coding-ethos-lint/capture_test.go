@@ -45,6 +45,7 @@ exit 1
 			"ruff",
 			tool,
 			repo,
+			"",
 			[]string{"check", "pkg/app.py"},
 			[]diagnostics.EvidenceMap{{
 				Source:       "ruff",
@@ -119,7 +120,7 @@ exit 1
 		t.Fatalf("write fixture tool: %v", err)
 	}
 
-	exitCode := runCapturedTool("shellcheck", tool, repo, []string{"script.sh"}, nil)
+	exitCode := runCapturedTool("shellcheck", tool, repo, "", []string{"script.sh"}, nil)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -130,6 +131,53 @@ exit 1
 		`"source_tool": "shellcheck"`,
 		`"code": "SC2086"`,
 		`"message": "Double quote"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestRunCapturedToolSeparatesExecutionCWDFromTraceRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	traceRoot := t.TempDir()
+	execRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(execRoot, "pkg"), 0o700); err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	tool := filepath.Join(traceRoot, "mypy-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte(`#!/usr/bin/env sh
+test -f pkg/app.py || { echo "wrong cwd: $PWD" >&2; exit 2; }
+printf '%s\n' '{"file":"pkg/app.py","line":3,"column":4,"severity":"error","code":"assignment","message":"bad type"}'
+exit 1
+`),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(execRoot, "pkg", "app.py"), []byte("x = 1\n"), 0o600); err != nil {
+		t.Fatalf("write package file: %v", err)
+	}
+
+	exitCode := runCapturedTool("mypy", tool, execRoot, traceRoot, []string{"pkg/app.py"}, nil)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+
+	if matches, _ := filepath.Glob(filepath.Join(execRoot, ".coding-ethos", "lint-runs", "*.json")); len(matches) != 0 {
+		t.Fatalf("trace should not be written under execution cwd: %#v", matches)
+	}
+	content := singleTraceContent(t, traceRoot)
+	for _, want := range []string{
+		`"repo_root": "` + traceRoot + `"`,
+		`"file": "pkg/app.py"`,
+		`"code": "assignment"`,
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("trace missing %q:\n%s", want, content)
@@ -171,6 +219,7 @@ func TestCapturedToolResultRecordsCaptureMetadata(t *testing.T) {
 		[]string{"--output=json", "pkg/app.py"},
 		2,
 		"/work/repo",
+		"/work/repo",
 		"",
 		"mypy: error: cannot read file '/work/repo/pkg/app.py'",
 		nil,
@@ -187,6 +236,36 @@ func TestCapturedToolResultRecordsCaptureMetadata(t *testing.T) {
 	}
 	if len(result.Findings) != 1 || result.Findings[0].RawOutcome["output"] == "" {
 		t.Fatalf("captured findings missing output: %#v", result.Findings)
+	}
+}
+
+func TestCapturedToolResultNormalizesAbsoluteDiagnosticsToTraceRoot(t *testing.T) {
+	t.Parallel()
+
+	traceRoot := filepath.Join(string(filepath.Separator), "work", "consumer")
+	toolRoot := filepath.Join(string(filepath.Separator), "work", "coding-ethos")
+	absoluteFile := filepath.Join(traceRoot, "pkg", "app.py")
+
+	result := capturedToolResult(
+		"ruff",
+		[]string{"check", absoluteFile},
+		[]string{"check", "--output-format=json", absoluteFile},
+		1,
+		toolRoot,
+		traceRoot,
+		`[{"filename":"`+filepath.ToSlash(absoluteFile)+`","code":"F401","message":"unused import","location":{"row":4,"column":8}}]`,
+		"",
+		nil,
+	)
+
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	}
+	if result.Diagnostics[0].File != "pkg/app.py" {
+		t.Fatalf("diagnostic file = %q, want repo-relative", result.Diagnostics[0].File)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].File != "pkg/app.py" {
+		t.Fatalf("findings = %#v", result.Findings)
 	}
 }
 
@@ -283,7 +362,7 @@ func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 			repo := t.TempDir()
 			tool := writeCaptureFixtureTool(t, repo, test.required, test.output)
 
-			exitCode := runCapturedTool(test.tool, tool, repo, test.args, nil)
+			exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, nil)
 			if exitCode != 1 {
 				t.Fatalf("exit code = %d, want 1", exitCode)
 			}
@@ -337,7 +416,7 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 
 			t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 			output := captureStdout(t, func() {
-				exitCode := runCapturedTool(test.tool, tool, repo, test.args, nil)
+				exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, nil)
 				if exitCode != 2 {
 					t.Fatalf("exit code = %d, want 2", exitCode)
 				}
@@ -372,7 +451,7 @@ func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
 
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 	output := captureStdout(t, func() {
-		exitCode := runCapturedTool("mypy", tool, repo, []string{"pkg"}, nil)
+		exitCode := runCapturedTool("mypy", tool, repo, "", []string{"pkg"}, nil)
 		if exitCode != 0 {
 			t.Fatalf("exit code = %d, want 0", exitCode)
 		}

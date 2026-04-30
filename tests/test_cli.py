@@ -77,6 +77,7 @@ def _load_generated_tool_configs(
 
 
 def _assert_generated_tool_configs(repo_root: Path) -> None:
+    assert (repo_root / ".code-ethos" / "tool-config-hashes.json").exists()
     pyright, mypy_ini, ruff_toml, pylintrc, yamllint, golangci = (
         _load_generated_tool_configs(repo_root)
     )
@@ -705,6 +706,18 @@ class CliRenderTests(unittest.TestCase):
             assert exit_code == 0
 
             (repo_root / ".golangci.yml").write_text('version: "2"\n', encoding="utf-8")
+
+            drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
+            assert drift_exit_code == 1
+
+    def test_cli_check_tool_configs_detects_hash_manifest_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
+            assert exit_code == 0
+
+            manifest = repo_root / ".code-ethos" / "tool-config-hashes.json"
+            manifest.write_text('{"version": 1, "configs": {}}\n', encoding="utf-8")
 
             drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
             assert drift_exit_code == 1

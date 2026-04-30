@@ -35,10 +35,9 @@ consuming-repo overrides.
 
 `make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
 `commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
-The installed Go helper binaries and compiled policy bundle live under
-`.git/coding-ethos-hooks/`. Normal hook execution does not rebuild these
-artifacts; run `make build` from the coding-ethos repository to update the
-installed runtime.
+The shims locate the checked-out `coding-ethos` repository, repair missing
+checkout-local runtime artifacts with `make build`, and dispatch to the built
+hook binary under `coding-ethos/bin/`.
 
 `make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -59,19 +58,16 @@ Required tools:
 
 - `go` 1.26 or newer
 - `uv`
-- `shellcheck`
-- `shfmt`
-- `hadolint`
-- `actionlint`
-- `golangci-lint`
 
-Useful install commands:
+`make build` installs required checkout-local managed tools under
+`build/toolchain/`. `shfmt` is installed into `build/toolchain/go-bin/` and
+hook execution prepends that directory to `PATH`; host-global `shfmt` is not a
+runtime contract.
 
-```bash
-go install mvdan.cc/sh/v3/cmd/shfmt@latest
-go install github.com/rhysd/actionlint/cmd/actionlint@latest
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-```
+ShellCheck, actionlint, hadolint, and golangci-lint are still being migrated to
+managed installers. Until then, they may be required by hook groups that invoke
+them directly, but new hook-tool work should route them through the managed
+toolchain rather than host installation instructions.
 
 ## Run
 
@@ -122,16 +118,23 @@ Primary files:
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
-repo-local response caching under `.git/coding-ethos-hooks/gemini-cache/`,
+repo-local response caching under the configured hook cache directory,
 supports per-check `model_overrides` and `service_tier_overrides`, reuses
 Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
 merged `config.yaml` plus `repo_config.yaml`.
 
-The hook runtime lives in `.git/coding-ethos-hooks/`. It is updated by explicit
-build/install targets, not by normal hook execution. If the runtime is missing
-or stale, hooks fail with an instruction to run `make build` or ask an admin to
-update the installed runtime.
+The hook runtime is built into the checked-out `coding-ethos` repository:
+
+- `bin/` contains built hook and policy binaries.
+- `build/policy/` contains the compiled policy bundle and source-hash
+  metadata.
+
+The old `.git/coding-ethos-hooks/` runtime cache is legacy. The current runtime
+model is documented in `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer
+hooks act only as repo-discovery, build-repair, and dispatch shims, while
+binaries and compiled runtime files are built and executed from the checked-out
+`coding-ethos` repository.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 
@@ -196,7 +199,7 @@ apply wherever the provider exposes the corresponding lifecycle hook.
 
 Tamper and bypass blocks are intentionally louder than normal lint findings.
 Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
-hook binaries under `.git/coding-ethos-hooks/` are treated as employment
+hook binaries under `coding-ethos/bin/` are treated as employment
 violations. Agent-facing output starts with a uniform
 `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific message,
 states that the actor has done something wrong, and warns that continued
@@ -265,6 +268,17 @@ exit codes while forcing machine-readable tool output, parsing diagnostics into
 the shared lint schema, enriching known findings with ETHOS evidence-map advice,
 writing normalized lint traces, and returning coding-ethos human or TOON output
 instead of raw linter output.
+
+Captured tool execution is intentionally controlled by coding-ethos. The target
+repo is an untrusted file tree and trace destination, not a source of trusted
+tool binaries, tool configuration, `PATH`, aliases, shell state, or `uv`
+project behavior. Python linters execute from the coding-ethos hook project via
+coding-ethos-managed versions and explicit generated config flags
+(`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and
+`.yamllint.yml`). Parent repo config files with matching names are ignored.
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
+be installed by coding-ethos init into a managed runtime before they are trusted
+capture backends; host binaries are not a policy boundary.
 
 Captured lint runs are treated as structured events. Each trace should preserve
 the original argv, rewritten argv, exit code, selected parser, parser outcome,

@@ -40,6 +40,7 @@ func main() {
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
+	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	analyzeLog := flags.Bool(
 		"analyze-log",
@@ -75,6 +76,7 @@ func main() {
 			*captureTool,
 			*toolPath,
 			*cwd,
+			*traceRoot,
 			flags.Args(),
 			captureEvidenceMaps(*bundlePath),
 		))
