@@ -137,6 +137,42 @@ func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:mypy",
+		Status: "blocked",
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"category":  "configuration_error",
+				"exit_code": 2,
+				"output":    "mypy: error: cannot read file 'lbox/parsing/analyzer_base.py'",
+			},
+			CheckID:    "tool.mypy",
+			Message:    "mypy configuration or usage failed with status 2",
+			Severity:   "error",
+			SourceTool: "mypy",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"mypy,,0,0,error,,tool.mypy,mypy configuration or usage failed with status 2,,category=configuration_error; exit_code=2; output=mypy: error: cannot read file 'lbox/parsing/analyzer_base.py'",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
 	getenv := func(name string) string {
 		switch name {

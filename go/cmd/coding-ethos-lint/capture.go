@@ -95,7 +95,7 @@ func capturedToolResult(
 		Scope:       "tool:" + tool,
 		Status:      capturedStatus(exitCode),
 		Diagnostics: parsed,
-		Findings:    capturedFindings(tool, args, runArgs, exitCode, parsed),
+		Findings:    capturedFindings(tool, args, runArgs, exitCode, stdout, stderr, parsed),
 	}
 }
 
@@ -104,6 +104,8 @@ func capturedFindings(
 	args []string,
 	runArgs []string,
 	exitCode int,
+	stdout string,
+	stderr string,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
 	outcome := capturedOutcome(tool, exitCode, items)
@@ -118,6 +120,7 @@ func capturedFindings(
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
+				"output":    capturedOutputExcerpt(stdout, stderr),
 			},
 			CheckID:    "tool." + tool,
 			Message:    outcome.Message,
@@ -154,6 +157,22 @@ func capturedFindings(
 	}
 
 	return findings
+}
+
+const maxCapturedOutputExcerpt = 600
+
+func capturedOutputExcerpt(stdout string, stderr string) string {
+	output := strings.TrimSpace(firstCaptureNonEmpty(stderr, stdout))
+	if output == "" {
+		return ""
+	}
+
+	output = strings.Join(strings.Fields(output), " ")
+	if len(output) <= maxCapturedOutputExcerpt {
+		return output
+	}
+
+	return output[:maxCapturedOutputExcerpt] + "..."
 }
 
 type capturedOutcomeClass struct {

@@ -209,6 +209,9 @@ func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 {
 		return diagnostics.Dedupe(result.Diagnostics)
 	}
+	if len(result.Findings) > 0 {
+		return lintResultFindings(result.Findings, result.Blocked())
+	}
 
 	decisions := result.Decisions
 	if result.Blocked() {
@@ -237,6 +240,77 @@ func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 	slices.SortStableFunc(findings, compareLintFindings)
 
 	return findings
+}
+
+func lintResultFindings(
+	findings []lint.Finding,
+	blocked bool,
+) []diagnostics.Diagnostic {
+	selected := findings
+	if blocked {
+		blocking := blockingResultFindings(findings)
+		if len(blocking) > 0 {
+			selected = blocking
+		}
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(selected))
+	for _, finding := range selected {
+		items = append(items, diagnosticsFromFinding(finding))
+	}
+
+	items = diagnostics.Dedupe(items)
+	slices.SortStableFunc(items, compareLintFindings)
+
+	return items
+}
+
+func blockingResultFindings(findings []lint.Finding) []lint.Finding {
+	blocking := []lint.Finding{}
+	for _, finding := range findings {
+		if finding.Blocking || finding.Status == "fail" ||
+			finding.Severity == "block" || finding.Severity == "error" {
+			blocking = append(blocking, finding)
+		}
+	}
+
+	return blocking
+}
+
+func diagnosticsFromFinding(finding lint.Finding) diagnostics.Diagnostic {
+	return diagnostics.Diagnostic{
+		Tool:     firstNonEmpty(finding.SourceTool, "policy"),
+		File:     finding.File,
+		Line:     finding.Line,
+		Column:   finding.Column,
+		Severity: finding.Severity,
+		Code:     finding.Code,
+		PolicyID: firstNonEmpty(finding.PolicyID, finding.CheckID),
+		Message:  finding.Message,
+		Advice:   finding.Advice,
+		Detail:   findingDetail(finding),
+	}
+}
+
+func findingDetail(finding lint.Finding) string {
+	parts := []string{}
+	appendRawOutcomeString := func(key string, label string) {
+		value, ok := finding.RawOutcome[key]
+		if !ok || value == nil {
+			return
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			return
+		}
+		parts = append(parts, label+"="+text)
+	}
+
+	appendRawOutcomeString("category", "category")
+	appendRawOutcomeString("exit_code", "exit_code")
+	appendRawOutcomeString("output", "output")
+
+	return strings.Join(parts, "; ")
 }
 
 func blockingLintDecisions(decisions []policy.Decision) []policy.Decision {
