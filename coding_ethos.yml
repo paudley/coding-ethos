@@ -126,6 +126,81 @@ skills:
         are worse and keep the scope as small as possible.
       - Verify with the managed coding-ethos tool path and report the exact
         checks that now pass or still fail.
+  - id: safe-git-workflow
+    title: Safe Git Workflow
+    description: >-
+      Use when git commands, commit hooks, admin-approved commits, protected
+      hook paths, raw git bypass attempts, or commit attribution failures appear
+      in agent or developer workflows.
+    principle_ids:
+      - one-path-for-critical-operations
+      - no-rationalized-shortcuts
+      - forward-motion-only
+      - evidence-based-engineering-and-decision-quality
+    trigger_terms:
+      - git wrapper
+      - raw git
+      - admin-approved
+      - commit attribution
+      - hook bypass
+      - no-verify
+      - protected hook
+      - commit failed
+    short_hint: >-
+      Git is a protected critical operation. Use the coding-ethos wrapper path,
+      keep hook failures visible, and ask an admin when policy blocks protected
+      files.
+    focus: >-
+      Use this skill to recover from blocked git operations without bypassing
+      hooks, rewriting protected runtime files, or hiding the state that needs
+      review.
+    remediation_steps:
+      - Read the hook failure as policy feedback, not as a broken local setup.
+      - Use the repo-local coding-ethos git wrapper for all git operations.
+      - Do not try alternate shells, absolute git paths, subprocesses, aliases,
+        PATH edits, no-verify flags, or direct hook edits.
+      - If protected coding-ethos files must change, prepare the work and ask
+        the admin to review and finalize the commit using the documented
+        admin-approved flow.
+      - Report the files changed, checks run, hook output, and unresolved risks
+        before asking for commit or push approval.
+  - id: managed-toolchain
+    title: Managed Toolchain And Config Integrity
+    description: >-
+      Use when captured linters, generated tool configs, managed binaries,
+      config drift, missing tools, package-relative path resolution, or host
+      tool usage causes lint or hook failures.
+    principle_ids:
+      - static-analysis-is-the-first-line-of-defense
+      - validation-at-the-gate
+      - one-path-for-critical-operations
+      - security-by-design
+    trigger_terms:
+      - managed toolchain
+      - config drift
+      - generated config
+      - real binary not found
+      - host linter
+      - package-relative path
+      - tool capture
+      - fix-configs
+    short_hint: >-
+      Linters and configs must resolve through coding-ethos managed paths.
+      Restore generated configs and run captured tools through the wrapper.
+    focus: >-
+      Use this skill when lint behavior differs between repos, a generated
+      config drift check fails, or a tool invocation is using consumer or host
+      settings instead of the managed coding-ethos toolchain.
+    remediation_steps:
+      - Treat the consumer repo as untrusted for linter binaries and config.
+      - Keep target file resolution faithful to the caller, but run the managed
+        linter and managed config from the coding-ethos checkout.
+      - If generated configs drift, restore them with the documented
+        coding-ethos fix-configs path instead of editing hashes or ignores.
+      - When a managed binary is missing, repair through make build rather than
+        installing host-global tools or editing shims.
+      - Capture the normalized lint output and trace so repeated failures can
+        become stronger ETHOS mappings.
 principles:
   - id: solid-is-law
     order: 1

@@ -230,22 +230,23 @@ agent failure modes:
 
 ## Integration Plan
 
-1. Add a canonical skill schema to `coding_ethos.yml` or a generated companion
-   file owned by the ethos renderer.
-2. Render provider-specific skill directories from that source.
-3. Extend policy evidence maps so findings can name `skill_id`.
-4. Add hook advice rendering for `skill_id` with provider-specific invocation
-   wording. Initial Go runtime support now renders concise skill advice for
+1. Done: add a canonical skill schema to `coding_ethos.yml`.
+2. Done: render provider-specific skill directories from that source.
+3. Done: extend policy evidence maps so findings can name `skill_id`.
+4. Done: add hook advice rendering for `skill_id` with provider-specific
+   invocation wording. The Go runtime renders concise skill advice for
    normalized lint output, captured linters, type-check output, and post-edit
    context.
-5. Add trace fields for emitted skill hints. Normalized lint traces now persist
-   `skill_hints` alongside findings.
-6. Add `agent-hooks verify` probes that confirm Claude, Codex, and Gemini
+5. Done: add trace fields for emitted skill hints. Normalized lint traces
+   persist `skill_hints` alongside findings.
+6. Done: add `agent-hooks verify` probes that confirm Claude, Codex, and Gemini
    generated skill surfaces exist.
-7. Add golden-output tests for skill-hint rendering in human, JSON, and TOON
-   output.
-8. Analyze `.coding-ethos/lint-runs/` and `.coding-ethos/hook-runs/` to choose
-   the next skill mappings by frequency and severity.
+7. Done: add golden-output tests for skill-hint rendering in human, JSON, and
+   TOON output.
+8. In progress: analyze `.coding-ethos/lint-runs/` skill IDs and emitted skill
+   hints to choose the next skill mappings by frequency and severity. Hook-run
+   aggregation is still a future extension because hook traces currently persist
+   stdout/stderr logs rather than normalized result records.
 
 ## Open Design Questions
 

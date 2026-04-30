@@ -571,6 +571,10 @@ func VerifySettings(root string, hookCommand string) (VerifyReport, error) {
 		Capabilities: ProviderCapabilities(),
 	}
 
+	if err := appendSkillSurfaceChecks(root, &report); err != nil {
+		return report, err
+	}
+
 	for _, probe := range hookProbes() {
 		result, err := runHookProbe(root, hookCommand, probe)
 		check := VerifyCheck{
@@ -602,6 +606,118 @@ func VerifySettings(root string, hookCommand string) (VerifyReport, error) {
 	}
 
 	return report, nil
+}
+
+func appendSkillSurfaceChecks(root string, report *VerifyReport) error {
+	checks, err := verifySkillSurfaces(root)
+	report.Checks = append(report.Checks, checks...)
+	if err != nil {
+		report.Status = "invalid"
+
+		return err
+	}
+
+	return nil
+}
+
+func verifySkillSurfaces(root string) ([]VerifyCheck, error) {
+	skillIDs, err := repoSkillIDs(root)
+	if err != nil {
+		return nil, err
+	}
+	if len(skillIDs) == 0 {
+		return nil, nil
+	}
+
+	checks := make([]VerifyCheck, 0, len(skillIDs)*skillProviderCount)
+	var verifyErr error
+	for _, skillID := range skillIDs {
+		for _, surface := range skillSurfacePaths(root, skillID) {
+			check := VerifyCheck{
+				Provider: surface.provider,
+				Event:    "skill-surface",
+				Tool:     skillID,
+				Status:   "pass",
+			}
+			if err := verifySkillFile(surface.path, skillID); err != nil {
+				check.Status = "fail"
+				check.Detail = err.Error()
+				verifyErr = errors.Join(verifyErr, err)
+			}
+
+			checks = append(checks, check)
+		}
+	}
+
+	return checks, verifyErr
+}
+
+const skillProviderCount = 3
+
+type skillSurfacePath struct {
+	provider string
+	path     string
+}
+
+func repoSkillIDs(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, ".agents", "skills"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read generated skill directory: %w", err)
+	}
+
+	skillIDs := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			skillIDs = append(skillIDs, entry.Name())
+		}
+	}
+	slices.Sort(skillIDs)
+
+	return skillIDs, nil
+}
+
+func skillSurfacePaths(root string, skillID string) []skillSurfacePath {
+	entrypoint := filepath.Join(skillID, "SKILL.md")
+
+	return []skillSurfacePath{
+		{
+			provider: string(ProviderClaude),
+			path:     filepath.Join(root, ".claude", "skills", entrypoint),
+		},
+		{
+			provider: string(ProviderCodex),
+			path:     filepath.Join(root, ".codex", "skills", entrypoint),
+		},
+		{
+			provider: string(ProviderGemini),
+			path: filepath.Join(
+				root,
+				".gemini",
+				"extensions",
+				"coding-ethos",
+				"skills",
+				entrypoint,
+			),
+		},
+	}
+}
+
+func verifySkillFile(path string, skillID string) error {
+	content, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("read generated skill %s: %w", path, err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "name: "+skillID) ||
+		!strings.Contains(text, "source: coding_ethos.yml") {
+		return fmt.Errorf("generated skill %s does not match skill %s", path, skillID)
+	}
+
+	return nil
 }
 
 func buildAllSettings(hookCommand string) (allSettings, error) {

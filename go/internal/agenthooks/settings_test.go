@@ -178,6 +178,7 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 
 	root := t.TempDir()
 	hookCommand := fakeAgentHookCommand(t)
+	writeGeneratedSkillSurfaces(t, root, "conditional-imports")
 
 	err := agenthooks.SyncSettings(root, hookCommand)
 	if err != nil {
@@ -193,14 +194,59 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 11 {
-		t.Fatalf("check count = %d, want 11: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 14 {
+		t.Fatalf("check count = %d, want 14: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
 		if check.Status != "pass" {
 			t.Fatalf("failed check: %#v", check)
 		}
+	}
+}
+
+func TestVerifySettingsRejectsMissingProviderSkillSurface(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hookCommand := fakeAgentHookCommand(t)
+	writeGeneratedSkillSurfaces(t, root, "managed-toolchain")
+
+	err := agenthooks.SyncSettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	missingPath := filepath.Join(
+		root,
+		".codex",
+		"skills",
+		"managed-toolchain",
+		"SKILL.md",
+	)
+	if err := os.Remove(missingPath); err != nil {
+		t.Fatalf("remove codex skill surface: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettings(root, hookCommand)
+	if err == nil {
+		t.Fatal("expected missing provider skill surface failure")
+	}
+	if report.Status != "invalid" {
+		t.Fatalf("status = %q, want invalid: %#v", report.Status, report)
+	}
+
+	found := false
+	for _, check := range report.Checks {
+		if check.Event == "skill-surface" &&
+			check.Provider == "codex" &&
+			check.Tool == "managed-toolchain" &&
+			check.Status == "fail" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing failed skill-surface check: %#v", report.Checks)
 	}
 }
 
@@ -339,6 +385,35 @@ func overwriteAgentSettings(t *testing.T, path string, content string) {
 	_, err = file.WriteString(content)
 	if err != nil {
 		t.Fatalf("write settings: %v", err)
+	}
+}
+
+func writeGeneratedSkillSurfaces(t *testing.T, root string, skillID string) {
+	t.Helper()
+
+	content := "name: " + skillID + "\nsource: coding_ethos.yml\n"
+	paths := []string{
+		filepath.Join(root, ".agents", "skills", skillID, "SKILL.md"),
+		filepath.Join(root, ".claude", "skills", skillID, "SKILL.md"),
+		filepath.Join(root, ".codex", "skills", skillID, "SKILL.md"),
+		filepath.Join(
+			root,
+			".gemini",
+			"extensions",
+			"coding-ethos",
+			"skills",
+			skillID,
+			"SKILL.md",
+		),
+	}
+
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create skill dir %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write skill surface %s: %v", path, err)
+		}
 	}
 }
 
