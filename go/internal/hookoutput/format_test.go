@@ -50,6 +50,50 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:mypy",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{
+			{
+				Tool:     "mypy",
+				File:     "pkg/app.py",
+				Line:     12,
+				Column:   4,
+				Code:     "union-attr",
+				PolicyID: "python.optional_required_types",
+				Message:  "Item None has no attribute run",
+				Advice:   "Make the required contract explicit.",
+			},
+			{
+				Tool:     "pyright",
+				File:     "pkg/app.py",
+				Line:     12,
+				Column:   4,
+				Code:     "reportOptionalMemberAccess",
+				PolicyID: "python.optional_required_types",
+				Message:  "Object of type None has no run",
+			},
+		},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"also reported by pyright:reportOptionalMemberAccess",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
 	getenv := func(name string) string {
 		switch name {

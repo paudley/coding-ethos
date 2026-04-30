@@ -5,6 +5,7 @@ package diagnostics_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -427,6 +428,45 @@ func TestEnrichMapsMessageDiagnosticEvidence(t *testing.T) {
 	}
 	if enriched[0].Advice != "Break the concrete dependency cycle." {
 		t.Fatalf("message-mapped advice = %q", enriched[0].Advice)
+	}
+}
+
+func TestDedupeMergesSamePolicyLocation(t *testing.T) {
+	t.Parallel()
+
+	deduped := diagnostics.Dedupe([]diagnostics.Diagnostic{
+		{
+			Tool:         "mypy",
+			File:         "pkg/app.py",
+			Line:         12,
+			Column:       4,
+			Code:         "union-attr",
+			PolicyID:     "python.optional_required_types",
+			Message:      "Item None has no attribute run",
+			Advice:       "Make the required contract explicit.",
+			PrincipleIDs: []string{"no-optional-types-for-required-dependencies"},
+		},
+		{
+			Tool:         "pyright",
+			File:         "pkg/app.py",
+			Line:         12,
+			Column:       4,
+			Code:         "reportOptionalMemberAccess",
+			PolicyID:     "python.optional_required_types",
+			Message:      `"run" is not a known attribute of None`,
+			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		},
+	})
+
+	if len(deduped) != 1 {
+		t.Fatalf("deduped = %#v", deduped)
+	}
+	if deduped[0].Tool != "mypy" ||
+		!strings.Contains(deduped[0].Detail, "pyright:reportOptionalMemberAccess") {
+		t.Fatalf("merged diagnostic = %#v", deduped[0])
+	}
+	if len(deduped[0].PrincipleIDs) != 2 {
+		t.Fatalf("principles = %#v", deduped[0].PrincipleIDs)
 	}
 }
 

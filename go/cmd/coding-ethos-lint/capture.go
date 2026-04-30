@@ -89,6 +89,7 @@ func capturedToolResult(
 ) lint.Result {
 	parsed := diagnostics.Parse(tool, stdout, stderr)
 	parsed = diagnostics.Enrich(parsed, evidenceMaps)
+	parsed = diagnostics.Dedupe(parsed)
 
 	return lint.Result{
 		Scope:       "tool:" + tool,

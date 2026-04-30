@@ -205,7 +205,7 @@ func lintResultTool(result lint.Result) string {
 
 func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 {
-		return result.Diagnostics
+		return diagnostics.Dedupe(result.Diagnostics)
 	}
 
 	findings := []diagnostics.Diagnostic{}
@@ -223,7 +223,7 @@ func lintFindings(result lint.Result) []diagnostics.Diagnostic {
 		})
 	}
 
-	return findings
+	return diagnostics.Dedupe(findings)
 }
 
 func firstNonEmpty(values ...string) string {

@@ -311,6 +311,10 @@ optional required dependencies, unknown type leakage, missing imports, unstable
 interfaces, and import cycles. Those findings point back to ETHOS guidance such
 as Protocol-first design, fail-fast required imports, and structural fixes
 instead of lazy imports or broad suppressions.
+When multiple tools report the same mapped policy at the same location, the
+lint result keeps one actionable finding and records the secondary tool/code in
+the finding detail. This keeps agent context focused on the repair instead of
+repeating equivalent diagnostics.
 
 Important configurable areas:
 
