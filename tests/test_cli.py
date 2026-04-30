@@ -365,7 +365,11 @@ class CliRenderTests(unittest.TestCase):
                         "kind": "overview",
                         "title": "Overview",
                         "summary": "Structure wins over convenience.",
-                        "body": "Long form guidance.",
+                        "body": (
+                            "Long form guidance. See [Section 2: Testing as "
+                            "Specification](#2-testing-as-specification) and "
+                            "Section 99: Missing Principle."
+                        ),
                     }
                 ],
             }
@@ -536,13 +540,13 @@ class CliRenderTests(unittest.TestCase):
             tmp_path = Path(tmp_dir)
             primary_path = tmp_path / "coding_ethos.yml"
             repo_root = tmp_path / "target"
-            payload = self._primary_payload(include_testing_principle=False)
+            payload = self._primary_payload(include_testing_principle=True)
             payload["skills"] = [
                 {
                     "id": "lint-remediation",
                     "title": "Lint Remediation",
                     "description": "Use when lint findings need structural fixes.",
-                    "principle_ids": ["solid-is-law"],
+                    "principle_ids": ["solid-is-law", "testing-as-specification"],
                     "trigger_terms": ["ruff", "mypy"],
                     "short_hint": "Fix structurally.",
                     "focus": "Use this skill for lint failures.",
@@ -576,6 +580,13 @@ class CliRenderTests(unittest.TestCase):
                 assert "source: coding_ethos.yml" in skill_text
                 assert "`solid-is-law`: Enforce simple SOLID designs." in skill_text
                 assert "## Remediation Workflow" in skill_text
+                assert "[Section 2: Testing as Specification]" not in skill_text
+                assert (
+                    "[Testing as Specification](#testing-as-specification)"
+                    in skill_text
+                )
+                assert "Section 99: Missing Principle" not in skill_text
+                assert "Missing Principle" in skill_text
             manifest = (
                 repo_root / ".gemini/extensions/coding-ethos/gemini-extension.json"
             ).read_text(encoding="utf-8")

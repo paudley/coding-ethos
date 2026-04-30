@@ -285,7 +285,7 @@ If you see a problem, you fix it or you file an issue—but you do not
 pretend
 it doesn't exist.
 
-*(See also: [Section 20: Forward Motion Only](#20-forward-motion-only)
+*(See also: Forward Motion Only
 for
 the forward-looking mindset that prevents blame culture.)*
 ### SOLID is Law
@@ -325,8 +325,7 @@ strict rules of engagement for our codebase.
   concretions. The Dependency Injection container (the DI container)
   is the
   heart of the application; manual instantiation of service chains in
-  business logic is forbidden. *(See [Section 12: Protocol-First
-  Design](#12-protocol-first-design) for how we implement this.)*
+  business logic is forbidden. *(See Protocol-First Design for how we implement this.)*
 
 #### Beyond SOLID: Simplicity Precepts
 SOLID governs structure; these principles govern complexity:

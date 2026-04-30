@@ -9,6 +9,7 @@ They are the only place where output shape should change by design.
 """
 
 import json
+import re
 from pathlib import Path
 
 from coding_ethos.models import EthosBundle, EthosSkill, Principle
@@ -77,6 +78,47 @@ def _skill_principles(bundle: EthosBundle, skill: EthosSkill) -> list[Principle]
 
 def _skill_entrypoint(skill: EthosSkill) -> str:
     return f"{skill.id}/SKILL.md"
+
+
+def _markdown_anchor(title: str) -> str:
+    anchor = re.sub(r"[^a-z0-9 -]", "", title.lower())
+    return re.sub(r"\s+", "-", anchor).strip("-")
+
+
+def _normalize_skill_cross_references(text: str, principles: list[Principle]) -> str:
+    """Rewrite full-ETHOS section references for skill-local excerpts."""
+    local_titles = {
+        principle.title: _markdown_anchor(principle.title) for principle in principles
+    }
+    order_titles = {principle.order: principle.title for principle in principles}
+
+    def replace_section_link(match: re.Match[str]) -> str:
+        title = " ".join(match.group("title").split())
+        if title in local_titles:
+            return f"[{title}](#{local_titles[title]})"
+        return title
+
+    text = re.sub(
+        r"\[Section\s+\d+:\s+(?P<title>[^\]]+)\]\(#[^)]+\)",
+        replace_section_link,
+        text,
+    )
+
+    def replace_section_text(match: re.Match[str]) -> str:
+        order = int(match.group("order"))
+        title = match.group("title")
+        title = " ".join(title.split()) if title else order_titles.get(order)
+        if not title:
+            return match.group(0)
+        if title in local_titles:
+            return f"[{title}](#{local_titles[title]})"
+        return title
+
+    return re.sub(
+        r"Section\s+(?P<order>\d+)(?::\s+(?P<title>[A-Z][A-Za-z0-9 \"'/-]+))?",
+        replace_section_text,
+        text,
+    )
 
 
 def _append_repo_context(
@@ -381,7 +423,8 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
                 ["", "Quick ref:", *[f"- {item}" for item in principle.quick_ref]]
             )
         for section in principle.sections:
-            lines.extend(["", f"#### {section.title}", section.body])
+            body = _normalize_skill_cross_references(section.body, principles)
+            lines.extend(["", f"#### {section.title}", body])
     lines.extend(
         [
             "",

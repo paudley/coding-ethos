@@ -60,11 +60,9 @@ dmypy.json
 .lint-cache
 .claude/settings.local.json
 .codex/*
-!.codex/
 !.codex/skills/
 !.codex/skills/**
 .gemini/*
-!.gemini/
 !.gemini/extensions/
 .gemini/extensions/*
 !.gemini/extensions/coding-ethos/

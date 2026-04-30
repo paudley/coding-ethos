@@ -462,7 +462,7 @@ git stash pop
    dynamics.
 3. **Responsibility Avoidance:** "Pre-existing" is not a valid excuse
    (see
-   Section 13: Universal Responsibility).
+   Universal Responsibility).
 4. **State Corruption:** Stashing and branch switching risks losing
    work or
    corrupting state.

@@ -3388,8 +3388,8 @@ principles:
 
           * **API endpoints:** Validate all request parameters with Pydantic
           * **File inputs:** Validate file types, sizes, and content
-          * **Configuration:** Validate at startup, not at use time (see Section
-            2)
+          * **Configuration:** Validate at startup, not at use time (see
+            [Validation at the Gate](#validation-at-the-gate))
       - id: production-database-detection
         kind: guidance
         title: Production Database Detection

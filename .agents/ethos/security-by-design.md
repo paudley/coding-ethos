@@ -125,8 +125,8 @@ internally.
 
 * **API endpoints:** Validate all request parameters with Pydantic
 * **File inputs:** Validate file types, sizes, and content
-* **Configuration:** Validate at startup, not at use time (see Section
-  2)
+* **Configuration:** Validate at startup, not at use time (see
+  [Validation at the Gate](#validation-at-the-gate))
 
 ## Production Database Detection
 Operations that could harm production must detect and refuse
