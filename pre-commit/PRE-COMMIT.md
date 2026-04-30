@@ -60,14 +60,12 @@ Required tools:
 - `uv`
 
 `make build` installs required checkout-local managed tools under
-`build/toolchain/`. `shfmt` is installed into `build/toolchain/go-bin/` and
-hook execution prepends that directory to `PATH`; host-global `shfmt` is not a
-runtime contract.
-
-ShellCheck, actionlint, hadolint, and golangci-lint are still being migrated to
-managed installers. Until then, they may be required by hook groups that invoke
-them directly, but new hook-tool work should route them through the managed
-toolchain rather than host installation instructions.
+`build/toolchain/`. `shfmt` and golangci-lint are built into
+`build/toolchain/go-bin/`; ShellCheck, actionlint, and hadolint are installed
+from pinned GitHub release assets into `build/toolchain/github-bin/`.
+`build/toolchain/manifest.tsv` records the installed toolchain. Hook execution
+prepends managed tool directories to `PATH`, and Go hook commands resolve
+managed absolute paths; host-global linter installs are not a runtime contract.
 
 ## Run
 
@@ -285,8 +283,8 @@ project behavior. Python linters execute from the coding-ethos hook project via
 coding-ethos-managed versions and explicit generated config flags
 (`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and
 `.yamllint.yml`). Parent repo config files with matching names are ignored.
-Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint must
-be installed by coding-ethos init into a managed runtime before they are trusted
+Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint are
+installed by coding-ethos init into the managed runtime before they are trusted
 capture backends; host binaries are not a policy boundary.
 
 Captured lint runs are treated as structured events. Each trace should preserve
