@@ -5,22 +5,17 @@
 set -euo pipefail
 # shellcheck disable=SC2034
 
-CAPTURED_LINT_TOOLS=(
-  ruff
-  mypy
-  pyright
-  pylint
-  shellcheck
-  golangci-lint
-  actionlint
-  yamllint
-  hadolint
-  bandit
-  sqlfluff
-  tombi
-  dotenv-linter
-)
 LINT_SOURCE_ROOTS=()
+
+captured_lint_tool_names() {
+  if [[ -x "${TOOLS_BIN_DIR:-}/coding-ethos-lint" ]]; then
+    "${TOOLS_BIN_DIR}/coding-ethos-lint" --list-captured-tools
+    return
+  fi
+
+  printf '%s\n' ruff mypy pyright pylint shellcheck golangci-lint actionlint \
+    yamllint hadolint bandit sqlfluff tombi dotenv-linter
+}
 
 real_tool_env_var() {
   local tool="${1:?tool required}"
@@ -58,13 +53,14 @@ managed_tool_path() {
 
 install_lint_tool_shims() {
   local tool
-  for tool in "${CAPTURED_LINT_TOOLS[@]}"; do
+  while IFS= read -r tool; do
+    [[ -n "$tool" ]] || continue
     if ! managed_tool_path "$tool" > /dev/null 2>&1; then
       rm -f "${TOOLS_BIN_DIR}/${tool}"
       continue
     fi
     install_lint_tool_shim "$tool"
-  done
+  done < <(captured_lint_tool_names)
 }
 
 install_lint_tool_shim() {
@@ -103,9 +99,9 @@ run_policy_tool() {
 captured_lint_tool() {
   local tool="${1:?tool required}"
   local known
-  for known in "${CAPTURED_LINT_TOOLS[@]}"; do
+  while IFS= read -r known; do
     [[ "$known" == "$tool" ]] && return 0
-  done
+  done < <(captured_lint_tool_names)
 
   return 1
 }

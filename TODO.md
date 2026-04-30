@@ -180,3 +180,28 @@ before the next broad hook expansion.
 - [ ] Replace the remaining shell-owned lint capture entrypoint with Go so
   capture, target resolution, config enforcement, and output normalization all
   live in compiled hook code instead of shell glue.
+
+## Go Lint Capture Replacement Prep
+
+Do these before replacing the remaining shell-owned lint capture entrypoint.
+
+- [x] Move lint target resolution into Go, including package-relative roots,
+  invocation subdirectories, globs, missing paths, and repo-escape rejection.
+- [x] Expose merged consumer config and policy-root data through one Go helper
+  instead of rediscovering config paths in each command.
+- [x] Define a Go capture request model containing tool name, original argv,
+  invocation cwd, consumer root, ethos root, managed tool path, output format,
+  and trace root.
+- [x] Move managed tool executable and wrapper path resolution behind
+  `toolcatalog` capability APIs.
+- [x] Generate lint tool shims from `toolcatalog.CapturedLintTools()` rather
+  than maintaining a shell-owned tool array.
+- [x] Make generated-tool-config integrity checking callable as Go code before
+  any captured linter executes.
+- [x] Add behavior-preserving tests for rewritten commands, `ruff`, `mypy`, one
+  managed binary linter, malicious absolute paths, globs, package-relative
+  paths, and drifted generated configs.
+- [x] Slim `toolcatalog.Tool` or add focused capability views such as
+  `CaptureSpec`, `RuntimeSpec`, and `FileMatchSpec`.
+- [x] Document the intended Go lint capture flow: shim -> Go dispatcher ->
+  capture request -> managed tool -> normalized lint result.

@@ -14,6 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 var (
@@ -63,6 +64,11 @@ func main() {
 		true,
 		"Persist normalized lint result under .coding-ethos/lint-runs",
 	)
+	listCapturedTools := flags.Bool(
+		"list-captured-tools",
+		false,
+		"Print captured lint tool names, one per line",
+	)
 	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
 	scope := scopeFlagSet(flags)
 
@@ -80,6 +86,11 @@ func main() {
 			flags.Args(),
 			captureEvidenceMaps(*bundlePath),
 		))
+	}
+
+	if *listCapturedTools {
+		printCapturedTools()
+		return
 	}
 
 	if *analyzeLog {
@@ -198,6 +209,12 @@ func main() {
 
 	if result.Blocked() {
 		os.Exit(blockedExitCode)
+	}
+}
+
+func printCapturedTools() {
+	for _, tool := range toolcatalog.CapturedLintTools() {
+		fmt.Fprintln(os.Stdout, tool.Name)
 	}
 }
 

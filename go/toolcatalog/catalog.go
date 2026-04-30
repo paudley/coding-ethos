@@ -4,6 +4,8 @@
 // Package toolcatalog defines typed external tool metadata.
 package toolcatalog
 
+import "path/filepath"
+
 type Runtime string
 
 const (
@@ -48,6 +50,35 @@ type CapturedTool struct {
 	PythonModule bool
 }
 
+type CaptureSpec struct {
+	OutputArgs    []string
+	StripArgs     []string
+	StripFlags    []string
+	AfterFirst    []string
+	MutatingArgs  []string
+	MutatingFirst []string
+}
+
+type RuntimeSpec struct {
+	Runtime    Runtime
+	Command    []string
+	RepoConfig string
+	UseProject bool
+}
+
+type FileMatchSpec struct {
+	Extensions       []string
+	Prefixes         []string
+	BaseNamePrefixes []string
+	Languages        []string
+	PassFilesAsArgs  bool
+}
+
+type ShimSpec struct {
+	ToolName string
+	Command  []string
+}
+
 func PythonStaticTools() []Tool {
 	return cloneTools(pythonStaticToolDefinitions())
 }
@@ -75,6 +106,47 @@ func HookOwnedTool(name string) (Tool, bool) {
 	return findTool(name, HookOwnedTools())
 }
 
+func (tool Tool) CaptureSpec() CaptureSpec {
+	return CaptureSpec{
+		OutputArgs:    append([]string(nil), tool.CaptureOutputArgs...),
+		StripArgs:     append([]string(nil), tool.CaptureStripArgs...),
+		StripFlags:    append([]string(nil), tool.CaptureStripFlags...),
+		AfterFirst:    append([]string(nil), tool.CaptureAfterFirst...),
+		MutatingArgs:  append([]string(nil), tool.CaptureMutatingArgs...),
+		MutatingFirst: append([]string(nil), tool.CaptureMutatingFirst...),
+	}
+}
+
+func (tool Tool) RuntimeSpec() RuntimeSpec {
+	return RuntimeSpec{
+		Runtime:    tool.Runtime,
+		Command:    append([]string(nil), tool.Command...),
+		RepoConfig: tool.RepoConfig,
+		UseProject: tool.UseHookProject,
+	}
+}
+
+func (tool Tool) FileMatchSpec() FileMatchSpec {
+	return FileMatchSpec{
+		Extensions:       append([]string(nil), tool.FileExtensions...),
+		Prefixes:         append([]string(nil), tool.FilePrefixes...),
+		BaseNamePrefixes: append([]string(nil), tool.BaseNamePrefixes...),
+		Languages:        append([]string(nil), tool.Languages...),
+		PassFilesAsArgs:  tool.PassFilesAsArgs,
+	}
+}
+
+func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
+	switch tool.Runtime {
+	case RuntimeGo:
+		return filepath.Join(ethosRoot, "build", "toolchain", "go-bin", tool.Name)
+	case RuntimeBinary:
+		return filepath.Join(ethosRoot, "build", "toolchain", "github-bin", tool.Name)
+	default:
+		return ""
+	}
+}
+
 func CapturedLintTools() []CapturedTool {
 	tools := []Tool{
 		ruffTool(),
@@ -98,6 +170,19 @@ func CapturedLintTools() []CapturedTool {
 	}
 
 	return captured
+}
+
+func CapturedLintShimSpecs(runGoHookPath string) []ShimSpec {
+	tools := CapturedLintTools()
+	specs := make([]ShimSpec, 0, len(tools))
+	for _, tool := range tools {
+		specs = append(specs, ShimSpec{
+			ToolName: tool.Name,
+			Command:  []string{runGoHookPath, "policy-tool", tool.Name},
+		})
+	}
+
+	return specs
 }
 
 func CapturedLintTool(name string) (CapturedTool, bool) {

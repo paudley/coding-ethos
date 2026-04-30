@@ -327,6 +327,15 @@ def test_lint_target_source_roots_come_from_policy_config() -> None:
     assert "pyrightconfig" not in helper
 
 
+def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
+    script = (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--list-captured-tools" in script
+    assert "CAPTURED_LINT_TOOLS" not in script
+
+
 def test_lint_source_roots_helper_rejects_repo_escape(tmp_path: Path) -> None:
     consumer = tmp_path / "consumer"
     consumer.mkdir()

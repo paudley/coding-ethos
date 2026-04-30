@@ -9,6 +9,9 @@
   boundaries, generated artifacts, and verification contract.
 - `docs/HOOK_RUNTIME_BOOTSTRAP.md`: target model for consumer hook shims,
   checkout-local runtime artifacts, and bootstrap repair behavior.
+- `docs/LINT_CAPTURE_GO_FLOW.md`: target model for replacing shell-owned lint
+  capture with compiled Go request, config, target-resolution, tool execution,
+  logging, and rendering stages.
 - `TODO.md`: active implementation tasks that are not yet part of the
   supported runtime contract.
 - `coding_ethos/CODING_ETHOS.md`: package overview, module boundaries, and

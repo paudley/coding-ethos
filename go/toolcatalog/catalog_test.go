@@ -4,6 +4,7 @@
 package toolcatalog_test
 
 import (
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -279,6 +280,73 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 				t.Fatalf("%s missing Python module capture metadata: %#v", name, capture)
 			}
 		}
+	}
+}
+
+func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("shellcheck")
+	if !found {
+		t.Fatal("missing shellcheck")
+	}
+
+	capture := tool.CaptureSpec()
+	capture.OutputArgs[0] = "--broken"
+	if tool.CaptureOutputArgs[0] == "--broken" {
+		t.Fatal("CaptureSpec shared backing array with Tool")
+	}
+
+	runtime := tool.RuntimeSpec()
+	runtime.Command[0] = "broken"
+	if tool.Command[0] == "broken" {
+		t.Fatal("RuntimeSpec shared backing array with Tool")
+	}
+
+	files := tool.FileMatchSpec()
+	files.Extensions[0] = ".broken"
+	if tool.FileExtensions[0] == ".broken" {
+		t.Fatal("FileMatchSpec shared backing array with Tool")
+	}
+}
+
+func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(string(filepath.Separator), "repo", "coding-ethos")
+	shellcheck, found := toolcatalog.HookOwnedTool("shellcheck")
+	if !found {
+		t.Fatal("missing shellcheck")
+	}
+	if got := shellcheck.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck") {
+		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
+	}
+
+	ruff, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff")
+	}
+	if got := ruff.ManagedExecutablePath(root); got != "" {
+		t.Fatalf("ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools", got)
+	}
+}
+
+func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
+	t.Parallel()
+
+	specs := toolcatalog.CapturedLintShimSpecs("/repo/run-go-hook.sh")
+	byTool := map[string]toolcatalog.ShimSpec{}
+	for _, spec := range specs {
+		byTool[spec.ToolName] = spec
+	}
+
+	spec, found := byTool["ruff"]
+	if !found {
+		t.Fatal("missing ruff shim spec")
+	}
+	want := []string{"/repo/run-go-hook.sh", "policy-tool", "ruff"}
+	if !reflect.DeepEqual(spec.Command, want) {
+		t.Fatalf("ruff shim command = %#v, want %#v", spec.Command, want)
 	}
 }
 
