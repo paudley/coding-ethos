@@ -52,6 +52,11 @@ func main() {
 		"",
 		"Lint trace directory for --analyze-log",
 	)
+	replayTrace := flags.String(
+		"replay",
+		"",
+		"Replay a persisted .coding-ethos/lint-runs trace",
+	)
 	logOutput := flags.Bool(
 		"log",
 		true,
@@ -97,6 +102,25 @@ func main() {
 		}
 		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, format); encodeErr != nil {
 			exitErr(encodeErr)
+		}
+
+		return
+	}
+
+	if *replayTrace != "" {
+		result, replayErr := lint.ReplayTrace(*replayTrace)
+		if replayErr != nil {
+			exitErr(replayErr)
+		}
+		format := hookoutput.SelectedFormat()
+		if *jsonOutput {
+			format = hookoutput.FormatJSON
+		}
+		if encodeErr := hookoutput.EncodeLintResult(os.Stdout, result, format); encodeErr != nil {
+			exitErr(encodeErr)
+		}
+		if result.Blocked() {
+			os.Exit(blockedExitCode)
 		}
 
 		return

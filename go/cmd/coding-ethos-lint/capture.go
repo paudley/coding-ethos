@@ -92,12 +92,14 @@ func capturedToolResult(
 	parsed := diagnostics.Parse(tool, stdout, stderr)
 	parsed = diagnostics.Enrich(parsed, evidenceMaps)
 	parsed = diagnostics.Dedupe(parsed)
+	outputExcerpt := capturedOutputExcerpt(stdout, stderr, cwd)
 
 	return lint.Result{
 		Scope:       "tool:" + tool,
 		Status:      capturedStatus(exitCode),
+		Capture:     capturedToolMetadata(tool, args, runArgs, exitCode, outputExcerpt, parsed),
 		Diagnostics: parsed,
-		Findings:    capturedFindings(tool, args, runArgs, exitCode, cwd, stdout, stderr, parsed),
+		Findings:    capturedFindings(tool, args, runArgs, exitCode, outputExcerpt, parsed),
 	}
 }
 
@@ -106,9 +108,7 @@ func capturedFindings(
 	args []string,
 	runArgs []string,
 	exitCode int,
-	cwd string,
-	stdout string,
-	stderr string,
+	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
 	outcome := capturedOutcome(tool, exitCode, items)
@@ -123,7 +123,7 @@ func capturedFindings(
 				"args":      append([]string(nil), args...),
 				"exit_code": exitCode,
 				"run_args":  append([]string(nil), runArgs...),
-				"output":    capturedOutputExcerpt(stdout, stderr, cwd),
+				"output":    outputExcerpt,
 			},
 			CheckID:    "tool." + tool,
 			Message:    outcome.Message,
@@ -160,6 +160,39 @@ func capturedFindings(
 	}
 
 	return findings
+}
+
+func capturedToolMetadata(
+	tool string,
+	args []string,
+	runArgs []string,
+	exitCode int,
+	outputExcerpt string,
+	items []diagnostics.Diagnostic,
+) *lint.ToolCapture {
+	return &lint.ToolCapture{
+		Tool:          tool,
+		Parser:        tool,
+		ParseStatus:   capturedParseStatus(exitCode, items),
+		OutputExcerpt: outputExcerpt,
+		Args:          append([]string(nil), args...),
+		RunArgs:       append([]string(nil), runArgs...),
+		ExitCode:      exitCode,
+	}
+}
+
+func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic) string {
+	if len(items) > 0 {
+		return "parsed"
+	}
+	if exitCode == 0 {
+		return "empty"
+	}
+	if exitCode == 2 {
+		return "tool_config_error"
+	}
+
+	return "parse_error"
 }
 
 const maxCapturedOutputExcerpt = 600

@@ -12,6 +12,7 @@ type Result struct {
 	Scope       string                   `json:"scope"`
 	Status      string                   `json:"status"`
 	Decisions   []policy.Decision        `json:"decisions"`
+	Capture     *ToolCapture             `json:"capture,omitempty"`
 	Diagnostics []diagnostics.Diagnostic `json:"diagnostics,omitempty"`
 	Findings    []Finding                `json:"findings,omitempty"`
 	Files       []string                 `json:"files,omitempty"`
@@ -41,3 +42,13 @@ type Finding struct {
 }
 
 type RunResult = Result
+
+type ToolCapture struct {
+	Tool          string   `json:"tool"`
+	Parser        string   `json:"parser"`
+	ParseStatus   string   `json:"parse_status"`
+	OutputExcerpt string   `json:"output_excerpt,omitempty"`
+	Args          []string `json:"args,omitempty"`
+	RunArgs       []string `json:"run_args,omitempty"`
+	ExitCode      int      `json:"exit_code"`
+}

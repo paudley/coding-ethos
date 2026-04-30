@@ -73,6 +73,15 @@ func AnalyzeTraces(path string) (Analysis, error) {
 	return AnalyzeTracesWithOptions(path, AnalysisOptions{})
 }
 
+func ReplayTrace(path string) (Result, error) {
+	record, err := loadTraceRecord(path)
+	if err != nil {
+		return Result{}, err
+	}
+
+	return record.Result, nil
+}
+
 func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, error) {
 	files := normalizeAnalysisFiles(options.Files)
 	analysis := Analysis{Path: path, Files: files}

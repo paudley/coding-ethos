@@ -229,6 +229,37 @@ func TestAnalyzeTracesAllowsMissingTraceDirectory(t *testing.T) {
 	}
 }
 
+func TestReplayTraceReturnsSavedResult(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeTraceFixture(t, root, "tool-mypy.json", []Finding{{
+		RawOutcome: map[string]any{
+			"category":  "configuration_error",
+			"exit_code": float64(2),
+			"output":    "mypy: error: cannot read file '<repo>/pkg/app.py'",
+		},
+		CheckID:    "tool.mypy",
+		SourceTool: "mypy",
+		Status:     "fail",
+		Severity:   "error",
+		Message:    "mypy configuration or usage failed with status 2",
+		Blocking:   true,
+	}})
+
+	result, err := ReplayTrace(filepath.Join(root, "tool-mypy.json"))
+	if err != nil {
+		t.Fatalf("ReplayTrace() returned error: %v", err)
+	}
+
+	if !result.Blocked() || len(result.Findings) != 1 {
+		t.Fatalf("replayed result = %#v", result)
+	}
+	if result.Findings[0].CheckID != "tool.mypy" {
+		t.Fatalf("replayed finding = %#v", result.Findings[0])
+	}
+}
+
 func writeTraceFixture(
 	t *testing.T,
 	root string,

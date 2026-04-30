@@ -241,6 +241,7 @@ Analyze those traces with:
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
+pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 Analysis output uses the same human, JSON, and auto-selected TOON formats as
@@ -250,6 +251,9 @@ tool/code pairs, repeated file-policy patterns, ETHOS IDs, and deterministic
 guidance candidates. The
 `--for-files` filter narrows output to prior findings from the same file or
 same high-level file area so post-edit feedback can stay focused.
+Replay renders one saved normalized result without invoking the underlying
+linter, so malformed or low-quality agent output can be reproduced from the
+persisted trace.
 Direct agent lint runs are captured too. The agent hook rewrites common forms
 for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
 `actionlint`, `yamllint`, and `hadolint` to the managed

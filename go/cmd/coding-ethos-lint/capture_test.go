@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -144,9 +145,7 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 		[]string{"pkg"},
 		[]string{"--outputjson", "pkg"},
 		2,
-		"/work/repo",
-		"",
-		"pyright: config file not found in /work/repo/pyrightconfig.json",
+		"pyright: config file not found in <repo>/pyrightconfig.json",
 		nil,
 	)
 	if len(findings) != 1 {
@@ -160,6 +159,34 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 	}
 	if findings[0].RawOutcome["output"] != "pyright: config file not found in <repo>/pyrightconfig.json" {
 		t.Fatalf("raw outcome output = %#v", findings[0].RawOutcome)
+	}
+}
+
+func TestCapturedToolResultRecordsCaptureMetadata(t *testing.T) {
+	t.Parallel()
+
+	result := capturedToolResult(
+		"mypy",
+		[]string{"pkg/app.py"},
+		[]string{"--output=json", "pkg/app.py"},
+		2,
+		"/work/repo",
+		"",
+		"mypy: error: cannot read file '/work/repo/pkg/app.py'",
+		nil,
+	)
+
+	if result.Capture == nil {
+		t.Fatal("capture metadata missing")
+	}
+	if result.Capture.ParseStatus != "tool_config_error" {
+		t.Fatalf("parse status = %q", result.Capture.ParseStatus)
+	}
+	if result.Capture.OutputExcerpt != "mypy: error: cannot read file '<repo>/pkg/app.py'" {
+		t.Fatalf("output excerpt = %q", result.Capture.OutputExcerpt)
+	}
+	if len(result.Findings) != 1 || result.Findings[0].RawOutcome["output"] == "" {
+		t.Fatalf("captured findings missing output: %#v", result.Findings)
 	}
 }
 
@@ -275,6 +302,97 @@ func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 	}
 }
 
+func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	tests := []struct {
+		name     string
+		tool     string
+		args     []string
+		required string
+	}{
+		{name: "ruff", tool: "ruff", args: []string{"check", "pkg"}, required: "--output-format=json"},
+		{name: "mypy", tool: "mypy", args: []string{"pkg"}, required: "--output=json"},
+		{name: "pyright", tool: "pyright", args: []string{"pkg"}, required: "--outputjson"},
+		{name: "pylint", tool: "pylint", args: []string{"pkg"}, required: "--output-format=json"},
+		{name: "shellcheck", tool: "shellcheck", args: []string{"script.sh"}, required: "--format=json"},
+		{name: "yamllint", tool: "yamllint", args: []string{"config.yaml"}, required: "-f parsable"},
+		{name: "hadolint", tool: "hadolint", args: []string{"Dockerfile"}, required: "--format json"},
+		{name: "actionlint", tool: "actionlint", args: []string{".github/workflows/ci.yml"}, required: "{{json .}}"},
+		{name: "golangci-lint", tool: "golangci-lint", args: []string{"run", "./..."}, required: "--output.json.path=stdout"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			tool := writeFailureCaptureFixtureTool(
+				t,
+				repo,
+				test.required,
+				test.tool+": failed to load config from "+repo+"/tool.conf",
+				2,
+			)
+
+			t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+			output := captureStdout(t, func() {
+				exitCode := runCapturedTool(test.tool, tool, repo, test.args, nil)
+				if exitCode != 2 {
+					t.Fatalf("exit code = %d, want 2", exitCode)
+				}
+			})
+
+			for _, want := range []string{
+				"format: toon",
+				"tool: " + test.tool,
+				"status: FAIL",
+				"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+				test.tool + ",,0,0,error,,tool." + test.tool,
+				"category=configuration_error; exit_code=2; output=" + test.tool + ": failed to load config from <repo>/tool.conf",
+			} {
+				if !strings.Contains(output, want) {
+					t.Fatalf("output missing %q:\n%s", want, output)
+				}
+			}
+			if strings.Contains(output, "findings[0]") || strings.Contains(output, repo) {
+				t.Fatalf("output failed quality checks:\n%s", output)
+			}
+		})
+	}
+}
+
+func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := writeSuccessCaptureFixtureTool(t, repo, "--output=json")
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool("mypy", tool, repo, []string{"pkg"}, nil)
+		if exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0", exitCode)
+		}
+	})
+
+	if strings.TrimSpace(output) != "" {
+		t.Fatalf("clean captured tool produced output:\n%s", output)
+	}
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"parse_status": "empty"`,
+		`"exit_code": 0`,
+		`"run_args": [`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestCapturedToolArgsForceMachineReadableOutput(t *testing.T) {
 	t.Parallel()
 
@@ -386,6 +504,53 @@ cat <<'EOF'
 ` + output + `
 EOF
 exit 1
+`
+	if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	return tool
+}
+
+func writeFailureCaptureFixtureTool(
+	t *testing.T,
+	repo string,
+	required string,
+	stderr string,
+	exitCode int,
+) string {
+	t.Helper()
+
+	tool := filepath.Join(repo, "tool-fixture")
+	script := `#!/usr/bin/env sh
+case " $* " in
+  *"` + required + `"*) ;;
+  *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
+esac
+echo "` + stderr + `" >&2
+exit ` + strconv.Itoa(exitCode) + `
+`
+	if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	return tool
+}
+
+func writeSuccessCaptureFixtureTool(
+	t *testing.T,
+	repo string,
+	required string,
+) string {
+	t.Helper()
+
+	tool := filepath.Join(repo, "tool-fixture")
+	script := `#!/usr/bin/env sh
+case " $* " in
+  *"` + required + `"*) ;;
+  *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
+esac
+exit 0
 `
 	if err := os.WriteFile(tool, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fixture tool: %v", err)

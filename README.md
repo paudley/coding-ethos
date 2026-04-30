@@ -364,10 +364,13 @@ Analyze captured lint history:
 ```bash
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
+pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.
+Replay renders the saved normalized result without invoking the underlying
+linter, which makes bad agent output reproducible from a trace file.
 Output quality is part of the contract: blocked results must not render empty
 finding tables, absolute local paths, internal timing/group noise, or generic
 guidance without at least one actionable finding. Golden-output tests should

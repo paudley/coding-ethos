@@ -173,6 +173,55 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONBlockedOutputQuality(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:pyright",
+		Status: "blocked",
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"category":  "tool_config_error",
+				"exit_code": 2,
+				"output":    "pyright: config failure in <repo>/pyrightconfig.json",
+			},
+			CheckID:    "tool.pyright",
+			Message:    "pyright configuration or usage failed with status 2",
+			Severity:   "error",
+			SourceTool: "pyright",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, forbidden := range []string{
+		"findings[0]",
+		"/home/",
+		"duration_ms",
+		"groups[",
+		"commands[",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("TOON output contains forbidden %q:\n%s", forbidden, output)
+		}
+	}
+	for _, want := range []string{
+		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"tool.pyright",
+		"pyright configuration or usage failed with status 2",
+		"output=pyright: config failure in <repo>/pyrightconfig.json",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
 	getenv := func(name string) string {
 		switch name {
