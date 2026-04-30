@@ -1857,6 +1857,7 @@ func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
 			nil,
 		),
 		PolicyID:     stringAt(item, "policy_id"),
+		SkillID:      stringAt(item, "skill_id"),
 		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
 		Confidence:   stringAt(item, "confidence"),
 		Meaning:      stringAt(item, "meaning"),

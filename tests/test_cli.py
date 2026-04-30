@@ -7,6 +7,7 @@ These tests exercise the public command surface rather than private helpers.
 They verify that generated files, tool configs, and merge behavior stay aligned.
 """
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -551,6 +552,15 @@ class CliRenderTests(unittest.TestCase):
             self._write_yaml(primary_path, payload)
 
             repo_root.mkdir()
+            self._write_yaml(
+                repo_root / "repo_ethos.yml",
+                {
+                    "repo": {
+                        "name": 'Widget "Service" \\ Alpha',
+                        "overview": "Processes widgets.",
+                    }
+                },
+            )
             exit_code = main(["--repo", str(repo_root), "--primary", str(primary_path)])
 
             assert exit_code == 0
@@ -569,8 +579,11 @@ class CliRenderTests(unittest.TestCase):
             manifest = (
                 repo_root / ".gemini/extensions/coding-ethos/gemini-extension.json"
             ).read_text(encoding="utf-8")
-            assert '"name": "coding-ethos"' in manifest
-            assert "lint-remediation" in manifest
+            manifest_payload = json.loads(manifest)
+            assert manifest_payload["name"] == "coding-ethos"
+            assert manifest_payload["description"] == (
+                'ETHOS skills for Widget "Service" \\ Alpha: lint-remediation'
+            )
 
     def test_cli_merge_existing_injects_managed_blocks_for_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

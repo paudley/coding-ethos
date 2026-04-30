@@ -8,6 +8,7 @@ indexes, per-principle detail docs, and prompt addons.
 They are the only place where output shape should change by design.
 """
 
+import json
 from pathlib import Path
 
 from coding_ethos.models import EthosBundle, EthosSkill, Principle
@@ -399,19 +400,16 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
 def render_gemini_extension_manifest(bundle: EthosBundle, repo_root: Path) -> str:
     """Render the Gemini extension manifest that exposes ETHOS skills."""
     skill_list = ", ".join(skill.id for skill in bundle.skills) or "none"
-    lines = [
-        "{",
-        '  "name": "coding-ethos",',
-        '  "version": "1.0.0",',
-        (
-            f'  "description": "ETHOS skills for '
-            f'{_repo_display_name(bundle, repo_root)}: {skill_list}",'
+    manifest = {
+        "name": "coding-ethos",
+        "version": "1.0.0",
+        "description": (
+            f"ETHOS skills for {_repo_display_name(bundle, repo_root)}: {skill_list}"
         ),
-        '  "contextFileName": "GEMINI.md"',
-        "}",
-        "",
-    ]
-    return "\n".join(lines)
+        "contextFileName": "GEMINI.md",
+    }
+
+    return json.dumps(manifest, indent=2) + "\n"
 
 
 def render_skill_outputs(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:

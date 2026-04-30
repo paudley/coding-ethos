@@ -701,6 +701,7 @@ policy:
     - source: mypy
       codes: [no-any-return]
       policy_id: python.optional_returns
+      skill_id: managed-toolchain
       principle_ids: [no-optional-types-for-required-dependencies]
       confidence: medium
       meaning: Return type leaks Any.
@@ -725,6 +726,9 @@ policy:
 	evidenceMap := bundle.EvidenceMaps[0]
 	if evidenceMap.Source != "mypy" || evidenceMap.Codes[0] != "no-any-return" {
 		t.Fatalf("evidence map mismatch: %#v", evidenceMap)
+	}
+	if evidenceMap.SkillID != "managed-toolchain" {
+		t.Fatalf("evidence skill id mismatch: %#v", evidenceMap)
 	}
 
 	if evidenceMap.Advice.Summary != "Replace Any with a precise required type." {

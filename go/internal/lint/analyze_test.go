@@ -188,6 +188,7 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 			Status:     "fail",
 			Message:    "Module import not at top",
 			Advice:     "Move imports to module scope.",
+			SkillID:    "conditional-imports",
 			Blocking:   true,
 		},
 	})
@@ -198,6 +199,7 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 			File:       "go/internal/app.go",
 			Status:     "fail",
 			Message:    "missing required license header text",
+			SkillID:    "managed-toolchain",
 			Blocking:   true,
 		},
 	})
@@ -221,6 +223,10 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 	if len(analysis.GuidanceCandidates) != 1 ||
 		analysis.GuidanceCandidates[0].CheckID != "python.import_order" {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
+	}
+	if len(analysis.TopSkillHints) != 1 ||
+		analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 1}) {
+		t.Fatalf("scoped skill hints = %#v", analysis.TopSkillHints)
 	}
 }
 

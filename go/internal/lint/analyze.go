@@ -126,11 +126,14 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 			continue
 		}
 		analysis.RunsAnalyzed++
-		incrementSkillHintCounts(record.Result.SkillHints, skillHintCounts)
 
+		relevantSkillIDs := map[string]bool{}
 		for _, finding := range record.Result.Findings {
 			if !findingFailed(finding) || !findingRelevantToFiles(finding, files) {
 				continue
+			}
+			if finding.SkillID != "" {
+				relevantSkillIDs[finding.SkillID] = true
 			}
 
 			analysis.Findings++
@@ -145,6 +148,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				candidates,
 			)
 		}
+		incrementSkillHintCounts(record.Result.SkillHints, skillHintCounts, relevantSkillIDs, files)
 	}
 
 	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
@@ -308,10 +312,18 @@ func incrementFindingCounts(
 	candidates[candidateKey] = candidate
 }
 
-func incrementSkillHintCounts(hints []SkillHint, counts map[string]int) {
+func incrementSkillHintCounts(
+	hints []SkillHint,
+	counts map[string]int,
+	relevantSkillIDs map[string]bool,
+	files []string,
+) {
 	for _, hint := range hints {
 		skillID := strings.TrimSpace(hint.SkillID)
 		if skillID == "" {
+			continue
+		}
+		if len(files) > 0 && !relevantSkillIDs[skillID] {
 			continue
 		}
 
