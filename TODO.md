@@ -177,7 +177,7 @@ before the next broad hook expansion.
   can be extended from compiled config data.
 - [x] Separate capture execution IO, parser selection, lint-log persistence,
   and user-facing rendering into testable components.
-- [ ] Replace the remaining shell-owned lint capture entrypoint with Go so
+- [x] Replace the remaining shell-owned lint capture entrypoint with Go so
   capture, target resolution, config enforcement, and output normalization all
   live in compiled hook code instead of shell glue.
 

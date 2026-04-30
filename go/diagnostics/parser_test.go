@@ -51,6 +51,26 @@ func TestParseRuffTextDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseRuffFormatDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"ruff",
+		"Would reformat: lib/python/pkg.py\n1 file would be reformatted\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "ruff",
+		File:     "lib/python/pkg.py",
+		Line:     1,
+		Column:   1,
+		Severity: "error",
+		Code:     "format",
+		Message:  "File would be reformatted by ruff format.",
+	})
+}
+
 func TestParsePyrightDiagnostics(t *testing.T) {
 	t.Parallel()
 

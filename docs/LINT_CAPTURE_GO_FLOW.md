@@ -3,7 +3,7 @@
 
 # Go Lint Capture Flow
 
-The target runtime flow is:
+The runtime flow is:
 
 1. A small installed shim dispatches into the compiled coding-ethos runtime.
 2. The Go dispatcher builds a `lintcapture.Request` from the tool name,
@@ -20,6 +20,6 @@ The target runtime flow is:
 8. Diagnostics are parsed, enriched with compiled policy evidence maps, logged
    under `.coding-ethos/lint-runs`, and rendered as TOON or human output.
 
-Shell should eventually do only stable process handoff. It should not own lint
-tool lists, target resolution, config integrity, managed executable selection,
+Shell now only does stable process handoff. It does not own lint tool lists,
+target resolution, config integrity, managed executable selection,
 output-format coercion, or policy result rendering.

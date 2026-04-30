@@ -41,7 +41,9 @@ var (
 	tombiLocationPattern = regexp.MustCompile(
 		`^\s*at\s+(.+?):(\d+):(\d+)\s*$`,
 	)
-	ruffCodePattern = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	ruffCodePattern     = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	ruffFormatPattern   = regexp.MustCompile(`^(Would reformat|would reformat|reformatted):\s+(.+)$`)
+	ruffFormatUnchanged = regexp.MustCompile(`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`)
 )
 
 const (
@@ -158,7 +160,25 @@ func parseRuffText(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
 
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		matches := fallbackPattern.FindStringSubmatch(strings.TrimSpace(line))
+		text := strings.TrimSpace(line)
+		if text == "" || ruffFormatUnchanged.MatchString(text) {
+			continue
+		}
+		if matches := ruffFormatPattern.FindStringSubmatch(text); len(matches) == 3 {
+			diagnostics = append(diagnostics, Diagnostic{
+				Tool:     "ruff",
+				File:     matches[2],
+				Severity: "error",
+				Code:     "format",
+				Message:  "File would be reformatted by ruff format.",
+				Line:     1,
+				Column:   1,
+			})
+
+			continue
+		}
+
+		matches := fallbackPattern.FindStringSubmatch(text)
 		if len(matches) != fallbackMatchParts {
 			continue
 		}

@@ -4,6 +4,7 @@
 package lintcapture
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ func LoadRuntimeConfig(ethosRoot string, consumerRoot string) (RuntimeConfig, er
 				Merged:       deepMergeMaps(base, override),
 			}, nil
 		}
-		if !os.IsNotExist(err) {
+		if !errors.Is(err, os.ErrNotExist) {
 			return RuntimeConfig{}, err
 		}
 	}

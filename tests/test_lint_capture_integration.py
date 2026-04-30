@@ -307,32 +307,32 @@ python:
 
 
 def test_lint_target_source_roots_come_from_policy_config() -> None:
-    helper = (REPO_ROOT / "coding_ethos" / "lint_source_roots.py").read_text(
+    runtime_config = (REPO_ROOT / "go" / "lintcapture" / "config.go").read_text(
         encoding="utf-8"
     )
-    script = (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").read_text(
+    resolver = (REPO_ROOT / "go" / "lintcapture" / "targets.go").read_text(
         encoding="utf-8"
     )
 
-    assert "-m coding_ethos.lint_source_roots" in script
-    assert "resolve_lint_source_roots" in helper
-    assert "ConfiguredLintRootError" in helper
-    policy_source = (REPO_ROOT / "coding_ethos" / "tool_configs.py").read_text(
-        encoding="utf-8"
-    )
-    assert "load_enforcement_config" in policy_source
-    assert "python.source_paths" in policy_source
-    assert "python.extra_paths" in policy_source
-    assert "relative_to(repo_root)" in policy_source
-    assert "pyrightconfig" not in helper
+    assert "LoadRuntimeConfig" in runtime_config
+    assert '"python", "source_paths"' in runtime_config
+    assert '"python", "extra_paths"' in runtime_config
+    assert "containedSourceRoots" in runtime_config
+    assert "errLintSourceRootEscapesRepo" in resolver
+    assert "pyrightconfig" not in runtime_config
 
 
 def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
-    script = (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").read_text(
+    script = (REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh").read_text(
+        encoding="utf-8"
+    )
+    shims = (REPO_ROOT / "go" / "cmd" / "coding-ethos-lint" / "shims.go").read_text(
         encoding="utf-8"
     )
 
-    assert "--list-captured-tools" in script
+    assert not (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").exists()
+    assert "--install-shims" in script
+    assert "CapturedLintTools()" in shims
     assert "CAPTURED_LINT_TOOLS" not in script
 
 

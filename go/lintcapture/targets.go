@@ -143,8 +143,11 @@ func containedSourceRoots(repoRoot string, roots []string) ([]string, error) {
 		}
 		resolved = filepath.Clean(resolved)
 		rel, err := filepath.Rel(repoRoot, resolved)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("%w: %s", errLintSourceRootEscapesRepo, root)
+		}
+		if rel == "." {
+			continue
 		}
 		contained = append(contained, filepath.ToSlash(rel))
 	}

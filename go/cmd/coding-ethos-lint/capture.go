@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
-	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -24,6 +23,7 @@ var errCaptureToolPathRequired = errors.New("--tool-path is required with --capt
 type captureRequest struct {
 	Tool         string
 	ToolPath     string
+	ToolPrefix   []string
 	Cwd          string
 	TraceRoot    string
 	Args         []string
@@ -57,24 +57,12 @@ func runCapturedTool(
 		exitErr(errCaptureToolPathRequired)
 	}
 
-	execution := executeCapturedTool(request)
-	result := capturedToolResult(request, execution)
-	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
-	if result.Blocked() || len(result.Diagnostics) > 0 {
-		if encodeErr := hookoutput.EncodeLintResult(
-			os.Stdout,
-			result,
-			hookoutput.SelectedFormat(),
-		); encodeErr != nil {
-			fmt.Fprintf(os.Stderr, "WARN: lint result not rendered: %v\n", encodeErr)
-		}
-	}
-
-	return execution.ExitCode
+	return runCapturedToolWithRequest(request)
 }
 
 func executeCapturedTool(request captureRequest) captureExecution {
 	runArgs := capturedToolArgs(request.Tool, request.Args)
+	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
 	command := exec.Command(request.ToolPath, runArgs...)
 	if request.Cwd != "" {
 		command.Dir = request.Cwd
