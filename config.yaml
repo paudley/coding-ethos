@@ -889,7 +889,7 @@ tooling:
       - N803
       - PYI020
       - RUF100
-      - TCH
+      - TC
       - UP037
     test_per_file_ignores:
       - ANN401
@@ -981,6 +981,28 @@ tooling:
           - "true"
           - "false"
         check-keys: false
+
+  bandit:
+    enabled: true
+    exclude_dirs:
+      - tests
+      - .venv
+      - build
+      - dist
+      - node_modules
+    skips: []
+
+  sqlfluff:
+    enabled: true
+    dialect: ansi
+    templater: raw
+    rules: []
+    exclude_rules: []
+
+  tombi:
+    enabled: true
+    schema:
+      enabled: false
 
   golangci_lint:
     version: "2"

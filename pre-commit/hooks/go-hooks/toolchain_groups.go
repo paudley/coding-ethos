@@ -50,6 +50,62 @@ func runActionlint(_ Config, paths []string) int {
 	)
 }
 
+func runBandit(_ Config, paths []string) int {
+	files := toolchainFiles("bandit", existingFiles(paths))
+	if len(files) == 0 {
+		return 0
+	}
+
+	return runHookToolWithParser(
+		"bandit",
+		repoRoot(),
+		uvToolchainCommandWithRepoConfig("bandit", ".bandit.yml", files),
+		parseBanditFindings,
+	)
+}
+
+func runSQLFluff(_ Config, paths []string) int {
+	files := toolchainFiles("sqlfluff", existingFiles(paths))
+	if len(files) == 0 {
+		return 0
+	}
+
+	return runHookToolWithParser(
+		"sqlfluff",
+		repoRoot(),
+		uvToolchainCommandWithRepoConfig("sqlfluff", ".sqlfluff", files),
+		parseSQLFluffFindings,
+	)
+}
+
+func runTombi(_ Config, paths []string) int {
+	files := toolchainFiles("tombi", existingFiles(paths))
+	if len(files) == 0 {
+		return 0
+	}
+
+	return runHookToolWithParser(
+		"tombi",
+		repoRoot(),
+		uvToolchainCommandWithRepoConfig("tombi", "tombi.toml", files),
+		parseTombiFindings,
+	)
+}
+
+func runDotenvLinter(_ Config, paths []string) int {
+	files := toolchainFiles("dotenv-linter", existingFiles(paths))
+	if len(files) == 0 {
+		return 0
+	}
+
+	return runHookToolWithParser(
+		"dotenv-linter",
+		repoRoot(),
+		toolchainCommandWithFiles("dotenv-linter", files),
+		parseDotenvLinterFindings,
+	)
+}
+
 func runPythonComplexity(_ Config, paths []string) int {
 	files := formatPythonFiles(paths)
 	if len(files) == 0 {
@@ -440,6 +496,22 @@ func parseHadolintFindings(output string) []hookFinding {
 
 func parseActionlintFindings(output string) []hookFinding {
 	return parseCatalogFindings("actionlint", output)
+}
+
+func parseBanditFindings(output string) []hookFinding {
+	return parseCatalogFindings("bandit", output)
+}
+
+func parseSQLFluffFindings(output string) []hookFinding {
+	return parseCatalogFindings("sqlfluff", output)
+}
+
+func parseTombiFindings(output string) []hookFinding {
+	return parseCatalogFindings("tombi", output)
+}
+
+func parseDotenvLinterFindings(output string) []hookFinding {
+	return parseCatalogFindings("dotenv-linter", output)
 }
 
 func parseGolangciFindings(output string) []hookFinding {

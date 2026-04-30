@@ -212,6 +212,26 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 			command: "hadolint Dockerfile",
 			want:    "policy-tool hadolint 'Dockerfile'",
 		},
+		{
+			name:    "bandit",
+			command: "python -m bandit pkg",
+			want:    "policy-tool bandit 'pkg'",
+		},
+		{
+			name:    "sqlfluff",
+			command: "uv run sqlfluff lint queries",
+			want:    "policy-tool sqlfluff 'lint' 'queries'",
+		},
+		{
+			name:    "tombi",
+			command: "tombi lint pyproject.toml",
+			want:    "policy-tool tombi 'lint' 'pyproject.toml'",
+		},
+		{
+			name:    "dotenv-linter",
+			command: "dotenv-linter .env.example",
+			want:    "policy-tool dotenv-linter '.env.example'",
+		},
 	}
 
 	for _, test := range tests {

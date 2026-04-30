@@ -35,6 +35,8 @@ func canonicalHookGroups() map[string]hookGroup {
 			Commands: []hookCommand{
 				{Name: "check-runtime-ignores", Run: checkRuntimeIgnoresCommand},
 				{Name: "yamllint", Run: runYamllint},
+				{Name: "tombi", Run: runTombi},
+				{Name: "dotenv-linter", Run: runDotenvLinter},
 			},
 		},
 		"python-policy": {
@@ -77,7 +79,12 @@ func canonicalHookGroups() map[string]hookGroup {
 			Name: "security",
 			Commands: []hookCommand{
 				{Name: "check-security-patterns", Run: checkSecurityPatternsCommand},
+				{Name: "bandit", Run: runBandit},
 			},
+		},
+		"sql": {
+			Name:     "sql",
+			Commands: []hookCommand{{Name: "sqlfluff", Run: runSQLFluff}},
 		},
 		"shell": {
 			Name: "shell",

@@ -43,29 +43,49 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		".github/workflows/ci.yml",
 		toolCatalogGoFile,
 		"config.yaml",
+		"pyproject.toml",
+		"queries/report.sql",
+		"pkg/app.py",
+		".env.example",
 		"script.sh",
 	}
 
-	if got := toolchainFiles("hadolint", paths); len(got) != 1 || got[0] != "Dockerfile" {
-		t.Fatalf("hadolint files = %#v", got)
+	assertToolchainFiles(t, paths, "hadolint", []string{"Dockerfile"})
+	assertToolchainFiles(t, paths, "actionlint", []string{".github/workflows/ci.yml"})
+	assertToolchainFiles(t, paths, "golangci-lint", []string{toolCatalogGoFile})
+	assertToolchainFiles(
+		t,
+		paths,
+		"yamllint",
+		[]string{".github/workflows/ci.yml", "config.yaml"},
+	)
+	assertToolchainFiles(t, paths, "shfmt", []string{"script.sh"})
+
+	for name, want := range map[string]string{
+		"bandit":        "pkg/app.py",
+		"sqlfluff":      "queries/report.sql",
+		"tombi":         "pyproject.toml",
+		"dotenv-linter": ".env.example",
+	} {
+		got := toolchainFiles(name, paths)
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("%s files = %#v, want %q", name, got, want)
+		}
+	}
+}
+
+func assertToolchainFiles(t *testing.T, paths []string, name string, want []string) {
+	t.Helper()
+
+	got := toolchainFiles(name, paths)
+	if len(got) != len(want) {
+		t.Fatalf("%s files = %#v, want %#v", name, got, want)
 	}
 
-	if got := toolchainFiles("actionlint", paths); len(got) != 1 ||
-		got[0] != ".github/workflows/ci.yml" {
-		t.Fatalf("actionlint files = %#v", got)
-	}
-
-	if got := toolchainFiles("golangci-lint", paths); len(got) != 1 ||
-		got[0] != toolCatalogGoFile {
-		t.Fatalf("golangci-lint files = %#v", got)
-	}
-
-	if got := toolchainFiles("yamllint", paths); len(got) != 2 {
-		t.Fatalf("yamllint files = %#v", got)
-	}
-
-	if got := toolchainFiles("shfmt", paths); len(got) != 1 || got[0] != "script.sh" {
-		t.Fatalf("shfmt files = %#v", got)
+	for index, path := range want {
+		if got[index] != path {
+			t.Fatalf("%s files = %#v, want %#v", name, got, want)
+		}
 	}
 }
 

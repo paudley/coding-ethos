@@ -15,6 +15,10 @@ CAPTURED_LINT_TOOLS=(
   actionlint
   yamllint
   hadolint
+  bandit
+  sqlfluff
+  tombi
+  dotenv-linter
 )
 
 real_tool_env_var() {
@@ -32,10 +36,10 @@ real_tool_env_var() {
 managed_tool_path() {
   local tool="${1:?tool required}"
   case "$tool" in
-    ruff | mypy | pyright | pylint | yamllint)
+    ruff | mypy | pyright | pylint | yamllint | bandit | sqlfluff | tombi)
       managed_uv_tool_wrapper "$tool"
       ;;
-    shellcheck | actionlint | hadolint)
+    shellcheck | actionlint | hadolint | dotenv-linter)
       local binary="${MANAGED_GITHUB_BIN_DIR}/${tool}"
       [[ -x "$binary" ]] || return 1
       printf '%s\n' "$binary"
@@ -240,6 +244,31 @@ enforce_lint_tool_config() {
       ;;
     yamllint)
       out_ref=("-c" "${ETHOS_ROOT}/.yamllint.yml" "$@")
+      ;;
+    bandit)
+      out_ref=("-c" "${ETHOS_ROOT}/.bandit.yml" "-f" "json" "$@")
+      ;;
+    sqlfluff)
+      if [[ "${1:-}" == "lint" ]]; then
+        shift || true
+        out_ref=("lint" "--config" "${ETHOS_ROOT}/.sqlfluff" "--format" "json" "$@")
+      else
+        out_ref=("--config" "${ETHOS_ROOT}/.sqlfluff" "--format" "json" "$@")
+      fi
+      ;;
+    tombi)
+      if [[ "${1:-}" == "lint" ]]; then
+        shift || true
+        out_ref=("lint" "--quiet" "--error-on-warnings" "$@")
+      else
+        out_ref=("lint" "--quiet" "--error-on-warnings" "$@")
+      fi
+      ;;
+    dotenv-linter)
+      if [[ "${1:-}" == "check" ]]; then
+        shift || true
+      fi
+      out_ref=("--plain" "--quiet" "check" "$@")
       ;;
     *)
       out_ref=("$@")

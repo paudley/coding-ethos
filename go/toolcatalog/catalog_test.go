@@ -97,6 +97,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	)
 	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
+	assertToolCommand(t, tools["bandit"], []string{"bandit", "-q", "-f", "json"})
+	assertToolCommand(t, tools["sqlfluff"], []string{"sqlfluff", "lint", "--format", "json"})
+	assertToolCommand(t, tools["tombi"], []string{"tombi", "lint", "--quiet", "--error-on-warnings"})
+	assertToolCommand(t, tools["dotenv-linter"], []string{"dotenv-linter", "--plain", "--quiet", "check"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
 
 	for name, want := range map[string]string{
@@ -105,6 +109,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"shellcheck":    "shell",
 		"shfmt":         "shell",
 		"yamllint":      "syntax",
+		"bandit":        "security",
+		"sqlfluff":      "sql",
+		"tombi":         "syntax",
+		"dotenv-linter": "dotenv",
 		"golangci-lint": "go-static",
 	} {
 		tool := tools[name]
@@ -136,6 +144,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		nil,
 	)
 	assertToolFileMetadata(t, tools["yamllint"], []string{".yaml", ".yml"}, nil, nil)
+	assertToolFileMetadata(t, tools["bandit"], []string{".py"}, nil, nil)
+	assertToolFileMetadata(t, tools["sqlfluff"], []string{".sql"}, nil, nil)
+	assertToolFileMetadata(t, tools["tombi"], []string{".toml"}, nil, nil)
+	assertToolFileMetadata(t, tools["dotenv-linter"], nil, nil, []string{".env"})
 	assertToolFileMetadata(t, tools["golangci-lint"], []string{".go"}, nil, nil)
 
 	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
@@ -211,6 +223,8 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		"actionlint",
 		"yamllint",
 		"hadolint",
+		"bandit",
+		"sqlfluff",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -252,6 +266,16 @@ func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 			name: "pylint",
 			args: []string{"-f", "text", "pkg"},
 			want: []string{"--output-format=json", "pkg"},
+		},
+		{
+			name: "bandit",
+			args: []string{"-f", "txt", "pkg"},
+			want: []string{"-f", "json", "pkg"},
+		},
+		{
+			name: "sqlfluff",
+			args: []string{"lint", "--format", "human", "query.sql"},
+			want: []string{"lint", "--format", "json", "query.sql"},
 		},
 		{
 			name: "shellcheck",

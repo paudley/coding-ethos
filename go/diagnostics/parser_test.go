@@ -291,6 +291,64 @@ func TestParseToolchainDiagnostics(t *testing.T) {
 				Message:  "wrong indentation",
 			},
 		},
+		{
+			name: "bandit-json",
+			tool: "bandit",
+			output: `{"results":[{"filename":"pkg/app.py","line_number":10,` +
+				`"issue_severity":"HIGH","issue_confidence":"HIGH",` +
+				`"test_id":"B602","issue_text":"subprocess call with shell=True"}]}`,
+			want: diagnostics.Diagnostic{
+				Tool:     "bandit",
+				File:     "pkg/app.py",
+				Line:     10,
+				Severity: "error",
+				Code:     "B602",
+				Message:  "subprocess call with shell=True",
+			},
+		},
+		{
+			name: "sqlfluff-json",
+			tool: "sqlfluff",
+			output: `[{"filepath":"queries/app.sql","violations":[{` +
+				`"line_no":2,"line_pos":7,"code":"LT01",` +
+				`"description":"Expected single whitespace."}]}]`,
+			want: diagnostics.Diagnostic{
+				Tool:     "sqlfluff",
+				File:     "queries/app.sql",
+				Line:     2,
+				Column:   7,
+				Severity: "error",
+				Code:     "LT01",
+				Message:  "Expected single whitespace.",
+			},
+		},
+		{
+			name: "tombi-text",
+			tool: "tombi",
+			output: "\x1b[1;31m  Error\x1b[0m: invalid key\n" +
+				"    at config.toml:2:4\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "tombi",
+				File:     "config.toml",
+				Line:     2,
+				Column:   4,
+				Severity: "error",
+				Message:  "invalid key",
+			},
+		},
+		{
+			name:   "dotenv-linter-text",
+			tool:   "dotenv-linter",
+			output: `.env.example:3 LowercaseKey: The key should be uppercase`,
+			want: diagnostics.Diagnostic{
+				Tool:     "dotenv-linter",
+				File:     ".env.example",
+				Line:     3,
+				Severity: "warning",
+				Code:     "LowercaseKey",
+				Message:  "The key should be uppercase",
+			},
+		},
 	}
 
 	for _, test := range tests {

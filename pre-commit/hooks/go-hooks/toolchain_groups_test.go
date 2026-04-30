@@ -72,6 +72,67 @@ func TestParseGolangciFindings(t *testing.T) {
 	}
 }
 
+func TestParseNewParityToolFindings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		parse    func(string) []hookFinding
+		output   string
+		wantTool string
+		wantFile string
+		wantCode string
+	}{
+		{
+			name:     "bandit",
+			parse:    parseBanditFindings,
+			output:   `{"results":[{"filename":"pkg/app.py","line_number":10,"issue_severity":"HIGH","test_id":"B602","issue_text":"subprocess call with shell=True"}]}`,
+			wantTool: "bandit",
+			wantFile: "pkg/app.py",
+			wantCode: "B602",
+		},
+		{
+			name:     "sqlfluff",
+			parse:    parseSQLFluffFindings,
+			output:   `[{"filepath":"queries/app.sql","violations":[{"line_no":2,"line_pos":7,"code":"LT01","description":"Expected single whitespace."}]}]`,
+			wantTool: "sqlfluff",
+			wantFile: "queries/app.sql",
+			wantCode: "LT01",
+		},
+		{
+			name:     "tombi",
+			parse:    parseTombiFindings,
+			output:   "Error: invalid key\n    at config.toml:2:4\n",
+			wantTool: "tombi",
+			wantFile: "config.toml",
+		},
+		{
+			name:     "dotenv-linter",
+			parse:    parseDotenvLinterFindings,
+			output:   ".env.example:3 LowercaseKey: The key should be uppercase",
+			wantTool: "dotenv-linter",
+			wantFile: ".env.example",
+			wantCode: "LowercaseKey",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			findings := test.parse(test.output)
+			if len(findings) != 1 {
+				t.Fatalf("%s findings = %#v, want one", test.name, findings)
+			}
+
+			got := findings[0]
+			if got.Tool != test.wantTool || got.File != test.wantFile || got.Code != test.wantCode {
+				t.Fatalf("unexpected %s finding: %#v", test.name, got)
+			}
+		})
+	}
+}
+
 func TestParseGofmtCheckFindings(t *testing.T) {
 	t.Parallel()
 

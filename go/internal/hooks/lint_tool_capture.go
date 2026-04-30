@@ -24,11 +24,15 @@ var capturedLintTools = []capturedLintTool{
 	{Name: "mypy", ModuleNames: []string{"mypy"}, Description: "mypy", PythonModule: true},
 	{Name: "pyright", ModuleNames: []string{"pyright"}, Description: "Pyright", PythonModule: true},
 	{Name: "pylint", ModuleNames: []string{"pylint"}, Description: "Pylint", PythonModule: true},
+	{Name: "bandit", ModuleNames: []string{"bandit"}, Description: "Bandit", PythonModule: true},
+	{Name: "sqlfluff", ModuleNames: []string{"sqlfluff"}, Description: "sqlfluff", PythonModule: true},
+	{Name: "tombi", ModuleNames: []string{"tombi"}, Description: "Tombi", PythonModule: true},
 	{Name: "shellcheck", Description: "ShellCheck"},
 	{Name: "golangci-lint", Description: "golangci-lint"},
 	{Name: "actionlint", Description: "actionlint"},
 	{Name: "yamllint", ModuleNames: []string{"yamllint"}, Description: "yamllint", PythonModule: true},
 	{Name: "hadolint", Description: "hadolint"},
+	{Name: "dotenv-linter", Description: "dotenv-linter"},
 }
 
 func lintToolRouteFor(event Event) gitWrapperRoute {

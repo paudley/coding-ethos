@@ -66,7 +66,7 @@ coding-ethos/
     toolchain/
       manifest.tsv
       go-bin/{golangci-lint,shfmt}
-      github-bin/{actionlint,hadolint,shellcheck}
+      github-bin/{actionlint,dotenv-linter,hadolint,shellcheck}
       prefix/bin/
 ```
 
@@ -78,10 +78,11 @@ the consumer `.git` directory.
 Hook execution must not depend on host linters or formatters being installed on
 `PATH`. The same checkout-local runtime model applies to third-party tools:
 
-- `build/toolchain/go-bin/` contains Go-distributed tools installed with a
-  managed `GOBIN`, starting with `shfmt`.
+- `build/toolchain/go-bin/` contains source-installed tools copied into a
+  managed executable directory, starting with `shfmt` and `golangci-lint`.
 - `build/toolchain/github-bin/` contains binaries installed from pinned GitHub
-  release assets.
+  release assets, including ShellCheck, actionlint, hadolint, and
+  dotenv-linter.
 - `build/toolchain/prefix/` is the controlled prefix for source-installed
   tools that need a Unix-style install root.
 
@@ -94,7 +95,7 @@ digests. `make managed-toolchain-install` installs those tools and writes
 `run-go-hook.sh` prepends the managed tool directories to `PATH` before
 dispatching to the Go hook runtime. The Go hook runtime also resolves binary
 tool commands to checkout-local managed paths when possible, so `shfmt`,
-`shellcheck`, `actionlint`, `hadolint`, and `golangci-lint` do not silently fall
+`shellcheck`, `actionlint`, `hadolint`, `dotenv-linter`, and `golangci-lint` do not silently fall
 back to host binaries. Missing required managed tools or a missing installed
 manifest are runtime artifact failures and should self-repair through the same
 bootstrap path as missing policy binaries.
@@ -104,8 +105,8 @@ The managed toolchain has two installer surfaces:
 - a GitHub release binary installer for pinned release assets with mandatory
   SHA-256 verification and optional `GITHUB_TOKEN` authentication for GitHub API
   and asset requests
-- a source install wrapper that sets `GOBIN` or `PREFIX` to checkout-local
-  directories before running a tool build
+- a source install wrapper that sets checkout-local destinations before running
+  a tool build, currently covering Go `go install` and Rust `cargo install`
 
 Direct host installs such as `go install ...` into `$HOME/go/bin` are not a
 runtime contract. They may unblock a local shell, but hooks must only rely on
@@ -150,7 +151,8 @@ Examples that should trigger repair:
 - missing compiled policy bundle
 - unreadable compiled policy bundle
 - missing managed toolchain manifest
-- missing required managed tool, such as `build/toolchain/go-bin/shfmt` or
+- missing required managed tool, such as `build/toolchain/go-bin/shfmt`,
+  `build/toolchain/github-bin/dotenv-linter`, or
   `build/toolchain/github-bin/shellcheck`
 
 Examples that should not block lifecycle hooks:

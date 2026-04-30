@@ -1749,6 +1749,9 @@ func addGeneratedConfigPolicy(
 				"mypy.ini",
 				"pyrightconfig.json",
 				".yamllint.yml",
+				".bandit.yml",
+				".sqlfluff",
+				"tombi.toml",
 			},
 		},
 		Evaluators: []Evaluator{
@@ -1836,6 +1839,10 @@ func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.Evidence
 		defaultMypyEvidenceMap(principles),
 		defaultShellcheckEvidenceMap(principles),
 		defaultYamllintEvidenceMap(principles),
+		defaultBanditEvidenceMap(principles),
+		defaultSQLFluffEvidenceMap(principles),
+		defaultTombiEvidenceMap(principles),
+		defaultDotenvLinterEvidenceMap(principles),
 		defaultHadolintEvidenceMap(principles),
 		defaultActionlintEvidenceMap(principles),
 		defaultGolangciEvidenceMap(principles),
@@ -2415,6 +2422,110 @@ func defaultYamllintEvidenceMap(
 				"Fix indentation to match the intended structure.",
 				"Quote ambiguous scalars when the value is meant to be a string.",
 				"Keep configuration readable enough to review in diffs.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultBanditEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "bandit",
+		Codes:    []string{"B*"},
+		PolicyID: "python.security_patterns",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "high",
+		Meaning:    "Bandit found Python code that weakens safe defaults or input trust boundaries.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix the security issue structurally; do not silence Bandit.",
+			Steps: []string{
+				"Replace unsafe APIs with validated, least-privilege alternatives.",
+				"Move risk acceptance into reviewed policy only when the behavior is intentional.",
+				"Keep security-sensitive helpers centralized and covered by tests.",
+			},
+			Rerun: []string{"make pre-commit", "make check"},
+		},
+	}
+}
+
+func defaultSQLFluffEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "sqlfluff",
+		Codes:    []string{"*"},
+		PolicyID: "sql.static_analysis",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		Confidence: "medium",
+		Meaning:    "SQL linting found syntax, layout, or dialect ambiguity before database execution.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Make SQL dialect and structure explicit before committing.",
+			Steps: []string{
+				"Fix SQL syntax and layout under the configured dialect.",
+				"Keep dynamic SQL in reviewed central helpers.",
+				"Use parameterized values and validated identifier allowlists.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultTombiEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "tombi",
+		Codes:    []string{"*"},
+		PolicyID: "toml.config_clarity",
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"documentation-as-contract",
+		),
+		Confidence: "medium",
+		Meaning:    "TOML configuration is invalid or ambiguous for downstream tools.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix TOML configuration before tools consume it.",
+			Steps: []string{
+				"Repair syntax or schema ordering issues in the reported TOML file.",
+				"Keep generated tool configs synchronized from policy sources.",
+				"Prefer explicit config over tool defaults.",
+			},
+			Rerun: []string{"make pre-commit"},
+		},
+	}
+}
+
+func defaultDotenvLinterEvidenceMap(
+	principles map[string]Principle,
+) diagnostics.EvidenceMap {
+	return diagnostics.EvidenceMap{
+		Source:   "dotenv-linter",
+		Codes:    []string{"*"},
+		PolicyID: "dotenv.config_clarity",
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"validation-at-the-gate",
+		),
+		Confidence: "medium",
+		Meaning:    "Dotenv files encode local runtime contracts and must stay unambiguous.",
+		Advice: diagnostics.EvidenceAdvice{
+			Summary: "Fix dotenv entries so environment contracts are explicit and safe.",
+			Steps: []string{
+				"Use uppercase keys and remove duplicate or malformed entries.",
+				"Keep real secrets out of committed dotenv files.",
+				"Prefer example/template files with safe placeholder values.",
 			},
 			Rerun: []string{"make pre-commit"},
 		},

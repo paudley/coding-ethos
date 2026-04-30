@@ -84,6 +84,10 @@ func toolchainToolDefinitions() []Tool {
 		shellcheckTool(),
 		shfmtTool(),
 		yamllintTool(),
+		banditTool(),
+		sqlfluffTool(),
+		tombiTool(),
+		dotenvLinterTool(),
 		golangciLintTool(),
 	}
 }
@@ -294,6 +298,87 @@ func yamllintTool() Tool {
 		UseHookProject:    true,
 		Fast:              true,
 		EnabledByDefault:  true,
+	}
+}
+
+func banditTool() Tool {
+	return Tool{
+		Name:              "bandit",
+		Parser:            "bandit",
+		Category:          "security",
+		OutputFormat:      "json",
+		Advice:            "Fix Python security findings with least-privilege, validated behavior.",
+		Runtime:           RuntimeUV,
+		Command:           []string{"bandit", "-q", "-f", "json"},
+		CaptureOutputArgs: []string{"-f", "json"},
+		CaptureStripArgs:  []string{"--format", "-f"},
+		ConfigFlags:       []string{"-c"},
+		FileExtensions:    []string{".py"},
+		Languages:         []string{"python"},
+		RepoConfig:        ".bandit.yml",
+		PostConfigArgs:    []string{"--severity-level", "medium", "--confidence-level", "medium"},
+		PassFilesAsArgs:   true,
+		UseHookProject:    true,
+		EnabledByDefault:  true,
+	}
+}
+
+func sqlfluffTool() Tool {
+	return Tool{
+		Name:              "sqlfluff",
+		Parser:            "sqlfluff",
+		Category:          "sql",
+		OutputFormat:      "json",
+		Advice:            "Fix SQL syntax and style with explicit dialect-aware queries.",
+		Runtime:           RuntimeUV,
+		Command:           []string{"sqlfluff", "lint", "--format", "json"},
+		CaptureOutputArgs: []string{"--format", "json"},
+		CaptureStripArgs:  []string{"--format", "-f"},
+		CaptureAfterFirst: []string{"lint"},
+		ConfigFlags:       []string{"--config"},
+		FileExtensions:    []string{".sql"},
+		Languages:         []string{"sql"},
+		RepoConfig:        ".sqlfluff",
+		PassFilesAsArgs:   true,
+		UseHookProject:    true,
+		EnabledByDefault:  true,
+	}
+}
+
+func tombiTool() Tool {
+	return Tool{
+		Name:             "tombi",
+		Parser:           "tombi",
+		Category:         "syntax",
+		OutputFormat:     "text",
+		Advice:           "Fix TOML syntax and schema issues before tools consume configuration.",
+		Runtime:          RuntimeUV,
+		Command:          []string{"tombi", "lint", "--quiet", "--error-on-warnings"},
+		CaptureStripArgs: []string{"--format", "-f"},
+		FileExtensions:   []string{".toml"},
+		Languages:        []string{"toml"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func dotenvLinterTool() Tool {
+	return Tool{
+		Name:             "dotenv-linter",
+		Parser:           "dotenv-linter",
+		Category:         "dotenv",
+		OutputFormat:     "text",
+		Advice:           "Fix dotenv files so local environment contracts stay explicit and safe.",
+		Runtime:          RuntimeBinary,
+		Command:          []string{"dotenv-linter", "--plain", "--quiet", "check"},
+		CaptureStripArgs: []string{"--format", "-f"},
+		BaseNamePrefixes: []string{".env"},
+		Languages:        []string{"dotenv"},
+		PassFilesAsArgs:  true,
+		Fast:             true,
+		EnabledByDefault: true,
 	}
 }
 

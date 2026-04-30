@@ -29,7 +29,7 @@ repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook shims are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
-`.yamllint.yml`, `.golangci.yml`, and
+`.yamllint.yml`, `.bandit.yml`, `.sqlfluff`, `tombi.toml`, `.golangci.yml`, and
 `.code-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
 consuming-repo overrides.
 
@@ -61,8 +61,9 @@ Required tools:
 
 `make build` installs required checkout-local managed tools under
 `build/toolchain/`. `shfmt` and golangci-lint are built into
-`build/toolchain/go-bin/`; ShellCheck, actionlint, and hadolint are installed
-from pinned GitHub release assets into `build/toolchain/github-bin/`.
+`build/toolchain/go-bin/`; ShellCheck, actionlint, hadolint, and dotenv-linter
+are installed from pinned GitHub release assets into
+`build/toolchain/github-bin/`.
 `build/toolchain/manifest.tsv` records the installed toolchain. Hook execution
 prepends managed tool directories to `PATH`, and Go hook commands resolve
 managed absolute paths; host-global linter installs are not a runtime contract.
@@ -106,7 +107,8 @@ Primary files:
 - `../Makefile` - root-level hook entry points and Git hook installation
 - `../config.yaml` - repo-root bundle policy and per-check defaults
 - `../pyrightconfig.json`, `../mypy.ini`, `../ruff.toml`, `../.pylintrc`,
-  `../.yamllint.yml`, `../.golangci.yml` - generated consumer-repo tool
+  `../.yamllint.yml`, `../.bandit.yml`, `../.sqlfluff`, `../tombi.toml`,
+  `../.golangci.yml` - generated consumer-repo tool
   configs
 - `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
   prompt pack with rendered prompts and per-check runtime metadata
@@ -257,7 +259,8 @@ linter, so malformed or low-quality agent output can be reproduced from the
 persisted trace.
 Direct agent lint runs are captured too. The agent hook rewrites common forms
 for `ruff`, `mypy`, `pyright`, `pylint`, `shellcheck`, `golangci-lint`,
-`actionlint`, `yamllint`, and `hadolint` to the managed
+`actionlint`, `yamllint`, `hadolint`, `bandit`, `sqlfluff`, `tombi`, and
+`dotenv-linter` to the managed
 `policy-tool <tool>` wrapper when the provider supports command rewrites. This
 covers plain tool names, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools. The installed hook PATH also
@@ -281,9 +284,10 @@ repo is an untrusted file tree and trace destination, not a source of trusted
 tool binaries, tool configuration, `PATH`, aliases, shell state, or `uv`
 project behavior. Python linters execute from the coding-ethos hook project via
 coding-ethos-managed versions and explicit generated config flags
-(`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and
-`.yamllint.yml`). Parent repo config files with matching names are ignored.
-Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint are
+(`ruff.toml`, `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, `.yamllint.yml`,
+`.bandit.yml`, `.sqlfluff`, and `tombi.toml`). Parent repo config files with
+matching names are ignored.
+Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter, and golangci-lint are
 installed by coding-ethos init into the managed runtime before they are trusted
 capture backends; host binaries are not a policy boundary.
 
@@ -348,8 +352,8 @@ make sync-gemini-prompts
 
 The Go runner invokes Python tools with
 `uv run --project code-ethos/pre-commit/hooks` or
-`uv run --project pre-commit/hooks`. Ruff, mypy, pyright, pylint, yamllint, and
-golangci-lint read policy from the generated consumer-repo config files at the
+`uv run --project pre-commit/hooks`. Ruff, mypy, pyright, pylint, yamllint,
+Bandit, SQLFluff, Tombi, and golangci-lint read policy from the generated consumer-repo config files at the
 repo root. The hook project `hooks/pyproject.toml` remains the isolated
 toolchain environment. Parent `uv` workspace membership is optional, not
 required.
@@ -391,7 +395,8 @@ Important configurable areas:
 - `hooks.*` - normalized output format, agent environment detection,
   external tool timeout, severity thresholds, and canonical hook groups
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.pylint`,
-  `tooling.yamllint`, `tooling.golangci_lint` - generated repo-root tool config
+  `tooling.yamllint`, `tooling.bandit`, `tooling.sqlfluff`, `tooling.tombi`,
+  `tooling.golangci_lint` - generated repo-root tool config
   defaults, including the expanded Go security, dependency, module-directive,
   modern-library, protobuf, test, and whitespace/style linter policy
 - `gemini.*` - AI review enablement, model, concurrency, timeout, repo context, and modal allowlist file patterns

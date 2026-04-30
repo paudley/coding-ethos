@@ -25,7 +25,7 @@ the places contributors actually work:
 | Surface | What it gets |
 | --- | --- |
 | Agent context | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`, and deep principle docs |
-| Tool config | Pyright, mypy, Ruff, yamllint, and golangci-lint config |
+| Tool config | Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and golangci-lint config |
 | Git hooks | compiled Go policy preflight plus deterministic hook groups |
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
@@ -225,6 +225,9 @@ repo/
 ├── mypy.ini
 ├── ruff.toml
 ├── .yamllint.yml
+├── .bandit.yml
+├── .sqlfluff
+├── tombi.toml
 ├── .golangci.yml
 └── .code-ethos/
     └── gemini/
@@ -261,7 +264,8 @@ by passing `--repo-config`.
 
 The merged config drives:
 
-- generated Pyright, mypy, Ruff, yamllint, and golangci-lint config
+- generated Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and
+  golangci-lint config
 - hook policy for Python, shell, text, commit-message, and Go checks
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
@@ -365,14 +369,15 @@ Wrappers must not trust target-repo `PATH`, absolute binaries, `uv run`
 settings, `pyproject.toml`, shell state, aliases, or local tool installs.
 Python linters are run from the coding-ethos hook project with coding-ethos
 versions and explicit coding-ethos generated config flags (`ruff.toml`,
-`mypy.ini`, `pyrightconfig.json`, `.pylintrc`, and `.yamllint.yml`). Parent
+`mypy.ini`, `pyrightconfig.json`, `.pylintrc`, `.yamllint.yml`,
+`.bandit.yml`, `.sqlfluff`, and `tombi.toml`). Parent
 repo config files with the same names must not be discovered accidentally.
 For non-linter Python commands, hooks prefer the consumer repo environment:
 `uv run --project <repo> python ...` for uv projects, then
 `<repo>/.venv/bin/python ...` when only a virtualenv exists. The runtime also
 adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
 protected shims remain first.
-Binary linters such as ShellCheck, actionlint, hadolint, and golangci-lint are
+Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter, and golangci-lint are
 installed into `build/toolchain/` through the managed installer. ShellCheck,
 actionlint, and hadolint use pinned GitHub release assets with SHA-256 digests;
 golangci-lint is built into the managed Go bin directory with the repo Go

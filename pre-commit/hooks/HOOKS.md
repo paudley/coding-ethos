@@ -51,7 +51,8 @@ same file or file-area pattern.
 Agent shell commands that invoke common lint tools are routed through the
 managed lint capture wrapper. Captured tools currently include `ruff`, `mypy`,
 `pyright`, `pylint`, `shellcheck`, `golangci-lint`, `actionlint`, `yamllint`,
-and `hadolint`. Plain tool calls, absolute tool paths, `uv run <tool>`, and
+`hadolint`, `bandit`, `sqlfluff`, `tombi`, and `dotenv-linter`. Plain tool
+calls, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools are normalized to
 `run-go-hook.sh policy-tool <tool> ...` when the provider supports command
 rewrites; unsupported providers must use the managed shims injected into the
@@ -167,7 +168,7 @@ make -C code-ethos install-hooks
 - pyyaml >= 6.0
 - go >= 1.26
 - uv
-- shellcheck, shfmt, hadolint, actionlint, and golangci-lint for their
+- shellcheck, shfmt, hadolint, actionlint, dotenv-linter, and golangci-lint for their
   corresponding hook groups
 
 ## Development

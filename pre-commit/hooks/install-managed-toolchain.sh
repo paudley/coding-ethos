@@ -61,6 +61,21 @@ install_go_tool() {
     go "${source}@${version}"
 }
 
+install_rust_tool() {
+  local tool="${1:?tool required}"
+  local source="${2:?crate required}"
+  local version="${3:?version required}"
+  local binary="${4:?binary required}"
+  local sha256="${5:?sha256 required}"
+  local dest_dir="${6:?dest dir required}"
+
+  if managed_tool_already_installed "$tool" rust "$source" "$version" "-" "$binary" "$sha256" "$dest_dir"; then
+    return
+  fi
+  GOBIN="$dest_dir" "${SCRIPT_DIR}/install-source-tool.sh" \
+    rust "${source}@${version}" "$binary"
+}
+
 install_github_tool() {
   local tool="${1:?tool required}"
   local source="${2:?repo required}"
@@ -114,6 +129,9 @@ while IFS=$'\t' read -r tool installer source version asset_substring binary sha
   case "$installer" in
     go)
       install_go_tool "$tool" "$source" "$version" "$binary" "$sha256" "$dest_dir"
+      ;;
+    rust)
+      install_rust_tool "$tool" "$source" "$version" "$binary" "$sha256" "$dest_dir"
       ;;
     github)
       install_github_tool "$tool" "$source" "$version" "$asset_substring" "$binary" "$sha256" "$dest_dir"

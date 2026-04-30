@@ -43,6 +43,10 @@ build_path_entries := $(filter-out \
 export PATH := $(subst $(space),:,$(build_path_entries))
 
 define resolve_hook_consumer_root
+if [ -n "$${CODE_ETHOS_CONSUMER_ROOT:-}" ]; then \
+	printf '%s' "$$CODE_ETHOS_CONSUMER_ROOT"; \
+	exit 0; \
+fi; \
 super="$$("$(GIT)" -C "$(LOCAL_REPO_ROOT)" rev-parse \
 	--show-superproject-working-tree 2>/dev/null)"; \
 if [ -n "$$super" ]; then \
@@ -310,10 +314,17 @@ test: ensure-uv ## Run the current automated test suite.
 check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
 
 ##@ Hooks
-sync-tool-configs: ensure-uv ## Generate repo-root pyright, mypy, Ruff, Pylint, yamllint, and golangci-lint configs.
+sync-tool-configs: ensure-uv ## Generate repo-root static-analysis configs from policy.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
+
+sync-consumer-tool-configs: ensure-uv ## Generate consumer repo tool configs when installed in a parent repo.
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
+		$(call print_step,Syncing generated consumer tool configs); \
+		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
+		$(APP) --repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG) --sync-tool-configs; \
+	fi
 
 fix-configs: ensure-uv ## Restore generated consumer repo tool configs.
 	@$(call print_step,Restoring generated consumer tool configs)
@@ -337,7 +348,7 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-build: sync-tool-configs sync-gemini-prompts go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)
