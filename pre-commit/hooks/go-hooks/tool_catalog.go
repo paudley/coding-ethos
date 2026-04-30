@@ -4,6 +4,9 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -22,7 +25,8 @@ func toolchainCatalogTool(name string) toolcatalog.Tool {
 
 func toolchainCommand(name string) []string {
 	tool := toolchainCatalogTool(name)
-	command := append([]string(nil), tool.Command...)
+	runtime := tool.RuntimeSpec()
+	command := append([]string(nil), runtime.Command...)
 
 	if len(command) == 0 {
 		return command
@@ -43,6 +47,27 @@ func toolchainCommandWithFiles(name string, files []string) []string {
 	return append(command, files...)
 }
 
+func toolchainCommandForFiles(name string, files []string) []string {
+	tool := toolchainCatalogTool(name)
+	runtime := tool.RuntimeSpec()
+	fileSpec := tool.FileMatchSpec()
+
+	if runtime.Runtime == toolcatalog.RuntimeUV ||
+		runtime.Runtime == toolcatalog.RuntimePython {
+		if !fileSpec.PassFilesAsArgs {
+			files = nil
+		}
+
+		return uvToolchainCommandWithRepoConfig(name, toolchainRepoConfig(name), files)
+	}
+
+	if !fileSpec.PassFilesAsArgs {
+		return toolchainCommand(name)
+	}
+
+	return toolchainCommandWithFiles(name, files)
+}
+
 func toolchainFiles(name string, paths []string) []string {
 	tool := toolchainCatalogTool(name)
 	files := make([]string, 0, len(paths))
@@ -61,21 +86,23 @@ func toolchainFileMatches(tool toolcatalog.Tool, path string) bool {
 		return true
 	}
 
-	if len(tool.BaseNamePrefixes) > 0 && !baseNameMatches(path, tool.BaseNamePrefixes) {
+	spec := tool.FileMatchSpec()
+
+	if len(spec.BaseNamePrefixes) > 0 && !baseNameMatches(path, spec.BaseNamePrefixes) {
 		return false
 	}
 
-	if len(tool.FilePrefixes) > 0 && !pathPrefixMatches(path, tool.FilePrefixes) {
+	if len(spec.Prefixes) > 0 && !pathPrefixMatches(path, spec.Prefixes) {
 		return false
 	}
 
-	if len(tool.FileExtensions) > 0 && !extensionMatches(path, tool.FileExtensions) {
+	if len(spec.Extensions) > 0 && !extensionMatches(path, spec.Extensions) {
 		return false
 	}
 
-	return len(tool.BaseNamePrefixes) > 0 ||
-		len(tool.FilePrefixes) > 0 ||
-		len(tool.FileExtensions) > 0
+	return len(spec.BaseNamePrefixes) > 0 ||
+		len(spec.Prefixes) > 0 ||
+		len(spec.Extensions) > 0
 }
 
 func baseNameMatches(path string, prefixes []string) bool {
@@ -113,15 +140,26 @@ func extensionMatches(path string, extensions []string) bool {
 
 func toolchainCommandWithRepoConfig(name string, configPath string) []string {
 	tool := toolchainCatalogTool(name)
+	runtime := tool.RuntimeSpec()
+	config := tool.ConfigSpec()
 
-	command := append([]string(nil), tool.Command...)
-	if configPath != "" && len(tool.ConfigFlags) > 0 {
-		command = append(command, tool.ConfigFlags[0], configPath)
+	command := append([]string(nil), runtime.Command...)
+	if configPath != "" && len(config.Flags) > 0 {
+		command = append(command, config.Flags[0], configPath)
 	}
 
-	command = append(command, tool.PostConfigArgs...)
+	command = append(command, config.PostArgs...)
 
 	return command
+}
+
+func toolchainRepoConfig(name string) string {
+	config := toolchainCatalogTool(name).ConfigSpec()
+	if config.RepoConfig != "" {
+		return config.RepoConfig
+	}
+
+	return config.FallbackBundleConfig
 }
 
 func uvToolchainCommandWithRepoConfig(
@@ -167,7 +205,7 @@ func managedToolchainBinaryPath(tool toolcatalog.Tool) string {
 	}
 
 	ethosRoot := filepath.Dir(bundleRoot)
-	runtime := tool.Runtime
+	runtime := tool.RuntimeSpec().Runtime
 
 	switch runtime {
 	case toolcatalog.RuntimeGo:
@@ -212,17 +250,55 @@ func diagnosticsToHookFindings(items []diag.Diagnostic) []hookFinding {
 }
 
 func loadHookEvidenceMaps() []diag.EvidenceMap {
-	_, _, rootConfig, err := loadBundleConsumerAndConfig()
+	bundleRoot, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
-		return defaultPolicyEvidenceMaps()
+		return nil
 	}
 
-	maps := make([]diag.EvidenceMap, 0, len(defaultPolicyEvidenceMaps()))
-
-	err = decodeConfigSection(rootConfig, "policy.evidence_maps", &maps)
+	maps, err := loadCompiledEvidenceMaps(bundleRoot)
 	if err != nil || len(maps) == 0 {
-		return defaultPolicyEvidenceMaps()
+		maps = configuredEvidenceMaps(rootConfig)
 	}
 
-	return append(maps, defaultPolicyEvidenceMaps()...)
+	if len(maps) == 0 {
+		return nil
+	}
+
+	return maps
+}
+
+func loadCompiledEvidenceMaps(bundleRoot string) ([]diag.EvidenceMap, error) {
+	bundlePath := filepath.Join(
+		filepath.Dir(bundleRoot),
+		"build",
+		"policy",
+		"policy-bundle.json",
+	)
+
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("read policy bundle evidence maps: %w", err)
+	}
+
+	var payload struct {
+		EvidenceMaps []diag.EvidenceMap `json:"evidence_maps"`
+	}
+
+	err = json.Unmarshal(data, &payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode policy bundle evidence maps: %w", err)
+	}
+
+	return payload.EvidenceMaps, nil
+}
+
+func configuredEvidenceMaps(rootConfig map[string]any) []diag.EvidenceMap {
+	var maps []diag.EvidenceMap
+
+	err := decodeConfigSection(rootConfig, "policy.evidence_maps", &maps)
+	if err != nil {
+		return nil
+	}
+
+	return maps
 }

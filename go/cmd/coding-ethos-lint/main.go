@@ -14,6 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 var (
@@ -39,6 +40,14 @@ func main() {
 	)
 	command := flags.String("command", "", "Raw shell command to evaluate")
 	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
+	managedCaptureTool := flags.String(
+		"managed-capture-tool",
+		"",
+		"Run captured lint tool with Go-owned managed resolution",
+	)
+	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
+	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
+	invocationCwd := flags.String("invocation-cwd", "", "original command working directory")
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
@@ -63,6 +72,18 @@ func main() {
 		true,
 		"Persist normalized lint result under .coding-ethos/lint-runs",
 	)
+	listCapturedTools := flags.Bool(
+		"list-captured-tools",
+		false,
+		"Print captured lint tool names, one per line",
+	)
+	installShims := flags.Bool(
+		"install-shims",
+		false,
+		"Install captured lint tool shims into --tools-bin-dir",
+	)
+	toolsBinDir := flags.String("tools-bin-dir", "", "Directory for captured lint tool shims")
+	runGoHook := flags.String("run-go-hook", "", "run-go-hook.sh path for captured lint shims")
 	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
 	scope := scopeFlagSet(flags)
 
@@ -80,6 +101,29 @@ func main() {
 			flags.Args(),
 			captureEvidenceMaps(*bundlePath),
 		))
+	}
+
+	if *managedCaptureTool != "" {
+		os.Exit(runManagedCapture(managedCaptureOptions{
+			Tool:          *managedCaptureTool,
+			EthosRoot:     *ethosRoot,
+			ConsumerRoot:  *consumerRoot,
+			InvocationCwd: *invocationCwd,
+			Args:          flags.Args(),
+			EvidenceMaps:  captureEvidenceMaps(*bundlePath),
+		}))
+	}
+
+	if *listCapturedTools {
+		printCapturedTools()
+		return
+	}
+
+	if *installShims {
+		if err := installCapturedToolShims(*toolsBinDir, *runGoHook, *ethosRoot); err != nil {
+			exitErr(err)
+		}
+		return
 	}
 
 	if *analyzeLog {
@@ -201,6 +245,12 @@ func main() {
 	}
 }
 
+func printCapturedTools() {
+	for _, tool := range toolcatalog.CapturedLintTools() {
+		fmt.Fprintln(os.Stdout, tool.Name)
+	}
+}
+
 func captureEvidenceMaps(bundlePath string) []diagnostics.EvidenceMap {
 	if strings.TrimSpace(bundlePath) == "" {
 		return nil
@@ -281,6 +331,11 @@ func splitNonEmpty(raw string, separator string) []string {
 func exitErr(err error) {
 	fmt.Fprintf(os.Stderr, "%s\n", err)
 	os.Exit(1)
+}
+
+func exitBlockedErr(err error) {
+	fmt.Fprintf(os.Stderr, "%s\n", err)
+	os.Exit(blockedExitCode)
 }
 
 type scopeFlag struct {

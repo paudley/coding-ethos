@@ -32,12 +32,26 @@ var (
 	hadolintPattern = regexp.MustCompile(
 		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
 	)
-	ruffCodePattern = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	dotenvPattern = regexp.MustCompile(
+		`^(.+?):(?:(\d+)\s+)?([^:\s]+):\s*(.+)$`,
+	)
+	tombiHeaderPattern = regexp.MustCompile(
+		`(?i)^\s*(error|warning|warn|info|hint)\s*:\s*(.+)$`,
+	)
+	tombiLocationPattern = regexp.MustCompile(
+		`^\s*at\s+(.+?):(\d+):(\d+)\s*$`,
+	)
+	ruffCodePattern     = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	ruffFormatPattern   = regexp.MustCompile(`^(Would reformat|would reformat|reformatted):\s+(.+)$`)
+	ruffFormatUnchanged = regexp.MustCompile(`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`)
 )
 
 const (
 	actionlintTextMatchParts = 6
+	dotenvTextMatchParts     = 5
 	hadolintTextMatchParts   = 6
+	tombiHeaderMatchParts    = 3
+	tombiLocationMatchParts  = 4
 	yamllintParts            = 4
 )
 
@@ -90,6 +104,14 @@ func parserForTool(tool string) (Parser, bool) {
 		return parseShellcheck, true
 	case "yamllint":
 		return parseYamllint, true
+	case "bandit":
+		return parseBandit, true
+	case "sqlfluff":
+		return parseSQLFluff, true
+	case "tombi":
+		return parseTombi, true
+	case "dotenv-linter":
+		return parseDotenvLinter, true
 	default:
 		return nil, false
 	}
@@ -138,7 +160,25 @@ func parseRuffText(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
 
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		matches := fallbackPattern.FindStringSubmatch(strings.TrimSpace(line))
+		text := strings.TrimSpace(line)
+		if text == "" || ruffFormatUnchanged.MatchString(text) {
+			continue
+		}
+		if matches := ruffFormatPattern.FindStringSubmatch(text); len(matches) == 3 {
+			diagnostics = append(diagnostics, Diagnostic{
+				Tool:     "ruff",
+				File:     matches[2],
+				Severity: "error",
+				Code:     "format",
+				Message:  "File would be reformatted by ruff format.",
+				Line:     1,
+				Column:   1,
+			})
+
+			continue
+		}
+
+		matches := fallbackPattern.FindStringSubmatch(text)
 		if len(matches) != fallbackMatchParts {
 			continue
 		}
@@ -647,6 +687,186 @@ func parseYamllint(output string) []Diagnostic {
 			Severity: severity,
 			Code:     code,
 			Message:  message,
+		})
+	}
+
+	return diagnostics
+}
+
+func parseBandit(output string) []Diagnostic {
+	var payload struct {
+		Results []struct {
+			Filename        string `json:"filename"`
+			IssueSeverity   string `json:"issue_severity"`
+			IssueConfidence string `json:"issue_confidence"`
+			IssueText       string `json:"issue_text"`
+			TestID          string `json:"test_id"`
+			LineNumber      int    `json:"line_number"`
+		} `json:"results"`
+	}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	if err != nil {
+		return parseFallback("bandit", output)
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(payload.Results))
+	for _, item := range payload.Results {
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "bandit",
+			File:     item.Filename,
+			Line:     item.LineNumber,
+			Severity: banditSeverity(item.IssueSeverity),
+			Code:     item.TestID,
+			Message:  item.IssueText,
+		})
+	}
+
+	return diagnostics
+}
+
+func banditSeverity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "high":
+		return "error"
+	case "medium":
+		return "warning"
+	case "low":
+		return "notice"
+	default:
+		return firstNonEmpty(strings.ToLower(strings.TrimSpace(value)), "warning")
+	}
+}
+
+func parseSQLFluff(output string) []Diagnostic {
+	var items []struct {
+		Filepath   string `json:"filepath"`
+		Violations []struct {
+			Code         string `json:"code"`
+			Description  string `json:"description"`
+			LineNo       int    `json:"line_no"`
+			LinePos      int    `json:"line_pos"`
+			StartLineNo  int    `json:"start_line_no"`
+			StartLinePos int    `json:"start_line_pos"`
+			Name         string `json:"name"`
+			Warning      bool   `json:"warning"`
+		} `json:"violations"`
+	}
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items)
+	if err != nil {
+		return parseFallback("sqlfluff", output)
+	}
+
+	diagnostics := []Diagnostic{}
+	for _, item := range items {
+		for _, violation := range item.Violations {
+			severity := "error"
+			if violation.Warning {
+				severity = "warning"
+			}
+			line := violation.LineNo
+			if line == 0 {
+				line = violation.StartLineNo
+			}
+			column := violation.LinePos
+			if column == 0 {
+				column = violation.StartLinePos
+			}
+			diagnostics = append(diagnostics, Diagnostic{
+				Tool:     "sqlfluff",
+				File:     item.Filepath,
+				Line:     line,
+				Column:   column,
+				Severity: severity,
+				Code:     violation.Code,
+				Message:  firstNonEmpty(violation.Description, violation.Name),
+			})
+		}
+	}
+
+	return diagnostics
+}
+
+func parseTombi(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+	lines := strings.Split(stripANSI(output), "\n")
+	for index := 0; index < len(lines); index++ {
+		header := tombiHeaderPattern.FindStringSubmatch(strings.TrimSpace(lines[index]))
+		if len(header) != tombiHeaderMatchParts {
+			continue
+		}
+
+		diagnostic := Diagnostic{
+			Tool:     "tombi",
+			Severity: normalizedTombiSeverity(header[1]),
+			Message:  strings.TrimSpace(header[2]),
+		}
+		for lookahead := index + 1; lookahead < len(lines); lookahead++ {
+			line := strings.TrimSpace(lines[lookahead])
+			if line == "" {
+				continue
+			}
+			if tombiHeaderPattern.MatchString(line) {
+				break
+			}
+			location := tombiLocationPattern.FindStringSubmatch(line)
+			if len(location) != tombiLocationMatchParts {
+				continue
+			}
+			diagnostic.File = location[1]
+			diagnostic.Line, _ = parseInt(location[2])
+			diagnostic.Column, _ = parseInt(location[3])
+			break
+		}
+
+		diagnostics = append(diagnostics, diagnostic)
+	}
+
+	return diagnostics
+}
+
+func normalizedTombiSeverity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "error":
+		return "error"
+	case "warning", "warn":
+		return "warning"
+	default:
+		return "notice"
+	}
+}
+
+func stripANSI(value string) string {
+	ansiPattern := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+	return ansiPattern.ReplaceAllString(value, "")
+}
+
+func parseDotenvLinter(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" ||
+			strings.HasPrefix(trimmed, "Checking") ||
+			strings.HasPrefix(trimmed, "Nothing to check") ||
+			strings.HasPrefix(trimmed, "No problems found") {
+			continue
+		}
+
+		matches := dotenvPattern.FindStringSubmatch(trimmed)
+		if len(matches) != dotenvTextMatchParts {
+			continue
+		}
+
+		lineNo, _ := parseInt(matches[2])
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "dotenv-linter",
+			File:     matches[1],
+			Line:     lineNo,
+			Severity: "warning",
+			Code:     matches[3],
+			Message:  strings.TrimSpace(matches[4]),
 		})
 	}
 

@@ -20,7 +20,6 @@ ETHOS_ROOT="$(cd "${BUNDLE_ROOT}/.." && pwd)"
 export CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT"
 source "${SCRIPT_DIR}/go-build-report.sh"
 source "${SCRIPT_DIR}/go-build-cache.sh"
-source "${SCRIPT_DIR}/tool-capture.sh"
 source "${SCRIPT_DIR}/go-runtime.sh"
 export CODE_ETHOS_CONSUMER_ROOT="$ROOT"
 BIN_DIR="${ETHOS_ROOT}/bin"
@@ -104,6 +103,13 @@ install_git_wrapper_shim() {
   mv -f "$tmp_shim" "$shim"
 }
 
+install_lint_tool_shims() {
+  bootstrap_runtime_if_missing
+  require_policy_tool coding-ethos-lint
+  "${TOOLS_BIN_DIR}/coding-ethos-lint" --install-shims --tools-bin-dir "$TOOLS_BIN_DIR" \
+    --run-go-hook "${SCRIPT_DIR}/run-go-hook.sh" --ethos-root "$ETHOS_ROOT"
+}
+
 install_git_hook_shims() {
   mkdir -p "$HOOKS_DIR"
 
@@ -127,7 +133,6 @@ verify_git_hook_shims() {
       return 1
     fi
   done
-
   for hook in post-commit post-merge post-checkout; do
     if [[ ! -x "${HOOKS_DIR}/${hook}" ]] ||
       ! cmp -s "${SCRIPT_DIR}/run-lfs-hook.sh" "${HOOKS_DIR}/${hook}"; then
@@ -159,7 +164,6 @@ persist_agent_environment() {
   if [[ -z "${CLAUDE_ENV_FILE:-}" ]]; then
     return
   fi
-
   install_git_wrapper_shim
   {
     printf 'export CODING_ETHOS_REAL_GIT=%q\n' "$REAL_GIT"
@@ -172,12 +176,10 @@ persist_agent_environment() {
 has_arg() {
   local needle="${1:?arg required}"
   shift
-
   local arg
   for arg in "$@"; do
     [[ "$arg" == "$needle" ]] && return 0
   done
-
   return 1
 }
 
@@ -238,13 +240,12 @@ run_policy_git() {
 run_policy_tool() {
   local tool_name="${1:-}"
   shift || true
-
-  if ! captured_lint_tool "$tool_name"; then
-    printf 'FATAL: unknown policy tool %q\n' "$tool_name" >&2
-    exit 2
-  fi
-
-  run_captured_lint_tool "$tool_name" "$@"
+  bootstrap_runtime_if_missing
+  require_policy_bundle
+  require_policy_tool coding-ethos-lint
+  exec "${TOOLS_BIN_DIR}/coding-ethos-lint" --bundle "$POLICY_BUNDLE" \
+    --managed-capture-tool "$tool_name" --ethos-root "$ETHOS_ROOT" \
+    --consumer-root "$ROOT" --invocation-cwd "${INVOCATION_CWD:-$ROOT}" -- "$@"
 }
 
 run_agent_hooks() {
@@ -285,7 +286,6 @@ cutover_report() {
   local repo_ignores="${5:?repo ignores status required}"
   local runtime="${6:?runtime status required}"
   local fix_items_file="${7:-}"
-
   cat << EOF
 format: toon
 command: cutover
@@ -298,7 +298,6 @@ surfaces[4]{name,status}:
   repo-ignores,${repo_ignores}
   policy-runtime,${runtime}
 EOF
-
   if [[ -n "$fix_items_file" && -s "$fix_items_file" ]]; then
     local item_count
     item_count="$(wc -l < "$fix_items_file" | tr -d ' ')"
@@ -309,17 +308,14 @@ EOF
 
 agent_hook_fix_items() {
   local output_file="${1:?agent verify output required}"
-
   if grep -q 'settings do not contain expected hooks for all providers' "$output_file"; then
     printf '  agent-hooks,native agent settings missing or stale,run cutover install\n'
     return
   fi
-
   if grep -q 'Codex hooks feature' "$output_file" ||
     grep -q 'codex_hooks' "$output_file"; then
     printf '  agent-hooks,.codex/config.toml missing codex_hooks=true,run cutover install\n'
   fi
-
   if grep -q '.gemini/settings.json' "$output_file" ||
     grep -q 'Gemini' "$output_file"; then
     printf '  agent-hooks,.gemini/settings.json missing expected hook,run cutover install\n'
@@ -328,7 +324,6 @@ agent_hook_fix_items() {
 
 runtime_fix_items() {
   local output_file="${1:?runtime verify output required}"
-
   if [[ -s "$output_file" ]]; then
     printf '  policy-runtime,git-hook validate failed,inspect policy runtime validation output\n'
   fi
@@ -358,19 +353,16 @@ run_cutover_verify() {
   repo_ignore_output="$(mktemp)"
   runtime_verify_output="$(mktemp)"
   fix_items_output="$(mktemp)"
-
   if ! verify_git_hook_shims; then
     git_hooks=FAIL
     status=blocked
     git_hook_fix_items >> "$fix_items_output"
   fi
-
   if ! run_agent_hooks_tool verify --root "$ROOT" > "$agent_verify_output" 2>&1; then
     agent_hooks=FAIL
     status=blocked
     agent_hook_fix_items "$agent_verify_output" >> "$fix_items_output"
   fi
-
   if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$RUN_GO_HOOK" policy-lint \
     --scope cutover \
     --cwd "$ROOT" \
@@ -380,7 +372,6 @@ run_cutover_verify() {
     status=blocked
     required_ignore_fix_items >> "$fix_items_output"
   fi
-
   if ! CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 CODE_ETHOS_PRECOMMIT_ROOT="$BUNDLE_ROOT" \
     "$RUN_GO_HOOK" git-hook validate \
     > "$runtime_verify_output" 2>&1; then
@@ -391,7 +382,6 @@ run_cutover_verify() {
 
   cutover_report "$action" "$status" "$git_hooks" "$agent_hooks" "$repo_ignores" "$runtime" \
     "$fix_items_output"
-
   if [[ "$status" != ready ]]; then
     if [[ "$agent_hooks" == FAIL ]]; then
       printf 'agent hook verify output:\n' >&2
@@ -408,7 +398,6 @@ run_cutover_verify() {
     rm -f "$agent_verify_output" "$repo_ignore_output" "$runtime_verify_output" "$fix_items_output"
     return 1
   fi
-
   rm -f "$agent_verify_output" "$repo_ignore_output" "$runtime_verify_output" "$fix_items_output"
 }
 
@@ -434,7 +423,6 @@ run_cutover() {
 
 run_git_hook() {
   local hook_name="${1:-}"
-
   bootstrap_runtime_if_missing
   require_policy_bundle
   if [[ "$hook_name" == "validate" ]]; then

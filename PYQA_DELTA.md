@@ -249,3 +249,50 @@ maps only for the codes where stronger policy guidance is justified.
    Any new lint/explain/doctor command should support human output for local use,
    JSON for scripts, and TOON for agent contexts through the existing output
    selection conventions.
+
+## Current Parity Status
+
+The first high-value parity slice is now covered by `coding-ethos`:
+
+- Bandit for Python security diagnostics.
+- SQLFluff for SQL syntax and style diagnostics.
+- Tombi for TOML syntax/config diagnostics.
+- dotenv-linter for `.env*` contract diagnostics.
+
+These tools are managed through the coding-ethos runtime rather than host PATH,
+captured through agent tool rewrites, parsed into normalized diagnostics, and
+rendered through the same human/JSON/TOON output path as the rest of the hook
+system.
+
+## Next Tool Candidates
+
+The next parity slice should stay scoped to tools that add high signal without
+turning coding-ethos into a general polyglot linter clone:
+
+1. Markdown linting and formatting.
+   PyQA calls out markdownlint, mdformat, and remark-lint. For coding-ethos,
+   the highest-value first pass is Markdown contract linting for docs touched by
+   agents, with TOON output and repo-owned config. This aligns with
+   Documentation as Contract.
+
+2. Dependency/import hygiene.
+   PyQA has broader dependency awareness. For coding-ethos, the useful version
+   is a focused Python dependency checker that flags undeclared imports,
+   unused dependencies, and dependency drift using repo-owned config and
+   existing ETHOS guidance around fail-fast dependencies.
+
+3. Semgrep-style policy scanning.
+   PyQA references semgrep-style analyzers for security scans. coding-ethos
+   should only add this once rules are curated as ETHOS evidence maps, not as a
+   broad generic ruleset.
+
+4. Frontend/JavaScript tooling.
+   ESLint, Prettier, and TypeScript checks are valuable for repos with
+   frontend code, but they should be enabled by language detection and
+   repo-specific policy config rather than becoming default required tools for
+   every consumer repo.
+
+5. Kubernetes/infrastructure validators.
+   kube-linter, Terraform/OpenTofu validators, and similar tools should wait
+   until coding-ethos has typed config selection and explainable tool planning,
+   because they are high-noise without precise file and repo intent detection.

@@ -8,13 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/lint"
-	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 const (
@@ -23,6 +20,8 @@ const (
 	FormatJSON  = "json"
 	FormatTOON  = "toon"
 	FormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+
+	maxTOONFindingCellRunes = 320
 )
 
 func SelectedFormat() string {
@@ -78,6 +77,16 @@ func TOONCell(value string) string {
 	return cleaned
 }
 
+func TOONFindingCell(value string) string {
+	cleaned := TOONCell(value)
+	runes := []rune(cleaned)
+	if len(runes) <= maxTOONFindingCellRunes {
+		return cleaned
+	}
+
+	return string(runes[:maxTOONFindingCellRunes]) + "...[truncated]"
+}
+
 func FormatLintResult(result lint.Result, format string) (string, error) {
 	switch format {
 	case FormatJSON:
@@ -113,11 +122,11 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 }
 
 func FormatLintResultTOON(result lint.Result) string {
-	findings := lintFindings(result)
-	status := lintResultStatus(result)
+	findings := lint.OutputDiagnostics(result)
+	status := lint.ResultStatus(result)
 	lines := []string{
 		"format: toon",
-		"tool: " + TOONCell(lintResultTool(result)),
+		"tool: " + TOONCell(lint.ResultTool(result)),
 		"status: " + TOONCell(status),
 		"title: " + TOONCell(lintResultTitle(result)),
 		"scope: " + TOONCell(result.Scope),
@@ -136,9 +145,9 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONCell(finding.Severity),
 			TOONCell(finding.Code),
 			TOONCell(finding.PolicyID),
-			TOONCell(finding.Message),
-			TOONCell(finding.Advice),
-			TOONCell(finding.Detail),
+			TOONFindingCell(finding.Message),
+			TOONFindingCell(finding.Advice),
+			TOONFindingCell(finding.Detail),
 		))
 	}
 	if result.Blocked() {
@@ -153,10 +162,10 @@ func FormatLintResultTOON(result lint.Result) string {
 }
 
 func FormatLintResultHuman(result lint.Result) string {
-	findings := lintFindings(result)
+	findings := lint.OutputDiagnostics(result)
 	lines := []string{
-		"coding-ethos lint result: " + lintResultStatus(result),
-		"tool: " + lintResultTool(result),
+		"coding-ethos lint result: " + lint.ResultStatus(result),
+		"tool: " + lint.ResultTool(result),
 		"scope: " + result.Scope,
 	}
 	for _, finding := range findings {
@@ -167,7 +176,7 @@ func FormatLintResultHuman(result lint.Result) string {
 		lines = append(lines, fmt.Sprintf(
 			"- %s [%s] %s",
 			location,
-			firstNonEmpty(finding.PolicyID, finding.Tool),
+			firstOutputLabel(finding.PolicyID, finding.Tool),
 			finding.Message,
 		))
 		if finding.Advice != "" {
@@ -181,14 +190,6 @@ func FormatLintResultHuman(result lint.Result) string {
 	return strings.Join(lines, "\n")
 }
 
-func lintResultStatus(result lint.Result) string {
-	if result.Blocked() {
-		return "FAIL"
-	}
-
-	return "PASS"
-}
-
 func lintResultTitle(result lint.Result) string {
 	if result.Blocked() {
 		return "LINT FAILED"
@@ -197,163 +198,7 @@ func lintResultTitle(result lint.Result) string {
 	return "LINT RESULTS"
 }
 
-func lintResultTool(result lint.Result) string {
-	if tool, ok := strings.CutPrefix(result.Scope, "tool:"); ok && tool != "" {
-		return tool
-	}
-
-	return "policy-lint"
-}
-
-func lintFindings(result lint.Result) []diagnostics.Diagnostic {
-	if len(result.Diagnostics) > 0 {
-		return diagnostics.Dedupe(result.Diagnostics)
-	}
-	if len(result.Findings) > 0 {
-		return lintResultFindings(result.Findings, result.Blocked())
-	}
-
-	decisions := result.Decisions
-	if result.Blocked() {
-		blocking := blockingLintDecisions(decisions)
-		if len(blocking) > 0 {
-			decisions = blocking
-		}
-	}
-
-	findings := make([]diagnostics.Diagnostic, 0, len(decisions))
-	for _, decision := range decisions {
-		if len(decision.Diagnostics) > 0 {
-			findings = append(findings, decision.Diagnostics...)
-			continue
-		}
-		findings = append(findings, diagnostics.Diagnostic{
-			Tool:     "policy",
-			Severity: decision.Severity,
-			PolicyID: decision.PolicyID,
-			Message:  decision.Message,
-			Advice:   decision.Suggestion,
-		})
-	}
-
-	findings = diagnostics.Dedupe(findings)
-	slices.SortStableFunc(findings, compareLintFindings)
-
-	return findings
-}
-
-func lintResultFindings(
-	findings []lint.Finding,
-	blocked bool,
-) []diagnostics.Diagnostic {
-	selected := findings
-	if blocked {
-		blocking := blockingResultFindings(findings)
-		if len(blocking) > 0 {
-			selected = blocking
-		}
-	}
-
-	items := make([]diagnostics.Diagnostic, 0, len(selected))
-	for _, finding := range selected {
-		items = append(items, diagnosticsFromFinding(finding))
-	}
-
-	items = diagnostics.Dedupe(items)
-	slices.SortStableFunc(items, compareLintFindings)
-
-	return items
-}
-
-func blockingResultFindings(findings []lint.Finding) []lint.Finding {
-	blocking := []lint.Finding{}
-	for _, finding := range findings {
-		if finding.Blocking || finding.Status == "fail" ||
-			finding.Severity == "block" || finding.Severity == "error" {
-			blocking = append(blocking, finding)
-		}
-	}
-
-	return blocking
-}
-
-func diagnosticsFromFinding(finding lint.Finding) diagnostics.Diagnostic {
-	return diagnostics.Diagnostic{
-		Tool:     firstNonEmpty(finding.SourceTool, "policy"),
-		File:     finding.File,
-		Line:     finding.Line,
-		Column:   finding.Column,
-		Severity: finding.Severity,
-		Code:     finding.Code,
-		PolicyID: firstNonEmpty(finding.PolicyID, finding.CheckID),
-		Message:  finding.Message,
-		Advice:   finding.Advice,
-		Detail:   findingDetail(finding),
-	}
-}
-
-func findingDetail(finding lint.Finding) string {
-	parts := []string{}
-	appendRawOutcomeString := func(key string, label string) {
-		value, ok := finding.RawOutcome[key]
-		if !ok || value == nil {
-			return
-		}
-		text := strings.TrimSpace(fmt.Sprint(value))
-		if text == "" {
-			return
-		}
-		parts = append(parts, label+"="+text)
-	}
-
-	appendRawOutcomeString("category", "category")
-	appendRawOutcomeString("exit_code", "exit_code")
-	appendRawOutcomeString("output", "output")
-
-	return strings.Join(parts, "; ")
-}
-
-func blockingLintDecisions(decisions []policy.Decision) []policy.Decision {
-	blocking := []policy.Decision{}
-	for _, decision := range decisions {
-		if decision.Decision == "block" || decision.Severity == "block" {
-			blocking = append(blocking, decision)
-		}
-	}
-
-	return blocking
-}
-
-func compareLintFindings(left diagnostics.Diagnostic, right diagnostics.Diagnostic) int {
-	leftBlock := findingBlocks(left)
-	rightBlock := findingBlocks(right)
-	if leftBlock != rightBlock {
-		if leftBlock {
-			return -1
-		}
-
-		return 1
-	}
-
-	return strings.Compare(findingSortKey(left), findingSortKey(right))
-}
-
-func findingBlocks(finding diagnostics.Diagnostic) bool {
-	return finding.Severity == "block" || finding.Severity == "error"
-}
-
-func findingSortKey(finding diagnostics.Diagnostic) string {
-	return strings.Join([]string{
-		finding.File,
-		strconv.Itoa(finding.Line),
-		finding.PolicyID,
-		finding.Tool,
-		finding.Code,
-		finding.Message,
-	}, "\x00")
-}
-
-func firstNonEmpty(values ...string) string {
+func firstOutputLabel(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return value

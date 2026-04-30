@@ -142,7 +142,8 @@ runtime_artifacts_missing() {
     "${MANAGED_GO_BIN_DIR}/golangci-lint" \
     "${MANAGED_GITHUB_BIN_DIR}/shellcheck" \
     "${MANAGED_GITHUB_BIN_DIR}/actionlint" \
-    "${MANAGED_GITHUB_BIN_DIR}/hadolint"; do
+    "${MANAGED_GITHUB_BIN_DIR}/hadolint" \
+    "${MANAGED_GITHUB_BIN_DIR}/dotenv-linter"; do
     [[ ! -x "$tool" ]] && return 0
   done
 

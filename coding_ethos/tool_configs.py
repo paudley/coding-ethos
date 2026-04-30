@@ -11,7 +11,7 @@ It keeps cross-tool settings like Python version and line length synchronized.
 import configparser
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import yaml
@@ -24,6 +24,9 @@ GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
     "ruff.toml",
     ".pylintrc",
     ".yamllint.yml",
+    ".bandit.yml",
+    ".sqlfluff",
+    "tombi.toml",
     ".golangci.yml",
 )
 TOOL_CONFIG_HASH_MANIFEST = ".code-ethos/tool-config-hashes.json"
@@ -64,6 +67,16 @@ def _load_yaml(path: Path) -> ConfigMap:
 
 def _with_hash_spdx_header(content: str) -> str:
     return f"{HASH_SPDX_HEADER}{content.lstrip()}"
+
+
+def _render_ini(parser: configparser.ConfigParser) -> str:
+    lines: list[str] = []
+    for section in parser.sections():
+        lines.append(f"[{section}]")
+        for key, value in parser[section].items():
+            lines.append(f"{key} = {value}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _sha256(content: str) -> str:
@@ -243,6 +256,69 @@ def load_enforcement_config(
     return _deep_merge(
         base_config, _load_yaml(resolved_repo_config)
     ), resolved_repo_config
+
+
+class ConfiguredLintRootError(ValueError):
+    """Configured lint source root is invalid."""
+
+
+def resolve_lint_source_roots(repo_root: Path) -> list[str]:
+    """Return repo-contained lint source roots from merged policy config.
+
+    Args:
+        repo_root: Consumer repository root whose config should be loaded.
+
+    Returns:
+        Unique repo-relative source roots used for lint target resolution.
+
+    Raises:
+        ConfiguredLintRootError: A configured root is absolute or escapes the repo.
+
+    """
+    resolved_repo_root = repo_root.resolve()
+    config, _ = load_enforcement_config(resolved_repo_root)
+    roots: list[str] = []
+
+    for value in _config_values(config, "python.extra_paths"):
+        _add_lint_source_root(roots, resolved_repo_root, value)
+    for value in _config_values(config, "python.source_paths"):
+        text = str(value).strip().strip("/")
+        if not text:
+            continue
+        path = PurePosixPath(text)
+        if path.name and path.parent != PurePosixPath("."):
+            _add_lint_source_root(roots, resolved_repo_root, str(path.parent))
+        _add_lint_source_root(roots, resolved_repo_root, text)
+
+    return list(dict.fromkeys(roots))
+
+
+def _config_values(config: dict[str, Any], path: str) -> list[object]:
+    section_name, value_name = path.split(".", maxsplit=1)
+    section = config.get(section_name, {})
+    if not isinstance(section, dict):
+        return []
+    value = cast(dict[str, object], section).get(value_name, [])
+    return cast(list[object], value) if isinstance(value, list) else []
+
+
+def _add_lint_source_root(roots: list[str], repo_root: Path, value: object) -> None:
+    text = str(value).strip().rstrip("/")
+    if not text:
+        return
+    path = Path(text)
+    if path.is_absolute():
+        message = f"configured lint source root must be repo-relative: {text}"
+        raise ConfiguredLintRootError(message)
+    resolved = (repo_root / text).resolve()
+    try:
+        relative = resolved.relative_to(repo_root)
+    except ValueError as err:
+        message = f"configured lint source root escapes repo: {text}"
+        raise ConfiguredLintRootError(message) from err
+    if str(relative) == ".":
+        return
+    roots.append(relative.as_posix())
 
 
 def _toml_string(value: str) -> str:
@@ -570,6 +646,62 @@ def render_yamllint_config(config: dict[str, Any]) -> str:
     return _with_hash_spdx_header(render_yaml(payload))
 
 
+def render_bandit_config(config: dict[str, Any]) -> str:
+    """Render `.bandit.yml` from merged policy."""
+    payload: dict[str, Any] = {
+        "exclude_dirs": _configured_list(
+            config,
+            "tooling.bandit.exclude_dirs",
+            ["tests", ".venv", "build", "dist", "node_modules"],
+        ),
+        "skips": _string_list(_get(config, "tooling.bandit.skips", [])),
+    }
+
+    return _with_hash_spdx_header(render_yaml(payload))
+
+
+def render_sqlfluff_config(config: dict[str, Any]) -> str:
+    """Render `.sqlfluff` from merged policy."""
+    dialect = _configured_string(config, "tooling.sqlfluff.dialect", "ansi")
+    templater = _configured_string(config, "tooling.sqlfluff.templater", "raw")
+    max_line_length = _int_setting(
+        config,
+        "tooling.sqlfluff.max_line_length",
+        _line_length(config),
+    )
+
+    parser = configparser.ConfigParser()
+    parser["sqlfluff"] = {
+        "dialect": dialect,
+        "templater": templater,
+        "max_line_length": str(max_line_length),
+    }
+    exclude_rules = _string_list(_get(config, "tooling.sqlfluff.exclude_rules", []))
+    if exclude_rules:
+        parser["sqlfluff"]["exclude_rules"] = ",".join(exclude_rules)
+    rules = _string_list(_get(config, "tooling.sqlfluff.rules", []))
+    if rules:
+        parser["sqlfluff"]["rules"] = ",".join(rules)
+
+    return _with_hash_spdx_header(_render_ini(parser))
+
+
+def render_tombi_config(config: dict[str, Any]) -> str:
+    """Render `tombi.toml` from merged policy."""
+    del config
+    lines = [
+        "# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. "
+        "<paudley@blackcat.ca>",
+        "# SPDX-License-Identifier: MIT",
+        "",
+        "# Generated by coding-ethos. Tombi currently discovers this file as",
+        "# project configuration; keep it intentionally minimal until stricter",
+        "# schema-backed TOML policy is introduced.",
+    ]
+
+    return "\n".join(lines) + "\n"
+
+
 def render_golangci_config(config: dict[str, Any]) -> str:
     """Render `.golangci.yml` from merged policy."""
     configured = _get(config, "tooling.golangci_lint", {})
@@ -612,6 +744,9 @@ def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
         "ruff.toml": render_ruff_toml(config),
         ".pylintrc": render_pylintrc(config),
         ".yamllint.yml": render_yamllint_config(config),
+        ".bandit.yml": render_bandit_config(config),
+        ".sqlfluff": render_sqlfluff_config(config),
+        "tombi.toml": render_tombi_config(config),
         ".golangci.yml": render_golangci_config(config),
     }
 

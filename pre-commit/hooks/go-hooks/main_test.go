@@ -993,6 +993,27 @@ func TestCanonicalHookGroupsExposeExpectedGroups(t *testing.T) {
 	}
 }
 
+func TestDefaultHookCommandRegistryHasRunnableGroups(t *testing.T) {
+	t.Parallel()
+
+	registry := defaultHookCommandRegistry()
+	if len(registry.Commands) == 0 {
+		t.Fatal("registry has no commands")
+	}
+
+	for groupName, group := range registry.Groups {
+		if len(group.Commands) == 0 {
+			t.Fatalf("group %q has no commands", groupName)
+		}
+
+		for _, command := range group.Commands {
+			if command.Name == "" || command.Run == nil {
+				t.Fatalf("group %q has invalid command %#v", groupName, command)
+			}
+		}
+	}
+}
+
 func TestParseGeminiChangedLines(t *testing.T) {
 	t.Parallel()
 

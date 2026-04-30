@@ -222,6 +222,39 @@ func TestFormatLintResultTOONBlockedOutputQuality(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONTruncatesPathologicalFindingCells(t *testing.T) {
+	t.Parallel()
+
+	longMessage := strings.Repeat("schema-value,", 80)
+	result := lint.Result{
+		Scope:  "tool:tombi",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "tombi",
+			File:     "pyproject.toml",
+			Line:     104,
+			Column:   5,
+			Severity: "error",
+			Message:  longMessage,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	if !strings.Contains(output, "...[truncated]") {
+		t.Fatalf("TOON output did not mark truncation:\n%s", output)
+	}
+	if strings.Contains(output, longMessage) {
+		t.Fatalf("TOON output included full pathological message:\n%s", output)
+	}
+	if len(output) > 800 {
+		t.Fatalf("TOON output too large after truncation: %d bytes\n%s", len(output), output)
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
 	getenv := func(name string) string {
 		switch name {

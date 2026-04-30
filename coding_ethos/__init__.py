@@ -19,9 +19,18 @@ from coding_ethos.gemini_prompt_pack import (
 )
 from coding_ethos.loaders import load_primary_bundle
 from coding_ethos.markdown_seed import parse_ethos_markdown, seed_primary_from_markdown
+from coding_ethos.tool_configs import (
+    GENERATED_TOOL_CONFIGS,
+    TOOL_CONFIG_HASH_MANIFEST,
+    ConfiguredLintRootError,
+    resolve_lint_source_roots,
+)
 from coding_ethos.yaml_utils import format_yaml_file, render_yaml
 
 __all__ = [
+    "GENERATED_TOOL_CONFIGS",
+    "TOOL_CONFIG_HASH_MANIFEST",
+    "ConfiguredLintRootError",
     "__version__",
     "check_gemini_prompt_pack",
     "format_yaml_file",
@@ -30,6 +39,7 @@ __all__ = [
     "parse_ethos_markdown",
     "render_gemini_prompt_pack",
     "render_yaml",
+    "resolve_lint_source_roots",
     "seed_primary_from_markdown",
     "sync_gemini_prompt_pack",
 ]

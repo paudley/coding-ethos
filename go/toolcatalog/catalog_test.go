@@ -4,6 +4,7 @@
 package toolcatalog_test
 
 import (
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -97,6 +98,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	)
 	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
+	assertToolCommand(t, tools["bandit"], []string{"bandit", "-q", "-f", "json"})
+	assertToolCommand(t, tools["sqlfluff"], []string{"sqlfluff", "lint", "--format", "json"})
+	assertToolCommand(t, tools["tombi"], []string{"tombi", "lint", "--quiet", "--error-on-warnings"})
+	assertToolCommand(t, tools["dotenv-linter"], []string{"dotenv-linter", "--plain", "--quiet", "check"})
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
 
 	for name, want := range map[string]string{
@@ -105,6 +110,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"shellcheck":    "shell",
 		"shfmt":         "shell",
 		"yamllint":      "syntax",
+		"bandit":        "security",
+		"sqlfluff":      "sql",
+		"tombi":         "syntax",
+		"dotenv-linter": "dotenv",
 		"golangci-lint": "go-static",
 	} {
 		tool := tools[name]
@@ -136,6 +145,10 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		nil,
 	)
 	assertToolFileMetadata(t, tools["yamllint"], []string{".yaml", ".yml"}, nil, nil)
+	assertToolFileMetadata(t, tools["bandit"], []string{".py"}, nil, nil)
+	assertToolFileMetadata(t, tools["sqlfluff"], []string{".sql"}, nil, nil)
+	assertToolFileMetadata(t, tools["tombi"], []string{".toml"}, nil, nil)
+	assertToolFileMetadata(t, tools["dotenv-linter"], nil, nil, []string{".env"})
 	assertToolFileMetadata(t, tools["golangci-lint"], []string{".go"}, nil, nil)
 
 	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
@@ -211,6 +224,8 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		"actionlint",
 		"yamllint",
 		"hadolint",
+		"bandit",
+		"sqlfluff",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -222,6 +237,122 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		if len(tool.CaptureStripArgs) == 0 && len(tool.CaptureStripFlags) == 0 {
 			t.Fatalf("%s cannot strip caller output flags: %#v", name, tool)
 		}
+	}
+}
+
+func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
+	t.Parallel()
+
+	captured := map[string]toolcatalog.CapturedTool{}
+	for _, tool := range toolcatalog.CapturedLintTools() {
+		captured[tool.Name] = tool
+	}
+
+	for _, name := range []string{
+		"ruff",
+		"mypy",
+		"pyright",
+		"pylint",
+		"bandit",
+		"sqlfluff",
+		"tombi",
+		"shellcheck",
+		"golangci-lint",
+		"actionlint",
+		"yamllint",
+		"hadolint",
+		"dotenv-linter",
+	} {
+		tool, found := toolcatalog.HookOwnedTool(name)
+		if !found {
+			t.Fatalf("HookOwnedTool(%q) missing", name)
+		}
+		capture, found := captured[name]
+		if !found {
+			t.Fatalf("CapturedLintTools() missing %q", name)
+		}
+		if capture.Description == "" {
+			t.Fatalf("CapturedLintTools(%q) missing description", name)
+		}
+		if tool.Runtime == toolcatalog.RuntimePython ||
+			tool.Runtime == toolcatalog.RuntimeUV {
+			if !capture.PythonModule || len(capture.ModuleNames) == 0 {
+				t.Fatalf("%s missing Python module capture metadata: %#v", name, capture)
+			}
+		}
+	}
+}
+
+func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("bandit")
+	if !found {
+		t.Fatal("missing bandit")
+	}
+
+	capture := tool.CaptureSpec()
+	capture.OutputArgs[0] = "--broken"
+	if tool.CaptureOutputArgs[0] == "--broken" {
+		t.Fatal("CaptureSpec shared backing array with Tool")
+	}
+
+	runtime := tool.RuntimeSpec()
+	runtime.Command[0] = "broken"
+	if tool.Command[0] == "broken" {
+		t.Fatal("RuntimeSpec shared backing array with Tool")
+	}
+
+	files := tool.FileMatchSpec()
+	files.Extensions[0] = ".broken"
+	if tool.FileExtensions[0] == ".broken" {
+		t.Fatal("FileMatchSpec shared backing array with Tool")
+	}
+
+	config := tool.ConfigSpec()
+	config.Flags = append(config.Flags, "--broken")
+	if len(tool.ConfigFlags) > 0 && tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
+		t.Fatal("ConfigSpec shared backing array with Tool")
+	}
+}
+
+func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(string(filepath.Separator), "repo", "coding-ethos")
+	shellcheck, found := toolcatalog.HookOwnedTool("shellcheck")
+	if !found {
+		t.Fatal("missing shellcheck")
+	}
+	if got := shellcheck.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck") {
+		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
+	}
+
+	ruff, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff")
+	}
+	if got := ruff.ManagedExecutablePath(root); got != "" {
+		t.Fatalf("ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools", got)
+	}
+}
+
+func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
+	t.Parallel()
+
+	specs := toolcatalog.CapturedLintShimSpecs("/repo/run-go-hook.sh")
+	byTool := map[string]toolcatalog.ShimSpec{}
+	for _, spec := range specs {
+		byTool[spec.ToolName] = spec
+	}
+
+	spec, found := byTool["ruff"]
+	if !found {
+		t.Fatal("missing ruff shim spec")
+	}
+	want := []string{"/repo/run-go-hook.sh", "policy-tool", "ruff"}
+	if !reflect.DeepEqual(spec.Command, want) {
+		t.Fatalf("ruff shim command = %#v, want %#v", spec.Command, want)
 	}
 }
 
@@ -252,6 +383,16 @@ func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 			name: "pylint",
 			args: []string{"-f", "text", "pkg"},
 			want: []string{"--output-format=json", "pkg"},
+		},
+		{
+			name: "bandit",
+			args: []string{"-f", "txt", "pkg"},
+			want: []string{"-f", "json", "pkg"},
+		},
+		{
+			name: "sqlfluff",
+			args: []string{"lint", "--format", "human", "query.sql"},
+			want: []string{"lint", "--format", "json", "query.sql"},
 		},
 		{
 			name: "shellcheck",

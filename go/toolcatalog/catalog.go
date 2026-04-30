@@ -4,6 +4,8 @@
 // Package toolcatalog defines typed external tool metadata.
 package toolcatalog
 
+import "path/filepath"
+
 type Runtime string
 
 const (
@@ -41,6 +43,48 @@ type Tool struct {
 	EnabledByDefault     bool     `json:"enabled_by_default"`
 }
 
+type CapturedTool struct {
+	Name         string
+	ModuleNames  []string
+	Description  string
+	PythonModule bool
+}
+
+type CaptureSpec struct {
+	OutputArgs    []string
+	StripArgs     []string
+	StripFlags    []string
+	AfterFirst    []string
+	MutatingArgs  []string
+	MutatingFirst []string
+}
+
+type RuntimeSpec struct {
+	Runtime Runtime
+	Command []string
+	Project bool
+}
+
+type ConfigSpec struct {
+	RepoConfig           string
+	FallbackBundleConfig string
+	Flags                []string
+	PostArgs             []string
+}
+
+type FileMatchSpec struct {
+	Extensions       []string
+	Prefixes         []string
+	BaseNamePrefixes []string
+	Languages        []string
+	PassFilesAsArgs  bool
+}
+
+type ShimSpec struct {
+	ToolName string
+	Command  []string
+}
+
 func PythonStaticTools() []Tool {
 	return cloneTools(pythonStaticToolDefinitions())
 }
@@ -68,12 +112,164 @@ func HookOwnedTool(name string) (Tool, bool) {
 	return findTool(name, HookOwnedTools())
 }
 
+func (tool Tool) CaptureSpec() CaptureSpec {
+	return CaptureSpec{
+		OutputArgs:    append([]string(nil), tool.CaptureOutputArgs...),
+		StripArgs:     append([]string(nil), tool.CaptureStripArgs...),
+		StripFlags:    append([]string(nil), tool.CaptureStripFlags...),
+		AfterFirst:    append([]string(nil), tool.CaptureAfterFirst...),
+		MutatingArgs:  append([]string(nil), tool.CaptureMutatingArgs...),
+		MutatingFirst: append([]string(nil), tool.CaptureMutatingFirst...),
+	}
+}
+
+func (tool Tool) RuntimeSpec() RuntimeSpec {
+	return RuntimeSpec{
+		Runtime: tool.Runtime,
+		Command: append([]string(nil), tool.Command...),
+		Project: tool.UseHookProject,
+	}
+}
+
+func (tool Tool) ConfigSpec() ConfigSpec {
+	return ConfigSpec{
+		RepoConfig:           tool.RepoConfig,
+		FallbackBundleConfig: tool.FallbackBundleConfig,
+		Flags:                append([]string(nil), tool.ConfigFlags...),
+		PostArgs:             append([]string(nil), tool.PostConfigArgs...),
+	}
+}
+
+func (tool Tool) FileMatchSpec() FileMatchSpec {
+	return FileMatchSpec{
+		Extensions:       append([]string(nil), tool.FileExtensions...),
+		Prefixes:         append([]string(nil), tool.FilePrefixes...),
+		BaseNamePrefixes: append([]string(nil), tool.BaseNamePrefixes...),
+		Languages:        append([]string(nil), tool.Languages...),
+		PassFilesAsArgs:  tool.PassFilesAsArgs,
+	}
+}
+
+func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
+	switch tool.Runtime {
+	case RuntimeGo:
+		return filepath.Join(ethosRoot, "build", "toolchain", "go-bin", tool.Name)
+	case RuntimeBinary:
+		return filepath.Join(ethosRoot, "build", "toolchain", "github-bin", tool.Name)
+	default:
+		return ""
+	}
+}
+
+func CapturedLintTools() []CapturedTool {
+	tools := []Tool{
+		ruffTool(),
+		mypyTool(),
+		pyrightTool(),
+		pylintTool(),
+		banditTool(),
+		sqlfluffTool(),
+		tombiTool(),
+		shellcheckTool(),
+		golangciLintTool(),
+		actionlintTool(),
+		yamllintTool(),
+		hadolintTool(),
+		dotenvLinterTool(),
+	}
+
+	captured := make([]CapturedTool, 0, len(tools))
+	for _, tool := range tools {
+		captured = append(captured, capturedToolFromTool(tool))
+	}
+
+	return captured
+}
+
+func CapturedLintShimSpecs(runGoHookPath string) []ShimSpec {
+	tools := CapturedLintTools()
+	specs := make([]ShimSpec, 0, len(tools))
+	for _, tool := range tools {
+		specs = append(specs, ShimSpec{
+			ToolName: tool.Name,
+			Command:  []string{runGoHookPath, "policy-tool", tool.Name},
+		})
+	}
+
+	return specs
+}
+
+func CapturedLintTool(name string) (CapturedTool, bool) {
+	for _, tool := range CapturedLintTools() {
+		if tool.Name == name {
+			return tool.clone(), true
+		}
+	}
+
+	return CapturedTool{}, false
+}
+
 func pythonStaticToolDefinitions() []Tool {
 	return []Tool{
 		ruffTool(),
 		pyrightTool(),
 		mypyTool(),
 		pylintTool(),
+	}
+}
+
+func capturedToolFromTool(tool Tool) CapturedTool {
+	return CapturedTool{
+		Name:         tool.Name,
+		ModuleNames:  moduleNamesForTool(tool),
+		Description:  displayNameForTool(tool.Name),
+		PythonModule: tool.Runtime == RuntimePython || tool.Runtime == RuntimeUV,
+	}
+}
+
+func moduleNamesForTool(tool Tool) []string {
+	if tool.Runtime != RuntimePython && tool.Runtime != RuntimeUV {
+		return nil
+	}
+
+	commandName := tool.Name
+	if len(tool.Command) > 0 {
+		commandName = tool.Command[0]
+	}
+
+	return []string{commandName}
+}
+
+func displayNameForTool(name string) string {
+	switch name {
+	case "ruff":
+		return "Ruff"
+	case "mypy":
+		return "mypy"
+	case "pyright":
+		return "Pyright"
+	case "pylint":
+		return "Pylint"
+	case "shellcheck":
+		return "ShellCheck"
+	case "golangci-lint":
+		return "golangci-lint"
+	case "actionlint":
+		return "actionlint"
+	case "yamllint":
+		return "yamllint"
+	case "hadolint":
+		return "hadolint"
+	case "bandit":
+		return "Bandit"
+	case "sqlfluff":
+		return "sqlfluff"
+	case "tombi":
+		return "Tombi"
+	case "dotenv-linter":
+		return "dotenv-linter"
+	default:
+		return name
 	}
 }
 
@@ -84,6 +280,10 @@ func toolchainToolDefinitions() []Tool {
 		shellcheckTool(),
 		shfmtTool(),
 		yamllintTool(),
+		banditTool(),
+		sqlfluffTool(),
+		tombiTool(),
+		dotenvLinterTool(),
 		golangciLintTool(),
 	}
 }
@@ -294,6 +494,87 @@ func yamllintTool() Tool {
 		UseHookProject:    true,
 		Fast:              true,
 		EnabledByDefault:  true,
+	}
+}
+
+func banditTool() Tool {
+	return Tool{
+		Name:              "bandit",
+		Parser:            "bandit",
+		Category:          "security",
+		OutputFormat:      "json",
+		Advice:            "Fix Python security findings with least-privilege, validated behavior.",
+		Runtime:           RuntimeUV,
+		Command:           []string{"bandit", "-q", "-f", "json"},
+		CaptureOutputArgs: []string{"-f", "json"},
+		CaptureStripArgs:  []string{"--format", "-f"},
+		ConfigFlags:       []string{"-c"},
+		FileExtensions:    []string{".py"},
+		Languages:         []string{"python"},
+		RepoConfig:        ".bandit.yml",
+		PostConfigArgs:    []string{"--severity-level", "medium", "--confidence-level", "medium"},
+		PassFilesAsArgs:   true,
+		UseHookProject:    true,
+		EnabledByDefault:  true,
+	}
+}
+
+func sqlfluffTool() Tool {
+	return Tool{
+		Name:              "sqlfluff",
+		Parser:            "sqlfluff",
+		Category:          "sql",
+		OutputFormat:      "json",
+		Advice:            "Fix SQL syntax and style with explicit dialect-aware queries.",
+		Runtime:           RuntimeUV,
+		Command:           []string{"sqlfluff", "lint", "--format", "json"},
+		CaptureOutputArgs: []string{"--format", "json"},
+		CaptureStripArgs:  []string{"--format", "-f"},
+		CaptureAfterFirst: []string{"lint"},
+		ConfigFlags:       []string{"--config"},
+		FileExtensions:    []string{".sql"},
+		Languages:         []string{"sql"},
+		RepoConfig:        ".sqlfluff",
+		PassFilesAsArgs:   true,
+		UseHookProject:    true,
+		EnabledByDefault:  true,
+	}
+}
+
+func tombiTool() Tool {
+	return Tool{
+		Name:             "tombi",
+		Parser:           "tombi",
+		Category:         "syntax",
+		OutputFormat:     "text",
+		Advice:           "Fix TOML syntax and schema issues before tools consume configuration.",
+		Runtime:          RuntimeUV,
+		Command:          []string{"tombi", "lint", "--quiet", "--error-on-warnings"},
+		CaptureStripArgs: []string{"--format", "-f"},
+		FileExtensions:   []string{".toml"},
+		Languages:        []string{"toml"},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func dotenvLinterTool() Tool {
+	return Tool{
+		Name:             "dotenv-linter",
+		Parser:           "dotenv-linter",
+		Category:         "dotenv",
+		OutputFormat:     "text",
+		Advice:           "Fix dotenv files so local environment contracts stay explicit and safe.",
+		Runtime:          RuntimeBinary,
+		Command:          []string{"dotenv-linter", "--plain", "--quiet", "check"},
+		CaptureStripArgs: []string{"--format", "-f"},
+		BaseNamePrefixes: []string{".env"},
+		Languages:        []string{"dotenv"},
+		PassFilesAsArgs:  true,
+		Fast:             true,
+		EnabledByDefault: true,
 	}
 }
 
@@ -572,6 +853,12 @@ func (tool Tool) clone() Tool {
 	tool.BaseNamePrefixes = append([]string(nil), tool.BaseNamePrefixes...)
 	tool.Languages = append([]string(nil), tool.Languages...)
 	tool.PostConfigArgs = append([]string(nil), tool.PostConfigArgs...)
+
+	return tool
+}
+
+func (tool CapturedTool) clone() CapturedTool {
+	tool.ModuleNames = append([]string(nil), tool.ModuleNames...)
 
 	return tool
 }
