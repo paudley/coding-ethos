@@ -286,9 +286,9 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 	t.Parallel()
 
-	tool, found := toolcatalog.HookOwnedTool("shellcheck")
+	tool, found := toolcatalog.HookOwnedTool("bandit")
 	if !found {
-		t.Fatal("missing shellcheck")
+		t.Fatal("missing bandit")
 	}
 
 	capture := tool.CaptureSpec()
@@ -307,6 +307,12 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 	files.Extensions[0] = ".broken"
 	if tool.FileExtensions[0] == ".broken" {
 		t.Fatal("FileMatchSpec shared backing array with Tool")
+	}
+
+	config := tool.ConfigSpec()
+	config.Flags = append(config.Flags, "--broken")
+	if len(tool.ConfigFlags) > 0 && tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
+		t.Fatal("ConfigSpec shared backing array with Tool")
 	}
 }
 

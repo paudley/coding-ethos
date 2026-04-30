@@ -226,43 +226,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	commands := map[string]CommandFunc{
-		"check-catch-and-silence":          checkCatchAndSilenceCommand,
-		"check-comment-suppressions":       checkCommentSuppressionsCommand,
-		"check-conditional-imports":        checkConditionalImportsCommand,
-		"check-direct-imports":             checkDirectImportsCommand,
-		"check-docstring-coverage":         checkDocstringCoverageCommand,
-		"check-file-docstrings":            checkFileDocstringsCommand,
-		"check-optional-returns":           checkOptionalReturnsCommand,
-		"check-module-docs":                checkModuleDocsCommand,
-		"check-pytest-gate":                checkPytestGateCommand,
-		"check-security-patterns":          checkSecurityPatternsCommand,
-		"check-sql-centralization":         checkSQLCentralizationCommand,
-		"check-structured-logging":         checkStructuredLoggingCommand,
-		"check-type-checkers":              checkTypeCheckersCommand,
-		"check-type-checking-imports":      checkTypeCheckingImportsCommand,
-		"check-plan-completion":            checkPlanCompletionCommand,
-		"check-python-version-consistency": checkPythonVersionConsistencyCommand,
-		"check-runtime-ignores":            checkRuntimeIgnoresCommand,
-		"config-get":                       configGet,
-		"fix-text":                         fixText,
-		"gemini-check":                     runGeminiCheck,
-		"git-hook":                         runGitHookCommand,
-		"hook-log-analyze":                 hookLogAnalyzeCommand,
-		"hook-log-summary":                 hookLogSummaryCommand,
-		"hook-plan":                        runHookPlanCommand,
-		"hadolint":                         runHadolint,
-		"quiet-filter":                     quietFilter,
-		"run-group":                        runHookGroupCommand,
-		"shellcheck":                       runShellcheck,
-		"shfmt":                            runShfmt,
-		"actionlint":                       runActionlint,
-		"yamllint":                         runYamllint,
-		"check-util-centralization":        checkUtilCentralizationCommand,
-		"validate-manifest":                validateManifestCommand,
-	}
-
-	command, ok := commands[os.Args[1]]
+	command, ok := defaultHookCommandRegistry().Commands[os.Args[1]]
 	if !ok {
 		usage()
 		os.Exit(1)

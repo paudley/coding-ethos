@@ -13,7 +13,7 @@ import (
 func TestParseHadolintFindings(t *testing.T) {
 	t.Parallel()
 
-	findings := parseHadolintFindings(toolOutputFixture(t, "hadolint.json"))
+	findings := parseCatalogFindings("hadolint", toolOutputFixture(t, "hadolint.json"))
 	if len(findings) != 1 {
 		t.Fatalf("parseHadolintFindings() = %#v, want one finding", findings)
 	}
@@ -24,7 +24,7 @@ func TestParseHadolintFindings(t *testing.T) {
 		t.Fatalf("unexpected finding: %#v", got)
 	}
 
-	textFindings := parseHadolintFindings("Dockerfile:3 DL3008 warning: Pin versions in apt get install.")
+	textFindings := parseCatalogFindings("hadolint", "Dockerfile:3 DL3008 warning: Pin versions in apt get install.")
 	if len(textFindings) != 1 {
 		t.Fatalf("parseHadolintFindings(text) = %#v, want one finding", textFindings)
 	}
@@ -33,7 +33,7 @@ func TestParseHadolintFindings(t *testing.T) {
 func TestParseActionlintFindings(t *testing.T) {
 	t.Parallel()
 
-	findings := parseActionlintFindings(toolOutputFixture(t, "actionlint.jsonl"))
+	findings := parseCatalogFindings("actionlint", toolOutputFixture(t, "actionlint.jsonl"))
 	if len(findings) != 1 {
 		t.Fatalf("parseActionlintFindings() = %#v, want one finding", findings)
 	}
@@ -44,7 +44,7 @@ func TestParseActionlintFindings(t *testing.T) {
 		t.Fatalf("unexpected finding: %#v", got)
 	}
 
-	textFindings := parseActionlintFindings(".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]")
+	textFindings := parseCatalogFindings("actionlint", ".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]")
 	if len(textFindings) != 1 {
 		t.Fatalf("parseActionlintFindings(text) = %#v, want one finding", textFindings)
 	}
@@ -53,8 +53,9 @@ func TestParseActionlintFindings(t *testing.T) {
 func TestParseGolangciFindings(t *testing.T) {
 	t.Parallel()
 
-	findings := parseGolangciFindings(
-		"level=warning msg=\"runner warning\"\n" + toolOutputFixture(t, "golangci.json"),
+	findings := parseCatalogFindings(
+		"golangci-lint",
+		"level=warning msg=\"runner warning\"\n"+toolOutputFixture(t, "golangci.json"),
 	)
 	if len(findings) != 1 {
 		t.Fatalf("parseGolangciFindings() = %#v, want one finding", findings)
@@ -66,7 +67,7 @@ func TestParseGolangciFindings(t *testing.T) {
 		t.Fatalf("unexpected finding: %#v", got)
 	}
 
-	textFindings := parseGolangciFindings("pkg/app.go:8:2: ineffectual assignment to err (ineffassign)")
+	textFindings := parseCatalogFindings("golangci-lint", "pkg/app.go:8:2: ineffectual assignment to err (ineffassign)")
 	if len(textFindings) != 1 {
 		t.Fatalf("parseGolangciFindings(text) = %#v, want one finding", textFindings)
 	}
@@ -77,7 +78,6 @@ func TestParseNewParityToolFindings(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		parse    func(string) []hookFinding
 		output   string
 		wantTool string
 		wantFile string
@@ -85,7 +85,6 @@ func TestParseNewParityToolFindings(t *testing.T) {
 	}{
 		{
 			name:     "bandit",
-			parse:    parseBanditFindings,
 			output:   `{"results":[{"filename":"pkg/app.py","line_number":10,"issue_severity":"HIGH","test_id":"B602","issue_text":"subprocess call with shell=True"}]}`,
 			wantTool: "bandit",
 			wantFile: "pkg/app.py",
@@ -93,7 +92,6 @@ func TestParseNewParityToolFindings(t *testing.T) {
 		},
 		{
 			name:     "sqlfluff",
-			parse:    parseSQLFluffFindings,
 			output:   `[{"filepath":"queries/app.sql","violations":[{"line_no":2,"line_pos":7,"code":"LT01","description":"Expected single whitespace."}]}]`,
 			wantTool: "sqlfluff",
 			wantFile: "queries/app.sql",
@@ -101,14 +99,12 @@ func TestParseNewParityToolFindings(t *testing.T) {
 		},
 		{
 			name:     "tombi",
-			parse:    parseTombiFindings,
 			output:   "Error: invalid key\n    at config.toml:2:4\n",
 			wantTool: "tombi",
 			wantFile: "config.toml",
 		},
 		{
 			name:     "dotenv-linter",
-			parse:    parseDotenvLinterFindings,
 			output:   ".env.example:3 LowercaseKey: The key should be uppercase",
 			wantTool: "dotenv-linter",
 			wantFile: ".env.example",
@@ -120,7 +116,7 @@ func TestParseNewParityToolFindings(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			findings := test.parse(test.output)
+			findings := parseCatalogFindings(test.name, test.output)
 			if len(findings) != 1 {
 				t.Fatalf("%s findings = %#v, want one", test.name, findings)
 			}

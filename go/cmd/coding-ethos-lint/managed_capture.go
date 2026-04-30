@@ -157,7 +157,8 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	if _, err := exec.LookPath(uvBin); err != nil {
 		return managedToolCommand{}
 	}
-	if len(tool.Command) == 0 {
+	runtime := tool.RuntimeSpec()
+	if len(runtime.Command) == 0 {
 		return managedToolCommand{}
 	}
 
@@ -167,7 +168,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 			"run",
 			"--project",
 			filepath.Join(ethosRoot, "pre-commit", "hooks"),
-			tool.Command[0],
+			runtime.Command[0],
 		},
 	}
 }
@@ -190,20 +191,24 @@ func enforceManagedToolArgs(
 	case "dotenv-linter":
 		return enforceDotenvLinterArgs(args)
 	case "sqlfluff":
+		config := tool.ConfigSpec()
+
 		return enforceSubcommandConfigArgs(
 			args,
 			"lint",
 			"--config",
-			filepath.Join(ethosRoot, tool.RepoConfig),
+			filepath.Join(ethosRoot, config.RepoConfig),
 		)
 	case "tombi":
 		return enforceFirstCommandArgs(args, "lint", []string{"--quiet", "--error-on-warnings"})
 	case "golangci-lint":
+		config := tool.ConfigSpec()
+
 		return enforceSubcommandConfigArgs(
 			args,
 			"run",
 			"--config",
-			filepath.Join(ethosRoot, tool.RepoConfig),
+			filepath.Join(ethosRoot, config.RepoConfig),
 		)
 	default:
 		return enforceCatalogConfigArgs(tool, args, ethosRoot)
@@ -276,11 +281,12 @@ func enforceSubcommandConfigArgs(
 
 func enforceCatalogConfigArgs(tool toolcatalog.Tool, args []string, ethosRoot string) []string {
 	enforced := append([]string(nil), args...)
-	if tool.RepoConfig != "" && len(tool.ConfigFlags) > 0 {
-		enforced = append([]string{tool.ConfigFlags[0], filepath.Join(ethosRoot, tool.RepoConfig)}, enforced...)
+	config := tool.ConfigSpec()
+	if config.RepoConfig != "" && len(config.Flags) > 0 {
+		enforced = append([]string{config.Flags[0], filepath.Join(ethosRoot, config.RepoConfig)}, enforced...)
 	}
-	if len(tool.PostConfigArgs) > 0 {
-		enforced = append(enforced, tool.PostConfigArgs...)
+	if len(config.PostArgs) > 0 {
+		enforced = append(enforced, config.PostArgs...)
 	}
 
 	return enforced

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:funlen // Central hook group table is kept together as the dispatch contract.
 package main
 
 import (
@@ -22,107 +21,6 @@ type hookCommand struct {
 type hookGroup struct {
 	Name     string
 	Commands []hookCommand
-}
-
-func canonicalHookGroups() map[string]hookGroup {
-	return map[string]hookGroup{
-		"format": {
-			Name:     "format",
-			Commands: []hookCommand{{Name: "format", Run: runFormatGroupCommand}},
-		},
-		"syntax": {
-			Name: "syntax",
-			Commands: []hookCommand{
-				{Name: "check-runtime-ignores", Run: checkRuntimeIgnoresCommand},
-				{Name: "yamllint", Run: runYamllint},
-				{Name: "tombi", Run: runTombi},
-				{Name: "dotenv-linter", Run: runDotenvLinter},
-			},
-		},
-		"python-policy": {
-			Name: "python-policy",
-			Commands: []hookCommand{
-				{Name: "check-optional-returns", Run: checkOptionalReturnsCommand},
-				{Name: "check-comment-suppressions", Run: checkCommentSuppressionsCommand},
-				{Name: "check-direct-imports", Run: checkDirectImportsCommand},
-				{Name: "check-util-centralization", Run: checkUtilCentralizationCommand},
-				{Name: "check-security-patterns", Run: checkSecurityPatternsCommand},
-				{Name: "check-catch-and-silence", Run: checkCatchAndSilenceCommand},
-				{Name: "check-conditional-imports", Run: checkConditionalImportsCommand},
-				{Name: "check-type-checking-imports", Run: checkTypeCheckingImportsCommand},
-				{Name: "check-structured-logging", Run: checkStructuredLoggingCommand},
-				{Name: "check-sql-centralization", Run: checkSQLCentralizationCommand},
-				{
-					Name: "check-python-version-consistency",
-					Run:  checkPythonVersionConsistencyCommand,
-				},
-				{Name: "check-file-docstrings", Run: checkFileDocstringsCommand},
-				{Name: "check-pytest-gate", Run: checkPytestGateCommand},
-			},
-		},
-		"python-static": {
-			Name: "python-static",
-			Commands: []hookCommand{
-				{Name: "check-type-checkers", Run: checkTypeCheckersCommand},
-			},
-		},
-		"docs": {
-			Name: "docs",
-			Commands: []hookCommand{
-				{Name: "check-docstring-coverage", Run: checkDocstringCoverageCommand},
-				{Name: "check-module-docs", Run: checkModuleDocsCommand},
-				{Name: "validate-manifest", Run: validateManifestCommand},
-				{Name: "check-plan-completion", Run: checkPlanCompletionCommand},
-			},
-		},
-		"security": {
-			Name: "security",
-			Commands: []hookCommand{
-				{Name: "check-security-patterns", Run: checkSecurityPatternsCommand},
-				{Name: "bandit", Run: runBandit},
-			},
-		},
-		"sql": {
-			Name:     "sql",
-			Commands: []hookCommand{{Name: "sqlfluff", Run: runSQLFluff}},
-		},
-		"shell": {
-			Name: "shell",
-			Commands: []hookCommand{
-				{Name: "shfmt", Run: runShfmt},
-				{Name: "shellcheck", Run: runShellcheck},
-			},
-		},
-		"docker": {
-			Name:     "docker",
-			Commands: []hookCommand{{Name: "hadolint", Run: runHadolint}},
-		},
-		"workflow": {
-			Name:     "workflow",
-			Commands: []hookCommand{{Name: "actionlint", Run: runActionlint}},
-		},
-		"python-quality": {
-			Name: "python-quality",
-			Commands: []hookCommand{
-				{Name: "python-complexity", Run: runPythonComplexity},
-				{Name: "python-maintainability", Run: runPythonMaintainability},
-				{Name: "python-vulture", Run: runPythonVulture},
-			},
-		},
-		"go": {
-			Name: "go",
-			Commands: []hookCommand{
-				{Name: "go-format", Run: runGoFormatCheck},
-				{Name: "go-vet", Run: runGoVet},
-				{Name: "go-test", Run: runGoTests},
-				{Name: "golangci-lint", Run: runGolangciLint},
-			},
-		},
-		"ai": {
-			Name:     "ai",
-			Commands: []hookCommand{{Name: "gemini-check", Run: runGeminiCheck}},
-		},
-	}
 }
 
 func runHookGroupCommand(cfg Config, args []string) int {

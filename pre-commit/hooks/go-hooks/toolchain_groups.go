@@ -24,85 +24,40 @@ const (
 )
 
 func runHadolint(_ Config, paths []string) int {
-	files := toolchainFiles("hadolint", existingFiles(paths))
-	if len(files) == 0 {
-		return 0
-	}
-
-	return runHookToolWithParser(
-		"hadolint",
-		repoRoot(),
-		toolchainCommandWithFiles("hadolint", files),
-		parseHadolintFindings,
-	)
+	return runCatalogLintTool("hadolint", paths)
 }
 
 func runActionlint(_ Config, paths []string) int {
-	if len(toolchainFiles("actionlint", existingFiles(paths))) == 0 {
-		return 0
-	}
-
-	return runHookToolWithParser(
-		"actionlint",
-		repoRoot(),
-		toolchainCommand("actionlint"),
-		parseActionlintFindings,
-	)
+	return runCatalogLintTool("actionlint", paths)
 }
 
 func runBandit(_ Config, paths []string) int {
-	files := toolchainFiles("bandit", existingFiles(paths))
-	if len(files) == 0 {
-		return 0
-	}
-
-	return runHookToolWithParser(
-		"bandit",
-		repoRoot(),
-		uvToolchainCommandWithRepoConfig("bandit", ".bandit.yml", files),
-		parseBanditFindings,
-	)
+	return runCatalogLintTool("bandit", paths)
 }
 
 func runSQLFluff(_ Config, paths []string) int {
-	files := toolchainFiles("sqlfluff", existingFiles(paths))
-	if len(files) == 0 {
-		return 0
-	}
-
-	return runHookToolWithParser(
-		"sqlfluff",
-		repoRoot(),
-		uvToolchainCommandWithRepoConfig("sqlfluff", ".sqlfluff", files),
-		parseSQLFluffFindings,
-	)
+	return runCatalogLintTool("sqlfluff", paths)
 }
 
 func runTombi(_ Config, paths []string) int {
-	files := toolchainFiles("tombi", existingFiles(paths))
-	if len(files) == 0 {
-		return 0
-	}
-
-	return runHookToolWithParser(
-		"tombi",
-		repoRoot(),
-		uvToolchainCommandWithRepoConfig("tombi", "tombi.toml", files),
-		parseTombiFindings,
-	)
+	return runCatalogLintTool("tombi", paths)
 }
 
 func runDotenvLinter(_ Config, paths []string) int {
-	files := toolchainFiles("dotenv-linter", existingFiles(paths))
+	return runCatalogLintTool("dotenv-linter", paths)
+}
+
+func runCatalogLintTool(name string, paths []string) int {
+	files := toolchainFiles(name, existingFiles(paths))
 	if len(files) == 0 {
 		return 0
 	}
 
 	return runHookToolWithParser(
-		"dotenv-linter",
+		name,
 		repoRoot(),
-		toolchainCommandWithFiles("dotenv-linter", files),
-		parseDotenvLinterFindings,
+		toolchainCommandForFiles(name, files),
+		func(output string) []hookFinding { return parseCatalogFindings(name, output) },
 	)
 }
 
@@ -313,8 +268,11 @@ func runGolangciLint(_ Config, paths []string) int {
 	return runHookToolWithParser(
 		"golangci-lint",
 		worktree,
-		toolchainCommandWithRepoConfig("golangci-lint", repoPath(".golangci.yml")),
-		parseGolangciFindings,
+		toolchainCommandWithRepoConfig(
+			"golangci-lint",
+			repoPath(toolchainRepoConfig("golangci-lint")),
+		),
+		func(output string) []hookFinding { return parseCatalogFindings("golangci-lint", output) },
 	)
 }
 
@@ -489,34 +447,6 @@ const (
 	complexityMatchParts = 5
 	maintainMatchParts   = 3
 )
-
-func parseHadolintFindings(output string) []hookFinding {
-	return parseCatalogFindings("hadolint", output)
-}
-
-func parseActionlintFindings(output string) []hookFinding {
-	return parseCatalogFindings("actionlint", output)
-}
-
-func parseBanditFindings(output string) []hookFinding {
-	return parseCatalogFindings("bandit", output)
-}
-
-func parseSQLFluffFindings(output string) []hookFinding {
-	return parseCatalogFindings("sqlfluff", output)
-}
-
-func parseTombiFindings(output string) []hookFinding {
-	return parseCatalogFindings("tombi", output)
-}
-
-func parseDotenvLinterFindings(output string) []hookFinding {
-	return parseCatalogFindings("dotenv-linter", output)
-}
-
-func parseGolangciFindings(output string) []hookFinding {
-	return parseCatalogFindings("golangci-lint", output)
-}
 
 func parseComplexityFindings(output string) []hookFinding {
 	findings := []hookFinding{}

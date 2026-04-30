@@ -60,10 +60,16 @@ type CaptureSpec struct {
 }
 
 type RuntimeSpec struct {
-	Runtime    Runtime
-	Command    []string
-	RepoConfig string
-	UseProject bool
+	Runtime Runtime
+	Command []string
+	Project bool
+}
+
+type ConfigSpec struct {
+	RepoConfig           string
+	FallbackBundleConfig string
+	Flags                []string
+	PostArgs             []string
 }
 
 type FileMatchSpec struct {
@@ -119,10 +125,18 @@ func (tool Tool) CaptureSpec() CaptureSpec {
 
 func (tool Tool) RuntimeSpec() RuntimeSpec {
 	return RuntimeSpec{
-		Runtime:    tool.Runtime,
-		Command:    append([]string(nil), tool.Command...),
-		RepoConfig: tool.RepoConfig,
-		UseProject: tool.UseHookProject,
+		Runtime: tool.Runtime,
+		Command: append([]string(nil), tool.Command...),
+		Project: tool.UseHookProject,
+	}
+}
+
+func (tool Tool) ConfigSpec() ConfigSpec {
+	return ConfigSpec{
+		RepoConfig:           tool.RepoConfig,
+		FallbackBundleConfig: tool.FallbackBundleConfig,
+		Flags:                append([]string(nil), tool.ConfigFlags...),
+		PostArgs:             append([]string(nil), tool.PostConfigArgs...),
 	}
 }
 

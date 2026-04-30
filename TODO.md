@@ -160,7 +160,7 @@ These items came from an adversarial SOLID review of the hook runtime. They are
 not blockers for the package-relative path fix, but they should be handled
 before the next broad hook expansion.
 
-- [ ] Consolidate tool/runtime policy metadata currently split across
+- [x] Consolidate tool/runtime policy metadata currently split across
   `go/toolcatalog/catalog.go`, `go/internal/hooks/lint_tool_capture.go`,
   `pre-commit/hooks/go-hooks/hook_groups.go`, and
   `pre-commit/hooks/go-hooks/toolchain_groups.go`.
@@ -171,9 +171,9 @@ before the next broad hook expansion.
 - [x] Keep lint and policy semantics out of generic hook-output formatting;
   output packages should render normalized results, not decide enforcement
   behavior.
-- [ ] Slim `toolcatalog.Tool` into smaller capability interfaces so adding a
+- [x] Slim `toolcatalog.Tool` into smaller capability interfaces so adding a
   captured tool does not require unrelated fields and switch expansion.
-- [ ] Replace hook-group switch dispatch with registry-driven evaluators that
+- [x] Replace hook-group switch dispatch with registry-driven evaluators that
   can be extended from compiled config data.
 - [x] Separate capture execution IO, parser selection, lint-log persistence,
   and user-facing rendering into testable components.
