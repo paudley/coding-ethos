@@ -10,6 +10,7 @@ verify that coding-ethos remains the policy and tool source of truth.
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -176,6 +177,38 @@ def test_policy_tool_blocks_generated_config_drift_before_linter_runs(
     assert "mypy.ini" in output
     assert str(consumer) not in output
     assert "make -C coding-ethos fix-configs" in output
+
+
+def test_policy_tool_mypy_uses_consumer_python_environment(tmp_path: Path) -> None:
+    consumer = _prepare_consumer_repo(tmp_path)
+    package = consumer / "pkg"
+    package.mkdir()
+    (package / "app.py").write_text("x: int = 'bad'\n", encoding="utf-8")
+    venv_bin = consumer / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").symlink_to(Path(sys.executable))
+
+    result = _run(
+        [
+            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            "policy-tool",
+            "mypy",
+            "pkg/app.py",
+        ],
+        cwd=consumer,
+        check=False,
+        timeout=180,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "Incompatible types in assignment" in output
+
+    trace_files = sorted((consumer / ".coding-ethos" / "lint-runs").glob("*.json"))
+    assert trace_files
+    trace_content = trace_files[-1].read_text(encoding="utf-8")
+    assert "--python-executable" in trace_content
+    assert str(venv_bin / "python") in trace_content
 
 
 def test_runtime_bootstrap_repairs_missing_checkout_local_binary(

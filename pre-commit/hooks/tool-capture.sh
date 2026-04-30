@@ -210,7 +210,17 @@ enforce_lint_tool_config() {
       fi
       ;;
     mypy)
-      out_ref=("--config-file" "${ETHOS_ROOT}/mypy.ini" "$@")
+      local consumer_python
+      consumer_python="$(consumer_python_executable || true)"
+      if [[ -n "$consumer_python" ]]; then
+        out_ref=(
+          "--config-file" "${ETHOS_ROOT}/mypy.ini"
+          "--python-executable" "$consumer_python"
+          "$@"
+        )
+      else
+        out_ref=("--config-file" "${ETHOS_ROOT}/mypy.ini" "$@")
+      fi
       ;;
     pyright)
       out_ref=("--project" "${ETHOS_ROOT}/pyrightconfig.json" "$@")
@@ -225,6 +235,20 @@ enforce_lint_tool_config() {
       out_ref=("$@")
       ;;
   esac
+}
+
+consumer_python_executable() {
+  local candidate
+  for candidate in \
+    "${ROOT}/.venv/bin/python" \
+    "${ROOT}/.venv/bin/python3"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return
+    fi
+  done
+
+  return 1
 }
 
 lint_info_command() {
