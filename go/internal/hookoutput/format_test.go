@@ -9,6 +9,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
@@ -91,6 +92,48 @@ func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Decisions: []policy.Decision{
+			{
+				Decision:   "record",
+				Severity:   "record",
+				PolicyID:   "shell.forbidden_strings",
+				Message:    "Commands must not inspect protected internals.",
+				Suggestion: "Use documented commands.",
+			},
+			{
+				Decision:   "block",
+				Severity:   "block",
+				PolicyID:   "git.staged_admin_files",
+				Message:    "Administrative staged files require explicit handling.",
+				Suggestion: "Confirm the policy change is intentional.",
+			},
+		},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"findings[1]{tool,file,line,column,severity,code,policy_id,message,advice,detail}:",
+		"policy,,0,0,block,,git.staged_admin_files,Administrative staged files require explicit handling.,Confirm the policy change is intentional.,",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "shell.forbidden_strings") {
+		t.Fatalf("TOON output included non-blocking record finding:\n%s", output)
 	}
 }
 

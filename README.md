@@ -343,6 +343,9 @@ Hook output honors `hooks.output_format` (`auto`, `human`, `json`, or `toon`).
 Successful groups are silent by default; failure output is intentionally narrow:
 show the failing checks and actionable findings, not pass tables, internal group
 names, or timings that do not help fix code.
+When policy preflight has both record-only context and blocking decisions, the
+agent-facing result reports the blockers first and omits non-blocking record
+rows from the compact finding table.
 
 Compiled lint preflights also write normalized JSON traces under
 `.coding-ethos/lint-runs/`. Fresh repos with no trace directory analyze as an
