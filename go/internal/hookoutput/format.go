@@ -23,6 +23,8 @@ const (
 	FormatJSON  = "json"
 	FormatTOON  = "toon"
 	FormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
+
+	maxTOONFindingCellRunes = 320
 )
 
 func SelectedFormat() string {
@@ -76,6 +78,16 @@ func TOONCell(value string) string {
 	cleaned = strings.ReplaceAll(cleaned, ",", "\\,")
 
 	return cleaned
+}
+
+func TOONFindingCell(value string) string {
+	cleaned := TOONCell(value)
+	runes := []rune(cleaned)
+	if len(runes) <= maxTOONFindingCellRunes {
+		return cleaned
+	}
+
+	return string(runes[:maxTOONFindingCellRunes]) + "...[truncated]"
 }
 
 func FormatLintResult(result lint.Result, format string) (string, error) {
@@ -136,9 +148,9 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONCell(finding.Severity),
 			TOONCell(finding.Code),
 			TOONCell(finding.PolicyID),
-			TOONCell(finding.Message),
-			TOONCell(finding.Advice),
-			TOONCell(finding.Detail),
+			TOONFindingCell(finding.Message),
+			TOONFindingCell(finding.Advice),
+			TOONFindingCell(finding.Detail),
 		))
 	}
 	if result.Blocked() {

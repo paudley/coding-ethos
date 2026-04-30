@@ -17,6 +17,8 @@ import pytest
 import yaml
 
 from coding_ethos import (
+    GENERATED_TOOL_CONFIGS,
+    TOOL_CONFIG_HASH_MANIFEST,
     load_primary_bundle,
     main,
     parse_ethos_markdown,
@@ -92,7 +94,9 @@ def _load_generated_tool_configs(
 
 
 def _assert_generated_tool_configs(repo_root: Path) -> None:
-    assert (repo_root / ".code-ethos" / "tool-config-hashes.json").exists()
+    assert (repo_root / TOOL_CONFIG_HASH_MANIFEST).exists()
+    for config_path in GENERATED_TOOL_CONFIGS:
+        assert (repo_root / config_path).exists(), config_path
     (
         pyright,
         mypy_ini,
