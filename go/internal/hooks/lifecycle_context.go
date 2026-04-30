@@ -39,13 +39,13 @@ func lifecycleContext(event Event) string {
 			"",
 		)
 	case "Stop", "SessionEnd":
-		return buildGuidanceContext(
+		return buildChecklistContext(
+			"Before ending:",
 			[]string{
 				"Do not report completion while planned work remains.",
 				"Summarize evidence: files changed, checks run, and unresolved risks.",
 				"If hooks or lint failed, keep the failure visible and fix it structurally.",
 			},
-			"",
 		)
 	case "SubagentStart":
 		return buildGuidanceContext(
@@ -57,17 +57,26 @@ func lifecycleContext(event Event) string {
 			event.Content(),
 		)
 	case "SubagentStop":
-		return buildGuidanceContext(
+		return buildChecklistContext(
+			"Before accepting subagent work:",
 			[]string{
 				"Check the subagent result against the assigned scope.",
 				"Integrate only verified changes and preserve unrelated user work.",
 				"Record any remaining follow-up explicitly.",
 			},
-			"",
 		)
 	default:
 		return ""
 	}
+}
+
+func buildChecklistContext(heading string, guidance []string) string {
+	lines := []string{heading}
+	for _, item := range guidance {
+		lines = append(lines, "- "+item)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func buildGuidanceContext(guidance []string, prompt string) string {

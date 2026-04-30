@@ -1548,8 +1548,12 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
 	}
 	if !strings.Contains(output, `"systemMessage"`) ||
+		!strings.Contains(output, "Before ending:") ||
 		!strings.Contains(output, "planned work remains") {
 		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
+	}
+	if strings.Contains(output, "guidance:") {
+		t.Fatalf("Claude terminal lifecycle output should not begin with generic guidance label:\n%s", output)
 	}
 	assertNoRoutineContextClutter(t, output)
 }
@@ -1796,9 +1800,12 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.HasPrefix(context, "guidance:\n") ||
+	if !strings.HasPrefix(context, "Before ending:\n") ||
 		!strings.Contains(context, "planned work remains") {
 		t.Fatalf("unexpected stop guidance: %s", context)
+	}
+	if strings.Contains(context, "guidance:") {
+		t.Fatalf("terminal lifecycle context should not start with generic guidance label: %s", context)
 	}
 	assertNoRoutineContextClutter(t, context)
 }
