@@ -196,8 +196,6 @@ endef
 	check-tool-configs \
 	sync-gemini-prompts \
 	check-gemini-prompts \
-	sync-agent-skills \
-	sync-consumer-agent-skills \
 	check-agent-skills \
 	hooks-validate \
 	hooks-install \
@@ -353,13 +351,13 @@ check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is ou
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
 
-sync-agent-skills: ensure-uv ## Generate provider skill surfaces without rewriting root agent docs.
+_sync-agent-skills: ensure-uv
 	@$(call print_step,Syncing generated agent skill surfaces)
 	@$(call print_info,repo: $(REPO))
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(AGENT_SKILL_FLAGS) --sync-agent-skills
 
-sync-consumer-agent-skills: ensure-uv ## Generate consumer repo skill surfaces when installed in a parent repo.
+_sync-consumer-agent-skills: ensure-uv
 	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
 		$(call print_step,Syncing generated consumer agent skill surfaces); \
 		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
@@ -372,7 +370,7 @@ check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts sync-agent-skills sync-consumer-agent-skills go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)

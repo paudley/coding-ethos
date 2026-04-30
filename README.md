@@ -116,7 +116,6 @@ make generate REPO=/path/to/repo
 | Check generated tool config drift | `make check-tool-configs` |
 | Sync Gemini prompt pack | `make sync-gemini-prompts` |
 | Check Gemini prompt-pack drift | `make check-gemini-prompts` |
-| Sync generated agent skill surfaces | `make sync-agent-skills` |
 | Check generated agent skill drift | `make check-agent-skills` |
 | Run staged-file hooks | `make pre-commit` |
 | Run hooks over all files | `make pre-commit-all` |
@@ -580,7 +579,7 @@ After source changes:
 | `coding_ethos.yml`, `repo_ethos.yml`, or renderers | `make generate` |
 | generated tool-config behavior | `make sync-tool-configs` |
 | Gemini prompt templates or grounding | `make sync-gemini-prompts` |
-| ETHOS skill source or renderer behavior | `make sync-agent-skills` |
+| ETHOS skill source or renderer behavior | `make build` |
 | hook runtime or cutover behavior | `make cutover-verify` |
 
 See [pre-commit/PRE-COMMIT.md](pre-commit/PRE-COMMIT.md) and
