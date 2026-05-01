@@ -50,7 +50,7 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 	bufferedReader := bufio.NewReader(reader)
 
 	for {
-		payload, err := readFramedMessage(bufferedReader)
+		payload, framing, err := readMessage(bufferedReader)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -59,7 +59,7 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 		}
 		var request requestMessage
 		if err := json.Unmarshal(payload, &request); err != nil {
-			if err := writeResponse(writer, nil, nil, &rpcError{
+			if err := writeResponse(writer, framing, nil, nil, &rpcError{
 				Code:    -32700,
 				Message: "parse error",
 			}); err != nil {
@@ -73,7 +73,7 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 		}
 
 		result, responseErr := server.handle(request)
-		if err := writeResponse(writer, request.ID, result, responseErr); err != nil {
+		if err := writeResponse(writer, framing, request.ID, result, responseErr); err != nil {
 			return err
 		}
 	}
@@ -82,7 +82,9 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 func (server Server) handle(request requestMessage) (any, *rpcError) {
 	switch request.Method {
 	case "initialize":
-		return initializeResult(), nil
+		return initializeResult(request.Params), nil
+	case "ping":
+		return map[string]any{}, nil
 	case "tools/list":
 		return map[string]any{"tools": toolDefinitions()}, nil
 	case "tools/call":

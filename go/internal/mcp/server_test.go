@@ -51,6 +51,67 @@ func TestServerListsTools(t *testing.T) {
 	}
 }
 
+func TestServerNegotiatesClientProtocolVersion(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{
+		"jsonrpc":"2.0",
+		"id":10,
+		"method":"initialize",
+		"params":{"protocolVersion":"2024-11-05"}
+	}`)
+	response := decodeResponse(t, output)
+
+	result := response["result"].(map[string]any)
+	if result["protocolVersion"] != "2024-11-05" {
+		t.Fatalf("protocolVersion = %#v, want client version", result["protocolVersion"])
+	}
+}
+
+func TestServerSupportsJSONLineStdioTransport(t *testing.T) {
+	t.Parallel()
+
+	request := compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":11,
+		"method":"initialize",
+		"params":{"protocolVersion":"2025-06-18"}
+	}`)
+	var output bytes.Buffer
+	server := mcp.NewServer(policy.ExampleBundle())
+	if err := server.Serve(strings.NewReader(request+"\n"), &output); err != nil {
+		t.Fatalf("serve MCP JSON line: %v", err)
+	}
+
+	raw := output.String()
+	if strings.Contains(raw, "Content-Length:") {
+		t.Fatalf("JSON line transport returned framed response:\n%s", raw)
+	}
+	response := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &response); err != nil {
+		t.Fatalf("decode JSON line response: %v\n%s", err, raw)
+	}
+	result := response["result"].(map[string]any)
+	if result["protocolVersion"] != "2025-06-18" {
+		t.Fatalf("protocolVersion = %#v", result["protocolVersion"])
+	}
+}
+
+func TestServerHandlesPing(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{"jsonrpc":"2.0","id":9,"method":"ping"}`)
+	response := decodeResponse(t, output)
+
+	if response["error"] != nil {
+		t.Fatalf("ping returned error: %#v", response)
+	}
+	result := response["result"].(map[string]any)
+	if len(result) != 0 {
+		t.Fatalf("ping result = %#v, want empty object", result)
+	}
+}
+
 func TestServerPolicyCheckEditUsesCompiledBundle(t *testing.T) {
 	t.Parallel()
 

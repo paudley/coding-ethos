@@ -12,11 +12,22 @@ import (
 	"strings"
 )
 
+type messageFraming string
+
+const (
+	framingContentLength messageFraming = "content-length"
+	framingJSONLine      messageFraming = "json-line"
+)
+
 type requestMessage struct {
 	ID      any             `json:"id,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
+}
+
+type initializeParams struct {
+	ProtocolVersion string `json:"protocolVersion,omitempty"`
 }
 
 type responseMessage struct {
@@ -36,40 +47,52 @@ type toolCallParams struct {
 	Name      string          `json:"name"`
 }
 
-func readFramedMessage(reader *bufio.Reader) ([]byte, error) {
+func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
 	contentLength := -1
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		header := strings.TrimRight(line, "\r\n")
-		if header == "" {
-			break
-		}
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, "", err
+	}
+	header := strings.TrimRight(line, "\r\n")
+	if header == "" {
+		return nil, "", fmt.Errorf("empty MCP message")
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(header)), "content-length:") {
+		return []byte(header), framingJSONLine, nil
+	}
 
+	for {
 		name, value, found := strings.Cut(header, ":")
 		if !found {
-			return nil, fmt.Errorf("invalid MCP header %q", header)
+			return nil, "", fmt.Errorf("invalid MCP header %q", header)
 		}
 		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			parsed, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || parsed < 0 {
-				return nil, fmt.Errorf("invalid MCP content length %q", value)
+				return nil, "", fmt.Errorf("invalid MCP content length %q", value)
 			}
 			contentLength = parsed
 		}
+
+		line, err = reader.ReadString('\n')
+		if err != nil {
+			return nil, "", err
+		}
+		header = strings.TrimRight(line, "\r\n")
+		if header == "" {
+			break
+		}
 	}
 	if contentLength < 0 {
-		return nil, fmt.Errorf("missing MCP Content-Length header")
+		return nil, "", fmt.Errorf("missing MCP Content-Length header")
 	}
 
 	payload := make([]byte, contentLength)
 	if _, err := io.ReadFull(reader, payload); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return payload, nil
+	return payload, framingContentLength, nil
 }
 
 type commandCheckInput struct {
@@ -124,6 +147,7 @@ type skillRecommendInput struct {
 
 func writeResponse(
 	writer io.Writer,
+	framing messageFraming,
 	id any,
 	result any,
 	responseErr *rpcError,
@@ -140,6 +164,14 @@ func writeResponse(
 		return fmt.Errorf("encode MCP response: %w", err)
 	}
 
+	if framing == framingJSONLine {
+		if _, err := writer.Write(append(payload, '\n')); err != nil {
+			return fmt.Errorf("write MCP response: %w", err)
+		}
+
+		return nil
+	}
+
 	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
 		return fmt.Errorf("write MCP response header: %w", err)
 	}
@@ -150,9 +182,16 @@ func writeResponse(
 	return nil
 }
 
-func initializeResult() map[string]any {
+func initializeResult(params json.RawMessage) map[string]any {
+	version := protocolVersion
+	var parsed initializeParams
+	if err := json.Unmarshal(params, &parsed); err == nil &&
+		strings.TrimSpace(parsed.ProtocolVersion) != "" {
+		version = strings.TrimSpace(parsed.ProtocolVersion)
+	}
+
 	return map[string]any{
-		"protocolVersion": protocolVersion,
+		"protocolVersion": version,
 		"capabilities": map[string]any{
 			"tools": map[string]any{
 				"listChanged": false,
@@ -339,21 +378,33 @@ func toolDefinition(
 	required []string,
 	metadata toolMetadata,
 ) map[string]any {
+	inputSchema := map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"additionalProperties": false,
+	}
+	if len(required) > 0 {
+		inputSchema["required"] = required
+	}
+
 	return map[string]any{
 		"name":        name,
 		"description": description,
-		"coding_ethos": map[string]any{
-			"advisory":        metadata.Advisory,
-			"executes_tools":  metadata.ExecutesTools,
-			"reads_files":     metadata.ReadsFiles,
-			"preferred_use":   metadata.PreferredUse,
-			"trace_persisted": metadata.TracePersisted,
+		"inputSchema": inputSchema,
+		"annotations": map[string]any{
+			"readOnlyHint":    !metadata.ExecutesTools && !metadata.TracePersisted,
+			"destructiveHint": false,
+			"idempotentHint":  metadata.Advisory,
+			"openWorldHint":   metadata.ExecutesTools,
 		},
-		"inputSchema": map[string]any{
-			"type":                 "object",
-			"properties":           properties,
-			"required":             required,
-			"additionalProperties": false,
+		"_meta": map[string]any{
+			"coding_ethos": map[string]any{
+				"advisory":        metadata.Advisory,
+				"executes_tools":  metadata.ExecutesTools,
+				"reads_files":     metadata.ReadsFiles,
+				"preferred_use":   metadata.PreferredUse,
+				"trace_persisted": metadata.TracePersisted,
+			},
 		},
 	}
 }

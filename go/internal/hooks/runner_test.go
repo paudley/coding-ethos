@@ -601,6 +601,51 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 	}
 }
 
+func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					"git add \\",
+					"\n  lbox-platform/lib/python/tests/parsing/enrichment_fixtures.py \\",
+					"\n  lbox-platform/lib/python/tests/parsing/test_analyzer_cisr.py",
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/lib/python/tests/parsing/enrichment_fixtures.py'",
+		) ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/lib/python/tests/parsing/test_analyzer_cisr.py'",
+		) {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+
+	if strings.Contains(rewritten, "$'\\n'") ||
+		strings.Contains(rewritten, "'\n'") {
+		t.Fatalf("rewritten command contains a newline pathspec: %q", rewritten)
+	}
+}
+
 func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 
