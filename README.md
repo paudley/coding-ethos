@@ -492,7 +492,11 @@ repo-local surface:
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
-matcher names.
+matcher names. Generated Codex config does not inline `PATH=` mutations,
+installs explicit shell/edit matchers for tool hooks, and keeps lifecycle hooks
+matcher-free. In nested checkouts, only the hook whose consumer root is the
+nearest repo root enforces a Codex event, preventing duplicate parent/nested
+reports.
 
 Generated ETHOS skills use the same managed-output model. `make build` refreshes
 the checkout-local skill surfaces and, when `coding-ethos` is installed inside a
@@ -509,6 +513,11 @@ with provider-native Claude, Codex, and Gemini payloads. The probes cover:
 - Gemini deny responses for raw shell Git and write-tool policy denial
 - managed hook-binary tampering:
   `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
+
+Hook logs under `.coding-ethos/hook-runs/` include stdout, stderr, metadata,
+and a sanitized `event.json` for agent-hook executions. The trace records
+provider, event, tool, cwd, referenced files, command preview and hash, policy
+IDs, status, and output shape without dumping raw provider input.
 
 ### Cutover
 
@@ -542,7 +551,7 @@ Provider output uses the strongest native shape each agent supports:
 | Provider | Block shape | Context/advice shape |
 | --- | --- | --- |
 | Claude | `hookSpecificOutput.permissionDecision = deny` | full `hookSpecificOutput`, including `updatedInput` |
-| Codex | `decision: "block"` plus `permissionDecision: "deny"` | compact single-line `systemMessage` for concrete post-tool advice; routine lifecycle advice hooks are not installed |
+| Codex | `decision: "block"` plus `permissionDecision: "deny"` for `PreToolUse`; compact `reason` text for exit-code-2 stderr | compact native `additionalContext` for supported lifecycle/post-tool advice; compact `systemMessage` only where Codex exposes no `additionalContext` |
 | Gemini | `decision: "deny"` plus `systemMessage` | `additionalContext` on supported lifecycle hooks |
 
 ### Agent-Hook Scope

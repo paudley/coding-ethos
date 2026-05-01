@@ -88,6 +88,11 @@ func EvaluateShellForbiddenStrings(
 		command,
 		forbiddenCommandStrings(context.EvaluatorOptions),
 	); matched {
+		if value == "/coding-ethos/pre-commit/hooks/" &&
+			commandIsOnlyTrustedRunGoHookInvocation(command) {
+			return nil, nil
+		}
+
 		return blockForbiddenStringDecision(
 			policyDef,
 			command,
@@ -155,6 +160,99 @@ func containsForbiddenString(text string, forbidden []string) (bool, string) {
 	}
 
 	return false, ""
+}
+
+func commandIsOnlyTrustedRunGoHookInvocation(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+
+	for _, field := range fields {
+		if isShellControlWord(field) {
+			return false
+		}
+	}
+
+	for len(fields) > 0 && isShellEnvAssignmentWord(fields[0]) {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 {
+		return false
+	}
+
+	cleaned := filepath.ToSlash(filepath.Clean(fields[0]))
+	if cleaned == "pre-commit/hooks/run-go-hook.sh" {
+		return true
+	}
+
+	for _, candidate := range trustedRunGoHookCandidatesForEvaluator(fields[0]) {
+		if cleaned == candidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func trustedRunGoHookCandidatesForEvaluator(command string) []string {
+	candidates := []string{
+		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
+		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "hooks", "run-go-hook.sh"),
+	}
+
+	if !filepath.IsAbs(command) {
+		for _, root := range []string{
+			os.Getenv("INVOCATION_CWD"),
+			os.Getenv("CODE_ETHOS_CONSUMER_ROOT"),
+		} {
+			if root == "" {
+				continue
+			}
+
+			candidates = append(candidates, filepath.Join(root, command))
+		}
+	}
+
+	cleaned := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+
+		cleaned = append(cleaned, filepath.ToSlash(filepath.Clean(candidate)))
+	}
+
+	return cleaned
+}
+
+func isShellControlWord(word string) bool {
+	switch word {
+	case "&&", "||", ";", "|", "&":
+		return true
+	default:
+		return false
+	}
+}
+
+func isShellEnvAssignmentWord(word string) bool {
+	name, value, ok := strings.Cut(word, "=")
+	if !ok || name == "" || value == "" || strings.HasPrefix(name, "-") {
+		return false
+	}
+
+	for index, char := range name {
+		if char == '_' ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= 'a' && char <= 'z') ||
+			(index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+
+		return false
+	}
+
+	return true
 }
 
 func referencedCommandFiles(context Context) []string {

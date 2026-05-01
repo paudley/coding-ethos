@@ -703,6 +703,92 @@ func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
 	}
 }
 
+func TestRunAllowsGeneratedAgentHookCommandWithManagedPolicyGit(t *testing.T) {
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	command := "PATH=/repo/coding-ethos/bin:$PATH " +
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"policy-git status --short"
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": command,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunAllowsParentRelativeRunGoHookWhenItResolvesToTrustedPath(t *testing.T) {
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "/repo")
+	t.Setenv("INVOCATION_CWD", "/repo")
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "coding-ethos/pre-commit/hooks/run-go-hook.sh policy-git status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunBlocksFakeRunGoHookPathEvenWithPolicyGit(t *testing.T) {
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	command := "PATH=/fake/bin:$PATH " +
+		"/fake/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"policy-git status --short"
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": command,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+	if !hasDecision(result.Decisions, "git.wrapper_required") &&
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected wrapper or shell block, got %#v", result.Decisions)
+	}
+}
+
 func TestRunAllowsDocumentedRunGoHookNonGitCommand(t *testing.T) {
 	t.Parallel()
 
@@ -801,8 +887,8 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if !strings.Contains(result.Decisions[0].Message, "It's criminal to attempt") {
-		t.Fatalf("weak refusal message: %#v", result.Decisions[0])
+	if !strings.Contains(result.Decisions[0].Message, "CODING-ETHOS EMPLOYMENT VIOLATION") {
+		t.Fatalf("unexpected refusal message: %#v", result.Decisions[0])
 	}
 }
 
@@ -1724,6 +1810,52 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 	}
 }
 
+func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	child := filepath.Join(parent, "coding-ethos")
+	for _, dir := range []string{
+		filepath.Join(parent, ".git"),
+		filepath.Join(child, ".git"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", parent)
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "exec_command",
+		"cwd": %q,
+		"input": {"command": "git status --short"}
+	}`, child)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || len(result.Decisions) != 0 {
+		t.Fatalf("nested non-owner hook should no-op, got %#v", result)
+	}
+
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", child)
+	result, err = Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run nearest hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("nested owner hook should enforce, got %#v", result)
+	}
+}
+
 func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	t.Parallel()
 
@@ -1753,9 +1885,9 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	for _, expected := range []string{
 		`"decision": "block"`,
 		`"permissionDecision": "deny"`,
-		`"systemMessage"`,
-		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		`"reason": "coding-ethos blocked this action (git.hook_bypass). !!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
 		"may result in termination",
+		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
@@ -1763,6 +1895,15 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	}
 	if strings.Contains(output, `\n`) {
 		t.Fatalf("Codex block output must be single-line-safe JSON strings:\n%s", output)
+	}
+	for _, forbidden := range []string{
+		`"systemMessage"`,
+		"format: toon",
+		"\\n",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex block output leaked %q:\n%s", forbidden, output)
+		}
 	}
 }
 
@@ -1798,6 +1939,7 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 		`"systemMessage"`,
 		"CODING-ETHOS EMPLOYMENT VIOLATION",
 		"may result in termination",
+		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)
@@ -2178,14 +2320,29 @@ func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
 	}
 }
 
-func TestEncodeProviderResultSuppressesCodexRoutineLifecycleContext(t *testing.T) {
+func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) {
 	t.Parallel()
 
-	for _, payload := range []string{
-		`{"provider":"codex","event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`,
-		`{"provider":"codex","event":"Stop"}`,
-	} {
-		event, err := DecodeEvent(strings.NewReader(payload))
+	cases := []struct {
+		payload  string
+		expected string
+	}{
+		{
+			payload:  `{"provider":"codex","event":"SessionStart","source":"startup"}`,
+			expected: "coding-ethos: load repository conventions, managed toolchain rules, and generated skills before editing.",
+		},
+		{
+			payload:  `{"provider":"codex","event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`,
+			expected: "coding-ethos: use and maintain a todo list for multi-step work.",
+		},
+		{
+			payload:  `{"provider":"codex","event":"Stop"}`,
+			expected: "coding-ethos: before ending, confirm planned work is complete, summarize changed files and checks, and keep hook or lint failures visible.",
+		},
+	}
+
+	for _, tc := range cases {
+		event, err := DecodeEvent(strings.NewReader(tc.payload))
 		if err != nil {
 			t.Fatalf("decode event: %v", err)
 		}
@@ -2204,7 +2361,20 @@ func TestEncodeProviderResultSuppressesCodexRoutineLifecycleContext(t *testing.T
 			t.Fatalf("encode result: %v", err)
 		}
 
-		assertCodexAllowedContextQuiet(t, buffer.String())
+		output := buffer.String()
+		if !strings.Contains(output, tc.expected) {
+			t.Fatalf("missing compact lifecycle message %q:\n%s", tc.expected, output)
+		}
+		for _, forbidden := range []string{
+			"guidance:",
+			"\\n",
+			"Before ending:",
+			"prompt:",
+		} {
+			if strings.Contains(output, forbidden) {
+				t.Fatalf("Codex lifecycle output leaked %q:\n%s", forbidden, output)
+			}
+		}
 	}
 }
 
@@ -2230,22 +2400,29 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 		t.Fatalf("encode result: %v", err)
 	}
 
-	assertCodexAllowedContextQuiet(t, buffer.String())
+	output := buffer.String()
+	if !strings.Contains(
+		output,
+		"coding-ethos: use and maintain a todo list for multi-step work.",
+	) {
+		t.Fatalf("missing Codex environment compact context:\n%s", output)
+	}
 }
 
 func assertCodexCompactContext(t *testing.T, output string, message string) {
 	t.Helper()
 
 	for _, expected := range []string{
-		`"systemMessage": "` + message + `"`,
+		`"hookSpecificOutput"`,
+		`"additionalContext": "` + message + `"`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Codex compact context missing %q:\n%s", expected, output)
 		}
 	}
 	for _, forbidden := range []string{
-		"hookSpecificOutput",
 		"updatedInput",
+		"systemMessage",
 		"guidance:",
 		"\\n",
 		"Before ending",

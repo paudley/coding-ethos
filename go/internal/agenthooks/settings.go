@@ -804,19 +804,20 @@ func ProviderCapabilities() []ProviderCapability {
 			Supported: []string{
 				"PreToolUse block",
 				"PreToolUse native command hook",
-				"PostToolUse compact systemMessage",
+				"PreToolUse apply_patch/edit policy hook",
+				"PostToolUse compact additionalContext",
 				"PostToolUse edit verification advice",
+				"SessionStart additionalContext",
+				"UserPromptSubmit additionalContext",
+				"Stop compact systemMessage",
 			},
 			ProviderLimited: []string{
 				"git wrapper enforcement blocks raw git because updatedInput is not supported",
-				"routine lifecycle advice hooks are not installed because Codex flattens multiline allowed context",
+				"lifecycle context is compacted because Codex flattens multiline allowed context",
 			},
 			Unsupported: []string{
 				"PreToolUse updatedInput rewrite",
 				"PostToolBatch additionalContext",
-				"SessionStart additionalContext",
-				"UserPromptSubmit additionalContext",
-				"Stop additionalContext",
 				"SessionEnd additionalContext",
 				"SubagentStart additionalContext",
 				"SubagentStop additionalContext",
@@ -880,19 +881,28 @@ func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
 func codexHookMatchers(spec HookSpec) []string {
 	switch {
 	case spec.Event == "PreToolUse" && spec.Tool == "Bash":
-		return []string{""}
+		return []string{codexShellMatcher}
+	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
+		return []string{codexEditMatcher}
 	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
-		return []string{""}
-	case spec.Event == "PostToolUse" && spec.Tool == "Write":
-		return []string{""}
+		return []string{codexShellMatcher}
 	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
+		return []string{codexEditMatcher}
+	case spec.Event == "SessionStart":
 		return []string{""}
-	case spec.Event == "PostToolUse" && spec.Tool == "MultiEdit":
+	case spec.Event == "UserPromptSubmit":
+		return []string{""}
+	case spec.Event == "Stop":
 		return []string{""}
 	default:
 		return nil
 	}
 }
+
+const (
+	codexShellMatcher = "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command"
+	codexEditMatcher  = "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file"
+)
 
 func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 	hooks := make(map[string][]matcherHook)
@@ -1280,7 +1290,30 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 		return fmt.Errorf("Codex raw git probe should block")
 	}
 
-	return validateDecisionProbe(result, "block")
+	actual, ok := result.payload["decision"].(string)
+	if !ok || actual != "block" {
+		return fmt.Errorf("decision = %q, want block; stdout=%s", actual, result.stdout)
+	}
+
+	reason, ok := result.payload["reason"].(string)
+	if !ok || strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("missing reason in %s", result.stdout)
+	}
+	if !strings.Contains(reason, "CODING-ETHOS EMPLOYMENT VIOLATION") ||
+		!strings.Contains(reason, "may result in termination") {
+		return fmt.Errorf("Codex block reason lost severe warning: %s", reason)
+	}
+
+	permissionReason, ok := nestedString(
+		result.payload,
+		"hookSpecificOutput",
+		"permissionDecisionReason",
+	)
+	if !ok || strings.TrimSpace(permissionReason) == "" {
+		return fmt.Errorf("missing permissionDecisionReason in %s", result.stdout)
+	}
+
+	return nil
 }
 
 func validateClaudeBlockProbe(result hookProbeResult) error {

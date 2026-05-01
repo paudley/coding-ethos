@@ -56,6 +56,10 @@ func main() {
 		exitErr(err)
 	}
 
+	if err := hooks.WriteAgentHookTraceFromEnv(event, result); err != nil {
+		exitErr(err)
+	}
+
 	if *jsonOutput {
 		err = hooks.EncodeResult(os.Stdout, result)
 		if err != nil {

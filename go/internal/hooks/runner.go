@@ -47,6 +47,15 @@ func RunWithRegistry(
 	registry evaluators.Registry,
 ) (Result, error) {
 	event := options.Event
+	if shouldSkipNestedCodexHook(event) {
+		return Result{
+			Event:    event.HookEventName,
+			Provider: event.Provider(),
+			Tool:     event.ToolName,
+			Status:   statusAllowed,
+		}, nil
+	}
+
 	route := routeToolUse(event)
 	decisions, err := evaluateDispatchedPolicies(bundle, event, registry)
 	if err != nil {
