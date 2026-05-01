@@ -297,19 +297,39 @@ func isTrustedRunGoHookCommand(command string) bool {
 		return true
 	}
 
-	for _, candidate := range trustedRunGoHookCandidates(command) {
-		if cleaned == candidate {
-			return true
+	for _, resolved := range resolvedRunGoHookCommandPaths(command) {
+		for _, trusted := range trustedRunGoHookPaths() {
+			if resolved == trusted {
+				return true
+			}
 		}
 	}
 
 	return false
 }
 
-func trustedRunGoHookCandidates(command string) []string {
+func trustedRunGoHookPaths() []string {
 	candidates := []string{
 		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
 		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "hooks", "run-go-hook.sh"),
+	}
+
+	cleaned := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+
+		cleaned = append(cleaned, filepath.ToSlash(filepath.Clean(candidate)))
+	}
+
+	return cleaned
+}
+
+func resolvedRunGoHookCommandPaths(command string) []string {
+	candidates := []string{}
+	if filepath.IsAbs(command) {
+		candidates = append(candidates, command)
 	}
 
 	if !filepath.IsAbs(command) {

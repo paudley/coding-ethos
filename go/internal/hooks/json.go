@@ -49,12 +49,16 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 		Cwd:            firstString(payload, "cwd", "working_directory", "workingDirectory"),
 		HookEventName:  primaryHookEventName(payload),
 		Matcher:        firstString(payload, "matcher"),
+		ProviderHint:   firstString(payload, "provider", "agent", "runtime"),
 		SessionID:      firstString(payload, "session_id", "sessionID", "sessionId"),
-		Source:         firstString(payload, "source", "provider", "agent", "runtime"),
+		Source:         firstString(payload, "source"),
 		ToolInput:      primaryToolInput(payload),
 		ToolName:       firstString(payload, "tool_name", "toolName", "tool"),
 		ToolResponse:   primaryToolResponse(payload),
 		TranscriptPath: firstString(payload, "transcript_path", "transcriptPath"),
+	}
+	if event.Source == "" {
+		event.Source = event.ProviderHint
 	}
 
 	event = normalizeNestedTool(payload, event)
