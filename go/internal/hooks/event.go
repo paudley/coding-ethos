@@ -3,7 +3,10 @@
 
 package hooks
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 const (
 	providerClaude = "claude"
@@ -33,7 +36,23 @@ func (event Event) Provider() string {
 	case strings.Contains(source, providerClaude):
 		return providerClaude
 	default:
+		return providerFromEnvironment()
+	}
+}
+
+func providerFromEnvironment() string {
+	switch {
+	case strings.TrimSpace(os.Getenv("CODEX_THREAD_ID")) != "" ||
+		strings.TrimSpace(os.Getenv("CODEX_CI")) != "" ||
+		strings.TrimSpace(os.Getenv("CODEX_MANAGED_BY_NPM")) != "":
+		return providerCodex
+	case strings.TrimSpace(os.Getenv("GEMINI_CLI")) != "":
+		return providerGemini
+	case strings.TrimSpace(os.Getenv("CLAUDECODE")) != "" ||
+		strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "":
 		return providerClaude
+	default:
+		return ""
 	}
 }
 

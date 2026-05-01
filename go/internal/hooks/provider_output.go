@@ -73,7 +73,7 @@ func codexAllowedOutput(result Result) providerHookOutput {
 		return providerHookOutput{}
 	}
 
-	return providerHookOutput{HookSpecificOutput: output}
+	return providerHookOutput{SystemMessage: output.AdditionalContext}
 }
 
 func geminiAllowedOutput(result Result) providerHookOutput {

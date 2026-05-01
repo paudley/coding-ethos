@@ -66,6 +66,7 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			Cwd:           repo,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git commit -m test",
 			},
@@ -191,6 +192,7 @@ func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 		Event: Event{
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "uv run ruff check pkg && python -m ruff format pkg",
 			},
@@ -293,6 +295,7 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 				Event: Event{
 					HookEventName: preToolUse,
 					ToolName:      toolBash,
+					Source:        "claude",
 					ToolInput: map[string]any{
 						"command": test.command,
 					},
@@ -345,6 +348,7 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
 			Cwd:           nested,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "python scripts/check.py --flag && python3 -m pytest tests",
 			},
@@ -369,6 +373,9 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
 	venvBin := filepath.Join(root, ".venv", "bin")
 	if err := os.MkdirAll(venvBin, 0o755); err != nil {
 		t.Fatalf("mkdir venv: %v", err)
@@ -386,6 +393,7 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
 			Cwd:           root,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "python script.py",
 			},
@@ -456,6 +464,42 @@ func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
 	}
 }
 
+func TestRunBlocksRewriteWhenProviderMissing(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "")
+	t.Setenv("CODEX_CI", "")
+	t.Setenv("CODEX_MANAGED_BY_NPM", "")
+	t.Setenv("GEMINI_CLI", "")
+	t.Setenv("CLAUDECODE", "")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "uv run ruff check pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.Provider != "" {
+		t.Fatalf("provider = %q, want unknown provider", result.Provider)
+	}
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unsupported updatedInput emitted: %#v", result.HookSpecificOutput)
+	}
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
+		t.Fatalf("decisions = %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 	t.Parallel()
 
@@ -463,6 +507,7 @@ func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git status",
 			},
@@ -493,6 +538,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git status && git log --oneline -1",
 			},
@@ -527,6 +573,7 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": strings.Join([]string{
 					"git add ",
@@ -561,6 +608,7 @@ func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "pwd && git status --short 2>&1",
 			},
@@ -2054,6 +2102,80 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
 	}
 	assertNoRoutineContextClutter(t, context)
+}
+
+func TestEncodeProviderResultUsesCodexSystemMessageForContext(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	var buffer strings.Builder
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	if strings.Contains(output, "hookSpecificOutput") ||
+		strings.Contains(output, "updatedInput") {
+		t.Fatalf("Codex context output must not include hookSpecificOutput:\n%s", output)
+	}
+	if !strings.Contains(output, `"systemMessage"`) ||
+		!strings.Contains(output, `tool: Write\n`) ||
+		!strings.Contains(output, `guidance:\n- Review`) {
+		t.Fatalf("missing Codex systemMessage context:\n%s", output)
+	}
+}
+
+func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread")
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", result.Provider)
+	}
+
+	var buffer strings.Builder
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	if strings.Contains(output, "hookSpecificOutput") ||
+		strings.Contains(output, "updatedInput") {
+		t.Fatalf("Codex-inferred output must not include hookSpecificOutput:\n%s", output)
+	}
+	if !strings.Contains(output, `"systemMessage"`) ||
+		!strings.Contains(output, `tool: Write\n`) ||
+		!strings.Contains(output, `guidance:\n- Review`) {
+		t.Fatalf("missing inferred Codex systemMessage context:\n%s", output)
+	}
 }
 
 func assertNoRoutineContextClutter(t *testing.T, context string) {
