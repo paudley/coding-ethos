@@ -231,6 +231,17 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			evaluator: EvaluateGitCommitAttribution,
 			argv:      []string{"git", "commit", "-m", "feat: test"},
 		},
+		{
+			name:      "commit heredoc message",
+			policyID:  "git.commitlint",
+			evaluator: EvaluateGitCommitLint,
+			argv: []string{
+				"git",
+				"commit",
+				"-m",
+				"$(cat <<'EOF'\nfix(enrichment): resolve runtime bugs\n\nbody\nEOF\n)",
+			},
+		},
 	}
 
 	bundle := compiledGitSafetyTestBundle()

@@ -48,7 +48,28 @@ the places contributors actually work:
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
+| CI/CD | SARIF output plus GitHub Actions and GitLab CI examples for independent PR gates |
 | Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
+
+## Agents Used In This Repository
+
+`coding-ethos` is developed with human review and AI-agent assistance. The
+project explicitly targets and has been shaped by work with:
+
+- **Codex from OpenAI**: coding, review, refactoring, documentation, and
+  repo-policy workflow validation.
+- **Claude Code**: coding, hook integration, generated skill surfaces, and
+  policy feedback loops.
+- **Gemini CLI**: review prompts, generated prompt packs, and independent
+  agent-hook compatibility checks.
+
+Agent assistance does not change the quality bar. Generated or agent-authored
+changes are expected to pass the same hooks, static analysis, tests, review
+feedback, and ETHOS policy gates as human-authored changes.
+
+The project heavily dogfoods its own guardrails: Codex, Claude, and Gemini are
+run through the generated hooks, MCP configuration, skills, axioms, managed
+toolchain, and policy feedback surfaces while developing `coding-ethos` itself.
 
 ## Defense In Depth
 
@@ -106,6 +127,8 @@ testing, ETHOS inheritance, and agent remediation loops, see
 [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
 The CEL-first policy-language design is tracked in
 [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md).
+CI/CD usage and SARIF upload examples are documented in
+[docs/CI_CD_SARIF.md](docs/CI_CD_SARIF.md).
 
 ## MCP Server
 
@@ -615,6 +638,14 @@ Analyze captured lint history:
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
 pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
 pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
+```
+
+Emit SARIF for CI/code-scanning surfaces:
+
+```bash
+pre-commit/hooks/run-go-hook.sh policy-lint --sarif --scope files --files lib/python/app.py
+pre-commit/hooks/run-go-hook.sh policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
+pre-commit/hooks/run-go-hook.sh policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed

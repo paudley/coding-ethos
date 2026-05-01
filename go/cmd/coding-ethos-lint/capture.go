@@ -46,6 +46,7 @@ func runCapturedTool(
 	traceRoot string,
 	args []string,
 	policyContext capturePolicyData,
+	outputFormat string,
 ) int {
 	request := captureRequest{
 		Tool:         tool,
@@ -60,7 +61,7 @@ func runCapturedTool(
 		exitErr(errCaptureToolPathRequired)
 	}
 
-	return runCapturedToolWithRequest(request, "")
+	return runCapturedToolWithRequest(request, outputFormat)
 }
 
 func executeCapturedTool(request captureRequest) captureExecution {

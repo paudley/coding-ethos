@@ -87,11 +87,15 @@ blocking behavior for protected paths and other critical rules.
 Local hooks are necessary, but CI must remain the final independent gate. If an
 agent or developer bypasses local hooks, the pull request still must not merge.
 
-`coding-ethos` should emit SARIF for normalized policy and lint diagnostics and
-provide native GitHub Actions and GitLab CI components. SARIF rules should carry
-stable policy IDs, ETHOS principle IDs, skill IDs, file/line locations, and
-remediation advice so violations appear naturally in PR annotations and code
-scanning views.
+`coding-ethos` emits SARIF for normalized policy and lint diagnostics through
+`policy-lint --sarif`. SARIF rules carry stable policy IDs, ETHOS principle
+IDs, skill IDs, file/line locations, and remediation advice so violations can
+appear naturally in PR annotations and code scanning views.
+
+The initial CI documentation provides GitHub Actions and GitLab CI examples in
+[CI_CD_SARIF.md](CI_CD_SARIF.md). The next step is packaging those examples as
+reusable components that pin the managed runtime, publish SARIF, and preserve
+`.coding-ethos` traces as audit artifacts.
 
 CI output should stay compact for agents while preserving full artifacts for
 audit and later trace analysis.

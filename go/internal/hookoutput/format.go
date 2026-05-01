@@ -18,6 +18,7 @@ const (
 	FormatAuto  = "auto"
 	FormatHuman = "human"
 	FormatJSON  = "json"
+	FormatSARIF = "sarif"
 	FormatTOON  = "toon"
 	FormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
 
@@ -91,6 +92,8 @@ func FormatLintResult(result lint.Result, format string) (string, error) {
 	switch format {
 	case FormatJSON:
 		return FormatLintResultJSON(result)
+	case FormatSARIF:
+		return FormatLintResultSARIF(result)
 	case FormatTOON:
 		return FormatLintResultTOON(result), nil
 	default:

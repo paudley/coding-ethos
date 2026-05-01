@@ -43,6 +43,7 @@ dependencies = [
     "types-xlrd>=2.0.0.20260408",
     "uv>=0.10.4",
     "vulture>=2.14",
+    "yamllint>=1.38.0",
 ]
 
 [build-system]

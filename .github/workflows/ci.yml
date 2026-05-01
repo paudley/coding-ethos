@@ -14,6 +14,13 @@ permissions:
   contents: read
 
 jobs:
+  coding-ethos:
+    name: Coding Ethos SARIF Gate
+    uses: ./.github/workflows/coding-ethos-sarif.yml
+    permissions:
+      contents: read
+      security-events: write
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
