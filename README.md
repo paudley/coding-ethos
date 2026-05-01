@@ -348,6 +348,70 @@ SPDX source headers.
 
 See [repo_config.example.yaml](repo_config.example.yaml).
 
+### CEL Expression Policies
+
+Consumer repos can add small custom policies under `policy.expressions` in
+`repo_config.yaml`. These policies are CEL expressions compiled into the policy
+bundle and evaluated by the same Go hook runtime as built-in policies.
+
+Use CEL for narrow predicates over normalized hook or lint data, for example
+blocking a repo-specific command pattern:
+
+```yaml
+policy:
+  expressions:
+    - id: custom.no_python_subprocess_git
+      description: Block Python subprocess attempts to route around protected Git.
+      scope: command
+      severity: block
+      principle_ids:
+        - one-path-for-critical-operations
+        - no-rationalized-shortcuts
+      skill_id: safe-git-workflow
+      when: command.contains("subprocess") && command.contains("git")
+      message: Git must go through the coding-ethos wrapper.
+      advice: Use the protected Git wrapper and keep hook failures visible.
+```
+
+Current supported fields include:
+
+- `command`: raw command text for command-scope hook policies.
+- `argv`: parsed command arguments when available.
+- `files`: repo-provided file targets for the current hook or lint event.
+- `cwd`: invocation working directory.
+- `scope`: expression scope such as `command`, `path`, `diagnostic`, or
+  `finding`.
+- `metadata`: non-sensitive event metadata.
+- `path`, `diagnostic`, `finding`, and `repo`: typed objects for the initial
+  path, diagnostic, finding, and repo policy slices.
+
+CEL is intentionally pure. Expressions cannot read files, run shell or Git,
+inspect environment variables, access the network, or depend on wall-clock
+time. Go prepares normalized facts; CEL decides over those facts.
+
+Every expression policy must be ETHOS-grounded with `principle_ids`, and should
+include a `skill_id` when a generated skill explains the remediation path. CEL
+matches emit normal coding-ethos decisions, diagnostics, TOON/human output,
+trace data, and skill hints.
+
+Current limitations:
+
+- Treat CEL as a typed custom-policy extension point, not a complete generic
+  policy engine yet.
+- `diagnostic` and `finding` inputs only expose the initial normalized fields
+  currently produced by hook/lint paths; do not assume every linter field is
+  populated.
+- `path` represents the initial path object for the event. Complex multi-file
+  semantics should wait for explicit collection helpers rather than depending
+  on implicit ordering.
+- CEL is good for coarse guardrails and reviewable repo-specific predicates.
+  Keep complex parsing, Git state modeling, managed toolchain behavior, path
+  normalization, and security-sensitive analysis in Go evaluators.
+
+See [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md) for
+the CEL-first decision record and the roadmap for a complete generic policy
+engine.
+
 ## Merge Behavior
 
 `--merge-existing` preserves root agent files:

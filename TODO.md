@@ -294,6 +294,68 @@ Acceptance criteria:
 - [x] Rego is not introduced unless a written design record identifies a
   concrete CEL limitation and a bounded integration surface.
 
+#### CEL Generic Policy Engine Completion
+
+The current CEL work is a typed custom-policy extension point. These items
+define what is required before CEL can be treated as a complete generic policy
+engine rather than a companion to first-class Go evaluators.
+
+- [ ] Define and version a stable policy object model for CEL inputs covering
+  command, argv, tool, event, provider, cwd, repo, path, paths, file, files,
+  diagnostic, finding, diff, Git facts, config facts, and safe metadata.
+- [ ] Remove aspirational CEL fields: every exposed field must be populated
+  reliably for its scope, or removed until the runtime can provide it.
+- [ ] Populate real typed inputs for hook command scope, file/path scope, lint
+  finding scope, Git scope, config scope, and diff scope.
+- [ ] Replace first-file `path` semantics with explicit multi-file collection
+  semantics such as `paths.exists(...)`, `paths.all(...)`,
+  `files.changed_matching(...)`, and `findings.exists(...)`.
+- [ ] Make dispatch policy-driven so expression config declares hook events,
+  tools, lint tools, modes, defense layers, principle IDs, and skill IDs
+  without hardcoded evaluator registration.
+- [ ] Compile and cache CEL programs during bundle compilation or bundle load
+  rather than recompiling expressions at evaluation time.
+- [ ] Add controlled policy inheritance and override rules for expression
+  policies, including forbidden shadowing of protected built-ins and explicit
+  rules for severity weakening.
+- [ ] Ensure every CEL policy emits the same normalized result shape as Go
+  evaluators: policy ID, severity, decision, message, suggestion, principle
+  IDs, skill ID, evidence, diagnostic location, remediation hint, and
+  explanation metadata.
+- [ ] Expand the reviewed helper library with pure typed helpers for glob
+  matching, path classification, test/generated/protected detection, lint code
+  matching, command-tool detection, inline-env detection, repo config
+  presence, and protected-branch facts.
+- [ ] Add first-class explain output for CEL decisions showing the expression,
+  available input schema, helper functions, matched evidence, ETHOS grounding,
+  and skill/remediation path.
+- [ ] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
+  facts. CEL must not read files, execute shell/Git, inspect environment,
+  access the network, or depend on wall-clock time.
+- [ ] Add operator documentation for supported scopes, input schemas, helper
+  functions, dispatch, severity, examples, anti-patterns, and migration rules.
+- [ ] Add a trust-building test matrix for unknown fields, type failures,
+  unknown helpers, multi-file semantics, hook/lint dispatch, inheritance,
+  shadowing, explain-output golden files, trace output, malicious config, and
+  performance with many expression policies.
+
+Acceptance criteria:
+
+- [ ] Repo policy authors can express most simple and medium-complexity rules
+  in checked-in ethos/config YAML without changing Go source.
+- [ ] Policy authors get compile-time failures for unknown fields, invalid
+  types, invalid helpers, unsafe host access, and invalid dispatch.
+- [ ] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
+  paths cannot distinguish CEL-backed and Go-backed policies except by
+  implementation metadata.
+- [ ] Multi-file and multi-finding policies are explicit and deterministic; no
+  policy depends on implicit "first file" ordering.
+- [ ] Protected core policies remain non-shadowable and non-weakenable unless a
+  protected source explicitly permits it.
+- [ ] Go evaluators remain only for complex parsing, expensive analysis, Git
+  state modeling, managed toolchain behavior, path normalization, and other
+  reviewed security-sensitive operations.
+
 ### Native IDE And Cursor Integration
 
 - [ ] Build a VS Code/Cursor extension that invokes `coding-ethos-policy` and
