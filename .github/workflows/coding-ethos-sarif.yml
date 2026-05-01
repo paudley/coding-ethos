@@ -51,6 +51,8 @@ jobs:
   policy:
     name: Coding Ethos SARIF Gate
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out repository
@@ -92,9 +94,12 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
+          set +e
           repo_root="$(cd "${{ inputs.repo-root }}" && pwd)"
           ethos_path="$(cd "${{ inputs.coding-ethos-path }}" && pwd)"
           files="${{ inputs.files }}"
+          sarif_tmp="${{ inputs.sarif-path }}.tmp"
+          rm -f "$sarif_tmp" "${{ inputs.sarif-path }}"
 
           if [ -z "$files" ]; then
             base_ref="${GITHUB_BASE_REF:-main}"
@@ -113,7 +118,14 @@ jobs:
             --cwd "$repo_root" \
             --scope files \
             --files "$files" \
-            --sarif > "${{ inputs.sarif-path }}"
+            --sarif > "$sarif_tmp"
+          status=$?
+          if [ -s "$sarif_tmp" ]; then
+            mv "$sarif_tmp" "${{ inputs.sarif-path }}"
+          else
+            rm -f "$sarif_tmp"
+          fi
+          exit "$status"
 
       - name: Upload coding-ethos SARIF
         if: >-
