@@ -79,6 +79,8 @@ The CEL-first policy-language design is tracked in
 
 `coding-ethos` includes a local stdio MCP server backed by the same compiled
 policy bundle and generated skill metadata used by Git hooks and agent hooks.
+The design and expansion plan are documented in
+[docs/MCP_SERVER.md](docs/MCP_SERVER.md).
 The server is exposed through the managed runtime:
 
 ```bash
