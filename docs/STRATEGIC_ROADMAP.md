@@ -21,17 +21,19 @@ server lets agents query `coding-ethos` at the moment of need.
 
 High-value queries include:
 
-- whether a proposed path is protected
-- which policies apply to a file before editing
-- what language-specific guidance applies to a module
+- whether a proposed shell command is allowed before running it
+- whether a proposed edit is allowed before applying it
+- what compiled lint policy findings apply to the current work
+- which ETHOS policy, advice, rerun command, and skill map to a lint finding
 - why a policy exists and which ETHOS principle grounds it
-- which generated skill remediates a finding
+- which generated skill best fits the current task
 
 The first MCP surface is a local stdio server exposed through
 `pre-commit/hooks/run-go-hook.sh mcp`. It reads from the same compiled policy
-bundle and skill data as the hooks, and starts with command checks, path checks,
-policy explanations, skill lookup, and compact repo context. It must not become
-an alternate enforcement path or a way to bypass local Git and agent hooks.
+bundle and skill data as the hooks, and starts with command checks, proposed
+edit checks, compiled lint checks, lint advice, policy explanations, skill
+lookup, and task-based skill recommendation. It must not become an alternate
+enforcement path or a way to bypass local Git and agent hooks.
 
 ## Standardized Policy Language
 

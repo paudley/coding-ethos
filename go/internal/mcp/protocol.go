@@ -39,11 +39,31 @@ type commandCheckInput struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-type pathCheckInput struct {
-	Content  string `json:"content,omitempty"`
+type editCheckInput struct {
+	After    string `json:"after"`
+	Before   string `json:"before,omitempty"`
 	Cwd      string `json:"cwd,omitempty"`
 	Path     string `json:"path"`
 	Provider string `json:"provider,omitempty"`
+}
+
+type lintCheckInput struct {
+	Command       string   `json:"command,omitempty"`
+	Cwd           string   `json:"cwd,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+	Files         []string `json:"files,omitempty"`
+	Argv          []string `json:"argv,omitempty"`
+	AdminApproved bool     `json:"admin_approved,omitempty"`
+}
+
+type lintAdviceInput struct {
+	Code     string `json:"code,omitempty"`
+	File     string `json:"file,omitempty"`
+	Message  string `json:"message"`
+	Severity string `json:"severity,omitempty"`
+	Tool     string `json:"tool"`
+	Column   int    `json:"column,omitempty"`
+	Line     int    `json:"line,omitempty"`
 }
 
 type policyExplainInput struct {
@@ -52,6 +72,14 @@ type policyExplainInput struct {
 
 type skillLookupInput struct {
 	SkillID string `json:"skill_id"`
+}
+
+type skillRecommendInput struct {
+	Diagnostic lintAdviceInput `json:"diagnostic,omitempty"`
+	Command    string          `json:"command,omitempty"`
+	Intent     string          `json:"intent,omitempty"`
+	Path       string          `json:"path,omitempty"`
+	Limit      int             `json:"limit,omitempty"`
 }
 
 func writeResponse(
@@ -123,15 +151,43 @@ func toolDefinitions() []map[string]any {
 			[]string{"command"},
 		),
 		toolDefinition(
-			"policy_check_path",
-			"Check whether a proposed file path/edit would violate compiled coding-ethos policy.",
+			"policy_check_edit",
+			"Check whether a proposed file edit would violate compiled coding-ethos policy.",
 			map[string]any{
 				"path":     map[string]any{"type": "string"},
-				"content":  map[string]any{"type": "string"},
+				"before":   map[string]any{"type": "string"},
+				"after":    map[string]any{"type": "string"},
 				"cwd":      map[string]any{"type": "string"},
 				"provider": map[string]any{"type": "string"},
 			},
-			[]string{"path"},
+			[]string{"path", "after"},
+		),
+		toolDefinition(
+			"lint_check",
+			"Run compiled coding-ethos lint policy checks for files, argv, and command context.",
+			map[string]any{
+				"scope":          map[string]any{"type": "string"},
+				"files":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"argv":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"command":        map[string]any{"type": "string"},
+				"cwd":            map[string]any{"type": "string"},
+				"admin_approved": map[string]any{"type": "boolean"},
+			},
+			nil,
+		),
+		toolDefinition(
+			"lint_advice",
+			"Map a linter diagnostic to ETHOS policy, remediation advice, rerun guidance, and skill hints.",
+			map[string]any{
+				"tool":     map[string]any{"type": "string"},
+				"code":     map[string]any{"type": "string"},
+				"file":     map[string]any{"type": "string"},
+				"line":     map[string]any{"type": "integer"},
+				"column":   map[string]any{"type": "integer"},
+				"severity": map[string]any{"type": "string"},
+				"message":  map[string]any{"type": "string"},
+			},
+			[]string{"tool", "message"},
 		),
 		toolDefinition(
 			"policy_explain",
@@ -150,9 +206,27 @@ func toolDefinitions() []map[string]any {
 			[]string{"skill_id"},
 		),
 		toolDefinition(
-			"repo_context",
-			"Return compact compiled policy bundle context for the current repository.",
-			map[string]any{},
+			"skill_recommend",
+			"Recommend ETHOS-derived skills for a task, command, path, or lint diagnostic.",
+			map[string]any{
+				"intent":  map[string]any{"type": "string"},
+				"command": map[string]any{"type": "string"},
+				"path":    map[string]any{"type": "string"},
+				"limit":   map[string]any{"type": "integer"},
+				"diagnostic": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"tool":     map[string]any{"type": "string"},
+						"code":     map[string]any{"type": "string"},
+						"file":     map[string]any{"type": "string"},
+						"line":     map[string]any{"type": "integer"},
+						"column":   map[string]any{"type": "integer"},
+						"severity": map[string]any{"type": "string"},
+						"message":  map[string]any{"type": "string"},
+					},
+					"additionalProperties": false,
+				},
+			},
 			nil,
 		),
 	}

@@ -6,6 +6,7 @@ package mcp_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -21,12 +22,105 @@ func TestServerListsTools(t *testing.T) {
 
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 5 {
-		t.Fatalf("tool count = %d, want 5: %#v", len(tools), tools)
+	if len(tools) != 7 {
+		t.Fatalf("tool count = %d, want 7: %#v", len(tools), tools)
 	}
-	if !strings.Contains(output, "policy_check_command") ||
-		!strings.Contains(output, "skill_lookup") {
-		t.Fatalf("missing expected tools:\n%s", output)
+	for _, expected := range []string{
+		"policy_check_command",
+		"policy_check_edit",
+		"lint_check",
+		"lint_advice",
+		"policy_explain",
+		"skill_lookup",
+		"skill_recommend",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in tools:\n%s", expected, output)
+		}
+	}
+	for _, removed := range []string{"policy_check_path", "repo_context"} {
+		if strings.Contains(output, removed) {
+			t.Fatalf("removed tool %s still listed:\n%s", removed, output)
+		}
+	}
+}
+
+func TestServerPolicyCheckEditUsesCompiledBundle(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":3,
+		"method":"tools/call",
+		"params":{
+			"name":"policy_check_edit",
+			"arguments":{
+				"path":"coding-ethos-hooks/coding-ethos-git-hook",
+				"after":"replacement"
+			}
+		}
+	}`))
+	response := decodeResponse(t, output)
+
+	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if content["blocked"] != true || content["status"] != "blocked" {
+		t.Fatalf("content = %#v, want blocked", content)
+	}
+	if !strings.Contains(output, "filesystem.protected_path") {
+		t.Fatalf("missing protected path policy in output:\n%s", output)
+	}
+}
+
+func TestServerLintCheckRunsCompiledPolicies(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":4,
+		"method":"tools/call",
+		"params":{
+			"name":"lint_check",
+			"arguments":{
+				"scope":"staged",
+				"command":"git commit --no-verify -m test"
+			}
+		}
+	}`))
+	response := decodeResponse(t, output)
+
+	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if content["blocked"] != true || content["status"] != "blocked" {
+		t.Fatalf("content = %#v, want blocked", content)
+	}
+	if content["engine"] != "compiled_policy_lint" {
+		t.Fatalf("engine = %#v, want compiled_policy_lint", content["engine"])
+	}
+	if !strings.Contains(output, "git.hook_bypass") {
+		t.Fatalf("missing hook bypass lint finding in output:\n%s", output)
+	}
+}
+
+func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":5,
+		"method":"tools/call",
+		"params":{
+			"name":"lint_advice",
+			"arguments":{
+				"tool":"ruff",
+				"code":%q,
+				"file":"src/app.py",
+				"message":"import should be at the top-level of a file"
+			}
+		}
+	}`, "PLC"+"0415")))
+
+	if !strings.Contains(output, "conditional-imports") ||
+		!strings.Contains(output, "python.conditional_imports") {
+		t.Fatalf("missing lint advice:\n%s", output)
 	}
 }
 
@@ -58,7 +152,7 @@ func TestServerSkillLookupUsesBundleSkillData(t *testing.T) {
 
 	output := runServer(t, compactJSON(t, `{
 		"jsonrpc":"2.0",
-		"id":3,
+		"id":6,
 		"method":"tools/call",
 		"params":{
 			"name":"skill_lookup",
@@ -69,6 +163,32 @@ func TestServerSkillLookupUsesBundleSkillData(t *testing.T) {
 	if !strings.Contains(output, "safe-git-workflow") ||
 		!strings.Contains(output, "Git is a protected critical operation") {
 		t.Fatalf("missing skill data:\n%s", output)
+	}
+}
+
+func TestServerSkillRecommendUsesDiagnosticAndTaskSignals(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":7,
+		"method":"tools/call",
+		"params":{
+			"name":"skill_recommend",
+			"arguments":{
+				"intent":"fix a ruff conditional import failure",
+				"diagnostic":{
+					"tool":"ruff",
+					"code":%q,
+					"message":"import should be at the top-level of a file"
+				}
+			}
+		}
+	}`, "PLC"+"0415")))
+
+	if !strings.Contains(output, "conditional-imports") ||
+		!strings.Contains(output, "recommendations") {
+		t.Fatalf("missing skill recommendation:\n%s", output)
 	}
 }
 

@@ -88,10 +88,12 @@ pre-commit/hooks/run-go-hook.sh mcp
 The first tools are intentionally narrow and auditable:
 
 - `policy_check_command`: check a proposed shell command before running it.
-- `policy_check_path`: check a proposed file path or edit target.
+- `policy_check_edit`: check a proposed file edit before applying it.
+- `lint_check`: run compiled coding-ethos lint policy checks for current work.
+- `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
 - `policy_explain`: return the compiled explanation for a policy ID.
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
-- `repo_context`: list compact bundle, policy, and skill context.
+- `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
 
 The MCP server is advisory context, not a bypass. Hook enforcement remains on
 the normal Git and agent-hook paths, and MCP responses come from the same
