@@ -125,12 +125,61 @@ func TestFormatLintResultTOONIncludesSkillAdvice(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"advice[1]{principle_id,skill_id,message,next}:",
-		"no-conditional-imports,conditional-imports,Conditional imports are banned; use protocols.,Load the conditional-imports skill for the remediation playbook.",
+		"advice[1]{skill_id,message}:",
+		"conditional-imports,Conditional imports are banned; use protocols.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestFormatLintResultTOONKeepsLongSkillAdviceLineStable(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:ruff",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     12,
+			Severity: "error",
+			Code:     "S608",
+			PolicyID: "python.sql_safety",
+			SkillID:  "lint-remediation",
+			Message:  "Possible SQL injection vector through string-based query construction",
+		}},
+		SkillHints: []lint.SkillHint{{
+			PrincipleID: "static-analysis-is-the-first-line-of-defense",
+			SkillID:     "lint-remediation",
+			Message: "Linters are enforced code reviewers. Fix findings structurally, " +
+				"keep managed config intact, and suppress only when technically necessary " +
+				"and fully documented.",
+			Next: "Load the lint-remediation skill for the remediation playbook.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"advice[1]{skill_id,message}:",
+		"lint-remediation,Linters are enforced code reviewers.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "  lint-remediation,") && len(line) > 96 {
+			t.Fatalf("TOON skill advice line too long: %d\n%s", len(line), line)
+		}
+	}
+	if strings.Contains(output, "Load the lint-remediation skill") {
+		t.Fatalf("TOON output should not inline verbose next-step text:\n%s", output)
 	}
 }
 
