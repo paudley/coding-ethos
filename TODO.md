@@ -205,3 +205,145 @@ Do these before replacing the remaining shell-owned lint capture entrypoint.
   `CaptureSpec`, `RuntimeSpec`, and `FileMatchSpec`.
 - [x] Document the intended Go lint capture flow: shim -> Go dispatcher ->
   capture request -> managed tool -> normalized lint result.
+
+## Major Strategic Work
+
+These are larger roadmap items for moving `coding-ethos` from a local hook and
+generated-context system into a broader policy platform for AI-assisted
+engineering. The common goal is defense in depth: prevent bad actions early,
+explain violations in agent-native formats, and keep organization-specific
+policy editable without weakening the compiled enforcement core.
+
+### Real-Time Context Through MCP
+
+- [ ] Implement a Model Context Protocol server for `coding-ethos`.
+- [ ] Expose policy, skill, and repo-context queries such as protected-path
+  checks, language-specific guidance, policy explanations, and remediation
+  lookup.
+- [ ] Keep static generated docs and skills as durable fallback context while
+  allowing Claude, Codex, Gemini, Cursor, and compatible clients to request
+  focused context on demand.
+- [ ] Add tests proving MCP responses come from the same compiled policy bundle
+  and ETHOS skill data used by hooks.
+
+Acceptance criteria:
+
+- [ ] Agents can query whether a proposed file path, command, or edit violates
+  policy before attempting the action.
+- [ ] MCP responses are compact, auditable, and linked to ETHOS principles and
+  skill IDs.
+- [ ] The server does not create a bypass path around hook enforcement.
+
+### Standardized Policy Language
+
+- [ ] Evaluate CEL and OPA/Rego as an embedded policy language for custom
+  organization and repository rules.
+- [ ] Define which rules stay as first-party compiled evaluators and which can
+  safely move into declarative policy expressions.
+- [ ] Allow `repo_ethos.yml` / `repo_config.yaml` to add policy expressions
+  without forking or recompiling `coding-ethos`.
+- [ ] Preserve strong typing, deterministic evaluation, actionable diagnostics,
+  and policy-bundle validation for expression-backed policies.
+
+Acceptance criteria:
+
+- [ ] A consuming repo can define a non-trivial custom policy without changing
+  Go source.
+- [ ] Expression policies emit the same normalized diagnostics, ETHOS links,
+  skill hints, and TOON/human output as compiled evaluators.
+- [ ] Unsafe, non-deterministic, networked, or host-dependent policy execution
+  is rejected at compile time.
+
+### Native IDE And Cursor Integration
+
+- [ ] Build a VS Code/Cursor extension that invokes `coding-ethos-policy` and
+  `coding-ethos-lint` in the background.
+- [ ] Surface policy and lint diagnostics at edit time instead of waiting for
+  Git hooks.
+- [ ] Provide quick access to relevant ETHOS principles and generated skills
+  from diagnostics.
+- [ ] Detect protected-path edits, hook tampering attempts, bare exception
+  patterns, suppressions, and other high-value failures before a diff is
+  applied.
+
+Acceptance criteria:
+
+- [ ] The extension uses the same compiled bundle and managed toolchain as CLI
+  and hook execution.
+- [ ] Diagnostics are low-noise, actionable, and grouped by file and policy.
+- [ ] The extension is advisory by default but can enforce blocking behavior in
+  managed workspaces.
+
+### CI/CD Components And SARIF
+
+- [ ] Add SARIF output for normalized policy and lint diagnostics.
+- [ ] Provide native GitHub Actions and GitLab CI examples or reusable
+  components.
+- [ ] Ensure CI runs the same compiled policy bundle and managed toolchain
+  versions as local hooks.
+- [ ] Publish violations as PR annotations and, where supported, security/code
+  scanning findings.
+
+Acceptance criteria:
+
+- [ ] A repo can gate PRs in CI even if local hooks are bypassed.
+- [ ] SARIF includes policy IDs, ETHOS principle IDs, skill IDs, file/line
+  locations, remediation advice, and stable rule metadata.
+- [ ] CI output remains compact for agents while preserving full artifacts for
+  audit.
+
+### Adversarial Red-Team Test Suite
+
+- [ ] Build an automated red-team harness that asks LLM agents to bypass or
+  tamper with `coding-ethos` protections.
+- [ ] Cover protected paths, raw Git bypasses, absolute binaries, nested shell
+  execution, symlink/path traversal, config drift, hook deletion, and managed
+  toolchain evasion.
+- [ ] Capture both successful blocks and any missed bypass attempts as
+  reproducible fixtures.
+- [ ] Add regression tests for every bypass class discovered.
+
+Acceptance criteria:
+
+- [ ] Red-team scenarios can run in isolated sample repositories without
+  touching the parent repo.
+- [ ] Each bypass attempt produces either a clear block or a filed gap with a
+  failing regression test.
+- [ ] The suite validates Claude, Codex, Gemini, and generic shell workflows
+  where practical.
+
+### Centralized ETHOS Registry And Inheritance
+
+- [ ] Support policy and ethos inheritance, such as extending a local preset,
+  GitHub-hosted preset, or enterprise registry preset.
+- [ ] Define merge rules for inherited principles, skills, evidence maps,
+  generated tool config, and repo-specific overrides.
+- [ ] Validate inherited sources with pins, hashes, and provenance metadata.
+- [ ] Provide curated presets such as strict Python, strict Go, agent-safe Git,
+  and security-first repositories.
+
+Acceptance criteria:
+
+- [ ] A repo can inherit a baseline ETHOS and override only the local context.
+- [ ] Inheritance is deterministic, auditable, and visible in policy trace
+  output.
+- [ ] Unpinned remote policy inputs are rejected unless explicitly allowed.
+
+### Agent Remediation Loop
+
+- [ ] Define a standardized machine-readable violation payload for agents.
+- [ ] Emit XML, JSON, or TOON remediation blocks that include policy ID,
+  ETHOS principle ID, skill ID, file/line, failed action, and concrete next
+  steps.
+- [ ] Feed hook failures back into Claude, Codex, Gemini, and future MCP clients
+  in the strongest native format each provider supports.
+- [ ] Track whether remediation hints reduce repeated failures in
+  `.coding-ethos` traces.
+
+Acceptance criteria:
+
+- [ ] Agents can self-correct common hook failures without reading raw terminal
+  noise.
+- [ ] Remediation output is compact enough for context windows and precise
+  enough to prevent guessing.
+- [ ] Human output and agent output share the same normalized data model.

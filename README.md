@@ -67,6 +67,11 @@ policy-grounded advice instead of generic tool text. When a finding maps to a
 generated skill, agent-facing output includes a compact `skill_id` hint and a
 next action to load that remediation playbook.
 
+For larger platform directions such as MCP context serving, policy-language
+support, IDE integration, SARIF/CI components, red-team testing, ETHOS
+inheritance, and agent remediation loops, see
+[docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
+
 ## ETHOS Skills
 
 Skills are generated remediation playbooks, not a separate hand-maintained
