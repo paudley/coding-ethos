@@ -41,6 +41,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 		event.ToolName,
 		files,
 		bundle.Skills,
+		postToolReminder(bundle, event),
 		lintState,
 		fastLintState,
 		lintHistory,
@@ -80,6 +81,7 @@ func buildPostEditContext(
 	tool string,
 	files []string,
 	skills map[string]policy.Skill,
+	reminders []renderedEthosReminder,
 	lintState postEditLintResult,
 	fastLintState postEditLintResult,
 	lintHistory postEditLintHistoryResult,
@@ -99,6 +101,7 @@ func buildPostEditContext(
 	lines = appendPostEditFastLintState(lines, fastLintState)
 	lines = appendPostEditLintHistory(lines, lintHistory)
 	lines = appendPostEditSkillAdvice(lines, skills, lintState, fastLintState)
+	lines = appendRenderedReminders(lines, reminders)
 
 	if advice := postEditLanguageAdvice(files); len(advice) > 0 {
 		lines = append(lines, "", "language_advice:")

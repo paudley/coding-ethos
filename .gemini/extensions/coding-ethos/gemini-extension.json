@@ -1,6 +1,6 @@
 {
   "name": "coding-ethos",
   "version": "1.0.0",
-  "description": "ETHOS skills for coding-ethos: conditional-imports, lint-remediation, safe-git-workflow, managed-toolchain",
+  "description": "ETHOS skills for coding-ethos: conditional-imports, lint-remediation, safe-git-workflow, managed-toolchain, agent-operating-discipline",
   "contextFileName": "GEMINI.md"
 }

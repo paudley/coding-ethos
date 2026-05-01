@@ -300,6 +300,27 @@ func TestServerSkillRecommendUsesDiagnosticAndTaskSignals(t *testing.T) {
 	}
 }
 
+func TestServerSkillRecommendUsesBroadAgentWorkSignals(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":8,
+		"method":"tools/call",
+		"params":{
+			"name":"skill_recommend",
+			"arguments":{
+				"intent":"implement a refactor to simplify the parser and define success criteria"
+			}
+		}
+	}`))
+
+	if !strings.Contains(output, "agent-operating-discipline") ||
+		!strings.Contains(output, "State assumptions") {
+		t.Fatalf("missing agent operating discipline recommendation:\n%s", output)
+	}
+}
+
 func runServer(t *testing.T, input string) string {
 	t.Helper()
 

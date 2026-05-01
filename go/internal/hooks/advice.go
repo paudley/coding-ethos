@@ -64,11 +64,15 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 		}
 	}
 
-	if reminder, ok := ethosReminderFor(result, decisions); ok {
-		lines = append(
-			lines,
-			"ETHOS reminder: "+reminder.Axiom+" "+reminder.Action,
-		)
+	if reminders := priorityEthosRemindersFor(result.Advice.Reminders, result, decisions); len(reminders) > 0 {
+		lines = append(lines, "", "Priority ETHOS reminders:")
+		for _, reminder := range reminders {
+			lines = append(
+				lines,
+				"- ["+reminder.PrincipleID+"] "+reminder.Axiom+" "+reminder.Action+
+					" MCP: call "+reminder.MCPTool+" with "+reminder.MCPArguments+".",
+			)
+		}
 	}
 
 	return strings.Join(lines, "\n")
@@ -100,15 +104,10 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 		}
 	}
 
-	if reminder, ok := ethosReminderFor(result, decisions); ok {
-		lines = append(
-			lines,
-			"ethos_reminder:",
-			"  principle_id: "+toonCell(reminder.PrincipleID),
-			"  axiom: "+toonCell(reminder.Axiom),
-			"  action: "+toonCell(reminder.Action),
-		)
-	}
+	lines = appendRenderedReminders(
+		lines,
+		priorityEthosRemindersFor(result.Advice.Reminders, result, decisions),
+	)
 
 	return strings.Join(lines, "\n")
 }
@@ -124,8 +123,8 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	if hasSevereViolation(decisions) {
 		payload["violation_warning"] = severeViolationWarning
 	}
-	if reminder, ok := ethosReminderFor(result, decisions); ok {
-		payload["ethos_reminder"] = reminder
+	if reminders := priorityEthosRemindersFor(result.Advice.Reminders, result, decisions); len(reminders) > 0 {
+		payload["priority_ethos_reminders"] = reminders
 	}
 
 	encoded, err := json.MarshalIndent(payload, "", "  ")

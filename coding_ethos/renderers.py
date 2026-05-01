@@ -80,6 +80,46 @@ def _skill_entrypoint(skill: EthosSkill) -> str:
     return f"{skill.id}/SKILL.md"
 
 
+def _skills_by_id(bundle: EthosBundle, skill_id: str) -> list[EthosSkill]:
+    return [skill for skill in bundle.skills if skill.id == skill_id]
+
+
+def _agent_operating_discipline_lines(
+    bundle: EthosBundle,
+    *,
+    heading: str = "## Agent Operating Discipline",
+) -> list[str]:
+    matching_skills = _skills_by_id(bundle, "agent-operating-discipline")
+    if not matching_skills:
+        return []
+    skill = matching_skills[0]
+
+    return [
+        heading,
+        (
+            "- Load `.agents/skills/"
+            f"{_skill_entrypoint(skill)}` before broad implementation, "
+            "refactor, review, or debugging work."
+        ),
+        (
+            "- State task interpretation, assumptions, ambiguity, and "
+            "trade-offs before broad changes."
+        ),
+        (
+            "- Prefer the smallest sufficient implementation; avoid "
+            "speculative abstractions, options, and extension points."
+        ),
+        (
+            "- Keep edits surgical: every changed line should trace to the "
+            "request or cleanup directly caused by the change."
+        ),
+        (
+            "- Define verifiable success criteria and run focused checks "
+            "before claiming completion."
+        ),
+    ]
+
+
 def _yaml_string(value: str) -> str:
     """Return a double-quoted YAML scalar using JSON-compatible escaping."""
     return json.dumps(value, ensure_ascii=False)
@@ -186,6 +226,10 @@ def render_agents_md(bundle: EthosBundle, repo_root: Path) -> str:
             ["", "## Repo Notes", *[f"- {note}" for note in bundle.repo.notes]]
         )
 
+    operating_lines = _agent_operating_discipline_lines(bundle)
+    if operating_lines:
+        lines.extend(["", *operating_lines])
+
     lines.extend(
         [
             "",
@@ -227,10 +271,14 @@ def render_agents_addendum(bundle: EthosBundle, repo_root: Path) -> str:
             "- Update `repo_ethos.yml` when repo-specific guidance should "
             "refine shared ethos behavior."
         ),
-        "",
-        "### Ethos Priorities",
-        *_principle_lines(bundle.principles),
     ]
+    operating_lines = _agent_operating_discipline_lines(
+        bundle,
+        heading="### Agent Operating Discipline",
+    )
+    if operating_lines:
+        lines.extend(["", *operating_lines])
+    lines.extend(["", "### Ethos Priorities", *_principle_lines(bundle.principles)])
 
     combined_notes: list[str] = []
     if codex_profile:
@@ -259,6 +307,60 @@ def render_shared_ethos_index(bundle: EthosBundle, repo_root: Path) -> str:
     return _join_lines(_with_markdown_spdx(lines))
 
 
+def _ethos_repo_context_lines(bundle: EthosBundle, repo_root: Path) -> list[str]:
+    if not (bundle.repo.name or bundle.repo.overview or bundle.repo.notes):
+        return []
+
+    lines = ["## Repo Context", f"- Repo: `{_repo_display_name(bundle, repo_root)}`"]
+    if bundle.repo.overview:
+        lines.append(f"- Overview: {bundle.repo.overview}")
+    lines.extend(f"- {note}" for note in bundle.repo.notes)
+    lines.append("")
+
+    return lines
+
+
+def _principle_axiom_lines(principle: Principle) -> list[str]:
+    if not principle.axioms:
+        return []
+
+    lines = ["### Axioms"]
+    lines.extend(
+        f"- {axiom.axiom}" + (f" {axiom.action}" if axiom.action else "")
+        for axiom in principle.axioms
+    )
+    lines.append("")
+
+    return lines
+
+
+def _ethos_principle_lines(principle: Principle) -> list[str]:
+    lines = [
+        "",
+        f"## {principle.order:02d}. {principle.title}",
+        "",
+        principle.summary,
+        "",
+    ]
+
+    if principle.directive:
+        lines.extend(["### Directive", principle.directive, ""])
+    if principle.quick_ref:
+        lines.extend(
+            ["### Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""]
+        )
+
+    lines.extend(_principle_axiom_lines(principle))
+
+    if principle.tags:
+        lines.extend(["### Tags", f"- {', '.join(principle.tags)}", ""])
+
+    for section in principle.sections:
+        lines.extend([f"### {section.title}", section.body, ""])
+
+    return lines
+
+
 def render_ethos_md(bundle: EthosBundle, repo_root: Path) -> str:
     """Render the full human-readable `ETHOS.md` document."""
     lines = [
@@ -270,39 +372,11 @@ def render_ethos_md(bundle: EthosBundle, repo_root: Path) -> str:
     if bundle.overview:
         lines.extend([bundle.overview, ""])
 
-    if bundle.repo.name or bundle.repo.overview or bundle.repo.notes:
-        lines.extend(["## Repo Context"])
-        lines.append(f"- Repo: `{_repo_display_name(bundle, repo_root)}`")
-        if bundle.repo.overview:
-            lines.append(f"- Overview: {bundle.repo.overview}")
-        lines.extend(f"- {note}" for note in bundle.repo.notes)
-        lines.append("")
+    lines.extend(_ethos_repo_context_lines(bundle, repo_root))
 
     lines.extend(["## Principles"])
     for principle in bundle.principles:
-        lines.extend(
-            [
-                "",
-                f"## {principle.order:02d}. {principle.title}",
-                "",
-                principle.summary,
-                "",
-            ]
-        )
-
-        if principle.directive:
-            lines.extend(["### Directive", principle.directive, ""])
-
-        if principle.quick_ref:
-            lines.extend(
-                ["### Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""]
-            )
-
-        if principle.tags:
-            lines.extend(["### Tags", f"- {', '.join(principle.tags)}", ""])
-
-        for section in principle.sections:
-            lines.extend([f"### {section.title}", section.body, ""])
+        lines.extend(_ethos_principle_lines(principle))
 
     return _join_lines(_with_markdown_spdx(lines))
 
@@ -326,6 +400,18 @@ def render_principle_detail(
     if principle.quick_ref:
         lines.extend(
             ["## Quick Ref", *[f"- {item}" for item in principle.quick_ref], ""]
+        )
+
+    if principle.axioms:
+        lines.extend(
+            [
+                "## Axioms",
+                *[
+                    f"- {axiom.axiom}" + (f" {axiom.action}" if axiom.action else "")
+                    for axiom in principle.axioms
+                ],
+                "",
+            ]
         )
 
     if principle.merge_topics:
@@ -509,6 +595,9 @@ def render_claude_md(bundle: EthosBundle) -> str:
         "- Open the linked ethos note before changing architecture, "
         "validation, error handling, security, or delegation behavior."
     )
+    operating_lines = _agent_operating_discipline_lines(bundle)
+    if operating_lines:
+        lines.extend(["", *operating_lines])
     lines.extend(f"- {note}" for note in bundle.repo.agent_notes.get("claude", []))
     return _join_lines(_with_markdown_spdx(lines))
 
@@ -530,6 +619,12 @@ def render_claude_addendum(bundle: EthosBundle, repo_root: Path) -> str:
             "validation, error handling, security, or delegation behavior."
         ),
     ]
+    operating_lines = _agent_operating_discipline_lines(
+        bundle,
+        heading="### Agent Operating Discipline",
+    )
+    if operating_lines:
+        lines.extend(["", *operating_lines])
     repo_notes = bundle.repo.agent_notes.get("claude", [])
     if repo_notes:
         lines.extend(["", "### Claude Notes", *[f"- {note}" for note in repo_notes]])
@@ -582,6 +677,9 @@ def render_gemini_md(bundle: EthosBundle, repo_root: Path) -> str:
         "- Keep repo-specific conventions in `repo_ethos.yml`; regenerate "
         "after updating it."
     )
+    operating_lines = _agent_operating_discipline_lines(bundle)
+    if operating_lines:
+        lines.extend(["", *operating_lines])
     lines.extend(f"- {note}" for note in bundle.repo.agent_notes.get("gemini", []))
     return _join_lines(_with_markdown_spdx(lines))
 
@@ -599,6 +697,12 @@ def render_gemini_addendum(bundle: EthosBundle, repo_root: Path) -> str:
         "- Shared ethos index: `.agents/ethos/README.md`.",
         "- Optional prompt addon: `.agent-context/prompt-addons/gemini.md`.",
     ]
+    operating_lines = _agent_operating_discipline_lines(
+        bundle,
+        heading="### Agent Operating Discipline",
+    )
+    if operating_lines:
+        lines.extend(["", *operating_lines])
     repo_notes = bundle.repo.agent_notes.get("gemini", [])
     if repo_notes:
         lines.extend(["", "### Gemini Notes", *[f"- {note}" for note in repo_notes]])

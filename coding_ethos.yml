@@ -201,6 +201,53 @@ skills:
         installing host-global tools or editing shims.
       - Capture the normalized lint output and trace so repeated failures can
         become stronger ETHOS mappings.
+  - id: agent-operating-discipline
+    title: Agent Operating Discipline
+    description: >-
+      Use when implementing, reviewing, refactoring, simplifying, debugging, or
+      planning code changes that need explicit assumptions, minimal scope,
+      surgical edits, and verifiable success criteria.
+    principle_ids:
+      - evidence-based-engineering-and-decision-quality
+      - solid-is-law
+      - universal-responsibility
+      - testing-as-specification
+      - documentation-as-contract
+    trigger_terms:
+      - implement
+      - refactor
+      - simplify
+      - redesign
+      - clean up
+      - review
+      - fix bug
+      - add feature
+      - make faster
+      - success criteria
+      - assumptions
+      - tradeoffs
+      - surgical change
+      - overcomplicated
+    short_hint: >-
+      State assumptions, choose the smallest sufficient design, keep edits
+      traceable to the request, and define the verification that proves success.
+    focus: >-
+      Use this skill before broad coding work so agents avoid hidden
+      assumptions, speculative abstractions, drive-by refactors, and vague
+      completion claims.
+    remediation_steps:
+      - State the task interpretation, assumptions, ambiguity, and relevant
+        trade-offs before making broad changes.
+      - Pick the smallest implementation that satisfies the current requirement;
+        defer abstractions, configurability, and extension points until there is
+        a concrete second use.
+      - Keep every changed line traceable to the user request or to cleanup
+        directly caused by the change.
+      - Match local style and ownership boundaries; mention unrelated dead code
+        or improvement ideas instead of editing them opportunistically.
+      - Convert the task into explicit success criteria and verify with focused
+        tests, lint, type checks, or documented evidence before claiming
+        completion.
 principles:
   - id: solid-is-law
     order: 1
@@ -211,6 +258,15 @@ principles:
       - Enforce SOLID and simplicity; remove speculative abstractions.
       - We do not view the SOLID principles as academic suggestions.
       - 'SOLID governs structure; these principles govern complexity:'
+    axioms:
+      - axiom: The smallest sufficient design is the strongest default.
+        action: >-
+          Avoid speculative abstractions, options, and extension points until a
+          concrete second use exists.
+      - axiom: Clever code is a liability.
+        action: Prefer boring, direct code that keeps responsibilities clear.
+      - axiom: SOLID is a constraint, not a preference.
+        action: Split responsibilities and depend on clear abstractions.
     merge_topics:
       - solid is law
       - architecture decisions
@@ -2953,6 +3009,15 @@ principles:
       - Tests are not afterthoughts—they are the executable specification of system
         behavior.
       - There is no such thing as an "acceptable" test failure or a "known flaky" test.
+    axioms:
+      - axiom: Completion is a claim that requires evidence.
+        action: >-
+          Define verifiable success criteria and run focused checks before
+          claiming completion.
+      - axiom: A green process is not the same as a correct result.
+        action: >-
+          Define success by user-visible behavior and inspect representative
+          output.
     merge_topics:
       - testing as specification
       - test requirements
@@ -3989,6 +4054,19 @@ principles:
 
         awareness when they reduce waste.
       - Evaluate decisions across quality, reversibility, risk, and human impact.
+    axioms:
+      - axiom: Hidden assumptions become hidden defects.
+        action: >-
+          State task interpretation, assumptions, ambiguity, and trade-offs
+          before broad changes.
+      - axiom: Every changed line needs a reason.
+        action: >-
+          Keep edits surgical and trace each change to the request or cleanup
+          directly caused by the change.
+      - axiom: Todo lists prevent partial work from masquerading as completion.
+        action: >-
+          Keep the task list current, mark progress as it happens, and do not
+          report done while planned work remains.
     merge_topics:
       - decision framework
       - planning discipline

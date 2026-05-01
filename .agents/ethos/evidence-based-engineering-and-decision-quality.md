@@ -18,6 +18,11 @@ optimizing and make trade-offs explicit.
 awareness when they reduce waste.
 - Evaluate decisions across quality, reversibility, risk, and human impact.
 
+## Axioms
+- Hidden assumptions become hidden defects. State task interpretation, assumptions, ambiguity, and trade-offs before broad changes.
+- Every changed line needs a reason. Keep edits surgical and trace each change to the request or cleanup directly caused by the change.
+- Todo lists prevent partial work from masquerading as completion. Keep the task list current, mark progress as it happens, and do not report done while planned work remains.
+
 ## Merge Topics
 - decision framework
 - planning discipline

@@ -580,38 +580,7 @@ security:
 
 agent_advice:
   reminders:
-    quiet_frequency: 3
-    items:
-      - principle_id: evidence-based-engineering-and-decision-quality
-        axiom: Todo lists prevent partial work from masquerading as completion.
-        action: >-
-          Keep the task list current, mark progress as it happens, and do not
-          report done while planned work remains.
-      - principle_id: no-rationalized-shortcuts
-        axiom: Laziness only moves the cost downstream.
-        action: >-
-          Stop, use the documented path, and do not trade correctness for
-          completion.
-      - principle_id: testing-as-specification
-        axiom: A green process is not the same as a correct result.
-        action: >-
-          Define success by user-visible behavior and inspect representative
-          output.
-      - principle_id: static-analysis-is-the-first-line-of-defense
-        axiom: Static analysis is a gate, not background noise.
-        action: Treat the finding as a structural signal and fix the cause.
-      - principle_id: no-conditional-imports
-        axiom: Conditional imports are banned.
-        action: >-
-          Use module-scope required imports; if that exposes a cycle, refactor
-          with SOLID boundaries or a Python Protocol instead of hiding the
-          dependency.
-      - principle_id: linting-as-code-quality-enforcement
-        axiom: A linter warning is review feedback in executable form.
-        action: Resolve it structurally instead of weakening the rule.
-      - principle_id: forward-motion-only
-        axiom: History is context, not an excuse.
-        action: Fix the current state with evidence and move forward.
+    ambient_frequency_percent: 25
 
 python:
   source_paths:

@@ -32,6 +32,14 @@ skill metadata used by those enforcement paths.
 - `skill_recommend`: rank generated skills for a task, command, path, or
   diagnostic.
 
+`skill_recommend` is also the runtime bridge for general operating discipline.
+For broad implementation, review, refactoring, simplification, or debugging
+requests, it should surface the `agent-operating-discipline` skill before the
+agent starts editing. That skill adapts the useful behavioral pattern from
+[`forrestchang/andrej-karpathy-skills`](https://github.com/forrestchang/andrej-karpathy-skills)
+into ETHOS-derived guidance: explicit assumptions, smallest sufficient design,
+surgical diffs, and verifiable success criteria.
+
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
 files, runs managed binaries, or persists traces.
