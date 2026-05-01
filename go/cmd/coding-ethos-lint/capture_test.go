@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -68,6 +69,7 @@ exit 1
 					},
 				},
 			},
+			"",
 		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
@@ -114,6 +116,65 @@ exit 1
 	}
 }
 
+func TestRunCapturedToolRendersSARIF(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "ruff-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte(`#!/usr/bin/env sh
+case " $* " in
+  *" --output-format=json "*) ;;
+  *) echo "missing json output flag" >&2; exit 2 ;;
+esac
+printf '%s\n' '[{"filename":"pkg/app.py","code":"F401","message":"unused import","location":{"row":4,"column":8}}]'
+exit 1
+`),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"ruff",
+			tool,
+			repo,
+			"",
+			[]string{"check", "pkg/app.py"},
+			capturePolicyData{
+				EvidenceMaps: []diagnostics.EvidenceMap{{
+					Source:       "ruff",
+					Codes:        []string{"F401"},
+					PolicyID:     "python.unused_imports",
+					SkillID:      "lint-remediation",
+					PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+				}},
+			},
+			hookoutput.FormatSARIF,
+		)
+		if exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1", exitCode)
+		}
+	})
+
+	for _, want := range []string{
+		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+		`"ruleId": "python.unused_imports"`,
+		`"uri": "pkg/app.py"`,
+		`"policy_id": "python.unused_imports"`,
+		`"skill_id": "lint-remediation"`,
+		`"ethos_ids": [`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestRunCapturedToolLogsShellcheckTrace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX sh")
@@ -136,7 +197,7 @@ exit 1
 		t.Fatalf("write fixture tool: %v", err)
 	}
 
-	exitCode := runCapturedTool("shellcheck", tool, repo, "", []string{"script.sh"}, capturePolicyData{})
+	exitCode := runCapturedTool("shellcheck", tool, repo, "", []string{"script.sh"}, capturePolicyData{}, "")
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -195,6 +256,7 @@ exit 1
 					},
 				},
 			},
+			"",
 		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
@@ -250,7 +312,7 @@ exit 1
 		t.Fatalf("write package file: %v", err)
 	}
 
-	exitCode := runCapturedTool("mypy", tool, execRoot, traceRoot, []string{"pkg/app.py"}, capturePolicyData{})
+	exitCode := runCapturedTool("mypy", tool, execRoot, traceRoot, []string{"pkg/app.py"}, capturePolicyData{}, "")
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
@@ -453,7 +515,7 @@ func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 			repo := t.TempDir()
 			tool := writeCaptureFixtureTool(t, repo, test.required, test.output)
 
-			exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{})
+			exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{}, "")
 			if exitCode != 1 {
 				t.Fatalf("exit code = %d, want 1", exitCode)
 			}
@@ -507,7 +569,7 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 
 			t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 			output := captureStdout(t, func() {
-				exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{})
+				exitCode := runCapturedTool(test.tool, tool, repo, "", test.args, capturePolicyData{}, "")
 				if exitCode != 2 {
 					t.Fatalf("exit code = %d, want 2", exitCode)
 				}
@@ -555,7 +617,7 @@ func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
 
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 	output := captureStdout(t, func() {
-		exitCode := runCapturedTool("mypy", tool, repo, "", []string{"pkg"}, capturePolicyData{})
+		exitCode := runCapturedTool("mypy", tool, repo, "", []string{"pkg"}, capturePolicyData{}, "")
 		if exitCode != 0 {
 			t.Fatalf("exit code = %d, want 0", exitCode)
 		}

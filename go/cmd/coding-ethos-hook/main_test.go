@@ -139,6 +139,10 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 }
 
 func hookOutputDenies(result map[string]any) bool {
+	if result["status"] == "blocked" {
+		return true
+	}
+
 	hookSpecific, ok := result["hookSpecificOutput"].(map[string]any)
 	if !ok {
 		return false
@@ -157,6 +161,7 @@ func hookJSON(
 
 	payload, err := json.Marshal(map[string]any{
 		"hook_event_name": eventName,
+		"provider":        "codex",
 		"tool_name":       toolName,
 		"tool_input":      toolInput,
 	})

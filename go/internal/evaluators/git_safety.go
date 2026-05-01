@@ -370,11 +370,11 @@ func commitMessageArg(
 	}
 
 	if strings.HasPrefix(arg, "-m") && arg != "-m" {
-		return idx, strings.TrimPrefix(arg, "-m"), true, nil
+		return idx, normalizeCommitMessageValue(strings.TrimPrefix(arg, "-m")), true, nil
 	}
 
 	if value, found := strings.CutPrefix(arg, "--message="); found {
-		return idx, value, true, nil
+		return idx, normalizeCommitMessageValue(value), true, nil
 	}
 
 	if arg == "-F" || arg == "--file" {
@@ -397,7 +397,53 @@ func nextCommitMessageValue(args []string, idx int) (int, string, bool, error) {
 		return idx, "", false, nil
 	}
 
-	return idx + 1, args[idx+1], true, nil
+	return idx + 1, normalizeCommitMessageValue(args[idx+1]), true, nil
+}
+
+func normalizeCommitMessageValue(value string) string {
+	message, ok := catHeredocCommandSubstitution(value)
+	if ok {
+		return message
+	}
+
+	return value
+}
+
+func catHeredocCommandSubstitution(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "$(") || !strings.HasSuffix(trimmed, ")") {
+		return "", false
+	}
+
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
+	if !strings.HasPrefix(inner, "cat") {
+		return "", false
+	}
+
+	afterCat := strings.TrimSpace(strings.TrimPrefix(inner, "cat"))
+	if !strings.HasPrefix(afterCat, "<<") {
+		return "", false
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(afterCat, "<<"))
+	newline := strings.IndexByte(rest, '\n')
+	if newline < 0 {
+		return "", false
+	}
+
+	delimiter := strings.Trim(strings.TrimSpace(rest[:newline]), `'"`)
+	if delimiter == "" {
+		return "", false
+	}
+
+	lines := strings.Split(rest[newline+1:], "\n")
+	for index, line := range lines {
+		if strings.TrimSuffix(line, "\r") == delimiter {
+			return strings.Join(lines[:index], "\n"), true
+		}
+	}
+
+	return "", false
 }
 
 func nextCommitMessageFile(

@@ -15,6 +15,7 @@ const (
 )
 
 type Event struct {
+	ProviderHint   string         `json:"provider,omitempty"`
 	ToolInput      map[string]any `json:"tool_input,omitempty"`
 	ToolResponse   map[string]any `json:"tool_response,omitempty"`
 	Cwd            string         `json:"cwd,omitempty"`
@@ -27,6 +28,16 @@ type Event struct {
 }
 
 func (event Event) Provider() string {
+	providerHint := strings.ToLower(strings.TrimSpace(event.ProviderHint))
+	switch {
+	case strings.Contains(providerHint, providerGemini):
+		return providerGemini
+	case strings.Contains(providerHint, providerCodex):
+		return providerCodex
+	case strings.Contains(providerHint, providerClaude):
+		return providerClaude
+	}
+
 	source := strings.ToLower(strings.TrimSpace(event.Source))
 	switch {
 	case strings.Contains(source, providerGemini):

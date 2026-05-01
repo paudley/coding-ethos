@@ -20,8 +20,10 @@ import (
 )
 
 var (
-	errBundleRequired = errors.New("--bundle is required")
-	errInvalidBundle  = errors.New("invalid policy bundle")
+	errBundleRequired       = errors.New("--bundle is required")
+	errInvalidBundle        = errors.New("invalid policy bundle")
+	errOutputFormatConflict = errors.New("--json and --sarif are mutually exclusive")
+	errSARIFUnsupported     = errors.New("--sarif is supported only for lint result output")
 )
 
 const blockedExitCode = 2
@@ -30,10 +32,16 @@ func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
+	filesFrom := flags.String("files-from", "", "Newline-separated file list for --scope files")
 	forFilesRaw := flags.String(
 		"for-files",
 		"",
 		"Comma-separated files to filter --analyze-log results",
+	)
+	forFilesFrom := flags.String(
+		"for-files-from",
+		"",
+		"Newline-separated file list to filter --analyze-log results",
 	)
 	argvRaw := flags.String(
 		"argv",
@@ -53,6 +61,7 @@ func main() {
 	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
 	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
+	sarifOutput := flags.Bool("sarif", false, "Emit SARIF output")
 	analyzeLog := flags.Bool(
 		"analyze-log",
 		false,
@@ -93,6 +102,10 @@ func main() {
 	if err != nil {
 		exitErr(err)
 	}
+	outputFormat, formatErr := lintOutputFormat(*jsonOutput, *sarifOutput)
+	if formatErr != nil {
+		exitErr(formatErr)
+	}
 
 	if *captureTool != "" {
 		os.Exit(runCapturedTool(
@@ -102,6 +115,7 @@ func main() {
 			*traceRoot,
 			flags.Args(),
 			capturePolicyContext(*bundlePath),
+			outputFormat,
 		))
 	}
 
@@ -112,7 +126,7 @@ func main() {
 			ConsumerRoot:  *consumerRoot,
 			InvocationCwd: *invocationCwd,
 			Args:          flags.Args(),
-			OutputFormat:  managedCaptureFormat(*jsonOutput),
+			OutputFormat:  outputFormat,
 			PolicyContext: capturePolicyContext(*bundlePath),
 		}))
 	}
@@ -139,16 +153,22 @@ func main() {
 			}
 		}
 
-		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(path, lint.AnalysisOptions{
-			Files: parseFiles(*forFilesRaw),
-		})
+		forFiles, filesErr := filesFromInputs(*forFilesRaw, *forFilesFrom)
+		if filesErr != nil {
+			exitErr(filesErr)
+		}
+
+		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(
+			path,
+			lint.AnalysisOptions{Files: forFiles},
+		)
 		if analyzeErr != nil {
 			exitErr(analyzeErr)
 		}
-		format := hookoutput.SelectedFormat()
-		if *jsonOutput {
-			format = hookoutput.FormatJSON
+		if *sarifOutput {
+			exitErr(errSARIFUnsupported)
 		}
+		format := selectedLintOutputFormat(outputFormat)
 		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, format); encodeErr != nil {
 			exitErr(encodeErr)
 		}
@@ -161,10 +181,7 @@ func main() {
 		if replayErr != nil {
 			exitErr(replayErr)
 		}
-		format := hookoutput.SelectedFormat()
-		if *jsonOutput {
-			format = hookoutput.FormatJSON
-		}
+		format := selectedLintOutputFormat(outputFormat)
 		if encodeErr := hookoutput.EncodeLintResult(os.Stdout, result, format); encodeErr != nil {
 			exitErr(encodeErr)
 		}
@@ -192,17 +209,22 @@ func main() {
 	}
 
 	if *explain {
+		files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
+		if filesErr != nil {
+			exitErr(filesErr)
+		}
+
 		explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
 			Scope: scope.Value(),
-			Files: parseFiles(*filesRaw),
+			Files: files,
 		})
 		if explainErr != nil {
 			exitErr(explainErr)
 		}
-		format := hookoutput.SelectedFormat()
-		if *jsonOutput {
-			format = hookoutput.FormatJSON
+		if *sarifOutput {
+			exitErr(errSARIFUnsupported)
 		}
+		format := selectedLintOutputFormat(outputFormat)
 		if encodeErr := lint.EncodeExplainResult(
 			os.Stdout,
 			explainResult,
@@ -214,7 +236,10 @@ func main() {
 		return
 	}
 
-	files := parseFiles(*filesRaw)
+	files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
 	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
 		files, err = stagedFiles(*cwd)
 		if err != nil {
@@ -239,16 +264,9 @@ func main() {
 		}
 	}
 
-	if *jsonOutput {
-		err = hookoutput.EncodeLintResult(os.Stdout, result, hookoutput.FormatJSON)
-		if err != nil {
-			exitErr(err)
-		}
-	} else {
-		err = hookoutput.EncodeLintResult(os.Stdout, result, hookoutput.FormatHuman)
-		if err != nil {
-			exitErr(err)
-		}
+	err = hookoutput.EncodeLintResult(os.Stdout, result, selectedLintOutputFormat(outputFormat))
+	if err != nil {
+		exitErr(err)
 	}
 
 	if result.Blocked() {
@@ -262,12 +280,26 @@ func printCapturedTools() {
 	}
 }
 
-func managedCaptureFormat(jsonOutput bool) string {
+func lintOutputFormat(jsonOutput bool, sarifOutput bool) (string, error) {
+	if jsonOutput && sarifOutput {
+		return "", errOutputFormatConflict
+	}
 	if jsonOutput {
-		return hookoutput.FormatJSON
+		return hookoutput.FormatJSON, nil
+	}
+	if sarifOutput {
+		return hookoutput.FormatSARIF, nil
 	}
 
-	return ""
+	return "", nil
+}
+
+func selectedLintOutputFormat(format string) string {
+	if format != "" {
+		return format
+	}
+
+	return hookoutput.SelectedFormat()
 }
 
 type capturePolicyData struct {
@@ -322,6 +354,34 @@ func parseFiles(raw string) []string {
 	files := make([]string, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			files = append(files, trimmed)
+		}
+	}
+
+	return files
+}
+
+func filesFromInputs(raw string, path string) ([]string, error) {
+	files := parseFiles(raw)
+	if strings.TrimSpace(path) == "" {
+		return files, nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file list %s: %w", path, err)
+	}
+
+	return append(files, parseFileListLines(string(content))...), nil
+}
+
+func parseFileListLines(raw string) []string {
+	lines := strings.Split(raw, "\n")
+
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if trimmed != "" {
 			files = append(files, trimmed)
 		}

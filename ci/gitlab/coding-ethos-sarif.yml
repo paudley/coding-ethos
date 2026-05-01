@@ -1,0 +1,42 @@
+.coding_ethos_sarif:
+  stage: test
+  variables:
+    CODING_ETHOS_PATH: coding-ethos
+    CODING_ETHOS_REPO_ROOT: .
+    CODING_ETHOS_GATE_COMMAND: make check
+    CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
+    CODING_ETHOS_FILES: ""
+  script:
+    - make -C "$CODING_ETHOS_PATH" build
+    - |
+      if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
+        cd "$CODING_ETHOS_REPO_ROOT"
+        export CODING_ETHOS_GATE_COMMAND
+        bash -c '$CODING_ETHOS_GATE_COMMAND'
+        cd "$CI_PROJECT_DIR"
+      fi
+    - |
+      repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
+      ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
+      files_path="$(mktemp)"
+
+      if [ -n "$CODING_ETHOS_FILES" ]; then
+        printf '%s\n' "$CODING_ETHOS_FILES" | tr ',' '\n' > "$files_path"
+      elif [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
+        git diff --name-only "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA"...HEAD \
+          > "$files_path"
+      else
+        git ls-files > "$files_path"
+      fi
+
+      "$ethos_path/pre-commit/hooks/run-go-hook.sh" policy-lint \
+        --cwd "$repo_root" \
+        --scope files \
+        --files-from "$files_path" \
+        --sarif > "$CODING_ETHOS_SARIF_PATH"
+  artifacts:
+    when: always
+    paths:
+      - "$CODING_ETHOS_SARIF_PATH"
+      - .coding-ethos/lint-runs/
+      - .coding-ethos/hook-runs/

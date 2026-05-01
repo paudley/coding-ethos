@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+name: Coding Ethos SARIF Gate
+
+on:
+  workflow_call:
+    inputs:
+      coding-ethos-path:
+        description: Path to the coding-ethos checkout or submodule.
+        required: false
+        type: string
+        default: .
+      repo-root:
+        description: Repository root to evaluate.
+        required: false
+        type: string
+        default: .
+      gate-command:
+        description: Project gate command to run before SARIF upload.
+        required: false
+        type: string
+        default: make check
+      files:
+        description: Comma-separated files; empty derives PR changes or tracked files.
+        required: false
+        type: string
+        default: ""
+      sarif-path:
+        description: Path where coding-ethos SARIF should be written.
+        required: false
+        type: string
+        default: coding-ethos.sarif
+      upload-sarif:
+        description: Upload SARIF through github/codeql-action/upload-sarif.
+        required: false
+        type: boolean
+        default: true
+      upload-artifact:
+        description: Upload SARIF and .coding-ethos traces as workflow artifacts.
+        required: false
+        type: boolean
+        default: true
+      artifact-name:
+        description: Name for the retained SARIF and trace artifact.
+        required: false
+        type: string
+        default: coding-ethos-audit
+
+jobs:
+  policy:
+    name: Coding Ethos SARIF Gate
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ inputs.coding-ethos-path }}/go/go.mod
+          cache-dependency-path: ${{ inputs.coding-ethos-path }}/go/go.sum
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build coding-ethos runtime
+        run: make -C "${{ inputs.coding-ethos-path }}" build
+
+      - name: Run project gate
+        id: project-gate
+        continue-on-error: true
+        run: |
+          if [ -n "${{ inputs.gate-command }}" ]; then
+            cd "${{ inputs.repo-root }}"
+            ${{ inputs.gate-command }}
+          fi
+
+      - name: Emit coding-ethos SARIF
+        id: emit-sarif
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          set +e
+          repo_root="$(cd "${{ inputs.repo-root }}" && pwd)"
+          ethos_path="$(cd "${{ inputs.coding-ethos-path }}" && pwd)"
+          files="${{ inputs.files }}"
+          sarif_tmp="${{ inputs.sarif-path }}.tmp"
+          rm -f "$sarif_tmp" "${{ inputs.sarif-path }}"
+
+          if [ -z "$files" ]; then
+            base_ref="${GITHUB_BASE_REF:-main}"
+            if git rev-parse --verify "origin/$base_ref" >/dev/null 2>&1; then
+              files="$(
+                git diff --name-only "origin/$base_ref"...HEAD | paste -sd, -
+              )"
+            fi
+          fi
+
+          if [ -z "$files" ]; then
+            files="$(git ls-files | paste -sd, -)"
+          fi
+
+          "$ethos_path/pre-commit/hooks/run-go-hook.sh" policy-lint \
+            --cwd "$repo_root" \
+            --scope files \
+            --files "$files" \
+            --sarif > "$sarif_tmp"
+          status=$?
+          if [ -s "$sarif_tmp" ]; then
+            mv "$sarif_tmp" "${{ inputs.sarif-path }}"
+          else
+            rm -f "$sarif_tmp"
+          fi
+          exit "$status"
+
+      - name: Upload coding-ethos SARIF
+        if: >-
+          ${{ always() && inputs.upload-sarif &&
+          hashFiles(inputs.sarif-path) != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ${{ inputs.sarif-path }}
+
+      - name: Upload coding-ethos audit artifacts
+        if: ${{ always() && inputs.upload-artifact }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          if-no-files-found: ignore
+          path: |
+            ${{ inputs.sarif-path }}
+            ${{ inputs.repo-root }}/.coding-ethos/lint-runs/
+            ${{ inputs.repo-root }}/.coding-ethos/hook-runs/
+
+      - name: Fail on coding-ethos SARIF violations
+        if: >-
+          ${{ steps.project-gate.outcome == 'failure' ||
+          steps.emit-sarif.outcome == 'failure' }}
+        run: exit 1

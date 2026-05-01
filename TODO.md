@@ -386,20 +386,20 @@ Acceptance criteria:
 
 ### CI/CD Components And SARIF
 
-- [ ] Add SARIF output for normalized policy and lint diagnostics.
-- [ ] Provide native GitHub Actions and GitLab CI examples or reusable
-  components.
-- [ ] Ensure CI runs the same compiled policy bundle and managed toolchain
+- [x] Add SARIF output for normalized policy and lint diagnostics.
+- [x] Provide native GitHub Actions and GitLab CI examples.
+- [x] Package reusable GitHub Actions and GitLab CI components.
+- [x] Ensure CI runs the same compiled policy bundle and managed toolchain
   versions as local hooks.
-- [ ] Publish violations as PR annotations and, where supported, security/code
+- [x] Publish violations as PR annotations and, where supported, security/code
   scanning findings.
 
 Acceptance criteria:
 
-- [ ] A repo can gate PRs in CI even if local hooks are bypassed.
-- [ ] SARIF includes policy IDs, ETHOS principle IDs, skill IDs, file/line
+- [x] A repo can gate PRs in CI even if local hooks are bypassed.
+- [x] SARIF includes policy IDs, ETHOS principle IDs, skill IDs, file/line
   locations, remediation advice, and stable rule metadata.
-- [ ] CI output remains compact for agents while preserving full artifacts for
+- [x] CI output remains compact for agents while preserving full artifacts for
   audit.
 
 ### Adversarial Red-Team Test Suite

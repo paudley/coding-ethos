@@ -102,7 +102,9 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 }
 
 func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODEX_THREAD_ID", "")
+	t.Setenv("CODEX_CI", "")
+	t.Setenv("CODEX_MANAGED_BY_NPM", "")
 
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
@@ -121,7 +123,8 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput != nil {
+	if result.HookSpecificOutput != nil &&
+		result.HookSpecificOutput.UpdatedInput != nil {
 		t.Fatalf(
 			"blocked attribution should not rewrite command: %#v",
 			result.HookSpecificOutput,

@@ -4,9 +4,12 @@
 package toolcatalog_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/toolcatalog"
@@ -56,6 +59,46 @@ func TestPythonStaticToolsRequestStructuredOutput(t *testing.T) {
 			tool.Fast != expected.fast ||
 			tool.Advice == "" {
 			t.Fatalf("%s typed metadata mismatch: %#v", name, tool)
+		}
+	}
+}
+
+func TestHookProjectToolsAreDeclaredDependencies(t *testing.T) {
+	t.Parallel()
+
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime caller unavailable")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
+	pyprojectPath := filepath.Join(repoRoot, "pre-commit", "hooks", "pyproject.toml")
+	content, err := os.ReadFile(pyprojectPath)
+	if err != nil {
+		t.Fatalf("read hook pyproject: %v", err)
+	}
+	pyproject := string(content)
+
+	for _, captured := range toolcatalog.CapturedLintTools() {
+		tool, found := toolcatalog.HookOwnedTool(captured.Name)
+		if !found {
+			t.Fatalf("captured tool %q missing hook-owned metadata", captured.Name)
+		}
+		runtimeSpec := tool.RuntimeSpec()
+		if !runtimeSpec.Project || len(runtimeSpec.Command) == 0 {
+			continue
+		}
+		if runtimeSpec.Runtime != toolcatalog.RuntimePython &&
+			runtimeSpec.Runtime != toolcatalog.RuntimeUV {
+			continue
+		}
+
+		commandName := runtimeSpec.Command[0]
+		if !strings.Contains(pyproject, `"`+commandName) {
+			t.Fatalf(
+				"hook-project tool %q is not declared in %s",
+				commandName,
+				pyprojectPath,
+			)
 		}
 	}
 }
