@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -114,6 +115,10 @@ func ambientPostToolReminder(
 	config policy.ReminderConfig,
 	event Event,
 ) (policy.EthosReminder, bool) {
+	if len(config.Items) == 0 {
+		return policy.EthosReminder{}, false
+	}
+
 	if isLintCommand(event.Command()) {
 		return config.Items[stablePostToolReminderIndex(event, len(config.Items))], true
 	}
@@ -338,7 +343,7 @@ func renderPolicyReminder(
 		Action:       reminder.Action,
 		Kind:         kind,
 		MCPTool:      "policy_explain",
-		MCPArguments: fmt.Sprintf(`{"policy_id":%q}`, policyID),
+		MCPArguments: mcpArgumentsJSON(map[string]any{"policy_id": policyID}),
 	}
 }
 
@@ -352,10 +357,12 @@ func renderPrincipleReminder(
 		Action:      reminder.Action,
 		Kind:        kind,
 		MCPTool:     "skill_recommend",
-		MCPArguments: fmt.Sprintf(
-			`{"intent":"apply ETHOS principle %s to this hook result","limit":1}`,
-			reminder.PrincipleID,
-		),
+		MCPArguments: mcpArgumentsJSON(map[string]any{
+			"intent": "apply ETHOS principle " +
+				reminder.PrincipleID +
+				" to this hook result",
+			"limit": 1,
+		}),
 	}
 }
 
@@ -378,10 +385,15 @@ func isLintCommand(command string) bool {
 func commandMentionsToken(command string, token string) bool {
 	return strings.Contains(" "+command+" ", " "+token+" ") ||
 		strings.Contains(command, "/"+token+" ") ||
-		strings.Contains(command, "/"+token+"\n")
+		strings.Contains(command, "/"+token+"\n") ||
+		strings.HasSuffix(command, "/"+token)
 }
 
 func stableStringIndex(parts []string, candidateCount int) int {
+	if candidateCount <= 0 {
+		return 0
+	}
+
 	index := 0
 	for _, char := range []byte(strings.Join(parts, "\x00")) {
 		index = (index + int(char)) % candidateCount
@@ -396,4 +408,13 @@ func minInt(first int, second int) int {
 	}
 
 	return second
+}
+
+func mcpArgumentsJSON(arguments map[string]any) string {
+	encoded, err := json.Marshal(arguments)
+	if err != nil {
+		return "{}"
+	}
+
+	return string(encoded)
 }
