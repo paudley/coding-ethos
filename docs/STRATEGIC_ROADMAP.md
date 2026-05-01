@@ -17,7 +17,7 @@ surfaces, compact agent-native advice, and auditable traces.
 
 Generated Markdown and generated skills are useful durable context, but they
 still front-load rules into an agent context window. A Model Context Protocol
-server would let agents query `coding-ethos` at the moment of need.
+server lets agents query `coding-ethos` at the moment of need.
 
 High-value queries include:
 
@@ -27,9 +27,11 @@ High-value queries include:
 - why a policy exists and which ETHOS principle grounds it
 - which generated skill remediates a finding
 
-The MCP server must read from the same compiled policy bundle and skill data as
-the hooks. It must not become an alternate enforcement path or a way to bypass
-local Git and agent hooks.
+The first MCP surface is a local stdio server exposed through
+`pre-commit/hooks/run-go-hook.sh mcp`. It reads from the same compiled policy
+bundle and skill data as the hooks, and starts with command checks, path checks,
+policy explanations, skill lookup, and compact repo context. It must not become
+an alternate enforcement path or a way to bypass local Git and agent hooks.
 
 ## Standardized Policy Language
 

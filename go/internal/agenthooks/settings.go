@@ -634,7 +634,7 @@ func verifySkillSurfaces(root string) ([]VerifyCheck, error) {
 		return nil, nil
 	}
 
-	checks := make([]VerifyCheck, 0, len(skillIDs)*skillProviderCount)
+	checks := make([]VerifyCheck, 0, len(skillIDs)*skillSurfaceCount)
 	var verifyErr error
 	for _, skillID := range skillIDs {
 		for _, surface := range skillSurfacePaths(root, skillID) {
@@ -657,7 +657,7 @@ func verifySkillSurfaces(root string) ([]VerifyCheck, error) {
 	return checks, verifyErr
 }
 
-const skillProviderCount = 3
+const skillSurfaceCount = 4
 
 type skillSurfacePath struct {
 	provider string
@@ -688,6 +688,10 @@ func skillSurfacePaths(root string, skillID string) []skillSurfacePath {
 	entrypoint := filepath.Join(skillID, "SKILL.md")
 
 	return []skillSurfacePath{
+		{
+			provider: "portable",
+			path:     filepath.Join(root, ".agents", "skills", entrypoint),
+		},
 		{
 			provider: string(ProviderClaude),
 			path:     filepath.Join(root, ".claude", "skills", entrypoint),

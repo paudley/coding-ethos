@@ -24,11 +24,12 @@ Failed grouped runs also emit a compact execution summary before raw tool
 detail: group status, duration, failed groups, and command timing where
 commands ran in-process.
 
-The shell entry wrapper logs every top-level run to
-`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including
-`stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
-evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
-when required runtime output paths are not ignored, and `hook-log-summary`
+The shell entrypoint delegates top-level run logging to the managed
+`coding-ethos-hook-log` Go tool. It writes
+`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including `stdout.log`,
+`stderr.log`, and `metadata.env`. That directory is local runtime evidence and
+should stay ignored. `check-runtime-ignores` blocks hook execution when required
+runtime output paths are not ignored, and `hook-log-summary`
 summarizes collected runs for later analysis. `hook-log-analyze` ranks failed
 tools, codes, repeated findings, and output-quality problems such as raw output,
 escaped newline cells, or leaked absolute repo paths. Analysis scans the newest

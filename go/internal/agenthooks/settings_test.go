@@ -333,14 +333,64 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 13 {
-		t.Fatalf("check count = %d, want 13: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 14 {
+		t.Fatalf("check count = %d, want 14: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
 		if check.Status != "pass" {
 			t.Fatalf("failed check: %#v", check)
 		}
+	}
+}
+
+func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	hookCommand := fakeAgentHookCommand(t)
+	writeGeneratedSkillSurfaces(t, root, "managed-toolchain")
+
+	err := agenthooks.SyncSettings(root, hookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	portablePath := filepath.Join(
+		root,
+		".agents",
+		"skills",
+		"managed-toolchain",
+		"SKILL.md",
+	)
+	if err := os.WriteFile(
+		portablePath,
+		[]byte("# Managed Toolchain\n\nmissing frontmatter\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write invalid portable skill: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettings(root, hookCommand)
+	if err == nil {
+		t.Fatal("expected invalid portable skill surface failure")
+	}
+	if report.Status != "invalid" {
+		t.Fatalf("status = %q, want invalid: %#v", report.Status, report)
+	}
+
+	found := false
+	for _, check := range report.Checks {
+		if check.Event == "skill-surface" &&
+			check.Provider == "portable" &&
+			check.Tool == "managed-toolchain" &&
+			check.Status == "fail" &&
+			strings.Contains(check.Detail, "missing YAML frontmatter") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing failed portable skill-surface check: %#v", report.Checks)
 	}
 }
 

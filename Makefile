@@ -67,6 +67,8 @@ GO_TOOL_CMDS := \
 	coding-ethos-policy \
 	coding-ethos-lint \
 	coding-ethos-hook \
+	coding-ethos-hook-log \
+	coding-ethos-mcp \
 	coding-ethos-git-hook \
 	coding-ethos-git
 

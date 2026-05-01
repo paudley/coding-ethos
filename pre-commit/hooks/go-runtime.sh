@@ -132,6 +132,8 @@ runtime_artifacts_missing() {
     coding-ethos-policy \
     coding-ethos-lint \
     coding-ethos-hook \
+    coding-ethos-hook-log \
+    coding-ethos-mcp \
     coding-ethos-git-hook \
     coding-ethos-git; do
     [[ ! -x "${TOOLS_BIN_DIR}/${tool}" ]] && return 0
@@ -208,6 +210,8 @@ install_runtime_artifacts() {
   compile_policy_bundle
   build_policy_tool coding-ethos-lint
   build_policy_tool coding-ethos-hook
+  build_policy_tool coding-ethos-hook-log
+  build_policy_tool coding-ethos-mcp
   build_policy_tool coding-ethos-git
   build_policy_tool coding-ethos-git-hook
   build_policy_tool coding-ethos-agent-hooks

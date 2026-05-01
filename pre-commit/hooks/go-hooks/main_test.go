@@ -344,6 +344,14 @@ value = 1  # noqa: F401
 
 func TestCheckCommentSuppressionsCommandUsesConfigPatterns(t *testing.T) {
 	tempDir := t.TempDir()
+
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	t.Setenv(precommitRootEnv, bundleRoot)
+
 	overridePath := filepath.Join(tempDir, "repo_config.yaml")
 	mustWriteTestFile(
 		t,

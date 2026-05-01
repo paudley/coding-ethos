@@ -218,6 +218,23 @@ func exampleSkills() map[string]Skill {
 				"Use a neutral Protocol when concrete modules would otherwise cycle.",
 			},
 		},
+		"safe-git-workflow": {
+			ID:          "safe-git-workflow",
+			Title:       "Safe Git Workflow",
+			Description: "Use the protected Git workflow for commits, pushes, and hook-mediated operations.",
+			Source: SourceRef{
+				File: "coding_ethos.yml",
+				Path: "skills.safe-git-workflow",
+			},
+			PrincipleIDs: []string{"one-path-for-critical-operations"},
+			TriggerTerms: []string{"git", "commit", "hook", "no-verify"},
+			ShortHint:    "Git is a protected critical operation; use the coding-ethos wrapper path.",
+			Focus:        "Keep git actions on the enforced hook and wrapper path.",
+			RemediationSteps: []string{
+				"Use the installed coding-ethos git wrapper.",
+				"Do not bypass hooks with alternate git binaries, flags, aliases, or subprocesses.",
+			},
+		},
 	}
 }
 

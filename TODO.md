@@ -216,23 +216,31 @@ policy editable without weakening the compiled enforcement core.
 
 ### Real-Time Context Through MCP
 
-- [ ] Implement a Model Context Protocol server for `coding-ethos`.
-- [ ] Expose policy, skill, and repo-context queries such as protected-path
+- [x] Branch plan: deliver MCP over stdio first, backed by the compiled policy
+  bundle and generated skill data already used by hooks.
+- [x] Branch plan: expose `coding-ethos-mcp` as a repo-local Go binary and
+  route `pre-commit/hooks/run-go-hook.sh mcp` through it.
+- [x] Implement a Model Context Protocol server for `coding-ethos`.
+- [x] Expose policy, skill, and repo-context queries such as protected-path
   checks, language-specific guidance, policy explanations, and remediation
   lookup.
-- [ ] Keep static generated docs and skills as durable fallback context while
+- [x] Keep static generated docs and skills as durable fallback context while
   allowing Claude, Codex, Gemini, Cursor, and compatible clients to request
   focused context on demand.
-- [ ] Add tests proving MCP responses come from the same compiled policy bundle
+- [x] Add tests proving MCP responses come from the same compiled policy bundle
   and ETHOS skill data used by hooks.
+- [x] Go-ify branch task: replace the `start_hook_log` shell wrapper in
+  `pre-commit/hooks/run-go-hook.sh` with a Go-owned logging dispatcher so
+  metadata, stdout/stderr capture, repo-ignore validation, and sanitized event
+  traces share one compiled implementation.
 
 Acceptance criteria:
 
-- [ ] Agents can query whether a proposed file path, command, or edit violates
+- [x] Agents can query whether a proposed file path, command, or edit violates
   policy before attempting the action.
-- [ ] MCP responses are compact, auditable, and linked to ETHOS principles and
+- [x] MCP responses are compact, auditable, and linked to ETHOS principles and
   skill IDs.
-- [ ] The server does not create a bypass path around hook enforcement.
+- [x] The server does not create a bypass path around hook enforcement.
 
 ### Standardized Policy Language
 

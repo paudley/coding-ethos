@@ -43,44 +43,13 @@ start_hook_log() {
   if [[ "${1:-}" == "cutover" ]]; then
     return
   fi
-  local required_ignore
-  for required_ignore in ".coding-ethos/" ".coding-ethos/hook-runs/example/stdout.log"; do
-    if ! "$REAL_GIT" -C "$ROOT" check-ignore --quiet "$required_ignore"; then
-      printf 'FATAL: %s is not ignored; add .coding-ethos/ to the repo .gitignore before hook logs are written\n' "$required_ignore" >&2
-      exit 1
-    fi
-  done
-  local log_root="${ROOT}/.coding-ethos/hook-runs"
-  local timestamp
-  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  local run_id="${timestamp}-$PPID-$$"
-  local run_dir="${log_root}/${run_id}"
-  mkdir -p "$run_dir"
-  local stdout_log="${run_dir}/stdout.log"
-  local stderr_log="${run_dir}/stderr.log"
-  local metadata_log="${run_dir}/metadata.env"
-  {
-    printf 'run_id=%q\n' "$run_id"
-    printf 'started_at_utc=%q\n' "$timestamp"
-    printf 'repo_root=%q\n' "$ROOT"
-    printf 'bundle_root=%q\n' "$BUNDLE_ROOT"
-    printf 'command=%q' "$0"
-    printf ' %q' "$@"
-    printf '\n'
-  } > "$metadata_log"
-  set +e
-  export CODE_ETHOS_HOOK_LOGGING_ACTIVE=1
-  export CODE_ETHOS_HOOK_RUN_DIR="$run_dir"
-  "$RUN_GO_HOOK" "$@" \
-    > >(tee -a "$stdout_log") \
-    2> >(tee -a "$stderr_log" >&2)
-  local status=$?
-  set -e
-  {
-    printf 'finished_at_utc=%q\n' "$(date -u +%Y%m%dT%H%M%SZ)"
-    printf 'exit_code=%q\n' "$status"
-  } >> "$metadata_log"
-  exit "$status"
+  bootstrap_runtime_if_missing
+  require_policy_tool coding-ethos-hook-log
+  exec "${TOOLS_BIN_DIR}/coding-ethos-hook-log" \
+    --root "$ROOT" \
+    --bundle-root "$BUNDLE_ROOT" \
+    --git "$REAL_GIT" \
+    -- "$RUN_GO_HOOK" "$@"
 }
 
 start_hook_log "$@"
@@ -237,6 +206,13 @@ run_policy_git() {
   install_git_wrapper_shim
   require_policy_tool coding-ethos-git
   exec "${TOOLS_BIN_DIR}/coding-ethos-git" --bundle "$POLICY_BUNDLE" "$@"
+}
+
+run_mcp() {
+  bootstrap_runtime_if_missing
+  require_policy_bundle
+  require_policy_tool coding-ethos-mcp
+  exec "${TOOLS_BIN_DIR}/coding-ethos-mcp" --bundle "$POLICY_BUNDLE" "$@"
 }
 
 run_policy_tool() {
@@ -481,6 +457,10 @@ case "${1:-}" in
   policy-git)
     shift
     run_policy_git "$@"
+    ;;
+  mcp)
+    shift
+    run_mcp "$@"
     ;;
   *)
     bootstrap_runtime_if_missing

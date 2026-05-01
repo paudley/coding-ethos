@@ -32,6 +32,7 @@ the places contributors actually work:
 | Tool config | Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and golangci-lint config |
 | Git hooks | compiled Go policy preflight plus deterministic hook groups |
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
+| MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
 | Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
 
@@ -67,12 +68,34 @@ policy-grounded advice instead of generic tool text. When a finding maps to a
 generated skill, agent-facing output includes a compact `skill_id` hint and a
 next action to load that remediation playbook.
 
-For larger platform directions such as MCP context serving, policy-language
-support, IDE integration, SARIF/CI components, red-team testing, ETHOS
-inheritance, and agent remediation loops, see
+For larger platform directions such as deeper MCP context serving,
+policy-language support, IDE integration, SARIF/CI components, red-team
+testing, ETHOS inheritance, and agent remediation loops, see
 [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
 The CEL-first policy-language design is tracked in
 [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md).
+
+## MCP Server
+
+`coding-ethos` includes a local stdio MCP server backed by the same compiled
+policy bundle and generated skill metadata used by Git hooks and agent hooks.
+The server is exposed through the managed runtime:
+
+```bash
+pre-commit/hooks/run-go-hook.sh mcp
+```
+
+The first tools are intentionally narrow and auditable:
+
+- `policy_check_command`: check a proposed shell command before running it.
+- `policy_check_path`: check a proposed file path or edit target.
+- `policy_explain`: return the compiled explanation for a policy ID.
+- `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
+- `repo_context`: list compact bundle, policy, and skill context.
+
+The MCP server is advisory context, not a bypass. Hook enforcement remains on
+the normal Git and agent-hook paths, and MCP responses come from the same
+compiled policy inputs as those enforcement paths.
 
 ## ETHOS Skills
 
