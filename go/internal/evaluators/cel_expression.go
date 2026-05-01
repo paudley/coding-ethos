@@ -10,7 +10,6 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-	"github.com/google/cel-go/cel"
 )
 
 func EvaluateCELExpression(
@@ -22,22 +21,9 @@ func EvaluateCELExpression(
 		return nil, fmt.Errorf("CEL expression policy %q missing when", policyDef.ID)
 	}
 
-	env, err := celexpr.Environment()
+	program, err := celexpr.Program(policyDef.ID, source)
 	if err != nil {
-		return nil, fmt.Errorf("prepare CEL environment: %w", err)
-	}
-
-	ast, issues := env.Compile(source)
-	if issues != nil && issues.Err() != nil {
-		return nil, fmt.Errorf("compile CEL expression: %w", issues.Err())
-	}
-	if !ast.OutputType().IsExactType(cel.BoolType) {
-		return nil, fmt.Errorf("CEL expression must return bool, got %s", ast.OutputType())
-	}
-
-	program, err := env.Program(ast)
-	if err != nil {
-		return nil, fmt.Errorf("prepare CEL program: %w", err)
+		return nil, err
 	}
 
 	output, _, err := program.Eval(celActivation(context))
@@ -50,7 +36,11 @@ func EvaluateCELExpression(
 		return nil, nil
 	}
 
-	decision := policy.NewDecision(blockDecision, policyDef)
+	decisionMode := strings.TrimSpace(policyDef.DefaultSeverity)
+	if decisionMode == "" {
+		decisionMode = blockDecision
+	}
+	decision := policy.NewDecision(decisionMode, policyDef)
 	decision.Evidence = map[string]any{
 		"argv":    append([]string(nil), context.Argv...),
 		"command": context.Command,
@@ -63,7 +53,7 @@ func EvaluateCELExpression(
 	}
 	decision.Diagnostics = []diagnostics.Diagnostic{{
 		Tool:         "policy",
-		Severity:     blockDecision,
+		Severity:     decisionMode,
 		PolicyID:     policyDef.ID,
 		SkillID:      stringOption(context.EvaluatorOptions, "skill_id", ""),
 		Message:      policyDef.Message,

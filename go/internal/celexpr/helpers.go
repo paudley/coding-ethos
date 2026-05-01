@@ -4,10 +4,10 @@
 package celexpr
 
 import (
-	"path"
 	"reflect"
 	"strings"
 
+	"github.com/bmatcuk/doublestar"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -31,7 +31,7 @@ func helperFunctions() []cel.EnvOption {
 			"glob_match",
 			"glob_match_string_string",
 			func(pattern string, value string) bool {
-				matched, err := path.Match(pattern, value)
+				matched, err := doublestar.Match(pattern, value)
 
 				return err == nil && matched
 			},

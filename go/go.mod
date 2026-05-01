@@ -7,6 +7,11 @@ require go.yaml.in/yaml/v3 v3.0.4
 require github.com/pelletier/go-toml/v2 v2.3.0
 
 require (
+	github.com/bmatcuk/doublestar v1.3.4
+	golang.org/x/text v0.22.0 // indirect
+)
+
+require (
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/google/cel-go v0.28.0

@@ -35,6 +35,36 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionUsesPolicyDefaultSeverity(t *testing.T) {
+	t.Parallel()
+
+	policyDef := celExpressionPolicy()
+	policyDef.DefaultSeverity = "record"
+	policyDef.SupportedModes = []string{"block", "record"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Command: "python -c 'import subprocess; subprocess.run([\"git\"] )'",
+			EvaluatorOptions: map[string]any{
+				"when": `command.contains("subprocess") && command.contains("git")`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one", decisions)
+	}
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+		t.Fatalf("decision = %#v, want record severity", decisions[0])
+	}
+	if decisions[0].Diagnostics[0].Severity != "record" {
+		t.Fatalf("diagnostic = %#v, want record severity", decisions[0].Diagnostics[0])
+	}
+}
+
 func TestEvaluateCELExpressionIgnoresNonMatchingCommand(t *testing.T) {
 	t.Parallel()
 

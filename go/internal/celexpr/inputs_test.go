@@ -54,6 +54,28 @@ func TestValidateAcceptsReviewedHelperFunctions(t *testing.T) {
 	}
 }
 
+func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.glob_helper",
+		`glob_match("src/**/*.py", path.file)`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Files: []string{"src/package/nested/module.py"},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("glob helper output = %#v, want true", output.Value())
+	}
+}
+
 func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	t.Parallel()
 
@@ -86,5 +108,21 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	repo, ok := activation["repo"].(RepoInput)
 	if !ok || repo.Root != "/repo" || repo.PythonVersion != "3.13" {
 		t.Fatalf("repo input = %#v", activation["repo"])
+	}
+}
+
+func TestActivationMarksTopLevelGeneratedDirectory(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Files: []string{"generated/client.py"},
+	})
+
+	pathInput, ok := activation["path"].(PathInput)
+	if !ok {
+		t.Fatalf("path input = %#v", activation["path"])
+	}
+	if !pathInput.IsGenerated {
+		t.Fatalf("path input = %#v, want generated", pathInput)
 	}
 }

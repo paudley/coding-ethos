@@ -8,6 +8,7 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
@@ -69,6 +70,18 @@ type ActivationInput struct {
 	PythonVersion string
 }
 
+var (
+	environmentOnce sync.Once
+	environment     *cel.Env
+	environmentErr  error
+	programCache    sync.Map
+)
+
+type programCacheKey struct {
+	PolicyID string
+	Source   string
+}
+
 func InputSchema() []string {
 	return []string{
 		"argv: list(string)",
@@ -99,6 +112,14 @@ func HelperSchema() []string {
 }
 
 func Environment() (*cel.Env, error) {
+	environmentOnce.Do(func() {
+		environment, environmentErr = newEnvironment()
+	})
+
+	return environment, environmentErr
+}
+
+func newEnvironment() (*cel.Env, error) {
 	options := []cel.EnvOption{
 		ext.NativeTypes(
 			reflect.TypeOf(MetadataInput{}),
@@ -125,24 +146,58 @@ func Environment() (*cel.Env, error) {
 }
 
 func Validate(policyID string, source string) error {
+	_, err := Program(policyID, source)
+
+	return err
+}
+
+func Program(policyID string, source string) (cel.Program, error) {
+	key := programCacheKey{
+		PolicyID: policyID,
+		Source:   strings.TrimSpace(source),
+	}
+	if cached, ok := programCache.Load(key); ok {
+		return cached.(cel.Program), nil
+	}
+
+	program, err := compileProgram(key.PolicyID, key.Source)
+	if err != nil {
+		return nil, err
+	}
+
+	cached, _ := programCache.LoadOrStore(key, program)
+
+	return cached.(cel.Program), nil
+}
+
+func compileProgram(policyID string, source string) (cel.Program, error) {
+	if source == "" {
+		return nil, fmt.Errorf("CEL expression policy %q missing when", policyID)
+	}
+
 	env, err := Environment()
 	if err != nil {
-		return fmt.Errorf("prepare CEL environment for %q: %w", policyID, err)
+		return nil, fmt.Errorf("prepare CEL environment for %q: %w", policyID, err)
 	}
 
 	ast, issues := env.Compile(source)
 	if issues != nil && issues.Err() != nil {
-		return fmt.Errorf("compile CEL policy %q: %w", policyID, issues.Err())
+		return nil, fmt.Errorf("compile CEL policy %q: %w", policyID, issues.Err())
 	}
 	if !ast.OutputType().IsExactType(cel.BoolType) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"compile CEL policy %q: when expression must return bool, got %s",
 			policyID,
 			ast.OutputType(),
 		)
 	}
 
-	return nil
+	program, err := env.Program(ast)
+	if err != nil {
+		return nil, fmt.Errorf("prepare CEL program for %q: %w", policyID, err)
+	}
+
+	return program, nil
 }
 
 func Activation(input ActivationInput) map[string]any {
@@ -236,7 +291,9 @@ func cleanSourceRoots(sourceRoots []string) []string {
 }
 
 func isGeneratedPath(file string) bool {
-	return strings.Contains(file, "/generated/") ||
+	return strings.HasPrefix(file, "generated/") ||
+		strings.Contains(file, "/generated/") ||
+		strings.HasPrefix(file, ".generated/") ||
 		strings.Contains(file, "/.generated/") ||
 		strings.Contains(path.Base(file), ".generated.")
 }
