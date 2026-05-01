@@ -4,10 +4,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -211,9 +213,17 @@ func main() {
 		return
 	}
 
+	files := parseFiles(*filesRaw)
+	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
+		files, err = stagedFiles(*cwd)
+		if err != nil {
+			exitErr(err)
+		}
+	}
+
 	result, err := lint.Run(bundle, lint.Options{
 		Scope:   scope.Value(),
-		Files:   parseFiles(*filesRaw),
+		Files:   files,
 		Argv:    parseArgv(*argvRaw),
 		Command: *command,
 		Cwd:     *cwd,
@@ -309,6 +319,28 @@ func parseFiles(raw string) []string {
 	}
 
 	return files
+}
+
+func stagedFiles(cwd string) ([]string, error) {
+	command := exec.CommandContext(
+		context.Background(),
+		"git",
+		"diff",
+		"--cached",
+		"--name-only",
+		"--diff-filter=ACMR",
+		"--",
+	)
+	if strings.TrimSpace(cwd) != "" {
+		command.Dir = cwd
+	}
+
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list staged files: %w", err)
+	}
+
+	return splitNonEmpty(string(output), "\n"), nil
 }
 
 func parseArgv(raw string) []string {

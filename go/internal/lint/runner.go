@@ -94,9 +94,8 @@ func RunWithRegistry(
 		Diagnostics: diagnosticsFromDecisions(decisions),
 		Findings:    findingsFromDecisions(decisions, options.Files),
 	}
-	result.SkillHints = SkillHintsForDiagnostics(OutputDiagnostics(result), bundle.Skills)
 
-	return result, nil
+	return EnrichResultWithSkills(result, bundle.Skills), nil
 }
 
 func enrichDecisionDiagnostics(

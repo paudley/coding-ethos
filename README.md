@@ -1,7 +1,11 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
 <!-- SPDX-License-Identifier: MIT -->
 
-# coding-ethos
+<p align="center">
+  <img src="./docs/logo-banner.svg" alt="Coding Ethos Logo" width="600">
+</p>
+
+# Coding Ethos
 
 `coding-ethos` turns engineering principles into runnable repository policy.
 
@@ -62,6 +66,33 @@ flow through normally; findings tied to ETHOS principles can receive stronger,
 policy-grounded advice instead of generic tool text. When a finding maps to a
 generated skill, agent-facing output includes a compact `skill_id` hint and a
 next action to load that remediation playbook.
+
+## ETHOS Skills
+
+Skills are generated remediation playbooks, not a separate hand-maintained
+documentation layer. `coding_ethos.yml` defines each skill with its ETHOS
+principles, trigger terms, short hint, focus, and remediation steps. `make
+build` renders those skills into the portable `.agents/skills/` tree and the
+native Claude, Codex, and Gemini skill locations.
+
+The compiled policy bundle carries the same skill metadata. Runtime lint and
+hook results attach a `skill_id` when a finding maps through an evidence map,
+overlaps a skill's ETHOS principles, or matches a skill trigger term.
+Agent-facing output stays compact: TOON and human output emit the skill ID,
+short hint, and next action instead of dumping the full skill body into the
+agent context.
+
+Skill hints are also logged under `.coding-ethos/lint-runs/`. Those traces let
+the project measure which remediation playbooks appear in real work and promote
+recurring unmapped findings into stronger evidence maps or repo-specific
+skills.
+
+Current built-in skills:
+
+- `conditional-imports`
+- `lint-remediation`
+- `managed-toolchain`
+- `safe-git-workflow`
 
 ## Quick Start
 

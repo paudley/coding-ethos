@@ -114,6 +114,10 @@ func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
 		Message:  finding.Message,
 		Advice:   finding.Advice,
 		Detail:   findingDetail(finding),
+		PrincipleIDs: append(
+			[]string(nil),
+			finding.EthosIDs...,
+		),
 	}
 }
 

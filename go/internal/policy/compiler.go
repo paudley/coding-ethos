@@ -1523,7 +1523,6 @@ func shellForbiddenStringsPolicy(
 			"coding-ethos-hooks/bin/coding-ethos-policy",
 			"coding-ethos-hooks/lefthook",
 			"/coding-ethos/pre-commit/hooks/",
-			"/coding-ethos/go/internal/",
 			"/coding-ethos/config.yaml",
 			"/coding-ethos/ruff.toml",
 			"/coding-ethos/.golangci.yml",

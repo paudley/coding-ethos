@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 200" width="100%" height="100%">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#8B5CF6" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#6366F1" flood-opacity="0.3"/>
+    </filter>
+    <style>
+      .title { fill: #0F172A; font-family: system-ui, -apple-system, sans-serif; font-size: 48px; font-weight: 800; letter-spacing: 1.5px; }
+      .subtitle { fill: #475569; font-family: system-ui, -apple-system, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: 4px; }
+      @media (prefers-color-scheme: dark) {
+        .title { fill: #F8FAFC; }
+        .subtitle { fill: #94A3B8; }
+      }
+    </style>
+  </defs>
+
+  <g transform="translate(120, 80) scale(0.65)">
+    <path d="M 0,-100 L 90,-40 L 90,50 C 90,100 45,130 0,160 C -45,130 -90,100 -90,50 L -90,-40 Z" fill="url(#shieldGrad)" filter="url(#shadow)" />
+    
+    <path d="M -25,-5 L -55,30 L -25,65 M 25,-5 L 55,30 L 25,65 M 15,-20 L -15,80" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <text x="230" y="105" class="title">CODING ETHOS</text>
+  <text x="235" y="135" class="subtitle">POLICY AS CODE</text>
+</svg>
