@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -27,8 +29,11 @@ const (
 )
 
 var (
-	errHookCommandRequired = errors.New("hook command is required")
-	errSettingsMismatch    = errors.New(
+	errHookCommandRequired     = errors.New("hook command is required")
+	errMissingSkillFrontmatter = errors.New(
+		"generated skill is missing YAML frontmatter",
+	)
+	errSettingsMismatch = errors.New(
 		"agent hook settings do not contain expected hooks for all providers",
 	)
 )
@@ -711,13 +716,51 @@ func verifySkillFile(path string, skillID string) error {
 		return fmt.Errorf("read generated skill %s: %w", path, err)
 	}
 
-	text := string(content)
-	if !strings.Contains(text, "name: "+skillID) ||
-		!strings.Contains(text, "source: coding_ethos.yml") {
+	frontmatter, err := parseSkillFrontmatter(string(content))
+	if err != nil {
+		return fmt.Errorf("read generated skill metadata %s: %w", path, err)
+	}
+
+	if frontmatter.Name != skillID || frontmatter.EffectiveSource() != "coding_ethos.yml" {
 		return fmt.Errorf("generated skill %s does not match skill %s", path, skillID)
 	}
 
 	return nil
+}
+
+type skillFrontmatter struct {
+	Metadata struct {
+		Source string `yaml:"source"`
+	} `yaml:"metadata"`
+	Name   string `yaml:"name"`
+	Source string `yaml:"source"`
+}
+
+func (frontmatter skillFrontmatter) EffectiveSource() string {
+	if frontmatter.Metadata.Source != "" {
+		return frontmatter.Metadata.Source
+	}
+
+	return frontmatter.Source
+}
+
+func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
+	if !strings.HasPrefix(content, "---\n") {
+		return skillFrontmatter{}, errMissingSkillFrontmatter
+	}
+
+	remainder := strings.TrimPrefix(content, "---\n")
+	raw, _, ok := strings.Cut(remainder, "\n---")
+	if !ok {
+		return skillFrontmatter{}, errMissingSkillFrontmatter
+	}
+
+	var frontmatter skillFrontmatter
+	if err := yaml.Unmarshal([]byte(raw), &frontmatter); err != nil {
+		return skillFrontmatter{}, fmt.Errorf("parse YAML frontmatter: %w", err)
+	}
+
+	return frontmatter, nil
 }
 
 func buildAllSettings(hookCommand string) (allSettings, error) {
@@ -761,18 +804,19 @@ func ProviderCapabilities() []ProviderCapability {
 			Supported: []string{
 				"PreToolUse block",
 				"PreToolUse native command hook",
-				"PostToolUse additionalContext",
+				"PostToolUse compact systemMessage",
 				"PostToolUse edit verification advice",
-				"SessionStart additionalContext",
-				"UserPromptSubmit additionalContext",
-				"Stop additionalContext",
 			},
 			ProviderLimited: []string{
 				"git wrapper enforcement blocks raw git because updatedInput is not supported",
+				"routine lifecycle advice hooks are not installed because Codex flattens multiline allowed context",
 			},
 			Unsupported: []string{
 				"PreToolUse updatedInput rewrite",
 				"PostToolBatch additionalContext",
+				"SessionStart additionalContext",
+				"UserPromptSubmit additionalContext",
+				"Stop additionalContext",
 				"SessionEnd additionalContext",
 				"SubagentStart additionalContext",
 				"SubagentStop additionalContext",
@@ -839,21 +883,14 @@ func codexHookMatchers(spec HookSpec) []string {
 		return []string{""}
 	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
 		return []string{""}
+	case spec.Event == "PostToolUse" && spec.Tool == "Write":
+		return []string{""}
+	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
+		return []string{""}
+	case spec.Event == "PostToolUse" && spec.Tool == "MultiEdit":
+		return []string{""}
 	default:
-		if spec.Tool == "" && codexSupportsContextEvent(spec.Event) {
-			return []string{""}
-		}
-
 		return nil
-	}
-}
-
-func codexSupportsContextEvent(event string) bool {
-	switch event {
-	case "SessionStart", "UserPromptSubmit", "Stop":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -1145,17 +1182,6 @@ func hookProbes() []hookProbe {
 			}`,
 			validate: validateGeminiDenyProbe,
 		},
-		{
-			provider: string(ProviderCodex),
-			event:    "UserPromptSubmit",
-			tool:     "",
-			payload: `{
-				"provider": "codex",
-				"event": "UserPromptSubmit",
-				"input": {"prompt": "finish hook replacement"}
-			}`,
-			validate: validateContextProbe,
-		},
 	}
 }
 
@@ -1267,18 +1293,6 @@ func validateGeminiDenyProbe(result hookProbeResult) error {
 	}
 
 	return validateDecisionProbe(result, "deny")
-}
-
-func validateContextProbe(result hookProbeResult) error {
-	if result.exitCode != 0 {
-		return fmt.Errorf("context probe should allow, got exit %d", result.exitCode)
-	}
-
-	if _, ok := nestedString(result.payload, "hookSpecificOutput", "additionalContext"); !ok {
-		return fmt.Errorf("missing additionalContext in %s", result.stdout)
-	}
-
-	return nil
 }
 
 func validateDecisionProbe(result hookProbeResult, decision string) error {

@@ -209,9 +209,12 @@ Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
 contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
 does not currently support `updatedInput`, so coding-ethos returns native block
 output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
-command must be rerun through the wrapper. Gemini uses native
-`decision: "deny"` and `systemMessage` for tool blocks, and maps `AfterTool` to
-the same internal `PostToolUse` feedback path for shell and edit advice.
+command must be rerun through the wrapper. Codex receives compact single-line
+`systemMessage` advice for concrete post-tool feedback, while routine lifecycle
+advice hooks are not installed because the client currently renders allowed
+multiline context as flattened warnings. Gemini uses native `decision: "deny"`
+and `systemMessage` for tool blocks, and maps `AfterTool` to the same internal
+`PostToolUse` feedback path for shell and edit advice.
 Agent-facing post-tool context replaces absolute repo, home, and temp paths
 with stable tokens, collapses multiline commands, and renders hook output as
 TOON line tables instead of escaped newline cells.

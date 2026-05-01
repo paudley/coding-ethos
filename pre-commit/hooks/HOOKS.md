@@ -128,11 +128,13 @@ bundle and receive the same blocking, rewrite, advice, continuation, and
 post-tool feedback behavior where the provider exposes that lifecycle point.
 Provider output is adapted at the boundary: Claude receives full
 `hookSpecificOutput` including `updatedInput`, Codex receives native block
-output and supported context output without relying on unsupported rewrite
-semantics, and Gemini receives native `deny` / `systemMessage` responses for
-tool gates. Agent-facing post-tool context normalizes absolute repo, home, and
-temporary paths, collapses multiline commands, and renders hook output as TOON
-line tables instead of giant escaped string cells. Post-edit feedback for
+output plus compact single-line `systemMessage` post-tool advice, and Gemini
+receives native `deny` / `systemMessage` responses for tool gates. Codex
+routine lifecycle hooks are intentionally not installed until the client
+exposes a multiline-safe allowed-context channel. Agent-facing post-tool context
+normalizes absolute repo, home, and temporary paths, collapses multiline
+commands, and renders hook output as TOON line tables instead of giant escaped
+string cells. Post-edit feedback for
 `Write`, `Edit`, and `MultiEdit` includes a checkpoint, language-specific next
 steps, compiled lint findings, and a fast Ruff probe for Python files when
 `ruff` is available.

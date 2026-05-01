@@ -73,7 +73,12 @@ func codexAllowedOutput(result Result) providerHookOutput {
 		return providerHookOutput{}
 	}
 
-	return providerHookOutput{SystemMessage: output.AdditionalContext}
+	message := codexAllowedMessage(output.AdditionalContext)
+	if message == "" {
+		return providerHookOutput{}
+	}
+
+	return providerHookOutput{SystemMessage: message}
 }
 
 func geminiAllowedOutput(result Result) providerHookOutput {
@@ -90,12 +95,24 @@ func geminiAllowedOutput(result Result) providerHookOutput {
 }
 
 func providerBlockedOutput(result Result) providerHookOutput {
-	message := providerBlockReason(result)
+	message := ProviderBlockMessage(result)
 	switch result.Provider {
 	case "gemini":
 		return providerHookOutput{
 			Decision:      "deny",
 			Reason:        message,
+			SystemMessage: message,
+		}
+	case "codex":
+		message = compactProviderMessage(message)
+		return providerHookOutput{
+			Decision: "block",
+			Reason:   message,
+			HookSpecificOutput: &HookSpecificOutput{
+				HookEventName:            result.Event,
+				PermissionDecision:       "deny",
+				PermissionDecisionReason: message,
+			},
 			SystemMessage: message,
 		}
 	default:
@@ -110,6 +127,15 @@ func providerBlockedOutput(result Result) providerHookOutput {
 			SystemMessage: message,
 		}
 	}
+}
+
+func ProviderBlockMessage(result Result) string {
+	message := providerBlockReason(result)
+	if result.Provider == providerCodex {
+		return compactProviderMessage(message)
+	}
+
+	return message
 }
 
 func providerBlockReason(result Result) string {
@@ -141,4 +167,27 @@ func providerContextSummary(context string) string {
 	}
 
 	return "coding-ethos added hook context for this turn."
+}
+
+func codexAllowedMessage(context string) string {
+	normalized := strings.Join(strings.Fields(context), " ")
+	if normalized == "" {
+		return ""
+	}
+
+	switch {
+	case strings.Contains(normalized, "tool: Write") ||
+		strings.Contains(normalized, "tool: Edit") ||
+		strings.Contains(normalized, "tool: MultiEdit"):
+		return "coding-ethos: review the edited file; run focused formatting, lint, type, or tests; fix static-analysis findings structurally."
+	case strings.Contains(normalized, "event: PostToolUse") &&
+		strings.Contains(normalized, "tool: Bash"):
+		return "coding-ethos: hook output captured; summarize failed hooks, modified files, warnings, and required fixes before continuing."
+	default:
+		return ""
+	}
+}
+
+func compactProviderMessage(message string) string {
+	return strings.Join(strings.Fields(message), " ")
 }

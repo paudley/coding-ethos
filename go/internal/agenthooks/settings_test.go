@@ -72,11 +72,12 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
-	assertCapability(t, capabilities, "codex", "partial", "Stop additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse compact systemMessage")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
+	assertUnsupported(t, capabilities, "codex", "UserPromptSubmit additionalContext")
+	assertUnsupported(t, capabilities, "codex", "Stop additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
@@ -141,6 +142,63 @@ func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
 	}
 }
 
+func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
+	t.Parallel()
+
+	buffer := bytes.Buffer{}
+
+	err := agenthooks.WriteSettings(&buffer, testHookCommand)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	output := buffer.String()
+	codexSettings := providerSettingsSection(t, output, "codex", "gemini")
+	for _, expected := range []string{
+		`"PreToolUse"`,
+		`"PostToolUse"`,
+		`"statusMessage": "coding-ethos policy"`,
+	} {
+		if !strings.Contains(codexSettings, expected) {
+			t.Fatalf("Codex settings missing %s:\n%s", expected, codexSettings)
+		}
+	}
+	for _, unsupported := range []string{
+		`"PostToolBatch"`,
+		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"Stop"`,
+		`"SessionEnd"`,
+		`"SubagentStart"`,
+		`"SubagentStop"`,
+	} {
+		if strings.Contains(codexSettings, unsupported) {
+			t.Fatalf("Codex must not install context-only hook %s:\n%s", unsupported, codexSettings)
+		}
+	}
+}
+
+func providerSettingsSection(
+	t *testing.T,
+	output string,
+	provider string,
+	nextProvider string,
+) string {
+	t.Helper()
+
+	start := strings.Index(output, `"`+provider+`": {`)
+	if start == -1 {
+		t.Fatalf("missing %s settings:\n%s", provider, output)
+	}
+
+	end := strings.Index(output[start:], `"`+nextProvider+`": {`)
+	if end == -1 {
+		t.Fatalf("missing %s settings after %s:\n%s", nextProvider, provider, output)
+	}
+
+	return output[start : start+end]
+}
+
 func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	t.Parallel()
 
@@ -194,8 +252,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 14 {
-		t.Fatalf("check count = %d, want 14: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 13 {
+		t.Fatalf("check count = %d, want 13: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
@@ -391,7 +449,16 @@ func overwriteAgentSettings(t *testing.T, path string, content string) {
 func writeGeneratedSkillSurfaces(t *testing.T, root string, skillID string) {
 	t.Helper()
 
-	content := "name: " + skillID + "\nsource: coding_ethos.yml\n"
+	content := strings.Join([]string{
+		"---",
+		"name: " + skillID,
+		"metadata:",
+		"  source: coding_ethos.yml",
+		"---",
+		"",
+		"# " + skillID,
+		"",
+	}, "\n")
 	paths := []string{
 		filepath.Join(root, ".agents", "skills", skillID, "SKILL.md"),
 		filepath.Join(root, ".claude", "skills", skillID, "SKILL.md"),

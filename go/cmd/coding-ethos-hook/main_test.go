@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -19,7 +20,7 @@ import (
 func TestHookCLIBlocksBashBypass(t *testing.T) {
 	t.Parallel()
 
-	result, status := runHookCLI(
+	result, status, stderr := runHookCLI(
 		t,
 		hookJSON(t, "PreToolUse", "Bash", map[string]any{
 			"command": "git commit --no-verify -m test",
@@ -32,12 +33,20 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 	if !hookOutputDenies(result) {
 		t.Fatalf("result status mismatch: %#v", result)
 	}
+	if stderr == "" {
+		t.Fatalf("--json agent hook output must include a compact blocking reason on stderr")
+	}
+	trimmedStderr := strings.TrimSpace(stderr)
+	if strings.Contains(trimmedStderr, "format: toon") ||
+		strings.Contains(trimmedStderr, "\n") {
+		t.Fatalf("--json agent hook stderr must be compact provider advice:\n%s", stderr)
+	}
 }
 
 func TestHookCLIAdvisesMultiEditPythonPolicy(t *testing.T) {
 	t.Parallel()
 
-	result, status := runHookCLI(
+	result, status, _ := runHookCLI(
 		t,
 		hookJSON(t, "PreToolUse", "MultiEdit", map[string]any{
 			"file_path":  "src/app.py",
@@ -56,7 +65,7 @@ func TestHookCLIAdvisesMultiEditPythonPolicy(t *testing.T) {
 func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 	t.Parallel()
 
-	result, status := runHookCLI(
+	result, status, _ := runHookCLI(
 		t,
 		hookJSON(t, "SessionStart", "Unknown", map[string]any{
 			"command": "git status",
@@ -71,7 +80,7 @@ func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 	}
 }
 
-func runHookCLI(t *testing.T, stdin string) (map[string]any, int) {
+func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "coding-ethos-hook")
 	build := exec.CommandContext(
@@ -126,7 +135,7 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int) {
 		)
 	}
 
-	return result, status
+	return result, status, stderr.String()
 }
 
 func hookOutputDenies(result map[string]any) bool {

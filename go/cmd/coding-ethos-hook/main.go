@@ -86,6 +86,9 @@ func readBundle(path string) (policy.Bundle, error) {
 
 func printBlocked(result hooks.Result) {
 	advice := hooks.BlockedAdvice(result)
+	if result.Provider != "" {
+		advice = hooks.ProviderBlockMessage(result)
+	}
 	if advice == "" {
 		return
 	}

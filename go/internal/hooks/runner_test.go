@@ -703,6 +703,27 @@ func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
 	}
 }
 
+func TestRunAllowsDocumentedRunGoHookNonGitCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pre-commit/hooks/run-go-hook.sh agent-hooks verify",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunAllowsInstalledManagedGitWrapperCommand(t *testing.T) {
 	t.Parallel()
 
@@ -1740,6 +1761,9 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
 		}
 	}
+	if strings.Contains(output, `\n`) {
+		t.Fatalf("Codex block output must be single-line-safe JSON strings:\n%s", output)
+	}
 }
 
 func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
@@ -2075,7 +2099,7 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
-		"provider": "codex",
+		"provider": "claude",
 		"event": "PostToolUse",
 		"tool": "write_file",
 		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
@@ -2104,7 +2128,34 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	assertNoRoutineContextClutter(t, context)
 }
 
-func TestEncodeProviderResultUsesCodexSystemMessageForContext(t *testing.T) {
+func TestEncodeProviderResultCompactsCodexPostEditContext(t *testing.T) {
+	t.Parallel()
+
+	result := Result{
+		Event:    "PostToolUse",
+		Provider: "codex",
+		Status:   statusAllowed,
+		HookSpecificOutput: &HookSpecificOutput{
+			HookEventName:     "PostToolUse",
+			AdditionalContext: "tool: Write\nfiles:\n- src/app.py\n\nguidance:\n- Review the edited file before claiming completion.",
+		},
+	}
+
+	var buffer strings.Builder
+	err := EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	assertCodexCompactContext(
+		t,
+		output,
+		"coding-ethos: review the edited file; run focused formatting, lint, type, or tests; fix static-analysis findings structurally.",
+	)
+}
+
+func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
@@ -2122,32 +2173,45 @@ func TestEncodeProviderResultUsesCodexSystemMessageForContext(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	var buffer strings.Builder
-	err = EncodeResult(&buffer, result)
-	if err != nil {
-		t.Fatalf("encode result: %v", err)
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Codex post-edit advice should require actionable signal: %#v", result.HookSpecificOutput)
 	}
+}
 
-	output := buffer.String()
-	if strings.Contains(output, "hookSpecificOutput") ||
-		strings.Contains(output, "updatedInput") {
-		t.Fatalf("Codex context output must not include hookSpecificOutput:\n%s", output)
-	}
-	if !strings.Contains(output, `"systemMessage"`) ||
-		!strings.Contains(output, `tool: Write\n`) ||
-		!strings.Contains(output, `guidance:\n- Review`) {
-		t.Fatalf("missing Codex systemMessage context:\n%s", output)
+func TestEncodeProviderResultSuppressesCodexRoutineLifecycleContext(t *testing.T) {
+	t.Parallel()
+
+	for _, payload := range []string{
+		`{"provider":"codex","event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`,
+		`{"provider":"codex","event":"Stop"}`,
+	} {
+		event, err := DecodeEvent(strings.NewReader(payload))
+		if err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+
+		result, err := Run(policy.ExampleBundle(), Options{Event: event})
+		if err != nil {
+			t.Fatalf("run hook: %v", err)
+		}
+		if result.HookSpecificOutput == nil {
+			t.Fatalf("test fixture should still exercise internal context: %#v", result)
+		}
+
+		var buffer strings.Builder
+		err = EncodeResult(&buffer, result)
+		if err != nil {
+			t.Fatalf("encode result: %v", err)
+		}
+
+		assertCodexAllowedContextQuiet(t, buffer.String())
 	}
 }
 
 func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	t.Setenv("CODEX_THREAD_ID", "thread")
 
-	event, err := DecodeEvent(strings.NewReader(`{
-		"event": "PostToolUse",
-		"tool": "write_file",
-		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
-	}`))
+	event, err := DecodeEvent(strings.NewReader(`{"event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
@@ -2166,15 +2230,50 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 		t.Fatalf("encode result: %v", err)
 	}
 
-	output := buffer.String()
-	if strings.Contains(output, "hookSpecificOutput") ||
-		strings.Contains(output, "updatedInput") {
-		t.Fatalf("Codex-inferred output must not include hookSpecificOutput:\n%s", output)
+	assertCodexAllowedContextQuiet(t, buffer.String())
+}
+
+func assertCodexCompactContext(t *testing.T, output string, message string) {
+	t.Helper()
+
+	for _, expected := range []string{
+		`"systemMessage": "` + message + `"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("Codex compact context missing %q:\n%s", expected, output)
+		}
 	}
-	if !strings.Contains(output, `"systemMessage"`) ||
-		!strings.Contains(output, `tool: Write\n`) ||
-		!strings.Contains(output, `guidance:\n- Review`) {
-		t.Fatalf("missing inferred Codex systemMessage context:\n%s", output)
+	for _, forbidden := range []string{
+		"hookSpecificOutput",
+		"updatedInput",
+		"guidance:",
+		"\\n",
+		"Before ending",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex compact context leaked %q:\n%s", forbidden, output)
+		}
+	}
+}
+
+func assertCodexAllowedContextQuiet(t *testing.T, output string) {
+	t.Helper()
+
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("Codex allowed context output must be empty provider JSON:\n%s", output)
+	}
+	for _, forbidden := range []string{
+		"hookSpecificOutput",
+		"updatedInput",
+		"systemMessage",
+		"guidance",
+		"Before ending",
+		"tool: Write",
+		"Review the edited file",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex allowed context leaked %q:\n%s", forbidden, output)
+		}
 	}
 }
 

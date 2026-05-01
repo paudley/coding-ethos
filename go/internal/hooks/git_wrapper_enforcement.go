@@ -198,6 +198,10 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return "", true
 	}
 
+	if filepath.Base(segment[0]) == "run-go-hook.sh" {
+		return "", isTrustedRunGoHookCommand(segment[0])
+	}
+
 	if managedGitWrapperImpersonation(segment[0]) {
 		return "", false
 	}

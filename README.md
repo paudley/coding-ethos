@@ -542,7 +542,7 @@ Provider output uses the strongest native shape each agent supports:
 | Provider | Block shape | Context/advice shape |
 | --- | --- | --- |
 | Claude | `hookSpecificOutput.permissionDecision = deny` | full `hookSpecificOutput`, including `updatedInput` |
-| Codex | `decision: "block"` plus `permissionDecision: "deny"` | `additionalContext` for supported context events |
+| Codex | `decision: "block"` plus `permissionDecision: "deny"` | compact single-line `systemMessage` for concrete post-tool advice; routine lifecycle advice hooks are not installed |
 | Gemini | `decision: "deny"` plus `systemMessage` | `additionalContext` on supported lifecycle hooks |
 
 ### Agent-Hook Scope
