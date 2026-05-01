@@ -23,7 +23,9 @@ High-value queries include:
 
 - whether a proposed shell command is allowed before running it
 - whether a proposed edit is allowed before applying it
-- what compiled lint policy findings apply to the current work
+- what managed linter findings apply to the current work without invoking the
+  linter directly
+- what compiled lint policy findings apply before a managed tool run is needed
 - which ETHOS policy, advice, rerun command, and skill map to a lint finding
 - why a policy exists and which ETHOS principle grounds it
 - which generated skill best fits the current task
@@ -31,9 +33,10 @@ High-value queries include:
 The first MCP surface is a local stdio server exposed through
 `pre-commit/hooks/run-go-hook.sh mcp`. It reads from the same compiled policy
 bundle and skill data as the hooks, and starts with command checks, proposed
-edit checks, compiled lint checks, lint advice, policy explanations, skill
-lookup, and task-based skill recommendation. It must not become an alternate
-enforcement path or a way to bypass local Git and agent hooks.
+edit checks, managed lint capture, compiled lint checks, lint advice, policy
+explanations, skill lookup, task-based skill recommendation, and per-tool
+capability metadata. It must not become an alternate enforcement path or a way
+to bypass local Git and agent hooks.
 
 ## Standardized Policy Language
 

@@ -222,8 +222,8 @@ policy editable without weakening the compiled enforcement core.
   route `pre-commit/hooks/run-go-hook.sh mcp` through it.
 - [x] Implement a Model Context Protocol server for `coding-ethos`.
 - [x] Expose policy and skill queries for command checks, proposed edit checks,
-  compiled lint checks, lint advice, policy explanations, remediation lookup,
-  and task-based skill recommendation.
+  managed lint capture, compiled lint checks, lint advice, policy explanations,
+  remediation lookup, task-based skill recommendation, and capability metadata.
 - [x] Keep static generated docs and skills as durable fallback context while
   allowing Claude, Codex, Gemini, Cursor, and compatible clients to request
   focused context on demand.

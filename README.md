@@ -89,11 +89,19 @@ The first tools are intentionally narrow and auditable:
 
 - `policy_check_command`: check a proposed shell command before running it.
 - `policy_check_edit`: check a proposed file edit before applying it.
-- `lint_check`: run compiled coding-ethos lint policy checks for current work.
+- `lint_check`: run managed lint capture for Ruff, mypy, pyright, pylint,
+  SQLFluff, and other captured tools; when no tool is supplied, run compiled
+  coding-ethos policy lint checks for current work.
 - `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
 - `policy_explain`: return the compiled explanation for a policy ID.
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
+
+Tool definitions include `coding_ethos` metadata that tells clients whether a
+tool is advisory, reads files, executes managed lint tools, and persists traces.
+Agents should call `lint_check` instead of invoking linters directly so target
+resolution, generated config integrity, managed tool versions, evidence maps,
+skill hints, and trace logging stay on the enforced path.
 
 The MCP server is advisory context, not a bypass. Hook enforcement remains on
 the normal Git and agent-hook paths, and MCP responses come from the same

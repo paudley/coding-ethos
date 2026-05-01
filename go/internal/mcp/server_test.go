@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,6 +44,10 @@ func TestServerListsTools(t *testing.T) {
 		if strings.Contains(output, removed) {
 			t.Fatalf("removed tool %s still listed:\n%s", removed, output)
 		}
+	}
+	if !strings.Contains(output, "canonical lint path for agents") ||
+		!strings.Contains(output, "executes_tools") {
+		t.Fatalf("missing coding-ethos tool metadata:\n%s", output)
 	}
 }
 
@@ -97,6 +103,47 @@ func TestServerLintCheckRunsCompiledPolicies(t *testing.T) {
 	}
 	if !strings.Contains(output, "git.hook_bypass") {
 		t.Fatalf("missing hook bypass lint finding in output:\n%s", output)
+	}
+}
+
+func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	lintBinary := filepath.Join(tempDir, "coding-ethos-lint")
+	writeExecutable(t, lintBinary, `#!/usr/bin/env bash
+printf '%s\n' '{"scope":"managed","status":"blocked","findings":[{"check_id":"ruff:F401","source_tool":"ruff","code":"F401","message":"unused import","severity":"error","status":"fail","blocking":true}],"skill_hints":[{"skill_id":"lint-remediation","message":"fix lint structurally","next":"Load the lint-remediation skill."}],"capture":{"tool":"ruff","parser":"ruff","parse_status":"parsed","exit_code":1}}'
+exit 1
+`)
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":8,
+		"method":"tools/call",
+		"params":{
+			"name":"lint_check",
+			"arguments":{
+				"tool":"ruff",
+				"files":["src/app.py"]
+			}
+		}
+	}`), mcp.Runtime{
+		BundlePath:    filepath.Join(tempDir, "policy-bundle.json"),
+		EthosRoot:     tempDir,
+		ConsumerRoot:  tempDir,
+		InvocationCwd: tempDir,
+		LintBinary:    lintBinary,
+	})
+	response := decodeResponse(t, output)
+
+	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if content["engine"] != "managed_lint_capture" ||
+		content["tool"] != "ruff" ||
+		content["blocked"] != true {
+		t.Fatalf("content = %#v, want managed ruff block", content)
+	}
+	if !strings.Contains(output, "lint-remediation") {
+		t.Fatalf("missing managed lint skill hint:\n%s", output)
 	}
 }
 
@@ -195,8 +242,14 @@ func TestServerSkillRecommendUsesDiagnosticAndTaskSignals(t *testing.T) {
 func runServer(t *testing.T, input string) string {
 	t.Helper()
 
+	return runServerWithRuntime(t, input, mcp.Runtime{})
+}
+
+func runServerWithRuntime(t *testing.T, input string, runtime mcp.Runtime) string {
+	t.Helper()
+
 	var output bytes.Buffer
-	server := mcp.NewServer(policy.ExampleBundle())
+	server := mcp.NewServerWithRuntime(policy.ExampleBundle(), runtime)
 	if err := server.Serve(strings.NewReader(input+"\n"), &output); err != nil {
 		t.Fatalf("serve MCP: %v", err)
 	}
@@ -229,4 +282,12 @@ func compactJSON(t *testing.T, input string) string {
 	}
 
 	return string(payload)
+}
+
+func writeExecutable(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
 }

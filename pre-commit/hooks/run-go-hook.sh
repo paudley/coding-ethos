@@ -212,7 +212,14 @@ run_mcp() {
   bootstrap_runtime_if_missing
   require_policy_bundle
   require_policy_tool coding-ethos-mcp
-  exec "${TOOLS_BIN_DIR}/coding-ethos-mcp" --bundle "$POLICY_BUNDLE" "$@"
+  require_policy_tool coding-ethos-lint
+  exec "${TOOLS_BIN_DIR}/coding-ethos-mcp" \
+    --bundle "$POLICY_BUNDLE" \
+    --ethos-root "$ETHOS_ROOT" \
+    --consumer-root "$ROOT" \
+    --invocation-cwd "$INVOCATION_CWD" \
+    --lint-binary "${TOOLS_BIN_DIR}/coding-ethos-lint" \
+    "$@"
 }
 
 run_policy_tool() {

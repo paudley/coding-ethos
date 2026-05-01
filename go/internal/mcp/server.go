@@ -7,8 +7,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -16,16 +18,32 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 const protocolVersion = "2025-06-18"
 
+var errManagedLintRuntimeUnavailable = errors.New("managed lint runtime is not configured")
+
 type Server struct {
-	bundle policy.Bundle
+	bundle  policy.Bundle
+	runtime Runtime
+}
+
+type Runtime struct {
+	BundlePath    string
+	EthosRoot     string
+	ConsumerRoot  string
+	InvocationCwd string
+	LintBinary    string
 }
 
 func NewServer(bundle policy.Bundle) Server {
 	return Server{bundle: bundle}
+}
+
+func NewServerWithRuntime(bundle policy.Bundle, runtime Runtime) Server {
+	return Server{bundle: bundle, runtime: runtime}
 }
 
 func (server Server) Serve(reader io.Reader, writer io.Writer) error {
@@ -177,6 +195,9 @@ func (server Server) checkLint(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse lint check arguments: %w", err)
 	}
+	if strings.TrimSpace(input.Tool) != "" {
+		return server.checkManagedLint(input)
+	}
 
 	result, err := lint.Run(server.bundle, lint.Options{
 		Command:       input.Command,
@@ -199,6 +220,76 @@ func (server Server) checkLint(args json.RawMessage) (any, error) {
 		"findings":    result.Findings,
 		"diagnostics": result.Diagnostics,
 		"skill_hints": result.SkillHints,
+	}, nil
+}
+
+func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
+	tool := strings.TrimSpace(input.Tool)
+	if _, found := toolcatalog.HookOwnedTool(tool); !found {
+		return nil, fmt.Errorf("unknown managed lint tool %q", tool)
+	}
+	if err := server.runtime.validateManagedLint(); err != nil {
+		return nil, err
+	}
+
+	args := []string{
+		"--bundle", server.runtime.BundlePath,
+		"--json",
+		"--managed-capture-tool", tool,
+		"--ethos-root", server.runtime.EthosRoot,
+		"--consumer-root", server.runtime.ConsumerRoot,
+		"--invocation-cwd", firstNonEmpty(input.Cwd, server.runtime.InvocationCwd),
+	}
+	args = append(args, "--")
+	args = append(args, input.Argv...)
+	args = append(args, input.Files...)
+
+	command := exec.Command(server.runtime.LintBinary, args...)
+	command.Dir = firstNonEmpty(server.runtime.ConsumerRoot, input.Cwd)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	exitCode := commandExitCode(err)
+	if err != nil && exitCode == 0 {
+		return nil, fmt.Errorf("run managed lint %q: %w", tool, err)
+	}
+
+	output := stdout.Bytes()
+	if len(output) == 0 {
+		return map[string]any{
+			"engine":    "managed_lint_capture",
+			"tool":      tool,
+			"exit_code": exitCode,
+			"stderr":    strings.TrimSpace(stderr.String()),
+			"status":    "resolved",
+			"blocked":   false,
+		}, nil
+	}
+
+	var result lint.Result
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf(
+			"decode managed lint %q JSON: %w; stderr: %s",
+			tool,
+			err,
+			strings.TrimSpace(stderr.String()),
+		)
+	}
+
+	return map[string]any{
+		"engine":      "managed_lint_capture",
+		"tool":        tool,
+		"exit_code":   exitCode,
+		"stderr":      strings.TrimSpace(stderr.String()),
+		"status":      result.Status,
+		"blocked":     result.Blocked(),
+		"files":       result.Files,
+		"findings":    result.Findings,
+		"diagnostics": result.Diagnostics,
+		"skill_hints": result.SkillHints,
+		"capture":     result.Capture,
 	}, nil
 }
 
@@ -336,6 +427,40 @@ func providerOrDefault(provider string) string {
 	return provider
 }
 
+func (runtime Runtime) validateManagedLint() error {
+	if strings.TrimSpace(runtime.BundlePath) == "" ||
+		strings.TrimSpace(runtime.EthosRoot) == "" ||
+		strings.TrimSpace(runtime.ConsumerRoot) == "" ||
+		strings.TrimSpace(runtime.LintBinary) == "" {
+		return errManagedLintRuntimeUnavailable
+	}
+
+	return nil
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+
+	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
+}
+
 func diagnosticFromInput(input lintAdviceInput) diagnostics.Diagnostic {
 	return diagnostics.Diagnostic{
 		Code:     strings.TrimSpace(input.Code),
@@ -367,13 +492,15 @@ func (server Server) skillRecommendations(
 		input.Diagnostic.Message,
 	}, " "))
 
-	explicitSkill := server.skillIDForDiagnostic(input.Diagnostic)
+	enrichedDiagnostic := server.enrichedDiagnostic(input.Diagnostic)
+	explicitSkill := strings.TrimSpace(enrichedDiagnostic.SkillID)
 	scored := make([]scoredSkill, 0, len(server.bundle.Skills))
 	for _, skill := range server.bundle.Skills {
 		score := 0
 		if explicitSkill != "" && skill.ID == explicitSkill {
 			score += 100
 		}
+		score += scoreSkillByPrincipleOverlap(skill, enrichedDiagnostic.PrincipleIDs)
 		score += scoreSkillByText(skill, text)
 		if score == 0 {
 			continue
@@ -402,8 +529,12 @@ func (server Server) skillRecommendations(
 }
 
 func (server Server) skillIDForDiagnostic(input lintAdviceInput) string {
+	return strings.TrimSpace(server.enrichedDiagnostic(input).SkillID)
+}
+
+func (server Server) enrichedDiagnostic(input lintAdviceInput) diagnostics.Diagnostic {
 	if strings.TrimSpace(input.Tool) == "" || strings.TrimSpace(input.Message) == "" {
-		return ""
+		return diagnostics.Diagnostic{}
 	}
 
 	enriched := diagnostics.Enrich(
@@ -411,10 +542,10 @@ func (server Server) skillIDForDiagnostic(input lintAdviceInput) string {
 		server.bundle.EvidenceMaps,
 	)
 	if len(enriched) == 0 {
-		return ""
+		return diagnostics.Diagnostic{}
 	}
 
-	return strings.TrimSpace(enriched[0].SkillID)
+	return enriched[0]
 }
 
 func scoreSkillByText(skill policy.Skill, text string) int {
@@ -433,6 +564,23 @@ func scoreSkillByText(skill policy.Skill, text string) int {
 		normalized := strings.ToLower(strings.TrimSpace(signal))
 		if normalized != "" && strings.Contains(text, normalized) {
 			score += 3
+		}
+	}
+
+	return score
+}
+
+func scoreSkillByPrincipleOverlap(skill policy.Skill, principleIDs []string) int {
+	if len(skill.PrincipleIDs) == 0 || len(principleIDs) == 0 {
+		return 0
+	}
+
+	score := 0
+	for _, skillPrincipleID := range skill.PrincipleIDs {
+		for _, diagnosticPrincipleID := range principleIDs {
+			if skillPrincipleID == diagnosticPrincipleID {
+				score += 20
+			}
 		}
 	}
 

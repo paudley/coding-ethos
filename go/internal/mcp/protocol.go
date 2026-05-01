@@ -51,6 +51,7 @@ type lintCheckInput struct {
 	Command       string   `json:"command,omitempty"`
 	Cwd           string   `json:"cwd,omitempty"`
 	Scope         string   `json:"scope,omitempty"`
+	Tool          string   `json:"tool,omitempty"`
 	Files         []string `json:"files,omitempty"`
 	Argv          []string `json:"argv,omitempty"`
 	AdminApproved bool     `json:"admin_approved,omitempty"`
@@ -149,6 +150,13 @@ func toolDefinitions() []map[string]any {
 				"provider": map[string]any{"type": "string"},
 			},
 			[]string{"command"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "preflight shell commands before Bash",
+				TracePersisted: false,
+			},
 		),
 		toolDefinition(
 			"policy_check_edit",
@@ -161,12 +169,20 @@ func toolDefinitions() []map[string]any {
 				"provider": map[string]any{"type": "string"},
 			},
 			[]string{"path", "after"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "preflight generated or high-risk edits before writing",
+				TracePersisted: false,
+			},
 		),
 		toolDefinition(
 			"lint_check",
-			"Run compiled coding-ethos lint policy checks for files, argv, and command context.",
+			"Run managed lint capture for a named tool, or compiled coding-ethos policy lint checks when no tool is provided.",
 			map[string]any{
 				"scope":          map[string]any{"type": "string"},
+				"tool":           map[string]any{"type": "string"},
 				"files":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"argv":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"command":        map[string]any{"type": "string"},
@@ -174,6 +190,13 @@ func toolDefinitions() []map[string]any {
 				"admin_approved": map[string]any{"type": "boolean"},
 			},
 			nil,
+			toolMetadata{
+				Advisory:       false,
+				ExecutesTools:  true,
+				ReadsFiles:     true,
+				PreferredUse:   "canonical lint path for agents instead of running linters directly",
+				TracePersisted: true,
+			},
 		),
 		toolDefinition(
 			"lint_advice",
@@ -188,6 +211,13 @@ func toolDefinitions() []map[string]any {
 				"message":  map[string]any{"type": "string"},
 			},
 			[]string{"tool", "message"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "turn an existing lint finding into repair guidance",
+				TracePersisted: false,
+			},
 		),
 		toolDefinition(
 			"policy_explain",
@@ -196,6 +226,13 @@ func toolDefinitions() []map[string]any {
 				"policy_id": map[string]any{"type": "string"},
 			},
 			[]string{"policy_id"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "understand a policy before changing related code",
+				TracePersisted: false,
+			},
 		),
 		toolDefinition(
 			"skill_lookup",
@@ -204,6 +241,13 @@ func toolDefinitions() []map[string]any {
 				"skill_id": map[string]any{"type": "string"},
 			},
 			[]string{"skill_id"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "load the full remediation playbook for a known skill",
+				TracePersisted: false,
+			},
 		),
 		toolDefinition(
 			"skill_recommend",
@@ -228,8 +272,23 @@ func toolDefinitions() []map[string]any {
 				},
 			},
 			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "choose the relevant skill before starting or repairing work",
+				TracePersisted: false,
+			},
 		),
 	}
+}
+
+type toolMetadata struct {
+	PreferredUse   string
+	Advisory       bool
+	ExecutesTools  bool
+	ReadsFiles     bool
+	TracePersisted bool
 }
 
 func toolDefinition(
@@ -237,10 +296,18 @@ func toolDefinition(
 	description string,
 	properties map[string]any,
 	required []string,
+	metadata toolMetadata,
 ) map[string]any {
 	return map[string]any{
 		"name":        name,
 		"description": description,
+		"coding_ethos": map[string]any{
+			"advisory":        metadata.Advisory,
+			"executes_tools":  metadata.ExecutesTools,
+			"reads_files":     metadata.ReadsFiles,
+			"preferred_use":   metadata.PreferredUse,
+			"trace_persisted": metadata.TracePersisted,
+		},
 		"inputSchema": map[string]any{
 			"type":                 "object",
 			"properties":           properties,

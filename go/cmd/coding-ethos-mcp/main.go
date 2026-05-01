@@ -25,6 +25,10 @@ func main() {
 func run() error {
 	flags := flag.NewFlagSet("coding-ethos-mcp", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
+	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
+	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
+	invocationCwd := flags.String("invocation-cwd", "", "original command working directory")
+	lintBinary := flags.String("lint-binary", "", "Path to coding-ethos-lint")
 
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -41,7 +45,13 @@ func run() error {
 		return fmt.Errorf("invalid policy bundle:\n%s", policy.FormatValidationError(err))
 	}
 
-	return mcp.NewServer(bundle).Serve(os.Stdin, os.Stdout)
+	return mcp.NewServerWithRuntime(bundle, mcp.Runtime{
+		BundlePath:    *bundlePath,
+		EthosRoot:     *ethosRoot,
+		ConsumerRoot:  *consumerRoot,
+		InvocationCwd: *invocationCwd,
+		LintBinary:    *lintBinary,
+	}).Serve(os.Stdin, os.Stdout)
 }
 
 func readBundle(path string) (policy.Bundle, error) {
