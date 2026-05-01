@@ -285,6 +285,11 @@ policy:
 	}
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.no_subprocess_git")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "custom.no_subprocess_git")
+	assertHookPolicyDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
+		"custom.no_subprocess_git",
+	)
 
 	result, err := lint.Run(bundle, lint.Options{
 		Scope:   lint.ScopeFiles,
@@ -295,6 +300,36 @@ policy:
 	}
 	if !result.Blocked() || result.Diagnostics[0].SkillID != "safe-git-workflow" {
 		t.Fatalf("expression lint result = %#v", result)
+	}
+}
+
+func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: git.hook_bypass
+      scope: command
+      severity: block
+      principle_ids:
+        - one-path-for-critical-operations
+      when: command.contains("git")
+      message: Builtin replacement must fail.
+      advice: Choose a unique custom policy ID.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicts with an existing policy") {
+		t.Fatalf("compile error = %v, want policy ID collision error", err)
 	}
 }
 
@@ -1111,6 +1146,22 @@ func assertPolicyDispatched(t *testing.T, policyIDs []string, expected string) {
 	}
 
 	t.Fatalf("dispatch missing %q: %#v", expected, policyIDs)
+}
+
+func assertHookPolicyDispatched(
+	t *testing.T,
+	entries []HookDispatchEntry,
+	expected string,
+) {
+	t.Helper()
+
+	for _, entry := range entries {
+		if entry.PolicyID == expected {
+			return
+		}
+	}
+
+	t.Fatalf("hook dispatch missing %q: %#v", expected, entries)
 }
 
 func assertBlockedDiagnostic(

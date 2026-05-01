@@ -1845,6 +1845,13 @@ func addExpressionPolicies(
 		if err != nil {
 			return err
 		}
+		if _, exists := policies[policyDef.ID]; exists {
+			return fmt.Errorf(
+				"policy.expressions[%d].id %q conflicts with an existing policy",
+				index,
+				policyDef.ID,
+			)
+		}
 		policies[policyDef.ID] = policyDef
 	}
 
@@ -2877,6 +2884,7 @@ func compileHookDispatch(
 	addProtectedBranchWriteDispatch(hooks, policies)
 	addPythonWriteDispatch(hooks, policies)
 	addCommitHeadDispatch(hooks, policies)
+	addExpressionPoliciesToHookDispatch(hooks, policies)
 
 	return hooks
 }
@@ -3022,6 +3030,55 @@ func addCommitHeadDispatch(
 			},
 		)
 	}
+}
+
+func addExpressionPoliciesToHookDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	for policyID, policyDef := range policies {
+		for _, evaluator := range policyDef.Evaluators {
+			if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+				continue
+			}
+
+			for _, tool := range expressionHookTools(
+				stringOptionFromMap(evaluator.Options, "scope", "command"),
+			) {
+				ensureHookTool(hooks, "PreToolUse", tool)
+				if !hookDispatchContains(hooks["PreToolUse"][tool], policyID) {
+					hooks["PreToolUse"][tool] = append(
+						hooks["PreToolUse"][tool],
+						HookDispatchEntry{
+							PolicyID: policyID,
+							Mode:     policyDef.DefaultSeverity,
+						},
+					)
+				}
+			}
+		}
+	}
+}
+
+func expressionHookTools(scope string) []string {
+	switch scope {
+	case "path", "file", "files":
+		return []string{"Bash", "Write", "Edit", "MultiEdit"}
+	case "diagnostic", "finding", "lint":
+		return []string{"Bash"}
+	default:
+		return []string{"Bash"}
+	}
+}
+
+func hookDispatchContains(entries []HookDispatchEntry, policyID string) bool {
+	for _, entry := range entries {
+		if entry.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func compileLinterDispatch(policies map[string]Policy) map[string][]string {

@@ -133,6 +133,57 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	}
 }
 
+func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.ExampleBundle()
+	bundle.Policies["custom.no_subprocess_git"] = policy.Policy{
+		ID:              "custom.no_subprocess_git",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source:          policy.SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		Message:         "Git subprocesses are forbidden.",
+		Suggestion:      "Use the protected Git wrapper.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		SupportedModes:  []string{"block", "record", "advise"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope":    "command",
+				"skill_id": "safe-git-workflow",
+				"when":     `command.contains("subprocess") && command.contains("git")`,
+			},
+		}},
+	}
+	bundle.Dispatch.Hooks["PreToolUse"]["Bash"] = append(
+		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
+		policy.HookDispatchEntry{PolicyID: "custom.no_subprocess_git", Mode: "block"},
+	)
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `python -c 'import subprocess; subprocess.run(["git"])'`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) != 1 ||
+		result.Decisions[0].PolicyID != "custom.no_subprocess_git" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 	t.Parallel()
 

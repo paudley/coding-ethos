@@ -23,9 +23,15 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 func TestValidateRejectsUnknownInputs(t *testing.T) {
 	t.Parallel()
 
-	err := Validate("test.unknown_input", `env.HOME != ""`)
-	if err == nil {
-		t.Fatalf("validate CEL expression succeeded, want unknown variable error")
+	for _, source := range []string{
+		`env.HOME != ""`,
+		`path.fiel == "pkg/app.py"`,
+		`diagnostic.line.contains("1")`,
+	} {
+		err := Validate("test.unknown_input", source)
+		if err == nil {
+			t.Fatalf("validate CEL expression %q succeeded, want compile error", source)
+		}
 	}
 }
 
@@ -59,30 +65,26 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 		PythonVersion: "3.13",
 	})
 
-	pathInput, ok := activation["path"].(map[string]any)
+	pathInput, ok := activation["path"].(PathInput)
 	if !ok {
 		t.Fatalf("path input = %#v", activation["path"])
 	}
-	for key, want := range map[string]any{
-		"file":           "src/tests/test_policy.py",
-		"dir":            "src/tests",
-		"base":           "test_policy.py",
-		"ext":            ".py",
-		"is_test":        true,
-		"in_source_root": true,
-	} {
-		if got := pathInput[key]; got != want {
-			t.Fatalf("path[%s] = %#v, want %#v", key, got, want)
-		}
+	if pathInput.File != "src/tests/test_policy.py" ||
+		pathInput.Dir != "src/tests" ||
+		pathInput.Base != "test_policy.py" ||
+		pathInput.Ext != ".py" ||
+		!pathInput.IsTest ||
+		!pathInput.InSourceRoot {
+		t.Fatalf("path input = %#v", pathInput)
 	}
 
-	diagnostic, ok := activation["diagnostic"].(map[string]any)
-	if !ok || diagnostic["tool"] != "ruff" || diagnostic["file"] != pathInput["file"] {
+	diagnostic, ok := activation["diagnostic"].(DiagnosticInput)
+	if !ok || diagnostic.Tool != "ruff" || diagnostic.File != pathInput.File {
 		t.Fatalf("diagnostic input = %#v", activation["diagnostic"])
 	}
 
-	repo, ok := activation["repo"].(map[string]any)
-	if !ok || repo["root"] != "/repo" || repo["python_version"] != "3.13" {
+	repo, ok := activation["repo"].(RepoInput)
+	if !ok || repo.Root != "/repo" || repo.PythonVersion != "3.13" {
 		t.Fatalf("repo input = %#v", activation["repo"])
 	}
 }

@@ -6,10 +6,56 @@ package celexpr
 import (
 	"fmt"
 	"path"
+	"reflect"
 	"strings"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/ext"
 )
+
+type MetadataInput struct {
+	AdminApproved bool   `json:"admin_approved"`
+	Tool          string `json:"tool"`
+}
+
+type PathInput struct {
+	File         string `json:"file"`
+	Dir          string `json:"dir"`
+	Base         string `json:"base"`
+	Ext          string `json:"ext"`
+	IsTest       bool   `json:"is_test"`
+	IsGenerated  bool   `json:"is_generated"`
+	InSourceRoot bool   `json:"in_source_root"`
+}
+
+type DiagnosticInput struct {
+	Tool     string `json:"tool"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	File     string `json:"file"`
+	Line     int64  `json:"line"`
+	Column   int64  `json:"column"`
+	Severity string `json:"severity"`
+	PolicyID string `json:"policy_id"`
+}
+
+type FindingInput struct {
+	Tool         string   `json:"tool"`
+	Code         string   `json:"code"`
+	Message      string   `json:"message"`
+	File         string   `json:"file"`
+	Line         int64    `json:"line"`
+	Severity     string   `json:"severity"`
+	PolicyID     string   `json:"policy_id"`
+	SkillID      string   `json:"skill_id"`
+	PrincipleIDs []string `json:"principle_ids"`
+}
+
+type RepoInput struct {
+	Root          string   `json:"root"`
+	SourceRoots   []string `json:"source_roots"`
+	PythonVersion string   `json:"python_version"`
+}
 
 type ActivationInput struct {
 	Argv          []string
@@ -30,7 +76,7 @@ func InputSchema() []string {
 		"cwd: string",
 		"files: list(string)",
 		"scope: string",
-		"metadata: map(string, dyn)",
+		"metadata: {admin_approved, tool}",
 		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
@@ -53,18 +99,25 @@ func HelperSchema() []string {
 }
 
 func Environment() (*cel.Env, error) {
-	inputObject := cel.MapType(cel.StringType, cel.DynType)
 	options := []cel.EnvOption{
+		ext.NativeTypes(
+			reflect.TypeOf(MetadataInput{}),
+			reflect.TypeOf(PathInput{}),
+			reflect.TypeOf(DiagnosticInput{}),
+			reflect.TypeOf(FindingInput{}),
+			reflect.TypeOf(RepoInput{}),
+			ext.ParseStructTag("json"),
+		),
 		cel.Variable("argv", cel.ListType(cel.StringType)),
 		cel.Variable("command", cel.StringType),
 		cel.Variable("cwd", cel.StringType),
 		cel.Variable("files", cel.ListType(cel.StringType)),
 		cel.Variable("scope", cel.StringType),
-		cel.Variable("metadata", inputObject),
-		cel.Variable("path", inputObject),
-		cel.Variable("diagnostic", inputObject),
-		cel.Variable("finding", inputObject),
-		cel.Variable("repo", inputObject),
+		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
+		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
+		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
+		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
+		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
 	}
 	options = append(options, helperFunctions()...)
 
@@ -94,9 +147,9 @@ func Validate(policyID string, source string) error {
 
 func Activation(input ActivationInput) map[string]any {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
-	primaryPath := pathInput("", sourceRoots)
+	primaryPath := newPathInput("", sourceRoots)
 	if len(input.Files) > 0 {
-		primaryPath = pathInput(input.Files[0], sourceRoots)
+		primaryPath = newPathInput(input.Files[0], sourceRoots)
 	}
 
 	return map[string]any{
@@ -104,23 +157,23 @@ func Activation(input ActivationInput) map[string]any {
 		"command": input.Command,
 		"cwd":     input.Cwd,
 		"files":   append([]string(nil), input.Files...),
-		"metadata": map[string]any{
-			"admin_approved": input.AdminApproved,
-			"tool":           input.Tool,
+		"metadata": MetadataInput{
+			AdminApproved: input.AdminApproved,
+			Tool:          input.Tool,
 		},
 		"scope":      input.Scope,
 		"path":       primaryPath,
 		"diagnostic": diagnosticInput(input, primaryPath),
 		"finding":    findingInput(input, primaryPath),
-		"repo": map[string]any{
-			"root":           input.Cwd,
-			"source_roots":   sourceRoots,
-			"python_version": input.PythonVersion,
+		"repo": RepoInput{
+			Root:          input.Cwd,
+			SourceRoots:   sourceRoots,
+			PythonVersion: input.PythonVersion,
 		},
 	}
 }
 
-func pathInput(file string, sourceRoots []string) map[string]any {
+func newPathInput(file string, sourceRoots []string) PathInput {
 	cleanFile := strings.TrimPrefix(path.Clean(strings.TrimSpace(file)), "./")
 	if cleanFile == "." || cleanFile == "/" {
 		cleanFile = ""
@@ -138,47 +191,35 @@ func pathInput(file string, sourceRoots []string) map[string]any {
 		ext = path.Ext(cleanFile)
 	}
 
-	return map[string]any{
-		"file":           cleanFile,
-		"dir":            dir,
-		"base":           base,
-		"ext":            ext,
-		"is_generated":   isGeneratedPath(cleanFile),
-		"is_test":        isTestPath(cleanFile),
-		"in_source_root": inSourceRoot(cleanFile, sourceRoots),
+	return PathInput{
+		File:         cleanFile,
+		Dir:          dir,
+		Base:         base,
+		Ext:          ext,
+		IsGenerated:  isGeneratedPath(cleanFile),
+		IsTest:       isTestPath(cleanFile),
+		InSourceRoot: inSourceRoot(cleanFile, sourceRoots),
 	}
 }
 
 func diagnosticInput(
 	input ActivationInput,
-	primaryPath map[string]any,
-) map[string]any {
-	return map[string]any{
-		"tool":      input.Tool,
-		"code":      "",
-		"message":   "",
-		"file":      primaryPath["file"],
-		"line":      int64(0),
-		"column":    int64(0),
-		"severity":  "",
-		"policy_id": "",
+	primaryPath PathInput,
+) DiagnosticInput {
+	return DiagnosticInput{
+		Tool: input.Tool,
+		File: primaryPath.File,
 	}
 }
 
 func findingInput(
 	input ActivationInput,
-	primaryPath map[string]any,
-) map[string]any {
-	return map[string]any{
-		"tool":          input.Tool,
-		"code":          "",
-		"message":       "",
-		"file":          primaryPath["file"],
-		"line":          int64(0),
-		"severity":      "",
-		"policy_id":     "",
-		"skill_id":      "",
-		"principle_ids": []string{},
+	primaryPath PathInput,
+) FindingInput {
+	return FindingInput{
+		Tool:         input.Tool,
+		File:         primaryPath.File,
+		PrincipleIDs: []string{},
 	}
 }
 
