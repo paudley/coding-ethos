@@ -168,8 +168,8 @@ printf '==> validating git wrapper allows normal commit\n'
 first_head="$(git -C "$git_repo" rev-parse HEAD)"
 "$repo_root/go/scripts/smoke_hook_edges.sh" gitlink "$lint_bin" "$policy_dir" "$git_repo" "$first_head"
 printf '==> validating hook detects unchanged commit HEAD\n'
-pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
-post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
+pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","source":"claude","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
+post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","source":"claude","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
 printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out
 set +e
 printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out 2>&1
@@ -442,9 +442,9 @@ fi
 printf '==> validating agent git wrapper rewrite and refusal\n'
 (
   cd "$wrapper_repo"
-  printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
+  printf '{"hook_event_name":"PreToolUse","source":"claude","tool_name":"Bash","tool_input":{"command":"git status"}}\n' |
     "$run_go_hook" agent-hook > /tmp/coding-ethos-git-rewrite.out
-  printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
+  printf '{"hook_event_name":"PreToolUse","source":"claude","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook > /tmp/coding-ethos-git-chain-rewrite.out
   set +e
   printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git commit --no-verify -m test"}}\n' |
@@ -535,7 +535,8 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||
   cat /tmp/coding-ethos-git-chain-rewrite.out >&2
   exit 1
 fi
-if ! grep -q 'This is a SYSTEM rule' /tmp/coding-ethos-git-refusal.err; then
+if ! grep -Eq 'CODING-ETHOS EMPLOYMENT VIOLATION.*may result in termination' \
+  /tmp/coding-ethos-git-refusal.err; then
   printf 'expected explicit git refusal output:\n' >&2
   cat /tmp/coding-ethos-git-refusal.err >&2
   cat /tmp/coding-ethos-git-refusal.out >&2
@@ -552,11 +553,10 @@ transcript="$tmp_root/session.jsonl"
 printf '{"role":"user","content":"finish the hook cutover"}\n' > "$transcript"
 (
   cd "$wrapper_repo"
-  printf '{"hook_event_name":"PreCompact","session_id":"smoke-session","transcript_path":"%s"}\n' \
-    "$transcript" |
+  printf '{"hook_event_name":"PreCompact","source":"claude","cwd":"%s","session_id":"smoke-session","transcript_path":"%s"}\n' "$wrapper_repo" "$transcript" |
     "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
       > /tmp/coding-ethos-precompact-smoke.out
-  printf '{"hook_event_name":"SessionStart","matcher":"compact","session_id":"smoke-session"}\n' |
+  printf '{"hook_event_name":"SessionStart","source":"claude","cwd":"%s","matcher":"compact","session_id":"smoke-session"}\n' "$wrapper_repo" |
     "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
       > /tmp/coding-ethos-sessionstart-smoke.out
 )

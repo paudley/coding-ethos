@@ -23,6 +23,7 @@ import (
 
 const (
 	codexConfigGrowth = 2
+	mcpServerName     = "coding-ethos"
 	settingsDirMode   = 0o755
 	settingsFileMode  = 0o600
 	verifyTimeout     = 30 * time.Second
@@ -72,8 +73,45 @@ type allSettings struct {
 	Capabilities []ProviderCapability `json:"capabilities"`
 }
 
+type mcpServer struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
+func (server mcpServer) claudeJSON() map[string]any {
+	payload := map[string]any{
+		"type":    "stdio",
+		"command": server.Command,
+		"args":    append([]string(nil), server.Args...),
+	}
+
+	return payload
+}
+
+func (server mcpServer) geminiJSON() map[string]any {
+	payload := map[string]any{
+		"command": server.Command,
+		"args":    append([]string(nil), server.Args...),
+	}
+
+	return payload
+}
+
+func mcpServerConfig(hookCommand string) (mcpServer, error) {
+	command, found := strings.CutSuffix(strings.TrimSpace(hookCommand), " agent-hook")
+	if !found || strings.TrimSpace(command) == "" {
+		return mcpServer{}, fmt.Errorf("derive MCP command from hook command %q: %w", hookCommand, errHookCommandRequired)
+	}
+
+	return mcpServer{
+		Command: command,
+		Args:    []string{"mcp"},
+	}, nil
+}
+
 type SettingsPaths struct {
 	Claude      string
+	ClaudeMCP   string
 	CodexConfig string
 	CodexHooks  string
 	Gemini      string
@@ -118,6 +156,7 @@ func DefaultSettingsPaths(root string) SettingsPaths {
 
 	return SettingsPaths{
 		Claude:      filepath.Join(root, ".claude", "settings.local.json"),
+		ClaudeMCP:   filepath.Join(root, ".mcp.json"),
 		CodexConfig: filepath.Join(root, ".codex", "config.toml"),
 		CodexHooks:  filepath.Join(root, ".codex", "hooks.json"),
 		Gemini:      filepath.Join(root, ".gemini", "settings.json"),
@@ -147,6 +186,10 @@ func SyncSettings(root string, hookCommand string) error {
 	if err != nil {
 		return err
 	}
+	mcpServer, err := mcpServerConfig(hookCommand)
+	if err != nil {
+		return err
+	}
 
 	paths := DefaultSettingsPaths(root)
 
@@ -157,7 +200,12 @@ func SyncSettings(root string, hookCommand string) error {
 		return err
 	}
 
-	err = syncCodexConfig(paths.CodexConfig, settings.Codex)
+	err = syncClaudeMCPConfig(paths.ClaudeMCP, mcpServer)
+	if err != nil {
+		return err
+	}
+
+	err = syncCodexConfig(paths.CodexConfig, settings.Codex, mcpServer)
 	if err != nil {
 		return err
 	}
@@ -170,6 +218,7 @@ func SyncSettings(root string, hookCommand string) error {
 	err = syncSettingsFile(paths.Gemini, func(payload map[string]any) {
 		payload["hooksConfig"] = settings.Gemini.HooksConfig
 		payload["hooks"] = settings.Gemini.Hooks
+		syncMCPServers(payload, mcpServer.geminiJSON())
 	})
 	if err != nil {
 		return err
@@ -178,9 +227,35 @@ func SyncSettings(root string, hookCommand string) error {
 	return nil
 }
 
-func syncCodexConfig(path string, settings claudeSettings) error {
+func syncClaudeMCPConfig(path string, server mcpServer) error {
+	return syncSettingsFile(path, func(payload map[string]any) {
+		syncMCPServers(payload, server.claudeJSON())
+	})
+}
+
+func syncMCPServers(payload map[string]any, server map[string]any) {
+	servers := mapFromAny(payload["mcpServers"])
+	servers[mcpServerName] = server
+	payload["mcpServers"] = servers
+}
+
+func mapFromAny(value any) map[string]any {
+	existing, ok := value.(map[string]any)
+	if !ok {
+		return map[string]any{}
+	}
+
+	copied := make(map[string]any, len(existing))
+	for key, nested := range existing {
+		copied[key] = nested
+	}
+
+	return copied
+}
+
+func syncCodexConfig(path string, settings claudeSettings, server mcpServer) error {
 	return syncTextSettingsFile(path, func(content string) string {
-		return ensureCodexConfig(content, settings)
+		return ensureCodexConfig(content, settings, server)
 	})
 }
 
@@ -268,42 +343,69 @@ func ensureCodexHookFeature(content string) string {
 	return strings.TrimRight(strings.Join(rewrite.output, "\n"), "\n") + "\n"
 }
 
-func ensureCodexConfig(content string, settings claudeSettings) string {
-	withoutManaged := removeCodexHooksConfig(content)
+func ensureCodexConfig(content string, settings claudeSettings, server mcpServer) string {
+	withoutManaged := removeCodexManagedConfig(content)
 	withFeature := ensureCodexHookFeature(withoutManaged)
 
 	return strings.TrimRight(withFeature, "\n") + "\n\n" +
-		renderManagedCodexHooksBlock(settings)
+		renderManagedCodexHooksBlock(settings) + "\n" +
+		renderManagedCodexMCPBlock(server)
 }
 
-func removeCodexHooksConfig(content string) string {
-	return removeCodexHooksSection(removeManagedCodexHooksBlock(content))
+func removeCodexManagedConfig(content string) string {
+	return removeCodexMCPSection(removeCodexHooksSection(removeManagedCodexBlocks(content)))
 }
 
-func removeManagedCodexHooksBlock(content string) string {
-	const (
-		begin = "# BEGIN coding-ethos managed hooks"
-		end   = "# END coding-ethos managed hooks"
-	)
-
+func removeManagedCodexBlocks(content string) string {
 	lines := strings.Split(content, "\n")
 	output := make([]string, 0, len(lines))
-	inBlock := false
+	inManagedBlock := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case trimmed == begin:
-			inBlock = true
+		case strings.HasPrefix(trimmed, "# BEGIN coding-ethos managed "):
+			inManagedBlock = true
 			continue
-		case trimmed == end && inBlock:
-			inBlock = false
+		case strings.HasPrefix(trimmed, "# END coding-ethos managed ") && inManagedBlock:
+			inManagedBlock = false
 			continue
-		case inBlock:
+		case inManagedBlock:
 			continue
 		default:
 			output = append(output, line)
 		}
+	}
+
+	return strings.TrimRight(strings.Join(output, "\n"), "\n") + "\n"
+}
+
+func removeCodexMCPSection(content string) string {
+	lines := strings.Split(content, "\n")
+	output := make([]string, 0, len(lines))
+	inMCP := false
+	inMCPEnv := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "[mcp_servers."+mcpServerName+"]":
+			inMCP = true
+			inMCPEnv = false
+			continue
+		case trimmed == "[mcp_servers."+mcpServerName+".env]":
+			inMCP = false
+			inMCPEnv = true
+			continue
+		case (inMCP || inMCPEnv) && strings.HasPrefix(trimmed, "[") &&
+			strings.HasSuffix(trimmed, "]"):
+			inMCP = false
+			inMCPEnv = false
+		case inMCP || inMCPEnv:
+			continue
+		}
+
+		output = append(output, line)
 	}
 
 	return strings.TrimRight(strings.Join(output, "\n"), "\n") + "\n"
@@ -368,6 +470,29 @@ func renderManagedCodexHooksBlock(settings claudeSettings) string {
 	}
 
 	builder.WriteString("# END coding-ethos managed hooks\n")
+
+	return builder.String()
+}
+
+func renderManagedCodexMCPBlock(server mcpServer) string {
+	var builder strings.Builder
+	builder.WriteString("# BEGIN coding-ethos managed mcp\n")
+	builder.WriteString("# Generated by coding-ethos. Edit coding_ethos.yml/config.yaml inputs, not this block.\n")
+	builder.WriteString("[mcp_servers.")
+	builder.WriteString(mcpServerName)
+	builder.WriteString("]\n")
+	builder.WriteString("command = ")
+	builder.WriteString(tomlString(server.Command))
+	builder.WriteString("\n")
+	builder.WriteString("args = [")
+	for index, arg := range server.Args {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(tomlString(arg))
+	}
+	builder.WriteString("]\n")
+	builder.WriteString("# END coding-ethos managed mcp\n")
 
 	return builder.String()
 }
@@ -488,6 +613,10 @@ func DoctorSettings(root string, hookCommand string) error {
 	if err != nil {
 		return err
 	}
+	expectedMCP, err := mcpServerConfig(hookCommand)
+	if err != nil {
+		return err
+	}
 
 	paths := DefaultSettingsPaths(root)
 	checks := []struct {
@@ -498,7 +627,11 @@ func DoctorSettings(root string, hookCommand string) error {
 			return claudePayloadContainsExpectedHooks(payload, expected.Claude)
 		}},
 		{path: paths.Gemini, ok: func(payload map[string]any) bool {
-			return nativePayloadContainsExpectedHooks(payload, expected.Gemini)
+			return nativePayloadContainsExpectedHooks(payload, expected.Gemini) &&
+				payloadContainsExpectedMCPServer(payload, expectedMCP.geminiJSON())
+		}},
+		{path: paths.ClaudeMCP, ok: func(payload map[string]any) bool {
+			return payloadContainsExpectedMCPServer(payload, expectedMCP.claudeJSON())
 		}},
 	}
 
@@ -526,7 +659,57 @@ func DoctorSettings(root string, hookCommand string) error {
 		return errSettingsMismatch
 	}
 
+	if !codexConfigContainsExpectedMCPServer(string(config), expectedMCP) {
+		return errSettingsMismatch
+	}
+
 	return nil
+}
+
+func payloadContainsExpectedMCPServer(
+	payload map[string]any,
+	expected map[string]any,
+) bool {
+	servers := mapFromAny(payload["mcpServers"])
+	server := mapFromAny(servers[mcpServerName])
+
+	for key, expectedValue := range expected {
+		switch typedExpected := expectedValue.(type) {
+		case []string:
+			if !stringSliceFromAnyMatches(server[key], typedExpected) {
+				return false
+			}
+		default:
+			if server[key] != typedExpected {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func stringSliceFromAnyMatches(value any, expected []string) bool {
+	values, ok := value.([]any)
+	if !ok {
+		if typed, typedOK := value.([]string); typedOK {
+			return slices.Equal(typed, expected)
+		}
+
+		return false
+	}
+
+	if len(values) != len(expected) {
+		return false
+	}
+
+	for index, value := range values {
+		if value != expected[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func codexConfigContainsExpectedHooks(
@@ -555,6 +738,12 @@ func codexConfigContainsExpectedHooks(
 	}
 
 	return true
+}
+
+func codexConfigContainsExpectedMCPServer(content string, expected mcpServer) bool {
+	return strings.Contains(content, "[mcp_servers."+mcpServerName+"]") &&
+		strings.Contains(content, "command = "+tomlString(expected.Command)) &&
+		strings.Contains(content, "args = ["+tomlString(expected.Args[0])+"]")
 }
 
 func VerifySettings(root string, hookCommand string) (VerifyReport, error) {
@@ -634,7 +823,7 @@ func verifySkillSurfaces(root string) ([]VerifyCheck, error) {
 		return nil, nil
 	}
 
-	checks := make([]VerifyCheck, 0, len(skillIDs)*skillProviderCount)
+	checks := make([]VerifyCheck, 0, len(skillIDs)*skillSurfaceCount)
 	var verifyErr error
 	for _, skillID := range skillIDs {
 		for _, surface := range skillSurfacePaths(root, skillID) {
@@ -657,7 +846,7 @@ func verifySkillSurfaces(root string) ([]VerifyCheck, error) {
 	return checks, verifyErr
 }
 
-const skillProviderCount = 3
+const skillSurfaceCount = 4
 
 type skillSurfacePath struct {
 	provider string
@@ -688,6 +877,10 @@ func skillSurfacePaths(root string, skillID string) []skillSurfacePath {
 	entrypoint := filepath.Join(skillID, "SKILL.md")
 
 	return []skillSurfacePath{
+		{
+			provider: "portable",
+			path:     filepath.Join(root, ".agents", "skills", entrypoint),
+		},
 		{
 			provider: string(ProviderClaude),
 			path:     filepath.Join(root, ".claude", "skills", entrypoint),
@@ -781,7 +974,7 @@ func ProviderCapabilities() []ProviderCapability {
 		{
 			Provider:    string(ProviderClaude),
 			Coverage:    "full",
-			NativeFiles: []string{".claude/settings.local.json"},
+			NativeFiles: []string{".claude/settings.local.json", ".mcp.json"},
 			Supported: []string{
 				"PreToolUse block",
 				"PreToolUse updatedInput rewrite",
@@ -795,6 +988,7 @@ func ProviderCapabilities() []ProviderCapability {
 				"SessionEnd additionalContext",
 				"SubagentStart additionalContext",
 				"SubagentStop additionalContext",
+				"MCP stdio server",
 			},
 		},
 		{
@@ -810,6 +1004,7 @@ func ProviderCapabilities() []ProviderCapability {
 				"SessionStart additionalContext",
 				"UserPromptSubmit additionalContext",
 				"Stop compact systemMessage",
+				"MCP stdio server",
 			},
 			ProviderLimited: []string{
 				"git wrapper enforcement blocks raw git because updatedInput is not supported",
@@ -836,6 +1031,7 @@ func ProviderCapabilities() []ProviderCapability {
 				"AfterAgent additionalContext",
 				"SessionStart additionalContext",
 				"SessionEnd additionalContext",
+				"MCP stdio server",
 			},
 			ProviderLimited: []string{
 				"BeforeTool maps to PreToolUse for run_shell_command, write_file, replace, and MultiEdit",

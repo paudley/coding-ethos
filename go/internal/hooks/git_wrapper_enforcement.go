@@ -484,6 +484,12 @@ func shellControlFields(command string) []string {
 	escaped := false
 	for _, char := range command {
 		if escaped {
+			if char == '\n' {
+				escaped = false
+
+				continue
+			}
+
 			builder.WriteRune(char)
 
 			escaped = false

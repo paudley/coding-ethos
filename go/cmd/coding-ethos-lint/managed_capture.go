@@ -26,6 +26,7 @@ type managedCaptureOptions struct {
 	ConsumerRoot  string
 	InvocationCwd string
 	Args          []string
+	OutputFormat  string
 	PolicyContext capturePolicyData
 }
 
@@ -86,10 +87,10 @@ func runManagedCapture(options managedCaptureOptions) int {
 		Args:         enforcedArgs,
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
 		Skills:       options.PolicyContext.Skills,
-	})
+	}, firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()))
 }
 
-func runCapturedToolWithRequest(request captureRequest) int {
+func runCapturedToolWithRequest(request captureRequest, outputFormat string) int {
 	if strings.TrimSpace(request.ToolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
 	}
@@ -104,7 +105,7 @@ func runCapturedToolWithRequest(request captureRequest) int {
 		if err := hookoutput.EncodeLintResult(
 			os.Stdout,
 			result,
-			hookoutput.SelectedFormat(),
+			firstCaptureNonEmpty(outputFormat, hookoutput.SelectedFormat()),
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: lint result not rendered: %v\n", err)
 		}

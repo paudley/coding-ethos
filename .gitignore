@@ -58,6 +58,7 @@ dmypy.json
 .pre-commit-cache/
 .uv/
 .lint-cache
+.mcp.json
 .claude/settings.local.json
 .codex/*
 !.codex/skills/

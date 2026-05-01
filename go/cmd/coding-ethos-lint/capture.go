@@ -60,7 +60,7 @@ func runCapturedTool(
 		exitErr(errCaptureToolPathRequired)
 	}
 
-	return runCapturedToolWithRequest(request)
+	return runCapturedToolWithRequest(request, "")
 }
 
 func executeCapturedTool(request captureRequest) captureExecution {

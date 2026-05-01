@@ -17,19 +17,34 @@ surfaces, compact agent-native advice, and auditable traces.
 
 Generated Markdown and generated skills are useful durable context, but they
 still front-load rules into an agent context window. A Model Context Protocol
-server would let agents query `coding-ethos` at the moment of need.
+server lets agents query `coding-ethos` at the moment of need. The current
+server contract and expansion design are tracked in
+[MCP_SERVER.md](MCP_SERVER.md).
 
 High-value queries include:
 
-- whether a proposed path is protected
-- which policies apply to a file before editing
-- what language-specific guidance applies to a module
+- whether a proposed shell command is allowed before running it
+- whether a proposed edit is allowed before applying it
+- what managed linter findings apply to the current work without invoking the
+  linter directly
+- what compiled lint policy findings apply before a managed tool run is needed
+- which ETHOS policy, advice, rerun command, and skill map to a lint finding
 - why a policy exists and which ETHOS principle grounds it
-- which generated skill remediates a finding
+- which generated skill best fits the current task
 
-The MCP server must read from the same compiled policy bundle and skill data as
-the hooks. It must not become an alternate enforcement path or a way to bypass
-local Git and agent hooks.
+The first MCP surface is a local stdio server exposed through
+`pre-commit/hooks/run-go-hook.sh mcp`. It reads from the same compiled policy
+bundle and skill data as the hooks, and starts with command checks, proposed
+edit checks, managed lint capture, compiled lint checks, lint advice, policy
+explanations, skill lookup, task-based skill recommendation, and per-tool
+capability metadata. It must not become an alternate enforcement path or a way
+to bypass local Git and agent hooks.
+
+A later expansion should add focused remediation advice through a constrained
+agent-provider adapter. That adapter may call an available provider such as
+`claude -p`, but only inside a managed, read-only, advice-only hook environment
+that can read selected files and query the `coding-ethos` MCP stack. It must not
+write files, run arbitrary shell commands, access raw Git, or bypass policy.
 
 ## Standardized Policy Language
 

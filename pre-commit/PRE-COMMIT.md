@@ -160,11 +160,13 @@ full review on pre-push.
 surface.
 There is no single-agent generation path because partial protection is not a
 valid install state. Claude output uses Claude Code's native `hooks` map.
+Claude MCP output writes project `.mcp.json` with a `coding-ethos` stdio server.
 Codex output enables `[features].codex_hooks` in `.codex/config.toml`, writes
-managed native `[hooks]` entries in that same TOML file, and removes stale
-`.codex/hooks.json`. Gemini output writes native `.gemini/settings.json` hooks
-with `hooksConfig.enabled = true`. `doctor` verifies those native activation
-files and fails when a provider does not point at the expected hook command.
+managed native `[hooks]` entries and `[mcp_servers.coding-ethos]` in that same
+TOML file, and removes stale `.codex/hooks.json`. Gemini output writes native
+`.gemini/settings.json` hooks with `hooksConfig.enabled = true` and
+`mcpServers.coding-ethos`. `doctor` verifies those native activation files and
+fails when a provider does not point at the expected hook or MCP command.
 Codex hook generation uses one native command hook per supported lifecycle
 event, while the runtime normalizes aliases such as `exec_command`,
 `run_shell_command`, `shell`, `write_file`, and `apply_patch`; shell and edit
@@ -225,12 +227,13 @@ Agent-facing post-tool context replaces absolute repo, home, and temp paths
 with stable tokens, collapses multiline commands, and renders hook output as
 TOON line tables instead of escaped newline cells.
 
-Every logged hook run creates `.coding-ethos/hook-runs/<run-id>/metadata.env`
-plus stdout and stderr logs. Agent-hook runs also write sanitized `event.json`
-diagnostics containing provider, event, tool, cwd, referenced files, command
-preview and hash, policy IDs, status, and output shape. The trace is meant for
-debugging policy routing and provider adaptation; it intentionally avoids
-dumping raw tool input.
+Every logged hook run is captured by the managed `coding-ethos-hook-log` Go
+tool. It creates `.coding-ethos/hook-runs/<run-id>/metadata.env` plus stdout
+and stderr logs. Agent-hook runs also write sanitized `event.json` diagnostics
+containing provider, event, tool, cwd, referenced files, command preview and
+hash, policy IDs, status, and output shape. The trace is meant for debugging
+policy routing and provider adaptation; it intentionally avoids dumping raw tool
+input.
 
 Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes focused context,
 language-specific advice, compiled lint findings for the edited files, and a

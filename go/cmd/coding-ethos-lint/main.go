@@ -112,6 +112,7 @@ func main() {
 			ConsumerRoot:  *consumerRoot,
 			InvocationCwd: *invocationCwd,
 			Args:          flags.Args(),
+			OutputFormat:  managedCaptureFormat(*jsonOutput),
 			PolicyContext: capturePolicyContext(*bundlePath),
 		}))
 	}
@@ -259,6 +260,14 @@ func printCapturedTools() {
 	for _, tool := range toolcatalog.CapturedLintTools() {
 		fmt.Fprintln(os.Stdout, tool.Name)
 	}
+}
+
+func managedCaptureFormat(jsonOutput bool) string {
+	if jsonOutput {
+		return hookoutput.FormatJSON
+	}
+
+	return ""
 }
 
 type capturePolicyData struct {

@@ -32,6 +32,7 @@ the places contributors actually work:
 | Tool config | Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and golangci-lint config |
 | Git hooks | compiled Go policy preflight plus deterministic hook groups |
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
+| MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
 | Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
 
@@ -67,12 +68,46 @@ policy-grounded advice instead of generic tool text. When a finding maps to a
 generated skill, agent-facing output includes a compact `skill_id` hint and a
 next action to load that remediation playbook.
 
-For larger platform directions such as MCP context serving, policy-language
-support, IDE integration, SARIF/CI components, red-team testing, ETHOS
-inheritance, and agent remediation loops, see
+For larger platform directions such as deeper MCP context serving,
+policy-language support, IDE integration, SARIF/CI components, red-team
+testing, ETHOS inheritance, and agent remediation loops, see
 [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
 The CEL-first policy-language design is tracked in
 [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md).
+
+## MCP Server
+
+`coding-ethos` includes a local stdio MCP server backed by the same compiled
+policy bundle and generated skill metadata used by Git hooks and agent hooks.
+The design and expansion plan are documented in
+[docs/MCP_SERVER.md](docs/MCP_SERVER.md).
+The server is exposed through the managed runtime:
+
+```bash
+pre-commit/hooks/run-go-hook.sh mcp
+```
+
+The first tools are intentionally narrow and auditable:
+
+- `policy_check_command`: check a proposed shell command before running it.
+- `policy_check_edit`: check a proposed file edit before applying it.
+- `lint_check`: run managed lint capture for Ruff, mypy, pyright, pylint,
+  SQLFluff, and other captured tools; when no tool is supplied, run compiled
+  coding-ethos policy lint checks for current work.
+- `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
+- `policy_explain`: return the compiled explanation for a policy ID.
+- `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
+- `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
+
+Tool definitions include `coding_ethos` metadata that tells clients whether a
+tool is advisory, reads files, executes managed lint tools, and persists traces.
+Agents should call `lint_check` instead of invoking linters directly so target
+resolution, generated config integrity, managed tool versions, evidence maps,
+skill hints, and trace logging stay on the enforced path.
+
+The MCP server is advisory context, not a bypass. Hook enforcement remains on
+the normal Git and agent-hook paths, and MCP responses come from the same
+compiled policy inputs as those enforcement paths.
 
 ## ETHOS Skills
 
@@ -550,9 +585,9 @@ repo-local surface:
 
 | Provider | Native file | Coverage |
 | --- | --- | --- |
-| Claude | `.claude/settings.local.json` | full runtime hook set |
-| Codex | `.codex/config.toml` | native supported hook events |
-| Gemini CLI | `.gemini/settings.json` | native supported hook events |
+| Claude | `.claude/settings.local.json`, `.mcp.json` | full runtime hook set plus MCP stdio server |
+| Codex | `.codex/config.toml` | native supported hook events plus MCP stdio server |
+| Gemini CLI | `.gemini/settings.json` | native supported hook events plus MCP stdio server |
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -562,11 +597,19 @@ matcher-free. In nested checkouts, only the hook whose consumer root is the
 nearest repo root enforces a Codex event, preventing duplicate parent/nested
 reports.
 
-Generated ETHOS skills use the same managed-output model. `make build` refreshes
-the checkout-local skill surfaces and, when `coding-ethos` is installed inside a
-parent repository, refreshes the parent repo's `.agents/skills/`,
-`.claude/skills/`, `.codex/skills/`, and Gemini extension skill surfaces without
-rewriting parent root agent docs.
+The same sync path also installs the local `coding-ethos` MCP server for all
+supported agents. Claude receives a project `.mcp.json` entry, Codex receives a
+managed `[mcp_servers.coding-ethos]` block in `.codex/config.toml`, and Gemini
+receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. `doctor`
+checks those entries along with hooks so MCP drift is not a separate hidden
+setup step.
+
+Generated ETHOS skills and native agent settings use the same managed-output
+model. `make build` refreshes the checkout-local skill surfaces, hook settings,
+and MCP settings and, when `coding-ethos` is installed inside a parent
+repository, refreshes the parent repo's `.agents/skills/`, `.claude/skills/`,
+`.codex/skills/`, Gemini extension skill surfaces, and native agent hook/MCP
+settings without rewriting parent root agent docs.
 
 `agent-hooks verify` runs doctor first, then invokes the configured hook command
 with provider-native Claude, Codex, and Gemini payloads. The probes cover:

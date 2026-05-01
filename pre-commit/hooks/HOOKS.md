@@ -24,11 +24,12 @@ Failed grouped runs also emit a compact execution summary before raw tool
 detail: group status, duration, failed groups, and command timing where
 commands ran in-process.
 
-The shell entry wrapper logs every top-level run to
-`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including
-`stdout.log`, `stderr.log`, and `metadata.env`. That directory is local runtime
-evidence and should stay ignored. `check-runtime-ignores` blocks hook execution
-when required runtime output paths are not ignored, and `hook-log-summary`
+The shell entrypoint delegates top-level run logging to the managed
+`coding-ethos-hook-log` Go tool. It writes
+`.coding-ethos/hook-runs/<run-id>/` in the checked repo, including `stdout.log`,
+`stderr.log`, and `metadata.env`. That directory is local runtime evidence and
+should stay ignored. `check-runtime-ignores` blocks hook execution when required
+runtime output paths are not ignored, and `hook-log-summary`
 summarizes collected runs for later analysis. `hook-log-analyze` ranks failed
 tools, codes, repeated findings, and output-quality problems such as raw output,
 escaped newline cells, or leaked absolute repo paths. Analysis scans the newest
@@ -88,12 +89,15 @@ pre-commit/hooks/run-go-hook.sh cutover verify
 Claude output uses Claude Code's native `hooks` map. Codex output enables
 `[features].codex_hooks` in `.codex/config.toml`, writes managed native
 `[hooks]` entries in that same TOML file, and removes stale `.codex/hooks.json`.
+It also writes each provider's native MCP surface: Claude project `.mcp.json`,
+Codex `[mcp_servers.coding-ethos]`, and Gemini `mcpServers.coding-ethos`.
 Gemini output writes native `.gemini/settings.json` hooks with
 `hooksConfig.enabled = true`. All providers use the same `agent-hook` runtime
-entrypoint for the lifecycle hooks they expose. Single-provider generation is
-intentionally not exposed: partial protection is not a valid install state. The
-active runtime does not call AI systems from agent hooks; AI review stays in Git
-hook stages where output, cost, and caching are controlled by this runner.
+entrypoint for lifecycle hooks and the same `mcp` runtime entrypoint for MCP.
+Single-provider generation is intentionally not exposed: partial protection is
+not a valid install state. The active runtime does not call AI systems from
+agent hooks; AI review stays in Git hook stages where output, cost, and caching
+are controlled by this runner.
 `agent-hooks doctor` checks native provider activation files, so a stale file or
 missing Codex feature flag does not count as an installed provider surface.
 `agent-hooks verify` additionally executes provider-native smoke payloads
