@@ -139,7 +139,7 @@ func buildResult(
 	decisions []policy.Decision,
 	status string,
 ) Result {
-	return Result{
+	result := Result{
 		Event:              event.HookEventName,
 		Advice:             bundle.Advice,
 		Provider:           event.Provider(),
@@ -147,6 +147,23 @@ func buildResult(
 		Status:             status,
 		Decisions:          decisions,
 		HookSpecificOutput: hookSpecificOutput(bundle, event, route),
+	}
+	if result.HookSpecificOutput == nil {
+		result.HookSpecificOutput = blockedHookSpecificOutput(result)
+	}
+
+	return result
+}
+
+func blockedHookSpecificOutput(result Result) *HookSpecificOutput {
+	if !result.Blocked() || result.Event != "PreToolUse" || result.Provider != "" {
+		return nil
+	}
+
+	return &HookSpecificOutput{
+		HookEventName:            result.Event,
+		PermissionDecision:       "deny",
+		PermissionDecisionReason: ProviderBlockMessage(result),
 	}
 }
 
