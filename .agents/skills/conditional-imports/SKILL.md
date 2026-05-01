@@ -1,9 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
-
 ---
-name: conditional-imports
-description: Use when Python code uses conditional imports, TYPE_CHECKING import branches, local imports that hide dependency problems, Ruff local-import diagnostics, or cyclic import diagnostics that need an ETHOS-grounded repair.
+name: "conditional-imports"
+description: "Use when Python code uses conditional imports, TYPE_CHECKING import branches, local imports that hide dependency problems, Ruff local-import diagnostics, or cyclic import diagnostics that need an ETHOS-grounded repair."
 metadata:
   source: coding_ethos.yml
   generated_by: coding-ethos
@@ -12,6 +9,8 @@ metadata:
     - protocol-first-design
     - solid-is-law
 ---
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
 
 # Conditional Imports Remediation
 

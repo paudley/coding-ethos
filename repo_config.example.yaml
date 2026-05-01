@@ -4,6 +4,24 @@
 style:
   line_length: 100
 
+policy:
+  # Optional CEL-backed custom policies. Expressions are compiled and type
+  # checked into the policy bundle, then evaluated over normalized hook/lint
+  # input. CEL must stay pure: no file IO, shell, Git, network, time, or host
+  # environment access.
+  expressions:
+    - id: custom.no_python_subprocess_git
+      description: Block Python subprocess attempts to route around protected Git.
+      scope: command
+      severity: block
+      principle_ids:
+        - one-path-for-critical-operations
+        - no-rationalized-shortcuts
+      skill_id: safe-git-workflow
+      when: command.contains("subprocess") && command.contains("git")
+      message: Git must go through the coding-ethos wrapper.
+      advice: Use the protected Git wrapper and keep hook failures visible.
+
 repo:
   license:
     # Set this per consuming repo to opt into LICENSE file and header checks.

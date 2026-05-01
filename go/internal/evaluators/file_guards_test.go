@@ -318,6 +318,22 @@ func TestEvaluateLicenseHeaderAllowsSPDX(t *testing.T) {
 	}
 }
 
+func TestEvaluateLicenseHeaderIgnoresYAMLByDefault(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "config.yaml", "name: app\n")
+	decisions, err := EvaluateLicenseHeader(
+		fileGuardPolicy("repo.license_header"),
+		Context{Files: []string{path}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate license header: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("yaml files should not require license or copyright headers: %#v", decisions)
+	}
+}
+
 func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
 	t.Parallel()
 

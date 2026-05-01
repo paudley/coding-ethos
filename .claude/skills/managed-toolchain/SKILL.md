@@ -1,9 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
-
 ---
-name: managed-toolchain
-description: Use when captured linters, generated tool configs, managed binaries, config drift, missing tools, package-relative path resolution, or host tool usage causes lint or hook failures.
+name: "managed-toolchain"
+description: "Use when captured linters, generated tool configs, managed binaries, config drift, missing tools, package-relative path resolution, or host tool usage causes lint or hook failures."
 metadata:
   source: coding_ethos.yml
   generated_by: coding-ethos
@@ -13,6 +10,8 @@ metadata:
     - one-path-for-critical-operations
     - security-by-design
 ---
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
 
 # Managed Toolchain And Config Integrity
 

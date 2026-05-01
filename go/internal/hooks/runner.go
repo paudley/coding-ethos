@@ -178,7 +178,7 @@ func hookSpecificOutput(
 	command := event.Command()
 	output := event.ToolOutput()
 
-	if !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
+	if event.ReturnCode() == 0 || !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
 		return nil
 	}
 

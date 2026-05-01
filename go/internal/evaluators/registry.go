@@ -20,6 +20,7 @@ func NewRegistry() Registry {
 
 func DefaultRegistry() Registry {
 	registry := NewRegistry()
+	registerExpressionEvaluators(registry)
 	registerGitEvaluators(registry)
 	registerFilesystemEvaluators(registry)
 	registerShellEvaluators(registry)
@@ -28,6 +29,10 @@ func DefaultRegistry() Registry {
 	registerExternalEvaluators(registry)
 
 	return registry
+}
+
+func registerExpressionEvaluators(registry Registry) {
+	registry.Register("cel.expression", EvaluatorFunc(EvaluateCELExpression))
 }
 
 func registerGitEvaluators(registry Registry) {

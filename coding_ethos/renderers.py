@@ -80,6 +80,11 @@ def _skill_entrypoint(skill: EthosSkill) -> str:
     return f"{skill.id}/SKILL.md"
 
 
+def _yaml_string(value: str) -> str:
+    """Return a double-quoted YAML scalar using JSON-compatible escaping."""
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _markdown_anchor(title: str) -> str:
     anchor = re.sub(r"[^a-z0-9 -]", "", title.lower())
     return re.sub(r"\s+", "-", anchor).strip("-")
@@ -365,14 +370,15 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
     principles = _skill_principles(bundle, skill)
     lines = [
         "---",
-        f"name: {skill.id}",
-        f"description: {skill.description}",
+        f"name: {_yaml_string(skill.id)}",
+        f"description: {_yaml_string(skill.description)}",
         "metadata:",
         "  source: coding_ethos.yml",
         "  generated_by: coding-ethos",
         "  ethos_principles:",
         *[f"    - {principle.id}" for principle in principles],
         "---",
+        *MARKDOWN_SPDX_LINES,
         "",
         f"# {skill.title}",
         "",
@@ -437,7 +443,7 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
             ),
         ]
     )
-    return _join_lines(_with_markdown_spdx(lines))
+    return _join_lines(lines)
 
 
 def render_gemini_extension_manifest(bundle: EthosBundle, repo_root: Path) -> str:

@@ -866,6 +866,31 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 	}
 }
 
+func TestRunSuppressesSuccessfulPostToolHookOutputContext(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pre-commit/hooks/run-go-hook.sh policy-git status --short",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "M  TODO.md\nM  go/internal/hooks/runner.go\n",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("successful hook-like output should stay silent: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
@@ -2202,7 +2227,6 @@ func initHookRepo(t *testing.T) string {
 	runHookGit(t, repo, "init")
 	runHookGit(t, repo, "config", "user.email", "test@example.com")
 	runHookGit(t, repo, "config", "user.name", "Test User")
-	runHookGit(t, repo, "config", "commit.gpgsign", "false")
 
 	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o600)
 	if err != nil {
@@ -2239,7 +2263,12 @@ func cleanGitTestEnv() []string {
 		env = append(env, item)
 	}
 
-	return env
+	return append(
+		env,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"XDG_CONFIG_HOME="+os.DevNull,
+	)
 }
 
 func gitLocalEnvName(name string) bool {
@@ -2247,14 +2276,18 @@ func gitLocalEnvName(name string) bool {
 	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
 		"GIT_COMMON_DIR",
 		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_CONFIG_NOSYSTEM",
 		"GIT_CONFIG_PARAMETERS",
+		"GIT_CONFIG_SYSTEM",
 		"GIT_DIR",
 		"GIT_INDEX_FILE",
 		"GIT_NAMESPACE",
 		"GIT_OBJECT_DIRECTORY",
 		"GIT_PREFIX",
 		"GIT_QUARANTINE_PATH",
-		"GIT_WORK_TREE":
+		"GIT_WORK_TREE",
+		"XDG_CONFIG_HOME":
 		return true
 	default:
 		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||

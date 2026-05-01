@@ -576,8 +576,10 @@ class CliRenderTests(unittest.TestCase):
             ]
             for relative_path in skill_paths:
                 skill_text = (repo_root / relative_path).read_text(encoding="utf-8")
-                assert "name: lint-remediation" in skill_text
+                assert skill_text.startswith("---\n")
+                assert 'name: "lint-remediation"' in skill_text
                 assert "source: coding_ethos.yml" in skill_text
+                assert "<!-- SPDX-License-Identifier: MIT -->" in skill_text
                 assert "`solid-is-law`: Enforce simple SOLID designs." in skill_text
                 assert "## Remediation Workflow" in skill_text
                 assert "[Section 2: Testing as Specification]" not in skill_text

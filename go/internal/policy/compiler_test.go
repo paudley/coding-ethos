@@ -243,6 +243,90 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	}
 }
 
+func TestCompileExpressionPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.no_subprocess_git
+      scope: command
+      severity: block
+      principle_ids:
+        - one-path-for-critical-operations
+      skill_id: safe-git-workflow
+      when: command.contains("subprocess") && command.contains("git")
+      message: Git subprocesses are forbidden.
+      advice: Use the protected Git wrapper.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef, ok := bundle.Policies["custom.no_subprocess_git"]
+	if !ok {
+		t.Fatalf("missing expression policy: %#v", bundle.Policies)
+	}
+	if policyDef.Evaluators[0].Kind != "cel" ||
+		policyDef.Evaluators[0].Name != "cel.expression" ||
+		policyDef.Evaluators[0].Options["when"] == "" ||
+		policyDef.Evaluators[0].Options["skill_id"] != "safe-git-workflow" {
+		t.Fatalf("expression evaluator mismatch: %#v", policyDef.Evaluators[0])
+	}
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.no_subprocess_git")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "custom.no_subprocess_git")
+
+	result, err := lint.Run(bundle, lint.Options{
+		Scope:   lint.ScopeFiles,
+		Command: "python -c 'import subprocess; subprocess.run([\"git\"])'",
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+	if !result.Blocked() || result.Diagnostics[0].SkillID != "safe-git-workflow" {
+		t.Fatalf("expression lint result = %#v", result)
+	}
+}
+
+func TestCompileRejectsInvalidExpressionPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.invalid
+      scope: command
+      principle_ids:
+        - one-path-for-critical-operations
+      when: command + 1
+      message: Invalid expression.
+      advice: Fix the expression.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "compile CEL policy") {
+		t.Fatalf("compile error = %v, want CEL compile failure", err)
+	}
+}
+
 func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
 	t.Parallel()
 
@@ -483,11 +567,12 @@ func TestCompiledRepoLicensePolicyRunsAgainstSampleConsumer(t *testing.T) {
 	assertBlockedDiagnostic(t, result.Diagnostics, "license_header")
 
 	writeTestFile(t, filepath.Join(consumerRoot, "app.go"), sampleLicensedGoSource)
+	writeTestFile(t, filepath.Join(consumerRoot, "config.yaml"), "name: app\n")
 
 	result, err = lint.Run(bundle, lint.Options{
 		Scope: lint.ScopeFiles,
 		Cwd:   consumerRoot,
-		Files: []string{"app.go"},
+		Files: []string{"app.go", "config.yaml"},
 	})
 	if err != nil {
 		t.Fatalf("run lint: %v", err)

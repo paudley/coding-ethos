@@ -242,28 +242,29 @@ typed expressions over already-normalized hook/lint inputs. Keep OPA/Rego as a
 future optional backend for larger set/query policies only if CEL expressions
 become too limited.
 
-- [ ] Add `docs/POLICY_LANGUAGE_STRATEGY.md` as the design record for the
+- [x] Add `docs/POLICY_LANGUAGE_STRATEGY.md` as the design record for the
   CEL-first decision and Rego deferral.
-- [ ] Add a `policy.expressions` section to `config.yaml` and
+- [x] Add a `policy.expressions` section to `config.yaml` and
   `repo_config.yaml` overlays with explicit fields for `id`, `description`,
   `scope`, `severity`, `principle_ids`, `skill_id`, `when`, `message`, and
   `advice`.
-- [ ] Compile CEL expressions into the policy bundle during
+- [x] Compile CEL expressions into the policy bundle during
   `coding-ethos-policy compile`; syntax, type, and unknown-variable failures
   must fail bundle compilation.
-- [ ] Define stable typed CEL input objects for the first supported scopes:
-  `command`, `argv`, `files`, `diagnostic`, `finding`, `repo`, `path`, and
-  `metadata`.
-- [ ] Keep all host access out of CEL. CEL policy may inspect only the input
+- [x] Define stable typed CEL input objects for the first supported command
+  policy slice: `command`, `argv`, `files`, `cwd`, `scope`, and `metadata`.
+- [ ] Extend typed CEL input objects to diagnostic, finding, repo, and path
+  scopes.
+- [x] Keep all host access out of CEL. CEL policy may inspect only the input
   object and static bundle data; file IO, Git calls, network access, time, and
   environment access remain first-party Go responsibilities.
-- [ ] Add an expression evaluator to the existing compiled evaluator registry
+- [x] Add an expression evaluator to the existing compiled evaluator registry
   so CEL-backed policies emit normal `policy.Decision` and
   `diagnostics.Diagnostic` values.
 - [ ] Support deterministic reusable helpers only through reviewed Go-provided
   CEL functions, starting with path classification, glob matching, suffix/prefix
   helpers, and collection checks.
-- [ ] Require every expression-backed policy to map to ETHOS principles and,
+- [x] Require every expression-backed policy to map to ETHOS principles and,
   where possible, a generated skill ID so output remains explanatory rather than
   bare rule text.
 - [ ] Add a CLI explain mode that shows CEL source, compiled input schema,
