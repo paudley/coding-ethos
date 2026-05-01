@@ -366,13 +366,29 @@ _sync-consumer-agent-skills: ensure-uv
 		$(APP) --repo "$(HOOK_CONSUMER_ROOT)" --primary "$(PRIMARY)" --sync-agent-skills; \
 	fi
 
+_sync-agent-hooks: ensure-go go-tools-install
+	@$(call print_step,Syncing generated agent hook and MCP settings)
+	@$(call print_info,repo: $(REPO))
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
+		--root "$(REPO)" \
+		--hook-command "$(GO_HOOK) agent-hook"
+
+_sync-consumer-agent-hooks: ensure-go go-tools-install
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
+		$(call print_step,Syncing generated consumer agent hook and MCP settings); \
+		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
+		"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
+			--root "$(HOOK_CONSUMER_ROOT)" \
+			--hook-command "$(GO_HOOK) agent-hook"; \
+	fi
+
 check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync.
 	@$(call print_step,Checking generated agent skill surfaces)
 	@$(call print_info,repo: $(REPO))
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)

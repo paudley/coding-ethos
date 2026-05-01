@@ -5,6 +5,7 @@ package agenthooks_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -72,6 +73,7 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
+	assertCapability(t, capabilities, "claude", "full", "MCP stdio server")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse apply_patch/edit policy hook")
 	assertCapability(t, capabilities, "codex", "partial", "PostToolUse compact additionalContext")
@@ -79,11 +81,13 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "UserPromptSubmit additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
+	assertCapability(t, capabilities, "codex", "partial", "MCP stdio server")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
+	assertCapability(t, capabilities, "gemini", "partial", "MCP stdio server")
 	assertUnsupported(t, capabilities, "gemini", "PostToolBatch additionalContext")
 }
 
@@ -222,6 +226,42 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 	}
 }
 
+func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+	claudeMCP := readJSONSettings(t, paths.ClaudeMCP)
+	assertMCPServer(t, claudeMCP, "/repo/pre-commit/hooks/run-go-hook.sh", true)
+
+	geminiSettings := readJSONSettings(t, paths.Gemini)
+	assertMCPServer(t, geminiSettings, "/repo/pre-commit/hooks/run-go-hook.sh", false)
+
+	codexConfig, err := os.ReadFile(paths.CodexConfig)
+	if err != nil {
+		t.Fatalf("read Codex config: %v", err)
+	}
+
+	codex := string(codexConfig)
+	for _, expected := range []string{
+		`[mcp_servers.coding-ethos]`,
+		`command = "/repo/pre-commit/hooks/run-go-hook.sh"`,
+		`args = ["mcp"]`,
+	} {
+		if !strings.Contains(codex, expected) {
+			t.Fatalf("Codex MCP config missing %s:\n%s", expected, codex)
+		}
+	}
+	if strings.Contains(codex, "enabled = true") {
+		t.Fatalf("Codex MCP config should use the documented minimal schema:\n%s", codex)
+	}
+}
+
 func providerSettingsSection(
 	t *testing.T,
 	output string,
@@ -241,6 +281,59 @@ func providerSettingsSection(
 	}
 
 	return output[start : start+end]
+}
+
+func readJSONSettings(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read JSON settings %s: %v", path, err)
+	}
+
+	settings := map[string]any{}
+	err = json.Unmarshal(payload, &settings)
+	if err != nil {
+		t.Fatalf("parse JSON settings %s: %v\n%s", path, err, string(payload))
+	}
+
+	return settings
+}
+
+func assertMCPServer(
+	t *testing.T,
+	settings map[string]any,
+	command string,
+	expectType bool,
+) {
+	t.Helper()
+
+	servers, ok := settings["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing mcpServers: %#v", settings)
+	}
+
+	server, ok := servers["coding-ethos"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing coding-ethos MCP server: %#v", servers)
+	}
+
+	if server["command"] != command {
+		t.Fatalf("command = %#v, want %q: %#v", server["command"], command, server)
+	}
+	args, ok := server["args"].([]any)
+	if !ok || len(args) != 1 || args[0] != "mcp" {
+		t.Fatalf("args mismatch: %#v", server)
+	}
+
+	if expectType && server["type"] != "stdio" {
+		t.Fatalf("type = %#v, want stdio: %#v", server["type"], server)
+	}
+	if !expectType {
+		if _, found := server["type"]; found {
+			t.Fatalf("Gemini MCP config should use minimal project schema: %#v", server)
+		}
+	}
 }
 
 func codexEventBlock(t *testing.T, config string, event string) string {
@@ -293,6 +386,7 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	paths := agenthooks.DefaultSettingsPaths(root)
 	for _, path := range []string{
 		paths.Claude,
+		paths.ClaudeMCP,
 		paths.CodexConfig,
 		paths.Gemini,
 	} {
@@ -562,6 +656,38 @@ func TestDoctorSettingsRejectsMissingGeminiHook(t *testing.T) {
 	}
 }
 
+func TestDoctorSettingsRejectsMismatchedMCPServer(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+
+	payload, err := os.ReadFile(paths.ClaudeMCP)
+	if err != nil {
+		t.Fatalf("read Claude MCP settings: %v", err)
+	}
+
+	mutated := strings.Replace(
+		string(payload),
+		`"/repo/pre-commit/hooks/run-go-hook.sh"`,
+		`"/other/run-go-hook.sh"`,
+		1,
+	)
+
+	overwriteAgentSettings(t, paths.ClaudeMCP, mutated)
+
+	err = agenthooks.DoctorSettings(root, testHookCommand)
+	if err == nil {
+		t.Fatal("expected wrong Claude MCP command mismatch")
+	}
+}
+
 func overwriteAgentSettings(t *testing.T, path string, content string) {
 	t.Helper()
 
@@ -730,5 +856,5 @@ esac
 		t.Fatalf("write fake agent hook: %v", err)
 	}
 
-	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "'"
+	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "' agent-hook"
 }

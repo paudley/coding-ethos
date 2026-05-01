@@ -585,9 +585,9 @@ repo-local surface:
 
 | Provider | Native file | Coverage |
 | --- | --- | --- |
-| Claude | `.claude/settings.local.json` | full runtime hook set |
-| Codex | `.codex/config.toml` | native supported hook events |
-| Gemini CLI | `.gemini/settings.json` | native supported hook events |
+| Claude | `.claude/settings.local.json`, `.mcp.json` | full runtime hook set plus MCP stdio server |
+| Codex | `.codex/config.toml` | native supported hook events plus MCP stdio server |
+| Gemini CLI | `.gemini/settings.json` | native supported hook events plus MCP stdio server |
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -597,11 +597,19 @@ matcher-free. In nested checkouts, only the hook whose consumer root is the
 nearest repo root enforces a Codex event, preventing duplicate parent/nested
 reports.
 
-Generated ETHOS skills use the same managed-output model. `make build` refreshes
-the checkout-local skill surfaces and, when `coding-ethos` is installed inside a
-parent repository, refreshes the parent repo's `.agents/skills/`,
-`.claude/skills/`, `.codex/skills/`, and Gemini extension skill surfaces without
-rewriting parent root agent docs.
+The same sync path also installs the local `coding-ethos` MCP server for all
+supported agents. Claude receives a project `.mcp.json` entry, Codex receives a
+managed `[mcp_servers.coding-ethos]` block in `.codex/config.toml`, and Gemini
+receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. `doctor`
+checks those entries along with hooks so MCP drift is not a separate hidden
+setup step.
+
+Generated ETHOS skills and native agent settings use the same managed-output
+model. `make build` refreshes the checkout-local skill surfaces, hook settings,
+and MCP settings and, when `coding-ethos` is installed inside a parent
+repository, refreshes the parent repo's `.agents/skills/`, `.claude/skills/`,
+`.codex/skills/`, Gemini extension skill surfaces, and native agent hook/MCP
+settings without rewriting parent root agent docs.
 
 `agent-hooks verify` runs doctor first, then invokes the configured hook command
 with provider-native Claude, Codex, and Gemini payloads. The probes cover:
