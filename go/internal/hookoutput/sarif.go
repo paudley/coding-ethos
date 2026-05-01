@@ -14,6 +14,7 @@ import (
 const (
 	sarifSchema  = "https://json.schemastore.org/sarif-2.1.0.json"
 	sarifVersion = "2.1.0"
+	sarifRepoURI = "."
 )
 
 type sarifLog struct {
@@ -210,14 +211,15 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 }
 
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
-	if item.File == "" {
-		return nil
+	file := item.File
+	if file == "" {
+		file = sarifRepoURI
 	}
 
 	location := sarifLocation{
 		PhysicalLocation: sarifPhysicalLocation{
 			ArtifactLocation: sarifArtifactLocation{
-				URI: item.File,
+				URI: file,
 			},
 		},
 	}

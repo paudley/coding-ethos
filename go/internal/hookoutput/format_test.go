@@ -102,6 +102,34 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
 }
 
+func TestFormatLintResultSARIFIncludesRepoLocationForPolicyFindings(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Decisions: []policy.Decision{{
+			Decision: "block",
+			Severity: "block",
+			PolicyID: "repo.pii_scrubber",
+			Message:  "Local-machine PII must not be committed.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "repo.pii_scrubber")
+	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", sarifRepoURI)
+}
+
 func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
 	t.Parallel()
 
