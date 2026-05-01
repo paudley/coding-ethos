@@ -211,6 +211,15 @@ func TestEvaluateShellForbiddenStringsBlocksReferencedHelperFile(t *testing.T) {
 	if !ok || location != "inspect-hooks.sh" {
 		t.Fatalf("expected helper file evidence, got %#v", decisions[0].Evidence)
 	}
+	if len(decisions[0].Diagnostics) != 1 {
+		t.Fatalf("expected diagnostic, got %#v", decisions[0].Diagnostics)
+	}
+	diagnostic := decisions[0].Diagnostics[0]
+	if diagnostic.File != "inspect-hooks.sh" ||
+		diagnostic.Line != 1 ||
+		diagnostic.PolicyID != "shell.forbidden_strings" {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
 }
 
 func TestEvaluateShellForbiddenStringsSkipsExemptReferencedFile(t *testing.T) {

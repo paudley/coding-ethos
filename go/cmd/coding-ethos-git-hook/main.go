@@ -183,8 +183,9 @@ func encodeLintResultTo(writer io.Writer, result lint.Result) error {
 
 func blockedOnlyResult(result lint.Result) lint.Result {
 	filtered := lint.Result{
-		Scope:  result.Scope,
-		Status: result.Status,
+		Scope:      result.Scope,
+		Status:     result.Status,
+		SkillHints: append([]lint.SkillHint(nil), result.SkillHints...),
 	}
 
 	for _, decision := range result.Decisions {

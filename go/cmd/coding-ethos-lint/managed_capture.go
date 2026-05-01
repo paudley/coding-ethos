@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -94,7 +95,10 @@ func runCapturedToolWithRequest(request captureRequest) int {
 	}
 
 	execution := executeCapturedTool(request)
-	result := capturedToolResult(request, execution)
+	result := lint.EnrichResultWithSkills(
+		capturedToolResult(request, execution),
+		request.Skills,
+	)
 	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
 	if result.Blocked() || len(result.Diagnostics) > 0 {
 		if err := hookoutput.EncodeLintResult(

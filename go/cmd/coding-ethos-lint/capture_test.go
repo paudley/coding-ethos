@@ -154,6 +154,75 @@ exit 1
 	}
 }
 
+func TestRunCapturedToolDerivesSkillFromTriggerTerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "pylint-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte(`#!/usr/bin/env sh
+case " $* " in
+  *" --output-format=json "*) ;;
+  *) echo "missing pylint json flag" >&2; exit 2 ;;
+esac
+printf '%s\n' '[{"path":"pkg/app.py","type":"error","symbol":"cyclic-import","message":"Cyclic import","line":9,"column":0}]'
+exit 1
+`),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"pylint",
+			tool,
+			repo,
+			"",
+			[]string{"pkg"},
+			capturePolicyData{
+				Skills: map[string]policy.Skill{
+					"conditional-imports": {
+						ID:           "conditional-imports",
+						Description:  "Fix import cycles structurally.",
+						ShortHint:    "Break cycles with Protocol-oriented boundaries.",
+						PrincipleIDs: []string{"protocol-first-design"},
+						TriggerTerms: []string{"cyclic-import"},
+					},
+				},
+			},
+		)
+		if exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1", exitCode)
+		}
+	})
+
+	for _, want := range []string{
+		"pylint,pkg/app.py,9,1,error,cyclic-import,,conditional-imports,Cyclic import",
+		"advice[1]{principle_id,skill_id,message,next}:",
+		"protocol-first-design,conditional-imports,Break cycles with Protocol-oriented boundaries.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"skill_id": "conditional-imports"`,
+		`"skill_hints": [`,
+		`"skill_id": "conditional-imports"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestRunCapturedToolSeparatesExecutionCWDFromTraceRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX sh")

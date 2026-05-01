@@ -6,8 +6,10 @@ package evaluators
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -86,7 +88,12 @@ func EvaluateShellForbiddenStrings(
 		command,
 		forbiddenCommandStrings(context.EvaluatorOptions),
 	); matched {
-		return blockForbiddenStringDecision(policyDef, command, "command", value), nil
+		return blockForbiddenStringDecision(
+			policyDef,
+			command,
+			"command",
+			forbiddenStringMatch{Value: value, Matched: true},
+		), nil
 	}
 
 	for _, file := range referencedCommandFiles(context) {
@@ -94,13 +101,13 @@ func EvaluateShellForbiddenStrings(
 			continue
 		}
 
-		matched, value := referencedFileContainsForbiddenString(
+		match := referencedFileForbiddenStringMatch(
 			context.Cwd,
 			file,
 			forbiddenFileStrings(context.EvaluatorOptions),
 		)
-		if matched {
-			return blockForbiddenStringDecision(policyDef, command, file, value), nil
+		if match.Matched {
+			return blockForbiddenStringDecision(policyDef, command, file, match), nil
 		}
 	}
 
@@ -117,7 +124,6 @@ func forbiddenCommandStrings(options map[string]any) []string {
 		"/.codex/hooks.json",
 		"/.gemini/settings.json",
 		"/coding-ethos/pre-commit/hooks/",
-		"/coding-ethos/go/internal/",
 		"/coding-ethos/config.yaml",
 		"/coding-ethos/ruff.toml",
 		"/coding-ethos/.golangci.yml",
@@ -164,29 +170,46 @@ func referencedCommandFiles(context Context) []string {
 	return dedupeEvaluatorStrings(files)
 }
 
-func referencedFileContainsForbiddenString(
+type forbiddenStringMatch struct {
+	Value   string
+	Line    int
+	Matched bool
+}
+
+func referencedFileForbiddenStringMatch(
 	cwd string,
 	file string,
 	forbidden []string,
-) (bool, string) {
+) forbiddenStringMatch {
 	path := cleanEvaluatorPath(cwd, file)
 
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
-		return false, ""
+		return forbiddenStringMatch{}
 	}
 
 	const maxForbiddenStringScanBytes = 1 << 20
 	if info.Size() > maxForbiddenStringScanBytes {
-		return false, ""
+		return forbiddenStringMatch{}
 	}
 
 	content, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return false, ""
+		return forbiddenStringMatch{}
 	}
 
-	return containsForbiddenString(string(content), forbidden)
+	lines := strings.Split(string(content), "\n")
+	for index, line := range lines {
+		if matched, value := containsForbiddenString(line, forbidden); matched {
+			return forbiddenStringMatch{
+				Value:   value,
+				Line:    index + 1,
+				Matched: true,
+			}
+		}
+	}
+
+	return forbiddenStringMatch{}
 }
 
 func cleanEvaluatorPath(cwd string, file string) string {
@@ -231,14 +254,27 @@ func blockForbiddenStringDecision(
 	policyDef policy.Policy,
 	command string,
 	location string,
-	value string,
+	match forbiddenStringMatch,
 ) []policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	decision.Evidence = map[string]any{
 		"command":          command,
 		"location":         location,
-		"forbidden_string": value,
+		"forbidden_string": match.Value,
 	}
+	if match.Line > 0 {
+		decision.Evidence["line"] = match.Line
+	}
+	decision.Diagnostics = []diagnostics.Diagnostic{{
+		Tool:     "policy",
+		File:     location,
+		Line:     match.Line,
+		Severity: blockDecision,
+		PolicyID: policyDef.ID,
+		Message:  "forbidden string detected: " + match.Value,
+		Advice:   policyDef.Suggestion,
+		Detail:   "location=" + location + "; line=" + strconv.Itoa(match.Line),
+	}}
 
 	return []policy.Decision{decision}
 }
