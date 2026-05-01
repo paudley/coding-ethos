@@ -128,11 +128,35 @@ bundle and receive the same blocking, rewrite, advice, continuation, and
 post-tool feedback behavior where the provider exposes that lifecycle point.
 Provider output is adapted at the boundary: Claude receives full
 `hookSpecificOutput` including `updatedInput`, Codex receives native block
-output and supported context output without relying on unsupported rewrite
-semantics, and Gemini receives native `deny` / `systemMessage` responses for
-tool gates. Agent-facing post-tool context normalizes absolute repo, home, and
-temporary paths, collapses multiline commands, and renders hook output as TOON
-line tables instead of giant escaped string cells. Post-edit feedback for
+output with compact `reason` text plus compact native `additionalContext` for
+supported lifecycle and post-tool advice, and Gemini receives native `deny` /
+`systemMessage` responses for tool gates. Codex uses compact `systemMessage`
+only for supported events that do not expose `additionalContext`.
+
+Codex generation follows four invariants:
+
+- generated commands do not inline `PATH=` or other shell environment mutation;
+- `PreToolUse` and `PostToolUse` use explicit shell/edit matchers, never a
+  catch-all matcher;
+- lifecycle hooks install one command hook each and no tool matcher; and
+- nested checkouts only enforce the hook owned by the nearest repo root, so a
+  parent repo and nested `coding-ethos` checkout cannot both report the same
+  Codex event.
+
+Trusted `run-go-hook.sh` handling is exact-path based. A command is treated as
+managed only when it invokes the generated relative hook path or the exact hook
+path exported by the active runtime; a different executable with the same
+filename suffix is still blocked.
+
+Hook logs under `.coding-ethos/hook-runs/` include `stdout.log`, `stderr.log`,
+`metadata.env`, and a sanitized `event.json` for agent-hook executions. The JSON
+trace records provider, event, tool, cwd, referenced files, command preview and
+hash, decision policy IDs, status, and output shape without dumping raw provider
+input.
+Agent-facing post-tool context
+normalizes absolute repo, home, and temporary paths, collapses multiline
+commands, and renders hook output as TOON line tables instead of giant escaped
+string cells. Post-edit feedback for
 `Write`, `Edit`, and `MultiEdit` includes a checkpoint, language-specific next
 steps, compiled lint findings, and a fast Ruff probe for Python files when
 `ruff` is available.

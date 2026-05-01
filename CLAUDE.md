@@ -12,3 +12,4 @@
 - Open the linked ethos note before changing architecture, validation, error handling, security, or delegation behavior.
 - Open the matching detail doc before changing output structure, merge rules, or YAML validation behavior.
 - Use CLAUDE.md as a thin import hub; keep repo-specific operational detail in the shared generated docs.
+- Prefer compiled Go for hook, policy, lint-capture, and runtime glue; treat shell and Python as transitional unless they are clearly the right interface.

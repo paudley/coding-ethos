@@ -66,6 +66,7 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			Cwd:           repo,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git commit -m test",
 			},
@@ -133,6 +134,57 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	}
 }
 
+func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.ExampleBundle()
+	bundle.Policies["custom.no_subprocess_git"] = policy.Policy{
+		ID:              "custom.no_subprocess_git",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source:          policy.SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		Message:         "Git subprocesses are forbidden.",
+		Suggestion:      "Use the protected Git wrapper.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		SupportedModes:  []string{"block", "record", "advise"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope":    "command",
+				"skill_id": "safe-git-workflow",
+				"when":     `command.contains("subprocess") && command.contains("git")`,
+			},
+		}},
+	}
+	bundle.Dispatch.Hooks["PreToolUse"]["Bash"] = append(
+		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
+		policy.HookDispatchEntry{PolicyID: "custom.no_subprocess_git", Mode: "block"},
+	)
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `python -c 'import subprocess; subprocess.run(["git"])'`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) != 1 ||
+		result.Decisions[0].PolicyID != "custom.no_subprocess_git" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 	t.Parallel()
 
@@ -140,6 +192,7 @@ func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 		Event: Event{
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "uv run ruff check pkg && python -m ruff format pkg",
 			},
@@ -242,6 +295,7 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 				Event: Event{
 					HookEventName: preToolUse,
 					ToolName:      toolBash,
+					Source:        "claude",
 					ToolInput: map[string]any{
 						"command": test.command,
 					},
@@ -294,6 +348,7 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
 			Cwd:           nested,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "python scripts/check.py --flag && python3 -m pytest tests",
 			},
@@ -318,6 +373,9 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
 	venvBin := filepath.Join(root, ".venv", "bin")
 	if err := os.MkdirAll(venvBin, 0o755); err != nil {
 		t.Fatalf("mkdir venv: %v", err)
@@ -335,6 +393,7 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 			HookEventName: preToolUse,
 			ToolName:      toolBash,
 			Cwd:           root,
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "python script.py",
 			},
@@ -405,6 +464,42 @@ func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
 	}
 }
 
+func TestRunBlocksRewriteWhenProviderMissing(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "")
+	t.Setenv("CODEX_CI", "")
+	t.Setenv("CODEX_MANAGED_BY_NPM", "")
+	t.Setenv("GEMINI_CLI", "")
+	t.Setenv("CLAUDECODE", "")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "uv run ruff check pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.Provider != "" {
+		t.Fatalf("provider = %q, want unknown provider", result.Provider)
+	}
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unsupported updatedInput emitted: %#v", result.HookSpecificOutput)
+	}
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
+		t.Fatalf("decisions = %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 	t.Parallel()
 
@@ -412,6 +507,7 @@ func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git status",
 			},
@@ -442,6 +538,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "git status && git log --oneline -1",
 			},
@@ -476,6 +573,7 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": strings.Join([]string{
 					"git add ",
@@ -510,6 +608,7 @@ func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 		Event: Event{
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
+			Source:        "claude",
 			ToolInput: map[string]any{
 				"command": "pwd && git status --short 2>&1",
 			},
@@ -604,6 +703,113 @@ func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
 	}
 }
 
+func TestRunAllowsGeneratedAgentHookCommandWithManagedPolicyGit(t *testing.T) {
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	command := "PATH=/repo/coding-ethos/bin:$PATH " +
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"policy-git status --short"
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": command,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunAllowsParentRelativeRunGoHookWhenItResolvesToTrustedPath(t *testing.T) {
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "/repo")
+	t.Setenv("INVOCATION_CWD", "/repo")
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "coding-ethos/pre-commit/hooks/run-go-hook.sh policy-git status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunBlocksFakeRunGoHookPathEvenWithPolicyGit(t *testing.T) {
+	t.Setenv(
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+	)
+
+	command := "PATH=/fake/bin:$PATH " +
+		"/fake/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"policy-git status --short"
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": command,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+	if !hasDecision(result.Decisions, "git.wrapper_required") &&
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected wrapper or shell block, got %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsDocumentedRunGoHookNonGitCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pre-commit/hooks/run-go-hook.sh agent-hooks verify",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunAllowsInstalledManagedGitWrapperCommand(t *testing.T) {
 	t.Parallel()
 
@@ -681,8 +887,8 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if !strings.Contains(result.Decisions[0].Message, "It's criminal to attempt") {
-		t.Fatalf("weak refusal message: %#v", result.Decisions[0])
+	if !strings.Contains(result.Decisions[0].Message, "CODING-ETHOS EMPLOYMENT VIOLATION") {
+		t.Fatalf("unexpected refusal message: %#v", result.Decisions[0])
 	}
 }
 
@@ -863,6 +1069,31 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 	}
 	if !strings.Contains(result.HookSpecificOutput.AdditionalContext, "<repo>/lib/app.py") {
 		t.Fatalf("context did not normalize repo path: %s", result.HookSpecificOutput.AdditionalContext)
+	}
+}
+
+func TestRunSuppressesSuccessfulPostToolHookOutputContext(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "pre-commit/hooks/run-go-hook.sh policy-git status --short",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "M  TODO.md\nM  go/internal/hooks/runner.go\n",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("successful hook-like output should stay silent: %#v", result.HookSpecificOutput)
 	}
 }
 
@@ -1579,6 +1810,52 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 	}
 }
 
+func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	child := filepath.Join(parent, "coding-ethos")
+	for _, dir := range []string{
+		filepath.Join(parent, ".git"),
+		filepath.Join(child, ".git"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", parent)
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "exec_command",
+		"cwd": %q,
+		"input": {"command": "git status --short"}
+	}`, child)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || len(result.Decisions) != 0 {
+		t.Fatalf("nested non-owner hook should no-op, got %#v", result)
+	}
+
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", child)
+	result, err = Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run nearest hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("nested owner hook should enforce, got %#v", result)
+	}
+}
+
 func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	t.Parallel()
 
@@ -1608,12 +1885,24 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	for _, expected := range []string{
 		`"decision": "block"`,
 		`"permissionDecision": "deny"`,
-		`"systemMessage"`,
-		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		`"reason": "coding-ethos blocked this action (git.hook_bypass). !!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
 		"may result in termination",
+		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, `\n`) {
+		t.Fatalf("Codex block output must be single-line-safe JSON strings:\n%s", output)
+	}
+	for _, forbidden := range []string{
+		`"systemMessage"`,
+		"format: toon",
+		"\\n",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex block output leaked %q:\n%s", forbidden, output)
 		}
 	}
 }
@@ -1650,6 +1939,7 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 		`"systemMessage"`,
 		"CODING-ETHOS EMPLOYMENT VIOLATION",
 		"may result in termination",
+		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in Gemini output:\n%s", expected, output)
@@ -1951,7 +2241,7 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
-		"provider": "codex",
+		"provider": "claude",
 		"event": "PostToolUse",
 		"tool": "write_file",
 		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
@@ -1978,6 +2268,190 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
 	}
 	assertNoRoutineContextClutter(t, context)
+}
+
+func TestEncodeProviderResultCompactsCodexPostEditContext(t *testing.T) {
+	t.Parallel()
+
+	result := Result{
+		Event:    "PostToolUse",
+		Provider: "codex",
+		Status:   statusAllowed,
+		HookSpecificOutput: &HookSpecificOutput{
+			HookEventName:     "PostToolUse",
+			AdditionalContext: "tool: Write\nfiles:\n- src/app.py\n\nguidance:\n- Review the edited file before claiming completion.",
+		},
+	}
+
+	var buffer strings.Builder
+	err := EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	assertCodexCompactContext(
+		t,
+		output,
+		"coding-ethos: review the edited file; run focused formatting, lint, type, or tests; fix static-analysis findings structurally.",
+	)
+}
+
+func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"input": {"file_path": "src/app.py", "content": "print(1)\n"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Codex post-edit advice should require actionable signal: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		payload  string
+		expected string
+	}{
+		{
+			payload:  `{"provider":"codex","event":"SessionStart","source":"startup"}`,
+			expected: "coding-ethos: load repository conventions, managed toolchain rules, and generated skills before editing.",
+		},
+		{
+			payload:  `{"provider":"codex","event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`,
+			expected: "coding-ethos: use and maintain a todo list for multi-step work.",
+		},
+		{
+			payload:  `{"provider":"codex","event":"Stop"}`,
+			expected: "coding-ethos: before ending, confirm planned work is complete, summarize changed files and checks, and keep hook or lint failures visible.",
+		},
+	}
+
+	for _, tc := range cases {
+		event, err := DecodeEvent(strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+
+		result, err := Run(policy.ExampleBundle(), Options{Event: event})
+		if err != nil {
+			t.Fatalf("run hook: %v", err)
+		}
+		if result.HookSpecificOutput == nil {
+			t.Fatalf("test fixture should still exercise internal context: %#v", result)
+		}
+
+		var buffer strings.Builder
+		err = EncodeResult(&buffer, result)
+		if err != nil {
+			t.Fatalf("encode result: %v", err)
+		}
+
+		output := buffer.String()
+		if !strings.Contains(output, tc.expected) {
+			t.Fatalf("missing compact lifecycle message %q:\n%s", tc.expected, output)
+		}
+		for _, forbidden := range []string{
+			"guidance:",
+			"\\n",
+			"Before ending:",
+			"prompt:",
+		} {
+			if strings.Contains(output, forbidden) {
+				t.Fatalf("Codex lifecycle output leaked %q:\n%s", forbidden, output)
+			}
+		}
+	}
+}
+
+func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread")
+
+	event, err := DecodeEvent(strings.NewReader(`{"event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", result.Provider)
+	}
+
+	var buffer strings.Builder
+	err = EncodeResult(&buffer, result)
+	if err != nil {
+		t.Fatalf("encode result: %v", err)
+	}
+
+	output := buffer.String()
+	if !strings.Contains(
+		output,
+		"coding-ethos: use and maintain a todo list for multi-step work.",
+	) {
+		t.Fatalf("missing Codex environment compact context:\n%s", output)
+	}
+}
+
+func assertCodexCompactContext(t *testing.T, output string, message string) {
+	t.Helper()
+
+	for _, expected := range []string{
+		`"hookSpecificOutput"`,
+		`"additionalContext": "` + message + `"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("Codex compact context missing %q:\n%s", expected, output)
+		}
+	}
+	for _, forbidden := range []string{
+		"updatedInput",
+		"systemMessage",
+		"guidance:",
+		"\\n",
+		"Before ending",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex compact context leaked %q:\n%s", forbidden, output)
+		}
+	}
+}
+
+func assertCodexAllowedContextQuiet(t *testing.T, output string) {
+	t.Helper()
+
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("Codex allowed context output must be empty provider JSON:\n%s", output)
+	}
+	for _, forbidden := range []string{
+		"hookSpecificOutput",
+		"updatedInput",
+		"systemMessage",
+		"guidance",
+		"Before ending",
+		"tool: Write",
+		"Review the edited file",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("Codex allowed context leaked %q:\n%s", forbidden, output)
+		}
+	}
 }
 
 func assertNoRoutineContextClutter(t *testing.T, context string) {
@@ -2202,7 +2676,6 @@ func initHookRepo(t *testing.T) string {
 	runHookGit(t, repo, "init")
 	runHookGit(t, repo, "config", "user.email", "test@example.com")
 	runHookGit(t, repo, "config", "user.name", "Test User")
-	runHookGit(t, repo, "config", "commit.gpgsign", "false")
 
 	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o600)
 	if err != nil {
@@ -2239,7 +2712,12 @@ func cleanGitTestEnv() []string {
 		env = append(env, item)
 	}
 
-	return env
+	return append(
+		env,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"XDG_CONFIG_HOME="+os.DevNull,
+	)
 }
 
 func gitLocalEnvName(name string) bool {
@@ -2247,14 +2725,18 @@ func gitLocalEnvName(name string) bool {
 	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
 		"GIT_COMMON_DIR",
 		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_CONFIG_NOSYSTEM",
 		"GIT_CONFIG_PARAMETERS",
+		"GIT_CONFIG_SYSTEM",
 		"GIT_DIR",
 		"GIT_INDEX_FILE",
 		"GIT_NAMESPACE",
 		"GIT_OBJECT_DIRECTORY",
 		"GIT_PREFIX",
 		"GIT_QUARANTINE_PATH",
-		"GIT_WORK_TREE":
+		"GIT_WORK_TREE",
+		"XDG_CONFIG_HOME":
 		return true
 	default:
 		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||

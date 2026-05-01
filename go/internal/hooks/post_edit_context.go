@@ -29,19 +29,42 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	}
 
 	files := event.Files()
+	lintState := postEditLintState(bundle, event)
+	fastLintState := postEditFastLintState(bundle, event)
+	lintHistory := postEditLintHistory(event)
+	if event.Provider() == providerCodex &&
+		!postEditHasActionableSignal(lintState, fastLintState, lintHistory) {
+		return nil
+	}
+
 	context := buildPostEditContext(
 		event.ToolName,
 		files,
 		bundle.Skills,
-		postEditLintState(bundle, event),
-		postEditFastLintState(bundle, event),
-		postEditLintHistory(event),
+		lintState,
+		fastLintState,
+		lintHistory,
 	)
 
 	return &HookSpecificOutput{
 		HookEventName:     event.HookEventName,
 		AdditionalContext: hookOutputNormalizer(event.Cwd).preserveLines(context),
 	}
+}
+
+func postEditHasActionableSignal(
+	lintState postEditLintResult,
+	fastLintState postEditLintResult,
+	lintHistory postEditLintHistoryResult,
+) bool {
+	return postEditLintResultHasSignal(lintState) ||
+		postEditLintResultHasSignal(fastLintState) ||
+		lintHistory.Checked
+}
+
+func postEditLintResultHasSignal(result postEditLintResult) bool {
+	return result.Error != "" || len(result.Diagnostics) > 0 ||
+		result.Status == statusBlocked
 }
 
 func isEditTool(tool string) bool {

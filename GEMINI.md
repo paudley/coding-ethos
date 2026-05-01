@@ -12,3 +12,4 @@ full corpus every time.
 - Keep repo-specific conventions in `repo_ethos.yml`; regenerate after updating it.
 - Prefer targeted reads of the module that owns the behavior rather than summarizing the whole repo at once.
 - When discussing generated outputs, anchor the explanation in the source YAML and renderer pipeline.
+- Include a shell/Python-to-Go migration opportunity in branch analysis when the work touches hooks, policy, linting, or runtime orchestration.

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 type providerHookOutput struct {
@@ -73,7 +75,24 @@ func codexAllowedOutput(result Result) providerHookOutput {
 		return providerHookOutput{}
 	}
 
-	return providerHookOutput{HookSpecificOutput: output}
+	message := codexAllowedMessage(output)
+	if message == "" {
+		return providerHookOutput{}
+	}
+
+	switch output.HookEventName {
+	case "SessionStart", "UserPromptSubmit", "PostToolUse":
+		return providerHookOutput{
+			HookSpecificOutput: &HookSpecificOutput{
+				HookEventName:     output.HookEventName,
+				AdditionalContext: message,
+			},
+		}
+	case "Stop":
+		return providerHookOutput{SystemMessage: message}
+	default:
+		return providerHookOutput{}
+	}
 }
 
 func geminiAllowedOutput(result Result) providerHookOutput {
@@ -90,7 +109,7 @@ func geminiAllowedOutput(result Result) providerHookOutput {
 }
 
 func providerBlockedOutput(result Result) providerHookOutput {
-	message := providerBlockReason(result)
+	message := ProviderBlockMessage(result)
 	switch result.Provider {
 	case "gemini":
 		return providerHookOutput{
@@ -98,6 +117,19 @@ func providerBlockedOutput(result Result) providerHookOutput {
 			Reason:        message,
 			SystemMessage: message,
 		}
+	case "codex":
+		output := providerHookOutput{
+			Decision: "block",
+			Reason:   message,
+		}
+		if result.Event == "PreToolUse" {
+			output.HookSpecificOutput = &HookSpecificOutput{
+				HookEventName:            result.Event,
+				PermissionDecision:       "deny",
+				PermissionDecisionReason: message,
+			}
+		}
+		return output
 	default:
 		return providerHookOutput{
 			Decision: "block",
@@ -112,6 +144,52 @@ func providerBlockedOutput(result Result) providerHookOutput {
 	}
 }
 
+func ProviderBlockMessage(result Result) string {
+	if result.Provider == providerCodex {
+		return codexBlockMessage(result)
+	}
+
+	message := providerBlockReason(result)
+
+	return message
+}
+
+func codexBlockMessage(result Result) string {
+	blocking := blockingDecisions(result.Decisions)
+	if len(blocking) == 0 {
+		return "coding-ethos blocked this action."
+	}
+
+	policyIDs := make([]string, 0, len(blocking))
+	for _, decision := range blocking {
+		if decision.PolicyID != "" {
+			policyIDs = append(policyIDs, decision.PolicyID)
+		}
+	}
+
+	prefix := "coding-ethos blocked this action"
+	if len(policyIDs) > 0 {
+		prefix += " (" + strings.Join(policyIDs, ", ") + ")"
+	}
+
+	parts := make([]string, 0, 3)
+	parts = append(parts, prefix+".")
+	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
+		parts = append(parts, severeViolationWarning)
+	}
+
+	decision := blocking[0]
+	reason := decision.Message
+	if decision.Suggestion != "" && !strings.Contains(reason, decision.Suggestion) {
+		reason = sentence(reason, decision.Suggestion)
+	}
+	if reason != "" {
+		parts = append(parts, reason)
+	}
+
+	return compactProviderMessage(strings.Join(parts, " "))
+}
+
 func providerBlockReason(result Result) string {
 	blocking := blockingDecisions(result.Decisions)
 	if len(blocking) == 0 {
@@ -119,7 +197,7 @@ func providerBlockReason(result Result) string {
 	}
 
 	parts := make([]string, 0, len(blocking))
-	if hasSevereViolation(blocking) {
+	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
 		parts = append(parts, severeViolationWarning)
 	}
 
@@ -135,10 +213,50 @@ func providerBlockReason(result Result) string {
 	return strings.Join(parts, "\n")
 }
 
+func decisionsContainSevereWarning(decisions []policy.Decision) bool {
+	for _, decision := range decisions {
+		if strings.Contains(decision.Message, severeViolationWarning) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func providerContextSummary(context string) string {
 	if strings.TrimSpace(context) == "" {
 		return ""
 	}
 
 	return "coding-ethos added hook context for this turn."
+}
+
+func codexAllowedMessage(output *HookSpecificOutput) string {
+	context := output.AdditionalContext
+	normalized := strings.Join(strings.Fields(context), " ")
+	if normalized == "" {
+		return ""
+	}
+
+	switch {
+	case output.HookEventName == "SessionStart":
+		return "coding-ethos: load repository conventions, managed toolchain rules, and generated skills before editing."
+	case output.HookEventName == "UserPromptSubmit":
+		return "coding-ethos: use and maintain a todo list for multi-step work."
+	case output.HookEventName == "Stop":
+		return "coding-ethos: before ending, confirm planned work is complete, summarize changed files and checks, and keep hook or lint failures visible."
+	case strings.Contains(normalized, "tool: Write") ||
+		strings.Contains(normalized, "tool: Edit") ||
+		strings.Contains(normalized, "tool: MultiEdit"):
+		return "coding-ethos: review the edited file; run focused formatting, lint, type, or tests; fix static-analysis findings structurally."
+	case strings.Contains(normalized, "event: PostToolUse") &&
+		strings.Contains(normalized, "tool: Bash"):
+		return "coding-ethos: hook output captured; summarize failed hooks, modified files, warnings, and required fixes before continuing."
+	default:
+		return ""
+	}
+}
+
+func compactProviderMessage(message string) string {
+	return strings.Join(strings.Fields(message), " ")
 }

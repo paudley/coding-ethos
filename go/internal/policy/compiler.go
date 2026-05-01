@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -26,6 +28,10 @@ var (
 )
 
 const defaultBundleBaseParts = 2
+
+func severeViolationWarningText() string {
+	return "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the documented hook and git wrapper path, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+}
 
 type CompileOptions struct {
 	GeneratedAt string
@@ -441,6 +447,9 @@ func compilePolicies(
 		return nil, err
 	}
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
+	if err := addExpressionPolicies(policies, config, principles); err != nil {
+		return nil, err
+	}
 
 	return policies, nil
 }
@@ -815,8 +824,8 @@ func gitStagedAdminPolicy(
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "ask", "record"},
 		Message:         "Administrative staged files require explicit handling.",
-		Suggestion: "Confirm the policy/config change is intentional with " +
-			"commit trailer Admin-Change: confirmed.",
+		Suggestion: "Ask an admin to approve this coding-ethos session, then " +
+			"run the protected git command with --admin-approved.",
 		DefenseLayers: GitDefenseLayers(
 			"ask",
 			"wrapper",
@@ -989,9 +998,7 @@ func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
 		),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message: "It's criminal to attempt to circumvent, avoid or alter this git " +
-			"analysis system. This is a SYSTEM rule and working around it will " +
-			"result in termination!",
+		Message:         severeViolationWarningText(),
 		Suggestion: "Use the coding-ethos git wrapper. Do not try alternate shells, " +
 			"absolute git paths, Python subprocesses, PATH edits, aliases, or " +
 			"other bypasses.",
@@ -1812,6 +1819,142 @@ func addGeneratedConfigPolicy(
 				Options: map[string]any{"command": command},
 			},
 		},
+	}
+}
+
+func addExpressionPolicies(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+) error {
+	rawExpressions, ok := valueAt(config, "policy", "expressions")
+	if !ok {
+		return nil
+	}
+
+	expressions, ok := rawExpressions.([]any)
+	if !ok {
+		return fmt.Errorf("policy.expressions must be a list")
+	}
+
+	for index, rawExpression := range expressions {
+		expression, ok := rawExpression.(map[string]any)
+		if !ok {
+			return fmt.Errorf("policy.expressions[%d] must be a mapping", index)
+		}
+
+		policyDef, err := expressionPolicy(expression, index, config, principles)
+		if err != nil {
+			return err
+		}
+		if _, exists := policies[policyDef.ID]; exists {
+			return fmt.Errorf(
+				"policy.expressions[%d].id %q conflicts with an existing policy",
+				index,
+				policyDef.ID,
+			)
+		}
+		policies[policyDef.ID] = policyDef
+	}
+
+	return nil
+}
+
+func expressionPolicy(
+	expression map[string]any,
+	index int,
+	config map[string]any,
+	principles map[string]Principle,
+) (Policy, error) {
+	policyID := strings.TrimSpace(fmt.Sprint(expression["id"]))
+	if policyID == "" || policyID == "<nil>" {
+		return Policy{}, fmt.Errorf("policy.expressions[%d].id is required", index)
+	}
+
+	when := strings.TrimSpace(fmt.Sprint(expression["when"]))
+	if when == "" || when == "<nil>" {
+		return Policy{}, fmt.Errorf("policy.expressions[%d].when is required", index)
+	}
+	if err := celexpr.Validate(policyID, when); err != nil {
+		return Policy{}, err
+	}
+
+	principleIDs := expressionPrincipleIDs(expression)
+	if len(principleIDs) == 0 {
+		return Policy{}, fmt.Errorf(
+			"policy.expressions[%d].principle_ids is required",
+			index,
+		)
+	}
+	for _, principleID := range principleIDs {
+		if _, ok := principles[principleID]; !ok {
+			return Policy{}, fmt.Errorf(
+				"policy expression %q references unknown principle %q",
+				policyID,
+				principleID,
+			)
+		}
+	}
+
+	message := stringOptionFromMap(expression, "message", "")
+	if message == "" {
+		return Policy{}, fmt.Errorf(
+			"policy.expressions[%d].message is required",
+			index,
+		)
+	}
+	advice := stringOptionFromMap(expression, "advice", "")
+	if advice == "" {
+		return Policy{}, fmt.Errorf(
+			"policy.expressions[%d].advice is required",
+			index,
+		)
+	}
+
+	scope := stringOptionFromMap(expression, "scope", "command")
+	severity := stringOptionFromMap(expression, "severity", "block")
+	dispatchScopes := stringSliceValue(
+		expression["dispatch_scopes"],
+		defaultExpressionDispatchScopes(scope),
+	)
+
+	return Policy{
+		ID:              policyID,
+		Category:        "expression",
+		Source:          SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		PrincipleIDs:    principleIDs,
+		DefaultSeverity: severity,
+		SupportedModes:  []string{"block", "record", "advise"},
+		Message:         message,
+		Suggestion:      advice,
+		DefenseLayers:   CodeDefenseLayers(),
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"dispatch_scopes": dispatchScopes,
+				"python_version":  stringAt(config, "style", "python_version"),
+				"scope":           scope,
+				"skill_id":        stringOptionFromMap(expression, "skill_id", ""),
+				"source_roots":    stringSliceAt(config, []string{"python", "source_paths"}, nil),
+				"when":            when,
+			},
+		}},
+	}, nil
+}
+
+func expressionPrincipleIDs(expression map[string]any) []string {
+	return stringSliceValue(expression["principle_ids"], nil)
+}
+
+func defaultExpressionDispatchScopes(scope string) []string {
+	switch scope {
+	case "commit-msg":
+		return []string{"commit-msg"}
+	case "smoke", "full", "cutover":
+		return []string{scope}
+	default:
+		return []string{"files", "staged"}
 	}
 }
 
@@ -2743,6 +2886,7 @@ func compileHookDispatch(
 	addProtectedBranchWriteDispatch(hooks, policies)
 	addPythonWriteDispatch(hooks, policies)
 	addCommitHeadDispatch(hooks, policies)
+	addExpressionPoliciesToHookDispatch(hooks, policies)
 
 	return hooks
 }
@@ -2890,6 +3034,55 @@ func addCommitHeadDispatch(
 	}
 }
 
+func addExpressionPoliciesToHookDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policies map[string]Policy,
+) {
+	for policyID, policyDef := range policies {
+		for _, evaluator := range policyDef.Evaluators {
+			if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+				continue
+			}
+
+			for _, tool := range expressionHookTools(
+				stringOptionFromMap(evaluator.Options, "scope", "command"),
+			) {
+				ensureHookTool(hooks, "PreToolUse", tool)
+				if !hookDispatchContains(hooks["PreToolUse"][tool], policyID) {
+					hooks["PreToolUse"][tool] = append(
+						hooks["PreToolUse"][tool],
+						HookDispatchEntry{
+							PolicyID: policyID,
+							Mode:     policyDef.DefaultSeverity,
+						},
+					)
+				}
+			}
+		}
+	}
+}
+
+func expressionHookTools(scope string) []string {
+	switch scope {
+	case "path", "file", "files":
+		return []string{"Bash", "Write", "Edit", "MultiEdit"}
+	case "diagnostic", "finding", "lint":
+		return []string{"Bash"}
+	default:
+		return []string{"Bash"}
+	}
+}
+
+func hookDispatchContains(entries []HookDispatchEntry, policyID string) bool {
+	for _, entry := range entries {
+		if entry.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
+}
+
 func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	linter := map[string][]string{
 		"files": existingPolicyIDs(
@@ -2970,8 +3163,30 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.commit_attribution",
 		),
 	}
+	addExpressionPoliciesToLinterDispatch(linter, policies)
 
 	return linter
+}
+
+func addExpressionPoliciesToLinterDispatch(
+	linter map[string][]string,
+	policies map[string]Policy,
+) {
+	for policyID, policyDef := range policies {
+		for _, evaluator := range policyDef.Evaluators {
+			if evaluator.Name != "cel.expression" {
+				continue
+			}
+			for _, scope := range stringSliceValue(
+				evaluator.Options["dispatch_scopes"],
+				[]string{"files", "staged"},
+			) {
+				if !slices.Contains(linter[scope], policyID) {
+					linter[scope] = append(linter[scope], policyID)
+				}
+			}
+		}
+	}
 }
 
 func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispatch {
@@ -3136,6 +3351,29 @@ func stringAt(values map[string]any, path ...string) string {
 	}
 
 	return strings.TrimSpace(stringValue)
+}
+
+func stringOptionFromMap(values map[string]any, key string, defaultValue string) string {
+	value, exists := values[key]
+	if !exists {
+		return defaultValue
+	}
+
+	text := strings.TrimSpace(stringValue(value))
+	if text == "" || text == "<nil>" {
+		return defaultValue
+	}
+
+	return text
+}
+
+func stringSliceValue(value any, defaults []string) []string {
+	items := stringSlice(value)
+	if len(items) == 0 {
+		return append([]string(nil), defaults...)
+	}
+
+	return items
 }
 
 func policyConfigEnabled(values map[string]any, policyID string) bool {

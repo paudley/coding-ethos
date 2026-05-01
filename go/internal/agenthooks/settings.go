@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 const (
@@ -27,8 +29,11 @@ const (
 )
 
 var (
-	errHookCommandRequired = errors.New("hook command is required")
-	errSettingsMismatch    = errors.New(
+	errHookCommandRequired     = errors.New("hook command is required")
+	errMissingSkillFrontmatter = errors.New(
+		"generated skill is missing YAML frontmatter",
+	)
+	errSettingsMismatch = errors.New(
 		"agent hook settings do not contain expected hooks for all providers",
 	)
 )
@@ -711,13 +716,51 @@ func verifySkillFile(path string, skillID string) error {
 		return fmt.Errorf("read generated skill %s: %w", path, err)
 	}
 
-	text := string(content)
-	if !strings.Contains(text, "name: "+skillID) ||
-		!strings.Contains(text, "source: coding_ethos.yml") {
+	frontmatter, err := parseSkillFrontmatter(string(content))
+	if err != nil {
+		return fmt.Errorf("read generated skill metadata %s: %w", path, err)
+	}
+
+	if frontmatter.Name != skillID || frontmatter.EffectiveSource() != "coding_ethos.yml" {
 		return fmt.Errorf("generated skill %s does not match skill %s", path, skillID)
 	}
 
 	return nil
+}
+
+type skillFrontmatter struct {
+	Metadata struct {
+		Source string `yaml:"source"`
+	} `yaml:"metadata"`
+	Name   string `yaml:"name"`
+	Source string `yaml:"source"`
+}
+
+func (frontmatter skillFrontmatter) EffectiveSource() string {
+	if frontmatter.Metadata.Source != "" {
+		return frontmatter.Metadata.Source
+	}
+
+	return frontmatter.Source
+}
+
+func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
+	if !strings.HasPrefix(content, "---\n") {
+		return skillFrontmatter{}, errMissingSkillFrontmatter
+	}
+
+	remainder := strings.TrimPrefix(content, "---\n")
+	raw, _, ok := strings.Cut(remainder, "\n---")
+	if !ok {
+		return skillFrontmatter{}, errMissingSkillFrontmatter
+	}
+
+	var frontmatter skillFrontmatter
+	if err := yaml.Unmarshal([]byte(raw), &frontmatter); err != nil {
+		return skillFrontmatter{}, fmt.Errorf("parse YAML frontmatter: %w", err)
+	}
+
+	return frontmatter, nil
 }
 
 func buildAllSettings(hookCommand string) (allSettings, error) {
@@ -761,14 +804,16 @@ func ProviderCapabilities() []ProviderCapability {
 			Supported: []string{
 				"PreToolUse block",
 				"PreToolUse native command hook",
-				"PostToolUse additionalContext",
+				"PreToolUse apply_patch/edit policy hook",
+				"PostToolUse compact additionalContext",
 				"PostToolUse edit verification advice",
 				"SessionStart additionalContext",
 				"UserPromptSubmit additionalContext",
-				"Stop additionalContext",
+				"Stop compact systemMessage",
 			},
 			ProviderLimited: []string{
 				"git wrapper enforcement blocks raw git because updatedInput is not supported",
+				"lifecycle context is compacted because Codex flattens multiline allowed context",
 			},
 			Unsupported: []string{
 				"PreToolUse updatedInput rewrite",
@@ -836,26 +881,28 @@ func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
 func codexHookMatchers(spec HookSpec) []string {
 	switch {
 	case spec.Event == "PreToolUse" && spec.Tool == "Bash":
-		return []string{""}
+		return []string{codexShellMatcher}
+	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
+		return []string{codexEditMatcher}
 	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
+		return []string{codexShellMatcher}
+	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
+		return []string{codexEditMatcher}
+	case spec.Event == "SessionStart":
+		return []string{""}
+	case spec.Event == "UserPromptSubmit":
+		return []string{""}
+	case spec.Event == "Stop":
 		return []string{""}
 	default:
-		if spec.Tool == "" && codexSupportsContextEvent(spec.Event) {
-			return []string{""}
-		}
-
 		return nil
 	}
 }
 
-func codexSupportsContextEvent(event string) bool {
-	switch event {
-	case "SessionStart", "UserPromptSubmit", "Stop":
-		return true
-	default:
-		return false
-	}
-}
+const (
+	codexShellMatcher = "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command"
+	codexEditMatcher  = "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file"
+)
 
 func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 	hooks := make(map[string][]matcherHook)
@@ -1145,17 +1192,6 @@ func hookProbes() []hookProbe {
 			}`,
 			validate: validateGeminiDenyProbe,
 		},
-		{
-			provider: string(ProviderCodex),
-			event:    "UserPromptSubmit",
-			tool:     "",
-			payload: `{
-				"provider": "codex",
-				"event": "UserPromptSubmit",
-				"input": {"prompt": "finish hook replacement"}
-			}`,
-			validate: validateContextProbe,
-		},
 	}
 }
 
@@ -1254,7 +1290,30 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 		return fmt.Errorf("Codex raw git probe should block")
 	}
 
-	return validateDecisionProbe(result, "block")
+	actual, ok := result.payload["decision"].(string)
+	if !ok || actual != "block" {
+		return fmt.Errorf("decision = %q, want block; stdout=%s", actual, result.stdout)
+	}
+
+	reason, ok := result.payload["reason"].(string)
+	if !ok || strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("missing reason in %s", result.stdout)
+	}
+	if !strings.Contains(reason, "CODING-ETHOS EMPLOYMENT VIOLATION") ||
+		!strings.Contains(reason, "may result in termination") {
+		return fmt.Errorf("Codex block reason lost severe warning: %s", reason)
+	}
+
+	permissionReason, ok := nestedString(
+		result.payload,
+		"hookSpecificOutput",
+		"permissionDecisionReason",
+	)
+	if !ok || strings.TrimSpace(permissionReason) == "" {
+		return fmt.Errorf("missing permissionDecisionReason in %s", result.stdout)
+	}
+
+	return nil
 }
 
 func validateClaudeBlockProbe(result hookProbeResult) error {
@@ -1267,18 +1326,6 @@ func validateGeminiDenyProbe(result hookProbeResult) error {
 	}
 
 	return validateDecisionProbe(result, "deny")
-}
-
-func validateContextProbe(result hookProbeResult) error {
-	if result.exitCode != 0 {
-		return fmt.Errorf("context probe should allow, got exit %d", result.exitCode)
-	}
-
-	if _, ok := nestedString(result.payload, "hookSpecificOutput", "additionalContext"); !ok {
-		return fmt.Errorf("missing additionalContext in %s", result.stdout)
-	}
-
-	return nil
 }
 
 func validateDecisionProbe(result hookProbeResult, decision string) error {

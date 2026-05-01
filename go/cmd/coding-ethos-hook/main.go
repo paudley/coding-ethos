@@ -56,6 +56,10 @@ func main() {
 		exitErr(err)
 	}
 
+	if err := hooks.WriteAgentHookTraceFromEnv(event, result); err != nil {
+		exitErr(err)
+	}
+
 	if *jsonOutput {
 		err = hooks.EncodeResult(os.Stdout, result)
 		if err != nil {
@@ -86,6 +90,9 @@ func readBundle(path string) (policy.Bundle, error) {
 
 func printBlocked(result hooks.Result) {
 	advice := hooks.BlockedAdvice(result)
+	if result.Provider != "" {
+		advice = hooks.ProviderBlockMessage(result)
+	}
 	if advice == "" {
 		return
 	}

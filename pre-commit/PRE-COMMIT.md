@@ -168,7 +168,12 @@ files and fails when a provider does not point at the expected hook command.
 Codex hook generation uses one native command hook per supported lifecycle
 event, while the runtime normalizes aliases such as `exec_command`,
 `run_shell_command`, `shell`, `write_file`, and `apply_patch`; shell and edit
-policy does not depend on a single Codex tool name spelling.
+policy does not depend on a single Codex tool name spelling. Codex settings are
+generated without inline `PATH=` mutation, use explicit shell/edit matchers for
+tool hooks, and use one matcher-free command hook for supported lifecycle
+events. A nested checkout only enforces the Codex hook whose consumer root is
+the nearest repo root, preventing parent and nested repos from both reporting
+the same tool event.
 `verify` executes provider-shaped runtime probes through the configured hook
 command after `doctor` succeeds. It proves the settings point at a runnable
 policy path; it is not a substitute for a real provider binary executing a live
@@ -208,13 +213,24 @@ circumvention attempts may result in termination.
 Hook responses are provider-aware. Claude keeps the full `hookSpecificOutput`
 contract, including `updatedInput` for transparent git-wrapper rewrites. Codex
 does not currently support `updatedInput`, so coding-ethos returns native block
-output (`decision: "block"` plus `permissionDecision: "deny"`) when a raw git
-command must be rerun through the wrapper. Gemini uses native
+output (`decision: "block"` plus `permissionDecision: "deny"` for
+`PreToolUse`) when a raw git command must be rerun through the wrapper. Codex
+receives compact native `additionalContext` for supported lifecycle and
+post-tool advice, while blocked tool calls use compact `reason` text suitable
+for exit-code-2 stderr. Codex uses compact `systemMessage` only for supported
+events that do not expose `additionalContext`. Gemini uses native
 `decision: "deny"` and `systemMessage` for tool blocks, and maps `AfterTool` to
 the same internal `PostToolUse` feedback path for shell and edit advice.
 Agent-facing post-tool context replaces absolute repo, home, and temp paths
 with stable tokens, collapses multiline commands, and renders hook output as
 TOON line tables instead of escaped newline cells.
+
+Every logged hook run creates `.coding-ethos/hook-runs/<run-id>/metadata.env`
+plus stdout and stderr logs. Agent-hook runs also write sanitized `event.json`
+diagnostics containing provider, event, tool, cwd, referenced files, command
+preview and hash, policy IDs, status, and output shape. The trace is meant for
+debugging policy routing and provider adaptation; it intentionally avoids
+dumping raw tool input.
 
 Post-edit feedback for `Write`, `Edit`, and `MultiEdit` includes focused context,
 language-specific advice, compiled lint findings for the edited files, and a

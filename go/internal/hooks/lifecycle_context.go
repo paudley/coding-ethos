@@ -19,13 +19,17 @@ func lifecycleOutput(event Event) *HookSpecificOutput {
 
 func lifecycleContext(event Event) string {
 	switch event.HookEventName {
+	case "SessionStart":
+		return buildGuidanceContext(
+			[]string{
+				"Load repository conventions, managed toolchain rules, and generated skills before editing.",
+			},
+			"",
+		)
 	case "UserPromptSubmit":
 		return buildGuidanceContext(
 			[]string{
-				"Read relevant repo instructions before acting.",
 				"Use and maintain a todo list for multi-step work.",
-				"Define success criteria before running expensive or broad actions.",
-				"Use the managed git wrapper and never bypass hook policy.",
 			},
 			event.Content(),
 		)

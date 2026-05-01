@@ -205,3 +205,247 @@ Do these before replacing the remaining shell-owned lint capture entrypoint.
   `CaptureSpec`, `RuntimeSpec`, and `FileMatchSpec`.
 - [x] Document the intended Go lint capture flow: shim -> Go dispatcher ->
   capture request -> managed tool -> normalized lint result.
+
+## Major Strategic Work
+
+These are larger roadmap items for moving `coding-ethos` from a local hook and
+generated-context system into a broader policy platform for AI-assisted
+engineering. The common goal is defense in depth: prevent bad actions early,
+explain violations in agent-native formats, and keep organization-specific
+policy editable without weakening the compiled enforcement core.
+
+### Real-Time Context Through MCP
+
+- [ ] Implement a Model Context Protocol server for `coding-ethos`.
+- [ ] Expose policy, skill, and repo-context queries such as protected-path
+  checks, language-specific guidance, policy explanations, and remediation
+  lookup.
+- [ ] Keep static generated docs and skills as durable fallback context while
+  allowing Claude, Codex, Gemini, Cursor, and compatible clients to request
+  focused context on demand.
+- [ ] Add tests proving MCP responses come from the same compiled policy bundle
+  and ETHOS skill data used by hooks.
+
+Acceptance criteria:
+
+- [ ] Agents can query whether a proposed file path, command, or edit violates
+  policy before attempting the action.
+- [ ] MCP responses are compact, auditable, and linked to ETHOS principles and
+  skill IDs.
+- [ ] The server does not create a bypass path around hook enforcement.
+
+### Standardized Policy Language
+
+Decision: use CEL as the first policy-language backend. CEL is the better
+initial fit because `coding-ethos` needs fast, embedded, deterministic,
+typed expressions over already-normalized hook/lint inputs. Keep OPA/Rego as a
+future optional backend for larger set/query policies only if CEL expressions
+become too limited.
+
+- [x] Add `docs/POLICY_LANGUAGE_STRATEGY.md` as the design record for the
+  CEL-first decision and Rego deferral.
+- [x] Add a `policy.expressions` section to `config.yaml` and
+  `repo_config.yaml` overlays with explicit fields for `id`, `description`,
+  `scope`, `severity`, `principle_ids`, `skill_id`, `when`, `message`, and
+  `advice`.
+- [x] Compile CEL expressions into the policy bundle during
+  `coding-ethos-policy compile`; syntax, type, and unknown-variable failures
+  must fail bundle compilation.
+- [x] Define stable typed CEL input objects for the first supported command
+  policy slice: `command`, `argv`, `files`, `cwd`, `scope`, and `metadata`.
+- [x] Extend typed CEL input objects to diagnostic, finding, repo, and path
+  scopes.
+- [x] Keep all host access out of CEL. CEL policy may inspect only the input
+  object and static bundle data; file IO, Git calls, network access, time, and
+  environment access remain first-party Go responsibilities.
+- [x] Add an expression evaluator to the existing compiled evaluator registry
+  so CEL-backed policies emit normal `policy.Decision` and
+  `diagnostics.Diagnostic` values.
+- [x] Support deterministic reusable helpers only through reviewed Go-provided
+  CEL functions, starting with path classification, glob matching, suffix/prefix
+  helpers, and collection checks.
+- [x] Require every expression-backed policy to map to ETHOS principles and,
+  where possible, a generated skill ID so output remains explanatory rather than
+  bare rule text.
+- [x] Add a CLI explain mode that shows CEL source, compiled input schema,
+  matched evidence fields, and the ETHOS/skill mapping for an expression policy.
+- [x] Add golden tests for TOON, JSON, and human output for CEL-backed command,
+  file, diagnostic, and lint-finding policies.
+- [x] Add negative tests for unsafe functions, unknown variables, type errors,
+  non-boolean `when` expressions, missing ETHOS mappings, and invalid override
+  merges.
+- [x] Add migration guidance for moving small hardcoded evaluators into CEL
+  only when doing so reduces Go code without weakening diagnostics or safety.
+- [x] Revisit OPA/Rego only after CEL ships and real policies demonstrate a
+  need for package-level rules, partial evaluation, large static data sets, or
+  complex set joins.
+
+Acceptance criteria:
+
+- [x] A consuming repo can define a non-trivial custom policy without changing
+  Go source.
+- [x] CEL expressions are compiled and type checked before hook runtime.
+- [x] Expression policies emit the same normalized diagnostics, ETHOS links,
+  skill hints, traces, and TOON/human output as compiled evaluators.
+- [x] Unsafe, non-deterministic, networked, or host-dependent policy execution
+  is impossible from expression policy.
+- [x] Direct hook, agent-hook, lint-capture, and future MCP paths all evaluate
+  the same compiled expression policies.
+- [x] Rego is not introduced unless a written design record identifies a
+  concrete CEL limitation and a bounded integration surface.
+
+#### CEL Generic Policy Engine Completion
+
+The current CEL work is a typed custom-policy extension point. These items
+define what is required before CEL can be treated as a complete generic policy
+engine rather than a companion to first-class Go evaluators.
+
+- [ ] Define and version a stable policy object model for CEL inputs covering
+  command, argv, tool, event, provider, cwd, repo, path, paths, file, files,
+  diagnostic, finding, diff, Git facts, config facts, and safe metadata.
+- [ ] Remove aspirational CEL fields: every exposed field must be populated
+  reliably for its scope, or removed until the runtime can provide it.
+- [ ] Populate real typed inputs for hook command scope, file/path scope, lint
+  finding scope, Git scope, config scope, and diff scope.
+- [ ] Replace first-file `path` semantics with explicit multi-file collection
+  semantics such as `paths.exists(...)`, `paths.all(...)`,
+  `files.changed_matching(...)`, and `findings.exists(...)`.
+- [ ] Make dispatch policy-driven so expression config declares hook events,
+  tools, lint tools, modes, defense layers, principle IDs, and skill IDs
+  without hardcoded evaluator registration.
+- [ ] Compile and cache CEL programs during bundle compilation or bundle load
+  rather than recompiling expressions at evaluation time.
+- [ ] Add controlled policy inheritance and override rules for expression
+  policies, including forbidden shadowing of protected built-ins and explicit
+  rules for severity weakening.
+- [ ] Ensure every CEL policy emits the same normalized result shape as Go
+  evaluators: policy ID, severity, decision, message, suggestion, principle
+  IDs, skill ID, evidence, diagnostic location, remediation hint, and
+  explanation metadata.
+- [ ] Expand the reviewed helper library with pure typed helpers for glob
+  matching, path classification, test/generated/protected detection, lint code
+  matching, command-tool detection, inline-env detection, repo config
+  presence, and protected-branch facts.
+- [ ] Add first-class explain output for CEL decisions showing the expression,
+  available input schema, helper functions, matched evidence, ETHOS grounding,
+  and skill/remediation path.
+- [ ] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
+  facts. CEL must not read files, execute shell/Git, inspect environment,
+  access the network, or depend on wall-clock time.
+- [ ] Add operator documentation for supported scopes, input schemas, helper
+  functions, dispatch, severity, examples, anti-patterns, and migration rules.
+- [ ] Add a trust-building test matrix for unknown fields, type failures,
+  unknown helpers, multi-file semantics, hook/lint dispatch, inheritance,
+  shadowing, explain-output golden files, trace output, malicious config, and
+  performance with many expression policies.
+
+Acceptance criteria:
+
+- [ ] Repo policy authors can express most simple and medium-complexity rules
+  in checked-in ethos/config YAML without changing Go source.
+- [ ] Policy authors get compile-time failures for unknown fields, invalid
+  types, invalid helpers, unsafe host access, and invalid dispatch.
+- [ ] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
+  paths cannot distinguish CEL-backed and Go-backed policies except by
+  implementation metadata.
+- [ ] Multi-file and multi-finding policies are explicit and deterministic; no
+  policy depends on implicit "first file" ordering.
+- [ ] Protected core policies remain non-shadowable and non-weakenable unless a
+  protected source explicitly permits it.
+- [ ] Go evaluators remain only for complex parsing, expensive analysis, Git
+  state modeling, managed toolchain behavior, path normalization, and other
+  reviewed security-sensitive operations.
+
+### Native IDE And Cursor Integration
+
+- [ ] Build a VS Code/Cursor extension that invokes `coding-ethos-policy` and
+  `coding-ethos-lint` in the background.
+- [ ] Surface policy and lint diagnostics at edit time instead of waiting for
+  Git hooks.
+- [ ] Provide quick access to relevant ETHOS principles and generated skills
+  from diagnostics.
+- [ ] Detect protected-path edits, hook tampering attempts, bare exception
+  patterns, suppressions, and other high-value failures before a diff is
+  applied.
+
+Acceptance criteria:
+
+- [ ] The extension uses the same compiled bundle and managed toolchain as CLI
+  and hook execution.
+- [ ] Diagnostics are low-noise, actionable, and grouped by file and policy.
+- [ ] The extension is advisory by default but can enforce blocking behavior in
+  managed workspaces.
+
+### CI/CD Components And SARIF
+
+- [ ] Add SARIF output for normalized policy and lint diagnostics.
+- [ ] Provide native GitHub Actions and GitLab CI examples or reusable
+  components.
+- [ ] Ensure CI runs the same compiled policy bundle and managed toolchain
+  versions as local hooks.
+- [ ] Publish violations as PR annotations and, where supported, security/code
+  scanning findings.
+
+Acceptance criteria:
+
+- [ ] A repo can gate PRs in CI even if local hooks are bypassed.
+- [ ] SARIF includes policy IDs, ETHOS principle IDs, skill IDs, file/line
+  locations, remediation advice, and stable rule metadata.
+- [ ] CI output remains compact for agents while preserving full artifacts for
+  audit.
+
+### Adversarial Red-Team Test Suite
+
+- [ ] Build an automated red-team harness that asks LLM agents to bypass or
+  tamper with `coding-ethos` protections.
+- [ ] Cover protected paths, raw Git bypasses, absolute binaries, nested shell
+  execution, symlink/path traversal, config drift, hook deletion, and managed
+  toolchain evasion.
+- [ ] Capture both successful blocks and any missed bypass attempts as
+  reproducible fixtures.
+- [ ] Add regression tests for every bypass class discovered.
+
+Acceptance criteria:
+
+- [ ] Red-team scenarios can run in isolated sample repositories without
+  touching the parent repo.
+- [ ] Each bypass attempt produces either a clear block or a filed gap with a
+  failing regression test.
+- [ ] The suite validates Claude, Codex, Gemini, and generic shell workflows
+  where practical.
+
+### Centralized ETHOS Registry And Inheritance
+
+- [ ] Support policy and ethos inheritance, such as extending a local preset,
+  GitHub-hosted preset, or enterprise registry preset.
+- [ ] Define merge rules for inherited principles, skills, evidence maps,
+  generated tool config, and repo-specific overrides.
+- [ ] Validate inherited sources with pins, hashes, and provenance metadata.
+- [ ] Provide curated presets such as strict Python, strict Go, agent-safe Git,
+  and security-first repositories.
+
+Acceptance criteria:
+
+- [ ] A repo can inherit a baseline ETHOS and override only the local context.
+- [ ] Inheritance is deterministic, auditable, and visible in policy trace
+  output.
+- [ ] Unpinned remote policy inputs are rejected unless explicitly allowed.
+
+### Agent Remediation Loop
+
+- [ ] Define a standardized machine-readable violation payload for agents.
+- [ ] Emit XML, JSON, or TOON remediation blocks that include policy ID,
+  ETHOS principle ID, skill ID, file/line, failed action, and concrete next
+  steps.
+- [ ] Feed hook failures back into Claude, Codex, Gemini, and future MCP clients
+  in the strongest native format each provider supports.
+- [ ] Track whether remediation hints reduce repeated failures in
+  `.coding-ethos` traces.
+
+Acceptance criteria:
+
+- [ ] Agents can self-correct common hook failures without reading raw terminal
+  noise.
+- [ ] Remediation output is compact enough for context windows and precise
+  enough to prevent guessing.
+- [ ] Human output and agent output share the same normalized data model.

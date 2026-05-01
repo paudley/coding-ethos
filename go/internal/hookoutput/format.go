@@ -155,17 +155,15 @@ func FormatLintResultTOON(result lint.Result) string {
 		lines = append(
 			lines,
 			fmt.Sprintf(
-				"advice[%d]{principle_id,skill_id,message,next}:",
+				"advice[%d]{skill_id,message}:",
 				len(result.SkillHints),
 			),
 		)
 		for _, hint := range result.SkillHints {
 			lines = append(lines, fmt.Sprintf(
-				"  %s,%s,%s,%s",
-				TOONCell(hint.PrincipleID),
+				"  %s,%s",
 				TOONCell(hint.SkillID),
-				TOONFindingCell(hint.Message),
-				TOONFindingCell(hint.Next),
+				TOONFindingCell(compactSkillHintMessage(hint.Message)),
 			))
 		}
 	}
@@ -178,6 +176,19 @@ func FormatLintResultTOON(result lint.Result) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func compactSkillHintMessage(message string) string {
+	normalized := strings.Join(strings.Fields(message), " ")
+	if normalized == "" {
+		return ""
+	}
+
+	if sentence, _, ok := strings.Cut(normalized, ". "); ok && sentence != "" {
+		return sentence + "."
+	}
+
+	return normalized
 }
 
 func FormatLintResultHuman(result lint.Result) string {

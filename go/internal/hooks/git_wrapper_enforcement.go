@@ -20,9 +20,7 @@ const (
 )
 
 const (
-	gitWrapperCircumventionRefusal = "It's criminal to attempt to circumvent, " +
-		"avoid or alter this git analysis system. This is a SYSTEM rule and " +
-		"working around it will result in termination!"
+	gitWrapperCircumventionRefusal = severeViolationWarning
 	gitWrapperUseManagedSuggestion = "Use the coding-ethos git wrapper. Do not " +
 		"try alternate shells, absolute git paths, Python subprocesses, PATH " +
 		"edits, aliases, or other bypasses."
@@ -198,6 +196,10 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return "", true
 	}
 
+	if filepath.Base(segment[0]) == "run-go-hook.sh" {
+		return "", isTrustedRunGoHookCommand(segment[0])
+	}
+
 	if managedGitWrapperImpersonation(segment[0]) {
 		return "", false
 	}
@@ -224,6 +226,11 @@ func managedGitSegment(segment []string) bool {
 		return false
 	}
 
+	segment = trimLeadingEnvAssignments(segment)
+	if len(segment) == 0 {
+		return false
+	}
+
 	command := segment[0]
 	commandBase := filepath.Base(command)
 	if commandBase == "run-go-hook.sh" {
@@ -239,6 +246,44 @@ func managedGitSegment(segment []string) bool {
 	return commandBase == "git" && isTrustedHookBinaryCommand(command)
 }
 
+func trimLeadingEnvAssignments(segment []string) []string {
+	for len(segment) > 0 && isShellEnvAssignment(segment[0]) {
+		segment = segment[1:]
+	}
+
+	return segment
+}
+
+func isShellEnvAssignment(token string) bool {
+	if strings.HasPrefix(token, "-") {
+		return false
+	}
+
+	name, value, ok := strings.Cut(token, "=")
+	if !ok || name == "" || value == "" {
+		return false
+	}
+
+	for index, char := range name {
+		if char == '_' {
+			continue
+		}
+		if char >= 'A' && char <= 'Z' {
+			continue
+		}
+		if char >= 'a' && char <= 'z' {
+			continue
+		}
+		if index > 0 && char >= '0' && char <= '9' {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
 func managedGitWrapperImpersonation(command string) bool {
 	base := filepath.Base(command)
 
@@ -248,8 +293,48 @@ func managedGitWrapperImpersonation(command string) bool {
 
 func isTrustedRunGoHookCommand(command string) bool {
 	cleaned := filepath.ToSlash(filepath.Clean(command))
+	if cleaned == "pre-commit/hooks/run-go-hook.sh" {
+		return true
+	}
 
-	return strings.HasSuffix(cleaned, "pre-commit/hooks/run-go-hook.sh")
+	for _, candidate := range trustedRunGoHookCandidates(command) {
+		if cleaned == candidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func trustedRunGoHookCandidates(command string) []string {
+	candidates := []string{
+		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
+		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "hooks", "run-go-hook.sh"),
+	}
+
+	if !filepath.IsAbs(command) {
+		for _, root := range []string{
+			os.Getenv("INVOCATION_CWD"),
+			os.Getenv("CODE_ETHOS_CONSUMER_ROOT"),
+		} {
+			if root == "" {
+				continue
+			}
+
+			candidates = append(candidates, filepath.Join(root, command))
+		}
+	}
+
+	cleaned := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+
+		cleaned = append(cleaned, filepath.ToSlash(filepath.Clean(candidate)))
+	}
+
+	return cleaned
 }
 
 func isTrustedHookBinaryCommand(command string) bool {

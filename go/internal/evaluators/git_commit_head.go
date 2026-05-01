@@ -175,23 +175,19 @@ func readCommitHeadStatePath(path string) (commitHeadState, bool, error) {
 }
 
 func commitHeadStatePath(cwd string) (string, error) {
-	gitDir, err := gitDir(cwd)
+	root, err := gitWorktreeRoot(cwd)
 	if err != nil {
 		return "", err
 	}
 
-	if !filepath.IsAbs(gitDir) && cwd != "" {
-		gitDir = filepath.Join(cwd, gitDir)
-	}
-
-	return filepath.Join(gitDir, "coding-ethos", "commit-head.json"), nil
+	return filepath.Join(root, ".coding-ethos", "state", "commit-head.json"), nil
 }
 
-func gitDir(cwd string) (string, error) {
-	cmd := gitCommand(cwd, "rev-parse", "--git-dir")
+func gitWorktreeRoot(cwd string) (string, error) {
+	cmd := gitCommand(cwd, "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("resolve git dir: %w", err)
+		return "", fmt.Errorf("resolve git worktree root: %w", err)
 	}
 
 	return strings.TrimSpace(string(output)), nil

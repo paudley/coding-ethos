@@ -72,10 +72,13 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
-	assertCapability(t, capabilities, "codex", "partial", "Stop additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PreToolUse apply_patch/edit policy hook")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse compact additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
+	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "UserPromptSubmit additionalContext")
+	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
@@ -141,6 +144,142 @@ func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
 	}
 }
 
+func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
+	t.Parallel()
+
+	buffer := bytes.Buffer{}
+
+	err := agenthooks.WriteSettings(&buffer, testHookCommand)
+	if err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	output := buffer.String()
+	codexSettings := providerSettingsSection(t, output, "codex", "gemini")
+	for _, expected := range []string{
+		`"PreToolUse"`,
+		`"PostToolUse"`,
+		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"Stop"`,
+		`"matcher": "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command"`,
+		`"matcher": "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file"`,
+		`"statusMessage": "coding-ethos policy"`,
+	} {
+		if !strings.Contains(codexSettings, expected) {
+			t.Fatalf("Codex settings missing %s:\n%s", expected, codexSettings)
+		}
+	}
+	for _, unsupported := range []string{
+		`"PostToolBatch"`,
+		`"SessionEnd"`,
+		`"SubagentStart"`,
+		`"SubagentStop"`,
+	} {
+		if strings.Contains(codexSettings, unsupported) {
+			t.Fatalf("Codex must not install context-only hook %s:\n%s", unsupported, codexSettings)
+		}
+	}
+}
+
+func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := agenthooks.SyncSettings(root, "pre-commit/hooks/run-go-hook.sh agent-hook")
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	configPath := agenthooks.DefaultSettingsPaths(root).CodexConfig
+	payload, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read Codex config: %v", err)
+	}
+
+	config := string(payload)
+	if strings.Contains(config, "PATH=") {
+		t.Fatalf("generated Codex config must not inline PATH mutations:\n%s", config)
+	}
+
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		block := codexEventBlock(t, config, event)
+		assertCodexMatcherCount(t, block, event, "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command", 1)
+		assertCodexMatcherCount(t, block, event, "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file", 1)
+		if strings.Contains(block, "{ hooks =") {
+			t.Fatalf("%s must not include catch-all command hooks:\n%s", event, block)
+		}
+	}
+
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop"} {
+		block := codexEventBlock(t, config, event)
+		if strings.Contains(block, "matcher =") {
+			t.Fatalf("%s lifecycle hook must not have a tool matcher:\n%s", event, block)
+		}
+		if count := strings.Count(block, "command = "); count != 1 {
+			t.Fatalf("%s command count = %d, want 1:\n%s", event, count, block)
+		}
+	}
+}
+
+func providerSettingsSection(
+	t *testing.T,
+	output string,
+	provider string,
+	nextProvider string,
+) string {
+	t.Helper()
+
+	start := strings.Index(output, `"`+provider+`": {`)
+	if start == -1 {
+		t.Fatalf("missing %s settings:\n%s", provider, output)
+	}
+
+	end := strings.Index(output[start:], `"`+nextProvider+`": {`)
+	if end == -1 {
+		t.Fatalf("missing %s settings after %s:\n%s", nextProvider, provider, output)
+	}
+
+	return output[start : start+end]
+}
+
+func codexEventBlock(t *testing.T, config string, event string) string {
+	t.Helper()
+
+	start := strings.Index(config, event+" = [")
+	if start == -1 {
+		t.Fatalf("missing Codex event %s:\n%s", event, config)
+	}
+
+	end := strings.Index(config[start:], "]\n")
+	if end == -1 {
+		t.Fatalf("missing end of Codex event %s:\n%s", event, config[start:])
+	}
+
+	return config[start : start+end+2]
+}
+
+func assertCodexMatcherCount(
+	t *testing.T,
+	block string,
+	event string,
+	matcher string,
+	want int,
+) {
+	t.Helper()
+
+	needle := `matcher = "` + matcher + `"`
+	if count := strings.Count(block, needle); count != want {
+		t.Fatalf("%s matcher %q count = %d, want %d:\n%s",
+			event,
+			matcher,
+			count,
+			want,
+			block,
+		)
+	}
+}
+
 func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	t.Parallel()
 
@@ -194,8 +333,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 14 {
-		t.Fatalf("check count = %d, want 14: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 13 {
+		t.Fatalf("check count = %d, want 13: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
@@ -391,7 +530,16 @@ func overwriteAgentSettings(t *testing.T, path string, content string) {
 func writeGeneratedSkillSurfaces(t *testing.T, root string, skillID string) {
 	t.Helper()
 
-	content := "name: " + skillID + "\nsource: coding_ethos.yml\n"
+	content := strings.Join([]string{
+		"---",
+		"name: " + skillID,
+		"metadata:",
+		"  source: coding_ethos.yml",
+		"---",
+		"",
+		"# " + skillID,
+		"",
+	}, "\n")
 	paths := []string{
 		filepath.Join(root, ".agents", "skills", skillID, "SKILL.md"),
 		filepath.Join(root, ".claude", "skills", skillID, "SKILL.md"),
@@ -492,6 +640,10 @@ case "$payload" in
         printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
         exit 2
         ;;
+      *'"provider": "codex"'*)
+        printf '%s\n' '{"decision":"block","reason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination.","hookSpecificOutput":{"permissionDecisionReason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination."}}'
+        exit 2
+        ;;
       *)
         printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
         exit 2
@@ -505,7 +657,7 @@ case "$payload" in
     printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'
     ;;
   *'"provider": "codex"'*)
-    printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
+    printf '%s\n' '{"decision":"block","reason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination.","hookSpecificOutput":{"permissionDecisionReason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination."}}'
     exit 2
     ;;
   *'"toolName": "write_file"'*)

@@ -107,7 +107,6 @@ func initCommitHeadRepo(t *testing.T) string {
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.email", "test@example.com")
 	runGit(t, repo, "config", "user.name", "Test User")
-	runGit(t, repo, "config", "commit.gpgsign", "false")
 
 	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o600)
 	if err != nil {
@@ -144,7 +143,12 @@ func cleanGitTestEnv() []string {
 		env = append(env, item)
 	}
 
-	return env
+	return append(
+		env,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"XDG_CONFIG_HOME="+os.DevNull,
+	)
 }
 
 func gitLocalEnvName(name string) bool {
@@ -152,14 +156,18 @@ func gitLocalEnvName(name string) bool {
 	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
 		"GIT_COMMON_DIR",
 		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_CONFIG_NOSYSTEM",
 		"GIT_CONFIG_PARAMETERS",
+		"GIT_CONFIG_SYSTEM",
 		"GIT_DIR",
 		"GIT_INDEX_FILE",
 		"GIT_NAMESPACE",
 		"GIT_OBJECT_DIRECTORY",
 		"GIT_PREFIX",
 		"GIT_QUARANTINE_PATH",
-		"GIT_WORK_TREE":
+		"GIT_WORK_TREE",
+		"XDG_CONFIG_HOME":
 		return true
 	default:
 		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||

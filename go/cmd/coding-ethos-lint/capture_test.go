@@ -78,8 +78,8 @@ exit 1
 		"tool: ruff",
 		"status: FAIL",
 		"ruff,pkg/app.py,4,8,error,F401,python.unused_imports,lint-remediation,unused import,Remove unused imports instead of suppressing Ruff.",
-		"advice[1]{principle_id,skill_id,message,next}:",
-		"static-analysis-is-the-first-line-of-defense,lint-remediation,Fix lint structurally; do not weaken policy or add suppressions.,Load the lint-remediation skill for the remediation playbook.",
+		"advice[1]{skill_id,message}:",
+		"lint-remediation,Fix lint structurally; do not weaken policy or add suppressions.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("normalized output missing %q:\n%s", want, output)
@@ -203,8 +203,8 @@ exit 1
 
 	for _, want := range []string{
 		"pylint,pkg/app.py,9,1,error,cyclic-import,,conditional-imports,Cyclic import",
-		"advice[1]{principle_id,skill_id,message,next}:",
-		"protocol-first-design,conditional-imports,Break cycles with Protocol-oriented boundaries.",
+		"advice[1]{skill_id,message}:",
+		"conditional-imports,Break cycles with Protocol-oriented boundaries.",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)

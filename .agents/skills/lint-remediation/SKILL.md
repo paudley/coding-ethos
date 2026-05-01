@@ -1,9 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
-
 ---
-name: lint-remediation
-description: Use when Ruff, mypy, pyright, pylint, Bandit, SQLFluff, Tombi, or another managed checker reports findings that need structural code-quality remediation rather than suppressions or config weakening.
+name: "lint-remediation"
+description: "Use when Ruff, mypy, pyright, pylint, Bandit, SQLFluff, Tombi, or another managed checker reports findings that need structural code-quality remediation rather than suppressions or config weakening."
 metadata:
   source: coding_ethos.yml
   generated_by: coding-ethos
@@ -13,6 +10,8 @@ metadata:
     - universal-responsibility
     - solid-is-law
 ---
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
 
 # ETHOS-Grounded Lint Remediation
 

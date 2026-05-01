@@ -47,6 +47,15 @@ func RunWithRegistry(
 	registry evaluators.Registry,
 ) (Result, error) {
 	event := options.Event
+	if shouldSkipNestedCodexHook(event) {
+		return Result{
+			Event:    event.HookEventName,
+			Provider: event.Provider(),
+			Tool:     event.ToolName,
+			Status:   statusAllowed,
+		}, nil
+	}
+
 	route := routeToolUse(event)
 	decisions, err := evaluateDispatchedPolicies(bundle, event, registry)
 	if err != nil {
@@ -178,7 +187,7 @@ func hookSpecificOutput(
 	command := event.Command()
 	output := event.ToolOutput()
 
-	if !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
+	if event.ReturnCode() == 0 || !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
 		return nil
 	}
 

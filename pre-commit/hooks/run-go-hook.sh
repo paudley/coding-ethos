@@ -69,7 +69,9 @@ start_hook_log() {
     printf '\n'
   } > "$metadata_log"
   set +e
-  CODE_ETHOS_HOOK_LOGGING_ACTIVE=1 "$RUN_GO_HOOK" "$@" \
+  export CODE_ETHOS_HOOK_LOGGING_ACTIVE=1
+  export CODE_ETHOS_HOOK_RUN_DIR="$run_dir"
+  "$RUN_GO_HOOK" "$@" \
     > >(tee -a "$stdout_log") \
     2> >(tee -a "$stderr_log" >&2)
   local status=$?
@@ -254,13 +256,13 @@ run_agent_hooks() {
   install_lint_tool_shims
   build_policy_tool coding-ethos-agent-hooks
   if ! has_arg --hook-command "$@"; then
-    set -- "$@" --hook-command "PATH=${TOOLS_BIN_DIR}:\$PATH ${SCRIPT_DIR}/run-go-hook.sh agent-hook"
+    set -- "$@" --hook-command "${SCRIPT_DIR}/run-go-hook.sh agent-hook"
   fi
   exec "${TOOLS_BIN_DIR}/coding-ethos-agent-hooks" "$@"
 }
 
 agent_hook_command() {
-  printf 'PATH=%s:$%s %s agent-hook' "$TOOLS_BIN_DIR" PATH "${SCRIPT_DIR}/run-go-hook.sh"
+  printf '%s agent-hook' "${SCRIPT_DIR}/run-go-hook.sh"
 }
 
 run_agent_hooks_tool() {

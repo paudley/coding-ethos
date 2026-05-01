@@ -1,9 +1,6 @@
-<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
-
 ---
-name: safe-git-workflow
-description: Use when git commands, commit hooks, admin-approved commits, protected hook paths, raw git bypass attempts, or commit attribution failures appear in agent or developer workflows.
+name: "safe-git-workflow"
+description: "Use when git commands, commit hooks, admin-approved commits, protected hook paths, raw git bypass attempts, or commit attribution failures appear in agent or developer workflows."
 metadata:
   source: coding_ethos.yml
   generated_by: coding-ethos
@@ -13,6 +10,8 @@ metadata:
     - forward-motion-only
     - evidence-based-engineering-and-decision-quality
 ---
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
 
 # Safe Git Workflow
 
