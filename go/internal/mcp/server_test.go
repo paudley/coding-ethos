@@ -250,7 +250,7 @@ func runServerWithRuntime(t *testing.T, input string, runtime mcp.Runtime) strin
 
 	var output bytes.Buffer
 	server := mcp.NewServerWithRuntime(policy.ExampleBundle(), runtime)
-	if err := server.Serve(strings.NewReader(input+"\n"), &output); err != nil {
+	if err := server.Serve(strings.NewReader(frameMessage(input)), &output); err != nil {
 		t.Fatalf("serve MCP: %v", err)
 	}
 
@@ -261,11 +261,39 @@ func decodeResponse(t *testing.T, output string) map[string]any {
 	t.Helper()
 
 	var response map[string]any
-	if err := json.Unmarshal([]byte(output), &response); err != nil {
+	body := unframeMessage(t, output)
+	if err := json.Unmarshal([]byte(body), &response); err != nil {
 		t.Fatalf("decode response: %v\n%s", err, output)
 	}
 
 	return response
+}
+
+func frameMessage(payload string) string {
+	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload)
+}
+
+func unframeMessage(t *testing.T, output string) string {
+	t.Helper()
+
+	header, body, ok := strings.Cut(output, "\r\n\r\n")
+	if !ok {
+		t.Fatalf("missing MCP frame separator:\n%s", output)
+	}
+	prefix := "Content-Length: "
+	if !strings.HasPrefix(header, prefix) {
+		t.Fatalf("missing Content-Length header:\n%s", output)
+	}
+	lengthText := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	var length int
+	if _, err := fmt.Sscanf(lengthText, "%d", &length); err != nil {
+		t.Fatalf("parse Content-Length: %v\n%s", err, output)
+	}
+	if len(body) != length {
+		t.Fatalf("body length = %d, want %d\n%s", len(body), length, output)
+	}
+
+	return body
 }
 
 func compactJSON(t *testing.T, input string) string {

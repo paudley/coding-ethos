@@ -4,9 +4,12 @@
 package mcp
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 )
 
 type requestMessage struct {
@@ -31,6 +34,42 @@ type rpcError struct {
 type toolCallParams struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 	Name      string          `json:"name"`
+}
+
+func readFramedMessage(reader *bufio.Reader) ([]byte, error) {
+	contentLength := -1
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		header := strings.TrimRight(line, "\r\n")
+		if header == "" {
+			break
+		}
+
+		name, value, found := strings.Cut(header, ":")
+		if !found {
+			return nil, fmt.Errorf("invalid MCP header %q", header)
+		}
+		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+			parsed, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || parsed < 0 {
+				return nil, fmt.Errorf("invalid MCP content length %q", value)
+			}
+			contentLength = parsed
+		}
+	}
+	if contentLength < 0 {
+		return nil, fmt.Errorf("missing MCP Content-Length header")
+	}
+
+	payload := make([]byte, contentLength)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return nil, err
+	}
+
+	return payload, nil
 }
 
 type commandCheckInput struct {
@@ -100,8 +139,10 @@ func writeResponse(
 	if err != nil {
 		return fmt.Errorf("encode MCP response: %w", err)
 	}
-	payload = append(payload, '\n')
 
+	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
+		return fmt.Errorf("write MCP response header: %w", err)
+	}
 	if _, err := writer.Write(payload); err != nil {
 		return fmt.Errorf("write MCP response: %w", err)
 	}

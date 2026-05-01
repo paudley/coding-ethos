@@ -47,17 +47,18 @@ func NewServerWithRuntime(bundle policy.Bundle, runtime Runtime) Server {
 }
 
 func (server Server) Serve(reader io.Reader, writer io.Writer) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	bufferedReader := bufio.NewReader(reader)
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
+	for {
+		payload, err := readFramedMessage(bufferedReader)
+		if errors.Is(err, io.EOF) {
+			return nil
 		}
-
+		if err != nil {
+			return fmt.Errorf("read MCP request: %w", err)
+		}
 		var request requestMessage
-		if err := json.Unmarshal([]byte(line), &request); err != nil {
+		if err := json.Unmarshal(payload, &request); err != nil {
 			if err := writeResponse(writer, nil, nil, &rpcError{
 				Code:    -32700,
 				Message: "parse error",
@@ -76,12 +77,6 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 			return err
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read MCP request: %w", err)
-	}
-
-	return nil
 }
 
 func (server Server) handle(request requestMessage) (any, *rpcError) {
