@@ -22,6 +22,7 @@ from coding_ethos.models import (
     EthosBundle,
     EthosSkill,
     Principle,
+    PrincipleAxiom,
     PrincipleSection,
     RepoContext,
 )
@@ -257,6 +258,31 @@ def _sections_from_payload(
     return sections
 
 
+def _axioms_from_payload(item: dict[str, Any], *, source: str) -> list[PrincipleAxiom]:
+    raw_axioms = item.get("axioms", [])
+    if not raw_axioms:
+        return []
+    if not isinstance(raw_axioms, list):
+        _error(source, "`axioms` must be a list.")
+
+    axioms: list[PrincipleAxiom] = []
+    for raw_axiom in _as_sequence(cast(object, raw_axioms), "`axioms`"):
+        if not isinstance(raw_axiom, dict):
+            _error(source, "each axiom must be a mapping.")
+        axiom = cast(dict[str, Any], raw_axiom)
+        text = str(axiom.get("axiom", "")).strip()
+        if not text:
+            _error(source, "each axiom must define a non-empty `axiom`.")
+        axioms.append(
+            PrincipleAxiom(
+                axiom=text,
+                action=str(axiom.get("action", "")).strip(),
+            )
+        )
+
+    return axioms
+
+
 def _normalize_string_list(raw: object, *, source: str, field_name: str) -> list[str]:
     values = _normalize_lines(raw)
     if raw is not None and not values:
@@ -372,6 +398,7 @@ def _principle_from_item(item: dict[str, Any], *, source: str) -> Principle:
         summary=summary,
         body=body,
         sections=sections,
+        axioms=_axioms_from_payload(item, source=source),
         directive=directive,
         quick_ref=quick_ref,
         merge_topics=merge_topics,

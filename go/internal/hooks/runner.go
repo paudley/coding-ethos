@@ -187,7 +187,7 @@ func hookSpecificOutput(
 	command := event.Command()
 	output := event.ToolOutput()
 
-	if event.ReturnCode() == 0 || !isGitHookCommand(command) || !hasHookOutputKeywords(output) {
+	if !shouldEmitPostToolBashContext(event, command, output) {
 		return nil
 	}
 
@@ -199,8 +199,19 @@ func hookSpecificOutput(
 			event.ReturnCode(),
 			selectedOutputFormat(),
 			event.Cwd,
+			postToolReminder(bundle, event),
 		),
 	}
+}
+
+func shouldEmitPostToolBashContext(event Event, command string, output string) bool {
+	if isLintCommand(command) {
+		return true
+	}
+
+	return event.ReturnCode() != 0 &&
+		isGitHookCommand(command) &&
+		hasHookOutputKeywords(output)
 }
 
 func isGitHookCommand(command string) bool {
@@ -233,12 +244,20 @@ func hasHookOutputKeywords(output string) bool {
 	return false
 }
 
+func postToolReminder(
+	bundle policy.Bundle,
+	event Event,
+) []renderedEthosReminder {
+	return postToolEthosRemindersFor(bundle.Advice.Reminders, event)
+}
+
 func buildHookOutputContext(
 	command string,
 	output string,
 	returnCode int,
 	format string,
 	cwd string,
+	reminders []renderedEthosReminder,
 ) string {
 	operation := hookOperation(command)
 	status := hookOutputStatus(returnCode)
@@ -248,11 +267,25 @@ func buildHookOutputContext(
 
 	switch format {
 	case outputFormatJSON:
-		return buildHookOutputContextJSON(operation, status, command, output, returnCode)
+		return buildHookOutputContextJSON(
+			operation,
+			status,
+			command,
+			output,
+			returnCode,
+			reminders,
+		)
 	case outputFormatTOON:
-		return buildHookOutputContextTOON(operation, status, command, output, returnCode)
+		return buildHookOutputContextTOON(
+			operation,
+			status,
+			command,
+			output,
+			returnCode,
+			reminders,
+		)
 	default:
-		return buildHookOutputContextHuman(operation, status, output)
+		return buildHookOutputContextHuman(operation, status, output, reminders)
 	}
 }
 
@@ -282,6 +315,7 @@ func buildHookOutputContextHuman(
 	operation string,
 	status string,
 	output string,
+	reminders []renderedEthosReminder,
 ) string {
 	hookType := "PRE-COMMIT"
 	if operation == "push" {
@@ -293,12 +327,17 @@ func buildHookOutputContextHuman(
 		outcome = "The " + operation + " was blocked by hooks."
 	}
 
-	return hookType + " OUTPUT\n" +
+	context := hookType + " OUTPUT\n" +
 		strings.Repeat("=", hookDividerWidth) + "\n\n" +
 		outcome + "\n\n" +
 		"<hook-output>\n" + output + "\n</hook-output>\n\n" +
 		"Summarize failed hooks, modified files, warnings, and required fixes. " +
 		"Treat linter output as important and fix findings structurally."
+	if len(reminders) > 0 {
+		context += "\n\n" + humanReminderText(reminders)
+	}
+
+	return context
 }
 
 func buildHookOutputContextTOON(
@@ -307,6 +346,7 @@ func buildHookOutputContextTOON(
 	command string,
 	output string,
 	returnCode int,
+	reminders []renderedEthosReminder,
 ) string {
 	lines := []string{
 		"format: toon",
@@ -329,6 +369,7 @@ func buildHookOutputContextTOON(
 			lines = append(lines, "  "+toonCell(line))
 		}
 	}
+	lines = appendRenderedReminders(lines, reminders)
 
 	return strings.Join(lines, "\n")
 }
@@ -339,6 +380,7 @@ func buildHookOutputContextJSON(
 	command string,
 	output string,
 	returnCode int,
+	reminders []renderedEthosReminder,
 ) string {
 	payload := map[string]any{
 		"format":      outputFormatJSON,
@@ -355,10 +397,24 @@ func buildHookOutputContextJSON(
 			"Treat linter output as important and fix findings structurally.",
 		),
 	}
+	if len(reminders) > 0 {
+		if reminders[0].Kind == reminderKindPriority {
+			payload["priority_ethos_reminders"] = reminders
+		} else {
+			payload["ethos_reminder"] = reminders[0]
+		}
+	}
 
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return buildHookOutputContextTOON(operation, status, command, output, returnCode)
+		return buildHookOutputContextTOON(
+			operation,
+			status,
+			command,
+			output,
+			returnCode,
+			reminders,
+		)
 	}
 
 	return string(encoded)

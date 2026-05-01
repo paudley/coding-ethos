@@ -46,6 +46,10 @@ def _empty_sections() -> list["PrincipleSection"]:
     return []
 
 
+def _empty_axioms() -> list["PrincipleAxiom"]:
+    return []
+
+
 def _empty_agent_profiles() -> dict[str, "AgentProfile"]:
     return {}
 
@@ -66,6 +70,14 @@ class PrincipleSection:
 
 
 @dataclass(slots=True)
+class PrincipleAxiom:
+    """One concise reminder axiom owned by an ETHOS principle."""
+
+    axiom: str
+    action: str = ""
+
+
+@dataclass(slots=True)
 class Principle:
     """One normalized ethos principle with summary, detail, and hints."""
 
@@ -75,6 +87,7 @@ class Principle:
     summary: str
     body: str
     sections: list[PrincipleSection] = field(default_factory=_empty_sections)
+    axioms: list[PrincipleAxiom] = field(default_factory=_empty_axioms)
     directive: str = ""
     quick_ref: list[str] = field(default_factory=_empty_str_list)
     merge_topics: list[str] = field(default_factory=_empty_str_list)

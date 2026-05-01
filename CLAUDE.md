@@ -10,6 +10,13 @@
 - Use CLAUDE.md as a short import hub, not a giant policy dump.
 - Mirror Claude memory style with one deep linked note per ethos entry.
 - Open the linked ethos note before changing architecture, validation, error handling, security, or delegation behavior.
+
+## Agent Operating Discipline
+- Load `.agents/skills/agent-operating-discipline/SKILL.md` before broad implementation, refactor, review, or debugging work.
+- State task interpretation, assumptions, ambiguity, and trade-offs before broad changes.
+- Prefer the smallest sufficient implementation; avoid speculative abstractions, options, and extension points.
+- Keep edits surgical: every changed line should trace to the request or cleanup directly caused by the change.
+- Define verifiable success criteria and run focused checks before claiming completion.
 - Open the matching detail doc before changing output structure, merge rules, or YAML validation behavior.
 - Use CLAUDE.md as a thin import hub; keep repo-specific operational detail in the shared generated docs.
 - Prefer compiled Go for hook, policy, lint-capture, and runtime glue; treat shell and Python as transitional unless they are clearly the right interface.

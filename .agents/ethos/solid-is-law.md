@@ -15,6 +15,11 @@ Enforce SOLID and simplicity; remove speculative abstractions.
 - We do not view the SOLID principles as academic suggestions.
 - SOLID governs structure; these principles govern complexity:
 
+## Axioms
+- The smallest sufficient design is the strongest default. Avoid speculative abstractions, options, and extension points until a concrete second use exists.
+- Clever code is a liability. Prefer boring, direct code that keeps responsibilities clear.
+- SOLID is a constraint, not a preference. Split responsibilities and depend on clear abstractions.
+
 ## Merge Topics
 - solid is law
 - architecture decisions

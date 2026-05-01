@@ -48,6 +48,11 @@ Enforce SOLID and simplicity; remove speculative abstractions.
 - We do not view the SOLID principles as academic suggestions.
 - SOLID governs structure; these principles govern complexity:
 
+### Axioms
+- The smallest sufficient design is the strongest default. Avoid speculative abstractions, options, and extension points until a concrete second use exists.
+- Clever code is a liability. Prefer boring, direct code that keeps responsibilities clear.
+- SOLID is a constraint, not a preference. Split responsibilities and depend on clear abstractions.
+
 ### Tags
 - architecture, design, simplicity
 
@@ -2197,6 +2202,10 @@ Treat tests as executable behavioral contracts and update them with code changes
 - Tests are not afterthoughts—they are the executable specification of system behavior.
 - There is no such thing as an "acceptable" test failure or a "known flaky" test.
 
+### Axioms
+- Completion is a claim that requires evidence. Define verifiable success criteria and run focused checks before claiming completion.
+- A green process is not the same as a correct result. Define success by user-visible behavior and inspect representative output.
+
 ### Tags
 - testing, quality, specification
 
@@ -3029,6 +3038,11 @@ optimizing and make trade-offs explicit.
 - Understand -> plan -> execute -> validate, using batching and context
 awareness when they reduce waste.
 - Evaluate decisions across quality, reversibility, risk, and human impact.
+
+### Axioms
+- Hidden assumptions become hidden defects. State task interpretation, assumptions, ambiguity, and trade-offs before broad changes.
+- Every changed line needs a reason. Keep edits surgical and trace each change to the request or cleanup directly caused by the change.
+- Todo lists prevent partial work from masquerading as completion. Keep the task list current, mark progress as it happens, and do not report done while planned work remains.
 
 ### Tags
 - evidence, planning, risk, quality

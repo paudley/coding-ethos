@@ -15,6 +15,10 @@ Treat tests as executable behavioral contracts and update them with code changes
 - Tests are not afterthoughts—they are the executable specification of system behavior.
 - There is no such thing as an "acceptable" test failure or a "known flaky" test.
 
+## Axioms
+- Completion is a claim that requires evidence. Define verifiable success criteria and run focused checks before claiming completion.
+- A green process is not the same as a correct result. Define success by user-visible behavior and inspect representative output.
+
 ## Merge Topics
 - testing as specification
 - test requirements

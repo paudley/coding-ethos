@@ -10,9 +10,23 @@
 `coding-ethos` turns engineering principles into runnable repository policy.
 
 It keeps agent instructions, generated documentation, static-analysis config,
-Git hooks, and agent tool-use guards on one source contract. Human contributors
-and AI agents see the same standards, run the same checks, and hit the same
-critical safety gates before bad changes land.
+Git hooks, agent tool-use guards, MCP tools, CEL custom policies, generated
+skills, and runtime axioms on one source contract. Human contributors and AI
+agents see the same standards, run the same checks, and hit the same critical
+safety gates before bad changes land.
+
+The project is built around defense in depth for AI-assisted coding:
+
+- **ETHOS as source:** `coding_ethos.yml` and repo overlays define the
+  principles, skills, axioms, generated docs, and policy grounding.
+- **Compiled enforcement:** Go hook runtimes evaluate built-in policies and
+  typed CEL expression policies through the same decision model.
+- **Managed tools:** lint and type checks run through generated configs,
+  managed binaries, normalized diagnostics, and trace logging.
+- **Agent steering:** Claude, Codex, and Gemini receive generated hook settings,
+  MCP server configuration, skills, prompt addenda, and compact axiom advice.
+- **Repair feedback:** lint findings, blocked policy decisions, skill hints,
+  and MCP guidance all point agents back to the relevant ETHOS contract.
 
 ## Why It Matters
 
@@ -50,16 +64,20 @@ coding_ethos.yml      repo_ethos.yml
 AGENTS.md / CLAUDE.md / GEMINI.md / ETHOS.md
 .agents/ethos/ deep docs
 .agent-context/ prompt addons
+.agents/skills/ remediation playbooks
+runtime axioms with MCP next steps
 
 config.yaml          repo_config.yaml
        │                    │
        ├── merged enforcement config
        │
        ├── generated tool configs
+       ├── CEL expression policies
        ├── Gemini prompt pack
        ├── Go policy bundle
        ├── Git hook runtime
-       └── agent hook runtime
+       ├── agent hook runtime
+       └── MCP server tools
 ```
 
 The same inputs drive guidance and enforcement. Unknown linter findings still
@@ -67,6 +85,20 @@ flow through normally; findings tied to ETHOS principles can receive stronger,
 policy-grounded advice instead of generic tool text. When a finding maps to a
 generated skill, agent-facing output includes a compact `skill_id` hint and a
 next action to load that remediation playbook.
+
+Skills and axioms are part of the same defense-in-depth plan, not decorative
+prompt text. Skills provide provider-portable remediation playbooks. Axioms are
+short principle-local reminders that hooks surface when they are related to a
+policy decision, always on lint calls, and statistically on other post-hook
+events. Rendered axiom advice includes the MCP call an agent should use next,
+so advice can escalate from compact guidance to `policy_explain`,
+`skill_lookup`, or `skill_recommend` without dumping full context into every
+hook response.
+
+CEL support extends that same model to repo-specific policy. A consumer can add
+reviewable, typed custom expressions in `repo_config.yaml`; the compiler checks
+them up front, dispatches them through hook and lint paths, and emits normal
+policy decisions with ETHOS grounding and skill hints.
 
 For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team
@@ -131,10 +163,19 @@ skills.
 
 Current built-in skills:
 
+- `agent-operating-discipline`
 - `conditional-imports`
 - `lint-remediation`
 - `managed-toolchain`
 - `safe-git-workflow`
+
+`agent-operating-discipline` adapts the useful behavioral pattern from
+[`forrestchang/andrej-karpathy-skills`](https://github.com/forrestchang/andrej-karpathy-skills)
+into coding-ethos' derived-skill model: explicit assumptions, simple designs,
+surgical diffs, and verifiable success criteria. The upstream repo is a useful
+inspiration source, but coding-ethos keeps the canonical text in
+`coding_ethos.yml` and regenerates provider-specific skill files from that
+source.
 
 ## Quick Start
 
@@ -340,6 +381,25 @@ in ETHOS principles. Generation emits the same skill body into the portable
 compiled Go policy bundle also carries those skill definitions so linter
 evidence can point at `skill_id` and runtime output can steer agents to the
 right remediation playbook.
+
+Each principle may also define local `axioms`. Axioms are short reminders owned
+by the ETHOS principle they explain, not a separate enforcement-config list.
+The compiler derives hook reminder advice from `principles[].axioms`, falling
+back to the principle's `quick_ref` and directive when no explicit axioms are
+present. That keeps advice, enforcement grounding, generated docs, and runtime
+post-hook reminders attached to the same cohesive ETHOS entry.
+Runtime hook advice surfaces those axioms in two stages: policy-related hook
+results emit priority ETHOS reminders first, while unrelated post-hook output
+gets one ambient reminder on lint calls and a sampled single reminder on other
+calls. Rendered reminders include the MCP tool and arguments an agent should
+call next, such as `policy_explain` for blocked policies or `skill_recommend`
+for principle-level guidance.
+
+Behavioral skills should follow the same source-of-truth rule as remediation
+skills. For example, `agent-operating-discipline` incorporates ideas from
+[`forrestchang/andrej-karpathy-skills`](https://github.com/forrestchang/andrej-karpathy-skills)
+without copying static provider prompts into the repo; edits belong in
+`coding_ethos.yml`, then `make build` regenerates the checked-in surfaces.
 
 Accepted primary aliases when `--primary` is omitted:
 

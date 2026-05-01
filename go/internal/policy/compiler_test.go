@@ -59,7 +59,7 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		!strings.Contains(conditionalImportSkill.ShortHint, "Protocol") {
 		t.Fatalf("compiled conditional import skill mismatch: %#v", conditionalImportSkill)
 	}
-	if bundle.Advice.Reminders.QuietFrequency != 3 ||
+	if bundle.Advice.Reminders.AmbientFrequencyPercent != 25 ||
 		len(bundle.Advice.Reminders.Items) == 0 {
 		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
 	}
@@ -71,7 +71,7 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("missing conditional import reminder: %#v", bundle.Advice.Reminders.Items)
 	}
 	if !strings.Contains(conditionalImportReminder.Axiom, "Conditional imports are banned") ||
-		!strings.Contains(conditionalImportReminder.Action, "Protocol") {
+		!strings.Contains(conditionalImportReminder.Action, "module-scope imports") {
 		t.Fatalf("conditional import reminder missing expected guidance: %#v", conditionalImportReminder)
 	}
 	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
@@ -972,7 +972,7 @@ policy:
 	}
 }
 
-func TestCompileHonorsConfiguredReminderAdvice(t *testing.T) {
+func TestCompileDerivesReminderAdviceFromEthosPrinciples(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -980,15 +980,7 @@ func TestCompileHonorsConfiguredReminderAdvice(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 
 	writeTestFile(t, primaryPath, testEthosYAML)
-	writeTestFile(t, configPath, testConfigYAML+`
-agent_advice:
-  reminders:
-    quiet_frequency: 5
-    items:
-      - principle_id: evidence-based-engineering-and-decision-quality
-        axiom: Keep the list alive.
-        action: Update the todo list before claiming completion.
-`)
+	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary: primaryPath,
@@ -999,11 +991,15 @@ agent_advice:
 	}
 
 	reminders := bundle.Advice.Reminders
-	if reminders.QuietFrequency != 5 || len(reminders.Items) != 1 {
+	if reminders.AmbientFrequencyPercent != 25 || len(reminders.Items) < 9 {
 		t.Fatalf("reminder config mismatch: %#v", reminders)
 	}
-	if reminders.Items[0].Axiom != "Keep the list alive." {
-		t.Fatalf("reminder item mismatch: %#v", reminders.Items[0])
+	reminder := reminderByPrincipleID(
+		reminders.Items,
+		"evidence-based-engineering-and-decision-quality",
+	)
+	if reminder == nil || reminder.Axiom != "Evidence requires verification." {
+		t.Fatalf("missing ethos-derived reminder: %#v", reminders.Items)
 	}
 }
 
@@ -1208,6 +1204,9 @@ principles:
     summary: Required imports are hard dependencies.
     directive: Treat required imports as hard dependencies and fail immediately.
     tags: [dependency, startup]
+    axioms:
+      - axiom: Conditional imports are banned.
+        action: Use module-scope imports and Protocol boundaries.
   - id: one-path-for-critical-operations
     order: 19
     title: One Path for Critical Operations
@@ -1228,6 +1227,9 @@ principles:
     title: Evidence-Based Engineering and Decision Quality
     summary: Evidence outranks assumptions.
     directive: Understand, plan, execute, and validate with evidence.
+    axioms:
+      - axiom: Evidence requires verification.
+        action: Run the relevant check before claiming completion.
   - id: radical-visibility
     order: 11
     title: Radical Visibility

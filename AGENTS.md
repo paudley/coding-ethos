@@ -60,6 +60,13 @@
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
 - This repo currently exposes uv run pytest as its canonical automated verification command.
 
+## Agent Operating Discipline
+- Load `.agents/skills/agent-operating-discipline/SKILL.md` before broad implementation, refactor, review, or debugging work.
+- State task interpretation, assumptions, ambiguity, and trade-offs before broad changes.
+- Prefer the smallest sufficient implementation; avoid speculative abstractions, options, and extension points.
+- Keep edits surgical: every changed line should trace to the request or cleanup directly caused by the change.
+- Define verifiable success criteria and run focused checks before claiming completion.
+
 ## Non-Negotiable Ethos
 - `01. SOLID is Law`: Enforce SOLID and simplicity; remove speculative abstractions. [tags: architecture, design, simplicity]
   Quick ref: Enforce SOLID and simplicity; remove speculative abstractions. | We do not view the SOLID principles as academic suggestions. | SOLID governs structure; these principles govern complexity:

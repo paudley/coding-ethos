@@ -28,14 +28,28 @@ type Advice struct {
 }
 
 type ReminderConfig struct {
-	Items          []EthosReminder `json:"items,omitempty"`
-	QuietFrequency int             `json:"quiet_frequency,omitempty"`
+	Items                   []EthosReminder `json:"items,omitempty"`
+	AmbientFrequencyPercent int             `json:"ambient_frequency_percent,omitempty"`
+	QuietFrequency          int             `json:"quiet_frequency,omitempty"`
 }
 
 type EthosReminder struct {
 	PrincipleID string `json:"principle_id"`
 	Axiom       string `json:"axiom"`
 	Action      string `json:"action"`
+}
+
+const (
+	defaultReminderAmbientFrequencyPercent = 25
+	defaultReminderQuietFrequency          = 4
+)
+
+func DefaultReminderAmbientFrequencyPercent() int {
+	return defaultReminderAmbientFrequencyPercent
+}
+
+func DefaultReminderQuietFrequency() int {
+	return defaultReminderQuietFrequency
 }
 
 type SourcePair struct {
@@ -133,6 +147,7 @@ type GitOperationDispatch struct {
 const (
 	noConditionalImportsOrder      = 3
 	onePathCriticalOperationsOrder = 19
+	evidenceBasedEngineeringOrder  = 26
 )
 
 func ExampleBundle() Bundle {
@@ -185,6 +200,14 @@ func examplePrinciples() map[string]Principle {
 			Summary:   "Critical operations use canonical gates.",
 			Tags:      []string{"workflow", "validation", "reliability"},
 		},
+		"evidence-based-engineering-and-decision-quality": {
+			ID:        "evidence-based-engineering-and-decision-quality",
+			Order:     evidenceBasedEngineeringOrder,
+			Title:     "Evidence-Based Engineering and Decision Quality",
+			Directive: "Understand, plan, execute, and validate with evidence.",
+			Summary:   "Evidence and verification outrank speculation.",
+			Tags:      []string{"evidence", "planning", "risk", "quality"},
+		},
 	}
 }
 
@@ -233,6 +256,35 @@ func exampleSkills() map[string]Skill {
 			RemediationSteps: []string{
 				"Use the installed coding-ethos git wrapper.",
 				"Do not bypass hooks with alternate git binaries, flags, aliases, or subprocesses.",
+			},
+		},
+		"agent-operating-discipline": {
+			ID:          "agent-operating-discipline",
+			Title:       "Agent Operating Discipline",
+			Description: "Use explicit assumptions, minimal scope, surgical edits, and verifiable success criteria.",
+			Source: SourceRef{
+				File: "coding_ethos.yml",
+				Path: "skills.agent-operating-discipline",
+			},
+			PrincipleIDs: []string{
+				"evidence-based-engineering-and-decision-quality",
+			},
+			TriggerTerms: []string{
+				"implement",
+				"refactor",
+				"simplify",
+				"review",
+				"fix bug",
+				"add feature",
+				"success criteria",
+			},
+			ShortHint: "State assumptions, keep edits surgical, and verify success.",
+			Focus:     "Prevent hidden assumptions, speculative abstractions, drive-by refactors, and vague completion claims.",
+			RemediationSteps: []string{
+				"State assumptions and trade-offs before broad changes.",
+				"Choose the smallest design that satisfies the current requirement.",
+				"Keep every changed line traceable to the request.",
+				"Verify with focused tests, lint, type checks, or documented evidence.",
 			},
 		},
 	}

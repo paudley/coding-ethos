@@ -95,7 +95,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 				Repo:    options.RepoConfig,
 			},
 		},
-		Advice:     compileAdvice(configPayload, principles),
+		Advice:     compileAdvice(primaryPayload, configPayload, principles),
 		Principles: principles,
 		Policies:   policies,
 		Skills:     compileSkills(primaryPayload, principles, options.Primary),
@@ -312,19 +312,37 @@ func compileSkills(
 }
 
 func compileAdvice(
+	ethos map[string]any,
 	config map[string]any,
 	principles map[string]Principle,
 ) Advice {
 	return Advice{
-		Reminders: compileReminderConfig(config, principles),
+		Reminders: compileReminderConfig(ethos, config, principles),
 	}
 }
 
 func compileReminderConfig(
+	ethos map[string]any,
 	config map[string]any,
 	principles map[string]Principle,
 ) ReminderConfig {
-	reminders := defaultReminderConfig()
+	reminders := deriveReminderConfigFromEthos(ethos, principles)
+	if reminders.AmbientFrequencyPercent == 0 {
+		reminders.AmbientFrequencyPercent = defaultReminderAmbientFrequencyPercent
+	}
+	if len(reminders.Items) == 0 {
+		reminders = defaultReminderConfig()
+	}
+
+	configuredPercent := intAt(
+		config,
+		[]string{"agent_advice", "reminders", "ambient_frequency_percent"},
+		0,
+	)
+	if configuredPercent > 0 {
+		reminders.AmbientFrequencyPercent = clampPercent(configuredPercent)
+	}
+
 	configuredFrequency := intAt(
 		config,
 		[]string{"agent_advice", "reminders", "quiet_frequency"},
@@ -332,52 +350,124 @@ func compileReminderConfig(
 	)
 	if configuredFrequency > 0 {
 		reminders.QuietFrequency = configuredFrequency
-	}
-
-	rawValue, exists := valueAt(config, "agent_advice", "reminders", "items")
-	if !exists {
-		return reminders
-	}
-
-	rawItems, ok := rawValue.([]any)
-	if !ok {
-		return reminders
-	}
-
-	items := make([]EthosReminder, 0, len(rawItems))
-	for _, raw := range rawItems {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
+		if configuredPercent == 0 {
+			reminders.AmbientFrequencyPercent = frequencyToPercent(configuredFrequency)
 		}
-
-		reminder := EthosReminder{
-			PrincipleID: stringValue(item["principle_id"]),
-			Axiom:       stringValue(item["axiom"]),
-			Action:      stringValue(item["action"]),
-		}
-		if reminder.PrincipleID == "" ||
-			reminder.Axiom == "" ||
-			reminder.Action == "" {
-			continue
-		}
-		if _, ok := principles[reminder.PrincipleID]; !ok {
-			continue
-		}
-
-		items = append(items, reminder)
-	}
-
-	if len(items) > 0 {
-		reminders.Items = items
 	}
 
 	return reminders
 }
 
+func deriveReminderConfigFromEthos(
+	ethos map[string]any,
+	principles map[string]Principle,
+) ReminderConfig {
+	rawPrinciples, ok := ethos["principles"].([]any)
+	if !ok {
+		return ReminderConfig{}
+	}
+
+	items := []EthosReminder{}
+	for _, raw := range rawPrinciples {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		principleID := stringValue(item["id"])
+		if _, ok := principles[principleID]; !ok {
+			continue
+		}
+
+		items = append(items, ethosAxiomsFromPrincipleItem(item, principles[principleID])...)
+	}
+
+	return ReminderConfig{
+		AmbientFrequencyPercent: defaultReminderAmbientFrequencyPercent,
+		QuietFrequency:          defaultReminderQuietFrequency,
+		Items:                   items,
+	}
+}
+
+func ethosAxiomsFromPrincipleItem(
+	item map[string]any,
+	principle Principle,
+) []EthosReminder {
+	rawAxioms, ok := item["axioms"].([]any)
+	if ok {
+		reminders := make([]EthosReminder, 0, len(rawAxioms))
+		for _, raw := range rawAxioms {
+			axiom, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			reminder := EthosReminder{
+				PrincipleID: principle.ID,
+				Axiom:       stringValue(axiom["axiom"]),
+				Action:      stringValue(axiom["action"]),
+			}
+			if reminder.Axiom == "" {
+				continue
+			}
+			if reminder.Action == "" {
+				reminder.Action = principleReminderAction(principle)
+			}
+			reminders = append(reminders, reminder)
+		}
+		if len(reminders) > 0 {
+			return reminders
+		}
+	}
+
+	quickRef := principle.QuickRef
+	if len(quickRef) > 0 {
+		reminders := make([]EthosReminder, 0, len(quickRef))
+		for _, axiom := range quickRef {
+			reminder := EthosReminder{
+				PrincipleID: principle.ID,
+				Axiom:       strings.TrimSpace(axiom),
+				Action:      principleReminderAction(principle),
+			}
+			if reminder.Axiom != "" {
+				reminders = append(reminders, reminder)
+			}
+		}
+		if len(reminders) > 0 {
+			return reminders
+		}
+	}
+
+	axiom := strings.TrimSpace(firstNonEmpty(principle.Summary, principle.Directive, principle.Title))
+	if axiom == "" {
+		return nil
+	}
+
+	return []EthosReminder{{
+		PrincipleID: principle.ID,
+		Axiom:       axiom,
+		Action:      principleReminderAction(principle),
+	}}
+}
+
+func principleReminderAction(principle Principle) string {
+	return firstNonEmpty(principle.Directive, principle.Summary, principle.Title)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
+}
+
 func defaultReminderConfig() ReminderConfig {
 	return ReminderConfig{
-		QuietFrequency: 3,
+		AmbientFrequencyPercent: defaultReminderAmbientFrequencyPercent,
+		QuietFrequency:          defaultReminderQuietFrequency,
 		Items: []EthosReminder{
 			{
 				PrincipleID: "evidence-based-engineering-and-decision-quality",
@@ -429,6 +519,25 @@ func defaultReminderConfig() ReminderConfig {
 			},
 		},
 	}
+}
+
+func clampPercent(value int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+
+	return value
+}
+
+func frequencyToPercent(frequency int) int {
+	if frequency <= 0 {
+		return defaultReminderAmbientFrequencyPercent
+	}
+
+	return 100 / frequency
 }
 
 func compilePolicies(

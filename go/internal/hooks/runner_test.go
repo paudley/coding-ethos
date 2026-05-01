@@ -1168,8 +1168,10 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 		"event: PreToolUse",
 		"policy_id: shell.github_admin",
 		"suggestion: Use the normal review path.",
-		"ethos_reminder:",
-		"axiom: Todo lists prevent partial work from masquerading as completion.",
+		"priority_ethos_reminders",
+		"Todo lists prevent partial work from masquerading as completion.",
+		"policy_explain",
+		"shell.github_admin",
 	} {
 		if !strings.Contains(advice, expected) {
 			t.Fatalf("missing %q in advice: %s", expected, advice)
@@ -1250,8 +1252,9 @@ func TestBlockedAdviceUsesEthosReminderInHumanOutput(t *testing.T) {
 		},
 	})
 
-	if !strings.Contains(advice, "ETHOS reminder:") ||
-		!strings.Contains(advice, "Laziness only moves the cost downstream.") {
+	if !strings.Contains(advice, "Priority ETHOS reminders:") ||
+		!strings.Contains(advice, "Laziness only moves the cost downstream.") ||
+		!strings.Contains(advice, "policy_explain") {
 		t.Fatalf("missing human reminder: %s", advice)
 	}
 }
@@ -2313,6 +2316,76 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
 	}
 	assertNoRoutineContextClutter(t, context)
+}
+
+func TestRunAddsPostToolEthosReminderWhenSampled(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	bundle := policy.ExampleBundle()
+	bundle.Advice.Reminders.AmbientFrequencyPercent = 100
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "git commit",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "pre-commit...Failed\napp.py was modified",
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "ethos_reminder:") ||
+		!strings.Contains(context, "axiom:") ||
+		!strings.Contains(context, "skill_recommend") {
+		t.Fatalf("missing sampled ethos reminder: %s", context)
+	}
+}
+
+func TestRunAddsPriorityEthosRemindersForLintCalls(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "uv run ruff check src/app.py",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "All checks passed!",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatal("lint calls should produce ETHOS guidance context")
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"priority_ethos_reminders",
+		"static-analysis-is-the-first-line-of-defense",
+		"linting-as-code-quality-enforcement",
+		"skill_recommend",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing %q in lint reminder context: %s", expected, context)
+		}
+	}
+	if strings.Contains(context, "ethos_reminder:") {
+		t.Fatalf("priority reminders should suppress ambient reminders: %s", context)
+	}
 }
 
 func TestEncodeProviderResultCompactsCodexPostEditContext(t *testing.T) {
