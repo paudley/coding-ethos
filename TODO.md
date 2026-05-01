@@ -253,7 +253,7 @@ become too limited.
   must fail bundle compilation.
 - [x] Define stable typed CEL input objects for the first supported command
   policy slice: `command`, `argv`, `files`, `cwd`, `scope`, and `metadata`.
-- [ ] Extend typed CEL input objects to diagnostic, finding, repo, and path
+- [x] Extend typed CEL input objects to diagnostic, finding, repo, and path
   scopes.
 - [x] Keep all host access out of CEL. CEL policy may inspect only the input
   object and static bundle data; file IO, Git calls, network access, time, and
@@ -261,37 +261,37 @@ become too limited.
 - [x] Add an expression evaluator to the existing compiled evaluator registry
   so CEL-backed policies emit normal `policy.Decision` and
   `diagnostics.Diagnostic` values.
-- [ ] Support deterministic reusable helpers only through reviewed Go-provided
+- [x] Support deterministic reusable helpers only through reviewed Go-provided
   CEL functions, starting with path classification, glob matching, suffix/prefix
   helpers, and collection checks.
 - [x] Require every expression-backed policy to map to ETHOS principles and,
   where possible, a generated skill ID so output remains explanatory rather than
   bare rule text.
-- [ ] Add a CLI explain mode that shows CEL source, compiled input schema,
+- [x] Add a CLI explain mode that shows CEL source, compiled input schema,
   matched evidence fields, and the ETHOS/skill mapping for an expression policy.
-- [ ] Add golden tests for TOON, JSON, and human output for CEL-backed command,
+- [x] Add golden tests for TOON, JSON, and human output for CEL-backed command,
   file, diagnostic, and lint-finding policies.
-- [ ] Add negative tests for unsafe functions, unknown variables, type errors,
+- [x] Add negative tests for unsafe functions, unknown variables, type errors,
   non-boolean `when` expressions, missing ETHOS mappings, and invalid override
   merges.
-- [ ] Add migration guidance for moving small hardcoded evaluators into CEL
+- [x] Add migration guidance for moving small hardcoded evaluators into CEL
   only when doing so reduces Go code without weakening diagnostics or safety.
-- [ ] Revisit OPA/Rego only after CEL ships and real policies demonstrate a
+- [x] Revisit OPA/Rego only after CEL ships and real policies demonstrate a
   need for package-level rules, partial evaluation, large static data sets, or
   complex set joins.
 
 Acceptance criteria:
 
-- [ ] A consuming repo can define a non-trivial custom policy without changing
+- [x] A consuming repo can define a non-trivial custom policy without changing
   Go source.
-- [ ] CEL expressions are compiled and type checked before hook runtime.
-- [ ] Expression policies emit the same normalized diagnostics, ETHOS links,
+- [x] CEL expressions are compiled and type checked before hook runtime.
+- [x] Expression policies emit the same normalized diagnostics, ETHOS links,
   skill hints, traces, and TOON/human output as compiled evaluators.
-- [ ] Unsafe, non-deterministic, networked, or host-dependent policy execution
+- [x] Unsafe, non-deterministic, networked, or host-dependent policy execution
   is impossible from expression policy.
-- [ ] Direct hook, agent-hook, lint-capture, and future MCP paths all evaluate
+- [x] Direct hook, agent-hook, lint-capture, and future MCP paths all evaluate
   the same compiled expression policies.
-- [ ] Rego is not introduced unless a written design record identifies a
+- [x] Rego is not introduced unless a written design record identifies a
   concrete CEL limitation and a bounded integration surface.
 
 ### Native IDE And Cursor Integration

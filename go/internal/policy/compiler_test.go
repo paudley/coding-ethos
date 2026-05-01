@@ -327,6 +327,122 @@ policy:
 	}
 }
 
+func TestCompileRejectsInvalidExpressionPolicyContracts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		expression string
+		want       string
+	}{
+		{
+			name: "unsafe host function",
+			expression: `
+    - id: custom.unsafe
+      principle_ids: [one-path-for-critical-operations]
+      when: now() > timestamp("2026-01-01T00:00:00Z")
+      message: Invalid expression.
+      advice: Fix the expression.
+`,
+			want: "compile CEL policy",
+		},
+		{
+			name: "unknown variable",
+			expression: `
+    - id: custom.unknown
+      principle_ids: [one-path-for-critical-operations]
+      when: env.HOME != ""
+      message: Invalid expression.
+      advice: Fix the expression.
+`,
+			want: "compile CEL policy",
+		},
+		{
+			name: "type error",
+			expression: `
+    - id: custom.type_error
+      principle_ids: [one-path-for-critical-operations]
+      when: command + 1
+      message: Invalid expression.
+      advice: Fix the expression.
+`,
+			want: "compile CEL policy",
+		},
+		{
+			name: "non boolean when",
+			expression: `
+    - id: custom.non_bool
+      principle_ids: [one-path-for-critical-operations]
+      when: command
+      message: Invalid expression.
+      advice: Fix the expression.
+`,
+			want: "when expression must return bool",
+		},
+		{
+			name: "missing ethos mapping",
+			expression: `
+    - id: custom.missing_ethos
+      when: command.contains("git")
+      message: Invalid expression.
+      advice: Fix the expression.
+`,
+			want: "principle_ids is required",
+		},
+	}
+
+	for _, testCase := range cases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			primaryPath := filepath.Join(dir, "coding_ethos.yml")
+			configPath := filepath.Join(dir, "config.yaml")
+
+			writeTestFile(t, primaryPath, testEthosYAML)
+			writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+`+testCase.expression)
+
+			_, _, err := Compile(CompileOptions{
+				Primary: primaryPath,
+				Config:  configPath,
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("compile error = %v, want %q", err, testCase.want)
+			}
+		})
+	}
+}
+
+func TestCompileRejectsInvalidExpressionOverrideMerge(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, `
+policy:
+  expressions:
+    id: custom.invalid_overlay
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "policy.expressions must be a list") {
+		t.Fatalf("compile error = %v, want invalid expression overlay error", err)
+	}
+}
+
 func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T) {
 	t.Parallel()
 

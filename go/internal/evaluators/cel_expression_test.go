@@ -56,6 +56,43 @@ func TestEvaluateCELExpressionIgnoresNonMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksMatchingPathScope(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Cwd:   "/repo",
+			Files: []string{"src/tests/test_policy.py"},
+			Scope: "files",
+			Tool:  "ruff",
+			EvaluatorOptions: map[string]any{
+				"source_roots":   []string{"src"},
+				"python_version": "3.13",
+				"skill_id":       "lint-remediation",
+				"when": `
+					has_suffix(path.file, ".py") &&
+					is_test_path(path.file) &&
+					in_source_root(path.file, repo.source_roots) &&
+					list_contains(files, path.file) &&
+					diagnostic.tool == "ruff" &&
+					finding.file == path.file &&
+					repo.python_version == "3.13"
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one decision", decisions)
+	}
+	if decisions[0].Diagnostics[0].File != "src/tests/test_policy.py" {
+		t.Fatalf("diagnostic = %#v", decisions[0].Diagnostics[0])
+	}
+}
+
 func celExpressionPolicy() policy.Policy {
 	return policy.Policy{
 		ID:              "custom.no_subprocess_git",

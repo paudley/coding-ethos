@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
-	"github.com/google/cel-go/cel"
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -1841,7 +1841,7 @@ func addExpressionPolicies(
 			return fmt.Errorf("policy.expressions[%d] must be a mapping", index)
 		}
 
-		policyDef, err := expressionPolicy(expression, index, principles)
+		policyDef, err := expressionPolicy(expression, index, config, principles)
 		if err != nil {
 			return err
 		}
@@ -1854,6 +1854,7 @@ func addExpressionPolicies(
 func expressionPolicy(
 	expression map[string]any,
 	index int,
+	config map[string]any,
 	principles map[string]Principle,
 ) (Policy, error) {
 	policyID := strings.TrimSpace(fmt.Sprint(expression["id"]))
@@ -1865,7 +1866,7 @@ func expressionPolicy(
 	if when == "" || when == "<nil>" {
 		return Policy{}, fmt.Errorf("policy.expressions[%d].when is required", index)
 	}
-	if err := validateCELExpression(policyID, when); err != nil {
+	if err := celexpr.Validate(policyID, when); err != nil {
 		return Policy{}, err
 	}
 
@@ -1923,44 +1924,14 @@ func expressionPolicy(
 			Name: "cel.expression",
 			Options: map[string]any{
 				"dispatch_scopes": dispatchScopes,
+				"python_version":  stringAt(config, "style", "python_version"),
 				"scope":           scope,
 				"skill_id":        stringOptionFromMap(expression, "skill_id", ""),
+				"source_roots":    stringSliceAt(config, []string{"python", "source_paths"}, nil),
 				"when":            when,
 			},
 		}},
 	}, nil
-}
-
-func validateCELExpression(policyID string, source string) error {
-	env, err := celExpressionEnvironment()
-	if err != nil {
-		return fmt.Errorf("prepare CEL environment for %q: %w", policyID, err)
-	}
-
-	ast, issues := env.Compile(source)
-	if issues != nil && issues.Err() != nil {
-		return fmt.Errorf("compile CEL policy %q: %w", policyID, issues.Err())
-	}
-	if !ast.OutputType().IsExactType(cel.BoolType) {
-		return fmt.Errorf(
-			"compile CEL policy %q: when expression must return bool, got %s",
-			policyID,
-			ast.OutputType(),
-		)
-	}
-
-	return nil
-}
-
-func celExpressionEnvironment() (*cel.Env, error) {
-	return cel.NewEnv(
-		cel.Variable("argv", cel.ListType(cel.StringType)),
-		cel.Variable("command", cel.StringType),
-		cel.Variable("cwd", cel.StringType),
-		cel.Variable("files", cel.ListType(cel.StringType)),
-		cel.Variable("scope", cel.StringType),
-		cel.Variable("metadata", cel.MapType(cel.StringType, cel.DynType)),
-	)
 }
 
 func expressionPrincipleIDs(expression map[string]any) []string {

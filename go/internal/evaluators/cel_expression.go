@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"github.com/google/cel-go/cel"
 )
@@ -21,7 +22,7 @@ func EvaluateCELExpression(
 		return nil, fmt.Errorf("CEL expression policy %q missing when", policyDef.ID)
 	}
 
-	env, err := celExpressionEnvironment()
+	env, err := celexpr.Environment()
 	if err != nil {
 		return nil, fmt.Errorf("prepare CEL environment: %w", err)
 	}
@@ -76,27 +77,16 @@ func EvaluateCELExpression(
 	return []policy.Decision{decision}, nil
 }
 
-func celExpressionEnvironment() (*cel.Env, error) {
-	return cel.NewEnv(
-		cel.Variable("argv", cel.ListType(cel.StringType)),
-		cel.Variable("command", cel.StringType),
-		cel.Variable("cwd", cel.StringType),
-		cel.Variable("files", cel.ListType(cel.StringType)),
-		cel.Variable("scope", cel.StringType),
-		cel.Variable("metadata", cel.MapType(cel.StringType, cel.DynType)),
-	)
-}
-
 func celActivation(context Context) map[string]any {
-	return map[string]any{
-		"argv":    append([]string(nil), context.Argv...),
-		"command": context.Command,
-		"cwd":     context.Cwd,
-		"files":   append([]string(nil), context.Files...),
-		"metadata": map[string]any{
-			"admin_approved": context.AdminApproved,
-			"tool":           context.Tool,
-		},
-		"scope": context.Scope,
-	}
+	return celexpr.Activation(celexpr.ActivationInput{
+		Argv:          context.Argv,
+		Command:       context.Command,
+		Cwd:           context.Cwd,
+		Files:         context.Files,
+		Scope:         context.Scope,
+		Tool:          context.Tool,
+		AdminApproved: context.AdminApproved,
+		SourceRoots:   stringSliceOption(context.EvaluatorOptions, "source_roots", nil),
+		PythonVersion: stringOption(context.EvaluatorOptions, "python_version", ""),
+	})
 }

@@ -294,6 +294,109 @@ func TestFormatLintResultTOONTruncatesPathologicalFindingCells(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultCELBackedGoldenSurfaces(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		result lint.Result
+		want   string
+	}{
+		{
+			name: "command policy",
+			result: lint.Result{
+				Scope:      "files",
+				Status:     "blocked",
+				SkillHints: celSkillHints(),
+				Decisions: []policy.Decision{celDecision(
+					"custom.no_subprocess_git",
+					"",
+					"Git subprocesses are forbidden.",
+				)},
+			},
+			want: "custom.no_subprocess_git",
+		},
+		{
+			name: "file policy",
+			result: lint.Result{
+				Scope:      "files",
+				Status:     "blocked",
+				SkillHints: celSkillHints(),
+				Decisions: []policy.Decision{celDecision(
+					"custom.generated_python",
+					"generated/model.py",
+					"Generated Python must not be edited directly.",
+				)},
+			},
+			want: "generated/model.py",
+		},
+		{
+			name: "diagnostic policy",
+			result: lint.Result{
+				Scope:      "tool:ruff",
+				Status:     "blocked",
+				SkillHints: celSkillHints(),
+				Diagnostics: []diagnostics.Diagnostic{{
+					Tool:     "policy",
+					File:     "pkg/app.py",
+					Line:     10,
+					Severity: "block",
+					PolicyID: "custom.ruff_policy",
+					SkillID:  "lint-remediation",
+					Message:  "Ruff diagnostic maps to ETHOS policy.",
+					Advice:   "Fix the diagnostic structurally.",
+				}},
+			},
+			want: "custom.ruff_policy",
+		},
+		{
+			name: "lint finding policy",
+			result: lint.Result{
+				Scope:      "tool:mypy",
+				Status:     "blocked",
+				SkillHints: celSkillHints(),
+				Findings: []lint.Finding{{
+					CheckID:    "custom.mypy_policy",
+					PolicyID:   "custom.mypy_policy",
+					SkillID:    "lint-remediation",
+					Message:    "Mypy finding maps to ETHOS policy.",
+					Severity:   "error",
+					SourceTool: "mypy",
+					Status:     "fail",
+					Blocking:   true,
+				}},
+			},
+			want: "custom.mypy_policy",
+		},
+	}
+
+	for _, testCase := range cases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, format := range []string{FormatTOON, FormatJSON, FormatHuman} {
+				output, err := FormatLintResult(testCase.result, format)
+				if err != nil {
+					t.Fatalf("format %s lint result: %v", format, err)
+				}
+				for _, want := range []string{
+					testCase.want,
+					"lint-remediation",
+				} {
+					if !strings.Contains(output, want) {
+						t.Fatalf("%s output missing %q:\n%s", format, want, output)
+					}
+				}
+				if format != FormatJSON &&
+					!strings.Contains(output, "Fix the reported diagnostics before continuing.") {
+					t.Fatalf("%s output missing guidance:\n%s", format, output)
+				}
+			}
+		})
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
 	getenv := func(name string) string {
 		switch name {
@@ -318,4 +421,34 @@ func TestTOONCellEscapesCommasAndNewlines(t *testing.T) {
 	if got != `a\,b\nc` {
 		t.Fatalf("TOONCell() = %q", got)
 	}
+}
+
+func celDecision(policyID string, file string, message string) policy.Decision {
+	decision := policy.Decision{
+		Decision:   "block",
+		Severity:   "block",
+		PolicyID:   policyID,
+		Message:    message,
+		Suggestion: "Load the lint remediation skill.",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			File:     file,
+			Severity: "block",
+			PolicyID: policyID,
+			SkillID:  "lint-remediation",
+			Message:  message,
+			Advice:   "Load the lint remediation skill.",
+		}},
+	}
+
+	return decision
+}
+
+func celSkillHints() []lint.SkillHint {
+	return []lint.SkillHint{{
+		PrincipleID: "linting-as-code-quality-enforcement",
+		SkillID:     "lint-remediation",
+		Message:     "Resolve CEL-backed lint findings structurally.",
+		Next:        "Load the lint-remediation skill for the remediation playbook.",
+	}}
 }

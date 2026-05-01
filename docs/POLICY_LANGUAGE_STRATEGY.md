@@ -177,14 +177,15 @@ Do not expose raw environment, arbitrary filesystem contents, or host paths.
 
 Keep helper functions small and reviewed. Initial candidates:
 
-- `path.matchesGlob(pattern)`
-- `path.hasSuffix(suffix)`
-- `path.hasPrefix(prefix)`
-- `path.isTest`
-- `path.isGenerated`
-- `path.inSourceRoot`
-- `diagnostic.hasCode(code)`
-- `any(list, predicate)` / native CEL comprehensions where possible
+- `glob_match(pattern, value)`
+- `has_suffix(value, suffix)`
+- `has_prefix(value, prefix)`
+- `is_test_path(path)`
+- `is_generated_path(path)`
+- `in_source_root(path, source_roots)`
+- `list_contains(values, value)`
+- `any_has_prefix(values, prefix)`
+- `any_has_suffix(values, suffix)`
 
 Avoid helper functions that hide IO, policy decisions, or broad framework logic.
 
@@ -203,6 +204,18 @@ Move a hardcoded evaluator into CEL only when all of the following are true:
 Critical safety primitives such as Git wrapper enforcement, staged file
 resolution, managed toolchain resolution, config hash validation, and path
 normalization stay in Go.
+
+Migration workflow:
+
+1. Identify the smallest hardcoded evaluator branch that is pure matching over
+   existing normalized input.
+2. Write the CEL expression beside the Go evaluator in tests first and prove it
+   matches the same positive and negative cases.
+3. Confirm the generated decision keeps the same severity, policy ID, ETHOS
+   principle IDs, skill ID, message, advice, and file attribution.
+4. Run TOON, JSON, human, and trace-output tests before deleting the Go branch.
+5. Keep the Go implementation if the CEL version needs extra host inspection,
+   hidden helper complexity, weaker diagnostics, or broader suppressions.
 
 ## Rego Reconsideration Gate
 
