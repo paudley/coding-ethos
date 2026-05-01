@@ -507,6 +507,7 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 
+go-tools-smoke: export CODE_ETHOS_HOOK_OUTPUT_FORMAT := toon
 go-tools-smoke: ## Smoke test shared Go tools using only temporary runtime state.
 	@$(call print_step,Smoke testing shared Go tools)
 	@tmp_bin="$$(mktemp -d)"; \
