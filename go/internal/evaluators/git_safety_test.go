@@ -242,6 +242,28 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 				"$(cat <<'EOF'\nfix(enrichment): resolve runtime bugs\n\nbody\nEOF\n)",
 			},
 		},
+		{
+			name:      "commit heredoc message without cat spacing",
+			policyID:  "git.commitlint",
+			evaluator: EvaluateGitCommitLint,
+			argv: []string{
+				"git",
+				"commit",
+				"-m",
+				"$(cat<<'EOF'\nfix(enrichment): resolve runtime bugs\n\nbody\nEOF\n)",
+			},
+		},
+		{
+			name:      "commit heredoc message with extra cat spacing",
+			policyID:  "git.commitlint",
+			evaluator: EvaluateGitCommitLint,
+			argv: []string{
+				"git",
+				"commit",
+				"-m",
+				"$(cat    <<'EOF'\nfix(enrichment): resolve runtime bugs\n\nbody\nEOF\n)",
+			},
+		},
 	}
 
 	bundle := compiledGitSafetyTestBundle()

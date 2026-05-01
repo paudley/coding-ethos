@@ -11,29 +11,28 @@
     - |
       if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
         cd "$CODING_ETHOS_REPO_ROOT"
-        bash -lc "$CODING_ETHOS_GATE_COMMAND"
+        export CODING_ETHOS_GATE_COMMAND
+        bash -c '$CODING_ETHOS_GATE_COMMAND'
         cd "$CI_PROJECT_DIR"
       fi
     - |
       repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
       ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
-      files="$CODING_ETHOS_FILES"
+      files_path="$(mktemp)"
 
-      if [ -z "$files" ] && [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
-        files="$(
-          git diff --name-only "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA"...HEAD |
-            paste -sd, -
-        )"
-      fi
-
-      if [ -z "$files" ]; then
-        files="$(git ls-files | paste -sd, -)"
+      if [ -n "$CODING_ETHOS_FILES" ]; then
+        printf '%s\n' "$CODING_ETHOS_FILES" | tr ',' '\n' > "$files_path"
+      elif [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
+        git diff --name-only "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA"...HEAD \
+          > "$files_path"
+      else
+        git ls-files > "$files_path"
       fi
 
       "$ethos_path/pre-commit/hooks/run-go-hook.sh" policy-lint \
         --cwd "$repo_root" \
         --scope files \
-        --files "$files" \
+        --files-from "$files_path" \
         --sarif > "$CODING_ETHOS_SARIF_PATH"
   artifacts:
     when: always

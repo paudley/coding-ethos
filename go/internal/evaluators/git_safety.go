@@ -416,11 +416,16 @@ func catHeredocCommandSubstitution(value string) (string, bool) {
 	}
 
 	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
-	if !strings.HasPrefix(inner, "cat <<") {
+	if !strings.HasPrefix(inner, "cat") {
 		return "", false
 	}
 
-	rest := strings.TrimSpace(strings.TrimPrefix(inner, "cat <<"))
+	afterCat := strings.TrimSpace(strings.TrimPrefix(inner, "cat"))
+	if !strings.HasPrefix(afterCat, "<<") {
+		return "", false
+	}
+
+	rest := strings.TrimSpace(strings.TrimPrefix(afterCat, "<<"))
 	newline := strings.IndexByte(rest, '\n')
 	if newline < 0 {
 		return "", false

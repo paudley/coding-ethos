@@ -32,10 +32,16 @@ func main() {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
+	filesFrom := flags.String("files-from", "", "Newline-separated file list for --scope files")
 	forFilesRaw := flags.String(
 		"for-files",
 		"",
 		"Comma-separated files to filter --analyze-log results",
+	)
+	forFilesFrom := flags.String(
+		"for-files-from",
+		"",
+		"Newline-separated file list to filter --analyze-log results",
 	)
 	argvRaw := flags.String(
 		"argv",
@@ -147,9 +153,15 @@ func main() {
 			}
 		}
 
-		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(path, lint.AnalysisOptions{
-			Files: parseFiles(*forFilesRaw),
-		})
+		forFiles, filesErr := filesFromInputs(*forFilesRaw, *forFilesFrom)
+		if filesErr != nil {
+			exitErr(filesErr)
+		}
+
+		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(
+			path,
+			lint.AnalysisOptions{Files: forFiles},
+		)
 		if analyzeErr != nil {
 			exitErr(analyzeErr)
 		}
@@ -197,9 +209,14 @@ func main() {
 	}
 
 	if *explain {
+		files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
+		if filesErr != nil {
+			exitErr(filesErr)
+		}
+
 		explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
 			Scope: scope.Value(),
-			Files: parseFiles(*filesRaw),
+			Files: files,
 		})
 		if explainErr != nil {
 			exitErr(explainErr)
@@ -219,7 +236,10 @@ func main() {
 		return
 	}
 
-	files := parseFiles(*filesRaw)
+	files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
 	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
 		files, err = stagedFiles(*cwd)
 		if err != nil {
@@ -334,6 +354,34 @@ func parseFiles(raw string) []string {
 	files := make([]string, 0, len(parts))
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			files = append(files, trimmed)
+		}
+	}
+
+	return files
+}
+
+func filesFromInputs(raw string, path string) ([]string, error) {
+	files := parseFiles(raw)
+	if strings.TrimSpace(path) == "" {
+		return files, nil
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file list %s: %w", path, err)
+	}
+
+	return append(files, parseFileListLines(string(content))...), nil
+}
+
+func parseFileListLines(raw string) []string {
+	lines := strings.Split(raw, "\n")
+
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		if trimmed != "" {
 			files = append(files, trimmed)
 		}

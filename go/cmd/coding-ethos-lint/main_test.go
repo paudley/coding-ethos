@@ -36,6 +36,39 @@ func TestStagedFilesListsGitIndexEntries(t *testing.T) {
 	}
 }
 
+func TestFilesFromInputsCombinesFlagAndFileLists(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "files.txt")
+	if err := os.WriteFile(
+		path,
+		[]byte("pkg/app.py\n\npkg/other.py\r\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write file list: %v", err)
+	}
+
+	files, err := filesFromInputs("README.md, docs/usage.md", path)
+	if err != nil {
+		t.Fatalf("files from inputs: %v", err)
+	}
+
+	want := []string{
+		"README.md",
+		"docs/usage.md",
+		"pkg/app.py",
+		"pkg/other.py",
+	}
+	if len(files) != len(want) {
+		t.Fatalf("files = %#v, want %#v", files, want)
+	}
+	for index := range want {
+		if files[index] != want[index] {
+			t.Fatalf("files = %#v, want %#v", files, want)
+		}
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
