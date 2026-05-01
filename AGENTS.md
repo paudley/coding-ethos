@@ -54,6 +54,7 @@
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/ and installs direct Go runner shims into `.git/hooks/`.
 - style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and .golangci.yml's lll line-length setting.
 - Hook runtime, policy enforcement, Python policy checks, and bundled analyzer orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+- Prefer replacing shell and Python implementation glue with Go wherever practical. Every branch should identify at least one related shell or Python path that can move into compiled Go, even if the branch only documents why it is not the right time to migrate it.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
 - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
@@ -150,3 +151,4 @@ of pasting long prose.
 - Prefer changing the narrow module that owns the behavior instead of spreading logic across cli.py and multiple helpers.
 - After changing coding_ethos.yml, repo_ethos.yml, or renderer behavior, regenerate this repo's checked-in agent files before finishing.
 - Treat generated markdown files as derived artifacts; hand-edit them only when the task is explicitly about the generated output itself.
+- On each branch, look for one related shell or Python implementation path that can be moved into Go, and either migrate it or record the concrete blocker.

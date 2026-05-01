@@ -77,6 +77,10 @@ repo:
     - Hook runtime, policy enforcement, Python policy checks, and bundled analyzer
       orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under
       pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+    - Prefer replacing shell and Python implementation glue with Go wherever
+      practical. Every branch should identify at least one related shell or Python
+      path that can move into compiled Go, even if the branch only documents why
+      it is not the right time to migrate it.
     - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown
       seeding, and merge helpers.
     - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates;
@@ -94,16 +98,22 @@ agent_notes:
       this repo's checked-in agent files before finishing.
     - Treat generated markdown files as derived artifacts; hand-edit them only when the
       task is explicitly about the generated output itself.
+    - On each branch, look for one related shell or Python implementation path that
+      can be moved into Go, and either migrate it or record the concrete blocker.
   claude:
     - Open the matching detail doc before changing output structure, merge rules, or
       YAML validation behavior.
     - Use CLAUDE.md as a thin import hub; keep repo-specific operational detail in the
       shared generated docs.
+    - Prefer compiled Go for hook, policy, lint-capture, and runtime glue; treat
+      shell and Python as transitional unless they are clearly the right interface.
   gemini:
     - Prefer targeted reads of the module that owns the behavior rather than summarizing
       the whole repo at once.
     - When discussing generated outputs, anchor the explanation in the source YAML and
       renderer pipeline.
+    - Include a shell/Python-to-Go migration opportunity in branch analysis when the
+      work touches hooks, policy, linting, or runtime orchestration.
 principles:
   overrides:
     static-analysis-is-the-first-line-of-defense:
