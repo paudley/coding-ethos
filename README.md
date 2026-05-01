@@ -71,6 +71,8 @@ For larger platform directions such as MCP context serving, policy-language
 support, IDE integration, SARIF/CI components, red-team testing, ETHOS
 inheritance, and agent remediation loops, see
 [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
+The CEL-first policy-language design is tracked in
+[docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md).
 
 ## ETHOS Skills
 

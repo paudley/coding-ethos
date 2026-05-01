@@ -236,23 +236,62 @@ Acceptance criteria:
 
 ### Standardized Policy Language
 
-- [ ] Evaluate CEL and OPA/Rego as an embedded policy language for custom
-  organization and repository rules.
-- [ ] Define which rules stay as first-party compiled evaluators and which can
-  safely move into declarative policy expressions.
-- [ ] Allow `repo_ethos.yml` / `repo_config.yaml` to add policy expressions
-  without forking or recompiling `coding-ethos`.
-- [ ] Preserve strong typing, deterministic evaluation, actionable diagnostics,
-  and policy-bundle validation for expression-backed policies.
+Decision: use CEL as the first policy-language backend. CEL is the better
+initial fit because `coding-ethos` needs fast, embedded, deterministic,
+typed expressions over already-normalized hook/lint inputs. Keep OPA/Rego as a
+future optional backend for larger set/query policies only if CEL expressions
+become too limited.
+
+- [ ] Add `docs/POLICY_LANGUAGE_STRATEGY.md` as the design record for the
+  CEL-first decision and Rego deferral.
+- [ ] Add a `policy.expressions` section to `config.yaml` and
+  `repo_config.yaml` overlays with explicit fields for `id`, `description`,
+  `scope`, `severity`, `principle_ids`, `skill_id`, `when`, `message`, and
+  `advice`.
+- [ ] Compile CEL expressions into the policy bundle during
+  `coding-ethos-policy compile`; syntax, type, and unknown-variable failures
+  must fail bundle compilation.
+- [ ] Define stable typed CEL input objects for the first supported scopes:
+  `command`, `argv`, `files`, `diagnostic`, `finding`, `repo`, `path`, and
+  `metadata`.
+- [ ] Keep all host access out of CEL. CEL policy may inspect only the input
+  object and static bundle data; file IO, Git calls, network access, time, and
+  environment access remain first-party Go responsibilities.
+- [ ] Add an expression evaluator to the existing compiled evaluator registry
+  so CEL-backed policies emit normal `policy.Decision` and
+  `diagnostics.Diagnostic` values.
+- [ ] Support deterministic reusable helpers only through reviewed Go-provided
+  CEL functions, starting with path classification, glob matching, suffix/prefix
+  helpers, and collection checks.
+- [ ] Require every expression-backed policy to map to ETHOS principles and,
+  where possible, a generated skill ID so output remains explanatory rather than
+  bare rule text.
+- [ ] Add a CLI explain mode that shows CEL source, compiled input schema,
+  matched evidence fields, and the ETHOS/skill mapping for an expression policy.
+- [ ] Add golden tests for TOON, JSON, and human output for CEL-backed command,
+  file, diagnostic, and lint-finding policies.
+- [ ] Add negative tests for unsafe functions, unknown variables, type errors,
+  non-boolean `when` expressions, missing ETHOS mappings, and invalid override
+  merges.
+- [ ] Add migration guidance for moving small hardcoded evaluators into CEL
+  only when doing so reduces Go code without weakening diagnostics or safety.
+- [ ] Revisit OPA/Rego only after CEL ships and real policies demonstrate a
+  need for package-level rules, partial evaluation, large static data sets, or
+  complex set joins.
 
 Acceptance criteria:
 
 - [ ] A consuming repo can define a non-trivial custom policy without changing
   Go source.
+- [ ] CEL expressions are compiled and type checked before hook runtime.
 - [ ] Expression policies emit the same normalized diagnostics, ETHOS links,
-  skill hints, and TOON/human output as compiled evaluators.
+  skill hints, traces, and TOON/human output as compiled evaluators.
 - [ ] Unsafe, non-deterministic, networked, or host-dependent policy execution
-  is rejected at compile time.
+  is impossible from expression policy.
+- [ ] Direct hook, agent-hook, lint-capture, and future MCP paths all evaluate
+  the same compiled expression policies.
+- [ ] Rego is not introduced unless a written design record identifies a
+  concrete CEL limitation and a bounded integration surface.
 
 ### Native IDE And Cursor Integration
 

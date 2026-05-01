@@ -37,15 +37,21 @@ Many policies are currently compiled Go evaluators configured by YAML. That is
 appropriate for critical built-in checks, but it makes custom organization
 policy require Go changes.
 
-The next step is to evaluate CEL and OPA/Rego for safe, deterministic,
-expression-backed policy. The target is not replacing every evaluator. The
-target is letting consuming repos add rich custom checks through
-`repo_ethos.yml` or `repo_config.yaml` while still receiving normalized
-diagnostics, ETHOS links, skill hints, and TOON/human output.
+The policy-language strategy is CEL first, with OPA/Rego deferred until a
+specific policy class proves it needs a full policy engine. CEL fits the first
+custom-policy target because it is embedded, typed, deterministic,
+non-Turing-complete, and expression-oriented.
+
+The target is not replacing every evaluator. The target is letting consuming
+repos add rich custom checks through `repo_ethos.yml` or `repo_config.yaml`
+while still receiving normalized diagnostics, ETHOS links, skill hints, and
+TOON/human output.
 
 Expression-backed policy must be compiled, validated, deterministic, and
 host-independent. Networked, time-dependent, or unsafe host access should be
 rejected before runtime.
+
+See [POLICY_LANGUAGE_STRATEGY.md](POLICY_LANGUAGE_STRATEGY.md).
 
 ## Native IDE And Cursor Integration
 
