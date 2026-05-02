@@ -22,7 +22,7 @@ jobs:
       CODING_ETHOS_REPO_ROOT: .
       CODING_ETHOS_GATE_COMMAND: make check
       CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
-      CODING_ETHOS_SARIF_CATEGORY: policy
+      CODING_ETHOS_SARIF_CATEGORY: .github/workflows/ci.yml:policy
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository

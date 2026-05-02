@@ -99,10 +99,12 @@ repo intentionally wants the generated SARIF workflow to run directly on
 The generated workflow emits and uploads SARIF with an explicit
 `generated_config.ci.github_actions.sarif_category` value. The default is
 `policy`, which keeps GitHub code-scanning configuration identity stable when a
-repo calls the reusable workflow from `.github/workflows/ci.yml`. The linter
-also writes that category into SARIF `runAutomationDetails.id` as `policy/`;
-this avoids GitHub treating the uploaded file as a different analysis stream
-from the same workflow.
+repo calls the reusable workflow from `.github/workflows/ci.yml`. Repos that
+already have an established GitHub code-scanning stream can set this to the
+existing category, for example `.github/workflows/ci.yml:policy`. The linter
+also writes that category into SARIF `runAutomationDetails.id` using the
+SARIF `category/` form; this avoids GitHub treating the uploaded file as a
+different analysis stream from the same workflow.
 
 The SARIF job scopes file analysis to the event's changed files. Pull requests
 diff against the target branch, push events diff against the pushed commit
