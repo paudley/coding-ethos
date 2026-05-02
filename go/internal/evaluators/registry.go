@@ -61,7 +61,6 @@ func registerGitEvaluators(registry Registry) {
 		"git.protected_submodule_update",
 		EvaluatorFunc(EvaluateGitProtectedSubmoduleUpdate),
 	)
-	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
 	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
 	registry.Register("git.commitlint", EvaluatorFunc(EvaluateGitCommitLint))
 	registry.Register(

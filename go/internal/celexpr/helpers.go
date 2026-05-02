@@ -110,6 +110,20 @@ func helperFunctions() []cel.EnvOption {
 				}),
 			),
 		),
+		cel.Function(
+			"argv_command_is",
+			cel.Overload(
+				"argv_command_is_list_string",
+				[]*cel.Type{listOfStrings, cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(argv ref.Val, tool ref.Val) ref.Val {
+					return types.Bool(argvCommandIs(
+						stringsFromValue(argv),
+						string(tool.(types.String)),
+					))
+				}),
+			),
+		),
 		stringHelper(
 			"has_inline_env",
 			"has_inline_env_string_string",
@@ -273,6 +287,40 @@ func argvInvokes(argv []string, tool string) bool {
 	}
 
 	return false
+}
+
+func argvCommandIs(argv []string, tool string) bool {
+	tool = strings.TrimSpace(tool)
+	if tool == "" {
+		return false
+	}
+	stripped := stripLeadingAssignments(argv)
+
+	return len(stripped) > 0 && commandTokenMatchesTool(stripped[0], tool)
+}
+
+func stripLeadingAssignments(argv []string) []string {
+	for len(argv) > 0 && isShellAssignment(argv[0]) {
+		argv = argv[1:]
+	}
+
+	return argv
+}
+
+func isShellAssignment(arg string) bool {
+	name, value, ok := strings.Cut(arg, "=")
+	if !ok || name == "" || value == "" {
+		return false
+	}
+	for _, char := range name {
+		if char != '_' && (char < 'A' || char > 'Z') &&
+			(char < 'a' || char > 'z') &&
+			(char < '0' || char > '9') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func commandTokenMatchesTool(token string, tool string) bool {

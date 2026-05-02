@@ -60,7 +60,15 @@ func policyBundleWithChangeDirPolicy(t *testing.T) policy.Bundle {
 		Message:         "git -C hides working directory context.",
 		DefenseLayers:   policy.GitDefenseLayers("block", "wrapper", "block", "", ""),
 		Evaluators: []policy.Evaluator{
-			{Kind: "argv", Name: "git.change_dir_flag"},
+			{
+				Kind: "cel",
+				Name: "cel.expression",
+				Options: map[string]any{
+					"mode":     "block",
+					"skill_id": "agent-operating-discipline",
+					"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
+				},
+			},
 		},
 	}
 

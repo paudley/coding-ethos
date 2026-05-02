@@ -10,14 +10,24 @@ import (
 	"strings"
 )
 
+const realGitEnv = "CODING_ETHOS_REAL_GIT"
+
 func gitCommand(cwd string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	cmd := exec.CommandContext(context.Background(), gitExecutable(), args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
 	cmd.Env = cleanGitLocalEnv(os.Environ())
 
 	return cmd
+}
+
+func gitExecutable() string {
+	if value := strings.TrimSpace(os.Getenv(realGitEnv)); value != "" {
+		return value
+	}
+
+	return "git"
 }
 
 func cleanGitLocalEnv(source []string) []string {

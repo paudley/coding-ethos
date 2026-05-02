@@ -961,13 +961,24 @@ func gitPolicy(
 }
 
 func gitChangeDirPolicy(principles map[string]Principle) Policy {
-	return gitPolicy(
+	policyDef := gitPolicy(
 		"git.change_dir_flag",
 		"git.change_dir_flag",
 		principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
 		"git -C hides the working directory context.",
 		"Change to the intended directory explicitly, then run git there.",
 	)
+	policyDef.Evaluators = []Evaluator{{
+		Kind: "cel",
+		Name: "cel.expression",
+		Options: map[string]any{
+			"mode":     "block",
+			"skill_id": "agent-operating-discipline",
+			"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
+		},
+	}}
+
+	return policyDef
 }
 
 func gitProtectedSubmoduleUpdatePolicy(

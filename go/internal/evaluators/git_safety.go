@@ -180,22 +180,6 @@ func unsafeProtectedSubmoduleUpdate(args []string) bool {
 	return !slices.Contains(args, "--remote")
 }
 
-func EvaluateGitChangeDirFlag(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGit(argv) {
-		return nil, nil
-	}
-
-	if slices.Contains(argv[1:], "-C") {
-		return blockGitDecision(policyDef, argv), nil
-	}
-
-	return nil, nil
-}
-
 func submoduleUpdateTargets(args []string) []string {
 	targets := []string{}
 	skipNext := false

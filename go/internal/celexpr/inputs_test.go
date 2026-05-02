@@ -70,6 +70,7 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		command_fact.has_inline_env &&
 		command_invokes(command, "git") &&
 		argv_invokes(argv, "git") &&
+		argv_command_is(argv, "git") &&
 		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 		lint_code_matches(diagnostic.code, "S*") &&
 		repo_config_present(files, config.candidates) &&
@@ -113,6 +114,7 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 			command_fact.has_inline_env &&
 			command_invokes(command, "git") &&
 			argv_invokes(argv, "git") &&
+			argv_command_is(argv, "git") &&
 			has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 			lint_code_matches(diagnostic.code, "S*") &&
 			repo_config_present(files, config.candidates) &&
@@ -141,6 +143,28 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("expanded helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.argv_command_helper_eval",
+		`argv_command_is(argv, "git") && !argv_command_is(["echo", "git"], "git")`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Argv: []string{"CODE_ETHOS_CONSUMER_ROOT=/repo", "/usr/bin/git", "status"},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("argv command helper output = %#v, want true", output.Value())
 	}
 }
 

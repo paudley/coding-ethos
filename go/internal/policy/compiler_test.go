@@ -313,6 +313,42 @@ policy:
 	}
 }
 
+func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef := bundle.Policies["git.change_dir_flag"]
+	if len(policyDef.Evaluators) != 1 {
+		t.Fatalf("git change-dir evaluator count = %d", len(policyDef.Evaluators))
+	}
+	evaluator := policyDef.Evaluators[0]
+	if evaluator.Kind != "cel" ||
+		evaluator.Name != "cel.expression" ||
+		evaluator.Options["when"] != `argv_command_is(argv, "git") && list_contains(argv, "-C")` {
+		t.Fatalf("git change-dir evaluator mismatch: %#v", evaluator)
+	}
+	assertHookPolicyDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
+		"git.change_dir_flag",
+	)
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "git.change_dir_flag")
+}
+
 func TestCompileExpressionPolicyUsesExplicitDispatch(t *testing.T) {
 	t.Parallel()
 

@@ -33,7 +33,10 @@ func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
 
 			policyDef := bundle.Policies[test.policyID]
 
-			decisions, err := test.evaluator(policyDef, Context{Argv: test.argv})
+			decisions, err := test.evaluator(policyDef, Context{
+				Argv:             test.argv,
+				EvaluatorOptions: policyDef.Evaluators[0].Options,
+			})
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
@@ -120,7 +123,7 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 		{
 			name:      "change dir flag",
 			policyID:  "git.change_dir_flag",
-			evaluator: EvaluateGitChangeDirFlag,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "-C", "/tmp/repo", "status"},
 		},
 		{
@@ -256,6 +259,18 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			argv:      []string{"git", "submodule", "update", "vendor/other"},
 		},
 		{
+			name:      "git status without change dir",
+			policyID:  "git.change_dir_flag",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "status"},
+		},
+		{
+			name:      "non-git command mentioning change dir flag",
+			policyID:  "git.change_dir_flag",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"echo", "git", "-C", "/tmp/repo", "status"},
+		},
+		{
 			name:      "normal commit message",
 			policyID:  "git.commit_attribution",
 			evaluator: EvaluateGitCommitAttribution,
@@ -304,7 +319,10 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 
 			policyDef := bundle.Policies[test.policyID]
 
-			decisions, err := test.evaluator(policyDef, Context{Argv: test.argv})
+			decisions, err := test.evaluator(policyDef, Context{
+				Argv:             test.argv,
+				EvaluatorOptions: policyDef.Evaluators[0].Options,
+			})
 			if err != nil {
 				t.Fatalf("evaluate: %v", err)
 			}
@@ -330,6 +348,14 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 		"git.commitlint",
 		"git.commit_attribution",
 	} {
+		evaluatorDef := policy.Evaluator{Kind: "argv", Name: policyID}
+		if policyID == "git.change_dir_flag" {
+			evaluatorDef = policy.Evaluator{
+				Kind:    "cel",
+				Name:    "cel.expression",
+				Options: gitChangeDirCELOptions(),
+			}
+		}
 		bundle.Policies[policyID] = policy.Policy{
 			ID:              policyID,
 			Category:        "git",
@@ -344,9 +370,17 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 				"",
 				"",
 			),
-			Evaluators: []policy.Evaluator{{Kind: "argv", Name: policyID}},
+			Evaluators: []policy.Evaluator{evaluatorDef},
 		}
 	}
 
 	return bundle
+}
+
+func gitChangeDirCELOptions() map[string]any {
+	return map[string]any{
+		"mode":     "block",
+		"skill_id": "agent-operating-discipline",
+		"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
+	}
 }
