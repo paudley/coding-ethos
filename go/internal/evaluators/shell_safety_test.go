@@ -255,6 +255,130 @@ func TestEvaluateShellForbiddenStringsSkipsExemptReferencedFile(t *testing.T) {
 	}
 }
 
+func TestEvaluateShellForbiddenStringsAllowsHomeAnchoredAgentMemoryFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	memoryPath := filepath.Join(
+		dir,
+		".claude",
+		"projects",
+		"repo",
+		"memory",
+		"project.md",
+	)
+	err := os.MkdirAll(filepath.Dir(memoryPath), 0o700)
+	if err != nil {
+		t.Fatalf("create memory dir: %v", err)
+	}
+	err = os.WriteFile(
+		memoryPath,
+		[]byte("Blocked command mentioned coding-ethos-hooks/coding-ethos-git-hook.\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write memory file: %v", err)
+	}
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Cwd:   dir,
+			Files: []string{".claude/projects/repo/memory/project.md"},
+			EvaluatorOptions: map[string]any{
+				"file_strings": []string{"coding-ethos-hooks/coding-ethos-git-hook"},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allowed agent memory file, got %#v", decisions)
+	}
+}
+
+func TestEvaluateShellForbiddenStringsAllowsRepoAnchoredAgentMemoryFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	memoryPath := filepath.Join(dir, ".codex", "MEMORY.md")
+	err := os.MkdirAll(filepath.Dir(memoryPath), 0o700)
+	if err != nil {
+		t.Fatalf("create memory dir: %v", err)
+	}
+	err = os.WriteFile(
+		memoryPath,
+		[]byte("Recorded coding-ethos-hooks/coding-ethos-git-hook failure.\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write memory file: %v", err)
+	}
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Cwd:   dir,
+			Files: []string{".codex/MEMORY.md"},
+			EvaluatorOptions: map[string]any{
+				"file_strings": []string{"coding-ethos-hooks/coding-ethos-git-hook"},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allowed repo memory file, got %#v", decisions)
+	}
+}
+
+func TestEvaluateShellForbiddenStringsAllowsAgentPlanFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, ".claude", "plans", "adaptive-exploring-toast.md")
+	err := os.MkdirAll(filepath.Dir(planPath), 0o700)
+	if err != nil {
+		t.Fatalf("create plan dir: %v", err)
+	}
+	err = os.WriteFile(
+		planPath,
+		[]byte("Plan notes mention coding-ethos-hooks/coding-ethos-git-hook.\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write plan file: %v", err)
+	}
+
+	policyDef := shellPolicy("shell.forbidden_strings")
+
+	decisions, err := EvaluateShellForbiddenStrings(
+		policyDef,
+		Context{
+			Cwd:   dir,
+			Files: []string{".claude/plans/adaptive-exploring-toast.md"},
+			EvaluatorOptions: map[string]any{
+				"file_strings": []string{"coding-ethos-hooks/coding-ethos-git-hook"},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate forbidden strings: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allowed agent plan file, got %#v", decisions)
+	}
+}
+
 func shellPolicy(policyID string) policy.Policy {
 	return policy.Policy{
 		ID:              policyID,

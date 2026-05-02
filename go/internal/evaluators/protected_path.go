@@ -21,6 +21,9 @@ func EvaluateProtectedPath(
 		}
 
 		for _, file := range files {
+			if isAgentWorkspacePath(file) {
+				continue
+			}
 			if protectedPathMatches(file, protectedPath) {
 				return blockProtectedPathDecision(policyDef, protectedPath), nil
 			}

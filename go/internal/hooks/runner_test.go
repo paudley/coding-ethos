@@ -1278,6 +1278,40 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 	}
 }
 
+func TestRunAllowsAgentMemoryWriteWithHookReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, filePath := range []string{
+		"/workspace/.claude/projects/repo/memory/project.md",
+		"/workspace/.claude/plans/adaptive-exploring-toast.md",
+		".codex/MEMORY.md",
+	} {
+		result, err := Run(policy.ExampleBundle(), Options{
+			Event: Event{
+				HookEventName: "PreToolUse",
+				ToolName:      "Edit",
+				ToolInput: map[string]any{
+					"file_path":  filePath,
+					"old_string": "prior note",
+					"new_string": "Recorded block for coding-ethos-hooks/coding-ethos-git-hook.",
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("run hook: %v", err)
+		}
+
+		if result.Status != statusAllowed {
+			t.Fatalf(
+				"status mismatch for %q: got %q; decisions=%#v",
+				filePath,
+				result.Status,
+				result.Decisions,
+			)
+		}
+	}
+}
+
 func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 	repo := t.TempDir()

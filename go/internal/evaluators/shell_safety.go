@@ -254,6 +254,9 @@ func forbiddenFileStrings(options map[string]any) []string {
 
 func forbiddenStringFileExempt(cwd string, file string, options map[string]any) bool {
 	path := cleanEvaluatorPath(cwd, file)
+	if isAgentWorkspacePath(path) {
+		return true
+	}
 	for _, exempt := range stringSliceOption(options, "exempt_paths", nil) {
 		if path == cleanEvaluatorPath(cwd, exempt) {
 			return true
