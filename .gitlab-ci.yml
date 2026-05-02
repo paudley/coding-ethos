@@ -1,11 +1,21 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
 stages:
+  - policy
   - test
+  - build
+
 
 coding_ethos_sarif:
-  stage: test
+  stage: policy
+  interruptible: true
+  timeout: 30m
   variables:
     CODING_ETHOS_PATH: .
     CODING_ETHOS_REPO_ROOT: .
@@ -62,7 +72,33 @@ coding_ethos_sarif:
       exit "$status"
   artifacts:
     when: always
+    expire_in: 7 days
     paths:
       - "$CODING_ETHOS_SARIF_PATH"
       - .coding-ethos/lint-runs/
       - .coding-ethos/hook-runs/
+
+coding_ethos_test:
+  stage: test
+  interruptible: true
+  timeout: 30m
+  script:
+    - uv run pytest
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .coding-ethos/
+
+coding_ethos_build:
+  stage: build
+  interruptible: true
+  timeout: 30m
+  script:
+    - uv build
+    - uvx twine check dist/*
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/

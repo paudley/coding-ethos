@@ -49,7 +49,7 @@ the places contributors actually work:
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
-| CI/CD | SARIF output plus GitHub Actions and GitLab CI examples for independent PR gates |
+| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, artifacts, and package validation |
 | Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
 
 ## Agents Used In This Repository
@@ -302,8 +302,11 @@ uv run coding-ethos --repo /path/to/repo --sync-tool-configs
 ```
 
 By default the same command writes the managed SARIF CI files and includes
-them in `.code-ethos/tool-config-hashes.json`. Repos with a deliberate
-exception can set `generated_config.ci.github_actions.enabled: false` or
+them in `.code-ethos/tool-config-hashes.json`. The generated GitHub workflow is
+reusable by default so a repo-level CI workflow can own concurrency, required
+checks, package validation, and attestations without duplicate SARIF uploads.
+Repos with a deliberate exception can set
+`generated_config.ci.github_actions.enabled: false` or
 `generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
 They are checked by `--check-tool-configs`; there is no separate CI sync path.
 
@@ -464,7 +467,8 @@ The merged config drives:
 - generated Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and
   golangci-lint config
 - generated GitHub Actions and GitLab CI SARIF gates, controlled by
-  `generated_config.ci.*.enabled`
+  `generated_config.ci.*.enabled`, timeout, trigger, artifact, test, and build
+  knobs
 - hook policy for Python, shell, text, commit-message, and Go checks
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`

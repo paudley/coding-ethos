@@ -10,10 +10,48 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
 jobs:
+  actionlint:
+    name: Validate GitHub workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build managed toolchain
+        run: make build
+
+      - name: Run actionlint through coding-ethos
+        run: >-
+          bin/coding-ethos-run policy-tool actionlint
+          .github/workflows/ci.yml
+          .github/workflows/coding-ethos-sarif.yml
+
   coding-ethos:
     name: Coding Ethos SARIF Gate
     uses: ./.github/workflows/coding-ethos-sarif.yml
@@ -25,6 +63,7 @@ jobs:
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +94,11 @@ jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
-    needs: test
+    timeout-minutes: 20
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -73,6 +116,14 @@ jobs:
 
       - name: Build package
         run: uv build
+
+      - name: Validate package metadata
+        run: uvx twine check dist/*
+
+      - name: Attest distribution artifacts
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/*
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v7

@@ -48,6 +48,27 @@ def _configured_string(config: dict[str, Any], path: str, fallback: str) -> str:
     return configured or fallback
 
 
+def _configured_bool(config: dict[str, Any], path: str, *, fallback: bool) -> bool:
+    configured = _get(config, path, fallback)
+    if isinstance(configured, bool):
+        return configured
+    if isinstance(configured, str):
+        return configured.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(configured)
+
+
+def _configured_int(config: dict[str, Any], path: str, fallback: int) -> int:
+    configured = _get(config, path, fallback)
+    if isinstance(configured, int):
+        return configured
+    if isinstance(configured, str):
+        try:
+            return int(configured.strip())
+        except ValueError:
+            return fallback
+    return fallback
+
+
 def ci_config_enabled(config: dict[str, Any], path: str, *, default: bool) -> bool:
     """Return whether a generated CI config path is enabled."""
     return bool(_get(config, path, default))
@@ -80,16 +101,31 @@ def render_github_sarif_workflow(config: dict[str, Any]) -> str:
         "generated_config.ci.github_actions.artifact_name",
         "coding-ethos-audit",
     )
-    return _with_hash_spdx_header(
-        f"""
-name: Coding Ethos SARIF Gate
-
-on:
+    timeout_minutes = _configured_int(
+        config,
+        "generated_config.ci.github_actions.timeout_minutes",
+        30,
+    )
+    standalone_triggers = _configured_bool(
+        config,
+        "generated_config.ci.github_actions.standalone_triggers",
+        fallback=False,
+    )
+    workflow_triggers = "on:\n  workflow_call:\n"
+    if standalone_triggers:
+        workflow_triggers = """on:
   workflow_call:
   pull_request:
   push:
     branches:
       - main
+  workflow_dispatch:
+"""
+    return _with_hash_spdx_header(
+        f"""
+name: Coding Ethos SARIF Gate
+
+{workflow_triggers}
 
 permissions:
   actions: read
@@ -100,6 +136,7 @@ jobs:
   coding-ethos:
     name: Coding Ethos SARIF Gate
     runs-on: ubuntu-latest
+    timeout-minutes: {timeout_minutes}
     env:
       CODING_ETHOS_PATH: {coding_ethos_path}
       CODING_ETHOS_REPO_ROOT: {repo_root}
@@ -214,98 +251,5 @@ jobs:
           ${{{{ steps.project-gate.outcome == 'failure' ||
           steps.emit-sarif.outcome == 'failure' }}}}
         run: exit 1
-"""
-    )
-
-
-def render_gitlab_sarif_config(config: dict[str, Any]) -> str:
-    """Render a consumer GitLab CI job for coding-ethos SARIF."""
-    coding_ethos_path = _configured_string(
-        config,
-        "generated_config.ci.gitlab.coding_ethos_path",
-        ".",
-    )
-    repo_root = _configured_string(
-        config,
-        "generated_config.ci.gitlab.repo_root",
-        ".",
-    )
-    gate_command = _configured_string(
-        config,
-        "generated_config.ci.gitlab.gate_command",
-        "make check",
-    )
-    sarif_path = _configured_string(
-        config,
-        "generated_config.ci.gitlab.sarif_path",
-        "coding-ethos.sarif",
-    )
-    return _with_hash_spdx_header(
-        f"""
-stages:
-  - test
-
-coding_ethos_sarif:
-  stage: test
-  variables:
-    CODING_ETHOS_PATH: {coding_ethos_path}
-    CODING_ETHOS_REPO_ROOT: {repo_root}
-    CODING_ETHOS_GATE_COMMAND: {gate_command}
-    CODING_ETHOS_SARIF_PATH: {sarif_path}
-    CODING_ETHOS_FILES: ""
-  script:
-    - make -C "$CODING_ETHOS_PATH" build
-    - |
-      if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
-        cd "$CODING_ETHOS_REPO_ROOT"
-        bash -c "$CODING_ETHOS_GATE_COMMAND"
-        cd "$CI_PROJECT_DIR"
-      fi
-    - |
-      repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
-      ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
-      files_path="$(mktemp)"
-      sarif_tmp="$CODING_ETHOS_SARIF_PATH.tmp"
-      empty_git_sha="0000000000000000000000000000000000000000"
-      rm -f "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
-
-      if [ -n "$CODING_ETHOS_FILES" ]; then
-        printf '%s\\n' "$CODING_ETHOS_FILES" | tr ',' '\\n' > "$files_path"
-      elif [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
-        git diff --name-only "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA"...HEAD |
-          while IFS= read -r path; do
-            [ -f "$path" ] && printf '%s\\n' "$path"
-          done > "$files_path"
-      elif [ -n "$CI_COMMIT_BEFORE_SHA" ] &&
-        [ "$CI_COMMIT_BEFORE_SHA" != "$empty_git_sha" ] &&
-        git rev-parse --verify "$CI_COMMIT_BEFORE_SHA^{{commit}}" >/dev/null 2>&1
-      then
-        git diff --name-only "$CI_COMMIT_BEFORE_SHA" "$CI_COMMIT_SHA" |
-          while IFS= read -r path; do
-            [ -f "$path" ] && printf '%s\\n' "$path"
-          done > "$files_path"
-      else
-        : > "$files_path"
-      fi
-
-      set +e
-      "$ethos_path/bin/coding-ethos-run" policy-lint \\
-        --cwd "$repo_root" \\
-        --scope files \\
-        --files-from "$files_path" \\
-        --sarif > "$sarif_tmp"
-      status=$?
-      if [ -s "$sarif_tmp" ]; then
-        mv "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
-      else
-        rm -f "$sarif_tmp"
-      fi
-      exit "$status"
-  artifacts:
-    when: always
-    paths:
-      - "$CODING_ETHOS_SARIF_PATH"
-      - .coding-ethos/lint-runs/
-      - .coding-ethos/hook-runs/
 """
     )

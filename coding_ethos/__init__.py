@@ -24,6 +24,8 @@ from coding_ethos.tool_configs import (
     GENERATED_TOOL_CONFIGS,
     TOOL_CONFIG_HASH_MANIFEST,
     ConfiguredLintRootError,
+    render_github_sarif_workflow,
+    render_gitlab_sarif_config,
     resolve_lint_source_roots,
 )
 from coding_ethos.yaml_utils import format_yaml_file, render_yaml
@@ -40,6 +42,8 @@ __all__ = [
     "main",
     "parse_ethos_markdown",
     "render_gemini_prompt_pack",
+    "render_github_sarif_workflow",
+    "render_gitlab_sarif_config",
     "render_yaml",
     "resolve_lint_source_roots",
     "seed_primary_from_markdown",

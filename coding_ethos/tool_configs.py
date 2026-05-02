@@ -16,7 +16,7 @@ from typing import Any, cast
 
 import yaml
 
-from coding_ethos import ci_tool_configs
+from coding_ethos import ci_gitlab_configs, ci_tool_configs
 from coding_ethos.yaml_utils import render_yaml
 
 GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
@@ -32,6 +32,8 @@ GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
 )
 GENERATED_CI_CONFIGS = ci_tool_configs.GENERATED_CI_CONFIGS
 TOOL_CONFIG_HASH_MANIFEST = ".code-ethos/tool-config-hashes.json"
+render_github_sarif_workflow = ci_tool_configs.render_github_sarif_workflow
+render_gitlab_sarif_config = ci_gitlab_configs.render_gitlab_sarif_config
 
 _DEFAULT_REPO_CONFIG_NAMES: tuple[str, ...] = (
     "repo_config.yaml",
@@ -764,7 +766,9 @@ def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
         "generated_config.ci.gitlab.enabled",
         default=False,
     ):
-        rendered[".gitlab-ci.yml"] = ci_tool_configs.render_gitlab_sarif_config(config)
+        rendered[".gitlab-ci.yml"] = ci_gitlab_configs.render_gitlab_sarif_config(
+            config
+        )
     return rendered
 
 

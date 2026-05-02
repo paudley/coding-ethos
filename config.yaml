@@ -97,16 +97,16 @@ generated_config:
     github_actions:
       enabled: true
       coding_ethos_path: .
-      repo_root: .
       gate_command: make check
-      sarif_path: coding-ethos.sarif
-      artifact_name: coding-ethos-audit
+      standalone_triggers: false
+      timeout_minutes: 30
     gitlab:
       enabled: true
       coding_ethos_path: .
-      repo_root: .
       gate_command: make check
-      sarif_path: coding-ethos.sarif
+      test_command: uv run pytest
+      build_command: uv build
+      package_check_command: uvx twine check dist/*
 
 syntax:
   file_syntax:

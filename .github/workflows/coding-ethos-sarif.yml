@@ -5,10 +5,7 @@ name: Coding Ethos SARIF Gate
 
 on:
   workflow_call:
-  pull_request:
-  push:
-    branches:
-      - main
+
 
 permissions:
   actions: read
@@ -19,6 +16,7 @@ jobs:
   coding-ethos:
     name: Coding Ethos SARIF Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       CODING_ETHOS_PATH: .
       CODING_ETHOS_REPO_ROOT: .

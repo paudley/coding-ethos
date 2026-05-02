@@ -95,12 +95,20 @@ generated_config:
       gate_command: make check
       sarif_path: coding-ethos.sarif
       artifact_name: coding-ethos-audit
+      standalone_triggers: false
+      timeout_minutes: 30
     gitlab:
       enabled: true
       coding_ethos_path: coding-ethos
       repo_root: .
       gate_command: make check
       sarif_path: coding-ethos.sarif
+      test_command: ""
+      build_command: ""
+      package_check_command: ""
+      dist_artifact_path: dist/
+      timeout_minutes: 30
+      artifact_expire_in: 7 days
 
 filesystem:
   protected_path:
