@@ -115,6 +115,7 @@ filesystem:
   required_ignores:
     enabled: true
     paths:
+      - .code-ethos/cache/
       - .coding-ethos/
       - .coding-ethos/hook-runs/example/stdout.log
   pii_scrubber:

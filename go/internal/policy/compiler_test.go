@@ -283,6 +283,16 @@ policy:
 		policyDef.Evaluators[0].Options["skill_id"] != "safe-git-workflow" {
 		t.Fatalf("expression evaluator mismatch: %#v", policyDef.Evaluators[0])
 	}
+	for _, option := range []string{
+		"config_candidates",
+		"protected_branches",
+		"protected_paths",
+		"source_roots",
+	} {
+		if _, ok := policyDef.Evaluators[0].Options[option]; !ok {
+			t.Fatalf("expression evaluator missing %q: %#v", option, policyDef.Evaluators[0])
+		}
+	}
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.no_subprocess_git")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "custom.no_subprocess_git")
 	assertHookPolicyDispatched(

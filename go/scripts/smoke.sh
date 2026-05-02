@@ -154,7 +154,7 @@ printf '%s%s\n' 'PLC' '0415' > "$git_repo/forbidden.txt"
 expect_compiled_file_block forbidden.txt shell.forbidden_strings
 rm -f "$git_repo/forbidden.txt"
 
-printf '.coding-ethos/\n' > "$git_repo/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/\n' > "$git_repo/.gitignore"
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add .gitignore file.txt
 printf '==> validating git wrapper allows normal commit\n'
@@ -295,7 +295,7 @@ git -C "$wrapper_repo" config user.email test@example.com
 git -C "$wrapper_repo" config user.name Test
 git -C "$wrapper_repo" checkout -b feature/wrapper-smoke > /dev/null
 "$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$wrapper_repo"
-printf '.coding-ethos/\n' > "$wrapper_repo/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/\n' > "$wrapper_repo/.gitignore"
 printf '%s\nours\n%s\ntheirs\n%s\n' '<''<<<<<< HEAD' '=======' '>''>>>>>> feature' > "$wrapper_repo/conflict.txt"
 git -C "$wrapper_repo" add .gitignore conflict.txt
 set +e
@@ -322,7 +322,7 @@ printf '==> validating agent hook settings sync, doctor, and verify\n'
 agent_settings_root="$tmp_root/agent-settings"
 mkdir -p "$agent_settings_root"
 git -C "$agent_settings_root" init > /dev/null
-printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/\n' > "$agent_settings_root/.gitignore"
 "$run_go_hook" agent-hooks doctor \
   --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
@@ -403,7 +403,7 @@ cutover_repo="$tmp_root/cutover-repo"
 mkdir -p "$cutover_repo"
 git -C "$cutover_repo" init > /dev/null
 "$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$cutover_repo"
-printf '.coding-ethos/\n' > "$cutover_repo/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/\n' > "$cutover_repo/.gitignore"
 set +e
 (
   cd "$cutover_repo"

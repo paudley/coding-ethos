@@ -51,6 +51,7 @@ func EvaluateRequiredIgnores(
 
 func defaultRequiredIgnorePaths() []string {
 	return []string{
+		".code-ethos/cache/",
 		".coding-ethos/",
 		".coding-ethos/hook-runs/example/stdout.log",
 	}

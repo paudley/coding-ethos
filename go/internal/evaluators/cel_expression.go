@@ -126,6 +126,22 @@ func celActivation(context Context) map[string]any {
 		Tool:          context.Tool,
 		AdminApproved: context.AdminApproved,
 		Diagnostic:    context.Diagnostic,
+		ProtectedPaths: stringSliceOption(
+			context.EvaluatorOptions,
+			"protected_paths",
+			nil,
+		),
+		ProtectedBranches: stringSliceOption(
+			context.EvaluatorOptions,
+			"protected_branches",
+			nil,
+		),
+		ConfigCandidates: stringSliceOption(
+			context.EvaluatorOptions,
+			"config_candidates",
+			nil,
+		),
+		CurrentBranch: stringOption(context.EvaluatorOptions, "current_branch", ""),
 		SourceRoots:   stringSliceOption(context.EvaluatorOptions, "source_roots", nil),
 		PythonVersion: stringOption(context.EvaluatorOptions, "python_version", ""),
 	})

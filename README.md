@@ -392,6 +392,8 @@ repo/
 ├── tombi.toml
 ├── .golangci.yml
 └── .code-ethos/
+    ├── cache/
+    │   └── ... ignored runtime caches
     └── gemini/
         └── prompt-pack.json
 ```

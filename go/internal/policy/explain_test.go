@@ -86,9 +86,12 @@ func TestExplainPolicyWritesCELExpressionDetails(t *testing.T) {
 		"Evidence fields:",
 		"`when`",
 		"Input schema:",
-		"`path: {file, dir, base, ext, is_test, is_generated, in_source_root}`",
+		"`command_fact: {raw, tool, argv, has_inline_env}`",
+		"`repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}`",
 		"Reviewed helpers:",
 		"`glob_match(pattern, value)`",
+		"`command_invokes(command, tool)`",
+		"`repo_config_present(files, candidates)`",
 		"Skill: `safe-git-workflow` - Use the protected Git workflow.",
 	} {
 		if !strings.Contains(output, expected) {

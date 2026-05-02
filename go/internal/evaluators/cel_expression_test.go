@@ -207,6 +207,43 @@ func TestEvaluateCELExpressionUsesExplicitDiagnosticInput(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionUsesExpandedFactInputs(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Argv:    []string{"git", "status"},
+			Command: "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+			Files: []string{
+				"repo_config.yaml",
+				"coding-ethos-hooks/bin/coding-ethos-policy",
+			},
+			Tool: "Bash",
+			EvaluatorOptions: map[string]any{
+				"config_candidates":  []string{"repo_config.yaml"},
+				"current_branch":     "main",
+				"protected_branches": []string{"main"},
+				"protected_paths":    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
+				"when": `
+					command_fact.has_inline_env &&
+					command_invokes(command, "git") &&
+					argv_invokes(argv, "git") &&
+					repo_config_present(files, config.candidates) &&
+					is_protected_path("coding-ethos-hooks/bin/coding-ethos-policy", repo.protected_paths) &&
+					git.on_protected_branch
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one decision", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 	t.Parallel()
 

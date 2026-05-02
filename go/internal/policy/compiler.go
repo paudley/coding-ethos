@@ -1922,6 +1922,7 @@ func filesystemRequiredIgnoresPolicy(
 		config,
 		[]string{"filesystem", "required_ignores", "paths"},
 		[]string{
+			".code-ethos/cache/",
 			".coding-ethos/",
 			".coding-ethos/hook-runs/example/stdout.log",
 		},
@@ -2235,15 +2236,35 @@ func expressionPolicy(
 			Kind: "cel",
 			Name: "cel.expression",
 			Options: map[string]any{
-				"command_patterns":      commandPatterns,
-				"dispatch_scopes":       dispatchScopes,
-				"hook_events":           hookEvents,
-				"mode":                  mode,
-				"override":              governance.Override,
-				"override_reason":       governance.OverrideReason,
-				"path_patterns":         pathPatterns,
+				"command_patterns": commandPatterns,
+				"dispatch_scopes":  dispatchScopes,
+				"hook_events":      hookEvents,
+				"mode":             mode,
+				"override":         governance.Override,
+				"override_reason":  governance.OverrideReason,
+				"path_patterns":    pathPatterns,
+				"protected_branches": stringSliceAt(
+					config,
+					[]string{"filesystem", "protected_branch_write", "branches"},
+					[]string{"main", "master"},
+				),
+				"protected_paths": stringSliceAt(
+					config,
+					[]string{"filesystem", "protected_path", "paths"},
+					[]string{
+						"coding-ethos-hooks/coding-ethos-git-hook",
+						"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+						"coding-ethos-hooks/bin/coding-ethos-git",
+						"coding-ethos-hooks/bin/coding-ethos-git-hook",
+						"coding-ethos-hooks/bin/coding-ethos-hook",
+						"coding-ethos-hooks/bin/coding-ethos-lint",
+						"coding-ethos-hooks/bin/coding-ethos-policy",
+						"coding-ethos-hooks/lefthook",
+					},
+				),
 				"protected":             governance.Protected,
 				"python_version":        stringAt(config, "style", "python_version"),
+				"config_candidates":     consumerOverrideCandidateNames(config),
 				"scope":                 scope,
 				"skill_id":              stringOptionFromMap(expression, "skill_id", ""),
 				"source_file":           sourceFile,
@@ -2255,6 +2276,25 @@ func expressionPolicy(
 			},
 		}},
 	}, true, governance, nil
+}
+
+func consumerOverrideCandidateNames(config map[string]any) []string {
+	return stringSliceAt(
+		config,
+		[]string{"bundle", "consumer_override_candidates"},
+		[]string{
+			"repo_config.yaml",
+			"repo_config.yml",
+			"code-ethos.repo.yaml",
+			"code-ethos.repo.yml",
+			"coding-ethos.repo.yaml",
+			"coding-ethos.repo.yml",
+			"code-ethos.pre-commit.yaml",
+			"code-ethos.pre-commit.yml",
+			"coding-ethos.pre-commit.yaml",
+			"coding-ethos.pre-commit.yml",
+		},
+	)
 }
 
 func expressionGovernance(

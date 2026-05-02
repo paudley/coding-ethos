@@ -15,7 +15,7 @@ func TestEvaluateRequiredIgnoresResolvesIgnoredPaths(t *testing.T) {
 	t.Parallel()
 
 	repo := newRequiredIgnoreRepo(t)
-	writeRequiredIgnoreFile(t, repo, ".coding-ethos/\n")
+	writeRequiredIgnoreFile(t, repo, ".code-ethos/cache/\n.coding-ethos/\n")
 
 	decisions, err := EvaluateRequiredIgnores(
 		requiredIgnoresPolicy(),
@@ -53,7 +53,7 @@ func TestEvaluateRequiredIgnoresBlocksMissingPaths(t *testing.T) {
 		t.Fatalf("missing ignores evidence mismatch: %#v", decisions[0].Evidence)
 	}
 
-	if len(missing) != 2 || missing[0] != ".coding-ethos/" {
+	if len(missing) != 3 || missing[0] != ".code-ethos/cache/" {
 		t.Fatalf("missing ignores mismatch: %#v", missing)
 	}
 }

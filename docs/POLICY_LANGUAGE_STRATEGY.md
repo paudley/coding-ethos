@@ -226,13 +226,19 @@ Go-backed or CEL-backed.
 The required completion work is:
 
 1. **Stable object model.** Define a versioned schema for every CEL-visible
-   object: `command`, `argv`, `tool`, `event`, `provider`, `cwd`, `repo`,
-   `path`, `paths`, `file`, `files`, `diagnostic`, `finding`, `diff`, Git
-   facts, config facts, and non-sensitive metadata. Once exposed, these fields
+   object. The current public surface includes `command`, `command_fact`,
+   `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`, `diagnostic`,
+   `finding`, `config`, `git`, and non-sensitive metadata. Future `event`,
+   `provider`, `diff`, richer Git state, and richer config facts must be added
+   only when the runtime can populate them reliably. Once exposed, these fields
    are public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
-   reliably or not expose it.
+   reliably or not expose it. The current Git and config surfaces expose
+   prepared facts such as configured protected branches, current branch when
+   provided by the caller, protected path matches, config candidates, and config
+   files present in the current file set; they do not read Git or the
+   filesystem from CEL.
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
    collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
    `files.changed_matching(...)`, and `findings.exists(...)`.
@@ -255,10 +261,10 @@ The required completion work is:
    data as Go evaluators: policy ID, severity, decision, message, suggestion,
    principle IDs, skill ID, evidence, diagnostic location, remediation hint,
    and explanation metadata.
-8. **Reviewed helper library.** Helpers should encode pure, reusable policy
-   facts such as glob matching, path classification, generated/test/protected
-   path detection, lint-code matching, command-tool detection, inline-env
-   detection, repo-config presence, and protected-branch facts.
+8. **Reviewed helper library.** Helpers encode pure, reusable policy facts such
+   as glob matching, path classification, generated/test/protected path
+   detection, lint-code matching, command-tool detection, inline-env detection,
+   repo-config presence, and protected-branch facts.
 9. **Explainability.** `policy explain` and trace output must show the
    expression, available schema, helper functions, matched evidence, ETHOS
    grounding, and skill/remediation path.
@@ -283,16 +289,67 @@ path normalization, and other reviewed security-sensitive operations.
 Keep helper functions small and reviewed. Initial candidates:
 
 - `glob_match(pattern, value)`
+- `any_glob_match(patterns, value)`
 - `has_suffix(value, suffix)`
 - `has_prefix(value, prefix)`
 - `is_test_path(path)`
 - `is_generated_path(path)`
+- `is_protected_path(path, protected_paths)`
 - `in_source_root(path, source_roots)`
+- `lint_code_matches(code, pattern)`
+- `command_invokes(command, tool)`
+- `argv_invokes(argv, tool)`
+- `has_inline_env(command, name)`
+- `repo_config_present(files, candidates)`
+- `is_protected_branch(branch, protected_branches)`
 - `list_contains(values, value)`
 - `any_has_prefix(values, prefix)`
 - `any_has_suffix(values, suffix)`
 
 Avoid helper functions that hide IO, policy decisions, or broad framework logic.
+
+## Operator Reference
+
+Supported expression scopes:
+
+- `command`: evaluates command text, argv, tool metadata, and command facts.
+- `files` and `staged`: evaluate explicit file/path collections and any lint
+  or Git facts supplied by the caller.
+- `diagnostic` and `finding`: evaluate one normalized diagnostic or finding at
+  a time. Empty typed objects are used only when no diagnostic/finding scope is
+  present, so expressions do not match fake lint data.
+
+Dispatch is declared in `policy.expressions` with `hook_events`, `tools`,
+`lint_scopes`, `mode`, `severity`, `principle_ids`, and `skill_id`.
+Compatibility defaults exist for older expressions, but new policies should
+declare dispatch explicitly so hook, lint, CI, trace, explain, and future MCP
+paths all see the same compiled policy.
+
+CEL remains pure. Go code prepares facts from trusted runtime context and
+compiled configuration, then CEL decides over those facts. CEL helpers must not
+read files, execute shell or Git, inspect process environment, open the network,
+or depend on wall-clock time.
+
+Anti-patterns:
+
+- expression policies that depend on implicit `path` for multi-file operations;
+  use `paths.exists(...)` or `paths.all(...)`
+- command string matching where a first-class Go evaluator already provides
+  safer parsing and diagnostics
+- helpers that mix host inspection with policy decisions
+- severity weakening or duplicate IDs without explicit controlled override
+  metadata
+- policies that expose new fields before every runtime path can populate them
+
+Test requirements for new CEL features:
+
+- compile-time rejection for unknown fields, unknown helpers, and invalid types
+- positive and negative evaluation tests for every helper
+- multi-file and multi-finding tests that avoid implicit first-file ordering
+- hook, agent-hook, lint, explain, trace, and CI/SARIF parity tests when a
+  feature affects output
+- inheritance, shadowing, protected-policy, and severity-weakening tests for
+  config behavior
 
 ## Migration Rule
 

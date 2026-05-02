@@ -924,8 +924,7 @@ func loadGeminiSettings() (GeminiSettings, geminiRuntimePaths, error) {
 	geminiConfig, ok := rootConfig["gemini"]
 	if !ok {
 		paths.CacheDir = filepath.Join(
-			gitCommonDir(paths.ConsumerRoot),
-			bundleLocalBinDirname(rootConfig),
+			consumerRuntimeCacheDir(paths.ConsumerRoot),
 			"gemini-cache",
 		)
 
@@ -947,8 +946,7 @@ func loadGeminiSettings() (GeminiSettings, geminiRuntimePaths, error) {
 	}
 
 	paths.CacheDir = filepath.Join(
-		gitCommonDir(paths.ConsumerRoot),
-		bundleLocalBinDirname(rootConfig),
+		consumerRuntimeCacheDir(paths.ConsumerRoot),
 		settings.Cache.Dirname,
 	)
 
@@ -1110,29 +1108,8 @@ func explicitConsumerRootApplies(root string, ethosRoot string) bool {
 	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
-func gitCommonDir(root string) string {
-	if dir := gitOutput(
-		"-C",
-		root,
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir",
-	); dir != "" {
-		return dir
-	}
-
-	return filepath.Join(root, ".git")
-}
-
-func bundleLocalBinDirname(rootConfig map[string]any) string {
-	if bundle, ok := rootConfig["bundle"].(map[string]any); ok {
-		name := strings.TrimSpace(fmt.Sprint(bundle["local_bin_dirname"]))
-		if name != "" && name != nilString {
-			return name
-		}
-	}
-
-	return "coding-ethos-hooks"
+func consumerRuntimeCacheDir(root string) string {
+	return filepath.Join(root, ".code-ethos", "cache")
 }
 
 func isBundleRoot(path string) bool {

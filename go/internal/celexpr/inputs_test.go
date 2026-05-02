@@ -59,6 +59,25 @@ func TestValidateAcceptsReviewedHelperFunctions(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
+	t.Parallel()
+
+	source := `
+		command_fact.has_inline_env &&
+		command_invokes(command, "git") &&
+		argv_invokes(argv, "git") &&
+		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
+		lint_code_matches(diagnostic.code, "S*") &&
+		repo_config_present(files, config.candidates) &&
+		is_protected_path(path.file, repo.protected_paths) &&
+		is_protected_branch(git.current_branch, repo.protected_branches) &&
+		any_glob_match(["src/**/*.py"], path.file)
+	`
+	if err := Validate("test.expanded_helpers", source); err != nil {
+		t.Fatalf("validate CEL expression: %v", err)
+	}
+}
+
 func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
 	t.Parallel()
 
@@ -78,6 +97,46 @@ func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("glob helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.expanded_helper_eval",
+		`
+			command_fact.has_inline_env &&
+			command_invokes(command, "git") &&
+			argv_invokes(argv, "git") &&
+			has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
+			lint_code_matches(diagnostic.code, "S*") &&
+			repo_config_present(files, config.candidates) &&
+			is_protected_path("coding-ethos-hooks/bin/coding-ethos-policy", repo.protected_paths) &&
+			is_protected_branch(git.current_branch, repo.protected_branches) &&
+			paths.exists(item, any_glob_match(["src/**/*.py"], item.file))
+		`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Argv:              []string{"git", "status"},
+		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+		ConfigCandidates:  []string{"repo_config.yaml"},
+		CurrentBranch:     "main",
+		Diagnostic:        &diagnostics.Diagnostic{Code: "S101"},
+		Files:             []string{"src/package/module.py", "repo_config.yaml"},
+		ProtectedBranches: []string{"main"},
+		ProtectedPaths:    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
+		Tool:              "Bash",
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("expanded helper output = %#v, want true", output.Value())
 	}
 }
 
@@ -123,6 +182,42 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	metadata, ok := activation["metadata"].(MetadataInput)
 	if !ok || metadata.SchemaVersion != SchemaVersion {
 		t.Fatalf("metadata input = %#v", activation["metadata"])
+	}
+}
+
+func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Argv:              []string{"git", "status"},
+		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+		ConfigCandidates:  []string{"repo_config.yaml", "repo_config.yml"},
+		CurrentBranch:     "main",
+		Files:             []string{"repo_config.yaml", "pkg/app.py"},
+		ProtectedBranches: []string{"main"},
+		ProtectedPaths:    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
+		Tool:              "Bash",
+	})
+
+	commandFact, ok := activation["command_fact"].(CommandInput)
+	if !ok || commandFact.Raw == "" || !commandFact.HasInlineEnv {
+		t.Fatalf("command_fact input = %#v", activation["command_fact"])
+	}
+
+	config, ok := activation["config"].(ConfigInput)
+	if !ok || len(config.Candidates) != 2 || len(config.Present) != 1 ||
+		config.Present[0] != "repo_config.yaml" {
+		t.Fatalf("config input = %#v", activation["config"])
+	}
+
+	git, ok := activation["git"].(GitInput)
+	if !ok || git.CurrentBranch != "main" || !git.OnProtectedBranch {
+		t.Fatalf("git input = %#v", activation["git"])
+	}
+
+	repo, ok := activation["repo"].(RepoInput)
+	if !ok || len(repo.ProtectedBranches) != 1 || len(repo.ProtectedPaths) != 1 {
+		t.Fatalf("repo input = %#v", activation["repo"])
 	}
 }
 

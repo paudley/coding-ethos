@@ -21,6 +21,13 @@ type MetadataInput struct {
 	Tool          string `json:"tool"`
 }
 
+type CommandInput struct {
+	Argv         []string `json:"argv"`
+	Raw          string   `json:"raw"`
+	Tool         string   `json:"tool"`
+	HasInlineEnv bool     `json:"has_inline_env"`
+}
+
 type PathInput struct {
 	File         string `json:"file"`
 	Dir          string `json:"dir"`
@@ -55,23 +62,42 @@ type FindingInput struct {
 }
 
 type RepoInput struct {
-	Root          string   `json:"root"`
-	SourceRoots   []string `json:"source_roots"`
-	PythonVersion string   `json:"python_version"`
+	ConfigCandidates  []string `json:"config_candidates"`
+	ProtectedBranches []string `json:"protected_branches"`
+	ProtectedPaths    []string `json:"protected_paths"`
+	PythonVersion     string   `json:"python_version"`
+	Root              string   `json:"root"`
+	SourceRoots       []string `json:"source_roots"`
+}
+
+type ConfigInput struct {
+	Candidates []string `json:"candidates"`
+	Present    []string `json:"present"`
+}
+
+type GitInput struct {
+	CurrentBranch      string   `json:"current_branch"`
+	OnProtectedBranch  bool     `json:"on_protected_branch"`
+	ProtectedBranches  []string `json:"protected_branches"`
+	ProtectedPathFiles []string `json:"protected_path_files"`
 }
 
 type ActivationInput struct {
-	Argv          []string
-	Command       string
-	Cwd           string
-	Files         []string
-	Scope         string
-	Tool          string
-	AdminApproved bool
-	Diagnostic    *diagnostics.Diagnostic
-	Finding       *FindingActivation
-	SourceRoots   []string
-	PythonVersion string
+	Argv              []string
+	Command           string
+	ConfigCandidates  []string
+	CurrentBranch     string
+	Cwd               string
+	Files             []string
+	Scope             string
+	Tool              string
+	AdminApproved     bool
+	Diagnostic        *diagnostics.Diagnostic
+	Finding           *FindingActivation
+	ProtectedPaths    []string
+	ProtectedBranches []string
+	SourceRoots       []string
+	PythonVersion     string
 }
 
 type FindingActivation struct {
@@ -105,15 +131,18 @@ func InputSchema() []string {
 	return []string{
 		"argv: list(string)",
 		"command: string",
+		"command_fact: {raw, tool, argv, has_inline_env}",
+		"config: {candidates, present}",
 		"cwd: string",
 		"files: list(string)",
+		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files}",
 		"scope: string",
 		"metadata: {admin_approved, schema_version, tool}",
 		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
 		"paths: list({file, dir, base, ext, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
-		"repo: {root, source_roots, python_version}",
+		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
 	}
 }
 
@@ -124,8 +153,16 @@ func HelperSchema() []string {
 		"glob_match(pattern, value)",
 		"is_test_path(path)",
 		"is_generated_path(path)",
+		"is_protected_path(path, protected_paths)",
 		"in_source_root(path, source_roots)",
+		"lint_code_matches(code, pattern)",
+		"command_invokes(command, tool)",
+		"argv_invokes(argv, tool)",
+		"has_inline_env(command, name)",
+		"repo_config_present(files, candidates)",
+		"is_protected_branch(branch, protected_branches)",
 		"list_contains(values, value)",
+		"any_glob_match(patterns, value)",
 		"any_has_prefix(values, prefix)",
 		"any_has_suffix(values, suffix)",
 	}
@@ -143,10 +180,13 @@ func newEnvironment() (*cel.Env, error) {
 	options := []cel.EnvOption{
 		ext.NativeTypes(
 			reflect.TypeOf(MetadataInput{}),
+			reflect.TypeOf(CommandInput{}),
 			reflect.TypeOf(PathInput{}),
 			reflect.TypeOf(DiagnosticInput{}),
 			reflect.TypeOf(FindingInput{}),
 			reflect.TypeOf(RepoInput{}),
+			reflect.TypeOf(ConfigInput{}),
+			reflect.TypeOf(GitInput{}),
 			ext.ParseStructTag("json"),
 		),
 		cel.Variable("argv", cel.ListType(cel.StringType)),
@@ -155,6 +195,7 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("files", cel.ListType(cel.StringType)),
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
+		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
 		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
 		cel.Variable(
 			"paths",
@@ -163,6 +204,8 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
 		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
 		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
+		cel.Variable("config", cel.ObjectType("celexpr.ConfigInput")),
+		cel.Variable("git", cel.ObjectType("celexpr.GitInput")),
 	}
 	options = append(options, helperFunctions()...)
 
@@ -227,6 +270,10 @@ func compileProgram(policyID string, source string) (cel.Program, error) {
 func Activation(input ActivationInput) map[string]any {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
 	paths := pathInputs(input.Files, sourceRoots)
+	protectedPaths := cleanStringSlice(input.ProtectedPaths)
+	protectedBranches := cleanStringSlice(input.ProtectedBranches)
+	configCandidates := cleanStringSlice(input.ConfigCandidates)
+	presentConfigs := presentRepoConfigs(input.Files, configCandidates)
 	primaryPath := PathInput{}
 	if len(paths) == 1 {
 		primaryPath = paths[0]
@@ -237,8 +284,24 @@ func Activation(input ActivationInput) map[string]any {
 	return map[string]any{
 		"argv":    append([]string(nil), input.Argv...),
 		"command": input.Command,
-		"cwd":     input.Cwd,
-		"files":   append([]string(nil), input.Files...),
+		"command_fact": CommandInput{
+			Argv:         append([]string(nil), input.Argv...),
+			Raw:          input.Command,
+			Tool:         input.Tool,
+			HasInlineEnv: commandHasInlineEnv(input.Command, ""),
+		},
+		"config": ConfigInput{
+			Candidates: configCandidates,
+			Present:    presentConfigs,
+		},
+		"cwd":   input.Cwd,
+		"files": append([]string(nil), input.Files...),
+		"git": GitInput{
+			CurrentBranch:      input.CurrentBranch,
+			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
+			ProtectedBranches:  protectedBranches,
+			ProtectedPathFiles: protectedPathFiles(input.Files, protectedPaths),
+		},
 		"metadata": MetadataInput{
 			AdminApproved: input.AdminApproved,
 			SchemaVersion: SchemaVersion,
@@ -250,9 +313,12 @@ func Activation(input ActivationInput) map[string]any {
 		"diagnostic": diagnosticInput(input.Diagnostic),
 		"finding":    findingInput(input.Finding),
 		"repo": RepoInput{
-			Root:          input.Cwd,
-			SourceRoots:   sourceRoots,
-			PythonVersion: input.PythonVersion,
+			ConfigCandidates:  configCandidates,
+			ProtectedBranches: protectedBranches,
+			ProtectedPaths:    protectedPaths,
+			PythonVersion:     input.PythonVersion,
+			Root:              input.Cwd,
+			SourceRoots:       sourceRoots,
 		},
 	}
 }
@@ -343,15 +409,53 @@ func cleanInputFile(file string) string {
 }
 
 func cleanSourceRoots(sourceRoots []string) []string {
-	cleaned := make([]string, 0, len(sourceRoots))
-	for _, sourceRoot := range sourceRoots {
-		sourceRoot = strings.TrimPrefix(path.Clean(strings.TrimSpace(sourceRoot)), "./")
-		if sourceRoot != "" && sourceRoot != "." && sourceRoot != "/" {
-			cleaned = append(cleaned, sourceRoot)
+	return cleanStringSlice(sourceRoots)
+}
+
+func cleanStringSlice(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		value = cleanInputFile(value)
+		if value != "" {
+			cleaned = append(cleaned, value)
 		}
 	}
 
 	return cleaned
+}
+
+func presentRepoConfigs(files []string, candidates []string) []string {
+	present := []string{}
+	for _, candidate := range candidates {
+		if listContainsCleanPath(files, candidate) {
+			present = append(present, candidate)
+		}
+	}
+
+	return present
+}
+
+func listContainsCleanPath(files []string, candidate string) bool {
+	cleanCandidate := cleanInputFile(candidate)
+	for _, file := range files {
+		if cleanInputFile(file) == cleanCandidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func protectedPathFiles(files []string, protectedPaths []string) []string {
+	matched := []string{}
+	for _, file := range files {
+		cleanFile := cleanInputFile(file)
+		if isProtectedPath(cleanFile, protectedPaths) {
+			matched = append(matched, cleanFile)
+		}
+	}
+
+	return matched
 }
 
 func isGeneratedPath(file string) bool {
@@ -383,4 +487,52 @@ func inSourceRoot(file string, sourceRoots []string) bool {
 	}
 
 	return len(sourceRoots) == 0
+}
+
+func isProtectedPath(file string, protectedPaths []string) bool {
+	cleanFile := cleanInputFile(file)
+	for _, protectedPath := range protectedPaths {
+		cleanProtectedPath := cleanInputFile(protectedPath)
+		if cleanProtectedPath == "" {
+			continue
+		}
+		if cleanFile == cleanProtectedPath ||
+			strings.HasPrefix(cleanFile, cleanProtectedPath+"/") ||
+			strings.Contains(cleanFile, "/"+cleanProtectedPath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isProtectedBranch(branch string, protectedBranches []string) bool {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return false
+	}
+	for _, protectedBranch := range protectedBranches {
+		if branch == strings.TrimSpace(protectedBranch) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandHasInlineEnv(command string, name string) bool {
+	fields := strings.Fields(command)
+	for _, field := range fields {
+		if !strings.Contains(field, "=") {
+			return false
+		}
+		if name == "" {
+			return true
+		}
+		if strings.HasPrefix(field, name+"=") {
+			return true
+		}
+	}
+
+	return false
 }

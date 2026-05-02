@@ -11,6 +11,7 @@ import (
 
 func requiredRuntimeIgnorePaths() []string {
 	return []string{
+		".code-ethos/cache/",
 		".coding-ethos/",
 		".coding-ethos/hook-runs/example/stdout.log",
 	}
@@ -44,7 +45,7 @@ func runtimeIgnoreFindings(paths []string) []string {
 
 		findings = append(
 			findings,
-			cleanPath+" is not ignored; add .coding-ethos/ to the repo "+
+			cleanPath+" is not ignored; add coding-ethos runtime paths to the repo "+
 				".gitignore before hook logs are written",
 		)
 	}

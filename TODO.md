@@ -330,19 +330,19 @@ engine rather than a companion to first-class Go evaluators.
   evaluators: policy ID, severity, decision, message, suggestion, principle
   IDs, skill ID, evidence, diagnostic location, remediation hint, and
   explanation metadata.
-- [ ] Expand the reviewed helper library with pure typed helpers for glob
+- [x] Expand the reviewed helper library with pure typed helpers for glob
   matching, path classification, test/generated/protected detection, lint code
   matching, command-tool detection, inline-env detection, repo config
   presence, and protected-branch facts.
-- [ ] Add first-class explain output for CEL decisions showing the expression,
+- [x] Add first-class explain output for CEL decisions showing the expression,
   available input schema, helper functions, matched evidence, ETHOS grounding,
   and skill/remediation path.
-- [ ] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
+- [x] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
   facts. CEL must not read files, execute shell/Git, inspect environment,
   access the network, or depend on wall-clock time.
-- [ ] Add operator documentation for supported scopes, input schemas, helper
+- [x] Add operator documentation for supported scopes, input schemas, helper
   functions, dispatch, severity, examples, anti-patterns, and migration rules.
-- [ ] Add a trust-building test matrix for unknown fields, type failures,
+- [x] Add a trust-building test matrix for unknown fields, type failures,
   unknown helpers, multi-file semantics, hook/lint dispatch, inheritance,
   shadowing, explain-output golden files, trace output, malicious config, and
   performance with many expression policies.
