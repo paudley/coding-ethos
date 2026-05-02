@@ -52,7 +52,7 @@ jobs:
           .github/workflows/ci.yml
           .github/workflows/coding-ethos-sarif.yml
 
-  coding-ethos:
+  policy:
     name: Coding Ethos SARIF Gate
     uses: ./.github/workflows/coding-ethos-sarif.yml
     permissions:
