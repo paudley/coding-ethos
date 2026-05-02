@@ -54,14 +54,9 @@ func registerGitEvaluators(registry Registry) {
 		EvaluatorFunc(EvaluateGitCheckoutProtectedBranch),
 	)
 	registry.Register(
-		"git.destructive_worktree",
-		EvaluatorFunc(EvaluateGitDestructiveWorktree),
-	)
-	registry.Register(
 		"git.protected_submodule_update",
 		EvaluatorFunc(EvaluateGitProtectedSubmoduleUpdate),
 	)
-	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
 	registry.Register("git.commitlint", EvaluatorFunc(EvaluateGitCommitLint))
 	registry.Register(
 		"git.commit_attribution",

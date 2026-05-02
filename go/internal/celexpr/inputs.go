@@ -92,6 +92,16 @@ type GitInput struct {
 	ChangedFiles       []string `json:"changed_files"`
 }
 
+type GitCommandInput struct {
+	Args          []string `json:"args"`
+	Flags         []string `json:"flags"`
+	GlobalOptions []string `json:"global_options"`
+	HasChangeDir  bool     `json:"has_change_dir"`
+	IsGit         bool     `json:"is_git"`
+	Subcommand    string   `json:"subcommand"`
+	Targets       []string `json:"targets"`
+}
+
 type DiffInput struct {
 	ChangedFiles []string `json:"changed_files"`
 	Files        []string `json:"files"`
@@ -162,6 +172,7 @@ func InputSchema() []string {
 		"event: {name, provider, tool, scope, mode}",
 		"files: list(string)",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
+		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
 		"metadata: {admin_approved, schema_version, tool}",
 		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
@@ -216,6 +227,7 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(RepoInput{}),
 			reflect.TypeOf(ConfigInput{}),
 			reflect.TypeOf(GitInput{}),
+			reflect.TypeOf(GitCommandInput{}),
 			reflect.TypeOf(EventInput{}),
 			reflect.TypeOf(DiffInput{}),
 			ext.ParseStructTag("json"),
@@ -247,6 +259,7 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
 		cel.Variable("config", cel.ObjectType("celexpr.ConfigInput")),
 		cel.Variable("git", cel.ObjectType("celexpr.GitInput")),
+		cel.Variable("git_command", cel.ObjectType("celexpr.GitCommandInput")),
 	}
 	options = append(options, helperFunctions()...)
 
@@ -361,6 +374,7 @@ func Activation(input ActivationInput) map[string]any {
 			ProtectedPathFiles: protectedPathFiles(files, protectedPaths),
 			StagedFiles:        stagedFiles,
 		},
+		"git_command": gitCommandInput(input.Argv),
 		"metadata": MetadataInput{
 			AdminApproved: input.AdminApproved,
 			SchemaVersion: SchemaVersion,
@@ -382,6 +396,174 @@ func Activation(input ActivationInput) map[string]any {
 			SourceRoots:       sourceRoots,
 		},
 	}
+}
+
+func gitCommandInput(argv []string) GitCommandInput {
+	normalized := stripLeadingAssignments(argv)
+	if len(normalized) == 0 || !commandTokenMatchesTool(normalized[0], "git") {
+		return GitCommandInput{
+			Args:          []string{},
+			Flags:         []string{},
+			GlobalOptions: []string{},
+			Targets:       []string{},
+		}
+	}
+
+	subcommandIndex := gitSubcommandIndex(normalized)
+	if subcommandIndex == -1 {
+		return GitCommandInput{
+			GlobalOptions: gitGlobalOptions(normalized[1:]),
+			Args:          []string{},
+			Flags:         []string{},
+			IsGit:         true,
+			Targets:       []string{},
+			HasChangeDir:  listContains(normalized[1:], "-C"),
+		}
+	}
+	args := append([]string(nil), normalized[subcommandIndex+1:]...)
+
+	return GitCommandInput{
+		Args:          args,
+		Flags:         gitFlags(args),
+		GlobalOptions: gitGlobalOptions(normalized[1:subcommandIndex]),
+		HasChangeDir:  listContains(normalized[1:subcommandIndex], "-C"),
+		IsGit:         true,
+		Subcommand:    normalized[subcommandIndex],
+		Targets:       gitTargets(args),
+	}
+}
+
+func gitSubcommandIndex(argv []string) int {
+	for idx := 1; idx < len(argv); idx++ {
+		arg := argv[idx]
+		if arg == "--" {
+			return -1
+		}
+		if arg == "" {
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return idx
+		}
+		if gitGlobalOptionHasValue(arg) && idx+1 < len(argv) {
+			idx++
+		}
+	}
+
+	return -1
+}
+
+func gitGlobalOptions(args []string) []string {
+	options := []string{}
+	for idx := 0; idx < len(args); idx++ {
+		arg := args[idx]
+		if arg == "" {
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") {
+			break
+		}
+		options = append(options, arg)
+		if gitGlobalOptionHasValue(arg) && idx+1 < len(args) {
+			idx++
+		}
+	}
+
+	return options
+}
+
+func gitGlobalOptionHasValue(arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	switch arg {
+	case "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitFlags(args []string) []string {
+	flags := []string{}
+	for _, arg := range args {
+		if arg == "" || !strings.HasPrefix(arg, "-") || arg == "--" {
+			continue
+		}
+		flags = append(flags, arg)
+		if strings.HasPrefix(arg, "--") {
+			continue
+		}
+		for _, flag := range strings.TrimPrefix(arg, "-") {
+			flags = append(flags, "-"+string(flag))
+		}
+	}
+
+	return uniqueStrings(flags)
+}
+
+func gitTargets(args []string) []string {
+	targets := []string{}
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+
+			continue
+		}
+		if arg == "--" {
+			continue
+		}
+		if gitArgOptionHasValue(arg) {
+			skipNext = true
+
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		targets = append(targets, arg)
+	}
+
+	return targets
+}
+
+func gitArgOptionHasValue(arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+	switch arg {
+	case "-m", "-F", "-X", "-C", "-c", "-b", "-B", "--message", "--file",
+		"--branch", "--orphan", "--strategy-option", "--strategy",
+		"--pathspec-from-file":
+		return true
+	default:
+		return false
+	}
+}
+
+func listContains(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+
+	return false
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+
+	return unique
 }
 
 func diagnosticInputs(

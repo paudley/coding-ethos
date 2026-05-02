@@ -924,13 +924,7 @@ func gitPolicies(config map[string]any, principles map[string]Principle) []Polic
 			"Switching to main/master to check history is forbidden in managed workflows.",
 			"Inspect history with git fetch, git show, or git diff without switching.",
 		),
-		gitPolicy(
-			"git.destructive_worktree",
-			"git.destructive_worktree",
-			principleRefs(principles, "no-rationalized-shortcuts"),
-			"Destructive git worktree operations are forbidden.",
-			"Inspect worktree state before changing worktrees.",
-		),
+		gitDestructiveWorktreePolicy(principles),
 		gitProtectedSubmoduleUpdatePolicy(config, principles),
 		gitChangeDirPolicy(principles),
 		gitStagedAdminPolicy(config, principles),
@@ -961,24 +955,15 @@ func gitPolicy(
 }
 
 func gitChangeDirPolicy(principles map[string]Principle) Policy {
-	policyDef := gitPolicy(
+	return gitCELPolicy(
 		"git.change_dir_flag",
 		"git.change_dir_flag",
 		principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
 		"git -C hides the working directory context.",
 		"Change to the intended directory explicitly, then run git there.",
+		"agent-operating-discipline",
+		`git_command.is_git && git_command.has_change_dir`,
 	)
-	policyDef.Evaluators = []Evaluator{{
-		Kind: "cel",
-		Name: "cel.expression",
-		Options: map[string]any{
-			"mode":     "block",
-			"skill_id": "agent-operating-discipline",
-			"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
-		},
-	}}
-
-	return policyDef
 }
 
 func gitProtectedSubmoduleUpdatePolicy(
@@ -1173,13 +1158,58 @@ func gitCommitLintPolicy(
 }
 
 func gitStashPolicy(principles map[string]Principle) Policy {
-	return gitPolicy(
+	return gitCELPolicy(
 		"git.stash_blocked",
 		"principles.no-rationalized-shortcuts",
 		principleRefs(principles, "no-rationalized-shortcuts"),
 		"git stash hides working state and is forbidden when the stash ethos is active.",
 		"Keep changes visible in the worktree or commit them normally.",
+		"safe-git-workflow",
+		`git_command.is_git && git_command.subcommand == "stash"`,
 	)
+}
+
+func gitDestructiveWorktreePolicy(principles map[string]Principle) Policy {
+	return gitCELPolicy(
+		"git.destructive_worktree",
+		"git.destructive_worktree",
+		principleRefs(principles, "no-rationalized-shortcuts"),
+		"Destructive git worktree operations are forbidden.",
+		"Inspect worktree state before changing worktrees.",
+		"safe-git-workflow",
+		`git_command.is_git &&
+		 git_command.subcommand == "worktree" &&
+		 (
+		   git_command.args.exists(arg, arg == "prune") ||
+		   (
+		     git_command.args.exists(arg, arg == "remove" || arg == "move") &&
+		     (list_contains(git_command.flags, "--force") || list_contains(git_command.flags, "-f"))
+		   )
+		 )`,
+	)
+}
+
+func gitCELPolicy(
+	policyID string,
+	sourcePath string,
+	principleIDs []string,
+	message string,
+	suggestion string,
+	skillID string,
+	when string,
+) Policy {
+	policyDef := gitPolicy(policyID, sourcePath, principleIDs, message, suggestion)
+	policyDef.Evaluators = []Evaluator{{
+		Kind: "cel",
+		Name: "cel.expression",
+		Options: map[string]any{
+			"mode":     "block",
+			"skill_id": skillID,
+			"when":     when,
+		},
+	}}
+
+	return policyDef
 }
 
 func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {

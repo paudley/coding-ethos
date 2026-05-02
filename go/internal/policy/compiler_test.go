@@ -321,7 +321,15 @@ func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 
 	writeTestFile(t, primaryPath, testEthosYAML)
-	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+git:
+  change_dir_flag:
+    enabled: true
+  destructive_worktree:
+    enabled: true
+  stash_blocked:
+    enabled: true
+`)
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary: primaryPath,
@@ -338,7 +346,7 @@ func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
 	evaluator := policyDef.Evaluators[0]
 	if evaluator.Kind != "cel" ||
 		evaluator.Name != "cel.expression" ||
-		evaluator.Options["when"] != `argv_command_is(argv, "git") && list_contains(argv, "-C")` {
+		evaluator.Options["when"] != `git_command.is_git && git_command.has_change_dir` {
 		t.Fatalf("git change-dir evaluator mismatch: %#v", evaluator)
 	}
 	assertHookPolicyDispatched(
@@ -347,6 +355,44 @@ func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
 		"git.change_dir_flag",
 	)
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "git.change_dir_flag")
+}
+
+func TestCompileBuildsSmallGitPoliciesAsCELPolicies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+git:
+  destructive_worktree:
+    enabled: true
+  stash_blocked:
+    enabled: true
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, policyID := range []string{
+		"git.destructive_worktree",
+		"git.stash_blocked",
+	} {
+		policyDef := bundle.Policies[policyID]
+		if len(policyDef.Evaluators) != 1 ||
+			policyDef.Evaluators[0].Kind != "cel" ||
+			policyDef.Evaluators[0].Name != "cel.expression" ||
+			!strings.Contains(policyDef.Evaluators[0].Options["when"].(string), "git_command.") {
+			t.Fatalf("%s evaluator mismatch: %#v", policyID, policyDef.Evaluators)
+		}
+	}
 }
 
 func TestCompileExpressionPolicyUsesExplicitDispatch(t *testing.T) {
@@ -1647,6 +1693,11 @@ principles:
     title: One Path for Critical Operations
     summary: Critical operations use canonical gates.
     directive: Keep one explicit, validated path for critical operations.
+  - id: no-rationalized-shortcuts
+    order: 21
+    title: No Rationalized Shortcuts
+    summary: Do not bypass safety checks.
+    directive: Preserve work and use canonical safety paths.
   - id: linting-as-code-quality-enforcement
     order: 14
     title: Linting as Code Quality Enforcement

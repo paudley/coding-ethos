@@ -228,19 +228,19 @@ The required completion work is:
 1. **Stable object model.** Define a versioned schema for every CEL-visible
    object. The current public surface includes `command`, `command_fact`,
    `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`, `diagnostic`,
-   `diagnostics`, `finding`, `findings`, `config`, `git`, `event`, `diff`, and
-   non-sensitive metadata. Future provider-native event fields, diff hunks,
-   line ranges, richer Git state, and richer config facts must be added only
-   when every relevant runtime can populate them reliably. Once exposed, these
-   fields are public policy API.
+   `diagnostics`, `finding`, `findings`, `config`, `git`, `git_command`,
+   `event`, `diff`, and non-sensitive metadata. Future provider-native event
+   fields, diff hunks, line ranges, richer Git state, and richer config facts
+   must be added only when every relevant runtime can populate them reliably.
+   Once exposed, these fields are public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
    reliably or not expose it. The current Git and config surfaces expose
    prepared facts such as hook event/provider/tool/scope, configured protected
    branches, current branch, protected path matches, changed/staged file sets,
-   config candidates, config files present in the current file set, and
-   normalized diagnostic/finding collections; they do not read Git or the
-   filesystem from CEL.
+   normalized Git argv/subcommand/flag facts, config candidates, config files
+   present in the current file set, and normalized diagnostic/finding
+   collections; they do not read Git or the filesystem from CEL.
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
    collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
    `files.changed_matching(...)`, and `findings.exists(...)`.
@@ -386,6 +386,16 @@ Move a hardcoded evaluator into CEL only when all of the following are true:
 Critical safety primitives such as Git wrapper enforcement, staged file
 resolution, managed toolchain resolution, config hash validation, and path
 normalization stay in Go.
+
+The first migrated built-ins prove the intended pattern:
+
+- `git.change_dir_flag` is CEL over `git_command.has_change_dir`.
+- `git.destructive_worktree` is CEL over `git_command.subcommand`,
+  `git_command.args`, and `git_command.flags`.
+- `git.stash_blocked` is CEL over `git_command.subcommand`.
+
+These policies still use Go for argv normalization and fact preparation. CEL
+only decides over the prepared facts.
 
 Migration workflow:
 

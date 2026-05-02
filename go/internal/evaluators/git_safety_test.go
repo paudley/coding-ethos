@@ -99,8 +99,14 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 		{
 			name:      "worktree prune",
 			policyID:  "git.destructive_worktree",
-			evaluator: EvaluateGitDestructiveWorktree,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "worktree", "prune"},
+		},
+		{
+			name:      "worktree force remove",
+			policyID:  "git.destructive_worktree",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "worktree", "remove", "-f", "../repo-old"},
 		},
 		{
 			name:      "protected submodule init",
@@ -129,7 +135,7 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 		{
 			name:      "stash",
 			policyID:  "git.stash_blocked",
-			evaluator: EvaluateGitStashBlocked,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "stash"},
 		},
 		{
@@ -243,8 +249,14 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 		{
 			name:      "worktree list",
 			policyID:  "git.destructive_worktree",
-			evaluator: EvaluateGitDestructiveWorktree,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "worktree", "list"},
+		},
+		{
+			name:      "worktree remove without force",
+			policyID:  "git.destructive_worktree",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "worktree", "remove", "../repo-old"},
 		},
 		{
 			name:      "protected submodule remote upgrade",
@@ -349,11 +361,11 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 		"git.commit_attribution",
 	} {
 		evaluatorDef := policy.Evaluator{Kind: "argv", Name: policyID}
-		if policyID == "git.change_dir_flag" {
+		if options := gitCELOptions(policyID); options != nil {
 			evaluatorDef = policy.Evaluator{
 				Kind:    "cel",
 				Name:    "cel.expression",
-				Options: gitChangeDirCELOptions(),
+				Options: options,
 			}
 		}
 		bundle.Policies[policyID] = policy.Policy{
@@ -377,10 +389,32 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 	return bundle
 }
 
-func gitChangeDirCELOptions() map[string]any {
-	return map[string]any{
-		"mode":     "block",
-		"skill_id": "agent-operating-discipline",
-		"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
+func gitCELOptions(policyID string) map[string]any {
+	options := map[string]map[string]any{
+		"git.change_dir_flag": {
+			"mode":     "block",
+			"skill_id": "agent-operating-discipline",
+			"when":     `git_command.is_git && git_command.has_change_dir`,
+		},
+		"git.destructive_worktree": {
+			"mode":     "block",
+			"skill_id": "safe-git-workflow",
+			"when": `git_command.is_git &&
+			 git_command.subcommand == "worktree" &&
+			 (
+			   git_command.args.exists(arg, arg == "prune") ||
+			   (
+			     git_command.args.exists(arg, arg == "remove" || arg == "move") &&
+			     (list_contains(git_command.flags, "--force") || list_contains(git_command.flags, "-f"))
+			   )
+			 )`,
+		},
+		"git.stash_blocked": {
+			"mode":     "block",
+			"skill_id": "safe-git-workflow",
+			"when":     `git_command.is_git && git_command.subcommand == "stash"`,
+		},
 	}
+
+	return options[policyID]
 }

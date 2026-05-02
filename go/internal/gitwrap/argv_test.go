@@ -66,7 +66,7 @@ func policyBundleWithChangeDirPolicy(t *testing.T) policy.Bundle {
 				Options: map[string]any{
 					"mode":     "block",
 					"skill_id": "agent-operating-discipline",
-					"when":     `argv_command_is(argv, "git") && list_contains(argv, "-C")`,
+					"when":     `git_command.is_git && git_command.has_change_dir`,
 				},
 			},
 		},

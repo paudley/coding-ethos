@@ -16,12 +16,10 @@ import (
 )
 
 const (
-	blockDecision              = "block"
-	gitSubcommandArgc          = 2
-	gitWorktreeOperationArgc   = 3
-	gitWorktreeSubcommandIndex = 2
-	gitSubmoduleUpdateArgc     = 3
-	gitSubmoduleCommandIndex   = 2
+	blockDecision            = "block"
+	gitSubcommandArgc        = 2
+	gitSubmoduleUpdateArgc   = 3
+	gitSubmoduleCommandIndex = 2
 )
 
 func EvaluateGitDestructiveCommand(
@@ -109,27 +107,6 @@ func EvaluateGitCheckoutProtectedBranch(
 
 	for _, target := range protectedCheckoutTargets(argv) {
 		if isProtectedBranchRef(target) {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitDestructiveWorktree(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "worktree") || len(argv) < gitWorktreeOperationArgc {
-		return nil, nil
-	}
-
-	switch argv[gitWorktreeSubcommandIndex] {
-	case "prune":
-		return blockGitDecision(policyDef, argv), nil
-	case "remove", "move":
-		if hasArg(argv, "--force") || hasShortFlag(argv, "f") {
 			return blockGitDecision(policyDef, argv), nil
 		}
 	}
@@ -255,18 +232,6 @@ func normalizeSubmodulePath(path string) string {
 	normalized = strings.TrimSuffix(normalized, "/")
 
 	return normalized
-}
-
-func EvaluateGitStashBlocked(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if isGitSubcommand(argv, "stash") {
-		return blockGitDecision(policyDef, argv), nil
-	}
-
-	return nil, nil
 }
 
 func EvaluateGitCommitAttribution(

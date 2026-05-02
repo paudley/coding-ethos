@@ -315,6 +315,11 @@ engine rather than a companion to first-class Go evaluators.
   reliably for its scope, or removed until the runtime can provide it.
 - [x] Populate real typed inputs for hook command scope, file/path scope, lint
   finding scope, Git scope, config scope, and diff scope.
+- [x] Add typed `git_command` CEL facts for normalized Git argv, subcommand,
+  global options, subcommand args, flags, targets, and `git -C` detection.
+- [x] Migrate the first tiny Git evaluators to CEL-backed policies:
+  `git.change_dir_flag`, `git.destructive_worktree`, and
+  `git.stash_blocked`.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.

@@ -16,6 +16,8 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		metadata.schema_version == 1 &&
 		event.provider == "codex" &&
 		diff.has_changes &&
+		git_command.is_git &&
+		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
 		diagnostics.exists(item, item.tool == "ruff") &&
 		diagnostic.tool == "ruff" &&
@@ -71,6 +73,8 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		command_invokes(command, "git") &&
 		argv_invokes(argv, "git") &&
 		argv_command_is(argv, "git") &&
+		git_command.is_git &&
+		list_contains(git_command.flags, "-f") &&
 		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 		lint_code_matches(diagnostic.code, "S*") &&
 		repo_config_present(files, config.candidates) &&
@@ -115,6 +119,9 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 			command_invokes(command, "git") &&
 			argv_invokes(argv, "git") &&
 			argv_command_is(argv, "git") &&
+			git_command.is_git &&
+			git_command.subcommand == "worktree" &&
+			list_contains(git_command.flags, "-f") &&
 			has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 			lint_code_matches(diagnostic.code, "S*") &&
 			repo_config_present(files, config.candidates) &&
@@ -128,7 +135,7 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	}
 
 	output, _, err := program.Eval(Activation(ActivationInput{
-		Argv:              []string{"git", "status"},
+		Argv:              []string{"git", "worktree", "remove", "-f", "../repo-old"},
 		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
 		ConfigCandidates:  []string{"repo_config.yaml"},
 		CurrentBranch:     "main",
@@ -165,6 +172,39 @@ func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("argv command helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestActivationPopulatesGitCommandInput(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Argv: []string{
+			"CODE_ETHOS_CONSUMER_ROOT=/repo",
+			"/usr/bin/git",
+			"-C",
+			"/repo",
+			"worktree",
+			"remove",
+			"-fd",
+			"../repo-old",
+		},
+	})
+
+	gitCommand, ok := activation["git_command"].(GitCommandInput)
+	if !ok {
+		t.Fatalf("git command input = %#v", activation["git_command"])
+	}
+	if !gitCommand.IsGit ||
+		!gitCommand.HasChangeDir ||
+		gitCommand.Subcommand != "worktree" ||
+		len(gitCommand.Args) != 3 ||
+		!listContains(gitCommand.Flags, "-f") ||
+		!listContains(gitCommand.Flags, "-d") ||
+		len(gitCommand.Targets) != 2 ||
+		gitCommand.Targets[0] != "remove" ||
+		gitCommand.Targets[1] != "../repo-old" {
+		t.Fatalf("git command input = %#v", gitCommand)
 	}
 }
 
