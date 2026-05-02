@@ -303,6 +303,64 @@ policy:
 	}
 }
 
+func TestCompileExpressionPolicyUsesExplicitDispatch(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.edit_python_only
+      scope: files
+      severity: block
+      mode: advise
+      hook_events: [PreToolUse]
+      tools: [Edit]
+      lint_scopes: [files]
+      command_patterns: [python]
+      path_patterns: ["**/*.py"]
+      principle_ids: [one-path-for-critical-operations]
+      skill_id: lint-remediation
+      when: paths.exists(path, path.ext == ".py")
+      message: Python edits require focused policy review.
+      advice: Load the lint-remediation skill and fix structurally.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef := bundle.Policies["custom.edit_python_only"]
+	if !slices.Equal(policyDef.AppliesTo.Tools, []string{"Edit"}) {
+		t.Fatalf("applies_to tools = %#v", policyDef.AppliesTo.Tools)
+	}
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.edit_python_only")
+	assertPolicyNotDispatched(t, bundle.Dispatch.Linter["staged"], "custom.edit_python_only")
+	assertHookPolicyNotDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
+		"custom.edit_python_only",
+	)
+	entry := assertHookPolicyDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Edit"],
+		"custom.edit_python_only",
+	)
+	if entry.Mode != "advise" ||
+		!slices.Equal(entry.CommandPatterns, []string{"python"}) ||
+		!slices.Equal(entry.PathPatterns, []string{"**/*.py"}) {
+		t.Fatalf("hook dispatch entry = %#v", entry)
+	}
+}
+
 func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
 	t.Parallel()
 
@@ -330,6 +388,78 @@ policy:
 	})
 	if err == nil || !strings.Contains(err.Error(), "conflicts with an existing policy") {
 		t.Fatalf("compile error = %v, want policy ID collision error", err)
+	}
+}
+
+func TestCompileRejectsInvalidExpressionDispatch(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		expression string
+		want       string
+	}{
+		{
+			name: "bad hook event",
+			expression: `
+    - id: custom.bad_event
+      hook_events: [BeforeAnything]
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("git")
+      message: Invalid dispatch.
+      advice: Fix dispatch.
+`,
+			want: "invalid hook event",
+		},
+		{
+			name: "bad lint scope",
+			expression: `
+    - id: custom.bad_lint_scope
+      lint_scopes: [everything]
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("git")
+      message: Invalid dispatch.
+      advice: Fix dispatch.
+`,
+			want: "invalid lint scope",
+		},
+		{
+			name: "bad mode",
+			expression: `
+    - id: custom.bad_mode
+      mode: warnish
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("git")
+      message: Invalid dispatch.
+      advice: Fix dispatch.
+`,
+			want: "invalid mode",
+		},
+	}
+
+	for _, testCase := range cases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			primaryPath := filepath.Join(dir, "coding_ethos.yml")
+			configPath := filepath.Join(dir, "config.yaml")
+
+			writeTestFile(t, primaryPath, testEthosYAML)
+			writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+`+testCase.expression)
+
+			_, _, err := Compile(CompileOptions{
+				Primary: primaryPath,
+				Config:  configPath,
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("compile error = %v, want %q", err, testCase.want)
+			}
+		})
 	}
 }
 
@@ -1148,16 +1278,39 @@ func assertHookPolicyDispatched(
 	t *testing.T,
 	entries []HookDispatchEntry,
 	expected string,
+) HookDispatchEntry {
+	t.Helper()
+
+	for _, entry := range entries {
+		if entry.PolicyID == expected {
+			return entry
+		}
+	}
+
+	t.Fatalf("hook dispatch missing %q: %#v", expected, entries)
+	return HookDispatchEntry{}
+}
+
+func assertPolicyNotDispatched(t *testing.T, policyIDs []string, expected string) {
+	t.Helper()
+
+	if slices.Contains(policyIDs, expected) {
+		t.Fatalf("dispatch unexpectedly includes %q: %#v", expected, policyIDs)
+	}
+}
+
+func assertHookPolicyNotDispatched(
+	t *testing.T,
+	entries []HookDispatchEntry,
+	expected string,
 ) {
 	t.Helper()
 
 	for _, entry := range entries {
 		if entry.PolicyID == expected {
-			return
+			t.Fatalf("hook dispatch unexpectedly includes %q: %#v", expected, entries)
 		}
 	}
-
-	t.Fatalf("hook dispatch missing %q: %#v", expected, entries)
 }
 
 func assertBlockedDiagnostic(

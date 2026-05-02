@@ -111,6 +111,11 @@ policy:
       description: Block Python subprocess attempts to run Git.
       scope: command
       severity: block
+      mode: block
+      hook_events: [PreToolUse]
+      tools: [Bash]
+      lint_scopes: [staged, files]
+      command_patterns: [subprocess]
       principle_ids:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
@@ -136,6 +141,12 @@ Optional fields:
 
 - `description`
 - `skill_id`
+- `mode`
+- `hook_events`
+- `tools`
+- `lint_scopes`
+- `command_patterns`
+- `path_patterns`
 - `tags`
 - `metadata`
 
@@ -208,10 +219,12 @@ The required completion work is:
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
    collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
    `files.changed_matching(...)`, and `findings.exists(...)`.
-4. **Dispatch as policy.** Expression config must declare where a policy runs:
+4. **Dispatch as policy.** Expression config declares where a policy runs:
    hook events, tool matchers, lint tools, modes, defense layers, principle
-   IDs, and skill IDs. Runtime registration should be derived from compiled
-   policy data rather than special-case wiring.
+   IDs, and skill IDs. Runtime registration is derived from compiled policy
+   data rather than special-case wiring. Scope-only expressions keep
+   compatibility defaults, but new policies should specify `hook_events`,
+   `tools`, `lint_scopes`, and `mode` explicitly.
 5. **Compiled and cached programs.** CEL syntax and type checking must fail
    bundle compilation. Runtime should reuse checked programs from the compiled
    bundle or from a load-time cache instead of compiling on each evaluation.

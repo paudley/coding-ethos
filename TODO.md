@@ -318,7 +318,7 @@ engine rather than a companion to first-class Go evaluators.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.
-- [ ] Make dispatch policy-driven so expression config declares hook events,
+- [x] Make dispatch policy-driven so expression config declares hook events,
   tools, lint tools, modes, defense layers, principle IDs, and skill IDs
   without hardcoded evaluator registration.
 - [x] Compile and cache CEL programs during bundle compilation or bundle load

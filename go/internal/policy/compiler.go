@@ -2050,10 +2050,15 @@ func expressionPolicy(
 
 	scope := stringOptionFromMap(expression, "scope", "command")
 	severity := stringOptionFromMap(expression, "severity", "block")
+	mode := stringOptionFromMap(expression, "mode", severity)
 	dispatchScopes := stringSliceValue(
-		expression["dispatch_scopes"],
+		firstPresentValue(expression, "lint_scopes", "dispatch_scopes"),
 		defaultExpressionDispatchScopes(scope),
 	)
+	hookEvents := stringSliceValue(expression["hook_events"], []string{"PreToolUse"})
+	tools := stringSliceValue(expression["tools"], expressionHookTools(scope))
+	commandPatterns := stringSliceValue(expression["command_patterns"], nil)
+	pathPatterns := stringSliceValue(expression["path_patterns"], nil)
 
 	return Policy{
 		ID:              policyID,
@@ -2065,19 +2070,37 @@ func expressionPolicy(
 		Message:         message,
 		Suggestion:      advice,
 		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			Tools: tools,
+		},
 		Evaluators: []Evaluator{{
 			Kind: "cel",
 			Name: "cel.expression",
 			Options: map[string]any{
-				"dispatch_scopes": dispatchScopes,
-				"python_version":  stringAt(config, "style", "python_version"),
-				"scope":           scope,
-				"skill_id":        stringOptionFromMap(expression, "skill_id", ""),
-				"source_roots":    stringSliceAt(config, []string{"python", "source_paths"}, nil),
-				"when":            when,
+				"command_patterns": commandPatterns,
+				"dispatch_scopes":  dispatchScopes,
+				"hook_events":      hookEvents,
+				"mode":             mode,
+				"path_patterns":    pathPatterns,
+				"python_version":   stringAt(config, "style", "python_version"),
+				"scope":            scope,
+				"skill_id":         stringOptionFromMap(expression, "skill_id", ""),
+				"source_roots":     stringSliceAt(config, []string{"python", "source_paths"}, nil),
+				"tools":            tools,
+				"when":             when,
 			},
 		}},
 	}, nil
+}
+
+func firstPresentValue(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+
+	return nil
 }
 
 func expressionPrincipleIDs(expression map[string]any) []string {
@@ -3182,22 +3205,41 @@ func addExpressionPoliciesToHookDispatch(
 				continue
 			}
 
-			for _, tool := range expressionHookTools(
-				stringOptionFromMap(evaluator.Options, "scope", "command"),
+			for _, event := range stringSliceValue(
+				evaluator.Options["hook_events"],
+				[]string{"PreToolUse"},
 			) {
-				ensureHookTool(hooks, "PreToolUse", tool)
-				if !hookDispatchContains(hooks["PreToolUse"][tool], policyID) {
-					hooks["PreToolUse"][tool] = append(
-						hooks["PreToolUse"][tool],
-						HookDispatchEntry{
-							PolicyID: policyID,
-							Mode:     policyDef.DefaultSeverity,
-						},
-					)
+				for _, tool := range stringSliceValue(
+					evaluator.Options["tools"],
+					expressionHookTools(
+						stringOptionFromMap(evaluator.Options, "scope", "command"),
+					),
+				) {
+					ensureHookTool(hooks, event, tool)
+					if !hookDispatchContains(hooks[event][tool], policyID) {
+						hooks[event][tool] = append(
+							hooks[event][tool],
+							HookDispatchEntry{
+								PolicyID:        policyID,
+								Mode:            expressionDispatchMode(policyDef, evaluator),
+								CommandPatterns: stringSliceValue(evaluator.Options["command_patterns"], nil),
+								PathPatterns:    stringSliceValue(evaluator.Options["path_patterns"], nil),
+							},
+						)
+					}
 				}
 			}
 		}
 	}
+}
+
+func expressionDispatchMode(policyDef Policy, evaluator Evaluator) string {
+	mode := stringOptionFromMap(evaluator.Options, "mode", "")
+	if mode != "" {
+		return mode
+	}
+
+	return policyDef.DefaultSeverity
 }
 
 func expressionHookTools(scope string) []string {
@@ -3577,6 +3619,10 @@ func intValue(value any) int {
 }
 
 func stringSlice(value any) []string {
+	if items, ok := value.([]string); ok {
+		return append([]string(nil), items...)
+	}
+
 	rawItems, ok := value.([]any)
 	if !ok {
 		return nil

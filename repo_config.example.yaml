@@ -14,6 +14,11 @@ policy:
       description: Block Python subprocess attempts to route around protected Git.
       scope: command
       severity: block
+      mode: block
+      hook_events: [PreToolUse]
+      tools: [Bash]
+      lint_scopes: [staged, files]
+      command_patterns: [subprocess]
       principle_ids:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
