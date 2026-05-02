@@ -109,7 +109,7 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
 }
 
-func TestFormatLintResultSARIFIncludesRepoLocationForPolicyFindings(t *testing.T) {
+func TestFormatLintResultSARIFOmitLocationsForPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -134,7 +134,40 @@ func TestFormatLintResultSARIFIncludesRepoLocationForPolicyFindings(t *testing.T
 	}
 
 	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "repo.pii_scrubber")
-	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", sarifRepoURI)
+	resultPayload := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)[0].(map[string]any)
+	if _, exists := resultPayload["locations"]; exists {
+		t.Fatalf("pathless policy SARIF result should not emit a root location: %#v", resultPayload)
+	}
+}
+
+func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "resolved",
+		Decisions: []policy.Decision{{
+			Decision: "record",
+			Severity: "record",
+			PolicyID: "repo.pii_scrubber",
+			Message:  "Local-machine PII must not be committed.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	results := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	if len(results) != 0 {
+		t.Fatalf("record-only policy context should not emit SARIF results: %#v", results)
+	}
 }
 
 func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {

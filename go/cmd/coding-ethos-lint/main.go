@@ -106,6 +106,13 @@ func main() {
 	if formatErr != nil {
 		exitErr(formatErr)
 	}
+	if strings.TrimSpace(*cwd) == "" {
+		workingDir, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			exitErr(cwdErr)
+		}
+		*cwd = workingDir
+	}
 
 	if *captureTool != "" {
 		os.Exit(runCapturedTool(
@@ -240,6 +247,23 @@ func main() {
 	if filesErr != nil {
 		exitErr(filesErr)
 	}
+	if shouldReturnEmptyExplicitFileScope(scope.Value(), files, *filesRaw, *filesFrom) {
+		result := lint.Result{
+			Scope:  lint.ScopeFiles,
+			Files:  []string{},
+			Status: "resolved",
+		}
+		err = hookoutput.EncodeLintResult(
+			os.Stdout,
+			result,
+			selectedLintOutputFormat(outputFormat),
+		)
+		if err != nil {
+			exitErr(err)
+		}
+
+		return
+	}
 	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
 		files, err = stagedFiles(*cwd)
 		if err != nil {
@@ -300,6 +324,17 @@ func selectedLintOutputFormat(format string) string {
 	}
 
 	return hookoutput.SelectedFormat()
+}
+
+func shouldReturnEmptyExplicitFileScope(
+	scope string,
+	files []string,
+	filesRaw string,
+	filesFrom string,
+) bool {
+	return scope == lint.ScopeFiles &&
+		len(files) == 0 &&
+		(strings.TrimSpace(filesRaw) != "" || strings.TrimSpace(filesFrom) != "")
 }
 
 type capturePolicyData struct {

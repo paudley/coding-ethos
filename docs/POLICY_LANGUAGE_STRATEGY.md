@@ -446,20 +446,45 @@ normalization stay in Go.
 
 The first migrated built-ins prove the intended pattern:
 
+- `agent_workspace.enforcement_point_write` is CEL over normalized file/path
+  facts and keeps agent memory, plan, and note writes allowed while protecting
+  enforcement settings.
+- `filesystem.protected_path` and `filesystem.protected_branch_write` are CEL
+  over path, branch, and protected-path facts.
 - `git.change_dir_flag` is CEL over `git_command.has_change_dir`.
 - `git.destructive_worktree` is CEL over `git_command.subcommand`,
   `git_command.args`, and `git_command.flags`.
 - `git.stash_blocked` is CEL over `git_command.subcommand`.
+- `git.hook_bypass`, `git.destructive_command`,
+  `git.merge_strategy_shortcut`, `git.force_push_protected_branch`,
+  `git.checkout_protected_branch`, and `git.protected_submodule_update` are
+  CEL over normalized Git facts.
 - `filesystem.large_files` is CEL over staged `file_changes` facts and is
   owned by the `security-by-design` principle.
 - `filesystem.line_limits` is CEL over staged `file_changes` facts and is
   owned by the `solid-is-law` principle.
+- `repo.required_ignores` is CEL over Go-collected ignore facts and is owned by
+  `radical-visibility`.
+- `shell.dangerous_command`, `shell.background_git`, `shell.github_admin`,
+  `shell.inline_env`, `shell.path_override`, and `shell.forbidden_strings` are
+  CEL over parser-normalized shell command facts.
 - `shell.malformed_command` is a Go-backed parser gate that blocks malformed
   shell text before CEL or route rewriting evaluates ambiguous command input.
 
 These policies still use Go for argv normalization, staged-file discovery, file
 metadata collection, and fact preparation. CEL only decides over the prepared
 facts.
+
+The remaining Go evaluators are intentionally not just policy predicates. They
+perform one of the runtime jobs that CEL must not do: parse source text, inspect
+Git state, execute managed external checks, validate generated config freshness,
+scan file contents, or prepare normalized facts. Examples include commit-message
+linting, staged-admin-file detection, commit-HEAD verification, structured-data
+syntax checks, private-key and PII scanning, SPDX license validation, Python AST
+checks, shell-script best-practice parsing, generated-config freshness, and
+managed pytest/toolchain gates. If one of these later reduces to pure matching
+over already available facts, move only that decision branch into
+`coding_ethos.yml` and keep the fact collection in Go.
 
 Migration workflow:
 

@@ -124,7 +124,7 @@ type sarifRunProperties struct {
 }
 
 func FormatLintResultSARIF(result lint.Result) (string, error) {
-	diagnostics := lint.OutputDiagnostics(result)
+	diagnostics := sarifDiagnostics(result)
 	rules := sarifRules(diagnostics)
 	ruleIndexes := sarifRuleIndexes(rules)
 	log := sarifLog{
@@ -156,6 +156,20 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 	}
 
 	return string(payload), nil
+}
+
+func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
+	if len(result.Diagnostics) > 0 {
+		return lint.OutputDiagnostics(result)
+	}
+	if len(result.Findings) > 0 && result.Blocked() {
+		return lint.OutputDiagnostics(result)
+	}
+	if result.Blocked() {
+		return lint.OutputDiagnostics(result)
+	}
+
+	return nil
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
@@ -335,7 +349,7 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	file := sarifArtifactURI(item.File)
 	if file == "" {
-		file = sarifRepoURI
+		return nil
 	}
 
 	location := sarifLocation{

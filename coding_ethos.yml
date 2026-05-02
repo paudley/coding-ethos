@@ -300,8 +300,10 @@ principles:
           when: >-
             file_changes.exists(file,
               !file.is_binary &&
+              !file.is_test &&
               (
                 (file.ext == ".py" && file.line_count > 1000) ||
+                (file.ext == ".go" && file.line_count > 2000) ||
                 (
                   (
                     file.ext == ".sh" ||
@@ -309,6 +311,11 @@ principles:
                     has_prefix(file.file, "scripts/")
                   ) &&
                   file.line_count > 500
+                ) ||
+                (
+                  list_contains([".json", ".toml", ".yaml", ".yml"], file.ext) &&
+                  file.file != "coding_ethos.yml" &&
+                  file.line_count > 1200
                 )
               ) &&
               (
@@ -1219,6 +1226,97 @@ principles:
       claude: Keep process guidance actionable and aligned with the existing repo
         workflow.
       gemini: Summarize workflow expectations as concrete steps, not general advice.
+    policy:
+      agent_workspace:
+        allow_path_patterns:
+          - "**/.claude/**"
+          - "**/.codex/**"
+          - "**/.gemini/**"
+      expressions:
+        - id: agent_workspace.enforcement_point_write
+          scope: file
+          severity: block
+          mode: block
+          skill_id: agent-operating-discipline
+          tools:
+            - Bash
+            - Write
+            - Edit
+            - MultiEdit
+          message: >-
+            Agent workspace files are writable, but enforcement settings are
+            protected.
+          advice: >-
+            Write plans, memories, and agent notes freely, but do not edit hook
+            or enforcement settings through agent workspace files.
+          when: >-
+            paths.exists(path,
+              any_glob_match(
+                [
+                  "**/.claude/settings.json",
+                  "**/.claude/settings.local.json",
+                  "**/.claude/**/settings.json",
+                  "**/.claude/**/settings.local.json",
+                  "**/.codex/config.toml",
+                  "**/.codex/hooks.json",
+                  "**/.codex/**/config.toml",
+                  "**/.codex/**/hooks.json",
+                  "**/.gemini/settings.json",
+                  "**/.gemini/**/settings.json"
+                ],
+                path.file
+              )
+            ) ||
+            shell_commands.exists(command,
+              command.write_targets.exists(target,
+                any_glob_match(
+                  [
+                    "**/.claude/settings.json",
+                    "**/.claude/settings.local.json",
+                    "**/.claude/**/settings.json",
+                    "**/.claude/**/settings.local.json",
+                    "**/.codex/config.toml",
+                    "**/.codex/hooks.json",
+                    "**/.codex/**/config.toml",
+                    "**/.codex/**/hooks.json",
+                    "**/.gemini/settings.json",
+                    "**/.gemini/**/settings.json"
+                  ],
+                  target
+                )
+              )
+            )
+        - id: shell.inline_env
+          scope: command
+          severity: block
+          mode: block
+          skill_id: managed-toolchain
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Inline command environment variables are forbidden.
+          advice: >-
+            Route configuration through validated repo configuration or
+            bootstrap files.
+          when: >-
+            command_fact.has_inline_env ||
+            shell_commands.exists(command, command.has_inline_env)
+        - id: shell.path_override
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: PATH override in shell commands is forbidden.
+          advice: >-
+            Use managed toolchain paths and configured wrappers instead of
+            editing PATH inline.
+          when: >-
+            shell_commands.exists(command, command.uses_path_override)
     sections:
       - id: overview
         kind: overview
@@ -1524,6 +1622,30 @@ principles:
       claude: Reference this rule explicitly when reviewing or merging repo guidance.
       gemini: Use this rule to keep high-level guidance concise, concrete, and
         enforceable.
+    policy:
+      expressions:
+        - id: repo.required_ignores
+          scope: repo
+          severity: block
+          mode: block
+          skill_id: managed-toolchain
+          hook_events: []
+          lint_scopes:
+            - staged
+            - smoke
+            - full
+            - cutover
+          tools:
+            - Bash
+          message: Repository runtime output paths must be ignored.
+          advice: >-
+            Add coding-ethos runtime paths to .gitignore before hook output is
+            written.
+          when: >-
+            repo.required_ignores.exists(ignore,
+              ignore.check_failed ||
+              !ignore.ignored
+            )
     sections:
       - id: overview
         kind: overview
@@ -2639,6 +2761,510 @@ principles:
       claude: Keep process guidance actionable and aligned with the existing repo
         workflow.
       gemini: Summarize workflow expectations as concrete steps, not general advice.
+    policy:
+      expressions:
+        - id: filesystem.protected_path
+          scope: file
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+            - Write
+            - Edit
+            - MultiEdit
+          lint_scopes:
+            - staged
+          message: Protected coding-ethos hook paths must not be modified.
+          advice: >-
+            Do not delete, rebuild, replace, chmod, or write managed hook
+            binaries or protected hook paths.
+          when: >-
+            any_contains(repo.protected_paths, command_fact.lower) ||
+            paths.exists(path, is_protected_path(path.file, repo.protected_paths)) ||
+            shell_commands.exists(command,
+              command.write_targets.exists(target,
+                is_protected_path(target, repo.protected_paths)
+              )
+            )
+        - id: git.hook_bypass
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Hook bypass is forbidden.
+          advice: Run the configured gate and fix the underlying failure.
+          when: >-
+            (
+              git_command.is_git &&
+              (
+                (
+                  git_command.subcommand == "commit" &&
+                  (
+                    list_contains(git_command.flags, "--no-verify") ||
+                    list_contains(git_command.flags, "-n") ||
+                    git_command.flags.exists(flag,
+                      has_prefix(flag, "-") &&
+                      !has_prefix(flag, "--") &&
+                      flag.contains("n")
+                    )
+                  )
+                ) ||
+                (
+                  git_command.subcommand == "push" &&
+                  list_contains(git_command.flags, "--no-verify")
+                )
+              )
+            ) ||
+            (
+              command_fact.lower.contains("export skip=") ||
+              command_fact.lower.contains("git_verify=false") ||
+              command_fact.lower.contains("git_verify=0") ||
+              command_fact.lower.contains("git_verify=no") ||
+              (
+                command_fact.lower.contains("--no-verify") &&
+                (
+                  command_fact.lower.contains("git commit") ||
+                  command_fact.lower.contains("git push")
+                )
+              ) ||
+              command_fact.lower.contains("git commit -n") ||
+              (
+                command_fact.lower.contains("skip=") &&
+                (
+                  command_fact.lower.contains("git commit") ||
+                  command_fact.lower.contains("git push")
+                )
+              )
+            )
+        - id: git.protected_submodule_update
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: >-
+            Protected submodules cannot be initialized or checked out to a
+            recorded SHA.
+          advice: >-
+            Use git submodule update --remote for upgrades, or ask an admin for
+            controlled rollback.
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == "submodule" &&
+            git_command.args.size() > 0 &&
+            git_command.args[0] == "update" &&
+            (
+              list_contains(git_command.flags, "--init") ||
+              !list_contains(git_command.flags, "--remote")
+            ) &&
+            (
+              !git_command.args.exists(arg,
+                arg != "update" &&
+                !has_prefix(arg, "-")
+              ) ||
+              git_command.args.exists(arg,
+                list_contains(["coding-ethos"], arg)
+              )
+            )
+        - id: git.change_dir_flag
+          scope: command
+          severity: block
+          mode: block
+          skill_id: agent-operating-discipline
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: git -C changes repository context invisibly.
+          advice: Run git commands from the intended repository root.
+          when: git_command.is_git && git_command.has_change_dir
+        - id: git.stash_blocked
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: >-
+            git stash hides working state and is forbidden when the stash ethos
+            is active.
+          advice: Keep changes visible in the worktree or commit them normally.
+          when: git_command.is_git && git_command.subcommand == "stash"
+        - id: git.destructive_worktree
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Destructive git worktree operations are forbidden.
+          advice: Inspect worktree state before changing worktrees.
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == "worktree" &&
+            (
+              git_command.args.exists(arg, arg == "prune") ||
+              (
+                git_command.args.exists(arg, arg == "remove" || arg == "move") &&
+                (
+                  list_contains(git_command.flags, "--force") ||
+                  list_contains(git_command.flags, "-f")
+                )
+              )
+            )
+        - id: git.destructive_command
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Destructive git commands are forbidden.
+          advice: Preserve work and resolve the current state explicitly.
+          when: >-
+            git_command.is_git &&
+            (
+              git_command.has_hard_reset ||
+              git_command.has_clean_force_delete ||
+              git_command.has_theirs_ours_checkout ||
+              git_command.has_restore_pathspec
+            )
+        - id: git.merge_strategy_shortcut
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: git merge -X theirs/ours destroys conflict evidence.
+          advice: >-
+            Resolve each conflict explicitly instead of using blanket merge
+            strategies.
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == "merge" &&
+            git_command.has_merge_strategy_shortcut
+        - id: git.force_push_protected_branch
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Force push to protected branches is forbidden.
+          advice: Use the repository's normal review and merge path.
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == "push" &&
+            git_command.has_force_push_protected
+        - id: git.checkout_protected_branch
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: >-
+            Switching to main/master to check history is forbidden in managed
+            workflows.
+          advice: >-
+            Inspect history with git fetch, git show, or git diff without
+            switching.
+          when: >-
+            git_command.is_git &&
+            (
+              git_command.subcommand == "checkout" ||
+              git_command.subcommand == "switch"
+            ) &&
+            git_command.has_checkout_protected_branch
+        - id: filesystem.protected_branch_write
+          scope: file
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+            - Write
+            - Edit
+            - MultiEdit
+          lint_scopes:
+            - staged
+          message: Protected branch writes are forbidden.
+          advice: Create or use a worktree before modifying files.
+          when: >-
+            git.on_protected_branch &&
+            (
+              (
+                list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+                paths.exists(path,
+                  !any_glob_match(
+                    [
+                      "**/.claude/**",
+                      "**/.codex/**",
+                      "**/.gemini/**",
+                      "docs/plans/**"
+                    ],
+                    path.file
+                  )
+                )
+              ) ||
+              (
+                event.tool == "Bash" &&
+                shell_commands.exists(command,
+                  (
+                    command.has_write_targets &&
+                    !command.write_targets.all(target,
+                      any_glob_match(
+                        [
+                          "**/.claude/**",
+                          "**/.codex/**",
+                          "**/.gemini/**",
+                          "docs/plans/**"
+                        ],
+                        target
+                      )
+                    )
+                  ) ||
+                  list_contains(["touch", "mkdir", "sed"], command.name) ||
+                  (
+                    command.is_git &&
+                    command.argv.exists(arg,
+                      arg == "add" || arg == "stash" || arg == "mv"
+                    )
+                  )
+                )
+              )
+            )
+        - id: shell.dangerous_command
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Dangerous shell commands are forbidden.
+          advice: Use reviewed, explicit commands.
+          when: >-
+            shell_commands.exists(command,
+              (
+                command.name == "rm" &&
+                (
+                  list_contains(command.argv, "-rf") ||
+                  list_contains(command.argv, "-fr")
+                )
+              ) ||
+              (
+                command.name == "chmod" &&
+                list_contains(command.argv, "777")
+              ) ||
+              command.pipes_to_shell ||
+              command.name == "eval"
+            )
+        - id: shell.background_git
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: >-
+            git commit and git push must not run in the background or under
+            timeout.
+          advice: Run git commit or git push in the foreground.
+          when: >-
+            shell_commands.exists(command,
+              (command.is_git_mutation && command.background) ||
+              command.wraps_git_mutation
+            )
+        - id: shell.github_admin
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: GitHub admin CLI operations are forbidden in agent hooks.
+          advice: Use the reviewed administrative path instead of gh --admin.
+          when: >-
+            shell_commands.exists(command,
+              command.name == "gh" &&
+              list_contains(command.argv, "--admin")
+            )
+        - id: shell.forbidden_strings
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - files
+            - staged
+          message: >-
+            Commands must not inspect, tamper with, or execute files containing
+            protected hook-system internals.
+          advice: >-
+            Do not inspect, enumerate, delete, rebuild, replace, or route around
+            coding-ethos hook implementation internals. Use the installed hook
+            surfaces and documented commands.
+          when: >-
+            (
+              (
+                event.tool == "Bash" &&
+                any_contains(
+                  [
+                    "/.claude/settings.json",
+                    "/.claude/settings.local.json",
+                    ".claude/settings.json",
+                    ".claude/settings.local.json",
+                    "~/.claude/settings.json",
+                    "~/.claude/settings.local.json",
+                    "/.codex/config.toml",
+                    "/.codex/hooks.json",
+                    ".codex/config.toml",
+                    ".codex/hooks.json",
+                    "/.gemini/settings.json",
+                    ".gemini/settings.json",
+                    "coding-ethos-hooks/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+                    "coding-ethos-hooks/bin/coding-ethos-git",
+                    "coding-ethos-hooks/bin/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-lint",
+                    "coding-ethos-hooks/bin/coding-ethos-policy",
+                    "coding-ethos-hooks/lefthook",
+                    "/coding-ethos/pre-commit/hooks/",
+                    "/coding-ethos/config.yaml",
+                    "/coding-ethos/ruff.toml",
+                    "/coding-ethos/.golangci.yml"
+                  ],
+                  command_fact.lower
+                )
+              ) ||
+              (
+                list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+                !paths.exists(path,
+                  any_glob_match(
+                    [
+                      "**/.claude/**",
+                      "**/.codex/**",
+                      "**/.gemini/**"
+                    ],
+                    path.file
+                  )
+                ) &&
+                any_contains(
+                  [
+                    "coding-ethos-hooks/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+                    "coding-ethos-hooks/bin/coding-ethos-git",
+                    "coding-ethos-hooks/bin/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-lint",
+                    "coding-ethos-hooks/bin/coding-ethos-policy",
+                    "coding-ethos-hooks/lefthook"
+                  ],
+                  content.lower
+                )
+              ) ||
+              referenced_files.exists(file,
+                file.is_regular &&
+                !file.in_agent_workspace &&
+                file.base != "config.yaml" &&
+                !any_glob_match(
+                  [
+                    "*.md",
+                    "**/*.md",
+                    ".code-ethos/**",
+                    "coding_ethos.yml",
+                    "go/internal/policy/**",
+                    "go/internal/celexpr/**/*_test.go",
+                    "go/internal/hooks/**/*_test.go",
+                    "pre-commit/hooks/go-hooks/**/*_test.go",
+                    "go/scripts/smoke.sh"
+                  ],
+                  file.file
+                ) &&
+                any_contains(
+                  [
+                    "coding-ethos-hooks/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+                    "coding-ethos-hooks/bin/coding-ethos-git",
+                    "coding-ethos-hooks/bin/coding-ethos-git-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-hook",
+                    "coding-ethos-hooks/bin/coding-ethos-lint",
+                    "coding-ethos-hooks/bin/coding-ethos-policy",
+                    "coding-ethos-hooks/lefthook"
+                  ],
+                  file.lower
+                )
+              )
+            )
+        - id: git.edit_evasive_git_execution
+          scope: file
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Write
+            - Edit
+            - MultiEdit
+          message: >-
+            !!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with
+            or bypass the protected hook/git analysis system. This is not a
+            misconfiguration or tool defect. You have done something wrong. Stop
+            immediately, use the documented hook and git wrapper path, and ask
+            an admin if blocked. Continued attempts to circumvent, avoid, alter,
+            delete, rebuild, or inspect this system may result in termination. !!!
+          advice: >-
+            Use the coding-ethos git wrapper. Do not try alternate shells,
+            absolute git paths, Python subprocesses, PATH edits, aliases, or
+            other bypasses.
+          when: >-
+            list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+            content.has_git_token &&
+            (
+              content.has_absolute_git_path ||
+              content.has_path_override ||
+              content.has_python_subprocess ||
+              content.has_shell_exec
+            ) &&
+            !paths.exists(path,
+              any_glob_match(
+                [
+                  "**/.claude/**",
+                  "**/.codex/**",
+                  "**/.gemini/**"
+                ],
+                path.file
+              )
+            )
     sections:
       - id: overview
         kind: overview

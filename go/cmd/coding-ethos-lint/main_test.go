@@ -69,6 +69,26 @@ func TestFilesFromInputsCombinesFlagAndFileLists(t *testing.T) {
 	}
 }
 
+func TestShouldReturnEmptyExplicitFileScope(t *testing.T) {
+	t.Parallel()
+
+	if !shouldReturnEmptyExplicitFileScope("files", nil, "", "files.txt") {
+		t.Fatal("empty --files-from selection should return an empty files result")
+	}
+	if !shouldReturnEmptyExplicitFileScope("files", nil, "   ", "files.txt") {
+		t.Fatal("--files-from makes an empty selection explicit")
+	}
+	if shouldReturnEmptyExplicitFileScope("files", []string{"pkg/app.py"}, "", "files.txt") {
+		t.Fatal("non-empty files must run policy evaluation")
+	}
+	if shouldReturnEmptyExplicitFileScope("files", nil, "", "") {
+		t.Fatal("implicit files scope must preserve policy explanation behavior")
+	}
+	if shouldReturnEmptyExplicitFileScope("staged", nil, "", "files.txt") {
+		t.Fatal("staged scope resolves files from git index")
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 

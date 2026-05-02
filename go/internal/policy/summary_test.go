@@ -24,7 +24,7 @@ func TestWriteSummaryIncludesPoliciesAndPrinciples(t *testing.T) {
 	for _, expected := range []string{
 		"# Policy Bundle Summary",
 		"`no-conditional-imports`: No Conditional Imports",
-		"`git.hook_bypass` [git/block]",
+		"`git.hook_bypass` [expression/block]",
 		"`python.conditional_imports` [python/block]",
 	} {
 		if !strings.Contains(summary, expected) {

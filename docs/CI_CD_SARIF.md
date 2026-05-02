@@ -52,6 +52,12 @@ OASIS SARIF 2.1.0 tracking model:
 - Rules include `precision` and security findings include
   `security-severity`, allowing code-scanning surfaces to prioritize high-value
   alerts without inflating ordinary style findings into security issues.
+- Record-only policy context is not emitted as SARIF results. It remains
+  available in TOON/JSON lint traces, but code-scanning uploads should contain
+  actionable diagnostics only.
+- Pathless policy findings omit `locations` instead of inventing a repository
+  root location. This avoids noisy code-scanning alerts at `.` line 0 while
+  preserving the rule, message, severity, fingerprint, and ETHOS metadata.
 
 Do not emit SARIF fields that are not grounded in actual evidence. In
 particular, `fixes`, `codeFlows`, `relatedLocations`, baseline state, and CWE

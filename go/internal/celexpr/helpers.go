@@ -181,6 +181,13 @@ func helperFunctions() []cel.EnvOption {
 			"any_has_suffix_list_string",
 			strings.HasSuffix,
 		),
+		listStringHelper(
+			"any_contains",
+			"any_contains_list_string",
+			func(value string, needle string) bool {
+				return strings.Contains(strings.ToLower(needle), strings.ToLower(value))
+			},
+		),
 	}
 }
 

@@ -120,6 +120,7 @@ func celActivation(context Context) map[string]any {
 	return celexpr.Activation(celexpr.ActivationInput{
 		Argv:             context.Argv,
 		Command:          context.Command,
+		Content:          context.Content,
 		Cwd:              context.Cwd,
 		EventName:        context.EventName,
 		EventMatcher:     context.EventMatcher,
@@ -155,6 +156,11 @@ func celActivation(context Context) map[string]any {
 		ConfigCandidates: stringSliceOption(
 			context.EvaluatorOptions,
 			"config_candidates",
+			nil,
+		),
+		RequiredIgnores: stringSliceOption(
+			context.EvaluatorOptions,
+			"required_ignore_paths",
 			nil,
 		),
 		CurrentBranch: celCurrentBranch(context),

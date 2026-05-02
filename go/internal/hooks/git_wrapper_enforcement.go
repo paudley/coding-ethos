@@ -41,16 +41,6 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 	}
 
 	if event.ToolName != "Bash" {
-		if evasiveGitShell(event.Content()) {
-			return gitWrapperRoute{
-				Reason: sentence(
-					gitWrapperCircumventionRefusal,
-					gitWrapperUseManagedSuggestion,
-				),
-				Block: true,
-			}
-		}
-
 		return gitWrapperRoute{}
 	}
 

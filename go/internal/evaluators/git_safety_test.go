@@ -5,11 +5,10 @@ package evaluators_test
 
 import (
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 const decisionBlock = "block"
@@ -25,7 +24,7 @@ func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
 	t.Parallel()
 
 	tests := unsafeGitSafetyCases()
-	bundle := compiledGitSafetyTestBundle()
+	bundle := compiledGitSafetyTestBundle(t)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,43 +56,43 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 		{
 			name:      "reset hard",
 			policyID:  "git.destructive_command",
-			evaluator: EvaluateGitDestructiveCommand,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "reset", "--hard"},
 		},
 		{
 			name:      "clean force delete",
 			policyID:  "git.destructive_command",
-			evaluator: EvaluateGitDestructiveCommand,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "clean", "-fd"},
 		},
 		{
 			name:      "checkout theirs",
 			policyID:  "git.destructive_command",
-			evaluator: EvaluateGitDestructiveCommand,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "--theirs", "file.txt"},
 		},
 		{
 			name:      "merge theirs",
 			policyID:  "git.merge_strategy_shortcut",
-			evaluator: EvaluateGitMergeStrategyShortcut,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "merge", "-X", "theirs", "feature"},
 		},
 		{
 			name:      "force push main",
 			policyID:  "git.force_push_protected_branch",
-			evaluator: EvaluateGitForcePushProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "push", "--force", "origin", "main"},
 		},
 		{
 			name:      "checkout main",
 			policyID:  "git.checkout_protected_branch",
-			evaluator: EvaluateGitCheckoutProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "main"},
 		},
 		{
 			name:      "checkout creates protected branch",
 			policyID:  "git.checkout_protected_branch",
-			evaluator: EvaluateGitCheckoutProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "-b", "main", "origin/feature"},
 		},
 		{
@@ -111,19 +110,19 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 		{
 			name:      "protected submodule init",
 			policyID:  "git.protected_submodule_update",
-			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "submodule", "update", "--init", "coding-ethos"},
 		},
 		{
 			name:      "protected submodule recorded sha checkout",
 			policyID:  "git.protected_submodule_update",
-			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "submodule", "update", "coding-ethos"},
 		},
 		{
 			name:      "protected submodule implicit all recorded sha checkout",
 			policyID:  "git.protected_submodule_update",
-			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "submodule", "update"},
 		},
 		{
@@ -162,7 +161,7 @@ func TestGitCommitAttributionBlocksMessageFile(t *testing.T) {
 		t.Fatalf("write commit message: %v", err)
 	}
 
-	policyDef := compiledGitSafetyTestBundle().Policies["git.commit_attribution"]
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commit_attribution"]
 
 	decisions, err := EvaluateGitCommitAttribution(policyDef, Context{
 		Argv: []string{"git", "commit", "-F", "COMMIT_EDITMSG"},
@@ -191,7 +190,7 @@ func TestGitCommitLintBlocksBadCommitMessageFile(t *testing.T) {
 		t.Fatalf("write commit message: %v", err)
 	}
 
-	policyDef := compiledGitSafetyTestBundle().Policies["git.commitlint"]
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
 
 	decisions, err := EvaluateGitCommitLint(policyDef, Context{
 		Cwd:   repo,
@@ -210,7 +209,7 @@ func TestGitCommitLintBlocksBadCommitMessageFile(t *testing.T) {
 func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 	t.Parallel()
 
-	policyDef := compiledGitSafetyTestBundle().Policies["git.commitlint"]
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
 
 	tests := []struct {
 		name    string
@@ -320,31 +319,31 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 		{
 			name:      "soft reset",
 			policyID:  "git.destructive_command",
-			evaluator: EvaluateGitDestructiveCommand,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "reset", "--soft", "HEAD~1"},
 		},
 		{
 			name:      "normal push feature",
 			policyID:  "git.force_push_protected_branch",
-			evaluator: EvaluateGitForcePushProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "push", "origin", "feature"},
 		},
 		{
 			name:      "checkout feature",
 			policyID:  "git.checkout_protected_branch",
-			evaluator: EvaluateGitCheckoutProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "feature"},
 		},
 		{
 			name:      "checkout new branch from origin main",
 			policyID:  "git.checkout_protected_branch",
-			evaluator: EvaluateGitCheckoutProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "-b", "feature", "origin/main"},
 		},
 		{
 			name:      "switch new branch from origin main",
 			policyID:  "git.checkout_protected_branch",
-			evaluator: EvaluateGitCheckoutProtectedBranch,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "switch", "-c", "feature", "origin/main"},
 		},
 		{
@@ -362,13 +361,13 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 		{
 			name:      "protected submodule remote upgrade",
 			policyID:  "git.protected_submodule_update",
-			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "submodule", "update", "--remote", "coding-ethos"},
 		},
 		{
 			name:      "unprotected submodule recorded sha checkout",
 			policyID:  "git.protected_submodule_update",
-			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "submodule", "update", "vendor/other"},
 		},
 		{
@@ -424,7 +423,7 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 		},
 	}
 
-	bundle := compiledGitSafetyTestBundle()
+	bundle := compiledGitSafetyTestBundle(t)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -447,75 +446,6 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	}
 }
 
-func compiledGitSafetyTestBundle() policy.Bundle {
-	bundle := policy.ExampleBundle()
-	for _, policyID := range []string{
-		"git.destructive_command",
-		"git.merge_strategy_shortcut",
-		"git.force_push_protected_branch",
-		"git.checkout_protected_branch",
-		"git.destructive_worktree",
-		"git.protected_submodule_update",
-		"git.change_dir_flag",
-		"git.stash_blocked",
-		"git.commitlint",
-		"git.commit_attribution",
-	} {
-		evaluatorDef := policy.Evaluator{Kind: "argv", Name: policyID}
-		if options := gitCELOptions(policyID); options != nil {
-			evaluatorDef = policy.Evaluator{
-				Kind:    "cel",
-				Name:    "cel.expression",
-				Options: options,
-			}
-		}
-		bundle.Policies[policyID] = policy.Policy{
-			ID:              policyID,
-			Category:        "git",
-			Source:          policy.SourceRef{File: "config.yaml", Path: policyID},
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "blocked",
-			DefenseLayers: policy.GitDefenseLayers(
-				"block",
-				"wrapper",
-				"block",
-				"",
-				"",
-			),
-			Evaluators: []policy.Evaluator{evaluatorDef},
-		}
-	}
-
-	return bundle
-}
-
-func gitCELOptions(policyID string) map[string]any {
-	options := map[string]map[string]any{
-		"git.change_dir_flag": {
-			"mode":     "block",
-			"skill_id": "agent-operating-discipline",
-			"when":     `git_command.is_git && git_command.has_change_dir`,
-		},
-		"git.destructive_worktree": {
-			"mode":     "block",
-			"skill_id": "safe-git-workflow",
-			"when": `git_command.is_git &&
-			 git_command.subcommand == "worktree" &&
-			 (
-			   git_command.args.exists(arg, arg == "prune") ||
-			   (
-			     git_command.args.exists(arg, arg == "remove" || arg == "move") &&
-			     (list_contains(git_command.flags, "--force") || list_contains(git_command.flags, "-f"))
-			   )
-			 )`,
-		},
-		"git.stash_blocked": {
-			"mode":     "block",
-			"skill_id": "safe-git-workflow",
-			"when":     `git_command.is_git && git_command.subcommand == "stash"`,
-		},
-	}
-
-	return options[policyID]
+func compiledGitSafetyTestBundle(t testing.TB) policy.Bundle {
+	return compiledRepoBundle(t)
 }

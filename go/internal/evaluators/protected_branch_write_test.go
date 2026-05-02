@@ -9,19 +9,19 @@ import (
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
-	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestEvaluateProtectedBranchWriteBlocksMainWrite(t *testing.T) {
 	t.Parallel()
 
 	repo := initProtectedBranchRepo(t)
-	policyDef := protectedBranchWritePolicy()
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
 
-	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
-		Tool:  "Write",
-		Cwd:   repo,
-		Files: []string{"src/app.py"},
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Write",
+		Cwd:              repo,
+		Files:            []string{"src/app.py"},
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
 	})
 	if err != nil {
 		t.Fatalf("evaluate protected branch write: %v", err)
@@ -36,12 +36,13 @@ func TestEvaluateProtectedBranchWriteAllowsPlanFile(t *testing.T) {
 	t.Parallel()
 
 	repo := initProtectedBranchRepo(t)
-	policyDef := protectedBranchWritePolicy()
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
 
-	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
-		Tool:  "Write",
-		Cwd:   repo,
-		Files: []string{"docs/plans/next.md"},
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Write",
+		Cwd:              repo,
+		Files:            []string{"docs/plans/next.md"},
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
 	})
 	if err != nil {
 		t.Fatalf("evaluate protected branch write: %v", err)
@@ -56,12 +57,13 @@ func TestEvaluateProtectedBranchWriteAllowsCommitVerification(t *testing.T) {
 	t.Parallel()
 
 	repo := initProtectedBranchRepo(t)
-	policyDef := protectedBranchWritePolicy()
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
 
-	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
-		Tool:    "Bash",
-		Cwd:     repo,
-		Command: "git commit -m noop",
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Bash",
+		Cwd:              repo,
+		Command:          "git commit -m noop",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
 	})
 	if err != nil {
 		t.Fatalf("evaluate protected branch write: %v", err)
@@ -76,15 +78,18 @@ func TestEvaluateProtectedBranchWriteUsesConfiguredBranches(t *testing.T) {
 	t.Parallel()
 
 	repo := initProtectedBranchRepo(t)
-	policyDef := protectedBranchWritePolicy()
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+	options := map[string]any{}
+	for key, value := range policyDef.Evaluators[0].Options {
+		options[key] = value
+	}
+	options["protected_branches"] = []any{"release"}
 
-	decisions, err := EvaluateProtectedBranchWrite(policyDef, Context{
-		Tool:  "Write",
-		Cwd:   repo,
-		Files: []string{"src/app.py"},
-		EvaluatorOptions: map[string]any{
-			"branches": []any{"release"},
-		},
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Write",
+		Cwd:              repo,
+		Files:            []string{"src/app.py"},
+		EvaluatorOptions: options,
 	})
 	if err != nil {
 		t.Fatalf("evaluate protected branch write: %v", err)
@@ -109,20 +114,4 @@ func initProtectedBranchRepo(t *testing.T) string {
 	}
 
 	return repo
-}
-
-func protectedBranchWritePolicy() policy.Policy {
-	return policy.Policy{
-		ID:              "filesystem.protected_branch_write",
-		Category:        "filesystem",
-		Source:          policy.SourceRef{File: "config.yaml"},
-		DefaultSeverity: blockDecision,
-		SupportedModes:  []string{blockDecision, "record"},
-		Message:         "Protected branch writes are forbidden.",
-		DefenseLayers:   policy.GitDefenseLayers(blockDecision, "", blockDecision, "", ""),
-		Evaluators: []policy.Evaluator{{
-			Kind: "git_state",
-			Name: "filesystem.protected_branch_write",
-		}},
-	}
 }

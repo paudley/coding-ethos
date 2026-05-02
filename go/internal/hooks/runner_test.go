@@ -1230,6 +1230,28 @@ func TestRunBlocksHookImplementationReconnaissance(t *testing.T) {
 	}
 }
 
+func TestRunBlocksAssignmentMediatedAgentSettingsWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "FILE=.claude/settings.json cat > ${FILE}",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden string assignment block, got %#v", result)
+	}
+}
+
 func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 	t.Parallel()
 
@@ -1249,6 +1271,77 @@ func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "git.edit_evasive_git_execution") {
+		t.Fatalf("expected CEL git edit evasion decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksWritingHookInternalMarker(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "notes.md",
+				"content":   "blocked coding-ethos-hooks/coding-ethos-git-hook marker",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden string write block, got %#v", result)
+	}
+}
+
+func TestRunAllowsAgentWorkspaceMemoryWithGitLearning(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "/workspace/.claude/projects/repo/memory/project_g8a_precision_audit.md",
+				"content":   `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunAllowsAgentWorkspaceMemoryWithHookMarker(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "/workspace/.claude/projects/repo/memory/project_g8a_precision_audit.md",
+				"content":   "blocked coding-ethos-hooks/coding-ethos-git-hook marker",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
 	}
 }
 
@@ -1718,8 +1811,8 @@ func legacyFixtureBundle() policy.Bundle {
 	addLegacyPolicy(
 		&bundle,
 		"shell.github_admin",
-		"shell",
-		"shell.github_admin",
+		"expression",
+		"cel.expression",
 		"Bash",
 	)
 	addLegacyPolicy(
@@ -1756,6 +1849,14 @@ func addLegacyPolicy(
 		Message:         "legacy fixture policy",
 		DefenseLayers:   policy.GitDefenseLayers("block", "", "block", "", ""),
 		Evaluators:      []policy.Evaluator{{Kind: category, Name: evaluatorName}},
+	}
+	if policyID == "shell.github_admin" {
+		bundle.Policies[policyID].Evaluators[0].Options = map[string]any{
+			"mode":     "block",
+			"skill_id": "safe-git-workflow",
+			"when": "shell_commands.exists(command, " +
+				"command.name == 'gh' && list_contains(command.argv, '--admin'))",
+		}
 	}
 
 	if bundle.Dispatch.Hooks["PreToolUse"] == nil {

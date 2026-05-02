@@ -29,8 +29,9 @@ func TestNewDecisionCopiesPolicyContext(t *testing.T) {
 		t.Fatalf("severity mismatch: got %q", decision.Severity)
 	}
 
-	if len(decision.PrincipleIDs) != 1 ||
-		decision.PrincipleIDs[0] != "one-path-for-critical-operations" {
+	if len(decision.PrincipleIDs) != 2 ||
+		decision.PrincipleIDs[0] != "one-path-for-critical-operations" ||
+		decision.PrincipleIDs[1] != "no-rationalized-shortcuts" {
 		t.Fatalf("principle ids mismatch: got %#v", decision.PrincipleIDs)
 	}
 }

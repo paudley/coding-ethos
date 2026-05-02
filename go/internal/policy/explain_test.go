@@ -23,8 +23,9 @@ func TestExplainPolicyWritesPolicyDetails(t *testing.T) {
 	output := buffer.String()
 	for _, expected := range []string{
 		"# git.hook_bypass",
-		"Category: `git`",
-		"Principles: `one-path-for-critical-operations`",
+		"Category: `expression`",
+		"Principles: `one-path-for-critical-operations`, `no-rationalized-shortcuts`",
+		"## CEL Expression",
 		"Hook bypass is forbidden.",
 	} {
 		if !strings.Contains(output, expected) {
@@ -86,16 +87,18 @@ func TestExplainPolicyWritesCELExpressionDetails(t *testing.T) {
 		"Evidence fields:",
 		"`when`",
 		"Input schema:",
-		"`command_fact: {raw, tool, argv, has_inline_env}`",
+		"`command_fact: {raw, lower, tool, argv, has_inline_env}`",
 		"`event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}`",
 		"`diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines}`",
 		"`diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}`",
 		"`findings: list({tool, code, message, file, line, severity, policy_id, skill_id, principle_ids})`",
 		"`repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}`",
+		"`referenced_files: list({file, dir, base, lower, exists, is_regular, in_agent_workspace, size_bytes})`",
 		"Reviewed helpers:",
 		"`glob_match(pattern, value)`",
 		"`command_invokes(command, tool)`",
 		"`repo_config_present(files, candidates)`",
+		"`any_contains(values, value)`",
 		"Skill: `safe-git-workflow` - Use the protected Git workflow.",
 	} {
 		if !strings.Contains(output, expected) {

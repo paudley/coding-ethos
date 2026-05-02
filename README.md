@@ -568,21 +568,20 @@ include a `skill_id` when a generated skill explains the remediation path. CEL
 matches emit normal coding-ethos decisions, diagnostics, TOON/human output,
 trace data, and skill hints.
 
-Current limitations:
+Current boundary:
 
-- Treat CEL as a typed custom-policy extension point, not a complete generic
-  policy engine yet.
-- `diagnostic` and `finding` inputs only expose the initial normalized fields
-  currently produced by hook/lint paths; do not assume every linter field is
-  populated.
-- `path` represents the initial path object for the event. Complex multi-file
-  semantics should wait for explicit collection helpers rather than depending
-  on implicit ordering.
+- CEL now covers most simple and medium-complexity policy predicates over
+  normalized facts, including Git, shell, file, diff, repo, path, diagnostic,
+  finding, and event inputs.
+- Multi-file and multi-finding semantics must use explicit collections such as
+  `paths`, `files`, `file_changes`, `findings`, and `diff`; do not depend on
+  implicit first-file ordering.
 - Diff line facts are staged-diff facts. Policies that need unstaged editor
   content should use hook file/content facts or a purpose-built Go evaluator.
-- CEL is good for coarse guardrails and reviewable repo-specific predicates.
-  Keep complex parsing, Git state modeling, managed toolchain behavior, path
-  normalization, and security-sensitive analysis in Go evaluators.
+- Keep parsing, Git state modeling, managed toolchain behavior, path
+  normalization, file-content scanning, generated-config freshness, and other
+  security-sensitive fact collection in Go. CEL decides over prepared facts; it
+  does not inspect the host directly.
 
 See [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md) for
 the CEL-first decision record and the roadmap for a complete generic policy
@@ -710,6 +709,9 @@ SARIF output is tuned for code-scanning ingestion: repository-relative artifact
 URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
 ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
 security-severity properties for findings that are actually security-relevant.
+Record-only policy context stays in TOON/JSON traces and is not uploaded as
+SARIF results; pathless policy findings omit synthetic root locations instead
+of creating noisy code-scanning alerts at `.` line 0.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.

@@ -86,7 +86,6 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		"filesystem.shebangs",
 		"filesystem.large_files",
 		"filesystem.line_limits",
-		"repo.required_ignores",
 		"repo.pii_scrubber",
 		"repo.license_header",
 		"git.commitlint",
@@ -209,28 +208,25 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("interface advice mismatch: %#v", interfaceEvidence)
 	}
 
-	forbiddenStrings := optionStrings(
+	forbiddenWhen := stringOptionFromEvaluator(
 		t,
 		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
-		"strings",
+		"when",
 	)
-	if !slices.Contains(forbiddenStrings, "header must match") {
-		t.Fatalf("default forbidden strings missing hook recon marker: %#v", forbiddenStrings)
+	if !strings.Contains(forbiddenWhen, "coding-ethos-hooks/coding-ethos-git-hook") {
+		t.Fatalf("default forbidden strings missing hook binary path: %s", forbiddenWhen)
 	}
-	if !slices.Contains(forbiddenStrings, "coding-ethos-hooks/coding-ethos-git-hook") {
-		t.Fatalf("default forbidden strings missing hook binary path: %#v", forbiddenStrings)
+	if !strings.Contains(forbiddenWhen, "coding-ethos-hooks/bin/coding-ethos-policy") {
+		t.Fatalf("default forbidden strings missing shared policy tool path: %s", forbiddenWhen)
 	}
-	if !slices.Contains(forbiddenStrings, "coding-ethos-hooks/bin/coding-ethos-policy") {
-		t.Fatalf("default forbidden strings missing shared policy tool path: %#v", forbiddenStrings)
-	}
-	if slices.Contains(forbiddenStrings, "coding-ethos-hooks/coding-ethos-legacy-hook") {
-		t.Fatalf("default forbidden strings still include removed legacy hook path: %#v", forbiddenStrings)
+	if strings.Contains(forbiddenWhen, "coding-ethos-hooks/coding-ethos-legacy-hook") {
+		t.Fatalf("default forbidden strings still include removed legacy hook path: %s", forbiddenWhen)
 	}
 
 	protectedPaths := optionStrings(
 		t,
 		bundle.Policies["filesystem.protected_path"].Evaluators[0],
-		"paths",
+		"protected_paths",
 	)
 	if !slices.Contains(protectedPaths, "coding-ethos-hooks/coding-ethos-git-hook") {
 		t.Fatalf("default protected paths missing hook cache: %#v", protectedPaths)
@@ -464,7 +460,7 @@ func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
-    - id: git.hook_bypass
+    - id: git.commitlint
       scope: command
       severity: block
       principle_ids:
@@ -494,7 +490,7 @@ func TestCompileRejectsExpressionOverrideOfBuiltinPolicy(t *testing.T) {
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
-    - id: git.hook_bypass
+    - id: git.commitlint
       override: true
       override_reason: Attempted replacement of built-in policy.
       principle_ids: [one-path-for-critical-operations]
@@ -1243,7 +1239,7 @@ security:
 	protectedPath := optionStrings(
 		t,
 		bundle.Policies["filesystem.protected_path"].Evaluators[0],
-		"paths",
+		"protected_paths",
 	)
 	if protectedPath[0] != "/opt/blocked" {
 		t.Fatalf("protected path options mismatch: %#v", protectedPath)
@@ -1252,7 +1248,7 @@ security:
 	protectedBranch := optionStrings(
 		t,
 		bundle.Policies["filesystem.protected_branch_write"].Evaluators[0],
-		"branches",
+		"protected_branches",
 	)
 	if protectedBranch[0] != "release" {
 		t.Fatalf("protected branch options mismatch: %#v", protectedBranch)
@@ -1260,8 +1256,8 @@ security:
 
 	requiredIgnores := optionStrings(
 		t,
-		bundle.Policies["filesystem.required_ignores"].Evaluators[0],
-		"paths",
+		bundle.Policies["repo.required_ignores"].Evaluators[0],
+		"required_ignore_paths",
 	)
 	if requiredIgnores[0] != ".runtime/" {
 		t.Fatalf("required ignore options mismatch: %#v", requiredIgnores)
@@ -1294,29 +1290,14 @@ security:
 		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
 	}
 
-	forbiddenStrings := optionStrings(
+	forbiddenWhen := stringOptionFromEvaluator(
 		t,
 		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
-		"strings",
+		"when",
 	)
-	if forbiddenStrings[0] != "/blocked/settings.json" {
-		t.Fatalf("forbidden strings options mismatch: %#v", forbiddenStrings)
-	}
-	forbiddenStringExempts := optionStrings(
-		t,
-		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
-		"exempt_paths",
-	)
-	if forbiddenStringExempts[0] != "config.yaml" {
-		t.Fatalf("forbidden string exempt options mismatch: %#v", forbiddenStringExempts)
-	}
-	forbiddenFileStrings := optionStrings(
-		t,
-		bundle.Policies["shell.forbidden_strings"].Evaluators[0],
-		"file_strings",
-	)
-	if forbiddenFileStrings[0] != "BADCODE" {
-		t.Fatalf("forbidden file string options mismatch: %#v", forbiddenFileStrings)
+	if !strings.Contains(forbiddenWhen, "coding-ethos-hooks") ||
+		!strings.Contains(forbiddenWhen, "referenced_files.exists") {
+		t.Fatalf("forbidden strings CEL expression mismatch: %s", forbiddenWhen)
 	}
 
 	shellPrefixes := optionStrings(
@@ -1490,14 +1471,9 @@ go:
 	}
 
 	for _, policyID := range []string{
-		"git.hook_bypass",
-		"filesystem.protected_path",
-		"filesystem.required_ignores",
-		"repo.required_ignores",
 		"repo.pii_scrubber",
 		"repo.license_header",
 		"shell.malformed_command",
-		"shell.dangerous_command",
 		"git.commitlint",
 		"git.commit_attribution",
 	} {
@@ -1516,6 +1492,17 @@ func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	}
 
 	return items
+}
+
+func stringOptionFromEvaluator(t *testing.T, evaluator Evaluator, key string) string {
+	t.Helper()
+
+	value, ok := evaluator.Options[key].(string)
+	if !ok {
+		t.Fatalf("option %q is not string: %#v", key, evaluator.Options[key])
+	}
+
+	return value
 }
 
 func evidenceMapByPolicyID(
@@ -1706,6 +1693,160 @@ principles:
     title: No Rationalized Shortcuts
     summary: Do not bypass safety checks.
     directive: Preserve work and use canonical safety paths.
+    policy:
+      expressions:
+        - id: filesystem.protected_path
+          scope: file
+          severity: block
+          mode: block
+          tools: [Bash, Write, Edit, MultiEdit]
+          message: Protected coding-ethos hook paths must not be modified.
+          advice: Do not delete, rebuild, replace, chmod, or write managed hook binaries.
+          when: "any_contains(repo.protected_paths, command_fact.lower) || paths.exists(path, is_protected_path(path.file, repo.protected_paths))"
+        - id: shell.forbidden_strings
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash, Write, Edit, MultiEdit]
+          lint_scopes: [files, staged]
+          message: Commands must not inspect protected hook-system internals.
+          advice: Use documented hook surfaces.
+          when: "((event.tool == 'Bash' && any_contains(['.claude/settings.json', 'header must match', 'coding-ethos-hooks/coding-ethos-git-hook', 'coding-ethos-hooks/bin/coding-ethos-policy'], command_fact.lower)) || (list_contains(['Write', 'Edit', 'MultiEdit'], event.tool) && !paths.exists(path, any_glob_match(['**/.claude/**', '**/.codex/**', '**/.gemini/**'], path.file)) && any_contains(['header must match', 'coding-ethos-hooks/coding-ethos-git-hook'], content.lower)) || referenced_files.exists(file, file.is_regular && !file.in_agent_workspace && any_contains(['header must match', 'coding-ethos-hooks/coding-ethos-git-hook'], file.lower)))"
+        - id: git.hook_bypass
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Hook bypass is forbidden.
+          advice: Run the configured gate and fix the underlying failure.
+          when: "git_command.is_git && git_command.subcommand == 'commit' && list_contains(git_command.flags, '--no-verify')"
+        - id: git.protected_submodule_update
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Protected submodules cannot be initialized or checked out to a recorded SHA.
+          advice: Use git submodule update --remote for upgrades.
+          when: "git_command.is_git && git_command.subcommand == 'submodule' && git_command.args.size() > 0 && git_command.args[0] == 'update' && !list_contains(git_command.flags, '--remote')"
+        - id: git.change_dir_flag
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: git -C changes repository context invisibly.
+          advice: Run git commands from the intended repository root.
+          when: "git_command.is_git && git_command.has_change_dir"
+        - id: git.stash_blocked
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: git stash hides working state.
+          advice: Keep changes visible.
+          when: "git_command.is_git && git_command.subcommand == 'stash'"
+        - id: git.destructive_worktree
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Destructive git worktree operations are forbidden.
+          advice: Inspect worktree state before changing worktrees.
+          when: "git_command.is_git && git_command.subcommand == 'worktree' && git_command.args.exists(arg, arg == 'prune')"
+        - id: git.destructive_command
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Destructive git commands are forbidden.
+          advice: Preserve work and resolve state explicitly.
+          when: "git_command.is_git && (git_command.has_hard_reset || git_command.has_clean_force_delete || git_command.has_theirs_ours_checkout || git_command.has_restore_pathspec)"
+        - id: git.merge_strategy_shortcut
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Blanket merge strategies are forbidden.
+          advice: Resolve conflicts explicitly.
+          when: "git_command.is_git && git_command.subcommand == 'merge' && git_command.has_merge_strategy_shortcut"
+        - id: git.force_push_protected_branch
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Force push to protected branches is forbidden.
+          advice: Use the normal review path.
+          when: "git_command.is_git && git_command.subcommand == 'push' && git_command.has_force_push_protected"
+        - id: git.checkout_protected_branch
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Switching to protected branches is forbidden.
+          advice: Inspect history without switching.
+          when: "git_command.is_git && (git_command.subcommand == 'checkout' || git_command.subcommand == 'switch') && git_command.has_checkout_protected_branch"
+        - id: filesystem.protected_branch_write
+          scope: file
+          severity: block
+          mode: block
+          tools: [Bash, Write, Edit, MultiEdit]
+          lint_scopes: [staged]
+          message: Protected branch writes are forbidden.
+          advice: Create or use a worktree before modifying files.
+          when: "git.on_protected_branch && paths.exists(path, path.file != 'docs/plans/next.md')"
+        - id: shell.inline_env
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Inline command environment variables are forbidden.
+          advice: Route configuration through validated bootstrap files.
+          when: "command_fact.has_inline_env || shell_commands.exists(command, command.has_inline_env)"
+        - id: shell.path_override
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: PATH override in shell commands is forbidden.
+          advice: Use managed toolchain paths.
+          when: "shell_commands.exists(command, command.uses_path_override)"
+        - id: shell.dangerous_command
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: Dangerous shell commands are forbidden.
+          advice: Use reviewed commands.
+          when: "shell_commands.exists(command, command.name == 'rm' && list_contains(command.argv, '-rf'))"
+        - id: shell.background_git
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: git commit and git push must not run in the background or under timeout.
+          advice: Run git commit or git push in the foreground.
+          when: "shell_commands.exists(command, (command.is_git_mutation && command.background) || command.wraps_git_mutation)"
+        - id: shell.github_admin
+          scope: command
+          severity: block
+          mode: block
+          tools: [Bash]
+          lint_scopes: [staged]
+          message: GitHub admin CLI operations are forbidden in agent hooks.
+          advice: Use the reviewed administrative path instead of gh --admin.
+          when: "shell_commands.exists(command, command.name == 'gh' && list_contains(command.argv, '--admin'))"
   - id: linting-as-code-quality-enforcement
     order: 14
     title: Linting as Code Quality Enforcement
@@ -1729,6 +1870,18 @@ principles:
     title: Radical Visibility
     summary: Log important decisions.
     directive: Log important decisions with context.
+    policy:
+      expressions:
+        - id: repo.required_ignores
+          scope: repo
+          severity: block
+          mode: block
+          tools: [Bash]
+          hook_events: []
+          lint_scopes: [staged, smoke, full, cutover]
+          message: Repository runtime output paths must be ignored.
+          advice: Add coding-ethos runtime paths to .gitignore.
+          when: "repo.required_ignores.exists(ignore, ignore.check_failed || !ignore.ignored)"
   - id: validation-at-the-gate
     order: 8
     title: Validation at the Gate

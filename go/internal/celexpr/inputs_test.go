@@ -20,6 +20,7 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		event.provider == "codex" &&
 		event.is_codex &&
 		event.tool_input_keys.exists(key, key == "command") &&
+		content.has_git_token &&
 		diff.has_changes &&
 		diff.hunks.exists(hunk, hunk.file == "src/app.py") &&
 		diff.added_lines.exists(line, line.text.contains("pass")) &&
@@ -32,7 +33,8 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		diagnostic.tool == "ruff" &&
 		findings.exists(item, item.code == "F401") &&
 		finding.file.endsWith("test_policy.py") &&
-		repo.python_version == "3.13"
+		repo.python_version == "3.13" &&
+		repo.required_ignores.all(ignore, ignore.ignored || ignore.check_failed)
 	`
 	if err := Validate("test.path_scope", source); err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
@@ -90,6 +92,8 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 			!cmd.has_process_substitution &&
 			!cmd.has_command_substitution
 		) &&
+		content.has_absolute_git_path &&
+		content.has_python_subprocess &&
 		git_command.is_git &&
 		list_contains(git_command.flags, "-f") &&
 		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
@@ -97,7 +101,9 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		repo_config_present(files, config.candidates) &&
 		is_protected_path(path.file, repo.protected_paths) &&
 		is_protected_branch(git.current_branch, repo.protected_branches) &&
-		any_glob_match(["src/**/*.py"], path.file)
+		any_glob_match(["src/**/*.py"], path.file) &&
+		any_contains(["git status"], command_fact.lower) &&
+		referenced_files.exists(file, file.file == "src/package/module.py")
 	`
 	if err := Validate("test.expanded_helpers", source); err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
@@ -154,6 +160,7 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	output, _, err := program.Eval(Activation(ActivationInput{
 		Argv:              []string{"git", "worktree", "remove", "-f", "../repo-old"},
 		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+		Content:           `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
 		ConfigCandidates:  []string{"repo_config.yaml"},
 		CurrentBranch:     "main",
 		Diagnostic:        &diagnostics.Diagnostic{Code: "S101"},
@@ -500,6 +507,29 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 	repo, ok := activation["repo"].(RepoInput)
 	if !ok || len(repo.ProtectedBranches) != 1 || len(repo.ProtectedPaths) != 1 {
 		t.Fatalf("repo input = %#v", activation["repo"])
+	}
+}
+
+func TestActivationExposesShellWriteTargets(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Command: `FILE=.claude/settings.json cat > ${FILE}; printf ok | tee -a .codex/config.toml; cp source.txt .gemini/settings.json`,
+	})
+
+	commands, ok := activation["shell_commands"].([]ShellCommandInput)
+	if !ok || len(commands) != 4 {
+		t.Fatalf("shell_commands input = %#v", activation["shell_commands"])
+	}
+	if !commands[0].HasWriteTargets ||
+		!listContains(commands[0].WriteTargets, ".claude/settings.json") {
+		t.Fatalf("redirect write targets = %#v", commands[0])
+	}
+	if !listContains(commands[2].WriteTargets, ".codex/config.toml") {
+		t.Fatalf("tee write targets = %#v", commands[2])
+	}
+	if !listContains(commands[3].WriteTargets, ".gemini/settings.json") {
+		t.Fatalf("copy write targets = %#v", commands[3])
 	}
 }
 

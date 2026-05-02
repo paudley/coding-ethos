@@ -60,6 +60,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	}
 
 	policies, err := compilePolicies(
+		primaryPayload,
 		configPayload,
 		repoConfigPayload,
 		expressionSources,
@@ -590,6 +591,7 @@ func frequencyToPercent(frequency int) int {
 }
 
 func compilePolicies(
+	ethos map[string]any,
 	config map[string]any,
 	repoConfig map[string]any,
 	expressionSources []expressionPolicySource,
@@ -601,7 +603,6 @@ func compilePolicies(
 	addGitPolicies(policies, config, principles)
 	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
-	addFilesystemPolicies(policies, config, principles)
 	if err := addFileGuardPolicies(policies, config, repoConfig, principles); err != nil {
 		return nil, err
 	}
@@ -868,11 +869,6 @@ func addGitPolicies(
 		}
 	}
 
-	if _, ok := principles["no-rationalized-shortcuts"]; ok &&
-		policyConfigEnabled(config, "git.stash_blocked") {
-		policies["git.stash_blocked"] = gitStashPolicy(principles)
-	}
-
 	if policyConfigEnabled(config, "git.wrapper_required") {
 		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
 	}
@@ -888,52 +884,6 @@ func addGitPolicies(
 
 func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
 	return []Policy{
-		gitPolicy(
-			"git.hook_bypass",
-			"git.hook_bypass",
-			principleRefs(
-				principles,
-				"one-path-for-critical-operations",
-				"linting-as-code-quality-enforcement",
-			),
-			"Hook bypass is forbidden.",
-			"Run the configured gate and fix the underlying failure.",
-		),
-		gitPolicy(
-			"git.destructive_command",
-			"git.destructive_command",
-			principleRefs(principles, "no-rationalized-shortcuts"),
-			"Destructive git commands are forbidden.",
-			"Preserve work and resolve the current state explicitly.",
-		),
-		gitPolicy(
-			"git.merge_strategy_shortcut",
-			"git.merge_strategy_shortcut",
-			principleRefs(principles, "no-rationalized-shortcuts"),
-			"git merge -X theirs/ours destroys conflict evidence.",
-			"Resolve each conflict explicitly instead of using blanket merge strategies.",
-		),
-		gitPolicy(
-			"git.force_push_protected_branch",
-			"git.force_push_protected_branch",
-			principleRefs(
-				principles,
-				"no-rationalized-shortcuts",
-				"one-path-for-critical-operations",
-			),
-			"Force push to protected branches is forbidden.",
-			"Use the repository's normal review and merge path.",
-		),
-		gitPolicy(
-			"git.checkout_protected_branch",
-			"git.checkout_protected_branch",
-			principleRefs(principles, "forward-motion-only"),
-			"Switching to main/master to check history is forbidden in managed workflows.",
-			"Inspect history with git fetch, git show, or git diff without switching.",
-		),
-		gitDestructiveWorktreePolicy(principles),
-		gitProtectedSubmoduleUpdatePolicy(config, principles),
-		gitChangeDirPolicy(principles),
 		gitStagedAdminPolicy(config, principles),
 		gitCommitHeadPolicy(principles),
 	}
@@ -959,45 +909,6 @@ func gitPolicy(
 		AppliesTo:       AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "argv", Name: policyID}},
 	}
-}
-
-func gitChangeDirPolicy(principles map[string]Principle) Policy {
-	return gitCELPolicy(
-		"git.change_dir_flag",
-		"git.change_dir_flag",
-		principleRefs(principles, "evidence-based-engineering-and-decision-quality"),
-		"git -C hides the working directory context.",
-		"Change to the intended directory explicitly, then run git there.",
-		"agent-operating-discipline",
-		`git_command.is_git && git_command.has_change_dir`,
-	)
-}
-
-func gitProtectedSubmoduleUpdatePolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	policyDef := gitPolicy(
-		"git.protected_submodule_update",
-		"git.protected_submodule_update",
-		principleRefs(
-			principles,
-			"security-by-design",
-			"one-path-for-critical-operations",
-			"no-rationalized-shortcuts",
-		),
-		"Protected submodules cannot be initialized or checked out to a recorded SHA.",
-		"Use git submodule update --remote for upgrades, or ask an admin for controlled rollback.",
-	)
-	policyDef.Evaluators[0].Options = map[string]any{
-		"paths": stringSliceAt(
-			config,
-			[]string{"git", "protected_submodule_update", "paths"},
-			[]string{"coding-ethos"},
-		),
-	}
-
-	return policyDef
 }
 
 func gitStagedAdminPolicy(
@@ -1162,61 +1073,6 @@ func gitCommitLintPolicy(
 			},
 		}},
 	}
-}
-
-func gitStashPolicy(principles map[string]Principle) Policy {
-	return gitCELPolicy(
-		"git.stash_blocked",
-		"principles.no-rationalized-shortcuts",
-		principleRefs(principles, "no-rationalized-shortcuts"),
-		"git stash hides working state and is forbidden when the stash ethos is active.",
-		"Keep changes visible in the worktree or commit them normally.",
-		"safe-git-workflow",
-		`git_command.is_git && git_command.subcommand == "stash"`,
-	)
-}
-
-func gitDestructiveWorktreePolicy(principles map[string]Principle) Policy {
-	return gitCELPolicy(
-		"git.destructive_worktree",
-		"git.destructive_worktree",
-		principleRefs(principles, "no-rationalized-shortcuts"),
-		"Destructive git worktree operations are forbidden.",
-		"Inspect worktree state before changing worktrees.",
-		"safe-git-workflow",
-		`git_command.is_git &&
-		 git_command.subcommand == "worktree" &&
-		 (
-		   git_command.args.exists(arg, arg == "prune") ||
-		   (
-		     git_command.args.exists(arg, arg == "remove" || arg == "move") &&
-		     (list_contains(git_command.flags, "--force") || list_contains(git_command.flags, "-f"))
-		   )
-		 )`,
-	)
-}
-
-func gitCELPolicy(
-	policyID string,
-	sourcePath string,
-	principleIDs []string,
-	message string,
-	suggestion string,
-	skillID string,
-	when string,
-) Policy {
-	policyDef := gitPolicy(policyID, sourcePath, principleIDs, message, suggestion)
-	policyDef.Evaluators = []Evaluator{{
-		Kind: "cel",
-		Name: "cel.expression",
-		Options: map[string]any{
-			"mode":     "block",
-			"skill_id": skillID,
-			"when":     when,
-		},
-	}}
-
-	return policyDef
 }
 
 func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {
@@ -1612,29 +1468,6 @@ func addShellPolicies(
 			"Malformed shell command text is forbidden.",
 			"Rewrite the command as valid shell syntax before continuing.",
 		),
-		shellPolicy(
-			"shell.dangerous_command",
-			principleRefs(principles, "security-by-design", "no-rationalized-shortcuts"),
-			"Dangerous shell commands are forbidden.",
-			"Use reviewed, explicit commands.",
-		),
-		shellPolicy(
-			"shell.background_git",
-			principleRefs(
-				principles,
-				"evidence-based-engineering-and-decision-quality",
-				"one-path-for-critical-operations",
-			),
-			"git commit and git push must not run in the background or under timeout.",
-			"Run git commit or git push in the foreground.",
-		),
-		shellPolicy(
-			"shell.github_admin",
-			principleRefs(principles, "one-path-for-critical-operations"),
-			"GitHub admin CLI operations are forbidden in agent hooks.",
-			"Use the reviewed administrative path instead of gh --admin.",
-		),
-		shellForbiddenStringsPolicy(config, principles),
 		shellBestPracticesPolicy(config, principles),
 	} {
 		if policyConfigEnabled(config, policy.ID) {
@@ -1678,81 +1511,6 @@ func shellBestPracticesPolicy(
 	}
 }
 
-func shellForbiddenStringsPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	strings := stringSliceAt(
-		config,
-		[]string{"shell", "forbidden_strings", "strings"},
-		[]string{
-			"/.claude/settings.json",
-			"/.claude/settings.local.json",
-			"~/.claude/settings.json",
-			"~/.claude/settings.local.json",
-			"/.codex/config.toml",
-			"/.codex/hooks.json",
-			"/.gemini/settings.json",
-			"coding-ethos-hooks/coding-ethos-git-hook",
-			"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
-			"coding-ethos-hooks/bin/coding-ethos-git",
-			"coding-ethos-hooks/bin/coding-ethos-git-hook",
-			"coding-ethos-hooks/bin/coding-ethos-hook",
-			"coding-ethos-hooks/bin/coding-ethos-lint",
-			"coding-ethos-hooks/bin/coding-ethos-policy",
-			"coding-ethos-hooks/lefthook",
-			"/coding-ethos/pre-commit/hooks/",
-			"/coding-ethos/config.yaml",
-			"/coding-ethos/ruff.toml",
-			"/coding-ethos/.golangci.yml",
-			"header must match",
-		},
-	)
-	exemptPaths := stringSliceAt(
-		config,
-		[]string{"shell", "forbidden_strings", "exempt_paths"},
-		[]string{"config.yaml"},
-	)
-	fileStrings := stringSliceAt(
-		config,
-		[]string{"shell", "forbidden_strings", "file_strings"},
-		stringSliceAt(config, []string{"go", "text", "forbidden_strings"}, nil),
-	)
-
-	return Policy{
-		ID:       "shell.forbidden_strings",
-		Category: "shell",
-		Source: SourceRef{
-			File: "config.yaml",
-			Path: "shell.forbidden_strings",
-		},
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"no-rationalized-shortcuts",
-			"one-path-for-critical-operations",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message: "Commands must not inspect, tamper with, or execute files " +
-			"containing protected hook-system internals.",
-		Suggestion: "Do not inspect, enumerate, delete, rebuild, replace, or " +
-			"route around coding-ethos hook implementation internals. Use the " +
-			"installed hook surfaces and documented commands.",
-		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
-		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
-		Evaluators: []Evaluator{{
-			Kind: "shell",
-			Name: "shell.forbidden_strings",
-			Options: map[string]any{
-				"exempt_paths": exemptPaths,
-				"file_strings": fileStrings,
-				"strings":      strings,
-			},
-		}},
-	}
-}
-
 func shellPolicy(
 	policyID string,
 	principleIDs []string,
@@ -1771,177 +1529,6 @@ func shellPolicy(
 		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
 		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
 		Evaluators:      []Evaluator{{Kind: "shell", Name: policyID}},
-	}
-}
-
-func addFilesystemPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-) {
-	for _, policy := range []Policy{
-		filesystemProtectedPathPolicy(config, principles),
-		filesystemProtectedBranchWritePolicy(config, principles),
-		filesystemRequiredIgnoresPolicy(config, principles),
-	} {
-		if policyConfigEnabled(config, policy.ID) {
-			policies[policy.ID] = policy
-		}
-	}
-
-	if enabledAt(config, []string{"filesystem", "required_ignores"}) {
-		policies["repo.required_ignores"] = repoRequiredIgnoresPolicy(config, principles)
-	}
-}
-
-func repoRequiredIgnoresPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	policy := filesystemRequiredIgnoresPolicy(config, principles)
-	policy.ID = "repo.required_ignores"
-	policy.Category = "repo"
-	policy.Source.Path = "filesystem.required_ignores"
-	policy.Message = "Repository runtime output paths must be ignored."
-	policy.Suggestion = "Add coding-ethos runtime paths to .gitignore before hook output is written."
-	policy.Evaluators[0].Name = "repo.required_ignores"
-
-	return policy
-}
-
-func filesystemProtectedPathPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	protectedPaths := stringSliceAt(
-		config,
-		[]string{"filesystem", "protected_path", "paths"},
-		[]string{
-			"coding-ethos-hooks/coding-ethos-git-hook",
-			"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
-			"coding-ethos-hooks/bin/coding-ethos-git",
-			"coding-ethos-hooks/bin/coding-ethos-git-hook",
-			"coding-ethos-hooks/bin/coding-ethos-hook",
-			"coding-ethos-hooks/bin/coding-ethos-lint",
-			"coding-ethos-hooks/bin/coding-ethos-policy",
-			"coding-ethos-hooks/lefthook",
-		},
-	)
-
-	return Policy{
-		ID:       "filesystem.protected_path",
-		Category: "filesystem",
-		Source:   SourceRef{File: "config.yaml", Path: "filesystem.protected_path"},
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"no-rationalized-shortcuts",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected coding-ethos hook paths must not be modified.",
-		Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
-			"hook binaries or protected hook paths.",
-		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
-		AppliesTo: AppliesTo{
-			Paths: protectedPaths,
-			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
-		},
-		Evaluators: []Evaluator{{
-			Kind:    "path",
-			Name:    "filesystem.protected_path",
-			Options: map[string]any{"paths": protectedPaths},
-		}},
-	}
-}
-
-func filesystemProtectedBranchWritePolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	protectedBranches := stringSliceAt(
-		config,
-		[]string{"filesystem", "protected_branch_write", "branches"},
-		[]string{"main", "master"},
-	)
-	exemptPathPrefixes := stringSliceAt(
-		config,
-		[]string{"filesystem", "protected_branch_write", "exempt_path_prefixes"},
-		[]string{".claude/", "docs/plans/"},
-	)
-
-	return Policy{
-		ID:       "filesystem.protected_branch_write",
-		Category: "filesystem",
-		Source: SourceRef{
-			File: "config.yaml",
-			Path: "filesystem.protected_branch_write",
-		},
-		PrincipleIDs: principleRefs(
-			principles,
-			"one-path-for-critical-operations",
-			"no-rationalized-shortcuts",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Protected branch writes are forbidden.",
-		Suggestion:      "Create or use a worktree before modifying files.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", "git_state"),
-		AppliesTo: AppliesTo{
-			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
-		},
-		Evaluators: []Evaluator{{
-			Kind: "git_state",
-			Name: "filesystem.protected_branch_write",
-			Options: map[string]any{
-				"branches":             protectedBranches,
-				"exempt_path_prefixes": exemptPathPrefixes,
-			},
-		}},
-	}
-}
-
-func filesystemRequiredIgnoresPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	requiredIgnores := stringSliceAt(
-		config,
-		[]string{"filesystem", "required_ignores", "paths"},
-		[]string{
-			".code-ethos/cache/",
-			".coding-ethos/",
-			".coding-ethos/hook-runs/example/stdout.log",
-		},
-	)
-
-	return Policy{
-		ID:       "filesystem.required_ignores",
-		Category: "filesystem",
-		Source: SourceRef{
-			File: "config.yaml",
-			Path: "filesystem.required_ignores",
-		},
-		PrincipleIDs: principleRefs(
-			principles,
-			"radical-visibility",
-			"security-by-design",
-			"one-path-for-critical-operations",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Required runtime evidence paths must be ignored.",
-		Suggestion:      "Add the missing runtime paths to .gitignore before running hooks.",
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "pre_commit", "git_state"),
-		AppliesTo: AppliesTo{
-			Paths: requiredIgnores,
-			Tools: []string{"Bash"},
-		},
-		Evaluators: []Evaluator{{
-			Kind:    "git_state",
-			Name:    "filesystem.required_ignores",
-			Options: map[string]any{"paths": requiredIgnores},
-		}},
 	}
 }
 
@@ -2278,7 +1865,7 @@ func expressionPolicy(
 		firstPresentValue(expression, "lint_scopes", "dispatch_scopes"),
 		defaultExpressionDispatchScopes(scope),
 	)
-	hookEvents := stringSliceValue(expression["hook_events"], []string{"PreToolUse"})
+	hookEvents := stringSliceValueAllowEmpty(expression["hook_events"], []string{"PreToolUse"})
 	tools := stringSliceValue(expression["tools"], expressionHookTools(scope))
 	commandPatterns := stringSliceValue(expression["command_patterns"], nil)
 	pathPatterns := stringSliceValue(expression["path_patterns"], nil)
@@ -2295,7 +1882,7 @@ func expressionPolicy(
 		SupportedModes:  []string{"block", "record", "advise"},
 		Message:         message,
 		Suggestion:      advice,
-		DefenseLayers:   CodeDefenseLayers(),
+		DefenseLayers:   expressionDefenseLayers(policyID),
 		AppliesTo: AppliesTo{
 			Tools: tools,
 		},
@@ -2332,6 +1919,7 @@ func expressionPolicy(
 				"protected":             governance.Protected,
 				"python_version":        stringAt(config, "style", "python_version"),
 				"config_candidates":     consumerOverrideCandidateNames(config),
+				"required_ignore_paths": expressionRequiredIgnorePaths(policyID, config),
 				"scope":                 scope,
 				"skill_id":              stringOptionFromMap(expression, "skill_id", ""),
 				"source_file":           sourceFile,
@@ -2343,6 +1931,30 @@ func expressionPolicy(
 			},
 		}},
 	}, true, governance, nil
+}
+
+func expressionDefenseLayers(policyID string) DefenseLayers {
+	if strings.HasPrefix(policyID, "git.") {
+		return GitDefenseLayers("block", "wrapper", "block", "pre_commit", "git_state")
+	}
+
+	return CodeDefenseLayers()
+}
+
+func expressionRequiredIgnorePaths(policyID string, config map[string]any) []string {
+	if policyID != "repo.required_ignores" {
+		return nil
+	}
+
+	return stringSliceAt(
+		config,
+		[]string{"filesystem", "required_ignores", "paths"},
+		[]string{
+			".code-ethos/cache/",
+			".coding-ethos/",
+			".coding-ethos/hook-runs/example/stdout.log",
+		},
+	)
 }
 
 func consumerOverrideCandidateNames(config map[string]any) []string {
@@ -3620,7 +3232,7 @@ func addExpressionPoliciesToHookDispatch(
 				continue
 			}
 
-			for _, event := range stringSliceValue(
+			for _, event := range stringSliceValueAllowEmpty(
 				evaluator.Options["hook_events"],
 				[]string{"PreToolUse"},
 			) {
@@ -3997,6 +3609,14 @@ func stringSliceValue(value any, defaults []string) []string {
 	}
 
 	return items
+}
+
+func stringSliceValueAllowEmpty(value any, defaults []string) []string {
+	if value == nil {
+		return append([]string(nil), defaults...)
+	}
+
+	return stringSlice(value)
 }
 
 func policyConfigEnabled(values map[string]any, policyID string) bool {

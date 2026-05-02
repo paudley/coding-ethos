@@ -150,7 +150,7 @@ printf '%s%s\n%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----' 'redacted' > "$git_repo
 expect_compiled_file_block secret.pem security.private_key
 rm -f "$git_repo/secret.pem"
 
-printf '%s%s\n' 'PLC' '0415' > "$git_repo/forbidden.txt"
+printf '%s\n' 'coding-ethos-hooks/bin/coding-ethos-hook' > "$git_repo/forbidden.txt"
 expect_compiled_file_block forbidden.txt shell.forbidden_strings
 rm -f "$git_repo/forbidden.txt"
 
