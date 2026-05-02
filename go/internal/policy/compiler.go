@@ -45,7 +45,7 @@ type CompileOptions struct {
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
-	primaryPayload, configPayload, repoConfigPayload, sourceHashes, err := compileInputs(options)
+	primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
@@ -62,6 +62,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	policies, err := compilePolicies(
 		configPayload,
 		repoConfigPayload,
+		expressionSources,
 		principles,
 		sourceRoot(options.Config),
 	)
@@ -144,22 +145,53 @@ func sourceRoot(path string) string {
 	return filepath.Dir(absolutePath)
 }
 
+func sourceFileName(path string, fallback string) string {
+	if path == "" {
+		return fallback
+	}
+
+	name := filepath.Base(path)
+	if name == "." || name == string(filepath.Separator) {
+		return fallback
+	}
+
+	return name
+}
+
 func compileInputs(
 	options CompileOptions,
-) (map[string]any, map[string]any, map[string]any, map[string]string, error) {
+) (
+	map[string]any,
+	map[string]any,
+	map[string]any,
+	[]expressionPolicySource,
+	map[string]string,
+	error,
+) {
 	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	configPayload, configHash, err := loadYAMLFile(options.Config)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	sourceHashes := map[string]string{
 		options.Primary: primaryHash,
 		options.Config:  configHash,
+	}
+	expressionSources := []expressionPolicySource{}
+	source, ok, err := expressionPolicySourceFromConfig(
+		configPayload,
+		sourceFileName(options.Config, "config.yaml"),
+	)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	if ok {
+		expressionSources = append(expressionSources, source)
 	}
 
 	primaryPayload, err = mergeOptionalYAML(
@@ -168,7 +200,7 @@ func compileInputs(
 		sourceHashes,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	var repoConfigPayload map[string]any
@@ -176,13 +208,23 @@ func compileInputs(
 		var repoConfigHash string
 		repoConfigPayload, repoConfigHash, err = loadYAMLFile(options.RepoConfig)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 		sourceHashes[options.RepoConfig] = repoConfigHash
+		source, ok, err = expressionPolicySourceFromConfig(
+			repoConfigPayload,
+			sourceFileName(options.RepoConfig, "repo_config.yaml"),
+		)
+		if err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+		if ok {
+			expressionSources = append(expressionSources, source)
+		}
 		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
-	return primaryPayload, configPayload, repoConfigPayload, sourceHashes, nil
+	return primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, nil
 }
 
 func mergeOptionalYAML(
@@ -543,6 +585,7 @@ func frequencyToPercent(frequency int) int {
 func compilePolicies(
 	config map[string]any,
 	repoConfig map[string]any,
+	expressionSources []expressionPolicySource,
 	principles map[string]Principle,
 	configSourceRoot string,
 ) (map[string]Policy, error) {
@@ -556,7 +599,12 @@ func compilePolicies(
 		return nil, err
 	}
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
-	if err := addExpressionPolicies(policies, config, principles); err != nil {
+	if err := addExpressionPolicies(
+		policies,
+		expressionSources,
+		config,
+		principles,
+	); err != nil {
 		return nil, err
 	}
 
@@ -1959,34 +2007,102 @@ func addGeneratedConfigPolicy(
 	}
 }
 
-func addExpressionPolicies(
-	policies map[string]Policy,
+type expressionPolicySource struct {
+	File        string
+	Expressions []any
+}
+
+type expressionPolicyGovernance struct {
+	Override            bool
+	AllowOverride       bool
+	AllowSeverityWeaken bool
+	Protected           bool
+	OverrideReason      string
+}
+
+func expressionPolicySourceFromConfig(
 	config map[string]any,
-	principles map[string]Principle,
-) error {
+	file string,
+) (expressionPolicySource, bool, error) {
 	rawExpressions, ok := valueAt(config, "policy", "expressions")
 	if !ok {
-		return nil
+		return expressionPolicySource{}, false, nil
 	}
 
 	expressions, ok := rawExpressions.([]any)
 	if !ok {
-		return fmt.Errorf("policy.expressions must be a list")
+		return expressionPolicySource{}, false, fmt.Errorf(
+			"%s policy.expressions must be a list",
+			file,
+		)
 	}
 
-	for index, rawExpression := range expressions {
+	return expressionPolicySource{File: file, Expressions: expressions}, true, nil
+}
+
+func addExpressionPolicies(
+	policies map[string]Policy,
+	sources []expressionPolicySource,
+	config map[string]any,
+	principles map[string]Principle,
+) error {
+	for _, source := range sources {
+		if err := addExpressionPoliciesFromSource(
+			policies,
+			source,
+			config,
+			principles,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func addExpressionPoliciesFromSource(
+	policies map[string]Policy,
+	source expressionPolicySource,
+	config map[string]any,
+	principles map[string]Principle,
+) error {
+	for index, rawExpression := range source.Expressions {
 		expression, ok := rawExpression.(map[string]any)
 		if !ok {
-			return fmt.Errorf("policy.expressions[%d] must be a mapping", index)
+			return fmt.Errorf(
+				"%s policy.expressions[%d] must be a mapping",
+				source.File,
+				index,
+			)
 		}
 
-		policyDef, err := expressionPolicy(expression, index, config, principles)
+		policyDef, enabled, governance, err := expressionPolicy(
+			expression,
+			index,
+			source.File,
+			config,
+			principles,
+		)
 		if err != nil {
 			return err
 		}
-		if _, exists := policies[policyDef.ID]; exists {
+		if !enabled {
+			continue
+		}
+		if existing, exists := policies[policyDef.ID]; exists {
+			if err := validateExpressionPolicyOverride(
+				source.File,
+				index,
+				policyDef,
+				governance,
+				existing,
+			); err != nil {
+				return err
+			}
+		} else if governance.Override {
 			return fmt.Errorf(
-				"policy.expressions[%d].id %q conflicts with an existing policy",
+				"%s policy.expressions[%d].id %q declares override but no existing policy matches",
+				source.File,
 				index,
 				policyDef.ID,
 			)
@@ -2000,33 +2116,70 @@ func addExpressionPolicies(
 func expressionPolicy(
 	expression map[string]any,
 	index int,
+	sourceFile string,
 	config map[string]any,
 	principles map[string]Principle,
-) (Policy, error) {
+) (Policy, bool, expressionPolicyGovernance, error) {
 	policyID := strings.TrimSpace(fmt.Sprint(expression["id"]))
 	if policyID == "" || policyID == "<nil>" {
-		return Policy{}, fmt.Errorf("policy.expressions[%d].id is required", index)
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].id is required",
+			sourceFile,
+			index,
+		)
+	}
+
+	governance, err := expressionGovernance(expression, index, sourceFile)
+	if err != nil {
+		return Policy{}, false, expressionPolicyGovernance{}, err
+	}
+
+	enabled, err := boolOptionFromMap(expression, "enabled", true)
+	if err != nil {
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].enabled must be a boolean",
+			sourceFile,
+			index,
+		)
+	}
+	if !enabled {
+		if governance.Protected {
+			return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+				"%s policy.expressions[%d].id %q is protected and cannot be disabled",
+				sourceFile,
+				index,
+				policyID,
+			)
+		}
+
+		return Policy{}, false, governance, nil
 	}
 
 	when := strings.TrimSpace(fmt.Sprint(expression["when"]))
 	if when == "" || when == "<nil>" {
-		return Policy{}, fmt.Errorf("policy.expressions[%d].when is required", index)
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].when is required",
+			sourceFile,
+			index,
+		)
 	}
 	if err := celexpr.Validate(policyID, when); err != nil {
-		return Policy{}, err
+		return Policy{}, false, expressionPolicyGovernance{}, err
 	}
 
 	principleIDs := expressionPrincipleIDs(expression)
 	if len(principleIDs) == 0 {
-		return Policy{}, fmt.Errorf(
-			"policy.expressions[%d].principle_ids is required",
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].principle_ids is required",
+			sourceFile,
 			index,
 		)
 	}
 	for _, principleID := range principleIDs {
 		if _, ok := principles[principleID]; !ok {
-			return Policy{}, fmt.Errorf(
-				"policy expression %q references unknown principle %q",
+			return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+				"%s policy expression %q references unknown principle %q",
+				sourceFile,
 				policyID,
 				principleID,
 			)
@@ -2035,15 +2188,17 @@ func expressionPolicy(
 
 	message := stringOptionFromMap(expression, "message", "")
 	if message == "" {
-		return Policy{}, fmt.Errorf(
-			"policy.expressions[%d].message is required",
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].message is required",
+			sourceFile,
 			index,
 		)
 	}
 	advice := stringOptionFromMap(expression, "advice", "")
 	if advice == "" {
-		return Policy{}, fmt.Errorf(
-			"policy.expressions[%d].advice is required",
+		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].advice is required",
+			sourceFile,
 			index,
 		)
 	}
@@ -2061,9 +2216,12 @@ func expressionPolicy(
 	pathPatterns := stringSliceValue(expression["path_patterns"], nil)
 
 	return Policy{
-		ID:              policyID,
-		Category:        "expression",
-		Source:          SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		ID:       policyID,
+		Category: "expression",
+		Source: SourceRef{
+			File: sourceFile,
+			Path: fmt.Sprintf("policy.expressions[%d]", index),
+		},
 		PrincipleIDs:    principleIDs,
 		DefaultSeverity: severity,
 		SupportedModes:  []string{"block", "record", "advise"},
@@ -2077,20 +2235,169 @@ func expressionPolicy(
 			Kind: "cel",
 			Name: "cel.expression",
 			Options: map[string]any{
-				"command_patterns": commandPatterns,
-				"dispatch_scopes":  dispatchScopes,
-				"hook_events":      hookEvents,
-				"mode":             mode,
-				"path_patterns":    pathPatterns,
-				"python_version":   stringAt(config, "style", "python_version"),
-				"scope":            scope,
-				"skill_id":         stringOptionFromMap(expression, "skill_id", ""),
-				"source_roots":     stringSliceAt(config, []string{"python", "source_paths"}, nil),
-				"tools":            tools,
-				"when":             when,
+				"command_patterns":      commandPatterns,
+				"dispatch_scopes":       dispatchScopes,
+				"hook_events":           hookEvents,
+				"mode":                  mode,
+				"override":              governance.Override,
+				"override_reason":       governance.OverrideReason,
+				"path_patterns":         pathPatterns,
+				"protected":             governance.Protected,
+				"python_version":        stringAt(config, "style", "python_version"),
+				"scope":                 scope,
+				"skill_id":              stringOptionFromMap(expression, "skill_id", ""),
+				"source_file":           sourceFile,
+				"source_roots":          stringSliceAt(config, []string{"python", "source_paths"}, nil),
+				"tools":                 tools,
+				"when":                  when,
+				"allow_override":        governance.AllowOverride,
+				"allow_severity_weaken": governance.AllowSeverityWeaken,
 			},
 		}},
+	}, true, governance, nil
+}
+
+func expressionGovernance(
+	expression map[string]any,
+	index int,
+	sourceFile string,
+) (expressionPolicyGovernance, error) {
+	protected, err := boolOptionFromMap(expression, "protected", true)
+	if err != nil {
+		return expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].protected must be a boolean",
+			sourceFile,
+			index,
+		)
+	}
+	override, err := boolOptionFromMap(expression, "override", false)
+	if err != nil {
+		return expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].override must be a boolean",
+			sourceFile,
+			index,
+		)
+	}
+	allowOverride, err := boolOptionFromMap(expression, "allow_override", false)
+	if err != nil {
+		return expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].allow_override must be a boolean",
+			sourceFile,
+			index,
+		)
+	}
+	allowSeverityWeaken, err := boolOptionFromMap(
+		expression,
+		"allow_severity_weaken",
+		false,
+	)
+	if err != nil {
+		return expressionPolicyGovernance{}, fmt.Errorf(
+			"%s policy.expressions[%d].allow_severity_weaken must be a boolean",
+			sourceFile,
+			index,
+		)
+	}
+
+	return expressionPolicyGovernance{
+		Override:            override,
+		AllowOverride:       allowOverride,
+		AllowSeverityWeaken: allowSeverityWeaken,
+		Protected:           protected,
+		OverrideReason:      stringOptionFromMap(expression, "override_reason", ""),
 	}, nil
+}
+
+func validateExpressionPolicyOverride(
+	sourceFile string,
+	index int,
+	replacement Policy,
+	governance expressionPolicyGovernance,
+	existing Policy,
+) error {
+	if !governance.Override {
+		return fmt.Errorf(
+			"%s policy.expressions[%d].id %q conflicts with an existing policy",
+			sourceFile,
+			index,
+			replacement.ID,
+		)
+	}
+	if governance.OverrideReason == "" {
+		return fmt.Errorf(
+			"%s policy.expressions[%d].override_reason is required for override of %q",
+			sourceFile,
+			index,
+			replacement.ID,
+		)
+	}
+
+	existingGovernance, ok := expressionPolicyGovernanceFromPolicy(existing)
+	if !ok || !existingGovernance.AllowOverride {
+		return fmt.Errorf(
+			"%s policy.expressions[%d].id %q cannot override protected policy from %s",
+			sourceFile,
+			index,
+			replacement.ID,
+			existing.Source.File,
+		)
+	}
+	if severityRank(replacement.DefaultSeverity) <
+		severityRank(existing.DefaultSeverity) &&
+		!existingGovernance.AllowSeverityWeaken {
+		return fmt.Errorf(
+			"%s policy.expressions[%d].id %q weakens severity from %q to %q",
+			sourceFile,
+			index,
+			replacement.ID,
+			existing.DefaultSeverity,
+			replacement.DefaultSeverity,
+		)
+	}
+
+	return nil
+}
+
+func expressionPolicyGovernanceFromPolicy(
+	policyDef Policy,
+) (expressionPolicyGovernance, bool) {
+	if policyDef.Category != "expression" {
+		return expressionPolicyGovernance{}, false
+	}
+	for _, evaluator := range policyDef.Evaluators {
+		if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+			continue
+		}
+
+		return expressionPolicyGovernance{
+			Override: boolValue(evaluator.Options["override"]),
+			AllowOverride: boolValue(
+				evaluator.Options["allow_override"],
+			),
+			AllowSeverityWeaken: boolValue(
+				evaluator.Options["allow_severity_weaken"],
+			),
+			Protected:      boolValue(evaluator.Options["protected"]),
+			OverrideReason: stringOptionFromMap(evaluator.Options, "override_reason", ""),
+		}, true
+	}
+
+	return expressionPolicyGovernance{}, false
+}
+
+func severityRank(severity string) int {
+	switch severity {
+	case "block":
+		return 50
+	case "ask", "prepare":
+		return 40
+	case "advise", "annotate":
+		return 30
+	case "record":
+		return 20
+	default:
+		return 0
+	}
 }
 
 func firstPresentValue(values map[string]any, keys ...string) any {
@@ -3471,9 +3778,31 @@ func boolAt(values map[string]any, path ...string) bool {
 		return false
 	}
 
+	return boolValue(value)
+}
+
+func boolValue(value any) bool {
 	boolValue, isBool := value.(bool)
 
 	return isBool && boolValue
+}
+
+func boolOptionFromMap(
+	values map[string]any,
+	key string,
+	defaultValue bool,
+) (bool, error) {
+	value, exists := values[key]
+	if !exists {
+		return defaultValue, nil
+	}
+
+	boolValue, isBool := value.(bool)
+	if !isBool {
+		return false, fmt.Errorf("%s must be a boolean", key)
+	}
+
+	return boolValue, nil
 }
 
 func enabledAt(values map[string]any, path []string) bool {

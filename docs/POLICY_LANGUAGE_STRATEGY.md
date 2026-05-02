@@ -112,6 +112,9 @@ policy:
       scope: command
       severity: block
       mode: block
+      protected: true
+      allow_override: false
+      allow_severity_weaken: false
       hook_events: [PreToolUse]
       tools: [Bash]
       lint_scopes: [staged, files]
@@ -147,12 +150,26 @@ Optional fields:
 - `lint_scopes`
 - `command_patterns`
 - `path_patterns`
+- `protected`
+- `override`
+- `override_reason`
+- `allow_override`
+- `allow_severity_weaken`
 - `tags`
 - `metadata`
 
 The compiler should reject expressions without ETHOS grounding. A custom rule
 that cannot explain which principle it enforces is not mature enough to block
 agent behavior.
+
+Repo overlays append expression policies instead of replacing the primary
+bundle list. Duplicate IDs are rejected unless the replacement declares
+`override: true`, supplies `override_reason`, and the existing expression
+declares `allow_override: true`. Built-in Go-backed policies and protected
+expressions therefore cannot be shadowed accidentally. Severity weakening is
+also rejected unless the existing expression declares
+`allow_severity_weaken: true`, and protected expressions default to enabled
+with `protected: true`.
 
 ## Input Schemas
 
@@ -229,8 +246,11 @@ The required completion work is:
    bundle compilation. Runtime should reuse checked programs from the compiled
    bundle or from a load-time cache instead of compiling on each evaluation.
 6. **Controlled inheritance and overrides.** Custom policies must not shadow
-   protected built-ins. Severity weakening, disabling, and suppression must be
-   explicit policy operations with provenance, not accidental YAML replacement.
+   protected built-ins. Repo overlays append expression policies; duplicate IDs
+   require `override: true`, `override_reason`, and `allow_override: true` on
+   the existing expression. Severity weakening additionally requires
+   `allow_severity_weaken: true`; protected expressions default to enabled and
+   cannot be disabled.
 7. **Standard result model.** CEL-backed policies must emit the same decision
    data as Go evaluators: policy ID, severity, decision, message, suggestion,
    principle IDs, skill ID, evidence, diagnostic location, remediation hint,

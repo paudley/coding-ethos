@@ -323,7 +323,7 @@ engine rather than a companion to first-class Go evaluators.
   without hardcoded evaluator registration.
 - [x] Compile and cache CEL programs during bundle compilation or bundle load
   rather than recompiling expressions at evaluation time.
-- [ ] Add controlled policy inheritance and override rules for expression
+- [x] Add controlled policy inheritance and override rules for expression
   policies, including forbidden shadowing of protected built-ins and explicit
   rules for severity weakening.
 - [ ] Ensure every CEL policy emits the same normalized result shape as Go

@@ -15,6 +15,9 @@ policy:
       scope: command
       severity: block
       mode: block
+      protected: true
+      allow_override: false
+      allow_severity_weaken: false
       hook_events: [PreToolUse]
       tools: [Bash]
       lint_scopes: [staged, files]

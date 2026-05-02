@@ -391,6 +391,35 @@ policy:
 	}
 }
 
+func TestCompileRejectsExpressionOverrideOfBuiltinPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: git.hook_bypass
+      override: true
+      override_reason: Attempted replacement of built-in policy.
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("git")
+      message: Builtin replacement must fail.
+      advice: Choose a unique custom policy ID.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot override protected policy") {
+		t.Fatalf("compile error = %v, want built-in override rejection", err)
+	}
+}
+
 func TestCompileRejectsInvalidExpressionDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -605,6 +634,213 @@ policy:
 	})
 	if err == nil || !strings.Contains(err.Error(), "policy.expressions must be a list") {
 		t.Fatalf("compile error = %v, want invalid expression overlay error", err)
+	}
+}
+
+func TestCompileAppendsRepoExpressionPolicies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.base_expression
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("base")
+      message: Base expression.
+      advice: Keep the base expression.
+`)
+	writeTestFile(t, repoConfigPath, `
+policy:
+  expressions:
+    - id: custom.repo_expression
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("repo")
+      message: Repo expression.
+      advice: Keep the repo expression.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	basePolicy := bundle.Policies["custom.base_expression"]
+	repoPolicy := bundle.Policies["custom.repo_expression"]
+	if basePolicy.Source.File != "config.yaml" {
+		t.Fatalf("base expression source = %#v", basePolicy.Source)
+	}
+	if repoPolicy.Source.File != "repo_config.yaml" {
+		t.Fatalf("repo expression source = %#v", repoPolicy.Source)
+	}
+}
+
+func TestCompileRejectsExpressionPolicyShadowing(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.shared_expression
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("base")
+      message: Base expression.
+      advice: Keep the base expression.
+`)
+	writeTestFile(t, repoConfigPath, `
+policy:
+  expressions:
+    - id: custom.shared_expression
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("repo")
+      message: Repo expression.
+      advice: Keep the repo expression.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicts with an existing policy") {
+		t.Fatalf("compile error = %v, want duplicate expression rejection", err)
+	}
+}
+
+func TestCompileAllowsExplicitExpressionOverride(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.overrideable_expression
+      allow_override: true
+      allow_severity_weaken: true
+      principle_ids: [one-path-for-critical-operations]
+      severity: block
+      when: command.contains("base")
+      message: Base expression.
+      advice: Keep the base expression.
+`)
+	writeTestFile(t, repoConfigPath, `
+policy:
+  expressions:
+    - id: custom.overrideable_expression
+      override: true
+      override_reason: Repo policy narrows this custom expression.
+      principle_ids: [one-path-for-critical-operations]
+      severity: advise
+      when: command.contains("repo")
+      message: Repo expression.
+      advice: Keep the repo expression.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef := bundle.Policies["custom.overrideable_expression"]
+	if policyDef.Source.File != "repo_config.yaml" ||
+		policyDef.DefaultSeverity != "advise" ||
+		policyDef.Evaluators[0].Options["override"] != true {
+		t.Fatalf("override policy mismatch: %#v", policyDef)
+	}
+}
+
+func TestCompileRejectsExpressionSeverityWeakening(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.strict_expression
+      allow_override: true
+      principle_ids: [one-path-for-critical-operations]
+      severity: block
+      when: command.contains("base")
+      message: Base expression.
+      advice: Keep the base expression.
+`)
+	writeTestFile(t, repoConfigPath, `
+policy:
+  expressions:
+    - id: custom.strict_expression
+      override: true
+      override_reason: Repo policy attempts to weaken this expression.
+      principle_ids: [one-path-for-critical-operations]
+      severity: advise
+      when: command.contains("repo")
+      message: Repo expression.
+      advice: Keep the repo expression.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "weakens severity") {
+		t.Fatalf("compile error = %v, want severity weakening rejection", err)
+	}
+}
+
+func TestCompileRejectsDisabledProtectedExpression(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: custom.disabled_expression
+      enabled: false
+      principle_ids: [one-path-for-critical-operations]
+      when: command.contains("disabled")
+      message: Disabled expression.
+      advice: Keep the disabled expression.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "protected and cannot be disabled") {
+		t.Fatalf("compile error = %v, want protected-disable rejection", err)
 	}
 }
 
