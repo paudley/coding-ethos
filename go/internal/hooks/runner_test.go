@@ -649,6 +649,48 @@ func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
 	}
 }
 
+func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					"# Stage all Phase 3 files - comprehensive list",
+					"\ngit add \\",
+					"\n  lbox-platform/lib/python/lbox/kg/interlink/__init__.py \\",
+					"\n  lbox-platform/lib/python/lbox/kg/interlink/_concept_index.py \\",
+					"\n  lbox-platform/scripts/_phase3_strategy_factory.py",
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/lib/python/lbox/kg/interlink/__init__.py'",
+		) ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/scripts/_phase3_strategy_factory.py'",
+		) {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 

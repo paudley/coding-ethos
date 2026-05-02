@@ -497,12 +497,21 @@ func shellControlFields(command string) []string {
 	fields := []string{}
 
 	var (
-		builder strings.Builder
-		quote   rune
+		builder   strings.Builder
+		quote     rune
+		inComment bool
 	)
 
 	escaped := false
 	for _, char := range command {
+		if inComment {
+			if char == '\n' {
+				inComment = false
+			}
+
+			continue
+		}
+
 		if escaped {
 			if char == '\n' {
 				escaped = false
@@ -536,6 +545,14 @@ func shellControlFields(command string) []string {
 		}
 
 		switch char {
+		case '#':
+			if builder.Len() == 0 {
+				inComment = true
+
+				continue
+			}
+
+			builder.WriteRune(char)
 		case '\'', '"':
 			quote = char
 		case ' ', '\t', '\n':
