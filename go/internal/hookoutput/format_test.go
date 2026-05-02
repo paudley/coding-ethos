@@ -58,18 +58,30 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	result := lint.Result{
 		Scope:  "tool:ruff",
 		Status: "blocked",
-		Diagnostics: []diagnostics.Diagnostic{{
-			Tool:         "ruff",
-			File:         "pkg/app.py",
-			Line:         4,
-			Column:       8,
-			Severity:     "error",
-			Code:         "F401",
+		Decisions: []policy.Decision{{
+			Decision:     "block",
 			PolicyID:     "python.unused_imports",
-			SkillID:      "lint-remediation",
-			Message:      "unused import",
-			Advice:       "Remove unused imports instead of suppressing Ruff.",
-			Detail:       "imported but unused",
+			Severity:     "block",
+			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		}},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     4,
+			Column:   8,
+			Severity: "error",
+			Code:     "F401",
+			PolicyID: "python.unused_imports",
+			SkillID:  "lint-remediation",
+			Message:  "unused import",
+			Advice:   "Remove unused imports instead of suppressing Ruff.",
+			Detail:   "imported but unused",
+			Metadata: map[string]any{
+				"implementation":       "cel",
+				"input_schema_version": int64(1),
+				"policy_source":        "coding_ethos.yml:principles.4",
+				"when":                 "diagnostic.code == 'F401'",
+			},
 			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
 			Tags:         []string{"linting", "quality"},
 		}},
@@ -95,6 +107,10 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.precision", "high")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.skill_id", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.implementation", "cel")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.input_schema_version", float64(1))
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.policy_source", "coding_ethos.yml:principles.4")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.cel_expression", "diagnostic.code == 'F401'")
 	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.ruleIndex", float64(0))
 	assertJSONPath(t, payload, "runs.0.results.0.level", "error")
@@ -106,7 +122,19 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/stable/v1", 64)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.implementation", "cel")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.input_schema_version", float64(1))
+	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_source", "coding_ethos.yml:principles.4")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.cel_expression", "diagnostic.code == 'F401'")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.policies.0", "python.unused_imports")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.ethos_ids.0", "static-analysis-is-the-first-line-of-defense")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.skills.0", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.tools.0", "ruff")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.policy_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.result_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.decision_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.diagnostic_count", float64(1))
 }
 
 func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {

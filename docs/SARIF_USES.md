@@ -45,6 +45,12 @@ coverage view: which ETHOS principles, policies, skills, and tool families ran
 for a commit or PR. A no-findings run is still useful evidence when it proves
 that the expected defenses actually executed.
 
+`coding-ethos` records this as `runs[].properties.policy_coverage`. The
+coverage block is intentionally summary-shaped so GitHub, GitLab, MCP, and
+agent prompts can consume it without replaying traces. It should remain
+derived from normalized decisions and diagnostics, not from a separate CI-only
+policy inventory.
+
 ### Trend And Regression Tracking
 
 Stable rule IDs and fingerprints make it possible to compare SARIF runs across

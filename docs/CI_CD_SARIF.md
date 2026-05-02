@@ -9,7 +9,8 @@ a developer or agent bypasses local enforcement.
 `coding-ethos` emits SARIF 2.1.0 from the same normalized diagnostics used by
 hook and lint-capture output. SARIF results include stable policy IDs, source
 tool codes, ETHOS principle IDs, skill IDs, file and line locations,
-remediation advice, and audit properties.
+remediation advice, CEL provenance when applicable, policy coverage, and audit
+properties.
 
 For product uses beyond CI upload, including MCP remediation, finding
 deduplication, audit bundles, and editor diagnostics, see
@@ -48,9 +49,17 @@ OASIS SARIF 2.1.0 tracking model:
   configuration identity across pull requests and `main`.
 - Each run records `invocations[].workingDirectory.uri` as the repository root
   marker and `executionSuccessful` as the inverse of the blocking result.
+- Each run records `properties.policy_coverage` with the policies, ETHOS
+  principles, skills, and source tools represented by the normalized result.
+  This makes a no-finding or low-finding run useful as evidence that expected
+  defenses executed.
 - Each result includes `ruleId`, `ruleIndex`, rule metadata, ETHOS properties,
   and deterministic `partialFingerprints` for result tracking and
   deduplication.
+- CEL-backed diagnostics include `implementation`, `input_schema_version`,
+  `policy_source`, and `cel_expression` in rule/result properties. SARIF
+  consumers can explain where a policy came from without reparsing the policy
+  bundle.
 - Rules include `precision` and security findings include
   `security-severity`, allowing code-scanning surfaces to prioritize high-value
   alerts without inflating ordinary style findings into security issues.

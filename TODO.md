@@ -455,6 +455,9 @@ Acceptance criteria:
   skill IDs, and source locations.
 - [ ] Emit policy coverage summaries that show which ETHOS principles,
   policies, skills, and tool families ran for a commit or PR.
+  - [x] Start the coverage ledger by emitting SARIF
+    `runs[].properties.policy_coverage` for normalized decisions and
+    diagnostics, including CEL provenance when available.
 - [ ] Add SARIF trend analysis for newly introduced, reopened, fixed, and
   worsening findings across commits.
 - [ ] Produce compact PR risk summaries from SARIF and `.coding-ethos` traces
