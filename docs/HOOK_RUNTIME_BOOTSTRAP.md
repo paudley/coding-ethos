@@ -92,7 +92,7 @@ source manifest for required tool versions, release assets, and SHA-256
 digests. `make managed-toolchain-install` installs those tools and writes
 `build/toolchain/manifest.tsv` with the installed paths.
 
-`run-go-hook.sh` prepends the managed tool directories to `PATH` before
+`coding-ethos-run` prepends the managed tool directories to `PATH` before
 dispatching to the Go hook runtime. The Go hook runtime also resolves binary
 tool commands to checkout-local managed paths when possible, so `shfmt`,
 `shellcheck`, `actionlint`, `hadolint`, `dotenv-linter`, and `golangci-lint` do not silently fall

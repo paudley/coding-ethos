@@ -98,3 +98,45 @@ func TestCheckAllowsUnknownOperation(t *testing.T) {
 		t.Fatalf("operation mismatch: got %q", result.Operation)
 	}
 }
+
+func TestCheckBlocksProtectedSubmoduleInit(t *testing.T) {
+	t.Parallel()
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"submodule", "update", "--init", "coding-ethos"},
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if len(result.Decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", result.Decisions)
+	}
+
+	if result.Decisions[0].PolicyID != "git.protected_submodule_update" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestCheckAllowsProtectedSubmoduleRemoteUpgrade(t *testing.T) {
+	t.Parallel()
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"submodule", "update", "--remote", "coding-ethos"},
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if len(result.Decisions) != 0 {
+		t.Fatalf("expected no decisions, got %#v", result.Decisions)
+	}
+}

@@ -139,7 +139,7 @@ The design and expansion plan are documented in
 The server is exposed through the managed runtime:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh mcp
+bin/coding-ethos-run mcp
 ```
 
 The first tools are intentionally narrow and auditable:
@@ -297,6 +297,12 @@ Sync generated tool configs:
 uv run coding-ethos --repo /path/to/repo --sync-tool-configs
 ```
 
+By default the same command writes the managed SARIF CI files and includes
+them in `.code-ethos/tool-config-hashes.json`. Repos with a deliberate
+exception can set `generated_config.ci.github_actions.enabled: false` or
+`generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
+They are checked by `--check-tool-configs`; there is no separate CI sync path.
+
 Check generated tool config drift:
 
 ```bash
@@ -306,7 +312,7 @@ uv run coding-ethos --repo /path/to/repo --check-tool-configs
 Trace and validate enforcement config:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy config-trace --json
+bin/coding-ethos-run policy config-trace --json
 ```
 
 Sync the Gemini hook prompt pack:
@@ -448,6 +454,8 @@ The merged config drives:
 
 - generated Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and
   golangci-lint config
+- generated GitHub Actions and GitLab CI SARIF gates, controlled by
+  `generated_config.ci.*.enabled`
 - hook policy for Python, shell, text, commit-message, and Go checks
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
@@ -635,18 +643,23 @@ as runtime artifact failures instead of falling back to host tools.
 Analyze captured lint history:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
-pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
-pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
+bin/coding-ethos-run policy-lint --analyze-log
+bin/coding-ethos-run policy-lint --analyze-log --for-files lib/python/app.py
+bin/coding-ethos-run policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 Emit SARIF for CI/code-scanning surfaces:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy-lint --sarif --scope files --files lib/python/app.py
-pre-commit/hooks/run-go-hook.sh policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
-pre-commit/hooks/run-go-hook.sh policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
+bin/coding-ethos-run policy-lint --sarif --scope files --files lib/python/app.py
+bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
+bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
+
+SARIF output is tuned for code-scanning ingestion: repository-relative artifact
+URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
+ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
+security-severity properties for findings that are actually security-relevant.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.
@@ -665,10 +678,10 @@ and tool crashes for every managed linter.
 Render or verify repo-local agent hook settings:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh agent-hooks print
-pre-commit/hooks/run-go-hook.sh agent-hooks sync
-pre-commit/hooks/run-go-hook.sh agent-hooks doctor
-pre-commit/hooks/run-go-hook.sh agent-hooks verify
+bin/coding-ethos-run agent-hooks print
+bin/coding-ethos-run agent-hooks sync
+bin/coding-ethos-run agent-hooks doctor
+bin/coding-ethos-run agent-hooks verify
 ```
 
 Agent hook generation is all-or-nothing. `sync` writes every supported
@@ -722,8 +735,8 @@ IDs, status, and output shape without dumping raw provider input.
 Use cutover commands when preparing a repo to replace old hook surfaces:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh cutover install
-pre-commit/hooks/run-go-hook.sh cutover verify
+bin/coding-ethos-run cutover install
+bin/coding-ethos-run cutover verify
 ```
 
 `cutover install` installs repo-local Git hook shims, syncs every supported
@@ -773,7 +786,7 @@ In that repo-local, admin-supervised case only, the Git wrapper accepts
 `--admin-approved` before the Git subcommand:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy-git --admin-approved commit -F /tmp/msg
+bin/coding-ethos-run policy-git --admin-approved commit -F /tmp/msg
 ```
 
 The flag only changes `git.staged_admin_files` from block to record. It does
@@ -790,7 +803,8 @@ The CLI stays thin. Behavior belongs in focused modules:
 | `coding_ethos/loaders.py` | validate and merge ethos YAML |
 | `coding_ethos/renderers.py` | render deterministic Markdown |
 | `coding_ethos/merging.py` | managed-block injection and external merge orchestration |
-| `coding_ethos/tool_configs.py` | generated repo-root tool configs |
+| `coding_ethos/tool_configs.py` | generated repo-root tool config sync and drift checks |
+| `coding_ethos/ci_tool_configs.py` | generated GitHub Actions and GitLab SARIF CI configs |
 | `coding_ethos/gemini_prompt_pack.py` | Gemini prompt packs from templates |
 | `pre-commit/hooks/go-hooks/` | active hook runtime and hook groups |
 | `go/` | compiled policy, hook, lint, and wrapper tools |

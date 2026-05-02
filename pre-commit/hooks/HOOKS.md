@@ -55,7 +55,7 @@ managed lint capture wrapper. Captured tools currently include `ruff`, `mypy`,
 `hadolint`, `bandit`, `sqlfluff`, `tombi`, and `dotenv-linter`. Plain tool
 calls, absolute tool paths, `uv run <tool>`, and
 `python -m <tool>` for Python-backed tools are normalized to
-`run-go-hook.sh policy-tool <tool> ...` when the provider supports command
+`coding-ethos-run policy-tool <tool> ...` when the provider supports command
 rewrites; unsupported providers must use the managed shims injected into the
 hook PATH. The wrapper owns output formatting: it forces the tool's
 machine-readable output option, parses diagnostics into the shared lint schema,
@@ -78,12 +78,12 @@ No history section is emitted when there is no relevant captured history.
 Agent settings rendering covers every supported provider:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh agent-hooks print
-pre-commit/hooks/run-go-hook.sh agent-hooks sync
-pre-commit/hooks/run-go-hook.sh agent-hooks doctor
-pre-commit/hooks/run-go-hook.sh agent-hooks verify
-pre-commit/hooks/run-go-hook.sh cutover install
-pre-commit/hooks/run-go-hook.sh cutover verify
+bin/coding-ethos-run agent-hooks print
+bin/coding-ethos-run agent-hooks sync
+bin/coding-ethos-run agent-hooks doctor
+bin/coding-ethos-run agent-hooks verify
+bin/coding-ethos-run cutover install
+bin/coding-ethos-run cutover verify
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex output enables
@@ -147,7 +147,7 @@ Codex generation follows four invariants:
   parent repo and nested `coding-ethos` checkout cannot both report the same
   Codex event.
 
-Trusted `run-go-hook.sh` handling is exact-path based. A command is treated as
+Trusted `coding-ethos-run` handling is exact-path based. A command is treated as
 managed only when it invokes the generated relative hook path or the exact hook
 path exported by the active runtime; a different executable with the same
 filename suffix is still blocked.
@@ -181,6 +181,16 @@ PII, required-ignore, and license/copyright policies also run through the
 compiled policy bundle when configured. The remaining bundled groups are either
 richer repo-structure checks or direct external analyzer orchestration from the
 Go runner.
+
+Runtime bootstrap is progressively moving out of shell. Strict policy metadata
+source-hash validation is performed by `coding-ethos-policy
+validate-metadata`, and managed GitHub release download, digest verification,
+archive extraction, and binary installation are performed by the compiled
+`coding-ethos-toolchain` helper. The same helper owns managed-toolchain
+manifest parsing and installed-manifest generation, Git wrapper shim
+generation, Git hook shim install/verify reporting, and cutover report
+rendering so those security-sensitive writes and status surfaces are tested Go
+behavior instead of ad hoc shell text generation.
 
 ## Installation
 

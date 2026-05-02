@@ -175,12 +175,12 @@ func unmanagedLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string
 }
 
 func lintCaptureCommand(toolName string, args []string) string {
-	runGoHook := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
-	if runGoHook == "" {
-		runGoHook = "pre-commit/hooks/run-go-hook.sh"
+	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
+	if runner == "" {
+		runner = "bin/coding-ethos-run"
 	}
 
-	parts := []string{shellQuote(runGoHook), tokenPolicyTool, toolName}
+	parts := []string{shellQuote(runner), tokenPolicyTool, toolName}
 	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
 	}
@@ -225,8 +225,8 @@ func managedLintToolSegment(segment []string) bool {
 		return false
 	}
 
-	return filepath.Base(segment[0]) == "run-go-hook.sh" &&
-		isTrustedRunGoHookCommand(segment[0]) &&
+	return filepath.Base(segment[0]) == "coding-ethos-run" &&
+		isTrustedRunnerCommand(segment[0]) &&
 		segment[1] == tokenPolicyTool &&
 		capturedToolName(segment[2])
 }

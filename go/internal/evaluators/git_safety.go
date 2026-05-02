@@ -20,6 +20,8 @@ const (
 	gitSubcommandArgc          = 2
 	gitWorktreeOperationArgc   = 3
 	gitWorktreeSubcommandIndex = 2
+	gitSubmoduleUpdateArgc     = 3
+	gitSubmoduleCommandIndex   = 2
 )
 
 func EvaluateGitDestructiveCommand(
@@ -135,6 +137,49 @@ func EvaluateGitDestructiveWorktree(
 	return nil, nil
 }
 
+func EvaluateGitProtectedSubmoduleUpdate(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	argv := context.Argv
+	if !isGitSubcommand(argv, "submodule") ||
+		len(argv) < gitSubmoduleUpdateArgc ||
+		argv[gitSubmoduleCommandIndex] != "update" {
+		return nil, nil
+	}
+
+	protectedPaths := stringSliceOption(
+		context.EvaluatorOptions,
+		"paths",
+		[]string{"coding-ethos"},
+	)
+	targets := submoduleUpdateTargets(argv[gitSubmoduleUpdateArgc:])
+	if protectedSubmoduleUpdateTargets(targets, protectedPaths) &&
+		unsafeProtectedSubmoduleUpdate(argv[gitSubmoduleUpdateArgc:]) {
+		decision := policy.NewDecision(blockDecision, policyDef)
+		decision.Evidence = map[string]any{
+			"argv":            append([]string(nil), argv...),
+			"protected_paths": protectedPaths,
+			"reason":          "protected submodules may only be upgraded with --remote",
+		}
+		if len(targets) > 0 {
+			decision.Evidence["targets"] = targets
+		}
+
+		return []policy.Decision{decision}, nil
+	}
+
+	return nil, nil
+}
+
+func unsafeProtectedSubmoduleUpdate(args []string) bool {
+	if slices.Contains(args, "--init") {
+		return true
+	}
+
+	return !slices.Contains(args, "--remote")
+}
+
 func EvaluateGitChangeDirFlag(
 	policyDef policy.Policy,
 	context Context,
@@ -149,6 +194,83 @@ func EvaluateGitChangeDirFlag(
 	}
 
 	return nil, nil
+}
+
+func submoduleUpdateTargets(args []string) []string {
+	targets := []string{}
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+
+			continue
+		}
+
+		if arg == "--" {
+			continue
+		}
+
+		if submoduleUpdateOptionHasValue(arg) {
+			skipNext = true
+
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		targets = append(targets, normalizeSubmodulePath(arg))
+	}
+
+	return targets
+}
+
+func submoduleUpdateOptionHasValue(arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+
+	switch arg {
+	case "--jobs", "-j", "--depth", "--reference", "--recommend-shallow":
+		return true
+	default:
+		return false
+	}
+}
+
+func protectedSubmoduleUpdateTargets(targets []string, protectedPaths []string) bool {
+	if len(targets) == 0 {
+		return true
+	}
+
+	protected := stringSet(normalizeSubmodulePaths(protectedPaths))
+	for _, target := range targets {
+		if protected[normalizeSubmodulePath(target)] {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeSubmodulePaths(paths []string) []string {
+	normalized := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if item := normalizeSubmodulePath(path); item != "" {
+			normalized = append(normalized, item)
+		}
+	}
+
+	return normalized
+}
+
+func normalizeSubmodulePath(path string) string {
+	normalized := filepath.ToSlash(strings.TrimSpace(path))
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimSuffix(normalized, "/")
+
+	return normalized
 }
 
 func EvaluateGitStashBlocked(

@@ -44,7 +44,7 @@ case "${1:?usage: smoke_hook_edges.sh <gitlink|build-failure> ...}" in
     rm -rf "$git_repo/coding-ethos"
     ;;
   build-failure)
-    run_go_hook="${2:?run-go-hook path required}"
+    run_go_hook="${2:?coding-ethos-run path required}"
     cutover_repo="${3:?cutover repo required}"
 
     printf '==> validating hook execution does not auto-rebuild Go helpers\n'

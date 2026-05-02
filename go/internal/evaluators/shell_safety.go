@@ -89,7 +89,7 @@ func EvaluateShellForbiddenStrings(
 		forbiddenCommandStrings(context.EvaluatorOptions),
 	); matched {
 		if value == "/coding-ethos/pre-commit/hooks/" &&
-			commandIsOnlyTrustedRunGoHookInvocation(command) {
+			commandIsOnlyTrustedRunnerInvocation(command) {
 			return nil, nil
 		}
 
@@ -162,7 +162,7 @@ func containsForbiddenString(text string, forbidden []string) (bool, string) {
 	return false, ""
 }
 
-func commandIsOnlyTrustedRunGoHookInvocation(command string) bool {
+func commandIsOnlyTrustedRunnerInvocation(command string) bool {
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return false
@@ -182,11 +182,11 @@ func commandIsOnlyTrustedRunGoHookInvocation(command string) bool {
 	}
 
 	cleaned := filepath.ToSlash(filepath.Clean(fields[0]))
-	if cleaned == "pre-commit/hooks/run-go-hook.sh" {
+	if cleaned == "bin/coding-ethos-run" {
 		return true
 	}
 
-	for _, candidate := range trustedRunGoHookCandidatesForEvaluator(fields[0]) {
+	for _, candidate := range trustedRunnerCandidatesForEvaluator(fields[0]) {
 		if cleaned == candidate {
 			return true
 		}
@@ -195,10 +195,10 @@ func commandIsOnlyTrustedRunGoHookInvocation(command string) bool {
 	return false
 }
 
-func trustedRunGoHookCandidatesForEvaluator(command string) []string {
+func trustedRunnerCandidatesForEvaluator(command string) []string {
 	candidates := []string{
 		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
-		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "hooks", "run-go-hook.sh"),
+		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "..", "bin", "coding-ethos-run"),
 	}
 
 	if !filepath.IsAbs(command) {

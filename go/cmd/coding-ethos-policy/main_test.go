@@ -4,6 +4,7 @@
 package main
 
 import (
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,46 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	}
 	if strings.Join(sections, ",") != "repo" {
 		t.Fatalf("sections = %#v", sections)
+	}
+}
+
+func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "config.yaml")
+	metadataPath := filepath.Join(dir, "policy-metadata.json")
+	if err := os.WriteFile(sourcePath, []byte("style: {}\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	metadata := policy.Metadata{
+		SourceHashes: map[string]string{
+			sourcePath: "sha256:99faa993bc5910bf699657cd8af777791cd11bf48267e1bdb68fa6f6e9181921",
+		},
+		BundleHash:  "sha256:bundle",
+		GeneratedAt: "2026-05-01T00:00:00Z",
+	}
+	file, err := os.Create(metadataPath)
+	if err != nil {
+		t.Fatalf("create metadata: %v", err)
+	}
+	if err := policy.EncodeMetadata(file, metadata); err != nil {
+		t.Fatalf("encode metadata: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close metadata: %v", err)
+	}
+
+	if err := validateMetadata([]string{"--metadata", metadataPath}); err != nil {
+		t.Fatalf("validate metadata: %v", err)
+	}
+
+	if err := os.WriteFile(sourcePath, []byte("style:\n  line_length: 88\n"), 0o600); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	err = validateMetadata([]string{"--metadata", metadataPath})
+	if err == nil || !strings.Contains(err.Error(), "policy source hash mismatch") {
+		t.Fatalf("validate stale metadata error = %v", err)
 	}
 }

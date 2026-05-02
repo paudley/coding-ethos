@@ -19,10 +19,10 @@ else
   {
     echo "FATAL: could not locate coding-ethos pre-commit bundle under ${ROOT}"
     echo "Expected ${ROOT}/coding-ethos/pre-commit."
-    echo "If coding-ethos is a submodule, run:"
-    echo "  git submodule update --init coding-ethos"
+    echo "If coding-ethos is a missing protected submodule, ask an admin to"
+    echo "repair or upgrade it through the documented protected-submodule path."
   } >&2
   exit 127
 fi
 
-exec "${BUNDLE_ROOT}/hooks/run-go-hook.sh" git-hook "${HOOK_NAME}" "$@"
+exec "$(cd "${BUNDLE_ROOT}/.." && pwd)/bin/coding-ethos-run" git-hook "${HOOK_NAME}" "$@"

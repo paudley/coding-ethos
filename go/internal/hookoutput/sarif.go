@@ -4,7 +4,9 @@
 package hookoutput
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -24,8 +26,11 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool              sarifTool                 `json:"tool"`
+	Invocations       []sarifInvocation         `json:"invocations,omitempty"`
+	AutomationDetails sarifRunAutomationDetails `json:"automationDetails,omitempty"`
+	Results           []sarifResult             `json:"results"`
+	Properties        sarifRunProperties        `json:"properties,omitempty"`
 }
 
 type sarifTool struct {
@@ -47,12 +52,14 @@ type sarifRule struct {
 }
 
 type sarifRuleProperty struct {
-	Tags        []string `json:"tags,omitempty"`
-	PolicyID    string   `json:"policy_id,omitempty"`
-	SkillID     string   `json:"skill_id,omitempty"`
-	SourceTool  string   `json:"source_tool,omitempty"`
-	EthosIDs    []string `json:"ethos_ids,omitempty"`
-	CodingEthos bool     `json:"coding_ethos"`
+	Tags             []string `json:"tags,omitempty"`
+	Precision        string   `json:"precision,omitempty"`
+	SecuritySeverity string   `json:"security-severity,omitempty"`
+	PolicyID         string   `json:"policy_id,omitempty"`
+	SkillID          string   `json:"skill_id,omitempty"`
+	SourceTool       string   `json:"source_tool,omitempty"`
+	EthosIDs         []string `json:"ethos_ids,omitempty"`
+	CodingEthos      bool     `json:"coding_ethos"`
 }
 
 type sarifHelp struct {
@@ -61,11 +68,13 @@ type sarifHelp struct {
 }
 
 type sarifResult struct {
-	RuleID     string                `json:"ruleId"`
-	Level      string                `json:"level"`
-	Message    sarifMessage          `json:"message"`
-	Locations  []sarifLocation       `json:"locations,omitempty"`
-	Properties sarifResultProperties `json:"properties,omitempty"`
+	RuleID              string                `json:"ruleId"`
+	RuleIndex           *int                  `json:"ruleIndex,omitempty"`
+	Level               string                `json:"level"`
+	Message             sarifMessage          `json:"message"`
+	Locations           []sarifLocation       `json:"locations,omitempty"`
+	PartialFingerprints map[string]string     `json:"partialFingerprints,omitempty"`
+	Properties          sarifResultProperties `json:"properties,omitempty"`
 }
 
 type sarifMessage struct {
@@ -101,8 +110,23 @@ type sarifResultProperties struct {
 	CodingEthos bool     `json:"coding_ethos"`
 }
 
+type sarifInvocation struct {
+	WorkingDirectory    sarifArtifactLocation `json:"workingDirectory,omitempty"`
+	ExecutionSuccessful bool                  `json:"executionSuccessful"`
+}
+
+type sarifRunAutomationDetails struct {
+	ID string `json:"id,omitempty"`
+}
+
+type sarifRunProperties struct {
+	Scope string `json:"scope,omitempty"`
+}
+
 func FormatLintResultSARIF(result lint.Result) (string, error) {
 	diagnostics := lint.OutputDiagnostics(result)
+	rules := sarifRules(diagnostics)
+	ruleIndexes := sarifRuleIndexes(rules)
 	log := sarifLog{
 		Schema:  sarifSchema,
 		Version: sarifVersion,
@@ -110,9 +134,19 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 			Tool: sarifTool{Driver: sarifDriver{
 				Name:           "coding-ethos",
 				InformationURI: "https://github.com/paudley/coding-ethos",
-				Rules:          sarifRules(diagnostics),
+				Rules:          rules,
 			}},
-			Results: sarifResults(diagnostics),
+			Invocations: []sarifInvocation{{
+				WorkingDirectory:    sarifArtifactLocation{URI: sarifRepoURI},
+				ExecutionSuccessful: !result.Blocked(),
+			}},
+			AutomationDetails: sarifRunAutomationDetails{
+				ID: sarifAutomationID(result.Scope),
+			},
+			Results: sarifResults(diagnostics, ruleIndexes),
+			Properties: sarifRunProperties{
+				Scope: result.Scope,
+			},
 		}},
 	}
 
@@ -144,12 +178,14 @@ func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
 				Markdown: sarifHelpMarkdown(item),
 			},
 			Properties: sarifRuleProperty{
-				Tags:        append([]string(nil), item.Tags...),
-				PolicyID:    item.PolicyID,
-				SkillID:     item.SkillID,
-				SourceTool:  item.Tool,
-				EthosIDs:    append([]string(nil), item.PrincipleIDs...),
-				CodingEthos: true,
+				Tags:             sarifRuleTags(item),
+				Precision:        sarifPrecision(item),
+				SecuritySeverity: sarifSecuritySeverity(item),
+				PolicyID:         item.PolicyID,
+				SkillID:          item.SkillID,
+				SourceTool:       item.Tool,
+				EthosIDs:         append([]string(nil), item.PrincipleIDs...),
+				CodingEthos:      true,
 			},
 		})
 	}
@@ -157,14 +193,20 @@ func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
 	return rules
 }
 
-func sarifResults(items []diagnostics.Diagnostic) []sarifResult {
+func sarifResults(
+	items []diagnostics.Diagnostic,
+	ruleIndexes map[string]int,
+) []sarifResult {
 	results := make([]sarifResult, 0, len(items))
 	for _, item := range items {
+		ruleID := sarifRuleID(item)
 		results = append(results, sarifResult{
-			RuleID:    sarifRuleID(item),
-			Level:     sarifLevel(item.Severity),
-			Message:   sarifMessage{Text: item.Message},
-			Locations: sarifLocations(item),
+			RuleID:              ruleID,
+			RuleIndex:           sarifRuleIndex(ruleIndexes, ruleID),
+			Level:               sarifLevel(item.Severity),
+			Message:             sarifMessage{Text: item.Message},
+			Locations:           sarifLocations(item),
+			PartialFingerprints: sarifPartialFingerprints(item),
 			Properties: sarifResultProperties{
 				Advice:      item.Advice,
 				Code:        item.Code,
@@ -181,6 +223,24 @@ func sarifResults(items []diagnostics.Diagnostic) []sarifResult {
 	return results
 }
 
+func sarifRuleIndex(indexes map[string]int, ruleID string) *int {
+	index, ok := indexes[ruleID]
+	if !ok {
+		return nil
+	}
+
+	return &index
+}
+
+func sarifRuleIndexes(rules []sarifRule) map[string]int {
+	indexes := make(map[string]int, len(rules))
+	for index, rule := range rules {
+		indexes[rule.ID] = index
+	}
+
+	return indexes
+}
+
 func sarifRuleID(item diagnostics.Diagnostic) string {
 	return firstSarifNonEmpty(
 		item.PolicyID,
@@ -193,6 +253,68 @@ func sarifRuleID(item diagnostics.Diagnostic) string {
 
 func sarifRuleName(item diagnostics.Diagnostic) string {
 	return firstSarifNonEmpty(item.Code, item.PolicyID, item.Tool)
+}
+
+func sarifRuleTags(item diagnostics.Diagnostic) []string {
+	tags := append([]string(nil), item.Tags...)
+	if sarifSecuritySeverity(item) != "" && !containsString(tags, "security") {
+		tags = append(tags, "security")
+	}
+	if item.PolicyID != "" && !containsString(tags, "policy") {
+		tags = append(tags, "policy")
+	}
+	if item.SkillID != "" && !containsString(tags, "remediation") {
+		tags = append(tags, "remediation")
+	}
+
+	return limitStrings(tags, 20)
+}
+
+func sarifPrecision(item diagnostics.Diagnostic) string {
+	if item.PolicyID != "" || len(item.PrincipleIDs) > 0 {
+		return "high"
+	}
+	if item.Code != "" {
+		return "medium"
+	}
+
+	return ""
+}
+
+func sarifSecuritySeverity(item diagnostics.Diagnostic) string {
+	text := strings.ToLower(strings.Join([]string{
+		item.PolicyID,
+		item.Code,
+		item.Message,
+		item.Detail,
+		strings.Join(item.Tags, " "),
+	}, " "))
+	if !strings.Contains(text, "security") &&
+		!strings.Contains(text, "injection") &&
+		!strings.Contains(text, "secret") &&
+		!strings.Contains(text, "credential") &&
+		!strings.Contains(text, "unsafe") &&
+		!sarifBanditSecurityCode(item.Code) {
+		return ""
+	}
+
+	switch sarifLevel(item.Severity) {
+	case "error":
+		return "8.0"
+	case "warning":
+		return "5.0"
+	default:
+		return "3.0"
+	}
+}
+
+func sarifBanditSecurityCode(code string) bool {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if len(code) < 2 || code[0] != 'S' {
+		return false
+	}
+
+	return code[1] >= '0' && code[1] <= '9'
 }
 
 func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
@@ -211,7 +333,7 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 }
 
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
-	file := item.File
+	file := sarifArtifactURI(item.File)
 	if file == "" {
 		file = sarifRepoURI
 	}
@@ -233,6 +355,34 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	return []sarifLocation{location}
 }
 
+func sarifArtifactURI(file string) string {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return ""
+	}
+
+	return strings.TrimPrefix(strings.ReplaceAll(file, "\\", "/"), "./")
+}
+
+func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
+	return map[string]string{
+		"coding-ethos/v1": sarifHashStrings(
+			sarifRuleID(item),
+			sarifArtifactURI(item.File),
+			fmt.Sprint(item.Line),
+			fmt.Sprint(item.Column),
+			item.Message,
+		),
+		"coding-ethos/stable/v1": sarifHashStrings(
+			sarifRuleID(item),
+			sarifArtifactURI(item.File),
+			item.Code,
+			item.PolicyID,
+			item.Message,
+		),
+	}
+}
+
 func sarifLevel(severity string) string {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "block", "error", "fatal":
@@ -244,6 +394,44 @@ func sarifLevel(severity string) string {
 	default:
 		return "warning"
 	}
+}
+
+func sarifAutomationID(scope string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return "coding-ethos/default"
+	}
+
+	replacer := strings.NewReplacer(":", "/", " ", "-", "\\", "/", ",", "-")
+	return "coding-ethos/" + strings.Trim(replacer.Replace(scope), "/")
+}
+
+func sarifHashStrings(values ...string) string {
+	hash := sha256.New()
+	for _, value := range values {
+		hash.Write([]byte(strings.TrimSpace(value)))
+		hash.Write([]byte{0})
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+
+	return false
+}
+
+func limitStrings(values []string, limit int) []string {
+	if len(values) <= limit {
+		return values
+	}
+
+	return values[:limit]
 }
 
 func joinSarifID(first string, second string) string {

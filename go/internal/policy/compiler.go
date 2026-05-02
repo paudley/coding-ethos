@@ -883,6 +883,7 @@ func gitPolicies(config map[string]any, principles map[string]Principle) []Polic
 			"Destructive git worktree operations are forbidden.",
 			"Inspect worktree state before changing worktrees.",
 		),
+		gitProtectedSubmoduleUpdatePolicy(config, principles),
 		gitChangeDirPolicy(principles),
 		gitStagedAdminPolicy(config, principles),
 		gitCommitHeadPolicy(principles),
@@ -919,6 +920,33 @@ func gitChangeDirPolicy(principles map[string]Principle) Policy {
 		"git -C hides the working directory context.",
 		"Change to the intended directory explicitly, then run git there.",
 	)
+}
+
+func gitProtectedSubmoduleUpdatePolicy(
+	config map[string]any,
+	principles map[string]Principle,
+) Policy {
+	policyDef := gitPolicy(
+		"git.protected_submodule_update",
+		"git.protected_submodule_update",
+		principleRefs(
+			principles,
+			"security-by-design",
+			"one-path-for-critical-operations",
+			"no-rationalized-shortcuts",
+		),
+		"Protected submodules cannot be initialized or checked out to a recorded SHA.",
+		"Use git submodule update --remote for upgrades, or ask an admin for controlled rollback.",
+	)
+	policyDef.Evaluators[0].Options = map[string]any{
+		"paths": stringSliceAt(
+			config,
+			[]string{"git", "protected_submodule_update", "paths"},
+			[]string{"coding-ethos"},
+		),
+	}
+
+	return policyDef
 }
 
 func gitStagedAdminPolicy(
@@ -3026,6 +3054,7 @@ func addBlockingBashDispatch(
 		"git.force_push_protected_branch",
 		"git.checkout_protected_branch",
 		"git.destructive_worktree",
+		"git.protected_submodule_update",
 		"git.change_dir_flag",
 		"git.stash_blocked",
 		"git.commitlint",
@@ -3221,6 +3250,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.force_push_protected_branch",
 			"git.checkout_protected_branch",
 			"git.destructive_worktree",
+			"git.protected_submodule_update",
 			"git.change_dir_flag",
 			"git.stash_blocked",
 			"shell.dangerous_command",
@@ -3326,7 +3356,10 @@ func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispa
 		"switch":   {Pre: existingPolicyIDs(policies, "git.checkout_protected_branch")},
 		"merge":    {Pre: existingPolicyIDs(policies, "git.merge_strategy_shortcut")},
 		"worktree": {Pre: existingPolicyIDs(policies, "git.destructive_worktree")},
-		"stash":    {Pre: existingPolicyIDs(policies, "git.stash_blocked")},
+		"submodule": {
+			Pre: existingPolicyIDs(policies, "git.protected_submodule_update"),
+		},
+		"stash": {Pre: existingPolicyIDs(policies, "git.stash_blocked")},
 		"checkout": {
 			Pre: existingPolicyIDs(
 				policies,

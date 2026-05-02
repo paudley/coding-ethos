@@ -107,7 +107,7 @@ func stagedAdminRepo(t *testing.T) string {
 	runGit(t, repo, "config", "user.email", "test@example.com")
 	runGit(t, repo, "config", "user.name", "Test")
 
-	hookPath := filepath.Join(repo, "pre-commit", "hooks")
+	hookPath := filepath.Join(repo, "bin")
 
 	err := os.MkdirAll(hookPath, 0o755)
 	if err != nil {
@@ -115,7 +115,7 @@ func stagedAdminRepo(t *testing.T) string {
 	}
 
 	err = os.WriteFile(
-		filepath.Join(hookPath, "run-go-hook.sh"),
+		filepath.Join(hookPath, "coding-ethos-run"),
 		[]byte("#!/usr/bin/env bash\n"),
 		0o600,
 	)
@@ -123,7 +123,7 @@ func stagedAdminRepo(t *testing.T) string {
 		t.Fatalf("write hook file: %v", err)
 	}
 
-	runGit(t, repo, "add", "pre-commit/hooks/run-go-hook.sh")
+	runGit(t, repo, "add", "bin/coding-ethos-run")
 
 	return repo
 }

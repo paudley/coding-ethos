@@ -20,8 +20,10 @@ hook prompt grounding aligned with a shared structured ethos.
 - `coding_ethos/markdown_seed.py`: Markdown-to-YAML seeding.
 - `coding_ethos/merging.py`: managed-block injection and external LLM merge
   orchestration.
-- `coding_ethos/tool_configs.py`: generated Pyright, mypy, Ruff, yamllint,
-  Bandit, SQLFluff, Tombi, and golangci-lint configs.
+- `coding_ethos/tool_configs.py`: generated tool config sync, drift checks,
+  and manifest handling.
+- `coding_ethos/ci_tool_configs.py`: generated GitHub Actions and GitLab
+  SARIF CI configs.
 - `coding_ethos/gemini_prompt_pack.py`: generated Gemini hook prompt pack.
 - `pre-commit/prompts/`: prompt templates for Gemini review checks.
 - `pre-commit/hooks/go-hooks/`: active Git hook runtime and external check

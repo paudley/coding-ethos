@@ -11,7 +11,7 @@ run broad shell commands or improvise lint workflows.
 The server is exposed through the managed runtime:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh mcp
+bin/coding-ethos-run mcp
 ```
 
 The MCP server is advisory context and managed tool access, not a bypass.

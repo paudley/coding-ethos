@@ -78,7 +78,7 @@ python:
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "pre-commit", "hooks", "run-go-hook.sh"),
+		filepath.Join(tempDir, "pre-commit", "hooks", "managed-toolchain.tsv"),
 		"#!/bin/sh\n",
 	)
 	mustWriteTestFile(
@@ -168,7 +168,7 @@ python:
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "run-go-hook.sh"),
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
 		"#!/bin/sh\n",
 	)
 	mustWriteTestFile(

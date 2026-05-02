@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import yaml
 
+from coding_ethos import ci_tool_configs
 from coding_ethos.yaml_utils import render_yaml
 
 GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
@@ -29,6 +30,7 @@ GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
     "tombi.toml",
     ".golangci.yml",
 )
+GENERATED_CI_CONFIGS = ci_tool_configs.GENERATED_CI_CONFIGS
 TOOL_CONFIG_HASH_MANIFEST = ".code-ethos/tool-config-hashes.json"
 
 _DEFAULT_REPO_CONFIG_NAMES: tuple[str, ...] = (
@@ -738,7 +740,7 @@ def render_golangci_config(config: dict[str, Any]) -> str:
 
 def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
     """Render all supported repo-root tool config files."""
-    return {
+    rendered = {
         "pyrightconfig.json": render_pyrightconfig(config),
         "mypy.ini": render_mypy_ini(config),
         "ruff.toml": render_ruff_toml(config),
@@ -749,6 +751,21 @@ def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
         "tombi.toml": render_tombi_config(config),
         ".golangci.yml": render_golangci_config(config),
     }
+    if ci_tool_configs.ci_config_enabled(
+        config,
+        "generated_config.ci.github_actions.enabled",
+        default=False,
+    ):
+        rendered[".github/workflows/coding-ethos-sarif.yml"] = (
+            ci_tool_configs.render_github_sarif_workflow(config)
+        )
+    if ci_tool_configs.ci_config_enabled(
+        config,
+        "generated_config.ci.gitlab.enabled",
+        default=False,
+    ):
+        rendered[".gitlab-ci.yml"] = ci_tool_configs.render_gitlab_sarif_config(config)
+    return rendered
 
 
 def sync_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Path]:
@@ -758,6 +775,7 @@ def sync_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Pa
     written: list[Path] = []
     for relative_path, content in rendered.items():
         absolute_path = repo_root / relative_path
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
         absolute_path.write_text(content, encoding="utf-8")
         written.append(absolute_path)
     manifest_path = repo_root / TOOL_CONFIG_HASH_MANIFEST

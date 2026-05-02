@@ -94,7 +94,7 @@ func main() {
 		"Install captured lint tool shims into --tools-bin-dir",
 	)
 	toolsBinDir := flags.String("tools-bin-dir", "", "Directory for captured lint tool shims")
-	runGoHook := flags.String("run-go-hook", "", "run-go-hook.sh path for captured lint shims")
+	runner := flags.String("runner", "", "runner path for captured lint shims")
 	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
 	scope := scopeFlagSet(flags)
 
@@ -137,7 +137,7 @@ func main() {
 	}
 
 	if *installShims {
-		if err := installCapturedToolShims(*toolsBinDir, *runGoHook, *ethosRoot); err != nil {
+		if err := installCapturedToolShims(*toolsBinDir, *runner, *ethosRoot); err != nil {
 			exitErr(err)
 		}
 		return

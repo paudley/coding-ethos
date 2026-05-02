@@ -16,7 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 )
 
-const testHookCommand = "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"
+const testHookCommand = "/repo/bin/coding-ethos-run agent-hook"
 
 func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 	t.Parallel()
@@ -53,7 +53,7 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"write_file"`,
 		`"hooksConfig"`,
 		`"matcher": "Bash"`,
-		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
+		`"command": "/repo/bin/coding-ethos-run agent-hook"`,
 		`"statusMessage": "coding-ethos policy"`,
 		`"name": "coding-ethos"`,
 	} {
@@ -190,7 +190,7 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	err := agenthooks.SyncSettings(root, "pre-commit/hooks/run-go-hook.sh agent-hook")
+	err := agenthooks.SyncSettings(root, "bin/coding-ethos-run agent-hook")
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
@@ -237,10 +237,10 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 
 	paths := agenthooks.DefaultSettingsPaths(root)
 	claudeMCP := readJSONSettings(t, paths.ClaudeMCP)
-	assertMCPServer(t, claudeMCP, "/repo/pre-commit/hooks/run-go-hook.sh", true)
+	assertMCPServer(t, claudeMCP, "/repo/bin/coding-ethos-run", true)
 
 	geminiSettings := readJSONSettings(t, paths.Gemini)
-	assertMCPServer(t, geminiSettings, "/repo/pre-commit/hooks/run-go-hook.sh", false)
+	assertMCPServer(t, geminiSettings, "/repo/bin/coding-ethos-run", false)
 
 	codexConfig, err := os.ReadFile(paths.CodexConfig)
 	if err != nil {
@@ -250,7 +250,7 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 	codex := string(codexConfig)
 	for _, expected := range []string{
 		`[mcp_servers.coding-ethos]`,
-		`command = "/repo/pre-commit/hooks/run-go-hook.sh"`,
+		`command = "/repo/bin/coding-ethos-run"`,
 		`args = ["mcp"]`,
 	} {
 		if !strings.Contains(codex, expected) {
@@ -586,7 +586,7 @@ func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 		t.Fatalf("sync settings: %v", err)
 	}
 
-	err = agenthooks.DoctorSettings(root, "/other/run-go-hook.sh agent-hook")
+	err = agenthooks.DoctorSettings(root, "/other/coding-ethos-run agent-hook")
 	if err == nil {
 		t.Fatal("expected doctor mismatch")
 	}
@@ -643,8 +643,8 @@ func TestDoctorSettingsRejectsMissingGeminiHook(t *testing.T) {
 
 	mutated := strings.Replace(
 		string(payload),
-		`"command": "/repo/pre-commit/hooks/run-go-hook.sh agent-hook"`,
-		`"command": "/other/run-go-hook.sh agent-hook"`,
+		`"command": "/repo/bin/coding-ethos-run agent-hook"`,
+		`"command": "/other/coding-ethos-run agent-hook"`,
 		1,
 	)
 
@@ -675,8 +675,8 @@ func TestDoctorSettingsRejectsMismatchedMCPServer(t *testing.T) {
 
 	mutated := strings.Replace(
 		string(payload),
-		`"/repo/pre-commit/hooks/run-go-hook.sh"`,
-		`"/other/run-go-hook.sh"`,
+		`"/repo/bin/coding-ethos-run"`,
+		`"/other/coding-ethos-run"`,
 		1,
 	)
 
@@ -827,7 +827,7 @@ case "$payload" in
     esac
     ;;
   *'"provider": "claude"'*)
-    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/pre-commit/hooks/run-go-hook.sh policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
     ;;
   *'"UserPromptSubmit"'*)
     printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'

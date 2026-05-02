@@ -60,6 +60,10 @@ git:
     enabled: true
   stash_blocked:
     enabled: true
+  protected_submodule_update:
+    enabled: true
+    paths:
+      - coding-ethos
   staged_admin_files:
     enabled: true
     basenames:
@@ -67,6 +71,22 @@ git:
       - repo_config.yaml
     dirs:
       - .github
+
+generated_config:
+  ci:
+    github_actions:
+      enabled: true
+      coding_ethos_path: coding-ethos
+      repo_root: .
+      gate_command: make check
+      sarif_path: coding-ethos.sarif
+      artifact_name: coding-ethos-audit
+    gitlab:
+      enabled: true
+      coding_ethos_path: coding-ethos
+      repo_root: .
+      gate_command: make check
+      sarif_path: coding-ethos.sarif
 
 filesystem:
   protected_path:

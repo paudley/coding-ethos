@@ -18,6 +18,7 @@ import pytest
 import yaml
 
 from coding_ethos import (
+    GENERATED_CI_CONFIGS,
     GENERATED_TOOL_CONFIGS,
     TOOL_CONFIG_HASH_MANIFEST,
     load_primary_bundle,
@@ -46,6 +47,25 @@ _TOOL_CONFIG_OVERRIDE = {
     },
 }
 
+_CI_CONFIG_OVERRIDE = {
+    "generated_config": {
+        "ci": {
+            "github_actions": {
+                "enabled": True,
+                "coding_ethos_path": "coding-ethos",
+                "repo_root": ".",
+                "gate_command": "make check",
+            },
+            "gitlab": {
+                "enabled": True,
+                "coding_ethos_path": "coding-ethos",
+                "repo_root": ".",
+                "gate_command": "make check",
+            },
+        }
+    }
+}
+
 
 def _write_yaml_file(path: Path, payload: object) -> None:
     path.write_text(
@@ -56,6 +76,10 @@ def _write_yaml_file(path: Path, payload: object) -> None:
 
 def _write_repo_tool_config_override(repo_root: Path) -> None:
     _write_yaml_file(repo_root / "repo_config.yaml", _TOOL_CONFIG_OVERRIDE)
+
+
+def _write_repo_ci_config_override(repo_root: Path) -> None:
+    _write_yaml_file(repo_root / "repo_config.yaml", _CI_CONFIG_OVERRIDE)
 
 
 def _load_generated_tool_configs(
@@ -119,6 +143,34 @@ def _assert_generated_tool_configs(repo_root: Path) -> None:
     _assert_bandit_tool_config(bandit)
     _assert_sqlfluff_tool_config(sqlfluff)
     _assert_tombi_tool_config(tombi)
+    _assert_generated_ci_configs(repo_root)
+
+
+def _assert_generated_ci_configs(repo_root: Path) -> None:
+    for config_path in GENERATED_CI_CONFIGS:
+        assert (repo_root / config_path).exists(), config_path
+
+    github_workflow = (
+        repo_root / ".github" / "workflows" / "coding-ethos-sarif.yml"
+    ).read_text(encoding="utf-8")
+    gitlab_ci = (repo_root / ".gitlab-ci.yml").read_text(encoding="utf-8")
+    manifest = json.loads(
+        (repo_root / TOOL_CONFIG_HASH_MANIFEST).read_text(encoding="utf-8")
+    )
+
+    assert "bin/coding-ethos-run" in github_workflow
+    assert "github/codeql-action/upload-sarif@v4" in github_workflow
+    assert "--files-from" in github_workflow
+    assert "github.event.before" in github_workflow
+    assert 'git ls-files > "$files_path"' not in github_workflow
+    assert ".github/workflows/coding-ethos-sarif.yml" in manifest["configs"]
+
+    assert "coding_ethos_sarif" in gitlab_ci
+    assert "artifacts:" in gitlab_ci
+    assert "--files-from" in gitlab_ci
+    assert "CI_COMMIT_BEFORE_SHA" in gitlab_ci
+    assert 'git ls-files > "$files_path"' not in gitlab_ci
+    assert ".gitlab-ci.yml" in manifest["configs"]
 
 
 def _assert_pyright_tool_config(pyright: dict[str, Any]) -> None:
@@ -867,6 +919,15 @@ class CliRenderTests(unittest.TestCase):
             exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
             assert exit_code == 0
             _assert_generated_tool_configs(repo_root)
+
+    def test_cli_sync_tool_configs_generates_enabled_ci_configs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_root = Path(tmp_dir)
+            _write_repo_ci_config_override(repo_root)
+
+            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
+            assert exit_code == 0
+            _assert_generated_ci_configs(repo_root)
 
     def test_cli_check_tool_configs_detects_out_of_sync_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

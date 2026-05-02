@@ -738,7 +738,7 @@ func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": "pre-commit/hooks/run-go-hook.sh policy-git status --short",
+				"command": "bin/coding-ethos-run policy-git status --short",
 			},
 		},
 	})
@@ -754,11 +754,11 @@ func TestRunAllowsManagedGitWrapperCommand(t *testing.T) {
 func TestRunAllowsGeneratedAgentHookCommandWithManagedPolicyGit(t *testing.T) {
 	t.Setenv(
 		"CODING_ETHOS_RUN_GO_HOOK",
-		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+		"/repo/coding-ethos/bin/coding-ethos-run",
 	)
 
 	command := "PATH=/repo/coding-ethos/bin:$PATH " +
-		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"/repo/coding-ethos/bin/coding-ethos-run " +
 		"policy-git status --short"
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -779,12 +779,12 @@ func TestRunAllowsGeneratedAgentHookCommandWithManagedPolicyGit(t *testing.T) {
 	}
 }
 
-func TestRunAllowsParentRelativeRunGoHookWhenItResolvesToTrustedPath(t *testing.T) {
+func TestRunAllowsParentRelativeRunnerWhenItResolvesToTrustedPath(t *testing.T) {
 	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "/repo")
 	t.Setenv("INVOCATION_CWD", "/repo")
 	t.Setenv(
 		"CODING_ETHOS_RUN_GO_HOOK",
-		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+		"/repo/coding-ethos/bin/coding-ethos-run",
 	)
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -792,7 +792,7 @@ func TestRunAllowsParentRelativeRunGoHookWhenItResolvesToTrustedPath(t *testing.
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": "coding-ethos/pre-commit/hooks/run-go-hook.sh policy-git status --short",
+				"command": "coding-ethos/bin/coding-ethos-run policy-git status --short",
 			},
 		},
 	})
@@ -805,14 +805,14 @@ func TestRunAllowsParentRelativeRunGoHookWhenItResolvesToTrustedPath(t *testing.
 	}
 }
 
-func TestRunBlocksFakeRunGoHookPathEvenWithPolicyGit(t *testing.T) {
+func TestRunBlocksFakeRunnerPathEvenWithPolicyGit(t *testing.T) {
 	t.Setenv(
 		"CODING_ETHOS_RUN_GO_HOOK",
-		"/repo/coding-ethos/pre-commit/hooks/run-go-hook.sh",
+		"/repo/coding-ethos/bin/coding-ethos-run",
 	)
 
 	command := "PATH=/fake/bin:$PATH " +
-		"/fake/coding-ethos/pre-commit/hooks/run-go-hook.sh " +
+		"/fake/coding-ethos/bin/coding-ethos-run " +
 		"policy-git status --short"
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -837,7 +837,7 @@ func TestRunBlocksFakeRunGoHookPathEvenWithPolicyGit(t *testing.T) {
 	}
 }
 
-func TestRunAllowsDocumentedRunGoHookNonGitCommand(t *testing.T) {
+func TestRunAllowsDocumentedRunnerNonGitCommand(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -845,7 +845,7 @@ func TestRunAllowsDocumentedRunGoHookNonGitCommand(t *testing.T) {
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": "pre-commit/hooks/run-go-hook.sh agent-hooks verify",
+				"command": "bin/coding-ethos-run agent-hooks verify",
 			},
 		},
 	})
@@ -884,10 +884,10 @@ func TestRunBlocksStringOnlyManagedWrapperMentionWithRawGit(t *testing.T) {
 
 	for _, command := range []string{
 		"printf '%s\n' coding-ethos-git /usr/bin/git",
-		"echo run-go-hook.sh policy-git /bin/git status",
+		"echo coding-ethos-run policy-git /bin/git status",
 		"some-coding-ethos-git status",
 		"coding-ethos-git status",
-		"./run-go-hook.sh policy-git status",
+		"./coding-ethos-run policy-git status",
 	} {
 		result, err := Run(policy.ExampleBundle(), Options{
 			Event: Event{
@@ -1128,7 +1128,7 @@ func TestRunSuppressesSuccessfulPostToolHookOutputContext(t *testing.T) {
 			HookEventName: "PostToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": "pre-commit/hooks/run-go-hook.sh policy-git status --short",
+				"command": "bin/coding-ethos-run policy-git status --short",
 			},
 			ToolResponse: map[string]any{
 				"stdout":      "M  TODO.md\nM  go/internal/hooks/runner.go\n",

@@ -33,7 +33,7 @@ High-value queries include:
 - which generated skill best fits the current task
 
 The first MCP surface is a local stdio server exposed through
-`pre-commit/hooks/run-go-hook.sh mcp`. It reads from the same compiled policy
+`bin/coding-ethos-run mcp`. It reads from the same compiled policy
 bundle and skill data as the hooks, and starts with command checks, proposed
 edit checks, managed lint capture, compiled lint checks, lint advice, policy
 explanations, skill lookup, task-based skill recommendation, and per-tool

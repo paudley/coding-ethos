@@ -117,7 +117,7 @@ def test_policy_tool_ruff_uses_managed_tool_and_normalizes_paths(
     env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "ruff",
             "check",
@@ -178,7 +178,7 @@ python:
     env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "ruff",
             "check",
@@ -237,7 +237,7 @@ python:
     env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "ruff",
             "check",
@@ -289,7 +289,7 @@ python:
 
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "ruff",
             "check",
@@ -323,17 +323,13 @@ def test_lint_target_source_roots_come_from_policy_config() -> None:
 
 
 def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
-    script = (REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh").read_text(
-        encoding="utf-8"
-    )
     shims = (REPO_ROOT / "go" / "cmd" / "coding-ethos-lint" / "shims.go").read_text(
         encoding="utf-8"
     )
 
     assert not (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").exists()
-    assert "--install-shims" in script
     assert "CapturedLintTools()" in shims
-    assert "CAPTURED_LINT_TOOLS" not in script
+    assert "CAPTURED_LINT_TOOLS" not in shims
 
 
 def test_lint_source_roots_helper_rejects_repo_escape(tmp_path: Path) -> None:
@@ -386,7 +382,7 @@ def test_policy_tool_blocks_generated_config_drift_before_linter_runs(
     env["CODE_ETHOS_HOOK_OUTPUT_FORMAT"] = "toon"
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "mypy",
             "pkg/app.py",
@@ -417,7 +413,7 @@ def test_policy_tool_mypy_uses_consumer_python_environment(tmp_path: Path) -> No
 
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-tool",
             "mypy",
             "pkg/app.py",
@@ -438,151 +434,91 @@ def test_policy_tool_mypy_uses_consumer_python_environment(tmp_path: Path) -> No
     assert str(venv_bin / "python") in trace_content
 
 
-def test_runtime_bootstrap_repairs_missing_checkout_local_binary(
+def test_runner_fails_hard_when_checkout_local_binary_is_missing(
     tmp_path: Path,
 ) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     policy_tool = REPO_ROOT / "bin" / "coding-ethos-policy"
-    policy_tool.unlink(missing_ok=True)
-
-    result = _run(
-        [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
-            "policy",
-            "validate",
-            "--bundle",
-            str(REPO_ROOT / "build" / "policy" / "policy-bundle.json"),
-        ],
-        cwd=consumer,
-        timeout=180,
-    )
+    backup = policy_tool.read_bytes()
+    mode = policy_tool.stat().st_mode
+    try:
+        policy_tool.unlink()
+        result = _run(
+            [
+                str(REPO_ROOT / "bin" / "coding-ethos-run"),
+                "policy",
+                "validate",
+                "--bundle",
+                str(REPO_ROOT / "build" / "policy" / "policy-bundle.json"),
+            ],
+            cwd=consumer,
+            check=False,
+            timeout=180,
+        )
+    finally:
+        policy_tool.write_bytes(backup)
+        policy_tool.chmod(mode)
 
     output = result.stdout + result.stderr
-    assert policy_tool.exists()
+    assert result.returncode == 127, output
+    assert "missing or non-executable coding-ethos-policy" in output
+    assert "run make build" in output
     assert ".git/coding-ethos-hooks" not in output
-    assert "stale" not in output.lower()
 
 
-def test_runtime_bootstrap_repairs_missing_policy_bundle(tmp_path: Path) -> None:
+def test_runner_fails_hard_when_policy_bundle_is_missing(tmp_path: Path) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     policy_bundle = REPO_ROOT / "build" / "policy" / "policy-bundle.json"
-    policy_bundle.unlink(missing_ok=True)
-
-    result = _run(
-        [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
-            "policy-lint",
-            "--help",
-        ],
-        cwd=consumer,
-        timeout=180,
-    )
-
-    output = result.stdout + result.stderr
-    assert policy_bundle.exists()
-    assert "Usage of coding-ethos-lint" in output
-    assert ".git/coding-ethos-hooks" not in output
-    assert "stale" not in output.lower()
-
-
-def test_runtime_bootstrap_repairs_missing_managed_shfmt(tmp_path: Path) -> None:
-    consumer = _prepare_consumer_repo(tmp_path)
-    shfmt = REPO_ROOT / "build" / "toolchain" / "go-bin" / "shfmt"
-    shfmt.unlink(missing_ok=True)
-    env = os.environ.copy()
-    env["PATH"] = ":".join(
-        part for part in env["PATH"].split(":") if not part.endswith("/go/bin")
-    )
-
-    result = _run(
-        [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
-            "policy-lint",
-            "--help",
-        ],
-        cwd=consumer,
-        env=env,
-        timeout=180,
-    )
+    backup = policy_bundle.read_bytes()
+    try:
+        policy_bundle.unlink()
+        result = _run(
+            [
+                str(REPO_ROOT / "bin" / "coding-ethos-run"),
+                "policy-lint",
+                "--help",
+            ],
+            cwd=consumer,
+            check=False,
+            timeout=180,
+        )
+    finally:
+        policy_bundle.parent.mkdir(parents=True, exist_ok=True)
+        policy_bundle.write_bytes(backup)
 
     output = result.stdout + result.stderr
-    assert shfmt.exists()
-    assert "Usage of coding-ethos-lint" in output
+    assert result.returncode == 127, output
+    assert "missing compiled policy bundle" in output
+    assert "run make build" in output
     assert ".git/coding-ethos-hooks" not in output
-    assert "stale" not in output.lower()
 
 
-def test_concurrent_runtime_bootstrap_uses_checkout_local_lock(tmp_path: Path) -> None:
+def test_runner_fails_hard_when_lint_binary_is_missing(tmp_path: Path) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     lint_tool = REPO_ROOT / "bin" / "coding-ethos-lint"
-    lint_tool.unlink(missing_ok=True)
-    command = [
-        str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
-        "policy-lint",
-        "--help",
-    ]
-
-    first = subprocess.Popen(
-        command,
-        cwd=consumer,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    second = subprocess.Popen(
-        command,
-        cwd=consumer,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    first_stdout, first_stderr = first.communicate(timeout=180)
-    second_stdout, second_stderr = second.communicate(timeout=180)
-
-    first_output = first_stdout + first_stderr
-    second_output = second_stdout + second_stderr
-    assert first.returncode == 0, first_output
-    assert second.returncode == 0, second_output
-    assert lint_tool.exists()
-    assert "Usage of coding-ethos-lint" in first_output
-    assert "Usage of coding-ethos-lint" in second_output
-    assert "stale" not in (first_output + second_output).lower()
-
-
-def test_failed_runtime_bootstrap_reports_exact_make_command(tmp_path: Path) -> None:
-    consumer = _prepare_consumer_repo(tmp_path)
-    lint_tool = REPO_ROOT / "bin" / "coding-ethos-lint"
-    lint_tool.unlink(missing_ok=True)
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    fake_make = fake_bin / "make"
-    fake_make.write_text(
-        "#!/usr/bin/env bash\necho 'fake make failure' >&2\nexit 73\n",
-        encoding="utf-8",
-    )
-    fake_make.chmod(0o700)
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}:{env['PATH']}"
-    result = _run(
-        [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
-            "policy-lint",
-            "--help",
-        ],
-        cwd=consumer,
-        env=env,
-        check=False,
-        timeout=180,
-    )
+    backup = lint_tool.read_bytes()
+    mode = lint_tool.stat().st_mode
+    try:
+        lint_tool.unlink()
+        result = _run(
+            [
+                str(REPO_ROOT / "bin" / "coding-ethos-run"),
+                "policy-lint",
+                "--help",
+            ],
+            cwd=consumer,
+            check=False,
+            timeout=180,
+        )
+    finally:
+        lint_tool.write_bytes(backup)
+        lint_tool.chmod(mode)
 
     output = result.stdout + result.stderr
-    assert result.returncode == 73, output
-    assert "coding-ethos runtime bootstrap failed" in output
-    assert "make -C" in output
-    assert "build output:" in output
-    assert "fake make failure" in output
-    assert "stale" not in output.lower()
+    assert result.returncode == 127, output
+    assert "missing or non-executable coding-ethos-lint" in output
+    assert "run make build" in output
+    assert ".git/coding-ethos-hooks" not in output
 
 
 def test_lifecycle_policy_lint_does_not_fail_on_policy_mtime_drift(
@@ -595,7 +531,7 @@ def test_lifecycle_policy_lint_does_not_fail_on_policy_mtime_drift(
 
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "policy-lint",
             "--help",
         ],
@@ -629,7 +565,7 @@ def test_cutover_verify_resolves_consumer_without_env(tmp_path: Path) -> None:
     env.pop("CODE_ETHOS_CONSUMER_ROOT", None)
     result = _run(
         [
-            str(REPO_ROOT / "pre-commit" / "hooks" / "run-go-hook.sh"),
+            str(REPO_ROOT / "bin" / "coding-ethos-run"),
             "cutover",
             "verify",
         ],
@@ -655,7 +591,7 @@ def test_installed_git_shim_contains_no_policy_specific_logic() -> None:
     assert "config.yaml" not in shim
 
 
-def test_git_shim_missing_checkout_error_names_submodule_repair(tmp_path: Path) -> None:
+def test_git_shim_missing_checkout_error_names_admin_repair(tmp_path: Path) -> None:
     consumer = tmp_path / "consumer-without-bundle"
     consumer.mkdir()
     _run(["git", "init"], cwd=consumer)
@@ -668,5 +604,7 @@ def test_git_shim_missing_checkout_error_names_submodule_repair(tmp_path: Path) 
 
     output = result.stdout + result.stderr
     assert result.returncode == 127, output
-    assert "git submodule update --init coding-ethos" in output
+    assert "missing protected submodule" in output
+    assert "documented protected-submodule path" in output
+    assert "git submodule update --init coding-ethos" not in output
     assert "policy-bundle" not in output
