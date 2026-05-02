@@ -311,11 +311,6 @@ principles:
                     has_prefix(file.file, "scripts/")
                   ) &&
                   file.line_count > 500
-                ) ||
-                (
-                  list_contains([".json", ".toml", ".yaml", ".yml"], file.ext) &&
-                  file.file != "coding_ethos.yml" &&
-                  file.line_count > 1200
                 )
               ) &&
               (
