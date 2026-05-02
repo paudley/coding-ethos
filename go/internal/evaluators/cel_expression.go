@@ -46,7 +46,7 @@ func EvaluateCELExpression(
 		"command":              context.Command,
 		"files":                append([]string(nil), context.Files...),
 		"implementation":       "cel",
-		"input_schema_version": 1,
+		"input_schema_version": celexpr.SchemaVersion,
 		"scope":                context.Scope,
 		"when":                 source,
 	}
@@ -85,7 +85,7 @@ func celDiagnostic(
 		PrincipleIDs: append([]string(nil), policyDef.PrincipleIDs...),
 		Metadata: map[string]any{
 			"implementation":       "cel",
-			"input_schema_version": 1,
+			"input_schema_version": celexpr.SchemaVersion,
 			"policy_source":        policySource(policyDef),
 			"when":                 source,
 		},

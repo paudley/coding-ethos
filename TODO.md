@@ -308,9 +308,10 @@ The current CEL work is a typed custom-policy extension point. These items
 define what is required before CEL can be treated as a complete generic policy
 engine rather than a companion to first-class Go evaluators.
 
-- [ ] Define and version a stable policy object model for CEL inputs covering
+- [x] Define and version a stable policy object model for CEL inputs covering
   command, argv, tool, event, provider, cwd, repo, path, paths, file, files,
-  diagnostic, finding, diff, Git facts, config facts, and safe metadata.
+  file changes, diagnostic, finding, diff, Git facts, config facts, and safe
+  metadata.
 - [x] Remove aspirational CEL fields: every exposed field must be populated
   reliably for its scope, or removed until the runtime can provide it.
 - [x] Populate real typed inputs for hook command scope, file/path scope, lint
@@ -367,18 +368,18 @@ engine rather than a companion to first-class Go evaluators.
 
 Acceptance criteria:
 
-- [ ] Repo policy authors can express most simple and medium-complexity rules
+- [x] Repo policy authors can express most simple and medium-complexity rules
   in checked-in ethos/config YAML without changing Go source.
-- [ ] Policy authors get compile-time failures for unknown fields, invalid
+- [x] Policy authors get compile-time failures for unknown fields, invalid
   types, invalid helpers, unsafe host access, and invalid dispatch.
-- [ ] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
+- [x] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
   paths cannot distinguish CEL-backed and Go-backed policies except by
   implementation metadata.
-- [ ] Multi-file and multi-finding policies are explicit and deterministic; no
+- [x] Multi-file and multi-finding policies are explicit and deterministic; no
   policy depends on implicit "first file" ordering.
-- [ ] Protected core policies remain non-shadowable and non-weakenable unless a
+- [x] Protected core policies remain non-shadowable and non-weakenable unless a
   protected source explicitly permits it.
-- [ ] Go evaluators remain only for complex parsing, expensive analysis, Git
+- [x] Go evaluators remain only for complex parsing, expensive analysis, Git
   state modeling, managed toolchain behavior, path normalization, and other
   reviewed security-sensitive operations.
 - [ ] Add richer diff hunk and line-range facts once the runtime has a reviewed

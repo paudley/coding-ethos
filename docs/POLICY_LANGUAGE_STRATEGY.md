@@ -266,12 +266,13 @@ The required completion work is:
 
 1. **Stable object model.** Define a versioned schema for every CEL-visible
    object. The current public surface includes `command`, `command_fact`,
-   `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`, `diagnostic`,
-   `diagnostics`, `finding`, `findings`, `config`, `git`, `git_command`,
-   `event`, `diff`, and non-sensitive metadata. Future provider-native event
-   fields, diff hunks, line ranges, richer Git state, and richer config facts
-   must be added only when every relevant runtime can populate them reliably.
-   Once exposed, these fields are public policy API.
+   `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`,
+   `file_changes`, `diagnostic`, `diagnostics`, `finding`, `findings`,
+   `config`, `git`, `git_command`, `event`, `diff`, and non-sensitive
+   metadata. Future provider-native event fields, diff hunks, line ranges,
+   richer Git state, and richer config facts must be added only when every
+   relevant runtime can populate them reliably. Once exposed, these fields are
+   public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
    reliably or not expose it. The current Git and config surfaces expose

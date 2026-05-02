@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -39,7 +40,7 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 		t.Fatalf("diagnostic = %#v", decisions[0].Diagnostics[0])
 	}
 	if decisions[0].Evidence["implementation"] != "cel" ||
-		decisions[0].Evidence["input_schema_version"] != 1 ||
+		decisions[0].Evidence["input_schema_version"] != celexpr.SchemaVersion ||
 		decisions[0].Diagnostics[0].Metadata["implementation"] != "cel" {
 		t.Fatalf("missing CEL result metadata: %#v", decisions[0])
 	}
