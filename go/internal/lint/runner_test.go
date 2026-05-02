@@ -137,6 +137,51 @@ func TestRunUsesRegisteredEvaluator(t *testing.T) {
 	}
 }
 
+func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourcePath := filepath.Join(repo, "go", "internal", "hooks", "runner.go")
+	scriptPath := filepath.Join(repo, "scripts", "touch-hook.sh")
+	for _, path := range []string{sourcePath, scriptPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir fixture: %v", err)
+		}
+	}
+	content := []byte("coding-ethos-hooks/bin/coding-ethos-policy\n")
+	if err := os.WriteFile(sourcePath, content, 0o600); err != nil {
+		t.Fatalf("write source fixture: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script fixture: %v", err)
+	}
+
+	sourceResult, err := Run(policy.ExampleBundle(), Options{
+		Scope: ScopeStaged,
+		Cwd:   repo,
+		Files: []string{"go/internal/hooks/runner.go"},
+	})
+	if err != nil {
+		t.Fatalf("run source lint: %v", err)
+	}
+	if sourceResult.Status != "resolved" {
+		t.Fatalf("source status mismatch: got %q, decisions %#v", sourceResult.Status, sourceResult.Decisions)
+	}
+
+	scriptResult, err := Run(policy.ExampleBundle(), Options{
+		Scope: ScopeStaged,
+		Cwd:   repo,
+		Files: []string{"scripts/touch-hook.sh"},
+	})
+	if err != nil {
+		t.Fatalf("run script lint: %v", err)
+	}
+	if scriptResult.Status != "blocked" ||
+		!lintResultHasDecision(scriptResult, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden-string script block, got %#v", scriptResult)
+	}
+}
+
 func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	t.Parallel()
 
@@ -176,6 +221,16 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	if result.Status != "blocked" {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+}
+
+func lintResultHasDecision(result Result, policyID string) bool {
+	for _, decision := range result.Decisions {
+		if decision.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {

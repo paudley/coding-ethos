@@ -695,6 +695,43 @@ func exampleShellForbiddenStringsPolicy() Policy {
 							file.is_regular &&
 							!file.in_agent_workspace &&
 							file.base != "config.yaml" &&
+							!any_glob_match(
+								[
+									"*.md",
+									"**/*.md",
+									".code-ethos/**",
+									"coding_ethos.yml",
+									"**/*_test.go",
+									"**/testdata/**"
+								],
+								file.file
+							) &&
+							any_glob_match(
+								[
+									"*.sh",
+									"**/*.sh",
+									"*.bash",
+									"**/*.bash",
+									"bin/**",
+									"scripts/**",
+									"Makefile",
+									"**/Makefile",
+									".github/workflows/**",
+									".gitlab-ci.yml",
+									"**/.gitlab-ci.yml",
+									"*.json",
+									"**/*.json",
+									"*.toml",
+									"**/*.toml",
+									"*.yaml",
+									"**/*.yaml",
+									"*.yml",
+									"**/*.yml",
+									"*.py",
+									"**/*.py"
+								],
+								file.file
+							) &&
 							any_contains(
 								[
 									"coding-ethos-hooks/coding-ethos-git-hook",

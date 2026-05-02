@@ -150,10 +150,10 @@ printf '%s%s\n%s\n' '-----BEGIN RSA ' 'PRIVATE KEY-----' 'redacted' > "$git_repo
 expect_compiled_file_block secret.pem security.private_key
 rm -f "$git_repo/secret.pem"
 
-printf '%s\n' 'coding-ethos-hooks/bin/coding-ethos-hook' > "$git_repo/forbidden.txt"
-expect_compiled_file_block forbidden.txt shell.forbidden_strings
-rm -f "$git_repo/forbidden.txt"
-
+mkdir -p "$git_repo/scripts" && printf '%s\n%s\n' '#!/usr/bin/env bash' \
+  "$(cat "$repo_root/go/scripts/testdata/forbidden-hook-marker.txt")" \
+  > "$git_repo/scripts/forbidden.sh"
+expect_compiled_file_block scripts/forbidden.sh shell.forbidden_strings && rm -f "$git_repo/scripts/forbidden.sh"
 printf '.code-ethos/cache/\n.coding-ethos/\n' > "$git_repo/.gitignore"
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add .gitignore file.txt
