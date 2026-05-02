@@ -109,7 +109,7 @@ func diffFileSelected(file string, selected map[string]bool) bool {
 }
 
 func diffPath(raw string) string {
-	trimmed := strings.TrimSpace(raw)
+	trimmed := strings.Trim(strings.TrimSpace(raw), `"`)
 	if trimmed == "/dev/null" {
 		return ""
 	}

@@ -315,8 +315,8 @@ func stripLeadingAssignments(argv []string) []string {
 }
 
 func isShellAssignment(arg string) bool {
-	name, value, ok := strings.Cut(arg, "=")
-	if !ok || name == "" || value == "" {
+	name, _, ok := strings.Cut(arg, "=")
+	if !ok || name == "" {
 		return false
 	}
 	for _, char := range name {

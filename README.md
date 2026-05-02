@@ -710,8 +710,10 @@ URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
 ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
 security-severity properties for findings that are actually security-relevant.
 Record-only policy context stays in TOON/JSON traces and is not uploaded as
-SARIF results; pathless policy findings omit synthetic root locations instead
-of creating noisy code-scanning alerts at `.` line 0.
+SARIF results. Pathless policy findings are also omitted from code-scanning
+SARIF because GitHub requires every uploaded result to have at least one
+location; coding-ethos keeps those aggregate findings in TOON/JSON traces
+instead of inventing noisy alerts at `.` line 0.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.

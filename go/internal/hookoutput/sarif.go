@@ -159,17 +159,24 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 }
 
 func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
 	if len(result.Diagnostics) > 0 {
-		return lint.OutputDiagnostics(result)
-	}
-	if len(result.Findings) > 0 && result.Blocked() {
-		return lint.OutputDiagnostics(result)
-	}
-	if result.Blocked() {
-		return lint.OutputDiagnostics(result)
+		items = lint.OutputDiagnostics(result)
+	} else if len(result.Findings) > 0 && result.Blocked() {
+		items = lint.OutputDiagnostics(result)
+	} else if result.Blocked() {
+		items = lint.OutputDiagnostics(result)
 	}
 
-	return nil
+	locatable := make([]diagnostics.Diagnostic, 0, len(items))
+	for _, item := range items {
+		if sarifArtifactURI(item.File) == "" {
+			continue
+		}
+		locatable = append(locatable, item)
+	}
+
+	return locatable
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {

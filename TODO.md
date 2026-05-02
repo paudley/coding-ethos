@@ -447,8 +447,8 @@ Acceptance criteria:
 
 - [x] Keep code-scanning SARIF actionable: record-only policy context remains
   in TOON/JSON traces and must not upload as root-level warning results.
-- [x] Omit synthetic repository-root locations for pathless policy results so
-  code scanning does not create noisy alerts at `.` line 0.
+- [x] Omit pathless policy results from code-scanning SARIF so GitHub does not
+  reject uploads and coding-ethos does not invent noisy alerts at `.` line 0.
 - [ ] Add MCP remediation endpoints that accept a SARIF run or trace ID and
   return focused ETHOS-grounded repair advice.
 - [ ] Add cross-tool finding grouping using SARIF fingerprints, policy IDs,

@@ -55,9 +55,10 @@ OASIS SARIF 2.1.0 tracking model:
 - Record-only policy context is not emitted as SARIF results. It remains
   available in TOON/JSON lint traces, but code-scanning uploads should contain
   actionable diagnostics only.
-- Pathless policy findings omit `locations` instead of inventing a repository
-  root location. This avoids noisy code-scanning alerts at `.` line 0 while
-  preserving the rule, message, severity, fingerprint, and ETHOS metadata.
+- Pathless policy findings are omitted from code-scanning SARIF. GitHub rejects
+  uploaded results without at least one location, and coding-ethos must not
+  invent repository-root locations that create noisy alerts at `.` line 0.
+  Aggregate/pathless findings remain available in TOON/JSON lint traces.
 
 Do not emit SARIF fields that are not grounded in actual evidence. In
 particular, `fixes`, `codeFlows`, `relatedLocations`, baseline state, and CWE

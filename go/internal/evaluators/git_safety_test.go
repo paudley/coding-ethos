@@ -96,6 +96,18 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			argv:      []string{"git", "checkout", "-b", "main", "origin/feature"},
 		},
 		{
+			name:      "checkout creates branch from protected local base",
+			policyID:  "git.checkout_protected_branch",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "checkout", "-b", "feature", "main"},
+		},
+		{
+			name:      "switch creates branch from protected local base",
+			policyID:  "git.checkout_protected_branch",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "switch", "-c", "feature", "main"},
+		},
+		{
 			name:      "worktree prune",
 			policyID:  "git.destructive_worktree",
 			evaluator: EvaluateCELExpression,

@@ -109,7 +109,7 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
 }
 
-func TestFormatLintResultSARIFOmitLocationsForPathlessPolicyFindings(t *testing.T) {
+func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -133,10 +133,9 @@ func TestFormatLintResultSARIFOmitLocationsForPathlessPolicyFindings(t *testing.
 		t.Fatalf("decode SARIF: %v\n%s", err, output)
 	}
 
-	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "repo.pii_scrubber")
-	resultPayload := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)[0].(map[string]any)
-	if _, exists := resultPayload["locations"]; exists {
-		t.Fatalf("pathless policy SARIF result should not emit a root location: %#v", resultPayload)
+	results := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	if len(results) != 0 {
+		t.Fatalf("pathless policy SARIF results cannot be uploaded to code scanning: %#v", results)
 	}
 }
 

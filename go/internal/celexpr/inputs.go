@@ -4,6 +4,7 @@
 package celexpr
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -658,7 +659,7 @@ func gitCommandInput(argv []string, protectedBranches []string) GitCommandInput 
 			(listContains(flags, "--theirs") || listContains(flags, "--ours")),
 		IsGit:      true,
 		Subcommand: normalized[subcommandIndex],
-		Targets:    gitTargets(args),
+		Targets:    gitCommandTargets(normalized[subcommandIndex], args),
 	}
 }
 
@@ -1049,6 +1050,7 @@ func gitGlobalOptions(args []string) []string {
 		options = append(options, arg)
 		if gitGlobalOptionHasValue(arg) && idx+1 < len(args) {
 			idx++
+			options = append(options, args[idx])
 		}
 	}
 
@@ -1070,7 +1072,10 @@ func gitGlobalOptionHasValue(arg string) bool {
 func gitFlags(args []string) []string {
 	flags := []string{}
 	for _, arg := range args {
-		if arg == "" || !strings.HasPrefix(arg, "-") || arg == "--" {
+		if arg == "--" {
+			break
+		}
+		if arg == "" || !strings.HasPrefix(arg, "-") {
 			continue
 		}
 		flags = append(flags, arg)
@@ -1155,18 +1160,44 @@ func gitCheckoutProtectedBranch(argv []string, protectedBranches []string) bool 
 	input := gitCommandInputWithoutDerived(argv)
 	switch input.Subcommand {
 	case "checkout":
-		return gitTargetsContainProtected(
+		return gitTargetsContainLocalProtected(
 			checkoutBranchTargets(input.Args),
 			protectedBranches,
 		)
 	case "switch":
-		return gitTargetsContainProtected(
+		return gitTargetsContainLocalProtected(
 			switchBranchTargets(input.Args),
 			protectedBranches,
 		)
 	default:
 		return false
 	}
+}
+
+func gitTargetsContainLocalProtected(targets []string, protectedBranches []string) bool {
+	for _, target := range targets {
+		if gitLocalProtectedBranchRef(target, protectedBranches) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func gitLocalProtectedBranchRef(value string, protectedBranches []string) bool {
+	if value == "" {
+		return false
+	}
+	if len(protectedBranches) == 0 {
+		protectedBranches = []string{"main", "master"}
+	}
+	for _, branch := range protectedBranches {
+		if value == branch {
+			return true
+		}
+	}
+
+	return false
 }
 
 func gitCommandInputWithoutDerived(argv []string) GitCommandInput {
@@ -1185,7 +1216,18 @@ func gitCommandInputWithoutDerived(argv []string) GitCommandInput {
 		Flags:      gitFlags(args),
 		IsGit:      true,
 		Subcommand: normalized[subcommandIndex],
-		Targets:    gitTargets(args),
+		Targets:    gitCommandTargets(normalized[subcommandIndex], args),
+	}
+}
+
+func gitCommandTargets(subcommand string, args []string) []string {
+	switch subcommand {
+	case "checkout":
+		return checkoutBranchTargets(args)
+	case "switch":
+		return switchBranchTargets(args)
+	default:
+		return gitTargets(args)
 	}
 }
 
@@ -1214,7 +1256,7 @@ func checkoutBranchTargets(args []string) []string {
 				index++
 			}
 			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
-				index++
+				targets = append(targets, args[index+1])
 			}
 		case arg == "--branch" || arg == "--orphan":
 			if index+1 < len(args) {
@@ -1242,7 +1284,7 @@ func switchBranchTargets(args []string) []string {
 				index++
 			}
 			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
-				index++
+				targets = append(targets, args[index+1])
 			}
 		case strings.HasPrefix(arg, "-"):
 			continue
@@ -1397,7 +1439,7 @@ func fileSizeAndLines(cwd string, file string) (int64, int, bool) {
 	if err != nil {
 		return 0, -1, false
 	}
-	if strings.ContainsRune(string(content), 0) {
+	if bytes.Contains(content, []byte{0}) {
 		return int64(len(content)), -1, true
 	}
 
@@ -1541,7 +1583,7 @@ func gitCheckIgnore(cwd string, path string) (bool, error) {
 		return false, nil
 	}
 
-	cmd := exec.Command("git", "check-ignore", "--quiet", "--no-index", path)
+	cmd := exec.Command(gitExecutable(), "check-ignore", "--quiet", "--no-index", path)
 	cmd.Dir = cwd
 	err := cmd.Run()
 	if err == nil {

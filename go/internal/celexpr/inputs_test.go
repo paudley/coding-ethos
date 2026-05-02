@@ -199,6 +199,28 @@ func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T
 	}
 }
 
+func TestProgramEvaluatesArgvCommandHelperAgainstEmptyAssignment(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.argv_command_helper_empty_assignment_eval",
+		`argv_command_is(argv, "git")`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Argv: []string{"CODE_ETHOS_CONSUMER_ROOT=", "git", "status"},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("argv command helper output = %#v, want true", output.Value())
+	}
+}
+
 func TestActivationPopulatesShellCommandInputs(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +302,84 @@ func TestActivationPopulatesGitCommandInput(t *testing.T) {
 		len(gitCommand.Targets) != 2 ||
 		gitCommand.Targets[0] != "remove" ||
 		gitCommand.Targets[1] != "../repo-old" {
+		t.Fatalf("git command input = %#v", gitCommand)
+	}
+}
+
+func TestActivationPopulatesGitCommandGlobalOptionValues(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Argv: []string{"git", "-C", "/repo", "-c", "core.hooksPath=.git/hooks", "status"},
+	})
+
+	gitCommand, ok := activation["git_command"].(GitCommandInput)
+	if !ok {
+		t.Fatalf("git command input = %#v", activation["git_command"])
+	}
+	for _, want := range []string{"-C", "/repo", "-c", "core.hooksPath=.git/hooks"} {
+		if !listContains(gitCommand.GlobalOptions, want) {
+			t.Fatalf("git global options = %#v, missing %q", gitCommand.GlobalOptions, want)
+		}
+	}
+}
+
+func TestActivationStopsGitFlagParsingAtPathspecSeparator(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Argv: []string{"git", "add", "--", "-not-a-flag"},
+	})
+
+	gitCommand, ok := activation["git_command"].(GitCommandInput)
+	if !ok {
+		t.Fatalf("git command input = %#v", activation["git_command"])
+	}
+	if listContains(gitCommand.Flags, "-not-a-flag") {
+		t.Fatalf("git flags include pathspec after --: %#v", gitCommand.Flags)
+	}
+}
+
+func TestActivationPreservesCheckoutAndSwitchStartPoints(t *testing.T) {
+	t.Parallel()
+
+	for name, argv := range map[string][]string{
+		"checkout": {"git", "checkout", "-b", "feature", "main"},
+		"switch":   {"git", "switch", "-c", "feature", "main"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			activation := Activation(ActivationInput{
+				Argv:              argv,
+				ProtectedBranches: []string{"main"},
+			})
+			gitCommand, ok := activation["git_command"].(GitCommandInput)
+			if !ok {
+				t.Fatalf("git command input = %#v", activation["git_command"])
+			}
+			if !listContains(gitCommand.Targets, "feature") ||
+				!listContains(gitCommand.Targets, "main") ||
+				!gitCommand.HasCheckoutProtectedBranch {
+				t.Fatalf("git command input = %#v", gitCommand)
+			}
+		})
+	}
+}
+
+func TestActivationDoesNotTreatRemoteStartPointAsProtectedCheckout(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Argv:              []string{"git", "checkout", "-b", "feature", "origin/main"},
+		ProtectedBranches: []string{"main"},
+	})
+	gitCommand, ok := activation["git_command"].(GitCommandInput)
+	if !ok {
+		t.Fatalf("git command input = %#v", activation["git_command"])
+	}
+	if !listContains(gitCommand.Targets, "origin/main") ||
+		gitCommand.HasCheckoutProtectedBranch {
 		t.Fatalf("git command input = %#v", gitCommand)
 	}
 }
