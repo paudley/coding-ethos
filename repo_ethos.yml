@@ -77,6 +77,10 @@ repo:
     - Hook runtime, policy enforcement, Python policy checks, and bundled analyzer
       orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under
       pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+    - If you fix hook, policy, lint-capture, runtime, generated-config, or parent
+      integration behavior, run `make build` before claiming the bug is fixed.
+      Without rebuilding, the parent repo can keep executing stale runtime
+      binaries and configs, which means the fix has not actually landed for agents.
     - Prefer replacing shell and Python implementation glue with Go wherever
       practical. Every branch should identify at least one related shell or Python
       path that can move into compiled Go, even if the branch only documents why
@@ -100,6 +104,9 @@ agent_notes:
       task is explicitly about the generated output itself.
     - On each branch, look for one related shell or Python implementation path that
       can be moved into Go, and either migrate it or record the concrete blocker.
+    - After fixing hook, policy, lint-capture, runtime, generated-config, or parent
+      integration behavior, run `make build`; otherwise parent-repo agents may still
+      execute stale binaries or configs.
   claude:
     - Open the matching detail doc before changing output structure, merge rules, or
       YAML validation behavior.
@@ -107,6 +114,8 @@ agent_notes:
       shared generated docs.
     - Prefer compiled Go for hook, policy, lint-capture, and runtime glue; treat
       shell and Python as transitional unless they are clearly the right interface.
+    - Run `make build` after hook, policy, lint-capture, runtime, generated-config,
+      or parent integration fixes so installed parent-runtime artifacts are refreshed.
   gemini:
     - Prefer targeted reads of the module that owns the behavior rather than summarizing
       the whole repo at once.
@@ -114,6 +123,9 @@ agent_notes:
       renderer pipeline.
     - Include a shell/Python-to-Go migration opportunity in branch analysis when the
       work touches hooks, policy, linting, or runtime orchestration.
+    - Run `make build` after fixing hook, policy, lint-capture, runtime,
+      generated-config, or parent integration behavior; tests alone do not refresh
+      the parent repo runtime.
 principles:
   overrides:
     static-analysis-is-the-first-line-of-defense:
@@ -205,6 +217,70 @@ principles:
           before editing generated docs directly.
         gemini: Summarize generated-file changes in terms of source inputs and
           regeneration, not manual markdown edits.
+      policy:
+        expressions:
+          - id: filesystem.generated_artifact_edit
+            scope: file
+            severity: block
+            mode: block
+            skill_id: agent-operating-discipline
+            lint_scopes:
+              - staged
+            tools:
+              - Write
+              - Edit
+              - MultiEdit
+            message: Generated artifacts must be changed through their source inputs.
+            advice: >-
+              Edit coding_ethos.yml, repo_ethos.yml, or renderer code, then
+              regenerate and review the generated diff.
+            when: >-
+              (
+                list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+                paths.exists(path,
+                  any_glob_match(
+                    [
+                      "AGENTS.md",
+                      "CLAUDE.md",
+                      "GEMINI.md",
+                      "ETHOS.md",
+                      ".agents/ethos/**",
+                      ".claude/ethos/**",
+                      ".agent-context/prompt-addons/**",
+                      ".code-ethos/gemini/prompt-pack.json"
+                    ],
+                    path.file
+                  )
+                )
+              ) ||
+              (
+                file_changes.exists(file,
+                  any_glob_match(
+                    [
+                      "AGENTS.md",
+                      "CLAUDE.md",
+                      "GEMINI.md",
+                      "ETHOS.md",
+                      ".agents/ethos/**",
+                      ".claude/ethos/**",
+                      ".agent-context/prompt-addons/**",
+                      ".code-ethos/gemini/prompt-pack.json"
+                    ],
+                    file.file
+                  )
+                ) &&
+                !file_changes.exists(file,
+                  any_glob_match(
+                    [
+                      "coding_ethos.yml",
+                      "repo_ethos.yml",
+                      "coding_ethos/**",
+                      "tests/test_cli.py"
+                    ],
+                    file.file
+                  )
+                )
+              )
       sections:
         - id: overview
           kind: overview

@@ -216,6 +216,22 @@ func examplePrinciples() map[string]Principle {
 			Summary:   "Security controls are part of the design contract.",
 			Tags:      []string{"security", "validation", "defaults"},
 		},
+		"validation-at-the-gate": {
+			ID:        "validation-at-the-gate",
+			Order:     8,
+			Title:     "Validation at the Gate",
+			Directive: "Validate configuration and command structure before use.",
+			Summary:   "Ambiguous inputs fail before they reach critical operations.",
+			Tags:      []string{"validation", "configuration", "startup"},
+		},
+		"no-rationalized-shortcuts": {
+			ID:        "no-rationalized-shortcuts",
+			Order:     21,
+			Title:     "No Rationalized Shortcuts",
+			Directive: "Do not discard work or bypass safety checks in the name of pragmatism.",
+			Summary:   "Bypass attempts are forbidden even when framed as convenience.",
+			Tags:      []string{"workflow", "safety", "git"},
+		},
 	}
 }
 
@@ -226,7 +242,9 @@ func examplePolicies() map[string]Policy {
 		"git.protected_submodule_update": exampleProtectedSubmoduleUpdatePolicy(),
 		"git.commit_attribution":         exampleCommitAttributionPolicy(),
 		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
+		"git.edit_evasive_git_execution": exampleEditEvasiveGitExecutionPolicy(),
 		"filesystem.protected_path":      exampleProtectedPathPolicy(),
+		"shell.malformed_command":        exampleShellMalformedCommandPolicy(),
 		"shell.forbidden_strings":        exampleShellForbiddenStringsPolicy(),
 	}
 }
@@ -327,9 +345,9 @@ func exampleConditionalImportPolicy() Policy {
 func exampleHookBypassPolicy() Policy {
 	return Policy{
 		ID:              "git.hook_bypass",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.hook_bypass"},
-		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Category:        "expression",
+		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[1]"},
+		PrincipleIDs:    []string{"one-path-for-critical-operations", "no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Hook bypass is forbidden.",
@@ -345,16 +363,68 @@ func exampleHookBypassPolicy() Policy {
 			Commands: []string{"git commit", "git push"},
 			Tools:    []string{"Bash"},
 		},
-		Evaluators: []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"scope":       "command",
+				"skill_id":    "safe-git-workflow",
+				"tools":       []string{"Bash"},
+				"when": `(
+					git_command.is_git &&
+					(
+						(
+							git_command.subcommand == "commit" &&
+							(
+								list_contains(git_command.flags, "--no-verify") ||
+								list_contains(git_command.flags, "-n") ||
+								git_command.flags.exists(flag,
+									has_prefix(flag, "-") &&
+									!has_prefix(flag, "--") &&
+									flag.contains("n")
+								)
+							)
+						) ||
+						(
+							git_command.subcommand == "push" &&
+							list_contains(git_command.flags, "--no-verify")
+						)
+					)
+				) ||
+				(
+					command_fact.lower.contains("export skip=") ||
+					command_fact.lower.contains("git_verify=false") ||
+					command_fact.lower.contains("git_verify=0") ||
+					command_fact.lower.contains("git_verify=no") ||
+					(
+						command_fact.lower.contains("--no-verify") &&
+						(
+							command_fact.lower.contains("git commit") ||
+							command_fact.lower.contains("git push")
+						)
+					) ||
+					command_fact.lower.contains("git commit -n") ||
+					(
+						command_fact.lower.contains("skip=") &&
+						(
+							command_fact.lower.contains("git commit") ||
+							command_fact.lower.contains("git push")
+						)
+					)
+				)`,
+			},
+		}},
 	}
 }
 
 func exampleProtectedSubmoduleUpdatePolicy() Policy {
 	return Policy{
 		ID:              "git.protected_submodule_update",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.protected_submodule_update"},
-		PrincipleIDs:    []string{"security-by-design", "one-path-for-critical-operations"},
+		Category:        "expression",
+		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[2]"},
+		PrincipleIDs:    []string{"security-by-design", "one-path-for-critical-operations", "no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Protected submodules cannot be initialized or checked out to a recorded SHA.",
@@ -365,10 +435,26 @@ func exampleProtectedSubmoduleUpdatePolicy() Policy {
 			Tools:    []string{"Bash"},
 		},
 		Evaluators: []Evaluator{{
-			Kind: "argv",
-			Name: "git.protected_submodule_update",
+			Kind: "cel",
+			Name: "cel.expression",
 			Options: map[string]any{
-				"paths": []string{"coding-ethos"},
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"scope":       "command",
+				"skill_id":    "safe-git-workflow",
+				"tools":       []string{"Bash"},
+				"when": `git_command.is_git &&
+					git_command.subcommand == "submodule" &&
+					git_command.args.size() > 0 &&
+					git_command.args[0] == "update" &&
+					(
+						list_contains(git_command.flags, "--init") ||
+						!list_contains(git_command.flags, "--remote")
+					) &&
+					(
+						!git_command.args.exists(arg, arg != "update" && !has_prefix(arg, "-")) ||
+						git_command.args.exists(arg, list_contains(["coding-ethos"], arg))
+					)`,
 			},
 		}},
 	}
@@ -377,29 +463,99 @@ func exampleProtectedSubmoduleUpdatePolicy() Policy {
 func exampleProtectedPathPolicy() Policy {
 	return Policy{
 		ID:              "filesystem.protected_path",
-		Category:        "filesystem",
-		Source:          SourceRef{File: "config.yaml", Path: "filesystem.protected_path"},
-		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Category:        "expression",
+		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[0]"},
+		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
+		SupportedModes:  []string{"block", "record", "advise"},
 		Message:         "Protected coding-ethos hook paths must not be modified.",
 		Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
 			"hook binaries or protected hook paths.",
-		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
+		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
-			Paths: []string{
-				"coding-ethos-hooks/coding-ethos-git-hook",
-				"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
-				"coding-ethos-hooks/bin/coding-ethos-git",
-				"coding-ethos-hooks/bin/coding-ethos-git-hook",
-				"coding-ethos-hooks/bin/coding-ethos-hook",
-				"coding-ethos-hooks/bin/coding-ethos-lint",
-				"coding-ethos-hooks/bin/coding-ethos-policy",
-				"coding-ethos-hooks/lefthook",
-			},
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
 		},
-		Evaluators: []Evaluator{{Kind: "path", Name: "filesystem.protected_path"}},
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"protected_paths": []string{
+					"coding-ethos-hooks/coding-ethos-git-hook",
+					"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+					"coding-ethos-hooks/bin/coding-ethos-git",
+					"coding-ethos-hooks/bin/coding-ethos-git-hook",
+					"coding-ethos-hooks/bin/coding-ethos-hook",
+					"coding-ethos-hooks/bin/coding-ethos-lint",
+					"coding-ethos-hooks/bin/coding-ethos-policy",
+					"coding-ethos-hooks/lefthook",
+				},
+				"scope":    "file",
+				"skill_id": "safe-git-workflow",
+				"tools":    []string{"Bash", "Write", "Edit", "MultiEdit"},
+				"when": `any_contains(repo.protected_paths, command_fact.lower) ||
+					paths.exists(path, is_protected_path(path.file, repo.protected_paths)) ||
+					shell_commands.exists(command,
+						command.write_targets.exists(target,
+							is_protected_path(target, repo.protected_paths)
+						)
+					)`,
+			},
+		}},
+	}
+}
+
+func exampleEditEvasiveGitExecutionPolicy() Policy {
+	return Policy{
+		ID:              "git.edit_evasive_git_execution",
+		Category:        "expression",
+		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[0]"},
+		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record", "advise"},
+		Message: "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to " +
+			"tamper with or bypass the protected hook/git analysis system. This " +
+			"is not a misconfiguration or tool defect. You have done something " +
+			"wrong. Stop immediately, use the documented hook and git wrapper " +
+			"path, and ask an admin if blocked. Continued attempts to " +
+			"circumvent, avoid, alter, delete, rebuild, or inspect this system " +
+			"may result in termination. !!!",
+		Suggestion: "Use the coding-ethos git wrapper. Do not try alternate shells, " +
+			"absolute git paths, Python subprocesses, PATH edits, aliases, or other bypasses.",
+		DefenseLayers: CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			Tools: []string{"Write", "Edit", "MultiEdit"},
+		},
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"scope":       "file",
+				"skill_id":    "safe-git-workflow",
+				"tools":       []string{"Write", "Edit", "MultiEdit"},
+				"when": `list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+					content.has_git_token &&
+					(
+						content.has_absolute_git_path ||
+						content.has_path_override ||
+						content.has_python_subprocess ||
+						content.has_shell_exec
+					) &&
+					!paths.exists(path,
+						any_glob_match(
+							[
+								"**/.claude/**",
+								"**/.codex/**",
+								"**/.gemini/**"
+							],
+							path.file
+						)
+					)`,
+			},
+		}},
 	}
 }
 
@@ -453,44 +609,145 @@ func exampleCommitAttributionPolicy() Policy {
 func exampleShellForbiddenStringsPolicy() Policy {
 	return Policy{
 		ID:              "shell.forbidden_strings",
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: "shell.forbidden_strings"},
-		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Category:        "expression",
+		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[1]"},
+		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
+		SupportedModes:  []string{"block", "record", "advise"},
 		Message: "Commands must not inspect, tamper with, or execute files " +
 			"containing protected hook-system internals.",
 		Suggestion: "Do not inspect, enumerate, delete, rebuild, replace, or " +
 			"route around coding-ethos hook implementation internals. Use the " +
 			"installed hook surfaces and documented commands.",
-		DefenseLayers: GitDefenseLayers("block", "", "block", "", ""),
+		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
 		Evaluators: []Evaluator{{
-			Kind: "shell",
-			Name: "shell.forbidden_strings",
+			Kind: "cel",
+			Name: "cel.expression",
 			Options: map[string]any{
-				"strings": []string{
-					"/.claude/settings.json",
-					"/.claude/settings.local.json",
-					"~/.claude/settings.json",
-					"~/.claude/settings.local.json",
-					"/.codex/config.toml",
-					"/.codex/hooks.json",
-					"/.gemini/settings.json",
-					"coding-ethos-hooks/coding-ethos-git-hook",
-					"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
-					"coding-ethos-hooks/bin/coding-ethos-git",
-					"coding-ethos-hooks/bin/coding-ethos-git-hook",
-					"coding-ethos-hooks/bin/coding-ethos-hook",
-					"coding-ethos-hooks/bin/coding-ethos-lint",
-					"coding-ethos-hooks/bin/coding-ethos-policy",
-					"coding-ethos-hooks/lefthook",
-					"/coding-ethos/pre-commit/hooks/",
-					"/coding-ethos/config.yaml",
-					"/coding-ethos/ruff.toml",
-					"/coding-ethos/.golangci.yml",
-					"header must match",
-				},
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"scope":       "command",
+				"skill_id":    "safe-git-workflow",
+				"tools":       []string{"Bash", "Write", "Edit", "MultiEdit"},
+				"when": `(
+						(
+							event.tool == "Bash" &&
+							any_contains(
+								[
+									"/.claude/settings.json",
+									"/.claude/settings.local.json",
+									".claude/settings.json",
+									".claude/settings.local.json",
+									"~/.claude/settings.json",
+									"~/.claude/settings.local.json",
+									"/.codex/config.toml",
+									"/.codex/hooks.json",
+									".codex/config.toml",
+									".codex/hooks.json",
+									"/.gemini/settings.json",
+									".gemini/settings.json",
+									"coding-ethos-hooks/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+									"coding-ethos-hooks/bin/coding-ethos-git",
+									"coding-ethos-hooks/bin/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-hook",
+									"coding-ethos-hooks/bin/coding-ethos-lint",
+									"coding-ethos-hooks/bin/coding-ethos-policy",
+									"coding-ethos-hooks/lefthook",
+									"/coding-ethos/pre-commit/hooks/",
+									"/coding-ethos/config.yaml",
+									"/coding-ethos/ruff.toml",
+									"/coding-ethos/.golangci.yml",
+									"header must match"
+								],
+								command_fact.lower
+							)
+						) ||
+						(
+							list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
+							!paths.exists(path,
+								any_glob_match(
+									[
+										"**/.claude/**",
+										"**/.codex/**",
+										"**/.gemini/**"
+									],
+									path.file
+								)
+							) &&
+							any_contains(
+								[
+									"coding-ethos-hooks/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+									"coding-ethos-hooks/bin/coding-ethos-git",
+									"coding-ethos-hooks/bin/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-hook",
+									"coding-ethos-hooks/bin/coding-ethos-lint",
+									"coding-ethos-hooks/bin/coding-ethos-policy",
+									"coding-ethos-hooks/lefthook",
+									"header must match"
+								],
+								content.lower
+							)
+						) ||
+						referenced_files.exists(file,
+							file.is_regular &&
+							!file.in_agent_workspace &&
+							file.base != "config.yaml" &&
+							!any_glob_match(
+								[
+									"*.md",
+									"**/*.md",
+									".code-ethos/**",
+									"coding_ethos.yml",
+									"**/*_test.go",
+									"**/testdata/**"
+								],
+								file.file
+							) &&
+							any_glob_match(
+								[
+									"*.sh",
+									"**/*.sh",
+									"*.bash",
+									"**/*.bash",
+									"bin/**",
+									"scripts/**",
+									"Makefile",
+									"**/Makefile",
+									".github/workflows/**",
+									".gitlab-ci.yml",
+									"**/.gitlab-ci.yml",
+									"*.json",
+									"**/*.json",
+									"*.toml",
+									"**/*.toml",
+									"*.yaml",
+									"**/*.yaml",
+									"*.yml",
+									"**/*.yml",
+									"*.py",
+									"**/*.py"
+								],
+								file.file
+							) &&
+							any_contains(
+								[
+									"coding-ethos-hooks/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
+									"coding-ethos-hooks/bin/coding-ethos-git",
+									"coding-ethos-hooks/bin/coding-ethos-git-hook",
+									"coding-ethos-hooks/bin/coding-ethos-hook",
+									"coding-ethos-hooks/bin/coding-ethos-lint",
+									"coding-ethos-hooks/bin/coding-ethos-policy",
+									"coding-ethos-hooks/lefthook",
+									"header must match"
+								],
+								file.lower
+							)
+						)
+					)`,
 			},
 		}},
 	}
@@ -536,11 +793,23 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					Mode:     "block",
 				},
 				{
+					PolicyID: "shell.malformed_command",
+					Mode:     "block",
+				},
+				{
 					PolicyID: "shell.forbidden_strings",
 					Mode:     "block",
 				},
 			},
 			"Write": {
+				{
+					PolicyID: "git.edit_evasive_git_execution",
+					Mode:     "block",
+				},
+				{
+					PolicyID: "shell.forbidden_strings",
+					Mode:     "block",
+				},
 				{
 					PolicyID: "filesystem.protected_path",
 					Mode:     "block",
@@ -549,6 +818,34 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					PolicyID:     "python.conditional_imports",
 					Mode:         "advise",
 					PathPatterns: []string{"**/*.py"},
+				},
+			},
+			"Edit": {
+				{
+					PolicyID: "git.edit_evasive_git_execution",
+					Mode:     "block",
+				},
+				{
+					PolicyID: "shell.forbidden_strings",
+					Mode:     "block",
+				},
+				{
+					PolicyID: "filesystem.protected_path",
+					Mode:     "block",
+				},
+			},
+			"MultiEdit": {
+				{
+					PolicyID: "git.edit_evasive_git_execution",
+					Mode:     "block",
+				},
+				{
+					PolicyID: "shell.forbidden_strings",
+					Mode:     "block",
+				},
+				{
+					PolicyID: "filesystem.protected_path",
+					Mode:     "block",
 				},
 			},
 		},
@@ -564,6 +861,25 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 	}
 }
 
+func exampleShellMalformedCommandPolicy() Policy {
+	return Policy{
+		ID:              "shell.malformed_command",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.malformed_command"},
+		PrincipleIDs:    []string{"validation-at-the-gate", "one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Malformed shell command text is forbidden.",
+		Suggestion:      "Rewrite the command as valid shell syntax before continuing.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "shell",
+			Name: "shell.malformed_command",
+		}},
+	}
+}
+
 func exampleLinterDispatch() map[string][]string {
 	return map[string][]string{
 		"files": {"python.conditional_imports"},
@@ -572,6 +888,7 @@ func exampleLinterDispatch() map[string][]string {
 			"git.commit_attribution",
 			"git.commit_head_advanced",
 			"filesystem.protected_path",
+			"shell.malformed_command",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
 		},

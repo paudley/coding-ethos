@@ -36,33 +36,6 @@ func registerExpressionEvaluators(registry Registry) {
 }
 
 func registerGitEvaluators(registry Registry) {
-	registry.Register("git.hook_bypass", EvaluatorFunc(EvaluateGitHookBypass))
-	registry.Register(
-		"git.destructive_command",
-		EvaluatorFunc(EvaluateGitDestructiveCommand),
-	)
-	registry.Register(
-		"git.merge_strategy_shortcut",
-		EvaluatorFunc(EvaluateGitMergeStrategyShortcut),
-	)
-	registry.Register(
-		"git.force_push_protected_branch",
-		EvaluatorFunc(EvaluateGitForcePushProtectedBranch),
-	)
-	registry.Register(
-		"git.checkout_protected_branch",
-		EvaluatorFunc(EvaluateGitCheckoutProtectedBranch),
-	)
-	registry.Register(
-		"git.destructive_worktree",
-		EvaluatorFunc(EvaluateGitDestructiveWorktree),
-	)
-	registry.Register(
-		"git.protected_submodule_update",
-		EvaluatorFunc(EvaluateGitProtectedSubmoduleUpdate),
-	)
-	registry.Register("git.change_dir_flag", EvaluatorFunc(EvaluateGitChangeDirFlag))
-	registry.Register("git.stash_blocked", EvaluatorFunc(EvaluateGitStashBlocked))
 	registry.Register("git.commitlint", EvaluatorFunc(EvaluateGitCommitLint))
 	registry.Register(
 		"git.commit_attribution",
@@ -79,33 +52,14 @@ func registerGitEvaluators(registry Registry) {
 }
 
 func registerFilesystemEvaluators(registry Registry) {
-	registry.Register(
-		"filesystem.protected_path",
-		EvaluatorFunc(EvaluateProtectedPath),
-	)
-	registry.Register(
-		"filesystem.protected_branch_write",
-		EvaluatorFunc(EvaluateProtectedBranchWrite),
-	)
-	registry.Register(
-		"filesystem.required_ignores",
-		EvaluatorFunc(EvaluateRequiredIgnores),
-	)
-	registry.Register("repo.required_ignores", EvaluatorFunc(EvaluateRequiredIgnores))
 	registry.Register("repo.pii_scrubber", EvaluatorFunc(EvaluatePIIScrubber))
 	registry.Register("repo.license_header", EvaluatorFunc(EvaluateLicenseHeader))
 }
 
 func registerShellEvaluators(registry Registry) {
 	registry.Register(
-		"shell.dangerous_command",
-		EvaluatorFunc(EvaluateShellDangerousCommand),
-	)
-	registry.Register("shell.background_git", EvaluatorFunc(EvaluateShellBackgroundGit))
-	registry.Register("shell.github_admin", EvaluatorFunc(EvaluateShellGitHubAdmin))
-	registry.Register(
-		"shell.forbidden_strings",
-		EvaluatorFunc(EvaluateShellForbiddenStrings),
+		"shell.malformed_command",
+		EvaluatorFunc(EvaluateShellMalformedCommand),
 	)
 	registry.Register(
 		"shell.best_practices",
@@ -118,8 +72,6 @@ func registerSyntaxEvaluators(registry Registry) {
 	registry.Register("syntax.merge_conflict", EvaluatorFunc(EvaluateFileMergeConflict))
 	registry.Register("security.private_key", EvaluatorFunc(EvaluateFilePrivateKey))
 	registry.Register("filesystem.shebangs", EvaluatorFunc(EvaluateFileShebang))
-	registry.Register("filesystem.large_files", EvaluatorFunc(EvaluateFileLargeFile))
-	registry.Register("filesystem.line_limits", EvaluatorFunc(EvaluateFileLineLimit))
 }
 
 func registerPythonEvaluators(registry Registry) {

@@ -123,8 +123,19 @@ type sarifRunProperties struct {
 	Scope string `json:"scope,omitempty"`
 }
 
+type SARIFOptions struct {
+	Category string
+}
+
 func FormatLintResultSARIF(result lint.Result) (string, error) {
-	diagnostics := lint.OutputDiagnostics(result)
+	return FormatLintResultSARIFWithOptions(result, SARIFOptions{})
+}
+
+func FormatLintResultSARIFWithOptions(
+	result lint.Result,
+	options SARIFOptions,
+) (string, error) {
+	diagnostics := sarifDiagnostics(result)
 	rules := sarifRules(diagnostics)
 	ruleIndexes := sarifRuleIndexes(rules)
 	log := sarifLog{
@@ -141,7 +152,7 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 				ExecutionSuccessful: !result.Blocked(),
 			}},
 			AutomationDetails: sarifRunAutomationDetails{
-				ID: sarifAutomationID(result.Scope),
+				ID: sarifAutomationID(result.Scope, options),
 			},
 			Results: sarifResults(diagnostics, ruleIndexes),
 			Properties: sarifRunProperties{
@@ -156,6 +167,27 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 	}
 
 	return string(payload), nil
+}
+
+func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
+	var items []diagnostics.Diagnostic
+	if len(result.Diagnostics) > 0 {
+		items = lint.OutputDiagnostics(result)
+	} else if len(result.Findings) > 0 && result.Blocked() {
+		items = lint.OutputDiagnostics(result)
+	} else if result.Blocked() {
+		items = lint.OutputDiagnostics(result)
+	}
+
+	locatable := make([]diagnostics.Diagnostic, 0, len(items))
+	for _, item := range items {
+		if sarifArtifactURI(item.File) == "" {
+			continue
+		}
+		locatable = append(locatable, item)
+	}
+
+	return locatable
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
@@ -335,7 +367,7 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	file := sarifArtifactURI(item.File)
 	if file == "" {
-		file = sarifRepoURI
+		return nil
 	}
 
 	location := sarifLocation{
@@ -396,7 +428,11 @@ func sarifLevel(severity string) string {
 	}
 }
 
-func sarifAutomationID(scope string) string {
+func sarifAutomationID(scope string, options SARIFOptions) string {
+	if category := sarifAutomationCategory(options.Category); category != "" {
+		return category + "/"
+	}
+
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		return "coding-ethos/default"
@@ -404,6 +440,14 @@ func sarifAutomationID(scope string) string {
 
 	replacer := strings.NewReplacer(":", "/", " ", "-", "\\", "/", ",", "-")
 	return "coding-ethos/" + strings.Trim(replacer.Replace(scope), "/")
+}
+
+func sarifAutomationCategory(category string) string {
+	category = strings.TrimSpace(category)
+	category = strings.Trim(category, "/")
+
+	replacer := strings.NewReplacer("\\", "/", " ", "-", ",", "-")
+	return strings.Trim(replacer.Replace(category), "/")
 }
 
 func sarifHashStrings(values ...string) string {

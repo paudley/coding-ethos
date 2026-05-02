@@ -553,6 +553,59 @@ func TestResolveGeminiRequestSettingsUsesOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadGeminiSettingsUsesConsumerRuntimeCacheDir(t *testing.T) {
+	consumerRoot := t.TempDir()
+	bundleRoot := filepath.Join(consumerRoot, "coding-ethos", "pre-commit")
+
+	err := os.MkdirAll(filepath.Join(bundleRoot, "hooks", "go-hooks"), 0o755)
+	if err != nil {
+		t.Fatalf("mkdir fake bundle root: %v", err)
+	}
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"),
+		"",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(consumerRoot, ".git"),
+		"gitdir: /tmp/unrelated-real-git-dir\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(consumerRoot, "coding-ethos", "config.yaml"),
+		strings.TrimSpace(`
+gemini:
+  model: gemini-2.5-flash
+  cache:
+    dirname: gemini-response-cache
+`)+"\n",
+	)
+
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(consumerRootEnv, consumerRoot)
+
+	_, paths, err := loadGeminiSettings()
+	if err != nil {
+		t.Fatalf("loadGeminiSettings() returned error: %v", err)
+	}
+
+	want := filepath.Join(
+		consumerRoot,
+		".code-ethos",
+		"cache",
+		"gemini-response-cache",
+	)
+	if paths.CacheDir != want {
+		t.Fatalf("CacheDir = %q, want %q", paths.CacheDir, want)
+	}
+
+	if strings.Contains(paths.CacheDir, string(filepath.Separator)+".git") {
+		t.Fatalf("CacheDir writes inside .git: %q", paths.CacheDir)
+	}
+}
+
 func TestGeminiSafetySettingsDisabledUsesOffThresholds(t *testing.T) {
 	t.Parallel()
 

@@ -5,10 +5,7 @@ name: Coding Ethos SARIF Gate
 
 on:
   workflow_call:
-  pull_request:
-  push:
-    branches:
-      - main
+
 
 permissions:
   actions: read
@@ -19,11 +16,13 @@ jobs:
   coding-ethos:
     name: Coding Ethos SARIF Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       CODING_ETHOS_PATH: .
       CODING_ETHOS_REPO_ROOT: .
       CODING_ETHOS_GATE_COMMAND: make check
       CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
+      CODING_ETHOS_SARIF_CATEGORY: .github/workflows/ci.yml:policy
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
@@ -102,6 +101,7 @@ jobs:
             --cwd "$repo_root" \
             --scope files \
             --files-from "$files_path" \
+            --sarif-category "$CODING_ETHOS_SARIF_CATEGORY" \
             --sarif > "$sarif_tmp"
           status=$?
           if [ -s "$sarif_tmp" ]; then
@@ -116,6 +116,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ env.CODING_ETHOS_SARIF_PATH }}
+          category: ${{ env.CODING_ETHOS_SARIF_CATEGORY }}
 
       - name: Upload coding-ethos audit artifacts
         if: ${{ always() }}

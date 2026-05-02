@@ -30,7 +30,25 @@ custom boolean policy over that normalized data without editing Go. CEL is a
 good fit for this layer because it is embedded, typed, non-Turing-complete,
 fast, and designed for safe expression evaluation.
 
-That shape matches the first policy-language target:
+That shape matches the first policy-language target. Shared policy belongs with
+the ETHOS principle it enforces:
+
+```yaml
+principles:
+  - id: solid-is-law
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          when: >
+            file_changes.exists(file, file.ext == ".py" && file.line_count > 1000)
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+```
+
+Repo-specific overlays can still add transitional or local policy through
+`repo_config.yaml`:
 
 ```yaml
 policy:
@@ -43,7 +61,7 @@ policy:
       skill_id: conditional-imports
       when: >
         diagnostic.tool == "ruff" &&
-        diagnostic.file.startsWith("lib/python/") &&
+        paths.exists(path, path.file.startsWith("lib/python/")) &&
         diagnostic.message.contains("private cache module")
       message: Import through the public cache protocol.
       advice: Define or reuse a protocol boundary instead of importing private cache internals.
@@ -100,9 +118,26 @@ Not allowed:
 This keeps expression policy deterministic, replayable, and suitable for hook,
 agent-hook, lint-capture, CI, and MCP execution.
 
-## Configuration Model
+## Source Model
 
-Add expression-backed policy under config, not under ad hoc custom code:
+`coding_ethos.yml` is the backbone of the project. It is the preferred home for
+policy intent because a principle should carry its related enforcement, advice,
+skills, axioms, and documentation together.
+
+`config.yaml` and `repo_config.yaml` are enforcement artifacts and overlay
+surfaces. Use them for generated tool settings, operational defaults, consumer
+repo refinements, and policy that has not yet been expressed cleanly inside an
+ETHOS principle. Do not add new shared policy to config merely because it is
+convenient.
+
+Expression-backed policy may therefore appear in two places:
+
+- `principles[*].policy.expressions` in `coding_ethos.yml` for first-class
+  ETHOS policy.
+- `policy.expressions` in config overlays for consumer-specific or transitional
+  policy.
+
+Config-overlay expressions look like:
 
 ```yaml
 policy:
@@ -111,13 +146,24 @@ policy:
       description: Block Python subprocess attempts to run Git.
       scope: command
       severity: block
+      mode: block
+      protected: true
+      allow_override: false
+      allow_severity_weaken: false
+      hook_events: [PreToolUse]
+      tools: [Bash]
+      lint_scopes: [staged, files]
+      command_patterns: [subprocess]
       principle_ids:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
       when: >
-        command.contains("subprocess") &&
-        command.contains("git")
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
+          cmd.argv.exists(arg, arg.contains("git"))
+        )
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected git wrapper path and keep hook failures visible.
 ```
@@ -127,7 +173,6 @@ Required fields:
 - `id`
 - `scope`
 - `severity`
-- `principle_ids`
 - `when`
 - `message`
 - `advice`
@@ -135,7 +180,20 @@ Required fields:
 Optional fields:
 
 - `description`
+- `principle_ids`; principle-local expressions inherit the owning principle ID
+  when this field is omitted
 - `skill_id`
+- `mode`
+- `hook_events`
+- `tools`
+- `lint_scopes`
+- `command_patterns`
+- `path_patterns`
+- `protected`
+- `override`
+- `override_reason`
+- `allow_override`
+- `allow_severity_weaken`
 - `tags`
 - `metadata`
 
@@ -143,20 +201,51 @@ The compiler should reject expressions without ETHOS grounding. A custom rule
 that cannot explain which principle it enforces is not mature enough to block
 agent behavior.
 
+Repo overlays append expression policies instead of replacing the primary
+bundle list. Duplicate IDs are rejected unless the replacement declares
+`override: true`, supplies `override_reason`, and the existing expression
+declares `allow_override: true`. Built-in Go-backed policies and protected
+expressions therefore cannot be shadowed accidentally. Severity weakening is
+also rejected unless the existing expression declares
+`allow_severity_weaken: true`, and protected expressions default to enabled
+with `protected: true`.
+
 ## Input Schemas
 
 Start with small stable input objects:
 
 - `command`: raw command text, parsed argv, tool name, cwd, provider, event
-- `path`: repo-relative path, extension, basename, directory, generated/test
-  flags, protected-path classification
-- `diagnostic`: tool, code, message, file, line, severity, existing policy ID
-- `finding`: normalized lint/policy finding with ETHOS and skill metadata
+- `shell_commands`: parser-normalized shell command facts prepared with
+  `mvdan.cc/sh/v3/syntax`, including command name, argv, assignments,
+  redirects, here-docs, line/column, background execution, dynamic expansion flags,
+  command/process substitution flags, shell-exec detection, Git detection,
+  lint-tool detection, and PATH override detection. Malformed shell text is
+  denied at the hook boundary instead of falling back to string tokenization.
+- `path`: compatibility object populated only when exactly one path is in
+  scope; multi-file policy must use `paths`
+- `paths`: list of repo-relative path objects with file, extension, basename,
+  directory, generated/test flags, and source-root classification
+- `file_changes`: list of typed staged-file facts with path, old path,
+  Git status, extension, generated/test/protected flags, binary flag, byte
+  size, current line count, and original line count when available
+- `diagnostic`: populated only when the caller supplies a real diagnostic;
+  includes tool, code, message, file, line, column, severity, and policy ID
+- `finding`: populated only when the caller supplies a real normalized finding;
+  includes tool, code, message, file, line, severity, policy ID, skill ID, and
+  principle IDs
 - `repo`: repo root metadata, configured source roots, language settings,
   enabled capabilities
 - `metadata`: event ID, scope, provider, and non-sensitive trace IDs
 
-Do not expose raw environment, arbitrary filesystem contents, or host paths.
+The current CEL object model is versioned through
+`metadata.schema_version == 1`. Do not expose raw environment, arbitrary
+filesystem contents, or host paths.
+
+Generic hook command and file/path policies should treat `diagnostic` and
+`finding` as empty unless they are running in a diagnostic or finding-specific
+evaluation path. The runtime must not synthesize those objects from the first
+file, the current tool, or other partial context; missing facts are safer than
+plausible fake facts.
 
 ## Runtime Plan
 
@@ -185,34 +274,48 @@ Go-backed or CEL-backed.
 The required completion work is:
 
 1. **Stable object model.** Define a versioned schema for every CEL-visible
-   object: `command`, `argv`, `tool`, `event`, `provider`, `cwd`, `repo`,
-   `path`, `paths`, `file`, `files`, `diagnostic`, `finding`, `diff`, Git
-   facts, config facts, and non-sensitive metadata. Once exposed, these fields
-   are public policy API.
+   object. The current public surface includes `command`, `command_fact`,
+   `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`,
+   `file_changes`, `diagnostic`, `diagnostics`, `finding`, `findings`,
+   `config`, `git`, `git_command`, `event`, `diff`, and non-sensitive
+   metadata. Provider-native event fields and staged diff hunk/line facts are
+   part of this typed API. Future richer Git state and richer config facts must
+   be added only when every relevant runtime can populate them reliably. Once
+   exposed, these fields are public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
-   reliably or not expose it.
+   reliably or not expose it. The current Git and config surfaces expose
+   prepared facts such as hook event/provider/tool/scope, configured protected
+   branches, current branch, protected path matches, changed/staged file sets,
+   normalized Git argv/subcommand/flag facts, config candidates, config files
+   present in the current file set, and normalized diagnostic/finding
+   collections; they do not read Git or the filesystem from CEL.
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
-   collection helpers such as `paths.exists(...)`, `paths.all(...)`,
+   collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
    `files.changed_matching(...)`, and `findings.exists(...)`.
-4. **Dispatch as policy.** Expression config must declare where a policy runs:
+4. **Dispatch as policy.** Expression config declares where a policy runs:
    hook events, tool matchers, lint tools, modes, defense layers, principle
-   IDs, and skill IDs. Runtime registration should be derived from compiled
-   policy data rather than special-case wiring.
+   IDs, and skill IDs. Runtime registration is derived from compiled policy
+   data rather than special-case wiring. Scope-only expressions keep
+   compatibility defaults, but new policies should specify `hook_events`,
+   `tools`, `lint_scopes`, and `mode` explicitly.
 5. **Compiled and cached programs.** CEL syntax and type checking must fail
    bundle compilation. Runtime should reuse checked programs from the compiled
    bundle or from a load-time cache instead of compiling on each evaluation.
 6. **Controlled inheritance and overrides.** Custom policies must not shadow
-   protected built-ins. Severity weakening, disabling, and suppression must be
-   explicit policy operations with provenance, not accidental YAML replacement.
+   protected built-ins. Repo overlays append expression policies; duplicate IDs
+   require `override: true`, `override_reason`, and `allow_override: true` on
+   the existing expression. Severity weakening additionally requires
+   `allow_severity_weaken: true`; protected expressions default to enabled and
+   cannot be disabled.
 7. **Standard result model.** CEL-backed policies must emit the same decision
    data as Go evaluators: policy ID, severity, decision, message, suggestion,
    principle IDs, skill ID, evidence, diagnostic location, remediation hint,
    and explanation metadata.
-8. **Reviewed helper library.** Helpers should encode pure, reusable policy
-   facts such as glob matching, path classification, generated/test/protected
-   path detection, lint-code matching, command-tool detection, inline-env
-   detection, repo-config presence, and protected-branch facts.
+8. **Reviewed helper library.** Helpers encode pure, reusable policy facts such
+   as glob matching, path classification, generated/test/protected path
+   detection, lint-code matching, command-tool detection, inline-env detection,
+   repo-config presence, and protected-branch facts.
 9. **Explainability.** `policy explain` and trace output must show the
    expression, available schema, helper functions, matched evidence, ETHOS
    grounding, and skill/remediation path.
@@ -237,16 +340,93 @@ path normalization, and other reviewed security-sensitive operations.
 Keep helper functions small and reviewed. Initial candidates:
 
 - `glob_match(pattern, value)`
+- `any_glob_match(patterns, value)`
 - `has_suffix(value, suffix)`
 - `has_prefix(value, prefix)`
 - `is_test_path(path)`
 - `is_generated_path(path)`
+- `is_protected_path(path, protected_paths)`
 - `in_source_root(path, source_roots)`
+- `lint_code_matches(code, pattern)`
+- `command_invokes(command, tool)`
+- `argv_invokes(argv, tool)`
+- `has_inline_env(command, name)`
+- `repo_config_present(files, candidates)`
+- `is_protected_branch(branch, protected_branches)`
 - `list_contains(values, value)`
 - `any_has_prefix(values, prefix)`
 - `any_has_suffix(values, suffix)`
 
 Avoid helper functions that hide IO, policy decisions, or broad framework logic.
+
+## Operator Reference
+
+Supported expression scopes:
+
+- `command`: evaluates command text, argv, tool metadata, and command facts.
+- `files` and `staged`: evaluate explicit file/path collections and any lint
+  or Git facts supplied by the caller.
+- `diagnostic` and `finding`: evaluate one normalized diagnostic or finding at
+  a time. Empty typed objects are used only when no diagnostic/finding scope is
+  present, so expressions do not match fake lint data.
+
+Core inputs:
+
+- `event`: provider, event name, tool, scope, mode, source, matcher, session
+  ID, transcript path, tool input/response keys, return code, tool input and
+  response presence, and provider booleans prepared by the caller.
+- `command_fact`: raw command, argv, tool, and inline-env detection over the
+  raw command text.
+- `shell_commands`: normalized simple commands extracted from the shell AST for
+  command-scope policy. Prefer this object over raw substring checks whenever
+  policy needs command identity, arguments, redirects, assignments, or
+  background execution. Diagnostics and SARIF can use the line/column facts
+  when policy maps a finding to a specific command node.
+- `paths`: explicit normalized file collection; `path` is populated only for
+  single-file compatibility.
+- `diagnostics` and `findings`: normalized collections supplied by lint/finding
+  contexts. Single `diagnostic` and `finding` remain available for
+  one-at-a-time policies.
+- `git`: current branch, protected-branch flag, configured protected branches,
+  protected-path file matches, staged files, and changed files.
+- `diff`: the prepared staged diff set: all files, changed files, staged
+  files, whether any change facts are present, hunk headers, old/new hunk
+  ranges, added lines, removed lines, and old/new line numbers. These facts
+  are prepared by the reviewed Go diff parser and remain read-only CEL inputs.
+- `config`: configured repo override candidates and candidates present in the
+  current file set.
+
+Dispatch is declared in `policy.expressions` with `hook_events`, `tools`,
+`lint_scopes`, `mode`, `severity`, `principle_ids`, and `skill_id`.
+Compatibility defaults exist for older expressions, but new policies should
+declare dispatch explicitly so hook, lint, CI, trace, explain, and future MCP
+paths all see the same compiled policy.
+
+CEL remains pure. Go code prepares facts from trusted runtime context and
+compiled configuration, then CEL decides over those facts. CEL helpers must not
+read files, execute shell or Git, inspect process environment, open the network,
+or depend on wall-clock time.
+
+Anti-patterns:
+
+- expression policies that depend on implicit `path` for multi-file operations;
+  use `paths.exists(...)` or `paths.all(...)`
+- command string matching where a first-class Go evaluator already provides
+  safer parsing and diagnostics
+- helpers that mix host inspection with policy decisions
+- severity weakening or duplicate IDs without explicit controlled override
+  metadata
+- policies that expose new fields before every runtime path can populate them
+
+Test requirements for new CEL features:
+
+- compile-time rejection for unknown fields, unknown helpers, and invalid types
+- positive and negative evaluation tests for every helper
+- multi-file and multi-finding tests that avoid implicit first-file ordering
+- hook, agent-hook, lint, explain, trace, and CI/SARIF parity tests when a
+  feature affects output
+- inheritance, shadowing, protected-policy, and severity-weakening tests for
+  config behavior
 
 ## Migration Rule
 
@@ -263,6 +443,48 @@ Move a hardcoded evaluator into CEL only when all of the following are true:
 Critical safety primitives such as Git wrapper enforcement, staged file
 resolution, managed toolchain resolution, config hash validation, and path
 normalization stay in Go.
+
+The first migrated built-ins prove the intended pattern:
+
+- `agent_workspace.enforcement_point_write` is CEL over normalized file/path
+  facts and keeps agent memory, plan, and note writes allowed while protecting
+  enforcement settings.
+- `filesystem.protected_path` and `filesystem.protected_branch_write` are CEL
+  over path, branch, and protected-path facts.
+- `git.change_dir_flag` is CEL over `git_command.has_change_dir`.
+- `git.destructive_worktree` is CEL over `git_command.subcommand`,
+  `git_command.args`, and `git_command.flags`.
+- `git.stash_blocked` is CEL over `git_command.subcommand`.
+- `git.hook_bypass`, `git.destructive_command`,
+  `git.merge_strategy_shortcut`, `git.force_push_protected_branch`,
+  `git.checkout_protected_branch`, and `git.protected_submodule_update` are
+  CEL over normalized Git facts.
+- `filesystem.large_files` is CEL over staged `file_changes` facts and is
+  owned by the `security-by-design` principle.
+- `filesystem.line_limits` is CEL over staged `file_changes` facts and is
+  owned by the `solid-is-law` principle.
+- `repo.required_ignores` is CEL over Go-collected ignore facts and is owned by
+  `radical-visibility`.
+- `shell.dangerous_command`, `shell.background_git`, `shell.github_admin`,
+  `shell.inline_env`, `shell.path_override`, and `shell.forbidden_strings` are
+  CEL over parser-normalized shell command facts.
+- `shell.malformed_command` is a Go-backed parser gate that blocks malformed
+  shell text before CEL or route rewriting evaluates ambiguous command input.
+
+These policies still use Go for argv normalization, staged-file discovery, file
+metadata collection, and fact preparation. CEL only decides over the prepared
+facts.
+
+The remaining Go evaluators are intentionally not just policy predicates. They
+perform one of the runtime jobs that CEL must not do: parse source text, inspect
+Git state, execute managed external checks, validate generated config freshness,
+scan file contents, or prepare normalized facts. Examples include commit-message
+linting, staged-admin-file detection, commit-HEAD verification, structured-data
+syntax checks, private-key and PII scanning, SPDX license validation, Python AST
+checks, shell-script best-practice parsing, generated-config freshness, and
+managed pytest/toolchain gates. If one of these later reduces to pure matching
+over already available facts, move only that decision branch into
+`coding_ethos.yml` and keep the fact collection in Go.
 
 Migration workflow:
 

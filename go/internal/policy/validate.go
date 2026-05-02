@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 )
 
 var (
@@ -336,9 +338,157 @@ func validatePolicyEvaluators(policyID string, policy Policy) []error {
 				),
 			)
 		}
+
+		errs = append(errs, validateExpressionEvaluator(policyID, evaluator)...)
 	}
 
 	return errs
+}
+
+func validateExpressionEvaluator(policyID string, evaluator Evaluator) []error {
+	if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+		return nil
+	}
+
+	errs := []error{}
+
+	source := strings.TrimSpace(fmt.Sprint(evaluator.Options["when"]))
+	if source == "" || source == "<nil>" {
+		errs = append(errs, fmt.Errorf(
+			"%w: policy %q CEL evaluator missing when expression",
+			errValidationFailed,
+			policyID,
+		))
+	}
+
+	if source != "" && source != "<nil>" {
+		if err := celexpr.Validate(policyID, source); err != nil {
+			errs = append(errs, fmt.Errorf(
+				"%w: policy %q CEL evaluator failed validation: %w",
+				errValidationFailed,
+				policyID,
+				err,
+			))
+		}
+	}
+
+	errs = append(errs, validateExpressionDispatchOptions(policyID, evaluator)...)
+
+	return errs
+}
+
+func validateExpressionDispatchOptions(
+	policyID string,
+	evaluator Evaluator,
+) []error {
+	errs := []error{}
+
+	for _, mode := range stringOptions(evaluator.Options, "mode") {
+		if !validMode(mode) {
+			errs = append(errs, fmt.Errorf(
+				"%w: policy %q CEL evaluator has invalid mode %q",
+				errValidationFailed,
+				policyID,
+				mode,
+			))
+		}
+	}
+
+	if scopes, ok := evaluator.Options["dispatch_scopes"]; ok {
+		for _, scope := range stringValues(scopes) {
+			if !validExpressionLintScope(scope) {
+				errs = append(errs, fmt.Errorf(
+					"%w: policy %q CEL evaluator has invalid lint scope %q",
+					errValidationFailed,
+					policyID,
+					scope,
+				))
+			}
+		}
+	}
+
+	if events, ok := evaluator.Options["hook_events"]; ok {
+		for _, event := range stringValues(events) {
+			if !validHookEvent(event) {
+				errs = append(errs, fmt.Errorf(
+					"%w: policy %q CEL evaluator has invalid hook event %q",
+					errValidationFailed,
+					policyID,
+					event,
+				))
+			}
+		}
+	}
+
+	if tools, ok := evaluator.Options["tools"]; ok && len(stringValues(tools)) == 0 {
+		errs = append(errs, fmt.Errorf(
+			"%w: policy %q CEL evaluator tools must not be empty",
+			errValidationFailed,
+			policyID,
+		))
+	}
+
+	return errs
+}
+
+func stringOptions(options map[string]any, key string) []string {
+	if options == nil {
+		return nil
+	}
+
+	return stringValues(options[key])
+}
+
+func stringValues(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil
+		}
+
+		return []string{trimmed}
+	case []string:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				values = append(values, item)
+			}
+		}
+
+		return values
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := strings.TrimSpace(fmt.Sprint(item))
+			if text != "" && text != "<nil>" {
+				values = append(values, text)
+			}
+		}
+
+		return values
+	default:
+		return nil
+	}
+}
+
+func validExpressionLintScope(scope string) bool {
+	switch scope {
+	case "files", "changed", "staged", "smoke", "full", "cutover", "commit-msg":
+		return true
+	default:
+		return false
+	}
+}
+
+func validHookEvent(event string) bool {
+	switch event {
+	case "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop":
+		return true
+	default:
+		return false
+	}
 }
 
 func validatePolicyPrinciples(

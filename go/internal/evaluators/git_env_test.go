@@ -5,6 +5,15 @@ package evaluators
 
 import "testing"
 
+func TestGitCommandUsesConfiguredRealGit(t *testing.T) {
+	t.Setenv(realGitEnv, "/opt/system-git")
+
+	cmd := gitCommand("", "status")
+	if cmd.Path != "/opt/system-git" {
+		t.Fatalf("gitCommand path = %q, want configured real git", cmd.Path)
+	}
+}
+
 func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
 	source := []string{
 		"GIT_DIR=/tmp/wrong-git-dir",

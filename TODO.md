@@ -308,61 +308,109 @@ The current CEL work is a typed custom-policy extension point. These items
 define what is required before CEL can be treated as a complete generic policy
 engine rather than a companion to first-class Go evaluators.
 
-- [ ] Define and version a stable policy object model for CEL inputs covering
+- [x] Define and version a stable policy object model for CEL inputs covering
   command, argv, tool, event, provider, cwd, repo, path, paths, file, files,
-  diagnostic, finding, diff, Git facts, config facts, and safe metadata.
-- [ ] Remove aspirational CEL fields: every exposed field must be populated
+  file changes, diagnostic, finding, diff, Git facts, config facts, and safe
+  metadata.
+- [x] Remove aspirational CEL fields: every exposed field must be populated
   reliably for its scope, or removed until the runtime can provide it.
-- [ ] Populate real typed inputs for hook command scope, file/path scope, lint
+- [x] Populate real typed inputs for hook command scope, file/path scope, lint
   finding scope, Git scope, config scope, and diff scope.
-- [ ] Replace first-file `path` semantics with explicit multi-file collection
+- [x] Add typed `git_command` CEL facts for normalized Git argv, subcommand,
+  global options, subcommand args, flags, targets, and `git -C` detection.
+- [x] Add typed `file_changes` CEL facts for staged file status, byte size,
+  line count, generated/test/protected classification, and original line count
+  when Git can provide it.
+- [x] Migrate the first tiny Git evaluators to CEL-backed policies:
+  `git.change_dir_flag`, `git.destructive_worktree`, and
+  `git.stash_blocked`.
+- [x] Move the large-file and line-limit policies out of config-owned Go
+  evaluators and into principle-local CEL expressions in `coding_ethos.yml`.
+- [x] Treat `coding_ethos.yml` as the policy backbone: new shared policy should
+  live with the ETHOS principle it enforces; config remains an artifact and
+  overlay surface for policy not yet expressed properly in ETHOS.
+- [x] Replace hand-rolled shell command tokenization in agent hook paths with a
+  proper shell AST parser (`mvdan.cc/sh/v3/syntax`), deny malformed shell text
+  at the hook boundary, and feed normalized `shell_commands` facts into Go and
+  CEL policy. Keep Git wrapper execution on argv-based Git option parsing
+  because wrapper commands have already been parsed by the shell.
+- [x] Migrate more brittle command-string CEL examples and hook predicates to
+  `shell_commands` facts instead of raw `command.contains(...)` matching.
+- [x] Use parser-backed shell facts to distinguish direct `git`, `command git`,
+  `env git`, `bash -c 'git ...'`, pipelines, grouped commands, and background
+  commands before deciding whether to rewrite or block agent hook input.
+- [x] Use parser-backed shell facts to route lint tools consistently through
+  capture for direct invocations, `uv run`, `python -m`, leading assignments,
+  chained commands, redirects, and pipelines.
+- [x] Add higher-level CEL shell command facts such as `is_git`,
+  `is_lint_tool`, `is_shell_exec`, `uses_path_override`,
+  `has_command_substitution`, `has_process_substitution`, and
+  `has_dynamic_expansion` so CEL policies stay readable.
+- [x] Block or constrain ambiguous shell constructs around protected tools:
+  `eval`, shell functions/aliases masking protected commands, command
+  substitution, process substitution, here-doc command execution, and
+  `bash -c`/`sh -c` unless recursively parsed and approved.
+- [x] Improve agent remediation messages for shell policies so they identify
+  the exact command node, argument, redirect, assignment, or pipeline segment
+  that triggered the decision.
+- [x] Reuse the shell AST parser for `.sh` policy: reject parse errors,
+  detect raw protected-tool invocations, unsafe `eval`, risky redirects, and
+  shell-script bypass patterns structurally instead of regex-only checks.
+- [x] Use shell AST positions in SARIF where possible so shell-script and
+  hook-command findings can point to exact command spans rather than only the
+  whole command or whole file.
+- [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.
-- [ ] Make dispatch policy-driven so expression config declares hook events,
+- [x] Make dispatch policy-driven so expression config declares hook events,
   tools, lint tools, modes, defense layers, principle IDs, and skill IDs
   without hardcoded evaluator registration.
-- [ ] Compile and cache CEL programs during bundle compilation or bundle load
+- [x] Compile and cache CEL programs during bundle compilation or bundle load
   rather than recompiling expressions at evaluation time.
-- [ ] Add controlled policy inheritance and override rules for expression
+- [x] Add controlled policy inheritance and override rules for expression
   policies, including forbidden shadowing of protected built-ins and explicit
   rules for severity weakening.
-- [ ] Ensure every CEL policy emits the same normalized result shape as Go
+- [x] Ensure every CEL policy emits the same normalized result shape as Go
   evaluators: policy ID, severity, decision, message, suggestion, principle
   IDs, skill ID, evidence, diagnostic location, remediation hint, and
   explanation metadata.
-- [ ] Expand the reviewed helper library with pure typed helpers for glob
+- [x] Expand the reviewed helper library with pure typed helpers for glob
   matching, path classification, test/generated/protected detection, lint code
   matching, command-tool detection, inline-env detection, repo config
   presence, and protected-branch facts.
-- [ ] Add first-class explain output for CEL decisions showing the expression,
+- [x] Add first-class explain output for CEL decisions showing the expression,
   available input schema, helper functions, matched evidence, ETHOS grounding,
   and skill/remediation path.
-- [ ] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
+- [x] Keep the CEL boundary pure by design: Go prepares facts; CEL decides over
   facts. CEL must not read files, execute shell/Git, inspect environment,
   access the network, or depend on wall-clock time.
-- [ ] Add operator documentation for supported scopes, input schemas, helper
+- [x] Add operator documentation for supported scopes, input schemas, helper
   functions, dispatch, severity, examples, anti-patterns, and migration rules.
-- [ ] Add a trust-building test matrix for unknown fields, type failures,
+- [x] Add a trust-building test matrix for unknown fields, type failures,
   unknown helpers, multi-file semantics, hook/lint dispatch, inheritance,
   shadowing, explain-output golden files, trace output, malicious config, and
   performance with many expression policies.
 
 Acceptance criteria:
 
-- [ ] Repo policy authors can express most simple and medium-complexity rules
+- [x] Repo policy authors can express most simple and medium-complexity rules
   in checked-in ethos/config YAML without changing Go source.
-- [ ] Policy authors get compile-time failures for unknown fields, invalid
+- [x] Policy authors get compile-time failures for unknown fields, invalid
   types, invalid helpers, unsafe host access, and invalid dispatch.
-- [ ] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
+- [x] Direct hook, agent-hook, lint-capture, explain, trace, CI, and future MCP
   paths cannot distinguish CEL-backed and Go-backed policies except by
   implementation metadata.
-- [ ] Multi-file and multi-finding policies are explicit and deterministic; no
+- [x] Multi-file and multi-finding policies are explicit and deterministic; no
   policy depends on implicit "first file" ordering.
-- [ ] Protected core policies remain non-shadowable and non-weakenable unless a
+- [x] Protected core policies remain non-shadowable and non-weakenable unless a
   protected source explicitly permits it.
-- [ ] Go evaluators remain only for complex parsing, expensive analysis, Git
+- [x] Go evaluators remain only for complex parsing, expensive analysis, Git
   state modeling, managed toolchain behavior, path normalization, and other
   reviewed security-sensitive operations.
+- [x] Add richer diff hunk and line-range facts once the runtime has a reviewed
+  Go diff parser shared by hook, lint, CI/SARIF, and MCP paths.
+- [x] Add provider-native event fields beyond provider/event/tool/scope only
+  after all supported agents can populate the field consistently.
 
 ### Native IDE And Cursor Integration
 
@@ -397,6 +445,10 @@ Acceptance criteria:
 
 #### SARIF Evidence Ledger Expansion
 
+- [x] Keep code-scanning SARIF actionable: record-only policy context remains
+  in TOON/JSON traces and must not upload as root-level warning results.
+- [x] Omit pathless policy results from code-scanning SARIF so GitHub does not
+  reject uploads and coding-ethos does not invent noisy alerts at `.` line 0.
 - [ ] Add MCP remediation endpoints that accept a SARIF run or trace ID and
   return focused ETHOS-grounded repair advice.
 - [ ] Add cross-tool finding grouping using SARIF fingerprints, policy IDs,

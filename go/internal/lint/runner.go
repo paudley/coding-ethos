@@ -124,10 +124,18 @@ func evaluatePolicy(
 	context := evaluators.Context{
 		AdminApproved: options.AdminApproved,
 		Scope:         scope,
+		EventName:     "lint",
+		Provider:      "lint",
 		Files:         append([]string(nil), options.Files...),
 		Argv:          append([]string(nil), options.Argv...),
 		Command:       options.Command,
 		Cwd:           options.Cwd,
+	}
+	switch scope {
+	case ScopeChanged:
+		context.ChangedFiles = append([]string(nil), options.Files...)
+	case ScopeStaged:
+		context.StagedFiles = append([]string(nil), options.Files...)
 	}
 
 	var registered bool

@@ -97,16 +97,17 @@ generated_config:
     github_actions:
       enabled: true
       coding_ethos_path: .
-      repo_root: .
       gate_command: make check
-      sarif_path: coding-ethos.sarif
-      artifact_name: coding-ethos-audit
+      sarif_category: .github/workflows/ci.yml:policy
+      standalone_triggers: false
+      timeout_minutes: 30
     gitlab:
       enabled: true
       coding_ethos_path: .
-      repo_root: .
       gate_command: make check
-      sarif_path: coding-ethos.sarif
+      test_command: uv run pytest
+      build_command: uv build
+      package_check_command: uvx twine check dist/*
 
 syntax:
   file_syntax:
@@ -510,6 +511,7 @@ filesystem:
   required_ignores:
     enabled: true
     paths:
+      - .code-ethos/cache/
       - .coding-ethos/
       - .coding-ethos/hook-runs/example/stdout.log
   pii_scrubber:
@@ -537,20 +539,9 @@ filesystem:
   shebangs:
     enabled: true
   large_files:
-    enabled: true
-    exclude_prefixes: []
-    suffixes:
-      - .bash
-      - .json
-      - .sh
-      - .toml
-      - .yaml
-      - .yml
-    max_kb: 500
+    enabled: false
   line_limits:
-    enabled: true
-    python_hard: 1000
-    shell_hard: 500
+    enabled: false
 
 shell:
   dangerous_command:

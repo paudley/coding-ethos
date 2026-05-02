@@ -40,7 +40,10 @@ func pythonRuntimeRouteFor(event Event) gitWrapperRoute {
 }
 
 func rewritePythonRuntimeCommandChain(command string, cwd string) (string, bool) {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return "", false
+	}
 	if len(tokens) == 0 {
 		return "", false
 	}

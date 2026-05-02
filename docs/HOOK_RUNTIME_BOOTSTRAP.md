@@ -137,6 +137,7 @@ The shim must not:
 - inspect policy source configuration
 - rewrite generated protected files by hand
 - maintain a second runtime cache in the consumer `.git` directory
+- write response caches or other transient runtime state into `.git`
 
 ## Repair Rules
 
@@ -175,6 +176,8 @@ Bootstrap needs a few guardrails:
   multiple builds over the same output directory.
 - Print the exact failed command and preserve build output when repair fails.
 - Keep build outputs under ignored `bin/` and `build/` directories.
+- Keep transient repo-local runtime caches under ignored `.code-ethos/cache/`
+  paths, not under `.git`.
 - Keep the parent hook shim stable and move versioned behavior into the
   `coding-ethos` checkout.
 

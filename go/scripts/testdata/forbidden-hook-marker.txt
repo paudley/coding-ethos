@@ -1,0 +1,1 @@
+coding-ethos-hooks/bin/coding-ethos-hook

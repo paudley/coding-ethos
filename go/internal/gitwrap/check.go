@@ -24,6 +24,7 @@ var (
 type Options struct {
 	Cwd           string
 	Argv          []string
+	Stdin         []byte
 	AdminApproved bool
 }
 
@@ -67,6 +68,7 @@ func CheckWithRegistry(
 			options.Cwd,
 			"",
 			options.AdminApproved,
+			options.Stdin,
 			registry,
 		)
 		if err != nil {
@@ -145,13 +147,17 @@ func evaluateGitPolicy(
 	cwd string,
 	scope string,
 	adminApproved bool,
+	stdin []byte,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	context := evaluators.Context{
 		AdminApproved: adminApproved,
 		Argv:          append([]string(nil), argv...),
 		Cwd:           cwd,
+		EventName:     "git",
+		Provider:      "gitwrap",
 		Scope:         scope,
+		Stdin:         append([]byte(nil), stdin...),
 	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {

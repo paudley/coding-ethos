@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,10 +43,16 @@ type HookTraceCommand struct {
 }
 
 type HookTraceDecision struct {
-	PolicyID string `json:"policy_id,omitempty"`
-	Decision string `json:"decision,omitempty"`
-	Severity string `json:"severity,omitempty"`
-	Message  string `json:"message,omitempty"`
+	PolicyID        string   `json:"policy_id,omitempty"`
+	Decision        string   `json:"decision,omitempty"`
+	Severity        string   `json:"severity,omitempty"`
+	SkillID         string   `json:"skill_id,omitempty"`
+	Suggestion      string   `json:"suggestion,omitempty"`
+	Implementation  string   `json:"implementation,omitempty"`
+	Message         string   `json:"message,omitempty"`
+	EvidenceKeys    []string `json:"evidence_keys,omitempty"`
+	PrincipleIDs    []string `json:"principle_ids,omitempty"`
+	DiagnosticCount int      `json:"diagnostic_count,omitempty"`
 }
 
 type HookTraceOutputShape struct {
@@ -113,14 +120,48 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 	trace := make([]HookTraceDecision, 0, len(decisions))
 	for _, decision := range decisions {
 		trace = append(trace, HookTraceDecision{
-			PolicyID: decision.PolicyID,
-			Decision: decision.Decision,
-			Severity: decision.Severity,
-			Message:  truncateForTrace(decision.Message, commandPreviewLimit),
+			PolicyID:        decision.PolicyID,
+			Decision:        decision.Decision,
+			Severity:        decision.Severity,
+			SkillID:         evidenceString(decision.Evidence, "skill_id"),
+			Suggestion:      truncateForTrace(decision.Suggestion, commandPreviewLimit),
+			Implementation:  evidenceString(decision.Evidence, "implementation"),
+			Message:         truncateForTrace(decision.Message, commandPreviewLimit),
+			EvidenceKeys:    sortedEvidenceKeys(decision.Evidence),
+			PrincipleIDs:    append([]string(nil), decision.PrincipleIDs...),
+			DiagnosticCount: len(decision.Diagnostics),
 		})
 	}
 
 	return trace
+}
+
+func evidenceString(evidence map[string]any, key string) string {
+	value, ok := evidence[key]
+	if !ok {
+		return ""
+	}
+
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+
+	return text
+}
+
+func sortedEvidenceKeys(evidence map[string]any) []string {
+	if len(evidence) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(evidence))
+	for key := range evidence {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+
+	return keys
 }
 
 func traceOutputShape(result Result) HookTraceOutputShape {

@@ -67,23 +67,23 @@ func TestAnalyzeHookLogsRanksFailuresAndQualityIssues(t *testing.T) {
 func writeHookLogAnalysisFixtures(t *testing.T, root string) {
 	t.Helper()
 
-	mustWriteTestFile(t, filepath.Join(root, "run-a", "stdout.log"), hookLogRunA())
+	mustWriteTestFile(t, filepath.Join(root, "run-a", "stdout.log"), hookLogRunA(root))
 	mustWriteTestFile(t, filepath.Join(root, "run-b", "stdout.log"), hookLogRunB())
-	mustWriteTestFile(t, filepath.Join(root, "run-c", "stdout.log"), hookLogRunC())
+	mustWriteTestFile(t, filepath.Join(root, "run-c", "stdout.log"), hookLogRunC(root))
 }
 
-func hookLogRunA() string {
+func hookLogRunA(root string) string {
 	header := "findings[2]" + hookLogFindingColumns + ":"
 	first := "ruff,lib/python/app.py,10,1,error,E402,python.import_order," +
 		"Module level import not at top of file,Move imports to top,"
-	second := "ruff," + repoRoot() + "/lib/python/app.py,20,4,error,S608," +
+	second := "ruff," + root + "/lib/python/app.py,20,4,error,S608," +
 		"python.sql_safety,Possible SQL injection vector through\\n" +
 		"string-based query construction,Use parameterized SQL,"
 
 	return strings.Join([]string{
 		"format: toon",
 		"tool: ruff-autofix",
-		`command: "/home/example/repo/git commit -m 'feat(test): subject\, with commas'"`,
+		`command: "` + root + `/git commit -m 'feat(test): subject\, with commas'"`,
 		header,
 		"  " + first,
 		"  " + second,
@@ -106,13 +106,13 @@ func hookLogRunB() string {
 	}, "\n")
 }
 
-func hookLogRunC() string {
+func hookLogRunC(root string) string {
 	return strings.Join([]string{
 		"diff --git a/example b/example",
 		" findings[1]" + hookLogFindingColumns + ":",
-		"   ruff,/home/example/repo/not-real.py,1,1,error,E999,,diff fixture only,,",
+		"   ruff," + root + "/not-real.py,1,1,error,E999,,diff fixture only,,",
 		"quality_issue_examples[1]{kind,run_id,line,sample}:",
-		`  absolute_repo_path,old-run,4,"command": "/home/example/repo/git status"`,
+		`  absolute_repo_path,old-run,4,"command": "` + root + `/git status"`,
 		"",
 	}, "\n")
 }
@@ -188,7 +188,7 @@ func TestAnalyzeHookLogsCapsQualityIssueExamples(t *testing.T) {
 
 	lines[0] = "format: toon"
 	for range maxHookLogQualityIssueSamples + 5 {
-		lines = append(lines, "command: /home/example/repo/git status")
+		lines = append(lines, "command: "+root+"/git status")
 	}
 
 	mustWriteTestFile(

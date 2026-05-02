@@ -157,7 +157,7 @@ func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 			Options: map[string]any{
 				"scope":    "command",
 				"skill_id": "safe-git-workflow",
-				"when":     `command.contains("subprocess") && command.contains("git")`,
+				"when":     `shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))`,
 			},
 		}},
 	}
@@ -184,6 +184,68 @@ func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 	}
 	if len(result.Decisions) != 1 ||
 		result.Decisions[0].PolicyID != "custom.no_subprocess_git" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions)
+	}
+}
+
+func TestRunEvaluatesProviderNativeCELPolicy(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.ExampleBundle()
+	bundle.Policies["custom.codex_failed_bash"] = policy.Policy{
+		ID:              "custom.codex_failed_bash",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source:          policy.SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		Message:         "Failed Codex Bash output requires review.",
+		Suggestion:      "Read the failed command output before continuing.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		SupportedModes:  []string{"block", "record", "advise"},
+		PrincipleIDs:    []string{"radical-visibility"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope": "hook",
+				"when": `event.is_codex &&
+					event.name == "PostToolUse" &&
+					event.tool == "Bash" &&
+					event.return_code == 7 &&
+					event.session_id == "session-123" &&
+					event.tool_response_keys.exists(key, key == "stderr")`,
+			},
+		}},
+	}
+	bundle.Dispatch.Hooks["PostToolUse"]["Bash"] = append(
+		bundle.Dispatch.Hooks["PostToolUse"]["Bash"],
+		policy.HookDispatchEntry{PolicyID: "custom.codex_failed_bash", Mode: "block"},
+	)
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName:  "PostToolUse",
+			ProviderHint:   "codex",
+			SessionID:      "session-123",
+			ToolName:       "Bash",
+			TranscriptPath: "/tmp/transcript.jsonl",
+			ToolInput: map[string]any{
+				"command": "make check",
+			},
+			ToolResponse: map[string]any{
+				"return_code": 7,
+				"stderr":      "failed",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) != 1 ||
+		result.Decisions[0].PolicyID != "custom.codex_failed_bash" {
 		t.Fatalf("decision mismatch: %#v", result.Decisions)
 	}
 }
@@ -288,6 +350,16 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 			command: "dotenv-linter .env.example",
 			want:    "policy-tool dotenv-linter '.env.example'",
 		},
+		{
+			name:    "command-wrapper",
+			command: "command ruff check pkg",
+			want:    "policy-tool ruff 'check' 'pkg'",
+		},
+		{
+			name:    "env-wrapper",
+			command: "env FOO=bar ruff check pkg",
+			want:    "policy-tool ruff 'check' 'pkg'",
+		},
 	}
 
 	for _, test := range tests {
@@ -317,6 +389,31 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 				t.Fatalf("rewrite for %q = %q, want %q", test.command, rewritten, test.want)
 			}
 		})
+	}
+}
+
+func TestRunBlocksLintToolWithPathOverride(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "PATH=/tmp:$PATH ruff check pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
+		t.Fatalf("decisions = %#v", result.Decisions)
 	}
 }
 
@@ -569,6 +666,43 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
+func TestRunBlocksWrappedGitBypassCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"command git status",
+		"env PATH=/tmp:$PATH git status",
+		"bash -c 'git status'",
+		"git_status() { git status; }",
+	}
+	for _, command := range tests {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: "PreToolUse",
+					ToolName:      "Bash",
+					Source:        "claude",
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusBlocked {
+				t.Fatalf("status for %q = %q", command, result.Status)
+			}
+			if !hasDecision(result.Decisions, "git.wrapper_required") {
+				t.Fatalf("expected git wrapper decision, got %#v", result.Decisions)
+			}
+		})
+	}
+}
+
 func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 	t.Parallel()
 
@@ -646,6 +780,75 @@ func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
 	if strings.Contains(rewritten, "$'\\n'") ||
 		strings.Contains(rewritten, "'\n'") {
 		t.Fatalf("rewritten command contains a newline pathspec: %q", rewritten)
+	}
+}
+
+func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": strings.Join([]string{
+					"# Stage all Phase 3 files - comprehensive list",
+					"\ngit add \\",
+					"\n  lbox-platform/lib/python/lbox/kg/interlink/__init__.py \\",
+					"\n  lbox-platform/lib/python/lbox/kg/interlink/_concept_index.py \\",
+					"\n  lbox-platform/scripts/_phase3_strategy_factory.py",
+				}, ""),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/lib/python/lbox/kg/interlink/__init__.py'",
+		) ||
+		!strings.Contains(
+			rewritten,
+			"'lbox-platform/scripts/_phase3_strategy_factory.py'",
+		) {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunBlocksMalformedShellCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "echo 'unterminated",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if !hasDecision(result.Decisions, "shell.malformed_command") {
+		t.Fatalf("expected malformed shell decision, got %#v", result.Decisions)
+	}
+	if strings.Contains(ProviderBlockMessage(result), "coding-ethos git wrapper") {
+		t.Fatalf("malformed shell block used git wrapper guidance: %s", ProviderBlockMessage(result))
 	}
 }
 
@@ -1027,6 +1230,28 @@ func TestRunBlocksHookImplementationReconnaissance(t *testing.T) {
 	}
 }
 
+func TestRunBlocksAssignmentMediatedAgentSettingsWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "FILE=.claude/settings.json cat > ${FILE}",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden string assignment block, got %#v", result)
+	}
+}
+
 func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 	t.Parallel()
 
@@ -1046,6 +1271,77 @@ func TestRunBlocksWritingEvasiveGitHelper(t *testing.T) {
 
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "git.edit_evasive_git_execution") {
+		t.Fatalf("expected CEL git edit evasion decision, got %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksWritingHookInternalMarker(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "notes.md",
+				"content":   "blocked coding-ethos-hooks/coding-ethos-git-hook marker",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden string write block, got %#v", result)
+	}
+}
+
+func TestRunAllowsAgentWorkspaceMemoryWithGitLearning(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "/workspace/.claude/projects/repo/memory/project_g8a_precision_audit.md",
+				"content":   `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunAllowsAgentWorkspaceMemoryWithHookMarker(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "/workspace/.claude/projects/repo/memory/project_g8a_precision_audit.md",
+				"content":   "blocked coding-ethos-hooks/coding-ethos-git-hook marker",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
 	}
 }
 
@@ -1072,6 +1368,40 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 
 	if result.Decisions[0].PolicyID != "filesystem.protected_path" {
 		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunAllowsAgentMemoryWriteWithHookReferences(t *testing.T) {
+	t.Parallel()
+
+	for _, filePath := range []string{
+		"/workspace/.claude/projects/repo/memory/project.md",
+		"/workspace/.claude/plans/adaptive-exploring-toast.md",
+		".codex/MEMORY.md",
+	} {
+		result, err := Run(policy.ExampleBundle(), Options{
+			Event: Event{
+				HookEventName: "PreToolUse",
+				ToolName:      "Edit",
+				ToolInput: map[string]any{
+					"file_path":  filePath,
+					"old_string": "prior note",
+					"new_string": "Recorded block for coding-ethos-hooks/coding-ethos-git-hook.",
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("run hook: %v", err)
+		}
+
+		if result.Status != statusAllowed {
+			t.Fatalf(
+				"status mismatch for %q: got %q; decisions=%#v",
+				filePath,
+				result.Status,
+				result.Decisions,
+			)
+		}
 	}
 }
 
@@ -1481,8 +1811,8 @@ func legacyFixtureBundle() policy.Bundle {
 	addLegacyPolicy(
 		&bundle,
 		"shell.github_admin",
-		"shell",
-		"shell.github_admin",
+		"expression",
+		"cel.expression",
 		"Bash",
 	)
 	addLegacyPolicy(
@@ -1519,6 +1849,14 @@ func addLegacyPolicy(
 		Message:         "legacy fixture policy",
 		DefenseLayers:   policy.GitDefenseLayers("block", "", "block", "", ""),
 		Evaluators:      []policy.Evaluator{{Kind: category, Name: evaluatorName}},
+	}
+	if policyID == "shell.github_admin" {
+		bundle.Policies[policyID].Evaluators[0].Options = map[string]any{
+			"mode":     "block",
+			"skill_id": "safe-git-workflow",
+			"when": "shell_commands.exists(command, " +
+				"command.name == 'gh' && list_contains(command.argv, '--admin'))",
+		}
 	}
 
 	if bundle.Dispatch.Hooks["PreToolUse"] == nil {

@@ -108,3 +108,4 @@ ehthumbs.db
 #   ruff.toml
 #   .yamllint.yml
 #   .code-ethos/gemini/prompt-pack.json
+.code-ethos/cache/

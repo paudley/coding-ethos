@@ -14,11 +14,25 @@ policy:
       description: Block Python subprocess attempts to route around protected Git.
       scope: command
       severity: block
+      mode: block
+      protected: true
+      allow_override: false
+      allow_severity_weaken: false
+      hook_events: [PreToolUse]
+      tools: [Bash]
+      lint_scopes: [staged, files]
+      command_patterns: [subprocess]
       principle_ids:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
-      when: command.contains("subprocess") && command.contains("git")
+      when: >
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
+          cmd.argv.exists(arg, arg.contains("git"))
+        ) &&
+        paths.all(path, !path.is_generated)
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected Git wrapper and keep hook failures visible.
 
@@ -81,18 +95,27 @@ generated_config:
       gate_command: make check
       sarif_path: coding-ethos.sarif
       artifact_name: coding-ethos-audit
+      standalone_triggers: false
+      timeout_minutes: 30
+      sarif_category: policy
     gitlab:
       enabled: true
       coding_ethos_path: coding-ethos
       repo_root: .
       gate_command: make check
       sarif_path: coding-ethos.sarif
+      test_command: ""
+      build_command: ""
+      package_check_command: ""
+      dist_artifact_path: dist/
+      timeout_minutes: 30
+      artifact_expire_in: 7 days
 
 filesystem:
   protected_path:
     enabled: true
     paths:
-      - coding-ethos-hooks/coding-ethos-git-hook
+      - path/to/protected/generated-hook
   protected_branch_write:
     enabled: true
     branches:
@@ -104,6 +127,7 @@ filesystem:
   required_ignores:
     enabled: true
     paths:
+      - .code-ethos/cache/
       - .coding-ethos/
       - .coding-ethos/hook-runs/example/stdout.log
   pii_scrubber:

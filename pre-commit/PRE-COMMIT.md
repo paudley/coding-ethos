@@ -49,10 +49,11 @@ entries that name the stale or missing surface and the next action.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
-`.coding-ethos/` ignored in both the bundle repo and consuming repos; it is
-runtime evidence for later analysis, not source. The cutover gate reports
-missing ignore rules before installation, and normal hook execution still fails
-before writing logs when `.coding-ethos/` is not ignored.
+`.coding-ethos/` and `.code-ethos/cache/` ignored in both the bundle repo and
+consuming repos; they are runtime evidence/cache paths for later analysis, not
+source. The cutover gate reports missing ignore rules before installation, and
+normal hook execution still fails before writing logs when required runtime
+paths are not ignored.
 
 Required tools:
 
@@ -123,7 +124,7 @@ Primary files:
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
-repo-local response caching under the configured hook cache directory,
+repo-local response caching under `.code-ethos/cache/`,
 supports per-check `model_overrides` and `service_tier_overrides`, reuses
 Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from

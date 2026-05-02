@@ -43,6 +43,46 @@ type Finding struct {
 	Line         int            `json:"line,omitempty"`
 }
 
+func (finding Finding) FindingTool() string {
+	return finding.SourceTool
+}
+
+func (finding Finding) FindingCode() string {
+	return finding.Code
+}
+
+func (finding Finding) FindingMessage() string {
+	return finding.Message
+}
+
+func (finding Finding) FindingFile() string {
+	return finding.File
+}
+
+func (finding Finding) FindingSeverity() string {
+	return finding.Severity
+}
+
+func (finding Finding) FindingPolicyID() string {
+	return finding.PolicyID
+}
+
+func (finding Finding) FindingSkillID() string {
+	return finding.SkillID
+}
+
+func (finding Finding) FindingPrincipleIDs() []string {
+	return append([]string(nil), finding.EthosIDs...)
+}
+
+func (finding Finding) FindingColumn() int {
+	return finding.Column
+}
+
+func (finding Finding) FindingLine() int {
+	return finding.Line
+}
+
 type RunResult = Result
 
 type SkillHint struct {

@@ -16,274 +16,9 @@ import (
 )
 
 const (
-	blockDecision              = "block"
-	gitSubcommandArgc          = 2
-	gitWorktreeOperationArgc   = 3
-	gitWorktreeSubcommandIndex = 2
-	gitSubmoduleUpdateArgc     = 3
-	gitSubmoduleCommandIndex   = 2
+	blockDecision     = "block"
+	gitSubcommandArgc = 2
 )
-
-func EvaluateGitDestructiveCommand(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGit(argv) {
-		return nil, nil
-	}
-
-	switch gitSubcommand(argv) {
-	case "reset":
-		if hasArg(argv, "--hard") {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	case "clean":
-		if hasCleanForceDelete(argv) {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	case "checkout":
-		if hasArg(argv, "--theirs") || hasArg(argv, "--ours") {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	case "restore":
-		if hasArg(argv, "--") {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitMergeStrategyShortcut(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "merge") {
-		return nil, nil
-	}
-
-	for idx, arg := range argv {
-		if arg == "-X" && idx+1 < len(argv) && isTheirsOrOurs(argv[idx+1]) {
-			return blockGitDecision(policyDef, argv), nil
-		}
-
-		if strings.HasPrefix(arg, "-X") &&
-			isTheirsOrOurs(strings.TrimPrefix(arg, "-X")) {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitForcePushProtectedBranch(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "push") {
-		return nil, nil
-	}
-
-	if !hasForcePush(argv) {
-		return nil, nil
-	}
-
-	if hasProtectedBranchArg(argv) {
-		return blockGitDecision(policyDef, argv), nil
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitCheckoutProtectedBranch(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "checkout") && !isGitSubcommand(argv, "switch") {
-		return nil, nil
-	}
-
-	for _, target := range protectedCheckoutTargets(argv) {
-		if isProtectedBranchRef(target) {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitDestructiveWorktree(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "worktree") || len(argv) < gitWorktreeOperationArgc {
-		return nil, nil
-	}
-
-	switch argv[gitWorktreeSubcommandIndex] {
-	case "prune":
-		return blockGitDecision(policyDef, argv), nil
-	case "remove", "move":
-		if hasArg(argv, "--force") || hasShortFlag(argv, "f") {
-			return blockGitDecision(policyDef, argv), nil
-		}
-	}
-
-	return nil, nil
-}
-
-func EvaluateGitProtectedSubmoduleUpdate(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGitSubcommand(argv, "submodule") ||
-		len(argv) < gitSubmoduleUpdateArgc ||
-		argv[gitSubmoduleCommandIndex] != "update" {
-		return nil, nil
-	}
-
-	protectedPaths := stringSliceOption(
-		context.EvaluatorOptions,
-		"paths",
-		[]string{"coding-ethos"},
-	)
-	targets := submoduleUpdateTargets(argv[gitSubmoduleUpdateArgc:])
-	if protectedSubmoduleUpdateTargets(targets, protectedPaths) &&
-		unsafeProtectedSubmoduleUpdate(argv[gitSubmoduleUpdateArgc:]) {
-		decision := policy.NewDecision(blockDecision, policyDef)
-		decision.Evidence = map[string]any{
-			"argv":            append([]string(nil), argv...),
-			"protected_paths": protectedPaths,
-			"reason":          "protected submodules may only be upgraded with --remote",
-		}
-		if len(targets) > 0 {
-			decision.Evidence["targets"] = targets
-		}
-
-		return []policy.Decision{decision}, nil
-	}
-
-	return nil, nil
-}
-
-func unsafeProtectedSubmoduleUpdate(args []string) bool {
-	if slices.Contains(args, "--init") {
-		return true
-	}
-
-	return !slices.Contains(args, "--remote")
-}
-
-func EvaluateGitChangeDirFlag(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if !isGit(argv) {
-		return nil, nil
-	}
-
-	if slices.Contains(argv[1:], "-C") {
-		return blockGitDecision(policyDef, argv), nil
-	}
-
-	return nil, nil
-}
-
-func submoduleUpdateTargets(args []string) []string {
-	targets := []string{}
-	skipNext := false
-	for _, arg := range args {
-		if skipNext {
-			skipNext = false
-
-			continue
-		}
-
-		if arg == "--" {
-			continue
-		}
-
-		if submoduleUpdateOptionHasValue(arg) {
-			skipNext = true
-
-			continue
-		}
-
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-
-		targets = append(targets, normalizeSubmodulePath(arg))
-	}
-
-	return targets
-}
-
-func submoduleUpdateOptionHasValue(arg string) bool {
-	if strings.Contains(arg, "=") {
-		return false
-	}
-
-	switch arg {
-	case "--jobs", "-j", "--depth", "--reference", "--recommend-shallow":
-		return true
-	default:
-		return false
-	}
-}
-
-func protectedSubmoduleUpdateTargets(targets []string, protectedPaths []string) bool {
-	if len(targets) == 0 {
-		return true
-	}
-
-	protected := stringSet(normalizeSubmodulePaths(protectedPaths))
-	for _, target := range targets {
-		if protected[normalizeSubmodulePath(target)] {
-			return true
-		}
-	}
-
-	return false
-}
-
-func normalizeSubmodulePaths(paths []string) []string {
-	normalized := make([]string, 0, len(paths))
-	for _, path := range paths {
-		if item := normalizeSubmodulePath(path); item != "" {
-			normalized = append(normalized, item)
-		}
-	}
-
-	return normalized
-}
-
-func normalizeSubmodulePath(path string) string {
-	normalized := filepath.ToSlash(strings.TrimSpace(path))
-	normalized = strings.TrimPrefix(normalized, "./")
-	normalized = strings.TrimSuffix(normalized, "/")
-
-	return normalized
-}
-
-func EvaluateGitStashBlocked(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	argv := context.Argv
-	if isGitSubcommand(argv, "stash") {
-		return blockGitDecision(policyDef, argv), nil
-	}
-
-	return nil, nil
-}
 
 func EvaluateGitCommitAttribution(
 	policyDef policy.Policy,
@@ -358,7 +93,11 @@ func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision 
 func commitMessagesFromContext(context Context) ([]string, error) {
 	messages := []string{}
 	if isGitSubcommand(context.Argv, "commit") {
-		argvMessages, err := commitMessagesFromArgv(context.Argv, context.Cwd)
+		argvMessages, err := commitMessagesFromArgv(
+			context.Argv,
+			context.Cwd,
+			context.Stdin,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -368,7 +107,7 @@ func commitMessagesFromContext(context Context) ([]string, error) {
 
 	if context.Scope == "commit-msg" {
 		for _, file := range context.Files {
-			message, err := readCommitMessageFile(file, context.Cwd)
+			message, err := readCommitMessageFile(file, context.Cwd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -381,12 +120,12 @@ func commitMessagesFromContext(context Context) ([]string, error) {
 	return messages, nil
 }
 
-func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
+func commitMessagesFromArgv(argv []string, cwd string, stdin []byte) ([]string, error) {
 	args := gitArgsAfterSubcommand(argv)
-	messages := []string{}
+	messageFragments := []string{}
 
 	for idx := 0; idx < len(args); idx++ {
-		nextIdx, message, found, err := commitMessageArg(args, idx, cwd)
+		nextIdx, message, found, err := commitMessageArg(args, idx, cwd, stdin)
 		if err != nil {
 			return nil, err
 		}
@@ -394,11 +133,15 @@ func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
 		idx = nextIdx
 
 		if found {
-			messages = append(messages, message)
+			messageFragments = append(messageFragments, message)
 		}
 	}
 
-	return messages, nil
+	if len(messageFragments) == 0 {
+		return nil, nil
+	}
+
+	return []string{strings.Join(messageFragments, "\n\n")}, nil
 }
 
 func validateCommitMessageText(message string, options map[string]any) []string {
@@ -484,6 +227,7 @@ func commitMessageArg(
 	args []string,
 	idx int,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
 	arg := args[idx]
 
@@ -500,15 +244,15 @@ func commitMessageArg(
 	}
 
 	if arg == "-F" || arg == "--file" {
-		return nextCommitMessageFile(args, idx, cwd)
+		return nextCommitMessageFile(args, idx, cwd, stdin)
 	}
 
 	if strings.HasPrefix(arg, "-F") && arg != "-F" {
-		return commitMessageFileValue(idx, strings.TrimPrefix(arg, "-F"), cwd)
+		return commitMessageFileValue(idx, strings.TrimPrefix(arg, "-F"), cwd, stdin)
 	}
 
 	if value, found := strings.CutPrefix(arg, "--file="); found {
-		return commitMessageFileValue(idx, value, cwd)
+		return commitMessageFileValue(idx, value, cwd, stdin)
 	}
 
 	return idx, "", false, nil
@@ -572,12 +316,13 @@ func nextCommitMessageFile(
 	args []string,
 	idx int,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
 	if idx+1 >= len(args) {
 		return idx, "", false, nil
 	}
 
-	message, err := readCommitMessageFile(args[idx+1], cwd)
+	message, err := readCommitMessageFile(args[idx+1], cwd, stdin)
 	if err != nil {
 		return idx, "", false, err
 	}
@@ -589,8 +334,9 @@ func commitMessageFileValue(
 	idx int,
 	path string,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
-	message, err := readCommitMessageFile(path, cwd)
+	message, err := readCommitMessageFile(path, cwd, stdin)
 	if err != nil {
 		return idx, "", false, err
 	}
@@ -626,9 +372,12 @@ func gitArgsAfterSubcommand(argv []string) []string {
 	return nil
 }
 
-func readCommitMessageFile(path string, cwd string) (string, error) {
+func readCommitMessageFile(path string, cwd string, stdin []byte) (string, error) {
 	if path == "" {
 		return "", nil
+	}
+	if path == "-" {
+		return string(stdin), nil
 	}
 
 	if !filepath.IsAbs(path) && cwd != "" {

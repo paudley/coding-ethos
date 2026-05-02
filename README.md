@@ -17,8 +17,9 @@ safety gates before bad changes land.
 
 The project is built around defense in depth for AI-assisted coding:
 
-- **ETHOS as source:** `coding_ethos.yml` and repo overlays define the
-  principles, skills, axioms, generated docs, and policy grounding.
+- **ETHOS as source:** `coding_ethos.yml` and repo overlays are the backbone:
+  principles own their skills, axioms, generated docs, and first-class policy
+  grounding.
 - **Compiled enforcement:** Go hook runtimes evaluate built-in policies and
   typed CEL expression policies through the same decision model.
 - **Managed tools:** lint and type checks run through generated configs,
@@ -48,7 +49,7 @@ the places contributors actually work:
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
-| CI/CD | SARIF output plus GitHub Actions and GitLab CI examples for independent PR gates |
+| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, artifacts, and package validation |
 | Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
 
 ## Agents Used In This Repository
@@ -87,13 +88,14 @@ AGENTS.md / CLAUDE.md / GEMINI.md / ETHOS.md
 .agent-context/ prompt addons
 .agents/skills/ remediation playbooks
 runtime axioms with MCP next steps
+principle-owned CEL policies
 
 config.yaml          repo_config.yaml
        │                    │
        ├── merged enforcement config
        │
        ├── generated tool configs
-       ├── CEL expression policies
+       ├── transitional CEL expression policies
        ├── Gemini prompt pack
        ├── Go policy bundle
        ├── Git hook runtime
@@ -116,10 +118,12 @@ so advice can escalate from compact guidance to `policy_explain`,
 `skill_lookup`, or `skill_recommend` without dumping full context into every
 hook response.
 
-CEL support extends that same model to repo-specific policy. A consumer can add
-reviewable, typed custom expressions in `repo_config.yaml`; the compiler checks
-them up front, dispatches them through hook and lint paths, and emits normal
-policy decisions with ETHOS grounding and skill hints.
+CEL support extends that same model to repo-specific policy. First-class CEL
+policies live with the ETHOS principle they enforce in `coding_ethos.yml`.
+Config-level `policy.expressions` remains available for consumer overlays and
+for transitional policy that has not yet been expressed as part of the ETHOS
+contract. The compiler checks CEL up front, dispatches it through hook and lint
+paths, and emits normal policy decisions with ETHOS grounding and skill hints.
 
 For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team
@@ -298,8 +302,11 @@ uv run coding-ethos --repo /path/to/repo --sync-tool-configs
 ```
 
 By default the same command writes the managed SARIF CI files and includes
-them in `.code-ethos/tool-config-hashes.json`. Repos with a deliberate
-exception can set `generated_config.ci.github_actions.enabled: false` or
+them in `.code-ethos/tool-config-hashes.json`. The generated GitHub workflow is
+reusable by default so a repo-level CI workflow can own concurrency, required
+checks, package validation, and attestations without duplicate SARIF uploads.
+Repos with a deliberate exception can set
+`generated_config.ci.github_actions.enabled: false` or
 `generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
 They are checked by `--check-tool-configs`; there is no separate CI sync path.
 
@@ -328,7 +335,7 @@ uv run coding-ethos \
 
 | Source | Purpose | Derived output |
 | --- | --- | --- |
-| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, and ETHOS skills |
+| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, ETHOS skills, axioms, and principle-owned CEL policies |
 | `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
@@ -392,6 +399,8 @@ repo/
 ├── tombi.toml
 ├── .golangci.yml
 └── .code-ethos/
+    ├── cache/
+    │   └── ... ignored runtime caches
     └── gemini/
         └── prompt-pack.json
 ```
@@ -446,16 +455,20 @@ See [repo_ethos.example.yml](repo_ethos.example.yml).
 
 ### `config.yaml` and `repo_config.yaml`
 
-`config.yaml` is the bundle-wide enforcement source of truth. A consuming repo
-can refine it with `repo_config.yaml` or `repo_config.yml` at the repo root, or
-by passing `--repo-config`.
+`coding_ethos.yml` is the backbone of policy intent. `config.yaml` is the
+bundle-wide enforcement artifact for generated tool settings, operational
+defaults, and policy that has not yet been expressed cleanly with an ETHOS
+principle. A consuming repo can refine the compiled enforcement artifact with
+`repo_config.yaml` or `repo_config.yml` at the repo root, or by passing
+`--repo-config`.
 
 The merged config drives:
 
 - generated Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and
   golangci-lint config
 - generated GitHub Actions and GitLab CI SARIF gates, controlled by
-  `generated_config.ci.*.enabled`
+  `generated_config.ci.*.enabled`, timeout, trigger, artifact, test, and build
+  knobs
 - hook policy for Python, shell, text, commit-message, and Go checks
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
@@ -476,9 +489,28 @@ See [repo_config.example.yaml](repo_config.example.yaml).
 
 ### CEL Expression Policies
 
-Consumer repos can add small custom policies under `policy.expressions` in
-`repo_config.yaml`. These policies are CEL expressions compiled into the policy
-bundle and evaluated by the same Go hook runtime as built-in policies.
+First-class CEL policies should live under the relevant principle in
+`coding_ethos.yml`:
+
+```yaml
+principles:
+  - id: solid-is-law
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          when: >
+            file_changes.exists(file, file.ext == ".py" && file.line_count > 1000)
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+```
+
+Consumer repos can also add small custom policies under `policy.expressions` in
+`repo_config.yaml`. That path is an overlay and transitional extension point,
+not the preferred home for shared ETHOS policy. These policies are CEL
+expressions compiled into the policy bundle and evaluated by the same Go hook
+runtime as Go-backed policies.
 
 Use CEL for narrow predicates over normalized hook or lint data, for example
 blocking a repo-specific command pattern:
@@ -494,7 +526,12 @@ policy:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
-      when: command.contains("subprocess") && command.contains("git")
+      when: >
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
+          cmd.argv.exists(arg, arg.contains("git"))
+        )
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected Git wrapper and keep hook failures visible.
 ```
@@ -503,7 +540,22 @@ Current supported fields include:
 
 - `command`: raw command text for command-scope hook policies.
 - `argv`: parsed command arguments when available.
+- `shell_commands`: parser-normalized shell command facts from
+  `mvdan.cc/sh/v3/syntax`, including command name, argv, leading assignments,
+  redirects, here-docs, line/column, background execution, dynamic expansion flags,
+  command/process substitution flags, shell-exec detection, Git detection,
+  lint-tool detection, and PATH override detection. Malformed shell text is
+  blocked before policy evaluation continues.
 - `files`: repo-provided file targets for the current hook or lint event.
+- `file_changes`: typed staged-file facts, including status, extension,
+  generated/test/protected flags, byte size, current line count, and original
+  line count when Git can provide it.
+- `diff`: staged diff facts prepared by Go, including changed/staged file
+  lists, hunks, added lines, removed lines, line numbers, old/new line numbers,
+  and hunk headers.
+- `event`: provider-native hook metadata such as provider, hook name, tool,
+  source, matcher, session ID, transcript path, tool-input/tool-response keys,
+  return code, and provider booleans for Claude, Codex, and Gemini.
 - `cwd`: invocation working directory.
 - `scope`: expression scope such as `command`, `path`, `diagnostic`, or
   `finding`.
@@ -520,19 +572,20 @@ include a `skill_id` when a generated skill explains the remediation path. CEL
 matches emit normal coding-ethos decisions, diagnostics, TOON/human output,
 trace data, and skill hints.
 
-Current limitations:
+Current boundary:
 
-- Treat CEL as a typed custom-policy extension point, not a complete generic
-  policy engine yet.
-- `diagnostic` and `finding` inputs only expose the initial normalized fields
-  currently produced by hook/lint paths; do not assume every linter field is
-  populated.
-- `path` represents the initial path object for the event. Complex multi-file
-  semantics should wait for explicit collection helpers rather than depending
-  on implicit ordering.
-- CEL is good for coarse guardrails and reviewable repo-specific predicates.
-  Keep complex parsing, Git state modeling, managed toolchain behavior, path
-  normalization, and security-sensitive analysis in Go evaluators.
+- CEL now covers most simple and medium-complexity policy predicates over
+  normalized facts, including Git, shell, file, diff, repo, path, diagnostic,
+  finding, and event inputs.
+- Multi-file and multi-finding semantics must use explicit collections such as
+  `paths`, `files`, `file_changes`, `findings`, and `diff`; do not depend on
+  implicit first-file ordering.
+- Diff line facts are staged-diff facts. Policies that need unstaged editor
+  content should use hook file/content facts or a purpose-built Go evaluator.
+- Keep parsing, Git state modeling, managed toolchain behavior, path
+  normalization, file-content scanning, generated-config freshness, and other
+  security-sensitive fact collection in Go. CEL decides over prepared facts; it
+  does not inspect the host directly.
 
 See [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md) for
 the CEL-first decision record and the roadmap for a complete generic policy
@@ -660,6 +713,11 @@ SARIF output is tuned for code-scanning ingestion: repository-relative artifact
 URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
 ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
 security-severity properties for findings that are actually security-relevant.
+Record-only policy context stays in TOON/JSON traces and is not uploaded as
+SARIF results. Pathless policy findings are also omitted from code-scanning
+SARIF because GitHub requires every uploaded result to have at least one
+location; coding-ethos keeps those aggregate findings in TOON/JSON traces
+instead of inventing noisy alerts at `.` line 0.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.

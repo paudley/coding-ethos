@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -40,16 +41,6 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 	}
 
 	if event.ToolName != "Bash" {
-		if evasiveGitShell(event.Content()) {
-			return gitWrapperRoute{
-				Reason: sentence(
-					gitWrapperCircumventionRefusal,
-					gitWrapperUseManagedSuggestion,
-				),
-				Block: true,
-			}
-		}
-
 		return gitWrapperRoute{}
 	}
 
@@ -123,7 +114,10 @@ func wrapperCommand(args []string) string {
 }
 
 func rewriteGitCommandChain(command string) (string, bool, bool) {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return "", false, false
+	}
 	if len(tokens) == 0 {
 		return "", false, true
 	}
@@ -165,7 +159,10 @@ func rewriteGitCommandChain(command string) (string, bool, bool) {
 }
 
 func managedGitCommandChain(command string) bool {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return false
+	}
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			index++
@@ -397,9 +394,18 @@ func isShellControlToken(token string) bool {
 }
 
 func commandMentionsGit(command string) bool {
-	for _, token := range shellControlFields(command) {
-		if token == tokenGit || isGitPath(token) {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+	for _, command := range commands {
+		if shellCommandIsGit(command) || shellCommandWrapsTool(command, tokenGit) {
 			return true
+		}
+		for _, token := range command.Argv {
+			if token == tokenGit || isGitPath(token) {
+				return true
+			}
 		}
 	}
 
@@ -416,33 +422,134 @@ func isGitPath(token string) bool {
 }
 
 func evasiveGitShell(command string) bool {
-	lower := strings.ToLower(command)
-	if !strings.Contains(lower, "git") {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+
+	mentionsGit := false
+	for _, parsed := range commands {
+		if shellCommandIsGit(parsed) ||
+			shellCommandWrapsTool(parsed, tokenGit) ||
+			shellCommandArgMentions(parsed, "git") {
+			mentionsGit = true
+			break
+		}
+	}
+	if !mentionsGit {
 		return false
 	}
 
-	for _, marker := range []string{
-		"bash -c",
-		"sh -c",
-		"/bin/bash",
-		"/usr/bin/bash",
-		"/bin/sh",
-		"/usr/bin/sh",
-		"python -c",
-		"python3 -c",
-		"subprocess",
-		"subprocess.run",
-		"subprocess.call",
-		"os.system",
-		"os.exec",
-		"os.popen",
-		"exec(",
-		"command git",
-		"env -i",
-		"PATH=",
-	} {
-		if strings.Contains(lower, strings.ToLower(marker)) {
+	for _, parsed := range commands {
+		if parsed.IsFunctionDeclaration &&
+			(parsed.Name == tokenGit || strings.Contains(parsed.Command, " git")) {
 			return true
+		}
+		if parsed.HasCommandSubstitution ||
+			parsed.HasProcessSubstitution ||
+			parsed.HasHeredoc ||
+			parsed.HasSubshell ||
+			shellCommandUsesPathOverride(parsed) {
+			return true
+		}
+		name := shellCommandName(parsed)
+		switch name {
+		case "bash", "sh", "zsh", "dash":
+			if shellExecArgumentMentions(parsed, "git") {
+				return true
+			}
+		case "command", "env", "eval", "alias", "exec":
+			return true
+		default:
+			if pythonExecArgumentMentions(parsed, "git") ||
+				shellCommandArgMentions(parsed, "subprocess") ||
+				shellCommandArgMentions(parsed, "os.system") ||
+				shellCommandArgMentions(parsed, "os.popen") {
+				return isPythonCommand(name)
+			}
+		}
+	}
+
+	return false
+}
+
+func shellCommandName(command shellparse.Command) string {
+	if command.Name != "" {
+		return filepath.Base(command.Name)
+	}
+	if len(command.Argv) == 0 {
+		return ""
+	}
+
+	return filepath.Base(command.Argv[0])
+}
+
+func shellCommandIsGit(command shellparse.Command) bool {
+	name := shellCommandName(command)
+
+	return name == tokenGit || isGitPath(name)
+}
+
+func shellCommandWrapsTool(command shellparse.Command, tool string) bool {
+	if len(command.Argv) < 2 {
+		return false
+	}
+	switch shellCommandName(command) {
+	case "command", "env":
+		for _, arg := range command.Argv[1:] {
+			if strings.Contains(arg, "=") || strings.HasPrefix(arg, "-") {
+				continue
+			}
+
+			return filepath.Base(arg) == tool || isGitPath(arg)
+		}
+	}
+
+	return false
+}
+
+func shellCommandUsesPathOverride(command shellparse.Command) bool {
+	for _, assignment := range command.Assignments {
+		if strings.HasPrefix(assignment, "PATH=") {
+			return true
+		}
+	}
+	if shellCommandName(command) == "env" {
+		for _, arg := range command.Argv[1:] {
+			if strings.HasPrefix(arg, "PATH=") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func shellCommandArgMentions(command shellparse.Command, needle string) bool {
+	needle = strings.ToLower(needle)
+	for _, arg := range command.Argv {
+		if strings.Contains(strings.ToLower(arg), needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shellExecArgumentMentions(command shellparse.Command, needle string) bool {
+	for index, arg := range command.Argv {
+		if arg == "-c" && index+1 < len(command.Argv) {
+			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
+		}
+	}
+
+	return false
+}
+
+func pythonExecArgumentMentions(command shellparse.Command, needle string) bool {
+	for index, arg := range command.Argv {
+		if arg == "-c" && index+1 < len(command.Argv) {
+			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
 		}
 	}
 
@@ -480,7 +587,11 @@ func routeBlockDecision(
 	decision := policy.NewDecision(modeBlock, policyDef)
 	decision.Severity = modeBlock
 	decision.Message = reason
-	decision.Suggestion = gitWrapperUseManagedSuggestion
+	if policyDef.Suggestion != "" {
+		decision.Suggestion = policyDef.Suggestion
+	} else {
+		decision.Suggestion = gitWrapperUseManagedSuggestion
+	}
 
 	return decision
 }
@@ -493,86 +604,10 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func shellControlFields(command string) []string {
-	fields := []string{}
+func shellControlFieldsOK(command string) ([]string, bool) {
+	fields, err := shellparse.ControlFields(command)
 
-	var (
-		builder strings.Builder
-		quote   rune
-	)
-
-	escaped := false
-	for _, char := range command {
-		if escaped {
-			if char == '\n' {
-				escaped = false
-
-				continue
-			}
-
-			builder.WriteRune(char)
-
-			escaped = false
-
-			continue
-		}
-
-		if char == '\\' && quote != '\'' {
-			escaped = true
-
-			continue
-		}
-
-		if quote != 0 {
-			if char == quote {
-				quote = 0
-
-				continue
-			}
-
-			builder.WriteRune(char)
-
-			continue
-		}
-
-		switch char {
-		case '\'', '"':
-			quote = char
-		case ' ', '\t', '\n':
-			fields = appendShellField(fields, &builder)
-		case ';':
-			fields = appendShellField(fields, &builder)
-			fields = append(fields, string(char))
-		case '&':
-			if strings.HasSuffix(builder.String(), ">") ||
-				strings.HasSuffix(builder.String(), "<") {
-				builder.WriteRune(char)
-
-				continue
-			}
-
-			fields = appendShellField(fields, &builder)
-			fields = appendShellOperator(fields, char)
-		case '|':
-			fields = appendShellField(fields, &builder)
-			fields = appendShellOperator(fields, char)
-		default:
-			builder.WriteRune(char)
-		}
-	}
-
-	return appendShellField(fields, &builder)
-}
-
-func appendShellOperator(fields []string, char rune) []string {
-	operator := string(char)
-	if len(fields) == 0 || fields[len(fields)-1] != operator {
-		return append(fields, operator)
-	}
-
-	fields[len(fields)-1] += operator
-
-	return fields
+	return fields, err == nil
 }
 
 func splitShellRedirections(tokens []string) ([]string, []string) {

@@ -62,6 +62,11 @@ func main() {
 	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	sarifOutput := flags.Bool("sarif", false, "Emit SARIF output")
+	sarifCategory := flags.String(
+		"sarif-category",
+		"",
+		"GitHub code-scanning SARIF category",
+	)
 	analyzeLog := flags.Bool(
 		"analyze-log",
 		false,
@@ -105,6 +110,13 @@ func main() {
 	outputFormat, formatErr := lintOutputFormat(*jsonOutput, *sarifOutput)
 	if formatErr != nil {
 		exitErr(formatErr)
+	}
+	if strings.TrimSpace(*cwd) == "" {
+		workingDir, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			exitErr(cwdErr)
+		}
+		*cwd = workingDir
 	}
 
 	if *captureTool != "" {
@@ -182,7 +194,7 @@ func main() {
 			exitErr(replayErr)
 		}
 		format := selectedLintOutputFormat(outputFormat)
-		if encodeErr := hookoutput.EncodeLintResult(os.Stdout, result, format); encodeErr != nil {
+		if encodeErr := encodeLintResult(os.Stdout, result, format, *sarifCategory); encodeErr != nil {
 			exitErr(encodeErr)
 		}
 		if result.Blocked() {
@@ -240,6 +252,24 @@ func main() {
 	if filesErr != nil {
 		exitErr(filesErr)
 	}
+	if shouldReturnEmptyExplicitFileScope(scope.Value(), files, *filesRaw, *filesFrom) {
+		result := lint.Result{
+			Scope:  lint.ScopeFiles,
+			Files:  []string{},
+			Status: "resolved",
+		}
+		err = encodeLintResult(
+			os.Stdout,
+			result,
+			selectedLintOutputFormat(outputFormat),
+			*sarifCategory,
+		)
+		if err != nil {
+			exitErr(err)
+		}
+
+		return
+	}
 	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
 		files, err = stagedFiles(*cwd)
 		if err != nil {
@@ -264,7 +294,12 @@ func main() {
 		}
 	}
 
-	err = hookoutput.EncodeLintResult(os.Stdout, result, selectedLintOutputFormat(outputFormat))
+	err = encodeLintResult(
+		os.Stdout,
+		result,
+		selectedLintOutputFormat(outputFormat),
+		*sarifCategory,
+	)
 	if err != nil {
 		exitErr(err)
 	}
@@ -272,6 +307,29 @@ func main() {
 	if result.Blocked() {
 		os.Exit(blockedExitCode)
 	}
+}
+
+func encodeLintResult(
+	writer *os.File,
+	result lint.Result,
+	format string,
+	sarifCategory string,
+) error {
+	if format != hookoutput.FormatSARIF || strings.TrimSpace(sarifCategory) == "" {
+		return hookoutput.EncodeLintResult(writer, result, format)
+	}
+
+	output, err := hookoutput.FormatLintResultSARIFWithOptions(
+		result,
+		hookoutput.SARIFOptions{Category: sarifCategory},
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(writer, output)
+
+	return err
 }
 
 func printCapturedTools() {
@@ -300,6 +358,17 @@ func selectedLintOutputFormat(format string) string {
 	}
 
 	return hookoutput.SelectedFormat()
+}
+
+func shouldReturnEmptyExplicitFileScope(
+	scope string,
+	files []string,
+	filesRaw string,
+	filesFrom string,
+) bool {
+	return scope == lint.ScopeFiles &&
+		len(files) == 0 &&
+		(strings.TrimSpace(filesRaw) != "" || strings.TrimSpace(filesFrom) != "")
 }
 
 type capturePolicyData struct {

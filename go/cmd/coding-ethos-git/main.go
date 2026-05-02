@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
@@ -134,12 +135,50 @@ func gitOptions(
 			return gitwrap.Options{}, fmt.Errorf("verify admin approval: %w", err)
 		}
 	}
+	stdin, err := stdinForGitArgv(argv)
+	if err != nil {
+		return gitwrap.Options{}, err
+	}
 
 	return gitwrap.Options{
 		AdminApproved: adminApproved,
 		Argv:          argv,
 		Cwd:           cwd,
+		Stdin:         stdin,
 	}, nil
+}
+
+func stdinForGitArgv(argv []string) ([]byte, error) {
+	if !gitCommitReadsMessageFromStdin(argv) {
+		return nil, nil
+	}
+
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("read git commit message from stdin: %w", err)
+	}
+
+	return data, nil
+}
+
+func gitCommitReadsMessageFromStdin(argv []string) bool {
+	parsed := gitwrap.ParseArgv(argv)
+	if parsed.Operation != "commit" {
+		return false
+	}
+
+	args := parsed.Argv
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "-F" || arg == "--file" {
+			return index+1 < len(args) && args[index+1] == "-"
+		}
+		if arg == "-F-" || arg == "--file=-" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func executeGitWithPostChecks(
