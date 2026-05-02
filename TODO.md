@@ -326,7 +326,7 @@ engine rather than a companion to first-class Go evaluators.
 - [x] Add controlled policy inheritance and override rules for expression
   policies, including forbidden shadowing of protected built-ins and explicit
   rules for severity weakening.
-- [ ] Ensure every CEL policy emits the same normalized result shape as Go
+- [x] Ensure every CEL policy emits the same normalized result shape as Go
   evaluators: policy ID, severity, decision, message, suggestion, principle
   IDs, skill ID, evidence, diagnostic location, remediation hint, and
   explanation metadata.

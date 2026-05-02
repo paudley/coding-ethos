@@ -42,16 +42,40 @@ func EvaluateCELExpression(
 	}
 	decision := policy.NewDecision(decisionMode, policyDef)
 	decision.Evidence = map[string]any{
-		"argv":    append([]string(nil), context.Argv...),
-		"command": context.Command,
-		"files":   append([]string(nil), context.Files...),
-		"scope":   context.Scope,
-		"when":    source,
+		"argv":                 append([]string(nil), context.Argv...),
+		"command":              context.Command,
+		"files":                append([]string(nil), context.Files...),
+		"implementation":       "cel",
+		"input_schema_version": 1,
+		"scope":                context.Scope,
+		"when":                 source,
+	}
+	if context.Tool != "" {
+		decision.Evidence["tool"] = context.Tool
+	}
+	if policyDef.Source.File != "" {
+		decision.Evidence["policy_source"] = policySource(policyDef)
 	}
 	if skillID := stringOption(context.EvaluatorOptions, "skill_id", ""); skillID != "" {
 		decision.Evidence["skill_id"] = skillID
 	}
-	decision.Diagnostics = []diagnostics.Diagnostic{{
+	decision.Diagnostics = []diagnostics.Diagnostic{celDiagnostic(
+		context,
+		policyDef,
+		decisionMode,
+		source,
+	)}
+
+	return []policy.Decision{decision}, nil
+}
+
+func celDiagnostic(
+	context Context,
+	policyDef policy.Policy,
+	decisionMode string,
+	source string,
+) diagnostics.Diagnostic {
+	diagnostic := diagnostics.Diagnostic{
 		Tool:         "policy",
 		Severity:     decisionMode,
 		PolicyID:     policyDef.ID,
@@ -59,12 +83,37 @@ func EvaluateCELExpression(
 		Message:      policyDef.Message,
 		Advice:       policyDef.Suggestion,
 		PrincipleIDs: append([]string(nil), policyDef.PrincipleIDs...),
-	}}
+		Metadata: map[string]any{
+			"implementation":       "cel",
+			"input_schema_version": 1,
+			"policy_source":        policySource(policyDef),
+			"when":                 source,
+		},
+	}
+	if context.Diagnostic != nil {
+		diagnostic.Tool = context.Diagnostic.Tool
+		diagnostic.Code = context.Diagnostic.Code
+		diagnostic.File = context.Diagnostic.File
+		diagnostic.Line = context.Diagnostic.Line
+		diagnostic.Column = context.Diagnostic.Column
+		diagnostic.Metadata["matched_diagnostic_policy_id"] = context.Diagnostic.PolicyID
+		diagnostic.Metadata["matched_diagnostic_severity"] = context.Diagnostic.Severity
+
+		return diagnostic
+	}
 	if len(context.Files) == 1 {
-		decision.Diagnostics[0].File = context.Files[0]
+		diagnostic.File = context.Files[0]
 	}
 
-	return []policy.Decision{decision}, nil
+	return diagnostic
+}
+
+func policySource(policyDef policy.Policy) string {
+	if policyDef.Source.Path != "" {
+		return policyDef.Source.File + ":" + policyDef.Source.Path
+	}
+
+	return policyDef.Source.File
 }
 
 func celActivation(context Context) map[string]any {

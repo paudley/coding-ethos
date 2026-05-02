@@ -24,10 +24,17 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 		Status:   "blocked",
 		Tool:     "Bash",
 		Decisions: []policy.Decision{{
-			PolicyID: "git.wrapper_required",
-			Decision: "block",
-			Severity: "block",
-			Message:  "Use the managed wrapper.",
+			PolicyID:     "custom.no_subprocess_git",
+			Decision:     "block",
+			Severity:     "block",
+			Message:      "Use the managed wrapper.",
+			Suggestion:   "Use the protected Git wrapper.",
+			PrincipleIDs: []string{"one-path-for-critical-operations"},
+			Evidence: map[string]any{
+				"implementation": "cel",
+				"skill_id":       "safe-git-workflow",
+				"when":           "command.contains('git')",
+			},
 		}},
 	}
 
@@ -76,8 +83,19 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 		t.Fatalf("missing decision trace: %#v", trace)
 	}
 	decision, ok := decisions[0].(map[string]any)
-	if !ok || decision["policy_id"] != "git.wrapper_required" {
+	if !ok || decision["policy_id"] != "custom.no_subprocess_git" {
 		t.Fatalf("unexpected decision trace: %#v", decisions)
+	}
+	if decision["implementation"] != "cel" ||
+		decision["skill_id"] != "safe-git-workflow" ||
+		decision["suggestion"] != "Use the protected Git wrapper." {
+		t.Fatalf("missing decision parity metadata: %#v", decision)
+	}
+	if _, ok := decision["principle_ids"].([]any); !ok {
+		t.Fatalf("missing principle ids: %#v", decision)
+	}
+	if keys, ok := decision["evidence_keys"].([]any); !ok || len(keys) == 0 {
+		t.Fatalf("missing evidence key summary: %#v", decision)
 	}
 
 	raw := string(payload)

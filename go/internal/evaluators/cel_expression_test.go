@@ -34,6 +34,11 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 	if decisions[0].Diagnostics[0].SkillID != "safe-git-workflow" {
 		t.Fatalf("diagnostic = %#v", decisions[0].Diagnostics[0])
 	}
+	if decisions[0].Evidence["implementation"] != "cel" ||
+		decisions[0].Evidence["input_schema_version"] != 1 ||
+		decisions[0].Diagnostics[0].Metadata["implementation"] != "cel" {
+		t.Fatalf("missing CEL result metadata: %#v", decisions[0])
+	}
 }
 
 func TestEvaluateCELExpressionUsesPolicyDefaultSeverity(t *testing.T) {
@@ -188,6 +193,17 @@ func TestEvaluateCELExpressionUsesExplicitDiagnosticInput(t *testing.T) {
 	}
 	if len(decisions) != 1 {
 		t.Fatalf("decisions = %#v, want one decision", decisions)
+	}
+	diagnostic := decisions[0].Diagnostics[0]
+	if diagnostic.Tool != "ruff" ||
+		diagnostic.Code != "F401" ||
+		diagnostic.File != "src/app.py" ||
+		diagnostic.Line != 9 ||
+		diagnostic.Column != 2 {
+		t.Fatalf("diagnostic location mismatch: %#v", diagnostic)
+	}
+	if diagnostic.Metadata["matched_diagnostic_policy_id"] != "python.direct_imports" {
+		t.Fatalf("diagnostic metadata mismatch: %#v", diagnostic.Metadata)
 	}
 }
 
