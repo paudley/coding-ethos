@@ -18,7 +18,10 @@ policy:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
-      when: command.contains("subprocess") && command.contains("git")
+      when: >
+        command.contains("subprocess") &&
+        command.contains("git") &&
+        paths.all(path, !path.is_generated)
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected Git wrapper and keep hook failures visible.
 

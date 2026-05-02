@@ -43,7 +43,7 @@ policy:
       skill_id: conditional-imports
       when: >
         diagnostic.tool == "ruff" &&
-        diagnostic.file.startsWith("lib/python/") &&
+        paths.exists(path, path.file.startsWith("lib/python/")) &&
         diagnostic.message.contains("private cache module")
       message: Import through the public cache protocol.
       advice: Define or reuse a protocol boundary instead of importing private cache internals.
@@ -148,15 +148,19 @@ agent behavior.
 Start with small stable input objects:
 
 - `command`: raw command text, parsed argv, tool name, cwd, provider, event
-- `path`: repo-relative path, extension, basename, directory, generated/test
-  flags, protected-path classification
+- `path`: compatibility object populated only when exactly one path is in
+  scope; multi-file policy must use `paths`
+- `paths`: list of repo-relative path objects with file, extension, basename,
+  directory, generated/test flags, and source-root classification
 - `diagnostic`: tool, code, message, file, line, severity, existing policy ID
 - `finding`: normalized lint/policy finding with ETHOS and skill metadata
 - `repo`: repo root metadata, configured source roots, language settings,
   enabled capabilities
 - `metadata`: event ID, scope, provider, and non-sensitive trace IDs
 
-Do not expose raw environment, arbitrary filesystem contents, or host paths.
+The current CEL object model is versioned through
+`metadata.schema_version == 1`. Do not expose raw environment, arbitrary
+filesystem contents, or host paths.
 
 ## Runtime Plan
 
@@ -193,7 +197,7 @@ The required completion work is:
    lint finding, Git, config, and diff scopes must either populate each field
    reliably or not expose it.
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
-   collection helpers such as `paths.exists(...)`, `paths.all(...)`,
+   collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
    `files.changed_matching(...)`, and `findings.exists(...)`.
 4. **Dispatch as policy.** Expression config must declare where a policy runs:
    hook events, tool matchers, lint tools, modes, defense layers, principle

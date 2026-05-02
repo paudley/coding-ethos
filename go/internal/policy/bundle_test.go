@@ -102,3 +102,35 @@ func TestValidateRejectsUnsupportedDispatchMode(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateCompilesCELExpressionPoliciesOnBundleLoad(t *testing.T) {
+	t.Parallel()
+
+	bundle := ExampleBundle()
+	bundle.Policies["custom.invalid_expression"] = Policy{
+		ID:              "custom.invalid_expression",
+		Category:        "expression",
+		Source:          SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Invalid CEL should fail bundle validation.",
+		DefenseLayers:   CodeDefenseLayers(),
+		PrincipleIDs:    []string{"one-path-for-critical-operations"},
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"when": "path.fiel == 'src/app.py'",
+			},
+		}},
+	}
+
+	err := bundle.Validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "CEL evaluator failed validation") ||
+		!strings.Contains(err.Error(), "path.fiel") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

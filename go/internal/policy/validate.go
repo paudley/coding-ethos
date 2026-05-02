@@ -9,6 +9,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
 )
 
 var (
@@ -336,9 +338,37 @@ func validatePolicyEvaluators(policyID string, policy Policy) []error {
 				),
 			)
 		}
+
+		errs = append(errs, validateExpressionEvaluator(policyID, evaluator)...)
 	}
 
 	return errs
+}
+
+func validateExpressionEvaluator(policyID string, evaluator Evaluator) []error {
+	if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+		return nil
+	}
+
+	source := strings.TrimSpace(fmt.Sprint(evaluator.Options["when"]))
+	if source == "" || source == "<nil>" {
+		return []error{fmt.Errorf(
+			"%w: policy %q CEL evaluator missing when expression",
+			errValidationFailed,
+			policyID,
+		)}
+	}
+
+	if err := celexpr.Validate(policyID, source); err != nil {
+		return []error{fmt.Errorf(
+			"%w: policy %q CEL evaluator failed validation: %w",
+			errValidationFailed,
+			policyID,
+			err,
+		)}
+	}
+
+	return nil
 }
 
 func validatePolicyPrinciples(

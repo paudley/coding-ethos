@@ -9,8 +9,8 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 	t.Parallel()
 
 	source := `
-		path.ext == ".py" &&
-		path.is_test &&
+		metadata.schema_version == 1 &&
+		paths.exists(path, path.ext == ".py" && path.is_test) &&
 		diagnostic.tool == "ruff" &&
 		finding.file.endsWith("test_policy.py") &&
 		repo.python_version == "3.13"
@@ -46,6 +46,7 @@ func TestValidateAcceptsReviewedHelperFunctions(t *testing.T) {
 		!is_generated_path(path.file) &&
 		in_source_root(path.file, repo.source_roots) &&
 		list_contains(files, path.file) &&
+		paths.exists(item, item.file == path.file) &&
 		any_has_prefix(files, "src/") &&
 		any_has_suffix(files, ".py")
 	`
@@ -109,6 +110,16 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	if !ok || repo.Root != "/repo" || repo.PythonVersion != "3.13" {
 		t.Fatalf("repo input = %#v", activation["repo"])
 	}
+
+	paths, ok := activation["paths"].([]PathInput)
+	if !ok || len(paths) != 1 || paths[0] != pathInput {
+		t.Fatalf("paths input = %#v", activation["paths"])
+	}
+
+	metadata, ok := activation["metadata"].(MetadataInput)
+	if !ok || metadata.SchemaVersion != SchemaVersion {
+		t.Fatalf("metadata input = %#v", activation["metadata"])
+	}
 }
 
 func TestActivationMarksTopLevelGeneratedDirectory(t *testing.T) {
@@ -124,5 +135,33 @@ func TestActivationMarksTopLevelGeneratedDirectory(t *testing.T) {
 	}
 	if !pathInput.IsGenerated {
 		t.Fatalf("path input = %#v, want generated", pathInput)
+	}
+}
+
+func TestActivationUsesExplicitPathsForMultipleFiles(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Files:       []string{"src/app.py", "tests/test_app.py"},
+		SourceRoots: []string{"src"},
+	})
+
+	pathInput, ok := activation["path"].(PathInput)
+	if !ok {
+		t.Fatalf("path input = %#v", activation["path"])
+	}
+	if pathInput.File != "" {
+		t.Fatalf("path input = %#v, want empty compatibility path", pathInput)
+	}
+
+	paths, ok := activation["paths"].([]PathInput)
+	if !ok || len(paths) != 2 {
+		t.Fatalf("paths input = %#v", activation["paths"])
+	}
+	if paths[0].File != "src/app.py" || !paths[0].InSourceRoot {
+		t.Fatalf("first path input = %#v", paths[0])
+	}
+	if paths[1].File != "tests/test_app.py" || !paths[1].IsTest {
+		t.Fatalf("second path input = %#v", paths[1])
 	}
 }

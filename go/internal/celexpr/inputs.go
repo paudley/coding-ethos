@@ -16,6 +16,7 @@ import (
 
 type MetadataInput struct {
 	AdminApproved bool   `json:"admin_approved"`
+	SchemaVersion int64  `json:"schema_version"`
 	Tool          string `json:"tool"`
 }
 
@@ -70,6 +71,8 @@ type ActivationInput struct {
 	PythonVersion string
 }
 
+const SchemaVersion int64 = 1
+
 var (
 	environmentOnce sync.Once
 	environment     *cel.Env
@@ -89,8 +92,9 @@ func InputSchema() []string {
 		"cwd: string",
 		"files: list(string)",
 		"scope: string",
-		"metadata: {admin_approved, tool}",
+		"metadata: {admin_approved, schema_version, tool}",
 		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
+		"paths: list({file, dir, base, ext, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
 		"repo: {root, source_roots, python_version}",
@@ -136,6 +140,10 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
+		cel.Variable(
+			"paths",
+			cel.ListType(cel.ObjectType("celexpr.PathInput")),
+		),
 		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
 		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
 		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
@@ -202,8 +210,11 @@ func compileProgram(policyID string, source string) (cel.Program, error) {
 
 func Activation(input ActivationInput) map[string]any {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
-	primaryPath := newPathInput("", sourceRoots)
-	if len(input.Files) > 0 {
+	paths := pathInputs(input.Files, sourceRoots)
+	primaryPath := PathInput{}
+	if len(paths) == 1 {
+		primaryPath = paths[0]
+	} else if len(input.Files) == 1 {
 		primaryPath = newPathInput(input.Files[0], sourceRoots)
 	}
 
@@ -214,10 +225,12 @@ func Activation(input ActivationInput) map[string]any {
 		"files":   append([]string(nil), input.Files...),
 		"metadata": MetadataInput{
 			AdminApproved: input.AdminApproved,
+			SchemaVersion: SchemaVersion,
 			Tool:          input.Tool,
 		},
 		"scope":      input.Scope,
 		"path":       primaryPath,
+		"paths":      paths,
 		"diagnostic": diagnosticInput(input, primaryPath),
 		"finding":    findingInput(input, primaryPath),
 		"repo": RepoInput{
@@ -226,6 +239,18 @@ func Activation(input ActivationInput) map[string]any {
 			PythonVersion: input.PythonVersion,
 		},
 	}
+}
+
+func pathInputs(files []string, sourceRoots []string) []PathInput {
+	paths := make([]PathInput, 0, len(files))
+	for _, file := range files {
+		pathInput := newPathInput(file, sourceRoots)
+		if pathInput.File != "" {
+			paths = append(paths, pathInput)
+		}
+	}
+
+	return paths
 }
 
 func newPathInput(file string, sourceRoots []string) PathInput {

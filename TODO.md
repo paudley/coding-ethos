@@ -315,13 +315,13 @@ engine rather than a companion to first-class Go evaluators.
   reliably for its scope, or removed until the runtime can provide it.
 - [ ] Populate real typed inputs for hook command scope, file/path scope, lint
   finding scope, Git scope, config scope, and diff scope.
-- [ ] Replace first-file `path` semantics with explicit multi-file collection
+- [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.
 - [ ] Make dispatch policy-driven so expression config declares hook events,
   tools, lint tools, modes, defense layers, principle IDs, and skill IDs
   without hardcoded evaluator registration.
-- [ ] Compile and cache CEL programs during bundle compilation or bundle load
+- [x] Compile and cache CEL programs during bundle compilation or bundle load
   rather than recompiling expressions at evaluation time.
 - [ ] Add controlled policy inheritance and override rules for expression
   policies, including forbidden shadowing of protected built-ins and explicit

@@ -123,6 +123,36 @@ func TestEvaluateCELExpressionBlocksMatchingPathScope(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionUsesExplicitPathCollection(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Cwd:   "/repo",
+			Files: []string{"src/app.py", "tests/test_policy.py"},
+			Scope: "files",
+			EvaluatorOptions: map[string]any{
+				"source_roots": []string{"src"},
+				"when": `
+					path.file == "" &&
+					paths.exists(item, item.file == "src/app.py" && item.in_source_root) &&
+					paths.exists(item, item.file == "tests/test_policy.py" && item.is_test)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one decision", decisions)
+	}
+	if decisions[0].Diagnostics[0].File != "" {
+		t.Fatalf("diagnostic = %#v, want no implicit first-file location", decisions[0].Diagnostics[0])
+	}
+}
+
 func celExpressionPolicy() policy.Policy {
 	return policy.Policy{
 		ID:              "custom.no_subprocess_git",
