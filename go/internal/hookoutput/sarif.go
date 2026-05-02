@@ -123,7 +123,18 @@ type sarifRunProperties struct {
 	Scope string `json:"scope,omitempty"`
 }
 
+type SARIFOptions struct {
+	Category string
+}
+
 func FormatLintResultSARIF(result lint.Result) (string, error) {
+	return FormatLintResultSARIFWithOptions(result, SARIFOptions{})
+}
+
+func FormatLintResultSARIFWithOptions(
+	result lint.Result,
+	options SARIFOptions,
+) (string, error) {
 	diagnostics := sarifDiagnostics(result)
 	rules := sarifRules(diagnostics)
 	ruleIndexes := sarifRuleIndexes(rules)
@@ -141,7 +152,7 @@ func FormatLintResultSARIF(result lint.Result) (string, error) {
 				ExecutionSuccessful: !result.Blocked(),
 			}},
 			AutomationDetails: sarifRunAutomationDetails{
-				ID: sarifAutomationID(result.Scope),
+				ID: sarifAutomationID(result.Scope, options),
 			},
 			Results: sarifResults(diagnostics, ruleIndexes),
 			Properties: sarifRunProperties{
@@ -417,7 +428,11 @@ func sarifLevel(severity string) string {
 	}
 }
 
-func sarifAutomationID(scope string) string {
+func sarifAutomationID(scope string, options SARIFOptions) string {
+	if category := sarifAutomationCategory(options.Category); category != "" {
+		return category + "/"
+	}
+
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		return "coding-ethos/default"
@@ -425,6 +440,14 @@ func sarifAutomationID(scope string) string {
 
 	replacer := strings.NewReplacer(":", "/", " ", "-", "\\", "/", ",", "-")
 	return "coding-ethos/" + strings.Trim(replacer.Replace(scope), "/")
+}
+
+func sarifAutomationCategory(category string) string {
+	category = strings.TrimSpace(category)
+	category = strings.Trim(category, "/")
+
+	replacer := strings.NewReplacer("\\", "/", " ", "-", ",", "-")
+	return strings.Trim(replacer.Replace(category), "/")
 }
 
 func sarifHashStrings(values ...string) string {

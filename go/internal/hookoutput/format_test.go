@@ -109,6 +109,38 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
 }
 
+func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeFiles,
+		Status: "resolved",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy-lint",
+			File:     "pkg/app.py",
+			Line:     1,
+			Severity: "warning",
+			PolicyID: "repo.example",
+			Message:  "example",
+		}},
+	}
+
+	output, err := FormatLintResultSARIFWithOptions(
+		result,
+		SARIFOptions{Category: "policy"},
+	)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	assertJSONPath(t, payload, "runs.0.automationDetails.id", "policy/")
+}
+
 func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 

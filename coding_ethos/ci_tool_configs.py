@@ -226,6 +226,7 @@ jobs:
             --cwd "$repo_root" \\
             --scope files \\
             --files-from "$files_path" \\
+            --sarif-category "$CODING_ETHOS_SARIF_CATEGORY" \\
             --sarif > "$sarif_tmp"
           status=$?
           if [ -s "$sarif_tmp" ]; then
