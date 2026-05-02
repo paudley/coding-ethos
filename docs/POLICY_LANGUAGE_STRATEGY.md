@@ -159,8 +159,11 @@ policy:
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
       when: >
-        command.contains("subprocess") &&
-        command.contains("git")
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
+          cmd.argv.exists(arg, arg.contains("git"))
+        )
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected git wrapper path and keep hook failures visible.
 ```
@@ -214,8 +217,10 @@ Start with small stable input objects:
 - `command`: raw command text, parsed argv, tool name, cwd, provider, event
 - `shell_commands`: parser-normalized shell command facts prepared with
   `mvdan.cc/sh/v3/syntax`, including command name, argv, assignments,
-  redirects, and background execution. Malformed shell text is denied at the
-  hook boundary instead of falling back to string tokenization.
+  redirects, here-docs, line/column, background execution, dynamic expansion flags,
+  command/process substitution flags, shell-exec detection, Git detection,
+  lint-tool detection, and PATH override detection. Malformed shell text is
+  denied at the hook boundary instead of falling back to string tokenization.
 - `path`: compatibility object populated only when exactly one path is in
   scope; multi-file policy must use `paths`
 - `paths`: list of repo-relative path objects with file, extension, basename,
@@ -373,7 +378,8 @@ Core inputs:
 - `shell_commands`: normalized simple commands extracted from the shell AST for
   command-scope policy. Prefer this object over raw substring checks whenever
   policy needs command identity, arguments, redirects, assignments, or
-  background execution.
+  background execution. Diagnostics and SARIF can use the line/column facts
+  when policy maps a finding to a specific command node.
 - `paths`: explicit normalized file collection; `path` is populated only for
   single-file compatibility.
 - `diagnostics` and `findings`: normalized collections supplied by lint/finding

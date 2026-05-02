@@ -16,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 var (
@@ -26,6 +27,12 @@ var (
 		`(?m)source\s+.*common\.sh|^\.\s+.*common\.sh`,
 	)
 )
+
+type shellViolation struct {
+	Message string
+	Line    int
+	Column  int
+}
 
 func EvaluateShellBestPractices(
 	policyDef policy.Policy,
@@ -92,22 +99,62 @@ func shellBestPracticeViolations(
 	path string,
 	text string,
 	requireCommonForPrefixes []string,
-) []string {
-	violations := []string{}
+) []shellViolation {
+	violations := []shellViolation{}
 	if !validShellShebang(text) {
-		violations = append(violations, "missing or invalid shell shebang")
+		violations = append(violations, shellViolation{
+			Message: "missing or invalid shell shebang",
+			Line:    1,
+			Column:  1,
+		})
+	}
+	commands, err := shellparse.Commands(text)
+	if err != nil {
+		violation := shellViolation{
+			Message: "shell script has invalid shell syntax",
+			Line:    1,
+			Column:  1,
+		}
+		var parseErr shellparse.Error
+		if errors.As(err, &parseErr) {
+			violation.Line = parseErr.Line
+			violation.Column = parseErr.Column
+		}
+		violations = append(violations, violation)
 	}
 
 	if !shellStrictModePattern.MatchString(text) {
-		violations = append(violations, "missing 'set -euo pipefail'")
+		violations = append(violations, shellViolation{
+			Message: "missing 'set -euo pipefail'",
+			Line:    1,
+			Column:  1,
+		})
 	}
 
 	if hasConfiguredPrefix(path, requireCommonForPrefixes) &&
 		!shellCommonSourcePattern.MatchString(text) {
-		violations = append(
-			violations,
-			"scripts/ shell files must source the repository common shell helpers",
-		)
+		violations = append(violations, shellViolation{
+			Message: "scripts/ shell files must source the repository common shell helpers",
+			Line:    1,
+			Column:  1,
+		})
+	}
+	for _, command := range commands {
+		if command.Name == "eval" {
+			violations = append(violations, shellViolation{
+				Message: "shell scripts must not use eval",
+				Line:    command.Line,
+				Column:  command.Column,
+			})
+		}
+		if command.IsFunctionDeclaration &&
+			(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
+			violations = append(violations, shellViolation{
+				Message: "shell functions must not mask protected tool names",
+				Line:    command.Line,
+				Column:  command.Column,
+			})
+		}
 	}
 
 	return violations
@@ -156,24 +203,28 @@ func hasConfiguredPrefix(path string, prefixes []string) bool {
 func shellBestPracticesDecision(
 	policyDef policy.Policy,
 	file string,
-	violations []string,
+	violations []shellViolation,
 ) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	diagnosticItems := make([]diagnostics.Diagnostic, 0, len(violations))
+	messages := make([]string, 0, len(violations))
 	for _, violation := range violations {
+		messages = append(messages, violation.Message)
 		diagnosticItems = append(diagnosticItems, diagnostics.Diagnostic{
 			Tool:     "shell_best_practices",
 			File:     file,
+			Line:     violation.Line,
+			Column:   violation.Column,
 			Severity: blockDecision,
 			PolicyID: policyDef.ID,
-			Message:  violation,
+			Message:  violation.Message,
 			Advice:   policyDef.Suggestion,
 		})
 	}
 	decision.Diagnostics = diagnosticItems
 	decision.Evidence = map[string]any{
 		"file":       file,
-		"violations": append([]string(nil), violations...),
+		"violations": messages,
 	}
 
 	return decision

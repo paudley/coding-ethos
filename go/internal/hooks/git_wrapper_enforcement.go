@@ -404,13 +404,18 @@ func isShellControlToken(token string) bool {
 }
 
 func commandMentionsGit(command string) bool {
-	tokens, parseOK := shellControlFieldsOK(command)
-	if !parseOK {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
 		return true
 	}
-	for _, token := range tokens {
-		if token == tokenGit || isGitPath(token) {
+	for _, command := range commands {
+		if shellCommandIsGit(command) || shellCommandWrapsTool(command, tokenGit) {
 			return true
+		}
+		for _, token := range command.Argv {
+			if token == tokenGit || isGitPath(token) {
+				return true
+			}
 		}
 	}
 
@@ -427,33 +432,134 @@ func isGitPath(token string) bool {
 }
 
 func evasiveGitShell(command string) bool {
-	lower := strings.ToLower(command)
-	if !strings.Contains(lower, "git") {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+
+	mentionsGit := false
+	for _, parsed := range commands {
+		if shellCommandIsGit(parsed) ||
+			shellCommandWrapsTool(parsed, tokenGit) ||
+			shellCommandArgMentions(parsed, "git") {
+			mentionsGit = true
+			break
+		}
+	}
+	if !mentionsGit {
 		return false
 	}
 
-	for _, marker := range []string{
-		"bash -c",
-		"sh -c",
-		"/bin/bash",
-		"/usr/bin/bash",
-		"/bin/sh",
-		"/usr/bin/sh",
-		"python -c",
-		"python3 -c",
-		"subprocess",
-		"subprocess.run",
-		"subprocess.call",
-		"os.system",
-		"os.exec",
-		"os.popen",
-		"exec(",
-		"command git",
-		"env -i",
-		"PATH=",
-	} {
-		if strings.Contains(lower, strings.ToLower(marker)) {
+	for _, parsed := range commands {
+		if parsed.IsFunctionDeclaration &&
+			(parsed.Name == tokenGit || strings.Contains(parsed.Command, " git")) {
 			return true
+		}
+		if parsed.HasCommandSubstitution ||
+			parsed.HasProcessSubstitution ||
+			parsed.HasHeredoc ||
+			parsed.HasSubshell ||
+			shellCommandUsesPathOverride(parsed) {
+			return true
+		}
+		name := shellCommandName(parsed)
+		switch name {
+		case "bash", "sh", "zsh", "dash":
+			if shellExecArgumentMentions(parsed, "git") {
+				return true
+			}
+		case "command", "env", "eval", "alias", "exec":
+			return true
+		default:
+			if pythonExecArgumentMentions(parsed, "git") ||
+				shellCommandArgMentions(parsed, "subprocess") ||
+				shellCommandArgMentions(parsed, "os.system") ||
+				shellCommandArgMentions(parsed, "os.popen") {
+				return isPythonCommand(name)
+			}
+		}
+	}
+
+	return false
+}
+
+func shellCommandName(command shellparse.Command) string {
+	if command.Name != "" {
+		return filepath.Base(command.Name)
+	}
+	if len(command.Argv) == 0 {
+		return ""
+	}
+
+	return filepath.Base(command.Argv[0])
+}
+
+func shellCommandIsGit(command shellparse.Command) bool {
+	name := shellCommandName(command)
+
+	return name == tokenGit || isGitPath(name)
+}
+
+func shellCommandWrapsTool(command shellparse.Command, tool string) bool {
+	if len(command.Argv) < 2 {
+		return false
+	}
+	switch shellCommandName(command) {
+	case "command", "env":
+		for _, arg := range command.Argv[1:] {
+			if strings.Contains(arg, "=") || strings.HasPrefix(arg, "-") {
+				continue
+			}
+
+			return filepath.Base(arg) == tool || isGitPath(arg)
+		}
+	}
+
+	return false
+}
+
+func shellCommandUsesPathOverride(command shellparse.Command) bool {
+	for _, assignment := range command.Assignments {
+		if strings.HasPrefix(assignment, "PATH=") {
+			return true
+		}
+	}
+	if shellCommandName(command) == "env" {
+		for _, arg := range command.Argv[1:] {
+			if strings.HasPrefix(arg, "PATH=") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func shellCommandArgMentions(command shellparse.Command, needle string) bool {
+	needle = strings.ToLower(needle)
+	for _, arg := range command.Argv {
+		if strings.Contains(strings.ToLower(arg), needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shellExecArgumentMentions(command shellparse.Command, needle string) bool {
+	for index, arg := range command.Argv {
+		if arg == "-c" && index+1 < len(command.Argv) {
+			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
+		}
+	}
+
+	return false
+}
+
+func pythonExecArgumentMentions(command shellparse.Command, needle string) bool {
+	for index, arg := range command.Argv {
+		if arg == "-c" && index+1 < len(command.Argv) {
+			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
 		}
 	}
 

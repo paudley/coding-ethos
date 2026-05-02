@@ -26,7 +26,7 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 			Scope:   "files",
 			EvaluatorOptions: map[string]any{
 				"skill_id": "safe-git-workflow",
-				"when":     `command.contains("subprocess") && command.contains("git")`,
+				"when":     `shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))`,
 			},
 		},
 	)
@@ -58,7 +58,7 @@ func TestEvaluateCELExpressionUsesPolicyDefaultSeverity(t *testing.T) {
 		Context{
 			Command: "python -c 'import subprocess; subprocess.run([\"git\"] )'",
 			EvaluatorOptions: map[string]any{
-				"when": `command.contains("subprocess") && command.contains("git")`,
+				"when": `shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))`,
 			},
 		},
 	)
@@ -85,7 +85,7 @@ func TestEvaluateCELExpressionIgnoresNonMatchingCommand(t *testing.T) {
 			Command: "python -m pytest",
 			Scope:   "files",
 			EvaluatorOptions: map[string]any{
-				"when": `command.contains("subprocess") && command.contains("git")`,
+				"when": `shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))`,
 			},
 		},
 	)

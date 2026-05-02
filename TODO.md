@@ -334,8 +334,31 @@ engine rather than a companion to first-class Go evaluators.
   at the hook boundary, and feed normalized `shell_commands` facts into Go and
   CEL policy. Keep Git wrapper execution on argv-based Git option parsing
   because wrapper commands have already been parsed by the shell.
-- [ ] Migrate more brittle command-string CEL examples and hook predicates to
+- [x] Migrate more brittle command-string CEL examples and hook predicates to
   `shell_commands` facts instead of raw `command.contains(...)` matching.
+- [x] Use parser-backed shell facts to distinguish direct `git`, `command git`,
+  `env git`, `bash -c 'git ...'`, pipelines, grouped commands, and background
+  commands before deciding whether to rewrite or block agent hook input.
+- [x] Use parser-backed shell facts to route lint tools consistently through
+  capture for direct invocations, `uv run`, `python -m`, leading assignments,
+  chained commands, redirects, and pipelines.
+- [x] Add higher-level CEL shell command facts such as `is_git`,
+  `is_lint_tool`, `is_shell_exec`, `uses_path_override`,
+  `has_command_substitution`, `has_process_substitution`, and
+  `has_dynamic_expansion` so CEL policies stay readable.
+- [x] Block or constrain ambiguous shell constructs around protected tools:
+  `eval`, shell functions/aliases masking protected commands, command
+  substitution, process substitution, here-doc command execution, and
+  `bash -c`/`sh -c` unless recursively parsed and approved.
+- [x] Improve agent remediation messages for shell policies so they identify
+  the exact command node, argument, redirect, assignment, or pipeline segment
+  that triggered the decision.
+- [x] Reuse the shell AST parser for `.sh` policy: reject parse errors,
+  detect raw protected-tool invocations, unsafe `eval`, risky redirects, and
+  shell-script bypass patterns structurally instead of regex-only checks.
+- [x] Use shell AST positions in SARIF where possible so shell-script and
+  hook-command findings can point to exact command spans rather than only the
+  whole command or whole file.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.

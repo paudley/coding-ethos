@@ -5,6 +5,7 @@ package shellparse
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -13,10 +14,34 @@ import (
 )
 
 type Command struct {
-	Argv        []string
-	Assignments []string
-	Redirects   []string
-	Background  bool
+	Argv                   []string
+	Assignments            []string
+	Redirects              []string
+	Command                string
+	Name                   string
+	Line                   int
+	Column                 int
+	Background             bool
+	HasCommandSubstitution bool
+	HasDynamicExpansion    bool
+	HasHeredoc             bool
+	HasProcessSubstitution bool
+	HasSubshell            bool
+	IsFunctionDeclaration  bool
+}
+
+type Error struct {
+	Err    error
+	Line   int
+	Column int
+}
+
+func (err Error) Error() string {
+	return err.Err.Error()
+}
+
+func (err Error) Unwrap() error {
+	return err.Err
 }
 
 func Fields(command string) ([]string, error) {
@@ -68,9 +93,10 @@ func Commands(command string) ([]Command, error) {
 }
 
 func parse(command string) ([]Command, []string, error) {
-	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).
+		Parse(strings.NewReader(command), "")
 	if err != nil {
-		return nil, nil, fmt.Errorf("parse shell command: %w", err)
+		return nil, nil, parseError(err)
 	}
 
 	commands := []Command{}
@@ -83,6 +109,20 @@ func parse(command string) ([]Command, []string, error) {
 	}
 
 	return commands, controlFields, nil
+}
+
+func parseError(err error) error {
+	wrapped := fmt.Errorf("parse shell command: %w", err)
+	var syntaxErr syntax.ParseError
+	if errors.As(err, &syntaxErr) {
+		return Error{
+			Err:    wrapped,
+			Line:   lineNumber(syntaxErr.Pos),
+			Column: columnNumber(syntaxErr.Pos),
+		}
+	}
+
+	return wrapped
 }
 
 func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
@@ -100,10 +140,23 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 		*commands = append(*commands, command)
 		*fields = append(*fields, command.Assignments...)
 		*fields = append(*fields, command.Argv...)
+	case *syntax.FuncDecl:
+		command := commandFromFuncDecl(cmd)
+		*commands = append(*commands, command)
+		if command.Command != "" {
+			*fields = append(*fields, command.Command)
+		}
 	default:
 		rendered := renderNode(cmd)
 		if rendered != "" {
-			command := Command{Argv: []string{rendered}}
+			command := Command{
+				Argv:    []string{rendered},
+				Command: rendered,
+				Name:    commandName(rendered),
+				Line:    lineNumber(stmt.Pos()),
+				Column:  columnNumber(stmt.Pos()),
+			}
+			applyNodeFlags(cmd, &command)
 			*commands = append(*commands, command)
 			*fields = append(*fields, rendered)
 		}
@@ -116,6 +169,23 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 		}
 		*fields = append(*fields, "&")
 	}
+}
+
+func commandFromFuncDecl(decl *syntax.FuncDecl) Command {
+	rendered := renderNode(decl)
+	command := Command{
+		Argv:                  []string{rendered},
+		Command:               rendered,
+		IsFunctionDeclaration: true,
+		Line:                  lineNumber(decl.Pos()),
+		Column:                columnNumber(decl.Pos()),
+	}
+	if decl != nil && decl.Name != nil {
+		command.Name = decl.Name.Value
+	}
+	applyNodeFlags(decl, &command)
+
+	return command
 }
 
 func appendRedirects(
@@ -135,6 +205,7 @@ func appendRedirects(
 		if len(*commands) > 0 {
 			last := &(*commands)[len(*commands)-1]
 			last.Redirects = append(last.Redirects, rendered)
+			last.HasHeredoc = last.HasHeredoc || redir.Hdoc != nil
 		}
 		*fields = append(*fields, rendered)
 	}
@@ -161,16 +232,28 @@ func commandFromCall(call *syntax.CallExpr) Command {
 	command := Command{
 		Argv:        make([]string, 0, len(call.Args)),
 		Assignments: make([]string, 0, len(call.Assigns)),
+		Line:        lineNumber(call.Pos()),
+		Column:      columnNumber(call.Pos()),
 	}
 
 	for _, assign := range call.Assigns {
 		if rendered := assignmentString(assign); rendered != "" {
 			command.Assignments = append(command.Assignments, rendered)
 		}
+		if assign != nil && assign.Value != nil {
+			mergeWordInfo(&command, wordInfoFor(assign.Value))
+		}
 	}
 	for _, arg := range call.Args {
-		command.Argv = append(command.Argv, wordString(arg))
+		info := wordInfoFor(arg)
+		command.Argv = append(command.Argv, info.Text)
+		mergeWordInfo(&command, info)
 	}
+	if len(command.Argv) > 0 {
+		command.Name = commandName(command.Argv[0])
+		command.Command = strings.Join(command.Argv, " ")
+	}
+	applyNodeFlags(call, &command)
 
 	return command
 }
@@ -190,42 +273,147 @@ func assignmentString(assign *syntax.Assign) string {
 }
 
 func wordString(word *syntax.Word) string {
+	return wordInfoFor(word).Text
+}
+
+type wordInfo struct {
+	Text                   string
+	HasCommandSubstitution bool
+	HasDynamicExpansion    bool
+	HasProcessSubstitution bool
+}
+
+func wordInfoFor(word *syntax.Word) wordInfo {
 	if word == nil {
-		return ""
+		return wordInfo{}
 	}
 
 	var builder strings.Builder
+	info := wordInfo{}
 	for _, part := range word.Parts {
-		text, ok := wordPartString(part)
+		partInfo, ok := wordPartInfo(part)
 		if !ok {
-			return renderNode(word)
-		}
-		builder.WriteString(text)
-	}
+			info.Text = renderNode(word)
+			info.HasDynamicExpansion = true
 
-	return builder.String()
+			return info
+		}
+		builder.WriteString(partInfo.Text)
+		info.HasCommandSubstitution = info.HasCommandSubstitution ||
+			partInfo.HasCommandSubstitution
+		info.HasDynamicExpansion = info.HasDynamicExpansion ||
+			partInfo.HasDynamicExpansion
+		info.HasProcessSubstitution = info.HasProcessSubstitution ||
+			partInfo.HasProcessSubstitution
+	}
+	info.Text = builder.String()
+
+	return info
 }
 
-func wordPartString(part syntax.WordPart) (string, bool) {
+func wordPartInfo(part syntax.WordPart) (wordInfo, bool) {
 	switch typed := part.(type) {
 	case *syntax.Lit:
-		return typed.Value, true
+		return wordInfo{Text: typed.Value}, true
 	case *syntax.SglQuoted:
-		return typed.Value, true
+		return wordInfo{Text: typed.Value}, true
 	case *syntax.DblQuoted:
 		var builder strings.Builder
+		info := wordInfo{}
 		for _, nested := range typed.Parts {
-			text, ok := wordPartString(nested)
+			nestedInfo, ok := wordPartInfo(nested)
 			if !ok {
-				return "", false
+				return wordInfo{}, false
 			}
-			builder.WriteString(text)
+			builder.WriteString(nestedInfo.Text)
+			info.HasCommandSubstitution = info.HasCommandSubstitution ||
+				nestedInfo.HasCommandSubstitution
+			info.HasDynamicExpansion = info.HasDynamicExpansion ||
+				nestedInfo.HasDynamicExpansion
+			info.HasProcessSubstitution = info.HasProcessSubstitution ||
+				nestedInfo.HasProcessSubstitution
+		}
+		info.Text = builder.String()
+
+		return info, true
+	case *syntax.ParamExp:
+		return wordInfo{
+			Text:                renderNode(typed),
+			HasDynamicExpansion: true,
+		}, true
+	case *syntax.CmdSubst:
+		return wordInfo{
+			Text:                   renderNode(typed),
+			HasCommandSubstitution: true,
+			HasDynamicExpansion:    true,
+		}, true
+	case *syntax.ProcSubst:
+		return wordInfo{
+			Text:                   renderNode(typed),
+			HasDynamicExpansion:    true,
+			HasProcessSubstitution: true,
+		}, true
+	default:
+		return wordInfo{}, false
+	}
+}
+
+func mergeWordInfo(command *Command, info wordInfo) {
+	command.HasCommandSubstitution = command.HasCommandSubstitution ||
+		info.HasCommandSubstitution
+	command.HasDynamicExpansion = command.HasDynamicExpansion ||
+		info.HasDynamicExpansion
+	command.HasProcessSubstitution = command.HasProcessSubstitution ||
+		info.HasProcessSubstitution
+}
+
+func applyNodeFlags(node syntax.Node, command *Command) {
+	syntax.Walk(node, func(current syntax.Node) bool {
+		if current == nil {
+			return true
+		}
+		switch current.(type) {
+		case *syntax.CmdSubst:
+			command.HasCommandSubstitution = true
+			command.HasDynamicExpansion = true
+		case *syntax.ProcSubst:
+			command.HasProcessSubstitution = true
+			command.HasDynamicExpansion = true
+		case *syntax.ParamExp:
+			command.HasDynamicExpansion = true
+		case *syntax.Subshell:
+			command.HasSubshell = true
+		case *syntax.FuncDecl:
+			command.IsFunctionDeclaration = true
 		}
 
-		return builder.String(), true
-	default:
-		return "", false
+		return true
+	})
+}
+
+func commandName(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return ""
 	}
+
+	return fields[0]
+}
+
+func lineNumber(pos syntax.Pos) int {
+	if !pos.IsValid() {
+		return 0
+	}
+
+	return int(pos.Line())
+}
+
+func columnNumber(pos syntax.Pos) int {
+	if !pos.IsValid() {
+		return 0
+	}
+
+	return int(pos.Col())
 }
 
 func renderNode(node syntax.Node) string {

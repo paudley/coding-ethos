@@ -27,9 +27,9 @@ policy:
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
       when: >
-        command.contains("subprocess") &&
         shell_commands.exists(cmd,
           cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
           cmd.argv.exists(arg, arg.contains("git"))
         ) &&
         paths.all(path, !path.is_generated)

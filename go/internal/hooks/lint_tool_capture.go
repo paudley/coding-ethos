@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -132,6 +133,11 @@ func rewriteLintToolSegment(
 	if managedLintToolSegment(segment) {
 		return "", toolcatalog.CapturedTool{}, true
 	}
+	if segmentUsesPathOverride(segment) {
+		if tool := segmentMentionsUnmanagedLintTool(segment); tool.Name != "" {
+			return "", tool, false
+		}
+	}
 
 	args, redirections := splitShellRedirections(segment)
 	tool, toolArgs, ok := unmanagedLintToolArgs(args)
@@ -174,7 +180,38 @@ func unmanagedLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string
 		}
 	}
 
+	if filepath.Base(segment[0]) == "command" && len(segment) > 1 {
+		if tool, ok := capturedToolForCommand(segment[1]); ok {
+			return tool, append([]string(nil), segment[2:]...), true
+		}
+	}
+
+	if filepath.Base(segment[0]) == "env" {
+		for index, token := range segment[1:] {
+			if strings.Contains(token, "=") || strings.HasPrefix(token, "-") {
+				continue
+			}
+			if tool, ok := capturedToolForCommand(token); ok {
+				start := index + 2
+
+				return tool, append([]string(nil), segment[start:]...), true
+			}
+
+			break
+		}
+	}
+
 	return toolcatalog.CapturedTool{}, nil, false
+}
+
+func segmentUsesPathOverride(segment []string) bool {
+	for _, token := range segment {
+		if strings.HasPrefix(token, "PATH=") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func lintCaptureCommand(toolName string, args []string) string {
@@ -298,30 +335,88 @@ func segmentMentionsUnmanagedLintTool(segment []string) toolcatalog.CapturedTool
 }
 
 func evasiveLintToolShell(command string) bool {
-	lower := strings.ToLower(command)
-	if firstMentionedCapturedTool(command).Name == "" {
-		return false
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
 	}
 
-	for _, marker := range []string{
-		"bash -c",
-		"sh -c",
-		"/bin/bash",
-		"/usr/bin/bash",
-		"/bin/sh",
-		"/usr/bin/sh",
-		"subprocess",
-		"subprocess.run",
-		"subprocess.call",
-		"os.system",
-		"os.exec",
-		"os.popen",
-		"exec(",
-		"env -i",
-		"PATH=",
-	} {
-		if strings.Contains(lower, strings.ToLower(marker)) {
+	for _, parsed := range commands {
+		mentionsLint := shellCommandIsLintTool(parsed)
+		switch shellCommandName(parsed) {
+		case "bash", "sh", "zsh", "dash":
+			if shellExecArgumentMentionsCapturedTool(parsed) {
+				return true
+			}
+		case "eval", "alias", "exec":
+			if shellCommandArgMentionsCapturedTool(parsed) {
+				return true
+			}
+		default:
+			if isPythonCommand(shellCommandName(parsed)) &&
+				(shellCommandArgMentions(parsed, "subprocess") ||
+					shellCommandArgMentionsCapturedTool(parsed)) {
+				return true
+			}
+		}
+		if mentionsLint &&
+			(parsed.HasCommandSubstitution ||
+				parsed.HasProcessSubstitution ||
+				parsed.HasHeredoc ||
+				parsed.HasSubshell ||
+				shellCommandUsesPathOverride(parsed)) {
 			return true
+		}
+	}
+
+	return false
+}
+
+func shellCommandIsLintTool(command shellparse.Command) bool {
+	if _, ok := capturedToolForCommand(shellCommandName(command)); ok {
+		return true
+	}
+	for _, arg := range command.Argv {
+		if _, ok := capturedToolForCommand(arg); ok {
+			return true
+		}
+		if _, ok := capturedToolForModule(arg); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shellExecArgumentMentionsCapturedTool(command shellparse.Command) bool {
+	for index, arg := range command.Argv {
+		if arg == "-c" && index+1 < len(command.Argv) {
+			return commandStringMentionsCapturedTool(command.Argv[index+1])
+		}
+	}
+
+	return false
+}
+
+func shellCommandArgMentionsCapturedTool(command shellparse.Command) bool {
+	for _, arg := range command.Argv {
+		if commandStringMentionsCapturedTool(arg) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandStringMentionsCapturedTool(value string) bool {
+	lower := strings.ToLower(value)
+	for _, tool := range toolcatalog.CapturedLintTools() {
+		if strings.Contains(lower, strings.ToLower(tool.Name)) {
+			return true
+		}
+		for _, module := range tool.ModuleNames {
+			if strings.Contains(lower, strings.ToLower(module)) {
+				return true
+			}
 		}
 	}
 

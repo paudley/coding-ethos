@@ -74,3 +74,25 @@ func TestCommandsExposeStructuredFacts(t *testing.T) {
 		t.Fatalf("expected background command")
 	}
 }
+
+func TestCommandsExposeDynamicShellFacts(t *testing.T) {
+	t.Parallel()
+
+	commands, err := Commands("PATH=$(pwd):$PATH bash -c 'git status' <(cat file)")
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+	if len(commands) != 1 {
+		t.Fatalf("command count mismatch: got %d", len(commands))
+	}
+
+	command := commands[0]
+	if command.Name != "bash" || command.Line != 1 || command.Column != 1 {
+		t.Fatalf("command identity mismatch: %#v", command)
+	}
+	if !command.HasCommandSubstitution ||
+		!command.HasProcessSubstitution ||
+		!command.HasDynamicExpansion {
+		t.Fatalf("dynamic flags mismatch: %#v", command)
+	}
+}

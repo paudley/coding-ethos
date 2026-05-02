@@ -260,7 +260,7 @@ policy:
       principle_ids:
         - one-path-for-critical-operations
       skill_id: safe-git-workflow
-      when: command.contains("subprocess") && command.contains("git")
+      when: shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))
       message: Git subprocesses are forbidden.
       advice: Use the protected Git wrapper.
 `)

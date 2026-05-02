@@ -157,7 +157,7 @@ func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 			Options: map[string]any{
 				"scope":    "command",
 				"skill_id": "safe-git-workflow",
-				"when":     `command.contains("subprocess") && command.contains("git")`,
+				"when":     `shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))`,
 			},
 		}},
 	}
@@ -288,6 +288,16 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 			command: "dotenv-linter .env.example",
 			want:    "policy-tool dotenv-linter '.env.example'",
 		},
+		{
+			name:    "command-wrapper",
+			command: "command ruff check pkg",
+			want:    "policy-tool ruff 'check' 'pkg'",
+		},
+		{
+			name:    "env-wrapper",
+			command: "env FOO=bar ruff check pkg",
+			want:    "policy-tool ruff 'check' 'pkg'",
+		},
 	}
 
 	for _, test := range tests {
@@ -317,6 +327,31 @@ func TestRunRewritesCommonLintToolsThroughCaptureWrapper(t *testing.T) {
 				t.Fatalf("rewrite for %q = %q, want %q", test.command, rewritten, test.want)
 			}
 		})
+	}
+}
+
+func TestRunBlocksLintToolWithPathOverride(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "PATH=/tmp:$PATH ruff check pkg",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
+		t.Fatalf("decisions = %#v", result.Decisions)
 	}
 }
 
@@ -566,6 +601,43 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 		!strings.Contains(rewritten, "&&") ||
 		!strings.Contains(rewritten, "policy-git 'log' '--oneline' '-1'") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunBlocksWrappedGitBypassCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"command git status",
+		"env PATH=/tmp:$PATH git status",
+		"bash -c 'git status'",
+		"git_status() { git status; }",
+	}
+	for _, command := range tests {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: "PreToolUse",
+					ToolName:      "Bash",
+					Source:        "claude",
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusBlocked {
+				t.Fatalf("status for %q = %q", command, result.Status)
+			}
+			if !hasDecision(result.Decisions, "git.wrapper_required") {
+				t.Fatalf("expected git wrapper decision, got %#v", result.Decisions)
+			}
+		})
 	}
 }
 

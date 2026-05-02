@@ -37,19 +37,75 @@ func EvaluateShellDangerousCommand(
 		command = strings.Join(context.Argv, " ")
 	}
 
-	lower := strings.ToLower(command)
-	switch {
-	case strings.Contains(lower, "rm -rf") || strings.Contains(lower, "rm -fr"):
+	if shellDangerousCommand(command) {
 		return blockShellDecision(policyDef, command), nil
-	case strings.Contains(lower, "curl ") && pipesToShell(lower):
-		return blockShellDecision(policyDef, command), nil
-	case strings.Contains(lower, "wget ") && pipesToShell(lower):
-		return blockShellDecision(policyDef, command), nil
-	case strings.Contains(lower, "chmod 777"):
-		return blockShellDecision(policyDef, command), nil
-	default:
-		return nil, nil
 	}
+
+	return nil, nil
+}
+
+func shellDangerousCommand(command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+	tokens, err := shellparse.ControlFields(command)
+	if err != nil {
+		return true
+	}
+
+	for _, parsed := range commands {
+		name := filepath.Base(parsed.Name)
+		switch name {
+		case "rm":
+			if hasAnyArg(parsed.Argv, "-rf", "-fr") {
+				return true
+			}
+		case "chmod":
+			if hasArg(parsed.Argv, "777") {
+				return true
+			}
+		case "curl", "wget":
+			if commandPipelineToShell(tokens, name) {
+				return true
+			}
+		case "eval":
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandPipelineToShell(tokens []string, source string) bool {
+	for index, token := range tokens {
+		if filepath.Base(token) != source {
+			continue
+		}
+		for cursor := index + 1; cursor < len(tokens)-1; cursor++ {
+			if tokens[cursor] == "|" {
+				switch filepath.Base(tokens[cursor+1]) {
+				case "bash", "sh", "zsh", "dash":
+					return true
+				}
+			}
+			if tokens[cursor] == "&&" || tokens[cursor] == ";" || tokens[cursor] == "||" {
+				break
+			}
+		}
+	}
+
+	return false
+}
+
+func hasAnyArg(argv []string, values ...string) bool {
+	for _, value := range values {
+		if hasArg(argv, value) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func EvaluateShellBackgroundGit(
@@ -61,17 +117,58 @@ func EvaluateShellBackgroundGit(
 		command = strings.Join(context.Argv, " ")
 	}
 
-	lower := strings.ToLower(command)
-	if !strings.Contains(lower, "git commit") && !strings.Contains(lower, "git push") {
-		return nil, nil
-	}
-
-	if strings.Contains(lower, "timeout ") || strings.Contains(lower, " &") ||
-		strings.HasSuffix(strings.TrimSpace(lower), "&") {
+	if shellBackgroundGit(command) {
 		return blockShellDecision(policyDef, command), nil
 	}
 
 	return nil, nil
+}
+
+func shellBackgroundGit(command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+
+	underTimeout := false
+	for _, parsed := range commands {
+		name := filepath.Base(parsed.Name)
+		if name == "timeout" {
+			underTimeout = true
+			if timeoutWrapsGitMutation(parsed.Argv) {
+				return true
+			}
+		}
+		if name != "git" {
+			continue
+		}
+		if len(parsed.Argv) < 2 {
+			continue
+		}
+		subcommand := parsed.Argv[1]
+		if subcommand != "commit" && subcommand != "push" {
+			continue
+		}
+		if parsed.Background || underTimeout {
+			return true
+		}
+	}
+
+	return false
+}
+
+func timeoutWrapsGitMutation(argv []string) bool {
+	for index, arg := range argv {
+		if filepath.Base(arg) != "git" || index+1 >= len(argv) {
+			continue
+		}
+		switch argv[index+1] {
+		case "commit", "push":
+			return true
+		}
+	}
+
+	return false
 }
 
 func EvaluateShellGitHubAdmin(
@@ -349,18 +446,35 @@ func dedupeEvaluatorStrings(values []string) []string {
 	return result
 }
 
-func pipesToShell(command string) bool {
-	return strings.Contains(command, "| sh") ||
-		strings.Contains(command, "| bash") ||
-		strings.Contains(command, "| /bin/sh") ||
-		strings.Contains(command, "| /bin/bash")
-}
-
 func blockShellDecision(policyDef policy.Policy, command string) []policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	decision.Evidence = map[string]any{"command": command}
+	if commands, err := shellparse.Commands(command); err == nil {
+		decision.Evidence["shell_commands"] = shellDecisionEvidence(commands)
+	}
 
 	return []policy.Decision{decision}
+}
+
+func shellDecisionEvidence(commands []shellparse.Command) []map[string]any {
+	items := make([]map[string]any, 0, len(commands))
+	for _, command := range commands {
+		items = append(items, map[string]any{
+			"argv":                     append([]string(nil), command.Argv...),
+			"background":               command.Background,
+			"column":                   command.Column,
+			"has_command_substitution": command.HasCommandSubstitution,
+			"has_dynamic_expansion":    command.HasDynamicExpansion,
+			"has_heredoc":              command.HasHeredoc,
+			"has_process_substitution": command.HasProcessSubstitution,
+			"is_function_declaration":  command.IsFunctionDeclaration,
+			"line":                     command.Line,
+			"name":                     command.Name,
+			"redirects":                append([]string(nil), command.Redirects...),
+		})
+	}
+
+	return items
 }
 
 func blockForbiddenStringDecision(

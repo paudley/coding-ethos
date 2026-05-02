@@ -80,7 +80,11 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		argv_command_is(argv, "git") &&
 		shell_commands.exists(cmd,
 			cmd.name == "git" &&
-			list_contains(cmd.assignments, "CODE_ETHOS_CONSUMER_ROOT=/repo")
+			cmd.is_git &&
+			list_contains(cmd.assignments, "CODE_ETHOS_CONSUMER_ROOT=/repo") &&
+			!cmd.is_shell_exec &&
+			!cmd.has_process_substitution &&
+			!cmd.has_command_substitution
 		) &&
 		git_command.is_git &&
 		list_contains(git_command.flags, "-f") &&
@@ -200,12 +204,39 @@ func TestActivationPopulatesShellCommandInputs(t *testing.T) {
 	}
 	if commands[0].Name != "git" ||
 		!commands[0].HasInlineEnv ||
+		!commands[0].IsGit ||
 		!listContains(commands[0].Assignments, "FOO=bar") ||
 		!listContains(commands[0].Redirects, "2>&1") {
 		t.Fatalf("first shell command = %#v", commands[0])
 	}
-	if commands[1].Name != "grep" || commands[2].Name != "ruff" {
+	if commands[1].Name != "grep" ||
+		commands[2].Name != "ruff" ||
+		!commands[2].IsLintTool {
 		t.Fatalf("shell commands = %#v", commands)
+	}
+}
+
+func TestActivationPopulatesRichShellCommandInputs(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Command: "PATH=/tmp:$PATH bash -c 'git status' && env FOO=bar ruff check .",
+	})
+
+	commands, ok := activation["shell_commands"].([]ShellCommandInput)
+	if !ok {
+		t.Fatalf("shell commands input = %#v", activation["shell_commands"])
+	}
+	if len(commands) != 2 {
+		t.Fatalf("shell command count = %d, want 2: %#v", len(commands), commands)
+	}
+	if !commands[0].IsShellExec ||
+		!commands[0].UsesPathOverride ||
+		!commands[0].HasDynamicExpansion {
+		t.Fatalf("shell exec facts mismatch: %#v", commands[0])
+	}
+	if !commands[1].IsLintTool {
+		t.Fatalf("wrapped lint command mismatch: %#v", commands[1])
 	}
 }
 

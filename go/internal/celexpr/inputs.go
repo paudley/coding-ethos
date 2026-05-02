@@ -15,6 +15,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
 )
@@ -33,13 +34,26 @@ type CommandInput struct {
 }
 
 type ShellCommandInput struct {
-	Argv         []string `json:"argv"`
-	Assignments  []string `json:"assignments"`
-	Redirects    []string `json:"redirects"`
-	Command      string   `json:"command"`
-	Name         string   `json:"name"`
-	Background   bool     `json:"background"`
-	HasInlineEnv bool     `json:"has_inline_env"`
+	Argv                   []string `json:"argv"`
+	Assignments            []string `json:"assignments"`
+	Redirects              []string `json:"redirects"`
+	Command                string   `json:"command"`
+	Name                   string   `json:"name"`
+	Column                 int64    `json:"column"`
+	Line                   int64    `json:"line"`
+	Background             bool     `json:"background"`
+	HasCommandSubstitution bool     `json:"has_command_substitution"`
+	HasDynamicExpansion    bool     `json:"has_dynamic_expansion"`
+	HasHeredoc             bool     `json:"has_heredoc"`
+	HasInlineEnv           bool     `json:"has_inline_env"`
+	HasProcessSubstitution bool     `json:"has_process_substitution"`
+	HasRedirects           bool     `json:"has_redirects"`
+	HasSubshell            bool     `json:"has_subshell"`
+	IsFunctionDeclaration  bool     `json:"is_function_declaration"`
+	IsGit                  bool     `json:"is_git"`
+	IsLintTool             bool     `json:"is_lint_tool"`
+	IsShellExec            bool     `json:"is_shell_exec"`
+	UsesPathOverride       bool     `json:"uses_path_override"`
 }
 
 type EventInput struct {
@@ -200,7 +214,7 @@ func InputSchema() []string {
 		"argv: list(string)",
 		"command: string",
 		"command_fact: {raw, tool, argv, has_inline_env}",
-		"shell_commands: list({command, name, argv, assignments, redirects, background, has_inline_env})",
+		"shell_commands: list({command, name, argv, assignments, redirects, line, column, background, has_inline_env, has_redirects, has_heredoc, has_command_substitution, has_process_substitution, has_dynamic_expansion, has_subshell, is_function_declaration, is_git, is_lint_tool, is_shell_exec, uses_path_override})",
 		"config: {candidates, present}",
 		"cwd: string",
 		"diff: {files, changed_files, staged_files, has_changes}",
@@ -493,22 +507,105 @@ func shellCommandInputs(command string) []ShellCommandInput {
 
 	inputs := make([]ShellCommandInput, 0, len(parsed))
 	for _, parsedCommand := range parsed {
-		name := ""
-		if len(parsedCommand.Argv) > 0 {
-			name = path.Base(parsedCommand.Argv[0])
-		}
+		name := shellCommandName(parsedCommand)
 		inputs = append(inputs, ShellCommandInput{
-			Argv:         append([]string(nil), parsedCommand.Argv...),
-			Assignments:  append([]string(nil), parsedCommand.Assignments...),
-			Redirects:    append([]string(nil), parsedCommand.Redirects...),
-			Command:      strings.Join(parsedCommand.Argv, " "),
-			Name:         name,
-			Background:   parsedCommand.Background,
-			HasInlineEnv: len(parsedCommand.Assignments) > 0,
+			Argv:                   append([]string(nil), parsedCommand.Argv...),
+			Assignments:            append([]string(nil), parsedCommand.Assignments...),
+			Redirects:              append([]string(nil), parsedCommand.Redirects...),
+			Command:                parsedCommand.Command,
+			Name:                   name,
+			Column:                 int64(parsedCommand.Column),
+			Line:                   int64(parsedCommand.Line),
+			Background:             parsedCommand.Background,
+			HasCommandSubstitution: parsedCommand.HasCommandSubstitution,
+			HasDynamicExpansion:    parsedCommand.HasDynamicExpansion,
+			HasHeredoc:             parsedCommand.HasHeredoc,
+			HasInlineEnv:           len(parsedCommand.Assignments) > 0,
+			HasProcessSubstitution: parsedCommand.HasProcessSubstitution,
+			HasRedirects:           len(parsedCommand.Redirects) > 0,
+			HasSubshell:            parsedCommand.HasSubshell,
+			IsFunctionDeclaration:  parsedCommand.IsFunctionDeclaration,
+			IsGit:                  shellCommandIsGit(parsedCommand),
+			IsLintTool:             shellCommandIsLintTool(parsedCommand),
+			IsShellExec:            shellCommandIsShellExec(parsedCommand),
+			UsesPathOverride:       shellCommandUsesPathOverride(parsedCommand),
 		})
 	}
 
 	return inputs
+}
+
+func shellCommandName(command shellparse.Command) string {
+	if command.Name != "" {
+		return path.Base(command.Name)
+	}
+	if len(command.Argv) == 0 {
+		return ""
+	}
+
+	return path.Base(command.Argv[0])
+}
+
+func shellCommandIsGit(command shellparse.Command) bool {
+	return commandTokenMatchesTool(shellCommandName(command), "git") ||
+		shellCommandWrappedTool(command, "git")
+}
+
+func shellCommandIsLintTool(command shellparse.Command) bool {
+	if _, ok := toolcatalog.CapturedLintTool(shellCommandName(command)); ok {
+		return true
+	}
+	for _, arg := range command.Argv {
+		if _, ok := toolcatalog.CapturedLintTool(path.Base(arg)); ok {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shellCommandIsShellExec(command shellparse.Command) bool {
+	switch shellCommandName(command) {
+	case "bash", "sh", "zsh", "dash":
+		return true
+	default:
+		return false
+	}
+}
+
+func shellCommandUsesPathOverride(command shellparse.Command) bool {
+	for _, assignment := range command.Assignments {
+		if strings.HasPrefix(assignment, "PATH=") {
+			return true
+		}
+	}
+	if len(command.Argv) > 0 && shellCommandName(command) == "env" {
+		for _, arg := range command.Argv[1:] {
+			if strings.HasPrefix(arg, "PATH=") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func shellCommandWrappedTool(command shellparse.Command, tool string) bool {
+	if len(command.Argv) < 2 {
+		return false
+	}
+	switch shellCommandName(command) {
+	case "command", "env":
+		for _, arg := range command.Argv[1:] {
+			if strings.Contains(arg, "=") {
+				continue
+			}
+
+			return commandTokenMatchesTool(arg, tool)
+		}
+	}
+
+	return false
 }
 
 func gitSubcommandIndex(argv []string) int {

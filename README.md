@@ -523,9 +523,9 @@ policy:
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
       when: >
-        command.contains("subprocess") &&
         shell_commands.exists(cmd,
           cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
           cmd.argv.exists(arg, arg.contains("git"))
         )
       message: Git must go through the coding-ethos wrapper.
@@ -538,8 +538,10 @@ Current supported fields include:
 - `argv`: parsed command arguments when available.
 - `shell_commands`: parser-normalized shell command facts from
   `mvdan.cc/sh/v3/syntax`, including command name, argv, leading assignments,
-  redirects, and background execution. Malformed shell text is blocked before
-  policy evaluation continues.
+  redirects, here-docs, line/column, background execution, dynamic expansion flags,
+  command/process substitution flags, shell-exec detection, Git detection,
+  lint-tool detection, and PATH override detection. Malformed shell text is
+  blocked before policy evaluation continues.
 - `files`: repo-provided file targets for the current hook or lint event.
 - `file_changes`: typed staged-file facts, including status, extension,
   generated/test/protected flags, byte size, current line count, and original
