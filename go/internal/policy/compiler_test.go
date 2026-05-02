@@ -1792,7 +1792,7 @@ principles:
           lint_scopes: [staged]
           message: Switching to protected branches is forbidden.
           advice: Inspect history without switching.
-          when: "git_command.is_git && (git_command.subcommand == 'checkout' || git_command.subcommand == 'switch') && git_command.has_checkout_protected_branch"
+          when: "git_command.is_git && (git_command.subcommand == 'checkout' || git_command.subcommand == 'switch') && git_command.has_checkout_protected_branch && !metadata.admin_approved"
         - id: filesystem.protected_branch_write
           scope: file
           severity: block
