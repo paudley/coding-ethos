@@ -24,6 +24,7 @@ func TestFindingPopulatesCELFindingInput(t *testing.T) {
 			finding.policy_id == "python.direct_imports" &&
 			finding.skill_id == "lint-remediation" &&
 			finding.principle_ids.exists(id, id == "static-analysis-is-the-first-line-of-defense") &&
+			findings.exists(item, item.file == finding.file && item.code == finding.code) &&
 			paths.exists(path, path.file == finding.file)
 		`,
 	)

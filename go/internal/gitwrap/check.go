@@ -151,6 +151,8 @@ func evaluateGitPolicy(
 		AdminApproved: adminApproved,
 		Argv:          append([]string(nil), argv...),
 		Cwd:           cwd,
+		EventName:     "git",
+		Provider:      "gitwrap",
 		Scope:         scope,
 	}
 

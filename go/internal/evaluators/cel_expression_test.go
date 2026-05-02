@@ -213,22 +213,40 @@ func TestEvaluateCELExpressionUsesExpandedFactInputs(t *testing.T) {
 	decisions, err := EvaluateCELExpression(
 		celExpressionPolicy(),
 		Context{
-			Argv:    []string{"git", "status"},
-			Command: "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+			Argv:         []string{"git", "status"},
+			ChangedFiles: []string{"repo_config.yaml"},
+			Command:      "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
+			EventName:    "PreToolUse",
 			Files: []string{
 				"repo_config.yaml",
 				"coding-ethos-hooks/bin/coding-ethos-policy",
 			},
-			Tool: "Bash",
+			Findings: []Finding{{
+				Tool:     "ruff",
+				Code:     "S101",
+				File:     "tests/test_policy.py",
+				Severity: "error",
+			}},
+			Provider:    "codex",
+			StagedFiles: []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
+			Tool:        "Bash",
 			EvaluatorOptions: map[string]any{
 				"config_candidates":  []string{"repo_config.yaml"},
 				"current_branch":     "main",
+				"mode":               "block",
 				"protected_branches": []string{"main"},
 				"protected_paths":    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
 				"when": `
+					event.name == "PreToolUse" &&
+					event.provider == "codex" &&
+					event.mode == "block" &&
 					command_fact.has_inline_env &&
 					command_invokes(command, "git") &&
 					argv_invokes(argv, "git") &&
+					diff.has_changes &&
+					diff.changed_files.exists(file, file == "repo_config.yaml") &&
+					diff.staged_files.exists(file, file == "coding-ethos-hooks/bin/coding-ethos-policy") &&
+					findings.exists(item, item.code == "S101") &&
 					repo_config_present(files, config.candidates) &&
 					is_protected_path("coding-ethos-hooks/bin/coding-ethos-policy", repo.protected_paths) &&
 					git.on_protected_branch

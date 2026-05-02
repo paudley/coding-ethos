@@ -121,11 +121,18 @@ func celActivation(context Context) map[string]any {
 		Argv:          context.Argv,
 		Command:       context.Command,
 		Cwd:           context.Cwd,
+		EventName:     context.EventName,
 		Files:         context.Files,
+		ChangedFiles:  context.ChangedFiles,
+		StagedFiles:   context.StagedFiles,
+		Provider:      context.Provider,
+		Mode:          stringOption(context.EvaluatorOptions, "mode", ""),
 		Scope:         context.Scope,
 		Tool:          context.Tool,
 		AdminApproved: context.AdminApproved,
 		Diagnostic:    context.Diagnostic,
+		Diagnostics:   context.Diagnostics,
+		Findings:      celFindings(context.Findings),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
 			"protected_paths",
@@ -141,8 +148,46 @@ func celActivation(context Context) map[string]any {
 			"config_candidates",
 			nil,
 		),
-		CurrentBranch: stringOption(context.EvaluatorOptions, "current_branch", ""),
+		CurrentBranch: celCurrentBranch(context),
 		SourceRoots:   stringSliceOption(context.EvaluatorOptions, "source_roots", nil),
 		PythonVersion: stringOption(context.EvaluatorOptions, "python_version", ""),
 	})
+}
+
+func celCurrentBranch(context Context) string {
+	if branch := strings.TrimSpace(context.CurrentBranch); branch != "" {
+		return branch
+	}
+	if branch := stringOption(context.EvaluatorOptions, "current_branch", ""); branch != "" {
+		return branch
+	}
+	if context.Cwd == "" {
+		return ""
+	}
+	branch, ok := currentBranch(context.Cwd)
+	if !ok {
+		return ""
+	}
+
+	return branch
+}
+
+func celFindings(findings []Finding) []celexpr.FindingActivation {
+	activations := make([]celexpr.FindingActivation, 0, len(findings))
+	for _, finding := range findings {
+		activations = append(activations, celexpr.FindingActivation{
+			Tool:         finding.Tool,
+			Code:         finding.Code,
+			Message:      finding.Message,
+			File:         finding.File,
+			Severity:     finding.Severity,
+			PolicyID:     finding.PolicyID,
+			SkillID:      finding.SkillID,
+			PrincipleIDs: append([]string(nil), finding.PrincipleIDs...),
+			Column:       finding.Column,
+			Line:         finding.Line,
+		})
+	}
+
+	return activations
 }

@@ -14,8 +14,12 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 
 	source := `
 		metadata.schema_version == 1 &&
+		event.provider == "codex" &&
+		diff.has_changes &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
+		diagnostics.exists(item, item.tool == "ruff") &&
 		diagnostic.tool == "ruff" &&
+		findings.exists(item, item.code == "F401") &&
 		finding.file.endsWith("test_policy.py") &&
 		repo.python_version == "3.13"
 	`
@@ -193,7 +197,11 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
 		ConfigCandidates:  []string{"repo_config.yaml", "repo_config.yml"},
 		CurrentBranch:     "main",
+		EventName:         "PreToolUse",
 		Files:             []string{"repo_config.yaml", "pkg/app.py"},
+		ChangedFiles:      []string{"pkg/app.py"},
+		StagedFiles:       []string{"repo_config.yaml"},
+		Provider:          "codex",
 		ProtectedBranches: []string{"main"},
 		ProtectedPaths:    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
 		Tool:              "Bash",
@@ -213,6 +221,20 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 	git, ok := activation["git"].(GitInput)
 	if !ok || git.CurrentBranch != "main" || !git.OnProtectedBranch {
 		t.Fatalf("git input = %#v", activation["git"])
+	}
+	if len(git.ChangedFiles) != 1 || len(git.StagedFiles) != 1 {
+		t.Fatalf("git file facts = %#v", git)
+	}
+
+	diff, ok := activation["diff"].(DiffInput)
+	if !ok || !diff.HasChanges || len(diff.ChangedFiles) != 1 || len(diff.StagedFiles) != 1 {
+		t.Fatalf("diff input = %#v", activation["diff"])
+	}
+
+	event, ok := activation["event"].(EventInput)
+	if !ok || event.Name != "PreToolUse" || event.Provider != "codex" ||
+		event.Tool != "Bash" {
+		t.Fatalf("event input = %#v", activation["event"])
 	}
 
 	repo, ok := activation["repo"].(RepoInput)
@@ -251,6 +273,11 @@ func TestActivationPopulatesExplicitDiagnosticInput(t *testing.T) {
 		diagnostic.PolicyID != "python.direct_imports" {
 		t.Fatalf("diagnostic input = %#v", diagnostic)
 	}
+
+	diagnostics, ok := activation["diagnostics"].([]DiagnosticInput)
+	if !ok || len(diagnostics) != 1 || diagnostics[0] != diagnostic {
+		t.Fatalf("diagnostics input = %#v", activation["diagnostics"])
+	}
 }
 
 func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
@@ -284,6 +311,11 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 		finding.SkillID != "lint-remediation" ||
 		len(finding.PrincipleIDs) != 1 {
 		t.Fatalf("finding input = %#v", finding)
+	}
+
+	findings, ok := activation["findings"].([]FindingInput)
+	if !ok || len(findings) != 1 || findings[0].Tool != "mypy" {
+		t.Fatalf("findings input = %#v", activation["findings"])
 	}
 }
 

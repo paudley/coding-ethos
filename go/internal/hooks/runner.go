@@ -529,13 +529,15 @@ func evaluateHookPolicy(
 	}
 
 	context := evaluators.Context{
-		Scope:   event.HookEventName,
-		Tool:    event.ToolName,
-		Argv:    commandArgv(event.Command()),
-		Command: event.Command(),
-		Content: event.Content(),
-		Cwd:     event.Cwd,
-		Files:   event.Files(),
+		Scope:     event.HookEventName,
+		EventName: event.HookEventName,
+		Provider:  event.Provider(),
+		Tool:      event.ToolName,
+		Argv:      commandArgv(event.Command()),
+		Command:   event.Command(),
+		Content:   event.Content(),
+		Cwd:       event.Cwd,
+		Files:     event.Files(),
 	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {

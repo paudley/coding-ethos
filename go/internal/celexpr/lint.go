@@ -37,7 +37,7 @@ func ActivationForFinding[T LintFinding](
 	input ActivationInput,
 	finding T,
 ) map[string]any {
-	input.Finding = &FindingActivation{
+	activation := FindingActivation{
 		Tool:         finding.FindingTool(),
 		Code:         finding.FindingCode(),
 		Message:      finding.FindingMessage(),
@@ -49,6 +49,8 @@ func ActivationForFinding[T LintFinding](
 		Column:       finding.FindingColumn(),
 		Line:         finding.FindingLine(),
 	}
+	input.Finding = &activation
+	input.Findings = append(input.Findings, activation)
 	if len(input.Files) == 0 && input.Finding.File != "" {
 		input.Files = []string{input.Finding.File}
 	}

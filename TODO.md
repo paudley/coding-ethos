@@ -313,7 +313,7 @@ engine rather than a companion to first-class Go evaluators.
   diagnostic, finding, diff, Git facts, config facts, and safe metadata.
 - [x] Remove aspirational CEL fields: every exposed field must be populated
   reliably for its scope, or removed until the runtime can provide it.
-- [ ] Populate real typed inputs for hook command scope, file/path scope, lint
+- [x] Populate real typed inputs for hook command scope, file/path scope, lint
   finding scope, Git scope, config scope, and diff scope.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
@@ -363,6 +363,10 @@ Acceptance criteria:
 - [ ] Go evaluators remain only for complex parsing, expensive analysis, Git
   state modeling, managed toolchain behavior, path normalization, and other
   reviewed security-sensitive operations.
+- [ ] Add richer diff hunk and line-range facts once the runtime has a reviewed
+  Go diff parser shared by hook, lint, CI/SARIF, and MCP paths.
+- [ ] Add provider-native event fields beyond provider/event/tool/scope only
+  after all supported agents can populate the field consistently.
 
 ### Native IDE And Cursor Integration
 

@@ -228,16 +228,18 @@ The required completion work is:
 1. **Stable object model.** Define a versioned schema for every CEL-visible
    object. The current public surface includes `command`, `command_fact`,
    `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`, `diagnostic`,
-   `finding`, `config`, `git`, and non-sensitive metadata. Future `event`,
-   `provider`, `diff`, richer Git state, and richer config facts must be added
-   only when the runtime can populate them reliably. Once exposed, these fields
-   are public policy API.
+   `diagnostics`, `finding`, `findings`, `config`, `git`, `event`, `diff`, and
+   non-sensitive metadata. Future provider-native event fields, diff hunks,
+   line ranges, richer Git state, and richer config facts must be added only
+   when every relevant runtime can populate them reliably. Once exposed, these
+   fields are public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
    reliably or not expose it. The current Git and config surfaces expose
-   prepared facts such as configured protected branches, current branch when
-   provided by the caller, protected path matches, config candidates, and config
-   files present in the current file set; they do not read Git or the
+   prepared facts such as hook event/provider/tool/scope, configured protected
+   branches, current branch, protected path matches, changed/staged file sets,
+   config candidates, config files present in the current file set, and
+   normalized diagnostic/finding collections; they do not read Git or the
    filesystem from CEL.
 3. **Explicit multi-file semantics.** Replace implicit first-file behavior with
    collection expressions such as `paths.exists(path, ...)`, `paths.all(path, ...)`,
@@ -318,6 +320,24 @@ Supported expression scopes:
 - `diagnostic` and `finding`: evaluate one normalized diagnostic or finding at
   a time. Empty typed objects are used only when no diagnostic/finding scope is
   present, so expressions do not match fake lint data.
+
+Core inputs:
+
+- `event`: provider, event name, tool, scope, and mode prepared by the caller.
+- `command_fact`: raw command, argv, tool, and inline-env detection over the
+  raw command text.
+- `paths`: explicit normalized file collection; `path` is populated only for
+  single-file compatibility.
+- `diagnostics` and `findings`: normalized collections supplied by lint/finding
+  contexts. Single `diagnostic` and `finding` remain available for
+  one-at-a-time policies.
+- `git`: current branch, protected-branch flag, configured protected branches,
+  protected-path file matches, staged files, and changed files.
+- `diff`: the prepared file-level diff set: all files, changed files, staged
+  files, and whether any change facts are present. Hunk and line-range facts
+  are deliberately not exposed until a reviewed Go diff parser owns them.
+- `config`: configured repo override candidates and candidates present in the
+  current file set.
 
 Dispatch is declared in `policy.expressions` with `hook_events`, `tools`,
 `lint_scopes`, `mode`, `severity`, `principle_ids`, and `skill_id`.

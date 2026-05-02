@@ -28,6 +28,14 @@ type CommandInput struct {
 	HasInlineEnv bool     `json:"has_inline_env"`
 }
 
+type EventInput struct {
+	Name     string `json:"name"`
+	Mode     string `json:"mode"`
+	Provider string `json:"provider"`
+	Scope    string `json:"scope"`
+	Tool     string `json:"tool"`
+}
+
 type PathInput struct {
 	File         string `json:"file"`
 	Dir          string `json:"dir"`
@@ -80,6 +88,15 @@ type GitInput struct {
 	OnProtectedBranch  bool     `json:"on_protected_branch"`
 	ProtectedBranches  []string `json:"protected_branches"`
 	ProtectedPathFiles []string `json:"protected_path_files"`
+	StagedFiles        []string `json:"staged_files"`
+	ChangedFiles       []string `json:"changed_files"`
+}
+
+type DiffInput struct {
+	ChangedFiles []string `json:"changed_files"`
+	Files        []string `json:"files"`
+	HasChanges   bool     `json:"has_changes"`
+	StagedFiles  []string `json:"staged_files"`
 }
 
 type ActivationInput struct {
@@ -88,12 +105,19 @@ type ActivationInput struct {
 	ConfigCandidates  []string
 	CurrentBranch     string
 	Cwd               string
+	EventName         string
 	Files             []string
+	ChangedFiles      []string
+	StagedFiles       []string
 	Scope             string
+	Provider          string
+	Mode              string
 	Tool              string
 	AdminApproved     bool
 	Diagnostic        *diagnostics.Diagnostic
+	Diagnostics       []diagnostics.Diagnostic
 	Finding           *FindingActivation
+	Findings          []FindingActivation
 	ProtectedPaths    []string
 	ProtectedBranches []string
 	SourceRoots       []string
@@ -134,14 +158,18 @@ func InputSchema() []string {
 		"command_fact: {raw, tool, argv, has_inline_env}",
 		"config: {candidates, present}",
 		"cwd: string",
+		"diff: {files, changed_files, staged_files, has_changes}",
+		"event: {name, provider, tool, scope, mode}",
 		"files: list(string)",
-		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files}",
+		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"scope: string",
 		"metadata: {admin_approved, schema_version, tool}",
 		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
 		"paths: list({file, dir, base, ext, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
+		"diagnostics: list({tool, code, message, file, line, column, severity, policy_id})",
 		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
+		"findings: list({tool, code, message, file, line, severity, policy_id, skill_id, principle_ids})",
 		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
 	}
 }
@@ -187,6 +215,8 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(RepoInput{}),
 			reflect.TypeOf(ConfigInput{}),
 			reflect.TypeOf(GitInput{}),
+			reflect.TypeOf(EventInput{}),
+			reflect.TypeOf(DiffInput{}),
 			ext.ParseStructTag("json"),
 		),
 		cel.Variable("argv", cel.ListType(cel.StringType)),
@@ -196,13 +226,23 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
+		cel.Variable("event", cel.ObjectType("celexpr.EventInput")),
+		cel.Variable("diff", cel.ObjectType("celexpr.DiffInput")),
 		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
 		cel.Variable(
 			"paths",
 			cel.ListType(cel.ObjectType("celexpr.PathInput")),
 		),
 		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
+		cel.Variable(
+			"diagnostics",
+			cel.ListType(cel.ObjectType("celexpr.DiagnosticInput")),
+		),
 		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
+		cel.Variable(
+			"findings",
+			cel.ListType(cel.ObjectType("celexpr.FindingInput")),
+		),
 		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
 		cel.Variable("config", cel.ObjectType("celexpr.ConfigInput")),
 		cel.Variable("git", cel.ObjectType("celexpr.GitInput")),
@@ -270,10 +310,13 @@ func compileProgram(policyID string, source string) (cel.Program, error) {
 func Activation(input ActivationInput) map[string]any {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
 	paths := pathInputs(input.Files, sourceRoots)
+	files := cleanStringSlice(input.Files)
+	changedFiles := cleanStringSlice(input.ChangedFiles)
+	stagedFiles := cleanStringSlice(input.StagedFiles)
 	protectedPaths := cleanStringSlice(input.ProtectedPaths)
 	protectedBranches := cleanStringSlice(input.ProtectedBranches)
 	configCandidates := cleanStringSlice(input.ConfigCandidates)
-	presentConfigs := presentRepoConfigs(input.Files, configCandidates)
+	presentConfigs := presentRepoConfigs(files, configCandidates)
 	primaryPath := PathInput{}
 	if len(paths) == 1 {
 		primaryPath = paths[0]
@@ -294,24 +337,41 @@ func Activation(input ActivationInput) map[string]any {
 			Candidates: configCandidates,
 			Present:    presentConfigs,
 		},
-		"cwd":   input.Cwd,
-		"files": append([]string(nil), input.Files...),
+		"cwd": input.Cwd,
+		"diff": DiffInput{
+			ChangedFiles: changedFiles,
+			Files:        files,
+			HasChanges:   len(files) > 0 || len(changedFiles) > 0 || len(stagedFiles) > 0,
+			StagedFiles:  stagedFiles,
+		},
+		"event": EventInput{
+			Name:     input.EventName,
+			Mode:     input.Mode,
+			Provider: input.Provider,
+			Scope:    input.Scope,
+			Tool:     input.Tool,
+		},
+		"files": files,
 		"git": GitInput{
 			CurrentBranch:      input.CurrentBranch,
 			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
+			ChangedFiles:       changedFiles,
 			ProtectedBranches:  protectedBranches,
-			ProtectedPathFiles: protectedPathFiles(input.Files, protectedPaths),
+			ProtectedPathFiles: protectedPathFiles(files, protectedPaths),
+			StagedFiles:        stagedFiles,
 		},
 		"metadata": MetadataInput{
 			AdminApproved: input.AdminApproved,
 			SchemaVersion: SchemaVersion,
 			Tool:          input.Tool,
 		},
-		"scope":      input.Scope,
-		"path":       primaryPath,
-		"paths":      paths,
-		"diagnostic": diagnosticInput(input.Diagnostic),
-		"finding":    findingInput(input.Finding),
+		"scope":       input.Scope,
+		"path":        primaryPath,
+		"paths":       paths,
+		"diagnostic":  diagnosticInput(input.Diagnostic),
+		"diagnostics": diagnosticInputs(input.Diagnostics, input.Diagnostic),
+		"finding":     findingInput(input.Finding),
+		"findings":    findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{
 			ConfigCandidates:  configCandidates,
 			ProtectedBranches: protectedBranches,
@@ -321,6 +381,51 @@ func Activation(input ActivationInput) map[string]any {
 			SourceRoots:       sourceRoots,
 		},
 	}
+}
+
+func diagnosticInputs(
+	diagnosticList []diagnostics.Diagnostic,
+	primary *diagnostics.Diagnostic,
+) []DiagnosticInput {
+	inputs := make([]DiagnosticInput, 0, len(diagnosticList)+1)
+	for _, diagnostic := range diagnosticList {
+		inputs = append(inputs, diagnosticInput(&diagnostic))
+	}
+	if primary != nil && !diagnosticAlreadyPresent(inputs, primary) {
+		inputs = append(inputs, diagnosticInput(primary))
+	}
+
+	return inputs
+}
+
+func diagnosticAlreadyPresent(
+	inputs []DiagnosticInput,
+	diagnostic *diagnostics.Diagnostic,
+) bool {
+	candidate := diagnosticInput(diagnostic)
+	for _, input := range inputs {
+		if input == candidate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findingInputs(
+	findings []FindingActivation,
+	primary *FindingActivation,
+) []FindingInput {
+	inputs := make([]FindingInput, 0, len(findings)+1)
+	for _, finding := range findings {
+		finding := finding
+		inputs = append(inputs, findingInput(&finding))
+	}
+	if primary != nil {
+		inputs = append(inputs, findingInput(primary))
+	}
+
+	return inputs
 }
 
 func pathInputs(files []string, sourceRoots []string) []PathInput {
