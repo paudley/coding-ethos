@@ -23,6 +23,7 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
 		file_changes.exists(file, file.ext == ".py" && file.line_count >= 0) &&
+		shell_commands.exists(cmd, cmd.name == "git") &&
 		diagnostics.exists(item, item.tool == "ruff") &&
 		diagnostic.tool == "ruff" &&
 		findings.exists(item, item.code == "F401") &&
@@ -77,6 +78,10 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		command_invokes(command, "git") &&
 		argv_invokes(argv, "git") &&
 		argv_command_is(argv, "git") &&
+		shell_commands.exists(cmd,
+			cmd.name == "git" &&
+			list_contains(cmd.assignments, "CODE_ETHOS_CONSUMER_ROOT=/repo")
+		) &&
 		git_command.is_git &&
 		list_contains(git_command.flags, "-f") &&
 		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
@@ -176,6 +181,31 @@ func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("argv command helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestActivationPopulatesShellCommandInputs(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Command: "FOO=bar git status -s 2>&1 | grep file && ruff check .",
+	})
+
+	commands, ok := activation["shell_commands"].([]ShellCommandInput)
+	if !ok {
+		t.Fatalf("shell commands input = %#v", activation["shell_commands"])
+	}
+	if len(commands) != 3 {
+		t.Fatalf("shell command count = %d, want 3: %#v", len(commands), commands)
+	}
+	if commands[0].Name != "git" ||
+		!commands[0].HasInlineEnv ||
+		!listContains(commands[0].Assignments, "FOO=bar") ||
+		!listContains(commands[0].Redirects, "2>&1") {
+		t.Fatalf("first shell command = %#v", commands[0])
+	}
+	if commands[1].Name != "grep" || commands[2].Name != "ruff" {
+		t.Fatalf("shell commands = %#v", commands)
 	}
 }
 

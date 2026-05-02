@@ -212,6 +212,10 @@ with `protected: true`.
 Start with small stable input objects:
 
 - `command`: raw command text, parsed argv, tool name, cwd, provider, event
+- `shell_commands`: parser-normalized shell command facts prepared with
+  `mvdan.cc/sh/v3/syntax`, including command name, argv, assignments,
+  redirects, and background execution. Malformed shell text is denied at the
+  hook boundary instead of falling back to string tokenization.
 - `path`: compatibility object populated only when exactly one path is in
   scope; multi-file policy must use `paths`
 - `paths`: list of repo-relative path objects with file, extension, basename,
@@ -366,6 +370,10 @@ Core inputs:
 - `event`: provider, event name, tool, scope, and mode prepared by the caller.
 - `command_fact`: raw command, argv, tool, and inline-env detection over the
   raw command text.
+- `shell_commands`: normalized simple commands extracted from the shell AST for
+  command-scope policy. Prefer this object over raw substring checks whenever
+  policy needs command identity, arguments, redirects, assignments, or
+  background execution.
 - `paths`: explicit normalized file collection; `path` is populated only for
   single-file compatibility.
 - `diagnostics` and `findings`: normalized collections supplied by lint/finding
@@ -437,6 +445,8 @@ The first migrated built-ins prove the intended pattern:
   owned by the `security-by-design` principle.
 - `filesystem.line_limits` is CEL over staged `file_changes` facts and is
   owned by the `solid-is-law` principle.
+- `shell.malformed_command` is a Go-backed parser gate that blocks malformed
+  shell text before CEL or route rewriting evaluates ambiguous command input.
 
 These policies still use Go for argv normalization, staged-file discovery, file
 metadata collection, and fact preparation. CEL only decides over the prepared

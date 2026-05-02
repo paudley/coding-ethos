@@ -15,6 +15,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -73,6 +74,7 @@ func RunWithRegistry(
 
 func routeToolUse(event Event) gitWrapperRoute {
 	for _, routeFor := range []func(Event) gitWrapperRoute{
+		malformedShellRouteFor,
 		gitWrapperRouteFor,
 		lintToolRouteFor,
 		pythonRuntimeRouteFor,
@@ -601,7 +603,12 @@ func commandArgv(command string) []string {
 		return nil
 	}
 
-	return shellFields(command)
+	argv, err := shellparse.Fields(command)
+	if err != nil {
+		return nil
+	}
+
+	return argv
 }
 
 func matchesCommandPatterns(command string, patterns []string) bool {

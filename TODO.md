@@ -329,11 +329,13 @@ engine rather than a companion to first-class Go evaluators.
 - [x] Treat `coding_ethos.yml` as the policy backbone: new shared policy should
   live with the ETHOS principle it enforces; config remains an artifact and
   overlay surface for policy not yet expressed properly in ETHOS.
-- [ ] Replace hand-rolled shell command tokenization in agent hook paths with a
-  proper shell AST parser such as `mvdan.cc/sh/v3/syntax`, then feed normalized
-  argv/command facts into Go and CEL policy. Keep Git wrapper execution on
-  argv-based Git option parsing because wrapper commands have already been
-  parsed by the shell.
+- [x] Replace hand-rolled shell command tokenization in agent hook paths with a
+  proper shell AST parser (`mvdan.cc/sh/v3/syntax`), deny malformed shell text
+  at the hook boundary, and feed normalized `shell_commands` facts into Go and
+  CEL policy. Keep Git wrapper execution on argv-based Git option parsing
+  because wrapper commands have already been parsed by the shell.
+- [ ] Migrate more brittle command-string CEL examples and hook predicates to
+  `shell_commands` facts instead of raw `command.contains(...)` matching.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.

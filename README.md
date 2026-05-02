@@ -522,7 +522,12 @@ policy:
         - one-path-for-critical-operations
         - no-rationalized-shortcuts
       skill_id: safe-git-workflow
-      when: command.contains("subprocess") && command.contains("git")
+      when: >
+        command.contains("subprocess") &&
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("git"))
+        )
       message: Git must go through the coding-ethos wrapper.
       advice: Use the protected Git wrapper and keep hook failures visible.
 ```
@@ -531,6 +536,10 @@ Current supported fields include:
 
 - `command`: raw command text for command-scope hook policies.
 - `argv`: parsed command arguments when available.
+- `shell_commands`: parser-normalized shell command facts from
+  `mvdan.cc/sh/v3/syntax`, including command name, argv, leading assignments,
+  redirects, and background execution. Malformed shell text is blocked before
+  policy evaluation continues.
 - `files`: repo-provided file targets for the current hook or lint event.
 - `file_changes`: typed staged-file facts, including status, extension,
   generated/test/protected flags, byte size, current line count, and original

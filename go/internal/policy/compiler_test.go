@@ -1470,6 +1470,8 @@ filesystem:
   license_header:
     enabled: false
 shell:
+  malformed_command:
+    enabled: false
   dangerous_command:
     enabled: false
 go:
@@ -1494,6 +1496,7 @@ go:
 		"repo.required_ignores",
 		"repo.pii_scrubber",
 		"repo.license_header",
+		"shell.malformed_command",
 		"shell.dangerous_command",
 		"git.commitlint",
 		"git.commit_attribution",

@@ -92,6 +92,10 @@ func registerFilesystemEvaluators(registry Registry) {
 
 func registerShellEvaluators(registry Registry) {
 	registry.Register(
+		"shell.malformed_command",
+		EvaluatorFunc(EvaluateShellMalformedCommand),
+	)
+	registry.Register(
 		"shell.dangerous_command",
 		EvaluatorFunc(EvaluateShellDangerousCommand),
 	)

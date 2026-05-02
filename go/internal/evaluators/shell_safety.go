@@ -11,7 +11,22 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
+
+func EvaluateShellMalformedCommand(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	if strings.TrimSpace(context.Command) == "" {
+		return nil, nil
+	}
+	if _, err := shellparse.Commands(context.Command); err == nil {
+		return nil, nil
+	}
+
+	return blockShellDecision(policyDef, context.Command), nil
+}
 
 func EvaluateShellDangerousCommand(
 	policyDef policy.Policy,

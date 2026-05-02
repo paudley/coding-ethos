@@ -1603,6 +1603,16 @@ func addShellPolicies(
 ) {
 	for _, policy := range []Policy{
 		shellPolicy(
+			"shell.malformed_command",
+			principleRefs(
+				principles,
+				"validation-at-the-gate",
+				"one-path-for-critical-operations",
+			),
+			"Malformed shell command text is forbidden.",
+			"Rewrite the command as valid shell syntax before continuing.",
+		),
+		shellPolicy(
 			"shell.dangerous_command",
 			principleRefs(principles, "security-by-design", "no-rationalized-shortcuts"),
 			"Dangerous shell commands are forbidden.",
@@ -3486,6 +3496,7 @@ func addBlockingBashDispatch(
 		"git.stash_blocked",
 		"git.commitlint",
 		"git.commit_attribution",
+		"shell.malformed_command",
 		"shell.dangerous_command",
 		"shell.background_git",
 		"shell.github_admin",
@@ -3679,6 +3690,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"filesystem.line_limits",
 			"repo.pii_scrubber",
 			"repo.license_header",
+			"shell.malformed_command",
 			"shell.best_practices",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
@@ -3699,6 +3711,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"git.protected_submodule_update",
 			"git.change_dir_flag",
 			"git.stash_blocked",
+			"shell.malformed_command",
 			"shell.dangerous_command",
 			"shell.background_git",
 			"shell.github_admin",

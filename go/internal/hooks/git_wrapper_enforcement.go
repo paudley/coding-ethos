@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -123,7 +124,10 @@ func wrapperCommand(args []string) string {
 }
 
 func rewriteGitCommandChain(command string) (string, bool, bool) {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return "", false, false
+	}
 	if len(tokens) == 0 {
 		return "", false, true
 	}
@@ -165,7 +169,10 @@ func rewriteGitCommandChain(command string) (string, bool, bool) {
 }
 
 func managedGitCommandChain(command string) bool {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return false
+	}
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			index++
@@ -397,7 +404,11 @@ func isShellControlToken(token string) bool {
 }
 
 func commandMentionsGit(command string) bool {
-	for _, token := range shellControlFields(command) {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return true
+	}
+	for _, token := range tokens {
 		if token == tokenGit || isGitPath(token) {
 			return true
 		}
@@ -480,7 +491,11 @@ func routeBlockDecision(
 	decision := policy.NewDecision(modeBlock, policyDef)
 	decision.Severity = modeBlock
 	decision.Message = reason
-	decision.Suggestion = gitWrapperUseManagedSuggestion
+	if policyDef.Suggestion != "" {
+		decision.Suggestion = policyDef.Suggestion
+	} else {
+		decision.Suggestion = gitWrapperUseManagedSuggestion
+	}
 
 	return decision
 }
@@ -493,103 +508,10 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func shellControlFields(command string) []string {
-	fields := []string{}
+func shellControlFieldsOK(command string) ([]string, bool) {
+	fields, err := shellparse.ControlFields(command)
 
-	var (
-		builder   strings.Builder
-		quote     rune
-		inComment bool
-	)
-
-	escaped := false
-	for _, char := range command {
-		if inComment {
-			if char == '\n' {
-				inComment = false
-			}
-
-			continue
-		}
-
-		if escaped {
-			if char == '\n' {
-				escaped = false
-
-				continue
-			}
-
-			builder.WriteRune(char)
-
-			escaped = false
-
-			continue
-		}
-
-		if char == '\\' && quote != '\'' {
-			escaped = true
-
-			continue
-		}
-
-		if quote != 0 {
-			if char == quote {
-				quote = 0
-
-				continue
-			}
-
-			builder.WriteRune(char)
-
-			continue
-		}
-
-		switch char {
-		case '#':
-			if builder.Len() == 0 {
-				inComment = true
-
-				continue
-			}
-
-			builder.WriteRune(char)
-		case '\'', '"':
-			quote = char
-		case ' ', '\t', '\n':
-			fields = appendShellField(fields, &builder)
-		case ';':
-			fields = appendShellField(fields, &builder)
-			fields = append(fields, string(char))
-		case '&':
-			if strings.HasSuffix(builder.String(), ">") ||
-				strings.HasSuffix(builder.String(), "<") {
-				builder.WriteRune(char)
-
-				continue
-			}
-
-			fields = appendShellField(fields, &builder)
-			fields = appendShellOperator(fields, char)
-		case '|':
-			fields = appendShellField(fields, &builder)
-			fields = appendShellOperator(fields, char)
-		default:
-			builder.WriteRune(char)
-		}
-	}
-
-	return appendShellField(fields, &builder)
-}
-
-func appendShellOperator(fields []string, char rune) []string {
-	operator := string(char)
-	if len(fields) == 0 || fields[len(fields)-1] != operator {
-		return append(fields, operator)
-	}
-
-	fields[len(fields)-1] += operator
-
-	return fields
+	return fields, err == nil
 }
 
 func splitShellRedirections(tokens []string) ([]string, []string) {

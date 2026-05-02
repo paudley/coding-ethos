@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
 )
@@ -28,6 +29,16 @@ type CommandInput struct {
 	Argv         []string `json:"argv"`
 	Raw          string   `json:"raw"`
 	Tool         string   `json:"tool"`
+	HasInlineEnv bool     `json:"has_inline_env"`
+}
+
+type ShellCommandInput struct {
+	Argv         []string `json:"argv"`
+	Assignments  []string `json:"assignments"`
+	Redirects    []string `json:"redirects"`
+	Command      string   `json:"command"`
+	Name         string   `json:"name"`
+	Background   bool     `json:"background"`
 	HasInlineEnv bool     `json:"has_inline_env"`
 }
 
@@ -189,6 +200,7 @@ func InputSchema() []string {
 		"argv: list(string)",
 		"command: string",
 		"command_fact: {raw, tool, argv, has_inline_env}",
+		"shell_commands: list({command, name, argv, assignments, redirects, background, has_inline_env})",
 		"config: {candidates, present}",
 		"cwd: string",
 		"diff: {files, changed_files, staged_files, has_changes}",
@@ -245,6 +257,7 @@ func newEnvironment() (*cel.Env, error) {
 		ext.NativeTypes(
 			reflect.TypeOf(MetadataInput{}),
 			reflect.TypeOf(CommandInput{}),
+			reflect.TypeOf(ShellCommandInput{}),
 			reflect.TypeOf(PathInput{}),
 			reflect.TypeOf(DiagnosticInput{}),
 			reflect.TypeOf(FindingInput{}),
@@ -268,6 +281,10 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
+		cel.Variable(
+			"shell_commands",
+			cel.ListType(cel.ObjectType("celexpr.ShellCommandInput")),
+		),
 		cel.Variable("event", cel.ObjectType("celexpr.EventInput")),
 		cel.Variable("diff", cel.ObjectType("celexpr.DiffInput")),
 		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
@@ -376,6 +393,7 @@ func Activation(input ActivationInput) map[string]any {
 			Tool:         input.Tool,
 			HasInlineEnv: commandHasInlineEnv(input.Command, ""),
 		},
+		"shell_commands": shellCommandInputs(input.Command),
 		"config": ConfigInput{
 			Candidates: configCandidates,
 			Present:    presentConfigs,
@@ -465,6 +483,32 @@ func gitCommandInput(argv []string) GitCommandInput {
 		Subcommand:    normalized[subcommandIndex],
 		Targets:       gitTargets(args),
 	}
+}
+
+func shellCommandInputs(command string) []ShellCommandInput {
+	parsed, err := shellparse.Commands(command)
+	if err != nil {
+		return []ShellCommandInput{}
+	}
+
+	inputs := make([]ShellCommandInput, 0, len(parsed))
+	for _, parsedCommand := range parsed {
+		name := ""
+		if len(parsedCommand.Argv) > 0 {
+			name = path.Base(parsedCommand.Argv[0])
+		}
+		inputs = append(inputs, ShellCommandInput{
+			Argv:         append([]string(nil), parsedCommand.Argv...),
+			Assignments:  append([]string(nil), parsedCommand.Assignments...),
+			Redirects:    append([]string(nil), parsedCommand.Redirects...),
+			Command:      strings.Join(parsedCommand.Argv, " "),
+			Name:         name,
+			Background:   parsedCommand.Background,
+			HasInlineEnv: len(parsedCommand.Assignments) > 0,
+		})
+	}
+
+	return inputs
 }
 
 func gitSubcommandIndex(argv []string) int {

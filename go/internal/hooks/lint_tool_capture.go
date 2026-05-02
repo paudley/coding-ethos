@@ -79,7 +79,10 @@ func lintCaptureRequiredMessage(tool toolcatalog.CapturedTool) string {
 }
 
 func rewriteLintToolCommandChain(command string) (string, toolcatalog.CapturedTool, bool, bool) {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return "", toolcatalog.CapturedTool{}, false, false
+	}
 	if len(tokens) == 0 {
 		return "", toolcatalog.CapturedTool{}, false, true
 	}
@@ -189,7 +192,10 @@ func lintCaptureCommand(toolName string, args []string) string {
 }
 
 func managedLintToolCommandChain(command string) bool {
-	tokens := shellControlFields(command)
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return false
+	}
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			index++
@@ -259,7 +265,11 @@ func capturedToolName(name string) bool {
 }
 
 func firstMentionedCapturedTool(command string) toolcatalog.CapturedTool {
-	for _, token := range shellControlFields(command) {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK {
+		return toolcatalog.CapturedTool{}
+	}
+	for _, token := range tokens {
 		if tool, ok := capturedToolForCommand(token); ok {
 			return tool
 		}

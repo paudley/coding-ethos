@@ -691,6 +691,33 @@ func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
 	}
 }
 
+func TestRunBlocksMalformedShellCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "echo 'unterminated",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if !hasDecision(result.Decisions, "shell.malformed_command") {
+		t.Fatalf("expected malformed shell decision, got %#v", result.Decisions)
+	}
+	if strings.Contains(ProviderBlockMessage(result), "coding-ethos git wrapper") {
+		t.Fatalf("malformed shell block used git wrapper guidance: %s", ProviderBlockMessage(result))
+	}
+}
+
 func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 

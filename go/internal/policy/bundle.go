@@ -216,6 +216,14 @@ func examplePrinciples() map[string]Principle {
 			Summary:   "Security controls are part of the design contract.",
 			Tags:      []string{"security", "validation", "defaults"},
 		},
+		"validation-at-the-gate": {
+			ID:        "validation-at-the-gate",
+			Order:     8,
+			Title:     "Validation at the Gate",
+			Directive: "Validate configuration and command structure before use.",
+			Summary:   "Ambiguous inputs fail before they reach critical operations.",
+			Tags:      []string{"validation", "configuration", "startup"},
+		},
 	}
 }
 
@@ -227,6 +235,7 @@ func examplePolicies() map[string]Policy {
 		"git.commit_attribution":         exampleCommitAttributionPolicy(),
 		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
 		"filesystem.protected_path":      exampleProtectedPathPolicy(),
+		"shell.malformed_command":        exampleShellMalformedCommandPolicy(),
 		"shell.forbidden_strings":        exampleShellForbiddenStringsPolicy(),
 	}
 }
@@ -536,6 +545,10 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 					Mode:     "block",
 				},
 				{
+					PolicyID: "shell.malformed_command",
+					Mode:     "block",
+				},
+				{
 					PolicyID: "shell.forbidden_strings",
 					Mode:     "block",
 				},
@@ -564,6 +577,25 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 	}
 }
 
+func exampleShellMalformedCommandPolicy() Policy {
+	return Policy{
+		ID:              "shell.malformed_command",
+		Category:        "shell",
+		Source:          SourceRef{File: "config.yaml", Path: "shell.malformed_command"},
+		PrincipleIDs:    []string{"validation-at-the-gate", "one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Malformed shell command text is forbidden.",
+		Suggestion:      "Rewrite the command as valid shell syntax before continuing.",
+		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
+		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{{
+			Kind: "shell",
+			Name: "shell.malformed_command",
+		}},
+	}
+}
+
 func exampleLinterDispatch() map[string][]string {
 	return map[string][]string{
 		"files": {"python.conditional_imports"},
@@ -572,6 +604,7 @@ func exampleLinterDispatch() map[string][]string {
 			"git.commit_attribution",
 			"git.commit_head_advanced",
 			"filesystem.protected_path",
+			"shell.malformed_command",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
 		},
