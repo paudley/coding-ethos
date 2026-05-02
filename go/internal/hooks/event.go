@@ -5,6 +5,7 @@ package hooks
 
 import (
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -174,6 +175,14 @@ func (event Event) ReturnCode() int {
 	return 0
 }
 
+func (event Event) ToolInputKeys() []string {
+	return mapKeys(event.ToolInput)
+}
+
+func (event Event) ToolResponseKeys() []string {
+	return mapKeys(event.ToolResponse)
+}
+
 func firstStringValue(values map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := values[key].(string)
@@ -183,6 +192,22 @@ func firstStringValue(values map[string]any, keys ...string) string {
 	}
 
 	return ""
+}
+
+func mapKeys(values map[string]any) []string {
+	if values == nil {
+		return nil
+	}
+
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	return keys
 }
 
 func stringList(value any) []string {

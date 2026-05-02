@@ -546,6 +546,12 @@ Current supported fields include:
 - `file_changes`: typed staged-file facts, including status, extension,
   generated/test/protected flags, byte size, current line count, and original
   line count when Git can provide it.
+- `diff`: staged diff facts prepared by Go, including changed/staged file
+  lists, hunks, added lines, removed lines, line numbers, old/new line numbers,
+  and hunk headers.
+- `event`: provider-native hook metadata such as provider, hook name, tool,
+  source, matcher, session ID, transcript path, tool-input/tool-response keys,
+  return code, and provider booleans for Claude, Codex, and Gemini.
 - `cwd`: invocation working directory.
 - `scope`: expression scope such as `command`, `path`, `diagnostic`, or
   `finding`.
@@ -572,6 +578,8 @@ Current limitations:
 - `path` represents the initial path object for the event. Complex multi-file
   semantics should wait for explicit collection helpers rather than depending
   on implicit ordering.
+- Diff line facts are staged-diff facts. Policies that need unstaged editor
+  content should use hook file/content facts or a purpose-built Go evaluator.
 - CEL is good for coarse guardrails and reviewable repo-specific predicates.
   Keep complex parsing, Git state modeling, managed toolchain behavior, path
   normalization, and security-sensitive analysis in Go evaluators.

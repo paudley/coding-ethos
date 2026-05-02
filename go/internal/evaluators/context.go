@@ -12,9 +12,18 @@ type Context struct {
 	CurrentBranch    string
 	Cwd              string
 	EventName        string
+	EventMatcher     string
+	EventSource      string
 	Provider         string
 	Scope            string
+	SessionID        string
 	Tool             string
+	ToolInputKeys    []string
+	ToolResponseKeys []string
+	TranscriptPath   string
+	ReturnCode       int
+	HasToolInput     bool
+	HasToolResponse  bool
 	Files            []string
 	ChangedFiles     []string
 	StagedFiles      []string

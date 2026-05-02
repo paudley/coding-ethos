@@ -407,9 +407,9 @@ Acceptance criteria:
 - [x] Go evaluators remain only for complex parsing, expensive analysis, Git
   state modeling, managed toolchain behavior, path normalization, and other
   reviewed security-sensitive operations.
-- [ ] Add richer diff hunk and line-range facts once the runtime has a reviewed
+- [x] Add richer diff hunk and line-range facts once the runtime has a reviewed
   Go diff parser shared by hook, lint, CI/SARIF, and MCP paths.
-- [ ] Add provider-native event fields beyond provider/event/tool/scope only
+- [x] Add provider-native event fields beyond provider/event/tool/scope only
   after all supported agents can populate the field consistently.
 
 ### Native IDE And Cursor Integration

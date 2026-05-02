@@ -18,7 +18,11 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 	source := `
 		metadata.schema_version == 1 &&
 		event.provider == "codex" &&
+		event.is_codex &&
+		event.tool_input_keys.exists(key, key == "command") &&
 		diff.has_changes &&
+		diff.hunks.exists(hunk, hunk.file == "src/app.py") &&
+		diff.added_lines.exists(line, line.text.contains("pass")) &&
 		git_command.is_git &&
 		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
@@ -312,6 +316,62 @@ func TestActivationPopulatesFileChangeInputs(t *testing.T) {
 	}
 }
 
+func TestActivationPopulatesDiffHunkInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runTestGit(t, repo, "init")
+	runTestGit(t, repo, "config", "user.email", "test@example.com")
+	runTestGit(t, repo, "config", "user.name", "Test User")
+
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	runTestGit(t, repo, "add", "src/app.py")
+	runTestGit(t, repo, "commit", "-m", "feat: seed")
+
+	if err := os.WriteFile(
+		file,
+		[]byte("print('one')\nprint('two changed')\nprint('three')\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("rewrite source file: %v", err)
+	}
+	runTestGit(t, repo, "add", "src/app.py")
+
+	activation := Activation(ActivationInput{
+		Cwd:   repo,
+		Files: []string{"src/app.py"},
+	})
+
+	diff, ok := activation["diff"].(DiffInput)
+	if !ok || len(diff.Hunks) != 1 {
+		t.Fatalf("diff input = %#v", activation["diff"])
+	}
+	hunk := diff.Hunks[0]
+	if hunk.File != "src/app.py" ||
+		hunk.OldStart != 2 ||
+		hunk.NewStart != 2 ||
+		len(hunk.AddedLines) != 2 ||
+		len(hunk.RemovedLines) != 1 ||
+		hunk.AddedLines[0].Line != 2 ||
+		hunk.AddedLines[0].Text != "print('two changed')" ||
+		hunk.AddedLines[1].Line != 3 ||
+		hunk.RemovedLines[0].Line != 2 ||
+		hunk.RemovedLines[0].Text != "print('two')" {
+		t.Fatalf("hunk input = %#v", hunk)
+	}
+	if len(diff.AddedLines) != 2 ||
+		len(diff.RemovedLines) != 1 ||
+		diff.AddedLines[1].NewLine != 3 {
+		t.Fatalf("diff line summaries = %#v", diff)
+	}
+}
+
 func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	t.Parallel()
 
@@ -377,13 +437,22 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 		ConfigCandidates:  []string{"repo_config.yaml", "repo_config.yml"},
 		CurrentBranch:     "main",
 		EventName:         "PreToolUse",
+		EventMatcher:      "Bash",
+		EventSource:       "codex-cli",
 		Files:             []string{"repo_config.yaml", "pkg/app.py"},
 		ChangedFiles:      []string{"pkg/app.py"},
 		StagedFiles:       []string{"repo_config.yaml"},
 		Provider:          "codex",
+		SessionID:         "session-123",
 		ProtectedBranches: []string{"main"},
 		ProtectedPaths:    []string{"coding-ethos-hooks/bin/coding-ethos-policy"},
 		Tool:              "Bash",
+		ToolInputKeys:     []string{"command"},
+		ToolResponseKeys:  []string{"stdout"},
+		TranscriptPath:    "/tmp/transcript.jsonl",
+		ReturnCode:        7,
+		HasToolInput:      true,
+		HasToolResponse:   true,
 	})
 
 	commandFact, ok := activation["command_fact"].(CommandInput)
@@ -412,7 +481,19 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 
 	event, ok := activation["event"].(EventInput)
 	if !ok || event.Name != "PreToolUse" || event.Provider != "codex" ||
-		event.Tool != "Bash" {
+		event.Tool != "Bash" ||
+		event.Matcher != "Bash" ||
+		event.Source != "codex-cli" ||
+		event.SessionID != "session-123" ||
+		event.TranscriptPath != "/tmp/transcript.jsonl" ||
+		event.ReturnCode != 7 ||
+		!event.HasToolInput ||
+		!event.HasToolResponse ||
+		!event.IsCodex ||
+		event.IsClaude ||
+		event.IsGemini ||
+		!listContains(event.ToolInputKeys, "command") ||
+		!listContains(event.ToolResponseKeys, "stdout") {
 		t.Fatalf("event input = %#v", activation["event"])
 	}
 

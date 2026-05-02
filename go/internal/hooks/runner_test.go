@@ -188,6 +188,68 @@ func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 	}
 }
 
+func TestRunEvaluatesProviderNativeCELPolicy(t *testing.T) {
+	t.Parallel()
+
+	bundle := policy.ExampleBundle()
+	bundle.Policies["custom.codex_failed_bash"] = policy.Policy{
+		ID:              "custom.codex_failed_bash",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source:          policy.SourceRef{File: "config.yaml", Path: "policy.expressions"},
+		Message:         "Failed Codex Bash output requires review.",
+		Suggestion:      "Read the failed command output before continuing.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		SupportedModes:  []string{"block", "record", "advise"},
+		PrincipleIDs:    []string{"radical-visibility"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope": "hook",
+				"when": `event.is_codex &&
+					event.name == "PostToolUse" &&
+					event.tool == "Bash" &&
+					event.return_code == 7 &&
+					event.session_id == "session-123" &&
+					event.tool_response_keys.exists(key, key == "stderr")`,
+			},
+		}},
+	}
+	bundle.Dispatch.Hooks["PostToolUse"]["Bash"] = append(
+		bundle.Dispatch.Hooks["PostToolUse"]["Bash"],
+		policy.HookDispatchEntry{PolicyID: "custom.codex_failed_bash", Mode: "block"},
+	)
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName:  "PostToolUse",
+			ProviderHint:   "codex",
+			SessionID:      "session-123",
+			ToolName:       "Bash",
+			TranscriptPath: "/tmp/transcript.jsonl",
+			ToolInput: map[string]any{
+				"command": "make check",
+			},
+			ToolResponse: map[string]any{
+				"return_code": 7,
+				"stderr":      "failed",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) != 1 ||
+		result.Decisions[0].PolicyID != "custom.codex_failed_bash" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions)
+	}
+}
+
 func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 	t.Parallel()
 

@@ -57,11 +57,23 @@ type ShellCommandInput struct {
 }
 
 type EventInput struct {
-	Name     string `json:"name"`
-	Mode     string `json:"mode"`
-	Provider string `json:"provider"`
-	Scope    string `json:"scope"`
-	Tool     string `json:"tool"`
+	Name             string   `json:"name"`
+	Matcher          string   `json:"matcher"`
+	Mode             string   `json:"mode"`
+	Provider         string   `json:"provider"`
+	Scope            string   `json:"scope"`
+	SessionID        string   `json:"session_id"`
+	Source           string   `json:"source"`
+	Tool             string   `json:"tool"`
+	ToolInputKeys    []string `json:"tool_input_keys"`
+	ToolResponseKeys []string `json:"tool_response_keys"`
+	TranscriptPath   string   `json:"transcript_path"`
+	ReturnCode       int64    `json:"return_code"`
+	HasToolInput     bool     `json:"has_tool_input"`
+	HasToolResponse  bool     `json:"has_tool_response"`
+	IsClaude         bool     `json:"is_claude"`
+	IsCodex          bool     `json:"is_codex"`
+	IsGemini         bool     `json:"is_gemini"`
 }
 
 type PathInput struct {
@@ -131,10 +143,32 @@ type GitCommandInput struct {
 }
 
 type DiffInput struct {
-	ChangedFiles []string `json:"changed_files"`
-	Files        []string `json:"files"`
-	HasChanges   bool     `json:"has_changes"`
-	StagedFiles  []string `json:"staged_files"`
+	ChangedFiles []string        `json:"changed_files"`
+	Files        []string        `json:"files"`
+	Hunks        []DiffHunkInput `json:"hunks"`
+	AddedLines   []DiffLineInput `json:"added_lines"`
+	RemovedLines []DiffLineInput `json:"removed_lines"`
+	HasChanges   bool            `json:"has_changes"`
+	StagedFiles  []string        `json:"staged_files"`
+}
+
+type DiffHunkInput struct {
+	AddedLines   []DiffLineInput `json:"added_lines"`
+	File         string          `json:"file"`
+	Header       string          `json:"header"`
+	RemovedLines []DiffLineInput `json:"removed_lines"`
+	NewLines     int64           `json:"new_lines"`
+	NewStart     int64           `json:"new_start"`
+	OldLines     int64           `json:"old_lines"`
+	OldStart     int64           `json:"old_start"`
+}
+
+type DiffLineInput struct {
+	File    string `json:"file"`
+	Text    string `json:"text"`
+	Line    int64  `json:"line"`
+	NewLine int64  `json:"new_line"`
+	OldLine int64  `json:"old_line"`
 }
 
 type FileChangeInput struct {
@@ -164,13 +198,22 @@ type ActivationInput struct {
 	CurrentBranch     string
 	Cwd               string
 	EventName         string
+	EventMatcher      string
+	EventSource       string
 	Files             []string
 	ChangedFiles      []string
 	StagedFiles       []string
 	Scope             string
 	Provider          string
 	Mode              string
+	SessionID         string
 	Tool              string
+	ToolInputKeys     []string
+	ToolResponseKeys  []string
+	TranscriptPath    string
+	ReturnCode        int
+	HasToolInput      bool
+	HasToolResponse   bool
 	AdminApproved     bool
 	Diagnostic        *diagnostics.Diagnostic
 	Diagnostics       []diagnostics.Diagnostic
@@ -217,8 +260,10 @@ func InputSchema() []string {
 		"shell_commands: list({command, name, argv, assignments, redirects, line, column, background, has_inline_env, has_redirects, has_heredoc, has_command_substitution, has_process_substitution, has_dynamic_expansion, has_subshell, is_function_declaration, is_git, is_lint_tool, is_shell_exec, uses_path_override})",
 		"config: {candidates, present}",
 		"cwd: string",
-		"diff: {files, changed_files, staged_files, has_changes}",
-		"event: {name, provider, tool, scope, mode}",
+		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines}",
+		"diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}",
+		"diff.added_lines[]/removed_lines[]: {file, line, old_line, new_line, text}",
+		"event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}",
 		"files: list(string)",
 		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
@@ -281,6 +326,8 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(GitCommandInput{}),
 			reflect.TypeOf(EventInput{}),
 			reflect.TypeOf(DiffInput{}),
+			reflect.TypeOf(DiffHunkInput{}),
+			reflect.TypeOf(DiffLineInput{}),
 			reflect.TypeOf(FileChangeInput{}),
 			ext.ParseStructTag("json"),
 		),
@@ -398,6 +445,14 @@ func Activation(input ActivationInput) map[string]any {
 		primaryPath = newPathInput(input.Files[0], sourceRoots)
 	}
 
+	diffHunks := diffHunkInputs(input.Cwd, files)
+	addedLines, removedLines := diffLines(diffHunks)
+	hasChanges := len(files) > 0 ||
+		len(changedFiles) > 0 ||
+		len(stagedFiles) > 0 ||
+		len(diffHunks) > 0
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+
 	return map[string]any{
 		"argv":    append([]string(nil), input.Argv...),
 		"command": input.Command,
@@ -416,15 +471,30 @@ func Activation(input ActivationInput) map[string]any {
 		"diff": DiffInput{
 			ChangedFiles: changedFiles,
 			Files:        files,
-			HasChanges:   len(files) > 0 || len(changedFiles) > 0 || len(stagedFiles) > 0,
+			Hunks:        diffHunks,
+			AddedLines:   addedLines,
+			RemovedLines: removedLines,
+			HasChanges:   hasChanges,
 			StagedFiles:  stagedFiles,
 		},
 		"event": EventInput{
-			Name:     input.EventName,
-			Mode:     input.Mode,
-			Provider: input.Provider,
-			Scope:    input.Scope,
-			Tool:     input.Tool,
+			Name:             input.EventName,
+			Matcher:          input.EventMatcher,
+			Mode:             input.Mode,
+			Provider:         input.Provider,
+			Scope:            input.Scope,
+			SessionID:        input.SessionID,
+			Source:           input.EventSource,
+			Tool:             input.Tool,
+			ToolInputKeys:    cleanStringValues(input.ToolInputKeys),
+			ToolResponseKeys: cleanStringValues(input.ToolResponseKeys),
+			TranscriptPath:   input.TranscriptPath,
+			ReturnCode:       int64(input.ReturnCode),
+			HasToolInput:     input.HasToolInput,
+			HasToolResponse:  input.HasToolResponse,
+			IsClaude:         provider == "claude",
+			IsCodex:          provider == "codex",
+			IsGemini:         provider == "gemini",
 		},
 		"files": files,
 		"file_changes": fileChangeInputs(
@@ -1042,6 +1112,18 @@ func cleanStringSlice(values []string) []string {
 	cleaned := make([]string, 0, len(values))
 	for _, value := range values {
 		value = cleanInputFile(value)
+		if value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+
+	return cleaned
+}
+
+func cleanStringValues(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
 		if value != "" {
 			cleaned = append(cleaned, value)
 		}

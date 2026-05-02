@@ -278,10 +278,10 @@ The required completion work is:
    `argv`, `cwd`, `metadata`, `repo`, `path`, `paths`, `files`,
    `file_changes`, `diagnostic`, `diagnostics`, `finding`, `findings`,
    `config`, `git`, `git_command`, `event`, `diff`, and non-sensitive
-   metadata. Future provider-native event fields, diff hunks, line ranges,
-   richer Git state, and richer config facts must be added only when every
-   relevant runtime can populate them reliably. Once exposed, these fields are
-   public policy API.
+   metadata. Provider-native event fields and staged diff hunk/line facts are
+   part of this typed API. Future richer Git state and richer config facts must
+   be added only when every relevant runtime can populate them reliably. Once
+   exposed, these fields are public policy API.
 2. **Real typed inputs.** Remove aspirational fields. Hook command, file/path,
    lint finding, Git, config, and diff scopes must either populate each field
    reliably or not expose it. The current Git and config surfaces expose
@@ -372,7 +372,9 @@ Supported expression scopes:
 
 Core inputs:
 
-- `event`: provider, event name, tool, scope, and mode prepared by the caller.
+- `event`: provider, event name, tool, scope, mode, source, matcher, session
+  ID, transcript path, tool input/response keys, return code, tool input and
+  response presence, and provider booleans prepared by the caller.
 - `command_fact`: raw command, argv, tool, and inline-env detection over the
   raw command text.
 - `shell_commands`: normalized simple commands extracted from the shell AST for
@@ -387,9 +389,10 @@ Core inputs:
   one-at-a-time policies.
 - `git`: current branch, protected-branch flag, configured protected branches,
   protected-path file matches, staged files, and changed files.
-- `diff`: the prepared file-level diff set: all files, changed files, staged
-  files, and whether any change facts are present. Hunk and line-range facts
-  are deliberately not exposed until a reviewed Go diff parser owns them.
+- `diff`: the prepared staged diff set: all files, changed files, staged
+  files, whether any change facts are present, hunk headers, old/new hunk
+  ranges, added lines, removed lines, and old/new line numbers. These facts
+  are prepared by the reviewed Go diff parser and remain read-only CEL inputs.
 - `config`: configured repo override candidates and candidates present in the
   current file set.
 
