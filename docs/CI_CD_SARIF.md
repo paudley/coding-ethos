@@ -94,6 +94,11 @@ package validation, and artifact attestations. Set
 repo intentionally wants the generated SARIF workflow to run directly on
 `pull_request`, `push`, and `workflow_dispatch`.
 
+The generated workflow uploads SARIF with an explicit
+`generated_config.ci.github_actions.sarif_category` value. The default is
+`policy`, which keeps GitHub code-scanning configuration identity stable when a
+repo calls the reusable workflow from `.github/workflows/ci.yml`.
+
 The SARIF job scopes file analysis to the event's changed files. Pull requests
 diff against the target branch, push events diff against the pushed commit
 range, and explicit `CODING_ETHOS_FILES` input remains available for controlled

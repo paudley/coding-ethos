@@ -20,6 +20,7 @@ def test_github_sarif_workflow_defaults_to_reusable_only() -> None:
     assert "pull_request:" not in workflow
     assert "workflow_dispatch:" not in workflow
     assert "timeout-minutes: 30" in workflow
+    assert "CODING_ETHOS_SARIF_CATEGORY: policy" in workflow
 
 
 def test_github_sarif_workflow_can_enable_standalone_triggers() -> None:

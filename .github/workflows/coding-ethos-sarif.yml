@@ -22,6 +22,7 @@ jobs:
       CODING_ETHOS_REPO_ROOT: .
       CODING_ETHOS_GATE_COMMAND: make check
       CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
+      CODING_ETHOS_SARIF_CATEGORY: policy
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
@@ -114,6 +115,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ env.CODING_ETHOS_SARIF_PATH }}
+          category: ${{ env.CODING_ETHOS_SARIF_CATEGORY }}
 
       - name: Upload coding-ethos audit artifacts
         if: ${{ always() }}

@@ -101,6 +101,11 @@ def render_github_sarif_workflow(config: dict[str, Any]) -> str:
         "generated_config.ci.github_actions.artifact_name",
         "coding-ethos-audit",
     )
+    sarif_category = _configured_string(
+        config,
+        "generated_config.ci.github_actions.sarif_category",
+        "policy",
+    )
     timeout_minutes = _configured_int(
         config,
         "generated_config.ci.github_actions.timeout_minutes",
@@ -142,6 +147,7 @@ jobs:
       CODING_ETHOS_REPO_ROOT: {repo_root}
       CODING_ETHOS_GATE_COMMAND: {gate_command}
       CODING_ETHOS_SARIF_PATH: {sarif_path}
+      CODING_ETHOS_SARIF_CATEGORY: {sarif_category}
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
@@ -234,6 +240,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{{{ env.CODING_ETHOS_SARIF_PATH }}}}
+          category: ${{{{ env.CODING_ETHOS_SARIF_CATEGORY }}}}
 
       - name: Upload coding-ethos audit artifacts
         if: ${{{{ always() }}}}

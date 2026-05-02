@@ -97,6 +97,7 @@ generated_config:
       artifact_name: coding-ethos-audit
       standalone_triggers: false
       timeout_minutes: 30
+      sarif_category: policy
     gitlab:
       enabled: true
       coding_ethos_path: coding-ethos
