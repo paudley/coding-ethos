@@ -208,17 +208,26 @@ func examplePrinciples() map[string]Principle {
 			Summary:   "Evidence and verification outrank speculation.",
 			Tags:      []string{"evidence", "planning", "risk", "quality"},
 		},
+		"security-by-design": {
+			ID:        "security-by-design",
+			Order:     24,
+			Title:     "Security by Design",
+			Directive: "Design for least privilege, validation, and safe defaults from the start.",
+			Summary:   "Security controls are part of the design contract.",
+			Tags:      []string{"security", "validation", "defaults"},
+		},
 	}
 }
 
 func examplePolicies() map[string]Policy {
 	return map[string]Policy{
-		"python.conditional_imports": exampleConditionalImportPolicy(),
-		"git.hook_bypass":            exampleHookBypassPolicy(),
-		"git.commit_attribution":     exampleCommitAttributionPolicy(),
-		"git.commit_head_advanced":   exampleCommitHeadPolicy(),
-		"filesystem.protected_path":  exampleProtectedPathPolicy(),
-		"shell.forbidden_strings":    exampleShellForbiddenStringsPolicy(),
+		"python.conditional_imports":     exampleConditionalImportPolicy(),
+		"git.hook_bypass":                exampleHookBypassPolicy(),
+		"git.protected_submodule_update": exampleProtectedSubmoduleUpdatePolicy(),
+		"git.commit_attribution":         exampleCommitAttributionPolicy(),
+		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
+		"filesystem.protected_path":      exampleProtectedPathPolicy(),
+		"shell.forbidden_strings":        exampleShellForbiddenStringsPolicy(),
 	}
 }
 
@@ -337,6 +346,31 @@ func exampleHookBypassPolicy() Policy {
 			Tools:    []string{"Bash"},
 		},
 		Evaluators: []Evaluator{{Kind: "argv", Name: "git.hook_bypass"}},
+	}
+}
+
+func exampleProtectedSubmoduleUpdatePolicy() Policy {
+	return Policy{
+		ID:              "git.protected_submodule_update",
+		Category:        "git",
+		Source:          SourceRef{File: "config.yaml", Path: "git.protected_submodule_update"},
+		PrincipleIDs:    []string{"security-by-design", "one-path-for-critical-operations"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Protected submodules cannot be initialized or checked out to a recorded SHA.",
+		Suggestion:      "Use git submodule update --remote for upgrades, or ask an admin for controlled rollback.",
+		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", "git_state"),
+		AppliesTo: AppliesTo{
+			Commands: []string{"git submodule update"},
+			Tools:    []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{
+			Kind: "argv",
+			Name: "git.protected_submodule_update",
+			Options: map[string]any{
+				"paths": []string{"coding-ethos"},
+			},
+		}},
 	}
 }
 
@@ -470,6 +504,9 @@ func exampleDispatch() Dispatch {
 			"commit": {
 				Pre:  []string{"git.hook_bypass", "git.commit_attribution"},
 				Post: []string{"git.commit_head_advanced"},
+			},
+			"submodule": {
+				Pre: []string{"git.protected_submodule_update"},
 			},
 		},
 	}

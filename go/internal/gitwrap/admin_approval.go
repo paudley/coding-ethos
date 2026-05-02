@@ -80,7 +80,7 @@ func codingEthosRepoMarker(path string) bool {
 		"coding_ethos.yml",
 		"config.yaml",
 		"go/go.mod",
-		"pre-commit/hooks/run-go-hook.sh",
+		"bin/coding-ethos-run",
 	} {
 		_, err := os.Stat(filepath.Join(path, marker))
 		if err != nil {

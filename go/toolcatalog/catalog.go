@@ -186,13 +186,13 @@ func CapturedLintTools() []CapturedTool {
 	return captured
 }
 
-func CapturedLintShimSpecs(runGoHookPath string) []ShimSpec {
+func CapturedLintShimSpecs(runnerPath string) []ShimSpec {
 	tools := CapturedLintTools()
 	specs := make([]ShimSpec, 0, len(tools))
 	for _, tool := range tools {
 		specs = append(specs, ShimSpec{
 			ToolName: tool.Name,
-			Command:  []string{runGoHookPath, "policy-tool", tool.Name},
+			Command:  []string{runnerPath, "policy-tool", tool.Name},
 		})
 	}
 

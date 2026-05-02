@@ -16,15 +16,15 @@ import (
 
 var (
 	errToolsBinDirRequired = errors.New("--tools-bin-dir is required with --install-shims")
-	errRunGoHookRequired   = errors.New("--run-go-hook is required with --install-shims")
+	errRunnerRequired      = errors.New("--runner is required with --install-shims")
 )
 
-func installCapturedToolShims(toolsBinDir string, runGoHook string, ethosRoot string) error {
+func installCapturedToolShims(toolsBinDir string, runner string, ethosRoot string) error {
 	if strings.TrimSpace(toolsBinDir) == "" {
 		return errToolsBinDirRequired
 	}
-	if strings.TrimSpace(runGoHook) == "" {
-		return errRunGoHookRequired
+	if strings.TrimSpace(runner) == "" {
+		return errRunnerRequired
 	}
 	if err := os.MkdirAll(toolsBinDir, 0o755); err != nil {
 		return fmt.Errorf("create shim directory: %w", err)
@@ -36,7 +36,7 @@ func installCapturedToolShims(toolsBinDir string, runGoHook string, ethosRoot st
 			_ = os.Remove(filepath.Join(toolsBinDir, captureTool.Name))
 			continue
 		}
-		if err := installCapturedToolShim(toolsBinDir, runGoHook, captureTool.Name); err != nil {
+		if err := installCapturedToolShim(toolsBinDir, runner, captureTool.Name); err != nil {
 			return err
 		}
 	}
@@ -44,13 +44,13 @@ func installCapturedToolShims(toolsBinDir string, runGoHook string, ethosRoot st
 	return nil
 }
 
-func installCapturedToolShim(toolsBinDir string, runGoHook string, tool string) error {
+func installCapturedToolShim(toolsBinDir string, runner string, tool string) error {
 	shim := filepath.Join(toolsBinDir, tool)
 	tmp := fmt.Sprintf("%s.tmp.%d", shim, os.Getpid())
 	content := fmt.Sprintf(
 		"#!/usr/bin/env bash\nset -euo pipefail\nunset %s\nexec %s policy-tool %s \"$@\"\n",
 		realToolEnvVar(tool),
-		shellQuote(runGoHook),
+		shellQuote(runner),
 		shellQuote(tool),
 	)
 	if err := os.WriteFile(tmp, []byte(content), 0o755); err != nil {

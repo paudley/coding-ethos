@@ -105,12 +105,12 @@ func TestToolchainCommandUsesManagedBinaryPath(t *testing.T) {
 	}
 
 	err = os.WriteFile(
-		filepath.Join(hooksRoot, "run-go-hook.sh"),
-		[]byte("#!/usr/bin/env bash\n"),
+		filepath.Join(hooksRoot, "managed-toolchain.tsv"),
+		[]byte("tool\truntime\tversion\nshellcheck\tbinary\tv0.10.0\n"),
 		0o600,
 	)
 	if err != nil {
-		t.Fatalf("write run-go-hook.sh: %v", err)
+		t.Fatalf("write managed-toolchain.tsv: %v", err)
 	}
 
 	err = os.MkdirAll(githubBin, 0o755)

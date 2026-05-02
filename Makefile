@@ -13,8 +13,8 @@ PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
 HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
 GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
 GO_TOOLS_DIR := $(LOCAL_REPO_ROOT)/go
-GO_HOOK := $(PRECOMMIT_DIR)hooks/run-go-hook.sh
 LOCAL_BIN_DIR := $(LOCAL_REPO_ROOT)/bin
+GO_HOOK := $(LOCAL_BIN_DIR)/coding-ethos-run
 LOCAL_BUILD_DIR := $(LOCAL_REPO_ROOT)/build
 POLICY_DIR := $(LOCAL_BUILD_DIR)/policy
 TOOLCHAIN_DIR := $(LOCAL_BUILD_DIR)/toolchain
@@ -59,6 +59,9 @@ endef
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 GIT_COMMON_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir)
 HOOKS_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks)
+PARENT_HOOK_RUNTIME_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
+PARENT_HOOK_BIN_DIR := $(PARENT_HOOK_RUNTIME_DIR)/bin
+PARENT_POLICY_DIR := $(PARENT_HOOK_RUNTIME_DIR)/policy
 GIT_HOOKS := pre-commit pre-push commit-msg
 GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
@@ -69,6 +72,8 @@ GO_TOOL_CMDS := \
 	coding-ethos-hook \
 	coding-ethos-hook-log \
 	coding-ethos-mcp \
+	coding-ethos-run \
+	coding-ethos-toolchain \
 	coding-ethos-git-hook \
 	coding-ethos-git
 
@@ -388,15 +393,15 @@ check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
-managed-toolchain-install: ensure-go ## Install third-party hook tools into checkout-local managed toolchain dirs.
+managed-toolchain-install: ensure-go go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)
-	@"$(PRECOMMIT_DIR)hooks/install-managed-toolchain.sh" \
-		"$(MANAGED_TOOLCHAIN_SOURCE)" \
-		"$(MANAGED_GO_BIN_DIR)" \
-		"$(MANAGED_GITHUB_BIN_DIR)" \
-		"$(MANAGED_TOOLCHAIN_MANIFEST)"
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-managed-toolchain \
+		--manifest-source "$(MANAGED_TOOLCHAIN_SOURCE)" \
+		--go-bin-dir "$(MANAGED_GO_BIN_DIR)" \
+		--github-bin-dir "$(MANAGED_GITHUB_BIN_DIR)" \
+		--installed-manifest "$(MANAGED_TOOLCHAIN_MANIFEST)"
 	@$(call print_info,manifest: $(MANAGED_TOOLCHAIN_MANIFEST))
 
 managed-go-tools-install: managed-toolchain-install ## Alias for installing managed hook toolchain tools.
@@ -406,6 +411,25 @@ go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the c
 	@mkdir -p "$(LOCAL_BIN_DIR)"
 	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build -buildvcs=false -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" .
 	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
+
+_sync-git-hooks: ensure-go go-tools-install
+	@$(call print_step,Syncing Git hook shims)
+	@$(call print_info,hooks: $(HOOKS_DIR))
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks \
+		--hooks-dir "$(HOOKS_DIR)" \
+		--source-dir "$(PRECOMMIT_DIR)hooks"
+
+_sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
+	@$(call print_step,Syncing parent hook runtime artifacts)
+	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
+	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
+	@cp "$(POLICY_DIR)/policy-bundle.json" "$(PARENT_POLICY_DIR)/policy-bundle.json"
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-shim \
+		--dest-dir "$(PARENT_HOOK_BIN_DIR)" \
+		--real-git "$(GIT)" \
+		--runner "$(GO_HOOK)"
+	@cp "$(GO_TOOLS_BIN_DIR)/coding-ethos-git-hook" "$(PARENT_HOOK_RUNTIME_DIR)/coding-ethos-git-hook"
+	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 
 policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## Compile the policy bundle into the checkout-local build directory.
 	@$(call print_step,Compiling policy bundle)
@@ -420,40 +444,31 @@ policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## C
 	@$(call print_info,compiled: $(POLICY_DIR)/policy-bundle.json)
 
 install-hooks: build ## Install Git hook shims.
-	@$(call print_step,Installing Git hook shims)
-	@mkdir -p "$(HOOKS_DIR)"
-	@for hook in $(GIT_HOOKS); do \
-		cp "$(PRECOMMIT_DIR)hooks/run-git-hook.sh" "$(HOOKS_DIR)/$$hook"; \
-		chmod +x "$(HOOKS_DIR)/$$hook"; \
-	done
-	@for hook in $(GIT_LFS_HOOKS); do \
-		cp "$(PRECOMMIT_DIR)hooks/run-lfs-hook.sh" "$(HOOKS_DIR)/$$hook"; \
-		chmod +x "$(HOOKS_DIR)/$$hook"; \
-	done
-	@$(call print_info,installed: Go hook runner)
-	@$(call print_info,installed: Git LFS delegation hooks)
+	@$(call print_step,Git hook shims refreshed by build)
+	@$(call print_info,hooks: $(HOOKS_DIR))
+	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 
 cutover-install: build ## Install Git and agent hooks, then verify cutover readiness.
 	@$(call print_step,Installing and verifying repo-local hook cutover)
 	@"$(GO_HOOK)" cutover install
 
-cutover-verify: ensure-go ## Verify Git and agent hook cutover readiness.
+cutover-verify: build ## Verify Git and agent hook cutover readiness.
 	@$(call print_step,Verifying repo-local hook cutover)
 	@"$(GO_HOOK)" cutover verify
 
-pre-commit: ensure-go ## Run bundled pre-commit hooks on staged files.
+pre-commit: build ## Run bundled pre-commit hooks on staged files.
 	@$(call print_step,Running Go pre-commit hooks on staged files)
 	@"$(GO_HOOK)" git-hook pre-commit
 
-pre-commit-all: ensure-go ## Run bundled pre-commit hooks on all files.
+pre-commit-all: build ## Run bundled pre-commit hooks on all files.
 	@$(call print_step,Running Go pre-commit hooks on all files)
 	@"$(GO_HOOK)" git-hook pre-commit --all-files
 
-pre-push: ensure-go ## Run bundled pre-push hooks.
+pre-push: build ## Run bundled pre-push hooks.
 	@$(call print_step,Running Go pre-push hooks)
 	@"$(GO_HOOK)" git-hook pre-push
 
-commit-msg: ensure-go ## Run commit-message hooks against MSG=/path/to/file.
+commit-msg: build ## Run commit-message hooks against MSG=/path/to/file.
 ifndef MSG
 	@printf '$(COLOR_WARN)Usage: make commit-msg MSG=/path/to/commit-message-file$(COLOR_RESET)\n' >&2
 	@exit 2
@@ -462,11 +477,11 @@ else
 	@"$(GO_HOOK)" git-hook commit-msg "$(MSG)"
 endif
 
-hook-plan: ensure-go ## Print the active Go hook group plan.
+hook-plan: build ## Print the active Go hook group plan.
 	@$(call print_step,Printing Go hook group plan)
 	@"$(GO_HOOK)" hook-plan
 
-validate: ensure-go ## Validate the bundled hook runtime.
+validate: build ## Validate the bundled hook runtime.
 	@$(call print_step,Validating bundled hook runtime)
 	@"$(GO_HOOK)" git-hook validate
 
@@ -508,7 +523,7 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 
 go-tools-smoke: export CODE_ETHOS_HOOK_OUTPUT_FORMAT := toon
-go-tools-smoke: ## Smoke test shared Go tools using only temporary runtime state.
+go-tools-smoke: go-tools-install ## Smoke test shared Go tools using only temporary runtime state.
 	@$(call print_step,Smoke testing shared Go tools)
 	@tmp_bin="$$(mktemp -d)"; \
 		$(MAKE) --no-print-directory go-tools-install GO_TOOLS_BIN_DIR="$$tmp_bin"; \

@@ -28,8 +28,10 @@ internal modules.
   `version: 2` YAML shape.
 - `merging.py`: preserves existing root agent files through managed blocks or
   external LLM merge commands.
-- `tool_configs.py`: merges enforcement config and renders repo-root Pyright,
-  mypy, Ruff, yamllint, and golangci-lint configs.
+- `tool_configs.py`: merges enforcement config, renders repo-root tool
+  configs, and owns generated config sync/check manifests.
+- `ci_tool_configs.py`: renders generated GitHub Actions and GitLab SARIF
+  CI configs.
 - `gemini_prompt_pack.py`: renders the generated Gemini prompt pack consumed by
   the Go hook runner.
 - `yaml_utils.py`: provides YAML formatting helpers that preserve comments and
@@ -55,8 +57,8 @@ New exports should be intentional, documented here, and covered by tests.
 
 Keep `cli.py` as orchestration only. Validation belongs in `loaders.py`, output
 formatting belongs in `renderers.py`, merge behavior belongs in `merging.py`,
-and generated enforcement artifacts belong in `tool_configs.py` or
-`gemini_prompt_pack.py`.
+generated enforcement artifacts belong in `tool_configs.py`,
+`ci_tool_configs.py`, or `gemini_prompt_pack.py`.
 
 When a change affects flags, output layout, overlay behavior, generated config
 content, or prompt-pack content, update README guidance and the relevant tests

@@ -100,6 +100,24 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			argv:      []string{"git", "worktree", "prune"},
 		},
 		{
+			name:      "protected submodule init",
+			policyID:  "git.protected_submodule_update",
+			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			argv:      []string{"git", "submodule", "update", "--init", "coding-ethos"},
+		},
+		{
+			name:      "protected submodule recorded sha checkout",
+			policyID:  "git.protected_submodule_update",
+			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			argv:      []string{"git", "submodule", "update", "coding-ethos"},
+		},
+		{
+			name:      "protected submodule implicit all recorded sha checkout",
+			policyID:  "git.protected_submodule_update",
+			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			argv:      []string{"git", "submodule", "update"},
+		},
+		{
 			name:      "change dir flag",
 			policyID:  "git.change_dir_flag",
 			evaluator: EvaluateGitChangeDirFlag,
@@ -226,6 +244,18 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			argv:      []string{"git", "worktree", "list"},
 		},
 		{
+			name:      "protected submodule remote upgrade",
+			policyID:  "git.protected_submodule_update",
+			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			argv:      []string{"git", "submodule", "update", "--remote", "coding-ethos"},
+		},
+		{
+			name:      "unprotected submodule recorded sha checkout",
+			policyID:  "git.protected_submodule_update",
+			evaluator: EvaluateGitProtectedSubmoduleUpdate,
+			argv:      []string{"git", "submodule", "update", "vendor/other"},
+		},
+		{
 			name:      "normal commit message",
 			policyID:  "git.commit_attribution",
 			evaluator: EvaluateGitCommitAttribution,
@@ -294,6 +324,7 @@ func compiledGitSafetyTestBundle() policy.Bundle {
 		"git.force_push_protected_branch",
 		"git.checkout_protected_branch",
 		"git.destructive_worktree",
+		"git.protected_submodule_update",
 		"git.change_dir_flag",
 		"git.stash_blocked",
 		"git.commitlint",

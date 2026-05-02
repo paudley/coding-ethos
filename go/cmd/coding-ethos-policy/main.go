@@ -27,6 +27,7 @@ var (
 	errCompileOutDirRequired      = errors.New("compile requires --out-dir")
 	errWriteExampleOutDirRequired = errors.New("write-example requires --out-dir")
 	errValidateBundleRequired     = errors.New("validate requires --bundle")
+	errValidateMetadataRequired   = errors.New("validate-metadata requires --metadata")
 	errExplainBundleRequired      = errors.New("explain requires --bundle")
 	errExplainPolicyIDRequired    = errors.New("explain requires exactly one policy ID")
 	errInvalidBundle              = errors.New("invalid policy bundle")
@@ -60,6 +61,8 @@ func main() {
 		err = writeExample(os.Args[commandArgsOffset:])
 	case "validate":
 		err = validate(os.Args[commandArgsOffset:])
+	case "validate-metadata":
+		err = validateMetadata(os.Args[commandArgsOffset:])
 	case "explain":
 		err = explain(os.Args[commandArgsOffset:])
 	case "config-trace":
@@ -73,6 +76,40 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
+}
+
+func validateMetadata(args []string) error {
+	flags := flag.NewFlagSet("validate-metadata", flag.ExitOnError)
+	metadataPath := flags.String("metadata", "", "Path to policy-metadata.json")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse validate-metadata flags: %w", err)
+	}
+	if *metadataPath == "" {
+		return errValidateMetadataRequired
+	}
+
+	file, err := os.Open(*metadataPath)
+	if err != nil {
+		return fmt.Errorf("open metadata %s: %w", *metadataPath, err)
+	}
+	defer file.Close()
+
+	metadata, err := policy.DecodeMetadata(file)
+	if err != nil {
+		return err
+	}
+
+	if err := policy.ValidateMetadataSourceHashes(metadata); err != nil {
+		return fmt.Errorf(
+			"compiled policy bundle does not match its source hash manifest %s: %w",
+			*metadataPath,
+			err,
+		)
+	}
+
+	return nil
 }
 
 func configTrace(args []string) error {
@@ -637,6 +674,7 @@ func usage() {
   coding-ethos-policy dump-example
   coding-ethos-policy write-example --out-dir .git/coding-ethos-hooks/policy
   coding-ethos-policy validate --bundle policy-bundle.json
+  coding-ethos-policy validate-metadata --metadata policy-metadata.json
   coding-ethos-policy explain --bundle policy-bundle.json POLICY_ID
   coding-ethos-policy config-trace [--primary coding_ethos.yml] [--config config.yaml]
       [--repo-config repo_config.yaml] [--json]

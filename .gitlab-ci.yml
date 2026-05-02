@@ -1,7 +1,13 @@
-.coding_ethos_sarif:
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+stages:
+  - test
+
+coding_ethos_sarif:
   stage: test
   variables:
-    CODING_ETHOS_PATH: coding-ethos
+    CODING_ETHOS_PATH: .
     CODING_ETHOS_REPO_ROOT: .
     CODING_ETHOS_GATE_COMMAND: make check
     CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
@@ -11,15 +17,16 @@
     - |
       if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
         cd "$CODING_ETHOS_REPO_ROOT"
-        export CODING_ETHOS_GATE_COMMAND
-        bash -c '$CODING_ETHOS_GATE_COMMAND'
+        bash -c "$CODING_ETHOS_GATE_COMMAND"
         cd "$CI_PROJECT_DIR"
       fi
     - |
       repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
       ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
       files_path="$(mktemp)"
+      sarif_tmp="$CODING_ETHOS_SARIF_PATH.tmp"
       empty_git_sha="0000000000000000000000000000000000000000"
+      rm -f "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
 
       if [ -n "$CODING_ETHOS_FILES" ]; then
         printf '%s\n' "$CODING_ETHOS_FILES" | tr ',' '\n' > "$files_path"
@@ -40,11 +47,19 @@
         : > "$files_path"
       fi
 
+      set +e
       "$ethos_path/bin/coding-ethos-run" policy-lint \
         --cwd "$repo_root" \
         --scope files \
         --files-from "$files_path" \
-        --sarif > "$CODING_ETHOS_SARIF_PATH"
+        --sarif > "$sarif_tmp"
+      status=$?
+      if [ -s "$sarif_tmp" ]; then
+        mv "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
+      else
+        rm -f "$sarif_tmp"
+      fi
+      exit "$status"
   artifacts:
     when: always
     paths:

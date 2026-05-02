@@ -219,7 +219,7 @@ policy editable without weakening the compiled enforcement core.
 - [x] Branch plan: deliver MCP over stdio first, backed by the compiled policy
   bundle and generated skill data already used by hooks.
 - [x] Branch plan: expose `coding-ethos-mcp` as a repo-local Go binary and
-  route `pre-commit/hooks/run-go-hook.sh mcp` through it.
+  route `bin/coding-ethos-run mcp` through it.
 - [x] Implement a Model Context Protocol server for `coding-ethos`.
 - [x] Expose policy and skill queries for command checks, proposed edit checks,
   managed lint capture, compiled lint checks, lint advice, policy explanations,
@@ -230,7 +230,7 @@ policy editable without weakening the compiled enforcement core.
 - [x] Add tests proving MCP responses come from the same compiled policy bundle
   and ETHOS skill data used by hooks.
 - [x] Go-ify branch task: replace the `start_hook_log` shell wrapper in
-  `pre-commit/hooks/run-go-hook.sh` with a Go-owned logging dispatcher so
+  `bin/coding-ethos-run` with a Go-owned logging dispatcher so
   metadata, stdout/stderr capture, repo-ignore validation, and sanitized event
   traces share one compiled implementation.
 
@@ -393,6 +393,25 @@ Acceptance criteria:
   versions as local hooks.
 - [x] Publish violations as PR annotations and, where supported, security/code
   scanning findings.
+- [x] Document expanded SARIF product uses in `docs/SARIF_USES.md`.
+
+#### SARIF Evidence Ledger Expansion
+
+- [ ] Add MCP remediation endpoints that accept a SARIF run or trace ID and
+  return focused ETHOS-grounded repair advice.
+- [ ] Add cross-tool finding grouping using SARIF fingerprints, policy IDs,
+  skill IDs, and source locations.
+- [ ] Emit policy coverage summaries that show which ETHOS principles,
+  policies, skills, and tool families ran for a commit or PR.
+- [ ] Add SARIF trend analysis for newly introduced, reopened, fixed, and
+  worsening findings across commits.
+- [ ] Produce compact PR risk summaries from SARIF and `.coding-ethos` traces
+  for agents and reviewers.
+- [ ] Retain SARIF plus trace artifacts as an audit evidence bundle in CI.
+- [ ] Define an IDE/editor diagnostic integration path that consumes the same
+  SARIF output used by hooks and CI.
+- [ ] Report unmapped diagnostics, noisy rules, missing skill IDs, and weak
+  severity mappings as policy-authoring feedback.
 
 Acceptance criteria:
 
@@ -401,6 +420,9 @@ Acceptance criteria:
   locations, remediation advice, and stable rule metadata.
 - [x] CI output remains compact for agents while preserving full artifacts for
   audit.
+- [ ] SARIF can act as a shared evidence ledger for hooks, CI, MCP, agent
+  remediation, audit review, and editor diagnostics without creating a second
+  policy interpretation path.
 
 ### Adversarial Red-Team Test Suite
 

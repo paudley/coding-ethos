@@ -1136,7 +1136,7 @@ func bundleLocalBinDirname(rootConfig map[string]any) string {
 }
 
 func isBundleRoot(path string) bool {
-	info, err := os.Stat(filepath.Join(path, "hooks", "run-go-hook.sh"))
+	info, err := os.Stat(filepath.Join(path, "hooks", "managed-toolchain.tsv"))
 	if err != nil || info.IsDir() {
 		return false
 	}

@@ -87,16 +87,23 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 
 	assertJSONPath(t, payload, "$schema", sarifSchema)
 	assertJSONPath(t, payload, "version", sarifVersion)
+	assertJSONPath(t, payload, "runs.0.automationDetails.id", "coding-ethos/tool/ruff")
+	assertJSONPath(t, payload, "runs.0.invocations.0.workingDirectory.uri", sarifRepoURI)
+	assertJSONPath(t, payload, "runs.0.invocations.0.executionSuccessful", false)
 	assertJSONPath(t, payload, "runs.0.tool.driver.name", "coding-ethos")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.id", "python.unused_imports")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.precision", "high")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.skill_id", "lint-remediation")
 	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "python.unused_imports")
+	assertJSONPath(t, payload, "runs.0.results.0.ruleIndex", float64(0))
 	assertJSONPath(t, payload, "runs.0.results.0.level", "error")
 	assertJSONPath(t, payload, "runs.0.results.0.message.text", "unused import")
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", "pkg/app.py")
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.region.startLine", float64(4))
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.region.startColumn", float64(8))
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/v1", 64)
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/stable/v1", 64)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
@@ -128,6 +135,39 @@ func TestFormatLintResultSARIFIncludesRepoLocationForPolicyFindings(t *testing.T
 
 	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "repo.pii_scrubber")
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", sarifRepoURI)
+}
+
+func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:bandit",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "bandit",
+			File:     "./pkg/db.py",
+			Line:     42,
+			Severity: "warning",
+			Code:     "S608",
+			PolicyID: "python.sql_safety",
+			Message:  "Possible SQL injection vector",
+			Tags:     []string{"python"},
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.security-severity", "5.0")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.tags.1", "security")
+	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", "pkg/db.py")
 }
 
 func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
@@ -199,6 +239,35 @@ func assertJSONPath(t *testing.T, payload map[string]any, path string, want any)
 
 	if current != want {
 		t.Fatalf("JSON path %q = %#v, want %#v", path, current, want)
+	}
+}
+
+func assertJSONPathPrefix(t *testing.T, payload map[string]any, path string, length int) {
+	t.Helper()
+
+	var current any = payload
+	for _, segment := range strings.Split(path, ".") {
+		switch value := current.(type) {
+		case map[string]any:
+			var ok bool
+			current, ok = value[segment]
+			if !ok {
+				t.Fatalf("JSON path %q missing segment %q in %#v", path, segment, value)
+			}
+		case []any:
+			index := int(segment[0] - '0')
+			if len(segment) != 1 || index < 0 || index >= len(value) {
+				t.Fatalf("JSON path %q invalid index %q in %#v", path, segment, value)
+			}
+			current = value[index]
+		default:
+			t.Fatalf("JSON path %q cannot descend into %#v", path, value)
+		}
+	}
+
+	text, ok := current.(string)
+	if !ok || len(text) != length {
+		t.Fatalf("JSON path %q = %#v, want string length %d", path, current, length)
 	}
 }
 

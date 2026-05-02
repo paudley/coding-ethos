@@ -1401,6 +1401,7 @@ func runHookProbe(
 
 	command := exec.CommandContext(ctx, "sh", "-c", hookCommand)
 	command.Dir = root
+	command.Env = hookProbeEnv(hookCommand)
 	command.Stdin = strings.NewReader(probe.payload)
 
 	var stdout bytes.Buffer
@@ -1436,6 +1437,56 @@ func runHookProbe(
 	}
 
 	return result, nil
+}
+
+func hookProbeEnv(hookCommand string) []string {
+	env := os.Environ()
+	runnerDir := hookCommandRunnerDir(hookCommand)
+	if runnerDir == "" {
+		return env
+	}
+
+	cleanPath := removePathEntry(os.Getenv("PATH"), runnerDir)
+	next := make([]string, 0, len(env))
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			next = append(next, "PATH="+cleanPath)
+
+			continue
+		}
+
+		next = append(next, entry)
+	}
+
+	return next
+}
+
+func hookCommandRunnerDir(hookCommand string) string {
+	fields := strings.Fields(hookCommand)
+	if len(fields) == 0 {
+		return ""
+	}
+
+	command := strings.Trim(fields[0], `"'`)
+	if command == "" || !filepath.IsAbs(command) {
+		return ""
+	}
+
+	return filepath.Clean(filepath.Dir(command))
+}
+
+func removePathEntry(pathValue string, unwanted string) string {
+	cleanUnwanted := filepath.Clean(unwanted)
+	kept := []string{}
+	for _, entry := range filepath.SplitList(pathValue) {
+		if entry == "" || filepath.Clean(entry) == cleanUnwanted {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	return strings.Join(kept, string(os.PathListSeparator))
 }
 
 func commandExitCode(err error) int {

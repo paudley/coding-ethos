@@ -26,7 +26,7 @@ func defaultAdminOnlyBasenames() []string {
 }
 
 func defaultAdminOnlyDirs() []string {
-	return []string{".pre-commit", "pre-commit"}
+	return []string{".pre-commit", "pre-commit", "bin"}
 }
 
 func EvaluateGitStagedAdminFiles(

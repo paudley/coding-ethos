@@ -107,13 +107,13 @@ func updatedBashInput(original map[string]any, command string) map[string]any {
 }
 
 func wrapperCommand(args []string) string {
-	runGoHook := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
-	if runGoHook == "" {
-		runGoHook = "pre-commit/hooks/run-go-hook.sh"
+	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
+	if runner == "" {
+		runner = "bin/coding-ethos-run"
 	}
 
 	parts := make([]string, 0, len(args)+wrapperBaseArgc)
-	parts = append(parts, shellQuote(runGoHook), "policy-git")
+	parts = append(parts, shellQuote(runner), "policy-git")
 
 	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
@@ -196,8 +196,8 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return "", true
 	}
 
-	if filepath.Base(segment[0]) == "run-go-hook.sh" {
-		return "", isTrustedRunGoHookCommand(segment[0])
+	if filepath.Base(segment[0]) == "coding-ethos-run" {
+		return "", isTrustedRunnerCommand(segment[0])
 	}
 
 	if managedGitWrapperImpersonation(segment[0]) {
@@ -233,8 +233,8 @@ func managedGitSegment(segment []string) bool {
 
 	command := segment[0]
 	commandBase := filepath.Base(command)
-	if commandBase == "run-go-hook.sh" {
-		return isTrustedRunGoHookCommand(command) &&
+	if commandBase == "coding-ethos-run" {
+		return isTrustedRunnerCommand(command) &&
 			len(segment) > 1 &&
 			segment[1] == "policy-git"
 	}
@@ -288,17 +288,17 @@ func managedGitWrapperImpersonation(command string) bool {
 	base := filepath.Base(command)
 
 	return strings.Contains(base, "coding-ethos-git") ||
-		strings.Contains(base, "run-go-hook.sh")
+		strings.Contains(base, "coding-ethos-run")
 }
 
-func isTrustedRunGoHookCommand(command string) bool {
+func isTrustedRunnerCommand(command string) bool {
 	cleaned := filepath.ToSlash(filepath.Clean(command))
-	if cleaned == "pre-commit/hooks/run-go-hook.sh" {
+	if cleaned == "bin/coding-ethos-run" {
 		return true
 	}
 
-	for _, resolved := range resolvedRunGoHookCommandPaths(command) {
-		for _, trusted := range trustedRunGoHookPaths() {
+	for _, resolved := range resolvedRunnerCommandPaths(command) {
+		for _, trusted := range trustedRunnerPaths() {
 			if resolved == trusted {
 				return true
 			}
@@ -308,10 +308,10 @@ func isTrustedRunGoHookCommand(command string) bool {
 	return false
 }
 
-func trustedRunGoHookPaths() []string {
+func trustedRunnerPaths() []string {
 	candidates := []string{
 		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
-		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "hooks", "run-go-hook.sh"),
+		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "..", "bin", "coding-ethos-run"),
 	}
 
 	cleaned := make([]string, 0, len(candidates))
@@ -326,7 +326,7 @@ func trustedRunGoHookPaths() []string {
 	return cleaned
 }
 
-func resolvedRunGoHookCommandPaths(command string) []string {
+func resolvedRunnerCommandPaths(command string) []string {
 	candidates := []string{}
 	if filepath.IsAbs(command) {
 		candidates = append(candidates, command)

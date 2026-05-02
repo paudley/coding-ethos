@@ -93,6 +93,20 @@ hooks:
 generated_config:
   freshness:
     enabled: true
+  ci:
+    github_actions:
+      enabled: true
+      coding_ethos_path: .
+      repo_root: .
+      gate_command: make check
+      sarif_path: coding-ethos.sarif
+      artifact_name: coding-ethos-audit
+    gitlab:
+      enabled: true
+      coding_ethos_path: .
+      repo_root: .
+      gate_command: make check
+      sarif_path: coding-ethos.sarif
 
 syntax:
   file_syntax:
@@ -447,6 +461,10 @@ git:
     enabled: true
   destructive_worktree:
     enabled: true
+  protected_submodule_update:
+    enabled: true
+    paths:
+      - coding-ethos
   change_dir_flag:
     enabled: true
   stash_blocked:

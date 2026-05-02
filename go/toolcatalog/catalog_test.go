@@ -383,7 +383,7 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
 	t.Parallel()
 
-	specs := toolcatalog.CapturedLintShimSpecs("/repo/run-go-hook.sh")
+	specs := toolcatalog.CapturedLintShimSpecs("/repo/coding-ethos-run")
 	byTool := map[string]toolcatalog.ShimSpec{}
 	for _, spec := range specs {
 		byTool[spec.ToolName] = spec
@@ -393,7 +393,7 @@ func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
 	if !found {
 		t.Fatal("missing ruff shim spec")
 	}
-	want := []string{"/repo/run-go-hook.sh", "policy-tool", "ruff"}
+	want := []string{"/repo/coding-ethos-run", "policy-tool", "ruff"}
 	if !reflect.DeepEqual(spec.Command, want) {
 		t.Fatalf("ruff shim command = %#v, want %#v", spec.Command, want)
 	}

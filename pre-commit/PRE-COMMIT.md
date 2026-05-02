@@ -34,7 +34,7 @@ consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 consuming-repo overrides.
 
 `make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
-`commit-msg` shims that execute `pre-commit/hooks/run-go-hook.sh git-hook ...`.
+`commit-msg` shims that execute `bin/coding-ethos-run git-hook ...`.
 The shims locate the checked-out `coding-ethos` repository, repair missing
 checkout-local runtime artifacts with `make build`, and dispatch to the built
 hook binary under `coding-ethos/bin/`.
@@ -64,6 +64,9 @@ Required tools:
 `build/toolchain/go-bin/`; ShellCheck, actionlint, hadolint, and dotenv-linter
 are installed from pinned GitHub release assets into
 `build/toolchain/github-bin/`.
+The compiled `coding-ethos-toolchain install-managed-toolchain` command owns
+manifest parsing, install-skip decisions, Go/Rust/GitHub installer dispatch,
+digest verification, archive extraction, and installed-manifest writes.
 `build/toolchain/manifest.tsv` records the installed toolchain. Hook execution
 prepends managed tool directories to `PATH`, and Go hook commands resolve
 managed absolute paths; host-global linter installs are not a runtime contract.
@@ -85,8 +88,8 @@ Run a single group directly:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
-pre-commit/hooks/run-go-hook.sh run-group python-static path/to/file.py
-pre-commit/hooks/run-go-hook.sh run-group syntax path/to/config.yaml
+bin/coding-ethos-run run-group python-static path/to/file.py
+bin/coding-ethos-run run-group syntax path/to/config.yaml
 ```
 
 Run commit-message checks directly:
@@ -113,7 +116,9 @@ Primary files:
 - `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
   prompt pack with rendered prompts and per-check runtime metadata
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
-- `hooks/run-go-hook.sh` - cached Go helper build and execution wrapper
+- `../bin/coding-ethos-run` - compiled hook/runtime entrypoint; policy
+  metadata validation, managed GitHub asset installation, cutover reporting,
+  and hook shim installation/verification are delegated to compiled Go helpers
 - `hooks/run-git-hook.sh` - installed Git hook shim
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
@@ -139,17 +144,17 @@ binaries and compiled runtime files are built and executed from the checked-out
 The same wrapper also exposes local policy-runtime entrypoints:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh agent-hook
-pre-commit/hooks/run-go-hook.sh agent-hooks print
-pre-commit/hooks/run-go-hook.sh agent-hooks sync
-pre-commit/hooks/run-go-hook.sh agent-hooks doctor
-pre-commit/hooks/run-go-hook.sh agent-hooks verify
-pre-commit/hooks/run-go-hook.sh cutover install
-pre-commit/hooks/run-go-hook.sh cutover verify
-pre-commit/hooks/run-go-hook.sh policy-lint --staged
-pre-commit/hooks/run-go-hook.sh policy-git --check-only commit -m test
-pre-commit/hooks/run-go-hook.sh hook-log-analyze
-pre-commit/hooks/run-go-hook.sh hook-log-summary
+bin/coding-ethos-run agent-hook
+bin/coding-ethos-run agent-hooks print
+bin/coding-ethos-run agent-hooks sync
+bin/coding-ethos-run agent-hooks doctor
+bin/coding-ethos-run agent-hooks verify
+bin/coding-ethos-run cutover install
+bin/coding-ethos-run cutover verify
+bin/coding-ethos-run policy-lint --staged
+bin/coding-ethos-run policy-git --check-only commit -m test
+bin/coding-ethos-run hook-log-analyze
+bin/coding-ethos-run hook-log-summary
 ```
 
 `agent-hook` reads agent hook JSON from stdin and never calls Gemini. Gemini
@@ -260,10 +265,10 @@ enforcement remains deterministic and policy-bundle driven.
 Analyze those traces with:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log
-pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --for-files lib/python/app.py
-pre-commit/hooks/run-go-hook.sh policy-lint --analyze-log --json
-pre-commit/hooks/run-go-hook.sh policy-lint --replay .coding-ethos/lint-runs/<trace>.json
+bin/coding-ethos-run policy-lint --analyze-log
+bin/coding-ethos-run policy-lint --analyze-log --for-files lib/python/app.py
+bin/coding-ethos-run policy-lint --analyze-log --json
+bin/coding-ethos-run policy-lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 Analysis output uses the same human, JSON, and auto-selected TOON formats as
@@ -340,7 +345,7 @@ can override them with one of these root-level files:
 You can also point the bundle at an explicit override file with
 `CODE_ETHOS_PRECOMMIT_CONFIG`.
 
-Use `pre-commit/hooks/run-go-hook.sh policy config-trace --json` after
+Use `bin/coding-ethos-run policy config-trace --json` after
 enforcement config edits to validate known top-level sections, compile the
 merged policy bundle, and report policy/evidence/dispatch counts.
 
@@ -464,8 +469,8 @@ consumer-repo override file.
 Policy lint selection can be inspected without running checks:
 
 ```bash
-pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain
-pre-commit/hooks/run-go-hook.sh policy-lint --scope staged --explain --json
+bin/coding-ethos-run policy-lint --scope staged --explain
+bin/coding-ethos-run policy-lint --scope staged --explain --json
 ```
 
 The explain output reports the selected policy checks, evaluator names,

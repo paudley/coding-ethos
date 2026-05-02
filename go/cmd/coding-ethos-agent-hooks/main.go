@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 )
@@ -58,7 +59,7 @@ func printSettings(args []string) error {
 		return fmt.Errorf("parse print flags: %w", err)
 	}
 
-	err = agenthooks.WriteSettings(os.Stdout, *hookCommand)
+	err = agenthooks.WriteSettings(os.Stdout, defaultHookCommand(*hookCommand))
 	if err != nil {
 		return fmt.Errorf("write agent hook settings: %w", err)
 	}
@@ -76,7 +77,7 @@ func syncSettings(args []string) error {
 		return fmt.Errorf("parse sync flags: %w", err)
 	}
 
-	err = agenthooks.SyncSettings(*root, *hookCommand)
+	err = agenthooks.SyncSettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
@@ -94,7 +95,7 @@ func doctorSettings(args []string) error {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	err = agenthooks.DoctorSettings(*root, *hookCommand)
+	err = agenthooks.DoctorSettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}
@@ -117,7 +118,7 @@ func verifySettings(args []string) error {
 		return fmt.Errorf("parse verify flags: %w", err)
 	}
 
-	report, err := agenthooks.VerifySettings(*root, *hookCommand)
+	report, err := agenthooks.VerifySettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
 		if encodeErr := writeJSONReport(os.Stdout, report); encodeErr != nil {
 			return encodeErr
@@ -132,6 +133,18 @@ func verifySettings(args []string) error {
 	}
 
 	return nil
+}
+
+func defaultHookCommand(hookCommand string) string {
+	if strings.TrimSpace(hookCommand) != "" {
+		return hookCommand
+	}
+	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
+	if runner == "" {
+		return ""
+	}
+
+	return runner + " agent-hook"
 }
 
 func writeDoctorReport(file *os.File) error {

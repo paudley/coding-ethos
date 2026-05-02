@@ -40,8 +40,8 @@ lint_bin="$go_bin/coding-ethos-lint"
 hook_bin="$go_bin/coding-ethos-hook"
 git_bin="$go_bin/coding-ethos-git"
 agent_hooks_bin="$go_bin/coding-ethos-agent-hooks"
-run_go_hook="$repo_root/pre-commit/hooks/run-go-hook.sh"
-for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin"; do
+run_go_hook="$repo_root/bin/coding-ethos-run"
+for bin in "$policy_bin" "$lint_bin" "$hook_bin" "$git_bin" "$agent_hooks_bin" "$run_go_hook"; do
   if [[ ! -x "$bin" ]]; then
     printf 'missing executable: %s\n' "$bin" >&2
     exit 1
@@ -301,7 +301,7 @@ git -C "$wrapper_repo" add .gitignore conflict.txt
 set +e
 (
   cd "$wrapper_repo"
-  "$repo_root/pre-commit/hooks/run-go-hook.sh" \
+  "$run_go_hook" \
     git-hook pre-commit > /tmp/coding-ethos-hook-wrapper-smoke.out 2>&1
 )
 wrapper_status=$?
@@ -323,15 +323,15 @@ agent_settings_root="$tmp_root/agent-settings"
 mkdir -p "$agent_settings_root"
 git -C "$agent_settings_root" init > /dev/null
 printf '.coding-ethos/\n' > "$agent_settings_root/.gitignore"
-"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
+"$run_go_hook" agent-hooks doctor \
   --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
   cat /tmp/coding-ethos-agent-doctor-missing.out >&2
   exit 1
 }
-"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks sync \
+"$run_go_hook" agent-hooks sync \
   --root "$agent_settings_root"
-"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks doctor \
+"$run_go_hook" agent-hooks doctor \
   --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor.out
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
   ! grep -q '"coverage": "full"' /tmp/coding-ethos-agent-doctor.out ||
@@ -365,7 +365,7 @@ if ! grep -q '"BeforeTool"' "$agent_settings_root/.gemini/settings.json" ||
   cat "$agent_settings_root/.gemini/settings.json" >&2
   exit 1
 fi
-"$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hooks verify \
+"$run_go_hook" agent-hooks verify \
   --root "$agent_settings_root" > /tmp/coding-ethos-agent-verify.out
 if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-verify.out ||
   ! grep -q '"provider": "claude"' /tmp/coding-ethos-agent-verify.out ||
@@ -385,7 +385,7 @@ git -C "$cutover_unignored_repo" init > /dev/null
 set +e
 (
   cd "$cutover_unignored_repo"
-  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
+  "$run_go_hook" cutover verify \
     > /tmp/coding-ethos-cutover-unignored.out 2>&1
 )
 cutover_unignored_status=$?
@@ -407,7 +407,7 @@ printf '.coding-ethos/\n' > "$cutover_repo/.gitignore"
 set +e
 (
   cd "$cutover_repo"
-  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover verify \
+  "$run_go_hook" cutover verify \
     > /tmp/coding-ethos-cutover-missing.out 2>&1
 )
 cutover_missing_status=$?
@@ -426,7 +426,7 @@ if [[ "$cutover_missing_status" -eq 0 ]] ||
 fi
 (
   cd "$cutover_repo"
-  "$repo_root/pre-commit/hooks/run-go-hook.sh" cutover install \
+  "$run_go_hook" cutover install \
     > /tmp/coding-ethos-cutover-install.out
 )
 if ! grep -q 'status: ready' /tmp/coding-ethos-cutover-install.out ||
@@ -554,10 +554,10 @@ printf '{"role":"user","content":"finish the hook cutover"}\n' > "$transcript"
 (
   cd "$wrapper_repo"
   printf '{"hook_event_name":"PreCompact","source":"claude","cwd":"%s","session_id":"smoke-session","transcript_path":"%s"}\n' "$wrapper_repo" "$transcript" |
-    "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
+    "$run_go_hook" agent-hook \
       > /tmp/coding-ethos-precompact-smoke.out
   printf '{"hook_event_name":"SessionStart","source":"claude","cwd":"%s","matcher":"compact","session_id":"smoke-session"}\n' "$wrapper_repo" |
-    "$repo_root/pre-commit/hooks/run-go-hook.sh" agent-hook \
+    "$run_go_hook" agent-hook \
       > /tmp/coding-ethos-sessionstart-smoke.out
 )
 if ! grep -q 'deterministic carry-forward context' /tmp/coding-ethos-sessionstart-smoke.out; then
