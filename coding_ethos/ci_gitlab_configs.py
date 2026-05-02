@@ -20,7 +20,7 @@ HASH_SPDX_HEADER = (
 
 
 def _with_hash_spdx_header(content: str) -> str:
-    return f"{HASH_SPDX_HEADER}{content.lstrip()}"
+    return f"{HASH_SPDX_HEADER}{content.strip()}\n"
 
 
 def _get(config: dict[str, Any], path: str, fallback: object) -> object:
