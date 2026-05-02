@@ -202,6 +202,13 @@ func compileInputs(
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
+	expressionSources = append(
+		expressionSources,
+		expressionPolicySourcesFromPrinciples(
+			primaryPayload,
+			sourceFileName(options.Primary, "coding_ethos.yml"),
+		)...,
+	)
 
 	var repoConfigPayload map[string]any
 	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
@@ -1281,77 +1288,6 @@ func addFileGuardPolicies(
 		}
 	}
 
-	if policyConfigEnabled(config, "filesystem.large_files") {
-		suffixes := stringSliceAt(
-			config,
-			[]string{"filesystem", "large_files", "suffixes"},
-			stringSliceAt(config, []string{"go", "text", "large_file_suffixes"}, nil),
-		)
-		excludePrefixes := stringSliceAt(
-			config,
-			[]string{"filesystem", "large_files", "exclude_prefixes"},
-			stringSliceAt(config, []string{"go", "text", "large_file_exclude_prefixes"}, nil),
-		)
-		maxKB := intAt(
-			config,
-			[]string{"filesystem", "large_files", "max_kb"},
-			intAt(config, []string{"go", "text", "max_large_file_kb"}, 500),
-		)
-
-		policies["filesystem.large_files"] = Policy{
-			ID:              "filesystem.large_files",
-			Category:        "filesystem",
-			Source:          SourceRef{File: "config.yaml", Path: "filesystem.large_files"},
-			PrincipleIDs:    principleRefs(principles, "security-by-design"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Oversized newly added files are forbidden.",
-			Suggestion:      "Remove oversized generated or binary content from the commit.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind: "git_state",
-				Name: "filesystem.large_files",
-				Options: map[string]any{
-					"suffixes":         suffixes,
-					"exclude_prefixes": excludePrefixes,
-					"max_kb":           maxKB,
-				},
-			}},
-		}
-	}
-
-	if policyConfigEnabled(config, "filesystem.line_limits") {
-		policies["filesystem.line_limits"] = Policy{
-			ID:              "filesystem.line_limits",
-			Category:        "filesystem",
-			Source:          SourceRef{File: "config.yaml", Path: "filesystem.line_limits"},
-			PrincipleIDs:    principleRefs(principles, "solid-is-law"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Large source files must not keep growing.",
-			Suggestion:      "Split large files into focused modules before committing.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.py", "**/*.sh", "**/*.bash"}},
-			Evaluators: []Evaluator{{
-				Kind: "git_state",
-				Name: "filesystem.line_limits",
-				Options: map[string]any{
-					"python_hard": intAt(
-						config,
-						[]string{"filesystem", "line_limits", "python_hard"},
-						intAt(config, []string{"go", "line_limits", "python_hard"}, 1000),
-					),
-					"shell_hard": intAt(
-						config,
-						[]string{"filesystem", "line_limits", "shell_hard"},
-						intAt(config, []string{"go", "line_limits", "shell_hard"}, 500),
-					),
-				},
-			}},
-		}
-	}
-
 	if enabledAt(config, []string{"filesystem", "pii_scrubber"}) {
 		policies["repo.pii_scrubber"] = Policy{
 			ID:              "repo.pii_scrubber",
@@ -2051,6 +1987,7 @@ func addGeneratedConfigPolicy(
 
 type expressionPolicySource struct {
 	File        string
+	PathPrefix  string
 	Expressions []any
 }
 
@@ -2079,7 +2016,75 @@ func expressionPolicySourceFromConfig(
 		)
 	}
 
-	return expressionPolicySource{File: file, Expressions: expressions}, true, nil
+	return expressionPolicySource{
+		File:        file,
+		PathPrefix:  "policy.expressions",
+		Expressions: expressions,
+	}, true, nil
+}
+
+func expressionPolicySourcesFromPrinciples(
+	ethos map[string]any,
+	file string,
+) []expressionPolicySource {
+	rawPrinciples, ok := ethos["principles"].([]any)
+	if !ok {
+		return nil
+	}
+
+	sources := []expressionPolicySource{}
+	for index, rawPrinciple := range rawPrinciples {
+		principle, ok := rawPrinciple.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawExpressions, ok := valueAt(principle, "policy", "expressions")
+		if !ok {
+			continue
+		}
+		expressions, ok := rawExpressions.([]any)
+		if !ok {
+			sources = append(sources, expressionPolicySource{
+				File:        file,
+				PathPrefix:  fmt.Sprintf("principles[%d].policy.expressions", index),
+				Expressions: []any{rawExpressions},
+			})
+			continue
+		}
+
+		principleID := strings.TrimSpace(fmt.Sprint(principle["id"]))
+		sources = append(sources, expressionPolicySource{
+			File: file,
+			PathPrefix: fmt.Sprintf(
+				"principles[%s].policy.expressions",
+				principleID,
+			),
+			Expressions: principleExpressionDefaults(expressions, principleID),
+		})
+	}
+
+	return sources
+}
+
+func principleExpressionDefaults(expressions []any, principleID string) []any {
+	normalized := make([]any, 0, len(expressions))
+	for _, rawExpression := range expressions {
+		expression, ok := rawExpression.(map[string]any)
+		if !ok {
+			normalized = append(normalized, rawExpression)
+			continue
+		}
+		copied := map[string]any{}
+		for key, value := range expression {
+			copied[key] = value
+		}
+		if _, ok := copied["principle_ids"]; !ok && principleID != "" {
+			copied["principle_ids"] = []any{principleID}
+		}
+		normalized = append(normalized, copied)
+	}
+
+	return normalized
 }
 
 func addExpressionPolicies(
@@ -2112,8 +2117,9 @@ func addExpressionPoliciesFromSource(
 		expression, ok := rawExpression.(map[string]any)
 		if !ok {
 			return fmt.Errorf(
-				"%s policy.expressions[%d] must be a mapping",
+				"%s %s[%d] must be a mapping",
 				source.File,
+				source.PathPrefix,
 				index,
 			)
 		}
@@ -2122,6 +2128,7 @@ func addExpressionPoliciesFromSource(
 			expression,
 			index,
 			source.File,
+			source.PathPrefix,
 			config,
 			principles,
 		)
@@ -2143,8 +2150,9 @@ func addExpressionPoliciesFromSource(
 			}
 		} else if governance.Override {
 			return fmt.Errorf(
-				"%s policy.expressions[%d].id %q declares override but no existing policy matches",
+				"%s %s[%d].id %q declares override but no existing policy matches",
 				source.File,
+				source.PathPrefix,
 				index,
 				policyDef.ID,
 			)
@@ -2159,14 +2167,16 @@ func expressionPolicy(
 	expression map[string]any,
 	index int,
 	sourceFile string,
+	sourcePathPrefix string,
 	config map[string]any,
 	principles map[string]Principle,
 ) (Policy, bool, expressionPolicyGovernance, error) {
 	policyID := strings.TrimSpace(fmt.Sprint(expression["id"]))
 	if policyID == "" || policyID == "<nil>" {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].id is required",
+			"%s %s[%d].id is required",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
@@ -2179,16 +2189,18 @@ func expressionPolicy(
 	enabled, err := boolOptionFromMap(expression, "enabled", true)
 	if err != nil {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].enabled must be a boolean",
+			"%s %s[%d].enabled must be a boolean",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
 	if !enabled {
 		if governance.Protected {
 			return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-				"%s policy.expressions[%d].id %q is protected and cannot be disabled",
+				"%s %s[%d].id %q is protected and cannot be disabled",
 				sourceFile,
+				sourcePathPrefix,
 				index,
 				policyID,
 			)
@@ -2200,8 +2212,9 @@ func expressionPolicy(
 	when := strings.TrimSpace(fmt.Sprint(expression["when"]))
 	if when == "" || when == "<nil>" {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].when is required",
+			"%s %s[%d].when is required",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
@@ -2212,8 +2225,9 @@ func expressionPolicy(
 	principleIDs := expressionPrincipleIDs(expression)
 	if len(principleIDs) == 0 {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].principle_ids is required",
+			"%s %s[%d].principle_ids is required",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
@@ -2231,16 +2245,18 @@ func expressionPolicy(
 	message := stringOptionFromMap(expression, "message", "")
 	if message == "" {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].message is required",
+			"%s %s[%d].message is required",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
 	advice := stringOptionFromMap(expression, "advice", "")
 	if advice == "" {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
-			"%s policy.expressions[%d].advice is required",
+			"%s %s[%d].advice is required",
 			sourceFile,
+			sourcePathPrefix,
 			index,
 		)
 	}
@@ -2262,7 +2278,7 @@ func expressionPolicy(
 		Category: "expression",
 		Source: SourceRef{
 			File: sourceFile,
-			Path: fmt.Sprintf("policy.expressions[%d]", index),
+			Path: fmt.Sprintf("%s[%d]", sourcePathPrefix, index),
 		},
 		PrincipleIDs:    principleIDs,
 		DefaultSeverity: severity,

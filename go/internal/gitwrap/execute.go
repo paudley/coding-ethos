@@ -4,6 +4,7 @@
 package gitwrap
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,7 +30,11 @@ func Execute(realGit string, options Options) error {
 		cmd.Dir = options.Cwd
 	}
 
-	cmd.Stdin = os.Stdin
+	if len(options.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(options.Stdin)
+	} else {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 
 	cmd.Stderr = os.Stderr
@@ -108,6 +113,7 @@ func evaluatePostPoliciesWithRegistry(
 			options.Cwd,
 			scope,
 			options.AdminApproved,
+			options.Stdin,
 			registry,
 		)
 		if err != nil {

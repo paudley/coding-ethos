@@ -538,20 +538,9 @@ filesystem:
   shebangs:
     enabled: true
   large_files:
-    enabled: true
-    exclude_prefixes: []
-    suffixes:
-      - .bash
-      - .json
-      - .sh
-      - .toml
-      - .yaml
-      - .yml
-    max_kb: 500
+    enabled: false
   line_limits:
-    enabled: true
-    python_hard: 1000
-    shell_hard: 500
+    enabled: false
 
 shell:
   dangerous_command:

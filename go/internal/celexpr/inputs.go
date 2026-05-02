@@ -5,7 +5,10 @@ package celexpr
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -109,6 +112,26 @@ type DiffInput struct {
 	StagedFiles  []string `json:"staged_files"`
 }
 
+type FileChangeInput struct {
+	Base              string `json:"base"`
+	Dir               string `json:"dir"`
+	Ext               string `json:"ext"`
+	File              string `json:"file"`
+	OldFile           string `json:"old_file"`
+	Status            string `json:"status"`
+	IsAdded           bool   `json:"is_added"`
+	IsBinary          bool   `json:"is_binary"`
+	IsDeleted         bool   `json:"is_deleted"`
+	IsGenerated       bool   `json:"is_generated"`
+	IsModified        bool   `json:"is_modified"`
+	IsProtected       bool   `json:"is_protected"`
+	IsRenamed         bool   `json:"is_renamed"`
+	IsTest            bool   `json:"is_test"`
+	LineCount         int64  `json:"line_count"`
+	OriginalLineCount int64  `json:"original_line_count"`
+	SizeBytes         int64  `json:"size_bytes"`
+}
+
 type ActivationInput struct {
 	Argv              []string
 	Command           string
@@ -171,6 +194,7 @@ func InputSchema() []string {
 		"diff: {files, changed_files, staged_files, has_changes}",
 		"event: {name, provider, tool, scope, mode}",
 		"files: list(string)",
+		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
@@ -230,12 +254,17 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(GitCommandInput{}),
 			reflect.TypeOf(EventInput{}),
 			reflect.TypeOf(DiffInput{}),
+			reflect.TypeOf(FileChangeInput{}),
 			ext.ParseStructTag("json"),
 		),
 		cel.Variable("argv", cel.ListType(cel.StringType)),
 		cel.Variable("command", cel.StringType),
 		cel.Variable("cwd", cel.StringType),
 		cel.Variable("files", cel.ListType(cel.StringType)),
+		cel.Variable(
+			"file_changes",
+			cel.ListType(cel.ObjectType("celexpr.FileChangeInput")),
+		),
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
@@ -366,6 +395,11 @@ func Activation(input ActivationInput) map[string]any {
 			Tool:     input.Tool,
 		},
 		"files": files,
+		"file_changes": fileChangeInputs(
+			input.Cwd,
+			files,
+			protectedPaths,
+		),
 		"git": GitInput{
 			CurrentBranch:      input.CurrentBranch,
 			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
@@ -564,6 +598,169 @@ func uniqueStrings(values []string) []string {
 	}
 
 	return unique
+}
+
+func fileChangeInputs(
+	cwd string,
+	files []string,
+	protectedPaths []string,
+) []FileChangeInput {
+	statuses := gitFileStatuses(cwd)
+	inputs := make([]FileChangeInput, 0, len(files))
+	for _, file := range files {
+		cleanFile := cleanInputFile(file)
+		if cleanFile == "" {
+			continue
+		}
+		inputs = append(
+			inputs,
+			fileChangeInput(cwd, cleanFile, statuses[cleanFile], protectedPaths),
+		)
+	}
+
+	return inputs
+}
+
+func fileChangeInput(
+	cwd string,
+	file string,
+	status gitFileStatus,
+	protectedPaths []string,
+) FileChangeInput {
+	statusCode := strings.TrimSpace(status.Code)
+	sizeBytes, lineCount, binary := fileSizeAndLines(cwd, file)
+
+	return FileChangeInput{
+		Base:              path.Base(file),
+		Dir:               path.Dir(file),
+		Ext:               strings.ToLower(path.Ext(file)),
+		File:              file,
+		OldFile:           status.OldFile,
+		Status:            statusCode,
+		IsAdded:           strings.Contains(statusCode, "A"),
+		IsBinary:          binary,
+		IsDeleted:         strings.Contains(statusCode, "D"),
+		IsGenerated:       isGeneratedPath(file),
+		IsModified:        strings.Contains(statusCode, "M"),
+		IsProtected:       isProtectedPath(file, protectedPaths),
+		IsRenamed:         strings.Contains(statusCode, "R"),
+		IsTest:            isTestPath(file),
+		LineCount:         int64(lineCount),
+		OriginalLineCount: int64(originalLineCount(cwd, file)),
+		SizeBytes:         sizeBytes,
+	}
+}
+
+type gitFileStatus struct {
+	Code    string
+	OldFile string
+}
+
+func gitFileStatuses(cwd string) map[string]gitFileStatus {
+	output, err := gitOutput(cwd, "diff", "--cached", "--name-status", "-M")
+	if err != nil {
+		return nil
+	}
+
+	statuses := map[string]gitFileStatus{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) < 2 {
+			continue
+		}
+
+		status := gitFileStatus{Code: fields[0]}
+		file := fields[1]
+		if strings.HasPrefix(status.Code, "R") && len(fields) >= 3 {
+			status.OldFile = fields[1]
+			file = fields[2]
+		}
+		statuses[cleanInputFile(file)] = status
+	}
+
+	return statuses
+}
+
+func fileSizeAndLines(cwd string, file string) (int64, int, bool) {
+	path := resolveFilePath(cwd, file)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return 0, -1, false
+	}
+	if strings.ContainsRune(string(content), 0) {
+		return int64(len(content)), -1, true
+	}
+
+	return int64(len(content)), countLines(string(content)), false
+}
+
+func originalLineCount(cwd string, file string) int {
+	output, err := gitOutput(cwd, "show", "HEAD:"+file)
+	if err != nil {
+		return -1
+	}
+
+	return countLines(output)
+}
+
+func countLines(text string) int {
+	trimmed := strings.TrimRight(text, "\n")
+	if trimmed == "" {
+		return 0
+	}
+
+	return strings.Count(trimmed, "\n") + 1
+}
+
+func gitOutput(cwd string, args ...string) (string, error) {
+	cmd := exec.Command(gitExecutable(), args...)
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+	cmd.Env = cleanGitLocalEnv(os.Environ())
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return string(output), nil
+}
+
+func gitExecutable() string {
+	if configured := strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT")); configured != "" {
+		return configured
+	}
+
+	return "git"
+}
+
+func cleanGitLocalEnv(source []string) []string {
+	cleaned := make([]string, 0, len(source))
+	for _, entry := range source {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && gitLocalEnvName(name) {
+			continue
+		}
+		cleaned = append(cleaned, entry)
+	}
+
+	return cleaned
+}
+
+func gitLocalEnvName(name string) bool {
+	return name == "GIT_DIR" ||
+		name == "GIT_WORK_TREE" ||
+		name == "GIT_INDEX_FILE" ||
+		name == "GIT_OBJECT_DIRECTORY" ||
+		strings.HasPrefix(name, "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+}
+
+func resolveFilePath(cwd string, file string) string {
+	if filepath.IsAbs(file) {
+		return file
+	}
+
+	return filepath.Join(cwd, filepath.FromSlash(file))
 }
 
 func diagnosticInputs(

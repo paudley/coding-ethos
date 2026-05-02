@@ -284,6 +284,38 @@ principles:
       claude: Open the detailed ethos note before changing architecture or interfaces.
       gemini: Use this rule to keep plans structurally coherent and avoid ad hoc
         abstractions.
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          mode: block
+          skill_id: agent-operating-discipline
+          lint_scopes:
+            - files
+            - staged
+          tools: []
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+          when: >-
+            file_changes.exists(file,
+              !file.is_binary &&
+              (
+                (file.ext == ".py" && file.line_count > 1000) ||
+                (
+                  (
+                    file.ext == ".sh" ||
+                    file.ext == ".bash" ||
+                    has_prefix(file.file, "scripts/")
+                  ) &&
+                  file.line_count > 500
+                )
+              ) &&
+              (
+                file.original_line_count < 0 ||
+                file.line_count > file.original_line_count
+              )
+            )
     sections:
       - id: overview
         kind: overview
@@ -3358,6 +3390,28 @@ principles:
         branches.
       claude: Surface skipped checks and missing prerequisites explicitly during review.
       gemini: Keep validation guidance strict and explicit rather than permissive.
+    policy:
+      expressions:
+        - id: filesystem.large_files
+          scope: file
+          severity: block
+          mode: block
+          skill_id: agent-operating-discipline
+          lint_scopes:
+            - files
+            - staged
+          tools: []
+          message: Oversized newly added files are forbidden.
+          advice: Remove oversized generated or binary content from the commit.
+          when: >-
+            file_changes.exists(file,
+              file.is_added &&
+              list_contains(
+                [".bash", ".json", ".sh", ".toml", ".yaml", ".yml"],
+                file.ext
+              ) &&
+              file.size_bytes > 512000
+            )
     sections:
       - id: overview
         kind: overview

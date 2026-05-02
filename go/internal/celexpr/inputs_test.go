@@ -4,6 +4,9 @@
 package celexpr
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -19,6 +22,7 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		git_command.is_git &&
 		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
+		file_changes.exists(file, file.ext == ".py" && file.line_count >= 0) &&
 		diagnostics.exists(item, item.tool == "ruff") &&
 		diagnostic.tool == "ruff" &&
 		findings.exists(item, item.code == "F401") &&
@@ -208,6 +212,45 @@ func TestActivationPopulatesGitCommandInput(t *testing.T) {
 	}
 }
 
+func TestActivationPopulatesFileChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runTestGit(t, repo, "init")
+	runTestGit(t, repo, "config", "user.email", "test@example.com")
+	runTestGit(t, repo, "config", "user.name", "Test User")
+
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	runTestGit(t, repo, "add", "src/app.py")
+
+	activation := Activation(ActivationInput{
+		Cwd:            repo,
+		Files:          []string{"src/app.py"},
+		ProtectedPaths: []string{"src/app.py"},
+	})
+
+	fileChanges, ok := activation["file_changes"].([]FileChangeInput)
+	if !ok || len(fileChanges) != 1 {
+		t.Fatalf("file_changes input = %#v", activation["file_changes"])
+	}
+	fileChange := fileChanges[0]
+	if fileChange.File != "src/app.py" ||
+		fileChange.Status != "A" ||
+		!fileChange.IsAdded ||
+		!fileChange.IsProtected ||
+		fileChange.LineCount != 2 ||
+		fileChange.SizeBytes == 0 ||
+		fileChange.OriginalLineCount != -1 {
+		t.Fatalf("file change input = %#v", fileChange)
+	}
+}
+
 func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	t.Parallel()
 
@@ -250,6 +293,17 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	metadata, ok := activation["metadata"].(MetadataInput)
 	if !ok || metadata.SchemaVersion != SchemaVersion {
 		t.Fatalf("metadata input = %#v", activation["metadata"])
+	}
+}
+
+func runTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }
 

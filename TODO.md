@@ -317,9 +317,22 @@ engine rather than a companion to first-class Go evaluators.
   finding scope, Git scope, config scope, and diff scope.
 - [x] Add typed `git_command` CEL facts for normalized Git argv, subcommand,
   global options, subcommand args, flags, targets, and `git -C` detection.
+- [x] Add typed `file_changes` CEL facts for staged file status, byte size,
+  line count, generated/test/protected classification, and original line count
+  when Git can provide it.
 - [x] Migrate the first tiny Git evaluators to CEL-backed policies:
   `git.change_dir_flag`, `git.destructive_worktree`, and
   `git.stash_blocked`.
+- [x] Move the large-file and line-limit policies out of config-owned Go
+  evaluators and into principle-local CEL expressions in `coding_ethos.yml`.
+- [x] Treat `coding_ethos.yml` as the policy backbone: new shared policy should
+  live with the ETHOS principle it enforces; config remains an artifact and
+  overlay surface for policy not yet expressed properly in ETHOS.
+- [ ] Replace hand-rolled shell command tokenization in agent hook paths with a
+  proper shell AST parser such as `mvdan.cc/sh/v3/syntax`, then feed normalized
+  argv/command facts into Go and CEL policy. Keep Git wrapper execution on
+  argv-based Git option parsing because wrapper commands have already been
+  parsed by the shell.
 - [x] Replace first-file `path` semantics with explicit multi-file collection
   semantics such as `paths.exists(...)`, `paths.all(...)`,
   `files.changed_matching(...)`, and `findings.exists(...)`.

@@ -19,6 +19,7 @@ type Context struct {
 	ChangedFiles     []string
 	StagedFiles      []string
 	Argv             []string
+	Stdin            []byte
 	AdminApproved    bool
 	Diagnostic       *diagnostics.Diagnostic
 	Diagnostics      []diagnostics.Diagnostic

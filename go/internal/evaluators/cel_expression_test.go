@@ -4,6 +4,10 @@
 package evaluators
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -262,6 +266,110 @@ func TestEvaluateCELExpressionUsesExpandedFactInputs(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksLargeAddedFileFromFileChanges(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	largeFile := filepath.Join(repo, "config.yaml")
+	if err := os.WriteFile(largeFile, []byte("payload: "+strings.Repeat("x", 2048)), 0o600); err != nil {
+		t.Fatalf("write large file: %v", err)
+	}
+	runCELGit(t, repo, "add", "config.yaml")
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.large_files"
+	policyDef.Source = policy.SourceRef{
+		File: "coding_ethos.yml",
+		Path: "principles[security-by-design].policy.expressions[0]",
+	}
+	policyDef.Message = "Oversized newly added files are forbidden."
+	policyDef.Suggestion = "Remove oversized generated or binary content from the commit."
+	policyDef.PrincipleIDs = []string{"security-by-design"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:   repo,
+			Files: []string{"config.yaml"},
+			Scope: "staged",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					file_changes.exists(file,
+						file.is_added &&
+						file.ext == ".yaml" &&
+						file.size_bytes > 1024
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.large_files" ||
+		decisions[0].Diagnostics[0].File != "config.yaml" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionBlocksLineLimitGrowthFromFileChanges(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(sourceFile, []byte("one\n"), 0o600); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(sourceFile, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Source = policy.SourceRef{
+		File: "coding_ethos.yml",
+		Path: "principles[solid-is-law].policy.expressions[0]",
+	}
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.py"},
+			Scope: "staged",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					file_changes.exists(file,
+						file.ext == ".py" &&
+						file.line_count > 2 &&
+						file.original_line_count >= 0 &&
+						file.line_count > file.original_line_count
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "app.py" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +388,17 @@ func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 	}
 	if len(decisions) != 0 {
 		t.Fatalf("decisions = %#v, want no placeholder diagnostic match", decisions)
+	}
+}
+
+func runCELGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }
 

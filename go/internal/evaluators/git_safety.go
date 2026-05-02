@@ -307,7 +307,11 @@ func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision 
 func commitMessagesFromContext(context Context) ([]string, error) {
 	messages := []string{}
 	if isGitSubcommand(context.Argv, "commit") {
-		argvMessages, err := commitMessagesFromArgv(context.Argv, context.Cwd)
+		argvMessages, err := commitMessagesFromArgv(
+			context.Argv,
+			context.Cwd,
+			context.Stdin,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +321,7 @@ func commitMessagesFromContext(context Context) ([]string, error) {
 
 	if context.Scope == "commit-msg" {
 		for _, file := range context.Files {
-			message, err := readCommitMessageFile(file, context.Cwd)
+			message, err := readCommitMessageFile(file, context.Cwd, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -330,12 +334,12 @@ func commitMessagesFromContext(context Context) ([]string, error) {
 	return messages, nil
 }
 
-func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
+func commitMessagesFromArgv(argv []string, cwd string, stdin []byte) ([]string, error) {
 	args := gitArgsAfterSubcommand(argv)
-	messages := []string{}
+	messageFragments := []string{}
 
 	for idx := 0; idx < len(args); idx++ {
-		nextIdx, message, found, err := commitMessageArg(args, idx, cwd)
+		nextIdx, message, found, err := commitMessageArg(args, idx, cwd, stdin)
 		if err != nil {
 			return nil, err
 		}
@@ -343,11 +347,15 @@ func commitMessagesFromArgv(argv []string, cwd string) ([]string, error) {
 		idx = nextIdx
 
 		if found {
-			messages = append(messages, message)
+			messageFragments = append(messageFragments, message)
 		}
 	}
 
-	return messages, nil
+	if len(messageFragments) == 0 {
+		return nil, nil
+	}
+
+	return []string{strings.Join(messageFragments, "\n\n")}, nil
 }
 
 func validateCommitMessageText(message string, options map[string]any) []string {
@@ -433,6 +441,7 @@ func commitMessageArg(
 	args []string,
 	idx int,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
 	arg := args[idx]
 
@@ -449,15 +458,15 @@ func commitMessageArg(
 	}
 
 	if arg == "-F" || arg == "--file" {
-		return nextCommitMessageFile(args, idx, cwd)
+		return nextCommitMessageFile(args, idx, cwd, stdin)
 	}
 
 	if strings.HasPrefix(arg, "-F") && arg != "-F" {
-		return commitMessageFileValue(idx, strings.TrimPrefix(arg, "-F"), cwd)
+		return commitMessageFileValue(idx, strings.TrimPrefix(arg, "-F"), cwd, stdin)
 	}
 
 	if value, found := strings.CutPrefix(arg, "--file="); found {
-		return commitMessageFileValue(idx, value, cwd)
+		return commitMessageFileValue(idx, value, cwd, stdin)
 	}
 
 	return idx, "", false, nil
@@ -521,12 +530,13 @@ func nextCommitMessageFile(
 	args []string,
 	idx int,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
 	if idx+1 >= len(args) {
 		return idx, "", false, nil
 	}
 
-	message, err := readCommitMessageFile(args[idx+1], cwd)
+	message, err := readCommitMessageFile(args[idx+1], cwd, stdin)
 	if err != nil {
 		return idx, "", false, err
 	}
@@ -538,8 +548,9 @@ func commitMessageFileValue(
 	idx int,
 	path string,
 	cwd string,
+	stdin []byte,
 ) (int, string, bool, error) {
-	message, err := readCommitMessageFile(path, cwd)
+	message, err := readCommitMessageFile(path, cwd, stdin)
 	if err != nil {
 		return idx, "", false, err
 	}
@@ -575,9 +586,12 @@ func gitArgsAfterSubcommand(argv []string) []string {
 	return nil
 }
 
-func readCommitMessageFile(path string, cwd string) (string, error) {
+func readCommitMessageFile(path string, cwd string, stdin []byte) (string, error) {
 	if path == "" {
 		return "", nil
+	}
+	if path == "-" {
+		return string(stdin), nil
 	}
 
 	if !filepath.IsAbs(path) && cwd != "" {

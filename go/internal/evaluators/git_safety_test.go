@@ -207,6 +207,107 @@ func TestGitCommitLintBlocksBadCommitMessageFile(t *testing.T) {
 	}
 }
 
+func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledGitSafetyTestBundle().Policies["git.commitlint"]
+
+	tests := []struct {
+		name    string
+		argv    []string
+		stdin   string
+		blocked bool
+	}{
+		{
+			name: "multiple message flags become one message with blank paragraph separator",
+			argv: []string{
+				"git",
+				"commit",
+				"-m",
+				"fix(wrapper): support repeated messages",
+				"-m",
+				"Body paragraph.",
+			},
+		},
+		{
+			name: "compact message flag",
+			argv: []string{
+				"git",
+				"commit",
+				"-mfix(wrapper): support compact message flag",
+			},
+		},
+		{
+			name: "long message flag with equals",
+			argv: []string{
+				"git",
+				"commit",
+				"--message=fix(wrapper): support long message flag",
+			},
+		},
+		{
+			name: "stdin file flag",
+			argv: []string{
+				"git",
+				"commit",
+				"-F",
+				"-",
+			},
+			stdin: "fix(wrapper): support stdin message file\n\nBody paragraph.\n",
+		},
+		{
+			name: "compact stdin file flag",
+			argv: []string{
+				"git",
+				"commit",
+				"-F-",
+			},
+			stdin: "fix(wrapper): support compact stdin message file\n\nBody paragraph.\n",
+		},
+		{
+			name: "long stdin file flag with equals",
+			argv: []string{
+				"git",
+				"commit",
+				"--file=-",
+			},
+			stdin: "fix(wrapper): support long stdin message file\n\nBody paragraph.\n",
+		},
+		{
+			name: "bad stdin header blocks",
+			argv: []string{
+				"git",
+				"commit",
+				"-F",
+				"-",
+			},
+			stdin:   "bad header\n\nBody paragraph.\n",
+			blocked: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateGitCommitLint(policyDef, Context{
+				Argv:  test.argv,
+				Stdin: []byte(test.stdin),
+			})
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+
+			if test.blocked && len(decisions) != 1 {
+				t.Fatalf("expected block decision, got %#v", decisions)
+			}
+			if !test.blocked && len(decisions) != 0 {
+				t.Fatalf("expected allow decision, got %#v", decisions)
+			}
+		})
+	}
+}
+
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	t.Parallel()
 

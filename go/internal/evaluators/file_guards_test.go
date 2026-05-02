@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -99,90 +98,6 @@ func TestEvaluateFileShebangSkipsDirectories(t *testing.T) {
 
 	if len(decisions) != 0 {
 		t.Fatalf("expected no decisions for directory path, got %#v", decisions)
-	}
-}
-
-func TestEvaluateFileLargeFileBlocksNewOversizedFile(t *testing.T) {
-	t.Parallel()
-
-	repo := initGuardRepo(t)
-	path := filepath.Join(repo, "large.py")
-	if err := os.WriteFile(path, []byte(strings.Repeat("x", 2048)), 0o600); err != nil {
-		t.Fatalf("write large file: %v", err)
-	}
-	runGuardGit(t, repo, "add", "large.py")
-
-	decision := evaluateFileGuardPolicy(
-		t,
-		"filesystem.large_files",
-		EvaluateFileLargeFile,
-		Context{
-			Cwd:              repo,
-			Files:            []string{"large.py"},
-			EvaluatorOptions: map[string]any{"max_kb": 1, "suffixes": []string{".py"}},
-		},
-	)
-
-	if decision.Diagnostics[0].Tool != "large_files" {
-		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
-	}
-}
-
-func TestEvaluateFileLargeFileDefaultsDoNotBlockPythonSource(t *testing.T) {
-	t.Parallel()
-
-	repo := initGuardRepo(t)
-	path := filepath.Join(repo, "large.py")
-	if err := os.WriteFile(path, []byte(strings.Repeat("x", 2048)), 0o600); err != nil {
-		t.Fatalf("write large file: %v", err)
-	}
-	runGuardGit(t, repo, "add", "large.py")
-
-	decisions, err := EvaluateFileLargeFile(
-		fileGuardPolicy("filesystem.large_files"),
-		Context{
-			Cwd:              repo,
-			Files:            []string{"large.py"},
-			EvaluatorOptions: map[string]any{"max_kb": 1},
-		},
-	)
-	if err != nil {
-		t.Fatalf("evaluate large file: %v", err)
-	}
-
-	if len(decisions) != 0 {
-		t.Fatalf("expected Python source to be governed by line limits, got %#v", decisions)
-	}
-}
-
-func TestEvaluateFileLineLimitBlocksGrowthOverLimit(t *testing.T) {
-	t.Parallel()
-
-	repo := initGuardRepo(t)
-	path := filepath.Join(repo, "app.py")
-	if err := os.WriteFile(path, []byte("one\n"), 0o600); err != nil {
-		t.Fatalf("write app: %v", err)
-	}
-	runGuardGit(t, repo, "add", "app.py")
-	runGuardGit(t, repo, "commit", "-m", "initial")
-
-	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
-		t.Fatalf("rewrite app: %v", err)
-	}
-
-	decision := evaluateFileGuardPolicy(
-		t,
-		"filesystem.line_limits",
-		EvaluateFileLineLimit,
-		Context{
-			Cwd:              repo,
-			Files:            []string{"app.py"},
-			EvaluatorOptions: map[string]any{"python_hard": 2},
-		},
-	)
-
-	if !strings.Contains(decision.Diagnostics[0].Message, "file grew from 1 to 3") {
-		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
 

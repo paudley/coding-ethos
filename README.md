@@ -17,8 +17,9 @@ safety gates before bad changes land.
 
 The project is built around defense in depth for AI-assisted coding:
 
-- **ETHOS as source:** `coding_ethos.yml` and repo overlays define the
-  principles, skills, axioms, generated docs, and policy grounding.
+- **ETHOS as source:** `coding_ethos.yml` and repo overlays are the backbone:
+  principles own their skills, axioms, generated docs, and first-class policy
+  grounding.
 - **Compiled enforcement:** Go hook runtimes evaluate built-in policies and
   typed CEL expression policies through the same decision model.
 - **Managed tools:** lint and type checks run through generated configs,
@@ -87,13 +88,14 @@ AGENTS.md / CLAUDE.md / GEMINI.md / ETHOS.md
 .agent-context/ prompt addons
 .agents/skills/ remediation playbooks
 runtime axioms with MCP next steps
+principle-owned CEL policies
 
 config.yaml          repo_config.yaml
        │                    │
        ├── merged enforcement config
        │
        ├── generated tool configs
-       ├── CEL expression policies
+       ├── transitional CEL expression policies
        ├── Gemini prompt pack
        ├── Go policy bundle
        ├── Git hook runtime
@@ -116,10 +118,12 @@ so advice can escalate from compact guidance to `policy_explain`,
 `skill_lookup`, or `skill_recommend` without dumping full context into every
 hook response.
 
-CEL support extends that same model to repo-specific policy. A consumer can add
-reviewable, typed custom expressions in `repo_config.yaml`; the compiler checks
-them up front, dispatches them through hook and lint paths, and emits normal
-policy decisions with ETHOS grounding and skill hints.
+CEL support extends that same model to repo-specific policy. First-class CEL
+policies live with the ETHOS principle they enforce in `coding_ethos.yml`.
+Config-level `policy.expressions` remains available for consumer overlays and
+for transitional policy that has not yet been expressed as part of the ETHOS
+contract. The compiler checks CEL up front, dispatches it through hook and lint
+paths, and emits normal policy decisions with ETHOS grounding and skill hints.
 
 For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team
@@ -328,7 +332,7 @@ uv run coding-ethos \
 
 | Source | Purpose | Derived output |
 | --- | --- | --- |
-| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, and ETHOS skills |
+| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, ETHOS skills, axioms, and principle-owned CEL policies |
 | `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
@@ -448,9 +452,12 @@ See [repo_ethos.example.yml](repo_ethos.example.yml).
 
 ### `config.yaml` and `repo_config.yaml`
 
-`config.yaml` is the bundle-wide enforcement source of truth. A consuming repo
-can refine it with `repo_config.yaml` or `repo_config.yml` at the repo root, or
-by passing `--repo-config`.
+`coding_ethos.yml` is the backbone of policy intent. `config.yaml` is the
+bundle-wide enforcement artifact for generated tool settings, operational
+defaults, and policy that has not yet been expressed cleanly with an ETHOS
+principle. A consuming repo can refine the compiled enforcement artifact with
+`repo_config.yaml` or `repo_config.yml` at the repo root, or by passing
+`--repo-config`.
 
 The merged config drives:
 
@@ -478,9 +485,28 @@ See [repo_config.example.yaml](repo_config.example.yaml).
 
 ### CEL Expression Policies
 
-Consumer repos can add small custom policies under `policy.expressions` in
-`repo_config.yaml`. These policies are CEL expressions compiled into the policy
-bundle and evaluated by the same Go hook runtime as built-in policies.
+First-class CEL policies should live under the relevant principle in
+`coding_ethos.yml`:
+
+```yaml
+principles:
+  - id: solid-is-law
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          when: >
+            file_changes.exists(file, file.ext == ".py" && file.line_count > 1000)
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+```
+
+Consumer repos can also add small custom policies under `policy.expressions` in
+`repo_config.yaml`. That path is an overlay and transitional extension point,
+not the preferred home for shared ETHOS policy. These policies are CEL
+expressions compiled into the policy bundle and evaluated by the same Go hook
+runtime as Go-backed policies.
 
 Use CEL for narrow predicates over normalized hook or lint data, for example
 blocking a repo-specific command pattern:
@@ -506,6 +532,9 @@ Current supported fields include:
 - `command`: raw command text for command-scope hook policies.
 - `argv`: parsed command arguments when available.
 - `files`: repo-provided file targets for the current hook or lint event.
+- `file_changes`: typed staged-file facts, including status, extension,
+  generated/test/protected flags, byte size, current line count, and original
+  line count when Git can provide it.
 - `cwd`: invocation working directory.
 - `scope`: expression scope such as `command`, `path`, `diagnostic`, or
   `finding`.

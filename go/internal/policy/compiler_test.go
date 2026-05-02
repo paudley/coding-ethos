@@ -1212,13 +1212,6 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
-  large_files:
-    suffixes: [.txt]
-    exclude_prefixes: [vendor/]
-    max_kb: 7
-  line_limits:
-    python_hard: 12
-    shell_hard: 8
 generated_config:
   freshness:
     check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
@@ -1362,22 +1355,16 @@ security:
 		t.Fatalf("private key pattern mismatch: %q", privateKeyPattern)
 	}
 
-	largeFileSuffixes := optionStrings(
-		t,
-		bundle.Policies["filesystem.large_files"].Evaluators[0],
-		"suffixes",
-	)
-	if largeFileSuffixes[0] != ".txt" {
-		t.Fatalf("large file suffix options mismatch: %#v", largeFileSuffixes)
+	largeFilePolicy := bundle.Policies["filesystem.large_files"]
+	if largeFilePolicy.Source.Path != "principles[security-by-design].policy.expressions[0]" ||
+		largeFilePolicy.Evaluators[0].Kind != "cel" {
+		t.Fatalf("large-file policy should be principle-owned CEL: %#v", largeFilePolicy)
 	}
 
-	lineLimit := optionInt(
-		t,
-		bundle.Policies["filesystem.line_limits"].Evaluators[0],
-		"python_hard",
-	)
-	if lineLimit != 12 {
-		t.Fatalf("line limit option mismatch: %d", lineLimit)
+	lineLimitPolicy := bundle.Policies["filesystem.line_limits"]
+	if lineLimitPolicy.Source.Path != "principles[solid-is-law].policy.expressions[0]" ||
+		lineLimitPolicy.Evaluators[0].Kind != "cel" {
+		t.Fatalf("line-limit policy should be principle-owned CEL: %#v", lineLimitPolicy)
 	}
 }
 
@@ -1674,11 +1661,29 @@ principles:
     title: SOLID is Law
     summary: Keep design simple.
     directive: Enforce SOLID and simplicity.
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          mode: block
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+          when: "file_changes.exists(file, file.ext == '.py' && file.line_count > 1000)"
   - id: security-by-design
     order: 24
     title: Security by Design
     summary: Design for safe defaults.
     directive: Prevent secrets and unsafe defaults.
+    policy:
+      expressions:
+        - id: filesystem.large_files
+          scope: file
+          severity: block
+          mode: block
+          message: Oversized newly added files are forbidden.
+          advice: Remove oversized generated or binary content from the commit.
+          when: "file_changes.exists(file, file.is_added && file.size_bytes > 512000)"
   - id: no-conditional-imports
     order: 3
     title: No Conditional Imports

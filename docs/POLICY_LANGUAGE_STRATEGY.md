@@ -30,7 +30,25 @@ custom boolean policy over that normalized data without editing Go. CEL is a
 good fit for this layer because it is embedded, typed, non-Turing-complete,
 fast, and designed for safe expression evaluation.
 
-That shape matches the first policy-language target:
+That shape matches the first policy-language target. Shared policy belongs with
+the ETHOS principle it enforces:
+
+```yaml
+principles:
+  - id: solid-is-law
+    policy:
+      expressions:
+        - id: filesystem.line_limits
+          scope: file
+          severity: block
+          when: >
+            file_changes.exists(file, file.ext == ".py" && file.line_count > 1000)
+          message: Large source files must not keep growing.
+          advice: Split large files into focused modules before committing.
+```
+
+Repo-specific overlays can still add transitional or local policy through
+`repo_config.yaml`:
 
 ```yaml
 policy:
@@ -100,9 +118,26 @@ Not allowed:
 This keeps expression policy deterministic, replayable, and suitable for hook,
 agent-hook, lint-capture, CI, and MCP execution.
 
-## Configuration Model
+## Source Model
 
-Add expression-backed policy under config, not under ad hoc custom code:
+`coding_ethos.yml` is the backbone of the project. It is the preferred home for
+policy intent because a principle should carry its related enforcement, advice,
+skills, axioms, and documentation together.
+
+`config.yaml` and `repo_config.yaml` are enforcement artifacts and overlay
+surfaces. Use them for generated tool settings, operational defaults, consumer
+repo refinements, and policy that has not yet been expressed cleanly inside an
+ETHOS principle. Do not add new shared policy to config merely because it is
+convenient.
+
+Expression-backed policy may therefore appear in two places:
+
+- `principles[*].policy.expressions` in `coding_ethos.yml` for first-class
+  ETHOS policy.
+- `policy.expressions` in config overlays for consumer-specific or transitional
+  policy.
+
+Config-overlay expressions look like:
 
 ```yaml
 policy:
@@ -135,7 +170,6 @@ Required fields:
 - `id`
 - `scope`
 - `severity`
-- `principle_ids`
 - `when`
 - `message`
 - `advice`
@@ -143,6 +177,8 @@ Required fields:
 Optional fields:
 
 - `description`
+- `principle_ids`; principle-local expressions inherit the owning principle ID
+  when this field is omitted
 - `skill_id`
 - `mode`
 - `hook_events`
@@ -180,6 +216,9 @@ Start with small stable input objects:
   scope; multi-file policy must use `paths`
 - `paths`: list of repo-relative path objects with file, extension, basename,
   directory, generated/test flags, and source-root classification
+- `file_changes`: list of typed staged-file facts with path, old path,
+  Git status, extension, generated/test/protected flags, binary flag, byte
+  size, current line count, and original line count when available
 - `diagnostic`: populated only when the caller supplies a real diagnostic;
   includes tool, code, message, file, line, column, severity, and policy ID
 - `finding`: populated only when the caller supplies a real normalized finding;
@@ -393,9 +432,14 @@ The first migrated built-ins prove the intended pattern:
 - `git.destructive_worktree` is CEL over `git_command.subcommand`,
   `git_command.args`, and `git_command.flags`.
 - `git.stash_blocked` is CEL over `git_command.subcommand`.
+- `filesystem.large_files` is CEL over staged `file_changes` facts and is
+  owned by the `security-by-design` principle.
+- `filesystem.line_limits` is CEL over staged `file_changes` facts and is
+  owned by the `solid-is-law` principle.
 
-These policies still use Go for argv normalization and fact preparation. CEL
-only decides over the prepared facts.
+These policies still use Go for argv normalization, staged-file discovery, file
+metadata collection, and fact preparation. CEL only decides over the prepared
+facts.
 
 Migration workflow:
 
