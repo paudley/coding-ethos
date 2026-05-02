@@ -3,7 +3,11 @@
 
 package celexpr
 
-import "testing"
+import (
+	"testing"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+)
 
 func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 	t.Parallel()
@@ -102,7 +106,7 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	}
 
 	diagnostic, ok := activation["diagnostic"].(DiagnosticInput)
-	if !ok || diagnostic.Tool != "ruff" || diagnostic.File != pathInput.File {
+	if !ok || diagnostic.Tool != "" || diagnostic.File != "" {
 		t.Fatalf("diagnostic input = %#v", activation["diagnostic"])
 	}
 
@@ -119,6 +123,72 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 	metadata, ok := activation["metadata"].(MetadataInput)
 	if !ok || metadata.SchemaVersion != SchemaVersion {
 		t.Fatalf("metadata input = %#v", activation["metadata"])
+	}
+}
+
+func TestActivationPopulatesExplicitDiagnosticInput(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Diagnostic: &diagnostics.Diagnostic{
+			Tool:     "ruff",
+			Code:     "F401",
+			Message:  "unused import",
+			File:     "./src/app.py",
+			Line:     7,
+			Column:   3,
+			Severity: "error",
+			PolicyID: "python.direct_imports",
+		},
+	})
+
+	diagnostic, ok := activation["diagnostic"].(DiagnosticInput)
+	if !ok {
+		t.Fatalf("diagnostic input = %#v", activation["diagnostic"])
+	}
+	if diagnostic.Tool != "ruff" ||
+		diagnostic.Code != "F401" ||
+		diagnostic.Message != "unused import" ||
+		diagnostic.File != "src/app.py" ||
+		diagnostic.Line != 7 ||
+		diagnostic.Column != 3 ||
+		diagnostic.Severity != "error" ||
+		diagnostic.PolicyID != "python.direct_imports" {
+		t.Fatalf("diagnostic input = %#v", diagnostic)
+	}
+}
+
+func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Finding: &FindingActivation{
+			Tool:         "mypy",
+			Code:         "no-any-return",
+			Message:      "Returning Any",
+			File:         "./src/app.py",
+			Line:         12,
+			Severity:     "error",
+			PolicyID:     "python.typing",
+			SkillID:      "lint-remediation",
+			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		},
+	})
+
+	finding, ok := activation["finding"].(FindingInput)
+	if !ok {
+		t.Fatalf("finding input = %#v", activation["finding"])
+	}
+	if finding.Tool != "mypy" ||
+		finding.Code != "no-any-return" ||
+		finding.Message != "Returning Any" ||
+		finding.File != "src/app.py" ||
+		finding.Line != 12 ||
+		finding.Severity != "error" ||
+		finding.PolicyID != "python.typing" ||
+		finding.SkillID != "lint-remediation" ||
+		len(finding.PrincipleIDs) != 1 {
+		t.Fatalf("finding input = %#v", finding)
 	}
 }
 

@@ -6,6 +6,7 @@ package evaluators
 import (
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -105,8 +106,7 @@ func TestEvaluateCELExpressionBlocksMatchingPathScope(t *testing.T) {
 					is_test_path(path.file) &&
 					in_source_root(path.file, repo.source_roots) &&
 					list_contains(files, path.file) &&
-					diagnostic.tool == "ruff" &&
-					finding.file == path.file &&
+					metadata.tool == "ruff" &&
 					repo.python_version == "3.13"
 				`,
 			},
@@ -150,6 +150,65 @@ func TestEvaluateCELExpressionUsesExplicitPathCollection(t *testing.T) {
 	}
 	if decisions[0].Diagnostics[0].File != "" {
 		t.Fatalf("diagnostic = %#v, want no implicit first-file location", decisions[0].Diagnostics[0])
+	}
+}
+
+func TestEvaluateCELExpressionUsesExplicitDiagnosticInput(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Files: []string{"src/app.py"},
+			Diagnostic: &diagnostics.Diagnostic{
+				Tool:     "ruff",
+				Code:     "F401",
+				Message:  "unused import",
+				File:     "src/app.py",
+				Line:     9,
+				Column:   2,
+				Severity: "error",
+				PolicyID: "python.direct_imports",
+			},
+			EvaluatorOptions: map[string]any{
+				"when": `
+					diagnostic.tool == "ruff" &&
+					diagnostic.code == "F401" &&
+					diagnostic.file == "src/app.py" &&
+					diagnostic.line == 9 &&
+					diagnostic.column == 2 &&
+					diagnostic.severity == "error" &&
+					diagnostic.policy_id == "python.direct_imports"
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one decision", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Files: []string{"src/app.py"},
+			Tool:  "ruff",
+			EvaluatorOptions: map[string]any{
+				"when": `diagnostic.tool == "ruff" || diagnostic.file == "src/app.py"`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want no placeholder diagnostic match", decisions)
 	}
 }
 

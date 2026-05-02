@@ -152,8 +152,11 @@ Start with small stable input objects:
   scope; multi-file policy must use `paths`
 - `paths`: list of repo-relative path objects with file, extension, basename,
   directory, generated/test flags, and source-root classification
-- `diagnostic`: tool, code, message, file, line, severity, existing policy ID
-- `finding`: normalized lint/policy finding with ETHOS and skill metadata
+- `diagnostic`: populated only when the caller supplies a real diagnostic;
+  includes tool, code, message, file, line, column, severity, and policy ID
+- `finding`: populated only when the caller supplies a real normalized finding;
+  includes tool, code, message, file, line, severity, policy ID, skill ID, and
+  principle IDs
 - `repo`: repo root metadata, configured source roots, language settings,
   enabled capabilities
 - `metadata`: event ID, scope, provider, and non-sensitive trace IDs
@@ -161,6 +164,12 @@ Start with small stable input objects:
 The current CEL object model is versioned through
 `metadata.schema_version == 1`. Do not expose raw environment, arbitrary
 filesystem contents, or host paths.
+
+Generic hook command and file/path policies should treat `diagnostic` and
+`finding` as empty unless they are running in a diagnostic or finding-specific
+evaluation path. The runtime must not synthesize those objects from the first
+file, the current tool, or other partial context; missing facts are safer than
+plausible fake facts.
 
 ## Runtime Plan
 

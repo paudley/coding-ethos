@@ -76,6 +76,7 @@ func celActivation(context Context) map[string]any {
 		Scope:         context.Scope,
 		Tool:          context.Tool,
 		AdminApproved: context.AdminApproved,
+		Diagnostic:    context.Diagnostic,
 		SourceRoots:   stringSliceOption(context.EvaluatorOptions, "source_roots", nil),
 		PythonVersion: stringOption(context.EvaluatorOptions, "python_version", ""),
 	})

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
 )
@@ -67,8 +68,23 @@ type ActivationInput struct {
 	Scope         string
 	Tool          string
 	AdminApproved bool
+	Diagnostic    *diagnostics.Diagnostic
+	Finding       *FindingActivation
 	SourceRoots   []string
 	PythonVersion string
+}
+
+type FindingActivation struct {
+	Tool         string
+	Code         string
+	Message      string
+	File         string
+	Severity     string
+	PolicyID     string
+	SkillID      string
+	PrincipleIDs []string
+	Column       int
+	Line         int
 }
 
 const SchemaVersion int64 = 1
@@ -231,8 +247,8 @@ func Activation(input ActivationInput) map[string]any {
 		"scope":      input.Scope,
 		"path":       primaryPath,
 		"paths":      paths,
-		"diagnostic": diagnosticInput(input, primaryPath),
-		"finding":    findingInput(input, primaryPath),
+		"diagnostic": diagnosticInput(input.Diagnostic),
+		"finding":    findingInput(input.Finding),
 		"repo": RepoInput{
 			Root:          input.Cwd,
 			SourceRoots:   sourceRoots,
@@ -282,25 +298,48 @@ func newPathInput(file string, sourceRoots []string) PathInput {
 	}
 }
 
-func diagnosticInput(
-	input ActivationInput,
-	primaryPath PathInput,
-) DiagnosticInput {
+func diagnosticInput(diagnostic *diagnostics.Diagnostic) DiagnosticInput {
+	if diagnostic == nil {
+		return DiagnosticInput{}
+	}
+
 	return DiagnosticInput{
-		Tool: input.Tool,
-		File: primaryPath.File,
+		Tool:     diagnostic.Tool,
+		Code:     diagnostic.Code,
+		Message:  diagnostic.Message,
+		File:     cleanInputFile(diagnostic.File),
+		Line:     int64(diagnostic.Line),
+		Column:   int64(diagnostic.Column),
+		Severity: diagnostic.Severity,
+		PolicyID: diagnostic.PolicyID,
 	}
 }
 
-func findingInput(
-	input ActivationInput,
-	primaryPath PathInput,
-) FindingInput {
-	return FindingInput{
-		Tool:         input.Tool,
-		File:         primaryPath.File,
-		PrincipleIDs: []string{},
+func findingInput(finding *FindingActivation) FindingInput {
+	if finding == nil {
+		return FindingInput{PrincipleIDs: []string{}}
 	}
+
+	return FindingInput{
+		Tool:         finding.Tool,
+		Code:         finding.Code,
+		Message:      finding.Message,
+		File:         cleanInputFile(finding.File),
+		Line:         int64(finding.Line),
+		Severity:     finding.Severity,
+		PolicyID:     finding.PolicyID,
+		SkillID:      finding.SkillID,
+		PrincipleIDs: append([]string(nil), finding.PrincipleIDs...),
+	}
+}
+
+func cleanInputFile(file string) string {
+	cleaned := strings.TrimPrefix(path.Clean(strings.TrimSpace(file)), "./")
+	if cleaned == "." || cleaned == "/" {
+		return ""
+	}
+
+	return cleaned
 }
 
 func cleanSourceRoots(sourceRoots []string) []string {

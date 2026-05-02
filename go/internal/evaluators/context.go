@@ -3,6 +3,8 @@
 
 package evaluators
 
+import "blackcat.ca/coding-ethos/go/diagnostics"
+
 type Context struct {
 	EvaluatorOptions map[string]any
 	Command          string
@@ -13,4 +15,5 @@ type Context struct {
 	Files            []string
 	Argv             []string
 	AdminApproved    bool
+	Diagnostic       *diagnostics.Diagnostic
 }

@@ -311,7 +311,7 @@ engine rather than a companion to first-class Go evaluators.
 - [ ] Define and version a stable policy object model for CEL inputs covering
   command, argv, tool, event, provider, cwd, repo, path, paths, file, files,
   diagnostic, finding, diff, Git facts, config facts, and safe metadata.
-- [ ] Remove aspirational CEL fields: every exposed field must be populated
+- [x] Remove aspirational CEL fields: every exposed field must be populated
   reliably for its scope, or removed until the runtime can provide it.
 - [ ] Populate real typed inputs for hook command scope, file/path scope, lint
   finding scope, Git scope, config scope, and diff scope.
