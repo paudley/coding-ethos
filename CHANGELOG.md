@@ -11,6 +11,21 @@ and this project follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-03
+
+### Fixed
+
+- Fixed CodeQL workflow analysis so Go build arguments are not interpreted as
+  missing Go packages.
+- Addressed CodeQL findings for writable file close handling, bounded
+  allocation sizes, Gemini cache-key hashing, Python implicit string
+  concatenation, and mixed return paths.
+- Raised the managed hook toolchain `pip` floor to the Dependabot-safe release
+  while preserving the global uv dependency freshness window with a
+  package-specific security-update override.
+- Preserved derived skill evidence precedence when enriching lint decisions and
+  added a regression test for stale `skill_id` evidence.
+
 ## [0.2.0] - 2026-05-03
 
 ### Added
