@@ -10,6 +10,8 @@ knobs directly. They deliberately import through the package public API so the
 tests exercise the supported interface.
 """
 
+import pytest
+
 from coding_ethos import render_github_sarif_workflow, render_gitlab_sarif_config
 
 
@@ -23,7 +25,10 @@ def test_github_sarif_workflow_defaults_to_reusable_only() -> None:
     assert "permissions:\n  contents: read" in workflow
     assert "      security-events: write" in workflow
     assert "CODING_ETHOS_SARIF_CATEGORY: policy" in workflow
+    assert "CODING_ETHOS_SANDBOX_MODE: required" in workflow
     assert '--sarif-category "$CODING_ETHOS_SARIF_CATEGORY"' in workflow
+    assert '--sandbox-mode "$CODING_ETHOS_SANDBOX_MODE"' in workflow
+    assert 'export PATH="$ethos_path/bin:$PATH"' in workflow
 
 
 def test_github_sarif_workflow_can_enable_standalone_triggers() -> None:
@@ -33,6 +38,30 @@ def test_github_sarif_workflow_can_enable_standalone_triggers() -> None:
 
     assert "pull_request:" in workflow
     assert "workflow_dispatch:" in workflow
+
+
+def test_github_sarif_workflow_parses_false_string_triggers() -> None:
+    workflow = render_github_sarif_workflow(
+        {
+            "generated_config": {
+                "ci": {"github_actions": {"standalone_triggers": "false"}}
+            }
+        }
+    )
+
+    assert "pull_request:" not in workflow
+    assert "workflow_dispatch:" not in workflow
+
+
+def test_github_sarif_workflow_rejects_invalid_sandbox_mode() -> None:
+    with pytest.raises(ValueError, match=r"github_actions\.sandbox_mode"):
+        render_github_sarif_workflow(
+            {
+                "generated_config": {
+                    "ci": {"github_actions": {"sandbox_mode": "sometimes"}}
+                }
+            }
+        )
 
 
 def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
@@ -54,4 +83,14 @@ def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
     assert "coding_ethos_test:" in gitlab_ci
     assert "coding_ethos_build:" in gitlab_ci
     assert "interruptible: true" in gitlab_ci
+    assert "CODING_ETHOS_SANDBOX_MODE: required" in gitlab_ci
+    assert '--sandbox-mode "$CODING_ETHOS_SANDBOX_MODE"' in gitlab_ci
+    assert 'export PATH="$ethos_path/bin:$PATH"' in gitlab_ci
     assert "uvx twine check dist/*" in gitlab_ci
+
+
+def test_gitlab_config_rejects_invalid_sandbox_mode() -> None:
+    with pytest.raises(ValueError, match=r"gitlab\.sandbox_mode"):
+        render_gitlab_sarif_config(
+            {"generated_config": {"ci": {"gitlab": {"sandbox_mode": "sometimes"}}}}
+        )

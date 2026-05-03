@@ -14,11 +14,11 @@ import shutil
 import signal
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 MERGEABLE_FILES = {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
-SUPPORTED_MERGE_ENGINES = ("codex", "gemini", "claude")
 SUPPORTED_MERGE_STRATEGIES = ("inject", "llm")
 
 
@@ -83,6 +83,15 @@ class MergeRequest:
     timeout_seconds: int = 300
 
 
+@dataclass(frozen=True, slots=True)
+class MergeEngineSpec:
+    """One supported external merge engine command contract."""
+
+    name: str
+    default_binary: str
+    build_command: Callable[[str, Path, str, str], list[str]]
+
+
 def should_merge_existing(relative_path: str) -> bool:
     """Return whether a generated file supports merge-preserving writes."""
     return relative_path in MERGEABLE_FILES
@@ -130,21 +139,12 @@ Output contract:
 """
 
 
-def _default_binary_name(engine: str) -> str:
-    return {
-        "codex": "codex",
-        "gemini": "gemini",
-        "claude": "claude",
-    }[engine]
-
-
 def resolve_merge_bin(engine: str, explicit_bin: str = "") -> str:
     """Resolve the CLI binary used for a selected merge engine."""
-    if engine not in SUPPORTED_MERGE_ENGINES:
-        raise UnsupportedMergeEngineError(engine)
+    spec = _merge_engine_spec(engine)
     if explicit_bin:
         return explicit_bin
-    return shutil.which(_default_binary_name(engine)) or _default_binary_name(engine)
+    return shutil.which(spec.default_binary) or spec.default_binary
 
 
 def resolve_codex_bin(explicit_bin: str = "") -> str:
@@ -153,7 +153,6 @@ def resolve_codex_bin(explicit_bin: str = "") -> str:
 
 
 def _build_codex_command(
-    *,
     binary: str,
     temp_root: Path,
     prompt: str,
@@ -176,11 +175,12 @@ def _build_codex_command(
 
 
 def _build_gemini_command(
-    *,
     binary: str,
+    temp_root: Path,
     prompt: str,
     model: str,
 ) -> list[str]:
+    del temp_root
     command = [
         binary,
         "--prompt",
@@ -196,7 +196,6 @@ def _build_gemini_command(
 
 
 def _build_claude_command(
-    *,
     binary: str,
     temp_root: Path,
     prompt: str,
@@ -219,6 +218,21 @@ def _build_claude_command(
     return command
 
 
+_MERGE_ENGINE_SPECS: tuple[MergeEngineSpec, ...] = (
+    MergeEngineSpec("codex", "codex", _build_codex_command),
+    MergeEngineSpec("gemini", "gemini", _build_gemini_command),
+    MergeEngineSpec("claude", "claude", _build_claude_command),
+)
+SUPPORTED_MERGE_ENGINES = tuple(spec.name for spec in _MERGE_ENGINE_SPECS)
+
+
+def _merge_engine_spec(engine: str) -> MergeEngineSpec:
+    for spec in _MERGE_ENGINE_SPECS:
+        if spec.name == engine:
+            return spec
+    raise UnsupportedMergeEngineError(engine)
+
+
 def _build_merge_command(
     *,
     engine: str,
@@ -227,17 +241,8 @@ def _build_merge_command(
     prompt: str,
     model: str,
 ) -> list[str]:
-    if engine == "codex":
-        return _build_codex_command(
-            binary=binary, temp_root=temp_root, prompt=prompt, model=model
-        )
-    if engine == "gemini":
-        return _build_gemini_command(binary=binary, prompt=prompt, model=model)
-    if engine == "claude":
-        return _build_claude_command(
-            binary=binary, temp_root=temp_root, prompt=prompt, model=model
-        )
-    raise UnsupportedMergeEngineError(engine)
+    spec = _merge_engine_spec(engine)
+    return spec.build_command(binary, temp_root, prompt, model)
 
 
 def _format_process_output(stdout: str, stderr: str) -> str:
@@ -301,9 +306,7 @@ def merge_with_engine(
             produce the required output file.
 
     """
-    if engine not in SUPPORTED_MERGE_ENGINES:
-        raise UnsupportedMergeEngineError(engine)
-
+    _merge_engine_spec(engine)
     with tempfile.TemporaryDirectory(prefix="coding-ethos-merge-") as tmp_dir:
         temp_root = Path(tmp_dir)
         (temp_root / "existing.md").write_text(

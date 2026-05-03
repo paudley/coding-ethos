@@ -30,19 +30,16 @@ from coding_ethos.merging import (
 )
 from coding_ethos.models import SUPPORTED_AGENTS, EthosBundle
 from coding_ethos.renderers import (
-    render_agents_addendum,
-    render_agents_md,
-    render_claude_addendum,
-    render_claude_md,
+    render_agent_addendum,
+    render_agent_root_outputs,
     render_claude_memory,
     render_ethos_md,
-    render_gemini_addendum,
-    render_gemini_md,
     render_principle_detail,
     render_prompt_addon,
     render_shared_ethos_index,
     render_skill_outputs,
     required_root_imports,
+    root_merge_topics,
 )
 from coding_ethos.resources import resource_path
 from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
@@ -244,12 +241,10 @@ def _load_bundle(primary_path: Path, repo_ethos_path: Path) -> EthosBundle:
 def _render_contents(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
     rendered: dict[str, str] = {
         "ETHOS.md": render_ethos_md(bundle, repo_root),
-        "AGENTS.md": render_agents_md(bundle, repo_root),
-        "CLAUDE.md": render_claude_md(bundle),
         ".claude/ethos/MEMORY.md": render_claude_memory(bundle, repo_root),
-        "GEMINI.md": render_gemini_md(bundle, repo_root),
         ".agents/ethos/README.md": render_shared_ethos_index(bundle, repo_root),
     }
+    rendered.update(render_agent_root_outputs(bundle, repo_root))
 
     for principle in bundle.principles:
         rendered[f".agents/ethos/{principle.id}.md"] = render_principle_detail(
@@ -266,18 +261,7 @@ def _render_contents(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
 
 
 def _merge_topics_for_target(bundle: EthosBundle, relative_path: str) -> list[str]:
-    topics: list[str] = []
-
-    if relative_path == "AGENTS.md":
-        topics.extend(["repo commands", "key paths", "repo operating notes"])
-    elif relative_path == "CLAUDE.md":
-        topics.extend(
-            ["Claude imports", "memory links", "Claude-specific workflow notes"]
-        )
-    elif relative_path == "GEMINI.md":
-        topics.extend(
-            ["Gemini root guidance", "linked detail docs", "repo operating notes"]
-        )
+    topics = root_merge_topics(relative_path)
 
     for principle in bundle.principles:
         for topic in principle.merge_topics:
@@ -307,15 +291,6 @@ def _write_outputs(
         ):
             existing_content = absolute_path.read_text(encoding="utf-8")
             if merge_settings.strategy == "inject":
-                if relative_path == "AGENTS.md":
-                    addendum_content = render_agents_addendum(bundle, repo_root)
-                elif relative_path == "CLAUDE.md":
-                    addendum_content = render_claude_addendum(bundle, repo_root)
-                elif relative_path == "GEMINI.md":
-                    addendum_content = render_gemini_addendum(bundle, repo_root)
-                else:
-                    addendum_content = content
-
                 final_content = inject_import_block(
                     target_name=relative_path,
                     existing_content=existing_content,
@@ -324,7 +299,12 @@ def _write_outputs(
                 final_content = inject_addendum_block(
                     target_name=relative_path,
                     existing_content=final_content,
-                    addendum_content=addendum_content,
+                    addendum_content=render_agent_addendum(
+                        bundle,
+                        repo_root,
+                        relative_path,
+                        content,
+                    ),
                 )
             else:
                 final_content = merge_with_engine(

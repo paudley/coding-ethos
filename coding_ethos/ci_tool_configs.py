@@ -9,8 +9,14 @@ managed config artifacts, which means `sync-tool-configs` writes them and
 `check-tool-configs` verifies them through the shared hash manifest.
 """
 
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
+
+from coding_ethos.config_access import (
+    configured_bool,
+    configured_choice,
+    configured_int,
+    configured_string,
+)
 
 HASH_SPDX_HEADER = (
     "# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. "
@@ -21,97 +27,62 @@ GENERATED_CI_CONFIGS: tuple[str, ...] = (
     ".github/workflows/coding-ethos-sarif.yml",
     ".gitlab-ci.yml",
 )
+SANDBOX_MODES = {"auto", "off", "required"}
 
 
 def _with_hash_spdx_header(content: str) -> str:
     return f"{HASH_SPDX_HEADER}{content.lstrip()}"
 
 
-def _get(config: dict[str, Any], path: str, fallback: object) -> object:
-    current: object = config
-    for segment in path.split("."):
-        if not isinstance(current, Mapping):
-            return fallback
-        mapping = cast(Mapping[object, object], current)
-        if segment not in mapping:
-            return fallback
-        current = mapping[segment]
-    return current
-
-
-def _truthy_string(value: object) -> str:
-    return str(value).strip()
-
-
-def _configured_string(config: dict[str, Any], path: str, fallback: str) -> str:
-    configured = _truthy_string(_get(config, path, ""))
-    return configured or fallback
-
-
-def _configured_bool(config: dict[str, Any], path: str, *, fallback: bool) -> bool:
-    configured = _get(config, path, fallback)
-    if isinstance(configured, bool):
-        return configured
-    if isinstance(configured, str):
-        return configured.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(configured)
-
-
-def _configured_int(config: dict[str, Any], path: str, fallback: int) -> int:
-    configured = _get(config, path, fallback)
-    if isinstance(configured, int):
-        return configured
-    if isinstance(configured, str):
-        try:
-            return int(configured.strip())
-        except ValueError:
-            return fallback
-    return fallback
-
-
 def ci_config_enabled(config: dict[str, Any], path: str, *, default: bool) -> bool:
     """Return whether a generated CI config path is enabled."""
-    return bool(_get(config, path, default))
+    return configured_bool(config, path, fallback=default)
 
 
 def render_github_sarif_workflow(config: dict[str, Any]) -> str:
     """Render a consumer GitHub Actions workflow for coding-ethos SARIF."""
-    coding_ethos_path = _configured_string(
+    coding_ethos_path = configured_string(
         config,
         "generated_config.ci.github_actions.coding_ethos_path",
         ".",
     )
-    repo_root = _configured_string(
+    repo_root = configured_string(
         config,
         "generated_config.ci.github_actions.repo_root",
         ".",
     )
-    gate_command = _configured_string(
+    gate_command = configured_string(
         config,
         "generated_config.ci.github_actions.gate_command",
         "make check",
     )
-    sarif_path = _configured_string(
+    sarif_path = configured_string(
         config,
         "generated_config.ci.github_actions.sarif_path",
         "coding-ethos.sarif",
     )
-    artifact_name = _configured_string(
+    artifact_name = configured_string(
         config,
         "generated_config.ci.github_actions.artifact_name",
         "coding-ethos-audit",
     )
-    sarif_category = _configured_string(
+    sarif_category = configured_string(
         config,
         "generated_config.ci.github_actions.sarif_category",
         "policy",
     )
-    timeout_minutes = _configured_int(
+    sandbox_mode = configured_choice(
+        config,
+        "generated_config.ci.github_actions.sandbox_mode",
+        "required",
+        SANDBOX_MODES,
+    )
+    timeout_minutes = configured_int(
         config,
         "generated_config.ci.github_actions.timeout_minutes",
         30,
     )
-    standalone_triggers = _configured_bool(
+    standalone_triggers = configured_bool(
         config,
         "generated_config.ci.github_actions.standalone_triggers",
         fallback=False,
@@ -150,6 +121,7 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: {gate_command}
       CODING_ETHOS_SARIF_PATH: {sarif_path}
       CODING_ETHOS_SARIF_CATEGORY: {sarif_category}
+      CODING_ETHOS_SANDBOX_MODE: {sandbox_mode}
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
@@ -183,6 +155,8 @@ jobs:
         id: project-gate
         continue-on-error: true
         run: |
+          ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
+          export PATH="$ethos_path/bin:$PATH"
           if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
             cd "$CODING_ETHOS_REPO_ROOT"
             bash -c "$CODING_ETHOS_GATE_COMMAND"
@@ -231,6 +205,7 @@ jobs:
             --scope files \\
             --files-from "$files_path" \\
             --sarif-category "$CODING_ETHOS_SARIF_CATEGORY" \\
+            --sandbox-mode "$CODING_ETHOS_SANDBOX_MODE" \\
             --sarif > "$sarif_tmp"
           status=$?
           if [ -s "$sarif_tmp" ]; then

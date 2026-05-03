@@ -174,14 +174,7 @@ func run(paths runtimePaths, args []string) error {
 		requirePolicyBundle(paths)
 		toolName := rest[0]
 		toolArgs := rest[1:]
-		execTool(paths, "coding-ethos-lint", append([]string{
-			"--bundle", paths.PolicyBundle,
-			"--managed-capture-tool", toolName,
-			"--ethos-root", paths.EthosRoot,
-			"--consumer-root", paths.Root,
-			"--invocation-cwd", paths.InvocationCWD,
-			"--",
-		}, toolArgs...)...)
+		execTool(paths, "coding-ethos-lint", policyToolLintArgs(paths, toolName, toolArgs)...)
 	case "policy-git":
 		requirePolicyBundle(paths)
 		installGitWrapperShim(paths)
@@ -202,6 +195,31 @@ func run(paths runtimePaths, args []string) error {
 	}
 
 	return nil
+}
+
+func policyToolLintArgs(paths runtimePaths, toolName string, toolArgs []string) []string {
+	lintArgs := []string{
+		"--bundle", paths.PolicyBundle,
+		"--managed-capture-tool", toolName,
+		"--ethos-root", paths.EthosRoot,
+		"--consumer-root", paths.Root,
+		"--invocation-cwd", paths.InvocationCWD,
+	}
+	if sandboxMode := policyToolSandboxModeFromEnv(); sandboxMode != "" {
+		lintArgs = append(lintArgs, "--sandbox-mode", sandboxMode)
+	}
+	lintArgs = append(lintArgs, "--")
+	lintArgs = append(lintArgs, toolArgs...)
+
+	return lintArgs
+}
+
+func policyToolSandboxModeFromEnv() string {
+	if strings.TrimSpace(os.Getenv("CODING_ETHOS_POLICY_TOOL_SHIM")) == "" {
+		return ""
+	}
+
+	return strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_MODE"))
 }
 
 func withDefaultHookCommand(paths runtimePaths, args []string) []string {

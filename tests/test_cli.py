@@ -20,10 +20,17 @@ import yaml
 from coding_ethos import (
     GENERATED_CI_CONFIGS,
     GENERATED_TOOL_CONFIGS,
+    SUPPORTED_MERGE_ENGINES,
     TOOL_CONFIG_HASH_MANIFEST,
+    UnsupportedMergeEngineError,
     load_primary_bundle,
     main,
+    merge_repo_ethos,
     parse_ethos_markdown,
+    render_agent_root_outputs,
+    required_root_imports,
+    resolve_merge_bin,
+    root_merge_topics,
     seed_primary_from_markdown,
 )
 
@@ -381,6 +388,36 @@ Do the first thing. Always.
 
 
 class LoaderValidationTests(unittest.TestCase):
+    @staticmethod
+    def _valid_primary_payload() -> dict[str, object]:
+        return {
+            "version": 2,
+            "metadata": {
+                "title": "Test Ethos",
+                "overview": "Shared overview.",
+            },
+            "principles": [
+                {
+                    "id": "solid-is-law",
+                    "order": 1,
+                    "title": "SOLID is Law",
+                    "summary": "Structure wins over convenience.",
+                    "directive": "Enforce simple SOLID designs.",
+                    "quick_ref": ["Favor simple, explicit designs."],
+                    "merge_topics": ["architecture"],
+                    "sections": [
+                        {
+                            "id": "overview",
+                            "kind": "overview",
+                            "title": "Overview",
+                            "summary": "Structure wins.",
+                            "body": "Keep designs simple and explicit.",
+                        }
+                    ],
+                }
+            ],
+        }
+
     def test_load_primary_bundle_rejects_duplicate_orders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -435,6 +472,85 @@ class LoaderValidationTests(unittest.TestCase):
 
             with pytest.raises(ValueError, match="duplicate principle order"):
                 load_primary_bundle(primary_path)
+
+    def test_repo_overlay_revalidates_principle_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            primary_path = tmp_path / "coding_ethos.yml"
+            repo_ethos_path = tmp_path / "repo_ethos.yml"
+            _write_yaml_file(primary_path, self._valid_primary_payload())
+            _write_yaml_file(
+                repo_ethos_path,
+                {
+                    "repo": {"name": "test-repo"},
+                    "principles": {
+                        "overrides": {
+                            "solid-is-law": {
+                                "summary": "   ",
+                            }
+                        }
+                    },
+                },
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="principle `solid-is-law` must define a non-empty `summary`",
+            ):
+                merge_repo_ethos(load_primary_bundle(primary_path), repo_ethos_path)
+
+    def test_repo_overlay_revalidates_principle_directive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            primary_path = tmp_path / "coding_ethos.yml"
+            repo_ethos_path = tmp_path / "repo_ethos.yml"
+            _write_yaml_file(primary_path, self._valid_primary_payload())
+            _write_yaml_file(
+                repo_ethos_path,
+                {
+                    "repo": {"name": "test-repo"},
+                    "principles": {
+                        "overrides": {
+                            "solid-is-law": {
+                                "directive": "",
+                            }
+                        }
+                    },
+                },
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="principle `solid-is-law` must define a non-empty `directive`",
+            ):
+                merge_repo_ethos(load_primary_bundle(primary_path), repo_ethos_path)
+
+
+def test_registered_agent_root_surfaces_render_expected_outputs(tmp_path: Path) -> None:
+    primary_path = tmp_path / "coding_ethos.yml"
+    _write_yaml_file(primary_path, LoaderValidationTests._valid_primary_payload())
+
+    bundle = load_primary_bundle(primary_path)
+    rendered = render_agent_root_outputs(bundle, tmp_path)
+
+    assert set(rendered) == {"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+    assert required_root_imports("CLAUDE.md") == [
+        "@AGENTS.md",
+        "@.claude/ethos/MEMORY.md",
+    ]
+    assert required_root_imports("GEMINI.md") == ["@AGENTS.md"]
+    assert root_merge_topics("AGENTS.md") == [
+        "repo commands",
+        "key paths",
+        "repo operating notes",
+    ]
+
+
+def test_merge_engine_registry_resolves_supported_engines() -> None:
+    assert SUPPORTED_MERGE_ENGINES == ("codex", "gemini", "claude")
+    assert resolve_merge_bin("gemini", "/custom/gemini") == "/custom/gemini"
+    with pytest.raises(UnsupportedMergeEngineError):
+        resolve_merge_bin("unknown")
 
 
 class CliRenderTests(unittest.TestCase):

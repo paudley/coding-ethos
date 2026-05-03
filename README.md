@@ -370,9 +370,12 @@ The same CLI can be run through `pipx`:
 pipx run coding-ethos --repo .
 ```
 
-The PyPI package does not yet publish the compiled Go hook runtime or managed
-binary toolchain. Full Git hook and agent-hook installation still uses the
-source checkout/submodule path with `make cutover-install`.
+The PyPI package intentionally does not publish the compiled Go hook runtime or
+managed binary toolchain. Full Git hook and agent-hook installation still uses
+the source checkout/submodule path with `make build` and
+`make cutover-install`; see [Runtime Publication](docs/RUNTIME_PUBLICATION.md)
+for the release-asset strategy required before compiled runtimes are published
+outside a source checkout.
 
 ## Common Workflows
 

@@ -15,6 +15,10 @@ from typing import Any, NoReturn, cast
 
 import yaml
 
+from coding_ethos.bundle_validator import (
+    validate_bundle,
+    validate_principle_collection,
+)
 from coding_ethos.models import (
     SECTION_KINDS,
     SUPPORTED_AGENTS,
@@ -435,29 +439,7 @@ def _validate_primary_payload(payload: dict[str, Any], primary_path: Path) -> No
 
 
 def _validate_principle_collection(principles: list[Principle], source: str) -> None:
-    seen_ids: set[str] = set()
-    seen_orders: set[int] = set()
-    related_map: dict[str, list[str]] = {}
-    for principle in principles:
-        if principle.id in seen_ids:
-            _error(source, f"duplicate principle id `{principle.id}`.")
-        if principle.order in seen_orders:
-            _error(source, f"duplicate principle order `{principle.order}`.")
-        seen_ids.add(principle.id)
-        seen_orders.add(principle.order)
-        related_map[principle.id] = principle.related
-
-    all_ids = set(related_map)
-    for principle_id, related in related_map.items():
-        unknown_related = sorted(item for item in related if item not in all_ids)
-        if unknown_related:
-            _error(
-                source,
-                (
-                    f"principle `{principle_id}` references unknown related "
-                    f"ids: {', '.join(unknown_related)}."
-                ),
-            )
+    validate_principle_collection(principles, source=source)
 
 
 def _principles_from_payload(
@@ -867,5 +849,5 @@ def merge_repo_ethos(bundle: EthosBundle, repo_ethos_path: Path) -> EthosBundle:
     merged.principles.sort(
         key=lambda principle: (principle.order, principle.title.lower())
     )
-    _validate_principle_collection(merged.principles, str(repo_ethos_path))
+    validate_bundle(merged, source=str(repo_ethos_path))
     return merged

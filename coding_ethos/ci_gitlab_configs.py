@@ -9,51 +9,24 @@ optional build jobs from the merged enforcement config. The template preserves
 SARIF and trace artifacts while leaving runner image selection to each repo.
 """
 
-from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any
+
+from coding_ethos.config_access import (
+    configured_choice,
+    configured_int,
+    configured_string,
+)
 
 HASH_SPDX_HEADER = (
     "# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. "
     "<paudley@blackcat.ca>\n"
     "# SPDX-License-Identifier: MIT\n\n"
 )
+SANDBOX_MODES = {"auto", "off", "required"}
 
 
 def _with_hash_spdx_header(content: str) -> str:
     return f"{HASH_SPDX_HEADER}{content.strip()}\n"
-
-
-def _get(config: dict[str, Any], path: str, fallback: object) -> object:
-    current: object = config
-    for segment in path.split("."):
-        if not isinstance(current, Mapping):
-            return fallback
-        mapping = cast(Mapping[object, object], current)
-        if segment not in mapping:
-            return fallback
-        current = mapping[segment]
-    return current
-
-
-def _truthy_string(value: object) -> str:
-    return str(value).strip()
-
-
-def _configured_string(config: dict[str, Any], path: str, fallback: str) -> str:
-    configured = _truthy_string(_get(config, path, ""))
-    return configured or fallback
-
-
-def _configured_int(config: dict[str, Any], path: str, fallback: int) -> int:
-    configured = _get(config, path, fallback)
-    if isinstance(configured, int):
-        return configured
-    if isinstance(configured, str):
-        try:
-            return int(configured.strip())
-        except ValueError:
-            return fallback
-    return fallback
 
 
 def _render_test_job(
@@ -107,52 +80,58 @@ coding_ethos_build:
 
 def render_gitlab_sarif_config(config: dict[str, Any]) -> str:
     """Render a consumer GitLab CI job for coding-ethos SARIF."""
-    coding_ethos_path = _configured_string(
+    coding_ethos_path = configured_string(
         config,
         "generated_config.ci.gitlab.coding_ethos_path",
         ".",
     )
-    repo_root = _configured_string(
+    repo_root = configured_string(
         config,
         "generated_config.ci.gitlab.repo_root",
         ".",
     )
-    gate_command = _configured_string(
+    gate_command = configured_string(
         config,
         "generated_config.ci.gitlab.gate_command",
         "make check",
     )
-    test_command = _configured_string(
+    test_command = configured_string(
         config,
         "generated_config.ci.gitlab.test_command",
         "",
     )
-    build_command = _configured_string(
+    build_command = configured_string(
         config,
         "generated_config.ci.gitlab.build_command",
         "",
     )
-    package_check_command = _configured_string(
+    package_check_command = configured_string(
         config,
         "generated_config.ci.gitlab.package_check_command",
         "",
     )
-    sarif_path = _configured_string(
+    sarif_path = configured_string(
         config,
         "generated_config.ci.gitlab.sarif_path",
         "coding-ethos.sarif",
     )
-    timeout_minutes = _configured_int(
+    sandbox_mode = configured_choice(
+        config,
+        "generated_config.ci.gitlab.sandbox_mode",
+        "required",
+        SANDBOX_MODES,
+    )
+    timeout_minutes = configured_int(
         config,
         "generated_config.ci.gitlab.timeout_minutes",
         30,
     )
-    artifact_expire_in = _configured_string(
+    artifact_expire_in = configured_string(
         config,
         "generated_config.ci.gitlab.artifact_expire_in",
         "7 days",
     )
-    dist_artifact_path = _configured_string(
+    dist_artifact_path = configured_string(
         config,
         "generated_config.ci.gitlab.dist_artifact_path",
         "dist/",
@@ -187,11 +166,14 @@ coding_ethos_sarif:
     CODING_ETHOS_REPO_ROOT: {repo_root}
     CODING_ETHOS_GATE_COMMAND: {gate_command}
     CODING_ETHOS_SARIF_PATH: {sarif_path}
+    CODING_ETHOS_SANDBOX_MODE: {sandbox_mode}
     CODING_ETHOS_FILES: ""
   script:
     - make -C "$CODING_ETHOS_PATH" build
     - |
       if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
+        ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
+        export PATH="$ethos_path/bin:$PATH"
         cd "$CODING_ETHOS_REPO_ROOT"
         bash -c "$CODING_ETHOS_GATE_COMMAND"
         cd "$CI_PROJECT_DIR"
@@ -228,6 +210,7 @@ coding_ethos_sarif:
         --cwd "$repo_root" \\
         --scope files \\
         --files-from "$files_path" \\
+        --sandbox-mode "$CODING_ETHOS_SANDBOX_MODE" \\
         --sarif > "$sarif_tmp"
       status=$?
       if [ -s "$sarif_tmp" ]; then

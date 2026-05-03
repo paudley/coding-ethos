@@ -98,14 +98,21 @@ generated_config:
   ci:
     github_actions:
       enabled: true
+      sandbox_mode: required
     gitlab:
       enabled: true
+      sandbox_mode: required
 ```
 
 `make sync-tool-configs` writes the enabled CI files and records them in
 `.code-ethos/tool-config-hashes.json`; `make check-tool-configs` detects drift.
 Set either `enabled` value to `false` only for a deliberate repo exception. CI
 files intentionally do not have a separate sync command.
+
+Generated CI defaults `sandbox_mode` to `required`. Local developers can use
+advisory `auto` or disabled `off` mode for unsupported platforms, but CI is the
+place where high-risk managed tool classes should fail closed if the sandbox
+backend is unavailable.
 
 The reusable workflow at `.github/workflows/coding-ethos-sarif.yml` builds the
 managed runtime, runs the configured project gate, emits SARIF, uploads it to

@@ -11,12 +11,25 @@ It keeps cross-tool settings like Python version and line length synchronized.
 import configparser
 import hashlib
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import yaml
 
 from coding_ethos import ci_gitlab_configs, ci_tool_configs
+from coding_ethos.config_access import (
+    ConfigMap,
+    configured_bool,
+    configured_int,
+    configured_list,
+    configured_string,
+    deep_merge,
+    get_path,
+    string_list,
+    truthy_string,
+)
 from coding_ethos.resources import resource_path
 from coding_ethos.yaml_utils import render_yaml
 
@@ -69,9 +82,6 @@ def _base_config_path() -> Path:
     return resource_path("config.yaml")
 
 
-ConfigMap = dict[str, Any]
-
-
 def _load_yaml(path: Path) -> ConfigMap:
     payload: object = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
@@ -109,76 +119,20 @@ def render_tool_config_hash_manifest(rendered: dict[str, str]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True) + "\n"
 
 
-def _as_config_map(value: object, label: str) -> ConfigMap:
-    if not isinstance(value, dict):
-        msg = f"{label} must be a mapping."
-        raise TypeError(msg)
-    return cast(ConfigMap, value)
-
-
-def _deep_merge(base: ConfigMap, override: ConfigMap) -> ConfigMap:
-    merged: ConfigMap = dict(base)
-    for key, value in override.items():
-        base_value = merged.get(key)
-        if isinstance(base_value, dict) and isinstance(value, dict):
-            merged[key] = _deep_merge(
-                cast(ConfigMap, base_value),
-                cast(ConfigMap, value),
-            )
-        else:
-            merged[key] = value
-    return merged
-
-
-def _get(config: ConfigMap, path: str, default: object = "") -> object:
-    current: object = config
-    for segment in path.split("."):
-        if not isinstance(current, dict):
-            return default
-        mapping = _as_config_map(cast(object, current), path)
-        if segment not in mapping:
-            return default
-        current = mapping[segment]
-    return current
-
-
-def _string_list(value: object) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        items = cast(list[object], value)
-        return [str(item).strip() for item in items if str(item).strip()]
-    stripped = str(value).strip()
-    return [stripped] if stripped else []
-
-
-def _configured_list(
-    config: dict[str, Any], path: str, fallback: list[str]
-) -> list[str]:
-    values = _string_list(_get(config, path, []))
-    return values or list(fallback)
-
-
-def _configured_string(config: dict[str, Any], path: str, fallback: str) -> str:
-    configured = _truthy_string(_get(config, path, ""))
-    return configured or fallback
-
-
-def _truthy_string(value: object) -> str:
-    return str(value).strip()
-
-
 def _bool_setting(config: dict[str, Any], path: str, *, default: bool) -> bool:
-    return bool(_get(config, path, default))
+    return configured_bool(config, path, fallback=default)
 
 
 def _int_setting(config: dict[str, Any], path: str, default: int) -> int:
-    value = _get(config, path, default)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return int(value)
-    return default
+    return configured_int(config, path, default)
+
+
+_configured_list = configured_list
+_configured_string = configured_string
+_deep_merge = deep_merge
+_get = get_path
+_string_list = string_list
+_truthy_string = truthy_string
 
 
 def _python_version(config: dict[str, Any]) -> str:
@@ -750,36 +704,66 @@ def render_golangci_config(config: dict[str, Any]) -> str:
     return _with_hash_spdx_header(render_yaml(payload))
 
 
-def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
-    """Render all supported repo-root tool config files."""
-    rendered = {
-        "pyrightconfig.json": render_pyrightconfig(config),
-        "mypy.ini": render_mypy_ini(config),
-        "ruff.toml": render_ruff_toml(config),
-        ".pylintrc": render_pylintrc(config),
-        ".yamllint.yml": render_yamllint_config(config),
-        ".bandit.yml": render_bandit_config(config),
-        ".sqlfluff": render_sqlfluff_config(config),
-        "tombi.toml": render_tombi_config(config),
-        ".golangci.yml": render_golangci_config(config),
-    }
-    if ci_tool_configs.ci_config_enabled(
+@dataclass(frozen=True)
+class ToolConfigRenderer:
+    """Rendered config output registered by path and enablement predicate."""
+
+    path: str
+    render: Callable[[dict[str, Any]], str]
+    enabled: Callable[[dict[str, Any]], bool]
+
+
+def _always_enabled(config: dict[str, Any]) -> bool:
+    del config
+    return True
+
+
+def _github_ci_enabled(config: dict[str, Any]) -> bool:
+    return ci_tool_configs.ci_config_enabled(
         config,
         "generated_config.ci.github_actions.enabled",
         default=False,
-    ):
-        rendered[".github/workflows/coding-ethos-sarif.yml"] = (
-            ci_tool_configs.render_github_sarif_workflow(config)
-        )
-    if ci_tool_configs.ci_config_enabled(
+    )
+
+
+def _gitlab_ci_enabled(config: dict[str, Any]) -> bool:
+    return ci_tool_configs.ci_config_enabled(
         config,
         "generated_config.ci.gitlab.enabled",
         default=False,
-    ):
-        rendered[".gitlab-ci.yml"] = ci_gitlab_configs.render_gitlab_sarif_config(
-            config
-        )
-    return rendered
+    )
+
+
+_TOOL_CONFIG_RENDERERS: tuple[ToolConfigRenderer, ...] = (
+    ToolConfigRenderer("pyrightconfig.json", render_pyrightconfig, _always_enabled),
+    ToolConfigRenderer("mypy.ini", render_mypy_ini, _always_enabled),
+    ToolConfigRenderer("ruff.toml", render_ruff_toml, _always_enabled),
+    ToolConfigRenderer(".pylintrc", render_pylintrc, _always_enabled),
+    ToolConfigRenderer(".yamllint.yml", render_yamllint_config, _always_enabled),
+    ToolConfigRenderer(".bandit.yml", render_bandit_config, _always_enabled),
+    ToolConfigRenderer(".sqlfluff", render_sqlfluff_config, _always_enabled),
+    ToolConfigRenderer("tombi.toml", render_tombi_config, _always_enabled),
+    ToolConfigRenderer(".golangci.yml", render_golangci_config, _always_enabled),
+    ToolConfigRenderer(
+        ".github/workflows/coding-ethos-sarif.yml",
+        ci_tool_configs.render_github_sarif_workflow,
+        _github_ci_enabled,
+    ),
+    ToolConfigRenderer(
+        ".gitlab-ci.yml",
+        ci_gitlab_configs.render_gitlab_sarif_config,
+        _gitlab_ci_enabled,
+    ),
+)
+
+
+def render_tool_configs(config: dict[str, Any]) -> dict[str, str]:
+    """Render all supported repo-root tool config files."""
+    return {
+        renderer.path: renderer.render(config)
+        for renderer in _TOOL_CONFIG_RENDERERS
+        if renderer.enabled(config)
+    }
 
 
 def sync_tool_configs(repo_root: Path, repo_config_path: object = "") -> list[Path]:

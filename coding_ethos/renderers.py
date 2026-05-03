@@ -10,6 +10,8 @@ They are the only place where output shape should change by design.
 
 import json
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from coding_ethos.models import EthosBundle, EthosSkill, Principle
@@ -25,6 +27,29 @@ MARKDOWN_SPDX_LINES = [
     f"<!-- {SPDX_COPYRIGHT} -->",
     "<!-- SPDX-License-Identifier: MIT -->",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRootSurface:
+    """One generated root-file surface for an agent."""
+
+    agent: str
+    path: str
+    render_root: Callable[[EthosBundle, Path], str]
+    render_addendum: Callable[[EthosBundle, Path], str]
+    imports: tuple[str, ...] = ()
+    merge_topics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SkillSurface:
+    """One provider path template for generated ETHOS skills."""
+
+    path_template: str
+
+    def path_for(self, entrypoint: str) -> str:
+        """Return the repo-relative skill path for one skill entrypoint."""
+        return self.path_template.format(entrypoint=entrypoint)
 
 
 def _join_lines(lines: list[str]) -> str:
@@ -453,10 +478,8 @@ def render_principle_detail(
     return _join_lines(_with_markdown_spdx(lines))
 
 
-def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
-    """Render one portable `SKILL.md` from ETHOS source principles."""
-    principles = _skill_principles(bundle, skill)
-    lines = [
+def _skill_header_lines(skill: EthosSkill, principles: list[Principle]) -> list[str]:
+    return [
         "---",
         f"name: {_yaml_string(skill.id)}",
         f"description: {_yaml_string(skill.description)}",
@@ -478,12 +501,21 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
         "",
         "## ETHOS Grounding",
     ]
+
+
+def _skill_grounding_lines(principles: list[Principle]) -> list[str]:
+    lines: list[str] = []
     for principle in principles:
         lines.extend(
             [
                 f"- `{principle.id}`: {principle.directive or principle.summary}",
             ]
         )
+    return lines
+
+
+def _skill_usage_lines(skill: EthosSkill) -> list[str]:
+    lines: list[str] = []
     if skill.short_hint:
         lines.extend(["", "## Short Hint", skill.short_hint])
     if skill.trigger_terms:
@@ -501,7 +533,13 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
                 ],
             ]
         )
-    lines.extend(["", "## Principle Details"])
+    return lines
+
+
+def _skill_principle_detail_lines(
+    principles: list[Principle],
+) -> list[str]:
+    lines = ["", "## Principle Details"]
     for principle in principles:
         lines.extend(
             [
@@ -519,18 +557,32 @@ def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
         for section in principle.sections:
             body = _normalize_skill_cross_references(section.body, principles)
             lines.extend(["", f"#### {section.title}", body])
-    lines.extend(
-        [
-            "",
-            "## Output Discipline",
-            (
-                "When explaining a fix, name the ETHOS principle, the concrete "
-                "code change, and the verification evidence. Do not recommend "
-                "weakening lint config or adding suppressions unless the ETHOS "
-                "policy explicitly allows it."
-            ),
-        ]
-    )
+    return lines
+
+
+def _skill_output_discipline_lines() -> list[str]:
+    return [
+        "",
+        "## Output Discipline",
+        (
+            "When explaining a fix, name the ETHOS principle, the concrete "
+            "code change, and the verification evidence. Do not recommend "
+            "weakening lint config or adding suppressions unless the ETHOS "
+            "policy explicitly allows it."
+        ),
+    ]
+
+
+def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
+    """Render one portable `SKILL.md` from ETHOS source principles."""
+    principles = _skill_principles(bundle, skill)
+    lines = [
+        *_skill_header_lines(skill, principles),
+        *_skill_grounding_lines(principles),
+        *_skill_usage_lines(skill),
+        *_skill_principle_detail_lines(principles),
+        *_skill_output_discipline_lines(),
+    ]
     return _join_lines(lines)
 
 
@@ -549,6 +601,14 @@ def render_gemini_extension_manifest(bundle: EthosBundle, repo_root: Path) -> st
     return json.dumps(manifest, indent=2) + "\n"
 
 
+_SKILL_SURFACES: tuple[SkillSurface, ...] = (
+    SkillSurface(".agents/skills/{entrypoint}"),
+    SkillSurface(".claude/skills/{entrypoint}"),
+    SkillSurface(".codex/skills/{entrypoint}"),
+    SkillSurface(".gemini/extensions/coding-ethos/skills/{entrypoint}"),
+)
+
+
 def render_skill_outputs(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
     """Render portable and provider-native skill files."""
     rendered: dict[str, str] = {}
@@ -557,14 +617,17 @@ def render_skill_outputs(bundle: EthosBundle, repo_root: Path) -> dict[str, str]
     for skill in bundle.skills:
         content = render_skill_markdown(bundle, skill)
         entrypoint = _skill_entrypoint(skill)
-        rendered[f".agents/skills/{entrypoint}"] = content
-        rendered[f".claude/skills/{entrypoint}"] = content
-        rendered[f".codex/skills/{entrypoint}"] = content
-        rendered[f".gemini/extensions/coding-ethos/skills/{entrypoint}"] = content
+        for surface in _SKILL_SURFACES:
+            rendered[surface.path_for(entrypoint)] = content
     rendered[".gemini/extensions/coding-ethos/gemini-extension.json"] = (
         render_gemini_extension_manifest(bundle, repo_root)
     )
     return rendered
+
+
+def _render_claude_root(bundle: EthosBundle, repo_root: Path) -> str:
+    del repo_root
+    return render_claude_md(bundle)
 
 
 def render_claude_md(bundle: EthosBundle) -> str:
@@ -716,10 +779,9 @@ def render_gemini_addendum(bundle: EthosBundle, repo_root: Path) -> str:
 
 def required_root_imports(target_name: str) -> list[str]:
     """Return required import lines for a generated root file."""
-    if target_name == "CLAUDE.md":
-        return ["@AGENTS.md", "@.claude/ethos/MEMORY.md"]
-    if target_name == "GEMINI.md":
-        return ["@AGENTS.md"]
+    for surface in _AGENT_ROOT_SURFACES:
+        if surface.path == target_name:
+            return list(surface.imports)
     return []
 
 
@@ -752,3 +814,69 @@ def render_prompt_addon(bundle: EthosBundle, agent: str, repo_root: Path) -> str
         if principle.quick_ref
     )
     return _join_lines(_with_markdown_spdx(lines))
+
+
+_AGENT_ROOT_SURFACES: tuple[AgentRootSurface, ...] = (
+    AgentRootSurface(
+        agent="codex",
+        path="AGENTS.md",
+        render_root=render_agents_md,
+        render_addendum=render_agents_addendum,
+        merge_topics=("repo commands", "key paths", "repo operating notes"),
+    ),
+    AgentRootSurface(
+        agent="claude",
+        path="CLAUDE.md",
+        render_root=_render_claude_root,
+        render_addendum=render_claude_addendum,
+        imports=("@AGENTS.md", "@.claude/ethos/MEMORY.md"),
+        merge_topics=(
+            "Claude imports",
+            "memory links",
+            "Claude-specific workflow notes",
+        ),
+    ),
+    AgentRootSurface(
+        agent="gemini",
+        path="GEMINI.md",
+        render_root=render_gemini_md,
+        render_addendum=render_gemini_addendum,
+        imports=("@AGENTS.md",),
+        merge_topics=(
+            "Gemini root guidance",
+            "linked detail docs",
+            "repo operating notes",
+        ),
+    ),
+)
+
+
+def agent_root_surfaces() -> tuple[AgentRootSurface, ...]:
+    """Return registered generated root-file surfaces for supported agents."""
+    return _AGENT_ROOT_SURFACES
+
+
+def render_agent_root_outputs(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
+    """Render registered root files for all supported agent surfaces."""
+    return {
+        surface.path: surface.render_root(bundle, repo_root)
+        for surface in _AGENT_ROOT_SURFACES
+    }
+
+
+def render_agent_addendum(
+    bundle: EthosBundle, repo_root: Path, target_name: str, fallback: str
+) -> str:
+    """Render the managed addendum for a registered root file."""
+    for surface in _AGENT_ROOT_SURFACES:
+        if surface.path == target_name:
+            return surface.render_addendum(bundle, repo_root)
+    return fallback
+
+
+def root_merge_topics(target_name: str) -> list[str]:
+    """Return root-file-specific merge topics for registered agent surfaces."""
+    for surface in _AGENT_ROOT_SURFACES:
+        if surface.path == target_name:
+            return list(surface.merge_topics)
+    return []
