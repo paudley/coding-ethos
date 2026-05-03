@@ -127,6 +127,7 @@ func TestBuildPlanAutoOnUnsupportedPlatformFallsBackWithEvidence(t *testing.T) {
 
 func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
 		t.Fatalf("create git dir: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 		Cwd:         repo,
 		RepoRoot:    repo,
 		Args:        []string{"check", "pkg"},
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"pkg"},
@@ -150,13 +151,15 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
 	}
-	if plan.Executable != "/usr/bin/bwrap" {
+	if plan.Executable != backend {
 		t.Fatalf("executable = %q", plan.Executable)
 	}
 	for _, want := range []string{
 		"--die-with-parent",
 		"--unshare-pid",
 		"--unshare-net",
+		"--dev",
+		"/dev",
 		"--ro-bind",
 		"/",
 		"--tmpfs",
@@ -192,6 +195,9 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if slices.Contains(plan.Args, filepath.Join(repo, ".git/config")) {
 		t.Fatalf(".git write bind must be filtered: %#v", plan.Args)
 	}
+	if slices.Contains(plan.Args, "--dev-bind") {
+		t.Fatalf("full device tree must not be exposed: %#v", plan.Args)
+	}
 	if slices.Contains(plan.Evidence.WritePaths, ".git/config") {
 		t.Fatalf(".git write evidence must be filtered: %#v", plan.Evidence)
 	}
@@ -202,13 +208,14 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 
 func TestBuildPlanSkipsMissingReadPath(t *testing.T) {
 	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "ruff",
 		Executable:  "/tools/ruff",
 		Cwd:         repo,
 		RepoRoot:    repo,
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"missing"},
@@ -227,12 +234,13 @@ func TestBuildPlanAddsSeccompProfileFD(t *testing.T) {
 	if err := os.WriteFile(profile, []byte("profile"), 0o600); err != nil {
 		t.Fatalf("write profile: %v", err)
 	}
+	backend := fakeBubblewrap(t)
 
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "ruff",
 		Executable:  "/tools/ruff",
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile:     "lint-offline",
 			SeccompProfile:     "deny-privilege",
@@ -258,6 +266,95 @@ func TestBuildPlanAddsSeccompProfileFD(t *testing.T) {
 	if !plan.Evidence.SeccompEnabled ||
 		plan.Evidence.SeccompProfile != "deny-privilege" {
 		t.Fatalf("seccomp evidence mismatch: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanNormalizesRelativeSandboxPaths(t *testing.T) {
+	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
+	executable := filepath.Join(repo, "tools", "ruff")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	previousCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previousCwd); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	plan, err := BuildPlan(Request{
+		Mode:        ModeRequired,
+		Tool:        "ruff",
+		Executable:  filepath.Join("tools", "ruff"),
+		Cwd:         ".",
+		RepoRoot:    ".",
+		BackendPath: backend,
+		Capabilities: Capabilities{
+			SandboxProfile: "lint-offline",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if !filepath.IsAbs(plan.Evidence.Command[0]) {
+		t.Fatalf("command executable should be absolute: %#v", plan.Evidence.Command)
+	}
+	if !slices.Contains(plan.Args, executable) {
+		t.Fatalf("sandbox args missing absolute executable %q: %#v", executable, plan.Args)
+	}
+}
+
+func TestBuildPlanDoesNotCreateMissingAbsoluteWritePath(t *testing.T) {
+	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
+	missing := filepath.Join(t.TempDir(), "external", "cache")
+
+	plan, err := BuildPlan(Request{
+		Mode:        ModeRequired,
+		Tool:        "ruff",
+		Executable:  "/tools/ruff",
+		Cwd:         repo,
+		RepoRoot:    repo,
+		BackendPath: backend,
+		Capabilities: Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{missing},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if pathExists(missing) {
+		t.Fatalf("missing absolute write path should not be created: %s", missing)
+	}
+	if slices.Contains(plan.Args, missing) {
+		t.Fatalf("missing absolute write path should not be bound: %#v", plan.Args)
+	}
+}
+
+func TestBuildPlanCreatesParentDirsOnlyUnderTmpfsMounts(t *testing.T) {
+	for _, test := range []struct {
+		path string
+		want bool
+	}{
+		{path: filepath.Join(string(os.PathSeparator), "home", "runner", "work", "repo"), want: true},
+		{path: "/root/project", want: true},
+		{path: "/tmp/project", want: true},
+		{path: "/opt/project", want: false},
+	} {
+		if got := sandboxDirRequired(test.path); got != test.want {
+			t.Fatalf("sandboxDirRequired(%q) = %v, want %v", test.path, got, test.want)
+		}
 	}
 }
 
@@ -325,11 +422,12 @@ func TestCommandContextAppliesTimeout(t *testing.T) {
 }
 
 func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
+	backend := fakeBubblewrap(t)
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "gemini-check",
 		Executable:  "/tools/gemini",
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile:  "agent-network",
 			RequiresNetwork: true,
@@ -344,4 +442,15 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	if !plan.Evidence.RequiresNetwork || plan.Evidence.NetworkIsolated {
 		t.Fatalf("network capability not recorded: %#v", plan.Evidence)
 	}
+}
+
+func fakeBubblewrap(t *testing.T) string {
+	t.Helper()
+
+	backend := filepath.Join(t.TempDir(), "bwrap")
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write fake bwrap: %v", err)
+	}
+
+	return backend
 }

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -144,7 +145,24 @@ type Evidence struct {
 
 func BuildPlan(request Request) (Plan, error) {
 	mode := normalizedMode(request.Mode)
+	var normalizeErr error
+	if mode != ModeOff && strings.TrimSpace(request.SandboxProfile) != "" {
+		request, normalizeErr = normalizeSandboxRequest(request)
+	}
 	evidence := request.evidence(mode)
+	if normalizeErr != nil {
+		evidence.Denied = mode == ModeRequired
+		evidence.Reason = normalizeErr.Error()
+		if mode == ModeRequired {
+			return Plan{Evidence: evidence}, fmt.Errorf("%w: %v", ErrBackendUnavailable, normalizeErr)
+		}
+
+		return Plan{
+			Executable: request.Executable,
+			Args:       append([]string(nil), request.Args...),
+			Evidence:   evidence,
+		}, nil
+	}
 	if mode == ModeOff || strings.TrimSpace(request.SandboxProfile) == "" {
 		return Plan{
 			Executable: request.Executable,
@@ -212,9 +230,10 @@ func BuildPlan(request Request) (Plan, error) {
 				return Plan{Evidence: evidence}, fmt.Errorf("%w: %v", ErrBackendUnavailable, err)
 			}
 		} else {
+			fd := 3 + len(extraFiles)
 			extraFiles = append(extraFiles, profile)
 			evidence.SeccompEnabled = true
-			args = append(args, "--seccomp", "3")
+			args = append(args, "--seccomp", strconv.Itoa(fd))
 		}
 	}
 	args = append(args, request.Executable)
@@ -262,7 +281,7 @@ func bubblewrapArgs(request Request) []string {
 		"--die-with-parent",
 		"--unshare-pid",
 		"--proc", "/proc",
-		"--dev-bind", "/dev", "/dev",
+		"--dev", "/dev",
 		"--ro-bind", "/", "/",
 		"--tmpfs", "/tmp",
 		"--tmpfs", "/root",
@@ -273,7 +292,9 @@ func bubblewrapArgs(request Request) []string {
 	}
 
 	for _, dir := range destinationParentDirs(repoRoot) {
-		args = append(args, "--dir", dir)
+		if sandboxDirRequired(dir) {
+			args = append(args, "--dir", dir)
+		}
 	}
 	args = append(args, "--ro-bind", repoRoot, repoRoot)
 	if pathExists(gitDir) {
@@ -288,7 +309,7 @@ func bubblewrapArgs(request Request) []string {
 	}
 	for _, path := range request.WritePaths {
 		if bind := normalizedBindPath(repoRoot, path); bind != "" && !isWithinPath(bind, gitDir) {
-			if ensureBindPath(bind) {
+			if ensureBindPath(repoRoot, path, bind) {
 				args = append(args, "--bind", bind, bind)
 			}
 		}
@@ -393,6 +414,48 @@ func normalizedBindPath(repoRoot string, path string) string {
 	return filepath.Clean(filepath.Join(repoRoot, path))
 }
 
+func normalizeSandboxRequest(request Request) (Request, error) {
+	repoRoot, err := absoluteSandboxPath(firstNonEmpty(request.RepoRoot, request.Cwd, "."))
+	if err != nil {
+		return request, fmt.Errorf("sandbox repo root must resolve to an absolute path: %w", err)
+	}
+	request.RepoRoot = repoRoot
+
+	cwd, err := absoluteSandboxPath(firstNonEmpty(request.Cwd, repoRoot))
+	if err != nil {
+		return request, fmt.Errorf("sandbox working directory must resolve to an absolute path: %w", err)
+	}
+	request.Cwd = cwd
+
+	if strings.TrimSpace(request.Executable) == "" {
+		return request, errors.New("sandbox executable is required")
+	}
+	executable, err := absoluteSandboxPath(request.Executable)
+	if err != nil {
+		return request, fmt.Errorf("sandbox executable must resolve to an absolute path: %w", err)
+	}
+	request.Executable = executable
+
+	return request, nil
+}
+
+func absoluteSandboxPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("empty path")
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Clean(absolute), nil
+}
+
 func destinationParentDirs(path string) []string {
 	cleaned := filepath.Clean(path)
 	dirs := []string{}
@@ -405,6 +468,16 @@ func destinationParentDirs(path string) []string {
 	}
 
 	return dirs
+}
+
+func sandboxDirRequired(path string) bool {
+	for _, root := range []string{"/home", "/root", "/tmp"} {
+		if path == root || isWithinPath(path, root) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isWithinPath(path string, parent string) bool {
@@ -431,9 +504,12 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-func ensureBindPath(path string) bool {
+func ensureBindPath(repoRoot string, requestedPath string, path string) bool {
 	if pathExists(path) {
 		return true
+	}
+	if filepath.IsAbs(requestedPath) || !isWithinPath(path, repoRoot) {
+		return false
 	}
 
 	return os.MkdirAll(path, 0o700) == nil
