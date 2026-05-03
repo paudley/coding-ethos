@@ -11,6 +11,8 @@ and this project follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-03
+
 ### Added
 
 - Initial public release packaging with a real `pyproject.toml` build
