@@ -145,6 +145,31 @@ type skillRecommendInput struct {
 	Limit      int             `json:"limit,omitempty"`
 }
 
+type sarifRemediationInput struct {
+	SARIF       string `json:"sarif"`
+	TraceID     string `json:"trace_id,omitempty"`
+	ResultIndex int    `json:"result_index,omitempty"`
+}
+
+type sarifRiskSummaryInput struct {
+	SARIF   string `json:"sarif,omitempty"`
+	TraceID string `json:"trace_id,omitempty"`
+}
+
+type sarifTrendInput struct {
+	BaselineSARIF   string   `json:"baseline_sarif,omitempty"`
+	CurrentSARIF    string   `json:"current_sarif,omitempty"`
+	BaselineTraceID string   `json:"baseline_trace_id,omitempty"`
+	CurrentTraceID  string   `json:"current_trace_id,omitempty"`
+	HistorySARIF    []string `json:"history_sarif,omitempty"`
+	HistoryTraceIDs []string `json:"history_trace_ids,omitempty"`
+}
+
+type sarifPolicyFeedbackInput struct {
+	SARIF   string `json:"sarif,omitempty"`
+	TraceID string `json:"trace_id,omitempty"`
+}
+
 func writeResponse(
 	writer io.Writer,
 	framing messageFraming,
@@ -296,6 +321,88 @@ func toolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     false,
 				PreferredUse:   "turn an existing lint finding into repair guidance",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"sarif_remediation_advice",
+			"Turn a SARIF result into ETHOS-grounded repair guidance for an agent.",
+			map[string]any{
+				"sarif":        map[string]any{"type": "string"},
+				"trace_id":     map[string]any{"type": "string"},
+				"result_index": map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "repair a code-scanning or SARIF finding without rerunning lint first",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"sarif_risk_summary",
+			"Summarize a SARIF run into compact policy, skill, tool, file, and finding-group risk signals.",
+			map[string]any{
+				"sarif":    map[string]any{"type": "string"},
+				"trace_id": map[string]any{"type": "string"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "triage a SARIF run before choosing remediation order",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"sarif_trend_analysis",
+			"Compare two SARIF runs and identify introduced, fixed, and persisting findings.",
+			map[string]any{
+				"baseline_sarif":    map[string]any{"type": "string"},
+				"current_sarif":     map[string]any{"type": "string"},
+				"baseline_trace_id": map[string]any{"type": "string"},
+				"current_trace_id":  map[string]any{"type": "string"},
+				"history_sarif":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"history_trace_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "prioritize introduced or reopened SARIF findings over historical noise",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"sarif_policy_feedback",
+			"Report unmapped, noisy, weakly mapped, or under-advised SARIF diagnostics for policy authors.",
+			map[string]any{
+				"sarif":    map[string]any{"type": "string"},
+				"trace_id": map[string]any{"type": "string"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "improve evidence maps, skill linkage, and severity mappings after a SARIF run",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"tool_capabilities",
+			"List managed tool sandbox capabilities, tags, resource limits, and network/Git posture.",
+			map[string]any{},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "choose MCP lint_check over direct linter execution and inspect sandbox posture",
 				TracePersisted: false,
 			},
 		),

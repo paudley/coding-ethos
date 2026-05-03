@@ -27,6 +27,17 @@ skill metadata used by those enforcement paths.
   lint when no managed tool is supplied.
 - `lint_advice`: map a linter diagnostic to ETHOS policy, advice, rerun
   guidance, and skill hints.
+- `sarif_remediation_advice`: turn a SARIF result into ETHOS-grounded
+  remediation guidance, skill context, and an MCP `lint_check` rerun request.
+- `sarif_risk_summary`: summarize a SARIF run into policy, skill, tool, file,
+  finding-group, severity, and next-action signals.
+- `sarif_trend_analysis`: compare two SARIF runs or retained lint traces and
+  identify introduced, fixed, and persisting findings.
+- `sarif_policy_feedback`: report unmapped diagnostics, missing skill links,
+  weak severity mappings, and noisy rules for policy authors.
+- `tool_capabilities`: list managed tool sandbox capabilities, including
+  `no-network`/`network`, `no-git`/`git`, sandbox profile, timeout, memory,
+  CPU, seccomp profile metadata, and read/write mount declarations.
 - `policy_explain`: explain a compiled policy and its ETHOS grounding.
 - `skill_lookup`: return the generated skill playbook for a skill ID.
 - `skill_recommend`: rank generated skills for a task, command, path, or
@@ -43,6 +54,51 @@ surgical diffs, and verifiable success criteria.
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
 files, runs managed binaries, or persists traces.
+
+## SARIF Remediation
+
+`sarif_remediation_advice` is the bridge between CI/code-scanning evidence and
+agent repair loops. It accepts either a SARIF payload or a retained lint
+`trace_id`, plus an optional `result_index`, normalizes the selected result,
+and returns:
+
+- the rule, policy, skill, ETHOS principle, source tool, source location, and
+  stable SARIF fingerprint;
+- the coding-ethos finding group ID/key when SARIF includes cross-tool
+  grouping metadata;
+- CEL provenance when the SARIF rule or result records it;
+- the relevant generated skill summary when available;
+- guardrails that preserve policy and generated configuration;
+- an MCP `lint_check` request the agent should use after applying a fix.
+
+This tool does not read files or rerun lint by itself. It translates the same
+SARIF evidence emitted by hooks and CI into a compact repair packet so agents
+can avoid guessing from raw code-scanning output.
+
+`sarif_risk_summary` accepts the same SARIF payload or retained lint `trace_id`
+and gives agents a compact triage view before they pick a repair target:
+result counts, blocking/security counts, top policies, skills, tools, files,
+finding groups, and the next MCP call to make for result-level remediation.
+
+Trace lookup is intentionally narrow. MCP accepts only a trace file name from
+the configured consumer root's `.coding-ethos/lint-runs/` directory. It rejects
+path-like trace IDs and replays the trace through the existing normalized lint
+trace reader before formatting SARIF. This keeps trace remediation on the same
+policy interpretation path as hooks, lint, and CI.
+
+`sarif_trend_analysis` accepts baseline/current SARIF payloads or retained lint
+trace IDs. It can also accept prior `history_sarif` payloads or
+`history_trace_ids` to classify reopened findings. It compares coding-ethos
+group keys first, then stable fingerprints, and finally a deterministic
+policy/file/message fallback. Agents should use introduced, reopened, and
+worsening findings as the first repair queue and persisting findings as
+supporting context.
+
+`sarif_policy_feedback` is for policy maintainers, not application repair. It
+flags diagnostics that lack a policy ID, lack a skill ID, appear security-like
+but are only notes or warnings, or repeat often enough to suggest noisy rule
+mapping. The response points authors back to `policy_explain` and
+`skill_recommend` rather than creating a separate policy interpretation path.
 
 ## Agent Remediation Advice Expansion
 

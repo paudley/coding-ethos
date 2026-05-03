@@ -101,6 +101,11 @@ func main() {
 	toolsBinDir := flags.String("tools-bin-dir", "", "Directory for captured lint tool shims")
 	runner := flags.String("runner", "", "runner path for captured lint shims")
 	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
+	sandboxMode := flags.String(
+		"sandbox-mode",
+		"off",
+		"Managed tool sandbox mode: off, auto, or required",
+	)
 	scope := scopeFlagSet(flags)
 
 	err := flags.Parse(os.Args[1:])
@@ -138,6 +143,7 @@ func main() {
 			ConsumerRoot:  *consumerRoot,
 			InvocationCwd: *invocationCwd,
 			Args:          flags.Args(),
+			SandboxMode:   *sandboxMode,
 			OutputFormat:  outputFormat,
 			PolicyContext: capturePolicyContext(*bundlePath),
 		}))

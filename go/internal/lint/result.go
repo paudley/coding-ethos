@@ -93,11 +93,45 @@ type SkillHint struct {
 }
 
 type ToolCapture struct {
-	Tool          string   `json:"tool"`
-	Parser        string   `json:"parser"`
-	ParseStatus   string   `json:"parse_status"`
-	OutputExcerpt string   `json:"output_excerpt,omitempty"`
-	Args          []string `json:"args,omitempty"`
-	RunArgs       []string `json:"run_args,omitempty"`
-	ExitCode      int      `json:"exit_code"`
+	Tool          string           `json:"tool"`
+	Parser        string           `json:"parser"`
+	ParseStatus   string           `json:"parse_status"`
+	OutputExcerpt string           `json:"output_excerpt,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	RunArgs       []string         `json:"run_args,omitempty"`
+	Sandbox       *SandboxEvidence `json:"sandbox,omitempty"`
+	ExitCode      int              `json:"exit_code"`
+}
+
+type SandboxEvidence struct {
+	Mode                 string   `json:"mode,omitempty"`
+	Backend              string   `json:"backend,omitempty"`
+	BackendPath          string   `json:"backend_path,omitempty"`
+	Profile              string   `json:"profile,omitempty"`
+	Tool                 string   `json:"tool,omitempty"`
+	Command              []string `json:"command,omitempty"`
+	Tags                 []string `json:"tags,omitempty"`
+	HiddenCredentialDirs []string `json:"hidden_credential_dirs,omitempty"`
+	ReadPaths            []string `json:"read_paths,omitempty"`
+	WritePaths           []string `json:"write_paths,omitempty"`
+	TimeoutSeconds       int      `json:"timeout_seconds,omitempty"`
+	MemoryMB             int      `json:"memory_mb,omitempty"`
+	CPUQuotaPercent      int      `json:"cpu_quota_percent,omitempty"`
+	RequiresNetwork      bool     `json:"requires_network,omitempty"`
+	RequiresGit          bool     `json:"requires_git,omitempty"`
+	RequiresEnv          bool     `json:"requires_env,omitempty"`
+	RequiresProcesses    bool     `json:"requires_processes,omitempty"`
+	GitReadOnly          bool     `json:"git_read_only,omitempty"`
+	ReadOnlyRoot         bool     `json:"read_only_root,omitempty"`
+	NetworkIsolated      bool     `json:"network_isolated,omitempty"`
+	ProcessIsolated      bool     `json:"process_isolated,omitempty"`
+	TimeoutEnforced      bool     `json:"timeout_enforced,omitempty"`
+	CgroupRequested      bool     `json:"cgroup_requested,omitempty"`
+	CgroupEnabled        bool     `json:"cgroup_enabled,omitempty"`
+	CgroupPath           string   `json:"cgroup_path,omitempty"`
+	SeccompProfile       string   `json:"seccomp_profile,omitempty"`
+	SeccompEnabled       bool     `json:"seccomp_enabled,omitempty"`
+	Enabled              bool     `json:"enabled"`
+	Denied               bool     `json:"denied,omitempty"`
+	Reason               string   `json:"reason,omitempty"`
 }

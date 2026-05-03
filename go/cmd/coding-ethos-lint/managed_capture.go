@@ -13,6 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -26,6 +27,7 @@ type managedCaptureOptions struct {
 	ConsumerRoot  string
 	InvocationCwd string
 	Args          []string
+	SandboxMode   string
 	OutputFormat  string
 	PolicyContext capturePolicyData
 }
@@ -85,9 +87,33 @@ func runManagedCapture(options managedCaptureOptions) int {
 		Cwd:          options.ConsumerRoot,
 		TraceRoot:    options.ConsumerRoot,
 		Args:         enforcedArgs,
+		SandboxMode:  options.SandboxMode,
+		Capabilities: sandboxCapabilities(tool, config),
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
 		Skills:       options.PolicyContext.Skills,
 	}, firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()))
+}
+
+func sandboxCapabilities(tool toolcatalog.Tool, config lintcapture.RuntimeConfig) sandbox.Capabilities {
+	spec := tool.CapabilitySpec()
+	writePaths := append([]string(nil), spec.WritePaths...)
+	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
+
+	return sandbox.Capabilities{
+		Tags:               append([]string(nil), spec.Tags...),
+		ReadPaths:          append([]string(nil), spec.ReadPaths...),
+		WritePaths:         writePaths,
+		SandboxProfile:     spec.SandboxProfile,
+		TimeoutSeconds:     spec.TimeoutSeconds,
+		MemoryMB:           spec.MemoryMB,
+		CPUQuotaPercent:    spec.CPUQuotaPercent,
+		RequiresNetwork:    spec.RequiresNetwork,
+		RequiresGit:        spec.RequiresGit,
+		RequiresEnv:        spec.RequiresEnv,
+		RequiresProcesses:  spec.RequiresProcesses,
+		SeccompProfile:     spec.SeccompProfile,
+		SeccompProfilePath: spec.SeccompProfilePath,
+	}
 }
 
 func runCapturedToolWithRequest(request captureRequest, outputFormat string) int {

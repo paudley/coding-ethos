@@ -75,6 +75,41 @@ python:
 	}
 }
 
+func TestLoadRuntimeConfigMergesSandboxReadWritePaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "coding-ethos")
+	consumer := filepath.Join(root, "consumer")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), `
+bundle:
+  consumer_override_candidates:
+    - repo_config.yml
+sandbox:
+  read_write_paths:
+    - .coding-ethos/cache
+`)
+	writeFile(t, filepath.Join(consumer, "repo_config.yml"), `
+sandbox:
+  read_write_paths:
+    - /opt/foundation
+    - /opt/src/vllm
+  rw_paths:
+    - /scratch/lbox
+    - /opt/foundation
+`)
+
+	config, err := lintcapture.LoadRuntimeConfig(ethos, consumer)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig(): %v", err)
+	}
+
+	want := []string{"/opt/foundation", "/opt/src/vllm", "/scratch/lbox"}
+	if got := config.SandboxReadWritePaths(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SandboxReadWritePaths() = %#v, want %#v", got, want)
+	}
+}
+
 func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
 	ethos, root := setupToolConfigChecker(t, 1, "ruff.toml\n")
 

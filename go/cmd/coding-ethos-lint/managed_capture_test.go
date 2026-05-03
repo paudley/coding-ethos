@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -154,6 +156,33 @@ exit 1
 	})
 	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
 		t.Fatalf("output missing repo-relative file:\n%s", output)
+	}
+}
+
+func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"read_write_paths": []any{"/opt/foundation", "/opt/src/vllm"},
+				"rw_paths":         []any{"/scratch/lbox"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if !slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("sandbox capabilities missing no-network tag: %#v", capabilities)
+	}
+	for _, want := range []string{"/opt/foundation", "/opt/src/vllm", "/scratch/lbox"} {
+		if !slices.Contains(capabilities.WritePaths, want) {
+			t.Fatalf("sandbox write paths missing %q: %#v", want, capabilities)
+		}
 	}
 }
 

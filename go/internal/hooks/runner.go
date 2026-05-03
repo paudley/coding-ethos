@@ -547,6 +547,7 @@ func evaluateHookPolicy(
 		Argv:             commandArgv(event.Command()),
 		Command:          event.Command(),
 		Content:          event.Content(),
+		OldContent:       event.OldContent(),
 		Cwd:              event.Cwd,
 		Files:            event.Files(),
 	}

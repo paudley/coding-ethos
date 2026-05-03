@@ -298,24 +298,42 @@ principles:
           message: Large source files must not keep growing.
           advice: Split large files into focused modules before committing.
           when: >-
-            file_changes.exists(file,
-              !file.is_binary &&
-              !file.is_test &&
+            proposed_file_changes.exists(file,
+              !file.is_binary && !file.is_test && file.line_count_grows &&
               (
-                (file.ext == ".py" && file.line_count > 1000) ||
-                (file.ext == ".go" && file.line_count > 2000) ||
+                (file.ext == ".py" && file.proposed_line_count > 1000) ||
+                (file.ext == ".go" && file.proposed_line_count > 2000) ||
                 (
                   (
                     file.ext == ".sh" ||
                     file.ext == ".bash" ||
                     has_prefix(file.file, "scripts/")
                   ) &&
-                  file.line_count > 500
+                  file.proposed_line_count > 500
                 )
-              ) &&
-              (
-                file.original_line_count < 0 ||
-                file.line_count > file.original_line_count
+              )
+            ) ||
+            (
+              proposed_file_changes.size() == 0 &&
+              file_changes.exists(file,
+                !file.is_binary &&
+                !file.is_test &&
+                (
+                  (file.ext == ".py" && file.line_count > 1000) ||
+                  (file.ext == ".go" && file.line_count > 2000) ||
+                  (
+                    (
+                      file.ext == ".sh" ||
+                      file.ext == ".bash" ||
+                      has_prefix(file.file, "scripts/")
+                    ) &&
+                    file.line_count > 500
+                  )
+                ) &&
+                (
+                  file.original_line_count < 0 ||
+                  file.line_count > file.original_line_count
+                )
               )
             )
     sections:
@@ -2776,7 +2794,10 @@ principles:
             binaries or protected hook paths.
           when: >-
             any_contains(repo.protected_paths, command_fact.lower) ||
-            paths.exists(path, is_protected_path(path.file, repo.protected_paths)) ||
+            paths.exists(path,
+              is_protected_path(path.file, repo.protected_paths) ||
+              is_protected_path(path.symlink_target, repo.protected_paths)
+            ) ||
             shell_commands.exists(command,
               command.write_targets.exists(target,
                 is_protected_path(target, repo.protected_paths)
@@ -4056,6 +4077,57 @@ principles:
                 file.ext
               ) &&
               file.size_bytes > 512000
+            )
+        - id: runtime.network_requires_approval
+          scope: command
+          severity: block
+          mode: block
+          skill_id: managed-toolchain
+          hook_events:
+            - PreToolUse
+          tools:
+            - Bash
+          message: Network-capable managed tools require explicit approval.
+          advice: >-
+            Use offline managed lint paths by default. Network-capable tools
+            must declare that capability and require explicit approval before
+            execution.
+          when: >-
+            !metadata.admin_approved &&
+            tool_capabilities.exists(tool,
+              tool.requires_network &&
+              shell_commands.exists(command,
+                command.name == tool.name ||
+                list_contains(tool.command, command.name)
+              )
+            )
+        - id: runtime.managed_tool_capability_contract
+          scope: lint
+          severity: block
+          mode: block
+          skill_id: managed-toolchain
+          lint_scopes:
+            - files
+            - staged
+          message: Managed tools must declare sandbox capability posture.
+          advice: >-
+            Keep managed tool runtime metadata explicit: ordinary tools need
+            no-network, no-git, sandbox profile, timeout, memory, CPU, and
+            seccomp profile declarations.
+          when: >-
+            tool_capabilities.exists(tool,
+              tool.name != "gemini-check" &&
+              (
+                tool.requires_network ||
+                tool.requires_git ||
+                !list_contains(tool.tags, "no-network") ||
+                !list_contains(tool.tags, "no-git") ||
+                tool.sandbox_profile == "" ||
+                tool.timeout_seconds <= 0 ||
+                tool.memory_mb <= 0 ||
+                tool.cpu_quota_percent <= 0 ||
+                tool.seccomp_profile == ""
+              )
             )
     sections:
       - id: overview

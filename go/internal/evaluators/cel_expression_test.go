@@ -371,6 +371,137 @@ func TestEvaluateCELExpressionBlocksLineLimitGrowthFromFileChanges(t *testing.T)
 	}
 }
 
+func TestEvaluateCELExpressionAllowsShrinkingLargeFileAtHookTime(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(
+		sourceFile,
+		[]byte(strings.Repeat("line\n", 4)),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:        repo,
+			Files:      []string{"app.py"},
+			Tool:       "Edit",
+			OldContent: "line\nline\n",
+			Content:    "line\n",
+			Scope:      "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					proposed_file_changes.exists(file,
+						file.ext == ".py" &&
+						file.proposed_line_count > 2 &&
+						file.line_count_grows
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("shrinking edit should be allowed: %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionBlocksGrowingLargeFileAtHookTime(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(
+		sourceFile,
+		[]byte("one\ntwo\nthree\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:        repo,
+			Files:      []string{"app.py"},
+			Tool:       "Edit",
+			OldContent: "two\n",
+			Content:    "two\nextra\n",
+			Scope:      "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					proposed_file_changes.exists(file,
+						file.ext == ".py" &&
+						file.proposed_line_count > 2 &&
+						file.line_count_grows
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "app.py" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsManagedToolCapabilityContract(t *testing.T) {
+	t.Parallel()
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "runtime.managed_tool_capability_contract"
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Scope: "files",
+		EvaluatorOptions: map[string]any{
+			"when": `
+				tool_capabilities.exists(tool,
+					tool.name != "gemini-check" &&
+					(
+						tool.requires_network ||
+						tool.requires_git ||
+						!list_contains(tool.tags, "no-network") ||
+						!list_contains(tool.tags, "no-git") ||
+						tool.sandbox_profile == "" ||
+						tool.timeout_seconds <= 0 ||
+						tool.memory_mb <= 0 ||
+						tool.cpu_quota_percent <= 0 ||
+						tool.seccomp_profile == ""
+					)
+				)
+			`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want none", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 	t.Parallel()
 

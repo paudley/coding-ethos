@@ -107,6 +107,8 @@ type sarifRegion struct {
 
 type sarifResultProperties struct {
 	Advice                    string   `json:"advice,omitempty"`
+	CodingEthosGroupID        string   `json:"coding_ethos_group_id,omitempty"`
+	CodingEthosGroupKey       string   `json:"coding_ethos_group_key,omitempty"`
 	Code                      string   `json:"code,omitempty"`
 	Detail                    string   `json:"detail,omitempty"`
 	PolicyID                  string   `json:"policy_id,omitempty"`
@@ -132,8 +134,10 @@ type sarifRunAutomationDetails struct {
 }
 
 type sarifRunProperties struct {
-	Scope          string              `json:"scope,omitempty"`
-	PolicyCoverage sarifPolicyCoverage `json:"policy_coverage,omitempty"`
+	Scope          string                `json:"scope,omitempty"`
+	PolicyCoverage sarifPolicyCoverage   `json:"policy_coverage,omitempty"`
+	FindingGroups  []sarifFindingGroup   `json:"finding_groups,omitempty"`
+	Sandbox        *lint.SandboxEvidence `json:"sandbox,omitempty"`
 }
 
 type sarifPolicyCoverage struct {
@@ -150,6 +154,18 @@ type sarifPolicyCoverage struct {
 	DiagnosticCount int      `json:"diagnostic_count,omitempty"`
 }
 
+type sarifFindingGroup struct {
+	ID                 string   `json:"id"`
+	Key                string   `json:"key"`
+	PolicyID           string   `json:"policy_id,omitempty"`
+	SkillID            string   `json:"skill_id,omitempty"`
+	File               string   `json:"file,omitempty"`
+	SourceTools        []string `json:"source_tools,omitempty"`
+	StableFingerprints []string `json:"stable_fingerprints,omitempty"`
+	ResultCount        int      `json:"result_count"`
+	Line               int      `json:"line,omitempty"`
+}
+
 type SARIFOptions struct {
 	Category string
 }
@@ -163,6 +179,7 @@ func FormatLintResultSARIFWithOptions(
 	options SARIFOptions,
 ) (string, error) {
 	diagnostics := sarifDiagnostics(result)
+	findingGroups := sarifFindingGroups(diagnostics)
 	rules := sarifRules(diagnostics)
 	ruleIndexes := sarifRuleIndexes(rules)
 	log := sarifLog{
@@ -181,10 +198,12 @@ func FormatLintResultSARIFWithOptions(
 			AutomationDetails: sarifRunAutomationDetails{
 				ID: sarifAutomationID(result.Scope, options),
 			},
-			Results: sarifResults(diagnostics, ruleIndexes),
+			Results: sarifResults(diagnostics, ruleIndexes, findingGroups),
 			Properties: sarifRunProperties{
 				Scope:          result.Scope,
 				PolicyCoverage: sarifCoverage(result, diagnostics),
+				FindingGroups:  findingGroups.Summaries(),
+				Sandbox:        sarifSandboxEvidence(result),
 			},
 		}},
 	}
@@ -195,6 +214,24 @@ func FormatLintResultSARIFWithOptions(
 	}
 
 	return string(payload), nil
+}
+
+func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
+	if result.Capture == nil || result.Capture.Sandbox == nil {
+		return nil
+	}
+
+	evidence := *result.Capture.Sandbox
+	evidence.Command = append([]string(nil), result.Capture.Sandbox.Command...)
+	evidence.Tags = append([]string(nil), result.Capture.Sandbox.Tags...)
+	evidence.HiddenCredentialDirs = append(
+		[]string(nil),
+		result.Capture.Sandbox.HiddenCredentialDirs...,
+	)
+	evidence.ReadPaths = append([]string(nil), result.Capture.Sandbox.ReadPaths...)
+	evidence.WritePaths = append([]string(nil), result.Capture.Sandbox.WritePaths...)
+
+	return &evidence
 }
 
 func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
@@ -260,10 +297,12 @@ func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
 func sarifResults(
 	items []diagnostics.Diagnostic,
 	ruleIndexes map[string]int,
+	findingGroups sarifFindingGroupIndex,
 ) []sarifResult {
 	results := make([]sarifResult, 0, len(items))
 	for _, item := range items {
 		ruleID := sarifRuleID(item)
+		group := findingGroups.Group(item)
 		results = append(results, sarifResult{
 			RuleID:              ruleID,
 			RuleIndex:           sarifRuleIndex(ruleIndexes, ruleID),
@@ -273,6 +312,8 @@ func sarifResults(
 			PartialFingerprints: sarifPartialFingerprints(item),
 			Properties: sarifResultProperties{
 				Advice:                    item.Advice,
+				CodingEthosGroupID:        group.ID,
+				CodingEthosGroupKey:       group.Key,
 				Code:                      item.Code,
 				Detail:                    item.Detail,
 				PolicyID:                  item.PolicyID,
@@ -451,6 +492,96 @@ func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
 			item.Message,
 		),
 	}
+}
+
+type sarifFindingGroupIndex map[string]*sarifFindingGroupAccumulator
+
+type sarifFindingGroupAccumulator struct {
+	sourceTools        map[string]bool
+	stableFingerprints map[string]bool
+	summary            sarifFindingGroup
+}
+
+func sarifFindingGroups(items []diagnostics.Diagnostic) sarifFindingGroupIndex {
+	groups := sarifFindingGroupIndex{}
+	for _, item := range items {
+		key := sarifFindingGroupKey(item)
+		if key == "" {
+			continue
+		}
+		group, ok := groups[key]
+		if !ok {
+			group = &sarifFindingGroupAccumulator{
+				sourceTools:        map[string]bool{},
+				stableFingerprints: map[string]bool{},
+				summary: sarifFindingGroup{
+					ID:       sarifHashStrings("finding-group", key),
+					Key:      key,
+					PolicyID: item.PolicyID,
+					SkillID:  item.SkillID,
+					File:     sarifArtifactURI(item.File),
+					Line:     item.Line,
+				},
+			}
+			groups[key] = group
+		}
+		group.summary.ResultCount++
+		sarifAddCoverageValue(group.sourceTools, item.Tool)
+		if stable := sarifPartialFingerprints(item)["coding-ethos/stable/v1"]; stable != "" {
+			sarifAddCoverageValue(group.stableFingerprints, stable)
+		}
+	}
+
+	return groups
+}
+
+func (groups sarifFindingGroupIndex) Group(
+	item diagnostics.Diagnostic,
+) sarifFindingGroup {
+	key := sarifFindingGroupKey(item)
+	if key == "" {
+		return sarifFindingGroup{}
+	}
+	group, ok := groups[key]
+	if !ok {
+		return sarifFindingGroup{}
+	}
+
+	return group.withSortedValues()
+}
+
+func (groups sarifFindingGroupIndex) Summaries() []sarifFindingGroup {
+	summaries := make([]sarifFindingGroup, 0, len(groups))
+	for _, group := range groups {
+		summaries = append(summaries, group.withSortedValues())
+	}
+	sort.Slice(summaries, func(left int, right int) bool {
+		return summaries[left].Key < summaries[right].Key
+	})
+
+	return summaries
+}
+
+func (group *sarifFindingGroupAccumulator) withSortedValues() sarifFindingGroup {
+	summary := group.summary
+	summary.SourceTools = sarifSortedKeys(group.sourceTools)
+	summary.StableFingerprints = sarifSortedKeys(group.stableFingerprints)
+
+	return summary
+}
+
+func sarifFindingGroupKey(item diagnostics.Diagnostic) string {
+	file := sarifArtifactURI(item.File)
+	if file == "" {
+		return ""
+	}
+
+	return strings.Join([]string{
+		firstSarifNonEmpty(item.PolicyID, sarifRuleID(item)),
+		item.SkillID,
+		file,
+		fmt.Sprint(item.Line),
+	}, "|")
 }
 
 func sarifCoverage(

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -113,6 +114,16 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 		result, err = server.checkLint(call.Arguments)
 	case "lint_advice":
 		result, err = server.lintAdvice(call.Arguments)
+	case "sarif_remediation_advice":
+		result, err = server.sarifRemediationAdvice(call.Arguments)
+	case "sarif_risk_summary":
+		result, err = server.sarifRiskSummary(call.Arguments)
+	case "sarif_trend_analysis":
+		result, err = server.sarifTrendAnalysis(call.Arguments)
+	case "sarif_policy_feedback":
+		result, err = server.sarifPolicyFeedback(call.Arguments)
+	case "tool_capabilities":
+		result, err = server.toolCapabilities(call.Arguments)
 	case "policy_explain":
 		result, err = server.explainPolicy(call.Arguments)
 	case "skill_lookup":
@@ -127,6 +138,24 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 	}
 
 	return toolResult(result), nil
+}
+
+func (server Server) toolCapabilities(_ json.RawMessage) (any, error) {
+	views := toolcatalog.ToolCapabilityViews()
+	return map[string]any{
+		"kind":  "tool_capabilities",
+		"tools": views,
+		"sandbox": map[string]any{
+			"default_backend":     "bubblewrap",
+			"required_mode":       "fail_closed",
+			"advisory_auto_mode":  "records_degraded_enforcement",
+			"network_tag":         "network",
+			"no_network_tag":      "no-network",
+			"git_tag":             "git",
+			"no_git_tag":          "no-git",
+			"seccomp_profile_key": "seccomp_profile",
+		},
+	}, nil
 }
 
 func (server Server) checkCommand(args json.RawMessage) (any, error) {
@@ -318,6 +347,197 @@ func (server Server) lintAdvice(args json.RawMessage) (any, error) {
 	}, nil
 }
 
+func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
+	var input sarifRemediationInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse SARIF remediation arguments: %w", err)
+	}
+	if strings.TrimSpace(input.SARIF) == "" {
+		sarif, err := server.sarifFromTraceID(input.TraceID)
+		if err != nil {
+			return nil, err
+		}
+		input.SARIF = sarif
+	}
+	if input.ResultIndex < 0 {
+		return nil, fmt.Errorf("result_index must be non-negative")
+	}
+
+	finding, err := parseSARIFRemediationFinding(input.SARIF, input.ResultIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	if finding.PolicyID == "" {
+		finding.PolicyID = finding.RuleID
+	}
+	if finding.SkillID == "" {
+		finding.SkillID = server.skillIDForDiagnostic(finding.diagnosticInput())
+	}
+	if len(finding.PrincipleIDs) == 0 {
+		finding.PrincipleIDs = server.principleIDsForPolicy(finding.PolicyID)
+	}
+
+	response := map[string]any{
+		"finding": finding.summary(),
+		"advice":  finding.advice(),
+		"rerun":   finding.rerun(),
+		"guardrails": []string{
+			"Apply structural fixes; do not weaken coding-ethos policy or generated tool configuration.",
+			"Use the MCP lint_check path or managed project commands to verify the repair.",
+		},
+	}
+	if finding.PolicyID != "" {
+		response["policy"] = server.policySummary(finding.PolicyID)
+	}
+	if len(finding.PrincipleIDs) > 0 {
+		response["principles"] = server.principleSummaries(finding.PrincipleIDs)
+	}
+	if finding.SkillID != "" {
+		if skill, ok := server.bundle.Skills[finding.SkillID]; ok {
+			response["skill"] = skillSummary(skill, 100)
+		}
+	}
+
+	return response, nil
+}
+
+func (server Server) sarifRiskSummary(args json.RawMessage) (any, error) {
+	var input sarifRiskSummaryInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse SARIF risk summary arguments: %w", err)
+	}
+	if strings.TrimSpace(input.SARIF) == "" {
+		sarif, err := server.sarifFromTraceID(input.TraceID)
+		if err != nil {
+			return nil, err
+		}
+		input.SARIF = sarif
+	}
+
+	summary, err := summarizeSARIFRisk(input.SARIF)
+	if err != nil {
+		return nil, err
+	}
+
+	return summary, nil
+}
+
+func (server Server) sarifTrendAnalysis(args json.RawMessage) (any, error) {
+	var input sarifTrendInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse SARIF trend analysis arguments: %w", err)
+	}
+
+	baseline, err := server.sarifPayloadFromEither(input.BaselineSARIF, input.BaselineTraceID)
+	if err != nil {
+		return nil, fmt.Errorf("baseline: %w", err)
+	}
+	current, err := server.sarifPayloadFromEither(input.CurrentSARIF, input.CurrentTraceID)
+	if err != nil {
+		return nil, fmt.Errorf("current: %w", err)
+	}
+	history, err := server.sarifHistoryPayloads(input.HistorySARIF, input.HistoryTraceIDs)
+	if err != nil {
+		return nil, fmt.Errorf("history: %w", err)
+	}
+
+	trend, err := analyzeSARIFTrend(baseline, current, history)
+	if err != nil {
+		return nil, err
+	}
+
+	return trend, nil
+}
+
+func (server Server) sarifPolicyFeedback(args json.RawMessage) (any, error) {
+	var input sarifPolicyFeedbackInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse SARIF policy feedback arguments: %w", err)
+	}
+
+	payload, err := server.sarifPayloadFromEither(input.SARIF, input.TraceID)
+	if err != nil {
+		return nil, err
+	}
+	feedback, err := analyzeSARIFPolicyFeedback(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return feedback, nil
+}
+
+func (server Server) sarifFromTraceID(traceID string) (string, error) {
+	tracePath, err := server.resolveLintTraceID(traceID)
+	if err != nil {
+		return "", err
+	}
+	result, err := lint.ReplayTrace(tracePath)
+	if err != nil {
+		return "", err
+	}
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		return "", err
+	}
+
+	return output, nil
+}
+
+func (server Server) sarifPayloadFromEither(sarif string, traceID string) (string, error) {
+	if strings.TrimSpace(sarif) != "" {
+		return sarif, nil
+	}
+
+	return server.sarifFromTraceID(traceID)
+}
+
+func (server Server) sarifHistoryPayloads(
+	sarifPayloads []string,
+	traceIDs []string,
+) ([]string, error) {
+	history := make([]string, 0, len(sarifPayloads)+len(traceIDs))
+	for _, payload := range sarifPayloads {
+		if strings.TrimSpace(payload) != "" {
+			history = append(history, payload)
+		}
+	}
+	for _, traceID := range traceIDs {
+		if strings.TrimSpace(traceID) == "" {
+			continue
+		}
+		payload, err := server.sarifFromTraceID(traceID)
+		if err != nil {
+			return nil, err
+		}
+		history = append(history, payload)
+	}
+
+	return history, nil
+}
+
+func (server Server) resolveLintTraceID(traceID string) (string, error) {
+	traceID = strings.TrimSpace(traceID)
+	if traceID == "" {
+		return "", fmt.Errorf("sarif or trace_id is required")
+	}
+	if strings.ContainsAny(traceID, `/\`) ||
+		traceID == "." ||
+		traceID == ".." ||
+		strings.Contains(traceID, "..") {
+		return "", fmt.Errorf("trace_id must be a lint trace file name, not a path")
+	}
+	if strings.TrimSpace(server.runtime.ConsumerRoot) == "" {
+		return "", errManagedLintRuntimeUnavailable
+	}
+	if !strings.HasSuffix(traceID, ".json") {
+		traceID += ".json"
+	}
+
+	return lint.TracePathForID(server.runtime.ConsumerRoot, traceID)
+}
+
 func (server Server) explainPolicy(args json.RawMessage) (any, error) {
 	var input policyExplainInput
 	if err := json.Unmarshal(args, &input); err != nil {
@@ -336,6 +556,50 @@ func (server Server) explainPolicy(args json.RawMessage) (any, error) {
 		"policy_id":   input.PolicyID,
 		"explanation": buffer.String(),
 	}, nil
+}
+
+func (server Server) policySummary(policyID string) map[string]any {
+	policyDef, ok := server.bundle.Policies[policyID]
+	if !ok {
+		return map[string]any{"id": policyID}
+	}
+
+	return map[string]any{
+		"id":              policyDef.ID,
+		"category":        policyDef.Category,
+		"message":         policyDef.Message,
+		"suggestion":      policyDef.Suggestion,
+		"principle_ids":   policyDef.PrincipleIDs,
+		"supported_modes": policyDef.SupportedModes,
+	}
+}
+
+func (server Server) principleIDsForPolicy(policyID string) []string {
+	policyDef, ok := server.bundle.Policies[policyID]
+	if !ok {
+		return nil
+	}
+
+	return append([]string(nil), policyDef.PrincipleIDs...)
+}
+
+func (server Server) principleSummaries(principleIDs []string) []map[string]any {
+	principles := make([]map[string]any, 0, len(principleIDs))
+	for _, principleID := range principleIDs {
+		principle, ok := server.bundle.Principles[principleID]
+		if !ok {
+			principles = append(principles, map[string]any{"id": principleID})
+			continue
+		}
+		principles = append(principles, map[string]any{
+			"id":        principle.ID,
+			"title":     principle.Title,
+			"directive": principle.Directive,
+			"summary":   principle.Summary,
+		})
+	}
+
+	return principles
 }
 
 func (server Server) lookupSkill(args json.RawMessage) (any, error) {

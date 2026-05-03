@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
 func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
@@ -171,6 +172,54 @@ exit 1
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
+	repo := t.TempDir()
+
+	output := captureStdout(t, func() {
+		exitCode := runCapturedToolWithRequest(captureRequest{
+			Tool:               "ruff",
+			ToolPath:           filepath.Join(repo, "ruff"),
+			Cwd:                repo,
+			TraceRoot:          repo,
+			Args:               []string{"check", "pkg/app.py"},
+			SandboxMode:        sandbox.ModeRequired,
+			SandboxBackendPath: filepath.Join(repo, "missing-bwrap"),
+			Capabilities: sandbox.Capabilities{
+				SandboxProfile: "lint-offline",
+				ReadPaths:      []string{"."},
+				WritePaths:     []string{".coding-ethos/cache"},
+			},
+		}, hookoutput.FormatSARIF)
+		if exitCode != blockedExitCode {
+			t.Fatalf("exit code = %d, want %d", exitCode, blockedExitCode)
+		}
+	})
+
+	for _, want := range []string{
+		`"sandbox": {`,
+		`"profile": "lint-offline"`,
+		`"denied": true`,
+		`"reason": "bubblewrap executable not found"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"scope": "tool:ruff"`,
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"skill_id": "managed-toolchain"`,
+		`"sandbox": {`,
+		`"denied": true`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
 		}
 	}
 }

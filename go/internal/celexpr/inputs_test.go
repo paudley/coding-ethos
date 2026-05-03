@@ -101,6 +101,8 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		repo_config_present(files, config.candidates) &&
 		is_protected_path(path.file, repo.protected_paths) &&
 		is_protected_branch(git.current_branch, repo.protected_branches) &&
+		tool_capabilities.exists(tool, tool.name == "gemini-check" && tool.requires_network && list_contains(tool.tags, "network")) &&
+		tool_capabilities.exists(tool, tool.name == "ruff" && !tool.requires_network && !tool.requires_git && list_contains(tool.tags, "no-network") && list_contains(tool.tags, "no-git")) &&
 		any_glob_match(["src/**/*.py"], path.file) &&
 		any_contains(["git status"], command_fact.lower) &&
 		referenced_files.exists(file, file.file == "src/package/module.py")
@@ -150,6 +152,12 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 			repo_config_present(files, config.candidates) &&
 			is_protected_path("coding-ethos-hooks/bin/coding-ethos-policy", repo.protected_paths) &&
 			is_protected_branch(git.current_branch, repo.protected_branches) &&
+			tool_capabilities.exists(tool,
+				tool.name == "gemini-check" &&
+				list_contains(tool.command, "gemini") &&
+				tool.requires_network &&
+				tool.sandbox_profile == "agent-network"
+			) &&
 			paths.exists(item, any_glob_match(["src/**/*.py"], item.file))
 		`,
 	)
@@ -174,6 +182,76 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("expanded helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesNetworkCapabilityPolicy(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.network_capability",
+		`
+			!metadata.admin_approved &&
+			tool_capabilities.exists(tool,
+				tool.requires_network &&
+				shell_commands.exists(command,
+					command.name == tool.name ||
+					list_contains(tool.command, command.name)
+				)
+			)
+		`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Command: "gemini --prompt check",
+		Tool:    "Bash",
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("network capability output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesProtectedSymlinkPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	linkPath := filepath.Join(root, "hook-link")
+	if err := os.Symlink(
+		".git/coding-ethos-hooks/coding-ethos-git-hook",
+		linkPath,
+	); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	program, err := Program(
+		"test.protected_symlink_path",
+		`
+			paths.exists(path,
+				path.is_symlink &&
+				is_protected_path(path.symlink_target, repo.protected_paths)
+			)
+		`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Cwd:            root,
+		Files:          []string{"hook-link"},
+		ProtectedPaths: []string{".git/coding-ethos-hooks/coding-ethos-git-hook"},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("symlink helper output = %#v, want true", output.Value())
 	}
 }
 
@@ -420,6 +498,75 @@ func TestActivationPopulatesFileChangeInputs(t *testing.T) {
 		fileChange.SizeBytes == 0 ||
 		fileChange.OriginalLineCount != -1 {
 		t.Fatalf("file change input = %#v", fileChange)
+	}
+}
+
+func TestActivationPopulatesProposedWriteFileChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:     repo,
+		Files:   []string{"src/app.py"},
+		Tool:    "Write",
+		Content: "one\ntwo\nthree\n",
+	})
+
+	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	}
+	change := changes[0]
+	if change.File != "src/app.py" ||
+		change.CurrentLineCount != 2 ||
+		change.ProposedLineCount != 3 ||
+		change.LineDelta != 1 ||
+		!change.LineCountGrows ||
+		change.LineCountShrinks {
+		t.Fatalf("proposed change input = %#v", change)
+	}
+}
+
+func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"src/app.py"},
+		Tool:       "Edit",
+		OldContent: "two\nthree\n",
+		Content:    "two\n",
+	})
+
+	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	}
+	change := changes[0]
+	if change.ProposedLineCount != 2 ||
+		change.LineDelta != -1 ||
+		change.LineCountGrows ||
+		!change.LineCountShrinks ||
+		!change.ReplacementMatched ||
+		change.ReplacementAmbiguous {
+		t.Fatalf("proposed change input = %#v", change)
 	}
 }
 

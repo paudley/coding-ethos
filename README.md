@@ -24,6 +24,12 @@ The project is built around defense in depth for AI-assisted coding:
   typed CEL expression policies through the same decision model.
 - **Managed tools:** lint and type checks run through generated configs,
   managed binaries, normalized diagnostics, and trace logging.
+- **Runtime capabilities:** managed tools declare network, Git, sandbox,
+  timeout, memory, CPU, and seccomp capabilities that CEL, MCP, traces, and
+  SARIF can all inspect.
+- **Sandboxed capture:** managed lint can run through the Bubblewrap-backed
+  sandbox prototype with read-only repository and `.git` mounts, disconnected
+  network for offline tools, and normalized denial evidence.
 - **Agent steering:** Claude, Codex, and Gemini receive generated hook settings,
   MCP server configuration, skills, prompt addenda, and compact axiom advice.
 - **Repair feedback:** lint findings, blocked policy decisions, skill hints,
@@ -47,10 +53,10 @@ the places contributors actually work:
 | Tool config | Pyright, mypy, Ruff, Pylint, YAML, Bandit, SQLFluff, Tombi, and golangci-lint config |
 | Git hooks | compiled Go policy preflight plus deterministic hook groups |
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
-| MCP | stdio policy, skill, and repo-context queries from the compiled bundle |
+| MCP | stdio policy, skill, lint, SARIF, and tool-capability queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
-| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, artifacts, and package validation |
-| Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs for later analysis |
+| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, artifacts, package validation, and sandbox evidence |
+| Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs with policy, tool, SARIF, and sandbox evidence |
 
 ## Agents Used In This Repository
 
@@ -125,6 +131,23 @@ for transitional policy that has not yet been expressed as part of the ETHOS
 contract. The compiler checks CEL up front, dispatches it through hook and lint
 paths, and emits normal policy decisions with ETHOS grounding and skill hints.
 
+Runtime capability policy uses the same path. Managed tools declare whether
+they need network, Git, environment access, writable paths, sandbox profiles,
+timeouts, memory, CPU, and seccomp profiles. Those facts are available to CEL
+as `tool_capabilities`, exposed through MCP, retained in `.coding-ethos`
+traces, and copied into SARIF run properties. The built-in managed-tool
+contract blocks ordinary lint tools that forget to declare offline/no-Git
+behavior or resource bounds.
+
+Runtime sandboxing is the complementary data plane. The current Go prototype
+can run managed lint capture through Bubblewrap with a read-only root,
+read-only repository and `.git`, hidden home directories, disconnected network
+for offline tools, declared writable mounts, hard timeouts, cgroup resource
+requests, and seccomp profile metadata. Required sandbox mode fails closed with
+a normalized policy finding; advisory mode records degraded evidence without
+claiming enforcement. See
+[docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
+
 For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team
 testing, ETHOS inheritance, and agent remediation loops, see
@@ -154,6 +177,17 @@ The first tools are intentionally narrow and auditable:
   SQLFluff, and other captured tools; when no tool is supplied, run compiled
   coding-ethos policy lint checks for current work.
 - `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
+- `sarif_remediation_advice`: turn SARIF or retained trace evidence into
+  focused ETHOS-grounded repair guidance.
+- `sarif_risk_summary`: summarize a SARIF run for policy, skill, file, tool,
+  severity, and next-action risk signals.
+- `sarif_trend_analysis`: compare SARIF runs or retained traces for
+  introduced, fixed, persisting, reopened, and worsening findings.
+- `sarif_policy_feedback`: report unmapped diagnostics, missing skills, weak
+  severity mappings, and noisy rules for policy authors.
+- `tool_capabilities`: list managed tool capabilities, including network/Git
+  tags, sandbox profile, timeout, memory, CPU, seccomp profile metadata, and
+  declared read/write mounts.
 - `policy_explain`: return the compiled explanation for a policy ID.
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
@@ -163,6 +197,9 @@ tool is advisory, reads files, executes managed lint tools, and persists traces.
 Agents should call `lint_check` instead of invoking linters directly so target
 resolution, generated config integrity, managed tool versions, evidence maps,
 skill hints, and trace logging stay on the enforced path.
+Agents should call `tool_capabilities` before choosing a managed tool when
+runtime behavior matters; it is the MCP view of the same capability facts CEL
+uses for policy decisions.
 
 The MCP server is advisory context, not a bypass. Hook enforcement remains on
 the normal Git and agent-hook paths, and MCP responses come from the same
@@ -706,6 +743,7 @@ Emit SARIF for CI/code-scanning surfaces:
 ```bash
 bin/coding-ethos-run policy-lint --sarif --scope files --files lib/python/app.py
 bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
+bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode required --sarif -- check lib/python/app.py
 bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
@@ -718,6 +756,11 @@ SARIF results. Pathless policy findings are also omitted from code-scanning
 SARIF because GitHub requires every uploaded result to have at least one
 location; coding-ethos keeps those aggregate findings in TOON/JSON traces
 instead of inventing noisy alerts at `.` line 0.
+
+Managed capture can request the Bubblewrap sandbox prototype with
+`--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and
+denials are retained in lint traces and SARIF run properties so runtime
+enforcement has the same audit trail as CEL and static-analysis findings.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.

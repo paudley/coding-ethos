@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -24,14 +26,19 @@ func TestServerListsTools(t *testing.T) {
 
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 7 {
-		t.Fatalf("tool count = %d, want 7: %#v", len(tools), tools)
+	if len(tools) != 12 {
+		t.Fatalf("tool count = %d, want 12: %#v", len(tools), tools)
 	}
 	for _, expected := range []string{
 		"policy_check_command",
 		"policy_check_edit",
 		"lint_check",
 		"lint_advice",
+		"sarif_remediation_advice",
+		"sarif_risk_summary",
+		"sarif_trend_analysis",
+		"sarif_policy_feedback",
+		"tool_capabilities",
 		"policy_explain",
 		"skill_lookup",
 		"skill_recommend",
@@ -48,6 +55,34 @@ func TestServerListsTools(t *testing.T) {
 	if !strings.Contains(output, "canonical lint path for agents") ||
 		!strings.Contains(output, "executes_tools") {
 		t.Fatalf("missing coding-ethos tool metadata:\n%s", output)
+	}
+}
+
+func TestServerReportsToolCapabilities(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{
+		"jsonrpc":"2.0",
+		"id":12,
+		"method":"tools/call",
+		"params":{"name":"tool_capabilities","arguments":{}}
+	}`)
+
+	for _, want := range []string{
+		`"structuredContent"`,
+		`"tool_capabilities"`,
+		`"no-network"`,
+		`"no-git"`,
+		`"gemini-check"`,
+		`"network"`,
+		`"seccomp_profile"`,
+		`"timeout_seconds"`,
+		`"memory_mb"`,
+		`"cpu_quota_percent"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("tool capabilities output missing %q:\n%s", want, output)
+		}
 	}
 }
 
@@ -229,6 +264,520 @@ func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
 	if !strings.Contains(output, "conditional-imports") ||
 		!strings.Contains(output, "python.conditional_imports") {
 		t.Fatalf("missing lint advice:\n%s", output)
+	}
+}
+
+func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
+	t.Parallel()
+
+	sarif := compactJSON(t, fmt.Sprintf(`{
+		"version":"2.1.0",
+		"runs":[{
+			"tool":{"driver":{"rules":[{
+				"id":"python.conditional_imports",
+				"name":"conditional imports",
+				"shortDescription":{"text":"Move imports to module scope."},
+				"help":{"text":"Fix conditional imports structurally."},
+				"properties":{
+					"policy_id":"python.conditional_imports",
+					"skill_id":"conditional-imports",
+					"source_tool":"ruff",
+					"ethos_ids":["no-conditional-imports"]
+				}
+			}]}},
+			"results":[{
+				"ruleId":"python.conditional_imports",
+				"ruleIndex":0,
+				"level":"error",
+				"message":{"text":"import should be at the top-level of a file"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/app.py"},
+						"region":{"startLine":12,"startColumn":4}
+					}
+				}],
+				"partialFingerprints":{"coding-ethos/stable/v1":"abc123"},
+				"properties":{
+					"policy_id":"python.conditional_imports",
+					"skill_id":"conditional-imports",
+					"source_tool":"ruff",
+					"code":%q,
+					"advice":"Move the import to module scope.",
+					"ethos_ids":["no-conditional-imports"],
+					"implementation":"cel",
+					"policy_source":"coding_ethos.yml:principles.3",
+					"input_schema_version":1,
+					"cel_expression":"diagnostic.code == 'PLC0415'"
+				}
+			}]
+		}]
+	}`, "PLC"+"0415"))
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":12,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_remediation_advice",
+			"arguments":{"sarif":%q}
+		}
+	}`, sarif)))
+
+	for _, expected := range []string{
+		"conditional-imports",
+		"Move the import to module scope.",
+		"lint_check",
+		"src/app.py",
+		"cel_expression",
+		"coding-ethos/stable/v1",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in SARIF remediation output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFRiskSummaryUsesGroupsAndPolicyMetadata(t *testing.T) {
+	t.Parallel()
+
+	sarif := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"properties":{
+				"finding_groups":[{
+					"id":"group-1",
+					"key":"python.sql_safety|lint-remediation|src/db.py|8",
+					"policy_id":"python.sql_safety",
+					"skill_id":"lint-remediation",
+					"file":"src/db.py",
+					"line":8,
+					"result_count":2
+				}]
+			},
+			"tool":{"driver":{"rules":[{
+				"id":"python.sql_safety",
+				"shortDescription":{"text":"Possible SQL injection vector."},
+				"properties":{
+					"policy_id":"python.sql_safety",
+					"skill_id":"lint-remediation",
+					"source_tool":"bandit"
+				}
+			}]}},
+			"results":[{
+				"ruleId":"python.sql_safety",
+				"ruleIndex":0,
+				"level":"error",
+				"message":{"text":"Possible SQL injection vector"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/db.py"},
+						"region":{"startLine":8}
+					}
+				}],
+				"properties":{
+					"policy_id":"python.sql_safety",
+					"skill_id":"lint-remediation",
+					"source_tool":"bandit"
+				}
+			}]
+		}]
+	}`)
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":13,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_risk_summary",
+			"arguments":{"sarif":%q}
+		}
+	}`, sarif)))
+
+	for _, expected := range []string{
+		"risk_score",
+		"python.sql_safety",
+		"lint-remediation",
+		"src/db.py",
+		"group-1",
+		"sarif_remediation_advice",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in SARIF risk summary output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFRemediationAdviceCanReplayLintTraceID(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	tracePath, err := lint.LogResult(repo, lint.Result{
+		Scope:  "tool:ruff",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "src/app.py",
+			Line:     7,
+			Severity: "error",
+			Code:     "PLC0415",
+			PolicyID: "python.conditional_imports",
+			SkillID:  "conditional-imports",
+			Message:  "import should be at the top-level of a file",
+			Advice:   "Move the import to module scope.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("write lint trace: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":14,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_remediation_advice",
+			"arguments":{"trace_id":%q}
+		}
+	}`, filepath.Base(tracePath))), mcp.Runtime{ConsumerRoot: repo})
+
+	for _, expected := range []string{
+		"conditional-imports",
+		"Move the import to module scope.",
+		"src/app.py",
+		"lint_check",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in trace remediation output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFRiskSummaryCanReplayLintTraceID(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	tracePath, err := lint.LogResult(repo, lint.Result{
+		Scope:  "tool:bandit",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "bandit",
+			File:     "src/db.py",
+			Line:     9,
+			Severity: "error",
+			Code:     "S608",
+			PolicyID: "python.sql_safety",
+			SkillID:  "lint-remediation",
+			Message:  "Possible SQL injection vector",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("write lint trace: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":15,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_risk_summary",
+			"arguments":{"trace_id":%q}
+		}
+	}`, filepath.Base(tracePath))), mcp.Runtime{ConsumerRoot: repo})
+
+	for _, expected := range []string{
+		"risk_score",
+		"python.sql_safety",
+		"lint-remediation",
+		"src/db.py",
+		"sarif_remediation_advice",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in trace risk summary output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFTrendAnalysisComparesRuns(t *testing.T) {
+	t.Parallel()
+
+	baseline := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"tool":{"driver":{"rules":[{"id":"python.old","properties":{"policy_id":"python.old"}}]}},
+			"results":[{
+				"ruleId":"python.old",
+				"ruleIndex":0,
+				"level":"error",
+				"message":{"text":"old issue"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/old.py"},
+						"region":{"startLine":1}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.old||src/old.py|1"}
+			},{
+				"ruleId":"python.persisting",
+				"level":"error",
+				"message":{"text":"persisting issue"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/app.py"},
+						"region":{"startLine":3}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.persisting||src/app.py|3"}
+			}]
+		}]
+	}`)
+	current := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"tool":{"driver":{"rules":[{"id":"python.new","properties":{"policy_id":"python.new"}}]}},
+			"results":[{
+				"ruleId":"python.persisting",
+				"level":"error",
+				"message":{"text":"persisting issue"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/app.py"},
+						"region":{"startLine":3}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.persisting||src/app.py|3"}
+			},{
+				"ruleId":"python.new",
+				"ruleIndex":0,
+				"level":"error",
+				"message":{"text":"new issue"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/new.py"},
+						"region":{"startLine":9}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.new||src/new.py|9"}
+			}]
+		}]
+	}`)
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":17,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_trend_analysis",
+			"arguments":{
+				"baseline_sarif":%q,
+				"current_sarif":%q
+			}
+		}
+	}`, baseline, current)))
+
+	for _, expected := range []string{
+		"introduced",
+		"fixed",
+		"persisting",
+		"python.new",
+		"python.old",
+		"python.persisting",
+		"sarif_remediation_advice",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in SARIF trend output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFTrendAnalysisReportsReopenedAndWorsening(t *testing.T) {
+	t.Parallel()
+
+	history := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"results":[{
+				"ruleId":"python.reopened",
+				"level":"warning",
+				"message":{"text":"old issue returns"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/reopened.py"},
+						"region":{"startLine":5}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.reopened||src/reopened.py|5"}
+			}]
+		}]
+	}`)
+	baseline := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"results":[{
+				"ruleId":"python.worsening",
+				"level":"warning",
+				"message":{"text":"severity increased"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/risk.py"},
+						"region":{"startLine":7}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.worsening||src/risk.py|7"}
+			}]
+		}]
+	}`)
+	current := compactJSON(t, `{
+		"version":"2.1.0",
+		"runs":[{
+			"results":[{
+				"ruleId":"python.reopened",
+				"level":"warning",
+				"message":{"text":"old issue returns"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/reopened.py"},
+						"region":{"startLine":5}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.reopened||src/reopened.py|5"}
+			},{
+				"ruleId":"python.worsening",
+				"level":"error",
+				"message":{"text":"severity increased"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/risk.py"},
+						"region":{"startLine":7}
+					}
+				}],
+				"properties":{"coding_ethos_group_key":"python.worsening||src/risk.py|7"}
+			}]
+		}]
+	}`)
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":19,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_trend_analysis",
+			"arguments":{
+				"history_sarif":[%q],
+				"baseline_sarif":%q,
+				"current_sarif":%q
+			}
+		}
+	}`, history, baseline, current)))
+
+	for _, expected := range []string{
+		"reopened",
+		"worsening",
+		"python.reopened",
+		"python.worsening",
+		"src/reopened.py",
+		"src/risk.py",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in SARIF trend output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerSARIFPolicyFeedbackReportsAuthoringGaps(t *testing.T) {
+	t.Parallel()
+
+	noisyResults := make([]string, 0, 5)
+	for index := range 5 {
+		noisyResults = append(noisyResults, fmt.Sprintf(`{
+			"ruleId":"python.noisy",
+			"level":"warning",
+			"message":{"text":"Repeated noisy diagnostic %d"},
+			"locations":[{
+				"physicalLocation":{
+					"artifactLocation":{"uri":"src/noisy.py"},
+					"region":{"startLine":%d}
+				}
+			}],
+			"properties":{"policy_id":"python.noisy"}
+		}`, index, index+1))
+	}
+
+	sarif := compactJSON(t, fmt.Sprintf(`{
+		"version":"2.1.0",
+		"runs":[{
+			"tool":{"driver":{"rules":[{"id":"python.noisy"}]}},
+			"results":[{
+				"ruleId":"tool.unmapped",
+				"level":"warning",
+				"message":{"text":"Unmapped linter diagnostic"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/app.py"},
+						"region":{"startLine":4}
+					}
+				}],
+				"properties":{"source_tool":"ruff","code":"X999"}
+			},{
+				"ruleId":"python.security_note",
+				"level":"note",
+				"message":{"text":"Possible SQL injection vector"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"src/db.py"},
+						"region":{"startLine":9}
+					}
+				}],
+				"properties":{
+					"policy_id":"python.sql_safety",
+					"skill_id":"lint-remediation",
+					"source_tool":"bandit",
+					"code":"S608"
+				}
+			},%s]
+		}]
+	}`, strings.Join(noisyResults, ",")))
+
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":18,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_policy_feedback",
+			"arguments":{"sarif":%q}
+		}
+	}`, sarif)))
+
+	for _, expected := range []string{
+		"unmapped_diagnostics",
+		"missing_skill_ids",
+		"weak_severities",
+		"noisy_rules",
+		"tool.unmapped",
+		"python.security_note",
+		"python.noisy",
+		"skill_recommend",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %s in SARIF policy feedback output:\n%s", expected, output)
+		}
+	}
+}
+
+func TestServerRejectsPathLikeTraceID(t *testing.T) {
+	t.Parallel()
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":16,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_risk_summary",
+			"arguments":{"trace_id":"../secret.json"}
+		}
+	}`), mcp.Runtime{ConsumerRoot: t.TempDir()})
+	response := decodeResponse(t, output)
+	if response["error"] == nil || !strings.Contains(output, "not a path") {
+		t.Fatalf("expected path-like trace ID rejection:\n%s", output)
 	}
 }
 

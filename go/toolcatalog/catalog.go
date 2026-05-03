@@ -16,31 +16,32 @@ const (
 )
 
 type Tool struct {
-	Name                 string   `json:"name"`
-	Parser               string   `json:"parser"`
-	Category             string   `json:"category"`
-	OutputFormat         string   `json:"output_format"`
-	Advice               string   `json:"advice,omitempty"`
-	Runtime              Runtime  `json:"runtime"`
-	RepoConfig           string   `json:"repo_config,omitempty"`
-	FallbackBundleConfig string   `json:"fallback_bundle_config,omitempty"`
-	Command              []string `json:"command"`
-	CaptureOutputArgs    []string `json:"capture_output_args,omitempty"`
-	CaptureStripArgs     []string `json:"capture_strip_args,omitempty"`
-	CaptureStripFlags    []string `json:"capture_strip_flags,omitempty"`
-	CaptureAfterFirst    []string `json:"capture_after_first,omitempty"`
-	CaptureMutatingArgs  []string `json:"capture_mutating_args,omitempty"`
-	CaptureMutatingFirst []string `json:"capture_mutating_first,omitempty"`
-	ConfigFlags          []string `json:"config_flags,omitempty"`
-	FileExtensions       []string `json:"file_extensions,omitempty"`
-	FilePrefixes         []string `json:"file_prefixes,omitempty"`
-	BaseNamePrefixes     []string `json:"base_name_prefixes,omitempty"`
-	Languages            []string `json:"languages,omitempty"`
-	PostConfigArgs       []string `json:"post_config_args,omitempty"`
-	PassFilesAsArgs      bool     `json:"pass_files_as_args"`
-	UseHookProject       bool     `json:"use_hook_project"`
-	Fast                 bool     `json:"fast"`
-	EnabledByDefault     bool     `json:"enabled_by_default"`
+	Name                 string         `json:"name"`
+	Parser               string         `json:"parser"`
+	Category             string         `json:"category"`
+	OutputFormat         string         `json:"output_format"`
+	Advice               string         `json:"advice,omitempty"`
+	Runtime              Runtime        `json:"runtime"`
+	RepoConfig           string         `json:"repo_config,omitempty"`
+	FallbackBundleConfig string         `json:"fallback_bundle_config,omitempty"`
+	Command              []string       `json:"command"`
+	CaptureOutputArgs    []string       `json:"capture_output_args,omitempty"`
+	CaptureStripArgs     []string       `json:"capture_strip_args,omitempty"`
+	CaptureStripFlags    []string       `json:"capture_strip_flags,omitempty"`
+	CaptureAfterFirst    []string       `json:"capture_after_first,omitempty"`
+	CaptureMutatingArgs  []string       `json:"capture_mutating_args,omitempty"`
+	CaptureMutatingFirst []string       `json:"capture_mutating_first,omitempty"`
+	ConfigFlags          []string       `json:"config_flags,omitempty"`
+	FileExtensions       []string       `json:"file_extensions,omitempty"`
+	FilePrefixes         []string       `json:"file_prefixes,omitempty"`
+	BaseNamePrefixes     []string       `json:"base_name_prefixes,omitempty"`
+	Languages            []string       `json:"languages,omitempty"`
+	PostConfigArgs       []string       `json:"post_config_args,omitempty"`
+	Capabilities         CapabilitySpec `json:"capabilities,omitempty"`
+	PassFilesAsArgs      bool           `json:"pass_files_as_args"`
+	UseHookProject       bool           `json:"use_hook_project"`
+	Fast                 bool           `json:"fast"`
+	EnabledByDefault     bool           `json:"enabled_by_default"`
 }
 
 type CapturedTool struct {
@@ -78,6 +79,40 @@ type FileMatchSpec struct {
 	BaseNamePrefixes []string
 	Languages        []string
 	PassFilesAsArgs  bool
+}
+
+type CapabilitySpec struct {
+	Tags               []string `json:"tags,omitempty"`
+	ReadPaths          []string `json:"read_paths,omitempty"`
+	WritePaths         []string `json:"write_paths,omitempty"`
+	SandboxProfile     string   `json:"sandbox_profile,omitempty"`
+	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
+	MemoryMB           int      `json:"memory_mb,omitempty"`
+	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
+	RequiresNetwork    bool     `json:"requires_network,omitempty"`
+	RequiresGit        bool     `json:"requires_git,omitempty"`
+	RequiresEnv        bool     `json:"requires_env,omitempty"`
+	RequiresProcesses  bool     `json:"requires_processes,omitempty"`
+	SeccompProfile     string   `json:"seccomp_profile,omitempty"`
+	SeccompProfilePath string   `json:"seccomp_profile_path,omitempty"`
+}
+
+type CapabilityView struct {
+	Name               string   `json:"name"`
+	Command            []string `json:"command"`
+	Tags               []string `json:"tags"`
+	ReadPaths          []string `json:"read_paths"`
+	WritePaths         []string `json:"write_paths"`
+	SandboxProfile     string   `json:"sandbox_profile"`
+	TimeoutSeconds     int      `json:"timeout_seconds"`
+	MemoryMB           int      `json:"memory_mb"`
+	CPUQuotaPercent    int      `json:"cpu_quota_percent"`
+	RequiresNetwork    bool     `json:"requires_network"`
+	RequiresGit        bool     `json:"requires_git"`
+	RequiresEnv        bool     `json:"requires_env"`
+	RequiresProcesses  bool     `json:"requires_processes"`
+	SeccompProfile     string   `json:"seccomp_profile"`
+	SeccompProfilePath string   `json:"seccomp_profile_path"`
 }
 
 type ShimSpec struct {
@@ -148,6 +183,91 @@ func (tool Tool) FileMatchSpec() FileMatchSpec {
 		Languages:        append([]string(nil), tool.Languages...),
 		PassFilesAsArgs:  tool.PassFilesAsArgs,
 	}
+}
+
+func (tool Tool) CapabilitySpec() CapabilitySpec {
+	spec := tool.Capabilities
+	if spec.SandboxProfile == "" && tool.Name != "gemini-check" {
+		spec.SandboxProfile = "lint-offline"
+		spec.ReadPaths = append([]string{"."}, spec.ReadPaths...)
+		spec.WritePaths = append([]string{".coding-ethos/cache"}, spec.WritePaths...)
+	}
+	if spec.TimeoutSeconds == 0 && tool.Name != "gemini-check" {
+		spec.TimeoutSeconds = 300
+	}
+	if spec.MemoryMB == 0 && tool.Name != "gemini-check" {
+		spec.MemoryMB = 2048
+	}
+	if spec.CPUQuotaPercent == 0 && tool.Name != "gemini-check" {
+		spec.CPUQuotaPercent = 100
+	}
+	if spec.SeccompProfile == "" && tool.Name != "gemini-check" {
+		spec.SeccompProfile = "deny-privilege"
+	}
+	if tool.Name == "gemini-check" {
+		spec.Tags = appendCapabilityTags(spec.Tags, "network")
+	} else {
+		spec.Tags = appendCapabilityTags(spec.Tags, "no-network")
+	}
+	if spec.RequiresGit {
+		spec.Tags = appendCapabilityTags(spec.Tags, "git")
+	} else {
+		spec.Tags = appendCapabilityTags(spec.Tags, "no-git")
+	}
+	spec.Tags = append([]string(nil), spec.Tags...)
+	spec.ReadPaths = append([]string(nil), spec.ReadPaths...)
+	spec.WritePaths = append([]string(nil), spec.WritePaths...)
+
+	return spec
+}
+
+func (tool Tool) CapabilityView() CapabilityView {
+	spec := tool.CapabilitySpec()
+
+	return CapabilityView{
+		Name:               tool.Name,
+		Command:            append([]string(nil), tool.Command...),
+		Tags:               spec.Tags,
+		ReadPaths:          spec.ReadPaths,
+		WritePaths:         spec.WritePaths,
+		SandboxProfile:     spec.SandboxProfile,
+		TimeoutSeconds:     spec.TimeoutSeconds,
+		MemoryMB:           spec.MemoryMB,
+		CPUQuotaPercent:    spec.CPUQuotaPercent,
+		RequiresNetwork:    spec.RequiresNetwork,
+		RequiresGit:        spec.RequiresGit,
+		RequiresEnv:        spec.RequiresEnv,
+		RequiresProcesses:  spec.RequiresProcesses,
+		SeccompProfile:     spec.SeccompProfile,
+		SeccompProfilePath: spec.SeccompProfilePath,
+	}
+}
+
+func appendCapabilityTags(existing []string, tags ...string) []string {
+	seen := map[string]struct{}{}
+	merged := make([]string, 0, len(existing)+len(tags))
+	for _, tag := range append(append([]string(nil), existing...), tags...) {
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		merged = append(merged, tag)
+	}
+
+	return merged
+}
+
+func ToolCapabilityViews() []CapabilityView {
+	tools := HookOwnedTools()
+	views := make([]CapabilityView, 0, len(tools))
+	for _, tool := range tools {
+		views = append(views, tool.CapabilityView())
+	}
+
+	return views
 }
 
 func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
@@ -772,13 +892,17 @@ func pytestGateTool() Tool {
 
 func geminiCheckTool() Tool {
 	return Tool{
-		Name:             "gemini-check",
-		Parser:           "gemini",
-		Category:         "ai",
-		OutputFormat:     "json",
-		Advice:           "Resolve Gemini critical findings or parser/API errors before committing.",
-		Runtime:          RuntimeBinary,
-		Command:          []string{"gemini"},
+		Name:         "gemini-check",
+		Parser:       "gemini",
+		Category:     "ai",
+		OutputFormat: "json",
+		Advice:       "Resolve Gemini critical findings or parser/API errors before committing.",
+		Runtime:      RuntimeBinary,
+		Command:      []string{"gemini"},
+		Capabilities: CapabilitySpec{
+			RequiresNetwork: true,
+			SandboxProfile:  "agent-network",
+		},
 		PassFilesAsArgs:  false,
 		EnabledByDefault: true,
 	}
@@ -853,6 +977,7 @@ func (tool Tool) clone() Tool {
 	tool.BaseNamePrefixes = append([]string(nil), tool.BaseNamePrefixes...)
 	tool.Languages = append([]string(nil), tool.Languages...)
 	tool.PostConfigArgs = append([]string(nil), tool.PostConfigArgs...)
+	tool.Capabilities = tool.CapabilitySpec()
 
 	return tool
 }

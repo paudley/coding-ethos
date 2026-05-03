@@ -115,6 +115,20 @@ func (event Event) Content() string {
 	return ""
 }
 
+func (event Event) OldContent() string {
+	if event.ToolInput == nil {
+		return ""
+	}
+
+	for _, key := range []string{"old_string", "old_content", "before"} {
+		if content, ok := event.ToolInput[key].(string); ok {
+			return content
+		}
+	}
+
+	return ""
+}
+
 func (event Event) ToolOutput() string {
 	if event.ToolResponse == nil {
 		return ""

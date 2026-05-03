@@ -121,6 +121,7 @@ func celActivation(context Context) map[string]any {
 		Argv:             context.Argv,
 		Command:          context.Command,
 		Content:          context.Content,
+		OldContent:       context.OldContent,
 		Cwd:              context.Cwd,
 		EventName:        context.EventName,
 		EventMatcher:     context.EventMatcher,

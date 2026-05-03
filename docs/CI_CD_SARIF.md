@@ -14,7 +14,8 @@ properties.
 
 For product uses beyond CI upload, including MCP remediation, finding
 deduplication, audit bundles, and editor diagnostics, see
-[`SARIF_USES.md`](SARIF_USES.md).
+[`SARIF_USES.md`](SARIF_USES.md) and
+[`SARIF_EDITOR_INTEGRATION.md`](SARIF_EDITOR_INTEGRATION.md).
 
 ## Output Contract
 
@@ -30,6 +31,17 @@ Captured managed tools can also emit SARIF:
 ```bash
 bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check path/to/file.py
 ```
+
+Sandboxed managed capture is opt-in while the Bubblewrap profile is hardened:
+
+```bash
+bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode required --sarif -- check path/to/file.py
+```
+
+When sandboxing is requested, SARIF records the selected backend, profile,
+declared capabilities, and backend denials under `runs[].properties.sandbox`.
+Pathless sandbox denials remain run-level evidence for code-scanning
+compatibility and are preserved in `.coding-ethos` lint traces.
 
 SARIF is intentionally not supported for explanatory or aggregate analysis
 commands such as `--explain` and `--analyze-log`; those are operator summaries,
@@ -215,7 +227,9 @@ empty SARIF result when no safe diff base is available.
   gate. SARIF upload is an audit and review surface, not the only enforcement
   mechanism.
 - SARIF artifacts should be retained with `.coding-ethos` traces so reviewers
-  can replay failures without rerunning the underlying tools.
+  can replay failures without rerunning the underlying tools. MCP trace lookup
+  expects lint trace file names from `.coding-ethos/lint-runs/`, not arbitrary
+  paths, and replays them through the normalized lint trace reader.
 - Keep result volume scoped. GitHub code scanning rejects oversized SARIF
   uploads and only displays a bounded number of results, so CI should prefer
   changed-file scopes for PR feedback, pass only files that still exist, and
