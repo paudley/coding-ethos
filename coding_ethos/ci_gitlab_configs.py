@@ -11,13 +11,18 @@ SARIF and trace artifacts while leaving runner image selection to each repo.
 
 from typing import Any
 
-from coding_ethos.config_access import configured_int, configured_string
+from coding_ethos.config_access import (
+    configured_choice,
+    configured_int,
+    configured_string,
+)
 
 HASH_SPDX_HEADER = (
     "# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. "
     "<paudley@blackcat.ca>\n"
     "# SPDX-License-Identifier: MIT\n\n"
 )
+SANDBOX_MODES = {"auto", "off", "required"}
 
 
 def _with_hash_spdx_header(content: str) -> str:
@@ -110,10 +115,11 @@ def render_gitlab_sarif_config(config: dict[str, Any]) -> str:
         "generated_config.ci.gitlab.sarif_path",
         "coding-ethos.sarif",
     )
-    sandbox_mode = configured_string(
+    sandbox_mode = configured_choice(
         config,
         "generated_config.ci.gitlab.sandbox_mode",
         "required",
+        SANDBOX_MODES,
     )
     timeout_minutes = configured_int(
         config,

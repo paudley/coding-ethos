@@ -13,6 +13,7 @@ from typing import Any
 
 from coding_ethos.config_access import (
     configured_bool,
+    configured_choice,
     configured_int,
     configured_string,
 )
@@ -26,6 +27,7 @@ GENERATED_CI_CONFIGS: tuple[str, ...] = (
     ".github/workflows/coding-ethos-sarif.yml",
     ".gitlab-ci.yml",
 )
+SANDBOX_MODES = {"auto", "off", "required"}
 
 
 def _with_hash_spdx_header(content: str) -> str:
@@ -69,10 +71,11 @@ def render_github_sarif_workflow(config: dict[str, Any]) -> str:
         "generated_config.ci.github_actions.sarif_category",
         "policy",
     )
-    sandbox_mode = configured_string(
+    sandbox_mode = configured_choice(
         config,
         "generated_config.ci.github_actions.sandbox_mode",
         "required",
+        SANDBOX_MODES,
     )
     timeout_minutes = configured_int(
         config,

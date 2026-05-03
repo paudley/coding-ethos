@@ -79,6 +79,21 @@ def configured_string(config: ConfigMap, path: str, fallback: str) -> str:
     return configured or fallback
 
 
+def configured_choice(
+    config: ConfigMap,
+    path: str,
+    fallback: str,
+    choices: set[str],
+) -> str:
+    """Return a configured string constrained to an explicit allowed set."""
+    configured = configured_string(config, path, fallback)
+    if configured not in choices:
+        allowed = ", ".join(sorted(choices))
+        msg = f"Invalid {path}: {configured}. Must be one of: {allowed}."
+        raise ValueError(msg)
+    return configured
+
+
 def configured_bool(config: ConfigMap, path: str, *, fallback: bool) -> bool:
     """Return a configured bool with common string truth values supported."""
     configured = get_path(config, path, fallback)

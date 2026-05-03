@@ -10,6 +10,8 @@ knobs directly. They deliberately import through the package public API so the
 tests exercise the supported interface.
 """
 
+import pytest
+
 from coding_ethos import render_github_sarif_workflow, render_gitlab_sarif_config
 
 
@@ -51,6 +53,17 @@ def test_github_sarif_workflow_parses_false_string_triggers() -> None:
     assert "workflow_dispatch:" not in workflow
 
 
+def test_github_sarif_workflow_rejects_invalid_sandbox_mode() -> None:
+    with pytest.raises(ValueError, match=r"github_actions\.sandbox_mode"):
+        render_github_sarif_workflow(
+            {
+                "generated_config": {
+                    "ci": {"github_actions": {"sandbox_mode": "sometimes"}}
+                }
+            }
+        )
+
+
 def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
     gitlab_ci = render_gitlab_sarif_config(
         {
@@ -74,3 +87,10 @@ def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
     assert '--sandbox-mode "$CODING_ETHOS_SANDBOX_MODE"' in gitlab_ci
     assert 'export PATH="$ethos_path/bin:$PATH"' in gitlab_ci
     assert "uvx twine check dist/*" in gitlab_ci
+
+
+def test_gitlab_config_rejects_invalid_sandbox_mode() -> None:
+    with pytest.raises(ValueError, match=r"gitlab\.sandbox_mode"):
+        render_gitlab_sarif_config(
+            {"generated_config": {"ci": {"gitlab": {"sandbox_mode": "sometimes"}}}}
+        )
