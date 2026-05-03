@@ -4,12 +4,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -185,7 +187,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
 		var err error
-		uvBin, err = lookPathPreferNonHostedToolcache("uv")
+		uvBin, err = lookUsablePath("uv")
 		if err != nil {
 			return managedToolCommand{}
 		}
@@ -211,8 +213,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	}
 }
 
-func lookPathPreferNonHostedToolcache(name string) (string, error) {
-	var hostedFallback string
+func lookUsablePath(name string) (string, error) {
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if strings.TrimSpace(dir) == "" {
 			dir = "."
@@ -221,20 +222,24 @@ func lookPathPreferNonHostedToolcache(name string) (string, error) {
 		if !isExecutable(candidate) {
 			continue
 		}
-		if strings.Contains(candidate, "/hostedtoolcache/") {
-			if hostedFallback == "" {
-				hostedFallback = candidate
-			}
-			continue
+		if commandStarts(candidate, "--version") {
+			return candidate, nil
 		}
-
-		return candidate, nil
-	}
-	if hostedFallback != "" {
-		return hostedFallback, nil
 	}
 
 	return "", exec.ErrNotFound
+}
+
+func commandStarts(path string, args ...string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, path, args...)
+	if err := command.Run(); err != nil {
+		return false
+	}
+
+	return ctx.Err() == nil
 }
 
 func enforceManagedToolArgs(

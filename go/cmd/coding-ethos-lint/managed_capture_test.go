@@ -159,13 +159,13 @@ exit 1
 	}
 }
 
-func TestLookPathPreferNonHostedToolcache(t *testing.T) {
+func TestLookUsablePathSkipsUnstartableCandidates(t *testing.T) {
 	hostedDir := filepath.Join(t.TempDir(), "hostedtoolcache", "uv", "0.11.8", "x86_64")
 	localDir := filepath.Join(t.TempDir(), ".local", "bin")
 	hostedUV := filepath.Join(hostedDir, "uv")
 	localUV := filepath.Join(localDir, "uv")
-	writeManagedCaptureFile(t, hostedUV, "#!/usr/bin/env sh\nexit 0\n")
-	writeManagedCaptureFile(t, localUV, "#!/usr/bin/env sh\nexit 0\n")
+	writeManagedCaptureFile(t, hostedUV, "#!/bin/sh\nexit 126\n")
+	writeManagedCaptureFile(t, localUV, "#!/bin/sh\nexit 0\n")
 	if err := os.Chmod(hostedUV, 0o700); err != nil {
 		t.Fatalf("chmod hosted uv: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestLookPathPreferNonHostedToolcache(t *testing.T) {
 	}
 	t.Setenv("PATH", hostedDir+string(os.PathListSeparator)+localDir)
 
-	got, err := lookPathPreferNonHostedToolcache("uv")
+	got, err := lookUsablePath("uv")
 	if err != nil {
 		t.Fatalf("look path: %v", err)
 	}
