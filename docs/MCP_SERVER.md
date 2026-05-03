@@ -40,6 +40,8 @@ skill metadata used by those enforcement paths.
   CPU, seccomp profile metadata, and read/write mount declarations.
 - `policy_explain`: explain a compiled policy and its ETHOS grounding.
 - `skill_lookup`: return the generated skill playbook for a skill ID.
+- `remediation_explain`: expand an emitted `agent_remediation` payload into
+  policy, principle, skill, action-context, and retry guidance.
 - `skill_recommend`: rank generated skills for a task, command, path, or
   diagnostic.
 

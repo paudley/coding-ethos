@@ -143,6 +143,19 @@ The remediation payload should include:
 - concrete next step
 - rerun command when appropriate
 
+The first implementation derives `agent_remediation` from normalized
+diagnostics and policy decisions. It is emitted in agent-facing JSON and TOON
+output, provider-native blocked hook responses, SARIF result properties, hook
+traces, and retained lint traces. Each item has a stable remediation ID,
+concrete next steps, skill-loading instructions when available, action context
+when policy evidence carries it, and the MCP call an agent should make. Agents
+can call `remediation_explain` with the full payload, or use the embedded
+`policy_explain` / `skill_lookup` call directly.
+
+Hook and lint traces also include `remediation_summary` so later storage can
+measure repeated policy failures and which remediation guidance was suggested
+without reparsing provider-specific output.
+
 Claude, Codex, Gemini, and future MCP clients should receive this feedback in
 the strongest native format they support. The same normalized data should drive
 human output, TOON output, traces, and remediation payloads.

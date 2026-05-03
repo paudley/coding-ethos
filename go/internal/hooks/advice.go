@@ -5,8 +5,10 @@ package hooks
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -103,6 +105,22 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 			lines = append(lines, "    suggestion: "+toonCell(decision.Suggestion))
 		}
 	}
+	if remediation := agentmsg.FromDecisions(decisions, result.Tool); len(remediation) > 0 {
+		lines = append(
+			lines,
+			"agent_remediation["+strconv.Itoa(len(remediation))+"]{policy_id,skill_id,failed_action,next,mcp_tool}:",
+		)
+		for _, item := range remediation {
+			lines = append(
+				lines,
+				"  "+toonCell(item.PolicyID)+","+
+					toonCell(item.SkillID)+","+
+					toonCell(item.FailedAction)+","+
+					toonCell(firstAgentStep(item))+","+
+					toonCell(agentMCPTool(item)),
+			)
+		}
+	}
 
 	lines = appendRenderedReminders(
 		lines,
@@ -120,6 +138,9 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 		"status":    result.Status,
 		"decisions": decisions,
 	}
+	if remediation := agentmsg.FromDecisions(decisions, result.Tool); len(remediation) > 0 {
+		payload["agent_remediation"] = remediation
+	}
 	if hasSevereViolation(decisions) {
 		payload["violation_warning"] = severeViolationWarning
 	}
@@ -133,6 +154,22 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	}
 
 	return string(encoded)
+}
+
+func firstAgentStep(item agentmsg.Remediation) string {
+	if len(item.NextSteps) == 0 {
+		return item.Advice
+	}
+
+	return item.NextSteps[0]
+}
+
+func agentMCPTool(item agentmsg.Remediation) string {
+	if item.MCP == nil {
+		return ""
+	}
+
+	return item.MCP.Tool
 }
 
 func hasSevereViolation(decisions []policy.Decision) bool {

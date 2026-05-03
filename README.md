@@ -262,7 +262,17 @@ The first tools are intentionally narrow and auditable:
   declared read/write mounts.
 - `policy_explain`: return the compiled explanation for a policy ID.
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
+- `remediation_explain`: expand an emitted `agent_remediation` item into
+  policy, principle, skill, and retry guidance.
 - `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
+
+Hook, provider-native block responses, lint, SARIF, and trace outputs also
+include an `agent_remediation` payload when a violation can be explained. Each
+item carries a stable remediation ID, policy ID, ETHOS principle IDs, skill ID,
+failed action or file location, concrete next steps, rerun commands when known,
+and the next MCP call an agent should make. Agents can pass the full item to
+`remediation_explain`, or follow the embedded `policy_explain` or
+`skill_lookup` call directly. See [Agent Remediation Payloads](docs/AGENT_REMEDIATION.md).
 
 Tool definitions include `coding_ethos` metadata that tells clients whether a
 tool is advisory, reads files, executes managed lint tools, and persists traces.
@@ -861,6 +871,12 @@ Managed capture can request the Bubblewrap sandbox prototype with
 `--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and
 denials are retained in lint traces and SARIF run properties so runtime
 enforcement has the same audit trail as CEL and static-analysis findings.
+
+Agent-facing lint output includes an `agent_remediation` block in JSON and TOON
+formats. SARIF result properties and retained `.coding-ethos/lint-runs/`
+traces carry the same derived payload so CI findings, MCP remediation, and
+local hook failures point agents at the same next action instead of duplicating
+advice logic.
 
 The analyzer highlights unmapped tool/code pairs separately from ETHOS-backed
 findings so real lint traces can drive the next evidence-map additions.

@@ -387,6 +387,12 @@ Known external diagnostics can be enriched through `policy.evidence_maps`.
 Mapped findings keep their raw tool, code, location, severity, and message, then
 add policy ID, principle IDs, confidence, meaning, advice, and rerun commands.
 Unmapped diagnostics still flow through as ordinary lint findings.
+Agent-facing JSON, TOON, SARIF, provider-native block responses, hook traces,
+and lint traces derive a compact `agent_remediation` payload from that
+normalized result. The payload names a stable remediation ID, policy, ETHOS
+principle, skill, location or failed action, next steps, rerun commands,
+skill-loading instruction, and the MCP call an agent should use for deeper
+explanation. Agents with the full item can call `remediation_explain`.
 Type-checker evidence maps cover common mypy, Pyright, and Pylint findings for
 optional required dependencies, unknown type leakage, missing imports, unstable
 interfaces, and import cycles. Those findings point back to ETHOS guidance such

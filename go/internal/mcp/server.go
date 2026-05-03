@@ -130,6 +130,8 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 		result, err = server.explainPolicy(call.Arguments)
 	case "skill_lookup":
 		result, err = server.lookupSkill(call.Arguments)
+	case "remediation_explain":
+		result, err = server.explainRemediation(call.Arguments)
 	case "skill_recommend":
 		result, err = server.recommendSkills(call.Arguments)
 	default:
@@ -729,18 +731,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func diagnosticFromInput(input lintAdviceInput) diagnostics.Diagnostic {
-	return diagnostics.Diagnostic{
-		Code:     strings.TrimSpace(input.Code),
-		File:     strings.TrimSpace(input.File),
-		Message:  strings.TrimSpace(input.Message),
-		Severity: strings.TrimSpace(input.Severity),
-		Tool:     strings.TrimSpace(input.Tool),
-		Column:   input.Column,
-		Line:     input.Line,
-	}
-}
-
 type scoredSkill struct {
 	skill policy.Skill
 	score int
@@ -794,26 +784,6 @@ func (server Server) skillRecommendations(
 	}
 
 	return recommendations
-}
-
-func (server Server) skillIDForDiagnostic(input lintAdviceInput) string {
-	return strings.TrimSpace(server.enrichedDiagnostic(input).SkillID)
-}
-
-func (server Server) enrichedDiagnostic(input lintAdviceInput) diagnostics.Diagnostic {
-	if strings.TrimSpace(input.Tool) == "" || strings.TrimSpace(input.Message) == "" {
-		return diagnostics.Diagnostic{}
-	}
-
-	enriched := diagnostics.Enrich(
-		[]diagnostics.Diagnostic{diagnosticFromInput(input)},
-		server.bundle.EvidenceMaps,
-	)
-	if len(enriched) == 0 {
-		return diagnostics.Diagnostic{}
-	}
-
-	return enriched[0]
 }
 
 func scoreSkillByText(skill policy.Skill, text string) int {

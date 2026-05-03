@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,8 +13,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -24,17 +28,25 @@ const (
 	commandPreviewLimit = 300
 )
 
+var hookTraceFallbackCounter atomic.Uint64
+
 type HookTrace struct {
-	RecordedAtUTC string               `json:"recorded_at_utc"`
-	Provider      string               `json:"provider,omitempty"`
-	Event         string               `json:"event"`
-	Tool          string               `json:"tool,omitempty"`
-	Cwd           string               `json:"cwd,omitempty"`
-	Command       *HookTraceCommand    `json:"command,omitempty"`
-	Files         []string             `json:"files,omitempty"`
-	Status        string               `json:"status"`
-	Decisions     []HookTraceDecision  `json:"decisions,omitempty"`
-	OutputShape   HookTraceOutputShape `json:"output_shape"`
+	SchemaVersion      int                         `json:"schema_version"`
+	TraceID            string                      `json:"trace_id"`
+	RecordedAtUTC      string                      `json:"recorded_at_utc"`
+	Provider           string                      `json:"provider,omitempty"`
+	Event              string                      `json:"event"`
+	Tool               string                      `json:"tool,omitempty"`
+	Cwd                string                      `json:"cwd,omitempty"`
+	Command            *HookTraceCommand           `json:"command,omitempty"`
+	Files              []string                    `json:"files,omitempty"`
+	Status             string                      `json:"status"`
+	Decisions          []HookTraceDecision         `json:"decisions,omitempty"`
+	Findings           []evidence.Finding          `json:"findings,omitempty"`
+	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
+	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitempty"`
+	RemediationEvents  []evidence.RemediationEvent `json:"remediation_events,omitempty"`
+	OutputShape        HookTraceOutputShape        `json:"output_shape"`
 }
 
 type HookTraceCommand struct {
@@ -72,16 +84,30 @@ func WriteAgentHookTraceFromEnv(event Event, result Result) error {
 }
 
 func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) {
+	remediation := agentmsg.FromDecisions(result.Decisions, event.ToolName)
+	findings := evidence.FromDecisions(result.Decisions)
+	traceID := hookTraceID(event, result)
 	trace := HookTrace{
-		RecordedAtUTC: time.Now().UTC().Format(time.RFC3339),
-		Provider:      event.Provider(),
-		Event:         event.HookEventName,
-		Tool:          event.ToolName,
-		Cwd:           event.Cwd,
-		Files:         event.Files(),
-		Status:        result.Status,
-		Decisions:     traceDecisions(result.Decisions),
-		OutputShape:   traceOutputShape(result),
+		SchemaVersion:      evidence.SchemaVersion,
+		TraceID:            traceID,
+		RecordedAtUTC:      time.Now().UTC().Format(time.RFC3339),
+		Provider:           event.Provider(),
+		Event:              event.HookEventName,
+		Tool:               event.ToolName,
+		Cwd:                event.Cwd,
+		Files:              event.Files(),
+		Status:             result.Status,
+		Decisions:          traceDecisions(result.Decisions),
+		Findings:           findings,
+		AgentRemediation:   remediation,
+		RemediationSummary: agentmsg.Summarize(remediation),
+		RemediationEvents: evidence.RemediationEvents(
+			remediation,
+			findings,
+			traceID,
+			"suggested",
+		),
+		OutputShape: traceOutputShape(result),
 	}
 
 	if command := event.Command(); command != "" {
@@ -181,6 +207,38 @@ func traceOutputShape(result Result) HookTraceOutputShape {
 	shape.HasAdditionalContext = result.HookSpecificOutput.AdditionalContext != ""
 
 	return shape
+}
+
+func hookTraceID(event Event, result Result) string {
+	runID := randomTraceComponent()
+	parts := []string{
+		runID,
+		event.Provider(),
+		event.HookEventName,
+		event.ToolName,
+		event.Cwd,
+		event.Command(),
+		result.Status,
+	}
+	for _, decision := range result.Decisions {
+		parts = append(parts, decision.PolicyID, decision.Decision, decision.Message)
+	}
+
+	return "hook-" + sha256Hex(strings.Join(parts, "\x00"))[:16]
+}
+
+func randomTraceComponent() string {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err == nil {
+		return hex.EncodeToString(random[:])
+	}
+
+	return fmt.Sprintf(
+		"%d-%d-%d",
+		time.Now().UTC().UnixNano(),
+		os.Getpid(),
+		hookTraceFallbackCounter.Add(1),
+	)
 }
 
 func sha256Hex(value string) string {

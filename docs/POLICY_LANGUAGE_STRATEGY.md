@@ -231,8 +231,12 @@ Start with small stable input objects:
 - `diagnostic`: populated only when the caller supplies a real diagnostic;
   includes tool, code, message, file, line, column, severity, and policy ID
 - `finding`: populated only when the caller supplies a real normalized finding;
-  includes tool, code, message, file, line, severity, policy ID, skill ID, and
+  includes tool, code, message, file, language, symbol name, symbol kind, chunk
+  hash, line, line count, changed lines, severity, policy ID, skill ID, and
   principle IDs
+- `source`: future-facing code-intelligence facts including path, language,
+  symbol name, symbol kind, chunk hash, line count, changed lines, prior
+  failures, and recent remediations
 - `repo`: repo root metadata, configured source roots, language settings,
   enabled capabilities
 - `metadata`: event ID, scope, provider, and non-sensitive trace IDs

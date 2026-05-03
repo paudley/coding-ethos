@@ -116,18 +116,6 @@ type DiagnosticInput struct {
 	PolicyID string `json:"policy_id"`
 }
 
-type FindingInput struct {
-	Tool         string   `json:"tool"`
-	Code         string   `json:"code"`
-	Message      string   `json:"message"`
-	File         string   `json:"file"`
-	Line         int64    `json:"line"`
-	Severity     string   `json:"severity"`
-	PolicyID     string   `json:"policy_id"`
-	SkillID      string   `json:"skill_id"`
-	PrincipleIDs []string `json:"principle_ids"`
-}
-
 type RepoInput struct {
 	ConfigCandidates  []string      `json:"config_candidates"`
 	ProtectedBranches []string      `json:"protected_branches"`
@@ -267,24 +255,12 @@ type ActivationInput struct {
 	Diagnostics       []diagnostics.Diagnostic
 	Finding           *FindingActivation
 	Findings          []FindingActivation
+	Source            SourceActivation
 	ProtectedPaths    []string
 	ProtectedBranches []string
 	RequiredIgnores   []string
 	SourceRoots       []string
 	PythonVersion     string
-}
-
-type FindingActivation struct {
-	Tool         string
-	Code         string
-	Message      string
-	File         string
-	Severity     string
-	PolicyID     string
-	SkillID      string
-	PrincipleIDs []string
-	Column       int
-	Line         int
 }
 
 const SchemaVersion int64 = 1
@@ -320,13 +296,14 @@ func InputSchema() []string {
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
+		"source: {path, language, symbol_name, symbol_kind, chunk_hash, line_count, changed_lines, prior_failures, recent_remediations}",
 		"metadata: {admin_approved, schema_version, tool}",
 		"path: {file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root}",
 		"paths: list({file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"diagnostics: list({tool, code, message, file, line, column, severity, policy_id})",
-		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
-		"findings: list({tool, code, message, file, line, severity, policy_id, skill_id, principle_ids})",
+		"finding: {tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids}",
+		"findings: list({tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids})",
 		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
 		"referenced_files: list({file, dir, base, lower, exists, is_regular, in_agent_workspace, size_bytes})",
 		"tool_capabilities: list({name, command, tags, read_paths, write_paths, sandbox_profile, timeout_seconds, memory_mb, cpu_quota_percent, requires_network, requires_git, requires_env, requires_processes, seccomp_profile})",
@@ -375,6 +352,7 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(PathInput{}),
 			reflect.TypeOf(DiagnosticInput{}),
 			reflect.TypeOf(FindingInput{}),
+			reflect.TypeOf(SourceInput{}),
 			reflect.TypeOf(RepoInput{}),
 			reflect.TypeOf(IgnoreInput{}),
 			reflect.TypeOf(ConfigInput{}),
@@ -412,6 +390,7 @@ func newEnvironment() (*cel.Env, error) {
 			cel.ListType(cel.ObjectType("celexpr.ToolCapabilityInput")),
 		),
 		cel.Variable("scope", cel.StringType),
+		cel.Variable("source", cel.ObjectType("celexpr.SourceInput")),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
 		cel.Variable(
@@ -594,6 +573,7 @@ func Activation(input ActivationInput) map[string]any {
 			Tool:          input.Tool,
 		},
 		"scope":       input.Scope,
+		"source":      sourceInput(input.Source, input.Finding, primaryPath),
 		"path":        primaryPath,
 		"paths":       paths,
 		"diagnostic":  diagnosticInput(input.Diagnostic),
@@ -1705,24 +1685,6 @@ func diagnosticInput(diagnostic *diagnostics.Diagnostic) DiagnosticInput {
 		Column:   int64(diagnostic.Column),
 		Severity: diagnostic.Severity,
 		PolicyID: diagnostic.PolicyID,
-	}
-}
-
-func findingInput(finding *FindingActivation) FindingInput {
-	if finding == nil {
-		return FindingInput{PrincipleIDs: []string{}}
-	}
-
-	return FindingInput{
-		Tool:         finding.Tool,
-		Code:         finding.Code,
-		Message:      finding.Message,
-		File:         cleanInputFile(finding.File),
-		Line:         int64(finding.Line),
-		Severity:     finding.Severity,
-		PolicyID:     finding.PolicyID,
-		SkillID:      finding.SkillID,
-		PrincipleIDs: append([]string(nil), finding.PrincipleIDs...),
 	}
 }
 

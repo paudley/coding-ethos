@@ -1,0 +1,19 @@
+{
+	"decision": "block",
+	"hookSpecificOutput": {
+		"hookEventName": "PreToolUse",
+		"permissionDecision": "deny"
+	},
+	"agent_remediation": [
+		{
+			"policy_id": "git.hook_bypass",
+			"failed_action": "Bash",
+			"mcp": {
+				"tool": "policy_explain",
+				"arguments": {
+					"policy_id": "git.hook_bypass"
+				}
+			}
+		}
+	]
+}

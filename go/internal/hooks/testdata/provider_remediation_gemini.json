@@ -1,0 +1,14 @@
+{
+	"decision": "deny",
+	"agent_remediation": [
+		{
+			"policy_id": "git.hook_bypass",
+			"mcp": {
+				"tool": "policy_explain",
+				"arguments": {
+					"policy_id": "git.hook_bypass"
+				}
+			}
+		}
+	]
+}
