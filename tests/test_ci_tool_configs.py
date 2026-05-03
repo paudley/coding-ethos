@@ -35,6 +35,19 @@ def test_github_sarif_workflow_can_enable_standalone_triggers() -> None:
     assert "workflow_dispatch:" in workflow
 
 
+def test_github_sarif_workflow_parses_false_string_triggers() -> None:
+    workflow = render_github_sarif_workflow(
+        {
+            "generated_config": {
+                "ci": {"github_actions": {"standalone_triggers": "false"}}
+            }
+        }
+    )
+
+    assert "pull_request:" not in workflow
+    assert "workflow_dispatch:" not in workflow
+
+
 def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
     gitlab_ci = render_gitlab_sarif_config(
         {
