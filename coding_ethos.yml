@@ -2991,7 +2991,8 @@ principles:
               git_command.subcommand == "checkout" ||
               git_command.subcommand == "switch"
             ) &&
-            git_command.has_checkout_protected_branch
+            git_command.has_checkout_protected_branch &&
+            !metadata.admin_approved
         - id: filesystem.protected_branch_write
           scope: file
           severity: block
