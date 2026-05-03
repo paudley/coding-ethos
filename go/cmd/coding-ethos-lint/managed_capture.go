@@ -185,7 +185,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
 		var err error
-		uvBin, err = lookPathOutsideHiddenCredentialDirs("uv")
+		uvBin, err = exec.LookPath("uv")
 		if err != nil {
 			return managedToolCommand{}
 		}
@@ -209,45 +209,6 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 			runtime.Command[0],
 		},
 	}
-}
-
-func lookPathOutsideHiddenCredentialDirs(name string) (string, error) {
-	pathValue := os.Getenv("PATH")
-	for _, dir := range filepath.SplitList(pathValue) {
-		if strings.TrimSpace(dir) == "" {
-			dir = "."
-		}
-		candidate := filepath.Join(dir, name)
-		resolved, err := exec.LookPath(candidate)
-		if err != nil {
-			continue
-		}
-		cleaned := filepath.Clean(resolved)
-		if managedCapturePathWithin(cleaned, "/home") ||
-			managedCapturePathWithin(cleaned, "/root") {
-			continue
-		}
-
-		return cleaned, nil
-	}
-
-	return "", exec.ErrNotFound
-}
-
-func managedCapturePathWithin(path string, root string) bool {
-	cleanPath := filepath.Clean(path)
-	cleanRoot := filepath.Clean(root)
-	if cleanPath == cleanRoot {
-		return true
-	}
-	relative, err := filepath.Rel(cleanRoot, cleanPath)
-	if err != nil {
-		return false
-	}
-
-	return relative != "." &&
-		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) &&
-		relative != ".."
 }
 
 func enforceManagedToolArgs(

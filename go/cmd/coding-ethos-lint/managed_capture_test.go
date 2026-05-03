@@ -159,36 +159,6 @@ exit 1
 	}
 }
 
-func TestLookPathOutsideHiddenCredentialDirsRejectsHomePaths(t *testing.T) {
-	t.Parallel()
-
-	hiddenHome := string(filepath.Separator) + "home"
-	hiddenRoot := string(filepath.Separator) + "root"
-	for _, path := range []string{
-		filepath.Join(hiddenHome, "runner", ".local", "bin", "uv"),
-		filepath.Join(hiddenHome, "developer", ".cargo", "bin", "uv"),
-		filepath.Join(hiddenRoot, ".local", "bin", "uv"),
-	} {
-		if !managedCapturePathWithin(path, hiddenHome) &&
-			!managedCapturePathWithin(path, hiddenRoot) {
-			t.Fatalf("path %q was not treated as hidden", path)
-		}
-	}
-	hostedToolcache := filepath.Join(
-		string(filepath.Separator),
-		"opt",
-		"hostedtoolcache",
-		"uv",
-		"0.11.8",
-		"x86_64",
-		"uv",
-	)
-	if managedCapturePathWithin(hostedToolcache, hiddenHome) ||
-		managedCapturePathWithin(hostedToolcache, hiddenRoot) {
-		t.Fatal("hosted toolcache path was treated as hidden")
-	}
-}
-
 func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	t.Parallel()
 
