@@ -14,10 +14,11 @@ import (
 const decisionBlock = "block"
 
 type gitSafetyCase struct {
-	name      string
-	policyID  string
-	evaluator EvaluatorFunc
-	argv      []string
+	name          string
+	policyID      string
+	evaluator     EvaluatorFunc
+	argv          []string
+	adminApproved bool
 }
 
 func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
@@ -34,6 +35,7 @@ func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
 
 			decisions, err := test.evaluator(policyDef, Context{
 				Argv:             test.argv,
+				AdminApproved:    test.adminApproved,
 				EvaluatorOptions: policyDef.Evaluators[0].Options,
 			})
 			if err != nil {
@@ -322,12 +324,7 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name      string
-		policyID  string
-		evaluator EvaluatorFunc
-		argv      []string
-	}{
+	tests := []gitSafetyCase{
 		{
 			name:      "soft reset",
 			policyID:  "git.destructive_command",
@@ -345,6 +342,13 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			policyID:  "git.checkout_protected_branch",
 			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "checkout", "feature"},
+		},
+		{
+			name:          "admin approved checkout main",
+			policyID:      "git.checkout_protected_branch",
+			evaluator:     EvaluateCELExpression,
+			argv:          []string{"git", "checkout", "main"},
+			adminApproved: true,
 		},
 		{
 			name:      "checkout new branch from origin main",
@@ -445,6 +449,7 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 
 			decisions, err := test.evaluator(policyDef, Context{
 				Argv:             test.argv,
+				AdminApproved:    test.adminApproved,
 				EvaluatorOptions: policyDef.Evaluators[0].Options,
 			})
 			if err != nil {
