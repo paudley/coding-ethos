@@ -124,10 +124,11 @@ func enrichDecisionsWithSkills(
 		if skillID == "" {
 			continue
 		}
-		evidence := map[string]any{"skill_id": skillID}
+		evidence := make(map[string]any)
 		for key, value := range enriched[index].Evidence {
 			evidence[key] = value
 		}
+		evidence["skill_id"] = skillID
 		enriched[index].Evidence = evidence
 	}
 
