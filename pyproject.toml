@@ -8,9 +8,9 @@ build-backend = "hatchling.build"
 [project]
 name = "coding-ethos"
 version = "0.1.0"
-description = "Generate Codex, Claude Code, and Gemini instruction files from a shared coding ethos."
+description = "Policy-as-code enforcement for AI agents with MCP, CEL, Git hooks, SARIF, and static-analysis guardrails."
 readme = "README.md"
-license = { text = "MIT License" }
+license = "MIT"
 authors = [
     { name = "Blackcat Informatics® Inc.", email = "paudley@blackcat.ca" },
 ]
@@ -19,12 +19,21 @@ maintainers = [
 ]
 keywords = [
     "ai",
+    "ai-agents",
     "agent-instructions",
+    "cel",
     "codex",
+    "devsecops",
     "gemini",
+    "git-hooks",
     "claude",
     "llm",
+    "mcp",
+    "mcp-server",
+    "policy-as-code",
     "prompt-engineering",
+    "sarif",
+    "static-analysis",
     "yaml",
 ]
 classifiers = [
@@ -36,6 +45,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
     "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Security",
     "Topic :: Text Processing :: Markup",
 ]
 requires-python = ">=3.13"
@@ -51,6 +63,8 @@ Homepage = "https://github.com/paudley/coding-ethos"
 Repository = "https://github.com/paudley/coding-ethos"
 Issues = "https://github.com/paudley/coding-ethos/issues"
 Changelog = "https://github.com/paudley/coding-ethos/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/paudley/coding-ethos/blob/main/docs/index.md"
+Security = "https://github.com/paudley/coding-ethos/blob/main/SECURITY.md"
 
 [project.scripts]
 coding-ethos = "coding_ethos.cli:main"
@@ -69,7 +83,7 @@ managed = true
 [tool.uv.workspace]
 members = ["pre-commit/hooks"]
 
-[tool.pytest.ini_options]
+[tool.pytest]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = ["-ra"]

@@ -1,0 +1,11 @@
+{"version":3,"term":{"cols":100,"rows":28},"timestamp":1777793497,"idle_time_limit":1.2,"command":"bash docs/assets/record-demo.sh","title":"coding-ethos MCP and SARIF demo","env":{"SHELL":"/bin/bash"}}
+[0.005, "o", "\u001b[H\u001b[J"]
+[0.000, "o", "$ bin/coding-ethos-run mcp  # MCP stdio server for agents\r\n  tools: policy_check_command, lint_check, lint_advice, sarif_remediation_advice, tool_capabilities\r\n\r\n"]
+[1.001, "o", "$ MCP policy_check_command: git commit --no-verify -m test\r\n"]
+[0.078, "o", "{\r\n  \"blocked\": true,\r\n  \"policy_id\": \"git.hook_bypass\",\r\n  \"message\": \"Hook bypass is forbidden.\",\r\n  \"skill_id\": \"safe-git-workflow\"\r\n}\r\n"]
+[1.004, "o", "\r\n$ MCP lint_check: examples/mcp-lint-advice/README.md\r\n"]
+[0.060, "o", "{\r\n  \"blocked\": false,\r\n  \"engine\": \"compiled_policy_lint\",\r\n  \"files\": [\r\n    \"examples/mcp-lint-advice/README.md\"\r\n  ],\r\n  \"diagnostics\": 0,\r\n  \"policy_findings\": 21\r\n}\r\n"]
+[1.006, "o", "\r\n$ bin/coding-ethos-run policy-lint --scope files --files examples/mcp-lint-advice/README.md --sarif\r\n"]
+[0.070, "o", "{\r\n  \"sarif\": \"2.1.0\",\r\n  \"tool\": \"coding-ethos\",\r\n  \"results\": 0,\r\n  \"policy_count\": 21\r\n}\r\n"]
+[0.002, "o", "\r\nDone. Agents get policy, lint, and SARIF context from one compiled source.\r\n"]
+[0.000, "x", "0"]

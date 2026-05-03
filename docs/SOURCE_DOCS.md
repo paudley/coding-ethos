@@ -7,6 +7,43 @@
 
 - `docs/REPOSITORY_ANALYSIS.md`: architecture map, source-of-truth
   boundaries, generated artifacts, and verification contract.
+- `docs/index.md`: public docs landing page for policy-as-code, AI-agent
+  enforcement, MCP, CEL, SARIF, sandboxing, and roadmap entry points.
+- `docs/TRUST_SIGNALS.md`: OpenSSF, release, security, social-preview, and
+  publication checklist for project credibility and organic discovery.
+- `docs/THREAT_MODEL.md`: protected assets, actors, trust boundaries, primary
+  risks, out-of-scope claims, and defense-in-depth summary.
+- `docs/RELEASE.md`: versioning, release checklist, build artifacts, release
+  notes, and post-release actions.
+- `docs/DISCUSSIONS.md`: recommended GitHub Discussions categories and
+  issue-versus-discussion routing.
+- `docs/DEMO.md`: verified MCP, command-block, lint-check, and SARIF demo
+  excerpts plus recording instructions.
+- `docs/assets/README.md`: asset inventory and regeneration instructions for
+  demo recordings, rendered GIFs, and social preview images.
+- `docs/COMPARISON.md`: positioning against pre-commit, CodeQL, Semgrep, OPA,
+  branch protection, and plain agent instructions.
+- `docs/INTEGRATIONS.md`: integration guide for Codex, Claude Code, Gemini
+  CLI, MCP clients, GitHub Actions, GitLab CI, SARIF consumers, and managed
+  static-analysis tools.
+- `docs/MCP_SERVER.md`: stdio MCP server contract, current tools, and
+  expansion plan for agent-facing policy, lint, SARIF, and remediation
+  services.
+- `docs/POLICY_LANGUAGE_STRATEGY.md`: CEL policy-language strategy, typed
+  inputs, helper functions, and the path from Go evaluators into
+  principle-owned policy-as-code.
+- `docs/CI_CD_SARIF.md`: generated GitHub Actions and GitLab CI SARIF gates,
+  upload behavior, artifacts, and consumer repo integration.
+- `docs/SARIF_USES.md`: practical SARIF uses beyond code scanning, including
+  remediation loops, trend analysis, risk summaries, and editor integration.
+- `docs/SARIF_EDITOR_INTEGRATION.md`: editor and local developer workflows
+  built around SARIF output.
+- `docs/RUNTIME_SANDBOXING.md`: Bubblewrap, cgroup, seccomp, capability, and
+  CEL-backed runtime sandboxing strategy.
+- `docs/RED_TEAM_SUITE.md`: adversarial tests for policy, hook, MCP, shell,
+  sandbox, and SARIF behavior.
+- `docs/STRATEGIC_ROADMAP.md`: major platform roadmap across MCP, CEL, SARIF,
+  sandboxing, centralized ETHOS registry, and agent remediation loops.
 - `docs/HOOK_RUNTIME_BOOTSTRAP.md`: target model for consumer hook shims,
   checkout-local runtime artifacts, and bootstrap repair behavior.
 - `docs/LINT_CAPTURE_GO_FLOW.md`: target model for replacing shell-owned lint
@@ -23,3 +60,5 @@
   commands.
 - `pre-commit/hooks/coding_ethos_hooks/CODING_ETHOS_HOOKS.md`: hook package
   overview, installation flow, and runtime boundaries.
+- `examples/README.md`: small user-facing examples, starting with the MCP lint
+  advice workflow agents should prefer over raw linter invocation.
