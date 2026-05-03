@@ -7,11 +7,11 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-26T19:23:01.732227936Z"
+exclude-newer = "2026-04-26T19:43:17.840708804Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-pip = "2026-04-26T21:00:04Z"
+pip = "2026-04-26T21:00:06Z"
 
 [manifest]
 members = [
@@ -181,7 +181,7 @@ wheels = [
 
 [[package]]
 name = "coding-ethos"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -212,7 +212,7 @@ dev = [
 
 [[package]]
 name = "coding-ethos-hooks"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "pre-commit/hooks" }
 dependencies = [
     { name = "bandit", extra = ["baseline", "sarif"] },
