@@ -224,6 +224,24 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	}
 }
 
+func TestPrepareSandboxCgroupSkipsWhenSandboxDisabled(t *testing.T) {
+	cgroup, evidence, err := prepareSandboxCgroup(sandbox.Evidence{
+		Mode:            sandbox.ModeOff,
+		CgroupRequested: true,
+		MemoryMB:        2048,
+		CPUQuotaPercent: 100,
+	})
+	if err != nil {
+		t.Fatalf("prepare cgroup returned error: %v", err)
+	}
+	if cgroup != nil {
+		t.Fatal("prepare cgroup returned cgroup while sandbox disabled")
+	}
+	if evidence.CgroupEnabled {
+		t.Fatalf("cgroup evidence enabled with sandbox disabled: %#v", evidence)
+	}
+}
+
 func TestRunCapturedToolReportsStartFailureDetail(t *testing.T) {
 	repo := t.TempDir()
 	missingTool := filepath.Join(repo, "missing-tool")

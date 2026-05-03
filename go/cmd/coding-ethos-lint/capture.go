@@ -114,9 +114,9 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	command.Stderr = &stderr
 	command.Stdin = os.Stdin
 
-	cgroup, appliedEvidence, cgroupErr := sandbox.PrepareCgroupLimits(plan.Evidence)
+	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
 	evidence = lintSandboxEvidence(appliedEvidence)
-	if cgroupErr != nil && plan.Evidence.Mode == sandbox.ModeRequired {
+	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
 		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
 
 		return captureExecution{
@@ -155,6 +155,14 @@ func executeCapturedTool(request captureRequest) captureExecution {
 		Sandbox:  evidence,
 		ExitCode: capturedExitCode(err),
 	}
+}
+
+func prepareSandboxCgroup(evidence sandbox.Evidence) (*sandbox.Cgroup, sandbox.Evidence, error) {
+	if !evidence.Enabled {
+		return nil, evidence, nil
+	}
+
+	return sandbox.PrepareCgroupLimits(evidence)
 }
 
 func capturedExecutionError(stderr string, err error) string {
