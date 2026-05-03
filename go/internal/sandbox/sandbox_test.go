@@ -127,6 +127,7 @@ func TestBuildPlanAutoOnUnsupportedPlatformFallsBackWithEvidence(t *testing.T) {
 
 func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
 		t.Fatalf("create git dir: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 		Cwd:         repo,
 		RepoRoot:    repo,
 		Args:        []string{"check", "pkg"},
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"pkg"},
@@ -150,7 +151,7 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
 	}
-	if plan.Executable != "/usr/bin/bwrap" {
+	if plan.Executable != backend {
 		t.Fatalf("executable = %q", plan.Executable)
 	}
 	for _, want := range []string{
@@ -202,13 +203,14 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 
 func TestBuildPlanSkipsMissingReadPath(t *testing.T) {
 	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "ruff",
 		Executable:  "/tools/ruff",
 		Cwd:         repo,
 		RepoRoot:    repo,
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"missing"},
@@ -227,12 +229,13 @@ func TestBuildPlanAddsSeccompProfileFD(t *testing.T) {
 	if err := os.WriteFile(profile, []byte("profile"), 0o600); err != nil {
 		t.Fatalf("write profile: %v", err)
 	}
+	backend := fakeBubblewrap(t)
 
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "ruff",
 		Executable:  "/tools/ruff",
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile:     "lint-offline",
 			SeccompProfile:     "deny-privilege",
@@ -325,11 +328,12 @@ func TestCommandContextAppliesTimeout(t *testing.T) {
 }
 
 func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
+	backend := fakeBubblewrap(t)
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "gemini-check",
 		Executable:  "/tools/gemini",
-		BackendPath: "/usr/bin/bwrap",
+		BackendPath: backend,
 		Capabilities: Capabilities{
 			SandboxProfile:  "agent-network",
 			RequiresNetwork: true,
@@ -344,4 +348,15 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	if !plan.Evidence.RequiresNetwork || plan.Evidence.NetworkIsolated {
 		t.Fatalf("network capability not recorded: %#v", plan.Evidence)
 	}
+}
+
+func fakeBubblewrap(t *testing.T) string {
+	t.Helper()
+
+	backend := filepath.Join(t.TempDir(), "bwrap")
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write fake bwrap: %v", err)
+	}
+
+	return backend
 }
