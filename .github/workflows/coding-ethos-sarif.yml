@@ -48,6 +48,8 @@ jobs:
           enable-cache: true
 
       - name: Build coding-ethos runtime
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: make -C "$CODING_ETHOS_PATH" build
 
       - name: Run project gate

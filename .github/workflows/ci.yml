@@ -44,6 +44,8 @@ jobs:
           enable-cache: true
 
       - name: Build managed toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: make build
 
       - name: Run actionlint through coding-ethos
