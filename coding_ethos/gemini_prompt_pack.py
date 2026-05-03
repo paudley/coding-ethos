@@ -17,6 +17,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 
 from coding_ethos.loaders import load_primary_bundle, merge_repo_ethos
 from coding_ethos.models import EthosBundle, Principle
+from coding_ethos.resources import resource_path
 from coding_ethos.tool_configs import load_enforcement_config
 
 GENERATED_GEMINI_PROMPT_FILES: tuple[str, ...] = (
@@ -170,7 +171,12 @@ def resolve_repo_ethos(repo_root: Path, explicit_repo_ethos: object = "") -> Pat
 
 
 def _jinja_environment() -> Environment:
-    template_root = _ethos_root() / "pre-commit" / "prompts"
+    checkout_template_root = _ethos_root() / "pre-commit" / "prompts"
+    template_root = (
+        checkout_template_root
+        if checkout_template_root.exists()
+        else resource_path("prompts")
+    )
     return Environment(
         loader=FileSystemLoader(str(template_root)),
         autoescape=select_autoescape(

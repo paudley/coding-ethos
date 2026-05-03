@@ -20,9 +20,11 @@ search engines, and AI-agent policy/security searches.
   red-team, and roadmap documents are discoverable from one page.
 - [x] Add a GitHub social-preview image sized for repository cards and shared
   links.
-- [ ] Add an OpenSSF Scorecard badge once the public Scorecard endpoint returns
-  a valid project score; current prep and gaps are documented in
-  `docs/TRUST_SIGNALS.md`.
+- [x] Add an OpenSSF Scorecard workflow and badge; the public score appears
+  after the first successful `main` run publishes results.
+- [ ] After the first successful Scorecard run on `main`, verify the README
+  badge resolves, record the current score in `docs/TRUST_SIGNALS.md`, and add
+  any score gaps to this TODO.
 - [x] Document progress toward the OpenSSF Best Practices badge.
 - [x] Add a small demo walkthrough showing an agent using MCP instead of
   invoking lint directly.
@@ -44,8 +46,17 @@ search engines, and AI-agent policy/security searches.
 - [x] Add docs asset regeneration instructions.
 - [x] Cross-link examples to relevant MCP, CEL, SARIF, sandbox, and threat docs.
 - [x] Update changelog for discoverability, Pages, examples, and demo assets.
-- [x] Document PyPI metadata checks and artifact attestations as release
+- [x] Document PyPI metadata checks, Trusted Publishing, artifact
+  attestations, SBOM generation, checksums, and verification as release
   prerequisites.
+- [x] Add a local release dry-run target for package metadata, checksums, and
+  GitHub workflow lint.
+- [x] Add a package smoke target proving the wheel works outside the source
+  checkout with packaged defaults.
+- [ ] Decide the correct Go hook runtime publication model for PyPI users:
+  wheel data, companion platform wheels, GitHub release assets, or source
+  checkout bootstrap. Do not bundle binaries into the wheel without a designed
+  upgrade, checksum, and platform strategy.
 
 Acceptance criteria:
 

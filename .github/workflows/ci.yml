@@ -51,8 +51,7 @@ jobs:
       - name: Run actionlint through coding-ethos
         run: >-
           bin/coding-ethos-run policy-tool actionlint
-          .github/workflows/ci.yml
-          .github/workflows/coding-ethos-sarif.yml
+          .github/workflows/*.yml
 
   policy:
     name: Coding Ethos SARIF Gate
@@ -120,16 +119,66 @@ jobs:
         run: uv build
 
       - name: Validate package metadata
-        run: uvx twine check dist/*
+        run: uvx twine check dist/*.tar.gz dist/*.whl
+
+      - name: Generate distribution checksums
+        run: |
+          mkdir -p dist-checksums
+          sha256sum dist/*.tar.gz dist/*.whl > dist-checksums/SHA256SUMS
+
+      - name: Prepare SBOM output directory
+        run: mkdir -p sbom
+
+      - name: Generate distribution SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: .
+          output-file: sbom/coding-ethos.spdx.json
+          format: spdx-json
+          upload-artifact: false
 
       - name: Attest distribution artifacts
-        uses: actions/attest-build-provenance@v4
+        # SLSA provenance binds each built distribution to this repository,
+        # workflow identity, commit, and build event through GitHub OIDC.
+        uses: actions/attest@v4
         with:
-          subject-path: dist/*
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.whl
+
+      - name: Attest distribution checksums
+        # The checksum file is a release-facing trust artifact, so it receives
+        # its own provenance instead of being treated as incidental output.
+        uses: actions/attest@v4
+        with:
+          subject-path: dist-checksums/SHA256SUMS
+
+      - name: Attest distribution SBOM
+        # SBOM mode binds the SPDX document to the distribution subjects listed
+        # in SHA256SUMS. Do not replace this with the deprecated attest-sbom
+        # wrapper.
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist-checksums/SHA256SUMS
+          sbom-path: sbom/coding-ethos.spdx.json
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
+          if-no-files-found: error
+
+      - name: Upload distribution checksums
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-checksums
+          path: dist-checksums/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Upload distribution SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist-sbom
+          path: sbom/coding-ethos.spdx.json
           if-no-files-found: error

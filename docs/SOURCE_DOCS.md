@@ -11,6 +11,9 @@
   enforcement, MCP, CEL, SARIF, sandboxing, and roadmap entry points.
 - `docs/TRUST_SIGNALS.md`: OpenSSF, release, security, social-preview, and
   publication checklist for project credibility and organic discovery.
+- `docs/SUPPLY_CHAIN_ATTESTATIONS.md`: Scorecard publishing, GitHub artifact
+  attestations, SBOM generation, PyPI Trusted Publishing, checksum policy, and
+  verification commands.
 - `docs/THREAT_MODEL.md`: protected assets, actors, trust boundaries, primary
   risks, out-of-scope claims, and defense-in-depth summary.
 - `docs/RELEASE.md`: versioning, release checklist, build artifacts, release

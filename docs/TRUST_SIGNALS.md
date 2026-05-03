@@ -15,6 +15,10 @@ adopt.
 - Generated SARIF/code-scanning workflow.
 - Build distribution job with package metadata validation and artifact
   attestation.
+- OpenSSF Scorecard workflow with published results for the public badge and
+  SARIF upload.
+- Release workflow with GitHub artifact attestations, SPDX JSON SBOMs,
+  SHA-256 checksums, and PyPI Trusted Publishing.
 - Dependabot configuration.
 - `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`,
   issue templates, and pull request template.
@@ -28,17 +32,23 @@ adopt.
 Target badge:
 
 ```markdown
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/paudley/coding-ethos/badge)](https://securityscorecards.dev/viewer/?uri=github.com/paudley/coding-ethos)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/paudley/coding-ethos/badge)](https://scorecard.dev/viewer/?uri=github.com/paudley/coding-ethos)
 ```
 
-Before making the badge prominent, verify the score and track any gaps here.
-Expected areas to inspect:
+The `.github/workflows/scorecard.yml` workflow publishes public Scorecard
+results with `publish_results: true`, uploads Scorecard SARIF to code scanning,
+and preserves the SARIF file as a workflow artifact. The badge may report
+`invalid repo path` until the first successful run on `main` has populated the
+public Scorecard API.
+
+Expected areas to monitor after the first published result:
 
 - Branch protection and required checks.
 - Token permissions in GitHub Actions workflows.
 - Dependency update coverage.
-- Signed-release or provenance posture.
+- Signed-release, provenance, and PyPI Trusted Publishing posture.
 - Binary artifact publication and checksum policy.
+- SBOM generation and attestation coverage.
 - Security policy and vulnerability reporting path.
 
 ## OpenSSF Best Practices Badge
@@ -61,8 +71,11 @@ Preparation checklist:
 - [ ] Attach or document generated binaries if they are part of the supported
   install path.
 - [ ] Add checksums for published binary artifacts.
-- [ ] Confirm Python distributions have GitHub artifact attestations before
+- [x] Confirm Python distributions have GitHub artifact attestations before
   upload to a certified PyPI account.
+- [x] Generate and attest an SPDX JSON SBOM for release artifacts.
+- [x] Publish Python distributions via PyPI Trusted Publishing so PyPI publish
+  attestations are generated and uploaded automatically.
 - [ ] Link the docs landing page from the repository homepage or README.
 - [ ] Upload `docs/social-preview.png` as the GitHub social preview image.
 - [ ] Enable GitHub Discussions with categories for policy recipes, agent

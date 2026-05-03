@@ -17,6 +17,7 @@ from typing import Any, cast
 import yaml
 
 from coding_ethos import ci_gitlab_configs, ci_tool_configs
+from coding_ethos.resources import resource_path
 from coding_ethos.yaml_utils import render_yaml
 
 GENERATED_TOOL_CONFIGS: tuple[str, ...] = (
@@ -56,6 +57,13 @@ HASH_SPDX_HEADER = (
 
 def _ethos_root() -> Path:
     return Path(__file__).resolve().parent.parent
+
+
+def _base_config_path() -> Path:
+    checkout_config = _ethos_root() / "config.yaml"
+    if checkout_config.exists():
+        return checkout_config
+    return resource_path("config.yaml")
 
 
 ConfigMap = dict[str, Any]
@@ -217,7 +225,7 @@ def resolve_repo_config(
     resolved_base: ConfigMap = (
         cast(ConfigMap, base_config)
         if isinstance(base_config, dict)
-        else _load_yaml(_ethos_root() / "config.yaml")
+        else _load_yaml(_base_config_path())
     )
     configured_names = _string_list(
         _get(
@@ -249,7 +257,7 @@ def load_enforcement_config(
         The merged config mapping and the resolved repo override path, if any.
 
     """
-    base_config = _load_yaml(_ethos_root() / "config.yaml")
+    base_config = _load_yaml(_base_config_path())
     resolved_repo_config = resolve_repo_config(
         repo_root,
         repo_config_path,

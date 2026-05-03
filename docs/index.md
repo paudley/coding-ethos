@@ -19,6 +19,9 @@ Git hooks, MCP tools, SARIF output, runtime sandbox evidence, and CI gates.
   CEL, SARIF, sandboxing, and agent remediation loops.
 - [Trust signals](TRUST_SIGNALS.md): OpenSSF Scorecard, Best Practices badge,
   security posture, and publication checklist.
+- [Supply-chain attestations](SUPPLY_CHAIN_ATTESTATIONS.md): Scorecard
+  publishing, GitHub artifact provenance, SBOMs, PyPI Trusted Publishing,
+  checksums, and verification commands.
 - [Threat model](THREAT_MODEL.md): protected assets, actors, trust
   boundaries, risks, and out-of-scope claims.
 - [Release process](RELEASE.md): versioning, artifact, checklist, and release

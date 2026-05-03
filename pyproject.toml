@@ -42,7 +42,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
     "Topic :: Software Development :: Documentation",
     "Topic :: Software Development :: Quality Assurance",
@@ -54,7 +53,6 @@ requires-python = ">=3.13"
 dependencies = [
     "Jinja2>=3.1.6",
     "PyYAML>=6.0.2",
-    "pytest>=8.0",
     "ruamel.yaml>=0.18.16",
 ]
 
@@ -71,11 +69,19 @@ coding-ethos = "coding_ethos.cli:main"
 
 [dependency-groups]
 dev = [
+    "pytest>=8.0",
     "types-pyyaml>=6.0.12.20260408",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["coding_ethos"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"coding_ethos.yml" = "coding_ethos/resources/coding_ethos.yml"
+"config.yaml" = "coding_ethos/resources/config.yaml"
+"repo_config.example.yaml" = "coding_ethos/resources/repo_config.example.yaml"
+"repo_ethos.example.yml" = "coding_ethos/resources/repo_ethos.example.yml"
+"pre-commit/prompts" = "coding_ethos/resources/prompts"
 
 [tool.uv]
 managed = true

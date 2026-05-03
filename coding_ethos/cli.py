@@ -44,6 +44,7 @@ from coding_ethos.renderers import (
     render_skill_outputs,
     required_root_imports,
 )
+from coding_ethos.resources import resource_path
 from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
 
 MAX_MERGE_TOPICS = 12
@@ -227,6 +228,12 @@ def _resolve_primary_path(explicit_primary: object = "") -> Path:
         candidate = Path(name)
         if candidate.exists():
             return candidate.resolve()
+    return resource_path("coding_ethos.yml")
+
+
+def _resolve_seed_primary_path(explicit_primary: object = "") -> Path:
+    if isinstance(explicit_primary, Path):
+        return explicit_primary.resolve()
     return Path("coding_ethos.yml").resolve()
 
 
@@ -532,7 +539,11 @@ def _generate_outputs(
     merge_settings: MergeSettings,
 ) -> int:
     repo_root = _repo_root_from_args(args)
-    primary_path = _resolve_primary_path(args.primary)
+    primary_path = (
+        _resolve_seed_primary_path(args.primary)
+        if args.seed_from_markdown
+        else _resolve_primary_path(args.primary)
+    )
     _maybe_seed_primary(args, primary_path)
     _require_primary_path(_build_parser(), primary_path)
     repo_root.mkdir(parents=True, exist_ok=True)
