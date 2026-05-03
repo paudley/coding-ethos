@@ -183,6 +183,27 @@ func TestLookUsablePathSkipsUnstartableCandidates(t *testing.T) {
 	}
 }
 
+func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
+	ethosRoot := t.TempDir()
+	ruffPath := filepath.Join(ethosRoot, ".venv", "bin", "ruff")
+	writeManagedCaptureFile(t, ruffPath, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(ruffPath, 0o700); err != nil {
+		t.Fatalf("chmod ruff fixture: %v", err)
+	}
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	command := managedToolCommandFor(tool, ethosRoot)
+	if command.Path != ruffPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, ruffPath)
+	}
+	if len(command.Prefix) != 0 {
+		t.Fatalf("managed command prefix = %#v, want empty", command.Prefix)
+	}
+}
+
 func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	t.Parallel()
 

@@ -638,6 +638,42 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultHumanIncludesCapturedFailureDetail(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:actionlint",
+		Status: "blocked",
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"category":  "tool_error",
+				"exit_code": 127,
+				"output":    "fork/exec actionlint: permission denied",
+			},
+			CheckID:    "tool.actionlint",
+			Message:    "actionlint exited with status 127 without parseable diagnostics",
+			Severity:   "error",
+			SourceTool: "actionlint",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatHuman)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"actionlint exited with status 127 without parseable diagnostics",
+		"detail: category=tool_error; exit_code=127; output=fork/exec actionlint: permission denied",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestFormatLintResultTOONBlockedOutputQuality(t *testing.T) {
 	t.Parallel()
 

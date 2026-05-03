@@ -215,6 +215,9 @@ func FormatLintResultHuman(result lint.Result) string {
 		if finding.Advice != "" {
 			lines = append(lines, "  advice: "+finding.Advice)
 		}
+		if finding.Detail != "" {
+			lines = append(lines, "  detail: "+finding.Detail)
+		}
 	}
 	if len(result.SkillHints) > 0 {
 		lines = append(lines, "skill advice:")

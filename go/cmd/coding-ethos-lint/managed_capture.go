@@ -184,6 +184,10 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 		return managedToolCommand{}
 	}
 
+	if command := managedPythonToolCommand(tool, ethosRoot); command.Path != "" {
+		return command
+	}
+
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
 		var err error
@@ -211,6 +215,23 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 			runtime.Command[0],
 		},
 	}
+}
+
+func managedPythonToolCommand(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
+	runtime := tool.RuntimeSpec()
+	if runtime.Runtime != toolcatalog.RuntimePython && runtime.Runtime != toolcatalog.RuntimeUV {
+		return managedToolCommand{}
+	}
+	if len(runtime.Command) == 0 {
+		return managedToolCommand{}
+	}
+
+	candidate := filepath.Join(ethosRoot, ".venv", "bin", runtime.Command[0])
+	if !isExecutable(candidate) {
+		return managedToolCommand{}
+	}
+
+	return managedToolCommand{Path: candidate}
 }
 
 func lookUsablePath(name string) (string, error) {
