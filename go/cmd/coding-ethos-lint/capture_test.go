@@ -224,6 +224,49 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	}
 }
 
+func TestRunCapturedToolReportsStartFailureDetail(t *testing.T) {
+	repo := t.TempDir()
+	missingTool := filepath.Join(repo, "missing-tool")
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"actionlint",
+			missingTool,
+			repo,
+			"",
+			[]string{".github/workflows/ci.yml"},
+			capturePolicyData{},
+			"",
+		)
+		if exitCode != 127 {
+			t.Fatalf("exit code = %d, want 127", exitCode)
+		}
+	})
+
+	for _, want := range []string{
+		"tool: actionlint",
+		"actionlint exited with status 127 without parseable diagnostics",
+		"fork/exec",
+		"missing-tool",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"scope": "tool:actionlint"`,
+		`"exit_code": 127`,
+		`"output_excerpt": "fork/exec`,
+		`"message": "actionlint exited with status 127 without parseable diagnostics"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestRunCapturedToolLogsShellcheckTrace(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses POSIX sh")

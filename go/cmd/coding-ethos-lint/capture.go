@@ -135,7 +135,7 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	if err := command.Start(); err != nil {
 		return captureExecution{
 			Stdout:   stdout.String(),
-			Stderr:   stderr.String(),
+			Stderr:   capturedExecutionError(stderr.String(), err),
 			RunArgs:  runArgs,
 			Sandbox:  evidence,
 			ExitCode: capturedExitCode(err),
@@ -155,6 +155,17 @@ func executeCapturedTool(request captureRequest) captureExecution {
 		Sandbox:  evidence,
 		ExitCode: capturedExitCode(err),
 	}
+}
+
+func capturedExecutionError(stderr string, err error) string {
+	if err == nil {
+		return stderr
+	}
+	if strings.TrimSpace(stderr) != "" {
+		return stderr
+	}
+
+	return err.Error()
 }
 
 func logCapturedToolResult(
