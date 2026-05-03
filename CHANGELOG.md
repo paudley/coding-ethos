@@ -24,6 +24,9 @@ and this project follows
 - Project discoverability docs, including a GitHub Pages landing page,
   comparison, integrations, threat model, trust signals, release process,
   discussions plan, examples, social preview, and recorded demo assets.
+- OpenSSF Scorecard publishing workflow, GitHub artifact attestations for
+  distributions, checksums, and SBOMs, plus a PyPI Trusted Publishing release
+  workflow that keeps package upload credentials out of repository secrets.
 
 ### Changed
 
@@ -41,3 +44,5 @@ and this project follows
   repo-local `ETHOS.md` instead of an absolute local path.
 - Expanded `.gitignore` with Python, cache, editor, and local tool state ignores suitable for public release.
 - Added live GitHub project URLs to the package metadata.
+- Replaced the older distribution provenance action with the current
+  `actions/attest` workflow and documented attestation and SBOM verification.

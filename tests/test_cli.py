@@ -82,6 +82,58 @@ def _write_repo_ci_config_override(repo_root: Path) -> None:
     _write_yaml_file(repo_root / "repo_config.yaml", _CI_CONFIG_OVERRIDE)
 
 
+def test_package_defaults_do_not_require_source_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    generated_repo = tmp_path / "generated"
+    assert main(["--repo", str(generated_repo)]) == 0
+    assert "SOLID is Law" in (generated_repo / "ETHOS.md").read_text(encoding="utf-8")
+
+    config_repo = tmp_path / "configs"
+    assert main(["--repo", str(config_repo), "--sync-tool-configs"]) == 0
+    assert (config_repo / "pyrightconfig.json").exists()
+
+    prompt_repo = tmp_path / "prompts"
+    assert main(["--repo", str(prompt_repo), "--sync-gemini-prompts"]) == 0
+    assert (prompt_repo / ".code-ethos/gemini/prompt-pack.json").exists()
+
+
+def test_seed_from_markdown_defaults_to_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    markdown = """# **Seeded Ethos**
+
+Intro text.
+
+## **1. First Rule**
+
+Do the first thing.
+"""
+    monkeypatch.chdir(tmp_path)
+    source_path = tmp_path / "ETHOS.md"
+    source_path.write_text(markdown, encoding="utf-8")
+
+    generated_repo = tmp_path / "generated"
+    assert (
+        main(
+            [
+                "--repo",
+                str(generated_repo),
+                "--seed-from-markdown",
+                str(source_path),
+            ]
+        )
+        == 0
+    )
+
+    primary_path = tmp_path / "coding_ethos.yml"
+    assert primary_path.exists()
+    assert "Seeded Ethos" in primary_path.read_text(encoding="utf-8")
+    assert "Seeded Ethos" in (generated_repo / "ETHOS.md").read_text(encoding="utf-8")
+
+
 def _load_generated_tool_configs(
     repo_root: Path,
 ) -> tuple[

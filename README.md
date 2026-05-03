@@ -2,13 +2,14 @@
 <!-- SPDX-License-Identifier: MIT -->
 
 <p align="center">
-  <img src="./docs/logo-banner.svg" alt="Coding Ethos Logo" width="600">
+  <img src="https://raw.githubusercontent.com/paudley/coding-ethos/main/docs/logo-banner.svg" alt="Coding Ethos Logo" width="600">
 </p>
 
 # Coding Ethos
 
 [![CI](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml)
 [![Coding Ethos SARIF](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/paudley/coding-ethos/badge)](https://scorecard.dev/viewer/?uri=github.com/paudley/coding-ethos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Policy-as-code enforcement for AI agents: MCP server, CEL policies, Git hooks,
@@ -56,7 +57,7 @@ Start the local MCP server for configured agents:
 bin/coding-ethos-run mcp
 ```
 
-![coding-ethos MCP and SARIF demo](docs/assets/coding-ethos-demo.gif)
+![coding-ethos MCP and SARIF demo](https://raw.githubusercontent.com/paudley/coding-ethos/main/docs/assets/coding-ethos-demo.gif)
 
 The project is built around defense in depth for AI-assisted coding:
 
@@ -199,6 +200,10 @@ testing, ETHOS inheritance, and agent remediation loops, see
 The documentation landing page is [docs/index.md](docs/index.md), and
 promotion/security trust work is tracked in
 [docs/TRUST_SIGNALS.md](docs/TRUST_SIGNALS.md).
+Supply-chain trust controls, Scorecard publishing, GitHub artifact
+attestations, SBOM generation, PyPI Trusted Publishing, and verification
+commands are documented in
+[docs/SUPPLY_CHAIN_ATTESTATIONS.md](docs/SUPPLY_CHAIN_ATTESTATIONS.md).
 The security posture is summarized in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
 and release readiness is documented in [docs/RELEASE.md](docs/RELEASE.md).
 The verified demo transcript is [docs/DEMO.md](docs/DEMO.md).
@@ -334,6 +339,29 @@ Generate files for another repo:
 make generate REPO=/path/to/repo
 ```
 
+## PyPI Package Usage
+
+The PyPI package installs the Python generator CLI plus the default
+`coding_ethos.yml`, base `config.yaml`, example overlays, and Gemini prompt
+templates. That path is useful for generating docs and config without cloning
+the source checkout:
+
+```bash
+uvx coding-ethos --repo .
+uvx coding-ethos --repo . --sync-tool-configs
+uvx coding-ethos --repo . --sync-gemini-prompts
+```
+
+The same CLI can be run through `pipx`:
+
+```bash
+pipx run coding-ethos --repo .
+```
+
+The PyPI package does not yet publish the compiled Go hook runtime or managed
+binary toolchain. Full Git hook and agent-hook installation still uses the
+source checkout/submodule path with `make cutover-install`.
+
 ## Common Workflows
 
 | Goal | Command |
@@ -342,6 +370,8 @@ make generate REPO=/path/to/repo
 | Check required local tools | `make doctor` |
 | Run Python tests | `make test` |
 | Run full local check | `make check` |
+| Smoke test the built wheel | `make package-smoke` |
+| Dry-run release package checks | `make release-dry-run` |
 | Validate hook runtime | `make validate` |
 | Run Go tests | `make go-test` |
 | Format Go helper code | `make go-fmt` |

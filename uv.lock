@@ -178,26 +178,28 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
-    { name = "pytest" },
     { name = "pyyaml" },
     { name = "ruamel-yaml" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest" },
     { name = "types-pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "pytest", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruamel-yaml", specifier = ">=0.18.16" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "types-pyyaml", specifier = ">=6.0.12.20260408" }]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260408" },
+]
 
 [[package]]
 name = "coding-ethos-hooks"

@@ -172,6 +172,8 @@ endef
 	install \
 	install-runtime \
 	build \
+	package-smoke \
+	release-dry-run \
 	test \
 	check \
 	cutover-install \
@@ -322,6 +324,40 @@ test: ensure-uv ## Run the current automated test suite.
 	@$(UV) run pytest
 
 check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
+
+package-smoke: ## Build, install, and smoke test the wheel outside the source checkout.
+	@$(call print_step,Smoke testing built Python package)
+	@set -eu; \
+		smoke_env="$$(mktemp -d)"; \
+		consumer="$$(mktemp -d)"; \
+		trap 'rm -rf "$$smoke_env" "$$consumer" dist' EXIT; \
+		rm -rf dist && \
+		$(UV) build && \
+		$(UV) venv "$$smoke_env" >/dev/null && \
+		$(UV) pip install \
+			--python "$$smoke_env/bin/python" \
+			dist/coding_ethos-*.whl >/dev/null && \
+		cd "$$consumer" && \
+		"$$smoke_env/bin/coding-ethos" --repo generated >/dev/null && \
+		"$$smoke_env/bin/coding-ethos" --repo configs --sync-tool-configs >/dev/null && \
+		"$$smoke_env/bin/coding-ethos" --repo prompts --sync-gemini-prompts >/dev/null && \
+		test -s generated/ETHOS.md && \
+		test -s configs/pyrightconfig.json && \
+		test -s prompts/.code-ethos/gemini/prompt-pack.json
+	@$(call print_info,package smoke passed)
+
+release-dry-run: package-smoke ## Validate release package metadata, checksums, and GitHub workflows locally.
+	@$(call print_step,Running release dry run)
+	@set -eu; \
+		trap 'rm -rf dist dist-checksums sbom' EXIT; \
+		rm -rf dist dist-checksums sbom && \
+		$(UV) build && \
+		uvx twine check dist/*.tar.gz dist/*.whl && \
+		mkdir -p dist-checksums sbom && \
+		sha256sum dist/*.tar.gz dist/*.whl > dist-checksums/SHA256SUMS && \
+		sha256sum --check dist-checksums/SHA256SUMS && \
+		bin/coding-ethos-run policy-tool actionlint .github/workflows/*.yml
+	@$(call print_info,release dry run passed)
 
 ##@ Hooks
 sync-tool-configs: ensure-uv ## Generate repo-root static-analysis configs from policy.
