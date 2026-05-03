@@ -15,7 +15,7 @@ dependencies = [
     "mypy>=1.19.1",
     "mypy-extensions>=1.1.0",
     "pandas-stubs>=3.0.0.260204",
-    "pip>=26.0.1",
+    "pip>=26.1",
     "pydantic>=2.0.0",
     "pylint>=4.0.4",
     "pyright>=1.1.408",
@@ -55,6 +55,7 @@ packages = ["coding_ethos_hooks"]
 
 [tool.uv]
 exclude-newer = "7 days"
+exclude-newer-package = { pip = "2026-04-26T21:00:06Z" }
 
 [tool.pyright]
 pythonVersion = "3.13"

@@ -139,12 +139,16 @@ type hookRunMetadata struct {
 	Command    []string
 }
 
-func writeStartedMetadata(path string, metadata hookRunMetadata) error {
+func writeStartedMetadata(path string, metadata hookRunMetadata) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create metadata log: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close metadata log: %w", closeErr)
+		}
+	}()
 
 	if _, err := fmt.Fprintf(file, "run_id=%s\n", shellQuote(metadata.RunID)); err != nil {
 		return fmt.Errorf("write metadata: %w", err)
@@ -165,12 +169,16 @@ func writeStartedMetadata(path string, metadata hookRunMetadata) error {
 	return nil
 }
 
-func appendFinishedMetadata(path string, finishedAt time.Time, status int) error {
+func appendFinishedMetadata(path string, finishedAt time.Time, status int) (err error) {
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		return fmt.Errorf("open metadata log: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close metadata log: %w", closeErr)
+		}
+	}()
 
 	if _, err := fmt.Fprintf(file, "finished_at_utc=%s\n", shellQuote(finishedAt.Format("20060102T150405Z"))); err != nil {
 		return fmt.Errorf("write finished metadata: %w", err)

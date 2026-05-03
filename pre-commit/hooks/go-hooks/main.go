@@ -2174,34 +2174,6 @@ func geminiExplicitContentKey(model string, content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func geminiCacheKey(
-	settings geminiRequestSettings,
-	prompt string,
-	dependency string,
-) string {
-	thinkingBudget := "unset"
-	if settings.ThinkingBudget != nil {
-		thinkingBudget = strconv.Itoa(*settings.ThinkingBudget)
-	}
-
-	payload := strings.Join(
-		[]string{
-			"v1",
-			settings.CheckName,
-			settings.Model,
-			settings.ServiceTier,
-			thinkingBudget,
-			strconv.FormatBool(settings.DisableSafetyFilters),
-			dependency,
-			prompt,
-		},
-		"\x00",
-	)
-	sum := sha256.Sum256([]byte(payload))
-
-	return hex.EncodeToString(sum[:])
-}
-
 func geminiCachePath(cache geminiResponseCache, key string) string {
 	return filepath.Join(cache.Dir, key+".json")
 }

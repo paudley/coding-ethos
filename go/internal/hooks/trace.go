@@ -71,7 +71,7 @@ func WriteAgentHookTraceFromEnv(event Event, result Result) error {
 	return WriteAgentHookTrace(runDir, event, result)
 }
 
-func WriteAgentHookTrace(runDir string, event Event, result Result) error {
+func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) {
 	trace := HookTrace{
 		RecordedAtUTC: time.Now().UTC().Format(time.RFC3339),
 		Provider:      event.Provider(),
@@ -100,7 +100,11 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) error {
 	if err != nil {
 		return fmt.Errorf("open hook trace: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close hook trace: %w", closeErr)
+		}
+	}()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)

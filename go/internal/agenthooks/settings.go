@@ -268,7 +268,7 @@ func removeStaleCodexHooksFile(path string) error {
 	return nil
 }
 
-func syncSettingsFile(path string, merge func(map[string]any)) error {
+func syncSettingsFile(path string, merge func(map[string]any)) (err error) {
 	payload, err := existingSettingsPayload(path)
 	if err != nil {
 		return err
@@ -289,7 +289,11 @@ func syncSettingsFile(path string, merge func(map[string]any)) error {
 	if err != nil {
 		return fmt.Errorf("open settings: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close settings: %w", closeErr)
+		}
+	}()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)

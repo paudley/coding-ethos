@@ -25,7 +25,9 @@ adopt.
 - GitHub Actions pinned to immutable commit SHAs, with release-process review
   for SHA updates.
 - uv dependency resolution constrained with `[tool.uv].exclude-newer = "7 days"`
-  and enforced for consumer `pyproject.toml` files.
+  and enforced for consumer `pyproject.toml` files. Time-sensitive security
+  updates may use package-specific `exclude-newer-package` overrides instead of
+  weakening the global freshness window.
 - Public CI publishes JUnit XML, Python coverage reports, and Go coverage
   reports as workflow artifacts with coverage summaries in job output.
 - `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`,
