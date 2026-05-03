@@ -185,7 +185,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
 		var err error
-		uvBin, err = exec.LookPath("uv")
+		uvBin, err = lookPathPreferNonHostedToolcache("uv")
 		if err != nil {
 			return managedToolCommand{}
 		}
@@ -209,6 +209,32 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 			runtime.Command[0],
 		},
 	}
+}
+
+func lookPathPreferNonHostedToolcache(name string) (string, error) {
+	var hostedFallback string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if strings.TrimSpace(dir) == "" {
+			dir = "."
+		}
+		candidate := filepath.Clean(filepath.Join(dir, name))
+		if !isExecutable(candidate) {
+			continue
+		}
+		if strings.Contains(candidate, "/hostedtoolcache/") {
+			if hostedFallback == "" {
+				hostedFallback = candidate
+			}
+			continue
+		}
+
+		return candidate, nil
+	}
+	if hostedFallback != "" {
+		return hostedFallback, nil
+	}
+
+	return "", exec.ErrNotFound
 }
 
 func enforceManagedToolArgs(

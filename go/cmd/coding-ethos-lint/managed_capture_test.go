@@ -159,6 +159,30 @@ exit 1
 	}
 }
 
+func TestLookPathPreferNonHostedToolcache(t *testing.T) {
+	hostedDir := filepath.Join(t.TempDir(), "hostedtoolcache", "uv", "0.11.8", "x86_64")
+	localDir := filepath.Join(t.TempDir(), ".local", "bin")
+	hostedUV := filepath.Join(hostedDir, "uv")
+	localUV := filepath.Join(localDir, "uv")
+	writeManagedCaptureFile(t, hostedUV, "#!/usr/bin/env sh\nexit 0\n")
+	writeManagedCaptureFile(t, localUV, "#!/usr/bin/env sh\nexit 0\n")
+	if err := os.Chmod(hostedUV, 0o700); err != nil {
+		t.Fatalf("chmod hosted uv: %v", err)
+	}
+	if err := os.Chmod(localUV, 0o700); err != nil {
+		t.Fatalf("chmod local uv: %v", err)
+	}
+	t.Setenv("PATH", hostedDir+string(os.PathListSeparator)+localDir)
+
+	got, err := lookPathPreferNonHostedToolcache("uv")
+	if err != nil {
+		t.Fatalf("look path: %v", err)
+	}
+	if got != localUV {
+		t.Fatalf("uv path = %q, want %q", got, localUV)
+	}
+}
+
 func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	t.Parallel()
 
