@@ -111,6 +111,12 @@ generated_config:
       timeout_minutes: 30
       artifact_expire_in: 7 days
 
+sandbox:
+  # Extra host paths that managed lint tools may read and write when
+  # sandboxing is enabled. Use this only for required workspace/toolchain
+  # directories; .git writes remain blocked even if listed here.
+  read_write_paths: []
+
 filesystem:
   protected_path:
     enabled: true

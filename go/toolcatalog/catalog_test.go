@@ -357,6 +357,62 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 	if len(tool.ConfigFlags) > 0 && tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
 		t.Fatal("ConfigSpec shared backing array with Tool")
 	}
+
+	capabilities := tool.CapabilitySpec()
+	capabilities.ReadPaths = append(capabilities.ReadPaths, "/broken")
+	if len(tool.Capabilities.ReadPaths) > 0 &&
+		tool.Capabilities.ReadPaths[len(tool.Capabilities.ReadPaths)-1] == "/broken" {
+		t.Fatal("CapabilitySpec shared backing array with Tool")
+	}
+}
+
+func TestToolCapabilitiesAreDenyByDefaultForNetwork(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range toolcatalog.HookOwnedTools() {
+		capabilities := tool.CapabilitySpec()
+		if tool.Name == "gemini-check" {
+			if !capabilities.RequiresNetwork ||
+				capabilities.SandboxProfile != "agent-network" ||
+				!slices.Contains(capabilities.Tags, "network") ||
+				slices.Contains(capabilities.Tags, "no-network") ||
+				!slices.Contains(capabilities.Tags, "no-git") {
+				t.Fatalf("gemini-check capabilities = %#v", capabilities)
+			}
+			continue
+		}
+		if capabilities.RequiresNetwork {
+			t.Fatalf("%s unexpectedly requires network: %#v", tool.Name, capabilities)
+		}
+		if !slices.Contains(capabilities.Tags, "no-network") ||
+			slices.Contains(capabilities.Tags, "network") {
+			t.Fatalf("%s missing no-network tag: %#v", tool.Name, capabilities)
+		}
+		if !capabilities.RequiresGit && !slices.Contains(capabilities.Tags, "no-git") {
+			t.Fatalf("%s missing no-git tag: %#v", tool.Name, capabilities)
+		}
+		if capabilities.TimeoutSeconds <= 0 ||
+			capabilities.MemoryMB <= 0 ||
+			capabilities.CPUQuotaPercent <= 0 ||
+			capabilities.SeccompProfile == "" {
+			t.Fatalf("%s missing default sandbox limits: %#v", tool.Name, capabilities)
+		}
+	}
+}
+
+func TestToolCapabilityViewsExposeCommandsAndDefensiveCopies(t *testing.T) {
+	t.Parallel()
+
+	views := toolcatalog.ToolCapabilityViews()
+	if len(views) == 0 {
+		t.Fatal("ToolCapabilityViews() returned no tools")
+	}
+	views[0].Command = append(views[0].Command, "mutated")
+
+	again := toolcatalog.ToolCapabilityViews()
+	if reflect.DeepEqual(views[0].Command, again[0].Command) {
+		t.Fatal("ToolCapabilityViews() shared command backing array")
+	}
 }
 
 func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
@@ -369,6 +425,13 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 	}
 	if got := shellcheck.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck") {
 		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
+	}
+	actionlint, found := toolcatalog.HookOwnedTool("actionlint")
+	if !found {
+		t.Fatal("missing actionlint")
+	}
+	if got := actionlint.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "go-bin", "actionlint") {
+		t.Fatalf("ManagedExecutablePath(actionlint) = %q", got)
 	}
 
 	ruff, found := toolcatalog.HookOwnedTool("ruff")

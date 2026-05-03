@@ -94,13 +94,15 @@ type EventInput struct {
 }
 
 type PathInput struct {
-	File         string `json:"file"`
-	Dir          string `json:"dir"`
-	Base         string `json:"base"`
-	Ext          string `json:"ext"`
-	IsTest       bool   `json:"is_test"`
-	IsGenerated  bool   `json:"is_generated"`
-	InSourceRoot bool   `json:"in_source_root"`
+	File          string `json:"file"`
+	Dir           string `json:"dir"`
+	Base          string `json:"base"`
+	Ext           string `json:"ext"`
+	SymlinkTarget string `json:"symlink_target"`
+	IsSymlink     bool   `json:"is_symlink"`
+	IsTest        bool   `json:"is_test"`
+	IsGenerated   bool   `json:"is_generated"`
+	InSourceRoot  bool   `json:"in_source_root"`
 }
 
 type DiagnosticInput struct {
@@ -239,6 +241,7 @@ type ActivationInput struct {
 	Argv              []string
 	Command           string
 	Content           string
+	OldContent        string
 	ConfigCandidates  []string
 	CurrentBranch     string
 	Cwd               string
@@ -313,18 +316,20 @@ func InputSchema() []string {
 		"event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}",
 		"files: list(string)",
 		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
+		"proposed_file_changes: list({file, dir, base, ext, exists, has_proposed_content, is_binary, is_generated, is_test, current_size_bytes, proposed_size_bytes, size_delta, current_line_count, proposed_line_count, line_delta, size_grows, size_shrinks, line_count_grows, line_count_shrinks, replacement_matched, replacement_ambiguous})",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
 		"metadata: {admin_approved, schema_version, tool}",
-		"path: {file, dir, base, ext, is_test, is_generated, in_source_root}",
-		"paths: list({file, dir, base, ext, is_test, is_generated, in_source_root})",
+		"path: {file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root}",
+		"paths: list({file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"diagnostics: list({tool, code, message, file, line, column, severity, policy_id})",
 		"finding: {tool, code, message, file, line, severity, policy_id, skill_id, principle_ids}",
 		"findings: list({tool, code, message, file, line, severity, policy_id, skill_id, principle_ids})",
 		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
 		"referenced_files: list({file, dir, base, lower, exists, is_regular, in_agent_workspace, size_bytes})",
+		"tool_capabilities: list({name, command, tags, read_paths, write_paths, sandbox_profile, timeout_seconds, memory_mb, cpu_quota_percent, requires_network, requires_git, requires_env, requires_processes, seccomp_profile})",
 	}
 }
 
@@ -380,7 +385,9 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(DiffHunkInput{}),
 			reflect.TypeOf(DiffLineInput{}),
 			reflect.TypeOf(FileChangeInput{}),
+			reflect.TypeOf(ProposedFileChangeInput{}),
 			reflect.TypeOf(ReferencedFileInput{}),
+			reflect.TypeOf(ToolCapabilityInput{}),
 			ext.ParseStructTag("json"),
 		),
 		cel.Variable("argv", cel.ListType(cel.StringType)),
@@ -393,8 +400,16 @@ func newEnvironment() (*cel.Env, error) {
 			cel.ListType(cel.ObjectType("celexpr.FileChangeInput")),
 		),
 		cel.Variable(
+			"proposed_file_changes",
+			cel.ListType(cel.ObjectType("celexpr.ProposedFileChangeInput")),
+		),
+		cel.Variable(
 			"referenced_files",
 			cel.ListType(cel.ObjectType("celexpr.ReferencedFileInput")),
+		),
+		cel.Variable(
+			"tool_capabilities",
+			cel.ListType(cel.ObjectType("celexpr.ToolCapabilityInput")),
 		),
 		cel.Variable("scope", cel.StringType),
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
@@ -487,7 +502,7 @@ func compileProgram(policyID string, source string) (cel.Program, error) {
 
 func Activation(input ActivationInput) map[string]any {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
-	paths := pathInputs(input.Files, sourceRoots)
+	paths := pathInputs(input.Cwd, input.Files, sourceRoots)
 	files := cleanStringSlice(input.Files)
 	changedFiles := cleanStringSlice(input.ChangedFiles)
 	stagedFiles := cleanStringSlice(input.StagedFiles)
@@ -499,7 +514,7 @@ func Activation(input ActivationInput) map[string]any {
 	if len(paths) == 1 {
 		primaryPath = paths[0]
 	} else if len(input.Files) == 1 {
-		primaryPath = newPathInput(input.Files[0], sourceRoots)
+		primaryPath = newPathInput(input.Cwd, input.Files[0], sourceRoots)
 	}
 
 	diffHunks := diffHunkInputs(input.Cwd, files)
@@ -561,7 +576,9 @@ func Activation(input ActivationInput) map[string]any {
 			files,
 			protectedPaths,
 		),
-		"referenced_files": referencedFileInputs(input.Cwd, files, input.Argv),
+		"proposed_file_changes": proposedFileChangeInputs(input),
+		"referenced_files":      referencedFileInputs(input.Cwd, files, input.Argv),
+		"tool_capabilities":     toolCapabilityInputs(),
 		"git": GitInput{
 			CurrentBranch:      input.CurrentBranch,
 			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
@@ -1597,10 +1614,10 @@ func gitCheckIgnore(cwd string, path string) (bool, error) {
 	return false, err
 }
 
-func pathInputs(files []string, sourceRoots []string) []PathInput {
+func pathInputs(cwd string, files []string, sourceRoots []string) []PathInput {
 	paths := make([]PathInput, 0, len(files))
 	for _, file := range files {
-		pathInput := newPathInput(file, sourceRoots)
+		pathInput := newPathInput(cwd, file, sourceRoots)
 		if pathInput.File != "" {
 			paths = append(paths, pathInput)
 		}
@@ -1609,7 +1626,7 @@ func pathInputs(files []string, sourceRoots []string) []PathInput {
 	return paths
 }
 
-func newPathInput(file string, sourceRoots []string) PathInput {
+func newPathInput(cwd string, file string, sourceRoots []string) PathInput {
 	cleanFile := strings.TrimPrefix(path.Clean(strings.TrimSpace(file)), "./")
 	if cleanFile == "." || cleanFile == "/" {
 		cleanFile = ""
@@ -1626,16 +1643,52 @@ func newPathInput(file string, sourceRoots []string) PathInput {
 		base = path.Base(cleanFile)
 		ext = path.Ext(cleanFile)
 	}
+	symlinkTarget, isSymlink := symlinkTargetInput(cwd, cleanFile)
 
 	return PathInput{
-		File:         cleanFile,
-		Dir:          dir,
-		Base:         base,
-		Ext:          ext,
-		IsGenerated:  isGeneratedPath(cleanFile),
-		IsTest:       isTestPath(cleanFile),
-		InSourceRoot: inSourceRoot(cleanFile, sourceRoots),
+		File:          cleanFile,
+		Dir:           dir,
+		Base:          base,
+		Ext:           ext,
+		SymlinkTarget: symlinkTarget,
+		IsSymlink:     isSymlink,
+		IsGenerated:   isGeneratedPath(cleanFile),
+		IsTest:        isTestPath(cleanFile),
+		InSourceRoot:  inSourceRoot(cleanFile, sourceRoots),
 	}
+}
+
+func symlinkTargetInput(cwd string, cleanFile string) (string, bool) {
+	if cwd == "" || cleanFile == "" {
+		return "", false
+	}
+
+	resolved := filepath.FromSlash(cleanFile)
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(cwd, resolved)
+	}
+	resolved = filepath.Clean(resolved)
+
+	info, err := os.Lstat(resolved)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return "", false
+	}
+
+	target, err := os.Readlink(resolved)
+	if err != nil {
+		return "", true
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(resolved), target)
+	}
+	target = filepath.Clean(target)
+
+	relative, err := filepath.Rel(cwd, target)
+	if err == nil && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." {
+		return filepath.ToSlash(relative), true
+	}
+
+	return filepath.ToSlash(target), true
 }
 
 func diagnosticInput(diagnostic *diagnostics.Diagnostic) DiagnosticInput {

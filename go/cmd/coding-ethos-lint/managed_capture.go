@@ -4,15 +4,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -26,6 +29,7 @@ type managedCaptureOptions struct {
 	ConsumerRoot  string
 	InvocationCwd string
 	Args          []string
+	SandboxMode   string
 	OutputFormat  string
 	PolicyContext capturePolicyData
 }
@@ -85,9 +89,33 @@ func runManagedCapture(options managedCaptureOptions) int {
 		Cwd:          options.ConsumerRoot,
 		TraceRoot:    options.ConsumerRoot,
 		Args:         enforcedArgs,
+		SandboxMode:  options.SandboxMode,
+		Capabilities: sandboxCapabilities(tool, config),
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
 		Skills:       options.PolicyContext.Skills,
 	}, firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()))
+}
+
+func sandboxCapabilities(tool toolcatalog.Tool, config lintcapture.RuntimeConfig) sandbox.Capabilities {
+	spec := tool.CapabilitySpec()
+	writePaths := append([]string(nil), spec.WritePaths...)
+	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
+
+	return sandbox.Capabilities{
+		Tags:               append([]string(nil), spec.Tags...),
+		ReadPaths:          append([]string(nil), spec.ReadPaths...),
+		WritePaths:         writePaths,
+		SandboxProfile:     spec.SandboxProfile,
+		TimeoutSeconds:     spec.TimeoutSeconds,
+		MemoryMB:           spec.MemoryMB,
+		CPUQuotaPercent:    spec.CPUQuotaPercent,
+		RequiresNetwork:    spec.RequiresNetwork,
+		RequiresGit:        spec.RequiresGit,
+		RequiresEnv:        spec.RequiresEnv,
+		RequiresProcesses:  spec.RequiresProcesses,
+		SeccompProfile:     spec.SeccompProfile,
+		SeccompProfilePath: spec.SeccompProfilePath,
+	}
 }
 
 func runCapturedToolWithRequest(request captureRequest, outputFormat string) int {
@@ -149,19 +177,32 @@ func joinDriftFiles(drift []lintcapture.ConfigDrift) string {
 
 func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
 	if managed := tool.ManagedExecutablePath(ethosRoot); managed != "" {
-		if isExecutable(managed) {
+		if managedExecutableStarts(tool, managed) {
 			return managedToolCommand{Path: managed}
+		}
+		if command := managedGoToolFallback(tool); command.Path != "" {
+			return command
 		}
 
 		return managedToolCommand{}
 	}
 
+	if command := managedPythonToolCommand(tool, ethosRoot); command.Path != "" {
+		return command
+	}
+
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
-		uvBin = "uv"
+		var err error
+		uvBin, err = lookUsablePath("uv")
+		if err != nil {
+			return managedToolCommand{}
+		}
 	}
-	if _, err := exec.LookPath(uvBin); err != nil {
+	if resolved, err := exec.LookPath(uvBin); err != nil {
 		return managedToolCommand{}
+	} else {
+		uvBin = resolved
 	}
 	runtime := tool.RuntimeSpec()
 	if len(runtime.Command) == 0 {
@@ -177,6 +218,92 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 			runtime.Command[0],
 		},
 	}
+}
+
+func managedPythonToolCommand(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
+	runtime := tool.RuntimeSpec()
+	if runtime.Runtime != toolcatalog.RuntimePython && runtime.Runtime != toolcatalog.RuntimeUV {
+		return managedToolCommand{}
+	}
+	if len(runtime.Command) == 0 {
+		return managedToolCommand{}
+	}
+
+	python := filepath.Join(ethosRoot, ".venv", "bin", "python")
+	if isExecutable(python) && commandStarts(python, "-m", runtime.Command[0], "--version") {
+		return managedToolCommand{
+			Path:   python,
+			Prefix: []string{"-m", runtime.Command[0]},
+		}
+	}
+
+	candidate := filepath.Join(ethosRoot, ".venv", "bin", runtime.Command[0])
+	if isExecutable(candidate) {
+		return managedToolCommand{Path: candidate}
+	}
+
+	return managedToolCommand{}
+}
+
+func managedExecutableStarts(tool toolcatalog.Tool, path string) bool {
+	if !isExecutable(path) {
+		return false
+	}
+
+	switch tool.Name {
+	case "actionlint":
+		return commandStarts(path, "-version")
+	default:
+		return commandStarts(path, "--version")
+	}
+}
+
+func managedGoToolFallback(tool toolcatalog.Tool) managedToolCommand {
+	if tool.Name != "actionlint" {
+		return managedToolCommand{}
+	}
+
+	goBin, err := lookUsablePath("go")
+	if err != nil {
+		return managedToolCommand{}
+	}
+
+	return managedToolCommand{
+		Path: goBin,
+		Prefix: []string{
+			"run",
+			"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
+		},
+	}
+}
+
+func lookUsablePath(name string) (string, error) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if strings.TrimSpace(dir) == "" {
+			dir = "."
+		}
+		candidate := filepath.Clean(filepath.Join(dir, name))
+		if !isExecutable(candidate) {
+			continue
+		}
+		if commandStarts(candidate, "--version") {
+			return candidate, nil
+		}
+	}
+
+	return "", exec.ErrNotFound
+}
+
+func commandStarts(path string, args ...string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, path, args...)
+	if err := command.Run(); err != nil {
+		return false
+	}
+
+	return ctx.Err() == nil
 }
 
 func enforceManagedToolArgs(

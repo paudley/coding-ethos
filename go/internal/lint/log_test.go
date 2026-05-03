@@ -85,3 +85,31 @@ func TestLogResultSanitizesTraceScopeFilename(t *testing.T) {
 		t.Fatalf("trace filename contains unsafe separator: %q", name)
 	}
 }
+
+func TestTracePathForIDStaysInsideLintTraceDir(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	path, err := TracePathForID(repo, "20260101T000000.000000000Z-123-tool_ruff.json")
+	if err != nil {
+		t.Fatalf("TracePathForID() returned error: %v", err)
+	}
+
+	want := filepath.Join(
+		repo,
+		".coding-ethos",
+		"lint-runs",
+		"20260101T000000.000000000Z-123-tool_ruff.json",
+	)
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+func TestTracePathForIDRejectsPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	if _, err := TracePathForID(t.TempDir(), "../secret.json"); err == nil {
+		t.Fatalf("TracePathForID() accepted path traversal")
+	}
+}

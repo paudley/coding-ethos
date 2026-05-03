@@ -9,6 +9,7 @@ type Context struct {
 	EvaluatorOptions map[string]any
 	Command          string
 	Content          string
+	OldContent       string
 	CurrentBranch    string
 	Cwd              string
 	EventName        string

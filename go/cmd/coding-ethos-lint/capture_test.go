@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
 func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
@@ -171,6 +172,115 @@ exit 1
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
+	repo := t.TempDir()
+
+	output := captureStdout(t, func() {
+		exitCode := runCapturedToolWithRequest(captureRequest{
+			Tool:               "ruff",
+			ToolPath:           filepath.Join(repo, "ruff"),
+			Cwd:                repo,
+			TraceRoot:          repo,
+			Args:               []string{"check", "pkg/app.py"},
+			SandboxMode:        sandbox.ModeRequired,
+			SandboxBackendPath: filepath.Join(repo, "missing-bwrap"),
+			Capabilities: sandbox.Capabilities{
+				SandboxProfile: "lint-offline",
+				ReadPaths:      []string{"."},
+				WritePaths:     []string{".coding-ethos/cache"},
+			},
+		}, hookoutput.FormatSARIF)
+		if exitCode != blockedExitCode {
+			t.Fatalf("exit code = %d, want %d", exitCode, blockedExitCode)
+		}
+	})
+
+	for _, want := range []string{
+		`"sandbox": {`,
+		`"profile": "lint-offline"`,
+		`"denied": true`,
+		`"reason": "bubblewrap executable not found"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"scope": "tool:ruff"`,
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"skill_id": "managed-toolchain"`,
+		`"sandbox": {`,
+		`"denied": true`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestPrepareSandboxCgroupSkipsWhenSandboxDisabled(t *testing.T) {
+	cgroup, evidence, err := prepareSandboxCgroup(sandbox.Evidence{
+		Mode:            sandbox.ModeOff,
+		CgroupRequested: true,
+		MemoryMB:        2048,
+		CPUQuotaPercent: 100,
+	})
+	if err != nil {
+		t.Fatalf("prepare cgroup returned error: %v", err)
+	}
+	if cgroup != nil {
+		t.Fatal("prepare cgroup returned cgroup while sandbox disabled")
+	}
+	if evidence.CgroupEnabled {
+		t.Fatalf("cgroup evidence enabled with sandbox disabled: %#v", evidence)
+	}
+}
+
+func TestRunCapturedToolReportsStartFailureDetail(t *testing.T) {
+	repo := t.TempDir()
+	missingTool := filepath.Join(repo, "missing-tool")
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"actionlint",
+			missingTool,
+			repo,
+			"",
+			[]string{".github/workflows/ci.yml"},
+			capturePolicyData{},
+			"",
+		)
+		if exitCode != 127 {
+			t.Fatalf("exit code = %d, want 127", exitCode)
+		}
+	})
+
+	for _, want := range []string{
+		"tool: actionlint",
+		"actionlint exited with status 127 without parseable diagnostics",
+		"fork/exec",
+		"missing-tool",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"scope": "tool:actionlint"`,
+		`"exit_code": 127`,
+		`"output_excerpt": "fork/exec`,
+		`"message": "actionlint exited with status 127 without parseable diagnostics"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
 		}
 	}
 }

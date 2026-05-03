@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,26 +17,31 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 var errCaptureToolPathRequired = errors.New("--tool-path is required with --capture-tool")
 
 type captureRequest struct {
-	Tool         string
-	ToolPath     string
-	ToolPrefix   []string
-	Cwd          string
-	TraceRoot    string
-	Args         []string
-	EvidenceMaps []diagnostics.EvidenceMap
-	Skills       map[string]policy.Skill
+	Tool               string
+	ToolPath           string
+	ToolPrefix         []string
+	Cwd                string
+	TraceRoot          string
+	Args               []string
+	SandboxMode        string
+	SandboxBackendPath string
+	Capabilities       sandbox.Capabilities
+	EvidenceMaps       []diagnostics.EvidenceMap
+	Skills             map[string]policy.Skill
 }
 
 type captureExecution struct {
 	Stdout   string
 	Stderr   string
 	RunArgs  []string
+	Sandbox  *lint.SandboxEvidence
 	ExitCode int
 }
 
@@ -67,24 +73,107 @@ func runCapturedTool(
 func executeCapturedTool(request captureRequest) captureExecution {
 	runArgs := capturedToolArgs(request.Tool, request.Args)
 	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
-	command := exec.Command(request.ToolPath, runArgs...)
+	plan, planErr := sandbox.BuildPlan(sandbox.Request{
+		Mode:         request.SandboxMode,
+		Tool:         request.Tool,
+		Executable:   request.ToolPath,
+		Cwd:          request.Cwd,
+		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
+		Args:         runArgs,
+		BackendPath:  request.SandboxBackendPath,
+		Capabilities: request.Capabilities,
+	})
+	defer func() {
+		if err := plan.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "WARN: sandbox resources not closed: %v\n", err)
+		}
+	}()
+	evidence := lintSandboxEvidence(plan.Evidence)
+	if planErr != nil {
+		diagnostic := sandboxDenialDiagnostic(plan.Evidence)
+
+		return captureExecution{
+			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: blockedExitCode,
+		}
+	}
+
+	commandContext, cancel := sandbox.CommandContext(context.Background(), plan.Evidence.TimeoutSeconds)
+	defer cancel()
+	command := exec.CommandContext(commandContext, plan.Executable, plan.Args...)
 	if request.Cwd != "" {
 		command.Dir = request.Cwd
 	}
+	command.ExtraFiles = plan.ExtraFiles
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	command.Stdin = os.Stdin
-	err := command.Run()
+
+	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
+	evidence = lintSandboxEvidence(appliedEvidence)
+	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
+		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
+
+		return captureExecution{
+			Stdout:   stdout.String(),
+			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: blockedExitCode,
+		}
+	}
+	if cgroup != nil {
+		defer func() { _ = cgroup.Close() }()
+		cgroup.ConfigureCommand(command)
+	}
+
+	if err := command.Start(); err != nil {
+		return captureExecution{
+			Stdout:   stdout.String(),
+			Stderr:   capturedExecutionError(stderr.String(), err),
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: capturedExitCode(err),
+		}
+	}
+	err := command.Wait()
+	if commandContext.Err() == context.DeadlineExceeded {
+		appliedEvidence.Denied = true
+		appliedEvidence.Reason = "sandboxed tool exceeded timeout"
+		evidence = lintSandboxEvidence(appliedEvidence)
+	}
 
 	return captureExecution{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		RunArgs:  runArgs,
+		Sandbox:  evidence,
 		ExitCode: capturedExitCode(err),
 	}
+}
+
+func prepareSandboxCgroup(evidence sandbox.Evidence) (*sandbox.Cgroup, sandbox.Evidence, error) {
+	if !evidence.Enabled {
+		return nil, evidence, nil
+	}
+
+	return sandbox.PrepareCgroupLimits(evidence)
+}
+
+func capturedExecutionError(stderr string, err error) string {
+	if err == nil {
+		return stderr
+	}
+	if strings.TrimSpace(stderr) != "" {
+		return stderr
+	}
+
+	return err.Error()
 }
 
 func logCapturedToolResult(
@@ -131,6 +220,28 @@ func capturedFindings(
 ) []lint.Finding {
 	outcome := capturedOutcome(request.Tool, execution.ExitCode, items)
 	if len(items) == 0 {
+		if execution.Sandbox != nil && execution.Sandbox.Denied {
+			diagnostic := sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox))
+
+			return []lint.Finding{{
+				RawOutcome: map[string]any{
+					"category": outcome.Category,
+					"args":     append([]string(nil), request.Args...),
+					"sandbox":  execution.Sandbox,
+				},
+				Advice:     diagnostic.Advice,
+				CheckID:    diagnostic.PolicyID,
+				Code:       diagnostic.Code,
+				Message:    diagnostic.Message,
+				PolicyID:   diagnostic.PolicyID,
+				SkillID:    diagnostic.SkillID,
+				Severity:   diagnostic.Severity,
+				SourceTool: diagnostic.Tool,
+				Status:     "blocked",
+				EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
+				Blocking:   true,
+			}}
+		}
 		if execution.ExitCode == 0 {
 			return nil
 		}
@@ -194,7 +305,109 @@ func capturedToolMetadata(
 		OutputExcerpt: outputExcerpt,
 		Args:          append([]string(nil), request.Args...),
 		RunArgs:       append([]string(nil), execution.RunArgs...),
+		Sandbox:       execution.Sandbox,
 		ExitCode:      execution.ExitCode,
+	}
+}
+
+func sandboxDenialDiagnostic(evidence sandbox.Evidence) diagnostics.Diagnostic {
+	reason := strings.TrimSpace(evidence.Reason)
+	if reason == "" {
+		reason = "sandbox capability request was denied"
+	}
+
+	return diagnostics.Diagnostic{
+		Metadata: map[string]any{"sandbox": evidence},
+		Advice:   "Use the managed tool path with declared capabilities, or install the required sandbox backend.",
+		Code:     "SANDBOX_DENIED",
+		Detail:   reason,
+		Message:  "Managed tool sandbox execution was denied.",
+		PolicyID: "runtime.sandbox_denial",
+		Severity: "error",
+		SkillID:  "managed-toolchain",
+		Tool:     "coding-ethos-sandbox",
+		PrincipleIDs: []string{
+			"security-by-design",
+			"one-path-for-critical-operations",
+		},
+		Tags: []string{"security", "sandbox", "runtime"},
+	}
+}
+
+func lintSandboxEvidence(evidence sandbox.Evidence) *lint.SandboxEvidence {
+	if evidence.Mode == "" && evidence.Profile == "" && !evidence.Enabled && !evidence.Denied {
+		return nil
+	}
+	if evidence.Mode == sandbox.ModeOff && !evidence.Enabled && !evidence.Denied {
+		return nil
+	}
+
+	return &lint.SandboxEvidence{
+		Mode:                 evidence.Mode,
+		Backend:              evidence.Backend,
+		BackendPath:          evidence.BackendPath,
+		Profile:              evidence.Profile,
+		Tool:                 evidence.Tool,
+		Command:              append([]string(nil), evidence.Command...),
+		Tags:                 append([]string(nil), evidence.Tags...),
+		HiddenCredentialDirs: append([]string(nil), evidence.HiddenCredentialDirs...),
+		ReadPaths:            append([]string(nil), evidence.ReadPaths...),
+		WritePaths:           append([]string(nil), evidence.WritePaths...),
+		TimeoutSeconds:       evidence.TimeoutSeconds,
+		MemoryMB:             evidence.MemoryMB,
+		CPUQuotaPercent:      evidence.CPUQuotaPercent,
+		RequiresNetwork:      evidence.RequiresNetwork,
+		RequiresGit:          evidence.RequiresGit,
+		RequiresEnv:          evidence.RequiresEnv,
+		RequiresProcesses:    evidence.RequiresProcesses,
+		GitReadOnly:          evidence.GitReadOnly,
+		ReadOnlyRoot:         evidence.ReadOnlyRoot,
+		NetworkIsolated:      evidence.NetworkIsolated,
+		ProcessIsolated:      evidence.ProcessIsolated,
+		TimeoutEnforced:      evidence.TimeoutEnforced,
+		CgroupRequested:      evidence.CgroupRequested,
+		CgroupEnabled:        evidence.CgroupEnabled,
+		CgroupPath:           evidence.CgroupPath,
+		SeccompProfile:       evidence.SeccompProfile,
+		SeccompEnabled:       evidence.SeccompEnabled,
+		Enabled:              evidence.Enabled,
+		Denied:               evidence.Denied,
+		Reason:               evidence.Reason,
+	}
+}
+
+func sandboxEvidenceFromLint(evidence lint.SandboxEvidence) sandbox.Evidence {
+	return sandbox.Evidence{
+		Mode:                 evidence.Mode,
+		Backend:              evidence.Backend,
+		BackendPath:          evidence.BackendPath,
+		Profile:              evidence.Profile,
+		Tool:                 evidence.Tool,
+		Command:              append([]string(nil), evidence.Command...),
+		Tags:                 append([]string(nil), evidence.Tags...),
+		HiddenCredentialDirs: append([]string(nil), evidence.HiddenCredentialDirs...),
+		ReadPaths:            append([]string(nil), evidence.ReadPaths...),
+		WritePaths:           append([]string(nil), evidence.WritePaths...),
+		TimeoutSeconds:       evidence.TimeoutSeconds,
+		MemoryMB:             evidence.MemoryMB,
+		CPUQuotaPercent:      evidence.CPUQuotaPercent,
+		RequiresNetwork:      evidence.RequiresNetwork,
+		RequiresGit:          evidence.RequiresGit,
+		RequiresEnv:          evidence.RequiresEnv,
+		RequiresProcesses:    evidence.RequiresProcesses,
+		GitReadOnly:          evidence.GitReadOnly,
+		ReadOnlyRoot:         evidence.ReadOnlyRoot,
+		NetworkIsolated:      evidence.NetworkIsolated,
+		ProcessIsolated:      evidence.ProcessIsolated,
+		TimeoutEnforced:      evidence.TimeoutEnforced,
+		CgroupRequested:      evidence.CgroupRequested,
+		CgroupEnabled:        evidence.CgroupEnabled,
+		CgroupPath:           evidence.CgroupPath,
+		SeccompProfile:       evidence.SeccompProfile,
+		SeccompEnabled:       evidence.SeccompEnabled,
+		Enabled:              evidence.Enabled,
+		Denied:               evidence.Denied,
+		Reason:               evidence.Reason,
 	}
 }
 

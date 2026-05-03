@@ -64,6 +64,13 @@ func (config RuntimeConfig) LintSourceRoots() ([]string, error) {
 	return containedSourceRoots(config.ConsumerRoot, values)
 }
 
+func (config RuntimeConfig) SandboxReadWritePaths() []string {
+	return uniqueStrings(append(
+		configValues(config.Merged, "sandbox", "read_write_paths"),
+		configValues(config.Merged, "sandbox", "rw_paths")...,
+	))
+}
+
 func parentRoots(values []string) []string {
 	roots := make([]string, 0, len(values)*2)
 	for _, value := range values {
@@ -132,6 +139,24 @@ func repoConfigCandidates(config map[string]any) []string {
 		"coding-ethos.repo.yaml",
 		"coding-ethos.repo.yml",
 	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	unique := []string{}
+	for _, value := range values {
+		text := strings.TrimSpace(value)
+		if text == "" {
+			continue
+		}
+		if _, ok := seen[text]; ok {
+			continue
+		}
+		seen[text] = struct{}{}
+		unique = append(unique, text)
+	}
+
+	return unique
 }
 
 func loadYAMLMap(path string) (map[string]any, error) {

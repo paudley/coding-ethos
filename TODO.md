@@ -449,20 +449,37 @@ Acceptance criteria:
   in TOON/JSON traces and must not upload as root-level warning results.
 - [x] Omit pathless policy results from code-scanning SARIF so GitHub does not
   reject uploads and coding-ethos does not invent noisy alerts at `.` line 0.
-- [ ] Add MCP remediation endpoints that accept a SARIF run or trace ID and
+- [x] Add MCP remediation endpoints that accept a SARIF run or trace ID and
   return focused ETHOS-grounded repair advice.
-- [ ] Add cross-tool finding grouping using SARIF fingerprints, policy IDs,
+  - [x] Add `sarif_remediation_advice` for SARIF JSON payloads, selected
+    results, CEL provenance, skill context, and MCP `lint_check` rerun
+    guidance.
+  - [x] Add retained lint trace ID lookup through the configured consumer
+    root's `.coding-ethos/lint-runs/` directory.
+- [x] Add cross-tool finding grouping using SARIF fingerprints, policy IDs,
   skill IDs, and source locations.
-- [ ] Emit policy coverage summaries that show which ETHOS principles,
+- [x] Emit policy coverage summaries that show which ETHOS principles,
   policies, skills, and tool families ran for a commit or PR.
-- [ ] Add SARIF trend analysis for newly introduced, reopened, fixed, and
+  - [x] Start the coverage ledger by emitting SARIF
+    `runs[].properties.policy_coverage` for normalized decisions and
+    diagnostics, including CEL provenance when available.
+- [x] Add SARIF trend analysis for newly introduced, reopened, fixed, and
   worsening findings across commits.
-- [ ] Produce compact PR risk summaries from SARIF and `.coding-ethos` traces
+  - [x] Add first `sarif_trend_analysis` MCP compare path for introduced,
+    fixed, and persisting findings across SARIF payloads or retained lint
+    traces.
+  - [x] Add baseline-history semantics for reopened and worsening findings.
+- [x] Produce compact PR risk summaries from SARIF and `.coding-ethos` traces
   for agents and reviewers.
-- [ ] Retain SARIF plus trace artifacts as an audit evidence bundle in CI.
-- [ ] Define an IDE/editor diagnostic integration path that consumes the same
+  - [x] Add first SARIF-only `sarif_risk_summary` MCP tool for result counts,
+    blocking/security counts, policy/skill/tool/file hotspots, finding groups,
+    and next remediation calls.
+  - [x] Fold retained lint trace evidence into the summary through the same
+    safe trace ID lookup.
+- [x] Retain SARIF plus trace artifacts as an audit evidence bundle in CI.
+- [x] Define an IDE/editor diagnostic integration path that consumes the same
   SARIF output used by hooks and CI.
-- [ ] Report unmapped diagnostics, noisy rules, missing skill IDs, and weak
+- [x] Report unmapped diagnostics, noisy rules, missing skill IDs, and weak
   severity mappings as policy-authoring feedback.
 
 Acceptance criteria:
@@ -472,26 +489,106 @@ Acceptance criteria:
   locations, remediation advice, and stable rule metadata.
 - [x] CI output remains compact for agents while preserving full artifacts for
   audit.
-- [ ] SARIF can act as a shared evidence ledger for hooks, CI, MCP, agent
+- [x] SARIF can act as a shared evidence ledger for hooks, CI, MCP, agent
   remediation, audit review, and editor diagnostics without creating a second
   policy interpretation path.
 
-### Adversarial Red-Team Test Suite
+### Runtime Sandboxing And Capability Enforcement
 
-- [ ] Build an automated red-team harness that asks LLM agents to bypass or
-  tamper with `coding-ethos` protections.
-- [ ] Cover protected paths, raw Git bypasses, absolute binaries, nested shell
-  execution, symlink/path traversal, config drift, hook deletion, and managed
-  toolchain evasion.
-- [ ] Capture both successful blocks and any missed bypass attempts as
-  reproducible fixtures.
-- [ ] Add regression tests for every bypass class discovered.
+Goal: complement CEL and Go policy evaluation with an OS-level data-plane
+boundary for managed hook, lint, and agent-invoked tool execution. CEL remains
+the control plane that decides which action and capabilities are allowed; the
+sandbox enforces filesystem, network, process, syscall, timeout, and resource
+limits at runtime.
+
+- [x] Write a design record for runtime sandboxing that explicitly rejects
+  `LD_PRELOAD` as a security boundary because it is bypassed by static
+  binaries, direct syscalls, environment scrubbing, and modern Go/Rust
+  toolchains.
+- [x] Define a tool capability model in `toolcatalog` and compiled policy data:
+  read paths, write paths, network access, process visibility, Git access,
+  environment access, timeout, memory, CPU, and sandbox profile.
+- [x] Add CEL-visible capability facts so policies can require explicit ETHOS
+  approval for risky capabilities such as network, broad write access, raw Git,
+  process inspection, or privileged filesystem paths.
+- [x] Add the first CEL deny-by-default network capability policy: managed
+  tools must declare `requires_network`, and agent-invoked network-capable
+  tools require explicit approval before execution.
+- [x] Prototype a Linux sandbox runner using Bubblewrap (`bwrap`) before
+  writing raw namespace code, with a Go-owned request model and no shell glue.
+  - [x] Add `go/internal/sandbox` with Bubblewrap command construction,
+    `off`/`auto`/`required` modes, backend-unavailable denials, and unit tests.
+  - [x] Wire managed lint capture to opt-in sandbox execution through
+    `--sandbox-mode`, preserving current default behavior while the profile is
+    hardened.
+- [x] Add mount namespace support for read-only root, read-only `.git`, hidden
+  credential directories, and minimal read/write bind mounts for declared repo
+  paths.
+  - [x] Build Bubblewrap args with read-only `/`, tmpfs `/home` and `/root`,
+    read-only repo binding, read-only `.git`, and declared writable paths only.
+  - [x] Filter attempted `.git` write bind paths from both Bubblewrap args and
+    sandbox evidence.
+- [x] Add PID and network namespace profiles for managed tools so ordinary
+  linters cannot inspect host processes or exfiltrate data.
+- [x] Add seccomp-bpf profile support for managed hooks and lint tools,
+  starting with a conservative profile that blocks privilege escalation,
+  `ptrace`, mount/unshare, and other abnormal syscalls.
+- [x] Add cgroup-backed resource quotas for sandboxed tool execution, including
+  hard timeouts and memory limits to prevent local denial-of-service failures.
+- [x] Record sandbox profiles, declared capabilities, and runtime denials in
+  `.coding-ethos` traces and SARIF properties so failures are auditable and
+  agent-remediation friendly.
+  - [x] Record sandbox evidence in lint traces under
+    `result.capture.sandbox`.
+  - [x] Record sandbox evidence in SARIF run properties under
+    `runs[].properties.sandbox`.
+  - [x] Normalize required-mode backend failures as
+    `runtime.sandbox_denial` findings.
+- [x] Add a fallback strategy for platforms without Linux namespace/seccomp
+  support: fail closed for required sandbox profiles in CI, and emit a clear
+  degraded-enforcement warning only for explicitly advisory local modes.
+- [ ] Evaluate future high-isolation backends such as gVisor, eBPF-based
+  telemetry/enforcement, and Wasm/WASI execution for untrusted extension code,
+  but keep the first implementation focused on rootless local hook execution.
 
 Acceptance criteria:
 
-- [ ] Red-team scenarios can run in isolated sample repositories without
+- [x] A managed linter can run in a rootless sandbox with no network, read-only
+  `.git`, hidden credential directories, bounded resources, and declared
+  writable paths only.
+- [x] Sandbox capability requests are visible in policy explanations, traces,
+  SARIF, and MCP responses.
+- [ ] A tool cannot gain broader filesystem, network, process, or syscall
+  access by bypassing shell wrappers, using static binaries, or spawning child
+  processes.
+- [ ] Sandbox denials are normalized into policy-linked diagnostics with ETHOS
+  principle IDs and remediation guidance.
+- [ ] CI can require sandbox enforcement for high-risk tool classes while local
+  developer workflows remain recoverable and explicit about unsupported
+  platforms.
+
+### Adversarial Red-Team Test Suite
+
+- [x] Build an automated red-team harness for attempts to bypass or tamper with
+  `coding-ethos` protections.
+- [x] Cover protected paths, raw Git bypasses, absolute binaries, nested shell
+  execution, symlink replacement, path traversal, config drift, hook deletion,
+  and managed toolchain evasion.
+- [x] Cover protected paths, raw Git bypasses, absolute binaries, nested shell
+  execution, symlink replacement, path traversal, generated config drift, hook
+  deletion, and managed toolchain evasion in deterministic Go red-team
+  scenarios.
+- [x] Capture both successful blocks and any missed bypass attempts as
+  reproducible fixtures.
+- [x] Add regression tests for the initial deterministic bypass classes.
+- [ ] Add live Claude, Codex, and Gemini prompt-based red-team runs where
+  practical.
+
+Acceptance criteria:
+
+- [x] Red-team scenarios can run in isolated sample repositories without
   touching the parent repo.
-- [ ] Each bypass attempt produces either a clear block or a filed gap with a
+- [x] Each bypass attempt produces either a clear block or a filed gap with a
   failing regression test.
 - [ ] The suite validates Claude, Codex, Gemini, and generic shell workflows
   where practical.

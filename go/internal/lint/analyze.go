@@ -72,6 +72,20 @@ func DefaultTraceDir(cwd string) (string, error) {
 	return filepath.Join(root, ".coding-ethos", "lint-runs"), nil
 }
 
+func TracePathForID(cwd string, traceID string) (string, error) {
+	dir, err := DefaultTraceDir(cwd)
+	if err != nil {
+		return "", err
+	}
+
+	name := filepath.Base(strings.TrimSpace(traceID))
+	if name == "" || name == "." || name == ".." || name != strings.TrimSpace(traceID) {
+		return "", fmt.Errorf("invalid lint trace id %q", traceID)
+	}
+
+	return filepath.Join(dir, name), nil
+}
+
 func AnalyzeTraces(path string) (Analysis, error) {
 	return AnalyzeTracesWithOptions(path, AnalysisOptions{})
 }

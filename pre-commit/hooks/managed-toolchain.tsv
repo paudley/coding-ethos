@@ -4,7 +4,7 @@
 # tool	installer	source	version	asset_substring	binary	sha256	dest
 shfmt	go	mvdan.cc/sh/v3/cmd/shfmt	v3.13.1	-	shfmt	-	go-bin
 shellcheck	github	koalaman/shellcheck	v0.10.0	linux.x86_64	shellcheck	6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87	github-bin
-actionlint	github	rhysd/actionlint	v1.7.7	linux_amd64	actionlint	023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757	github-bin
+actionlint	go	github.com/rhysd/actionlint/cmd/actionlint	v1.7.7	-	actionlint	-	go-bin
 hadolint	github	hadolint/hadolint	v2.12.0	Linux-x86_64	hadolint	56de6d5e5ec427e17b74fa48d51271c7fc0d61244bf5c90e828aab8362d55010	github-bin
 golangci-lint	go	github.com/golangci/golangci-lint/v2/cmd/golangci-lint	v2.11.4	-	golangci-lint	-	go-bin
 dotenv-linter	github	dotenv-linter/dotenv-linter	v4.0.0	linux-x86_64	dotenv-linter	9e2f1f6eb88a71ac15ef209f78f5a68644db82f132d2677112b4f80ec2bd2127	github-bin

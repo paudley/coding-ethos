@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -154,6 +156,122 @@ exit 1
 	})
 	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
 		t.Fatalf("output missing repo-relative file:\n%s", output)
+	}
+}
+
+func TestLookUsablePathSkipsUnstartableCandidates(t *testing.T) {
+	hostedDir := filepath.Join(t.TempDir(), "hostedtoolcache", "uv", "0.11.8", "x86_64")
+	localDir := filepath.Join(t.TempDir(), ".local", "bin")
+	hostedUV := filepath.Join(hostedDir, "uv")
+	localUV := filepath.Join(localDir, "uv")
+	writeManagedCaptureFile(t, hostedUV, "#!/bin/sh\nexit 126\n")
+	writeManagedCaptureFile(t, localUV, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(hostedUV, 0o700); err != nil {
+		t.Fatalf("chmod hosted uv: %v", err)
+	}
+	if err := os.Chmod(localUV, 0o700); err != nil {
+		t.Fatalf("chmod local uv: %v", err)
+	}
+	t.Setenv("PATH", hostedDir+string(os.PathListSeparator)+localDir)
+
+	got, err := lookUsablePath("uv")
+	if err != nil {
+		t.Fatalf("look path: %v", err)
+	}
+	if got != localUV {
+		t.Fatalf("uv path = %q, want %q", got, localUV)
+	}
+}
+
+func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
+	ethosRoot := t.TempDir()
+	pythonPath := filepath.Join(ethosRoot, ".venv", "bin", "python")
+	writeManagedCaptureFile(t, pythonPath, `#!/bin/sh
+case " $* " in
+  *" -m ruff --version "*) exit 0 ;;
+esac
+exit 1
+`)
+	if err := os.Chmod(pythonPath, 0o700); err != nil {
+		t.Fatalf("chmod python fixture: %v", err)
+	}
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	command := managedToolCommandFor(tool, ethosRoot)
+	if command.Path != pythonPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, pythonPath)
+	}
+	wantPrefix := []string{"-m", "ruff"}
+	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
+		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
+	}
+}
+
+func TestManagedActionlintFallsBackToGoRunWhenBinaryCannotStart(t *testing.T) {
+	ethosRoot := t.TempDir()
+	actionlintPath := filepath.Join(
+		ethosRoot,
+		"build",
+		"toolchain",
+		"go-bin",
+		"actionlint",
+	)
+	writeManagedCaptureFile(t, actionlintPath, "#!/bin/sh\nexit 126\n")
+	if err := os.Chmod(actionlintPath, 0o700); err != nil {
+		t.Fatalf("chmod actionlint fixture: %v", err)
+	}
+	goDir := t.TempDir()
+	goPath := filepath.Join(goDir, "go")
+	writeManagedCaptureFile(t, goPath, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(goPath, 0o700); err != nil {
+		t.Fatalf("chmod go fixture: %v", err)
+	}
+	t.Setenv("PATH", goDir)
+	tool, found := toolcatalog.HookOwnedTool("actionlint")
+	if !found {
+		t.Fatal("missing actionlint tool")
+	}
+
+	command := managedToolCommandFor(tool, ethosRoot)
+	if command.Path != goPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, goPath)
+	}
+	wantPrefix := []string{
+		"run",
+		"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
+	}
+	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
+		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
+	}
+}
+
+func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"read_write_paths": []any{"/opt/foundation", "/opt/src/vllm"},
+				"rw_paths":         []any{"/scratch/lbox"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if !slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("sandbox capabilities missing no-network tag: %#v", capabilities)
+	}
+	for _, want := range []string{"/opt/foundation", "/opt/src/vllm", "/scratch/lbox"} {
+		if !slices.Contains(capabilities.WritePaths, want) {
+			t.Fatalf("sandbox write paths missing %q: %#v", want, capabilities)
+		}
 	}
 }
 

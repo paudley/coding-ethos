@@ -58,18 +58,30 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	result := lint.Result{
 		Scope:  "tool:ruff",
 		Status: "blocked",
-		Diagnostics: []diagnostics.Diagnostic{{
-			Tool:         "ruff",
-			File:         "pkg/app.py",
-			Line:         4,
-			Column:       8,
-			Severity:     "error",
-			Code:         "F401",
+		Decisions: []policy.Decision{{
+			Decision:     "block",
 			PolicyID:     "python.unused_imports",
-			SkillID:      "lint-remediation",
-			Message:      "unused import",
-			Advice:       "Remove unused imports instead of suppressing Ruff.",
-			Detail:       "imported but unused",
+			Severity:     "block",
+			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+		}},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     4,
+			Column:   8,
+			Severity: "error",
+			Code:     "F401",
+			PolicyID: "python.unused_imports",
+			SkillID:  "lint-remediation",
+			Message:  "unused import",
+			Advice:   "Remove unused imports instead of suppressing Ruff.",
+			Detail:   "imported but unused",
+			Metadata: map[string]any{
+				"implementation":       "cel",
+				"input_schema_version": int64(1),
+				"policy_source":        "coding_ethos.yml:principles.4",
+				"when":                 "diagnostic.code == 'F401'",
+			},
 			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
 			Tags:         []string{"linting", "quality"},
 		}},
@@ -95,6 +107,10 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.precision", "high")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.skill_id", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.implementation", "cel")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.input_schema_version", float64(1))
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.policy_source", "coding_ethos.yml:principles.4")
+	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.cel_expression", "diagnostic.code == 'F401'")
 	assertJSONPath(t, payload, "runs.0.results.0.ruleId", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.ruleIndex", float64(0))
 	assertJSONPath(t, payload, "runs.0.results.0.level", "error")
@@ -106,7 +122,74 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/stable/v1", 64)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.implementation", "cel")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.input_schema_version", float64(1))
+	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_source", "coding_ethos.yml:principles.4")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.cel_expression", "diagnostic.code == 'F401'")
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.properties.coding_ethos_group_id", 64)
+	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos_group_key", "python.unused_imports|lint-remediation|pkg/app.py|4")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
+	assertJSONPathPrefix(t, payload, "runs.0.properties.finding_groups.0.id", 64)
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.key", "python.unused_imports|lint-remediation|pkg/app.py|4")
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.result_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.policies.0", "python.unused_imports")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.ethos_ids.0", "static-analysis-is-the-first-line-of-defense")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.skills.0", "lint-remediation")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.tools.0", "ruff")
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.policy_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.result_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.decision_count", float64(1))
+	assertJSONPath(t, payload, "runs.0.properties.policy_coverage.diagnostic_count", float64(1))
+}
+
+func TestFormatLintResultSARIFGroupsCrossToolFindings(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeFiles,
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{
+			{
+				Tool:     "ruff",
+				File:     "pkg/app.py",
+				Line:     20,
+				Severity: "error",
+				Code:     "PLC0415",
+				PolicyID: "python.conditional_imports",
+				SkillID:  "conditional-imports",
+				Message:  "import should be at the top-level of a file",
+			},
+			{
+				Tool:     "pyright",
+				File:     "./pkg/app.py",
+				Line:     20,
+				Severity: "error",
+				Code:     "reportMissingImports",
+				PolicyID: "python.conditional_imports",
+				SkillID:  "conditional-imports",
+				Message:  "Import cannot be resolved",
+			},
+		},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos_group_key", "python.conditional_imports|conditional-imports|pkg/app.py|20")
+	assertJSONPath(t, payload, "runs.0.results.1.properties.coding_ethos_group_key", "python.conditional_imports|conditional-imports|pkg/app.py|20")
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.key", "python.conditional_imports|conditional-imports|pkg/app.py|20")
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.result_count", float64(2))
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.source_tools.0", "pyright")
+	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.source_tools.1", "ruff")
+	assertJSONPathPrefix(t, payload, "runs.0.properties.finding_groups.0.stable_fingerprints.0", 64)
+	assertJSONPathPrefix(t, payload, "runs.0.properties.finding_groups.0.stable_fingerprints.1", 64)
 }
 
 func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
@@ -232,6 +315,60 @@ func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.security-severity", "5.0")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.tags.1", "security")
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri", "pkg/db.py")
+}
+
+func TestFormatLintResultSARIFIncludesSandboxEvidence(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:ruff",
+		Status: "blocked",
+		Capture: &lint.ToolCapture{
+			Tool: "ruff",
+			Sandbox: &lint.SandboxEvidence{
+				Mode:            "required",
+				Backend:         "bubblewrap",
+				Profile:         "lint-offline",
+				Tool:            "ruff",
+				Tags:            []string{"no-network", "no-git"},
+				TimeoutSeconds:  300,
+				MemoryMB:        2048,
+				CPUQuotaPercent: 100,
+				SeccompProfile:  "deny-privilege",
+				NetworkIsolated: true,
+				ProcessIsolated: true,
+				TimeoutEnforced: true,
+				CgroupRequested: true,
+				SeccompEnabled:  true,
+				Enabled:         true,
+			},
+		},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     1,
+			Column:   1,
+			Severity: "error",
+			PolicyID: "python.unused_imports",
+			Message:  "unused import",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("decode SARIF: %v\n%s", err, output)
+	}
+
+	assertJSONPath(t, payload, "runs.0.properties.sandbox.profile", "lint-offline")
+	assertJSONPath(t, payload, "runs.0.properties.sandbox.timeout_seconds", float64(300))
+	assertJSONPath(t, payload, "runs.0.properties.sandbox.memory_mb", float64(2048))
+	assertJSONPath(t, payload, "runs.0.properties.sandbox.seccomp_profile", "deny-privilege")
+	assertJSONPath(t, payload, "runs.0.properties.sandbox.network_isolated", true)
 }
 
 func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
@@ -497,6 +634,42 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestFormatLintResultHumanIncludesCapturedFailureDetail(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:actionlint",
+		Status: "blocked",
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"category":  "tool_error",
+				"exit_code": 127,
+				"output":    "fork/exec actionlint: permission denied",
+			},
+			CheckID:    "tool.actionlint",
+			Message:    "actionlint exited with status 127 without parseable diagnostics",
+			Severity:   "error",
+			SourceTool: "actionlint",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatHuman)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"actionlint exited with status 127 without parseable diagnostics",
+		"detail: category=tool_error; exit_code=127; output=fork/exec actionlint: permission denied",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human output missing %q:\n%s", want, output)
 		}
 	}
 }

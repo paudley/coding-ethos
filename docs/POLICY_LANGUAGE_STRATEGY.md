@@ -382,7 +382,8 @@ Core inputs:
   policy needs command identity, arguments, redirects, assignments, or
   background execution. Diagnostics and SARIF can use the line/column facts
   when policy maps a finding to a specific command node.
-- `paths`: explicit normalized file collection; `path` is populated only for
+- `paths`: explicit normalized file collection, including symlink flags and
+  normalized symlink targets when available; `path` is populated only for
   single-file compatibility.
 - `diagnostics` and `findings`: normalized collections supplied by lint/finding
   contexts. Single `diagnostic` and `finding` remain available for
@@ -393,8 +394,16 @@ Core inputs:
   files, whether any change facts are present, hunk headers, old/new hunk
   ranges, added lines, removed lines, and old/new line numbers. These facts
   are prepared by the reviewed Go diff parser and remain read-only CEL inputs.
+- `proposed_file_changes`: hook-time before/after file facts for proposed
+  write/edit operations. These compare the current file contents with the
+  proposed replacement content, allowing policy to block growth while allowing
+  reductions of already-large files.
 - `config`: configured repo override candidates and candidates present in the
   current file set.
+- `tool_capabilities`: managed tool capability declarations from
+  `toolcatalog`, including command, capability tags such as `no-network`,
+  `network`, `no-git`, and `git`, sandbox profile, network, Git, environment,
+  process, read/write path, timeout, memory, and CPU facts.
 
 Dispatch is declared in `policy.expressions` with `hook_events`, `tools`,
 `lint_scopes`, `mode`, `severity`, `principle_ids`, and `skill_id`.
@@ -461,8 +470,9 @@ The first migrated built-ins prove the intended pattern:
   CEL over normalized Git facts.
 - `filesystem.large_files` is CEL over staged `file_changes` facts and is
   owned by the `security-by-design` principle.
-- `filesystem.line_limits` is CEL over staged `file_changes` facts and is
-  owned by the `solid-is-law` principle.
+- `filesystem.line_limits` is CEL over staged `file_changes` and hook-time
+  `proposed_file_changes` facts, and is owned by the `solid-is-law`
+  principle.
 - `repo.required_ignores` is CEL over Go-collected ignore facts and is owned by
   `radical-visibility`.
 - `shell.dangerous_command`, `shell.background_git`, `shell.github_admin`,
