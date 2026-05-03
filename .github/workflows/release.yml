@@ -161,7 +161,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p attestations
-          artifacts="dist/* dist-checksums/SHA256SUMS sbom/coding-ethos.spdx.json"
+          # SBOM attestations are bound to the distribution subjects listed in
+          # SHA256SUMS, not to the SBOM file itself. Export bundles only for
+          # subjects that GitHub can resolve directly.
+          artifacts="dist/* dist-checksums/SHA256SUMS"
           for artifact in $artifacts; do
             rm -f sha256-*.jsonl "sha256:"*.jsonl
             gh attestation download "$artifact" --repo "$GITHUB_REPOSITORY"
