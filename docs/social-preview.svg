@@ -1,0 +1,67 @@
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca> -->
+<!-- SPDX-License-Identifier: MIT -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">Coding Ethos social preview</title>
+  <desc id="desc">Policy-as-code for AI coding agents, with MCP, CEL, Git hooks, SARIF, and DevSecOps guardrails.</desc>
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="48%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#0F766E" />
+    </linearGradient>
+    <linearGradient id="ruleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="52%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#0F766E" />
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0F172A" flood-opacity="0.18" />
+    </filter>
+    <style>
+      .background { fill: #F8FAFC; }
+      .title {
+        fill: #0F172A;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 92px;
+        font-weight: 850;
+        letter-spacing: 0;
+      }
+      .tagline {
+        fill: #334155;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 34px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+      .topics {
+        fill: #475569;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 27px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+      }
+      .label {
+        fill: #0F172A;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 23px;
+        font-weight: 800;
+        letter-spacing: 1.6px;
+      }
+    </style>
+  </defs>
+
+  <rect class="background" width="1280" height="640" rx="0" />
+  <rect x="80" y="82" width="1120" height="476" rx="28" fill="#FFFFFF" filter="url(#softShadow)" />
+  <rect x="80" y="82" width="1120" height="476" rx="28" fill="none" stroke="#E2E8F0" stroke-width="2" />
+  <rect x="160" y="474" width="760" height="8" rx="4" fill="url(#ruleGrad)" />
+
+  <g transform="translate(238 308) scale(1.28)">
+    <path d="M 0,-100 L 90,-40 L 90,50 C 90,100 45,130 0,160 C -45,130 -90,100 -90,50 L -90,-40 Z" fill="url(#shieldGrad)" filter="url(#softShadow)" />
+    <path d="M -25,-5 L -55,30 L -25,65 M 25,-5 L 55,30 L 25,65 M 15,-20 L -15,80" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <text x="420" y="248" class="label">AI AGENT DEVSECOPS</text>
+  <text x="416" y="340" class="title">coding-ethos</text>
+  <text x="420" y="392" class="tagline">Policy-as-code guardrails for AI coding agents</text>
+  <text x="420" y="442" class="topics">MCP server / CEL policies / Git hooks / SARIF</text>
+</svg>

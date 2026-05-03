@@ -7,13 +7,56 @@
 
 # Coding Ethos
 
-`coding-ethos` turns engineering principles into runnable repository policy.
+[![CI](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml)
+[![Coding Ethos SARIF](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Policy-as-code enforcement for AI agents: MCP server, CEL policies, Git hooks,
+SARIF, runtime sandboxing, and static-analysis guardrails.
+
+`coding-ethos` turns engineering principles into runnable repository policy for
+human contributors and AI coding agents.
 
 It keeps agent instructions, generated documentation, static-analysis config,
 Git hooks, agent tool-use guards, MCP tools, CEL custom policies, generated
 skills, and runtime axioms on one source contract. Human contributors and AI
 agents see the same standards, run the same checks, and hit the same critical
 safety gates before bad changes land.
+
+Use `coding-ethos` when you need:
+
+- AI-agent guardrails for Codex, Claude Code, Gemini CLI, and other coding
+  agents.
+- A local MCP server that agents can call for policy checks, lint advice,
+  SARIF remediation, and ETHOS-grounded context.
+- Git hook enforcement that catches unsafe commands, protected path edits,
+  unmanaged tool use, and file-growth problems before commit time.
+- CEL policy-as-code that keeps repo-specific rules close to the ETHOS
+  principle they enforce.
+- SARIF and code-scanning output for CI, pull requests, IDEs, and trend
+  analysis.
+
+## 30-Second Start
+
+```bash
+make install
+make check
+make install-hooks
+```
+
+For full Git plus AI-agent hook cutover:
+
+```bash
+make cutover-install
+```
+
+Start the local MCP server for configured agents:
+
+```bash
+bin/coding-ethos-run mcp
+```
+
+![coding-ethos MCP and SARIF demo](docs/assets/coding-ethos-demo.gif)
 
 The project is built around defense in depth for AI-assisted coding:
 
@@ -153,10 +196,21 @@ For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team
 testing, ETHOS inheritance, and agent remediation loops, see
 [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md).
+The documentation landing page is [docs/index.md](docs/index.md), and
+promotion/security trust work is tracked in
+[docs/TRUST_SIGNALS.md](docs/TRUST_SIGNALS.md).
+The security posture is summarized in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
+and release readiness is documented in [docs/RELEASE.md](docs/RELEASE.md).
+The verified demo transcript is [docs/DEMO.md](docs/DEMO.md).
+For positioning and adoption planning, see
+[docs/COMPARISON.md](docs/COMPARISON.md),
+[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), and
+[examples/](examples/).
 The CEL-first policy-language design is tracked in
 [docs/POLICY_LANGUAGE_STRATEGY.md](docs/POLICY_LANGUAGE_STRATEGY.md).
 CI/CD usage and SARIF upload examples are documented in
 [docs/CI_CD_SARIF.md](docs/CI_CD_SARIF.md).
+Runnable and copyable examples start in [examples/](examples/).
 
 ## MCP Server
 

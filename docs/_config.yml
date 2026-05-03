@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+title: Coding Ethos
+description: >-
+  Policy-as-code enforcement for AI agents with MCP, CEL, Git hooks, SARIF, and
+  static-analysis guardrails.
+theme: jekyll-theme-cayman
+show_downloads: true

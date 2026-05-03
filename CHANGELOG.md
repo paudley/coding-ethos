@@ -21,6 +21,9 @@ and this project follows
   the distribution, and uploads build artifacts.
 - Dependabot configuration for `uv` dependencies and GitHub Actions updates.
 - GitHub issue and pull request templates for bugs, feature requests, and contribution workflow guidance.
+- Project discoverability docs, including a GitHub Pages landing page,
+  comparison, integrations, threat model, trust signals, release process,
+  discussions plan, examples, social preview, and recorded demo assets.
 
 ### Changed
 
@@ -28,6 +31,9 @@ and this project follows
   help/status output, configurable `GOFMT`, and formatting over every Go hook
   source file.
 - Improved the README into a GitHub-style project page with quick start, workflow, configuration, and policy links.
+- Improved package metadata with AI-agent, MCP, CEL, SARIF, DevSecOps,
+  Git-hook, policy-as-code, static-analysis, documentation, and security
+  discovery terms.
 - Expanded repository documentation with current architecture analysis,
   generated artifact boundaries, Makefile workflows, hook runtime guidance, and
   verification contracts.

@@ -3,6 +3,58 @@
 
 # TODO
 
+## Project Discoverability
+
+Goal: make `coding-ethos` easy to find, understand, trust, and try from GitHub,
+search engines, and AI-agent policy/security searches.
+
+- [x] Configure GitHub repository topics for the core search surface:
+  `ai-agents`, `mcp-server`, `git-hooks`, `static-analysis`, `devsecops`,
+  `policy-as-code`, and `cel`.
+- [x] Update the GitHub repository description so it names the core product
+  surface: AI-agent policy-as-code, MCP, CEL, Git hooks, SARIF, and static
+  analysis.
+- [x] Improve the README first screen with badges, a direct value statement,
+  AI-agent search terms, and a 30-second start path.
+- [x] Expand the source docs index so MCP, CEL, SARIF, runtime sandboxing,
+  red-team, and roadmap documents are discoverable from one page.
+- [x] Add a GitHub social-preview image sized for repository cards and shared
+  links.
+- [ ] Add an OpenSSF Scorecard badge once the public Scorecard endpoint returns
+  a valid project score; current prep and gaps are documented in
+  `docs/TRUST_SIGNALS.md`.
+- [x] Document progress toward the OpenSSF Best Practices badge.
+- [x] Add a small demo walkthrough showing an agent using MCP instead of
+  invoking lint directly.
+- [x] Add a short docs landing page optimized for "policy as code for AI
+  agents", "MCP server for static analysis", and "CEL Git hook policy" search
+  terms.
+- [x] Add comparison and integration docs for adoption-oriented searches.
+- [x] Draft external launch-post copy outside the repo.
+- [x] Add a threat model for security-focused project evaluation.
+- [x] Add release process docs for public release readiness.
+- [x] Add GitHub Discussions setup guidance.
+- [x] Improve package metadata keywords, classifiers, and project URLs.
+- [x] Add CEL, SARIF CI, command-block, and runtime-sandbox examples.
+- [x] Add GitHub Pages Jekyll theme config for the `/docs` site.
+- [x] Add a verified text demo for MCP command checks, managed lint checks,
+  and SARIF output.
+- [x] Add an asciinema recording and rendered GIF demo for MCP command checks,
+  managed lint checks, and SARIF output.
+- [x] Add docs asset regeneration instructions.
+- [x] Cross-link examples to relevant MCP, CEL, SARIF, sandbox, and threat docs.
+- [x] Update changelog for discoverability, Pages, examples, and demo assets.
+- [x] Document PyPI metadata checks and artifact attestations as release
+  prerequisites.
+
+Acceptance criteria:
+
+- [x] A first-time visitor can identify the project purpose, supported agents,
+  core enforcement surfaces, and first command within the first README screen.
+- [x] GitHub shared links have a clear project visual.
+- [x] Security-focused visitors can find trust signals and roadmap status
+  without reading implementation docs first.
+
 ## Hook Runtime Bootstrap
 
 Goal: make the checked-out `coding-ethos` repository the single build and
