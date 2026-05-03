@@ -846,6 +846,10 @@ python:
       - node_modules
     allowed_mypy_missing_imports: []
 
+  uv_exclude_newer:
+    enabled: true
+    expected_value: 7 days
+
   type_check:
     enabled: true
     excluded_path_fragments:

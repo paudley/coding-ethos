@@ -9,7 +9,17 @@
 
 [![CI](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml)
 [![Coding Ethos SARIF](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml)
+[![CodeQL](https://github.com/paudley/coding-ethos/actions/workflows/codeql.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/paudley/coding-ethos?sort=semver)](https://github.com/paudley/coding-ethos/releases)
+[![PyPI](https://img.shields.io/pypi/v/coding-ethos)](https://pypi.org/project/coding-ethos/)
+[![Python](https://img.shields.io/pypi/pyversions/coding-ethos)](https://pypi.org/project/coding-ethos/)
+[![Release Trust](https://github.com/paudley/coding-ethos/actions/workflows/release.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/release.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/paudley/coding-ethos/badge)](https://scorecard.dev/viewer/?uri=github.com/paudley/coding-ethos)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12737/badge)](https://www.bestpractices.dev/en/projects/12737)
+[![Docs](https://img.shields.io/website?url=https%3A%2F%2Fpaudley.github.io%2Fcoding-ethos%2F&label=docs)](https://paudley.github.io/coding-ethos/)
+[![Attestations](https://img.shields.io/badge/attestations-GitHub%20%2B%20PyPI-blue)](docs/SUPPLY_CHAIN_ATTESTATIONS.md)
+[![SBOM](https://img.shields.io/badge/SBOM-SPDX%20JSON-blue)](docs/SUPPLY_CHAIN_ATTESTATIONS.md)
+[![Security Policy](https://img.shields.io/badge/security-policy-blue)](SECURITY.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Policy-as-code enforcement for AI agents: MCP server, CEL policies, Git hooks,
@@ -204,6 +214,8 @@ Supply-chain trust controls, Scorecard publishing, GitHub artifact
 attestations, SBOM generation, PyPI Trusted Publishing, and verification
 commands are documented in
 [docs/SUPPLY_CHAIN_ATTESTATIONS.md](docs/SUPPLY_CHAIN_ATTESTATIONS.md).
+CI publishes JUnit XML, Python coverage, and Go coverage artifacts for public
+test evidence.
 The security posture is summarized in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md),
 and release readiness is documented in [docs/RELEASE.md](docs/RELEASE.md).
 The verified demo transcript is [docs/DEMO.md](docs/DEMO.md).

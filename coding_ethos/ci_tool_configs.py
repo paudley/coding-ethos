@@ -133,15 +133,17 @@ name: Coding Ethos SARIF Gate
 {workflow_triggers}
 
 permissions:
-  actions: read
   contents: read
-  security-events: write
 
 jobs:
   coding-ethos:
     name: Coding Ethos SARIF Gate
     runs-on: ubuntu-latest
     timeout-minutes: {timeout_minutes}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     env:
       CODING_ETHOS_PATH: {coding_ethos_path}
       CODING_ETHOS_REPO_ROOT: {repo_root}
@@ -151,24 +153,24 @@ jobs:
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           submodules: recursive
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
           go-version-file: ${{{{ env.CODING_ETHOS_PATH }}}}/go/go.mod
           cache-dependency-path: ${{{{ env.CODING_ETHOS_PATH }}}}/go/go.sum
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           enable-cache: true
 
@@ -240,14 +242,14 @@ jobs:
 
       - name: Upload coding-ethos SARIF
         if: ${{{{ always() && hashFiles(env.CODING_ETHOS_SARIF_PATH) != '' }}}}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7
         with:
           sarif_file: ${{{{ env.CODING_ETHOS_SARIF_PATH }}}}
           category: ${{{{ env.CODING_ETHOS_SARIF_CATEGORY }}}}
 
       - name: Upload coding-ethos audit artifacts
         if: ${{{{ always() }}}}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: {artifact_name}
           if-no-files-found: ignore

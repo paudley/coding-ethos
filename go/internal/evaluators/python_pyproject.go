@@ -72,6 +72,59 @@ func EvaluatePythonPyprojectIgnores(
 	return nil, nil
 }
 
+func EvaluatePythonUVExcludeNewer(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	expected := strings.TrimSpace(
+		stringOption(context.EvaluatorOptions, "expected_value", "7 days"),
+	)
+	var decisions []policy.Decision
+	for _, file := range context.Files {
+		if filepath.Base(file) != "pyproject.toml" {
+			continue
+		}
+
+		config, err := loadPyprojectConfig(resolveGuardPath(context.Cwd, file))
+		if err != nil {
+			return nil, err
+		}
+		actual := strings.TrimSpace(pyprojectString(
+			pyprojectMap(config["tool"]),
+			"uv",
+			"exclude-newer",
+		))
+		if actual == expected {
+			continue
+		}
+
+		message := "pyproject.toml must set [tool.uv].exclude-newer"
+		if actual != "" {
+			message = "pyproject.toml has the wrong [tool.uv].exclude-newer value"
+		}
+		decision := policy.NewDecision(blockDecision, policyDef)
+		decision.Diagnostics = []diagnostics.Diagnostic{{
+			Tool:     "uv",
+			File:     file,
+			Severity: blockDecision,
+			Code:     "uv.exclude-newer",
+			PolicyID: policyDef.ID,
+			Message:  message,
+			Advice:   policyDef.Suggestion,
+			Detail:   fmt.Sprintf("expected %q, got %q", expected, actual),
+		}}
+		decision.Evidence = map[string]any{
+			"file":           file,
+			"expected_value": expected,
+			"actual_value":   actual,
+		}
+
+		decisions = append(decisions, decision)
+	}
+
+	return decisions, nil
+}
+
 func loadPyprojectConfig(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -393,6 +446,33 @@ func pyprojectMap(value any) map[string]any {
 	}
 
 	return typed
+}
+
+func pyprojectString(root map[string]any, keys ...string) string {
+	current := root
+	for index, key := range keys {
+		if current == nil {
+			return ""
+		}
+		value, ok := current[key]
+		if !ok {
+			return ""
+		}
+		if index == len(keys)-1 {
+			text, ok := value.(string)
+			if !ok {
+				return ""
+			}
+
+			return text
+		}
+		current = pyprojectMap(value)
+		if current == nil {
+			return ""
+		}
+	}
+
+	return ""
 }
 
 func normalizePyprojectStringList(value any) []string {

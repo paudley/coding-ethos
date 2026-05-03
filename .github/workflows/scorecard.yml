@@ -12,7 +12,8 @@ on:
     - cron: "30 2 * * 1"
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: read
 
 jobs:
   scorecard:
@@ -26,12 +27,12 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
 
       - name: Run OpenSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.3
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
         with:
           results_file: scorecard.sarif
           results_format: sarif
@@ -39,14 +40,14 @@ jobs:
 
       - name: Upload OpenSSF Scorecard SARIF
         if: ${{ always() && hashFiles('scorecard.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7
         with:
           sarif_file: scorecard.sarif
           category: openssf-scorecard
 
       - name: Upload OpenSSF Scorecard artifact
         if: ${{ always() && hashFiles('scorecard.sarif') != '' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: openssf-scorecard-sarif
           path: scorecard.sarif

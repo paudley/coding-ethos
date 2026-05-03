@@ -4,9 +4,9 @@
 name: Release
 
 on:
-  release:
-    types:
-      - published
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -34,17 +34,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           enable-cache: true
 
@@ -63,7 +63,7 @@ jobs:
         run: mkdir -p sbom
 
       - name: Generate distribution SBOM
-        uses: anchore/sbom-action@v0.24.0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
           path: .
           output-file: sbom/coding-ethos.spdx.json
@@ -72,8 +72,8 @@ jobs:
 
       - name: Attest distribution artifacts
         # SLSA provenance binds each built distribution to this repository,
-        # workflow identity, commit, and release event through GitHub OIDC.
-        uses: actions/attest@v4
+        # workflow identity, commit, and tag event through GitHub OIDC.
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: |
             dist/*.tar.gz
@@ -82,7 +82,7 @@ jobs:
       - name: Attest distribution checksums
         # The checksum file is attached to the release for consumers and gets
         # separate provenance from the files it describes.
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: dist-checksums/SHA256SUMS
 
@@ -90,27 +90,27 @@ jobs:
         # SBOM mode binds the SPDX document to the distribution subjects listed
         # in SHA256SUMS. Keep this on actions/attest rather than the deprecated
         # attest-sbom wrapper.
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-checksums: dist-checksums/SHA256SUMS
           sbom-path: sbom/coding-ethos.spdx.json
 
       - name: Upload distribution artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dist
           path: dist/*
           if-no-files-found: error
 
       - name: Upload distribution checksums
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dist-checksums
           path: dist-checksums/SHA256SUMS
           if-no-files-found: error
 
       - name: Upload distribution SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dist-sbom
           path: sbom/coding-ethos.spdx.json
@@ -123,13 +123,82 @@ jobs:
             echo "## Release dry run"
             echo
             echo "Built distributions, checksums, SBOM, and GitHub attestations."
-            echo "Skipped PyPI publishing and release asset attachment."
+            echo "Skipped GitHub release creation and PyPI publishing."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-github-release:
+    name: Publish GitHub release with trust artifacts
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: dist
+          path: dist
+
+      - name: Download distribution checksums
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: dist-checksums
+          path: dist-checksums
+
+      - name: Download distribution SBOM
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: dist-sbom
+          path: sbom
+
+      - name: Export offline attestation bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p attestations
+          artifacts="dist/* dist-checksums/SHA256SUMS sbom/coding-ethos.spdx.json"
+          for artifact in $artifacts; do
+            rm -f sha256-*.jsonl "sha256:"*.jsonl
+            gh attestation download "$artifact" --repo "$GITHUB_REPOSITORY"
+            bundle="$(find . -maxdepth 1 -type f -name 'sha256*.jsonl' | head -n 1)"
+            if [ -z "$bundle" ]; then
+              echo "No attestation bundle downloaded for $artifact" >&2
+              exit 1
+            fi
+            cp "$bundle" "attestations/$(basename "$artifact").intoto.jsonl"
+            rm -f "$bundle"
+          done
+
+      - name: Create immutable-ready GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --draft \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/* \
+            dist-checksums/SHA256SUMS \
+            sbom/coding-ethos.spdx.json \
+            attestations/*.intoto.jsonl
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false \
+            --latest
 
   publish-pypi:
     name: Publish to PyPI with attestations
-    if: ${{ github.event_name == 'release' }}
-    needs: build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs:
+      - build
+      - publish-github-release
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -141,7 +210,7 @@ jobs:
 
     steps:
       - name: Download distribution artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: dist
           path: dist
@@ -150,38 +219,6 @@ jobs:
         # Trusted Publishing exchanges the job OIDC identity for a short-lived
         # PyPI publish token. No Twine credentials or PyPI API token are stored
         # in GitHub secrets.
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
         with:
           attestations: true
-
-  attach-checksums:
-    name: Attach release trust artifacts
-    if: ${{ github.event_name == 'release' }}
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      contents: write
-
-    steps:
-      - name: Download distribution checksums
-        uses: actions/download-artifact@v7
-        with:
-          name: dist-checksums
-          path: dist-checksums
-
-      - name: Download distribution SBOM
-        uses: actions/download-artifact@v7
-        with:
-          name: dist-sbom
-          path: sbom
-
-      - name: Attach trust artifacts to GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release upload "$GITHUB_REF_NAME"
-          dist-checksums/SHA256SUMS
-          sbom/coding-ethos.spdx.json
-          --clobber

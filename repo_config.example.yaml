@@ -154,6 +154,9 @@ shell:
     enabled: true
 
 python:
+  uv_exclude_newer:
+    enabled: true
+    expected_value: 7 days
   source_paths:
     - lib/python/project
     - pre-commit/hooks

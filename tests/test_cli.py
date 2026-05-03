@@ -211,7 +211,9 @@ def _assert_generated_ci_configs(repo_root: Path) -> None:
     )
 
     assert "bin/coding-ethos-run" in github_workflow
-    assert "github/codeql-action/upload-sarif@v4" in github_workflow
+    assert (
+        "github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7"
+    ) in github_workflow
     assert "--files-from" in github_workflow
     assert "github.event.before" in github_workflow
     assert 'git ls-files > "$files_path"' not in github_workflow

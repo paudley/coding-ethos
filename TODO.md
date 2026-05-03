@@ -22,9 +22,11 @@ search engines, and AI-agent policy/security searches.
   links.
 - [x] Add an OpenSSF Scorecard workflow and badge; the public score appears
   after the first successful `main` run publishes results.
-- [ ] After the first successful Scorecard run on `main`, verify the README
-  badge resolves, record the current score in `docs/TRUST_SIGNALS.md`, and add
-  any score gaps to this TODO.
+- [ ] Track OpenSSF Scorecard gaps after the first release: fuzzing depth,
+  Best Practices registration, tag/release detection, branch-protection
+  ruleset visibility, sustained SAST history, and token-permission drift.
+- [x] Register the OpenSSF Best Practices Badge project and add the badge once
+  the public checklist has an issued project URL.
 - [x] Document progress toward the OpenSSF Best Practices badge.
 - [x] Add a small demo walkthrough showing an agent using MCP instead of
   invoking lint directly.
@@ -57,6 +59,10 @@ search engines, and AI-agent policy/security searches.
   wheel data, companion platform wheels, GitHub release assets, or source
   checkout bootstrap. Do not bundle binaries into the wheel without a designed
   upgrade, checksum, and platform strategy.
+- [ ] Flesh out fuzzing beyond CI smoke coverage: add durable corpus seeds,
+  parser and formatter invariants, crash artifact retention, and a long-running
+  scheduled target for shell parsing, SARIF generation, CEL input construction,
+  and hook event decoding.
 
 Acceptance criteria:
 

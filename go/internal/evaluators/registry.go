@@ -104,6 +104,10 @@ func registerPythonEvaluators(registry Registry) {
 		"python.pyproject_ignores",
 		EvaluatorFunc(EvaluatePythonPyprojectIgnores),
 	)
+	registry.Register(
+		"python.uv_exclude_newer",
+		EvaluatorFunc(EvaluatePythonUVExcludeNewer),
+	)
 }
 
 func registerExternalEvaluators(registry Registry) {

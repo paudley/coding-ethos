@@ -27,6 +27,10 @@ The Python package version lives in `pyproject.toml`.
 - [ ] Run generated config verification for any changed config surfaces.
 - [ ] Verify GitHub Actions and SARIF gates are green on the release PR.
 - [ ] Verify OpenSSF Scorecard has a recent successful run on `main`.
+- [ ] Refresh pinned GitHub Action SHAs after reviewing upstream release notes
+  for each action used by `.github/workflows/*.yml`.
+- [ ] Verify `[tool.uv].exclude-newer = "7 days"` remains present in every
+  project `pyproject.toml` before refreshing lock files.
 - [ ] Verify `SECURITY.md`, `README.md`, and `docs/index.md` still describe
   the supported install and reporting paths.
 - [ ] Confirm no local paths, secrets, or generated runtime outputs are staged.
@@ -54,7 +58,7 @@ make release-dry-run
 Before publishing, run the GitHub `Release` workflow manually with `dry_run`
 enabled. That exercises the hosted release job, OIDC permissions, GitHub
 artifact attestations, checksum generation, and SBOM generation while skipping
-PyPI publication and GitHub release asset attachment.
+GitHub release creation and PyPI publication.
 
 Do not upload to PyPI until release artifacts have provenance. The GitHub
 Actions build distribution job validates package metadata with `uvx twine
@@ -65,11 +69,18 @@ artifact attestations for both `dist/*.tar.gz`/`dist/*.whl` and
 distribution artifact checksums. Treat those attestations as the prerequisite
 for any certified PyPI upload.
 
-The supported PyPI release path is the `.github/workflows/release.yml`
-workflow. It publishes only from a published GitHub release, requires the
-`pypi` GitHub environment, uses OIDC Trusted Publishing through
+The supported release path is the `.github/workflows/release.yml` workflow
+triggered by pushing a signed `v*` tag. The workflow builds and attests
+artifacts, exports offline `.intoto.jsonl` attestation bundles, creates a draft
+GitHub release with the distributions, checksums, SBOM, and attestation bundles
+already attached, publishes the release, then publishes to PyPI through the
+`pypi` GitHub environment. This ordering is required for GitHub immutable
+releases: assets must be attached before publication rather than uploaded after
+the release is published.
+
+PyPI upload uses OIDC Trusted Publishing through
 `pypa/gh-action-pypi-publish`, and enables PyPI digital attestations. Configure
-the corresponding Trusted Publisher in PyPI before cutting the first release:
+the corresponding Trusted Publisher in PyPI before cutting a release:
 
 - owner: `paudley`
 - repository: `coding-ethos`
@@ -84,10 +95,10 @@ gh api repos/paudley/coding-ethos/environments/pypi \
   --field wait_timer=0
 ```
 
-Then configure required reviewers in the GitHub UI or with the GitHub API
-using the repository owner's reviewer IDs. PyPI must also be configured with
-the Trusted Publisher tuple above before the workflow can publish without an
-API token.
+Then configure required reviewers in the GitHub UI or with the GitHub API if
+the project has more than one maintainer. PyPI must also be configured with the
+Trusted Publisher tuple above before the workflow can publish without an API
+token.
 
 Consumers can verify GitHub artifact attestations with:
 
@@ -168,10 +179,10 @@ Template:
 
 ## Post-Release Checklist
 
-- [ ] Create the GitHub release.
-- [ ] Attach artifacts and checksums if applicable.
-- [ ] Verify GitHub release checksums were attached by the release workflow.
-- [ ] Verify GitHub release SBOM was attached by the release workflow.
+- [ ] Push the signed release tag.
+- [ ] Verify the release workflow created the GitHub release.
+- [ ] Verify GitHub release distributions, checksums, SBOM, and `.intoto.jsonl`
+  attestation bundles were attached before publication by the release workflow.
 - [ ] Verify PyPI shows digital attestations for the uploaded release files.
 - [ ] Verify release links from `README.md` and package metadata.
 - [ ] Update OpenSSF Scorecard and Best Practices tracking in
