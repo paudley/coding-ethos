@@ -121,7 +121,7 @@ jobs:
         run: uvx twine check dist/*
 
       - name: Attest distribution artifacts
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
 
