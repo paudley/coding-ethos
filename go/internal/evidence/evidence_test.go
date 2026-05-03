@@ -108,3 +108,14 @@ func TestRemediationEventsLinkRemediationToFinding(t *testing.T) {
 		t.Fatalf("event = %#v", event)
 	}
 }
+
+func TestStableIDPreservesEmptyFieldPositions(t *testing.T) {
+	t.Parallel()
+
+	left := stableID("finding", "rule", "", "code")
+	right := stableID("finding", "rule", "code", "")
+
+	if left == right {
+		t.Fatalf("stable IDs collided when empty fields moved: %q", left)
+	}
+}

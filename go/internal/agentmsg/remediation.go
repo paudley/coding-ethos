@@ -85,7 +85,7 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Remediation {
 	remediations := make([]Remediation, 0, len(items))
 	for _, item := range items {
 		remediation := fromDiagnostic(item)
-		if remediation.Message == "" {
+		if remediation.Message == "" && remediation.PolicyID == "" && remediation.File == "" {
 			continue
 		}
 		remediations = append(remediations, remediation)
@@ -110,7 +110,7 @@ func FromDecisions(decisions []policy.Decision, failedAction string) []Remediati
 		}
 
 		remediation := fromDecision(decision, failedAction)
-		if remediation.Message == "" {
+		if remediation.Message == "" && remediation.PolicyID == "" {
 			continue
 		}
 		remediations = append(remediations, remediation)

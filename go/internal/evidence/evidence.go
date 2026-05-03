@@ -293,7 +293,7 @@ func findingID(finding Finding) string {
 }
 
 func stableID(parts ...string) string {
-	sum := sha256.Sum256([]byte(strings.Join(compactStrings(parts), "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return hex.EncodeToString(sum[:])
 }

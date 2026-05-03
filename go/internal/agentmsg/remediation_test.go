@@ -92,6 +92,36 @@ func TestFromDecisionsUsesFailedActionAndFallbackStep(t *testing.T) {
 	}
 }
 
+func TestFromDiagnosticsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
+	t.Parallel()
+
+	items := FromDiagnostics([]diagnostics.Diagnostic{{
+		PolicyID: "python.unused_imports",
+	}})
+
+	if len(items) != 1 {
+		t.Fatalf("got %d remediation items, want 1", len(items))
+	}
+	if items[0].PolicyID != "python.unused_imports" {
+		t.Fatalf("policy id = %q", items[0].PolicyID)
+	}
+}
+
+func TestFromDecisionsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
+	t.Parallel()
+
+	items := FromDecisions([]policy.Decision{{
+		PolicyID: "git.wrapper_required",
+	}}, "Bash")
+
+	if len(items) != 1 {
+		t.Fatalf("got %d remediation items, want 1", len(items))
+	}
+	if items[0].PolicyID != "git.wrapper_required" || items[0].FailedAction != "Bash" {
+		t.Fatalf("remediation = %#v", items[0])
+	}
+}
+
 func TestSummarizeReportsRepeatedPolicies(t *testing.T) {
 	t.Parallel()
 
