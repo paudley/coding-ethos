@@ -13,13 +13,21 @@ adopt.
 - MIT licensed source.
 - Public GitHub Actions CI.
 - Generated SARIF/code-scanning workflow.
+- CodeQL analysis for GitHub Actions workflows, Go, and Python.
 - Build distribution job with package metadata validation and artifact
   attestation.
 - OpenSSF Scorecard workflow with published results for the public badge and
   SARIF upload.
 - Release workflow with GitHub artifact attestations, SPDX JSON SBOMs,
-  SHA-256 checksums, and PyPI Trusted Publishing.
+  SHA-256 checksums, offline `.intoto.jsonl` attestation bundles, and PyPI
+  Trusted Publishing.
 - Dependabot configuration.
+- GitHub Actions pinned to immutable commit SHAs, with release-process review
+  for SHA updates.
+- uv dependency resolution constrained with `[tool.uv].exclude-newer = "7 days"`
+  and enforced for consumer `pyproject.toml` files.
+- Public CI publishes JUnit XML, Python coverage reports, and Go coverage
+  reports as workflow artifacts with coverage summaries in job output.
 - `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`,
   issue templates, and pull request template.
 - Repository topics for AI-agent, MCP, CEL, static-analysis, DevSecOps, Git
@@ -37,11 +45,11 @@ Target badge:
 
 The `.github/workflows/scorecard.yml` workflow publishes public Scorecard
 results with `publish_results: true`, uploads Scorecard SARIF to code scanning,
-and preserves the SARIF file as a workflow artifact. The badge may report
-`invalid repo path` until the first successful run on `main` has populated the
-public Scorecard API.
+and preserves the SARIF file as a workflow artifact. The public result is an
+ecosystem-facing signal, so regressions are tracked as project work instead of
+treated as badge cosmetics.
 
-Expected areas to monitor after the first published result:
+Current areas to monitor in the published result:
 
 - Branch protection and required checks.
 - Token permissions in GitHub Actions workflows.
@@ -50,16 +58,20 @@ Expected areas to monitor after the first published result:
 - Binary artifact publication and checksum policy.
 - SBOM generation and attestation coverage.
 - Security policy and vulnerability reporting path.
+- Fuzzing coverage beyond the initial Go fuzz smoke workflow.
 
 ## OpenSSF Best Practices Badge
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12737/badge)](https://www.bestpractices.dev/en/projects/12737)
+
 The OpenSSF Best Practices Badge is a separate human-reviewed checklist. The
-project should apply once the public-facing security docs are complete.
+project tracks its passing badge at
+`https://www.bestpractices.dev/en/projects/12737`.
 
 Preparation checklist:
 
 - [x] Add or verify `SECURITY.md` with vulnerability reporting instructions.
-- [ ] Publish an initial release with clear release notes.
+- [x] Publish an initial release with clear release notes.
 - [x] Document supported platforms and installation paths.
 - [x] Document how dependencies are updated and audited.
 - [x] Document the project governance and maintainer contact path.
@@ -67,16 +79,16 @@ Preparation checklist:
 
 ## Public Release Checklist
 
-- [ ] Create a `v0.1.0` GitHub release.
+- [x] Create a `v0.1.0` GitHub release.
 - [ ] Attach or document generated binaries if they are part of the supported
   install path.
-- [ ] Add checksums for published binary artifacts.
+- [x] Generate checksums for Python distribution artifacts.
 - [x] Confirm Python distributions have GitHub artifact attestations before
   upload to a certified PyPI account.
 - [x] Generate and attest an SPDX JSON SBOM for release artifacts.
 - [x] Publish Python distributions via PyPI Trusted Publishing so PyPI publish
   attestations are generated and uploaded automatically.
-- [ ] Link the docs landing page from the repository homepage or README.
-- [ ] Upload `docs/social-preview.png` as the GitHub social preview image.
+- [x] Link the docs landing page from the repository homepage or README.
+- [x] Upload `docs/social-preview.png` as the GitHub social preview image.
 - [ ] Enable GitHub Discussions with categories for policy recipes, agent
   integrations, CEL examples, MCP workflows, and showcase posts.

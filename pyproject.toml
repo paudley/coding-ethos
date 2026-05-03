@@ -69,6 +69,7 @@ coding-ethos = "coding_ethos.cli:main"
 
 [dependency-groups]
 dev = [
+    "coverage>=7.13.0",
     "pytest>=8.0",
     "types-pyyaml>=6.0.12.20260408",
 ]
@@ -84,6 +85,7 @@ packages = ["coding_ethos"]
 "pre-commit/prompts" = "coding_ethos/resources/prompts"
 
 [tool.uv]
+exclude-newer = "7 days"
 managed = true
 
 [tool.uv.workspace]

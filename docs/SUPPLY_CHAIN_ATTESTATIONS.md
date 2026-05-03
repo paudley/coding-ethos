@@ -12,13 +12,19 @@ workflow, identity, digest, and release path verifiable.
 - OpenSSF Scorecard runs on `main`, weekly, branch-protection changes, and
   manual dispatch. Results are published to the public Scorecard API and
   uploaded as SARIF.
+- GitHub Actions workflows pin external actions to immutable commit SHAs. The
+  release checklist requires reviewing and refreshing those SHAs deliberately
+  instead of floating on version tags.
 - Distribution builds validate package metadata before upload.
 - Python source and wheel distributions receive GitHub artifact attestations
   with SLSA provenance through `actions/attest`.
 - Distribution checksums are generated separately and attested separately.
 - An SPDX JSON SBOM is generated with Syft through Anchore's SBOM action,
-  uploaded as a durable artifact, attached to GitHub releases, and attested
-  against the distribution checksum subjects.
+  uploaded as a durable artifact, attached to GitHub releases before
+  publication, and attested against the distribution checksum subjects.
+- Offline `.intoto.jsonl` attestation bundles are exported from GitHub
+  artifact attestations and attached to releases for consumers and ecosystem
+  scanners that inspect release assets directly.
 - PyPI upload uses Trusted Publishing through a dedicated `pypi` GitHub
   environment. No PyPI API token belongs in repository secrets.
 - PyPI publish attestations are produced by `pypa/gh-action-pypi-publish` and
@@ -64,6 +70,18 @@ gh attestation verify dist/coding_ethos-*.whl \
   --predicate-type https://spdx.dev/Document
 ```
 
+Download offline attestation bundles from a release and verify them with the
+artifact they describe:
+
+```bash
+gh release download v0.1.1 \
+  --repo paudley/coding-ethos \
+  --pattern '*.intoto.jsonl'
+gh attestation verify dist/coding_ethos-*.whl \
+  --repo paudley/coding-ethos \
+  --bundle coding_ethos-*.whl.intoto.jsonl
+```
+
 Verify checksums:
 
 ```bash
@@ -92,21 +110,25 @@ The release workflow is intentionally split:
 - `build` creates the distributions, validates metadata, generates checksums,
   generates the SPDX JSON SBOM, creates GitHub provenance and SBOM
   attestations, and uploads workflow artifacts.
+- `publish-github-release` downloads the distributions, checksum file, and
+  SBOM; exports offline `.intoto.jsonl` attestation bundles; creates a draft
+  GitHub release; attaches every release asset; and only then publishes the
+  release.
 - `publish-pypi` downloads only the distributions and publishes through PyPI
   Trusted Publishing from the protected `pypi` environment.
-- `attach-checksums` downloads the checksum and SBOM artifacts and attaches
-  them to the GitHub release.
 
 Keep these responsibilities separate. The PyPI publishing job should stay
 small, run on GitHub-hosted Ubuntu, use OIDC, and avoid unrelated build or
-mutation steps.
+mutation steps. The GitHub release job must attach assets before publication so
+immutable releases contain the distributions, checksums, SBOM, and offline
+attestation bundles from the start.
 
 The same workflow also supports manual `workflow_dispatch` dry runs. A manual
 dry run executes the build job, package metadata validation, checksum
 generation, SBOM generation, GitHub provenance attestations, SBOM attestation,
-and artifact uploads. It intentionally skips PyPI publication and GitHub
-release asset attachment so the release identity can be tested before creating
-or publishing a real release.
+and artifact uploads. It intentionally skips GitHub release creation and PyPI
+publication so the release identity can be tested before creating or publishing
+a real release.
 
 ## First-Release Setup
 
@@ -128,9 +150,10 @@ Then configure a PyPI Trusted Publisher:
 - Workflow filename: `release.yml`
 - Environment: `pypi`
 
-Configure the GitHub `pypi` environment with required reviewers before the
-first public release. That keeps release publication as a deliberate approval
-step even though the credential exchange is automated.
+Configure the GitHub `pypi` environment before the first public release. If the
+project has multiple maintainers, use environment reviewers to keep release
+publication as a deliberate approval step even though the credential exchange is
+automated.
 
 The environment can be created from the CLI:
 
