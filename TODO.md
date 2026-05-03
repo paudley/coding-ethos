@@ -55,11 +55,11 @@ search engines, and AI-agent policy/security searches.
   GitHub workflow lint.
 - [x] Add a package smoke target proving the wheel works outside the source
   checkout with packaged defaults.
-- [ ] Decide the correct Go hook runtime publication model for PyPI users:
+- [x] Decide the correct Go hook runtime publication model for PyPI users:
   wheel data, companion platform wheels, GitHub release assets, or source
   checkout bootstrap. Do not bundle binaries into the wheel without a designed
   upgrade, checksum, and platform strategy.
-- [ ] Flesh out fuzzing beyond CI smoke coverage: add durable corpus seeds,
+- [x] Flesh out fuzzing beyond CI smoke coverage: add durable corpus seeds,
   parser and formatter invariants, crash artifact retention, and a long-running
   scheduled target for shell parsing, SARIF generation, CEL input construction,
   and hook event decoding.
@@ -627,12 +627,12 @@ Acceptance criteria:
   writable paths only.
 - [x] Sandbox capability requests are visible in policy explanations, traces,
   SARIF, and MCP responses.
-- [ ] A tool cannot gain broader filesystem, network, process, or syscall
+- [x] A tool cannot gain broader filesystem, network, process, or syscall
   access by bypassing shell wrappers, using static binaries, or spawning child
   processes.
-- [ ] Sandbox denials are normalized into policy-linked diagnostics with ETHOS
+- [x] Sandbox denials are normalized into policy-linked diagnostics with ETHOS
   principle IDs and remediation guidance.
-- [ ] CI can require sandbox enforcement for high-risk tool classes while local
+- [x] CI can require sandbox enforcement for high-risk tool classes while local
   developer workflows remain recoverable and explicit about unsupported
   platforms.
 

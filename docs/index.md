@@ -76,6 +76,8 @@ artifact, trend, and remediation workflows.
 
 - [Hook runtime bootstrap](HOOK_RUNTIME_BOOTSTRAP.md): checkout-local runtime
   artifacts, repair behavior, and consumer hook shims.
+- [Runtime publication](RUNTIME_PUBLICATION.md): PyPI generator boundaries and
+  the release-asset model for future compiled Go runtime distribution.
 - [Lint capture Go flow](LINT_CAPTURE_GO_FLOW.md): managed lint capture through
   compiled Go request, target resolution, config validation, and normalized
   output.

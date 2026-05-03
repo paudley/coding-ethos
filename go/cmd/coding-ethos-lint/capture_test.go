@@ -215,6 +215,9 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 		`"scope": "tool:ruff"`,
 		`"policy_id": "runtime.sandbox_denial"`,
 		`"skill_id": "managed-toolchain"`,
+		`"security-by-design"`,
+		`"one-path-for-critical-operations"`,
+		`"advice": "Use the managed tool path with declared capabilities`,
 		`"sandbox": {`,
 		`"denied": true`,
 	} {

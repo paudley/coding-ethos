@@ -69,6 +69,11 @@ def render_github_sarif_workflow(config: dict[str, Any]) -> str:
         "generated_config.ci.github_actions.sarif_category",
         "policy",
     )
+    sandbox_mode = configured_string(
+        config,
+        "generated_config.ci.github_actions.sandbox_mode",
+        "required",
+    )
     timeout_minutes = configured_int(
         config,
         "generated_config.ci.github_actions.timeout_minutes",
@@ -113,6 +118,7 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: {gate_command}
       CODING_ETHOS_SARIF_PATH: {sarif_path}
       CODING_ETHOS_SARIF_CATEGORY: {sarif_category}
+      CODING_ETHOS_SANDBOX_MODE: {sandbox_mode}
       CODING_ETHOS_FILES: ""
     steps:
       - name: Check out repository
@@ -146,6 +152,8 @@ jobs:
         id: project-gate
         continue-on-error: true
         run: |
+          ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
+          export PATH="$ethos_path/bin:$PATH"
           if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
             cd "$CODING_ETHOS_REPO_ROOT"
             bash -c "$CODING_ETHOS_GATE_COMMAND"
@@ -194,6 +202,7 @@ jobs:
             --scope files \\
             --files-from "$files_path" \\
             --sarif-category "$CODING_ETHOS_SARIF_CATEGORY" \\
+            --sandbox-mode "$CODING_ETHOS_SANDBOX_MODE" \\
             --sarif > "$sarif_tmp"
           status=$?
           if [ -s "$sarif_tmp" ]; then

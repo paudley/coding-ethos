@@ -1,0 +1,64 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package celexpr
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func FuzzActivationShellAndProposedFileChange(f *testing.F) {
+	for _, seed := range []struct {
+		command string
+		tool    string
+		oldText string
+		newText string
+	}{
+		{"git add file.py", "Bash", "alpha\n", "alpha\nbeta\n"},
+		{"FILE=.claude/settings.json cat > ${FILE}", "Write", "", "memory\n"},
+		{"git commit -m subject -m body", "Edit", "old\n", "new\n"},
+		{"python - <<'PY'\nprint('hello')\nPY", "MultiEdit", "same\n", "same\nmore\n"},
+		{"unterminated 'quote", "Edit", "old\n", "new\n"},
+	} {
+		f.Add(seed.command, seed.tool, seed.oldText, seed.newText)
+	}
+
+	f.Fuzz(func(t *testing.T, command, tool, oldText, newText string) {
+		if len(command) > 4096 || len(oldText) > 4096 || len(newText) > 4096 {
+			t.Skip("bounded fuzz input size")
+		}
+
+		repo := t.TempDir()
+		file := filepath.Join(repo, "pkg", "app.py")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatalf("create fixture dir: %v", err)
+		}
+		if err := os.WriteFile(file, []byte("old\nsame\n"), 0o600); err != nil {
+			t.Fatalf("write fixture file: %v", err)
+		}
+
+		activation := Activation(ActivationInput{
+			Command:    command,
+			Content:    newText,
+			OldContent: oldText,
+			Cwd:        repo,
+			Files:      []string{"pkg/app.py"},
+			Tool:       tool,
+			SourceRoots: []string{
+				"pkg",
+			},
+			ProtectedPaths: []string{".git/**", "pre-commit/hooks/**"},
+		})
+		if activation["command_fact"] == nil {
+			t.Fatal("activation missing command facts")
+		}
+		if activation["shell_commands"] == nil {
+			t.Fatal("activation missing shell command facts")
+		}
+		if activation["proposed_file_changes"] == nil {
+			t.Fatal("activation missing proposed file change facts")
+		}
+	})
+}

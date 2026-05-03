@@ -198,11 +198,68 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if slices.Contains(plan.Args, "--dev-bind") {
 		t.Fatalf("full device tree must not be exposed: %#v", plan.Args)
 	}
+	if sandboxArgIndex(plan.Args, "/tools/ruff") <= sandboxArgIndex(plan.Args, "--unshare-net") {
+		t.Fatalf("tool executable must be inside bwrap argument boundary: %#v", plan.Args)
+	}
 	if slices.Contains(plan.Evidence.WritePaths, ".git/config") {
 		t.Fatalf(".git write evidence must be filtered: %#v", plan.Evidence)
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".coding-ethos/cache")); err != nil {
 		t.Fatalf("write bind path should be created before bwrap args: %v", err)
+	}
+}
+
+func TestBuildPlanConstrainsChildrenAndStaticBinaries(t *testing.T) {
+	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
+	executable := filepath.Join(repo, "tools", "static-tool")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexec /bin/sh -c 'true'\n"), 0o700); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+
+	plan, err := BuildPlan(Request{
+		Mode:        ModeRequired,
+		Tool:        "static-tool",
+		Executable:  executable,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		BackendPath: backend,
+		Capabilities: Capabilities{
+			SandboxProfile: "lint-offline",
+			TimeoutSeconds: 30,
+			MemoryMB:       512,
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	for _, want := range []string{
+		"--die-with-parent",
+		"--unshare-pid",
+		"--unshare-net",
+		"--ro-bind",
+		"/",
+		"--tmpfs",
+		"/home",
+		"--tmpfs",
+		"/root",
+	} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("args missing %q: %#v", want, plan.Args)
+		}
+	}
+	if sandboxArgIndex(plan.Args, executable) <= sandboxArgIndex(plan.Args, "--chdir") {
+		t.Fatalf("tool executable must be launched after sandbox setup: %#v", plan.Args)
+	}
+	if !plan.Evidence.NetworkIsolated || !plan.Evidence.ProcessIsolated {
+		t.Fatalf("child isolation evidence missing: %#v", plan.Evidence)
+	}
+	if !plan.Evidence.ReadOnlyRoot || !plan.Evidence.TimeoutEnforced ||
+		!plan.Evidence.CgroupRequested {
+		t.Fatalf("runtime containment evidence missing: %#v", plan.Evidence)
 	}
 }
 
@@ -442,6 +499,16 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	if !plan.Evidence.RequiresNetwork || plan.Evidence.NetworkIsolated {
 		t.Fatalf("network capability not recorded: %#v", plan.Evidence)
 	}
+}
+
+func sandboxArgIndex(args []string, value string) int {
+	for index, arg := range args {
+		if arg == value {
+			return index
+		}
+	}
+
+	return -1
 }
 
 func fakeBubblewrap(t *testing.T) string {

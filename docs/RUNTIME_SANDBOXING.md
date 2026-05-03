@@ -158,3 +158,9 @@ Unsupported platforms are explicit in the sandbox evidence. Required sandbox
 profiles fail closed when Linux namespace support or Bubblewrap is unavailable.
 Advisory `auto` mode records the degraded reason and falls back to the original
 command without claiming sandbox enforcement.
+
+Generated GitHub and GitLab SARIF workflows default
+`generated_config.ci.*.sandbox_mode` to `required` and pass it to
+`coding-ethos-run policy-lint`. That lets CI enforce the sandbox while local
+developer workflows can remain explicit and recoverable with `auto` or `off`
+when a workstation lacks Bubblewrap support.

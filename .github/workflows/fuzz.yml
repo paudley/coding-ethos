@@ -45,3 +45,62 @@ jobs:
       - name: Fuzz SARIF formatter
         run: go test ./internal/hookoutput -run '^$' -fuzz Fuzz -fuzztime=30s
         working-directory: go
+
+      - name: Fuzz hook event decoder
+        run: go test ./internal/hooks -run '^$' -fuzz Fuzz -fuzztime=30s
+        working-directory: go
+
+      - name: Fuzz CEL input construction
+        run: go test ./internal/celexpr -run '^$' -fuzz Fuzz -fuzztime=30s
+        working-directory: go
+
+      - name: Upload fuzz crash corpus
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: go-fuzz-crash-corpus
+          if-no-files-found: ignore
+          path: go/internal/**/testdata/fuzz/
+
+  go-fuzz-deep:
+    name: Go fuzz deep
+    if: >-
+      ${{ github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go/go.mod
+
+      - name: Fuzz shell parser
+        run: go test ./internal/shellparse -run '^$' -fuzz Fuzz -fuzztime=15m
+        working-directory: go
+
+      - name: Fuzz SARIF formatter
+        run: go test ./internal/hookoutput -run '^$' -fuzz Fuzz -fuzztime=15m
+        working-directory: go
+
+      - name: Fuzz hook event decoder
+        run: go test ./internal/hooks -run '^$' -fuzz Fuzz -fuzztime=15m
+        working-directory: go
+
+      - name: Fuzz CEL input construction
+        run: go test ./internal/celexpr -run '^$' -fuzz Fuzz -fuzztime=15m
+        working-directory: go
+
+      - name: Upload fuzz crash corpus
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: go-fuzz-deep-crash-corpus
+          if-no-files-found: ignore
+          path: go/internal/**/testdata/fuzz/

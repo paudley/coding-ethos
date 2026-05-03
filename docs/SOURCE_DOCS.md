@@ -43,6 +43,8 @@
   built around SARIF output.
 - `docs/RUNTIME_SANDBOXING.md`: Bubblewrap, cgroup, seccomp, capability, and
   CEL-backed runtime sandboxing strategy.
+- `docs/RUNTIME_PUBLICATION.md`: PyPI generator package boundaries and the
+  release-asset model required before compiled Go runtimes are distributed.
 - `docs/RED_TEAM_SUITE.md`: adversarial tests for policy, hook, MCP, shell,
   sandbox, and SARIF behavior.
 - `docs/STRATEGIC_ROADMAP.md`: major platform roadmap across MCP, CEL, SARIF,

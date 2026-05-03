@@ -110,6 +110,11 @@ def render_gitlab_sarif_config(config: dict[str, Any]) -> str:
         "generated_config.ci.gitlab.sarif_path",
         "coding-ethos.sarif",
     )
+    sandbox_mode = configured_string(
+        config,
+        "generated_config.ci.gitlab.sandbox_mode",
+        "required",
+    )
     timeout_minutes = configured_int(
         config,
         "generated_config.ci.gitlab.timeout_minutes",
@@ -155,11 +160,14 @@ coding_ethos_sarif:
     CODING_ETHOS_REPO_ROOT: {repo_root}
     CODING_ETHOS_GATE_COMMAND: {gate_command}
     CODING_ETHOS_SARIF_PATH: {sarif_path}
+    CODING_ETHOS_SANDBOX_MODE: {sandbox_mode}
     CODING_ETHOS_FILES: ""
   script:
     - make -C "$CODING_ETHOS_PATH" build
     - |
       if [ -n "$CODING_ETHOS_GATE_COMMAND" ]; then
+        ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
+        export PATH="$ethos_path/bin:$PATH"
         cd "$CODING_ETHOS_REPO_ROOT"
         bash -c "$CODING_ETHOS_GATE_COMMAND"
         cd "$CI_PROJECT_DIR"
@@ -196,6 +204,7 @@ coding_ethos_sarif:
         --cwd "$repo_root" \\
         --scope files \\
         --files-from "$files_path" \\
+        --sandbox-mode "$CODING_ETHOS_SANDBOX_MODE" \\
         --sarif > "$sarif_tmp"
       status=$?
       if [ -s "$sarif_tmp" ]; then
