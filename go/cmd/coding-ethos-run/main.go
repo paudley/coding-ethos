@@ -205,13 +205,21 @@ func policyToolLintArgs(paths runtimePaths, toolName string, toolArgs []string) 
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,
 	}
-	if sandboxMode := strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_MODE")); sandboxMode != "" {
+	if sandboxMode := policyToolSandboxModeFromEnv(); sandboxMode != "" {
 		lintArgs = append(lintArgs, "--sandbox-mode", sandboxMode)
 	}
 	lintArgs = append(lintArgs, "--")
 	lintArgs = append(lintArgs, toolArgs...)
 
 	return lintArgs
+}
+
+func policyToolSandboxModeFromEnv() string {
+	if strings.TrimSpace(os.Getenv("CODING_ETHOS_POLICY_TOOL_SHIM")) == "" {
+		return ""
+	}
+
+	return strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_MODE"))
 }
 
 func withDefaultHookCommand(paths runtimePaths, args []string) []string {

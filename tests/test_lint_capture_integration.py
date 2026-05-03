@@ -330,6 +330,7 @@ def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
     assert not (REPO_ROOT / "pre-commit" / "hooks" / "tool-capture.sh").exists()
     assert "CapturedLintTools()" in shims
     assert "CAPTURED_LINT_TOOLS" not in shims
+    assert "CODING_ETHOS_POLICY_TOOL_SHIM=1" in shims
 
 
 def test_lint_source_roots_helper_rejects_repo_escape(tmp_path: Path) -> None:

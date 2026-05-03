@@ -10,6 +10,7 @@ import (
 
 func TestPolicyToolLintArgsPropagateSandboxMode(t *testing.T) {
 	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
+	t.Setenv("CODING_ETHOS_POLICY_TOOL_SHIM", "1")
 
 	args := policyToolLintArgs(runtimePaths{
 		PolicyBundle:  "/repo/build/policy/policy-bundle.json",
@@ -46,10 +47,21 @@ func TestPolicyToolLintArgsPropagateSandboxMode(t *testing.T) {
 
 func TestPolicyToolLintArgsOmitBlankSandboxMode(t *testing.T) {
 	t.Setenv("CODING_ETHOS_SANDBOX_MODE", " ")
+	t.Setenv("CODING_ETHOS_POLICY_TOOL_SHIM", "1")
 
 	args := policyToolLintArgs(runtimePaths{}, "ruff", []string{"check"})
 
 	if slices.Contains(args, "--sandbox-mode") {
 		t.Fatalf("blank sandbox mode should not be forwarded: %#v", args)
+	}
+}
+
+func TestPolicyToolLintArgsIgnoreAmbientSandboxModeOutsideShim(t *testing.T) {
+	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
+
+	args := policyToolLintArgs(runtimePaths{}, "ruff", []string{"check"})
+
+	if slices.Contains(args, "--sandbox-mode") {
+		t.Fatalf("ambient sandbox mode should not affect direct policy-tool calls: %#v", args)
 	}
 }

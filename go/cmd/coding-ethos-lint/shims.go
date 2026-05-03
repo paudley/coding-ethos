@@ -48,7 +48,7 @@ func installCapturedToolShim(toolsBinDir string, runner string, tool string) err
 	shim := filepath.Join(toolsBinDir, tool)
 	tmp := fmt.Sprintf("%s.tmp.%d", shim, os.Getpid())
 	content := fmt.Sprintf(
-		"#!/usr/bin/env bash\nset -euo pipefail\nunset %s\nexec %s policy-tool %s \"$@\"\n",
+		"#!/usr/bin/env bash\nset -euo pipefail\nunset %s\nexport CODING_ETHOS_POLICY_TOOL_SHIM=1\nexec %s policy-tool %s \"$@\"\n",
 		realToolEnvVar(tool),
 		shellQuote(runner),
 		shellQuote(tool),
