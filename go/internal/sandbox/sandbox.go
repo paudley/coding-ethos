@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -28,12 +27,52 @@ const (
 var ErrBackendUnavailable = errors.New("sandbox backend unavailable")
 var supportsBubblewrap = func() bool { return runtime.GOOS == "linux" }
 var cgroupRootPath = func() string {
-	path := "/sys/fs/cgroup"
-	if _, err := os.Stat(filepath.Join(path, "cgroup.controllers")); err == nil {
-		return path
+	for _, path := range cgroupRootCandidates() {
+		if writableCgroupRoot(path) {
+			return path
+		}
 	}
 
 	return ""
+}
+
+func cgroupRootCandidates() []string {
+	candidates := []string{}
+	if data, err := os.ReadFile("/proc/self/cgroup"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			parts := strings.SplitN(line, ":", 3)
+			if len(parts) == 3 && parts[0] == "0" {
+				candidates = append(candidates, filepath.Join("/sys/fs/cgroup", parts[2]))
+			}
+		}
+	}
+	uid := os.Getuid()
+	if uid >= 0 {
+		candidates = append(
+			candidates,
+			filepath.Join(
+				"/sys/fs/cgroup/user.slice",
+				fmt.Sprintf("user-%d.slice", uid),
+				fmt.Sprintf("user@%d.service", uid),
+			),
+		)
+	}
+	candidates = append(candidates, "/sys/fs/cgroup")
+
+	return candidates
+}
+
+func writableCgroupRoot(path string) bool {
+	if _, err := os.Stat(filepath.Join(path, "cgroup.controllers")); err != nil {
+		return false
+	}
+	probe, err := os.MkdirTemp(path, "coding-ethos-probe-")
+	if err != nil {
+		return false
+	}
+	_ = os.Remove(probe)
+
+	return true
 }
 
 type Capabilities struct {
@@ -242,12 +281,16 @@ func bubblewrapArgs(request Request) []string {
 	}
 	for _, path := range request.ReadPaths {
 		if bind := normalizedBindPath(repoRoot, path); bind != "" && bind != repoRoot {
-			args = append(args, "--ro-bind", bind, bind)
+			if pathExists(bind) {
+				args = append(args, "--ro-bind", bind, bind)
+			}
 		}
 	}
 	for _, path := range request.WritePaths {
 		if bind := normalizedBindPath(repoRoot, path); bind != "" && !isWithinPath(bind, gitDir) {
-			args = append(args, "--bind", bind, bind)
+			if ensureBindPath(bind) {
+				args = append(args, "--bind", bind, bind)
+			}
 		}
 	}
 
@@ -288,51 +331,6 @@ func CommandContext(ctx context.Context, timeoutSeconds int) (context.Context, c
 	}
 
 	return context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
-}
-
-func ApplyCgroupLimits(pid int, evidence Evidence) (Evidence, error) {
-	if !evidence.CgroupRequested {
-		return evidence, nil
-	}
-	root := cgroupRootPath()
-	if root == "" {
-		evidence.Reason = "cgroup v2 filesystem is unavailable"
-		return evidence, ErrBackendUnavailable
-	}
-
-	name := fmt.Sprintf("coding-ethos-%s-%d", safeCgroupName(evidence.Tool), pid)
-	path := filepath.Join(root, name)
-	if err := os.Mkdir(path, 0o755); err != nil {
-		evidence.Reason = "cgroup directory could not be created"
-		return evidence, err
-	}
-	if evidence.MemoryMB > 0 {
-		limit := strconv.FormatInt(int64(evidence.MemoryMB)*1024*1024, 10)
-		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(limit), 0o600); err != nil {
-			evidence.Reason = "cgroup memory limit could not be applied"
-			return evidence, err
-		}
-	}
-	if evidence.CPUQuotaPercent > 0 {
-		quota := max(1, evidence.CPUQuotaPercent) * 1000
-		if err := os.WriteFile(
-			filepath.Join(path, "cpu.max"),
-			[]byte(fmt.Sprintf("%d 100000", quota)),
-			0o600,
-		); err != nil {
-			evidence.Reason = "cgroup CPU limit could not be applied"
-			return evidence, err
-		}
-	}
-	if err := os.WriteFile(filepath.Join(path, "cgroup.procs"), []byte(strconv.Itoa(pid)), 0o600); err != nil {
-		evidence.Reason = "process could not be attached to cgroup"
-		return evidence, err
-	}
-
-	evidence.CgroupEnabled = true
-	evidence.CgroupPath = path
-
-	return evidence, nil
 }
 
 func safeCgroupName(value string) string {
@@ -431,6 +429,14 @@ func pathExists(path string) bool {
 	_, err := os.Stat(path)
 
 	return err == nil
+}
+
+func ensureBindPath(path string) bool {
+	if pathExists(path) {
+		return true
+	}
+
+	return os.MkdirAll(path, 0o700) == nil
 }
 
 func firstNonEmpty(values ...string) string {

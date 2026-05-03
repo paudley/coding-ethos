@@ -127,9 +127,13 @@ If required sandbox mode cannot open the profile, execution fails closed as
 
 Resource controls are split by enforcement layer. Go wraps sandboxed managed
 tool execution in a hard timeout. Memory and CPU requests are applied through
-cgroup v2 when requested by the tool capability model. Required sandbox mode
-fails closed if the process cannot be attached to the cgroup; advisory mode
-keeps the degraded reason in sandbox evidence.
+a delegated cgroup v2 hierarchy when requested by the tool capability model.
+The cgroup is prepared before process start, the Linux runner starts the child
+directly inside it using `clone3` cgroup file-descriptor support, and the
+temporary cgroup directory is removed after the process exits. Required sandbox
+mode fails closed if no delegated writable cgroup hierarchy is available or if
+the limits cannot be applied; advisory mode keeps the degraded reason in
+sandbox evidence.
 
 The first default managed-linter profile is intentionally conservative:
 `no-network`, `no-git`, `lint-offline`, 300 seconds, 2048 MB memory, 100% CPU,

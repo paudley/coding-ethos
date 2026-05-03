@@ -130,6 +130,9 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
 		t.Fatalf("create git dir: %v", err)
 	}
+	if err := os.Mkdir(filepath.Join(repo, "pkg"), 0o700); err != nil {
+		t.Fatalf("create read path: %v", err)
+	}
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "ruff",
@@ -192,6 +195,31 @@ func TestBuildPlanUsesBubblewrapAndDisablesNetworkByDefault(t *testing.T) {
 	if slices.Contains(plan.Evidence.WritePaths, ".git/config") {
 		t.Fatalf(".git write evidence must be filtered: %#v", plan.Evidence)
 	}
+	if _, err := os.Stat(filepath.Join(repo, ".coding-ethos/cache")); err != nil {
+		t.Fatalf("write bind path should be created before bwrap args: %v", err)
+	}
+}
+
+func TestBuildPlanSkipsMissingReadPath(t *testing.T) {
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{
+		Mode:        ModeRequired,
+		Tool:        "ruff",
+		Executable:  "/tools/ruff",
+		Cwd:         repo,
+		RepoRoot:    repo,
+		BackendPath: "/usr/bin/bwrap",
+		Capabilities: Capabilities{
+			SandboxProfile: "lint-offline",
+			ReadPaths:      []string{"missing"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if slices.Contains(plan.Args, filepath.Join(repo, "missing")) {
+		t.Fatalf("missing read bind should not be emitted: %#v", plan.Args)
+	}
 }
 
 func TestBuildPlanAddsSeccompProfileFD(t *testing.T) {
@@ -233,21 +261,53 @@ func TestBuildPlanAddsSeccompProfileFD(t *testing.T) {
 	}
 }
 
-func TestApplyCgroupLimitsReportsUnavailableCgroup(t *testing.T) {
+func TestPrepareCgroupLimitsReportsUnavailableCgroup(t *testing.T) {
 	original := cgroupRootPath
 	cgroupRootPath = func() string { return "" }
 	t.Cleanup(func() { cgroupRootPath = original })
 
-	evidence, err := ApplyCgroupLimits(1234, Evidence{
+	cgroup, evidence, err := PrepareCgroupLimits(Evidence{
 		Tool:            "ruff",
 		CgroupRequested: true,
 		MemoryMB:        512,
 	})
 	if !errors.Is(err, ErrBackendUnavailable) {
-		t.Fatalf("ApplyCgroupLimits() error = %v, want ErrBackendUnavailable", err)
+		t.Fatalf("PrepareCgroupLimits() error = %v, want ErrBackendUnavailable", err)
+	}
+	if cgroup != nil {
+		t.Fatalf("unexpected cgroup on unavailable filesystem: %#v", cgroup)
 	}
 	if evidence.Reason == "" || evidence.CgroupEnabled {
 		t.Fatalf("cgroup unavailable evidence mismatch: %#v", evidence)
+	}
+}
+
+func TestPrepareCgroupLimitsCleansDelegatedDirectory(t *testing.T) {
+	root := t.TempDir()
+	original := cgroupRootPath
+	cgroupRootPath = func() string { return root }
+	t.Cleanup(func() { cgroupRootPath = original })
+
+	cgroup, evidence, err := PrepareCgroupLimits(Evidence{
+		Tool:            "ruff",
+		CgroupRequested: true,
+		MemoryMB:        512,
+		CPUQuotaPercent: 50,
+	})
+	if err != nil {
+		t.Fatalf("PrepareCgroupLimits() error = %v", err)
+	}
+	if cgroup == nil || !evidence.CgroupEnabled || evidence.CgroupPath == "" {
+		t.Fatalf("cgroup evidence mismatch: cgroup=%#v evidence=%#v", cgroup, evidence)
+	}
+	if _, err := os.Stat(evidence.CgroupPath); err != nil {
+		t.Fatalf("cgroup path missing before cleanup: %v", err)
+	}
+	if err := cgroup.Close(); err != nil {
+		t.Fatalf("close cgroup: %v", err)
+	}
+	if _, err := os.Stat(evidence.CgroupPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cgroup path should be removed, stat error = %v", err)
 	}
 }
 

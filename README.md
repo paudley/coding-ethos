@@ -143,9 +143,10 @@ Runtime sandboxing is the complementary data plane. The current Go prototype
 can run managed lint capture through Bubblewrap with a read-only root,
 read-only repository and `.git`, hidden home directories, disconnected network
 for offline tools, declared writable mounts, hard timeouts, cgroup resource
-requests, and seccomp profile metadata. Required sandbox mode fails closed with
-a normalized policy finding; advisory mode records degraded evidence without
-claiming enforcement. See
+requests, and seccomp profile metadata. Linux cgroup limits are prepared before
+process start in a delegated hierarchy and cleaned up after exit. Required
+sandbox mode fails closed with a normalized policy finding; advisory mode
+records degraded evidence without claiming enforcement. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
 
 For larger platform directions such as deeper MCP context serving,

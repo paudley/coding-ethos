@@ -127,8 +127,11 @@ func proposedContentForTool(
 			return "", false, false, false
 		}
 		count := strings.Count(currentContent, oldContent)
-		if count != 1 {
-			return currentContent, count > 0, count > 1, true
+		if count == 0 {
+			return currentContent, false, false, true
+		}
+		if count > 1 {
+			return strings.ReplaceAll(currentContent, oldContent, newContent), true, true, true
 		}
 
 		return strings.Replace(currentContent, oldContent, newContent, 1), true, false, true

@@ -570,6 +570,40 @@ func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) 
 	}
 }
 
+func TestActivationEstimatesAmbiguousEditAcrossAllMatches(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("line\nline\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"src/app.py"},
+		Tool:       "Edit",
+		OldContent: "line\n",
+		Content:    "line\nextra\n",
+	})
+
+	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	}
+	change := changes[0]
+	if !change.ReplacementMatched ||
+		!change.ReplacementAmbiguous ||
+		!change.LineCountGrows ||
+		change.ProposedLineCount != 4 ||
+		change.LineDelta != 2 {
+		t.Fatalf("ambiguous proposed change input = %#v", change)
+	}
+}
+
 func TestActivationPopulatesDiffHunkInputs(t *testing.T) {
 	t.Parallel()
 

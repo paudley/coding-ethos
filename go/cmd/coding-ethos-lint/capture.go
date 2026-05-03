@@ -113,20 +113,10 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	command.Stdin = os.Stdin
-	if err := command.Start(); err != nil {
-		return captureExecution{
-			Stdout:   stdout.String(),
-			Stderr:   stderr.String(),
-			RunArgs:  runArgs,
-			Sandbox:  evidence,
-			ExitCode: capturedExitCode(err),
-		}
-	}
-	appliedEvidence, cgroupErr := sandbox.ApplyCgroupLimits(command.Process.Pid, plan.Evidence)
+
+	cgroup, appliedEvidence, cgroupErr := sandbox.PrepareCgroupLimits(plan.Evidence)
 	evidence = lintSandboxEvidence(appliedEvidence)
 	if cgroupErr != nil && plan.Evidence.Mode == sandbox.ModeRequired {
-		_ = command.Process.Kill()
-		_, _ = command.Process.Wait()
 		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
 
 		return captureExecution{
@@ -135,6 +125,20 @@ func executeCapturedTool(request captureRequest) captureExecution {
 			RunArgs:  runArgs,
 			Sandbox:  evidence,
 			ExitCode: blockedExitCode,
+		}
+	}
+	if cgroup != nil {
+		defer func() { _ = cgroup.Close() }()
+		cgroup.ConfigureCommand(command)
+	}
+
+	if err := command.Start(); err != nil {
+		return captureExecution{
+			Stdout:   stdout.String(),
+			Stderr:   stderr.String(),
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: capturedExitCode(err),
 		}
 	}
 	err := command.Wait()
