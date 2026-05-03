@@ -678,9 +678,12 @@ func downloadGitHubAsset(client *http.Client, rawURL string, outputPath string, 
 	if err != nil {
 		return fmt.Errorf("create downloaded asset %s: %w", outputPath, err)
 	}
-	defer output.Close()
 	if _, err := io.Copy(output, response.Body); err != nil {
+		_ = output.Close()
 		return fmt.Errorf("write downloaded asset %s: %w", outputPath, err)
+	}
+	if err := output.Close(); err != nil {
+		return fmt.Errorf("close downloaded asset %s: %w", outputPath, err)
 	}
 
 	return nil

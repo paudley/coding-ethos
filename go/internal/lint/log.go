@@ -23,7 +23,7 @@ type TraceRecord struct {
 	RepoRoot      string `json:"repo_root"`
 }
 
-func LogResult(cwd string, result Result) (string, error) {
+func LogResult(cwd string, result Result) (tracePath string, err error) {
 	root := cwd
 	if root == "" {
 		var err error
@@ -51,7 +51,11 @@ func LogResult(cwd string, result Result) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create lint trace: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close lint trace: %w", closeErr)
+		}
+	}()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)

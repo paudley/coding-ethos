@@ -86,6 +86,7 @@ packages = ["coding_ethos"]
 
 [tool.uv]
 exclude-newer = "7 days"
+exclude-newer-package = { pip = "2026-04-26T21:00:06Z" }
 managed = true
 
 [tool.uv.workspace]

@@ -84,3 +84,36 @@ func TestSkillHintsForDiagnosticsDerivesSkillFromTriggerTerms(t *testing.T) {
 		t.Fatalf("skill hints = %#v", hints)
 	}
 }
+
+func TestEnrichResultWithSkillsDerivedDecisionSkillOverridesEvidenceKey(t *testing.T) {
+	t.Parallel()
+
+	result := Result{
+		Scope:  "staged",
+		Status: "blocked",
+		Decisions: []policy.Decision{{
+			Evidence: map[string]any{
+				"skill_id": 42,
+			},
+			Decision:     "block",
+			Message:      "Large source files must not keep growing.",
+			PolicyID:     "filesystem.line_limits",
+			Severity:     "block",
+			PrincipleIDs: []string{"solid-is-law"},
+		}},
+	}
+
+	enriched := EnrichResultWithSkills(result, map[string]policy.Skill{
+		"agent-operating-discipline": {
+			ID:           "agent-operating-discipline",
+			Description:  "Keep edits scoped and verifiable.",
+			ShortHint:    "State assumptions and verify the smallest sufficient change.",
+			PrincipleIDs: []string{"solid-is-law"},
+		},
+	})
+
+	got, ok := enriched.Decisions[0].Evidence["skill_id"].(string)
+	if !ok || got != "agent-operating-discipline" {
+		t.Fatalf("decision skill evidence = %#v", enriched.Decisions[0].Evidence)
+	}
+}

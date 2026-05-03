@@ -23,8 +23,10 @@ import (
 )
 
 const protocolVersion = "2025-06-18"
+const maxSARIFHistoryPayloads = 1000
 
 var errManagedLintRuntimeUnavailable = errors.New("managed lint runtime is not configured")
+var errSARIFHistoryTooLarge = errors.New("sarif history exceeds supported MCP payload count")
 
 type Server struct {
 	bundle  policy.Bundle
@@ -497,6 +499,11 @@ func (server Server) sarifHistoryPayloads(
 	sarifPayloads []string,
 	traceIDs []string,
 ) ([]string, error) {
+	if len(sarifPayloads) > maxSARIFHistoryPayloads ||
+		len(traceIDs) > maxSARIFHistoryPayloads-len(sarifPayloads) {
+		return nil, errSARIFHistoryTooLarge
+	}
+
 	history := make([]string, 0, len(sarifPayloads)+len(traceIDs))
 	for _, payload := range sarifPayloads {
 		if strings.TrimSpace(payload) != "" {

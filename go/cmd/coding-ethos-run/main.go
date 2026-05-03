@@ -323,7 +323,6 @@ func persistAgentEnvironment(paths runtimePaths) {
 	if err != nil {
 		exitErr(fmt.Errorf("open Claude env file %s: %w", envFile, err))
 	}
-	defer file.Close()
 	_, err = fmt.Fprintf(
 		file,
 		"export CODING_ETHOS_REAL_GIT=%q\nexport CODING_ETHOS_RUN_GO_HOOK=%q\nexport PATH=%q:\"$PATH\"\n",
@@ -332,7 +331,11 @@ func persistAgentEnvironment(paths runtimePaths) {
 		paths.BinDir,
 	)
 	if err != nil {
+		_ = file.Close()
 		exitErr(fmt.Errorf("write Claude env file %s: %w", envFile, err))
+	}
+	if err := file.Close(); err != nil {
+		exitErr(fmt.Errorf("close Claude env file %s: %w", envFile, err))
 	}
 }
 

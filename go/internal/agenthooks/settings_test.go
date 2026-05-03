@@ -695,11 +695,13 @@ func overwriteAgentSettings(t *testing.T, path string, content string) {
 	if err != nil {
 		t.Fatalf("open settings for overwrite: %v", err)
 	}
-	defer file.Close()
-
 	_, err = file.WriteString(content)
 	if err != nil {
+		_ = file.Close()
 		t.Fatalf("write settings: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close settings: %v", err)
 	}
 }
 

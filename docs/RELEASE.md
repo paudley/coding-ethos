@@ -31,6 +31,9 @@ The Python package version lives in `pyproject.toml`.
   for each action used by `.github/workflows/*.yml`.
 - [ ] Verify `[tool.uv].exclude-newer = "7 days"` remains present in every
   project `pyproject.toml` before refreshing lock files.
+- [ ] Review any `[tool.uv].exclude-newer-package` override and keep only
+  package-specific exceptions required for security updates inside the global
+  dependency cooldown window.
 - [ ] Verify `SECURITY.md`, `README.md`, and `docs/index.md` still describe
   the supported install and reporting paths.
 - [ ] Confirm no local paths, secrets, or generated runtime outputs are staged.

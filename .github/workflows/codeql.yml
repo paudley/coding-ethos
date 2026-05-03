@@ -57,7 +57,11 @@ jobs:
       - name: Build Go workspace
         if: ${{ matrix.language == 'go' }}
         run: |
-          go run ./go/cmd/coding-ethos-policy compile \
+          mkdir -p build/codeql
+          go build \
+            -o build/codeql/coding-ethos-policy \
+            ./go/cmd/coding-ethos-policy
+          ./build/codeql/coding-ethos-policy compile \
             --primary coding_ethos.yml \
             --config config.yaml \
             --out-dir build/policy
