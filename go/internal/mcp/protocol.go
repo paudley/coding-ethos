@@ -10,6 +10,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 )
 
 type messageFraming string
@@ -143,6 +145,23 @@ type skillRecommendInput struct {
 	Intent     string          `json:"intent,omitempty"`
 	Path       string          `json:"path,omitempty"`
 	Limit      int             `json:"limit,omitempty"`
+}
+
+type remediationExplainInput struct {
+	Remediation  agentmsg.Remediation `json:"remediation,omitempty"`
+	Code         string               `json:"code,omitempty"`
+	Command      string               `json:"command,omitempty"`
+	FailedAction string               `json:"failed_action,omitempty"`
+	File         string               `json:"file,omitempty"`
+	ID           string               `json:"id,omitempty"`
+	Message      string               `json:"message,omitempty"`
+	Path         string               `json:"path,omitempty"`
+	PolicyID     string               `json:"policy_id,omitempty"`
+	Severity     string               `json:"severity,omitempty"`
+	SkillID      string               `json:"skill_id,omitempty"`
+	Tool         string               `json:"tool,omitempty"`
+	Column       int                  `json:"column,omitempty"`
+	Line         int                  `json:"line,omitempty"`
 }
 
 type sarifRemediationInput struct {
@@ -433,6 +452,37 @@ func toolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     false,
 				PreferredUse:   "load the full remediation playbook for a known skill",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"remediation_explain",
+			"Expand an agent_remediation payload into policy, principle, skill, and retry guidance.",
+			map[string]any{
+				"remediation": map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+				},
+				"id":            map[string]any{"type": "string"},
+				"policy_id":     map[string]any{"type": "string"},
+				"skill_id":      map[string]any{"type": "string"},
+				"message":       map[string]any{"type": "string"},
+				"failed_action": map[string]any{"type": "string"},
+				"command":       map[string]any{"type": "string"},
+				"file":          map[string]any{"type": "string"},
+				"path":          map[string]any{"type": "string"},
+				"tool":          map[string]any{"type": "string"},
+				"code":          map[string]any{"type": "string"},
+				"severity":      map[string]any{"type": "string"},
+				"line":          map[string]any{"type": "integer"},
+				"column":        map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "turn an emitted agent_remediation item into grounded next-action guidance",
 				TracePersisted: false,
 			},
 		),

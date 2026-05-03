@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -106,22 +108,27 @@ type sarifRegion struct {
 }
 
 type sarifResultProperties struct {
-	Advice                    string   `json:"advice,omitempty"`
-	CodingEthosGroupID        string   `json:"coding_ethos_group_id,omitempty"`
-	CodingEthosGroupKey       string   `json:"coding_ethos_group_key,omitempty"`
-	Code                      string   `json:"code,omitempty"`
-	Detail                    string   `json:"detail,omitempty"`
-	PolicyID                  string   `json:"policy_id,omitempty"`
-	SkillID                   string   `json:"skill_id,omitempty"`
-	SourceTool                string   `json:"source_tool,omitempty"`
-	Implementation            string   `json:"implementation,omitempty"`
-	InputSchemaVersion        int64    `json:"input_schema_version,omitempty"`
-	PolicySource              string   `json:"policy_source,omitempty"`
-	CELExpression             string   `json:"cel_expression,omitempty"`
-	MatchedDiagnosticPolicyID string   `json:"matched_diagnostic_policy_id,omitempty"`
-	MatchedDiagnosticSeverity string   `json:"matched_diagnostic_severity,omitempty"`
-	EthosIDs                  []string `json:"ethos_ids,omitempty"`
-	CodingEthos               bool     `json:"coding_ethos"`
+	Advice                    string                      `json:"advice,omitempty"`
+	CodingEthosGroupID        string                      `json:"coding_ethos_group_id,omitempty"`
+	CodingEthosGroupKey       string                      `json:"coding_ethos_group_key,omitempty"`
+	Code                      string                      `json:"code,omitempty"`
+	Detail                    string                      `json:"detail,omitempty"`
+	PolicyID                  string                      `json:"policy_id,omitempty"`
+	SkillID                   string                      `json:"skill_id,omitempty"`
+	SourceTool                string                      `json:"source_tool,omitempty"`
+	Implementation            string                      `json:"implementation,omitempty"`
+	InputSchemaVersion        int64                       `json:"input_schema_version,omitempty"`
+	PolicySource              string                      `json:"policy_source,omitempty"`
+	CELExpression             string                      `json:"cel_expression,omitempty"`
+	MatchedDiagnosticPolicyID string                      `json:"matched_diagnostic_policy_id,omitempty"`
+	MatchedDiagnosticSeverity string                      `json:"matched_diagnostic_severity,omitempty"`
+	AgentRemediation          []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
+	RemediationEvents         []evidence.RemediationEvent `json:"remediation_events,omitempty"`
+	Finding                   *evidence.Finding           `json:"finding,omitempty"`
+	SourceSpan                *evidence.SourceSpan        `json:"source_span,omitempty"`
+	SearchText                string                      `json:"search_text,omitempty"`
+	EthosIDs                  []string                    `json:"ethos_ids,omitempty"`
+	CodingEthos               bool                        `json:"coding_ethos"`
 }
 
 type sarifInvocation struct {
@@ -303,6 +310,8 @@ func sarifResults(
 	for _, item := range items {
 		ruleID := sarifRuleID(item)
 		group := findingGroups.Group(item)
+		finding := evidence.FromDiagnostic(item)
+		remediation := agentmsg.FromDiagnostics([]diagnostics.Diagnostic{item})
 		results = append(results, sarifResult{
 			RuleID:              ruleID,
 			RuleIndex:           sarifRuleIndex(ruleIndexes, ruleID),
@@ -325,8 +334,18 @@ func sarifResults(
 				CELExpression:             sarifStringMetadata(item, "when"),
 				MatchedDiagnosticPolicyID: sarifStringMetadata(item, "matched_diagnostic_policy_id"),
 				MatchedDiagnosticSeverity: sarifStringMetadata(item, "matched_diagnostic_severity"),
-				EthosIDs:                  append([]string(nil), item.PrincipleIDs...),
-				CodingEthos:               true,
+				AgentRemediation:          remediation,
+				RemediationEvents: evidence.RemediationEvents(
+					remediation,
+					[]evidence.Finding{finding},
+					"",
+					"suggested",
+				),
+				Finding:     &finding,
+				SourceSpan:  &finding.SourceSpan,
+				SearchText:  finding.SearchText,
+				EthosIDs:    append([]string(nil), item.PrincipleIDs...),
+				CodingEthos: true,
 			},
 		})
 	}
@@ -491,6 +510,7 @@ func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
 			item.PolicyID,
 			item.Message,
 		),
+		"coding-ethos/finding/v1": evidence.FromDiagnostic(item).ID,
 	}
 }
 

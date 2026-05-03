@@ -66,6 +66,12 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 		trace["status"] != "blocked" {
 		t.Fatalf("unexpected trace identity: %#v", trace)
 	}
+	if trace["schema_version"] != float64(1) {
+		t.Fatalf("missing schema version: %#v", trace)
+	}
+	if traceID, ok := trace["trace_id"].(string); !ok || !strings.HasPrefix(traceID, "hook-") {
+		t.Fatalf("missing trace id: %#v", trace)
+	}
 
 	command, ok := trace["command"].(map[string]any)
 	if !ok {
@@ -97,9 +103,100 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 	if keys, ok := decision["evidence_keys"].([]any); !ok || len(keys) == 0 {
 		t.Fatalf("missing evidence key summary: %#v", decision)
 	}
+	remediation, ok := trace["agent_remediation"].([]any)
+	if !ok || len(remediation) != 1 {
+		t.Fatalf("missing agent remediation trace: %#v", trace)
+	}
+	item, ok := remediation[0].(map[string]any)
+	if !ok || item["policy_id"] != "custom.no_subprocess_git" {
+		t.Fatalf("unexpected remediation item: %#v", remediation)
+	}
+	if item["failed_action"] != "Bash" {
+		t.Fatalf("missing failed action: %#v", item)
+	}
+	findings, ok := trace["findings"].([]any)
+	if !ok || len(findings) != 1 {
+		t.Fatalf("missing normalized findings: %#v", trace)
+	}
+	finding, ok := findings[0].(map[string]any)
+	if !ok || finding["policy_id"] != "custom.no_subprocess_git" || finding["id"] == "" {
+		t.Fatalf("unexpected normalized finding: %#v", findings)
+	}
+	events, ok := trace["remediation_events"].([]any)
+	if !ok || len(events) != 1 {
+		t.Fatalf("missing remediation events: %#v", trace)
+	}
+	event, ok := events[0].(map[string]any)
+	if !ok || event["finding_id"] != finding["id"] || event["event"] != "suggested" {
+		t.Fatalf("unexpected remediation event: %#v", events)
+	}
 
 	raw := string(payload)
 	if strings.Contains(raw, "tool_input") || strings.Contains(raw, "ToolInput") {
 		t.Fatalf("trace must not dump raw provider input:\n%s", raw)
 	}
+}
+
+func TestWriteAgentHookTraceUsesUniqueTraceIDForRepeatedViolations(t *testing.T) {
+	t.Parallel()
+
+	event := Event{
+		HookEventName: "PreToolUse",
+		Source:        "codex",
+		ToolName:      "Bash",
+		Cwd:           "/repo",
+		ToolInput: map[string]any{
+			"command": "git commit --no-verify -m test",
+		},
+	}
+	result := Result{
+		Event:    "PreToolUse",
+		Provider: "codex",
+		Status:   "blocked",
+		Tool:     "Bash",
+		Decisions: []policy.Decision{{
+			PolicyID:   "git.hook_bypass",
+			Decision:   "block",
+			Severity:   "block",
+			Message:    "Hook bypass is forbidden.",
+			Suggestion: "Run the configured gate.",
+		}},
+	}
+
+	first := writeTraceAndReadMap(t, event, result)
+	second := writeTraceAndReadMap(t, event, result)
+	if first["trace_id"] == second["trace_id"] {
+		t.Fatalf("repeated hook traces reused trace_id: first=%#v second=%#v", first, second)
+	}
+
+	firstEvent := first["remediation_events"].([]any)[0].(map[string]any)
+	secondEvent := second["remediation_events"].([]any)[0].(map[string]any)
+	if firstEvent["id"] == secondEvent["id"] {
+		t.Fatalf("repeated hook traces reused remediation event id: first=%#v second=%#v", firstEvent, secondEvent)
+	}
+
+	firstFinding := first["findings"].([]any)[0].(map[string]any)
+	secondFinding := second["findings"].([]any)[0].(map[string]any)
+	if firstFinding["id"] != secondFinding["id"] {
+		t.Fatalf("finding identity should remain stable: first=%#v second=%#v", firstFinding, secondFinding)
+	}
+}
+
+func writeTraceAndReadMap(t *testing.T, event Event, result Result) map[string]any {
+	t.Helper()
+
+	runDir := t.TempDir()
+	if err := WriteAgentHookTrace(runDir, event, result); err != nil {
+		t.Fatalf("write hook trace: %v", err)
+	}
+	payload, err := os.ReadFile(filepath.Join(runDir, "event.json"))
+	if err != nil {
+		t.Fatalf("read hook trace: %v", err)
+	}
+	var trace map[string]any
+	if err := json.Unmarshal(payload, &trace); err != nil {
+		t.Fatalf("parse hook trace: %v\n%s", err, payload)
+	}
+
+	return trace
 }

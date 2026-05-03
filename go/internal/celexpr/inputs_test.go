@@ -860,7 +860,13 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 			Code:         "no-any-return",
 			Message:      "Returning Any",
 			File:         "./src/app.py",
+			Language:     "python",
+			SymbolName:   "build_value",
+			SymbolKind:   "function",
+			ChunkHash:    "sha256:abc",
 			Line:         12,
+			LineCount:    20,
+			ChangedLines: 3,
 			Severity:     "error",
 			PolicyID:     "python.typing",
 			SkillID:      "lint-remediation",
@@ -876,7 +882,13 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 		finding.Code != "no-any-return" ||
 		finding.Message != "Returning Any" ||
 		finding.File != "src/app.py" ||
+		finding.Language != "python" ||
+		finding.SymbolName != "build_value" ||
+		finding.SymbolKind != "function" ||
+		finding.ChunkHash != "sha256:abc" ||
 		finding.Line != 12 ||
+		finding.LineCount != 20 ||
+		finding.ChangedLines != 3 ||
 		finding.Severity != "error" ||
 		finding.PolicyID != "python.typing" ||
 		finding.SkillID != "lint-remediation" ||
@@ -887,6 +899,17 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 	findings, ok := activation["findings"].([]FindingInput)
 	if !ok || len(findings) != 1 || findings[0].Tool != "mypy" {
 		t.Fatalf("findings input = %#v", activation["findings"])
+	}
+	source, ok := activation["source"].(SourceInput)
+	if !ok ||
+		source.Path != "src/app.py" ||
+		source.Language != "python" ||
+		source.SymbolName != "build_value" ||
+		source.SymbolKind != "function" ||
+		source.ChunkHash != "sha256:abc" ||
+		source.LineCount != 20 ||
+		source.ChangedLines != 3 {
+		t.Fatalf("source input = %#v", activation["source"])
 	}
 }
 

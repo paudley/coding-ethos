@@ -32,6 +32,11 @@
 - `docs/MCP_SERVER.md`: stdio MCP server contract, current tools, and
   expansion plan for agent-facing policy, lint, SARIF, and remediation
   services.
+- `docs/AGENT_REMEDIATION.md`: normalized `agent_remediation` payload shape,
+  MCP remediation flow, provider examples, and trace-summary contract.
+- `docs/CODE_INTEL.md`: roadmap for Tree-sitter AST code intelligence,
+  SQLite canonical storage, LanceDB vector search, sqlite-vec fallback,
+  hybrid retrieval, and MCP search tools.
 - `docs/POLICY_LANGUAGE_STRATEGY.md`: CEL policy-language strategy, typed
   inputs, helper functions, and the path from Go evaluators into
   principle-owned policy-as-code.

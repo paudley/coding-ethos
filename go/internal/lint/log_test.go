@@ -22,10 +22,13 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 		Status: "blocked",
 		Findings: []Finding{{
 			CheckID:    "python.direct_imports",
+			PolicyID:   "python.conditional_imports",
+			SkillID:    "conditional-imports",
 			Severity:   "block",
 			Status:     "fail",
 			Message:    "direct import violation",
 			SourceTool: "ruff",
+			EthosIDs:   []string{"no-conditional-imports"},
 			Blocking:   true,
 		}},
 		SkillHints: []SkillHint{{
@@ -56,10 +59,29 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 	}
 
 	if record.RepoRoot != repo ||
+		record.SchemaVersion != 1 ||
+		record.TraceID == "" ||
 		record.Result.Scope != ScopeStaged ||
 		len(record.Result.Findings) != 1 ||
-		len(record.Result.SkillHints) != 1 {
+		len(record.Result.SkillHints) != 1 ||
+		len(record.AgentRemediation) != 1 ||
+		len(record.Findings) != 1 ||
+		len(record.RemediationEvents) != 1 {
 		t.Fatalf("trace record = %#v", record)
+	}
+	if record.Findings[0].PolicyID != "python.conditional_imports" ||
+		record.Findings[0].ID == "" ||
+		record.Findings[0].SearchText == "" {
+		t.Fatalf("normalized findings = %#v", record.Findings)
+	}
+	if record.RemediationEvents[0].RemediationID != record.AgentRemediation[0].ID ||
+		record.RemediationEvents[0].FindingID != record.Findings[0].ID {
+		t.Fatalf("remediation events = %#v", record.RemediationEvents)
+	}
+	if record.AgentRemediation[0].PolicyID != "python.conditional_imports" ||
+		record.AgentRemediation[0].MCP == nil ||
+		record.AgentRemediation[0].MCP.Tool != "policy_explain" {
+		t.Fatalf("remediation trace = %#v", record.AgentRemediation)
 	}
 }
 

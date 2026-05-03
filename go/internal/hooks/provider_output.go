@@ -10,14 +10,16 @@ import (
 	"io"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 type providerHookOutput struct {
-	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
-	Decision           string              `json:"decision,omitempty"`
-	Reason             string              `json:"reason,omitempty"`
-	SystemMessage      string              `json:"systemMessage,omitempty"`
+	HookSpecificOutput *HookSpecificOutput    `json:"hookSpecificOutput,omitempty"`
+	Decision           string                 `json:"decision,omitempty"`
+	Reason             string                 `json:"reason,omitempty"`
+	SystemMessage      string                 `json:"systemMessage,omitempty"`
+	AgentRemediation   []agentmsg.Remediation `json:"agent_remediation,omitempty"`
 }
 
 func EncodeProviderResult(writer io.Writer, result Result) error {
@@ -110,17 +112,20 @@ func geminiAllowedOutput(result Result) providerHookOutput {
 
 func providerBlockedOutput(result Result) providerHookOutput {
 	message := ProviderBlockMessage(result)
+	remediation := agentmsg.FromDecisions(blockingDecisions(result.Decisions), result.Tool)
 	switch result.Provider {
 	case "gemini":
 		return providerHookOutput{
-			Decision:      "deny",
-			Reason:        message,
-			SystemMessage: message,
+			Decision:         "deny",
+			Reason:           message,
+			SystemMessage:    message,
+			AgentRemediation: remediation,
 		}
 	case "codex":
 		output := providerHookOutput{
-			Decision: "block",
-			Reason:   message,
+			Decision:         "block",
+			Reason:           message,
+			AgentRemediation: remediation,
 		}
 		if result.Event == "PreToolUse" {
 			output.HookSpecificOutput = &HookSpecificOutput{
@@ -132,8 +137,9 @@ func providerBlockedOutput(result Result) providerHookOutput {
 		return output
 	default:
 		return providerHookOutput{
-			Decision: "block",
-			Reason:   message,
+			Decision:         "block",
+			Reason:           message,
+			AgentRemediation: remediation,
 			HookSpecificOutput: &HookSpecificOutput{
 				HookEventName:            result.Event,
 				PermissionDecision:       "deny",

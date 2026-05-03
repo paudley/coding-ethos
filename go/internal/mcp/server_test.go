@@ -26,8 +26,8 @@ func TestServerListsTools(t *testing.T) {
 
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 12 {
-		t.Fatalf("tool count = %d, want 12: %#v", len(tools), tools)
+	if len(tools) != 13 {
+		t.Fatalf("tool count = %d, want 13: %#v", len(tools), tools)
 	}
 	for _, expected := range []string{
 		"policy_check_command",
@@ -41,6 +41,7 @@ func TestServerListsTools(t *testing.T) {
 		"tool_capabilities",
 		"policy_explain",
 		"skill_lookup",
+		"remediation_explain",
 		"skill_recommend",
 	} {
 		if !strings.Contains(output, expected) {
@@ -820,6 +821,44 @@ func TestServerSkillLookupUsesBundleSkillData(t *testing.T) {
 	if !strings.Contains(output, "safe-git-workflow") ||
 		!strings.Contains(output, "Git is a protected critical operation") {
 		t.Fatalf("missing skill data:\n%s", output)
+	}
+}
+
+func TestServerRemediationExplainExpandsPayload(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":17,
+		"method":"tools/call",
+		"params":{
+			"name":"remediation_explain",
+			"arguments":{
+				"remediation":{
+					"id":"rem-test",
+					"policy_id":"git.hook_bypass",
+					"skill_id":"safe-git-workflow",
+					"message":"Use the coding-ethos git wrapper.",
+					"failed_action":"Bash",
+					"command":"git commit --no-verify -m test"
+				}
+			}
+		}
+	}`))
+
+	for _, want := range []string{
+		`"remediation_explain"`,
+		`"rem-test"`,
+		`"git.hook_bypass"`,
+		`"safe-git-workflow"`,
+		`"action_context"`,
+		`"policy"`,
+		`"skill"`,
+		`"principles"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing %s in remediation explain output:\n%s", want, output)
+		}
 	}
 }
 

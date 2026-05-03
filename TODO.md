@@ -681,14 +681,31 @@ Acceptance criteria:
 
 ### Agent Remediation Loop
 
-- [ ] Define a standardized machine-readable violation payload for agents.
-- [ ] Emit XML, JSON, or TOON remediation blocks that include policy ID,
+- [x] Define a standardized machine-readable violation payload for agents.
+- [x] Emit XML, JSON, or TOON remediation blocks that include policy ID,
   ETHOS principle ID, skill ID, file/line, failed action, and concrete next
   steps.
-- [ ] Feed hook failures back into Claude, Codex, Gemini, and future MCP clients
+- [x] Feed hook failures back into Claude, Codex, Gemini, and future MCP clients
   in the strongest native format each provider supports.
+- [x] Add stable remediation IDs, skill-loading instructions, MCP
+  `remediation_explain`, provider-output golden fixtures, and exact
+  remediation examples.
+- [x] Add normalized source spans, stable finding IDs, evidence envelopes,
+  SARIF result evidence properties, trace schema versions, and remediation
+  lifecycle events as the substrate for code intelligence storage.
+- [x] Add CEL-facing source/finding fields and backend-neutral evidence store,
+  code fact store, vector index, and trace ingestor interfaces.
+- [x] Add per-run remediation summaries to hook and lint traces so later
+  storage can measure repeated policy failures without parsing provider text.
 - [ ] Track whether remediation hints reduce repeated failures in
   `.coding-ethos` traces.
+- [ ] Design local-first remediation storage for hook/lint/SARIF traces with
+  full-text plus embedding search over remediation IDs, policy IDs, skills,
+  command/file context, outcomes, and follow-up attempts. Start with a
+  single-file store and keep hosted services optional.
+- [ ] Build the code intelligence roadmap in `docs/CODE_INTEL.md`: Tree-sitter
+  AST chunking, SQLite canonical storage, LanceDB vector backend, sqlite-vec
+  fallback, hybrid retrieval, and MCP code/remediation search tools.
 
 Acceptance criteria:
 
