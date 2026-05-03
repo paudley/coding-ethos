@@ -177,8 +177,11 @@ func joinDriftFiles(drift []lintcapture.ConfigDrift) string {
 
 func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
 	if managed := tool.ManagedExecutablePath(ethosRoot); managed != "" {
-		if isExecutable(managed) {
+		if managedExecutableStarts(tool, managed) {
 			return managedToolCommand{Path: managed}
+		}
+		if command := managedGoToolFallback(tool); command.Path != "" {
+			return command
 		}
 
 		return managedToolCommand{}
@@ -226,12 +229,52 @@ func managedPythonToolCommand(tool toolcatalog.Tool, ethosRoot string) managedTo
 		return managedToolCommand{}
 	}
 
+	python := filepath.Join(ethosRoot, ".venv", "bin", "python")
+	if isExecutable(python) && commandStarts(python, "-m", runtime.Command[0], "--version") {
+		return managedToolCommand{
+			Path:   python,
+			Prefix: []string{"-m", runtime.Command[0]},
+		}
+	}
+
 	candidate := filepath.Join(ethosRoot, ".venv", "bin", runtime.Command[0])
-	if !isExecutable(candidate) {
+	if isExecutable(candidate) {
+		return managedToolCommand{Path: candidate}
+	}
+
+	return managedToolCommand{}
+}
+
+func managedExecutableStarts(tool toolcatalog.Tool, path string) bool {
+	if !isExecutable(path) {
+		return false
+	}
+
+	switch tool.Name {
+	case "actionlint":
+		return commandStarts(path, "-version")
+	default:
+		return commandStarts(path, "--version")
+	}
+}
+
+func managedGoToolFallback(tool toolcatalog.Tool) managedToolCommand {
+	if tool.Name != "actionlint" {
 		return managedToolCommand{}
 	}
 
-	return managedToolCommand{Path: candidate}
+	goBin, err := lookUsablePath("go")
+	if err != nil {
+		return managedToolCommand{}
+	}
+
+	return managedToolCommand{
+		Path: goBin,
+		Prefix: []string{
+			"run",
+			"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
+		},
+	}
 }
 
 func lookUsablePath(name string) (string, error) {

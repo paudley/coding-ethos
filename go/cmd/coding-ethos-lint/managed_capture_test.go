@@ -185,10 +185,15 @@ func TestLookUsablePathSkipsUnstartableCandidates(t *testing.T) {
 
 func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
 	ethosRoot := t.TempDir()
-	ruffPath := filepath.Join(ethosRoot, ".venv", "bin", "ruff")
-	writeManagedCaptureFile(t, ruffPath, "#!/bin/sh\nexit 0\n")
-	if err := os.Chmod(ruffPath, 0o700); err != nil {
-		t.Fatalf("chmod ruff fixture: %v", err)
+	pythonPath := filepath.Join(ethosRoot, ".venv", "bin", "python")
+	writeManagedCaptureFile(t, pythonPath, `#!/bin/sh
+case " $* " in
+  *" -m ruff --version "*) exit 0 ;;
+esac
+exit 1
+`)
+	if err := os.Chmod(pythonPath, 0o700); err != nil {
+		t.Fatalf("chmod python fixture: %v", err)
 	}
 	tool, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
@@ -196,11 +201,50 @@ func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
 	}
 
 	command := managedToolCommandFor(tool, ethosRoot)
-	if command.Path != ruffPath {
-		t.Fatalf("managed command path = %q, want %q", command.Path, ruffPath)
+	if command.Path != pythonPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, pythonPath)
 	}
-	if len(command.Prefix) != 0 {
-		t.Fatalf("managed command prefix = %#v, want empty", command.Prefix)
+	wantPrefix := []string{"-m", "ruff"}
+	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
+		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
+	}
+}
+
+func TestManagedActionlintFallsBackToGoRunWhenBinaryCannotStart(t *testing.T) {
+	ethosRoot := t.TempDir()
+	actionlintPath := filepath.Join(
+		ethosRoot,
+		"build",
+		"toolchain",
+		"go-bin",
+		"actionlint",
+	)
+	writeManagedCaptureFile(t, actionlintPath, "#!/bin/sh\nexit 126\n")
+	if err := os.Chmod(actionlintPath, 0o700); err != nil {
+		t.Fatalf("chmod actionlint fixture: %v", err)
+	}
+	goDir := t.TempDir()
+	goPath := filepath.Join(goDir, "go")
+	writeManagedCaptureFile(t, goPath, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(goPath, 0o700); err != nil {
+		t.Fatalf("chmod go fixture: %v", err)
+	}
+	t.Setenv("PATH", goDir)
+	tool, found := toolcatalog.HookOwnedTool("actionlint")
+	if !found {
+		t.Fatal("missing actionlint tool")
+	}
+
+	command := managedToolCommandFor(tool, ethosRoot)
+	if command.Path != goPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, goPath)
+	}
+	wantPrefix := []string{
+		"run",
+		"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
+	}
+	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
+		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
 	}
 }
 
