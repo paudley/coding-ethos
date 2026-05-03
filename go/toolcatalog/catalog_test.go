@@ -426,6 +426,13 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 	if got := shellcheck.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck") {
 		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
 	}
+	actionlint, found := toolcatalog.HookOwnedTool("actionlint")
+	if !found {
+		t.Fatal("missing actionlint")
+	}
+	if got := actionlint.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "go-bin", "actionlint") {
+		t.Fatalf("ManagedExecutablePath(actionlint) = %q", got)
+	}
 
 	ruff, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {

@@ -397,6 +397,7 @@ build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-ag
 
 managed-toolchain-install: ensure-go go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)
+	@$(UV) sync --frozen --all-packages >/dev/null
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-managed-toolchain \
 		--manifest-source "$(MANAGED_TOOLCHAIN_SOURCE)" \
 		--go-bin-dir "$(MANAGED_GO_BIN_DIR)" \

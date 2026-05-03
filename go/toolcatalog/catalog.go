@@ -544,7 +544,7 @@ func actionlintTool() Tool {
 		Category:            "workflow",
 		OutputFormat:        "json-lines",
 		Advice:              "Fix workflow syntax and action usage before relying on CI behavior.",
-		Runtime:             RuntimeBinary,
+		Runtime:             RuntimeGo,
 		Command:             []string{"actionlint", "-format", "{{json .}}"},
 		CaptureOutputArgs:   []string{"-format", "{{json .}}"},
 		CaptureStripArgs:    []string{"-format"},
