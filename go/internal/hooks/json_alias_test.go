@@ -69,3 +69,34 @@ func TestDecodeEventNormalizesParallelNestedCodexTool(t *testing.T) {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 }
+
+func TestDecodeEventKeepsMultiActionParallelBatchForPolicy(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "multi_tool_use.parallel",
+		"input": {
+			"tool_uses": [
+				{
+					"recipient_name": "functions.exec_command",
+					"parameters": {"cmd": "git status --short"}
+				},
+				{
+					"recipient_name": "functions.exec_command",
+					"parameters": {"cmd": "git log --oneline -1"}
+				}
+			]
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	if event.ToolName != "Bash" ||
+		event.ToolInput["__coding_ethos_parallel_batch"] != true ||
+		len(event.ToolInput["tool_uses"].([]any)) != 2 {
+		t.Fatalf("event mismatch: %#v", event)
+	}
+}

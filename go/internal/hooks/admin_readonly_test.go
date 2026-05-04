@@ -63,6 +63,58 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 	}
 }
 
+func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
+	restore := stubAdminApprovedForCWD(true)
+	defer restore()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           "/workspace/coding-ethos",
+			HookEventName: "PreToolUse",
+			ProviderHint:  "codex",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `git status --short 2>&1`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunBlocksMultiActionParallelBatch(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           "/workspace/coding-ethos",
+			HookEventName: "PreToolUse",
+			ProviderHint:  "codex",
+			ToolName:      "multi_tool_use.parallel",
+			ToolInput: map[string]any{
+				parallelToolBatchMarker: true,
+				"tool_uses": []any{
+					map[string]any{"recipient_name": "functions.exec_command"},
+					map[string]any{"recipient_name": "functions.exec_command"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, parallelToolBatchPolicyID) {
+		t.Fatalf("expected parallel batch decision, got %#v", result)
+	}
+}
+
 func TestRunBlocksAdminMutatingHookImplementationInspection(t *testing.T) {
 	restore := stubAdminApprovedForCWD(true)
 	defer restore()
@@ -74,6 +126,30 @@ func TestRunBlocksAdminMutatingHookImplementationInspection(t *testing.T) {
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
 				"command": `sed -i 's/header/footer/' /workspace/coding-ethos/.claude/settings.json`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, shellForbiddenStringsPolicyID) {
+		t.Fatalf("expected forbidden string decision, got %#v", result)
+	}
+}
+
+func TestRunBlocksAdminSedLongFormInPlaceMutation(t *testing.T) {
+	restore := stubAdminApprovedForCWD(true)
+	defer restore()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           "/workspace/coding-ethos",
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `sed --in-place 's/header/footer/' /workspace/coding-ethos/.claude/settings.json`,
 			},
 		},
 	})

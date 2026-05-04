@@ -94,6 +94,9 @@ func readOnlyInspectionRedirects(redirects []string) bool {
 		if strings.HasPrefix(trimmed, "<") {
 			continue
 		}
+		if trimmed == "2>&1" {
+			continue
+		}
 		if strings.HasSuffix(trimmed, "/dev/null") {
 			continue
 		}
@@ -150,9 +153,8 @@ func readOnlyGitInspectionArgs(args []string) bool {
 func mutatingInspectionArg(name string, arg string) bool {
 	switch name {
 	case "sed":
-		return arg == "-i" ||
-			strings.HasPrefix(arg, "-i.") ||
-			strings.HasPrefix(arg, "-i")
+		return strings.HasPrefix(arg, "-i") ||
+			strings.HasPrefix(arg, "--in-place")
 	case "find":
 		return arg == "-delete" || arg == "-exec" || arg == "-execdir" ||
 			arg == "-ok" || arg == "-okdir"

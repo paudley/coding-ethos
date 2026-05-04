@@ -154,7 +154,13 @@ func normalizeParallelTool(event Event) Event {
 		return event
 	}
 
-	for _, toolUse := range anySlice(event.ToolInput["tool_uses"]) {
+	toolUses := anySlice(event.ToolInput["tool_uses"])
+	if len(toolUses) > 1 {
+		event.ToolInput[parallelToolBatchMarker] = true
+		return event
+	}
+
+	for _, toolUse := range toolUses {
 		nested := mapFromAny(toolUse)
 		toolName := firstStringAny(nested, "recipient_name", "name", "tool_name", "toolName", "tool")
 		canonical, ok := toolaliases.ActiveCanonical(toolName)

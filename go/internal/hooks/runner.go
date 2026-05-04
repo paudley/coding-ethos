@@ -76,6 +76,7 @@ func evaluateInspection(
 
 func routeToolUse(ctx InspectionContext) InspectionRoute {
 	for _, routeFor := range []func(Event) InspectionRoute{
+		parallelToolBatchRouteFor,
 		malformedShellRouteFor,
 		gitWrapperRouteFor,
 		lintToolRouteFor,
