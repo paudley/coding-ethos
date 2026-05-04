@@ -204,25 +204,32 @@ func TestInstallGitShimWritesQuotedWrapper(t *testing.T) {
 func TestInstallAndVerifyGitHookShims(t *testing.T) {
 	t.Parallel()
 
-	sourceDir := t.TempDir()
 	hooksDir := t.TempDir()
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-git-hook.sh"), "git hook\n")
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-lfs-hook.sh"), "lfs hook\n")
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
 
-	if err := installGitHooks([]string{"--hooks-dir", hooksDir, "--source-dir", sourceDir}); err != nil {
+	if err := installGitHooks([]string{"--hooks-dir", hooksDir, "--runner", runner}); err != nil {
 		t.Fatalf("install git hooks: %v", err)
 	}
-	if err := verifyGitHooks([]string{"--hooks-dir", hooksDir, "--source-dir", sourceDir}); err != nil {
+	if err := verifyGitHooks([]string{"--hooks-dir", hooksDir, "--runner", runner}); err != nil {
 		t.Fatalf("verify git hooks: %v", err)
 	}
 
 	for _, hook := range append(gitHookNames, lfsHookNames...) {
-		info, err := os.Stat(filepath.Join(hooksDir, hook))
+		hookPath := filepath.Join(hooksDir, hook)
+		info, err := os.Stat(hookPath)
 		if err != nil {
 			t.Fatalf("stat installed hook %s: %v", hook, err)
 		}
 		if info.Mode()&0o111 == 0 {
 			t.Fatalf("installed hook %s is not executable: %v", hook, info.Mode())
+		}
+		target, err := os.Readlink(hookPath)
+		if err != nil {
+			t.Fatalf("read hook symlink %s: %v", hook, err)
+		}
+		if target != runner {
+			t.Fatalf("hook %s target = %q, want %q", hook, target, runner)
 		}
 	}
 }
@@ -230,19 +237,18 @@ func TestInstallAndVerifyGitHookShims(t *testing.T) {
 func TestGitHookFixItemsReportsMissingAndStaleHooks(t *testing.T) {
 	t.Parallel()
 
-	sourceDir := t.TempDir()
 	hooksDir := t.TempDir()
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-git-hook.sh"), "git hook\n")
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-lfs-hook.sh"), "lfs hook\n")
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
 	writeExecutableFixture(t, filepath.Join(hooksDir, "pre-commit"), "stale\n")
 
-	items, err := gitHookShimFixItems(hooksDir, sourceDir)
+	items, err := gitHookShimFixItems(hooksDir, runner)
 	if err != nil {
 		t.Fatalf("git hook fix items: %v", err)
 	}
 	joined := strings.Join(items, "\n")
 	for _, want := range []string{
-		"pre-commit is stale",
+		"pre-commit does not point to coding-ethos-run",
 		"pre-push missing or not executable",
 		"post-commit missing or not executable",
 	} {
@@ -331,13 +337,7 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".coding-ethos/\n"), 0o600); err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}
-	sourceDir := t.TempDir()
 	hooksDir := filepath.Join(root, ".git", "hooks")
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-git-hook.sh"), "git hook\n")
-	writeExecutableFixture(t, filepath.Join(sourceDir, "run-lfs-hook.sh"), "lfs hook\n")
-	if err := installGitHooks([]string{"--hooks-dir", hooksDir, "--source-dir", sourceDir}); err != nil {
-		t.Fatalf("install git hooks: %v", err)
-	}
 	runner := filepath.Join(root, "runner")
 	writeExecutableFixture(t, runner, strings.Join([]string{
 		"#!/usr/bin/env bash",
@@ -348,13 +348,15 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 		"esac",
 		"",
 	}, "\n"))
+	if err := installGitHooks([]string{"--hooks-dir", hooksDir, "--runner", runner}); err != nil {
+		t.Fatalf("install git hooks: %v", err)
+	}
 
 	if err := cutoverVerify([]string{
 		"--action", "verify",
 		"--root", root,
 		"--runner", runner,
 		"--hooks-dir", hooksDir,
-		"--source-dir", sourceDir,
 		"--real-git", "git",
 		"--bundle-root", filepath.Join(root, "pre-commit"),
 	}); err != nil {

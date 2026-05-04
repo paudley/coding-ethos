@@ -40,13 +40,61 @@ func TestEncodeProviderResultMatchesGeminiRemediationFixture(t *testing.T) {
 	assertJSONMatchesFixture(t, output, "testdata/provider_remediation_gemini.json")
 }
 
+func TestEncodeProviderResultIncludesUpdatedInputForEveryProvider(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{"claude", "codex", "gemini-cli"} {
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			output := encodedProviderOutput(
+				t,
+				providerGitPayload(provider, t.TempDir(), "git status"),
+			)
+
+			for _, expected := range []string{
+				`"hookSpecificOutput"`,
+				`"updatedInput"`,
+				`policy-git`,
+			} {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("missing %q in provider output: %s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestProviderDenialIncludesTrackingID(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(t, `{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`)
+
+	for _, expected := range []string{
+		`"trackingID": "hook-`,
+		`trackingID: hook-`,
+		`"permissionDecisionReason": "trackingID: hook-`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in provider output: %s", expected, output)
+		}
+	}
+}
+
 func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	advice := BlockedAdvice(Result{
-		Event:  "PreToolUse",
-		Tool:   "Bash",
-		Status: statusBlocked,
+		Event:      "PreToolUse",
+		Tool:       "Bash",
+		Status:     statusBlocked,
+		TrackingID: "hook-test123",
 		Decisions: []policy.Decision{{
 			PolicyID:   "shell.github_admin",
 			Decision:   "block",
@@ -57,6 +105,7 @@ func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	})
 
 	for _, expected := range []string{
+		"trackingID: hook-test123",
 		"agent_remediation[1]{policy_id,skill_id,failed_action,next,mcp_tool}:",
 		"shell.github_admin,,Bash,Use the normal review path.,policy_explain",
 	} {

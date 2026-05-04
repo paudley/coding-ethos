@@ -209,9 +209,11 @@ expiry, and optional test/build/package-check commands from
 own merge-request annotation or security-reporting layer as needed. GitLab is
 actively adding first-class SARIF ingestion, but the durable contract is still
 stable identifiers, ordered locations, and consistent severity mapping. Like
-the GitHub workflow, the GitLab job scopes merge requests to the target branch
-diff, push pipelines to `$CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA`, and uses an
-empty SARIF result when no safe diff base is available.
+the GitHub workflow, the GitLab job delegates diff-base selection to
+`coding-ethos-run ci-sarif --provider gitlab`, which scopes merge requests to
+the target branch diff, push pipelines to
+`$CI_COMMIT_BEFORE_SHA..$CI_COMMIT_SHA`, and uses an empty SARIF result when no
+safe diff base is available.
 
 ## Operator Rules
 
@@ -240,4 +242,7 @@ empty SARIF result when no safe diff base is available.
 - Keep result volume scoped. GitHub code scanning rejects oversized SARIF
   uploads and only displays a bounded number of results, so CI should prefer
   changed-file scopes for PR feedback, pass only files that still exist, and
-  retain full traces as artifacts for audit.
+  retain full traces as artifacts for audit. Generated GitHub and GitLab CI
+  now call `bin/coding-ethos-run ci-sarif --provider ...`; changed-file
+  discovery, deleted-file filtering, SARIF temp-file handling, and policy-lint
+  invocation are Go-owned instead of repeated shell snippets.

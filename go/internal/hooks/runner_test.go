@@ -509,7 +509,7 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 	}
 }
 
-func TestRunBlocksUnsupportedProviderPythonRewrite(t *testing.T) {
+func TestRunRewritesCodexPythonRuntime(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -531,36 +531,10 @@ func TestRunBlocksUnsupportedProviderPythonRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
-	if result.Status != statusBlocked {
-		t.Fatalf("status = %q, want blocked: %#v", result.Status, result)
-	}
-	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.python_runtime_required" {
-		t.Fatalf("decisions = %#v", result.Decisions)
-	}
-}
-
-func TestRunBlocksUnsupportedProviderRuffRewrite(t *testing.T) {
-	t.Parallel()
-
-	result, err := Run(policy.ExampleBundle(), Options{
-		Event: Event{
-			HookEventName: preToolUse,
-			ToolName:      toolBash,
-			ToolInput: map[string]any{
-				"command": "/usr/bin/ruff check pkg",
-			},
-			Source: "codex",
-		},
-	})
-	if err != nil {
-		t.Fatalf("run hook: %v", err)
-	}
-
-	if result.Status != statusBlocked {
-		t.Fatalf("status mismatch: got %q", result.Status)
-	}
-	if !strings.Contains(result.Decisions[0].Message, "Ruff must run through") {
-		t.Fatalf("unexpected decision: %#v", result.Decisions)
+	if result.Status != statusAllowed ||
+		result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("Codex should receive Python runtime rewrite: %#v", result)
 	}
 }
 
@@ -595,7 +569,7 @@ func TestRunBlocksRewriteWhenProviderMissing(t *testing.T) {
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("unsupported updatedInput emitted: %#v", result.HookSpecificOutput)
 	}
-	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
+	if result.Decisions[len(result.Decisions)-1].PolicyID != "hook.provider_required" {
 		t.Fatalf("decisions = %#v", result.Decisions)
 	}
 }
@@ -662,6 +636,32 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 		!strings.Contains(rewritten, "policy-git 'status'") ||
 		!strings.Contains(rewritten, "&&") ||
 		!strings.Contains(rewritten, "policy-git 'log' '--oneline' '-1'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesCodexGitCommandThroughWrapper(t *testing.T) {
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           t.TempDir(),
+			HookEventName: "PreToolUse",
+			ProviderHint:  "codex",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": "git status",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok || !strings.Contains(rewritten, "policy-git 'status'") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
@@ -2082,7 +2082,7 @@ func TestDecodeEventNormalizesCodexPatchTool(t *testing.T) {
 	event, err := DecodeEvent(strings.NewReader(`{
 		"provider": "codex",
 		"event": "PreToolUse",
-		"tool": "apply_patch",
+		"tool": "functions.apply_patch",
 		"input": {"file_path": "src/app.py", "content": "patch"}
 	}`))
 	if err != nil {
@@ -2239,9 +2239,10 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		t.Fatalf("run nearest hook: %v", err)
 	}
 
-	if result.Status != statusBlocked ||
-		!hasDecision(result.Decisions, "git.wrapper_required") {
-		t.Fatalf("nested owner hook should enforce, got %#v", result)
+	if result.Status != statusAllowed ||
+		result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("nested owner hook should rewrite approved git, got %#v", result)
 	}
 }
 
@@ -2273,8 +2274,10 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 	output := buffer.String()
 	for _, expected := range []string{
 		`"decision": "block"`,
+		`"trackingID": "hook-`,
 		`"permissionDecision": "deny"`,
-		`"reason": "coding-ethos blocked this action (git.hook_bypass). !!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
+		`"reason": "trackingID: hook-`,
+		`coding-ethos blocked this action (git.hook_bypass). !!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
 		"may result in termination",
 		"Run the configured gate and fix the underlying failure.",
 	} {
@@ -2374,7 +2377,7 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 	assertNoRoutineContextClutter(t, output)
 }
 
-func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
+func TestRunRewritesGeminiGitCommandThroughWrapper(t *testing.T) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
@@ -2392,28 +2395,26 @@ func TestRunBlocksGeminiGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusBlocked {
+	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput != nil {
-		t.Fatalf("Gemini must not receive unsupported rewrite output: %#v", result)
-	}
-
-	if !hasDecision(result.Decisions, "git.wrapper_required") {
-		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	if result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("Gemini should receive rewrite output: %#v", result)
 	}
 }
 
-func TestRunBlocksCodexGitCommandWithoutUnsupportedRewrite(t *testing.T) {
-	t.Parallel()
+func TestRunRewritesCodexGitCommandFromDecodedEvent(t *testing.T) {
+	cwd := t.TempDir()
 
-	event, err := DecodeEvent(strings.NewReader(`{
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
 		"provider": "codex",
 		"event": "PreToolUse",
+		"cwd": %q,
 		"tool": "Bash",
 		"input": {"command": "git status"}
-	}`))
+	}`, cwd)))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
@@ -2423,16 +2424,13 @@ func TestRunBlocksCodexGitCommandWithoutUnsupportedRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusBlocked {
+	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput != nil {
-		t.Fatalf("Codex must not receive unsupported rewrite output: %#v", result)
-	}
-
-	if !hasDecision(result.Decisions, "git.wrapper_required") {
-		t.Fatalf("expected wrapper-required decision, got %#v", result.Decisions)
+	if result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("Codex should receive rewrite output: %#v", result)
 	}
 }
 
@@ -2440,7 +2438,6 @@ func TestRunBlocksCodexNativeShellGitBypassShapes(t *testing.T) {
 	t.Parallel()
 
 	for _, command := range []string{
-		"git status",
 		"/usr/bin/git status",
 		"bash -c 'git status'",
 		"python3 -c \"import subprocess; subprocess.run(['/usr/bin/git','status'])\"",
@@ -2448,9 +2445,10 @@ func TestRunBlocksCodexNativeShellGitBypassShapes(t *testing.T) {
 		event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
 			"provider": "codex",
 			"event": "PreToolUse",
+			"cwd": %q,
 			"tool": "exec_command",
 			"input": {"command": %q}
-		}`, command)))
+		}`, t.TempDir(), command)))
 		if err != nil {
 			t.Fatalf("decode event for %q: %v", command, err)
 		}

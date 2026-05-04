@@ -59,7 +59,7 @@ func TestExplainPolicyWritesCELExpressionDetails(t *testing.T) {
 				Source:          SourceRef{File: "config.yaml", Path: "policy.expressions"},
 				PrincipleIDs:    []string{"one-path-for-critical-operations"},
 				Message:         "Git subprocesses are forbidden.",
-				Suggestion:      "Use the protected Git wrapper.",
+				Suggestion:      "Run ordinary git commands without bypass flags or shell indirection.",
 				Evaluators: []Evaluator{{
 					Kind: "cel",
 					Name: "cel.expression",

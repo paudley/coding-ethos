@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
 
 const (
@@ -62,7 +64,9 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 	}
 
 	event = normalizeNestedTool(payload, event)
+	event = normalizeParallelTool(event)
 	event.HookEventName = normalizedHookEventName(event.HookEventName)
+	event.ToolInput = normalizeToolInputForAlias(event.ToolName, event.ToolInput)
 	event.ToolName = normalizedToolName(event.ToolName)
 	event.ToolResponse = mergeTopLevelResponseStatus(payload, event.ToolResponse)
 
@@ -79,17 +83,14 @@ func normalizedHookEventName(name string) string {
 }
 
 func normalizedToolName(name string) string {
-	switch name {
-	case "bash", "exec_command", "run_command", "run_shell", "run_shell_command",
-		"shell", "shell_command":
-		return canonicalToolBash
-	case "create_file", "write_file":
-		return canonicalToolWrite
-	case "apply_patch", "edit_file":
-		return "Edit"
-	default:
-		return name
+	if canonical, ok := toolaliases.ActiveCanonical(name); ok {
+		return canonical
 	}
+	if toolaliases.NoopCanonical(name) {
+		return toolaliases.CanonicalNoop
+	}
+
+	return name
 }
 
 func primaryHookEventName(payload map[string]json.RawMessage) string {
@@ -146,6 +147,71 @@ func normalizeNestedTool(payload map[string]json.RawMessage, event Event) Event 
 	}
 
 	return event
+}
+
+func normalizeParallelTool(event Event) Event {
+	if event.ToolName != "multi_tool_use.parallel" || event.ToolInput == nil {
+		return event
+	}
+
+	for _, toolUse := range anySlice(event.ToolInput["tool_uses"]) {
+		nested := mapFromAny(toolUse)
+		toolName := firstStringAny(nested, "recipient_name", "name", "tool_name", "toolName", "tool")
+		canonical, ok := toolaliases.ActiveCanonical(toolName)
+		if !ok {
+			continue
+		}
+
+		event.ToolName = canonical
+		event.ToolInput = normalizeToolInputForAlias(toolName, mapFromAny(nested["parameters"]))
+
+		return event
+	}
+
+	return event
+}
+
+func normalizeToolInputForAlias(toolName string, input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	if command, ok := input["cmd"].(string); ok && command != "" {
+		input["command"] = command
+	}
+	if command, ok := input["chars"].(string); ok && command != "" {
+		input["command"] = command
+	}
+	if _, ok := toolaliases.ActiveCanonical(toolName); ok {
+		return input
+	}
+
+	return input
+}
+
+func anySlice(value any) []any {
+	if typed, ok := value.([]any); ok {
+		return typed
+	}
+
+	return nil
+}
+
+func mapFromAny(value any) map[string]any {
+	if typed, ok := value.(map[string]any); ok {
+		return typed
+	}
+
+	return nil
+}
+
+func firstStringAny(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok && value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func mergeTopLevelResponseStatus(

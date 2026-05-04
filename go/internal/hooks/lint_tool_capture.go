@@ -15,27 +15,19 @@ import (
 
 const tokenPolicyTool = "policy-tool"
 
-func lintToolRouteFor(event Event) gitWrapperRoute {
+func lintToolRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	command := strings.TrimSpace(event.Command())
 	if command == "" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	rewritten, tool, rewrite, routeOK := rewriteLintToolCommandChain(command)
 	if rewrite && routeOK {
-		if event.Provider() != providerClaude {
-			return gitWrapperRoute{
-				BlockPolicyID: lintCapturePolicyID(tool.Name),
-				Reason:        lintCaptureRequiredMessage(tool),
-				Block:         true,
-			}
-		}
-
-		return gitWrapperRoute{
+		return InspectionRoute{
 			UpdatedInput: updatedBashInput(event.ToolInput, rewritten),
 			Reason:       "Routed " + tool.Name + " through coding-ethos lint capture.",
 			Rewrite:      true,
@@ -43,7 +35,7 @@ func lintToolRouteFor(event Event) gitWrapperRoute {
 	}
 
 	if routeOK && managedLintToolCommandChain(command) {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	if !routeOK || evasiveLintToolShell(command) {
@@ -52,14 +44,14 @@ func lintToolRouteFor(event Event) gitWrapperRoute {
 			blockTool = firstMentionedCapturedTool(command)
 		}
 
-		return gitWrapperRoute{
+		return InspectionRoute{
 			BlockPolicyID: lintCapturePolicyID(blockTool.Name),
 			Reason:        lintCaptureRequiredMessage(blockTool),
 			Block:         true,
 		}
 	}
 
-	return gitWrapperRoute{}
+	return InspectionRoute{}
 }
 
 func lintCapturePolicyID(toolName string) string {

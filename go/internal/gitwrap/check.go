@@ -159,6 +159,10 @@ func evaluateGitPolicy(
 		Scope:         scope,
 		Stdin:         append([]byte(nil), stdin...),
 	}
+	if scope == "PostToolUse" {
+		context.HasToolResponse = true
+		context.ReturnCode = 0
+	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)

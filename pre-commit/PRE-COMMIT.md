@@ -27,21 +27,21 @@ In a consuming repo, run the same target from `code-ethos/`.
 When `code-ethos/` is a submodule, the root `Makefile` resolves the parent
 repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
-Before the hook shims are installed, `make install-hooks` also generates the
+Before the hook entrypoints are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 `.yamllint.yml`, `.bandit.yml`, `.sqlfluff`, `tombi.toml`, `.golangci.yml`, and
 `.code-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
 consuming-repo overrides.
 
-`make install-hooks` installs small `.git/hooks/pre-commit`, `pre-push`, and
-`commit-msg` shims that execute `bin/coding-ethos-run git-hook ...`.
-The shims locate the checked-out `coding-ethos` repository, repair missing
-checkout-local runtime artifacts with `make build`, and dispatch to the built
-hook binary under `coding-ethos/bin/`.
+`make install-hooks` installs `.git/hooks/pre-commit`, `pre-push`, and
+`commit-msg` as symlinks to `bin/coding-ethos-run`. The runner infers the hook
+name from `argv[0]`, repairs missing checkout-local runtime artifacts with
+`make build`, and dispatches to the built hook binary under
+`coding-ethos/bin/`.
 
-`make cutover-install` installs the Git hook shims, syncs Claude, Codex, and
+`make cutover-install` installs the Git hook entrypoints, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
-surface. `make cutover-verify` checks the installed Git shims, runs
+surface. `make cutover-verify` checks the installed Git hook entrypoints, runs
 `agent-hooks verify`, verifies required runtime ignores through the compiled
 `repo.required_ignores` policy, runs the policy runtime validation hook,
 and prints a concise TOON readiness report. Blocked reports include `fix_first`
@@ -119,8 +119,8 @@ Primary files:
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `../bin/coding-ethos-run` - compiled hook/runtime entrypoint; policy
   metadata validation, managed GitHub asset installation, cutover reporting,
-  and hook shim installation/verification are delegated to compiled Go helpers
-- `hooks/run-git-hook.sh` - installed Git hook shim
+  and Git hook entrypoint installation/verification are delegated to compiled
+  Go helpers
 - `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
@@ -138,9 +138,9 @@ The hook runtime is built into the checked-out `coding-ethos` repository:
 
 The old `.git/coding-ethos-hooks/` runtime cache is legacy. The current runtime
 model is documented in `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer
-hooks act only as repo-discovery, build-repair, and dispatch shims, while
-binaries and compiled runtime files are built and executed from the checked-out
-`coding-ethos` repository.
+hooks are runner symlinks; all repo-discovery, build-repair, and dispatch
+behavior lives in compiled Go while binaries and compiled runtime files are
+built and executed from the checked-out `coding-ethos` repository.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 

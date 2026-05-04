@@ -22,61 +22,44 @@ const (
 
 const (
 	gitWrapperCircumventionRefusal = severeViolationWarning
-	gitWrapperUseManagedSuggestion = "Use the coding-ethos git wrapper. Do not " +
-		"try alternate shells, absolute git paths, Python subprocesses, PATH " +
-		"edits, aliases, or other bypasses."
+	gitWrapperUseManagedSuggestion = "Run ordinary git commands without bypass flags " +
+		"or shell indirection; approved git operations are routed by the hook " +
+		"automatically. Do not try alternate shells, absolute git paths, Python " +
+		"subprocesses, PATH edits, aliases, or other bypasses."
 )
 
-type gitWrapperRoute struct {
-	UpdatedInput  map[string]any
-	BlockPolicyID string
-	Reason        string
-	Block         bool
-	Rewrite       bool
-}
-
-func gitWrapperRouteFor(event Event) gitWrapperRoute {
+func gitWrapperRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != "PreToolUse" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	if event.ToolName != "Bash" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	command := strings.TrimSpace(event.Command())
 	if command == "" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	rewritten, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
-		if event.Provider() != providerClaude {
-			return gitWrapperRoute{
-				Reason: sentence(
-					gitWrapperCircumventionRefusal,
-					gitWrapperUseManagedSuggestion,
-				),
-				Block: true,
-			}
-		}
-
-		return gitWrapperRoute{
+		return InspectionRoute{
 			UpdatedInput: updatedBashInput(
 				event.ToolInput,
 				rewritten,
 			),
-			Reason:  "Routed raw git through coding-ethos-git.",
+			Reason:  "Routed raw git through the approved git path.",
 			Rewrite: true,
 		}
 	}
 
 	if routeOK && managedGitCommandChain(command) {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	if !routeOK || commandMentionsGit(command) || evasiveGitShell(command) {
-		return gitWrapperRoute{
+		return InspectionRoute{
 			Reason: sentence(
 				gitWrapperCircumventionRefusal,
 				gitWrapperUseManagedSuggestion,
@@ -85,7 +68,7 @@ func gitWrapperRouteFor(event Event) gitWrapperRoute {
 		}
 	}
 
-	return gitWrapperRoute{}
+	return InspectionRoute{}
 }
 
 func updatedBashInput(original map[string]any, command string) map[string]any {

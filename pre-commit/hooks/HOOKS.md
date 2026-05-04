@@ -106,7 +106,7 @@ raw git, absolute git, nested shell git, and Python subprocess git, and Gemini
 denies reach the active runtime.
 This is settings plus runtime-probe verification, not proof that the real
 provider binary executed an end-to-end tool call.
-`cutover install` installs Git hook shims, syncs all agent settings, and then
+`cutover install` installs Git hook entrypoints, syncs all agent settings, and then
 runs the readiness gate. `cutover verify` is read-only and reports Git hook,
 agent hook, repo-ignore, and policy runtime readiness in TOON. Required runtime
 ignore checks run through the compiled `repo.required_ignores` policy.
@@ -194,7 +194,7 @@ behavior instead of ad hoc shell text generation.
 
 ## Installation
 
-Install the Go hook shims from the repository root that exposes the bundle:
+Install the Go hook entrypoints from the repository root that exposes the bundle:
 
 ```bash
 cd /path/to/repo

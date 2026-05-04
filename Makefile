@@ -67,6 +67,7 @@ GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
 GO_TOOL_CMDS := \
 	coding-ethos-agent-hooks \
+	coding-ethos-code-intel \
 	coding-ethos-policy \
 	coding-ethos-lint \
 	coding-ethos-hook \
@@ -450,11 +451,11 @@ go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the c
 	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
 
 _sync-git-hooks: ensure-go go-tools-install
-	@$(call print_step,Syncing Git hook shims)
+	@$(call print_step,Syncing Git hook entrypoints)
 	@$(call print_info,hooks: $(HOOKS_DIR))
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks \
 		--hooks-dir "$(HOOKS_DIR)" \
-		--source-dir "$(PRECOMMIT_DIR)hooks"
+		--runner "$(GO_HOOK)"
 
 _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
@@ -480,8 +481,8 @@ policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## C
 	"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" "$${args[@]}" >/dev/null
 	@$(call print_info,compiled: $(POLICY_DIR)/policy-bundle.json)
 
-install-hooks: build ## Install Git hook shims.
-	@$(call print_step,Git hook shims refreshed by build)
+install-hooks: build ## Install Git hook entrypoints.
+	@$(call print_step,Git hook entrypoints refreshed by build)
 	@$(call print_info,hooks: $(HOOKS_DIR))
 	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 

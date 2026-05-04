@@ -11,28 +11,25 @@ import (
 
 const pythonRuntimePolicyID = "tool.python_runtime_required"
 
-func pythonRuntimeRouteFor(event Event) gitWrapperRoute {
+func pythonRuntimeRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	command := strings.TrimSpace(event.Command())
 	if command == "" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	rewritten, rewrite := rewritePythonRuntimeCommandChain(command, event.Cwd)
 	if !rewrite {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 	reason := "Python commands must run through the consumer repo environment: " +
 		"`uv run --project <repo> python ...` when a uv project exists, " +
 		"otherwise `<repo>/.venv/bin/python ...` when a venv exists."
-	if event.Provider() != providerClaude {
-		return gitWrapperRoute{BlockPolicyID: pythonRuntimePolicyID, Reason: reason, Block: true}
-	}
 
-	return gitWrapperRoute{
+	return InspectionRoute{
 		UpdatedInput: updatedBashInput(event.ToolInput, rewritten),
 		Reason:       reason,
 		Rewrite:      true,

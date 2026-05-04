@@ -12,6 +12,7 @@ type Result struct {
 	Advice             policy.Advice       `json:"advice,omitempty"`
 	Provider           string              `json:"provider,omitempty"`
 	Status             string              `json:"status"`
+	TrackingID         string              `json:"trackingID,omitempty"`
 	Tool               string              `json:"tool,omitempty"`
 	Decisions          []policy.Decision   `json:"decisions,omitempty"`
 }

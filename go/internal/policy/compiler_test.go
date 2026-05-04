@@ -258,7 +258,7 @@ policy:
       skill_id: safe-git-workflow
       when: shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))
       message: Git subprocesses are forbidden.
-      advice: Use the protected Git wrapper.
+      advice: Run ordinary git commands without bypass flags or shell indirection.
 `)
 
 	bundle, _, err := Compile(CompileOptions{

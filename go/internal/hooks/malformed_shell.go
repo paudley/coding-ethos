@@ -11,21 +11,21 @@ import (
 
 const malformedShellPolicyID = "shell.malformed_command"
 
-func malformedShellRouteFor(event Event) gitWrapperRoute {
+func malformedShellRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	command := strings.TrimSpace(event.Command())
 	if command == "" {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
 	if _, err := shellparse.Commands(command); err == nil {
-		return gitWrapperRoute{}
+		return InspectionRoute{}
 	}
 
-	return gitWrapperRoute{
+	return InspectionRoute{
 		BlockPolicyID: malformedShellPolicyID,
 		Reason:        "Malformed shell command text is ambiguous and forbidden.",
 		Block:         true,

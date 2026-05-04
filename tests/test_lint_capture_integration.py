@@ -581,31 +581,6 @@ def test_cutover_verify_resolves_consumer_without_env(tmp_path: Path) -> None:
     assert f"repo: {REPO_ROOT}" not in output
 
 
-def test_installed_git_shim_contains_no_policy_specific_logic() -> None:
-    shim = (REPO_ROOT / "pre-commit" / "hooks" / "run-git-hook.sh").read_text(
-        encoding="utf-8"
-    )
-
-    assert "policy-bundle" not in shim
-    assert "coding-ethos-policy" not in shim
-    assert "coding_ethos.yml" not in shim
-    assert "config.yaml" not in shim
-
-
-def test_git_shim_missing_checkout_error_names_admin_repair(tmp_path: Path) -> None:
-    consumer = tmp_path / "consumer-without-bundle"
-    consumer.mkdir()
-    _run(["git", "init"], cwd=consumer)
-
-    result = _run(
-        [str(REPO_ROOT / "pre-commit" / "hooks" / "run-git-hook.sh")],
-        cwd=consumer,
-        check=False,
-    )
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 127, output
-    assert "missing protected submodule" in output
-    assert "documented protected-submodule path" in output
-    assert "git submodule update --init coding-ethos" not in output
-    assert "policy-bundle" not in output
+def test_git_hook_shell_shims_are_removed() -> None:
+    assert not (REPO_ROOT / "pre-commit" / "hooks" / "run-git-hook.sh").exists()
+    assert not (REPO_ROOT / "pre-commit" / "hooks" / "run-lfs-hook.sh").exists()

@@ -55,9 +55,6 @@ var (
 	errRepoRootRequired = errors.New(
 		"repo-ignore-fix-items requires --repo-root",
 	)
-	errSourceRequired = errors.New(
-		"git hook shim command requires --source-dir",
-	)
 )
 
 var (
@@ -128,7 +125,7 @@ func cutoverVerify(args []string) error {
 	root := flags.String("root", "", "Repository root")
 	runner := flags.String("runner", "", "runner path")
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
-	sourceDir := flags.String("source-dir", "", "Git hook shim source directory")
+	flags.String("source-dir", "", "Deprecated; hook files are symlinks to --runner")
 	realGit := flags.String("real-git", "", "Real git executable")
 	bundleRoot := flags.String("bundle-root", "", "Policy bundle root")
 	if err := flags.Parse(args); err != nil {
@@ -138,7 +135,6 @@ func cutoverVerify(args []string) error {
 		"root":        *root,
 		"runner":      *runner,
 		"hooks-dir":   *hooksDir,
-		"source-dir":  *sourceDir,
 		"real-git":    *realGit,
 		"bundle-root": *bundleRoot,
 	} {
@@ -156,7 +152,7 @@ func cutoverVerify(args []string) error {
 	}
 	fixItems := make([]string, 0)
 
-	gitItems, err := gitHookShimFixItems(*hooksDir, *sourceDir)
+	gitItems, err := gitHookShimFixItems(*hooksDir, *runner)
 	if err != nil {
 		return err
 	}
@@ -1045,18 +1041,18 @@ func installGitShim(destDir string, realGit string, runner string) error {
 }
 
 func installGitHooks(args []string) error {
-	hooksDir, sourceDir, err := gitHookShimFlags("install-git-hooks", args)
+	hooksDir, runner, err := gitHookShimFlags("install-git-hooks", args)
 	if err != nil {
 		return err
 	}
 
 	for _, hook := range gitHookNames {
-		if err := installHookShim(sourceDir, hooksDir, "run-git-hook.sh", hook); err != nil {
+		if err := installHookSymlink(hooksDir, runner, hook); err != nil {
 			return err
 		}
 	}
 	for _, hook := range lfsHookNames {
-		if err := installHookShim(sourceDir, hooksDir, "run-lfs-hook.sh", hook); err != nil {
+		if err := installHookSymlink(hooksDir, runner, hook); err != nil {
 			return err
 		}
 	}
@@ -1065,29 +1061,29 @@ func installGitHooks(args []string) error {
 }
 
 func verifyGitHooks(args []string) error {
-	hooksDir, sourceDir, err := gitHookShimFlags("verify-git-hooks", args)
+	hooksDir, runner, err := gitHookShimFlags("verify-git-hooks", args)
 	if err != nil {
 		return err
 	}
 
-	stale, err := gitHookShimFixItems(hooksDir, sourceDir)
+	stale, err := gitHookShimFixItems(hooksDir, runner)
 	if err != nil {
 		return err
 	}
 	if len(stale) > 0 {
-		return errors.New("git hook shims missing or stale")
+		return errors.New("git hook entrypoints missing or stale")
 	}
 
 	return nil
 }
 
 func gitHookFixItems(args []string) error {
-	hooksDir, sourceDir, err := gitHookShimFlags("git-hook-fix-items", args)
+	hooksDir, runner, err := gitHookShimFlags("git-hook-fix-items", args)
 	if err != nil {
 		return err
 	}
 
-	items, err := gitHookShimFixItems(hooksDir, sourceDir)
+	items, err := gitHookShimFixItems(hooksDir, runner)
 	if err != nil {
 		return err
 	}
@@ -1250,38 +1246,40 @@ func inputFileFlag(command string, args []string) (string, error) {
 func gitHookShimFlags(command string, args []string) (string, string, error) {
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
-	sourceDir := flags.String("source-dir", "", "Directory containing hook shim sources")
+	runner := flags.String("runner", "", "coding-ethos-run executable")
+	flags.String("source-dir", "", "Deprecated; hook files are symlinks to --runner")
 	if err := flags.Parse(args); err != nil {
 		return "", "", fmt.Errorf("parse %s flags: %w", command, err)
 	}
 	if strings.TrimSpace(*hooksDir) == "" {
 		return "", "", errHooksRequired
 	}
-	if strings.TrimSpace(*sourceDir) == "" {
-		return "", "", errSourceRequired
+	if strings.TrimSpace(*runner) == "" {
+		return "", "", errHookRequired
 	}
 
-	return *hooksDir, *sourceDir, nil
+	return *hooksDir, *runner, nil
 }
 
-func installHookShim(sourceDir string, hooksDir string, sourceName string, hookName string) error {
-	source := filepath.Join(sourceDir, sourceName)
+func installHookSymlink(hooksDir string, runner string, hookName string) error {
 	target := filepath.Join(hooksDir, hookName)
-	payload, err := os.ReadFile(source)
-	if err != nil {
-		return fmt.Errorf("read hook shim source %s: %w", source, err)
-	}
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return fmt.Errorf("create hooks dir %s: %w", hooksDir, err)
 	}
+	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove existing hook %s: %w", target, err)
+	}
+	if err := os.Symlink(runner, target); err != nil {
+		return fmt.Errorf("install hook symlink %s -> %s: %w", target, runner, err)
+	}
 
-	return writeExecutableFile(target, payload)
+	return nil
 }
 
-func gitHookShimFixItems(hooksDir string, sourceDir string) ([]string, error) {
+func gitHookShimFixItems(hooksDir string, runner string) ([]string, error) {
 	items := make([]string, 0)
 	for _, hook := range gitHookNames {
-		item, err := hookShimFixItem(hooksDir, sourceDir, "run-git-hook.sh", hook)
+		item, err := hookShimFixItem(hooksDir, runner, hook)
 		if err != nil {
 			return nil, err
 		}
@@ -1290,7 +1288,7 @@ func gitHookShimFixItems(hooksDir string, sourceDir string) ([]string, error) {
 		}
 	}
 	for _, hook := range lfsHookNames {
-		item, err := hookShimFixItem(hooksDir, sourceDir, "run-lfs-hook.sh", hook)
+		item, err := hookShimFixItem(hooksDir, runner, hook)
 		if err != nil {
 			return nil, err
 		}
@@ -1304,8 +1302,7 @@ func gitHookShimFixItems(hooksDir string, sourceDir string) ([]string, error) {
 
 func hookShimFixItem(
 	hooksDir string,
-	sourceDir string,
-	sourceName string,
+	runner string,
 	hookName string,
 ) (string, error) {
 	target := filepath.Join(hooksDir, hookName)
@@ -1327,18 +1324,38 @@ func hookShimFixItem(
 		), nil
 	}
 
-	matches, err := filesEqual(filepath.Join(sourceDir, sourceName), target)
+	matches, err := hookTargetsRunner(target, runner)
 	if err != nil {
 		return "", err
 	}
 	if !matches {
 		return fmt.Sprintf(
-			"  git-hooks,%s is stale,run cutover install",
+			"  git-hooks,%s does not point to coding-ethos-run,run cutover install",
 			target,
 		), nil
 	}
 
 	return "", nil
+}
+
+func hookTargetsRunner(target string, runner string) (bool, error) {
+	link, err := os.Readlink(target)
+	if err != nil {
+		return false, nil
+	}
+	if !filepath.IsAbs(link) {
+		link = filepath.Join(filepath.Dir(target), link)
+	}
+	resolvedLink, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		return false, fmt.Errorf("resolve hook symlink %s: %w", target, err)
+	}
+	resolvedRunner, err := filepath.EvalSymlinks(runner)
+	if err != nil {
+		return false, fmt.Errorf("resolve hook runner %s: %w", runner, err)
+	}
+
+	return resolvedLink == resolvedRunner, nil
 }
 
 func filesEqual(left string, right string) (bool, error) {
@@ -1520,15 +1537,15 @@ func usage() {
   coding-ethos-toolchain github-asset-url --repo owner/name --tag v1.2.3 --asset-substring linux-amd64
   coding-ethos-toolchain agent-hook-fix-items --input agent-verify-output.txt
   coding-ethos-toolchain cutover-report --action verify --status ready --repo . --git-hooks PASS --agent-hooks PASS --repo-ignores PASS --runtime PASS
-  coding-ethos-toolchain cutover-verify --root . --runner bin/coding-ethos-run --hooks-dir .git/hooks --source-dir pre-commit/hooks --real-git /usr/bin/git --bundle-root pre-commit
+  coding-ethos-toolchain cutover-verify --root . --runner bin/coding-ethos-run --hooks-dir .git/hooks --real-git /usr/bin/git --bundle-root pre-commit
   coding-ethos-toolchain install-github-binary --repo owner/name --tag v1.2.3 --asset-substring linux-amd64 --binary tool --dest-dir bin --sha256 abc123
-  coding-ethos-toolchain install-git-hooks --hooks-dir .git/hooks --source-dir pre-commit/hooks
+  coding-ethos-toolchain install-git-hooks --hooks-dir .git/hooks --runner bin/coding-ethos-run
   coding-ethos-toolchain install-git-shim --dest-dir bin --real-git /usr/bin/git --runner bin/coding-ethos-run
   coding-ethos-toolchain install-managed-toolchain --manifest-source managed-toolchain.tsv --go-bin-dir build/toolchain/go-bin --github-bin-dir build/toolchain/github-bin --installed-manifest build/toolchain/manifest.tsv
-  coding-ethos-toolchain git-hook-fix-items --hooks-dir .git/hooks --source-dir pre-commit/hooks
+  coding-ethos-toolchain git-hook-fix-items --hooks-dir .git/hooks --runner bin/coding-ethos-run
   coding-ethos-toolchain repo-ignore-fix-items --repo-root . --real-git /usr/bin/git
   coding-ethos-toolchain runtime-fix-items --input runtime-output.txt
   coding-ethos-toolchain sha256 --file path
-  coding-ethos-toolchain verify-git-hooks --hooks-dir .git/hooks --source-dir pre-commit/hooks
+  coding-ethos-toolchain verify-git-hooks --hooks-dir .git/hooks --runner bin/coding-ethos-run
 `)
 }

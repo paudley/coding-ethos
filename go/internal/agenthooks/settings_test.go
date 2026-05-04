@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,8 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
+	"blackcat.ca/coding-ethos/go/internal/hooks"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 const testHookCommand = "/repo/bin/coding-ethos-run agent-hook"
@@ -81,14 +84,45 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "UserPromptSubmit additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
+	assertCapability(t, capabilities, "codex", "partial", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "codex", "partial", "MCP stdio server")
-	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
+	assertCapability(t, capabilities, "gemini", "partial", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "MCP stdio server")
 	assertUnsupported(t, capabilities, "gemini", "PostToolBatch additionalContext")
+}
+
+func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range providersWithCapability(
+		agenthooks.ProviderCapabilities(),
+		"PreToolUse updatedInput rewrite",
+	) {
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			event, err := hooks.DecodeEvent(strings.NewReader(
+				capabilityProbePayload(provider, t.TempDir()),
+			))
+			if err != nil {
+				t.Fatalf("decode %s probe: %v", provider, err)
+			}
+			result, err := hooks.Run(policy.ExampleBundle(), hooks.Options{Event: event})
+			if err != nil {
+				t.Fatalf("run %s probe: %v", provider, err)
+			}
+			if result.Status != "allowed" ||
+				result.HookSpecificOutput == nil ||
+				len(result.HookSpecificOutput.UpdatedInput) == 0 {
+				t.Fatalf("capability drift for %s: %#v", provider, result)
+			}
+		})
+	}
 }
 
 func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
@@ -166,8 +200,9 @@ func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
 		`"SessionStart"`,
 		`"UserPromptSubmit"`,
 		`"Stop"`,
-		`"matcher": "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command"`,
-		`"matcher": "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file"`,
+		`"matcher": "Bash|bash|exec_command|functions\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\.write_stdin|multi_tool_use\\.parallel"`,
+		`"matcher": "Edit|apply_patch|functions\\.apply_patch|edit_file"`,
+		`"matcher": "functions\\.update_plan"`,
 		`"statusMessage": "coding-ethos policy"`,
 	} {
 		if !strings.Contains(codexSettings, expected) {
@@ -208,8 +243,11 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		block := codexEventBlock(t, config, event)
-		assertCodexMatcherCount(t, block, event, "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command", 1)
-		assertCodexMatcherCount(t, block, event, "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file", 1)
+		assertCodexMatcherCount(t, block, event, "Bash|bash|exec_command|functions\\\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\\\.write_stdin|multi_tool_use\\\\.parallel", 1)
+		assertCodexMatcherCount(t, block, event, "Write|create_file|write_file", 1)
+		assertCodexMatcherCount(t, block, event, "Edit|apply_patch|functions\\\\.apply_patch|edit_file", 1)
+		assertCodexMatcherCount(t, block, event, "MultiEdit", 1)
+		assertCodexMatcherCount(t, block, event, "functions\\\\.update_plan", 1)
 		if strings.Contains(block, "{ hooks =") {
 			t.Fatalf("%s must not include catch-all command hooks:\n%s", event, block)
 		}
@@ -799,6 +837,51 @@ func findCapability(
 	return agenthooks.ProviderCapability{}
 }
 
+func providersWithCapability(
+	capabilities []agenthooks.ProviderCapability,
+	capability string,
+) []string {
+	providers := []string{}
+	for _, provider := range capabilities {
+		if containsString(provider.Supported, capability) {
+			providers = append(providers, provider.Provider)
+		}
+	}
+
+	return providers
+}
+
+func capabilityProbePayload(provider string, cwd string) string {
+	switch provider {
+	case "claude":
+		return fmt.Sprintf(`{
+			"provider": "claude",
+			"hook_event_name": "PreToolUse",
+			"cwd": %q,
+			"tool_name": "Bash",
+			"tool_input": {"command": "git status --short"}
+		}`, cwd)
+	case "codex":
+		return fmt.Sprintf(`{
+			"provider": "codex",
+			"event": "PreToolUse",
+			"cwd": %q,
+			"tool": "exec_command",
+			"input": {"command": "git status --short"}
+		}`, cwd)
+	case "gemini":
+		return fmt.Sprintf(`{
+			"provider": "gemini-cli",
+			"hookEventName": "BeforeTool",
+			"cwd": %q,
+			"toolName": "run_shell_command",
+			"toolInput": {"command": "git status --short"}
+		}`, cwd)
+	default:
+		panic("unsupported provider " + provider)
+	}
+}
+
 func containsString(values []string, expected string) bool {
 	return slices.Contains(values, expected)
 }
@@ -830,6 +913,12 @@ case "$payload" in
     ;;
   *'"provider": "claude"'*)
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    ;;
+  *'"provider": "codex"'*'"git status --short"'*)
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\''"}}}'
+    ;;
+  *'"provider": "gemini-cli"'*'"git status --short"'*)
+    printf '%s\n' '{"decision":"allow","hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\''"}}}'
     ;;
   *'"UserPromptSubmit"'*)
     printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'

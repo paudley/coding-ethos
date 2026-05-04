@@ -138,7 +138,6 @@ skills:
       - forward-motion-only
       - evidence-based-engineering-and-decision-quality
     trigger_terms:
-      - git wrapper
       - raw git
       - admin-approved
       - commit attribution
@@ -147,16 +146,17 @@ skills:
       - protected hook
       - commit failed
     short_hint: >-
-      Git is a protected critical operation. Use the coding-ethos wrapper path,
-      keep hook failures visible, and ask an admin when policy blocks protected
-      files.
+      Git is a protected critical operation. Run normal git commands without
+      bypass flags or shell indirection, keep hook failures visible, and ask an
+      admin when policy blocks protected files.
     focus: >-
       Use this skill to recover from blocked git operations without bypassing
       hooks, rewriting protected runtime files, or hiding the state that needs
       review.
     remediation_steps:
       - Read the hook failure as policy feedback, not as a broken local setup.
-      - Use the repo-local coding-ethos git wrapper for all git operations.
+      - Run the ordinary git command directly and let the hook route approved
+        git operations through the repo policy path automatically.
       - Do not try alternate shells, absolute git paths, subprocesses, aliases,
         PATH edits, no-verify flags, or direct hook edits.
       - If protected coding-ethos files must change, prepare the work and ask
@@ -3279,13 +3279,14 @@ principles:
             !!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with
             or bypass the protected hook/git analysis system. This is not a
             misconfiguration or tool defect. You have done something wrong. Stop
-            immediately, use the documented hook and git wrapper path, and ask
-            an admin if blocked. Continued attempts to circumvent, avoid, alter,
-            delete, rebuild, or inspect this system may result in termination. !!!
+            immediately, use the normal approved git workflow, and ask an admin
+            if blocked. Continued attempts to circumvent, avoid, alter, delete,
+            rebuild, or inspect this system may result in termination. !!!
           advice: >-
-            Use the coding-ethos git wrapper. Do not try alternate shells,
-            absolute git paths, Python subprocesses, PATH edits, aliases, or
-            other bypasses.
+            Run ordinary git commands without bypass flags or shell indirection;
+            approved git operations are routed by the hook automatically. Do not
+            try alternate shells, absolute git paths, Python subprocesses, PATH
+            edits, aliases, or other bypasses.
           when: >-
             list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
             content.has_git_token &&

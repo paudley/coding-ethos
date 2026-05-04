@@ -697,13 +697,16 @@ Acceptance criteria:
   code fact store, vector index, and trace ingestor interfaces.
 - [x] Add per-run remediation summaries to hook and lint traces so later
   storage can measure repeated policy failures without parsing provider text.
+- [x] Add an initial SQLite code-intelligence store under
+  `.coding-ethos/code-intel.db` that ingests retained hook/lint traces,
+  normalized findings, remediation payloads, and remediation events.
+- [x] Add repeated-failure and FTS search commands over imported trace data.
 - [ ] Track whether remediation hints reduce repeated failures in
-  `.coding-ethos` traces.
-- [ ] Design local-first remediation storage for hook/lint/SARIF traces with
+  `.coding-ethos` traces by linking follow-up attempts to outcomes.
+- [ ] Extend local-first remediation storage to SARIF trace references with
   full-text plus embedding search over remediation IDs, policy IDs, skills,
-  command/file context, outcomes, and follow-up attempts. Start with a
-  single-file store and keep hosted services optional.
-- [ ] Build the code intelligence roadmap in `docs/CODE_INTEL.md`: Tree-sitter
+  command/file context, outcomes, and follow-up attempts.
+- [x] Build the code intelligence roadmap in `docs/CODE_INTEL.md`: Tree-sitter
   AST chunking, SQLite canonical storage, LanceDB vector backend, sqlite-vec
   fallback, hybrid retrieval, and MCP code/remediation search tools.
 

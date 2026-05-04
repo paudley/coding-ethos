@@ -217,19 +217,30 @@ def _assert_generated_ci_configs(repo_root: Path) -> None:
         (repo_root / TOOL_CONFIG_HASH_MANIFEST).read_text(encoding="utf-8")
     )
 
+    _assert_github_ci_config(github_workflow, manifest)
+    _assert_gitlab_ci_config(gitlab_ci, manifest)
+
+
+def _assert_github_ci_config(github_workflow: str, manifest: dict[str, Any]) -> None:
     assert "bin/coding-ethos-run" in github_workflow
     assert (
         "github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7"
     ) in github_workflow
-    assert "--files-from" in github_workflow
-    assert "github.event.before" in github_workflow
+    assert (
+        '"$CODING_ETHOS_PATH/bin/coding-ethos-run" ci-sarif --provider github'
+        in github_workflow
+    )
+    assert "CODING_ETHOS_GITHUB_EVENT_BEFORE" in github_workflow
+    assert "--files-from" not in github_workflow
     assert 'git ls-files > "$files_path"' not in github_workflow
     assert ".github/workflows/coding-ethos-sarif.yml" in manifest["configs"]
 
+
+def _assert_gitlab_ci_config(gitlab_ci: str, manifest: dict[str, Any]) -> None:
     assert "coding_ethos_sarif" in gitlab_ci
     assert "artifacts:" in gitlab_ci
-    assert "--files-from" in gitlab_ci
-    assert "CI_COMMIT_BEFORE_SHA" in gitlab_ci
+    assert 'coding-ethos-run" ci-sarif --provider gitlab' in gitlab_ci
+    assert "--files-from" not in gitlab_ci
     assert 'git ls-files > "$files_path"' not in gitlab_ci
     assert ".gitlab-ci.yml" in manifest["configs"]
 

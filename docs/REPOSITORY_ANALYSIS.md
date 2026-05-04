@@ -96,8 +96,8 @@ For Gemini prompt-pack sync, the CLI merges ethos context and enforcement
 config, renders every prompt template, attaches check selectors and runtime
 metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
 
-For hooks, the Makefile installs repo-local Git hook shims that call the Go
-helper and compiled policy entrypoints. `cutover` also syncs Claude, Codex, and
+For hooks, the Makefile installs repo-local Git hook entrypoints that resolve
+to the Go helper and compiled policy entrypoints. `cutover` also syncs Claude, Codex, and
 Gemini repo-local agent hook settings, verifies the git wrapper path, and
 checks required runtime ignores before declaring the hook surface ready.
 

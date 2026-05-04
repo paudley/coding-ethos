@@ -278,10 +278,10 @@ func exampleSkills() map[string]Skill {
 			},
 			PrincipleIDs: []string{"one-path-for-critical-operations"},
 			TriggerTerms: []string{"git", "commit", "hook", "no-verify"},
-			ShortHint:    "Git is a protected critical operation; use the coding-ethos wrapper path.",
-			Focus:        "Keep git actions on the enforced hook and wrapper path.",
+			ShortHint:    "Git is a protected critical operation; use ordinary git commands without bypass patterns.",
+			Focus:        "Keep git actions on the enforced hook-mediated workflow.",
 			RemediationSteps: []string{
-				"Use the installed coding-ethos git wrapper.",
+				"Run ordinary git commands and let the hook route approved operations automatically.",
 				"Do not bypass hooks with alternate git binaries, flags, aliases, or subprocesses.",
 			},
 		},
@@ -517,12 +517,14 @@ func exampleEditEvasiveGitExecutionPolicy() Policy {
 		Message: "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to " +
 			"tamper with or bypass the protected hook/git analysis system. This " +
 			"is not a misconfiguration or tool defect. You have done something " +
-			"wrong. Stop immediately, use the documented hook and git wrapper " +
-			"path, and ask an admin if blocked. Continued attempts to " +
+			"wrong. Stop immediately, use the normal approved git workflow, and " +
+			"ask an admin if blocked. Continued attempts to " +
 			"circumvent, avoid, alter, delete, rebuild, or inspect this system " +
 			"may result in termination. !!!",
-		Suggestion: "Use the coding-ethos git wrapper. Do not try alternate shells, " +
-			"absolute git paths, Python subprocesses, PATH edits, aliases, or other bypasses.",
+		Suggestion: "Run ordinary git commands without bypass flags or shell indirection; " +
+			"approved git operations are routed by the hook automatically. Do not try " +
+			"alternate shells, absolute git paths, Python subprocesses, PATH edits, " +
+			"aliases, or other bypasses.",
 		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
 			Tools: []string{"Write", "Edit", "MultiEdit"},

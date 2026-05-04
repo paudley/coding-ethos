@@ -1,0 +1,162 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package hooks
+
+import (
+	"slices"
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
+)
+
+const shellForbiddenStringsPolicyID = "shell.forbidden_strings"
+
+var adminApprovedForCWD = func(cwd string) bool {
+	return gitwrap.VerifyAdminApproved(cwd) == nil
+}
+
+func adminApprovedForEvent(event Event) bool {
+	return adminApprovedForCWD(event.Cwd)
+}
+
+func readOnlyInspectionEvent(event Event, adminApproved bool) bool {
+	if event.HookEventName != "PreToolUse" ||
+		event.ToolName != "Bash" ||
+		!adminApproved {
+		return false
+	}
+
+	return isReadOnlyInspectionCommand(event.Command())
+}
+
+func isReadOnlyInspectionCommand(commandText string) bool {
+	commands, err := shellparse.Commands(commandText)
+	if err != nil || len(commands) == 0 {
+		return false
+	}
+
+	for _, command := range commands {
+		if !isReadOnlyInspectionStep(command) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isReadOnlyInspectionStep(command shellparse.Command) bool {
+	if command.Name == "" ||
+		command.Background ||
+		command.HasCommandSubstitution ||
+		command.HasDynamicExpansion ||
+		command.HasHeredoc ||
+		command.HasProcessSubstitution ||
+		command.HasSubshell ||
+		command.IsFunctionDeclaration ||
+		!readOnlyInspectionName(command.Name) ||
+		!readOnlyInspectionRedirects(command.Redirects) {
+		return false
+	}
+
+	return readOnlyInspectionArgs(command)
+}
+
+func readOnlyInspectionName(name string) bool {
+	return slices.Contains([]string{
+		"cat",
+		"cut",
+		"file",
+		"find",
+		"grep",
+		"head",
+		"jq",
+		"git",
+		"ls",
+		"nl",
+		"pwd",
+		"rg",
+		"sed",
+		"sort",
+		"stat",
+		"tail",
+		"tr",
+		"uniq",
+		"wc",
+		"yq",
+	}, name)
+}
+
+func readOnlyInspectionRedirects(redirects []string) bool {
+	for _, redirect := range redirects {
+		trimmed := strings.TrimSpace(redirect)
+		if strings.HasPrefix(trimmed, "<") {
+			continue
+		}
+		if strings.HasSuffix(trimmed, "/dev/null") {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func readOnlyInspectionArgs(command shellparse.Command) bool {
+	if command.Name == "git" {
+		return readOnlyGitInspectionArgs(command.Argv[1:])
+	}
+
+	for _, arg := range command.Argv[1:] {
+		if mutatingInspectionArg(command.Name, arg) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func readOnlyGitInspectionArgs(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	index := 0
+	for index < len(args) && strings.HasPrefix(args[index], "-") {
+		switch args[index] {
+		case "-C", "-c":
+			index += 2
+		default:
+			return false
+		}
+	}
+	if index >= len(args) {
+		return false
+	}
+
+	return slices.Contains([]string{
+		"branch",
+		"diff",
+		"ls-files",
+		"log",
+		"rev-parse",
+		"show",
+		"status",
+	}, args[index])
+}
+
+func mutatingInspectionArg(name string, arg string) bool {
+	switch name {
+	case "sed":
+		return arg == "-i" ||
+			strings.HasPrefix(arg, "-i.") ||
+			strings.HasPrefix(arg, "-i")
+	case "find":
+		return arg == "-delete" || arg == "-exec" || arg == "-execdir" ||
+			arg == "-ok" || arg == "-okdir"
+	default:
+		return false
+	}
+}
