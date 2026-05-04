@@ -52,6 +52,58 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONIncludesExistingTraceID(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		TraceID: "20260504T000000.000000000Z-123-staged.json",
+		Scope:   lint.ScopeStaged,
+		Status:  "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			File:     "pkg/app.py",
+			Line:     1,
+			Severity: "block",
+			PolicyID: "filesystem.line_limits",
+			Message:  "Large source files must not keep growing.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+	if !strings.Contains(output, "trace_id: 20260504T000000.000000000Z-123-staged.json") {
+		t.Fatalf("TOON output missing trace_id:\n%s", output)
+	}
+}
+
+func TestFormatLintResultTOONCreatesTraceIDForBlockedResult(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			File:     "pkg/app.py",
+			Line:     1,
+			Severity: "block",
+			PolicyID: "filesystem.line_limits",
+			Message:  "Large source files must not keep growing.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+	if !strings.Contains(output, "trace_id: ") ||
+		!strings.Contains(output, "-staged.json") {
+		t.Fatalf("TOON output missing generated trace_id:\n%s", output)
+	}
+}
+
 func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -78,6 +130,12 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 			Detail:   "imported but unused",
 			Metadata: map[string]any{
 				"implementation":       "cel",
+				"ast_change_source":    "staged",
+				"ast_language":         "python",
+				"ast_node_kind":        "function_definition",
+				"ast_symbol_kind":      "function",
+				"ast_symbol_name":      "load_config",
+				"ast_symbol_path":      "load_config",
 				"input_schema_version": int64(1),
 				"policy_source":        "coding_ethos.yml:principles.4",
 				"when":                 "diagnostic.code == 'F401'",
@@ -120,6 +178,11 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.region.startColumn", float64(8))
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/v1", 64)
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/stable/v1", 64)
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/ast/v1", 64)
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_change_source", "staged")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_language", "python")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_symbol_name", "load_config")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_symbol_path", "load_config")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.implementation", "cel")
@@ -751,7 +814,7 @@ func TestFormatLintResultTOONTruncatesPathologicalFindingCells(t *testing.T) {
 	if strings.Contains(output, longMessage) {
 		t.Fatalf("TOON output included full pathological message:\n%s", output)
 	}
-	if len(output) > 800 {
+	if len(output) > 900 {
 		t.Fatalf("TOON output too large after truncation: %d bytes\n%s", len(output), output)
 	}
 }

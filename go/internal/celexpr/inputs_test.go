@@ -24,6 +24,7 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		diff.has_changes &&
 		diff.hunks.exists(hunk, hunk.file == "src/app.py") &&
 		diff.added_lines.exists(line, line.text.contains("pass")) &&
+		changed_symbols.exists(symbol, symbol.file == "src/app.py" || symbol.file == "") &&
 		git_command.is_git &&
 		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
@@ -570,6 +571,47 @@ func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) 
 	}
 }
 
+func TestActivationPopulatesProposedSymbolChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	current := "def keep():\n    return 1\n\n"
+	current += "def grow():\n    return 1\n"
+	if err := os.WriteFile(file, []byte(current), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"src/app.py"},
+		Tool:       "Edit",
+		OldContent: "def grow():\n    return 1\n",
+		Content:    "def grow():\n    value = 1\n    return value\n",
+	})
+
+	changes, ok := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_symbol_changes input = %#v", activation["proposed_symbol_changes"])
+	}
+	change := changes[0]
+	if change.File != "src/app.py" ||
+		change.Language != "python" ||
+		change.SymbolKind != "function" ||
+		change.SymbolName != "grow" ||
+		change.Action != "modified" ||
+		change.CurrentLineCount != 2 ||
+		change.ProposedLineCount != 3 ||
+		change.LineDelta != 1 ||
+		!change.LineCountGrows ||
+		change.LineCountShrinks {
+		t.Fatalf("symbol change input = %#v", change)
+	}
+}
+
 func TestActivationEstimatesAmbiguousEditAcrossAllMatches(t *testing.T) {
 	t.Parallel()
 
@@ -657,6 +699,61 @@ func TestActivationPopulatesDiffHunkInputs(t *testing.T) {
 		len(diff.RemovedLines) != 1 ||
 		diff.AddedLines[1].NewLine != 3 {
 		t.Fatalf("diff line summaries = %#v", diff)
+	}
+}
+
+func TestActivationPopulatesChangedSymbolInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runTestGit(t, repo, "init")
+	runTestGit(t, repo, "config", "user.email", "test@example.com")
+	runTestGit(t, repo, "config", "user.name", "Test User")
+
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("def build():\n    return 1\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+	runTestGit(t, repo, "add", "src/app.py")
+	runTestGit(t, repo, "commit", "-m", "feat: seed")
+
+	if err := os.WriteFile(
+		file,
+		[]byte("def build():\n    value = 1\n    return value\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("rewrite source file: %v", err)
+	}
+	runTestGit(t, repo, "add", "src/app.py")
+
+	activation := Activation(ActivationInput{
+		Cwd:   repo,
+		Files: []string{"src/app.py"},
+	})
+
+	symbols, ok := activation["changed_symbols"].([]ChangedSymbolInput)
+	if !ok || len(symbols) != 1 {
+		t.Fatalf("changed_symbols = %#v", activation["changed_symbols"])
+	}
+	symbol := symbols[0]
+	if symbol.File != "src/app.py" ||
+		symbol.Language != "python" ||
+		symbol.SymbolKind != "function" ||
+		symbol.SymbolName != "build" ||
+		symbol.Action != "modified" ||
+		!symbol.LineCountGrows ||
+		symbol.OriginalLineCount != 2 ||
+		symbol.CurrentLineCount != 3 ||
+		symbol.LineDelta != 1 ||
+		len(symbol.ChangedLines) == 0 {
+		t.Fatalf("changed symbol = %#v", symbol)
+	}
+	diff, ok := activation["diff"].(DiffInput)
+	if !ok || len(diff.ChangedSymbols) != 1 || diff.ChangedSymbols[0].SymbolName != "build" {
+		t.Fatalf("diff changed symbols = %#v", activation["diff"])
 	}
 }
 

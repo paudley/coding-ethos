@@ -9,6 +9,7 @@ import (
 )
 
 type Result struct {
+	TraceID     string                   `json:"trace_id,omitempty"`
 	Scope       string                   `json:"scope"`
 	Status      string                   `json:"status"`
 	Decisions   []policy.Decision        `json:"decisions"`

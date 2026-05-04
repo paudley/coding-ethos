@@ -11,6 +11,7 @@ type Result struct {
 	Event              string              `json:"event"`
 	Advice             policy.Advice       `json:"advice,omitempty"`
 	Provider           string              `json:"provider,omitempty"`
+	RuntimeMS          int64               `json:"runtime_ms,omitempty"`
 	Status             string              `json:"status"`
 	TrackingID         string              `json:"trackingID,omitempty"`
 	Tool               string              `json:"tool,omitempty"`

@@ -298,44 +298,24 @@ principles:
           message: Large source files must not keep growing.
           advice: Split large files into focused modules before committing.
           when: >-
-            proposed_file_changes.exists(file,
-              !file.is_binary && !file.is_test && file.line_count_grows &&
-              (
-                (file.ext == ".py" && file.proposed_line_count > 1000) ||
-                (file.ext == ".go" && file.proposed_line_count > 2000) ||
-                (
-                  (
-                    file.ext == ".sh" ||
-                    file.ext == ".bash" ||
-                    has_prefix(file.file, "scripts/")
-                  ) &&
-                  file.proposed_line_count > 500
-                )
-              )
-            ) ||
-            (
-              proposed_file_changes.size() == 0 &&
-              file_changes.exists(file,
-                !file.is_binary &&
-                !file.is_test &&
-                (
-                  (file.ext == ".py" && file.line_count > 1000) ||
-                  (file.ext == ".go" && file.line_count > 2000) ||
-                  (
-                    (
-                      file.ext == ".sh" ||
-                      file.ext == ".bash" ||
-                      has_prefix(file.file, "scripts/")
-                    ) &&
-                    file.line_count > 500
-                  )
-                ) &&
-                (
-                  file.original_line_count < 0 ||
-                  file.line_count > file.original_line_count
-                )
-              )
-            )
+            proposed_file_changes.exists(file, !file.is_binary &&
+              !file.is_test && file.line_count_grows &&
+              file.nonblank_line_count_grows &&
+              ((file.ext == ".py" && file.proposed_line_count > 1000) ||
+              (file.ext == ".go" && file.proposed_line_count > 2000) ||
+              ((list_contains([".sh", ".bash"], file.ext) ||
+              has_prefix(file.file, "scripts/")) &&
+              file.proposed_line_count > 500))) ||
+            (proposed_file_changes.size() == 0 &&
+              file_changes.exists(file, !file.is_binary && !file.is_test &&
+              ((file.ext == ".py" && file.line_count > 1000) ||
+              (file.ext == ".go" && file.line_count > 2000) ||
+              ((list_contains([".sh", ".bash"], file.ext) ||
+              has_prefix(file.file, "scripts/")) && file.line_count > 500)) &&
+              (file.original_line_count < 0 ||
+              file.line_count > file.original_line_count) &&
+              (file.original_nonblank_line_count < 0 ||
+              file.nonblank_line_count_grows)))
     sections:
       - id: overview
         kind: overview

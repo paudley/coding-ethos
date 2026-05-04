@@ -293,6 +293,9 @@ func main() {
 	if err != nil {
 		exitErr(err)
 	}
+	if result.Blocked() {
+		lint.EnsureTraceID(&result)
+	}
 
 	if *logOutput {
 		if _, logErr := lint.LogResult(*cwd, result); logErr != nil {

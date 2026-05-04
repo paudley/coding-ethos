@@ -76,6 +76,37 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	return status, nil
 }
 
+func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
+	var input codeIntelHookUsageInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse code intelligence hook-usage arguments: %w", err)
+	}
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return nil, err
+	}
+	defer closeStore()
+
+	results, err := store.HookUsage(argsContext(), codeintel.HookUsageQuery{
+		Provider:      input.Provider,
+		Status:        input.Status,
+		PolicyID:      input.PolicyID,
+		SkillID:       input.SkillID,
+		OperationKind: input.OperationKind,
+		TargetKind:    input.TargetKind,
+		RiskCategory:  input.RiskCategory,
+		Limit:         input.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"kind":    "code_intel_hook_usage",
+		"results": results,
+	}, nil
+}
+
 func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 	var input codeIntelIndexCodeInput
 	if err := json.Unmarshal(args, &input); err != nil {
@@ -146,6 +177,7 @@ func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 		Language:   input.Language,
 		SymbolKind: input.SymbolKind,
 		SymbolName: input.SymbolName,
+		SymbolPath: input.SymbolPath,
 		Limit:      input.Limit,
 	})
 	if err != nil {
@@ -155,6 +187,37 @@ func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 	return map[string]any{
 		"kind":   "code_intel_code_chunks",
 		"chunks": chunks,
+	}, nil
+}
+
+func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
+	var input codeIntelCodeContextInput
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, fmt.Errorf("parse code intelligence code-context arguments: %w", err)
+	}
+	if strings.TrimSpace(input.ChunkID) == "" &&
+		(strings.TrimSpace(input.Path) == "" || strings.TrimSpace(input.SymbolPath) == "") {
+		return nil, fmt.Errorf("chunk_id or both path and symbol_path are required")
+	}
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return nil, err
+	}
+	defer closeStore()
+
+	context, err := store.CodeContext(argsContext(), codeintel.CodeContextQuery{
+		ChunkID:    input.ChunkID,
+		Path:       input.Path,
+		SymbolPath: input.SymbolPath,
+		Limit:      input.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"kind":    "code_intel_code_context",
+		"context": context,
 	}, nil
 }
 

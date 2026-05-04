@@ -166,13 +166,14 @@ type GitCommandInput struct {
 }
 
 type DiffInput struct {
-	ChangedFiles []string        `json:"changed_files"`
-	Files        []string        `json:"files"`
-	Hunks        []DiffHunkInput `json:"hunks"`
-	AddedLines   []DiffLineInput `json:"added_lines"`
-	RemovedLines []DiffLineInput `json:"removed_lines"`
-	HasChanges   bool            `json:"has_changes"`
-	StagedFiles  []string        `json:"staged_files"`
+	ChangedFiles   []string             `json:"changed_files"`
+	Files          []string             `json:"files"`
+	Hunks          []DiffHunkInput      `json:"hunks"`
+	AddedLines     []DiffLineInput      `json:"added_lines"`
+	RemovedLines   []DiffLineInput      `json:"removed_lines"`
+	ChangedSymbols []ChangedSymbolInput `json:"changed_symbols"`
+	HasChanges     bool                 `json:"has_changes"`
+	StagedFiles    []string             `json:"staged_files"`
 }
 
 type DiffHunkInput struct {
@@ -192,26 +193,32 @@ type DiffLineInput struct {
 	Line    int64  `json:"line"`
 	NewLine int64  `json:"new_line"`
 	OldLine int64  `json:"old_line"`
+	IsBlank bool   `json:"is_blank"`
 }
 
 type FileChangeInput struct {
-	Base              string `json:"base"`
-	Dir               string `json:"dir"`
-	Ext               string `json:"ext"`
-	File              string `json:"file"`
-	OldFile           string `json:"old_file"`
-	Status            string `json:"status"`
-	IsAdded           bool   `json:"is_added"`
-	IsBinary          bool   `json:"is_binary"`
-	IsDeleted         bool   `json:"is_deleted"`
-	IsGenerated       bool   `json:"is_generated"`
-	IsModified        bool   `json:"is_modified"`
-	IsProtected       bool   `json:"is_protected"`
-	IsRenamed         bool   `json:"is_renamed"`
-	IsTest            bool   `json:"is_test"`
-	LineCount         int64  `json:"line_count"`
-	OriginalLineCount int64  `json:"original_line_count"`
-	SizeBytes         int64  `json:"size_bytes"`
+	Base                      string `json:"base"`
+	Dir                       string `json:"dir"`
+	Ext                       string `json:"ext"`
+	File                      string `json:"file"`
+	OldFile                   string `json:"old_file"`
+	Status                    string `json:"status"`
+	IsAdded                   bool   `json:"is_added"`
+	IsBinary                  bool   `json:"is_binary"`
+	IsDeleted                 bool   `json:"is_deleted"`
+	IsGenerated               bool   `json:"is_generated"`
+	IsModified                bool   `json:"is_modified"`
+	IsProtected               bool   `json:"is_protected"`
+	IsRenamed                 bool   `json:"is_renamed"`
+	IsTest                    bool   `json:"is_test"`
+	LineCount                 int64  `json:"line_count"`
+	OriginalLineCount         int64  `json:"original_line_count"`
+	NonBlankLineCount         int64  `json:"nonblank_line_count"`
+	OriginalNonBlankLineCount int64  `json:"original_nonblank_line_count"`
+	NonBlankLineDelta         int64  `json:"nonblank_line_delta"`
+	SizeBytes                 int64  `json:"size_bytes"`
+	NonBlankLineCountGrows    bool   `json:"nonblank_line_count_grows"`
+	NonBlankLineCountShrinks  bool   `json:"nonblank_line_count_shrinks"`
 }
 
 type ReferencedFileInput struct {
@@ -286,13 +293,15 @@ func InputSchema() []string {
 		"shell_commands: list({command, name, argv, assignments, redirects, write_targets, line, column, background, has_inline_env, has_redirects, has_write_targets, has_heredoc, has_command_substitution, has_process_substitution, has_dynamic_expansion, has_subshell, is_function_declaration, is_git, is_lint_tool, is_shell_exec, uses_path_override})",
 		"config: {candidates, present}",
 		"cwd: string",
-		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines}",
+		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines, changed_symbols}",
 		"diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}",
-		"diff.added_lines[]/removed_lines[]: {file, line, old_line, new_line, text}",
+		"diff.added_lines[]/removed_lines[]: {file, line, old_line, new_line, text, is_blank}",
+		"changed_symbols: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, changed_lines, is_generated, is_test, original_line_count, current_line_count, line_delta, original_nonblank_line_count, current_nonblank_line_count, nonblank_line_delta, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, original_start_line, original_end_line, current_start_line, current_end_line, original_content_hash, current_content_hash})",
 		"event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}",
 		"files: list(string)",
-		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
-		"proposed_file_changes: list({file, dir, base, ext, exists, has_proposed_content, is_binary, is_generated, is_test, current_size_bytes, proposed_size_bytes, size_delta, current_line_count, proposed_line_count, line_delta, size_grows, size_shrinks, line_count_grows, line_count_shrinks, replacement_matched, replacement_ambiguous})",
+		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count, nonblank_line_count, original_nonblank_line_count, nonblank_line_delta, nonblank_line_count_grows, nonblank_line_count_shrinks})",
+		"proposed_file_changes: list({file, dir, base, ext, exists, has_proposed_content, is_binary, is_generated, is_test, current_size_bytes, proposed_size_bytes, size_delta, current_line_count, proposed_line_count, line_delta, current_nonblank_line_count, proposed_nonblank_line_count, nonblank_line_delta, size_grows, size_shrinks, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, replacement_matched, replacement_ambiguous})",
+		"proposed_symbol_changes: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, is_generated, is_test, current_line_count, proposed_line_count, line_delta, current_nonblank_line_count, proposed_nonblank_line_count, nonblank_line_delta, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, current_start_line, current_end_line, proposed_start_line, proposed_end_line, current_content_hash, proposed_content_hash})",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
@@ -362,8 +371,10 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(DiffInput{}),
 			reflect.TypeOf(DiffHunkInput{}),
 			reflect.TypeOf(DiffLineInput{}),
+			reflect.TypeOf(ChangedSymbolInput{}),
 			reflect.TypeOf(FileChangeInput{}),
 			reflect.TypeOf(ProposedFileChangeInput{}),
+			reflect.TypeOf(ProposedSymbolChangeInput{}),
 			reflect.TypeOf(ReferencedFileInput{}),
 			reflect.TypeOf(ToolCapabilityInput{}),
 			ext.ParseStructTag("json"),
@@ -374,12 +385,20 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("cwd", cel.StringType),
 		cel.Variable("files", cel.ListType(cel.StringType)),
 		cel.Variable(
+			"changed_symbols",
+			cel.ListType(cel.ObjectType("celexpr.ChangedSymbolInput")),
+		),
+		cel.Variable(
 			"file_changes",
 			cel.ListType(cel.ObjectType("celexpr.FileChangeInput")),
 		),
 		cel.Variable(
 			"proposed_file_changes",
 			cel.ListType(cel.ObjectType("celexpr.ProposedFileChangeInput")),
+		),
+		cel.Variable(
+			"proposed_symbol_changes",
+			cel.ListType(cel.ObjectType("celexpr.ProposedSymbolChangeInput")),
 		),
 		cel.Variable(
 			"referenced_files",
@@ -498,6 +517,7 @@ func Activation(input ActivationInput) map[string]any {
 
 	diffHunks := diffHunkInputs(input.Cwd, files)
 	addedLines, removedLines := diffLines(diffHunks)
+	changedSymbols := changedSymbolInputs(input.Cwd, files, diffHunks)
 	hasChanges := len(files) > 0 ||
 		len(changedFiles) > 0 ||
 		len(stagedFiles) > 0 ||
@@ -522,13 +542,14 @@ func Activation(input ActivationInput) map[string]any {
 		},
 		"cwd": input.Cwd,
 		"diff": DiffInput{
-			ChangedFiles: changedFiles,
-			Files:        files,
-			Hunks:        diffHunks,
-			AddedLines:   addedLines,
-			RemovedLines: removedLines,
-			HasChanges:   hasChanges,
-			StagedFiles:  stagedFiles,
+			ChangedFiles:   changedFiles,
+			Files:          files,
+			Hunks:          diffHunks,
+			AddedLines:     addedLines,
+			RemovedLines:   removedLines,
+			ChangedSymbols: changedSymbols,
+			HasChanges:     hasChanges,
+			StagedFiles:    stagedFiles,
 		},
 		"event": EventInput{
 			Name:             input.EventName,
@@ -549,15 +570,17 @@ func Activation(input ActivationInput) map[string]any {
 			IsCodex:          provider == "codex",
 			IsGemini:         provider == "gemini",
 		},
-		"files": files,
+		"files":           files,
+		"changed_symbols": changedSymbols,
 		"file_changes": fileChangeInputs(
 			input.Cwd,
 			files,
 			protectedPaths,
 		),
-		"proposed_file_changes": proposedFileChangeInputs(input),
-		"referenced_files":      referencedFileInputs(input.Cwd, files, input.Argv),
-		"tool_capabilities":     toolCapabilityInputs(),
+		"proposed_file_changes":   proposedFileChangeInputs(input),
+		"proposed_symbol_changes": proposedSymbolChangeInputs(input),
+		"referenced_files":        referencedFileInputs(input.Cwd, files, input.Argv),
+		"tool_capabilities":       toolCapabilityInputs(),
 		"git": GitInput{
 			CurrentBranch:      input.CurrentBranch,
 			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
@@ -1378,25 +1401,34 @@ func fileChangeInput(
 ) FileChangeInput {
 	statusCode := strings.TrimSpace(status.Code)
 	sizeBytes, lineCount, binary := fileSizeAndLines(cwd, file)
+	nonBlankLineCount := currentNonBlankLineCount(cwd, file, binary)
+	originalNonBlankLineCount := originalNonBlankLineCount(cwd, file)
 
 	return FileChangeInput{
-		Base:              path.Base(file),
-		Dir:               path.Dir(file),
-		Ext:               strings.ToLower(path.Ext(file)),
-		File:              file,
-		OldFile:           status.OldFile,
-		Status:            statusCode,
-		IsAdded:           strings.Contains(statusCode, "A"),
-		IsBinary:          binary,
-		IsDeleted:         strings.Contains(statusCode, "D"),
-		IsGenerated:       isGeneratedPath(file),
-		IsModified:        strings.Contains(statusCode, "M"),
-		IsProtected:       isProtectedPath(file, protectedPaths),
-		IsRenamed:         strings.Contains(statusCode, "R"),
-		IsTest:            isTestPath(file),
-		LineCount:         int64(lineCount),
-		OriginalLineCount: int64(originalLineCount(cwd, file)),
-		SizeBytes:         sizeBytes,
+		Base:                      path.Base(file),
+		Dir:                       path.Dir(file),
+		Ext:                       strings.ToLower(path.Ext(file)),
+		File:                      file,
+		OldFile:                   status.OldFile,
+		Status:                    statusCode,
+		IsAdded:                   strings.Contains(statusCode, "A"),
+		IsBinary:                  binary,
+		IsDeleted:                 strings.Contains(statusCode, "D"),
+		IsGenerated:               isGeneratedPath(file),
+		IsModified:                strings.Contains(statusCode, "M"),
+		IsProtected:               isProtectedPath(file, protectedPaths),
+		IsRenamed:                 strings.Contains(statusCode, "R"),
+		IsTest:                    isTestPath(file),
+		LineCount:                 int64(lineCount),
+		OriginalLineCount:         int64(originalLineCount(cwd, file)),
+		NonBlankLineCount:         int64(nonBlankLineCount),
+		OriginalNonBlankLineCount: int64(originalNonBlankLineCount),
+		NonBlankLineDelta:         int64(nonBlankLineCount - originalNonBlankLineCount),
+		SizeBytes:                 sizeBytes,
+		NonBlankLineCountGrows: originalNonBlankLineCount >= 0 &&
+			nonBlankLineCount > originalNonBlankLineCount,
+		NonBlankLineCountShrinks: originalNonBlankLineCount >= 0 &&
+			nonBlankLineCount < originalNonBlankLineCount,
 	}
 }
 
@@ -1452,6 +1484,28 @@ func originalLineCount(cwd string, file string) int {
 	return countLines(output)
 }
 
+func currentNonBlankLineCount(cwd string, file string, binary bool) int {
+	if binary {
+		return -1
+	}
+	path := resolveFilePath(cwd, file)
+	content, err := os.ReadFile(path)
+	if err != nil || bytes.Contains(content, []byte{0}) {
+		return -1
+	}
+
+	return countNonBlankLines(string(content))
+}
+
+func originalNonBlankLineCount(cwd string, file string) int {
+	output, err := gitOutput(cwd, "show", "HEAD:"+file)
+	if err != nil {
+		return -1
+	}
+
+	return countNonBlankLines(output)
+}
+
 func countLines(text string) int {
 	trimmed := strings.TrimRight(text, "\n")
 	if trimmed == "" {
@@ -1459,6 +1513,21 @@ func countLines(text string) int {
 	}
 
 	return strings.Count(trimmed, "\n") + 1
+}
+
+func countNonBlankLines(text string) int {
+	count := 0
+	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		if !isBlankLine(line) {
+			count++
+		}
+	}
+
+	return count
+}
+
+func isBlankLine(text string) bool {
+	return strings.TrimSpace(text) == ""
 }
 
 func gitOutput(cwd string, args ...string) (string, error) {

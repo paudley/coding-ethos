@@ -90,6 +90,7 @@ func TOONFindingCell(value string) string {
 }
 
 func FormatLintResult(result lint.Result, format string) (string, error) {
+	lint.EnsureTraceID(&result)
 	switch format {
 	case FormatJSON:
 		return FormatLintResultJSON(result)
@@ -141,13 +142,19 @@ func FormatLintResultTOON(result lint.Result) string {
 		"format: toon",
 		"tool: " + TOONCell(lint.ResultTool(result)),
 		"status: " + TOONCell(status),
-		"title: " + TOONCell(lintResultTitle(result)),
-		"scope: " + TOONCell(result.Scope),
+	}
+	if result.TraceID != "" {
+		lines = append(lines, "trace_id: "+TOONCell(result.TraceID))
+	}
+	lines = append(
+		lines,
+		"title: "+TOONCell(lintResultTitle(result)),
+		"scope: "+TOONCell(result.Scope),
 		fmt.Sprintf(
 			"findings[%d]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 			len(findings),
 		),
-	}
+	)
 	for _, finding := range findings {
 		lines = append(lines, fmt.Sprintf(
 			"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s,%s",
@@ -246,6 +253,9 @@ func FormatLintResultHuman(result lint.Result) string {
 		"coding-ethos lint result: " + lint.ResultStatus(result),
 		"tool: " + lint.ResultTool(result),
 		"scope: " + result.Scope,
+	}
+	if result.TraceID != "" {
+		lines = append(lines, "trace_id: "+result.TraceID)
 	}
 	for _, finding := range findings {
 		location := finding.File

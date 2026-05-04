@@ -164,5 +164,83 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 		Findings:          record.Findings,
 		AgentRemediation:  record.AgentRemediation,
 		RemediationEvents: record.RemediationEvents,
+		HookEvent:         hookEventAnalytics(record),
+		HookDecisions:     hookDecisionAnalytics(record),
+		HookTargets:       hookTargetAnalytics(record),
 	}, nil
+}
+
+func hookEventAnalytics(record hooks.HookTrace) *HookEventAnalytics {
+	event := &HookEventAnalytics{
+		TraceID:           record.TraceID,
+		TrackingID:        record.TrackingID,
+		SessionID:         record.SessionID,
+		Provider:          record.Provider,
+		Event:             record.Event,
+		Tool:              record.Tool,
+		Status:            record.Status,
+		OperationKind:     record.OperationKind,
+		TargetKind:        record.TargetKind,
+		RiskCategory:      record.RiskCategory,
+		TargetSetSHA256:   record.TargetSetSHA256,
+		Cwd:               record.Cwd,
+		Source:            record.Source,
+		Matcher:           record.Matcher,
+		TranscriptPath:    record.TranscriptPath,
+		RuntimeMS:         record.RuntimeMS,
+		DecisionCount:     len(record.Decisions),
+		Blocked:           record.OutputShape.Blocked || record.Status == "blocked",
+		Rewritten:         record.OutputShape.HasUpdatedInput,
+		AdditionalContext: record.OutputShape.HasAdditionalContext,
+	}
+	if record.Command != nil {
+		event.CommandSHA256 = record.Command.SHA256
+		event.CommandShapeSHA256 = record.Command.ShapeSHA256
+	}
+
+	return event
+}
+
+func hookDecisionAnalytics(record hooks.HookTrace) []HookDecisionAnalytics {
+	if len(record.Decisions) == 0 {
+		return nil
+	}
+	decisions := make([]HookDecisionAnalytics, 0, len(record.Decisions))
+	for index, decision := range record.Decisions {
+		decisions = append(decisions, HookDecisionAnalytics{
+			TraceID:         record.TraceID,
+			TrackingID:      record.TrackingID,
+			PolicyID:        decision.PolicyID,
+			Decision:        decision.Decision,
+			Severity:        decision.Severity,
+			SkillID:         decision.SkillID,
+			Implementation:  decision.Implementation,
+			Message:         decision.Message,
+			MessageHash:     decision.MessageHash,
+			Suggestion:      decision.Suggestion,
+			SuggestionHash:  decision.SuggestionHash,
+			PrincipleIDs:    append([]string(nil), decision.PrincipleIDs...),
+			DiagnosticCount: decision.DiagnosticCount,
+			DecisionOrdinal: index,
+		})
+	}
+
+	return decisions
+}
+
+func hookTargetAnalytics(record hooks.HookTrace) []HookTargetAnalytics {
+	if len(record.Files) == 0 {
+		return nil
+	}
+	targets := make([]HookTargetAnalytics, 0, len(record.Files))
+	for index, target := range record.Files {
+		targets = append(targets, HookTargetAnalytics{
+			TraceID:     record.TraceID,
+			TargetPath:  target,
+			TargetKind:  record.TargetKind,
+			TargetIndex: index,
+		})
+	}
+
+	return targets
 }

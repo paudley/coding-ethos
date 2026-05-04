@@ -206,6 +206,17 @@ type codeIntelIndexStatusInput struct {
 	ModelID    string `json:"model_id,omitempty"`
 }
 
+type codeIntelHookUsageInput struct {
+	Provider      string `json:"provider,omitempty"`
+	Status        string `json:"status,omitempty"`
+	PolicyID      string `json:"policy_id,omitempty"`
+	SkillID       string `json:"skill_id,omitempty"`
+	OperationKind string `json:"operation_kind,omitempty"`
+	TargetKind    string `json:"target_kind,omitempty"`
+	RiskCategory  string `json:"risk_category,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+}
+
 type codeIntelIndexCodeInput struct {
 	Paths []string `json:"paths,omitempty"`
 }
@@ -223,6 +234,14 @@ type codeIntelCodeChunksInput struct {
 	Language   string `json:"language,omitempty"`
 	SymbolKind string `json:"symbol_kind,omitempty"`
 	SymbolName string `json:"symbol_name,omitempty"`
+	SymbolPath string `json:"symbol_path,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
+type codeIntelCodeContextInput struct {
+	ChunkID    string `json:"chunk_id,omitempty"`
+	Path       string `json:"path,omitempty"`
+	SymbolPath string `json:"symbol_path,omitempty"`
 	Limit      int    `json:"limit,omitempty"`
 }
 
@@ -566,6 +585,28 @@ func toolDefinitions() []map[string]any {
 			},
 		),
 		toolDefinition(
+			"code_intel_hook_usage",
+			"Summarize normalized hook usage by provider, operation, target, risk, status, policy, and skill.",
+			map[string]any{
+				"provider":       map[string]any{"type": "string"},
+				"status":         map[string]any{"type": "string"},
+				"policy_id":      map[string]any{"type": "string"},
+				"skill_id":       map[string]any{"type": "string"},
+				"operation_kind": map[string]any{"type": "string"},
+				"target_kind":    map[string]any{"type": "string"},
+				"risk_category":  map[string]any{"type": "string"},
+				"limit":          map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "identify recurring hook friction, bypass attempts, rewrites, and remediation opportunities",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
 			"code_intel_index_code",
 			"Parse repository code with Tree-sitter and persist symbol-level code chunks for search and embedding.",
 			map[string]any{
@@ -607,6 +648,7 @@ func toolDefinitions() []map[string]any {
 				"language":    map[string]any{"type": "string"},
 				"symbol_kind": map[string]any{"type": "string"},
 				"symbol_name": map[string]any{"type": "string"},
+				"symbol_path": map[string]any{"type": "string"},
 				"limit":       map[string]any{"type": "integer"},
 			},
 			nil,
@@ -615,6 +657,24 @@ func toolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     true,
 				PreferredUse:   "retrieve focused symbol-level code context before reading whole files",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"code_intel_code_context",
+			"Expand a Tree-sitter code chunk into parent, children, graph edges, and linked SARIF/CEL findings.",
+			map[string]any{
+				"chunk_id":    map[string]any{"type": "string"},
+				"path":        map[string]any{"type": "string"},
+				"symbol_path": map[string]any{"type": "string"},
+				"limit":       map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "expand a known symbol into related context before broad code reads",
 				TracePersisted: false,
 			},
 		),

@@ -68,6 +68,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 				Text:    line[1:],
 				Line:    newLine,
 				NewLine: newLine,
+				IsBlank: isBlankLine(line[1:]),
 			}
 			hunks[currentHunk].AddedLines = append(hunks[currentHunk].AddedLines, added)
 			newLine++
@@ -77,6 +78,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 				Text:    line[1:],
 				Line:    oldLine,
 				OldLine: oldLine,
+				IsBlank: isBlankLine(line[1:]),
 			}
 			hunks[currentHunk].RemovedLines = append(
 				hunks[currentHunk].RemovedLines,

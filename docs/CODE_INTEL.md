@@ -95,11 +95,20 @@ schema version, trace ID, normalized findings, remediation summaries, and
 remediation events. This makes code intelligence an ingestion problem instead
 of a second policy interpretation layer.
 
-CEL inputs also expose code-intelligence fields under
-`source` and `finding`: language, symbol name, symbol kind, chunk hash, line
-counts, changed lines, prior failures, and recent remediations. These fields
-let principles move toward source-aware policy without changing the CEL
-contract.
+CEL inputs also expose code-intelligence fields under `source`, `finding`, and
+edit/diff facts. `proposed_symbol_changes` compares current and proposed
+Tree-sitter symbols for Edit/Write/MultiEdit actions, while `changed_symbols`
+maps staged diff hunks to the affected Tree-sitter symbols. Both surfaces report
+the file, language, node kind, symbol kind/name/path, line spans, content
+hashes, action (`added`, `deleted`, or `modified`), and line-count delta. This
+lets principle-owned CEL block growth of oversized functions, classes/types,
+shell functions, and YAML config entries while still allowing refactors that
+shrink large files.
+
+Tree-sitter-backed policy diagnostics carry AST metadata into SARIF result
+properties and partial fingerprints. Code scanning can therefore track the
+symbol-level finding across unrelated line movement instead of treating every
+nearby edit as a new whole-file violation.
 
 The first storage layer now lives in `go/internal/codeintel`. It creates the
 canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and
@@ -108,19 +117,38 @@ builds an FTS5 search table over policy IDs, skill IDs, paths, messages, and
 remediation text. It intentionally treats vectors as a later derived index:
 the SQLite store is the auditable source of truth.
 
+Hook traces are also normalized into analytics tables. Each hook event stores
+provider, tool, status, tracking ID, operation kind, target kind, risk category,
+command and target-set fingerprints, runtime, rewrite state, and target paths.
+Each decision stores policy/skill IDs, implementation, severity, principle IDs,
+diagnostic counts, and message/suggestion variant hashes. This lets later
+analysis answer which hook checks create the most friction, which advice text
+reduces repeat violations, which operations are rewritten versus blocked, and
+which targets are frequently involved without reparsing raw provider payloads.
+Operator review rows can label a hook event as a correct block, false positive,
+unclear message, over-broad policy, or missing allow-list case.
+
 ## Canonical SQLite Store
 
 The first implementation should create `.coding-ethos/code-intel.db` with
 tables for:
 
 - repositories and worktrees
-- indexed files with content hashes
+- indexed files with content hashes, parser metadata, index timestamps, and
+  stale-result metadata
 - AST chunks with stable chunk IDs, byte ranges, line ranges, language, symbol
-  type, symbol name, and parent symbol
-- graph edges for imports, definitions, references, calls, inheritance, tests,
+  type, symbol name, parent symbol, and parent chunk
+- graph edges for containment, imports, references, calls, inheritance, tests,
   and documentation links when language support allows
+- AST-to-finding links that connect SARIF/CEL findings back to the exact
+  indexed chunk where symbol identity is available
 - hook traces, lint traces, SARIF result references, policy decisions, and
   remediation payloads
+- hook usage analytics: event intent, target category, risk category,
+  fingerprints, decision rows, message variants, runtime, rewrites, and target
+  paths
+- hook review metadata for false positives, unclear messages, over-broad
+  policies, missing allow-list cases, and confirmed correct blocks
 - remediation attempts and outcomes keyed by stable remediation ID
 - embedding metadata: model, provider, dimension, input kind, chunk hash, and
   vector backend row ID
@@ -133,6 +161,9 @@ Initial command surface:
 ```bash
 bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel stats
+bin/coding-ethos-run code-intel hook-usage --risk-category bypass
+bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --disposition false_positive
+bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel index-code pkg scripts config.yml
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
@@ -249,11 +280,15 @@ changes.
 
 The active implementation indexes Go, Python, JavaScript/TypeScript, shell,
 and YAML through Tree-sitter. Each indexed file is written to the canonical
-SQLite store with a content hash and line count. Each extracted symbol or
-configuration entry is written as a stable `code_chunk`, mirrored into FTS5,
-and exposed as an embedding candidate with `record_kind=code_chunk`. Markdown
-remains planned until the selected parser exposes a maintained Go binding or
-the project adds a first-class adapter for its split parser layout.
+SQLite store with a content hash, line count, parser metadata, and index
+timestamp. Each extracted symbol or configuration entry is written as a stable
+`code_chunk`, mirrored into FTS5, and exposed as an embedding candidate with
+`record_kind=code_chunk`. Parent chunk IDs, containment edges, import edges,
+and same-file reference edges are stored in SQLite. SARIF/CEL results that
+carry AST identity are linked back to matching chunks through
+`ast_finding_links`. Markdown remains planned until the selected parser exposes
+a maintained Go binding or the project adds a first-class adapter for its split
+parser layout.
 
 ## Embedding Strategy
 
@@ -295,14 +330,16 @@ Add tools only after the store has a stable schema:
 - `code_intel_index_code`: refresh Tree-sitter code chunks for selected paths.
 - `code_intel_code_chunks`: return focused symbol/config chunks by path,
   language, symbol kind, or symbol name.
+- `code_intel_code_context`: expand a selected chunk into parent, children,
+  graph edges, and linked SARIF/CEL findings.
 - `code_intel_embedding_candidates`: return compact SARIF/remediation/code
   chunk records for an approved embedding producer.
-- `code_intel_context`: expand a selected chunk into parent, children,
-  references, related tests, and recent policy failures.
 - `remediation_history_search`: find prior remediations by policy, skill,
   command shape, file path, semantic similarity, and outcome.
 - `code_intel_index_status`: report freshness, changed files, embedding model,
   backend, and failed indexing tasks.
+- `code_intel_hook_usage`: summarize normalized hook usage by provider,
+  operation, target, risk, status, policy, and skill.
 - `code_intel_explain_result`: explain why a search result was returned,
   including FTS score, vector score, filters, and policy links.
 
@@ -314,6 +351,12 @@ All tools are advisory. They must not bypass hooks or edit files.
 
 - [x] Create the SQLite store and migrations.
 - [x] Persist hook/lint trace summaries into normalized tables.
+- [x] Persist hook usage analytics for allow/block/rewrite events with
+  operation kind, target kind, risk category, tracking ID, runtime, command and
+  target fingerprints, decision rows, and target paths.
+- [x] Persist hook review metadata so operators can mark correct blocks, false
+  positives, unclear messages, over-broad policies, and missing allow-list
+  cases without changing raw traces.
 - [x] Index `agent_remediation` payloads and remediation events.
 - [x] Add FTS5 over policies, skills, messages, advice, commands, files, and tool
   output summaries.
@@ -332,6 +375,8 @@ Acceptance criteria:
 - [x] Search can answer "show SARIF results for this policy/skill/file."
 - [x] Search can answer "which remediation suggestions were fixed, repeated,
   or attempted again."
+- [x] Search can answer "which hook operation/target/risk groups are blocked,
+  rewritten, or repeatedly advised."
 - [x] SQLite can identify records that are ready for embedding and the
   repo-local sqlite-vec backend can search stored embeddings.
 
@@ -342,8 +387,12 @@ Acceptance criteria:
 - [x] Store AST chunks, symbol metadata, byte ranges, line ranges, content
   hashes, and search text in SQLite.
 - [x] Expose AST chunks through FTS, embedding candidates, CLI, and MCP.
+- [x] Expose AST-backed proposed symbol changes to CEL edit preflight.
+- [x] Store parser metadata, parent chunk IDs, graph edges, and AST finding
+  links in SQLite.
+- [x] Expose focused code context with parent, children, graph edges, and
+  linked findings through CLI and MCP.
 - [ ] Add Markdown once the parser binding strategy is explicit.
-- [ ] Store basic graph edges in SQLite.
 - [ ] Add incremental reindex by file hash and chunk hash.
 
 Acceptance criteria:

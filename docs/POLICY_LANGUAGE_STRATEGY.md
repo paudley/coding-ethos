@@ -402,6 +402,15 @@ Core inputs:
   write/edit operations. These compare the current file contents with the
   proposed replacement content, allowing policy to block growth while allowing
   reductions of already-large files.
+- `proposed_symbol_changes`: hook-time Tree-sitter symbol deltas for proposed
+  write/edit operations. These include symbol identity, action, line spans,
+  content hashes, and line-count deltas so CEL can enforce size policy at the
+  function/class/type/shell-function/YAML-entry level instead of only at the
+  whole-file level.
+- `changed_symbols`: staged-diff Tree-sitter symbol deltas. These map reviewed
+  diff hunks to affected functions, classes, types, shell functions, and YAML
+  entries so pre-commit, CI, SARIF, and hooks can enforce the same
+  symbol-level policy surface.
 - `config`: configured repo override candidates and candidates present in the
   current file set.
 - `tool_capabilities`: managed tool capability declarations from
@@ -474,9 +483,9 @@ The first migrated built-ins prove the intended pattern:
   CEL over normalized Git facts.
 - `filesystem.large_files` is CEL over staged `file_changes` facts and is
   owned by the `security-by-design` principle.
-- `filesystem.line_limits` is CEL over staged `file_changes` and hook-time
-  `proposed_file_changes` facts, and is owned by the `solid-is-law`
-  principle.
+- `filesystem.line_limits` is CEL over staged `file_changes`, hook-time
+  `proposed_file_changes`, and AST-backed `proposed_symbol_changes` facts, and
+  is owned by the `solid-is-law` principle.
 - `repo.required_ignores` is CEL over Go-collected ignore facts and is owned by
   `radical-visibility`.
 - `shell.dangerous_command`, `shell.background_git`, `shell.github_admin`,

@@ -701,6 +701,16 @@ Acceptance criteria:
   `.coding-ethos/code-intel.db` that ingests retained hook/lint traces,
   normalized findings, remediation payloads, and remediation events.
 - [x] Add repeated-failure and FTS search commands over imported trace data.
+- [x] Add hook-usage intelligence storage for allow/block/rewrite events:
+  tracking ID, session/provider/tool, operation kind, target kind, risk
+  category, command shape fingerprint, target-set fingerprint, runtime,
+  decision rows, message/suggestion variant hashes, and target paths.
+- [x] Expose hook-usage summaries through `code-intel hook-usage` and
+  `code_intel_hook_usage` so agents and maintainers can identify recurring
+  friction, bypass attempts, rewrite patterns, and policy hotspots.
+- [x] Add hook review storage and CLI surfaces so admin/operator review can
+  mark correct blocks, false positives, unclear messages, over-broad policies,
+  and missing allow-list cases.
 - [x] Track whether remediation hints reduce repeated failures in
   `.coding-ethos` traces by linking follow-up attempts to outcomes.
 - [x] Extend local-first remediation storage to SARIF trace references with
@@ -726,7 +736,12 @@ Acceptance criteria:
   before broad file reads.
 - [ ] Add Markdown AST chunking after choosing a maintained Go binding or a
   first-class adapter for the markdown parser layout.
-- [ ] Add AST graph edges for imports, calls, references, tests, and docs.
+- [x] Add initial AST graph edges for containment, imports, and same-file
+  references.
+- [ ] Extend AST graph edges to language-specific calls, inheritance,
+  test-to-source links, and documentation links.
+- [x] Store parser metadata, index timestamp, and content hashes beside
+  AST-derived code files/chunks.
 - [ ] Add incremental reindex/embedding invalidation by file hash and chunk
   hash.
 - [ ] Use Tree-sitter facts to augment CEL source inputs with symbol kind,
@@ -736,22 +751,27 @@ Acceptance criteria:
   `symbol.name_matches(...)`, `source.enclosing_symbol(...)`,
   `source.changed_symbol_count()`, `source.has_nearby_test()`,
   `source.has_doc_chunk()`, and `source.symbol_too_large(...)`.
-- [ ] Move more size/complexity policy into principle-owned CEL by evaluating
+- [x] Move more size/complexity policy into principle-owned CEL by evaluating
   Tree-sitter chunks instead of whole files: block growing oversized functions,
   classes/types, shell functions, and YAML config entries while allowing
   shrinking edits.
-- [ ] Add AST-aware edit preflight for agents: classify whether an Edit/Write
-  grows, shrinks, deletes, renames, or rewrites an existing symbol before CEL
+- [x] Add AST-aware edit preflight for agents: classify whether an Edit/Write
+  grows, shrinks, adds, deletes, or rewrites an existing symbol before CEL
   decides whether the action is allowed.
-- [ ] Add AST-aware diff facts that map changed lines to affected symbols so
+- [ ] Extend AST-aware edit preflight to classify symbol renames explicitly
+  instead of representing them as delete/add pairs.
+- [x] Add AST-aware diff facts that map changed lines to affected symbols so
   policy can target the edited function/config entry rather than the entire
   file.
 - [ ] Add SARIF locations for Tree-sitter-backed findings using exact symbol
-  start/end lines, byte offsets, and region snippets; include AST node kind and
-  symbol identity in SARIF properties.
-- [ ] Add SARIF partial fingerprints based on path, language, symbol path,
+  start/end lines, byte offsets, and region snippets.
+- [x] Include AST node kind and symbol identity in SARIF properties for
+  Tree-sitter-backed CEL findings.
+- [x] Add SARIF partial fingerprints based on path, language, symbol path,
   node kind, rule/policy ID, and content hash so findings remain stable across
   unrelated line movement.
+- [x] Link SARIF/CEL findings that carry AST identity back to matching
+  `code_chunk` rows through `ast_finding_links`.
 - [ ] Emit SARIF code flows/thread flows for policy findings that involve
   relationships, such as unsafe call chains, missing tests for changed symbols,
   imports from forbidden layers, or generated-config edits from source files.
@@ -772,12 +792,17 @@ Acceptance criteria:
 - [ ] Add AST-aware guidance packets for agents that include focused code
   chunks, related prior SARIF/remediation history, and symbol-specific rerun
   instructions before suggesting broad file reads.
-- [ ] Add MCP context expansion for code chunks: parent, children, siblings,
-  references, callers/callees where known, related tests, related docs, recent
-  policy failures, and prior fixes for the same symbol.
-- [ ] Add staleness and trust metadata to every AST-derived CEL/SARIF result:
-  indexed content hash, current content hash, index timestamp, parser grammar
-  version, and stale-result refusal behavior.
+- [x] Add CLI context expansion for code chunks with parent, children,
+  graph edges, and linked SARIF/CEL findings.
+- [x] Add MCP context expansion for code chunks with parent, children,
+  graph edges, and linked SARIF/CEL findings.
+- [ ] Extend context expansion with siblings, language-specific callers/callees,
+  related tests, related docs, recent policy failures, and prior fixes for the
+  same symbol.
+- [x] Add first staleness and trust metadata to indexed AST files: indexed
+  content hash, index timestamp, and parser metadata.
+- [ ] Add stale-result refusal behavior and current-content validation for
+  every AST-derived CEL/SARIF result.
 - [ ] Add regression tests proving Tree-sitter facts are identical across hook,
   lint, CLI, MCP, and CI/SARIF paths so AST-backed policy cannot drift between
   enforcement surfaces.
@@ -795,3 +820,6 @@ Acceptance criteria:
 - [x] The local code-intelligence database can answer which SARIF/CEL findings
   repeated, which remediation guidance was issued, and whether later attempts
   fixed or repeated the finding.
+- [x] The local code-intelligence database can answer which hook
+  provider/tool/operation/target/risk groups are blocked, rewritten, or
+  repeatedly advised.

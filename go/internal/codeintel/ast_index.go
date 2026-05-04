@@ -5,21 +5,14 @@ package codeintel
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
-	"unsafe"
 
-	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
-	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
-	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
 type ASTIndexer struct {
@@ -93,7 +86,7 @@ func (indexer ASTIndexer) indexFile(
 	path string,
 	summary *CodeIndexSummary,
 ) error {
-	language, parserLanguage, ok := languageForPath(path)
+	language, ok := astfacts.LanguageForPath(path)
 	if !ok {
 		return nil
 	}
@@ -106,27 +99,25 @@ func (indexer ASTIndexer) indexFile(
 		return fmt.Errorf("relativize indexed file %q: %w", path, err)
 	}
 	relativePath = filepath.ToSlash(relativePath)
-	parser := tree_sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage)); err != nil {
-		return fmt.Errorf("set tree-sitter language for %q: %w", path, err)
+	parsed, _, err := astfacts.Analyze(relativePath, contents)
+	if err != nil {
+		return err
 	}
-	tree := parser.Parse(contents, nil)
-	if tree == nil {
-		return fmt.Errorf("parse %q with tree-sitter returned nil tree", path)
-	}
-	defer tree.Close()
 
-	chunks := collectCodeChunks(relativePath, language, contents, tree.RootNode())
+	chunks := codeChunksFromSymbols(parsed.Symbols)
+	chunks = attachParentChunks(chunks)
+	edges := codeEdgesFromParsedFile(relativePath, parsed, chunks)
 	file := CodeFile{
-		Path:         relativePath,
-		Language:     language,
-		ContentHash:  contentHash(contents),
-		SizeBytes:    len(contents),
-		LineCount:    lineCount(contents),
-		IndexedAtUTC: time.Now().UTC().Format(time.RFC3339),
+		Path:          relativePath,
+		Language:      language,
+		ContentHash:   parsed.ContentHash,
+		ParserName:    "tree-sitter",
+		ParserVersion: "go-tree-sitter",
+		SizeBytes:     len(contents),
+		LineCount:     parsed.LineCount,
+		IndexedAtUTC:  time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := indexer.store.ReplaceCodeFileChunks(ctx, file, chunks); err != nil {
+	if err := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges); err != nil {
 		return err
 	}
 	summary.FilesIndexed++
@@ -135,161 +126,164 @@ func (indexer ASTIndexer) indexFile(
 	return nil
 }
 
-func collectCodeChunks(
-	path string,
-	language string,
-	contents []byte,
-	root *tree_sitter.Node,
-) []CodeChunk {
-	chunks := []CodeChunk{}
-	var visit func(node *tree_sitter.Node, parents []string)
-	visit = func(node *tree_sitter.Node, parents []string) {
-		if node == nil {
-			return
-		}
-		if symbolKind, ok := symbolKindForNode(language, node.Kind()); ok {
-			name := symbolName(node, contents)
-			symbolPath := strings.Join(append(append([]string{}, parents...), name), ".")
-			chunk := codeChunkFromNode(path, language, contents, node, symbolKind, name, symbolPath)
-			chunks = append(chunks, chunk)
-			if name != "" {
-				parents = append(parents, name)
-			}
-		}
-		for index := uint(0); index < node.NamedChildCount(); index++ {
-			visit(node.NamedChild(index), parents)
-		}
+func codeChunksFromSymbols(symbols []astfacts.Symbol) []CodeChunk {
+	chunks := make([]CodeChunk, 0, len(symbols))
+	for _, symbol := range symbols {
+		chunks = append(chunks, codeChunkFromSymbol(symbol))
 	}
-	visit(root, nil)
 
 	return chunks
 }
 
-func codeChunkFromNode(
-	path string,
-	language string,
-	contents []byte,
-	node *tree_sitter.Node,
-	symbolKind string,
-	name string,
-	symbolPath string,
-) CodeChunk {
-	startByte := boundedUintToInt(node.StartByte(), len(contents))
-	endByte := boundedUintToInt(node.EndByte(), len(contents))
-	if endByte < startByte {
-		endByte = startByte
-	}
-	start := node.StartPosition()
-	end := node.EndPosition()
-	maxRow := max(lineCount(contents)-1, 0)
-	raw := string(contents[startByte:endByte])
+func codeChunkFromSymbol(symbol astfacts.Symbol) CodeChunk {
 	search := strings.Join(compactStrings([]string{
-		path,
-		language,
-		node.Kind(),
-		symbolKind,
-		name,
-		symbolPath,
-		raw,
+		symbol.Path,
+		symbol.Language,
+		symbol.NodeKind,
+		symbol.SymbolKind,
+		symbol.SymbolName,
+		symbol.SymbolPath,
+		symbol.RawText,
 	}), "\n")
 
+	parentSymbolPath := parentSymbolPath(symbol.SymbolPath)
 	return CodeChunk{
-		ID:          stableID("code-chunk", path, language, node.Kind(), symbolPath, contentHash([]byte(raw))),
-		Path:        path,
-		Language:    language,
-		NodeKind:    node.Kind(),
-		SymbolKind:  symbolKind,
-		SymbolName:  name,
-		SymbolPath:  symbolPath,
-		StartByte:   startByte,
-		EndByte:     endByte,
-		StartLine:   boundedUintToInt(start.Row, maxRow) + 1,
-		EndLine:     boundedUintToInt(end.Row, maxRow) + 1,
-		ContentHash: contentHash([]byte(raw)),
-		SearchText:  search,
-		RawText:     raw,
+		ID:               stableID("code-chunk", symbol.Path, symbol.Language, symbol.NodeKind, symbol.SymbolPath, symbol.ContentHash),
+		Path:             symbol.Path,
+		Language:         symbol.Language,
+		NodeKind:         symbol.NodeKind,
+		SymbolKind:       symbol.SymbolKind,
+		SymbolName:       symbol.SymbolName,
+		SymbolPath:       symbol.SymbolPath,
+		ParentSymbolPath: parentSymbolPath,
+		StartByte:        symbol.StartByte,
+		EndByte:          symbol.EndByte,
+		StartLine:        symbol.StartLine,
+		EndLine:          symbol.EndLine,
+		ContentHash:      symbol.ContentHash,
+		SearchText:       search,
+		RawText:          symbol.RawText,
 	}
 }
 
-func boundedUintToInt(value uint, maxValue int) int {
-	if value > uint(maxValue) {
-		return maxValue
+func attachParentChunks(chunks []CodeChunk) []CodeChunk {
+	bySymbolPath := map[string]CodeChunk{}
+	for _, chunk := range chunks {
+		if chunk.SymbolPath != "" {
+			bySymbolPath[chunk.SymbolPath] = chunk
+		}
+	}
+	for index := range chunks {
+		if parent, ok := bySymbolPath[chunks[index].ParentSymbolPath]; ok {
+			chunks[index].ParentChunkID = parent.ID
+		}
 	}
 
-	return int(value)
+	return chunks
 }
 
-func languageForPath(path string) (string, unsafe.Pointer, bool) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return "go", tree_sitter_go.Language(), true
-	case ".py":
-		return "python", tree_sitter_python.Language(), true
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx":
-		return "javascript", tree_sitter_javascript.Language(), true
-	case ".sh", ".bash", ".zsh":
-		return "shell", tree_sitter_bash.Language(), true
-	case ".yaml", ".yml":
-		return "yaml", tree_sitter_yaml.Language(), true
-	default:
-		return "", nil, false
-	}
-}
-
-func symbolKindForNode(language string, nodeKind string) (string, bool) {
-	switch language {
-	case "go":
-		switch nodeKind {
-		case "function_declaration", "method_declaration":
-			return "function", true
-		case "type_declaration":
-			return "type", true
-		}
-	case "python":
-		switch nodeKind {
-		case "function_definition":
-			return "function", true
-		case "class_definition":
-			return "class", true
-		}
-	case "javascript":
-		switch nodeKind {
-		case "function_declaration", "method_definition", "generator_function_declaration":
-			return "function", true
-		case "class_declaration":
-			return "class", true
-		}
-	case "shell":
-		if nodeKind == "function_definition" {
-			return "function", true
-		}
-	case "yaml":
-		if nodeKind == "block_mapping_pair" {
-			return "config_entry", true
-		}
-	}
-
-	return "", false
-}
-
-func symbolName(node *tree_sitter.Node, contents []byte) string {
-	name := node.ChildByFieldName("name")
-	if name == nil {
-		name = node.ChildByFieldName("key")
-	}
-	if name == nil {
+func parentSymbolPath(symbolPath string) string {
+	parts := strings.Split(symbolPath, ".")
+	if len(parts) <= 1 {
 		return ""
 	}
 
-	return cleanSymbolName(name.Utf8Text(contents))
+	return strings.Join(parts[:len(parts)-1], ".")
 }
 
-func cleanSymbolName(value string) string {
-	value = strings.TrimSpace(value)
-	value = strings.Trim(value, `"'`)
-	value = strings.TrimSuffix(value, ":")
+func codeEdgesFromParsedFile(path string, parsed astfacts.File, chunks []CodeChunk) []CodeEdge {
+	edges := []CodeEdge{}
+	for _, chunk := range chunks {
+		if chunk.ParentChunkID != "" {
+			edges = append(edges, CodeEdge{
+				ID:               stableID("code-edge", "contains", path, chunk.ParentChunkID, chunk.ID),
+				Kind:             "contains",
+				Path:             path,
+				SourceChunkID:    chunk.ParentChunkID,
+				TargetPath:       path,
+				TargetChunkID:    chunk.ID,
+				TargetSymbolPath: chunk.SymbolPath,
+				TargetName:       chunk.SymbolName,
+			})
+		}
+	}
+	edges = append(edges, importEdges(path, parsed.Imports)...)
+	edges = append(edges, referenceEdges(path, parsed.Symbols, chunks)...)
 
-	return strings.TrimSpace(value)
+	return dedupeCodeEdges(edges)
+}
+
+func importEdges(path string, imports []astfacts.Import) []CodeEdge {
+	edges := make([]CodeEdge, 0, len(imports))
+	for _, imported := range imports {
+		if imported.Target == "" {
+			continue
+		}
+		edges = append(edges, CodeEdge{
+			ID:         stableID("code-edge", "imports", path, imported.Target, imported.RawText),
+			Kind:       "imports",
+			Path:       path,
+			TargetPath: imported.Target,
+			TargetName: imported.Target,
+			RawText:    imported.RawText,
+		})
+	}
+
+	return edges
+}
+
+func referenceEdges(path string, symbols []astfacts.Symbol, chunks []CodeChunk) []CodeEdge {
+	chunksBySymbolPath := map[string]CodeChunk{}
+	targetsByName := map[string][]CodeChunk{}
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+		if chunk.SymbolName != "" {
+			targetsByName[chunk.SymbolName] = append(targetsByName[chunk.SymbolName], chunk)
+		}
+	}
+	edges := []CodeEdge{}
+	for _, symbol := range symbols {
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+		for _, name := range symbol.ReferencedNames {
+			for _, target := range targetsByName[name] {
+				if source.ID == target.ID {
+					continue
+				}
+				edges = append(edges, CodeEdge{
+					ID:               stableID("code-edge", "references", path, source.ID, target.ID),
+					Kind:             "references",
+					Path:             path,
+					SourceChunkID:    source.ID,
+					TargetPath:       path,
+					TargetChunkID:    target.ID,
+					TargetSymbolPath: target.SymbolPath,
+					TargetName:       target.SymbolName,
+				})
+			}
+		}
+	}
+
+	return edges
+}
+
+func dedupeCodeEdges(edges []CodeEdge) []CodeEdge {
+	seen := map[string]bool{}
+	deduped := []CodeEdge{}
+	for _, edge := range edges {
+		if edge.ID == "" || seen[edge.ID] {
+			continue
+		}
+		seen[edge.ID] = true
+		deduped = append(deduped, edge)
+	}
+	slices.SortFunc(deduped, func(left CodeEdge, right CodeEdge) int {
+		return strings.Compare(left.ID, right.ID)
+	})
+
+	return deduped
 }
 
 func shouldSkipDir(name string) bool {
@@ -299,24 +293,4 @@ func shouldSkipDir(name string) bool {
 	default:
 		return false
 	}
-}
-
-func contentHash(contents []byte) string {
-	hash := sha256.Sum256(contents)
-
-	return hex.EncodeToString(hash[:])
-}
-
-func lineCount(contents []byte) int {
-	if len(contents) == 0 {
-		return 0
-	}
-	count := 1
-	for _, value := range contents {
-		if value == '\n' {
-			count++
-		}
-	}
-
-	return count
 }

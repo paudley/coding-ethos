@@ -19,10 +19,12 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 
 	runDir := t.TempDir()
 	result := Result{
-		Event:    "PreToolUse",
-		Provider: "codex",
-		Status:   "blocked",
-		Tool:     "Bash",
+		Event:      "PreToolUse",
+		Provider:   "codex",
+		RuntimeMS:  17,
+		Status:     "blocked",
+		Tool:       "Bash",
+		TrackingID: "deny-test-1",
 		Decisions: []policy.Decision{{
 			PolicyID:     "custom.no_subprocess_git",
 			Decision:     "block",
@@ -40,6 +42,7 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 
 	err := WriteAgentHookTrace(runDir, Event{
 		HookEventName: "PreToolUse",
+		SessionID:     "session-1",
 		Source:        "codex",
 		ToolName:      "Bash",
 		Cwd:           "/repo",
@@ -69,6 +72,17 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 	if trace["schema_version"] != float64(1) {
 		t.Fatalf("missing schema version: %#v", trace)
 	}
+	if trace["tracking_id"] != "deny-test-1" ||
+		trace["session_id"] != "session-1" ||
+		trace["operation_kind"] != "git_status" ||
+		trace["target_kind"] != "repo_state" ||
+		trace["risk_category"] != "bypass" ||
+		trace["runtime_ms"] != float64(17) {
+		t.Fatalf("missing hook analytics fields: %#v", trace)
+	}
+	if hash, ok := trace["target_set_sha256"].(string); !ok || len(hash) != 64 {
+		t.Fatalf("missing target set hash: %#v", trace)
+	}
 	if traceID, ok := trace["trace_id"].(string); !ok || !strings.HasPrefix(traceID, "hook-") {
 		t.Fatalf("missing trace id: %#v", trace)
 	}
@@ -83,6 +97,9 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 	if sha, ok := command["sha256"].(string); !ok || len(sha) != 64 {
 		t.Fatalf("missing command hash: %#v", command)
 	}
+	if sha, ok := command["shape_sha256"].(string); !ok || len(sha) != 64 {
+		t.Fatalf("missing command shape hash: %#v", command)
+	}
 
 	decisions, ok := trace["decisions"].([]any)
 	if !ok || len(decisions) != 1 {
@@ -96,6 +113,12 @@ func TestWriteAgentHookTraceRecordsSanitizedEventAndDecisions(t *testing.T) {
 		decision["skill_id"] != "safe-git-workflow" ||
 		decision["suggestion"] != "Use the protected Git wrapper." {
 		t.Fatalf("missing decision parity metadata: %#v", decision)
+	}
+	if hash, ok := decision["message_hash"].(string); !ok || len(hash) != 64 {
+		t.Fatalf("missing message variant hash: %#v", decision)
+	}
+	if hash, ok := decision["suggestion_hash"].(string); !ok || len(hash) != 64 {
+		t.Fatalf("missing suggestion variant hash: %#v", decision)
 	}
 	if _, ok := decision["principle_ids"].([]any); !ok {
 		t.Fatalf("missing principle ids: %#v", decision)

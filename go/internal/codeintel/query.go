@@ -85,6 +85,7 @@ type CodeChunkQuery struct {
 	Language   string
 	SymbolKind string
 	SymbolName string
+	SymbolPath string
 	Limit      int
 }
 
@@ -252,7 +253,10 @@ func (store *Store) SARIFResults(
 			result.sarif_result_id, result.rule_id, result.level,
 			result.message, result.fingerprint, result.finding_id,
 			result.remediation_id, result.policy_id, result.skill_id,
-			result.principle_ids, result.path, result.start_line,
+			result.principle_ids, result.path, COALESCE(result.ast_language, ''),
+			COALESCE(result.ast_node_kind, ''), COALESCE(result.ast_symbol_kind, ''),
+			COALESCE(result.ast_symbol_name, ''), COALESCE(result.ast_symbol_path, ''),
+			COALESCE(result.linked_chunk_id, ''), result.start_line,
 			result.start_column, result.evaluator_kind, result.cel_policy_id,
 			result.cel_expression, result.policy_source, result.search_text
 		FROM sarif_results AS result
@@ -575,13 +579,14 @@ func (store *Store) CodeChunks(
 		ctx,
 		`SELECT
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
+			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte, start_line,
 			end_line, content_hash, search_text, raw_text
 		FROM code_chunks
 		WHERE (? = '' OR path = ?)
 			AND (? = '' OR language = ?)
 			AND (? = '' OR symbol_kind = ?)
 			AND (? = '' OR symbol_name = ?)
+			AND (? = '' OR symbol_path = ?)
 		ORDER BY path, start_line, start_byte
 		LIMIT ?`,
 		query.Path,
@@ -592,6 +597,8 @@ func (store *Store) CodeChunks(
 		query.SymbolKind,
 		query.SymbolName,
 		query.SymbolName,
+		query.SymbolPath,
+		query.SymbolPath,
 		limit,
 	)
 	if err != nil {
@@ -610,6 +617,7 @@ func (store *Store) CodeChunks(
 			&result.SymbolKind,
 			&result.SymbolName,
 			&result.SymbolPath,
+			&result.ParentSymbolPath,
 			&result.ParentChunkID,
 			&result.StartByte,
 			&result.EndByte,
@@ -671,6 +679,12 @@ func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 			&result.SkillID,
 			&principleIDs,
 			&result.Path,
+			&result.ASTLanguage,
+			&result.ASTNodeKind,
+			&result.ASTSymbolKind,
+			&result.ASTSymbolName,
+			&result.ASTSymbolPath,
+			&result.LinkedChunkID,
 			&result.StartLine,
 			&result.StartColumn,
 			&result.EvaluatorKind,

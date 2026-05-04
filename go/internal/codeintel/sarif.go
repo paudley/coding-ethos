@@ -81,6 +81,11 @@ type sarifInputProperties struct {
 		Path     string `json:"path,omitempty"`
 	} `json:"agent_remediation,omitempty"`
 	Advice         string   `json:"advice,omitempty"`
+	ASTLanguage    string   `json:"ast_language,omitempty"`
+	ASTNodeKind    string   `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind  string   `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName  string   `json:"ast_symbol_name,omitempty"`
+	ASTSymbolPath  string   `json:"ast_symbol_path,omitempty"`
 	CELExpression  string   `json:"cel_expression,omitempty"`
 	Code           string   `json:"code,omitempty"`
 	EthosIDs       []string `json:"ethos_ids,omitempty"`
@@ -212,6 +217,11 @@ func sarifResultReference(
 		SkillID:       strings.TrimSpace(properties.SkillID),
 		PrincipleIDs:  compactStrings(properties.EthosIDs),
 		Path:          strings.TrimSpace(location.URI),
+		ASTLanguage:   strings.TrimSpace(properties.ASTLanguage),
+		ASTNodeKind:   strings.TrimSpace(properties.ASTNodeKind),
+		ASTSymbolKind: strings.TrimSpace(properties.ASTSymbolKind),
+		ASTSymbolName: strings.TrimSpace(properties.ASTSymbolName),
+		ASTSymbolPath: strings.TrimSpace(properties.ASTSymbolPath),
 		EvaluatorKind: strings.TrimSpace(properties.Implementation),
 		CELExpression: strings.TrimSpace(properties.CELExpression),
 		PolicySource:  strings.TrimSpace(properties.PolicySource),
@@ -276,6 +286,11 @@ func mergeSARIFInputProperties(
 ) sarifInputProperties {
 	merged := rule
 	merged.Advice = firstNonEmpty(result.Advice, merged.Advice)
+	merged.ASTLanguage = firstNonEmpty(result.ASTLanguage, merged.ASTLanguage)
+	merged.ASTNodeKind = firstNonEmpty(result.ASTNodeKind, merged.ASTNodeKind)
+	merged.ASTSymbolKind = firstNonEmpty(result.ASTSymbolKind, merged.ASTSymbolKind)
+	merged.ASTSymbolName = firstNonEmpty(result.ASTSymbolName, merged.ASTSymbolName)
+	merged.ASTSymbolPath = firstNonEmpty(result.ASTSymbolPath, merged.ASTSymbolPath)
 	merged.CELExpression = firstNonEmpty(result.CELExpression, merged.CELExpression)
 	merged.Code = firstNonEmpty(result.Code, merged.Code)
 	merged.Implementation = firstNonEmpty(result.Implementation, merged.Implementation)

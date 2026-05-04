@@ -26,7 +26,8 @@ func EvaluateCELExpression(
 		return nil, err
 	}
 
-	output, _, err := program.Eval(celActivation(context))
+	activation := celActivation(context)
+	output, _, err := program.Eval(activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
 	}
@@ -64,6 +65,7 @@ func EvaluateCELExpression(
 		policyDef,
 		decisionMode,
 		source,
+		activation,
 	)}
 
 	return []policy.Decision{decision}, nil
@@ -74,6 +76,7 @@ func celDiagnostic(
 	policyDef policy.Policy,
 	decisionMode string,
 	source string,
+	activation map[string]any,
 ) diagnostics.Diagnostic {
 	diagnostic := diagnostics.Diagnostic{
 		Tool:         "policy",
@@ -104,8 +107,164 @@ func celDiagnostic(
 	if len(context.Files) == 1 {
 		diagnostic.File = context.Files[0]
 	}
+	if policyDef.ID == "filesystem.line_limits" {
+		applyLineLimitFileDiagnostic(&diagnostic, activation)
+
+		return diagnostic
+	}
+	if symbol, ok := firstGrowingProposedSymbol(activation); ok {
+		diagnostic.File = symbol.File
+		diagnostic.Line = int(symbol.ProposedStartLine)
+		diagnostic.Metadata["ast_action"] = symbol.Action
+		diagnostic.Metadata["ast_change_source"] = "proposed"
+		diagnostic.Metadata["ast_language"] = symbol.Language
+		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
+		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
+		diagnostic.Metadata["ast_node_kind"] = symbol.NodeKind
+		diagnostic.Metadata["ast_symbol_kind"] = symbol.SymbolKind
+		diagnostic.Metadata["ast_symbol_name"] = symbol.SymbolName
+		diagnostic.Metadata["ast_symbol_path"] = symbol.SymbolPath
+		diagnostic.Metadata["current_line_count"] = symbol.CurrentLineCount
+		diagnostic.Metadata["current_nonblank_line_count"] = symbol.CurrentNonBlankLineCount
+		diagnostic.Metadata["proposed_line_count"] = symbol.ProposedLineCount
+		diagnostic.Metadata["proposed_nonblank_line_count"] = symbol.ProposedNonBlankLineCount
+	} else if symbol, ok := firstGrowingChangedSymbol(activation); ok {
+		diagnostic.File = symbol.File
+		diagnostic.Line = int(symbol.CurrentStartLine)
+		diagnostic.Metadata["ast_action"] = symbol.Action
+		diagnostic.Metadata["ast_change_source"] = "staged"
+		diagnostic.Metadata["ast_language"] = symbol.Language
+		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
+		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
+		diagnostic.Metadata["ast_node_kind"] = symbol.NodeKind
+		diagnostic.Metadata["ast_symbol_kind"] = symbol.SymbolKind
+		diagnostic.Metadata["ast_symbol_name"] = symbol.SymbolName
+		diagnostic.Metadata["ast_symbol_path"] = symbol.SymbolPath
+		diagnostic.Metadata["current_line_count"] = symbol.CurrentLineCount
+		diagnostic.Metadata["current_nonblank_line_count"] = symbol.CurrentNonBlankLineCount
+		diagnostic.Metadata["original_line_count"] = symbol.OriginalLineCount
+		diagnostic.Metadata["original_nonblank_line_count"] = symbol.OriginalNonBlankLineCount
+	}
 
 	return diagnostic
+}
+
+func applyLineLimitFileDiagnostic(diagnostic *diagnostics.Diagnostic, activation map[string]any) {
+	if file, ok := firstLineLimitProposedFile(activation); ok {
+		diagnostic.File = file.File
+		diagnostic.Metadata["line_limit_change_source"] = "proposed"
+		diagnostic.Metadata["current_line_count"] = file.CurrentLineCount
+		diagnostic.Metadata["current_nonblank_line_count"] = file.CurrentNonBlankLineCount
+		diagnostic.Metadata["proposed_line_count"] = file.ProposedLineCount
+		diagnostic.Metadata["proposed_nonblank_line_count"] = file.ProposedNonBlankLineCount
+
+		return
+	}
+	if file, ok := firstLineLimitChangedFile(activation); ok {
+		diagnostic.File = file.File
+		diagnostic.Metadata["line_limit_change_source"] = "staged"
+		diagnostic.Metadata["current_line_count"] = file.LineCount
+		diagnostic.Metadata["current_nonblank_line_count"] = file.NonBlankLineCount
+		diagnostic.Metadata["original_line_count"] = file.OriginalLineCount
+		diagnostic.Metadata["original_nonblank_line_count"] = file.OriginalNonBlankLineCount
+	}
+}
+
+func firstLineLimitProposedFile(
+	activation map[string]any,
+) (celexpr.ProposedFileChangeInput, bool) {
+	files, ok := activation["proposed_file_changes"].([]celexpr.ProposedFileChangeInput)
+	if !ok {
+		return celexpr.ProposedFileChangeInput{}, false
+	}
+	for _, file := range files {
+		if proposedFileMatchesLineLimit(file) {
+			return file, true
+		}
+	}
+
+	return celexpr.ProposedFileChangeInput{}, false
+}
+
+func proposedFileMatchesLineLimit(file celexpr.ProposedFileChangeInput) bool {
+	return !file.IsBinary &&
+		!file.IsTest &&
+		file.LineCountGrows &&
+		file.NonBlankLineCountGrows &&
+		fileExceedsLineLimit(file.Ext, file.File, file.ProposedLineCount)
+}
+
+func firstLineLimitChangedFile(
+	activation map[string]any,
+) (celexpr.FileChangeInput, bool) {
+	proposedFiles, ok := activation["proposed_file_changes"].([]celexpr.ProposedFileChangeInput)
+	if ok && len(proposedFiles) != 0 {
+		return celexpr.FileChangeInput{}, false
+	}
+	files, ok := activation["file_changes"].([]celexpr.FileChangeInput)
+	if !ok {
+		return celexpr.FileChangeInput{}, false
+	}
+	for _, file := range files {
+		if changedFileMatchesLineLimit(file) {
+			return file, true
+		}
+	}
+
+	return celexpr.FileChangeInput{}, false
+}
+
+func changedFileMatchesLineLimit(file celexpr.FileChangeInput) bool {
+	return !file.IsBinary &&
+		!file.IsTest &&
+		fileExceedsLineLimit(file.Ext, file.File, file.LineCount) &&
+		(file.OriginalLineCount < 0 || file.LineCount > file.OriginalLineCount) &&
+		(file.OriginalNonBlankLineCount < 0 || file.NonBlankLineCountGrows)
+}
+
+func fileExceedsLineLimit(ext string, file string, lineCount int64) bool {
+	switch {
+	case ext == ".py":
+		return lineCount > 1000
+	case ext == ".go":
+		return lineCount > 2000
+	case ext == ".sh" || ext == ".bash" || strings.HasPrefix(file, "scripts/"):
+		return lineCount > 500
+	default:
+		return false
+	}
+}
+
+func firstGrowingProposedSymbol(
+	activation map[string]any,
+) (celexpr.ProposedSymbolChangeInput, bool) {
+	symbols, ok := activation["proposed_symbol_changes"].([]celexpr.ProposedSymbolChangeInput)
+	if !ok {
+		return celexpr.ProposedSymbolChangeInput{}, false
+	}
+	for _, symbol := range symbols {
+		if symbol.LineCountGrows {
+			return symbol, true
+		}
+	}
+
+	return celexpr.ProposedSymbolChangeInput{}, false
+}
+
+func firstGrowingChangedSymbol(
+	activation map[string]any,
+) (celexpr.ChangedSymbolInput, bool) {
+	symbols, ok := activation["changed_symbols"].([]celexpr.ChangedSymbolInput)
+	if !ok {
+		return celexpr.ChangedSymbolInput{}, false
+	}
+	for _, symbol := range symbols {
+		if symbol.LineCountGrows {
+			return symbol, true
+		}
+	}
+
+	return celexpr.ChangedSymbolInput{}, false
 }
 
 func policySource(policyDef policy.Policy) string {
