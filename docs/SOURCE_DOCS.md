@@ -34,9 +34,9 @@
   services.
 - `docs/AGENT_REMEDIATION.md`: normalized `agent_remediation` payload shape,
   MCP remediation flow, provider examples, and trace-summary contract.
-- `docs/CODE_INTEL.md`: roadmap for Tree-sitter AST code intelligence,
-  SQLite canonical storage, LanceDB vector search, sqlite-vec fallback,
-  hybrid retrieval, and MCP search tools.
+- `docs/CODE_INTEL.md`: Tree-sitter AST code intelligence plan and current
+  implementation, SQLite canonical storage, sqlite-vec vector search, hybrid
+  retrieval, and MCP search tools.
 - `docs/POLICY_LANGUAGE_STRATEGY.md`: CEL policy-language strategy, typed
   inputs, helper functions, and the path from Go evaluators into
   principle-owned policy-as-code.

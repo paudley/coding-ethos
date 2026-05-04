@@ -34,10 +34,10 @@ consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 consuming-repo overrides.
 
 `make install-hooks` installs `.git/hooks/pre-commit`, `pre-push`, and
-`commit-msg` as symlinks to `bin/coding-ethos-run`. The runner infers the hook
-name from `argv[0]`, repairs missing checkout-local runtime artifacts with
-`make build`, and dispatches to the built hook binary under
-`coding-ethos/bin/`.
+`commit-msg` as small executable scripts that call
+`bin/coding-ethos-run git-hook <hook>` with the original Git arguments. The
+runner repairs missing checkout-local runtime artifacts with `make build` and
+dispatches to the built hook binary under `coding-ethos/bin/`.
 
 `make cutover-install` installs the Git hook entrypoints, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -138,7 +138,8 @@ The hook runtime is built into the checked-out `coding-ethos` repository:
 
 The old `.git/coding-ethos-hooks/` runtime cache is legacy. The current runtime
 model is documented in `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer
-hooks are runner symlinks; all repo-discovery, build-repair, and dispatch
+hooks are generated runner entrypoint scripts; all repo-discovery, build-repair,
+and dispatch
 behavior lives in compiled Go while binaries and compiled runtime files are
 built and executed from the checked-out `coding-ethos` repository.
 

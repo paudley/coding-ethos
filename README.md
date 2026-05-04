@@ -264,6 +264,16 @@ The first tools are intentionally narrow and auditable:
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` item into
   policy, principle, skill, and retry guidance.
+- `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
+  with FTS and sqlite-vec vector search.
+- `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
+  embedding coverage.
+- `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
+  JavaScript/TypeScript, shell, and YAML paths.
+- `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
+  file reads.
+- `code_intel_embedding_candidates`: return compact traceable records for an
+  approved embedding producer.
 - `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
 
 Hook, provider-native block responses, lint, SARIF, and trace outputs also
@@ -796,9 +806,11 @@ repo-local Git hook entrypoints that resolve directly to the compiled
 
 ### Git Hooks
 
-Installed Git hook entrypoints are symlinks to `bin/coding-ethos-run`. The
-runner infers the hook name from `argv[0]`, repairs missing checkout-local
-runtime artifacts with `make build`, and dispatches to the built hook binary.
+Installed Git hook entrypoints are small executable scripts that call
+`bin/coding-ethos-run git-hook <hook>` or
+`bin/coding-ethos-run lfs-hook <hook>` with the original Git arguments. The
+runner repairs missing checkout-local runtime artifacts with `make build` and
+dispatches to the built hook binary.
 Policy selection and validation remain inside the `coding-ethos` checkout.
 
 Run Git hooks:

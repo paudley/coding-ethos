@@ -42,6 +42,16 @@ skill metadata used by those enforcement paths.
 - `skill_lookup`: return the generated skill playbook for a skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` payload into
   policy, principle, skill, action-context, and retry guidance.
+- `code_intel_search`: query stored SARIF, remediation, and embedding evidence
+  with FTS plus sqlite-vec when a query vector is supplied.
+- `code_intel_index_status`: report code-intelligence store freshness,
+  embedding metadata counts, and sqlite-vec row counts.
+- `code_intel_index_code`: parse selected repository paths with Tree-sitter
+  and persist symbol/config chunks in the repo-local code-intelligence store.
+- `code_intel_code_chunks`: return focused Tree-sitter chunks by path,
+  language, symbol kind, or symbol name before agents read whole files.
+- `code_intel_embedding_candidates`: return compact SARIF/remediation/code
+  chunk records ready for an approved embedding producer.
 - `skill_recommend`: rank generated skills for a task, command, path, or
   diagnostic.
 

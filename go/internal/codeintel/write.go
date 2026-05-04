@@ -5,13 +5,21 @@ package codeintel
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+)
+
+const (
+	unknownCELPolicyID   = ""
+	unknownCELExpression = ""
+	unknownPolicySource  = ""
 )
 
 func deleteTraceRows(ctx context.Context, tx *sql.Tx, traceID string) error {
@@ -66,8 +74,10 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 			ctx,
 			`INSERT OR REPLACE INTO findings(
 				finding_id, rule_id, tool, code, message, severity, policy_id,
-				skill_id, path, language, symbol_kind, symbol_name, search_text, raw_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				skill_id, evaluator_kind, cel_policy_id, cel_expression,
+				policy_source, path, language, symbol_kind, symbol_name,
+				search_text, raw_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			finding.ID,
 			finding.RuleID,
 			finding.Tool,
@@ -76,6 +86,10 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 			finding.Severity,
 			finding.PolicyID,
 			finding.SkillID,
+			finding.EvaluatorKind,
+			unknownCELPolicyID,
+			unknownCELExpression,
+			unknownPolicySource,
 			finding.SourceSpan.Path,
 			finding.SourceSpan.Language,
 			finding.SourceSpan.SymbolKind,
@@ -115,6 +129,269 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 	}
 
 	return nil
+}
+
+func insertSARIFRun(ctx context.Context, tx *sql.Tx, run SARIFRun) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM code_intel_fts WHERE kind = 'sarif_result' AND trace_id = ?",
+		run.ID,
+	); err != nil {
+		return fmt.Errorf("delete existing SARIF FTS rows: %w", err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM sarif_runs WHERE sarif_run_id = ?",
+		run.ID,
+	); err != nil {
+		return fmt.Errorf("delete existing SARIF run %q: %w", run.ID, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO sarif_runs(
+			sarif_run_id, trace_id, source_path, category, tool_name,
+			automation_id, run_guid, baseline_guid, produced_at_utc, raw_json
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID,
+		run.TraceID,
+		run.SourcePath,
+		run.Category,
+		run.ToolName,
+		run.AutomationID,
+		run.RunGUID,
+		run.BaselineGUID,
+		run.ProducedAtUTC,
+		string(run.Raw),
+	); err != nil {
+		return fmt.Errorf("insert SARIF run %q: %w", run.ID, err)
+	}
+	for index, result := range run.Results {
+		if err := insertSARIFResult(ctx, tx, run.ID, index, result); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func insertSARIFResult(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	index int,
+	result SARIFResultReference,
+) error {
+	raw, err := json.Marshal(result.Raw)
+	if err != nil {
+		return fmt.Errorf("marshal SARIF result %q: %w", result.ID, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO sarif_results(
+			sarif_result_id, sarif_run_id, ordinal, rule_id, level, message,
+			fingerprint, finding_id, remediation_id, policy_id, skill_id,
+			principle_ids, path, start_line, start_column, evaluator_kind,
+			cel_policy_id, cel_expression, policy_source, search_text, raw_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		result.ID,
+		runID,
+		index,
+		result.RuleID,
+		result.Level,
+		result.Message,
+		result.Fingerprint,
+		result.FindingID,
+		result.RemediationID,
+		result.PolicyID,
+		result.SkillID,
+		strings.Join(result.PrincipleIDs, ","),
+		result.Path,
+		result.StartLine,
+		result.StartColumn,
+		result.EvaluatorKind,
+		result.CELPolicyID,
+		result.CELExpression,
+		result.PolicySource,
+		result.SearchText,
+		string(raw),
+	); err != nil {
+		return fmt.Errorf("insert SARIF result %q: %w", result.ID, err)
+	}
+	return insertFTS(ctx, tx, ftsRow{
+		Kind:       "sarif_result",
+		RecordID:   result.ID,
+		TraceID:    runID,
+		PolicyID:   result.PolicyID,
+		SkillID:    result.SkillID,
+		Path:       result.Path,
+		Message:    result.Message,
+		SearchText: result.SearchText,
+	})
+}
+
+func insertRemediationOutcome(ctx context.Context, tx *sql.Tx, outcome RemediationOutcome) error {
+	raw, err := json.Marshal(outcome)
+	if err != nil {
+		return fmt.Errorf("marshal remediation outcome %q: %w", outcome.ID, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO remediation_outcomes(
+			outcome_id, remediation_id, finding_id, source_trace_id,
+			followup_trace_id, policy_id, skill_id, file, path, provider,
+			tool, outcome, attempt_ordinal, recorded_at_utc, search_text, raw_json
+		) VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		outcome.ID,
+		outcome.RemediationID,
+		outcome.FindingID,
+		outcome.SourceTraceID,
+		outcome.FollowupTraceID,
+		outcome.PolicyID,
+		outcome.SkillID,
+		outcome.File,
+		outcome.Path,
+		outcome.Provider,
+		outcome.Tool,
+		outcome.Outcome,
+		outcome.AttemptOrdinal,
+		outcome.RecordedAtUTC,
+		outcome.SearchText,
+		string(raw),
+	); err != nil {
+		return fmt.Errorf("insert remediation outcome %q: %w", outcome.ID, err)
+	}
+	return insertFTS(ctx, tx, ftsRow{
+		Kind:       "remediation_outcome",
+		RecordID:   outcome.ID,
+		TraceID:    firstNonEmpty(outcome.FollowupTraceID, outcome.SourceTraceID),
+		PolicyID:   outcome.PolicyID,
+		SkillID:    outcome.SkillID,
+		Path:       firstNonEmpty(outcome.File, outcome.Path),
+		Message:    outcome.Outcome,
+		SearchText: outcome.SearchText,
+	})
+}
+
+func insertEmbeddingRecord(ctx context.Context, tx *sql.Tx, record EmbeddingRecord) error {
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("marshal embedding record %q: %w", record.ID, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO embedding_records(
+			embedding_id, backend, collection, model_id, dimension, input_kind,
+			record_kind, record_id, trace_id, policy_id, skill_id, path,
+			content_hash, provider, backend_row_id, created_at_utc, raw_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		record.ID,
+		record.Backend,
+		record.Collection,
+		record.ModelID,
+		record.Dimension,
+		record.InputKind,
+		record.RecordKind,
+		record.RecordID,
+		record.TraceID,
+		record.PolicyID,
+		record.SkillID,
+		record.Path,
+		record.ContentHash,
+		record.Provider,
+		record.BackendRowID,
+		record.CreatedAtUTC,
+		string(raw),
+	); err != nil {
+		return fmt.Errorf("insert embedding record %q: %w", record.ID, err)
+	}
+	return insertFTS(ctx, tx, ftsRow{
+		Kind:       "embedding_record",
+		RecordID:   record.ID,
+		TraceID:    record.TraceID,
+		PolicyID:   record.PolicyID,
+		SkillID:    record.SkillID,
+		Path:       record.Path,
+		Message:    record.RecordKind,
+		SearchText: embeddingSearchText(record),
+	})
+}
+
+func replaceCodeFileChunks(
+	ctx context.Context,
+	tx *sql.Tx,
+	file CodeFile,
+	chunks []CodeChunk,
+) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM code_intel_fts WHERE kind = 'code_chunk' AND path = ?",
+		file.Path,
+	); err != nil {
+		return fmt.Errorf("delete code chunk FTS rows for %q: %w", file.Path, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM code_chunks WHERE path = ?",
+		file.Path,
+	); err != nil {
+		return fmt.Errorf("delete code chunks for %q: %w", file.Path, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO code_files(
+			path, language, content_hash, size_bytes, line_count, indexed_at_utc
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		file.Path,
+		file.Language,
+		file.ContentHash,
+		file.SizeBytes,
+		file.LineCount,
+		file.IndexedAtUTC,
+	); err != nil {
+		return fmt.Errorf("upsert code file %q: %w", file.Path, err)
+	}
+	for _, chunk := range chunks {
+		if err := insertCodeChunk(ctx, tx, chunk); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func insertCodeChunk(ctx context.Context, tx *sql.Tx, chunk CodeChunk) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO code_chunks(
+			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
+			symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
+			end_line, content_hash, search_text, raw_text
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chunk.ID,
+		chunk.Path,
+		chunk.Language,
+		chunk.NodeKind,
+		chunk.SymbolKind,
+		chunk.SymbolName,
+		chunk.SymbolPath,
+		chunk.ParentChunkID,
+		chunk.StartByte,
+		chunk.EndByte,
+		chunk.StartLine,
+		chunk.EndLine,
+		chunk.ContentHash,
+		chunk.SearchText,
+		chunk.RawText,
+	); err != nil {
+		return fmt.Errorf("insert code chunk %q: %w", chunk.ID, err)
+	}
+	return insertFTS(ctx, tx, ftsRow{
+		Kind:       "code_chunk",
+		RecordID:   chunk.ID,
+		Path:       chunk.Path,
+		Message:    strings.Join(compactStrings([]string{chunk.SymbolKind, chunk.SymbolName}), " "),
+		SearchText: chunk.SearchText,
+	})
 }
 
 func insertRemediations(ctx context.Context, tx *sql.Tx, trace Trace) error {
@@ -280,6 +557,17 @@ func compactStrings(values []string) []string {
 	}
 
 	return result
+}
+
+func stableID(prefix string, values ...string) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(prefix))
+	for _, value := range values {
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(strings.TrimSpace(value)))
+	}
+
+	return prefix + ":" + hex.EncodeToString(hash.Sum(nil))[:24]
 }
 
 var _ evidence.TraceIngestor = TraceIngester{}

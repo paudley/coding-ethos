@@ -6,6 +6,7 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,16 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 		result, err = server.lookupSkill(call.Arguments)
 	case "remediation_explain":
 		result, err = server.explainRemediation(call.Arguments)
+	case "code_intel_search":
+		result, err = server.codeIntelSearch(call.Arguments)
+	case "code_intel_index_status":
+		result, err = server.codeIntelIndexStatus(call.Arguments)
+	case "code_intel_index_code":
+		result, err = server.codeIntelIndexCode(call.Arguments)
+	case "code_intel_embedding_candidates":
+		result, err = server.codeIntelEmbeddingCandidates(call.Arguments)
+	case "code_intel_code_chunks":
+		result, err = server.codeIntelCodeChunks(call.Arguments)
 	case "skill_recommend":
 		result, err = server.recommendSkills(call.Arguments)
 	default:
@@ -664,6 +675,10 @@ func (server Server) recommendSkills(args json.RawMessage) (any, error) {
 	return map[string]any{
 		"recommendations": server.skillRecommendations(input, limit),
 	}, nil
+}
+
+func argsContext() context.Context {
+	return context.Background()
 }
 
 func policyCheckResponse(scope string, result hooks.Result) map[string]any {

@@ -23,12 +23,18 @@ type Store struct {
 }
 
 type Stats struct {
-	Traces            int `json:"traces"`
-	Findings          int `json:"findings"`
-	Remediations      int `json:"remediations"`
-	RemediationEvents int `json:"remediation_events"`
-	FtsRows           int `json:"fts_rows"`
-	SchemaVersion     int `json:"schema_version"`
+	Traces              int `json:"traces"`
+	Findings            int `json:"findings"`
+	Files               int `json:"files"`
+	CodeChunks          int `json:"code_chunks"`
+	Remediations        int `json:"remediations"`
+	RemediationEvents   int `json:"remediation_events"`
+	SARIFRuns           int `json:"sarif_runs"`
+	SARIFResults        int `json:"sarif_results"`
+	RemediationOutcomes int `json:"remediation_outcomes"`
+	EmbeddingRecords    int `json:"embedding_records"`
+	FtsRows             int `json:"fts_rows"`
+	SchemaVersion       int `json:"schema_version"`
 }
 
 func DefaultDBPath(root string) string {
@@ -81,6 +87,13 @@ func (store *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate code intelligence store: %w", err)
 		}
 	}
+	for table, columns := range migrationColumns {
+		for _, column := range columns {
+			if err := store.ensureColumn(ctx, table, column); err != nil {
+				return err
+			}
+		}
+	}
 	_, err := store.db.ExecContext(
 		ctx,
 		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
@@ -93,14 +106,68 @@ func (store *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
+func (store *Store) ensureColumn(ctx context.Context, table string, column migrationColumn) error {
+	exists, err := store.columnExists(ctx, table, column.Name)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	if _, err := store.db.ExecContext(
+		ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column.Name, column.Type),
+	); err != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column.Name, err)
+	}
+
+	return nil
+}
+
+func (store *Store) columnExists(ctx context.Context, table string, name string) (bool, error) {
+	rows, err := store.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			columnName string
+			columnType string
+			notNull    int
+			defaultVal any
+			pk         int
+		)
+		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return false, fmt.Errorf("scan %s column info: %w", table, err)
+		}
+		if columnName == name {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate %s column info: %w", table, err)
+	}
+
+	return false, nil
+}
+
 func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	stats := Stats{SchemaVersion: schemaVersion}
 	counts := map[string]*int{
-		"traces":             &stats.Traces,
-		"findings":           &stats.Findings,
-		"remediations":       &stats.Remediations,
-		"remediation_events": &stats.RemediationEvents,
-		"code_intel_fts":     &stats.FtsRows,
+		"traces":               &stats.Traces,
+		"findings":             &stats.Findings,
+		"code_files":           &stats.Files,
+		"code_chunks":          &stats.CodeChunks,
+		"remediations":         &stats.Remediations,
+		"remediation_events":   &stats.RemediationEvents,
+		"sarif_runs":           &stats.SARIFRuns,
+		"sarif_results":        &stats.SARIFResults,
+		"remediation_outcomes": &stats.RemediationOutcomes,
+		"embedding_records":    &stats.EmbeddingRecords,
+		"code_intel_fts":       &stats.FtsRows,
 	}
 	for table, target := range counts {
 		row := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table)

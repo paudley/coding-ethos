@@ -1,0 +1,38 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package codeintel
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/evidence"
+)
+
+type VectorBackendConfig struct {
+	Backend string
+	URI     string
+}
+
+func NewVectorIndex(
+	ctx context.Context,
+	config VectorBackendConfig,
+) (evidence.VectorIndex, error) {
+	backend := strings.TrimSpace(config.Backend)
+	if backend == "" {
+		backend = "sqlite-vec"
+	}
+	switch backend {
+	case "sqlite", "sqlite-vec":
+		return NewSQLiteVectorIndex(ctx, config.URI)
+	default:
+		return nil, fmt.Errorf("unsupported vector backend %q", config.Backend)
+	}
+}
+
+func DefaultVectorPath(root string) string {
+	return filepath.Join(root, ".coding-ethos", "code-intel-vectors.db")
+}

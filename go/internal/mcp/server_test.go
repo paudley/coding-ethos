@@ -26,8 +26,8 @@ func TestServerListsTools(t *testing.T) {
 
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 13 {
-		t.Fatalf("tool count = %d, want 13: %#v", len(tools), tools)
+	if len(tools) != 18 {
+		t.Fatalf("tool count = %d, want 18: %#v", len(tools), tools)
 	}
 	for _, expected := range []string{
 		"policy_check_command",
@@ -42,6 +42,11 @@ func TestServerListsTools(t *testing.T) {
 		"policy_explain",
 		"skill_lookup",
 		"remediation_explain",
+		"code_intel_search",
+		"code_intel_index_status",
+		"code_intel_index_code",
+		"code_intel_embedding_candidates",
+		"code_intel_code_chunks",
 		"skill_recommend",
 	} {
 		if !strings.Contains(output, expected) {
@@ -906,6 +911,48 @@ func TestServerSkillRecommendUsesBroadAgentWorkSignals(t *testing.T) {
 	if !strings.Contains(output, "agent-operating-discipline") ||
 		!strings.Contains(output, "State assumptions") {
 		t.Fatalf("missing agent operating discipline recommendation:\n%s", output)
+	}
+}
+
+func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte(`def build_message(name):
+    return f"hello {name}"
+`), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	runtime := mcp.Runtime{ConsumerRoot: root}
+	indexOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":31,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_index_code",
+			"arguments":{"paths":["pkg"]}
+		}
+	}`), runtime)
+	if !strings.Contains(indexOutput, `"files_indexed":1`) ||
+		!strings.Contains(indexOutput, `"code_intel_index_code"`) {
+		t.Fatalf("index output missing summary:\n%s", indexOutput)
+	}
+	chunksOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":32,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_code_chunks",
+			"arguments":{"path":"pkg/app.py","symbol_name":"build_message"}
+		}
+	}`), runtime)
+	if !strings.Contains(chunksOutput, `"code_intel_code_chunks"`) ||
+		!strings.Contains(chunksOutput, `"build_message"`) {
+		t.Fatalf("code chunks output missing indexed symbol:\n%s", chunksOutput)
 	}
 }
 
