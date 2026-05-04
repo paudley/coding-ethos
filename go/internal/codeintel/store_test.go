@@ -560,8 +560,16 @@ func TestASTIndexerStoresParentEdgesAndContext(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(`def helper():
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(`import os
+
+def helper():
     return "ok"
+
+def a():
+    return "a"
+
+def load_a_config():
+    return "config"
 
 class Worker:
     def run(self):
@@ -602,6 +610,31 @@ class Worker:
 	if len(context.OutgoingEdges) == 0 {
 		t.Fatalf("context outgoing edges = %#v", context.OutgoingEdges)
 	}
+	if !codeEdgesContainTarget(context.OutgoingEdges, "helper") {
+		t.Fatalf("context outgoing edges missing helper reference: %#v", context.OutgoingEdges)
+	}
+	configContext, err := store.CodeContext(ctx, CodeContextQuery{
+		Path:       "pkg/worker.py",
+		SymbolPath: "load_a_config",
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatalf("config code context: %v", err)
+	}
+	if codeEdgesContainTarget(configContext.OutgoingEdges, "a") {
+		t.Fatalf("substring reference edge should not be emitted: %#v", configContext.OutgoingEdges)
+	}
+	var importCount int
+	if err := store.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM code_edges
+		WHERE edge_kind = 'imports' AND path = 'pkg/worker.py' AND target_name = 'os'`,
+	).Scan(&importCount); err != nil {
+		t.Fatalf("query import edges: %v", err)
+	}
+	if importCount != 1 {
+		t.Fatalf("import edge count = %d, want 1", importCount)
+	}
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
@@ -610,6 +643,16 @@ class Worker:
 	if stats.CodeEdges == 0 {
 		t.Fatalf("stats = %#v", stats)
 	}
+}
+
+func codeEdgesContainTarget(edges []CodeEdge, target string) bool {
+	for _, edge := range edges {
+		if edge.TargetName == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestStoreQueriesMigratedCodeChunksWithNullParentSymbolPath(t *testing.T) {

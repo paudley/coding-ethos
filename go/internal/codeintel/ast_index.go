@@ -106,7 +106,7 @@ func (indexer ASTIndexer) indexFile(
 
 	chunks := codeChunksFromSymbols(parsed.Symbols)
 	chunks = attachParentChunks(chunks)
-	edges := codeEdgesFromChunks(relativePath, parsed.Language, string(contents), chunks)
+	edges := codeEdgesFromParsedFile(relativePath, parsed, chunks)
 	file := CodeFile{
 		Path:          relativePath,
 		Language:      language,
@@ -191,7 +191,7 @@ func parentSymbolPath(symbolPath string) string {
 	return strings.Join(parts[:len(parts)-1], ".")
 }
 
-func codeEdgesFromChunks(path string, language string, contents string, chunks []CodeChunk) []CodeEdge {
+func codeEdgesFromParsedFile(path string, parsed astfacts.File, chunks []CodeChunk) []CodeEdge {
 	edges := []CodeEdge{}
 	for _, chunk := range chunks {
 		if chunk.ParentChunkID != "" {
@@ -207,84 +207,62 @@ func codeEdgesFromChunks(path string, language string, contents string, chunks [
 			})
 		}
 	}
-	edges = append(edges, importEdges(path, language, contents)...)
-	edges = append(edges, referenceEdges(path, chunks)...)
+	edges = append(edges, importEdges(path, parsed.Imports)...)
+	edges = append(edges, referenceEdges(path, parsed.Symbols, chunks)...)
 
 	return dedupeCodeEdges(edges)
 }
 
-func importEdges(path string, language string, contents string) []CodeEdge {
-	edges := []CodeEdge{}
-	for _, line := range strings.Split(contents, "\n") {
-		target := importTarget(language, strings.TrimSpace(line))
-		if target == "" {
+func importEdges(path string, imports []astfacts.Import) []CodeEdge {
+	edges := make([]CodeEdge, 0, len(imports))
+	for _, imported := range imports {
+		if imported.Target == "" {
 			continue
 		}
 		edges = append(edges, CodeEdge{
-			ID:         stableID("code-edge", "imports", path, target, line),
+			ID:         stableID("code-edge", "imports", path, imported.Target, imported.RawText),
 			Kind:       "imports",
 			Path:       path,
-			TargetPath: target,
-			TargetName: target,
-			RawText:    strings.TrimSpace(line),
+			TargetPath: imported.Target,
+			TargetName: imported.Target,
+			RawText:    imported.RawText,
 		})
 	}
 
 	return edges
 }
 
-func importTarget(language string, line string) string {
-	switch language {
-	case "go":
-		if strings.HasPrefix(line, `"`) {
-			return strings.Trim(line, `"`)
-		}
-		if strings.HasPrefix(line, "import ") {
-			return strings.Trim(strings.TrimPrefix(line, "import "), `"()`)
-		}
-	case "python":
-		if strings.HasPrefix(line, "import ") {
-			fields := strings.Fields(strings.TrimPrefix(line, "import "))
-			if len(fields) > 0 {
-				return strings.TrimSuffix(fields[0], ",")
-			}
-		}
-		if strings.HasPrefix(line, "from ") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				return fields[1]
-			}
-		}
-	case "javascript":
-		if strings.HasPrefix(line, "import ") && strings.Contains(line, " from ") {
-			_, target, _ := strings.Cut(line, " from ")
-			return strings.Trim(target, `"' ;`)
+func referenceEdges(path string, symbols []astfacts.Symbol, chunks []CodeChunk) []CodeEdge {
+	chunksBySymbolPath := map[string]CodeChunk{}
+	targetsByName := map[string][]CodeChunk{}
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+		if chunk.SymbolName != "" {
+			targetsByName[chunk.SymbolName] = append(targetsByName[chunk.SymbolName], chunk)
 		}
 	}
-
-	return ""
-}
-
-func referenceEdges(path string, chunks []CodeChunk) []CodeEdge {
 	edges := []CodeEdge{}
-	for _, source := range chunks {
-		for _, target := range chunks {
-			if source.ID == target.ID || target.SymbolName == "" {
-				continue
+	for _, symbol := range symbols {
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+		for _, name := range symbol.ReferencedNames {
+			for _, target := range targetsByName[name] {
+				if source.ID == target.ID {
+					continue
+				}
+				edges = append(edges, CodeEdge{
+					ID:               stableID("code-edge", "references", path, source.ID, target.ID),
+					Kind:             "references",
+					Path:             path,
+					SourceChunkID:    source.ID,
+					TargetPath:       path,
+					TargetChunkID:    target.ID,
+					TargetSymbolPath: target.SymbolPath,
+					TargetName:       target.SymbolName,
+				})
 			}
-			if !strings.Contains(source.RawText, target.SymbolName) {
-				continue
-			}
-			edges = append(edges, CodeEdge{
-				ID:               stableID("code-edge", "references", path, source.ID, target.ID),
-				Kind:             "references",
-				Path:             path,
-				SourceChunkID:    source.ID,
-				TargetPath:       path,
-				TargetChunkID:    target.ID,
-				TargetSymbolPath: target.SymbolPath,
-				TargetName:       target.SymbolName,
-			})
 		}
 	}
 
