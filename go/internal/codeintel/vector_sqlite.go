@@ -13,10 +13,14 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+
+	// Register sqlite-vec functions for SQLiteVectorIndex connections.
+	_ "modernc.org/sqlite/vec"
 )
 
 const (
 	sqliteVectorMetaTable = "vector_embeddings"
+	sqliteVectorStoreMode = 0o700
 	vectorBackendName     = "sqlite-vec"
 )
 
@@ -28,7 +32,7 @@ func NewSQLiteVectorIndex(ctx context.Context, path string) (*SQLiteVectorIndex,
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("SQLite vector path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), sqliteVectorStoreMode); err != nil {
 		return nil, fmt.Errorf("create SQLite vector store dir: %w", err)
 	}
 	db, err := sql.Open("sqlite", path)
