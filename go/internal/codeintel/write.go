@@ -16,6 +16,12 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
+const (
+	unknownCELPolicyID   = ""
+	unknownCELExpression = ""
+	unknownPolicySource  = ""
+)
+
 func deleteTraceRows(ctx context.Context, tx *sql.Tx, traceID string) error {
 	for _, statement := range []string{
 		"DELETE FROM code_intel_fts WHERE trace_id = ?",
@@ -81,9 +87,9 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 			finding.PolicyID,
 			finding.SkillID,
 			finding.EvaluatorKind,
-			"",
-			"",
-			"",
+			unknownCELPolicyID,
+			unknownCELExpression,
+			unknownPolicySource,
 			finding.SourceSpan.Path,
 			finding.SourceSpan.Language,
 			finding.SourceSpan.SymbolKind,

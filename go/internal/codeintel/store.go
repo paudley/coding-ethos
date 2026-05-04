@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	_ "modernc.org/sqlite"
+	// Register sqlite-vec functions for SQLiteVectorIndex connections.
 	_ "modernc.org/sqlite/vec"
 )
 
