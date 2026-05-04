@@ -112,6 +112,33 @@ func verifyCommitHead(
 
 	defer os.Remove(path)
 
+	if !context.HasToolResponse {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Evidence = map[string]any{
+			"phase":    "post",
+			"pre_head": state.Head,
+			"advanced": false,
+			"skipped":  "missing tool response",
+		}
+
+		return []policy.Decision{decision}, nil
+	}
+
+	if context.ReturnCode != 0 {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Evidence = map[string]any{
+			"phase":       "post",
+			"pre_head":    state.Head,
+			"return_code": context.ReturnCode,
+			"advanced":    false,
+			"skipped":     "commit command failed",
+		}
+
+		return []policy.Decision{decision}, nil
+	}
+
 	head, err := currentHead(context.Cwd)
 	if err != nil && !errors.Is(err, errNoHead) {
 		return nil, err

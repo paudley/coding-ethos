@@ -47,52 +47,56 @@ func RunWithRegistry(
 	options Options,
 	registry evaluators.Registry,
 ) (Result, error) {
-	event := options.Event
-	if shouldSkipNestedCodexHook(event) {
-		return Result{
-			Event:    event.HookEventName,
-			Provider: event.Provider(),
-			Tool:     event.ToolName,
-			Status:   statusAllowed,
-		}, nil
+	ctx := collectInspectionContext(options.Event)
+	if ctx.SkipNestedHook || ctx.ReadOnlyInspection {
+		return ctx.allowedResult(), nil
 	}
 
-	route := routeToolUse(event)
-	decisions, err := evaluateDispatchedPolicies(bundle, event, registry)
+	decision, err := evaluateInspection(bundle, ctx, registry)
 	if err != nil {
 		return Result{}, err
 	}
 
-	decisions = appendRouteBlockDecision(bundle, route, decisions)
-	status := resultStatus(decisions)
-	if status == statusBlocked {
-		route = gitWrapperRoute{}
-	}
-
-	return buildResult(bundle, event, route, decisions, status), nil
+	return buildResult(bundle, ctx.Event, decision), nil
 }
 
-func routeToolUse(event Event) gitWrapperRoute {
-	for _, routeFor := range []func(Event) gitWrapperRoute{
+func evaluateInspection(
+	bundle policy.Bundle,
+	ctx InspectionContext,
+	registry evaluators.Registry,
+) (InspectionDecision, error) {
+	route := routeToolUse(ctx)
+	decisions, err := evaluateDispatchedPolicies(bundle, ctx, registry)
+	if err != nil {
+		return InspectionDecision{}, err
+	}
+
+	return decideInspection(bundle, ctx, decisions, route), nil
+}
+
+func routeToolUse(ctx InspectionContext) InspectionRoute {
+	for _, routeFor := range []func(Event) InspectionRoute{
+		parallelToolBatchRouteFor,
 		malformedShellRouteFor,
 		gitWrapperRouteFor,
 		lintToolRouteFor,
 		pythonRuntimeRouteFor,
 	} {
-		route := routeFor(event)
+		route := routeFor(ctx.Event)
 		if route.Block || route.Rewrite {
 			return route
 		}
 	}
 
-	return gitWrapperRoute{}
+	return InspectionRoute{}
 }
 
 func evaluateDispatchedPolicies(
 	bundle policy.Bundle,
-	event Event,
+	ctx InspectionContext,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
+	event := ctx.Event
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 	decisions := make([]policy.Decision, 0, len(entries))
 	for _, entry := range entries {
@@ -105,7 +109,7 @@ func evaluateDispatchedPolicies(
 			)
 		}
 
-		evaluated, err := evaluateHookPolicy(policyDef, entry, event, registry)
+		evaluated, err := evaluateHookPolicy(policyDef, entry, ctx, registry)
 		if err != nil {
 			return nil, err
 		}
@@ -119,36 +123,22 @@ func evaluateDispatchedPolicies(
 	return decisions, nil
 }
 
-func appendRouteBlockDecision(
-	bundle policy.Bundle,
-	route gitWrapperRoute,
-	decisions []policy.Decision,
-) []policy.Decision {
-	if route.Block && resultStatus(decisions) != statusBlocked {
-		return append(
-			append([]policy.Decision(nil), decisions...),
-			routeBlockDecision(bundle, route.BlockPolicyID, route.Reason),
-		)
-	}
-
-	return decisions
-}
-
 func buildResult(
 	bundle policy.Bundle,
 	event Event,
-	route gitWrapperRoute,
-	decisions []policy.Decision,
-	status string,
+	decision InspectionDecision,
 ) Result {
 	result := Result{
 		Event:              event.HookEventName,
 		Advice:             bundle.Advice,
 		Provider:           event.Provider(),
 		Tool:               event.ToolName,
-		Status:             status,
-		Decisions:          decisions,
-		HookSpecificOutput: hookSpecificOutput(bundle, event, route),
+		Status:             decision.Status,
+		Decisions:          decision.Policies,
+		HookSpecificOutput: hookSpecificOutput(bundle, event, decision.Route),
+	}
+	if result.Blocked() {
+		result.TrackingID = newDenialTrackingID(event, decision.Policies)
 	}
 	if result.HookSpecificOutput == nil {
 		result.HookSpecificOutput = blockedHookSpecificOutput(result)
@@ -172,13 +162,9 @@ func blockedHookSpecificOutput(result Result) *HookSpecificOutput {
 func hookSpecificOutput(
 	bundle policy.Bundle,
 	event Event,
-	route gitWrapperRoute,
+	route InspectionRoute,
 ) *HookSpecificOutput {
 	if route.Rewrite {
-		if event.Provider() != "claude" {
-			return nil
-		}
-
 		return &HookSpecificOutput{
 			HookEventName:            event.HookEventName,
 			PermissionDecision:       permissionAllow,
@@ -519,9 +505,11 @@ func sentence(parts ...string) string {
 func evaluateHookPolicy(
 	policyDef policy.Policy,
 	entry policy.HookDispatchEntry,
-	event Event,
+	ctx InspectionContext,
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
+	event := ctx.Event
+
 	if !matchesCommandPatterns(event.Command(), entry.CommandPatterns) {
 		return nil, nil
 	}
@@ -550,6 +538,7 @@ func evaluateHookPolicy(
 		OldContent:       event.OldContent(),
 		Cwd:              event.Cwd,
 		Files:            event.Files(),
+		AdminApproved:    ctx.AdminApproved,
 	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {

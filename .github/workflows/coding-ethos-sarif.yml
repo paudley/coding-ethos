@@ -27,6 +27,10 @@ jobs:
       CODING_ETHOS_SARIF_CATEGORY: .github/workflows/ci.yml:policy
       CODING_ETHOS_SANDBOX_MODE: required
       CODING_ETHOS_FILES: ""
+      CODING_ETHOS_GITHUB_BASE_REF: ${{ github.base_ref }}
+      CODING_ETHOS_GITHUB_EVENT_NAME: ${{ github.event_name }}
+      CODING_ETHOS_GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+      CODING_ETHOS_GITHUB_SHA: ${{ github.sha }}
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -70,54 +74,7 @@ jobs:
         id: emit-sarif
         if: ${{ always() }}
         continue-on-error: true
-        run: |
-          set +e
-          repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
-          ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
-          files_path="$(mktemp)"
-          sarif_tmp="$CODING_ETHOS_SARIF_PATH.tmp"
-          empty_git_sha="0000000000000000000000000000000000000000"
-          rm -f "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
-
-          if [ -n "$CODING_ETHOS_FILES" ]; then
-            printf '%s\n' "$CODING_ETHOS_FILES" | tr ',' '\n' > "$files_path"
-          elif [ -n "${{ github.base_ref }}" ] &&
-            git rev-parse --verify "origin/${{ github.base_ref }}" >/dev/null 2>&1
-          then
-            git diff --name-only "origin/${{ github.base_ref }}"...HEAD |
-              while IFS= read -r path; do
-                [ -f "$path" ] && printf '%s\n' "$path"
-              done > "$files_path"
-          elif [ "${{ github.event_name }}" = "push" ] &&
-            [ -n "${{ github.event.before }}" ] &&
-            [ "${{ github.event.before }}" != "$empty_git_sha" ] &&
-            git rev-parse --verify "${{ github.event.before }}^{commit}" \
-              >/dev/null 2>&1
-          then
-            git diff --name-only \
-              "${{ github.event.before }}" \
-              "${{ github.sha }}" |
-              while IFS= read -r path; do
-                [ -f "$path" ] && printf '%s\n' "$path"
-              done > "$files_path"
-          else
-            : > "$files_path"
-          fi
-
-          "$ethos_path/bin/coding-ethos-run" policy-lint \
-            --cwd "$repo_root" \
-            --scope files \
-            --files-from "$files_path" \
-            --sarif-category "$CODING_ETHOS_SARIF_CATEGORY" \
-            --sandbox-mode "$CODING_ETHOS_SANDBOX_MODE" \
-            --sarif > "$sarif_tmp"
-          status=$?
-          if [ -s "$sarif_tmp" ]; then
-            mv "$sarif_tmp" "$CODING_ETHOS_SARIF_PATH"
-          else
-            rm -f "$sarif_tmp"
-          fi
-          exit "$status"
+        run: '"$CODING_ETHOS_PATH/bin/coding-ethos-run" ci-sarif --provider github'
 
       - name: Upload coding-ethos SARIF
         if: ${{ always() && hashFiles(env.CODING_ETHOS_SARIF_PATH) != '' }}

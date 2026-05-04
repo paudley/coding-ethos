@@ -19,6 +19,8 @@ type providerHookOutput struct {
 	Decision           string                 `json:"decision,omitempty"`
 	Reason             string                 `json:"reason,omitempty"`
 	SystemMessage      string                 `json:"systemMessage,omitempty"`
+	TraceID            string                 `json:"traceId,omitempty"`
+	TrackingID         string                 `json:"trackingID,omitempty"`
 	AgentRemediation   []agentmsg.Remediation `json:"agent_remediation,omitempty"`
 }
 
@@ -73,6 +75,12 @@ func claudeAllowedOutput(result Result) providerHookOutput {
 
 func codexAllowedOutput(result Result) providerHookOutput {
 	output := result.HookSpecificOutput
+	if len(output.UpdatedInput) > 0 {
+		return providerHookOutput{
+			HookSpecificOutput: output,
+		}
+	}
+
 	if output.AdditionalContext == "" {
 		return providerHookOutput{}
 	}
@@ -99,6 +107,13 @@ func codexAllowedOutput(result Result) providerHookOutput {
 
 func geminiAllowedOutput(result Result) providerHookOutput {
 	output := result.HookSpecificOutput
+	if len(output.UpdatedInput) > 0 {
+		return providerHookOutput{
+			Decision:           "allow",
+			HookSpecificOutput: output,
+		}
+	}
+
 	if output.AdditionalContext == "" {
 		return providerHookOutput{Decision: "allow"}
 	}
@@ -119,12 +134,16 @@ func providerBlockedOutput(result Result) providerHookOutput {
 			Decision:         "deny",
 			Reason:           message,
 			SystemMessage:    message,
+			TraceID:          result.TrackingID,
+			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 		}
 	case "codex":
 		output := providerHookOutput{
 			Decision:         "block",
 			Reason:           message,
+			TraceID:          result.TrackingID,
+			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 		}
 		if result.Event == "PreToolUse" {
@@ -139,6 +158,8 @@ func providerBlockedOutput(result Result) providerHookOutput {
 		return providerHookOutput{
 			Decision:         "block",
 			Reason:           message,
+			TraceID:          result.TrackingID,
+			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 			HookSpecificOutput: &HookSpecificOutput{
 				HookEventName:            result.Event,
@@ -152,12 +173,20 @@ func providerBlockedOutput(result Result) providerHookOutput {
 
 func ProviderBlockMessage(result Result) string {
 	if result.Provider == providerCodex {
-		return codexBlockMessage(result)
+		return withTrackingID(result, codexBlockMessage(result))
 	}
 
 	message := providerBlockReason(result)
 
-	return message
+	return withTrackingID(result, message)
+}
+
+func withTrackingID(result Result, message string) string {
+	if result.TrackingID == "" {
+		return message
+	}
+
+	return "trackingID: " + result.TrackingID + ". " + message
 }
 
 func codexBlockMessage(result Result) string {

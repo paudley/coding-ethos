@@ -307,6 +307,18 @@ the project measure which remediation playbooks appear in real work and promote
 recurring unmapped findings into stronger evidence maps or repo-specific
 skills.
 
+`coding-ethos` can also import retained lint and hook traces into a local
+SQLite code-intelligence store for repeated-failure and remediation search:
+
+```bash
+bin/coding-ethos-run code-intel ingest-traces
+bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
+bin/coding-ethos-run code-intel search --text 'unused import'
+```
+
+The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
+from retained traces, not a replacement for hooks or CEL policy evaluation.
+
 Current built-in skills:
 
 - `agent-operating-discipline`
@@ -679,8 +691,9 @@ policy:
           cmd.argv.exists(arg, arg.contains("subprocess")) &&
           cmd.argv.exists(arg, arg.contains("git"))
         )
-      message: Git must go through the coding-ethos wrapper.
-      advice: Use the protected Git wrapper and keep hook failures visible.
+      message: Git must use the approved repo workflow.
+      advice: Run ordinary git commands without bypass flags or shell indirection;
+        approved operations are routed by the hook automatically.
 ```
 
 Current supported fields include:
@@ -778,16 +791,15 @@ must write `merged.md`; otherwise the command fails.
 ## Hook Runtime
 
 The bundled enforcement package lives under [pre-commit/](pre-commit/). It uses
-repo-local Git hook shims that call the Go runner under
-`pre-commit/hooks/go-hooks/`.
+repo-local Git hook entrypoints that resolve directly to the compiled
+`bin/coding-ethos-run` runner.
 
 ### Git Hooks
 
-Installed Git hook shims locate the checked-out `coding-ethos` repository,
-repair missing checkout-local runtime artifacts with `make build`, and dispatch
-to the built hook binary. Policy selection and validation remain inside the
-`coding-ethos` checkout; the consumer shim is only discovery, repair, and
-dispatch.
+Installed Git hook entrypoints are symlinks to `bin/coding-ethos-run`. The
+runner infers the hook name from `argv[0]`, repairs missing checkout-local
+runtime artifacts with `make build`, and dispatches to the built hook binary.
+Policy selection and validation remain inside the `coding-ethos` checkout.
 
 Run Git hooks:
 
@@ -956,7 +968,7 @@ bin/coding-ethos-run cutover install
 bin/coding-ethos-run cutover verify
 ```
 
-`cutover install` installs repo-local Git hook shims, syncs every supported
+`cutover install` installs repo-local Git hook entrypoints, syncs every supported
 agent hook surface, and runs readiness verification. `cutover verify` checks
 Git hooks, agent hooks, required runtime ignores, and policy runtime
 validation, then emits a concise TOON readiness report.

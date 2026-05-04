@@ -32,8 +32,6 @@ trap 'rm -rf "$tmp_root"' EXIT
 policy_dir="$tmp_root/policy"
 git_repo="$tmp_root/repo"
 wrapper_repo="$tmp_root/wrapper-repo"
-lfs_hook_dir="$tmp_root/lfs-hooks"
-fake_bin="$tmp_root/fake-bin"
 
 policy_bin="$go_bin/coding-ethos-policy"
 lint_bin="$go_bin/coding-ethos-lint"
@@ -169,7 +167,7 @@ first_head="$(git -C "$git_repo" rev-parse HEAD)"
 "$repo_root/go/scripts/smoke_hook_edges.sh" gitlink "$lint_bin" "$policy_dir" "$git_repo" "$first_head"
 printf '==> validating hook detects unchanged commit HEAD\n'
 pre_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","source":"claude","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
-post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","source":"claude","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"}}))' "$git_repo")"
+post_commit_payload="$(python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PostToolUse","source":"claude","tool_name":"Bash","cwd":sys.argv[1],"tool_input":{"command":"git commit -m '\''test(seed): noop'\''"},"tool_response":{"return_code":0}}))' "$git_repo")"
 printf '%s' "$pre_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out
 set +e
 printf '%s' "$post_commit_payload" | "$hook_bin" --bundle "$policy_dir/policy-bundle.json" --json > /tmp/coding-ethos-hook-smoke.out 2>&1
@@ -446,6 +444,8 @@ printf '==> validating agent git wrapper rewrite and refusal\n'
     "$run_go_hook" agent-hook > /tmp/coding-ethos-git-rewrite.out
   printf '{"hook_event_name":"PreToolUse","source":"claude","tool_name":"Bash","tool_input":{"command":"git add file.txt && git status -s | grep file"}}\n' |
     "$run_go_hook" agent-hook > /tmp/coding-ethos-git-chain-rewrite.out
+  printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git status --short"}}\n' |
+    "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-git-rewrite.out
   set +e
   printf '{"provider":"codex","event":"PreToolUse","tool":"Bash","input":{"command":"git commit --no-verify -m test"}}\n' |
     "$run_go_hook" agent-hook > /tmp/coding-ethos-codex-refusal.out \
@@ -501,6 +501,11 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   ! grep -q 'policy-git' /tmp/coding-ethos-git-rewrite.out; then
   printf 'expected git rewrite output:\n' >&2
   cat /tmp/coding-ethos-git-rewrite.out >&2
+  exit 1
+fi
+if grep -q '"updatedInput"' /tmp/coding-ethos-codex-git-rewrite.out; then
+  printf 'expected Codex git fallback without unsupported updatedInput:\n' >&2
+  cat /tmp/coding-ethos-codex-git-rewrite.out >&2
   exit 1
 fi
 if ! grep -q '"decision": "block"' /tmp/coding-ethos-codex-refusal.out ||
@@ -567,30 +572,6 @@ if ! grep -q 'deterministic carry-forward context' /tmp/coding-ethos-sessionstar
 fi
 
 printf '==> validating git lfs delegation hook\n'
-mkdir -p "$lfs_hook_dir" "$fake_bin"
-cp "$repo_root/pre-commit/hooks/run-lfs-hook.sh" "$lfs_hook_dir/post-commit"
-chmod +x "$lfs_hook_dir/post-commit"
-cat > "$fake_bin/git" << 'FAKEGIT'
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${1:-}" != "lfs" ]]; then
-  exit 1
-fi
-if [[ "${2:-}" == "version" ]]; then
-  printf 'git-lfs/test\n'
-  exit 0
-fi
-printf '%s\n' "$*" > "${CODING_ETHOS_FAKE_GIT_LOG:?}"
-FAKEGIT
-chmod +x "$fake_bin/git"
-fake_git_log="$tmp_root/fake-git-lfs.log"
-CODING_ETHOS_FAKE_GIT_LOG="$fake_git_log" \
-  PATH="$fake_bin:$PATH" \
-  "$lfs_hook_dir/post-commit"
-if [[ "$(cat "$fake_git_log")" != "lfs post-commit" ]]; then
-  printf 'expected git lfs post-commit delegation, got:\n' >&2
-  cat "$fake_git_log" >&2
-  exit 1
-fi
+"$repo_root/go/scripts/smoke_lfs_hook.sh" "$run_go_hook" "$tmp_root"
 
 printf 'go tools smoke passed\n'

@@ -40,13 +40,83 @@ func TestEncodeProviderResultMatchesGeminiRemediationFixture(t *testing.T) {
 	assertJSONMatchesFixture(t, output, "testdata/provider_remediation_gemini.json")
 }
 
+func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{"claude", "gemini-cli"} {
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			output := encodedProviderOutput(
+				t,
+				providerGitPayload(provider, t.TempDir(), "git status"),
+			)
+
+			for _, expected := range []string{
+				`"hookSpecificOutput"`,
+				`"updatedInput"`,
+				`policy-git`,
+			} {
+				if !strings.Contains(output, expected) {
+					t.Fatalf("missing %q in provider output: %s", expected, output)
+				}
+			}
+		})
+	}
+}
+
+func TestEncodeProviderResultDoesNotEmitCodexUpdatedInput(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(
+		t,
+		providerGitPayload("codex", t.TempDir(), "git status"),
+	)
+
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	hookOutput, _ := decoded["hookSpecificOutput"].(map[string]any)
+	if _, ok := hookOutput["updatedInput"]; ok {
+		t.Fatalf("Codex output must not include unsupported updatedInput field: %s", output)
+	}
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("Codex allowed rewrite fallback should emit empty output, got: %s", output)
+	}
+}
+
+func TestProviderDenialIncludesTrackingID(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(t, `{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "Bash",
+		"input": {"command": "git commit --no-verify -m test"}
+	}`)
+
+	for _, expected := range []string{
+		`"trackingID": "hook-`,
+		`"traceId": "hook-`,
+		`trackingID: hook-`,
+		`"permissionDecisionReason": "trackingID: hook-`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in provider output: %s", expected, output)
+		}
+	}
+}
+
 func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	advice := BlockedAdvice(Result{
-		Event:  "PreToolUse",
-		Tool:   "Bash",
-		Status: statusBlocked,
+		Event:      "PreToolUse",
+		Tool:       "Bash",
+		Status:     statusBlocked,
+		TrackingID: "hook-test123",
 		Decisions: []policy.Decision{{
 			PolicyID:   "shell.github_admin",
 			Decision:   "block",
@@ -57,6 +127,7 @@ func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	})
 
 	for _, expected := range []string{
+		"trackingID: hook-test123",
 		"agent_remediation[1]{policy_id,skill_id,failed_action,next,mcp_tool}:",
 		"shell.github_admin,,Bash,Use the normal review path.,policy_explain",
 	} {

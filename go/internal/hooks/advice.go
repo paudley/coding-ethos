@@ -13,7 +13,7 @@ import (
 )
 
 const blockedAdviceHumanLinesPerDecision = 2
-const severeViolationWarning = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the documented hook and git wrapper path, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+const severeViolationWarning = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the normal approved git workflow, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
 
 var severeViolationPolicyIDs = map[string]bool{
 	"filesystem.protected_path": true,
@@ -58,6 +58,9 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 	if hasSevereViolation(decisions) {
 		lines = append(lines, severeViolationWarning, "")
 	}
+	if result.TrackingID != "" {
+		lines = append(lines, "trackingID: "+result.TrackingID, "")
+	}
 
 	for _, decision := range decisions {
 		lines = append(lines, "[coding-ethos:"+decision.PolicyID+"] "+decision.Message)
@@ -86,6 +89,9 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 		"event: " + toonCell(result.Event),
 		"tool: " + toonCell(result.Tool),
 		"status: " + toonCell(result.Status),
+	}
+	if result.TrackingID != "" {
+		lines = append(lines, "trackingID: "+toonCell(result.TrackingID))
 	}
 	if hasSevereViolation(decisions) {
 		lines = append(lines, "violation_warning: "+toonCell(severeViolationWarning))
@@ -137,6 +143,9 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 		"tool":      result.Tool,
 		"status":    result.Status,
 		"decisions": decisions,
+	}
+	if result.TrackingID != "" {
+		payload["trackingID"] = result.TrackingID
 	}
 	if remediation := agentmsg.FromDecisions(decisions, result.Tool); len(remediation) > 0 {
 		payload["agent_remediation"] = remediation

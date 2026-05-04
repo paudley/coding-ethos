@@ -54,7 +54,7 @@
   sandbox, and SARIF behavior.
 - `docs/STRATEGIC_ROADMAP.md`: major platform roadmap across MCP, CEL, SARIF,
   sandboxing, centralized ETHOS registry, and agent remediation loops.
-- `docs/HOOK_RUNTIME_BOOTSTRAP.md`: target model for consumer hook shims,
+- `docs/HOOK_RUNTIME_BOOTSTRAP.md`: target model for consumer hook entrypoints,
   checkout-local runtime artifacts, and bootstrap repair behavior.
 - `docs/LINT_CAPTURE_GO_FLOW.md`: target model for replacing shell-owned lint
   capture with compiled Go request, config, target-resolution, tool execution,

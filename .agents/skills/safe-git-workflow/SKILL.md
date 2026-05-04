@@ -25,10 +25,9 @@ Use this skill to recover from blocked git operations without bypassing hooks, r
 optimizing and make trade-offs explicit.
 
 ## Short Hint
-Git is a protected critical operation. Use the coding-ethos wrapper path, keep hook failures visible, and ask an admin when policy blocks protected files.
+Git is a protected critical operation. Run normal git commands without bypass flags or shell indirection, keep hook failures visible, and ask an admin when policy blocks protected files.
 
 ## Use When
-- git wrapper
 - raw git
 - admin-approved
 - commit attribution
@@ -39,7 +38,7 @@ Git is a protected critical operation. Use the coding-ethos wrapper path, keep h
 
 ## Remediation Workflow
 1. Read the hook failure as policy feedback, not as a broken local setup.
-2. Use the repo-local coding-ethos git wrapper for all git operations.
+2. Run the ordinary git command directly and let the hook route approved git operations through the repo policy path automatically.
 3. Do not try alternate shells, absolute git paths, subprocesses, aliases, PATH edits, no-verify flags, or direct hook edits.
 4. If protected coding-ethos files must change, prepare the work and ask the admin to review and finalize the commit using the documented admin-approved flow.
 5. Report the files changed, checks run, hook output, and unresolved risks before asking for commit or push approval.

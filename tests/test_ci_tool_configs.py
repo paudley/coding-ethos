@@ -26,8 +26,12 @@ def test_github_sarif_workflow_defaults_to_reusable_only() -> None:
     assert "      security-events: write" in workflow
     assert "CODING_ETHOS_SARIF_CATEGORY: policy" in workflow
     assert "CODING_ETHOS_SANDBOX_MODE: required" in workflow
-    assert '--sarif-category "$CODING_ETHOS_SARIF_CATEGORY"' in workflow
-    assert '--sandbox-mode "$CODING_ETHOS_SANDBOX_MODE"' in workflow
+    assert "CODING_ETHOS_GITHUB_EVENT_BEFORE:" in workflow
+    assert (
+        '"$CODING_ETHOS_PATH/bin/coding-ethos-run" ci-sarif --provider github'
+        in workflow
+    )
+    assert "--files-from" not in workflow
     assert 'export PATH="$ethos_path/bin:$PATH"' in workflow
 
 
@@ -84,7 +88,8 @@ def test_gitlab_config_renders_optional_test_and_build_jobs() -> None:
     assert "coding_ethos_build:" in gitlab_ci
     assert "interruptible: true" in gitlab_ci
     assert "CODING_ETHOS_SANDBOX_MODE: required" in gitlab_ci
-    assert '--sandbox-mode "$CODING_ETHOS_SANDBOX_MODE"' in gitlab_ci
+    assert 'coding-ethos-run" ci-sarif --provider gitlab' in gitlab_ci
+    assert "--files-from" not in gitlab_ci
     assert 'export PATH="$ethos_path/bin:$PATH"' in gitlab_ci
     assert "uvx twine check dist/*" in gitlab_ci
 

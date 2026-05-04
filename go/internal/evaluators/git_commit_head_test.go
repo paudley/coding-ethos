@@ -34,6 +34,8 @@ func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 	}
 
 	context.Scope = "PostToolUse"
+	context.HasToolResponse = true
+	context.ReturnCode = 0
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
 	if err != nil {
@@ -81,6 +83,8 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "second")
 
 	context.Scope = "PostToolUse"
+	context.HasToolResponse = true
+	context.ReturnCode = 0
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
 	if err != nil {
@@ -92,6 +96,86 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 	}
 
 	if decisions[0].Decision != "record" {
+		t.Fatalf("decision mismatch: %#v", decisions[0])
+	}
+
+	ok, err := ReadCommitHeadState(repo)
+	if err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestEvaluateGitCommitHeadAdvancedDoesNotBlockFailedCommit(t *testing.T) {
+	t.Parallel()
+
+	repo := initCommitHeadRepo(t)
+	policyDef := policy.ExampleBundle().Policies["git.commit_head_advanced"]
+
+	context := Context{
+		Scope:   "PreToolUse",
+		Argv:    []string{"git", "commit", "-m", "test"},
+		Command: "git commit -m test",
+		Cwd:     repo,
+	}
+
+	_, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("record head: %v", err)
+	}
+
+	context.Scope = "PostToolUse"
+	context.HasToolResponse = true
+	context.ReturnCode = 1
+
+	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("verify failed commit: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+		t.Fatalf("decision mismatch: %#v", decisions[0])
+	}
+
+	ok, err := ReadCommitHeadState(repo)
+	if err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingToolResponse(t *testing.T) {
+	t.Parallel()
+
+	repo := initCommitHeadRepo(t)
+	policyDef := policy.ExampleBundle().Policies["git.commit_head_advanced"]
+
+	context := Context{
+		Scope:   "PreToolUse",
+		Argv:    []string{"git", "commit", "-m", "test"},
+		Command: "git commit -m test",
+		Cwd:     repo,
+	}
+
+	_, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("record head: %v", err)
+	}
+
+	context.Scope = "PostToolUse"
+
+	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("verify missing tool response: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 

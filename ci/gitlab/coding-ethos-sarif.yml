@@ -5,6 +5,7 @@
     CODING_ETHOS_REPO_ROOT: .
     CODING_ETHOS_GATE_COMMAND: make check
     CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
+    CODING_ETHOS_SANDBOX_MODE: required
     CODING_ETHOS_FILES: ""
   script:
     - make -C "$CODING_ETHOS_PATH" build
@@ -15,36 +16,7 @@
         bash -c '$CODING_ETHOS_GATE_COMMAND'
         cd "$CI_PROJECT_DIR"
       fi
-    - |
-      repo_root="$(cd "$CODING_ETHOS_REPO_ROOT" && pwd)"
-      ethos_path="$(cd "$CODING_ETHOS_PATH" && pwd)"
-      files_path="$(mktemp)"
-      empty_git_sha="0000000000000000000000000000000000000000"
-
-      if [ -n "$CODING_ETHOS_FILES" ]; then
-        printf '%s\n' "$CODING_ETHOS_FILES" | tr ',' '\n' > "$files_path"
-      elif [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA" ]; then
-        git diff --name-only "$CI_MERGE_REQUEST_TARGET_BRANCH_SHA"...HEAD |
-          while IFS= read -r path; do
-            [ -f "$path" ] && printf '%s\n' "$path"
-          done > "$files_path"
-      elif [ -n "$CI_COMMIT_BEFORE_SHA" ] &&
-        [ "$CI_COMMIT_BEFORE_SHA" != "$empty_git_sha" ] &&
-        git rev-parse --verify "$CI_COMMIT_BEFORE_SHA^{commit}" >/dev/null 2>&1
-      then
-        git diff --name-only "$CI_COMMIT_BEFORE_SHA" "$CI_COMMIT_SHA" |
-          while IFS= read -r path; do
-            [ -f "$path" ] && printf '%s\n' "$path"
-          done > "$files_path"
-      else
-        : > "$files_path"
-      fi
-
-      "$ethos_path/bin/coding-ethos-run" policy-lint \
-        --cwd "$repo_root" \
-        --scope files \
-        --files-from "$files_path" \
-        --sarif > "$CODING_ETHOS_SARIF_PATH"
+    - "$CODING_ETHOS_PATH/bin/coding-ethos-run ci-sarif --provider gitlab"
   artifacts:
     when: always
     paths:

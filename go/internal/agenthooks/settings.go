@@ -14,9 +14,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -1011,7 +1014,6 @@ func ProviderCapabilities() []ProviderCapability {
 				"MCP stdio server",
 			},
 			ProviderLimited: []string{
-				"git wrapper enforcement blocks raw git because updatedInput is not supported",
 				"lifecycle context is compacted because Codex flattens multiline allowed context",
 			},
 			Unsupported: []string{
@@ -1029,6 +1031,7 @@ func ProviderCapabilities() []ProviderCapability {
 			Supported: []string{
 				"BeforeTool deny",
 				"BeforeTool systemMessage",
+				"PreToolUse updatedInput rewrite",
 				"AfterTool additionalContext",
 				"AfterTool edit verification advice",
 				"BeforeAgent additionalContext",
@@ -1042,7 +1045,6 @@ func ProviderCapabilities() []ProviderCapability {
 				"AfterTool maps to PostToolUse for run_shell_command, write_file, replace, and MultiEdit",
 			},
 			Unsupported: []string{
-				"PreToolUse updatedInput rewrite",
 				"PostToolBatch additionalContext",
 				"PreCompact capture",
 				"SubagentStart additionalContext",
@@ -1060,6 +1062,7 @@ func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
 			commandMatcher(spec.Tool, hookCommand),
 		)
 	}
+	addNoopProviderMatchers(hooks, toolaliases.ProviderClaude, hookCommand, commandMatcher)
 
 	return claudeSettings{Hooks: hooks}
 }
@@ -1074,6 +1077,7 @@ func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
 			)
 		}
 	}
+	addNoopProviderMatchers(hooks, toolaliases.ProviderCodex, hookCommand, codexMatcher)
 
 	return claudeSettings{Hooks: hooks}
 }
@@ -1081,13 +1085,21 @@ func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
 func codexHookMatchers(spec HookSpec) []string {
 	switch {
 	case spec.Event == "PreToolUse" && spec.Tool == "Bash":
-		return []string{codexShellMatcher}
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalShell)}
+	case spec.Event == "PreToolUse" && spec.Tool == "Write":
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalWrite)}
 	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
-		return []string{codexEditMatcher}
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalEdit)}
+	case spec.Event == "PreToolUse" && spec.Tool == "MultiEdit":
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalMultiEdit)}
 	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
-		return []string{codexShellMatcher}
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalShell)}
+	case spec.Event == "PostToolUse" && spec.Tool == "Write":
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalWrite)}
 	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
-		return []string{codexEditMatcher}
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalEdit)}
+	case spec.Event == "PostToolUse" && spec.Tool == "MultiEdit":
+		return []string{codexMatcherFor(toolaliases.ProviderCodex, toolaliases.CanonicalMultiEdit)}
 	case spec.Event == "SessionStart":
 		return []string{""}
 	case spec.Event == "UserPromptSubmit":
@@ -1098,11 +1110,6 @@ func codexHookMatchers(spec HookSpec) []string {
 		return nil
 	}
 }
-
-const (
-	codexShellMatcher = "Bash|exec_command|run_command|run_shell|run_shell_command|shell|shell_command"
-	codexEditMatcher  = "apply_patch|Edit|Write|MultiEdit|edit_file|create_file|write_file"
-)
 
 func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 	hooks := make(map[string][]matcherHook)
@@ -1118,11 +1125,50 @@ func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 			geminiMatcher(matcher, hookCommand),
 		)
 	}
+	addNoopProviderMatchers(hooks, toolaliases.ProviderGemini, hookCommand, geminiMatcher)
 
 	return claudeSettings{
 		Hooks:       hooks,
 		HooksConfig: map[string]any{"enabled": true},
 	}
+}
+
+func addNoopProviderMatchers(
+	hooks map[string][]matcherHook,
+	provider string,
+	hookCommand string,
+	build func(string, string) matcherHook,
+) {
+	for _, alias := range toolaliases.ProviderAliases(provider, toolaliases.CanonicalNoop) {
+		preEvent, postEvent := providerToolEvents(provider)
+		hooks[preEvent] = append(hooks[preEvent], build(providerMatcher(alias), hookCommand))
+		hooks[postEvent] = append(hooks[postEvent], build(providerMatcher(alias), hookCommand))
+	}
+}
+
+func providerToolEvents(provider string) (string, string) {
+	if provider == toolaliases.ProviderGemini {
+		return "BeforeTool", "AfterTool"
+	}
+
+	return "PreToolUse", "PostToolUse"
+}
+
+func codexMatcherFor(provider string, canonical string) string {
+	parts := []string{}
+	for _, alias := range toolaliases.ProviderAliases(provider, canonical) {
+		parts = append(parts, providerMatcher(alias))
+	}
+
+	return strings.Join(parts, "|")
+}
+
+func providerMatcher(alias toolaliases.Alias) string {
+	if alias.Regex {
+		return regexp.QuoteMeta(alias.Name)
+	}
+
+	return alias.Name
 }
 
 func claudePayloadContainsExpectedHooks(
@@ -1186,21 +1232,21 @@ func geminiMatcher(matcher string, hookCommand string) matcherHook {
 func geminiHookSpec(spec HookSpec) (string, string, bool) {
 	switch {
 	case spec.Event == "PreToolUse" && spec.Tool == "Bash":
-		return "BeforeTool", "run_shell_command", true
+		return "BeforeTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalShell), true
 	case spec.Event == "PreToolUse" && spec.Tool == "Write":
-		return "BeforeTool", "write_file", true
+		return "BeforeTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalWrite), true
 	case spec.Event == "PreToolUse" && spec.Tool == "Edit":
-		return "BeforeTool", "replace", true
+		return "BeforeTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalEdit), true
 	case spec.Event == "PreToolUse" && spec.Tool == "MultiEdit":
-		return "BeforeTool", "MultiEdit", true
+		return "BeforeTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalMultiEdit), true
 	case spec.Event == "PostToolUse" && spec.Tool == "Bash":
-		return "AfterTool", "run_shell_command", true
+		return "AfterTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalShell), true
 	case spec.Event == "PostToolUse" && spec.Tool == "Write":
-		return "AfterTool", "write_file", true
+		return "AfterTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalWrite), true
 	case spec.Event == "PostToolUse" && spec.Tool == "Edit":
-		return "AfterTool", "replace", true
+		return "AfterTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalEdit), true
 	case spec.Event == "PostToolUse" && spec.Tool == "MultiEdit":
-		return "AfterTool", "MultiEdit", true
+		return "AfterTool", firstProviderAlias(toolaliases.ProviderGemini, toolaliases.CanonicalMultiEdit), true
 	case spec.Event == "SessionStart":
 		return "SessionStart", "startup", true
 	case spec.Event == "UserPromptSubmit":
@@ -1212,6 +1258,15 @@ func geminiHookSpec(spec HookSpec) (string, string, bool) {
 	default:
 		return "", "", false
 	}
+}
+
+func firstProviderAlias(provider string, canonical string) string {
+	aliases := toolaliases.ProviderAliases(provider, canonical)
+	if len(aliases) == 0 {
+		return canonical
+	}
+
+	return aliases[0].Name
 }
 
 func codexHookFeatureEnabled(content string) bool {
@@ -1303,7 +1358,7 @@ func hookProbes() []hookProbe {
 				"tool": "exec_command",
 				"input": {"command": "git status --short"}
 			}`,
-			validate: validateCodexBlockProbe,
+			validate: validateCodexRewriteProbe,
 		},
 		{
 			provider: string(ProviderCodex),
@@ -1363,7 +1418,7 @@ func hookProbes() []hookProbe {
 				"toolName": "run_shell_command",
 				"toolInput": {"command": "git status --short"}
 			}`,
-			validate: validateGeminiDenyProbe,
+			validate: validateGeminiRewriteProbe,
 		},
 		{
 			provider: string(ProviderGemini),
@@ -1519,6 +1574,10 @@ func decodeHookProbePayload(output string) (map[string]any, error) {
 }
 
 func validateClaudeRewriteProbe(result hookProbeResult) error {
+	if err := validateRewriteProbe(result, "Claude"); err != nil {
+		return err
+	}
+
 	command, ok := nestedString(
 		result.payload,
 		"hookSpecificOutput",
@@ -1528,9 +1587,48 @@ func validateClaudeRewriteProbe(result hookProbeResult) error {
 	if !ok {
 		return fmt.Errorf("missing Claude updatedInput command in %s", result.stdout)
 	}
+	if !strings.Contains(command, "2>&1") {
+		return fmt.Errorf("Claude rewrite lost redirection: %s", command)
+	}
 
-	if !strings.Contains(command, "policy-git 'status' '--short' 2>&1") {
-		return fmt.Errorf("Claude rewrite lost git wrapper or redirection: %s", command)
+	return nil
+}
+
+func validateCodexRewriteProbe(result hookProbeResult) error {
+	if result.exitCode != 0 {
+		return fmt.Errorf("Codex git rewrite probe should allow without updatedInput, got exit %d", result.exitCode)
+	}
+
+	if _, ok := result.payload["hookSpecificOutput"].(map[string]any); ok {
+		if _, hasUpdatedInput := result.payload["hookSpecificOutput"].(map[string]any)["updatedInput"]; hasUpdatedInput {
+			return fmt.Errorf("Codex rewrite emitted unsupported updatedInput in %s", result.stdout)
+		}
+	}
+
+	return nil
+}
+
+func validateGeminiRewriteProbe(result hookProbeResult) error {
+	return validateRewriteProbe(result, "Gemini")
+}
+
+func validateRewriteProbe(result hookProbeResult, provider string) error {
+	if result.exitCode != 0 {
+		return fmt.Errorf("%s git rewrite probe should allow, got exit %d", provider, result.exitCode)
+	}
+
+	command, ok := nestedString(
+		result.payload,
+		"hookSpecificOutput",
+		"updatedInput",
+		"command",
+	)
+	if !ok {
+		return fmt.Errorf("missing %s updatedInput command in %s", provider, result.stdout)
+	}
+
+	if !strings.Contains(command, "policy-git 'status' '--short'") {
+		return fmt.Errorf("%s rewrite lost git wrapper or redirection: %s", provider, command)
 	}
 
 	return nil

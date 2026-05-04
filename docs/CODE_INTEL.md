@@ -100,6 +100,13 @@ counts, changed lines, prior failures, and recent remediations. These fields
 are intentionally available before the AST indexer exists so principles can
 move toward source-aware policy without changing the CEL contract later.
 
+The first storage layer now lives in `go/internal/codeintel`. It creates the
+canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and
+hook traces, stores normalized findings/remediations/remediation events, and
+builds an FTS5 search table over policy IDs, skill IDs, paths, messages, and
+remediation text. It intentionally treats vectors as a later derived index:
+the SQLite store is the auditable source of truth.
+
 ## Canonical SQLite Store
 
 The first implementation should create `.coding-ethos/code-intel.db` with
@@ -119,6 +126,18 @@ tables for:
 
 Use FTS5 for text, symbol, file path, policy, skill, command, and advice
 search. FTS is not a fallback; it is part of hybrid retrieval.
+
+Initial command surface:
+
+```bash
+bin/coding-ethos-run code-intel ingest-traces
+bin/coding-ethos-run code-intel stats
+bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
+bin/coding-ethos-run code-intel search --text 'unused import'
+```
+
+These commands read retained `.coding-ethos` traces and write only the
+repo-local `.coding-ethos/code-intel.db` store.
 
 ## Vector Backends
 
@@ -226,17 +245,19 @@ All tools are advisory. They must not bypass hooks or edit files.
 
 ### Phase 1 - Schema and Trace Ingestion
 
-- Create the SQLite store and migrations.
-- Persist hook/lint/SARIF trace summaries into normalized tables.
-- Index `agent_remediation` payloads and outcomes.
-- Add FTS5 over policies, skills, messages, advice, commands, files, and tool
+- [x] Create the SQLite store and migrations.
+- [x] Persist hook/lint trace summaries into normalized tables.
+- [x] Index `agent_remediation` payloads and remediation events.
+- [x] Add FTS5 over policies, skills, messages, advice, commands, files, and tool
   output summaries.
+- [ ] Persist SARIF result references into normalized tables.
+- [ ] Track remediation outcomes after follow-up attempts.
 
 Acceptance criteria:
 
-- Existing `.coding-ethos` traces can be imported.
-- Search can answer "show repeated failures for this policy/skill/file."
-- No vector backend is required for this phase.
+- [x] Existing `.coding-ethos` lint and hook traces can be imported.
+- [x] Search can answer "show repeated failures for this policy/skill/file."
+- [x] No vector backend is required for this phase.
 
 ### Phase 2 - AST Indexing
 

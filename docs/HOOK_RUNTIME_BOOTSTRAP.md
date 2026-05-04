@@ -112,9 +112,13 @@ Direct host installs such as `go install ...` into `$HOME/go/bin` are not a
 runtime contract. They may unblock a local shell, but hooks must only rely on
 artifacts under the `coding-ethos` checkout.
 
-## Shim Contract
+## Hook Entrypoint Contract
 
-The installed consumer repository hook shim should be intentionally small:
+The installed consumer repository hook entrypoint should be a symlink to the
+compiled `bin/coding-ethos-run` binary. The runner infers the Git hook name
+from `argv[0]`.
+
+The compiled runner owns the bootstrap contract:
 
 1. Resolve the consumer repository root from Git.
 2. Locate `coding-ethos`, preferably at `$consumer_root/coding-ethos`.
@@ -129,7 +133,7 @@ The installed consumer repository hook shim should be intentionally small:
 6. Re-check the required artifacts.
 7. Exec the built hook binary from the `coding-ethos` checkout.
 
-The shim must not:
+The hook entrypoint contract must not:
 
 - compare source mtimes to compiled policy during lifecycle hook execution
 - compile policy directly
@@ -178,8 +182,8 @@ Bootstrap needs a few guardrails:
 - Keep build outputs under ignored `bin/` and `build/` directories.
 - Keep transient repo-local runtime caches under ignored `.code-ethos/cache/`
   paths, not under `.git`.
-- Keep the parent hook shim stable and move versioned behavior into the
-  `coding-ethos` checkout.
+- Keep installed hook entrypoints stable symlinks and move versioned behavior
+  into the `coding-ethos` checkout.
 
 ## Migration Direction
 
