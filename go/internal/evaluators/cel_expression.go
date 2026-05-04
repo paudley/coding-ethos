@@ -26,7 +26,8 @@ func EvaluateCELExpression(
 		return nil, err
 	}
 
-	output, _, err := program.Eval(celActivation(context))
+	activation := celActivation(context)
+	output, _, err := program.Eval(activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
 	}
@@ -64,6 +65,7 @@ func EvaluateCELExpression(
 		policyDef,
 		decisionMode,
 		source,
+		activation,
 	)}
 
 	return []policy.Decision{decision}, nil
@@ -74,6 +76,7 @@ func celDiagnostic(
 	policyDef policy.Policy,
 	decisionMode string,
 	source string,
+	activation map[string]any,
 ) diagnostics.Diagnostic {
 	diagnostic := diagnostics.Diagnostic{
 		Tool:         "policy",
@@ -104,8 +107,37 @@ func celDiagnostic(
 	if len(context.Files) == 1 {
 		diagnostic.File = context.Files[0]
 	}
+	if symbol, ok := firstGrowingProposedSymbol(activation); ok {
+		diagnostic.File = symbol.File
+		diagnostic.Line = int(symbol.ProposedStartLine)
+		diagnostic.Metadata["ast_action"] = symbol.Action
+		diagnostic.Metadata["ast_language"] = symbol.Language
+		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
+		diagnostic.Metadata["ast_node_kind"] = symbol.NodeKind
+		diagnostic.Metadata["ast_symbol_kind"] = symbol.SymbolKind
+		diagnostic.Metadata["ast_symbol_name"] = symbol.SymbolName
+		diagnostic.Metadata["ast_symbol_path"] = symbol.SymbolPath
+		diagnostic.Metadata["current_line_count"] = symbol.CurrentLineCount
+		diagnostic.Metadata["proposed_line_count"] = symbol.ProposedLineCount
+	}
 
 	return diagnostic
+}
+
+func firstGrowingProposedSymbol(
+	activation map[string]any,
+) (celexpr.ProposedSymbolChangeInput, bool) {
+	symbols, ok := activation["proposed_symbol_changes"].([]celexpr.ProposedSymbolChangeInput)
+	if !ok {
+		return celexpr.ProposedSymbolChangeInput{}, false
+	}
+	for _, symbol := range symbols {
+		if symbol.LineCountGrows {
+			return symbol, true
+		}
+	}
+
+	return celexpr.ProposedSymbolChangeInput{}, false
 }
 
 func policySource(policyDef policy.Policy) string {

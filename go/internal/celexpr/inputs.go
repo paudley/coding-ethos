@@ -293,6 +293,7 @@ func InputSchema() []string {
 		"files: list(string)",
 		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
 		"proposed_file_changes: list({file, dir, base, ext, exists, has_proposed_content, is_binary, is_generated, is_test, current_size_bytes, proposed_size_bytes, size_delta, current_line_count, proposed_line_count, line_delta, size_grows, size_shrinks, line_count_grows, line_count_shrinks, replacement_matched, replacement_ambiguous})",
+		"proposed_symbol_changes: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, is_generated, is_test, current_line_count, proposed_line_count, line_delta, line_count_grows, line_count_shrinks, current_start_line, current_end_line, proposed_start_line, proposed_end_line, current_content_hash, proposed_content_hash})",
 		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
 		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
 		"scope: string",
@@ -364,6 +365,7 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(DiffLineInput{}),
 			reflect.TypeOf(FileChangeInput{}),
 			reflect.TypeOf(ProposedFileChangeInput{}),
+			reflect.TypeOf(ProposedSymbolChangeInput{}),
 			reflect.TypeOf(ReferencedFileInput{}),
 			reflect.TypeOf(ToolCapabilityInput{}),
 			ext.ParseStructTag("json"),
@@ -380,6 +382,10 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable(
 			"proposed_file_changes",
 			cel.ListType(cel.ObjectType("celexpr.ProposedFileChangeInput")),
+		),
+		cel.Variable(
+			"proposed_symbol_changes",
+			cel.ListType(cel.ObjectType("celexpr.ProposedSymbolChangeInput")),
 		),
 		cel.Variable(
 			"referenced_files",
@@ -555,9 +561,10 @@ func Activation(input ActivationInput) map[string]any {
 			files,
 			protectedPaths,
 		),
-		"proposed_file_changes": proposedFileChangeInputs(input),
-		"referenced_files":      referencedFileInputs(input.Cwd, files, input.Argv),
-		"tool_capabilities":     toolCapabilityInputs(),
+		"proposed_file_changes":   proposedFileChangeInputs(input),
+		"proposed_symbol_changes": proposedSymbolChangeInputs(input),
+		"referenced_files":        referencedFileInputs(input.Cwd, files, input.Argv),
+		"tool_capabilities":       toolCapabilityInputs(),
 		"git": GitInput{
 			CurrentBranch:      input.CurrentBranch,
 			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),

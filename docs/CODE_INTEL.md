@@ -95,11 +95,14 @@ schema version, trace ID, normalized findings, remediation summaries, and
 remediation events. This makes code intelligence an ingestion problem instead
 of a second policy interpretation layer.
 
-CEL inputs also expose code-intelligence fields under
-`source` and `finding`: language, symbol name, symbol kind, chunk hash, line
-counts, changed lines, prior failures, and recent remediations. These fields
-let principles move toward source-aware policy without changing the CEL
-contract.
+CEL inputs also expose code-intelligence fields under `source`, `finding`, and
+edit preflight facts. `proposed_symbol_changes` compares current and proposed
+Tree-sitter symbols for Edit/Write/MultiEdit actions and reports the file,
+language, node kind, symbol kind/name/path, line spans, content hashes, action
+(`added`, `deleted`, or `modified`), and line-count delta. This lets
+principle-owned CEL block growth of oversized functions, classes/types, shell
+functions, and YAML config entries while still allowing refactors that shrink
+large files.
 
 The first storage layer now lives in `go/internal/codeintel`. It creates the
 canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and
@@ -342,6 +345,7 @@ Acceptance criteria:
 - [x] Store AST chunks, symbol metadata, byte ranges, line ranges, content
   hashes, and search text in SQLite.
 - [x] Expose AST chunks through FTS, embedding candidates, CLI, and MCP.
+- [x] Expose AST-backed proposed symbol changes to CEL edit preflight.
 - [ ] Add Markdown once the parser binding strategy is explicit.
 - [ ] Store basic graph edges in SQLite.
 - [ ] Add incremental reindex by file hash and chunk hash.

@@ -736,13 +736,15 @@ Acceptance criteria:
   `symbol.name_matches(...)`, `source.enclosing_symbol(...)`,
   `source.changed_symbol_count()`, `source.has_nearby_test()`,
   `source.has_doc_chunk()`, and `source.symbol_too_large(...)`.
-- [ ] Move more size/complexity policy into principle-owned CEL by evaluating
+- [x] Move more size/complexity policy into principle-owned CEL by evaluating
   Tree-sitter chunks instead of whole files: block growing oversized functions,
   classes/types, shell functions, and YAML config entries while allowing
   shrinking edits.
-- [ ] Add AST-aware edit preflight for agents: classify whether an Edit/Write
-  grows, shrinks, deletes, renames, or rewrites an existing symbol before CEL
+- [x] Add AST-aware edit preflight for agents: classify whether an Edit/Write
+  grows, shrinks, adds, deletes, or rewrites an existing symbol before CEL
   decides whether the action is allowed.
+- [ ] Extend AST-aware edit preflight to classify symbol renames explicitly
+  instead of representing them as delete/add pairs.
 - [ ] Add AST-aware diff facts that map changed lines to affected symbols so
   policy can target the edited function/config entry rather than the entire
   file.

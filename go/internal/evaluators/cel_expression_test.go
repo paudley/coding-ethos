@@ -467,6 +467,106 @@ func TestEvaluateCELExpressionBlocksGrowingLargeFileAtHookTime(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksGrowingLargeSymbolAtHookTime(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(
+		sourceFile,
+		[]byte("def grow():\n    return 1\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:        repo,
+			Files:      []string{"app.py"},
+			Tool:       "Edit",
+			OldContent: "def grow():\n    return 1\n",
+			Content:    "def grow():\n    value = 1\n    return value\n",
+			Scope:      "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					proposed_symbol_changes.exists(symbol,
+						symbol.file == "app.py" &&
+						symbol.symbol_kind == "function" &&
+						symbol.proposed_line_count > 2 &&
+						symbol.line_count_grows
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "app.py" ||
+		decisions[0].Diagnostics[0].Line != 1 ||
+		decisions[0].Diagnostics[0].Metadata["ast_symbol_name"] != "grow" ||
+		decisions[0].Diagnostics[0].Metadata["ast_symbol_kind"] != "function" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsLargeFileGrowthWhenOnlySmallSymbolsGrow(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(
+		sourceFile,
+		[]byte("def small():\n    return 1\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:        repo,
+			Files:      []string{"app.py"},
+			Tool:       "Edit",
+			OldContent: "def small():\n    return 1\n",
+			Content:    "def small():\n    value = 1\n    return value\n",
+			Scope:      "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					proposed_symbol_changes.exists(symbol,
+						symbol.symbol_kind == "function" &&
+						symbol.proposed_line_count > 25 &&
+						symbol.line_count_grows
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("small symbol growth should be allowed: %#v", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionAllowsManagedToolCapabilityContract(t *testing.T) {
 	t.Parallel()
 

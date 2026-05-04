@@ -570,6 +570,47 @@ func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) 
 	}
 }
 
+func TestActivationPopulatesProposedSymbolChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "src", "app.py")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	current := "def keep():\n    return 1\n\n"
+	current += "def grow():\n    return 1\n"
+	if err := os.WriteFile(file, []byte(current), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"src/app.py"},
+		Tool:       "Edit",
+		OldContent: "def grow():\n    return 1\n",
+		Content:    "def grow():\n    value = 1\n    return value\n",
+	})
+
+	changes, ok := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_symbol_changes input = %#v", activation["proposed_symbol_changes"])
+	}
+	change := changes[0]
+	if change.File != "src/app.py" ||
+		change.Language != "python" ||
+		change.SymbolKind != "function" ||
+		change.SymbolName != "grow" ||
+		change.Action != "modified" ||
+		change.CurrentLineCount != 2 ||
+		change.ProposedLineCount != 3 ||
+		change.LineDelta != 1 ||
+		!change.LineCountGrows ||
+		change.LineCountShrinks {
+		t.Fatalf("symbol change input = %#v", change)
+	}
+}
+
 func TestActivationEstimatesAmbiguousEditAcrossAllMatches(t *testing.T) {
 	t.Parallel()
 
