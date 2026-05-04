@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -224,12 +225,17 @@ func TestInstallAndVerifyGitHookShims(t *testing.T) {
 		if info.Mode()&0o111 == 0 {
 			t.Fatalf("installed hook %s is not executable: %v", hook, info.Mode())
 		}
-		target, err := os.Readlink(hookPath)
+		payload, err := os.ReadFile(hookPath)
 		if err != nil {
-			t.Fatalf("read hook symlink %s: %v", hook, err)
+			t.Fatalf("read hook entrypoint %s: %v", hook, err)
 		}
-		if target != runner {
-			t.Fatalf("hook %s target = %q, want %q", hook, target, runner)
+		command := "git-hook"
+		if slices.Contains(lfsHookNames, hook) {
+			command = "lfs-hook"
+		}
+		want := "exec " + shellQuote(runner) + " " + command + " " + shellQuote(hook) + ` "$@"`
+		if !strings.Contains(string(payload), want) {
+			t.Fatalf("hook %s payload missing %q:\n%s", hook, want, payload)
 		}
 	}
 }
@@ -248,7 +254,7 @@ func TestGitHookFixItemsReportsMissingAndStaleHooks(t *testing.T) {
 	}
 	joined := strings.Join(items, "\n")
 	for _, want := range []string{
-		"pre-commit does not point to coding-ethos-run",
+		"pre-commit does not route to coding-ethos-run",
 		"pre-push missing or not executable",
 		"post-commit missing or not executable",
 	} {

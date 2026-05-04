@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -125,7 +126,7 @@ func cutoverVerify(args []string) error {
 	root := flags.String("root", "", "Repository root")
 	runner := flags.String("runner", "", "runner path")
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
-	flags.String("source-dir", "", "Deprecated; hook files are symlinks to --runner")
+	flags.String("source-dir", "", "Deprecated; hook files are generated from --runner")
 	realGit := flags.String("real-git", "", "Real git executable")
 	bundleRoot := flags.String("bundle-root", "", "Policy bundle root")
 	if err := flags.Parse(args); err != nil {
@@ -1047,12 +1048,12 @@ func installGitHooks(args []string) error {
 	}
 
 	for _, hook := range gitHookNames {
-		if err := installHookSymlink(hooksDir, runner, hook); err != nil {
+		if err := installHookEntrypoint(hooksDir, runner, hook); err != nil {
 			return err
 		}
 	}
 	for _, hook := range lfsHookNames {
-		if err := installHookSymlink(hooksDir, runner, hook); err != nil {
+		if err := installHookEntrypoint(hooksDir, runner, hook); err != nil {
 			return err
 		}
 	}
@@ -1247,7 +1248,7 @@ func gitHookShimFlags(command string, args []string) (string, string, error) {
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
 	runner := flags.String("runner", "", "coding-ethos-run executable")
-	flags.String("source-dir", "", "Deprecated; hook files are symlinks to --runner")
+	flags.String("source-dir", "", "Deprecated; hook files are generated from --runner")
 	if err := flags.Parse(args); err != nil {
 		return "", "", fmt.Errorf("parse %s flags: %w", command, err)
 	}
@@ -1261,7 +1262,7 @@ func gitHookShimFlags(command string, args []string) (string, string, error) {
 	return *hooksDir, *runner, nil
 }
 
-func installHookSymlink(hooksDir string, runner string, hookName string) error {
+func installHookEntrypoint(hooksDir string, runner string, hookName string) error {
 	target := filepath.Join(hooksDir, hookName)
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return fmt.Errorf("create hooks dir %s: %w", hooksDir, err)
@@ -1269,11 +1270,19 @@ func installHookSymlink(hooksDir string, runner string, hookName string) error {
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove existing hook %s: %w", target, err)
 	}
-	if err := os.Symlink(runner, target); err != nil {
-		return fmt.Errorf("install hook symlink %s -> %s: %w", target, runner, err)
-	}
 
-	return nil
+	command := "git-hook"
+	if slices.Contains(lfsHookNames, hookName) {
+		command = "lfs-hook"
+	}
+	payload := strings.Join([]string{
+		"#!/usr/bin/env bash",
+		"set -euo pipefail",
+		"exec " + shellQuote(runner) + " " + command + " " + shellQuote(hookName) + ` "$@"`,
+		"",
+	}, "\n")
+
+	return writeExecutableFile(target, []byte(payload))
 }
 
 func gitHookShimFixItems(hooksDir string, runner string) ([]string, error) {
@@ -1324,13 +1333,13 @@ func hookShimFixItem(
 		), nil
 	}
 
-	matches, err := hookTargetsRunner(target, runner)
+	matches, err := hookEntrypointTargetsRunner(target, runner, hookName)
 	if err != nil {
 		return "", err
 	}
 	if !matches {
 		return fmt.Sprintf(
-			"  git-hooks,%s does not point to coding-ethos-run,run cutover install",
+			"  git-hooks,%s does not route to coding-ethos-run,run cutover install",
 			target,
 		), nil
 	}
@@ -1338,24 +1347,19 @@ func hookShimFixItem(
 	return "", nil
 }
 
-func hookTargetsRunner(target string, runner string) (bool, error) {
-	link, err := os.Readlink(target)
+func hookEntrypointTargetsRunner(target string, runner string, hookName string) (bool, error) {
+	payload, err := os.ReadFile(target)
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("read hook entrypoint %s: %w", target, err)
 	}
-	if !filepath.IsAbs(link) {
-		link = filepath.Join(filepath.Dir(target), link)
-	}
-	resolvedLink, err := filepath.EvalSymlinks(link)
-	if err != nil {
-		return false, fmt.Errorf("resolve hook symlink %s: %w", target, err)
-	}
-	resolvedRunner, err := filepath.EvalSymlinks(runner)
-	if err != nil {
-		return false, fmt.Errorf("resolve hook runner %s: %w", runner, err)
+	command := "git-hook"
+	if slices.Contains(lfsHookNames, hookName) {
+		command = "lfs-hook"
 	}
 
-	return resolvedLink == resolvedRunner, nil
+	want := "exec " + shellQuote(runner) + " " + command + " " + shellQuote(hookName) + ` "$@"`
+
+	return strings.Contains(string(payload), want), nil
 }
 
 func filesEqual(left string, right string) (bool, error) {

@@ -114,9 +114,11 @@ artifacts under the `coding-ethos` checkout.
 
 ## Hook Entrypoint Contract
 
-The installed consumer repository hook entrypoint should be a symlink to the
-compiled `bin/coding-ethos-run` binary. The runner infers the Git hook name
-from `argv[0]`.
+The installed consumer repository hook entrypoint should be a small executable
+script generated from the compiled `bin/coding-ethos-run` binary. The script
+passes the hook kind and hook name explicitly, for example
+`coding-ethos-run git-hook pre-commit "$@"`, so installed Git hooks do not rely
+on `argv[0]` inference.
 
 The compiled runner owns the bootstrap contract:
 
@@ -182,8 +184,8 @@ Bootstrap needs a few guardrails:
 - Keep build outputs under ignored `bin/` and `build/` directories.
 - Keep transient repo-local runtime caches under ignored `.code-ethos/cache/`
   paths, not under `.git`.
-- Keep installed hook entrypoints stable symlinks and move versioned behavior
-  into the `coding-ethos` checkout.
+- Keep installed hook entrypoints as stable generated scripts and move
+  versioned behavior into the `coding-ethos` checkout.
 
 ## Migration Direction
 

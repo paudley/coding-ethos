@@ -189,6 +189,43 @@ type sarifPolicyFeedbackInput struct {
 	TraceID string `json:"trace_id,omitempty"`
 }
 
+type codeIntelSearchInput struct {
+	Filters    map[string]string `json:"filters,omitempty"`
+	Text       string            `json:"text,omitempty"`
+	Collection string            `json:"collection,omitempty"`
+	ModelID    string            `json:"model_id,omitempty"`
+	PolicyID   string            `json:"policy_id,omitempty"`
+	SkillID    string            `json:"skill_id,omitempty"`
+	Path       string            `json:"path,omitempty"`
+	Vector     []float32         `json:"vector,omitempty"`
+	Limit      int               `json:"limit,omitempty"`
+}
+
+type codeIntelIndexStatusInput struct {
+	Collection string `json:"collection,omitempty"`
+	ModelID    string `json:"model_id,omitempty"`
+}
+
+type codeIntelIndexCodeInput struct {
+	Paths []string `json:"paths,omitempty"`
+}
+
+type codeIntelEmbeddingCandidatesInput struct {
+	RecordKind string `json:"record_kind,omitempty"`
+	PolicyID   string `json:"policy_id,omitempty"`
+	SkillID    string `json:"skill_id,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
+type codeIntelCodeChunksInput struct {
+	Path       string `json:"path,omitempty"`
+	Language   string `json:"language,omitempty"`
+	SymbolKind string `json:"symbol_kind,omitempty"`
+	SymbolName string `json:"symbol_name,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
 func writeResponse(
 	writer io.Writer,
 	framing messageFraming,
@@ -483,6 +520,101 @@ func toolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     false,
 				PreferredUse:   "turn an emitted agent_remediation item into grounded next-action guidance",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"code_intel_search",
+			"Search stored remediation, SARIF, policy, and embedding evidence with FTS plus sqlite-vec when a query vector is supplied.",
+			map[string]any{
+				"text":       map[string]any{"type": "string"},
+				"vector":     map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
+				"collection": map[string]any{"type": "string"},
+				"model_id":   map[string]any{"type": "string"},
+				"policy_id":  map[string]any{"type": "string"},
+				"skill_id":   map[string]any{"type": "string"},
+				"path":       map[string]any{"type": "string"},
+				"limit":      map[string]any{"type": "integer"},
+				"filters": map[string]any{
+					"type":                 "object",
+					"additionalProperties": map[string]any{"type": "string"},
+				},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "retrieve prior fixes, related SARIF findings, and policy evidence before broad file reads",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"code_intel_index_status",
+			"Report code-intelligence store freshness, embedding metadata counts, and sqlite-vec row counts.",
+			map[string]any{
+				"collection": map[string]any{"type": "string"},
+				"model_id":   map[string]any{"type": "string"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "check whether remediation and SARIF retrieval has fresh vector coverage",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"code_intel_index_code",
+			"Parse repository code with Tree-sitter and persist symbol-level code chunks for search and embedding.",
+			map[string]any{
+				"paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "refresh symbol-level code context before asking for related code or remediation history",
+				TracePersisted: true,
+			},
+		),
+		toolDefinition(
+			"code_intel_embedding_candidates",
+			"Return compact SARIF and remediation records that are ready to embed and write into sqlite-vec.",
+			map[string]any{
+				"record_kind": map[string]any{"type": "string"},
+				"policy_id":   map[string]any{"type": "string"},
+				"skill_id":    map[string]any{"type": "string"},
+				"path":        map[string]any{"type": "string"},
+				"limit":       map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "feed an approved embedding producer with traceable SARIF/remediation text",
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"code_intel_code_chunks",
+			"Return Tree-sitter code chunks filtered by path, language, symbol kind, or symbol name.",
+			map[string]any{
+				"path":        map[string]any{"type": "string"},
+				"language":    map[string]any{"type": "string"},
+				"symbol_kind": map[string]any{"type": "string"},
+				"symbol_name": map[string]any{"type": "string"},
+				"limit":       map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     true,
+				PreferredUse:   "retrieve focused symbol-level code context before reading whole files",
 				TracePersisted: false,
 			},
 		),

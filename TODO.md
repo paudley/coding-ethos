@@ -701,19 +701,97 @@ Acceptance criteria:
   `.coding-ethos/code-intel.db` that ingests retained hook/lint traces,
   normalized findings, remediation payloads, and remediation events.
 - [x] Add repeated-failure and FTS search commands over imported trace data.
-- [ ] Track whether remediation hints reduce repeated failures in
+- [x] Track whether remediation hints reduce repeated failures in
   `.coding-ethos` traces by linking follow-up attempts to outcomes.
-- [ ] Extend local-first remediation storage to SARIF trace references with
+- [x] Extend local-first remediation storage to SARIF trace references with
   full-text plus embedding search over remediation IDs, policy IDs, skills,
   command/file context, outcomes, and follow-up attempts.
+- [x] Complete the `remediation_outcomes_1` storage foundation:
+  normalized SQLite tables for SARIF runs/results, remediation outcomes,
+  CEL/evaluator provenance, embedding metadata, and vector-backend row
+  references.
+- [x] Add code-intelligence CLI/query surfaces for SARIF result references,
+  remediation outcomes, remediation effectiveness, and vector metadata status.
+- [x] Add embedding candidate, sqlite-vec upsert, hybrid search, and index
+  status surfaces so agents can retrieve prior fixes before broad file reads.
+- [x] Implement sqlite-vec as the active SQLite vector backend fed from
+  canonical SQLite records; do not let vector rows become the only copy of
+  policy, SARIF, CEL, or remediation evidence.
+- [x] Add Tree-sitter AST indexing for Go, Python, JavaScript/TypeScript,
+  shell, and YAML into the canonical SQLite store with stable `code_chunk`
+  records, FTS rows, and embedding-candidate export.
+- [x] Expose AST code intelligence through `code-intel index-code`,
+  `code-intel code-chunks`, `code_intel_index_code`, and
+  `code_intel_code_chunks` so agents can retrieve focused symbol context
+  before broad file reads.
+- [ ] Add Markdown AST chunking after choosing a maintained Go binding or a
+  first-class adapter for the markdown parser layout.
+- [ ] Add AST graph edges for imports, calls, references, tests, and docs.
+- [ ] Add incremental reindex/embedding invalidation by file hash and chunk
+  hash.
+- [ ] Use Tree-sitter facts to augment CEL source inputs with symbol kind,
+  symbol name, symbol path, enclosing function/class/type/config entry, byte
+  span, line span, content hash, parent symbol, and nearest test/doc chunk.
+- [ ] Add CEL helper functions over AST facts: `symbol.kind_is(...)`,
+  `symbol.name_matches(...)`, `source.enclosing_symbol(...)`,
+  `source.changed_symbol_count()`, `source.has_nearby_test()`,
+  `source.has_doc_chunk()`, and `source.symbol_too_large(...)`.
+- [ ] Move more size/complexity policy into principle-owned CEL by evaluating
+  Tree-sitter chunks instead of whole files: block growing oversized functions,
+  classes/types, shell functions, and YAML config entries while allowing
+  shrinking edits.
+- [ ] Add AST-aware edit preflight for agents: classify whether an Edit/Write
+  grows, shrinks, deletes, renames, or rewrites an existing symbol before CEL
+  decides whether the action is allowed.
+- [ ] Add AST-aware diff facts that map changed lines to affected symbols so
+  policy can target the edited function/config entry rather than the entire
+  file.
+- [ ] Add SARIF locations for Tree-sitter-backed findings using exact symbol
+  start/end lines, byte offsets, and region snippets; include AST node kind and
+  symbol identity in SARIF properties.
+- [ ] Add SARIF partial fingerprints based on path, language, symbol path,
+  node kind, rule/policy ID, and content hash so findings remain stable across
+  unrelated line movement.
+- [ ] Emit SARIF code flows/thread flows for policy findings that involve
+  relationships, such as unsafe call chains, missing tests for changed symbols,
+  imports from forbidden layers, or generated-config edits from source files.
+- [ ] Add AST-backed SARIF suppression guidance that points agents to the
+  principle and symbol-level remediation path instead of allowing broad
+  `noqa`, `nolint`, or config weakening.
+- [ ] Use Tree-sitter graph edges to enforce architecture policies in CEL:
+  layer boundaries, forbidden imports, test-to-source coverage proximity,
+  generated-artifact/source ownership, and shell wrapper boundaries.
+- [ ] Add policy articulation output that explains Tree-sitter-backed
+  decisions in human terms: "this edit grows function X from N to M lines",
+  "this YAML key is enforcement config", or "this import crosses a forbidden
+  layer."
+- [ ] Extend `policy_explain` and `remediation_explain` to include relevant
+  AST context, including the exact symbol, enclosing parent, related test/doc
+  chunks, and the next MCP calls (`code_intel_code_chunks`,
+  `code_intel_search`, or `lint_check`).
+- [ ] Add AST-aware guidance packets for agents that include focused code
+  chunks, related prior SARIF/remediation history, and symbol-specific rerun
+  instructions before suggesting broad file reads.
+- [ ] Add MCP context expansion for code chunks: parent, children, siblings,
+  references, callers/callees where known, related tests, related docs, recent
+  policy failures, and prior fixes for the same symbol.
+- [ ] Add staleness and trust metadata to every AST-derived CEL/SARIF result:
+  indexed content hash, current content hash, index timestamp, parser grammar
+  version, and stale-result refusal behavior.
+- [ ] Add regression tests proving Tree-sitter facts are identical across hook,
+  lint, CLI, MCP, and CI/SARIF paths so AST-backed policy cannot drift between
+  enforcement surfaces.
 - [x] Build the code intelligence roadmap in `docs/CODE_INTEL.md`: Tree-sitter
-  AST chunking, SQLite canonical storage, LanceDB vector backend, sqlite-vec
-  fallback, hybrid retrieval, and MCP code/remediation search tools.
+  AST chunking, SQLite canonical storage, sqlite-vec vector search, hybrid
+  retrieval, and MCP code/remediation search tools.
 
 Acceptance criteria:
 
-- [ ] Agents can self-correct common hook failures without reading raw terminal
+- [x] Agents can self-correct common hook failures without reading raw terminal
   noise.
-- [ ] Remediation output is compact enough for context windows and precise
+- [x] Remediation output is compact enough for context windows and precise
   enough to prevent guessing.
-- [ ] Human output and agent output share the same normalized data model.
+- [x] Human output and agent output share the same normalized data model.
+- [x] The local code-intelligence database can answer which SARIF/CEL findings
+  repeated, which remediation guidance was issued, and whether later attempts
+  fixed or repeated the finding.
