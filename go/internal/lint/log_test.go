@@ -61,6 +61,7 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 	if record.RepoRoot != repo ||
 		record.SchemaVersion != 1 ||
 		record.TraceID == "" ||
+		record.Result.TraceID != record.TraceID ||
 		record.Result.Scope != ScopeStaged ||
 		len(record.Result.Findings) != 1 ||
 		len(record.Result.SkillHints) != 1 ||

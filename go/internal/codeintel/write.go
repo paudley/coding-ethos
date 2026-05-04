@@ -25,6 +25,9 @@ const (
 func deleteTraceRows(ctx context.Context, tx *sql.Tx, traceID string) error {
 	for _, statement := range []string{
 		"DELETE FROM code_intel_fts WHERE trace_id = ?",
+		"DELETE FROM hook_targets WHERE trace_id = ?",
+		"DELETE FROM hook_decisions WHERE trace_id = ?",
+		"DELETE FROM hook_events WHERE trace_id = ?",
 		"DELETE FROM remediation_events WHERE trace_id = ?",
 		"DELETE FROM remediation_occurrences WHERE trace_id = ?",
 		"DELETE FROM finding_occurrences WHERE trace_id = ?",
@@ -181,6 +184,7 @@ func insertSARIFResult(
 	index int,
 	result SARIFResultReference,
 ) error {
+	result.LinkedChunkID = firstNonEmpty(result.LinkedChunkID, linkedChunkID(ctx, tx, result))
 	raw, err := json.Marshal(result.Raw)
 	if err != nil {
 		return fmt.Errorf("marshal SARIF result %q: %w", result.ID, err)
@@ -190,9 +194,11 @@ func insertSARIFResult(
 		`INSERT OR REPLACE INTO sarif_results(
 			sarif_result_id, sarif_run_id, ordinal, rule_id, level, message,
 			fingerprint, finding_id, remediation_id, policy_id, skill_id,
-			principle_ids, path, start_line, start_column, evaluator_kind,
+			principle_ids, path, ast_language, ast_node_kind, ast_symbol_kind,
+			ast_symbol_name, ast_symbol_path, linked_chunk_id,
+			start_line, start_column, evaluator_kind,
 			cel_policy_id, cel_expression, policy_source, search_text, raw_json
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		result.ID,
 		runID,
 		index,
@@ -206,6 +212,12 @@ func insertSARIFResult(
 		result.SkillID,
 		strings.Join(result.PrincipleIDs, ","),
 		result.Path,
+		result.ASTLanguage,
+		result.ASTNodeKind,
+		result.ASTSymbolKind,
+		result.ASTSymbolName,
+		result.ASTSymbolPath,
+		result.LinkedChunkID,
 		result.StartLine,
 		result.StartColumn,
 		result.EvaluatorKind,
@@ -216,6 +228,20 @@ func insertSARIFResult(
 		string(raw),
 	); err != nil {
 		return fmt.Errorf("insert SARIF result %q: %w", result.ID, err)
+	}
+	if result.LinkedChunkID != "" {
+		if err := insertASTFindingLink(ctx, tx, ASTFindingLink{
+			ID:          stableID("ast-finding-link", "sarif_result", result.ID, result.LinkedChunkID),
+			FindingKind: "sarif_result",
+			FindingID:   result.ID,
+			ChunkID:     result.LinkedChunkID,
+			Path:        result.Path,
+			PolicyID:    result.PolicyID,
+			SkillID:     result.SkillID,
+			SymbolPath:  result.ASTSymbolPath,
+		}); err != nil {
+			return err
+		}
 	}
 	return insertFTS(ctx, tx, ftsRow{
 		Kind:       "sarif_result",
@@ -321,6 +347,7 @@ func replaceCodeFileChunks(
 	tx *sql.Tx,
 	file CodeFile,
 	chunks []CodeChunk,
+	edges []CodeEdge,
 ) error {
 	if _, err := tx.ExecContext(
 		ctx,
@@ -328,6 +355,20 @@ func replaceCodeFileChunks(
 		file.Path,
 	); err != nil {
 		return fmt.Errorf("delete code chunk FTS rows for %q: %w", file.Path, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM code_edges WHERE path = ?",
+		file.Path,
+	); err != nil {
+		return fmt.Errorf("delete code edges for %q: %w", file.Path, err)
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM ast_finding_links WHERE path = ?",
+		file.Path,
+	); err != nil {
+		return fmt.Errorf("delete stale AST finding links for %q: %w", file.Path, err)
 	}
 	if _, err := tx.ExecContext(
 		ctx,
@@ -339,19 +380,28 @@ func replaceCodeFileChunks(
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO code_files(
-			path, language, content_hash, size_bytes, line_count, indexed_at_utc
-		) VALUES (?, ?, ?, ?, ?, ?)`,
+			path, language, content_hash, parser_name, parser_version,
+			size_bytes, line_count, indexed_at_utc, stale_reason
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		file.Path,
 		file.Language,
 		file.ContentHash,
+		file.ParserName,
+		file.ParserVersion,
 		file.SizeBytes,
 		file.LineCount,
 		file.IndexedAtUTC,
+		file.StaleReason,
 	); err != nil {
 		return fmt.Errorf("upsert code file %q: %w", file.Path, err)
 	}
 	for _, chunk := range chunks {
 		if err := insertCodeChunk(ctx, tx, chunk); err != nil {
+			return err
+		}
+	}
+	for _, edge := range edges {
+		if err := insertCodeEdge(ctx, tx, edge); err != nil {
 			return err
 		}
 	}
@@ -364,9 +414,9 @@ func insertCodeChunk(ctx context.Context, tx *sql.Tx, chunk CodeChunk) error {
 		ctx,
 		`INSERT OR REPLACE INTO code_chunks(
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
+			symbol_path, parent_symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
 			end_line, content_hash, search_text, raw_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		chunk.ID,
 		chunk.Path,
 		chunk.Language,
@@ -374,6 +424,7 @@ func insertCodeChunk(ctx context.Context, tx *sql.Tx, chunk CodeChunk) error {
 		chunk.SymbolKind,
 		chunk.SymbolName,
 		chunk.SymbolPath,
+		chunk.ParentSymbolPath,
 		chunk.ParentChunkID,
 		chunk.StartByte,
 		chunk.EndByte,
@@ -392,6 +443,86 @@ func insertCodeChunk(ctx context.Context, tx *sql.Tx, chunk CodeChunk) error {
 		Message:    strings.Join(compactStrings([]string{chunk.SymbolKind, chunk.SymbolName}), " "),
 		SearchText: chunk.SearchText,
 	})
+}
+
+func insertCodeEdge(ctx context.Context, tx *sql.Tx, edge CodeEdge) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO code_edges(
+			edge_id, edge_kind, path, source_chunk_id, target_path,
+			target_chunk_id, target_symbol_path, target_name, raw_text
+		) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?)`,
+		edge.ID,
+		edge.Kind,
+		edge.Path,
+		edge.SourceChunkID,
+		edge.TargetPath,
+		edge.TargetChunkID,
+		edge.TargetSymbolPath,
+		edge.TargetName,
+		edge.RawText,
+	); err != nil {
+		return fmt.Errorf("insert code edge %q: %w", edge.ID, err)
+	}
+
+	return nil
+}
+
+func insertASTFindingLink(ctx context.Context, tx *sql.Tx, link ASTFindingLink) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT OR REPLACE INTO ast_finding_links(
+			link_id, finding_kind, finding_id, chunk_id, path, policy_id,
+			skill_id, symbol_path, content_hash, stale
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		link.ID,
+		link.FindingKind,
+		link.FindingID,
+		link.ChunkID,
+		link.Path,
+		link.PolicyID,
+		link.SkillID,
+		link.SymbolPath,
+		link.ContentHash,
+		boolInt(link.Stale),
+	); err != nil {
+		return fmt.Errorf("insert AST finding link %q: %w", link.ID, err)
+	}
+
+	return nil
+}
+
+func linkedChunkID(ctx context.Context, tx *sql.Tx, result SARIFResultReference) string {
+	if result.Path == "" || result.ASTSymbolPath == "" {
+		return ""
+	}
+	row := tx.QueryRowContext(
+		ctx,
+		`SELECT chunk_id FROM code_chunks
+		WHERE path = ?
+			AND symbol_path = ?
+			AND (? = '' OR node_kind = ?)
+		ORDER BY start_line
+		LIMIT 1`,
+		result.Path,
+		result.ASTSymbolPath,
+		result.ASTNodeKind,
+		result.ASTNodeKind,
+	)
+	var id string
+	if err := row.Scan(&id); err != nil {
+		return ""
+	}
+
+	return id
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+
+	return 0
 }
 
 func insertRemediations(ctx context.Context, tx *sql.Tx, trace Trace) error {

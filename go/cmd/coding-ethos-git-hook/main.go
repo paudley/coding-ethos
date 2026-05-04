@@ -78,6 +78,7 @@ func main() {
 		if runErr != nil {
 			exitErr(runErr)
 		}
+		lint.EnsureTraceID(&result)
 		logLintResult(*cwd, result)
 
 		if result.Blocked() {
@@ -103,6 +104,7 @@ func main() {
 		if runErr != nil {
 			exitErr(runErr)
 		}
+		lint.EnsureTraceID(&result)
 		logLintResult(*cwd, result)
 
 		if result.Blocked() {
@@ -183,6 +185,7 @@ func encodeLintResultTo(writer io.Writer, result lint.Result) error {
 
 func blockedOnlyResult(result lint.Result) lint.Result {
 	filtered := lint.Result{
+		TraceID:    result.TraceID,
 		Scope:      result.Scope,
 		Status:     result.Status,
 		SkillHints: append([]lint.SkillHint(nil), result.SkillHints...),

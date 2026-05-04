@@ -108,6 +108,126 @@ func TestStoreIngestTraceDirsFindsLintAndHookTraces(t *testing.T) {
 	}
 }
 
+func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	ingester := NewTraceIngester(store)
+	if err := ingester.IngestHookTrace(ctx, hookTracePayload(t)); err != nil {
+		t.Fatalf("ingest hook trace: %v", err)
+	}
+
+	usage, err := store.HookUsage(ctx, HookUsageQuery{
+		RiskCategory: "bypass",
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("query hook usage: %v", err)
+	}
+	if len(usage) != 1 {
+		t.Fatalf("hook usage = %#v", usage)
+	}
+	if usage[0].EventCount != 1 ||
+		usage[0].BlockedCount != 1 ||
+		usage[0].PolicyID != "git.wrapper_required" ||
+		usage[0].OperationKind != "git_status" ||
+		usage[0].TargetKind != "source_file" ||
+		usage[0].LastTrackingID != "deny-hook-a" {
+		t.Fatalf("hook usage summary = %#v", usage[0])
+	}
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.HookEvents != 1 || stats.HookDecisions != 1 ||
+		stats.HookTargets != 1 || stats.FtsRows != 3 {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestHookUsageLastIDsComeFromLatestEvent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	ingester := NewTraceIngester(store)
+	older := hookTracePayloadWithIDs(
+		t,
+		"hook-z",
+		"deny-z",
+		"2026-01-01T00:01:00Z",
+	)
+	newer := hookTracePayloadWithIDs(
+		t,
+		"hook-a",
+		"deny-a",
+		"2026-01-01T00:02:00Z",
+	)
+	if err := ingester.IngestHookTrace(ctx, older); err != nil {
+		t.Fatalf("ingest older hook trace: %v", err)
+	}
+	if err := ingester.IngestHookTrace(ctx, newer); err != nil {
+		t.Fatalf("ingest newer hook trace: %v", err)
+	}
+
+	usage, err := store.HookUsage(ctx, HookUsageQuery{
+		RiskCategory: "bypass",
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("query hook usage: %v", err)
+	}
+	if len(usage) != 1 {
+		t.Fatalf("hook usage = %#v", usage)
+	}
+	if usage[0].EventCount != 2 ||
+		usage[0].LastSeenUTC != "2026-01-01T00:02:00Z" ||
+		usage[0].LastTraceID != "hook-a" ||
+		usage[0].LastTrackingID != "deny-a" {
+		t.Fatalf("latest IDs not tied to newest event: %#v", usage[0])
+	}
+}
+
+func TestStoreRecordsHookReviews(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	if err := NewTraceIngester(store).IngestHookTrace(ctx, hookTracePayload(t)); err != nil {
+		t.Fatalf("ingest hook trace: %v", err)
+	}
+	if err := store.RecordHookReview(ctx, HookReview{
+		TraceID:       "hook-trace-a",
+		TrackingID:    "deny-hook-a",
+		Disposition:   "false_positive",
+		Reviewer:      "admin",
+		Notes:         "memory path should be allowed",
+		RecordedAtUTC: "2026-01-01T00:03:00Z",
+	}); err != nil {
+		t.Fatalf("record hook review: %v", err)
+	}
+
+	reviews, err := store.HookReviews(ctx, HookReviewQuery{
+		Disposition: "false_positive",
+	})
+	if err != nil {
+		t.Fatalf("query hook reviews: %v", err)
+	}
+	if len(reviews) != 1 || reviews[0].TrackingID != "deny-hook-a" ||
+		reviews[0].Notes != "memory path should be allowed" {
+		t.Fatalf("reviews = %#v", reviews)
+	}
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.HookReviews != 1 || stats.FtsRows != 4 {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
 func TestStoreIngestsSARIFResultsWithCELProvenance(t *testing.T) {
 	t.Parallel()
 
@@ -141,6 +261,45 @@ func TestStoreIngestsSARIFResultsWithCELProvenance(t *testing.T) {
 	}
 	if stats.SARIFRuns != 1 || stats.SARIFResults != 1 || stats.FtsRows != 1 {
 		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestStoreQueriesMigratedSARIFResultsWithNullASTColumns(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	if _, err := store.db.ExecContext(
+		ctx,
+		`INSERT INTO sarif_runs(
+			sarif_run_id, source_path, category, tool_name, raw_json
+		) VALUES ('old-run', 'old.sarif', 'policy', 'coding-ethos', '{}')`,
+	); err != nil {
+		t.Fatalf("insert old SARIF run: %v", err)
+	}
+	if _, err := store.db.ExecContext(
+		ctx,
+		`INSERT INTO sarif_results(
+			sarif_result_id, sarif_run_id, ordinal, rule_id, message,
+			level, fingerprint, finding_id, remediation_id, policy_id, skill_id,
+			principle_ids, path, start_line, start_column, evaluator_kind,
+			cel_policy_id, cel_expression, policy_source, search_text, raw_json
+		) VALUES (
+			'old-result', 'old-run', 0, 'old.rule', 'old message',
+			'warning', '', '', '', '', '',
+			'', 'pkg/app.py', 1, 1, '',
+			'', '', '', 'old message', '{}'
+		)`,
+	); err != nil {
+		t.Fatalf("insert old SARIF result: %v", err)
+	}
+
+	results, err := store.SARIFResults(ctx, SARIFResultQuery{RunID: "old-run"})
+	if err != nil {
+		t.Fatalf("query old SARIF results: %v", err)
+	}
+	if len(results) != 1 || results[0].ASTLanguage != "" || results[0].LinkedChunkID != "" {
+		t.Fatalf("SARIF results = %#v", results)
 	}
 }
 
@@ -393,6 +552,156 @@ func (worker Worker) Run() string {
 	}
 	if stats.Files != 1 || stats.CodeChunks < 3 || stats.FtsRows < 3 {
 		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestASTIndexerStoresParentEdgesAndContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(`def helper():
+    return "ok"
+
+class Worker:
+    def run(self):
+        return helper()
+`))
+	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+
+	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+	if summary.FilesIndexed != 1 || summary.ChunksIndexed < 3 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
+		Path:       "pkg/worker.py",
+		SymbolPath: "Worker.run",
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query run chunk: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].ParentSymbolPath != "Worker" || chunks[0].ParentChunkID == "" {
+		t.Fatalf("run chunks = %#v", chunks)
+	}
+	context, err := store.CodeContext(ctx, CodeContextQuery{
+		Path:       "pkg/worker.py",
+		SymbolPath: "Worker.run",
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatalf("code context: %v", err)
+	}
+	if context.Parent == nil || context.Parent.SymbolPath != "Worker" {
+		t.Fatalf("context parent = %#v", context.Parent)
+	}
+	if len(context.OutgoingEdges) == 0 {
+		t.Fatalf("context outgoing edges = %#v", context.OutgoingEdges)
+	}
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.CodeEdges == 0 {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestStoreQueriesMigratedCodeChunksWithNullParentSymbolPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	if _, err := store.db.ExecContext(
+		ctx,
+		`INSERT INTO code_files(
+			path, language, content_hash, size_bytes, line_count, indexed_at_utc
+		) VALUES ('pkg/app.py', 'python', 'hash-file', 10, 1, '2026-01-01T00:00:00Z')`,
+	); err != nil {
+		t.Fatalf("insert old code file: %v", err)
+	}
+	if _, err := store.db.ExecContext(
+		ctx,
+		`INSERT INTO code_chunks(
+			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
+			symbol_path, parent_symbol_path, parent_chunk_id, start_byte,
+			end_byte, start_line, end_line, content_hash, search_text, raw_text
+		) VALUES (
+			'chunk-old', 'pkg/app.py', 'python', 'module', 'module', 'app',
+			'app', NULL, '', 0, 10, 1, 1, 'hash-chunk', 'app', 'value = 1'
+		)`,
+	); err != nil {
+		t.Fatalf("insert old code chunk: %v", err)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "pkg/app.py"})
+	if err != nil {
+		t.Fatalf("query old code chunks: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].ParentSymbolPath != "" {
+		t.Fatalf("code chunks = %#v", chunks)
+	}
+	context, err := store.CodeContext(ctx, CodeContextQuery{ChunkID: "chunk-old"})
+	if err != nil {
+		t.Fatalf("query old code context: %v", err)
+	}
+	if context.Chunk.ParentSymbolPath != "" {
+		t.Fatalf("code context = %#v", context)
+	}
+}
+
+func TestSARIFIngestLinksASTBackedResultsToCodeChunks(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(`def helper():
+    return "ok"
+`))
+	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if _, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"}); err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	err := store.IngestSARIFRun(ctx, SARIFRun{
+		ID:       "sarif-run-1",
+		ToolName: "coding-ethos",
+		Results: []SARIFResultReference{{
+			ID:            "sarif-result-1",
+			RuleID:        "filesystem.line_limits",
+			Message:       "Large source files must not keep growing.",
+			PolicyID:      "filesystem.line_limits",
+			SkillID:       "agent-operating-discipline",
+			Path:          "pkg/worker.py",
+			ASTLanguage:   "python",
+			ASTNodeKind:   "function_definition",
+			ASTSymbolKind: "function",
+			ASTSymbolName: "helper",
+			ASTSymbolPath: "helper",
+			SearchText:    "helper line limit",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ingest SARIF run: %v", err)
+	}
+	results, err := store.SARIFResults(ctx, SARIFResultQuery{RunID: "sarif-run-1"})
+	if err != nil {
+		t.Fatalf("SARIF results: %v", err)
+	}
+	if len(results) != 1 || results[0].LinkedChunkID == "" {
+		t.Fatalf("SARIF results = %#v", results)
+	}
+	context, err := store.CodeContext(ctx, CodeContextQuery{ChunkID: results[0].LinkedChunkID})
+	if err != nil {
+		t.Fatalf("code context: %v", err)
+	}
+	if len(context.FindingLinks) != 1 || context.FindingLinks[0].FindingID != "sarif-result-1" {
+		t.Fatalf("finding links = %#v", context.FindingLinks)
 	}
 }
 
@@ -719,6 +1028,22 @@ func sarifPayload(t *testing.T) []byte {
 func hookTracePayload(t *testing.T) []byte {
 	t.Helper()
 
+	return hookTracePayloadWithIDs(
+		t,
+		"hook-trace-a",
+		"deny-hook-a",
+		"2026-01-01T00:02:00Z",
+	)
+}
+
+func hookTracePayloadWithIDs(
+	t *testing.T,
+	traceID string,
+	trackingID string,
+	recordedAtUTC string,
+) []byte {
+	t.Helper()
+
 	finding := evidence.FromDiagnostic(diagnostics.Diagnostic{
 		Tool:     "hook",
 		File:     "pkg/app.py",
@@ -732,21 +1057,30 @@ func hookTracePayload(t *testing.T) []byte {
 		SkillID:  "safe-git-workflow",
 		Message:  "Use the normal review path.",
 	}
-	event := evidence.RemediationEventFromRemediation(remediation, finding.ID, "hook-trace-a", "suggested")
+	event := evidence.RemediationEventFromRemediation(remediation, finding.ID, traceID, "suggested")
 
 	return mustJSON(t, map[string]any{
 		"schema_version":     evidence.SchemaVersion,
-		"trace_id":           "hook-trace-a",
-		"recorded_at_utc":    "2026-01-01T00:02:00Z",
+		"trace_id":           traceID,
+		"tracking_id":        trackingID,
+		"recorded_at_utc":    recordedAtUTC,
 		"provider":           "codex",
 		"event":              "PreToolUse",
 		"tool":               "Bash",
 		"cwd":                "/repo",
+		"command":            map[string]any{"sha256": strings.Repeat("a", 64), "shape_sha256": strings.Repeat("b", 64), "preview": "git status --short"},
+		"files":              []string{"pkg/app.py"},
+		"operation_kind":     "git_status",
+		"target_kind":        "source_file",
+		"risk_category":      "bypass",
+		"target_set_sha256":  strings.Repeat("c", 64),
+		"runtime_ms":         12,
 		"status":             "blocked",
+		"decisions":          []map[string]any{{"policy_id": "git.wrapper_required", "decision": "block", "severity": "block", "skill_id": "safe-git-workflow", "implementation": "cel", "message_hash": strings.Repeat("d", 64), "suggestion_hash": strings.Repeat("e", 64)}},
 		"findings":           []evidence.Finding{finding},
 		"agent_remediation":  []agentmsg.Remediation{remediation},
 		"remediation_events": []evidence.RemediationEvent{event},
-		"output_shape":       map[string]any{"blocked": true},
+		"output_shape":       map[string]any{"blocked": true, "has_updated_input": true},
 	})
 }
 

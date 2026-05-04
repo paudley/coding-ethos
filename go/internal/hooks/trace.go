@@ -33,14 +33,24 @@ var hookTraceFallbackCounter atomic.Uint64
 type HookTrace struct {
 	SchemaVersion      int                         `json:"schema_version"`
 	TraceID            string                      `json:"trace_id"`
+	TrackingID         string                      `json:"tracking_id,omitempty"`
 	RecordedAtUTC      string                      `json:"recorded_at_utc"`
 	Provider           string                      `json:"provider,omitempty"`
 	Event              string                      `json:"event"`
 	Tool               string                      `json:"tool,omitempty"`
+	SessionID          string                      `json:"session_id,omitempty"`
+	Matcher            string                      `json:"matcher,omitempty"`
+	Source             string                      `json:"source,omitempty"`
+	TranscriptPath     string                      `json:"transcript_path,omitempty"`
 	Cwd                string                      `json:"cwd,omitempty"`
 	Command            *HookTraceCommand           `json:"command,omitempty"`
 	Files              []string                    `json:"files,omitempty"`
+	OperationKind      string                      `json:"operation_kind,omitempty"`
+	TargetKind         string                      `json:"target_kind,omitempty"`
+	RiskCategory       string                      `json:"risk_category,omitempty"`
+	TargetSetSHA256    string                      `json:"target_set_sha256,omitempty"`
 	Status             string                      `json:"status"`
+	RuntimeMS          int64                       `json:"runtime_ms,omitempty"`
 	Decisions          []HookTraceDecision         `json:"decisions,omitempty"`
 	Findings           []evidence.Finding          `json:"findings,omitempty"`
 	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
@@ -50,8 +60,9 @@ type HookTrace struct {
 }
 
 type HookTraceCommand struct {
-	SHA256  string `json:"sha256"`
-	Preview string `json:"preview"`
+	SHA256      string `json:"sha256"`
+	ShapeSHA256 string `json:"shape_sha256,omitempty"`
+	Preview     string `json:"preview"`
 }
 
 type HookTraceDecision struct {
@@ -62,8 +73,10 @@ type HookTraceDecision struct {
 	Suggestion      string   `json:"suggestion,omitempty"`
 	Implementation  string   `json:"implementation,omitempty"`
 	Message         string   `json:"message,omitempty"`
+	MessageHash     string   `json:"message_hash,omitempty"`
 	EvidenceKeys    []string `json:"evidence_keys,omitempty"`
 	PrincipleIDs    []string `json:"principle_ids,omitempty"`
+	SuggestionHash  string   `json:"suggestion_hash,omitempty"`
 	DiagnosticCount int      `json:"diagnostic_count,omitempty"`
 }
 
@@ -87,16 +100,27 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	remediation := agentmsg.FromDecisions(result.Decisions, event.ToolName)
 	findings := evidence.FromDecisions(result.Decisions)
 	traceID := hookTraceID(event, result)
+	analytics := traceAnalytics(event, result)
 	trace := HookTrace{
 		SchemaVersion:      evidence.SchemaVersion,
 		TraceID:            traceID,
+		TrackingID:         result.TrackingID,
 		RecordedAtUTC:      time.Now().UTC().Format(time.RFC3339),
 		Provider:           event.Provider(),
 		Event:              event.HookEventName,
 		Tool:               event.ToolName,
+		SessionID:          event.SessionID,
+		Matcher:            event.Matcher,
+		Source:             event.Source,
+		TranscriptPath:     event.TranscriptPath,
 		Cwd:                event.Cwd,
-		Files:              event.Files(),
+		Files:              analytics.NormalizedTargets,
+		OperationKind:      analytics.OperationKind,
+		TargetKind:         analytics.TargetKind,
+		RiskCategory:       analytics.RiskCategory,
+		TargetSetSHA256:    analytics.TargetSetHash,
 		Status:             result.Status,
+		RuntimeMS:          result.RuntimeMS,
 		Decisions:          traceDecisions(result.Decisions),
 		Findings:           findings,
 		AgentRemediation:   remediation,
@@ -112,8 +136,9 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 
 	if command := event.Command(); command != "" {
 		trace.Command = &HookTraceCommand{
-			SHA256:  sha256Hex(command),
-			Preview: truncateForTrace(command, commandPreviewLimit),
+			SHA256:      sha256Hex(command),
+			ShapeSHA256: analytics.CommandShapeHash,
+			Preview:     truncateForTrace(command, commandPreviewLimit),
 		}
 	}
 
@@ -157,8 +182,10 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 			Suggestion:      truncateForTrace(decision.Suggestion, commandPreviewLimit),
 			Implementation:  evidenceString(decision.Evidence, "implementation"),
 			Message:         truncateForTrace(decision.Message, commandPreviewLimit),
+			MessageHash:     optionalSHA256(decision.Message),
 			EvidenceKeys:    sortedEvidenceKeys(decision.Evidence),
 			PrincipleIDs:    append([]string(nil), decision.PrincipleIDs...),
+			SuggestionHash:  optionalSHA256(decision.Suggestion),
 			DiagnosticCount: len(decision.Diagnostics),
 		})
 	}
@@ -245,6 +272,14 @@ func sha256Hex(value string) string {
 	sum := sha256.Sum256([]byte(value))
 
 	return hex.EncodeToString(sum[:])
+}
+
+func optionalSHA256(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+
+	return sha256Hex(value)
 }
 
 func truncateForTrace(value string, limit int) string {

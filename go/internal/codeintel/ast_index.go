@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -104,15 +105,19 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	chunks := codeChunksFromSymbols(parsed.Symbols)
+	chunks = attachParentChunks(chunks)
+	edges := codeEdgesFromChunks(relativePath, parsed.Language, string(contents), chunks)
 	file := CodeFile{
-		Path:         relativePath,
-		Language:     language,
-		ContentHash:  parsed.ContentHash,
-		SizeBytes:    len(contents),
-		LineCount:    parsed.LineCount,
-		IndexedAtUTC: time.Now().UTC().Format(time.RFC3339),
+		Path:          relativePath,
+		Language:      language,
+		ContentHash:   parsed.ContentHash,
+		ParserName:    "tree-sitter",
+		ParserVersion: "go-tree-sitter",
+		SizeBytes:     len(contents),
+		LineCount:     parsed.LineCount,
+		IndexedAtUTC:  time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := indexer.store.ReplaceCodeFileChunks(ctx, file, chunks); err != nil {
+	if err := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges); err != nil {
 		return err
 	}
 	summary.FilesIndexed++
@@ -141,22 +146,166 @@ func codeChunkFromSymbol(symbol astfacts.Symbol) CodeChunk {
 		symbol.RawText,
 	}), "\n")
 
+	parentSymbolPath := parentSymbolPath(symbol.SymbolPath)
 	return CodeChunk{
-		ID:          stableID("code-chunk", symbol.Path, symbol.Language, symbol.NodeKind, symbol.SymbolPath, symbol.ContentHash),
-		Path:        symbol.Path,
-		Language:    symbol.Language,
-		NodeKind:    symbol.NodeKind,
-		SymbolKind:  symbol.SymbolKind,
-		SymbolName:  symbol.SymbolName,
-		SymbolPath:  symbol.SymbolPath,
-		StartByte:   symbol.StartByte,
-		EndByte:     symbol.EndByte,
-		StartLine:   symbol.StartLine,
-		EndLine:     symbol.EndLine,
-		ContentHash: symbol.ContentHash,
-		SearchText:  search,
-		RawText:     symbol.RawText,
+		ID:               stableID("code-chunk", symbol.Path, symbol.Language, symbol.NodeKind, symbol.SymbolPath, symbol.ContentHash),
+		Path:             symbol.Path,
+		Language:         symbol.Language,
+		NodeKind:         symbol.NodeKind,
+		SymbolKind:       symbol.SymbolKind,
+		SymbolName:       symbol.SymbolName,
+		SymbolPath:       symbol.SymbolPath,
+		ParentSymbolPath: parentSymbolPath,
+		StartByte:        symbol.StartByte,
+		EndByte:          symbol.EndByte,
+		StartLine:        symbol.StartLine,
+		EndLine:          symbol.EndLine,
+		ContentHash:      symbol.ContentHash,
+		SearchText:       search,
+		RawText:          symbol.RawText,
 	}
+}
+
+func attachParentChunks(chunks []CodeChunk) []CodeChunk {
+	bySymbolPath := map[string]CodeChunk{}
+	for _, chunk := range chunks {
+		if chunk.SymbolPath != "" {
+			bySymbolPath[chunk.SymbolPath] = chunk
+		}
+	}
+	for index := range chunks {
+		if parent, ok := bySymbolPath[chunks[index].ParentSymbolPath]; ok {
+			chunks[index].ParentChunkID = parent.ID
+		}
+	}
+
+	return chunks
+}
+
+func parentSymbolPath(symbolPath string) string {
+	parts := strings.Split(symbolPath, ".")
+	if len(parts) <= 1 {
+		return ""
+	}
+
+	return strings.Join(parts[:len(parts)-1], ".")
+}
+
+func codeEdgesFromChunks(path string, language string, contents string, chunks []CodeChunk) []CodeEdge {
+	edges := []CodeEdge{}
+	for _, chunk := range chunks {
+		if chunk.ParentChunkID != "" {
+			edges = append(edges, CodeEdge{
+				ID:               stableID("code-edge", "contains", path, chunk.ParentChunkID, chunk.ID),
+				Kind:             "contains",
+				Path:             path,
+				SourceChunkID:    chunk.ParentChunkID,
+				TargetPath:       path,
+				TargetChunkID:    chunk.ID,
+				TargetSymbolPath: chunk.SymbolPath,
+				TargetName:       chunk.SymbolName,
+			})
+		}
+	}
+	edges = append(edges, importEdges(path, language, contents)...)
+	edges = append(edges, referenceEdges(path, chunks)...)
+
+	return dedupeCodeEdges(edges)
+}
+
+func importEdges(path string, language string, contents string) []CodeEdge {
+	edges := []CodeEdge{}
+	for _, line := range strings.Split(contents, "\n") {
+		target := importTarget(language, strings.TrimSpace(line))
+		if target == "" {
+			continue
+		}
+		edges = append(edges, CodeEdge{
+			ID:         stableID("code-edge", "imports", path, target, line),
+			Kind:       "imports",
+			Path:       path,
+			TargetPath: target,
+			TargetName: target,
+			RawText:    strings.TrimSpace(line),
+		})
+	}
+
+	return edges
+}
+
+func importTarget(language string, line string) string {
+	switch language {
+	case "go":
+		if strings.HasPrefix(line, `"`) {
+			return strings.Trim(line, `"`)
+		}
+		if strings.HasPrefix(line, "import ") {
+			return strings.Trim(strings.TrimPrefix(line, "import "), `"()`)
+		}
+	case "python":
+		if strings.HasPrefix(line, "import ") {
+			fields := strings.Fields(strings.TrimPrefix(line, "import "))
+			if len(fields) > 0 {
+				return strings.TrimSuffix(fields[0], ",")
+			}
+		}
+		if strings.HasPrefix(line, "from ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				return fields[1]
+			}
+		}
+	case "javascript":
+		if strings.HasPrefix(line, "import ") && strings.Contains(line, " from ") {
+			_, target, _ := strings.Cut(line, " from ")
+			return strings.Trim(target, `"' ;`)
+		}
+	}
+
+	return ""
+}
+
+func referenceEdges(path string, chunks []CodeChunk) []CodeEdge {
+	edges := []CodeEdge{}
+	for _, source := range chunks {
+		for _, target := range chunks {
+			if source.ID == target.ID || target.SymbolName == "" {
+				continue
+			}
+			if !strings.Contains(source.RawText, target.SymbolName) {
+				continue
+			}
+			edges = append(edges, CodeEdge{
+				ID:               stableID("code-edge", "references", path, source.ID, target.ID),
+				Kind:             "references",
+				Path:             path,
+				SourceChunkID:    source.ID,
+				TargetPath:       path,
+				TargetChunkID:    target.ID,
+				TargetSymbolPath: target.SymbolPath,
+				TargetName:       target.SymbolName,
+			})
+		}
+	}
+
+	return edges
+}
+
+func dedupeCodeEdges(edges []CodeEdge) []CodeEdge {
+	seen := map[string]bool{}
+	deduped := []CodeEdge{}
+	for _, edge := range edges {
+		if edge.ID == "" || seen[edge.ID] {
+			continue
+		}
+		seen[edge.ID] = true
+		deduped = append(deduped, edge)
+	}
+	slices.SortFunc(deduped, func(left CodeEdge, right CodeEdge) int {
+		return strings.Compare(left.ID, right.ID)
+	})
+
+	return deduped
 }
 
 func shouldSkipDir(name string) bool {

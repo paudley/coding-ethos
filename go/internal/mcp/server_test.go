@@ -5,6 +5,7 @@ package mcp_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -26,8 +28,8 @@ func TestServerListsTools(t *testing.T) {
 
 	result := response["result"].(map[string]any)
 	tools := result["tools"].([]any)
-	if len(tools) != 18 {
-		t.Fatalf("tool count = %d, want 18: %#v", len(tools), tools)
+	if len(tools) != 20 {
+		t.Fatalf("tool count = %d, want 20: %#v", len(tools), tools)
 	}
 	for _, expected := range []string{
 		"policy_check_command",
@@ -44,9 +46,11 @@ func TestServerListsTools(t *testing.T) {
 		"remediation_explain",
 		"code_intel_search",
 		"code_intel_index_status",
+		"code_intel_hook_usage",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
+		"code_intel_code_context",
 		"skill_recommend",
 	} {
 		if !strings.Contains(output, expected) {
@@ -914,6 +918,50 @@ func TestServerSkillRecommendUsesBroadAgentWorkSignals(t *testing.T) {
 	}
 }
 
+func TestServerReportsCodeIntelHookUsage(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ctx := context.Background()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	payload := []byte(`{
+		"trace_id":"hook-usage-a",
+		"tracking_id":"deny-usage-a",
+		"recorded_at_utc":"2026-01-01T00:00:00Z",
+		"provider":"codex",
+		"event":"PreToolUse",
+		"tool":"Bash",
+		"status":"blocked",
+		"operation_kind":"git_status",
+		"target_kind":"repo_state",
+		"risk_category":"bypass",
+		"output_shape":{"blocked":true},
+		"decisions":[{"policy_id":"git.wrapper_required","decision":"block","severity":"block","skill_id":"safe-git-workflow"}]
+	}`)
+	if err := codeintel.NewTraceIngester(store).IngestHookTrace(ctx, payload); err != nil {
+		t.Fatalf("ingest hook trace: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":34,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_hook_usage",
+			"arguments":{"risk_category":"bypass"}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	if !strings.Contains(output, `"code_intel_hook_usage"`) ||
+		!strings.Contains(output, `"git.wrapper_required"`) ||
+		!strings.Contains(output, `"deny-usage-a"`) {
+		t.Fatalf("hook usage output missing expected summary:\n%s", output)
+	}
+}
+
 func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	t.Parallel()
 
@@ -953,6 +1001,36 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	if !strings.Contains(chunksOutput, `"code_intel_code_chunks"`) ||
 		!strings.Contains(chunksOutput, `"build_message"`) {
 		t.Fatalf("code chunks output missing indexed symbol:\n%s", chunksOutput)
+	}
+	contextOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":33,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_code_context",
+			"arguments":{"path":"pkg/app.py","symbol_path":"build_message"}
+		}
+	}`), runtime)
+	if !strings.Contains(contextOutput, `"code_intel_code_context"`) ||
+		!strings.Contains(contextOutput, `"build_message"`) {
+		t.Fatalf("code context output missing indexed symbol:\n%s", contextOutput)
+	}
+}
+
+func TestServerRejectsUnderspecifiedCodeContext(t *testing.T) {
+	t.Parallel()
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":35,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_code_context",
+			"arguments":{}
+		}
+	}`), mcp.Runtime{ConsumerRoot: t.TempDir()})
+	if !strings.Contains(output, "chunk_id or both path and symbol_path are required") {
+		t.Fatalf("missing underspecified context error:\n%s", output)
 	}
 }
 

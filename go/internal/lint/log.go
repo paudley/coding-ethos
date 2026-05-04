@@ -48,7 +48,8 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 		return "", fmt.Errorf("create lint trace dir: %w", err)
 	}
 
-	traceID := fmt.Sprintf("%s-%d-%s.json", timestamp, os.Getpid(), safeTraceScope(result.Scope))
+	EnsureTraceID(&result)
+	traceID := result.TraceID
 	path := filepath.Join(dir, traceID)
 	file, err := os.OpenFile(
 		filepath.Clean(path),
@@ -89,6 +90,19 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 	}
 
 	return path, nil
+}
+
+func EnsureTraceID(result *Result) {
+	if result == nil || strings.TrimSpace(result.TraceID) != "" {
+		return
+	}
+	result.TraceID = NewTraceID(result.Scope)
+}
+
+func NewTraceID(scope string) string {
+	timestamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+
+	return fmt.Sprintf("%s-%d-%s.json", timestamp, os.Getpid(), safeTraceScope(scope))
 }
 
 func safeTraceScope(scope string) string {

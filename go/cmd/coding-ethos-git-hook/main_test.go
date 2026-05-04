@@ -59,9 +59,10 @@ func TestBlockedOnlyResultDropsResolvedPolicyRecords(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
-		Scope:  lint.ScopeCommit,
-		Status: "blocked",
-		Files:  []string{"/tmp/COMMIT_EDITMSG"},
+		TraceID: "trace-commit.json",
+		Scope:   lint.ScopeCommit,
+		Status:  "blocked",
+		Files:   []string{"/tmp/COMMIT_EDITMSG"},
 		Decisions: []policy.Decision{
 			{
 				PolicyID: "git.commitlint",
@@ -81,6 +82,9 @@ func TestBlockedOnlyResultDropsResolvedPolicyRecords(t *testing.T) {
 	filtered := blockedOnlyResult(result)
 	if len(filtered.Decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", filtered.Decisions)
+	}
+	if filtered.TraceID != "trace-commit.json" {
+		t.Fatalf("filtered result lost trace ID: %#v", filtered)
 	}
 	if filtered.Decisions[0].PolicyID != "git.commitlint" {
 		t.Fatalf("unexpected decision: %#v", filtered.Decisions[0])
@@ -124,6 +128,7 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 	for _, want := range []string{
 		"format: toon",
 		"tool: policy-lint",
+		"trace_id: ",
 		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
 		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
 	} {

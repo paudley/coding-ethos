@@ -24,9 +24,15 @@ type Store struct {
 
 type Stats struct {
 	Traces              int `json:"traces"`
+	HookEvents          int `json:"hook_events"`
+	HookDecisions       int `json:"hook_decisions"`
+	HookTargets         int `json:"hook_targets"`
+	HookReviews         int `json:"hook_reviews"`
 	Findings            int `json:"findings"`
 	Files               int `json:"files"`
 	CodeChunks          int `json:"code_chunks"`
+	CodeEdges           int `json:"code_edges"`
+	ASTFindingLinks     int `json:"ast_finding_links"`
 	Remediations        int `json:"remediations"`
 	RemediationEvents   int `json:"remediation_events"`
 	SARIFRuns           int `json:"sarif_runs"`
@@ -158,9 +164,15 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	stats := Stats{SchemaVersion: schemaVersion}
 	counts := map[string]*int{
 		"traces":               &stats.Traces,
+		"hook_events":          &stats.HookEvents,
+		"hook_decisions":       &stats.HookDecisions,
+		"hook_targets":         &stats.HookTargets,
+		"hook_reviews":         &stats.HookReviews,
 		"findings":             &stats.Findings,
 		"code_files":           &stats.Files,
 		"code_chunks":          &stats.CodeChunks,
+		"code_edges":           &stats.CodeEdges,
+		"ast_finding_links":    &stats.ASTFindingLinks,
 		"remediations":         &stats.Remediations,
 		"remediation_events":   &stats.RemediationEvents,
 		"sarif_runs":           &stats.SARIFRuns,

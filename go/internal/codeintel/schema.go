@@ -52,13 +52,76 @@ var schemaStatements = []string{
 		PRIMARY KEY(trace_id, ordinal),
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
+	`CREATE TABLE IF NOT EXISTS hook_events (
+		trace_id TEXT PRIMARY KEY,
+		tracking_id TEXT,
+		session_id TEXT,
+		provider TEXT,
+		event TEXT,
+		tool TEXT,
+		status TEXT,
+		operation_kind TEXT,
+		target_kind TEXT,
+		risk_category TEXT,
+		command_sha256 TEXT,
+		command_shape_sha256 TEXT,
+		target_set_sha256 TEXT,
+		cwd TEXT,
+		source TEXT,
+		matcher TEXT,
+		transcript_path TEXT,
+		runtime_ms INTEGER,
+		decision_count INTEGER NOT NULL DEFAULT 0,
+		blocked INTEGER NOT NULL DEFAULT 0,
+		rewritten INTEGER NOT NULL DEFAULT 0,
+		additional_context INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS hook_decisions (
+		trace_id TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		tracking_id TEXT,
+		policy_id TEXT,
+		decision TEXT,
+		severity TEXT,
+		skill_id TEXT,
+		implementation TEXT,
+		principle_ids TEXT,
+		diagnostic_count INTEGER NOT NULL DEFAULT 0,
+		message_hash TEXT,
+		suggestion_hash TEXT,
+		message TEXT,
+		suggestion TEXT,
+		PRIMARY KEY(trace_id, ordinal),
+		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS hook_targets (
+		trace_id TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		target_path TEXT NOT NULL,
+		target_kind TEXT,
+		PRIMARY KEY(trace_id, ordinal),
+		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS hook_reviews (
+		review_id TEXT PRIMARY KEY,
+		trace_id TEXT NOT NULL,
+		tracking_id TEXT,
+		disposition TEXT NOT NULL,
+		reviewer TEXT,
+		notes TEXT,
+		recorded_at_utc TEXT
+	)`,
 	`CREATE TABLE IF NOT EXISTS code_files (
 		path TEXT PRIMARY KEY,
 		language TEXT NOT NULL,
 		content_hash TEXT NOT NULL,
+		parser_name TEXT,
+		parser_version TEXT,
 		size_bytes INTEGER NOT NULL,
 		line_count INTEGER NOT NULL,
-		indexed_at_utc TEXT NOT NULL
+		indexed_at_utc TEXT NOT NULL,
+		stale_reason TEXT
 	)`,
 	`CREATE TABLE IF NOT EXISTS code_chunks (
 		chunk_id TEXT PRIMARY KEY,
@@ -68,6 +131,7 @@ var schemaStatements = []string{
 		symbol_kind TEXT,
 		symbol_name TEXT,
 		symbol_path TEXT,
+		parent_symbol_path TEXT,
 		parent_chunk_id TEXT,
 		start_byte INTEGER NOT NULL,
 		end_byte INTEGER NOT NULL,
@@ -77,6 +141,33 @@ var schemaStatements = []string{
 		search_text TEXT NOT NULL,
 		raw_text TEXT NOT NULL,
 		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS code_edges (
+		edge_id TEXT PRIMARY KEY,
+		edge_kind TEXT NOT NULL,
+		path TEXT NOT NULL,
+		source_chunk_id TEXT,
+		target_path TEXT,
+		target_chunk_id TEXT,
+		target_symbol_path TEXT,
+		target_name TEXT,
+		raw_text TEXT,
+		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE,
+		FOREIGN KEY(source_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE,
+		FOREIGN KEY(target_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS ast_finding_links (
+		link_id TEXT PRIMARY KEY,
+		finding_kind TEXT NOT NULL,
+		finding_id TEXT NOT NULL,
+		chunk_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		policy_id TEXT,
+		skill_id TEXT,
+		symbol_path TEXT,
+		content_hash TEXT,
+		stale INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE
 	)`,
 	`CREATE TABLE IF NOT EXISTS sarif_runs (
 		sarif_run_id TEXT PRIMARY KEY,
@@ -105,6 +196,12 @@ var schemaStatements = []string{
 		skill_id TEXT,
 		principle_ids TEXT,
 		path TEXT,
+		ast_language TEXT,
+		ast_node_kind TEXT,
+		ast_symbol_kind TEXT,
+		ast_symbol_name TEXT,
+		ast_symbol_path TEXT,
+		linked_chunk_id TEXT,
 		start_line INTEGER,
 		start_column INTEGER,
 		evaluator_kind TEXT,
@@ -202,14 +299,28 @@ var schemaStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_finding_occurrences_policy
 		ON finding_occurrences(policy_id, skill_id, path)`,
+	`CREATE INDEX IF NOT EXISTS idx_hook_events_usage
+		ON hook_events(provider, status, operation_kind, target_kind, risk_category)`,
+	`CREATE INDEX IF NOT EXISTS idx_hook_decisions_policy
+		ON hook_decisions(policy_id, skill_id, decision, severity)`,
+	`CREATE INDEX IF NOT EXISTS idx_hook_targets_path
+		ON hook_targets(target_path, target_kind)`,
+	`CREATE INDEX IF NOT EXISTS idx_hook_reviews_trace
+		ON hook_reviews(trace_id, tracking_id, disposition)`,
 	`CREATE INDEX IF NOT EXISTS idx_remediation_occurrences_policy
 		ON remediation_occurrences(policy_id, skill_id, file, path)`,
 	`CREATE INDEX IF NOT EXISTS idx_remediation_events_trace
 		ON remediation_events(trace_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_code_chunks_path
 		ON code_chunks(path, language, symbol_kind, symbol_name)`,
+	`CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol_path
+		ON code_chunks(path, symbol_path, node_kind)`,
 	`CREATE INDEX IF NOT EXISTS idx_code_chunks_hash
 		ON code_chunks(content_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_code_edges_path
+		ON code_edges(path, edge_kind, source_chunk_id, target_chunk_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_ast_finding_links_chunk
+		ON ast_finding_links(chunk_id, policy_id, skill_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_sarif_results_policy
 		ON sarif_results(policy_id, skill_id, path)`,
 	`CREATE INDEX IF NOT EXISTS idx_sarif_results_run
@@ -231,5 +342,21 @@ var migrationColumns = map[string][]migrationColumn{
 		{Name: "cel_policy_id", Type: "TEXT"},
 		{Name: "cel_expression", Type: "TEXT"},
 		{Name: "policy_source", Type: "TEXT"},
+	},
+	"code_files": {
+		{Name: "parser_name", Type: "TEXT"},
+		{Name: "parser_version", Type: "TEXT"},
+		{Name: "stale_reason", Type: "TEXT"},
+	},
+	"code_chunks": {
+		{Name: "parent_symbol_path", Type: "TEXT"},
+	},
+	"sarif_results": {
+		{Name: "ast_language", Type: "TEXT"},
+		{Name: "ast_node_kind", Type: "TEXT"},
+		{Name: "ast_symbol_kind", Type: "TEXT"},
+		{Name: "ast_symbol_name", Type: "TEXT"},
+		{Name: "ast_symbol_path", Type: "TEXT"},
+		{Name: "linked_chunk_id", Type: "TEXT"},
 	},
 }

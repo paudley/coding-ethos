@@ -33,6 +33,9 @@ type Trace struct {
 	Findings          []evidence.Finding
 	AgentRemediation  []agentmsg.Remediation
 	RemediationEvents []evidence.RemediationEvent
+	HookEvent         *HookEventAnalytics
+	HookDecisions     []HookDecisionAnalytics
+	HookTargets       []HookTargetAnalytics
 }
 
 func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
@@ -59,6 +62,9 @@ func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 		return err
 	}
 	if err := insertRemediationEvents(ctx, tx, trace); err != nil {
+		return err
+	}
+	if err := insertHookAnalytics(ctx, tx, trace); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -371,7 +372,7 @@ func TestEvaluateCELExpressionBlocksLineLimitGrowthFromFileChanges(t *testing.T)
 	}
 }
 
-func TestEvaluateCELExpressionBlocksLineLimitGrowthFromChangedSymbols(t *testing.T) {
+func TestEvaluateRepoLineLimitAllowsUnderThresholdPythonFileGrowth(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
@@ -379,58 +380,176 @@ func TestEvaluateCELExpressionBlocksLineLimitGrowthFromChangedSymbols(t *testing
 	runCELGit(t, repo, "config", "user.email", "test@example.com")
 	runCELGit(t, repo, "config", "user.name", "Test User")
 	sourceFile := filepath.Join(repo, "app.py")
-	if err := os.WriteFile(sourceFile, []byte("def build():\n    return 1\n"), 0o600); err != nil {
+	initial := pythonFileWithLines(510)
+	if err := os.WriteFile(sourceFile, []byte(initial), 0o600); err != nil {
 		t.Fatalf("write initial source: %v", err)
 	}
 	runCELGit(t, repo, "add", "app.py")
 	runCELGit(t, repo, "commit", "-m", "initial")
-	if err := os.WriteFile(
-		sourceFile,
-		[]byte("def build():\n    value = 1\n    return value\n"),
-		0o600,
-	); err != nil {
+	if err := os.WriteFile(sourceFile, []byte(initial+"value_510 = 510\n"), 0o600); err != nil {
 		t.Fatalf("rewrite source: %v", err)
 	}
 	runCELGit(t, repo, "add", "app.py")
 
-	policyDef := celExpressionPolicy()
-	policyDef.ID = "filesystem.line_limits"
-	policyDef.Source = policy.SourceRef{
-		File: "coding_ethos.yml",
-		Path: "principles[solid-is-law].policy.expressions[0]",
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"app.py"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
 	}
-	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
-	policyDef.PrincipleIDs = []string{"solid-is-law"}
+	if len(decisions) != 0 {
+		t.Fatalf("under-threshold Python file growth should be allowed: %#v", decisions)
+	}
+}
 
-	decisions, err := EvaluateCELExpression(
-		policyDef,
-		Context{
-			Cwd:   repo,
-			Files: []string{"app.py"},
-			Scope: "staged",
-			EvaluatorOptions: map[string]any{
-				"when": `
-					changed_symbols.exists(symbol,
-						symbol.ext == ".py" &&
-						symbol.symbol_name == "build" &&
-						symbol.line_count_grows &&
-						symbol.current_line_count > 2
-					)
-				`,
-			},
-		},
-	)
+func TestEvaluateRepoLineLimitAllowsBlankOnlyGrowthInOverThresholdPythonFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, "app.py")
+	initial := pythonFileWithLines(1001)
+	if err := os.WriteFile(sourceFile, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(sourceFile, []byte(initial+"\n"), 0o600); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"app.py"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("blank-only Python file growth should be allowed: %#v", decisions)
+	}
+}
+
+func TestEvaluateRepoLineLimitBlocksOverThresholdPythonFileGrowth(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, "app.py")
+	initial := pythonFileWithLines(1001)
+	if err := os.WriteFile(sourceFile, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(sourceFile, []byte(initial+"value_1001 = 1001\n"), 0o600); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"app.py"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
 	if err != nil {
 		t.Fatalf("evaluate CEL expression: %v", err)
 	}
 	if len(decisions) != 1 ||
 		decisions[0].PolicyID != "filesystem.line_limits" ||
-		decisions[0].Diagnostics[0].File != "app.py" ||
-		decisions[0].Diagnostics[0].Line != 1 ||
-		decisions[0].Diagnostics[0].Metadata["ast_change_source"] != "staged" ||
-		decisions[0].Diagnostics[0].Metadata["ast_symbol_name"] != "build" {
+		decisions[0].Diagnostics[0].File != "app.py" {
 		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateRepoLineLimitDiagnosticNamesOffendingFileInMultiFileRun(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	smallFile := filepath.Join(repo, "small.py")
+	largeFile := filepath.Join(repo, "large.py")
+	if err := os.WriteFile(smallFile, []byte("value = 1\n"), 0o600); err != nil {
+		t.Fatalf("write small source: %v", err)
+	}
+	initialLarge := pythonFileWithLines(1001)
+	if err := os.WriteFile(largeFile, []byte(initialLarge), 0o600); err != nil {
+		t.Fatalf("write large source: %v", err)
+	}
+	runCELGit(t, repo, "add", "small.py", "large.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(smallFile, []byte("value = 2\n"), 0o600); err != nil {
+		t.Fatalf("rewrite small source: %v", err)
+	}
+	if err := os.WriteFile(largeFile, []byte(initialLarge+"value_1001 = 1001\n"), 0o600); err != nil {
+		t.Fatalf("rewrite large source: %v", err)
+	}
+	runCELGit(t, repo, "add", "small.py", "large.py")
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"small.py", "large.py"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "large.py" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateRepoLineLimitDoesNotApplyToSQLFiles(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, "query.sql")
+	initial := strings.Repeat("SELECT 1;\n", 1200)
+	if err := os.WriteFile(sourceFile, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	runCELGit(t, repo, "add", "query.sql")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(sourceFile, []byte(initial+"SELECT 2;\n"), 0o600); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	runCELGit(t, repo, "add", "query.sql")
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"query.sql"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("SQL files should not be subject to filesystem.line_limits: %#v", decisions)
 	}
 }
 
@@ -530,106 +649,6 @@ func TestEvaluateCELExpressionBlocksGrowingLargeFileAtHookTime(t *testing.T) {
 	}
 }
 
-func TestEvaluateCELExpressionBlocksGrowingLargeSymbolAtHookTime(t *testing.T) {
-	t.Parallel()
-
-	repo := t.TempDir()
-	sourceFile := filepath.Join(repo, "app.py")
-	if err := os.WriteFile(
-		sourceFile,
-		[]byte("def grow():\n    return 1\n"),
-		0o600,
-	); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
-
-	policyDef := celExpressionPolicy()
-	policyDef.ID = "filesystem.line_limits"
-	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
-	policyDef.PrincipleIDs = []string{"solid-is-law"}
-
-	decisions, err := EvaluateCELExpression(
-		policyDef,
-		Context{
-			Cwd:        repo,
-			Files:      []string{"app.py"},
-			Tool:       "Edit",
-			OldContent: "def grow():\n    return 1\n",
-			Content:    "def grow():\n    value = 1\n    return value\n",
-			Scope:      "PreToolUse",
-			EvaluatorOptions: map[string]any{
-				"when": `
-					proposed_symbol_changes.exists(symbol,
-						symbol.file == "app.py" &&
-						symbol.symbol_kind == "function" &&
-						symbol.proposed_line_count > 2 &&
-						symbol.line_count_grows
-					)
-				`,
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("evaluate CEL expression: %v", err)
-	}
-	if len(decisions) != 1 ||
-		decisions[0].PolicyID != "filesystem.line_limits" ||
-		decisions[0].Diagnostics[0].File != "app.py" ||
-		decisions[0].Diagnostics[0].Line != 1 ||
-		decisions[0].Diagnostics[0].Metadata["ast_symbol_name"] != "grow" ||
-		decisions[0].Diagnostics[0].Metadata["ast_symbol_kind"] != "function" {
-		t.Fatalf("decisions = %#v", decisions)
-	}
-}
-
-func TestEvaluateCELExpressionAllowsLargeFileGrowthWhenOnlySmallSymbolsGrow(t *testing.T) {
-	t.Parallel()
-
-	repo := t.TempDir()
-	sourceFile := filepath.Join(repo, "app.py")
-	if err := os.WriteFile(
-		sourceFile,
-		[]byte("def small():\n    return 1\n"),
-		0o600,
-	); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
-
-	policyDef := celExpressionPolicy()
-	policyDef.ID = "filesystem.line_limits"
-	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
-	policyDef.PrincipleIDs = []string{"solid-is-law"}
-
-	decisions, err := EvaluateCELExpression(
-		policyDef,
-		Context{
-			Cwd:        repo,
-			Files:      []string{"app.py"},
-			Tool:       "Edit",
-			OldContent: "def small():\n    return 1\n",
-			Content:    "def small():\n    value = 1\n    return value\n",
-			Scope:      "PreToolUse",
-			EvaluatorOptions: map[string]any{
-				"when": `
-					proposed_symbol_changes.exists(symbol,
-						symbol.symbol_kind == "function" &&
-						symbol.proposed_line_count > 25 &&
-						symbol.line_count_grows
-					)
-				`,
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("evaluate CEL expression: %v", err)
-	}
-	if len(decisions) != 0 {
-		t.Fatalf("small symbol growth should be allowed: %#v", decisions)
-	}
-}
-
 func TestEvaluateCELExpressionAllowsManagedToolCapabilityContract(t *testing.T) {
 	t.Parallel()
 
@@ -713,4 +732,58 @@ func celExpressionPolicy() policy.Policy {
 		}},
 		PrincipleIDs: []string{"one-path-for-critical-operations"},
 	}
+}
+
+func compiledRepoLineLimitPolicy(t testing.TB) policy.Policy {
+	t.Helper()
+
+	root := repoRootForCELTest(t)
+	bundle, _, err := policy.Compile(policy.CompileOptions{
+		Primary: filepath.Join(root, "coding_ethos.yml"),
+		Config:  filepath.Join(root, "config.yaml"),
+	})
+	if err != nil {
+		t.Fatalf("compile repo policy bundle: %v", err)
+	}
+
+	return bundle.Policies["filesystem.line_limits"]
+}
+
+func repoRootForCELTest(t testing.TB) string {
+	t.Helper()
+
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatalf("resolve cwd: %v", err)
+	}
+	for {
+		if fileExistsForCELTest(filepath.Join(dir, "coding_ethos.yml")) &&
+			fileExistsForCELTest(filepath.Join(dir, "config.yaml")) {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("repository root not found from %s", dir)
+		}
+		dir = parent
+	}
+}
+
+func fileExistsForCELTest(path string) bool {
+	_, err := os.Stat(path)
+
+	return err == nil
+}
+
+func pythonFileWithLines(lines int) string {
+	var builder strings.Builder
+	for index := 0; index < lines; index++ {
+		builder.WriteString("value_")
+		builder.WriteString(strconv.Itoa(index))
+		builder.WriteString(" = ")
+		builder.WriteString(strconv.Itoa(index))
+		builder.WriteString("\n")
+	}
+
+	return builder.String()
 }

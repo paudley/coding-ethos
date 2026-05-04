@@ -40,12 +40,18 @@ func run(ctx context.Context, args []string) error {
 		return indexCode(ctx, args[1:])
 	case "record-outcome":
 		return recordOutcome(ctx, args[1:])
+	case "record-hook-review":
+		return recordHookReview(ctx, args[1:])
 	case "record-embedding":
 		return recordEmbedding(ctx, args[1:])
 	case "upsert-vector":
 		return upsertVector(ctx, args[1:])
 	case "stats":
 		return printStats(ctx, args[1:])
+	case "hook-usage":
+		return printHookUsage(ctx, args[1:])
+	case "hook-reviews":
+		return printHookReviews(ctx, args[1:])
 	case "repeated-failures":
 		return printRepeatedFailures(ctx, args[1:])
 	case "sarif-results":
@@ -62,6 +68,8 @@ func run(ctx context.Context, args []string) error {
 		return printEmbeddingCandidates(ctx, args[1:])
 	case "code-chunks":
 		return printCodeChunks(ctx, args[1:])
+	case "code-context":
+		return printCodeContext(ctx, args[1:])
 	case "hybrid-search":
 		return hybridSearch(ctx, args[1:])
 	case "index-status":

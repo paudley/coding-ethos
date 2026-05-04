@@ -52,6 +52,58 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONIncludesExistingTraceID(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		TraceID: "20260504T000000.000000000Z-123-staged.json",
+		Scope:   lint.ScopeStaged,
+		Status:  "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			File:     "pkg/app.py",
+			Line:     1,
+			Severity: "block",
+			PolicyID: "filesystem.line_limits",
+			Message:  "Large source files must not keep growing.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+	if !strings.Contains(output, "trace_id: 20260504T000000.000000000Z-123-staged.json") {
+		t.Fatalf("TOON output missing trace_id:\n%s", output)
+	}
+}
+
+func TestFormatLintResultTOONCreatesTraceIDForBlockedResult(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			File:     "pkg/app.py",
+			Line:     1,
+			Severity: "block",
+			PolicyID: "filesystem.line_limits",
+			Message:  "Large source files must not keep growing.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+	if !strings.Contains(output, "trace_id: ") ||
+		!strings.Contains(output, "-staged.json") {
+		t.Fatalf("TOON output missing generated trace_id:\n%s", output)
+	}
+}
+
 func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -762,7 +814,7 @@ func TestFormatLintResultTOONTruncatesPathologicalFindingCells(t *testing.T) {
 	if strings.Contains(output, longMessage) {
 		t.Fatalf("TOON output included full pathological message:\n%s", output)
 	}
-	if len(output) > 800 {
+	if len(output) > 900 {
 		t.Fatalf("TOON output too large after truncation: %d bytes\n%s", len(output), output)
 	}
 }

@@ -90,7 +90,7 @@ func TestExplainPolicyWritesCELExpressionDetails(t *testing.T) {
 		"`command_fact: {raw, lower, tool, argv, has_inline_env}`",
 		"`event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}`",
 		"`diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines, changed_symbols}`",
-		"`changed_symbols: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, changed_lines, is_generated, is_test, original_line_count, current_line_count, line_delta, line_count_grows, line_count_shrinks, original_start_line, original_end_line, current_start_line, current_end_line, original_content_hash, current_content_hash})`",
+		"`changed_symbols: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, changed_lines, is_generated, is_test, original_line_count, current_line_count, line_delta, original_nonblank_line_count, current_nonblank_line_count, nonblank_line_delta, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, original_start_line, original_end_line, current_start_line, current_end_line, original_content_hash, current_content_hash})`",
 		"`diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}`",
 		"`source: {path, language, symbol_name, symbol_kind, chunk_hash, line_count, changed_lines, prior_failures, recent_remediations}`",
 		"`findings: list({tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids})`",

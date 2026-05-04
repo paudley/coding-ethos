@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -51,10 +52,12 @@ func main() {
 		exitErr(err)
 	}
 
+	startedAt := time.Now()
 	result, err := hooks.Run(bundle, hooks.Options{Event: event})
 	if err != nil {
 		exitErr(err)
 	}
+	result.RuntimeMS = time.Since(startedAt).Milliseconds()
 
 	if err := hooks.WriteAgentHookTraceFromEnv(event, result); err != nil {
 		exitErr(err)

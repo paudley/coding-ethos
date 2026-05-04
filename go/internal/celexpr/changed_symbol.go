@@ -13,30 +13,35 @@ import (
 )
 
 type ChangedSymbolInput struct {
-	Base                string  `json:"base"`
-	CurrentContentHash  string  `json:"current_content_hash"`
-	Dir                 string  `json:"dir"`
-	Ext                 string  `json:"ext"`
-	File                string  `json:"file"`
-	Language            string  `json:"language"`
-	NodeKind            string  `json:"node_kind"`
-	OriginalContentHash string  `json:"original_content_hash"`
-	SymbolKind          string  `json:"symbol_kind"`
-	SymbolName          string  `json:"symbol_name"`
-	SymbolPath          string  `json:"symbol_path"`
-	Action              string  `json:"action"`
-	ChangedLines        []int64 `json:"changed_lines"`
-	CurrentEndLine      int64   `json:"current_end_line"`
-	CurrentLineCount    int64   `json:"current_line_count"`
-	CurrentStartLine    int64   `json:"current_start_line"`
-	LineDelta           int64   `json:"line_delta"`
-	OriginalEndLine     int64   `json:"original_end_line"`
-	OriginalLineCount   int64   `json:"original_line_count"`
-	OriginalStartLine   int64   `json:"original_start_line"`
-	IsGenerated         bool    `json:"is_generated"`
-	IsTest              bool    `json:"is_test"`
-	LineCountGrows      bool    `json:"line_count_grows"`
-	LineCountShrinks    bool    `json:"line_count_shrinks"`
+	Base                      string  `json:"base"`
+	CurrentContentHash        string  `json:"current_content_hash"`
+	Dir                       string  `json:"dir"`
+	Ext                       string  `json:"ext"`
+	File                      string  `json:"file"`
+	Language                  string  `json:"language"`
+	NodeKind                  string  `json:"node_kind"`
+	OriginalContentHash       string  `json:"original_content_hash"`
+	SymbolKind                string  `json:"symbol_kind"`
+	SymbolName                string  `json:"symbol_name"`
+	SymbolPath                string  `json:"symbol_path"`
+	Action                    string  `json:"action"`
+	ChangedLines              []int64 `json:"changed_lines"`
+	CurrentEndLine            int64   `json:"current_end_line"`
+	CurrentLineCount          int64   `json:"current_line_count"`
+	CurrentNonBlankLineCount  int64   `json:"current_nonblank_line_count"`
+	CurrentStartLine          int64   `json:"current_start_line"`
+	LineDelta                 int64   `json:"line_delta"`
+	NonBlankLineDelta         int64   `json:"nonblank_line_delta"`
+	OriginalEndLine           int64   `json:"original_end_line"`
+	OriginalLineCount         int64   `json:"original_line_count"`
+	OriginalNonBlankLineCount int64   `json:"original_nonblank_line_count"`
+	OriginalStartLine         int64   `json:"original_start_line"`
+	IsGenerated               bool    `json:"is_generated"`
+	IsTest                    bool    `json:"is_test"`
+	LineCountGrows            bool    `json:"line_count_grows"`
+	LineCountShrinks          bool    `json:"line_count_shrinks"`
+	NonBlankLineCountGrows    bool    `json:"nonblank_line_count_grows"`
+	NonBlankLineCountShrinks  bool    `json:"nonblank_line_count_shrinks"`
 }
 
 func changedSymbolInputs(cwd string, files []string, hunks []DiffHunkInput) []ChangedSymbolInput {
@@ -160,11 +165,15 @@ func changedSymbolInput(
 	}
 	originalLines := 0
 	currentLines := 0
+	originalNonBlankLines := 0
+	currentNonBlankLines := 0
 	if hasOriginal {
 		originalLines = original.LineCount
+		originalNonBlankLines = countNonBlankLines(original.RawText)
 	}
 	if hasCurrent {
 		currentLines = current.LineCount
+		currentNonBlankLines = countNonBlankLines(current.RawText)
 	}
 	action := "unchanged"
 	switch {
@@ -177,30 +186,35 @@ func changedSymbolInput(
 	}
 
 	return ChangedSymbolInput{
-		Base:                path.Base(file),
-		CurrentContentHash:  current.ContentHash,
-		Dir:                 path.Dir(file),
-		Ext:                 strings.ToLower(path.Ext(file)),
-		File:                file,
-		Language:            symbol.Language,
-		NodeKind:            symbol.NodeKind,
-		OriginalContentHash: original.ContentHash,
-		SymbolKind:          symbol.SymbolKind,
-		SymbolName:          symbol.SymbolName,
-		SymbolPath:          symbol.SymbolPath,
-		Action:              action,
-		ChangedLines:        changedSymbolLines(original, hasOriginal, current, hasCurrent, addedLines, removedLines),
-		CurrentEndLine:      int64(current.EndLine),
-		CurrentLineCount:    int64(currentLines),
-		CurrentStartLine:    int64(current.StartLine),
-		LineDelta:           int64(currentLines - originalLines),
-		OriginalEndLine:     int64(original.EndLine),
-		OriginalLineCount:   int64(originalLines),
-		OriginalStartLine:   int64(original.StartLine),
-		IsGenerated:         isGeneratedPath(file),
-		IsTest:              isTestPath(file),
-		LineCountGrows:      currentLines > originalLines,
-		LineCountShrinks:    currentLines < originalLines,
+		Base:                      path.Base(file),
+		CurrentContentHash:        current.ContentHash,
+		Dir:                       path.Dir(file),
+		Ext:                       strings.ToLower(path.Ext(file)),
+		File:                      file,
+		Language:                  symbol.Language,
+		NodeKind:                  symbol.NodeKind,
+		OriginalContentHash:       original.ContentHash,
+		SymbolKind:                symbol.SymbolKind,
+		SymbolName:                symbol.SymbolName,
+		SymbolPath:                symbol.SymbolPath,
+		Action:                    action,
+		ChangedLines:              changedSymbolLines(original, hasOriginal, current, hasCurrent, addedLines, removedLines),
+		CurrentEndLine:            int64(current.EndLine),
+		CurrentLineCount:          int64(currentLines),
+		CurrentNonBlankLineCount:  int64(currentNonBlankLines),
+		CurrentStartLine:          int64(current.StartLine),
+		LineDelta:                 int64(currentLines - originalLines),
+		NonBlankLineDelta:         int64(currentNonBlankLines - originalNonBlankLines),
+		OriginalEndLine:           int64(original.EndLine),
+		OriginalLineCount:         int64(originalLines),
+		OriginalNonBlankLineCount: int64(originalNonBlankLines),
+		OriginalStartLine:         int64(original.StartLine),
+		IsGenerated:               isGeneratedPath(file),
+		IsTest:                    isTestPath(file),
+		LineCountGrows:            currentLines > originalLines,
+		LineCountShrinks:          currentLines < originalLines,
+		NonBlankLineCountGrows:    currentNonBlankLines > originalNonBlankLines,
+		NonBlankLineCountShrinks:  currentNonBlankLines < originalNonBlankLines,
 	}
 }
 
