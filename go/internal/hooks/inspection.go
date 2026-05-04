@@ -60,7 +60,7 @@ func decideInspection(
 	}
 
 	status := resultStatus(decisions)
-	if status == statusBlocked {
+	if status == statusBlocked || (route.Rewrite && !providerSupportsUpdatedInput(ctx.Provider)) {
 		route = InspectionRoute{}
 	}
 
@@ -68,6 +68,15 @@ func decideInspection(
 		Route:    route,
 		Policies: decisions,
 		Status:   status,
+	}
+}
+
+func providerSupportsUpdatedInput(provider string) bool {
+	switch provider {
+	case providerClaude, providerGemini:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -503,9 +503,8 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-rewrite.out ||
   cat /tmp/coding-ethos-git-rewrite.out >&2
   exit 1
 fi
-if ! grep -q '"updatedInput"' /tmp/coding-ethos-codex-git-rewrite.out ||
-  ! grep -q 'policy-git' /tmp/coding-ethos-codex-git-rewrite.out; then
-  printf 'expected Codex git rewrite output:\n' >&2
+if grep -q '"updatedInput"' /tmp/coding-ethos-codex-git-rewrite.out; then
+  printf 'expected Codex git fallback without unsupported updatedInput:\n' >&2
   cat /tmp/coding-ethos-codex-git-rewrite.out >&2
   exit 1
 fi

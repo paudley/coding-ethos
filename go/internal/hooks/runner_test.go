@@ -509,7 +509,7 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 	}
 }
 
-func TestRunRewritesCodexPythonRuntime(t *testing.T) {
+func TestRunAllowsCodexPythonRuntimeWithoutUnsupportedRewrite(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -531,10 +531,12 @@ func TestRunRewritesCodexPythonRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
-	if result.Status != statusAllowed ||
-		result.HookSpecificOutput == nil ||
-		len(result.HookSpecificOutput.UpdatedInput) == 0 {
-		t.Fatalf("Codex should receive Python runtime rewrite: %#v", result)
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result)
 	}
 }
 
@@ -640,7 +642,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunRewritesCodexGitCommandThroughWrapper(t *testing.T) {
+func TestRunAllowsCodexGitWithoutUnsupportedUpdatedInput(t *testing.T) {
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			Cwd:           t.TempDir(),
@@ -659,10 +661,9 @@ func TestRunRewritesCodexGitCommandThroughWrapper(t *testing.T) {
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
 	}
-
-	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "policy-git 'status'") {
-		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result.HookSpecificOutput)
 	}
 }
 
@@ -2240,9 +2241,8 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 	}
 
 	if result.Status != statusAllowed ||
-		result.HookSpecificOutput == nil ||
-		len(result.HookSpecificOutput.UpdatedInput) == 0 {
-		t.Fatalf("nested owner hook should rewrite approved git, got %#v", result)
+		(result.HookSpecificOutput != nil && len(result.HookSpecificOutput.UpdatedInput) > 0) {
+		t.Fatalf("nested owner hook should allow without unsupported Codex rewrite, got %#v", result)
 	}
 }
 
@@ -2428,9 +2428,9 @@ func TestRunRewritesCodexGitCommandFromDecodedEvent(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput == nil ||
-		len(result.HookSpecificOutput.UpdatedInput) == 0 {
-		t.Fatalf("Codex should receive rewrite output: %#v", result)
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result.HookSpecificOutput)
 	}
 }
 

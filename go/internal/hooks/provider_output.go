@@ -19,6 +19,7 @@ type providerHookOutput struct {
 	Decision           string                 `json:"decision,omitempty"`
 	Reason             string                 `json:"reason,omitempty"`
 	SystemMessage      string                 `json:"systemMessage,omitempty"`
+	TraceID            string                 `json:"traceId,omitempty"`
 	TrackingID         string                 `json:"trackingID,omitempty"`
 	AgentRemediation   []agentmsg.Remediation `json:"agent_remediation,omitempty"`
 }
@@ -133,6 +134,7 @@ func providerBlockedOutput(result Result) providerHookOutput {
 			Decision:         "deny",
 			Reason:           message,
 			SystemMessage:    message,
+			TraceID:          result.TrackingID,
 			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 		}
@@ -140,6 +142,7 @@ func providerBlockedOutput(result Result) providerHookOutput {
 		output := providerHookOutput{
 			Decision:         "block",
 			Reason:           message,
+			TraceID:          result.TrackingID,
 			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 		}
@@ -155,6 +158,7 @@ func providerBlockedOutput(result Result) providerHookOutput {
 		return providerHookOutput{
 			Decision:         "block",
 			Reason:           message,
+			TraceID:          result.TrackingID,
 			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 			HookSpecificOutput: &HookSpecificOutput{

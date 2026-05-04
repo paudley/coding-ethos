@@ -84,8 +84,8 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "UserPromptSubmit additionalContext")
 	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
-	assertCapability(t, capabilities, "codex", "partial", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "codex", "partial", "MCP stdio server")
+	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
 	assertCapability(t, capabilities, "gemini", "partial", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
@@ -915,7 +915,7 @@ case "$payload" in
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
     ;;
   *'"provider": "codex"'*'"git status --short"'*)
-    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\''"}}}'
+    printf '%s\n' '{}'
     ;;
   *'"provider": "gemini-cli"'*'"git status --short"'*)
     printf '%s\n' '{"decision":"allow","hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\''"}}}'

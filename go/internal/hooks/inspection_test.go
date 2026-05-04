@@ -118,6 +118,26 @@ func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
 	}
 }
 
+func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
+	decision := decideInspection(
+		exampleBundleForInspectionTest(),
+		InspectionContext{Provider: providerCodex},
+		nil,
+		InspectionRoute{
+			Rewrite:      true,
+			UpdatedInput: map[string]any{"command": "rewritten"},
+			Reason:       "rewrite",
+		},
+	)
+
+	if decision.Status != statusAllowed || len(decision.Policies) != 0 {
+		t.Fatalf("decision mismatch: %#v", decision)
+	}
+	if decision.Route.Rewrite || len(decision.Route.UpdatedInput) > 0 {
+		t.Fatalf("unsupported provider inspection must clear route rewrite: %#v", decision.Route)
+	}
+}
+
 func exampleBundleForInspectionTest() policy.Bundle {
 	return policy.ExampleBundle()
 }

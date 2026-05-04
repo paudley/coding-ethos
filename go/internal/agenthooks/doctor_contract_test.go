@@ -54,8 +54,8 @@ func TestClaudeDoctorRewriteRequiresRedirection(t *testing.T) {
 	if err := validateClaudeRewriteProbe(result); err == nil {
 		t.Fatal("Claude rewrite without redirection passed doctor validation")
 	}
-	if err := validateCodexRewriteProbe(result); err != nil {
-		t.Fatalf("Codex rewrite should not require Claude redirection: %v", err)
+	if err := validateCodexRewriteProbe(result); err == nil {
+		t.Fatal("Codex rewrite probe should reject unsupported updatedInput")
 	}
 	if err := validateGeminiRewriteProbe(result); err != nil {
 		t.Fatalf("Gemini rewrite should not require Claude redirection: %v", err)

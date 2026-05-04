@@ -1006,7 +1006,6 @@ func ProviderCapabilities() []ProviderCapability {
 				"PreToolUse block",
 				"PreToolUse native command hook",
 				"PreToolUse apply_patch/edit policy hook",
-				"PreToolUse updatedInput rewrite",
 				"PostToolUse compact additionalContext",
 				"PostToolUse edit verification advice",
 				"SessionStart additionalContext",
@@ -1018,6 +1017,7 @@ func ProviderCapabilities() []ProviderCapability {
 				"lifecycle context is compacted because Codex flattens multiline allowed context",
 			},
 			Unsupported: []string{
+				"PreToolUse updatedInput rewrite",
 				"PostToolBatch additionalContext",
 				"SessionEnd additionalContext",
 				"SubagentStart additionalContext",
@@ -1595,7 +1595,17 @@ func validateClaudeRewriteProbe(result hookProbeResult) error {
 }
 
 func validateCodexRewriteProbe(result hookProbeResult) error {
-	return validateRewriteProbe(result, "Codex")
+	if result.exitCode != 0 {
+		return fmt.Errorf("Codex git rewrite probe should allow without updatedInput, got exit %d", result.exitCode)
+	}
+
+	if _, ok := result.payload["hookSpecificOutput"].(map[string]any); ok {
+		if _, hasUpdatedInput := result.payload["hookSpecificOutput"].(map[string]any)["updatedInput"]; hasUpdatedInput {
+			return fmt.Errorf("Codex rewrite emitted unsupported updatedInput in %s", result.stdout)
+		}
+	}
+
+	return nil
 }
 
 func validateGeminiRewriteProbe(result hookProbeResult) error {
