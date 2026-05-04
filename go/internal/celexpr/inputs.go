@@ -166,13 +166,14 @@ type GitCommandInput struct {
 }
 
 type DiffInput struct {
-	ChangedFiles []string        `json:"changed_files"`
-	Files        []string        `json:"files"`
-	Hunks        []DiffHunkInput `json:"hunks"`
-	AddedLines   []DiffLineInput `json:"added_lines"`
-	RemovedLines []DiffLineInput `json:"removed_lines"`
-	HasChanges   bool            `json:"has_changes"`
-	StagedFiles  []string        `json:"staged_files"`
+	ChangedFiles   []string             `json:"changed_files"`
+	Files          []string             `json:"files"`
+	Hunks          []DiffHunkInput      `json:"hunks"`
+	AddedLines     []DiffLineInput      `json:"added_lines"`
+	RemovedLines   []DiffLineInput      `json:"removed_lines"`
+	ChangedSymbols []ChangedSymbolInput `json:"changed_symbols"`
+	HasChanges     bool                 `json:"has_changes"`
+	StagedFiles    []string             `json:"staged_files"`
 }
 
 type DiffHunkInput struct {
@@ -286,9 +287,10 @@ func InputSchema() []string {
 		"shell_commands: list({command, name, argv, assignments, redirects, write_targets, line, column, background, has_inline_env, has_redirects, has_write_targets, has_heredoc, has_command_substitution, has_process_substitution, has_dynamic_expansion, has_subshell, is_function_declaration, is_git, is_lint_tool, is_shell_exec, uses_path_override})",
 		"config: {candidates, present}",
 		"cwd: string",
-		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines}",
+		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines, changed_symbols}",
 		"diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}",
 		"diff.added_lines[]/removed_lines[]: {file, line, old_line, new_line, text}",
+		"changed_symbols: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, changed_lines, is_generated, is_test, original_line_count, current_line_count, line_delta, line_count_grows, line_count_shrinks, original_start_line, original_end_line, current_start_line, current_end_line, original_content_hash, current_content_hash})",
 		"event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}",
 		"files: list(string)",
 		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count})",
@@ -363,6 +365,7 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(DiffInput{}),
 			reflect.TypeOf(DiffHunkInput{}),
 			reflect.TypeOf(DiffLineInput{}),
+			reflect.TypeOf(ChangedSymbolInput{}),
 			reflect.TypeOf(FileChangeInput{}),
 			reflect.TypeOf(ProposedFileChangeInput{}),
 			reflect.TypeOf(ProposedSymbolChangeInput{}),
@@ -375,6 +378,10 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable("content", cel.ObjectType("celexpr.ContentInput")),
 		cel.Variable("cwd", cel.StringType),
 		cel.Variable("files", cel.ListType(cel.StringType)),
+		cel.Variable(
+			"changed_symbols",
+			cel.ListType(cel.ObjectType("celexpr.ChangedSymbolInput")),
+		),
 		cel.Variable(
 			"file_changes",
 			cel.ListType(cel.ObjectType("celexpr.FileChangeInput")),
@@ -504,6 +511,7 @@ func Activation(input ActivationInput) map[string]any {
 
 	diffHunks := diffHunkInputs(input.Cwd, files)
 	addedLines, removedLines := diffLines(diffHunks)
+	changedSymbols := changedSymbolInputs(input.Cwd, files, diffHunks)
 	hasChanges := len(files) > 0 ||
 		len(changedFiles) > 0 ||
 		len(stagedFiles) > 0 ||
@@ -528,13 +536,14 @@ func Activation(input ActivationInput) map[string]any {
 		},
 		"cwd": input.Cwd,
 		"diff": DiffInput{
-			ChangedFiles: changedFiles,
-			Files:        files,
-			Hunks:        diffHunks,
-			AddedLines:   addedLines,
-			RemovedLines: removedLines,
-			HasChanges:   hasChanges,
-			StagedFiles:  stagedFiles,
+			ChangedFiles:   changedFiles,
+			Files:          files,
+			Hunks:          diffHunks,
+			AddedLines:     addedLines,
+			RemovedLines:   removedLines,
+			ChangedSymbols: changedSymbols,
+			HasChanges:     hasChanges,
+			StagedFiles:    stagedFiles,
 		},
 		"event": EventInput{
 			Name:             input.EventName,
@@ -555,7 +564,8 @@ func Activation(input ActivationInput) map[string]any {
 			IsCodex:          provider == "codex",
 			IsGemini:         provider == "gemini",
 		},
-		"files": files,
+		"files":           files,
+		"changed_symbols": changedSymbols,
 		"file_changes": fileChangeInputs(
 			input.Cwd,
 			files,

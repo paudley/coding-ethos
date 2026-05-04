@@ -371,6 +371,69 @@ func TestEvaluateCELExpressionBlocksLineLimitGrowthFromFileChanges(t *testing.T)
 	}
 }
 
+func TestEvaluateCELExpressionBlocksLineLimitGrowthFromChangedSymbols(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, "app.py")
+	if err := os.WriteFile(sourceFile, []byte("def build():\n    return 1\n"), 0o600); err != nil {
+		t.Fatalf("write initial source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+	if err := os.WriteFile(
+		sourceFile,
+		[]byte("def build():\n    value = 1\n    return value\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	runCELGit(t, repo, "add", "app.py")
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "filesystem.line_limits"
+	policyDef.Source = policy.SourceRef{
+		File: "coding_ethos.yml",
+		Path: "principles[solid-is-law].policy.expressions[0]",
+	}
+	policyDef.Message = "Large source files must not keep growing."
+	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.PrincipleIDs = []string{"solid-is-law"}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.py"},
+			Scope: "staged",
+			EvaluatorOptions: map[string]any{
+				"when": `
+					changed_symbols.exists(symbol,
+						symbol.ext == ".py" &&
+						symbol.symbol_name == "build" &&
+						symbol.line_count_grows &&
+						symbol.current_line_count > 2
+					)
+				`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "app.py" ||
+		decisions[0].Diagnostics[0].Line != 1 ||
+		decisions[0].Diagnostics[0].Metadata["ast_change_source"] != "staged" ||
+		decisions[0].Diagnostics[0].Metadata["ast_symbol_name"] != "build" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionAllowsShrinkingLargeFileAtHookTime(t *testing.T) {
 	t.Parallel()
 

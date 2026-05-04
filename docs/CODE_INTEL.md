@@ -96,13 +96,19 @@ remediation events. This makes code intelligence an ingestion problem instead
 of a second policy interpretation layer.
 
 CEL inputs also expose code-intelligence fields under `source`, `finding`, and
-edit preflight facts. `proposed_symbol_changes` compares current and proposed
-Tree-sitter symbols for Edit/Write/MultiEdit actions and reports the file,
-language, node kind, symbol kind/name/path, line spans, content hashes, action
-(`added`, `deleted`, or `modified`), and line-count delta. This lets
-principle-owned CEL block growth of oversized functions, classes/types, shell
-functions, and YAML config entries while still allowing refactors that shrink
-large files.
+edit/diff facts. `proposed_symbol_changes` compares current and proposed
+Tree-sitter symbols for Edit/Write/MultiEdit actions, while `changed_symbols`
+maps staged diff hunks to the affected Tree-sitter symbols. Both surfaces report
+the file, language, node kind, symbol kind/name/path, line spans, content
+hashes, action (`added`, `deleted`, or `modified`), and line-count delta. This
+lets principle-owned CEL block growth of oversized functions, classes/types,
+shell functions, and YAML config entries while still allowing refactors that
+shrink large files.
+
+Tree-sitter-backed policy diagnostics carry AST metadata into SARIF result
+properties and partial fingerprints. Code scanning can therefore track the
+symbol-level finding across unrelated line movement instead of treating every
+nearby edit as a new whole-file violation.
 
 The first storage layer now lives in `go/internal/codeintel`. It creates the
 canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and

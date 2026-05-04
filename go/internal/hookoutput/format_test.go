@@ -78,6 +78,12 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 			Detail:   "imported but unused",
 			Metadata: map[string]any{
 				"implementation":       "cel",
+				"ast_change_source":    "staged",
+				"ast_language":         "python",
+				"ast_node_kind":        "function_definition",
+				"ast_symbol_kind":      "function",
+				"ast_symbol_name":      "load_config",
+				"ast_symbol_path":      "load_config",
 				"input_schema_version": int64(1),
 				"policy_source":        "coding_ethos.yml:principles.4",
 				"when":                 "diagnostic.code == 'F401'",
@@ -120,6 +126,11 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.locations.0.physicalLocation.region.startColumn", float64(8))
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/v1", 64)
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/stable/v1", 64)
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/ast/v1", 64)
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_change_source", "staged")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_language", "python")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_symbol_name", "load_config")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_symbol_path", "load_config")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.policy_id", "python.unused_imports")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
 	assertJSONPath(t, payload, "runs.0.results.0.properties.implementation", "cel")

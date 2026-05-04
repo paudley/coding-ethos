@@ -109,6 +109,13 @@ type sarifRegion struct {
 
 type sarifResultProperties struct {
 	Advice                    string                      `json:"advice,omitempty"`
+	ASTAction                 string                      `json:"ast_action,omitempty"`
+	ASTChangeSource           string                      `json:"ast_change_source,omitempty"`
+	ASTLanguage               string                      `json:"ast_language,omitempty"`
+	ASTNodeKind               string                      `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind             string                      `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName             string                      `json:"ast_symbol_name,omitempty"`
+	ASTSymbolPath             string                      `json:"ast_symbol_path,omitempty"`
 	CodingEthosGroupID        string                      `json:"coding_ethos_group_id,omitempty"`
 	CodingEthosGroupKey       string                      `json:"coding_ethos_group_key,omitempty"`
 	Code                      string                      `json:"code,omitempty"`
@@ -321,6 +328,13 @@ func sarifResults(
 			PartialFingerprints: sarifPartialFingerprints(item),
 			Properties: sarifResultProperties{
 				Advice:                    item.Advice,
+				ASTAction:                 sarifStringMetadata(item, "ast_action"),
+				ASTChangeSource:           sarifStringMetadata(item, "ast_change_source"),
+				ASTLanguage:               sarifStringMetadata(item, "ast_language"),
+				ASTNodeKind:               sarifStringMetadata(item, "ast_node_kind"),
+				ASTSymbolKind:             sarifStringMetadata(item, "ast_symbol_kind"),
+				ASTSymbolName:             sarifStringMetadata(item, "ast_symbol_name"),
+				ASTSymbolPath:             sarifStringMetadata(item, "ast_symbol_path"),
 				CodingEthosGroupID:        group.ID,
 				CodingEthosGroupKey:       group.Key,
 				Code:                      item.Code,
@@ -495,23 +509,53 @@ func sarifArtifactURI(file string) string {
 }
 
 func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
-	return map[string]string{
-		"coding-ethos/v1": sarifHashStrings(
-			sarifRuleID(item),
-			sarifArtifactURI(item.File),
-			fmt.Sprint(item.Line),
-			fmt.Sprint(item.Column),
-			item.Message,
-		),
-		"coding-ethos/stable/v1": sarifHashStrings(
-			sarifRuleID(item),
-			sarifArtifactURI(item.File),
-			item.Code,
-			item.PolicyID,
-			item.Message,
-		),
+	astIdentity := sarifASTIdentity(item)
+	locationSeed := []string{
+		sarifRuleID(item),
+		sarifArtifactURI(item.File),
+		fmt.Sprint(item.Line),
+		fmt.Sprint(item.Column),
+		item.Message,
+	}
+	stableSeed := []string{
+		sarifRuleID(item),
+		sarifArtifactURI(item.File),
+		item.Code,
+		item.PolicyID,
+		item.Message,
+	}
+	if astIdentity != "" {
+		locationSeed = append(locationSeed, astIdentity)
+		stableSeed = append(stableSeed, astIdentity)
+	}
+	fingerprints := map[string]string{
+		"coding-ethos/v1":         sarifHashStrings(locationSeed...),
+		"coding-ethos/stable/v1":  sarifHashStrings(stableSeed...),
 		"coding-ethos/finding/v1": evidence.FromDiagnostic(item).ID,
 	}
+	if astIdentity != "" {
+		fingerprints["coding-ethos/ast/v1"] = sarifHashStrings(
+			sarifRuleID(item),
+			sarifArtifactURI(item.File),
+			astIdentity,
+		)
+	}
+
+	return fingerprints
+}
+
+func sarifASTIdentity(item diagnostics.Diagnostic) string {
+	if sarifStringMetadata(item, "ast_symbol_path") == "" {
+		return ""
+	}
+	parts := []string{
+		sarifStringMetadata(item, "ast_change_source"),
+		sarifStringMetadata(item, "ast_language"),
+		sarifStringMetadata(item, "ast_node_kind"),
+		sarifStringMetadata(item, "ast_symbol_kind"),
+		sarifStringMetadata(item, "ast_symbol_path"),
+	}
+	return strings.Join(parts, "\x00")
 }
 
 type sarifFindingGroupIndex map[string]*sarifFindingGroupAccumulator

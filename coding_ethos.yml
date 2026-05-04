@@ -298,69 +298,41 @@ principles:
           message: Large source files must not keep growing.
           advice: Split large files into focused modules before committing.
           when: >-
-            proposed_symbol_changes.exists(symbol,
-              !symbol.is_generated && !symbol.is_test && symbol.line_count_grows &&
-              (
-                (symbol.ext == ".py" && symbol.proposed_line_count > 250) ||
-                (symbol.ext == ".go" && symbol.proposed_line_count > 400) ||
-                (
-                  (
-                    symbol.ext == ".sh" ||
-                    symbol.ext == ".bash" ||
-                    has_prefix(symbol.file, "scripts/")
-                  ) &&
-                  symbol.proposed_line_count > 120
-                ) ||
-                (
-                  (
-                    symbol.ext == ".yaml" ||
-                    symbol.ext == ".yml"
-                  ) &&
-                  symbol.proposed_line_count > 200
-                )
-              )
-            ) ||
-            (
-              proposed_symbol_changes.size() == 0 &&
-              proposed_file_changes.exists(file,
-                !file.is_binary && !file.is_test && file.line_count_grows &&
-                (
-                  (file.ext == ".py" && file.proposed_line_count > 1000) ||
-                  (file.ext == ".go" && file.proposed_line_count > 2000) ||
-                  (
-                    (
-                      file.ext == ".sh" ||
-                      file.ext == ".bash" ||
-                      has_prefix(file.file, "scripts/")
-                    ) &&
-                    file.proposed_line_count > 500
-                  )
-                )
-              )
-            ) ||
-            (
-              proposed_file_changes.size() == 0 &&
-              file_changes.exists(file,
-                !file.is_binary &&
-                !file.is_test &&
-                (
-                  (file.ext == ".py" && file.line_count > 1000) ||
-                  (file.ext == ".go" && file.line_count > 2000) ||
-                  (
-                    (
-                      file.ext == ".sh" ||
-                      file.ext == ".bash" ||
-                      has_prefix(file.file, "scripts/")
-                    ) &&
-                    file.line_count > 500
-                  )
-                ) &&
-                (
-                  file.original_line_count < 0 ||
-                  file.line_count > file.original_line_count
-                )
-              )
-            )
+            proposed_symbol_changes.exists(symbol, !symbol.is_generated &&
+              !symbol.is_test && symbol.line_count_grows &&
+              ((symbol.ext == ".py" && symbol.proposed_line_count > 250) ||
+              (symbol.ext == ".go" && symbol.proposed_line_count > 400) ||
+              ((list_contains([".sh", ".bash"], symbol.ext) ||
+              has_prefix(symbol.file, "scripts/")) &&
+              symbol.proposed_line_count > 120) ||
+              (list_contains([".yaml", ".yml"], symbol.ext) &&
+              symbol.proposed_line_count > 200))) ||
+            (proposed_symbol_changes.size() == 0 &&
+              proposed_file_changes.exists(file, !file.is_binary &&
+              !file.is_test && file.line_count_grows &&
+              ((file.ext == ".py" && file.proposed_line_count > 1000) ||
+              (file.ext == ".go" && file.proposed_line_count > 2000) ||
+              ((list_contains([".sh", ".bash"], file.ext) ||
+              has_prefix(file.file, "scripts/")) &&
+              file.proposed_line_count > 500)))) ||
+            (proposed_file_changes.size() == 0 &&
+              changed_symbols.exists(symbol, !symbol.is_generated &&
+              !symbol.is_test && symbol.line_count_grows &&
+              ((symbol.ext == ".py" && symbol.current_line_count > 250) ||
+              (symbol.ext == ".go" && symbol.current_line_count > 400) ||
+              ((list_contains([".sh", ".bash"], symbol.ext) ||
+              has_prefix(symbol.file, "scripts/")) &&
+              symbol.current_line_count > 120) ||
+              (list_contains([".yaml", ".yml"], symbol.ext) &&
+              symbol.current_line_count > 200)))) ||
+            (proposed_file_changes.size() == 0 && changed_symbols.size() == 0 &&
+              file_changes.exists(file, !file.is_binary && !file.is_test &&
+              ((file.ext == ".py" && file.line_count > 1000) ||
+              (file.ext == ".go" && file.line_count > 2000) ||
+              ((list_contains([".sh", ".bash"], file.ext) ||
+              has_prefix(file.file, "scripts/")) && file.line_count > 500)) &&
+              (file.original_line_count < 0 ||
+              file.line_count > file.original_line_count)))
     sections:
       - id: overview
         kind: overview

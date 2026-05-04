@@ -407,6 +407,10 @@ Core inputs:
   content hashes, and line-count deltas so CEL can enforce size policy at the
   function/class/type/shell-function/YAML-entry level instead of only at the
   whole-file level.
+- `changed_symbols`: staged-diff Tree-sitter symbol deltas. These map reviewed
+  diff hunks to affected functions, classes, types, shell functions, and YAML
+  entries so pre-commit, CI, SARIF, and hooks can enforce the same
+  symbol-level policy surface.
 - `config`: configured repo override candidates and candidates present in the
   current file set.
 - `tool_capabilities`: managed tool capability declarations from

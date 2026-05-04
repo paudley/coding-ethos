@@ -745,13 +745,14 @@ Acceptance criteria:
   decides whether the action is allowed.
 - [ ] Extend AST-aware edit preflight to classify symbol renames explicitly
   instead of representing them as delete/add pairs.
-- [ ] Add AST-aware diff facts that map changed lines to affected symbols so
+- [x] Add AST-aware diff facts that map changed lines to affected symbols so
   policy can target the edited function/config entry rather than the entire
   file.
 - [ ] Add SARIF locations for Tree-sitter-backed findings using exact symbol
-  start/end lines, byte offsets, and region snippets; include AST node kind and
-  symbol identity in SARIF properties.
-- [ ] Add SARIF partial fingerprints based on path, language, symbol path,
+  start/end lines, byte offsets, and region snippets.
+- [x] Include AST node kind and symbol identity in SARIF properties for
+  Tree-sitter-backed CEL findings.
+- [x] Add SARIF partial fingerprints based on path, language, symbol path,
   node kind, rule/policy ID, and content hash so findings remain stable across
   unrelated line movement.
 - [ ] Emit SARIF code flows/thread flows for policy findings that involve

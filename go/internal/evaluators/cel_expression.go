@@ -111,6 +111,7 @@ func celDiagnostic(
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
+		diagnostic.Metadata["ast_change_source"] = "proposed"
 		diagnostic.Metadata["ast_language"] = symbol.Language
 		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
 		diagnostic.Metadata["ast_node_kind"] = symbol.NodeKind
@@ -119,6 +120,19 @@ func celDiagnostic(
 		diagnostic.Metadata["ast_symbol_path"] = symbol.SymbolPath
 		diagnostic.Metadata["current_line_count"] = symbol.CurrentLineCount
 		diagnostic.Metadata["proposed_line_count"] = symbol.ProposedLineCount
+	} else if symbol, ok := firstGrowingChangedSymbol(activation); ok {
+		diagnostic.File = symbol.File
+		diagnostic.Line = int(symbol.CurrentStartLine)
+		diagnostic.Metadata["ast_action"] = symbol.Action
+		diagnostic.Metadata["ast_change_source"] = "staged"
+		diagnostic.Metadata["ast_language"] = symbol.Language
+		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
+		diagnostic.Metadata["ast_node_kind"] = symbol.NodeKind
+		diagnostic.Metadata["ast_symbol_kind"] = symbol.SymbolKind
+		diagnostic.Metadata["ast_symbol_name"] = symbol.SymbolName
+		diagnostic.Metadata["ast_symbol_path"] = symbol.SymbolPath
+		diagnostic.Metadata["current_line_count"] = symbol.CurrentLineCount
+		diagnostic.Metadata["original_line_count"] = symbol.OriginalLineCount
 	}
 
 	return diagnostic
@@ -138,6 +152,22 @@ func firstGrowingProposedSymbol(
 	}
 
 	return celexpr.ProposedSymbolChangeInput{}, false
+}
+
+func firstGrowingChangedSymbol(
+	activation map[string]any,
+) (celexpr.ChangedSymbolInput, bool) {
+	symbols, ok := activation["changed_symbols"].([]celexpr.ChangedSymbolInput)
+	if !ok {
+		return celexpr.ChangedSymbolInput{}, false
+	}
+	for _, symbol := range symbols {
+		if symbol.LineCountGrows {
+			return symbol, true
+		}
+	}
+
+	return celexpr.ChangedSymbolInput{}, false
 }
 
 func policySource(policyDef policy.Policy) string {
