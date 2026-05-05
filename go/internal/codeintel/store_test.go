@@ -108,6 +108,32 @@ func TestStoreIngestTraceDirsFindsLintAndHookTraces(t *testing.T) {
 	}
 }
 
+func TestStoreIngestTraceDirsBackfillsMissingTraceIDs(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStoreAt(t, ctx, DefaultDBPath(root))
+	ingester := NewTraceIngester(store)
+	writeFile(t, filepath.Join(root, ".coding-ethos", "hook-runs", "run-a", "event.json"), hookTracePayloadWithIDs(t, "", "deny-hook-a", "2026-01-01T00:02:00Z"))
+
+	summary, err := ingester.IngestTraceDirs(ctx, root)
+	if err != nil {
+		t.Fatalf("ingest trace dirs: %v", err)
+	}
+	if summary.FilesScanned != 1 || summary.FilesIngested != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	usage, err := store.HookUsage(ctx, HookUsageQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("query hook usage: %v", err)
+	}
+	if len(usage) != 1 || !strings.HasPrefix(usage[0].LastTraceID, "source-run-a-event.json-") {
+		t.Fatalf("hook usage trace fallback = %#v", usage)
+	}
+}
+
 func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
 	t.Parallel()
 

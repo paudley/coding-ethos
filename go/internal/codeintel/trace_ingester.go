@@ -5,10 +5,12 @@ package codeintel
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -129,9 +131,10 @@ func DecodeLintTrace(path string, payload []byte) (Trace, error) {
 	if err := json.Unmarshal(payload, &record); err != nil {
 		return Trace{}, fmt.Errorf("decode lint trace %q: %w", path, err)
 	}
+	traceID := traceIDOrSourceFallback(record.TraceID, path)
 
 	return Trace{
-		ID:                record.TraceID,
+		ID:                traceID,
 		Kind:              "lint",
 		RecordedAtUTC:     record.RecordedAtUTC,
 		RepoRoot:          record.RepoRoot,
@@ -149,6 +152,7 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 	if err := json.Unmarshal(payload, &record); err != nil {
 		return Trace{}, fmt.Errorf("decode hook trace %q: %w", path, err)
 	}
+	record.TraceID = traceIDOrSourceFallback(record.TraceID, path)
 
 	return Trace{
 		ID:                record.TraceID,
@@ -168,6 +172,19 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 		HookDecisions:     hookDecisionAnalytics(record),
 		HookTargets:       hookTargetAnalytics(record),
 	}, nil
+}
+
+func traceIDOrSourceFallback(traceID string, path string) string {
+	if strings.TrimSpace(traceID) != "" || strings.TrimSpace(path) == "" {
+		return traceID
+	}
+
+	cleaned := filepath.Clean(path)
+	parent := filepath.Base(filepath.Dir(cleaned))
+	base := filepath.Base(cleaned)
+	sum := sha256.Sum256([]byte(cleaned))
+
+	return fmt.Sprintf("source-%s-%s-%x", parent, base, sum[:6])
 }
 
 func hookEventAnalytics(record hooks.HookTrace) *HookEventAnalytics {

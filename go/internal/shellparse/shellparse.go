@@ -92,6 +92,40 @@ func Commands(command string) ([]Command, error) {
 	return commands, err
 }
 
+func CatHeredocCommandSubstitution(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "$(") || !strings.HasSuffix(trimmed, ")") {
+		return "", false
+	}
+
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).
+		Parse(strings.NewReader(inner), "")
+	if err != nil || len(file.Stmts) != 1 {
+		return "", false
+	}
+
+	stmt := file.Stmts[0]
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) == 0 || wordString(call.Args[0]) != "cat" {
+		return "", false
+	}
+
+	if len(call.Args) > 1 {
+		return "", false
+	}
+
+	for _, redir := range stmt.Redirs {
+		if redir == nil || redir.Hdoc == nil || !strings.Contains(redir.Op.String(), "<<") {
+			continue
+		}
+
+		return wordString(redir.Hdoc), true
+	}
+
+	return "", false
+}
+
 func parse(command string) ([]Command, []string, error) {
 	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).
 		Parse(strings.NewReader(command), "")

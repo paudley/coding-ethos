@@ -52,6 +52,28 @@ func TestControlFieldsPreservesOperatorsAndRedirects(t *testing.T) {
 	}
 }
 
+func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
+	t.Parallel()
+
+	fields, err := Fields("git commit -m \"$(cat <<'EOF'\nfix(test): subject\n\nBody.\nEOF\n)\"")
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	if len(fields) != 4 {
+		t.Fatalf("fields mismatch: %#v", fields)
+	}
+	message, ok := CatHeredocCommandSubstitution(fields[3])
+	if !ok {
+		t.Fatalf("expected extractable heredoc command substitution: %#v", fields[3])
+	}
+
+	want := "fix(test): subject\n\nBody.\n"
+	if message != want {
+		t.Fatalf("message mismatch:\n got %#v\nwant %#v", message, want)
+	}
+}
+
 func TestCommandsExposeStructuredFacts(t *testing.T) {
 	t.Parallel()
 
