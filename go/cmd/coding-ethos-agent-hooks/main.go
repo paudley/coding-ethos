@@ -15,43 +15,48 @@ import (
 )
 
 const (
-	commandArgIndex   = 1
 	commandArgsOffset = 2
 )
 
 var errUnknownCommand = errors.New("unknown agent-hooks command")
 
 func main() {
-	if len(os.Args) < commandArgsOffset {
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+func runCLI(args []string) int {
+	if len(args) == 0 {
 		usage()
-		os.Exit(commandArgsOffset)
+		return commandArgsOffset
 	}
 
 	var err error
 
-	switch os.Args[commandArgIndex] {
+	switch args[0] {
 	case "print":
-		err = printSettings(os.Args[commandArgsOffset:])
+		err = printSettings(args[1:])
 	case "sync":
-		err = syncSettings(os.Args[commandArgsOffset:])
+		err = syncSettings(args[1:])
 	case "doctor":
-		err = doctorSettings(os.Args[commandArgsOffset:])
+		err = doctorSettings(args[1:])
 	case "verify":
-		err = verifySettings(os.Args[commandArgsOffset:])
+		err = verifySettings(args[1:])
 	default:
 		usage()
 
-		err = fmt.Errorf("%w: %s", errUnknownCommand, os.Args[commandArgIndex])
+		err = fmt.Errorf("%w: %s", errUnknownCommand, args[0])
 	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }
 
 func printSettings(args []string) error {
-	flags := flag.NewFlagSet("print", flag.ExitOnError)
+	flags := flag.NewFlagSet("print", flag.ContinueOnError)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 
 	err := flags.Parse(args)
@@ -68,7 +73,7 @@ func printSettings(args []string) error {
 }
 
 func syncSettings(args []string) error {
-	flags := flag.NewFlagSet("sync", flag.ExitOnError)
+	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 
@@ -86,7 +91,7 @@ func syncSettings(args []string) error {
 }
 
 func doctorSettings(args []string) error {
-	flags := flag.NewFlagSet("doctor", flag.ExitOnError)
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 
@@ -109,7 +114,7 @@ func doctorSettings(args []string) error {
 }
 
 func verifySettings(args []string) error {
-	flags := flag.NewFlagSet("verify", flag.ExitOnError)
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 

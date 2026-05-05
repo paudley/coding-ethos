@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 			Threshold:                95,
 			CheckPaths:               []string{"pkg", "pre-commit/hooks"},
 			ExcludePatterns:          []string{`tests`, `\.venv`},
-			Command:                  []string{"interrogate"},
+			Command:                  []string{nativeDocstringCoverageCommand},
 			UseHookProject:           true,
 			HooksProject:             "/tmp/hooks",
 			Verbose:                  true,
@@ -40,7 +41,7 @@ func TestBuildDocstringCoverageCommand(t *testing.T) {
 		"--quiet",
 		"--project",
 		"/tmp/hooks",
-		"interrogate",
+		nativeDocstringCoverageCommand,
 		"--fail-under",
 		"95",
 		"--verbose",
@@ -74,7 +75,7 @@ func TestBuildDocstringCoverageCommandHonorsConfigurableFlags(t *testing.T) {
 		docstringCoverageSettings{
 			Threshold:                95,
 			CheckPaths:               []string{"pkg"},
-			Command:                  []string{"interrogate"},
+			Command:                  []string{nativeDocstringCoverageCommand},
 			Verbose:                  false,
 			IgnoreInitMethod:         true,
 			IgnoreInitModule:         true,
@@ -146,6 +147,109 @@ python:
 
 	if !strings.Contains(stdout, "Coverage: 10.0") {
 		t.Fatalf("missing command output in stdout: %q", stdout)
+	}
+}
+
+func TestCheckDocstringCoverageCommandPassesOnSuccessfulRunner(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  docstring_coverage:
+    enabled: true
+    threshold: 80
+    command:
+      - /bin/sh
+      - -lc
+      - "printf 'Coverage: 100.0\\n'; exit 0"
+    use_hook_project: false
+    check_paths:
+      - pkg
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	stdout := captureStdout(t, func() {
+		stderr := captureStderr(t, func() {
+			if got := checkDocstringCoverageCommand(Config{}, nil); got != 0 {
+				t.Fatalf("checkDocstringCoverageCommand() = %d, want 0", got)
+			}
+		})
+		if strings.TrimSpace(stderr) != "" {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+	})
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("unexpected stdout: %q", stdout)
+	}
+}
+
+func TestRunNativeDocstringCoverageReportsMissingSymbols(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	pkgDir := filepath.Join(tempDir, "pkg")
+
+	err := os.MkdirAll(pkgDir, 0o755)
+	if err != nil {
+		t.Fatalf("mkdir package dir: %v", err)
+	}
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(pkgDir, "sample.py"),
+		strings.TrimSpace(`
+"""Documented module."""
+
+class Documented:
+    """Documented class."""
+
+    def missing(self):
+        return 1
+
+def documented():
+    """Documented function."""
+    return 2
+`)+"\n",
+	)
+
+	exitCode, stdout, stderr, err := runNativeDocstringCoverage(
+		docstringCoverageSettings{
+			ConsumerRoot:             tempDir,
+			Threshold:                100,
+			CheckPaths:               []string{"pkg"},
+			IgnoreInitMethod:         true,
+			IgnoreInitModule:         true,
+			IgnoreMagic:              true,
+			IgnorePrivate:            true,
+			IgnoreSemiprivate:        true,
+			IgnoreNestedFunctions:    true,
+			IgnoreNestedClasses:      true,
+			IgnorePropertyDecorators: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("runNativeDocstringCoverage() error = %v", err)
+	}
+
+	if exitCode != 1 {
+		t.Fatalf("runNativeDocstringCoverage() exit = %d, want 1", exitCode)
+	}
+
+	if stderr != "" {
+		t.Fatalf("unexpected stderr: %q", stderr)
+	}
+
+	for _, fragment := range []string{
+		"Coverage: 66.7% (2/3 documented)",
+		"Missing: pkg/sample.py:function_definition:missing",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout missing %q:\n%s", fragment, stdout)
+		}
 	}
 }
 

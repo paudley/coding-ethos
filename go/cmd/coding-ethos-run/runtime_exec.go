@@ -11,6 +11,13 @@ import (
 	"strings"
 )
 
+var (
+	runtimeRunTool      = runTool
+	runtimeExecTool     = execTool
+	runtimeExecPath     = execPath
+	runtimeExecExternal = execExternal
+)
+
 func requirePolicyBundle(paths runtimePaths) {
 	requireRuntimeFile(paths.PolicyBundle, "compiled policy bundle")
 }

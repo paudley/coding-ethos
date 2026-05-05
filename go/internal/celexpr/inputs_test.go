@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -39,6 +40,35 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 	`
 	if err := Validate("test.path_scope", source); err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
+	}
+}
+
+func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
+	t.Parallel()
+
+	inputSchema := strings.Join(InputSchema(), "\n")
+	for _, want := range []string{
+		"argv: list(string)",
+		"shell_commands: list(",
+		"proposed_file_changes: list(",
+		"python_ast: list(",
+		"tool_capabilities: list(",
+	} {
+		if !strings.Contains(inputSchema, want) {
+			t.Fatalf("input schema missing %q:\n%s", want, inputSchema)
+		}
+	}
+
+	helperSchema := strings.Join(HelperSchema(), "\n")
+	for _, want := range []string{
+		"glob_match(pattern, value)",
+		"command_invokes(command, tool)",
+		"is_protected_path(path, protected_paths)",
+		"any_contains(values, value)",
+	} {
+		if !strings.Contains(helperSchema, want) {
+			t.Fatalf("helper schema missing %q:\n%s", want, helperSchema)
+		}
 	}
 }
 
@@ -536,6 +566,49 @@ func TestActivationPopulatesProposedWriteFileChangeInputs(t *testing.T) {
 	}
 }
 
+func TestActivationPopulatesProposedApplyPatchFileChangeInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "pre-commit", "hooks", "go-hooks", "main.go")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:  repo,
+		Tool: "Edit",
+		Command: `*** Begin Patch
+*** Update File: pre-commit/hooks/go-hooks/main.go
+@@
+-two
++two
++four
++five
+*** End Patch
+`,
+	})
+
+	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !ok || len(changes) != 1 {
+		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	}
+	change := changes[0]
+	if change.File != "pre-commit/hooks/go-hooks/main.go" ||
+		change.CurrentLineCount != 3 ||
+		change.ProposedLineCount != 5 ||
+		change.LineDelta != 2 ||
+		change.NonBlankLineDelta != 2 ||
+		!change.LineCountGrows ||
+		!change.NonBlankLineCountGrows ||
+		change.HasProposedContent {
+		t.Fatalf("proposed apply_patch change input = %#v", change)
+	}
+}
+
 func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) {
 	t.Parallel()
 
@@ -807,6 +880,11 @@ func runTestGit(t *testing.T, dir string, args ...string) {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(
+		os.Environ(),
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)

@@ -161,6 +161,7 @@ func evaluateGitPolicy(
 	}
 	if scope == "PostToolUse" {
 		context.HasToolResponse = true
+		context.HasReturnCode = true
 		context.ReturnCode = 0
 	}
 

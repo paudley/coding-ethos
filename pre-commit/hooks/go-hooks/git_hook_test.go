@@ -230,6 +230,147 @@ func TestHookGroupResultFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunGitHookCommandRejectsUnsupportedEntrypoints(t *testing.T) {
+	stderr := captureStderr(t, func() {
+		if got := runGitHookCommand(Config{}, nil); got != 1 {
+			t.Fatalf("empty git-hook command = %d, want 1", got)
+		}
+
+		if got := runGitHookCommand(Config{}, []string{"commit-msg"}); got != 1 {
+			t.Fatalf("commit-msg git-hook command = %d, want 1", got)
+		}
+
+		if got := runGitHookCommand(Config{}, []string{"unknown"}); got != 1 {
+			t.Fatalf("unknown git-hook command = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"Usage: coding-ethos-hook git-hook",
+		"commit-msg is enforced by compiled policy preflight",
+		`unknown git hook "unknown"`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestPreCommitAndPrePushHooksRouteThroughConfiguredGroups(t *testing.T) {
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+hooks:
+  enabled_groups:
+    - security
+  parallel_groups: false
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		`#!/usr/bin/env sh
+case "$*" in
+  "diff --cached --name-only --diff-filter=ACMR"|"diff --name-only HEAD"|"diff --name-only origin/main...HEAD")
+    exit 0
+    ;;
+  "rev-parse --abbrev-ref --symbolic-full-name @{upstream}")
+    exit 1
+    ;;
+  "check-ignore --quiet "*)
+    exit 0
+    ;;
+esac
+printf 'unexpected git invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runPreCommitHook(Config{}, nil); got != 0 {
+		t.Fatalf("runPreCommitHook() = %d, want 0", got)
+	}
+
+	if got := runPrePushHook(Config{}, strings.NewReader("")); got != 0 {
+		t.Fatalf("runPrePushHook() = %d, want 0", got)
+	}
+
+	if got := validateGoHookRuntime(); got != 0 {
+		t.Fatalf("validateGoHookRuntime() = %d, want 0", got)
+	}
+}
+
+func TestRunHookGroupCommandRejectsMissingAndUnknownGroups(t *testing.T) {
+	stderr := captureStderr(t, func() {
+		if got := runHookGroupCommand(Config{}, nil); got != 1 {
+			t.Fatalf("missing group command = %d, want 1", got)
+		}
+
+		if got := runHookGroupCommand(Config{}, []string{"missing-group"}); got != 1 {
+			t.Fatalf("unknown group command = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"Usage: coding-ethos-hook run-group",
+		`unknown hook group "missing-group"`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestRunHookPlanCommandPrintsPlan(t *testing.T) {
+	output := captureStdout(t, func() {
+		if got := runHookPlanCommand(Config{}, nil); got != 0 {
+			t.Fatalf("runHookPlanCommand() = %d, want 0", got)
+		}
+	})
+	if !strings.Contains(output, "HOOK PLAN") && !strings.Contains(output, "groups[") {
+		t.Fatalf("plan output = %q", output)
+	}
+}
+
+func TestFormatHookExecutionSummaryHumanIncludesFailedCommands(t *testing.T) {
+	output := formatHookExecutionSummary(
+		[]hookGroupResult{
+			{
+				Name:       "syntax",
+				Status:     statusFail,
+				ExitCode:   1,
+				DurationMS: 12,
+				Commands: []hookCommandResult{
+					{Name: "yamllint", Status: statusFail, ExitCode: 1, DurationMS: 12},
+				},
+			},
+		},
+		"human",
+	)
+	for _, want := range []string{
+		"HOOK EXECUTION SUMMARY",
+		"fix_first: syntax",
+		"yamllint: FAIL exit=1",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human summary missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func setupGitHookTestRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

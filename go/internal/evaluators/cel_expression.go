@@ -96,6 +96,7 @@ func celDiagnostic(
 	if context.Diagnostic != nil {
 		diagnostic.Tool = context.Diagnostic.Tool
 		diagnostic.Code = context.Diagnostic.Code
+		diagnostic.Detail = context.Diagnostic.Detail
 		diagnostic.File = context.Diagnostic.File
 		diagnostic.Line = context.Diagnostic.Line
 		diagnostic.Column = context.Diagnostic.Column

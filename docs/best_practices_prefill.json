@@ -1,0 +1,118 @@
+{
+  "project_id": 12737,
+  "repo_url": "https://github.com/paudley/coding-ethos",
+  "criteria": {
+    "achieve_silver": {
+      "status": "Met",
+      "justification": "Silver criteria are tracked through the repository trust documentation and this prefill manifest. See https://github.com/paudley/coding-ethos/blob/main/docs/TRUST_SIGNALS.md#openssf-best-practices-badge"
+    },
+    "build_repeatable": {
+      "status": "Met",
+      "justification": "The build uses checked-in lock files, generated-config drift checks, deterministic policy bundle generation, and reproducible Go build flags. See https://github.com/paudley/coding-ethos/blob/main/docs/BUILD_REPRODUCIBILITY.md"
+    },
+    "build_reproducible": {
+      "status": "Met",
+      "justification": "The release and local build paths document repeatable inputs and deterministic Go build flags. See https://github.com/paudley/coding-ethos/blob/main/docs/BUILD_REPRODUCIBILITY.md"
+    },
+    "code_review_standards": {
+      "status": "Met",
+      "justification": "Contribution and pull request review requirements are documented in CONTRIBUTING.md and the pull request template. See https://github.com/paudley/coding-ethos/blob/main/CONTRIBUTING.md#quality-bar"
+    },
+    "assurance_case": {
+      "status": "Met",
+      "justification": "The project maintains a concrete security assurance case with top-level claims, evidence, input-validation claims, secure-design claims, and known limits. See https://github.com/paudley/coding-ethos/blob/main/docs/SECURITY_ASSURANCE_CASE.md"
+    },
+    "security_review": {
+      "status": "Met",
+      "justification": "Security review is part of the release and CI gates through CodeQL, OSV-Scanner, Zizmor, Scorecard, SARIF, and release attestations. See https://github.com/paudley/coding-ethos/blob/main/docs/TRUST_SIGNALS.md"
+    },
+    "implement_secure_design": {
+      "status": "Met",
+      "justification": "Secure design is documented through the threat model, runtime sandboxing plan, and security assurance case. See https://github.com/paudley/coding-ethos/blob/main/docs/SECURITY_ASSURANCE_CASE.md"
+    },
+    "input_validation": {
+      "status": "Met",
+      "justification": "The project validates hook payloads, shell commands, CEL inputs, YAML policy, SARIF, and source facts through structured parsers and typed loaders. See https://github.com/paudley/coding-ethos/blob/main/docs/SECURITY_ASSURANCE_CASE.md#input-validation-claim"
+    },
+    "copyright_per_file": {
+      "status": "Met",
+      "justification": "Project-controlled source, docs, configs, and workflow files carry SPDX-FileCopyrightText headers. See repository files and the license policy notes at https://github.com/paudley/coding-ethos/blob/main/README.md#license-policy"
+    },
+    "license_per_file": {
+      "status": "Met",
+      "justification": "Project-controlled source, docs, configs, and workflow files carry SPDX-License-Identifier headers. See repository files and the license policy notes at https://github.com/paudley/coding-ethos/blob/main/README.md#license-policy"
+    },
+    "crypto_algorithm_agility": {
+      "status": "Met",
+      "justification": "The project does not implement custom cryptography and documents the required agility review for any future cryptographic feature. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#cryptography"
+    },
+    "crypto_certificate_verification": {
+      "status": "Met",
+      "justification": "Repository-owned HTTPS access must use normal TLS certificate verification and must not disable verification. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#certificate-and-tls-verification"
+    },
+    "crypto_credential_agility": {
+      "status": "Met",
+      "justification": "Release flows avoid long-lived credentials through GitHub OIDC and PyPI Trusted Publishing, and key rotation is documented through SECURITY.md. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#credential-agility"
+    },
+    "crypto_tls12": {
+      "status": "Met",
+      "justification": "Remote delivery and publication use GitHub, PyPI, and Best Practices over HTTPS/TLS. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#certificate-and-tls-verification"
+    },
+    "crypto_used_network": {
+      "status": "Met",
+      "justification": "Network cryptography usage is limited to standard HTTPS/TLS service access, GitHub OIDC/Sigstore attestations, PyPI Trusted Publishing, SHA-256 checksums, and optional OpenPGP reporting. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#cryptography"
+    },
+    "crypto_verification_private": {
+      "status": "Met",
+      "justification": "The project does not maintain private cryptographic verification protocols; repository-owned remote access uses standard HTTPS/TLS verification. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#certificate-and-tls-verification"
+    },
+    "hardened_site": {
+      "status": "Met",
+      "justification": "The project site is static GitHub Pages content served over HTTPS, with no login, cookies, or project-managed password database. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#hosted-site-hardening"
+    },
+    "hardening": {
+      "status": "Met",
+      "justification": "The project documents site hardening expectations and platform limits for the static GitHub Pages site. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#hosted-site-hardening"
+    },
+    "small_tasks": {
+      "status": "Met",
+      "justification": "The contribution guide requires the smallest coherent change, the PR template asks for scoped change summaries and verification, and the ETHOS enforces small sufficient implementation. See https://github.com/paudley/coding-ethos/blob/main/CONTRIBUTING.md#submit-pull-requests"
+    },
+    "test_branch_coverage80": {
+      "status": "Unmet",
+      "justification": "Statement coverage is enforced, but branch coverage is not yet measured as a release gate. Tracked in TODO.md."
+    },
+    "test_policy_mandated": {
+      "status": "Met",
+      "justification": "The functional-testing principle and contribution guide require behavioral tests for major functionality and bug fixes. See https://github.com/paudley/coding-ethos/blob/main/CONTRIBUTING.md#quality-bar"
+    },
+    "test_statement_coverage90": {
+      "status": "Unmet",
+      "justification": "The project currently enforces an 80% coverage floor, not 90%. See https://github.com/paudley/coding-ethos/blob/main/Makefile"
+    },
+    "two_person_review": {
+      "status": "Unmet",
+      "justification": "The project uses pull requests and CODEOWNERS, but does not yet have enough independent reviewer capacity to require two-person review for at least 50% of all modifications."
+    },
+    "contributors_unassociated": {
+      "status": "Unmet",
+      "justification": "The project does not yet have at least two unassociated significant contributors."
+    },
+    "require_2FA": {
+      "status": "Met",
+      "justification": "The repository owner confirmed GitHub two-factor authentication is enabled for the administering account. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#repository-account-security"
+    },
+    "secure_2FA": {
+      "status": "Met",
+      "justification": "The repository owner confirmed GitHub two-factor authentication is enabled using GitHub-supported 2FA mechanisms for the administering account. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#repository-account-security"
+    },
+    "signed_releases": {
+      "status": "Met",
+      "justification": "The release process requires signed v* tags and publishes artifacts with checksums, SBOMs, and attestations. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#release-signing-and-tags"
+    },
+    "version_tags_signed": {
+      "status": "Met",
+      "justification": "The release process requires signed v* tags and documents verification with git tag -v. See https://github.com/paudley/coding-ethos/blob/main/docs/GOLD_SECURITY_POSTURE.md#release-signing-and-tags"
+    }
+  }
+}

@@ -17,6 +17,7 @@
 - [ ] tests updated when behavior changed
 - [ ] README / templates / config docs updated when workflow changed
 - [ ] no secrets or local-only paths introduced
+- [ ] CLA Assistant check completed or not required for this contributor
 
 ## Notes
 

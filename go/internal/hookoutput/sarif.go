@@ -254,7 +254,7 @@ func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
 	var items []diagnostics.Diagnostic
 	if len(result.Diagnostics) > 0 {
 		items = lint.OutputDiagnostics(result)
-	} else if len(result.Findings) > 0 && result.Blocked() {
+	} else if len(result.Findings) > 0 {
 		items = lint.OutputDiagnostics(result)
 	} else if result.Blocked() {
 		items = lint.OutputDiagnostics(result)

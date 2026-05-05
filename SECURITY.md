@@ -39,6 +39,20 @@ Resolution timelines depend on severity, exploitability, and release constraints
 4. A release or advisory is prepared.
 5. Public disclosure follows after users have had reasonable time to update.
 
+## Reporter credit
+
+For each vulnerability report resolved in the last 12 months, public release
+notes or security advisories should credit the reporter unless the reporter
+requests anonymity or private handling. If multiple reporters contributed to a
+confirmed issue, credit each reporter who wants public recognition.
+
+Reporter credit should use the name, handle, or organization supplied by the
+reporter. If a reporter requests anonymity, release notes and advisories should
+state that the issue was reported privately without naming them.
+
+There are currently no publicly disclosed project vulnerabilities resolved in
+the last 12 months.
+
 ## Security updates
 
 - watch the repository for releases and advisories

@@ -501,6 +501,71 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	}
 }
 
+func TestExecuteReturnsPlanEvidenceAndRunsCommandCallback(t *testing.T) {
+	repo := t.TempDir()
+	backend := fakeBubblewrap(t)
+	var gotExecutable string
+	var gotArgs []string
+	var gotEvidence Evidence
+
+	evidence, err := Execute(
+		context.Background(),
+		Request{
+			Mode:        ModeRequired,
+			Tool:        "ruff",
+			Executable:  "/tools/ruff",
+			Cwd:         repo,
+			RepoRoot:    repo,
+			Args:        []string{"check", "."},
+			BackendPath: backend,
+			Capabilities: Capabilities{
+				SandboxProfile: "lint-offline",
+			},
+		},
+		func(executable string, args []string, evidence Evidence) error {
+			gotExecutable = executable
+			gotArgs = append([]string(nil), args...)
+			gotEvidence = evidence
+
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if evidence.Mode != gotEvidence.Mode ||
+		evidence.BackendPath != gotEvidence.BackendPath ||
+		evidence.Tool != gotEvidence.Tool ||
+		gotExecutable != backend {
+		t.Fatalf(
+			"callback did not receive planned execution: executable=%q evidence=%#v got=%#v",
+			gotExecutable,
+			evidence,
+			gotEvidence,
+		)
+	}
+	if sandboxArgIndex(gotArgs, "/tools/ruff") == -1 ||
+		sandboxArgIndex(gotArgs, "check") == -1 {
+		t.Fatalf("callback args missing tool command: %#v", gotArgs)
+	}
+}
+
+func TestExecuteSupportsDryPlanWithoutCallback(t *testing.T) {
+	evidence, err := Execute(context.Background(), Request{
+		Mode:       ModeOff,
+		Tool:       "ruff",
+		Executable: "/tools/ruff",
+		Args:       []string{"check"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Execute() dry-plan error = %v", err)
+	}
+	if evidence.Enabled || evidence.Tool != "ruff" ||
+		!slices.Equal(evidence.Command, []string{"/tools/ruff", "check"}) {
+		t.Fatalf("dry-plan evidence mismatch: %#v", evidence)
+	}
+}
+
 func sandboxArgIndex(args []string, value string) int {
 	for index, arg := range args {
 		if arg == value {

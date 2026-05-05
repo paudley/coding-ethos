@@ -134,12 +134,13 @@ assigned lambdas and closure factories so agents get principle-grounded advice
 to use `functools`, `operator`, or `itertools` helpers instead of ad-hoc
 closures.
 
-The first storage layer now lives in `go/internal/codeintel`. It creates the
-canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and
-hook traces, stores normalized findings/remediations/remediation events, and
-builds an FTS5 search table over policy IDs, skill IDs, paths, messages, and
-remediation text. It intentionally treats vectors as a later derived index:
-the SQLite store is the auditable source of truth.
+The storage layer lives in `go/internal/codeintel`. It creates the canonical
+`.coding-ethos/code-intel.db` SQLite store, ingests retained lint and hook
+traces, stores normalized findings/remediations/remediation events, indexes
+Tree-sitter chunks, records SARIF-to-AST links, and builds FTS5 search tables
+over policy IDs, skill IDs, paths, messages, code chunks, and remediation text.
+sqlite-vec is active for derived vector rows, but SQLite facts remain the
+auditable source of truth.
 
 Hook traces are also normalized into analytics tables. Each hook event stores
 provider, tool, status, tracking ID, operation kind, target kind, risk category,
@@ -206,11 +207,11 @@ bin/coding-ethos-run code-intel search --text 'unused import'
 These commands read retained `.coding-ethos` traces and write only the
 repo-local `.coding-ethos/code-intel.db` store.
 
-## `remediation_outcomes_1` Branch Plan
+## Implemented Storage Foundation
 
-This branch should make the local store useful as the durable evidence ledger
-for CEL, SARIF, and remediation outcomes before AST/vector indexing lands.
-The target is a complete storage foundation, not a minimal placeholder.
+The local store is the durable evidence ledger for CEL, SARIF, AST facts, hook
+analytics, remediation advice, vector metadata, and remediation outcomes. The
+target is a complete storage foundation, not a minimal placeholder.
 
 SQLite remains canonical and should gain:
 
@@ -243,8 +244,8 @@ The first query/CLI surface should answer:
 - which prior fixes are most relevant through hybrid FTS + sqlite-vec search,
   with fixed outcomes boosted and repeated/superseded outcomes downranked.
 
-Vector work on this branch uses always-built sqlite-vec tables. Metadata stays
-in normal SQLite tables for auditability and filtering, while vectors live in
+Vector work uses always-built sqlite-vec tables. Metadata stays in normal
+SQLite tables for auditability and filtering, while vectors live in
 dimension-specific `vec0` virtual tables. This preserves the ETHOS one-path
 build contract and keeps vector indexes rebuildable from SQLite facts.
 

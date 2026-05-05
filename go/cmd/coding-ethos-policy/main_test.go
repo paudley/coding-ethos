@@ -5,6 +5,8 @@ package main
 
 import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,4 +160,232 @@ func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "policy source hash mismatch") {
 		t.Fatalf("validate stale metadata error = %v", err)
 	}
+}
+
+func TestPolicyArtifactCommandsRoundTripExampleBundle(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "policy")
+	captureStdout(t, func() {
+		if err := writeExample([]string{"--out-dir", outDir}); err != nil {
+			t.Fatalf("write example: %v", err)
+		}
+	})
+
+	for _, name := range []string{
+		"policy-bundle.json",
+		"policy-metadata.json",
+		"policy-summary.md",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
+			t.Fatalf("missing artifact %s: %v", name, err)
+		}
+	}
+
+	bundlePath := filepath.Join(outDir, "policy-bundle.json")
+	validateOutput := captureStdout(t, func() {
+		if err := validate([]string{"--bundle", bundlePath}); err != nil {
+			t.Fatalf("validate bundle: %v", err)
+		}
+	})
+	if !strings.Contains(validateOutput, "policy bundle valid") {
+		t.Fatalf("validate output = %q", validateOutput)
+	}
+
+	explainOutput := captureStdout(t, func() {
+		if err := explain([]string{"--bundle", bundlePath, "git.hook_bypass"}); err != nil {
+			t.Fatalf("explain policy: %v", err)
+		}
+	})
+	if !strings.Contains(explainOutput, "git.hook_bypass") {
+		t.Fatalf("explain output missing policy id:\n%s", explainOutput)
+	}
+}
+
+func TestRunCLIDispatchesPolicyCommands(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "policy")
+
+	writeOutput := captureStdout(t, func() {
+		if code := runCLI([]string{"write-example", "--out-dir", outDir}); code != 0 {
+			t.Fatalf("write-example exit = %d", code)
+		}
+	})
+	if !strings.Contains(writeOutput, "wrote policy artifacts") {
+		t.Fatalf("write-example output = %q", writeOutput)
+	}
+
+	bundlePath := filepath.Join(outDir, "policy-bundle.json")
+	validateOutput := captureStdout(t, func() {
+		if code := runCLI([]string{"validate", "--bundle", bundlePath}); code != 0 {
+			t.Fatalf("validate exit = %d", code)
+		}
+	})
+	if !strings.Contains(validateOutput, "policy bundle valid") {
+		t.Fatalf("validate output = %q", validateOutput)
+	}
+
+	explainOutput := captureStdout(t, func() {
+		if code := runCLI([]string{"explain", "--bundle", bundlePath, "git.hook_bypass"}); code != 0 {
+			t.Fatalf("explain exit = %d", code)
+		}
+	})
+	if !strings.Contains(explainOutput, "git.hook_bypass") {
+		t.Fatalf("explain output = %q", explainOutput)
+	}
+
+	dumpOutput := captureStdout(t, func() {
+		if code := runCLI([]string{"dump-example"}); code != 0 {
+			t.Fatalf("dump-example exit = %d", code)
+		}
+	})
+	if !strings.Contains(dumpOutput, "git.hook_bypass") {
+		t.Fatalf("dump-example output = %q", dumpOutput)
+	}
+}
+
+func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{
+			name: "missing command",
+			args: nil,
+			want: commandArgsOffset,
+		},
+		{
+			name: "unknown command",
+			args: []string{"unknown"},
+			want: commandArgsOffset,
+		},
+		{
+			name: "command error",
+			args: []string{"validate"},
+			want: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if code := runCLI(test.args); code != test.want {
+				t.Fatalf("exit = %d, want %d", code, test.want)
+			}
+		})
+	}
+}
+
+func TestPolicyCommandRequiredFlagErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func() error
+		want error
+	}{
+		{
+			name: "compile out dir",
+			run:  func() error { return compile(nil) },
+			want: errCompileOutDirRequired,
+		},
+		{
+			name: "write example out dir",
+			run:  func() error { return writeExample(nil) },
+			want: errWriteExampleOutDirRequired,
+		},
+		{
+			name: "validate bundle",
+			run:  func() error { return validate(nil) },
+			want: errValidateBundleRequired,
+		},
+		{
+			name: "validate metadata",
+			run:  func() error { return validateMetadata(nil) },
+			want: errValidateMetadataRequired,
+		},
+		{
+			name: "explain bundle",
+			run:  func() error { return explain(nil) },
+			want: errExplainBundleRequired,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := test.run(); err != test.want {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestConfigTraceReportsConfigAndRepoSections(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	if err := os.WriteFile(primaryPath, []byte("principles: []\n"), 0o600); err != nil {
+		t.Fatalf("write primary: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("style:\n  line_length: 100\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(repoConfigPath, []byte("repo:\n  license:\n    spdx_identifier: MIT\n"), 0o600); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	err := configTrace([]string{
+		"--primary", primaryPath,
+		"--config", configPath,
+		"--repo-config", repoConfigPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "compile policy bundle") {
+		t.Fatalf("configTrace should validate sections before compile failure, got %v", err)
+	}
+
+	sections, err := validateRepoConfigSections(
+		repoConfigPath,
+		map[string]any{"style": map[string]any{"line_length": 0}},
+	)
+	if err != nil {
+		t.Fatalf("validate repo config sections: %v", err)
+	}
+	if strings.Join(sections, ",") != "repo" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
+func captureStdout(t *testing.T, run func()) string {
+	t.Helper()
+
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+
+	run()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	var buffer bytes.Buffer
+	if _, err := io.Copy(&buffer, reader); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+
+	return buffer.String()
 }

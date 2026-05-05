@@ -286,17 +286,10 @@ func TestGenericToolFailureFindingReportsTimeout(t *testing.T) {
 func TestReportSharedToolResultFormatsRunnerFailure(t *testing.T) {
 	t.Parallel()
 
-	output := captureStdout(t, func() {
-		status := reportSharedToolResult(
-			"yamllint",
-			externalToolResult{RunnerFailure: errTestRunnerFailure, ExitCode: 1},
-			parseYamllintFindings,
-			[]string{"Fix yamllint diagnostics before committing."},
-		)
-		if status != 1 {
-			t.Fatalf("status = %d, want 1", status)
-		}
-	})
+	output := formatSharedToolRunnerFailure(
+		"yamllint",
+		externalToolResult{RunnerFailure: errTestRunnerFailure, ExitCode: 1},
+	)
 
 	if !strings.Contains(output, "YAMLLINT RUNNER FAILED") ||
 		!strings.Contains(output, "test runner failure") {

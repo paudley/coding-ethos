@@ -2340,7 +2340,106 @@ flow
 changes.
 
 
-## 23. Exception Hierarchy and Error Messages
+## 23. Functional Testing Is the Proof
+
+Real workflow tests are the primary evidence that core behavior works.
+
+### Directive
+Prove critical behavior with real functional workflows before relying on unit tests or mocks.
+
+### Quick Ref
+- Real workflow tests are the primary evidence that core behavior works.
+- Unit tests are useful but low-value compared with tests that exercise the actual user path.
+- Mocking distorts reality; use it only as a last resort for narrow, explicitly bounded cases.
+
+### Axioms
+- The real workflow outranks the isolated unit. For critical behavior, create an end-to-end test that uses the real command, filesystem, process, and output path.
+- A mock is a distortion, not proof. Treat mocked tests as design aids or edge-case checks, never as the sole evidence that an operator workflow works.
+- Core deliverables require executable proof. If the feature is a hook, run the hook. If the feature is git safety, run real git. If the feature is lint capture, run a real captured tool.
+
+### Tags
+- testing, verification, quality, workflow
+
+### Overview
+The value of a test depends on how faithfully it exercises the system
+behavior users depend on. A unit test can be useful for small pure
+logic, parsers, and edge cases, but its value is minuscule compared
+with a functional test that proves the actual workflow works end to
+end.
+
+For coding-ethos, the core product is not a collection of isolated
+functions. The product is the working integration of git hooks,
+managed lint capture, CEL policy evaluation, SARIF output, MCP tools,
+agent routing, runtime bootstrap, and sandbox decisions. Those paths
+must be tested as real workflows.
+
+### Test Value Hierarchy
+Test evidence is ranked by fidelity:
+
+1. **Functional workflow tests:** Create real inputs, run the actual
+   command or hook, and inspect the real output and resulting state.
+2. **Integration tests:** Exercise real components together with only
+   unavoidable substitutions.
+3. **Unit tests:** Validate small, local logic where the behavior is
+   genuinely isolated.
+4. **Mock-heavy tests:** Use only for unsafe, unavailable, or
+   prohibitively expensive dependencies, and never as the only proof
+   for a critical workflow.
+
+A passing unit test proves the unit did what the test asked. It does
+not prove that the user-facing workflow works.
+
+### Mocks Distort Reality
+Mocking is a way of distorting reality to make a test easier to write.
+It is not a way to increase the value or usefulness of the test.
+
+Mocks can hide exactly the behavior that matters:
+
+* process exit-code propagation
+* stdout and stderr formatting
+* filesystem permissions and paths
+* git state and hook invocation semantics
+* provider payload shape
+* generated runtime artifacts
+* SARIF, TOON, JSON, and trace output contracts
+
+Use mocks only when the real dependency cannot be exercised safely or
+practically, and document what reality the mock is replacing.
+
+### Core Workflow Requirements
+Any change to a core coding-ethos deliverable must have at least one
+representative functional regression:
+
+* Git hook behavior must be tested by running the installed hook path
+  against a real temporary git checkout.
+* Commit behavior must be tested by staging files and running a real
+  `git commit`.
+* Managed lint capture must run a real executable and inspect the
+  emitted output, trace, CEL inputs, and SARIF.
+* MCP behavior must use the real MCP server framing and request path.
+* CEL policy changes must be verified against the real activation data
+  used by the workflow.
+* SARIF changes must be validated against emitted SARIF, not only
+  helper structs.
+
+If a core workflow lacks a functional test, the implementation is not
+proved.
+
+### Anti-Patterns (Forbidden)
+* ❌ Treating mocked unit tests as proof of hook behavior
+* ❌ Testing hand-built contexts while skipping the real command path
+* ❌ Claiming git safety without running real git
+* ❌ Claiming lint capture works without running a real captured tool
+* ❌ Replacing stdout/stderr, exit codes, or provider payloads with
+  convenient fake values
+* ❌ Adding a unit test for the easiest helper while leaving the user
+  workflow uncovered
+
+**The Rule:** The real workflow is the proof. Unit tests support that
+proof; they do not replace it.
+
+
+## 24. Exception Hierarchy and Error Messages
 
 Exceptions are not just error handling—they are communication.
 
@@ -2476,7 +2575,7 @@ have a
 reason—and "ignore it" is not a reason.
 
 
-## 24. Security by Design
+## 25. Security by Design
 
 Security is not a feature to be added later—it is a property of the design.
 
@@ -2617,7 +2716,7 @@ it's
 not a security measure—it's a suggestion.
 
 
-## 25. Sub-Agent Delegation and Context Isolation
+## 26. Sub-Agent Delegation and Context Isolation
 
 We mandate extensive use of sub-agents, plugins, and skills for
 complex operations—especially git commits and pushes that must pass
@@ -3053,7 +3152,7 @@ in
 the sub-agent, not deferred.
 
 
-## 26. Evidence-Based Engineering and Decision Quality
+## 27. Evidence-Based Engineering and Decision Quality
 
 Good engineering decisions are grounded in evidence, explicit
 trade-offs, and calibrated risk.

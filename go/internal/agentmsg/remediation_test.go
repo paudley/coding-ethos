@@ -122,6 +122,60 @@ func TestFromDecisionsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
 	}
 }
 
+func TestFromDecisionsUsesDiagnosticItemsAndFileEvidenceFallbacks(t *testing.T) {
+	t.Parallel()
+
+	items := FromDecisions([]policy.Decision{
+		{
+			Diagnostics: []diagnostics.Diagnostic{{
+				Tool:     "policy",
+				PolicyID: "filesystem.line_limits",
+				File:     "pkg/large.py",
+				Message:  "Large source files must not keep growing.",
+			}},
+		},
+		{
+			PolicyID: "filesystem.protected_path",
+			Message:  "Protected path",
+			Evidence: map[string]any{
+				"files": []any{"coding-ethos-hooks/bin/coding-ethos-run"},
+			},
+		},
+		{
+			Message: "",
+		},
+	}, "Edit")
+
+	if len(items) != 2 {
+		t.Fatalf("got %d remediation items, want 2: %#v", len(items), items)
+	}
+	if items[0].FailedAction != "Edit" ||
+		items[0].PolicyID != "filesystem.line_limits" ||
+		items[0].File != "pkg/large.py" {
+		t.Fatalf("diagnostic remediation mismatch: %#v", items[0])
+	}
+	if items[1].Path != "coding-ethos-hooks/bin/coding-ethos-run" {
+		t.Fatalf("file evidence fallback missing: %#v", items[1])
+	}
+}
+
+func TestFromDiagnosticsUsesSkillOnlyMCPWhenPolicyMissing(t *testing.T) {
+	t.Parallel()
+
+	items := FromDiagnostics([]diagnostics.Diagnostic{{
+		SkillID: "lint-remediation",
+		Message: "Fix the lint finding structurally.",
+	}})
+
+	if len(items) != 1 {
+		t.Fatalf("got %d remediation items, want 1", len(items))
+	}
+	if items[0].MCP == nil || items[0].MCP.Tool != "skill_lookup" ||
+		items[0].MCP.Arguments["skill_id"] != "lint-remediation" {
+		t.Fatalf("skill-only MCP mismatch: %#v", items[0].MCP)
+	}
+}
+
 func TestSummarizeReportsRepeatedPolicies(t *testing.T) {
 	t.Parallel()
 

@@ -14,6 +14,10 @@ adopt.
 - Public GitHub Actions CI.
 - Generated SARIF/code-scanning workflow.
 - CodeQL analysis for GitHub Actions workflows, Go, and Python.
+- OSV-Scanner vulnerability scanning for pull requests, merge queue, `main`,
+  scheduled runs, and manual dispatch.
+- Zizmor GitHub Actions security scanning with SARIF upload.
+- Managed `actionlint` validation for workflow correctness in CI.
 - Build distribution job with package metadata validation and artifact
   attestation.
 - OpenSSF Scorecard workflow with published results for the public badge and
@@ -21,7 +25,9 @@ adopt.
 - Release workflow with GitHub artifact attestations, SPDX JSON SBOMs,
   SHA-256 checksums, offline `.intoto.jsonl` attestation bundles, and PyPI
   Trusted Publishing.
-- Dependabot configuration.
+- Dependabot configuration for GitHub Actions, Go modules, root uv
+  dependencies, and hook uv dependencies, with a seven-day cooldown to avoid
+  unreviewed dependency churn.
 - GitHub Actions pinned to immutable commit SHAs, with release-process review
   for SHA updates.
 - uv dependency resolution constrained with `[tool.uv].exclude-newer = "7 days"`
@@ -31,7 +37,16 @@ adopt.
 - Public CI publishes JUnit XML, Python coverage reports, and Go coverage
   reports as workflow artifacts with coverage summaries in job output.
 - `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`,
-  issue templates, and pull request template.
+  `CODEOWNERS`, issue templates, discussion templates, and pull request
+  template.
+- CLA Assistant contribution certification in `CONTRIBUTING.md`; the PR
+  template requires contributors to complete the CLA check when prompted, and
+  CODEOWNERS names `@paudley` and `@ErinAudley` as Blackcat Informatics® Inc.
+  project owners.
+- Governance and continuity are documented in `CONTRIBUTING.md`; Blackcat
+  Informatics® Inc. maintains the project, and the two CODEOWNERS-listed
+  directors can continue issue triage, pull request review, repository
+  administration, and release management if either owner becomes unavailable.
 - Repository topics for AI-agent, MCP, CEL, static-analysis, DevSecOps, Git
   hook, and policy-as-code discovery.
 - Dogfooded hook, CEL, MCP, SARIF, sandbox, and managed-toolchain enforcement.
@@ -67,8 +82,41 @@ Current areas to monitor in the published result:
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12737/badge)](https://www.bestpractices.dev/en/projects/12737)
 
 The OpenSSF Best Practices Badge is a separate human-reviewed checklist. The
-project tracks its passing badge at
+project tracks its public badge record at
 `https://www.bestpractices.dev/en/projects/12737`.
+
+The project target is the **Gold** badge. Treat the badge as a project-quality
+checklist, not as badge decoration. Repo-side gaps should be remediated in code,
+docs, CI, or governance before a criterion is left as unmet. Criteria that
+depend on external GitHub organization settings, independent contributors, or
+human review capacity must remain explicit in the gap list until the underlying
+condition is true.
+
+The root `.bestpractices.json` file is the durable repo-hosted proposal file
+consumed by the Best Practices site. The checked-in source manifest for the
+URL helper lives at `docs/best_practices_prefill.json`. Generate
+human-reviewed chunked edit URLs and a gap report with:
+
+```bash
+make best-practices-prefill
+```
+
+Prefer the repo-hosted `.bestpractices.json` reanalysis path. Apply the emitted
+URLs only as a fallback, in order, saving the Best Practices project after each
+chunk. The URLs are deliberately bounded because the Best Practices edit
+endpoint can reject a full Gold prefill query as too long.
+
+OpenSSF Scorecard's `CII-Best-Practices` check is not controlled by repo-local
+SARIF or workflow output. It calls the Best Practices badge API for the Git
+repository URL and scores the public tier it receives. If the project has been
+advanced to Silver or Gold in the Best Practices UI, verify that project 12737
+uses `https://github.com/paudley/coding-ethos` as its repository URL, wait for
+the public Best Practices badge/API to reflect the new tier, then rerun the
+Scorecard workflow. The latest inspected public Best Practices project JSON
+reported `badge_level: "passing"`, `achieve_silver_status: "Unmet"`, and
+`achieved_gold_at: null`; the latest inspected Scorecard run reported
+`badge detected: Passing`. The remaining remediation is external badge metadata
+completion/propagation rather than a missing repository file.
 
 Preparation checklist:
 
@@ -76,8 +124,13 @@ Preparation checklist:
 - [x] Publish an initial release with clear release notes.
 - [x] Document supported platforms and installation paths.
 - [x] Document how dependencies are updated and audited.
-- [x] Document the project governance and maintainer contact path.
+- [x] Document the project governance, contribution certification, and
+  maintainer contact path.
 - [x] Review license, contribution, and issue-template completeness.
+- [x] Add a machine-readable Best Practices prefill manifest and generator.
+- [x] Add root `.bestpractices.json` for repo-hosted Best Practices
+      automation proposals.
+- [ ] Resolve remaining Gold gaps from the generated report.
 
 ## Public Release Checklist
 
@@ -92,5 +145,5 @@ Preparation checklist:
   attestations are generated and uploaded automatically.
 - [x] Link the docs landing page from the repository homepage or README.
 - [x] Upload `docs/social-preview.png` as the GitHub social preview image.
-- [ ] Enable GitHub Discussions with categories for policy recipes, agent
+- [x] Enable GitHub Discussions with categories for policy recipes, agent
   integrations, CEL examples, MCP workflows, and showcase posts.

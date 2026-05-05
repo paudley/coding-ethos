@@ -77,47 +77,53 @@ type asset struct {
 }
 
 func main() {
-	if len(os.Args) < commandArgsOffset {
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+func runCLI(args []string) int {
+	if len(args) == 0 {
 		usage()
-		os.Exit(commandArgsOffset)
+		return commandArgsOffset
 	}
 
 	var err error
-	switch os.Args[commandArgIndex] {
+	switch args[0] {
 	case "agent-hook-fix-items":
-		err = agentHookFixItems(os.Args[commandArgsOffset:])
+		err = agentHookFixItems(args[1:])
 	case "cutover-report":
-		err = cutoverReport(os.Args[commandArgsOffset:])
+		err = cutoverReport(args[1:])
 	case "cutover-verify":
-		err = cutoverVerify(os.Args[commandArgsOffset:])
+		err = cutoverVerify(args[1:])
 	case "github-asset-url":
-		err = githubAssetURL(os.Args[commandArgsOffset:])
+		err = githubAssetURL(args[1:])
 	case "install-github-binary":
-		err = installGitHubBinaryCommand(os.Args[commandArgsOffset:])
+		err = installGitHubBinaryCommand(args[1:])
 	case "install-managed-toolchain":
-		err = installManagedToolchainCommand(os.Args[commandArgsOffset:])
+		err = installManagedToolchainCommand(args[1:])
 	case "install-git-hooks":
-		err = installGitHooks(os.Args[commandArgsOffset:])
+		err = installGitHooks(args[1:])
 	case "install-git-shim":
-		err = installGitShimCommand(os.Args[commandArgsOffset:])
+		err = installGitShimCommand(args[1:])
 	case "git-hook-fix-items":
-		err = gitHookFixItems(os.Args[commandArgsOffset:])
+		err = gitHookFixItems(args[1:])
 	case "repo-ignore-fix-items":
-		err = repoIgnoreFixItems(os.Args[commandArgsOffset:])
+		err = repoIgnoreFixItems(args[1:])
 	case "runtime-fix-items":
-		err = runtimeFixItems(os.Args[commandArgsOffset:])
+		err = runtimeFixItems(args[1:])
 	case "sha256":
-		err = printSHA256(os.Args[commandArgsOffset:])
+		err = printSHA256(args[1:])
 	case "verify-git-hooks":
-		err = verifyGitHooks(os.Args[commandArgsOffset:])
+		err = verifyGitHooks(args[1:])
 	default:
 		usage()
-		os.Exit(commandArgsOffset)
+		return commandArgsOffset
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }
 
 func cutoverVerify(args []string) error {

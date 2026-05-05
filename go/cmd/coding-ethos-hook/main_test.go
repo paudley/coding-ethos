@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -80,6 +81,82 @@ func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 	}
 }
 
+func TestReadBundleAndPrintBlockedDirectly(t *testing.T) {
+	bundlePath := writeCLITestBundle(t)
+	bundle, err := readBundle(bundlePath)
+	if err != nil {
+		t.Fatalf("readBundle() returned error: %v", err)
+	}
+	if bundle.BundleID == "" {
+		t.Fatalf("bundle id should be populated: %#v", bundle)
+	}
+
+	output := captureHookStderr(t, func() {
+		printBlocked(os.Stderr, hooks.Result{
+			Status:   "blocked",
+			Provider: "codex",
+			Decisions: []policy.Decision{{
+				PolicyID: "shell.forbidden_strings",
+				Decision: "block",
+				Message:  "blocked command",
+			}},
+		})
+	})
+	if !strings.Contains(output, "blocked command") {
+		t.Fatalf("blocked output = %q", output)
+	}
+}
+
+func TestRunWithIOBlocksBashBypass(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	status := runWithIO(
+		[]string{"--bundle", writeCLITestBundle(t), "--json"},
+		strings.NewReader(hookJSON(t, "PreToolUse", "Bash", map[string]any{
+			"command": "git commit --no-verify -m test",
+		})),
+		&stdout,
+		&stderr,
+	)
+	if status != blockedExitCode {
+		t.Fatalf("status = %d, want %d", status, blockedExitCode)
+	}
+	result := map[string]any{}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("decode result: %v\n%s", err, stdout.String())
+	}
+	if !hookOutputDenies(result) {
+		t.Fatalf("result should deny: %#v", result)
+	}
+	if !strings.Contains(stderr.String(), "blocked") &&
+		!strings.Contains(stderr.String(), "bypass") {
+		t.Fatalf("stderr should contain compact denial advice: %q", stderr.String())
+	}
+}
+
+func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	status := runWithIO(nil, strings.NewReader("{}"), &stdout, &stderr)
+	if status != 1 || !strings.Contains(stderr.String(), "--bundle is required") {
+		t.Fatalf("missing bundle status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	status = runWithIO(
+		[]string{"--bundle", writeCLITestBundle(t), "--json"},
+		strings.NewReader("{"),
+		&stdout,
+		&stderr,
+	)
+	if status != 1 || !strings.Contains(stderr.String(), "decode hook event") {
+		t.Fatalf("bad input status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+}
+
 func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "coding-ethos-hook")
@@ -136,6 +213,35 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 	}
 
 	return result, status, stderr.String()
+}
+
+func captureHookStderr(t *testing.T, run func()) string {
+	t.Helper()
+
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	run()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	var buffer bytes.Buffer
+	if _, err := buffer.ReadFrom(reader); err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
+	}
+
+	return buffer.String()
 }
 
 func hookOutputDenies(result map[string]any) bool {

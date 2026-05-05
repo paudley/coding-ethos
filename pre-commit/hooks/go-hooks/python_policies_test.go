@@ -79,6 +79,60 @@ python:
 	}
 }
 
+func TestCheckPytestGateCommandFailsBeforeRunningPytestForBannedMarkers(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    banned_markers:
+      - skip
+      - skipif
+    test_command:
+      - /bin/sh
+      - -lc
+      - printf 'this command should not run\n'; exit 2
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	filePath := filepath.Join(tempDir, "test_sample.py")
+	mustWriteTestFile(
+		t,
+		filePath,
+		strings.Join([]string{
+			"import pytest",
+			"",
+			"@pytest.mark.skip(reason='not now')",
+			"def test_blocked():",
+			"    assert True",
+			"",
+		}, "\n"),
+	)
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(Config{}, []string{filePath}); got != 1 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"BANNED PYTEST MARKERS DETECTED",
+		"skip",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("pytest marker output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "this command should not run") {
+		t.Fatalf("pytest command ran despite marker violation:\n%s", output)
+	}
+}
+
 func TestCheckPytestGateCommandIsSilentOnSuccessByDefault(t *testing.T) {
 	tempDir := t.TempDir()
 	overridePath := filepath.Join(tempDir, "repo_config.yaml")
@@ -147,6 +201,148 @@ python:
 	if !strings.Contains(output, "Running pytest gate...") ||
 		!strings.Contains(output, "Pytest gate passed: 2 tests, 0 skipped.") {
 		t.Fatalf("unexpected verbose output: %q", output)
+	}
+}
+
+func TestDirectImportsCommandFlagsInternalModuleImports(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  source_paths:
+    - `+filepath.Join(tempDir, "src")+`
+  direct_imports:
+    enabled: true
+    packages:
+      - app
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	initPath := filepath.Join(tempDir, "src", "app", "__init__.py")
+	mustWriteTestFile(t, initPath, "\n")
+
+	internalPath := filepath.Join(tempDir, "src", "app", "internal.py")
+	mustWriteTestFile(t, internalPath, "VALUE = 1\n")
+
+	target := filepath.Join(tempDir, "src", "worker.py")
+	mustWriteTestFile(
+		t,
+		target,
+		"from app.internal import VALUE\nimport app.internal as internal\n",
+	)
+
+	output := captureStderr(t, func() {
+		if got := checkDirectImportsCommand(Config{}, []string{target}); got != 1 {
+			t.Fatalf("checkDirectImportsCommand() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"DIRECT MODULE IMPORT DETECTED",
+		"from app.internal import VALUE",
+		"import app.internal as internal",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("direct imports output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestSQLCentralizationCommandFlagsSQLOutsideCentralModule(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  sql_centralization:
+    enabled: true
+    module_name: app.sql
+    central_paths:
+      - src/app/sql.py
+    min_string_length: 8
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	target := filepath.Join(tempDir, "src", "app", "repo.py")
+	mustWriteTestFile(
+		t,
+		target,
+		"QUERY = \"SELECT id FROM users WHERE id = ?\"\n",
+	)
+
+	central := filepath.Join(tempDir, "src", "app", "sql.py")
+	mustWriteTestFile(t, central, "QUERY = \"SELECT id FROM users\"\n")
+
+	output := captureStderr(t, func() {
+		files := []string{target, central}
+		if got := checkSQLCentralizationCommand(Config{}, files); got != 1 {
+			t.Fatalf("checkSQLCentralizationCommand() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"SQL STRINGS FOUND OUTSIDE app.sql",
+		"SELECT id FROM users",
+		"Move the SQL string to",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("SQL output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestPythonPolicyCommandsDispatchHighValueChecks(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  conditional_imports:
+    enabled: true
+  optional_returns:
+    enabled: true
+  security_patterns:
+    enabled: true
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	target := filepath.Join(tempDir, "src", "app.py")
+	mustWriteTestFile(
+		t,
+		target,
+		strings.Join([]string{
+			"try:",
+			"    import missing",
+			"except ImportError:",
+			"    missing = None",
+			"def token() -> str | None:",
+			"    return os.getenv('API_KEY', 'sk-test-key')",
+			"SECRET = 'abcdef1234567890abcdef1234567890'",
+			"",
+		}, "\n"),
+	)
+
+	for name, command := range map[string]func(Config, []string) int{
+		"conditional-imports": checkConditionalImportsCommand,
+		"optional-returns":    checkOptionalReturnsCommand,
+		"security-patterns":   checkSecurityPatternsCommand,
+	} {
+		output := captureStderr(t, func() {
+			if got := command(Config{}, []string{target}); got != 1 {
+				t.Fatalf("%s command = %d, want 1", name, got)
+			}
+		})
+		if output == "" {
+			t.Fatalf("%s command produced no output", name)
+		}
 	}
 }
 
@@ -545,5 +741,118 @@ def build_query(table: str) -> str:
 
 	if len(violations) != 3 {
 		t.Fatalf("len(violations) = %d, want 3 (%#v)", len(violations), violations)
+	}
+}
+
+func TestPythonPolicyCommandsReportViolations(t *testing.T) {
+	tempDir := t.TempDir()
+
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(consumerRootEnv, tempDir)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
+
+	writePythonPolicyCommandConfig(t, tempDir)
+
+	mustWriteTestFile(t, filepath.Join(tempDir, "project", "__init__.py"), "")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "project", "internal.py"),
+		"def helper():\n    return 1\n",
+	)
+	filePath := filepath.Join(tempDir, "consumer.py")
+	writePythonPolicyViolationFixture(t, filePath)
+
+	for name, run := range pythonPolicyViolationCommands() {
+		captureStderr(t, func() {
+			if got := run(Config{}, []string{filePath}); got != 1 {
+				t.Fatalf("%s command = %d, want 1", name, got)
+			}
+		})
+	}
+}
+
+func writePythonPolicyCommandConfig(t *testing.T, tempDir string) {
+	t.Helper()
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, strings.TrimSpace(`
+python:
+  source_paths:
+    - project
+  direct_imports:
+    enabled: true
+    packages:
+      - project
+  util_centralization:
+    enabled: true
+    banned_modules:
+      - module: requests
+        alternative: Use project.http
+  sql_centralization:
+    enabled: true
+    module_name: project.sql
+    min_string_length: 15
+  structured_logging:
+    enabled: true
+  conditional_imports:
+    enabled: true
+  type_checking_imports:
+    enabled: true
+  catch_and_silence:
+    enabled: true
+  optional_returns:
+    enabled: true
+  security_patterns:
+    enabled: true
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+}
+
+func writePythonPolicyViolationFixture(t *testing.T, filePath string) {
+	t.Helper()
+
+	mustWriteTestFile(t, filePath, strings.TrimSpace(`
+import os
+import requests
+from typing import TYPE_CHECKING
+from project.internal import helper
+
+if TYPE_CHECKING:
+    import project.types
+
+try:
+    import fancy_dep
+except ImportError:
+    HAS_FANCY_DEP = False
+
+try:
+    run()
+except ValueError:
+    pass
+
+def run(logger, table: str, item: bytes | None) -> str | None:
+    logger.info("bare message")
+    query = f"SELECT id FROM {table}"
+    secret = os.getenv("API_KEY", "sk-test-key")
+    return query + secret
+`)+"\n",
+	)
+}
+
+func pythonPolicyViolationCommands() map[string]func(Config, []string) int {
+	return map[string]func(Config, []string) int{
+		"catch":         checkCatchAndSilenceCommand,
+		"conditional":   checkConditionalImportsCommand,
+		"logging":       checkStructuredLoggingCommand,
+		"optional":      checkOptionalReturnsCommand,
+		"security":      checkSecurityPatternsCommand,
+		"type-checking": checkTypeCheckingImportsCommand,
+		"util":          checkUtilCentralizationCommand,
 	}
 }

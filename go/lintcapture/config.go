@@ -176,19 +176,40 @@ func loadYAMLMap(path string) (map[string]any, error) {
 }
 
 func deepMergeMaps(base map[string]any, override map[string]any) map[string]any {
+	return deepMergeMapsAt(base, override, nil)
+}
+
+func deepMergeMapsAt(base map[string]any, override map[string]any, path []string) map[string]any {
 	merged := make(map[string]any, len(base)+len(override))
 	for key, value := range base {
 		merged[key] = value
 	}
 	for key, overrideValue := range override {
+		keyPath := append(append([]string(nil), path...), key)
 		if baseMap, ok := merged[key].(map[string]any); ok {
 			if overrideMap, ok := overrideValue.(map[string]any); ok {
-				merged[key] = deepMergeMaps(baseMap, overrideMap)
+				merged[key] = deepMergeMapsAt(baseMap, overrideMap, keyPath)
 				continue
+			}
+		}
+		if shouldAppendStringList(keyPath) {
+			if baseValues, ok := merged[key].([]any); ok {
+				if overrideValues, ok := overrideValue.([]any); ok {
+					merged[key] = append(append([]any(nil), baseValues...), overrideValues...)
+					continue
+				}
 			}
 		}
 		merged[key] = overrideValue
 	}
 
 	return merged
+}
+
+func shouldAppendStringList(path []string) bool {
+	if len(path) != 2 || path[0] != "sandbox" {
+		return false
+	}
+
+	return path[1] == "read_write_paths" || path[1] == "rw_paths"
 }

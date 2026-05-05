@@ -21,6 +21,8 @@ var errDocstringCoverageCommandEmpty = errors.New(
 	"docstring coverage command is empty",
 )
 
+const nativeDocstringCoverageCommand = "coding-ethos-docstring-coverage"
+
 type docstringCoverageSettings struct {
 	BundleRoot               string
 	ConsumerRoot             string
@@ -120,7 +122,7 @@ func applyDocstringCoverageDefaults(
 	}
 
 	if len(settings.Command) == 0 {
-		settings.Command = []string{"interrogate"}
+		settings.Command = []string{nativeDocstringCoverageCommand}
 	}
 
 	applyDocstringCoverageFlagDefaults(settings, rootConfig)
@@ -247,6 +249,10 @@ func appendFlagIfEnabled(command []string, enabled bool, flag string) []string {
 func runDocstringCoverage(
 	settings docstringCoverageSettings,
 ) (int, string, string, error) {
+	if usesNativeDocstringCoverage(settings.Command) {
+		return runNativeDocstringCoverage(settings)
+	}
+
 	command := buildDocstringCoverageCommand(settings)
 	if len(command) == 0 {
 		return 1, "", "", errDocstringCoverageCommandEmpty

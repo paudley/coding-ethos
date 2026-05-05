@@ -316,6 +316,43 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 	}
 }
 
+func TestFormatTypeCheckResultsJSONIncludesSummaryAndDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	output := formatTypeCheckResults(
+		[]typeCheckResult{
+			{
+				Name:       "pyright",
+				ExitCode:   1,
+				DurationMS: 7,
+				Diagnostics: []diag.Diagnostic{{
+					Tool:     "pyright",
+					File:     "pkg/app.py",
+					Severity: "error",
+					Code:     "reportGeneralTypeIssues",
+					Message:  "type mismatch",
+					Line:     5,
+					Column:   2,
+				}},
+			},
+			{Name: "mypy", ExitCode: 0, DurationMS: 3},
+		},
+		1,
+		hookOutputFormatJSON,
+	)
+	for _, fragment := range []string{
+		`"format": "json"`,
+		`"status": "FAIL"`,
+		`"failed": 1`,
+		`"name": "pyright"`,
+		`"message": "type mismatch"`,
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("JSON output missing %q:\n%s", fragment, output)
+		}
+	}
+}
+
 func TestFormatTypeCheckResultsTOONIncludesSkillAdvice(t *testing.T) {
 	t.Parallel()
 

@@ -15,6 +15,8 @@ const (
 	extYml                  = ".yml"
 	geminiDefaultModel      = "gemini-2.5-flash"
 	geminiServiceTierNormal = "standard"
+	geminiScopeBranch       = "branch"
+	geminiScopeStaged       = "staged"
 	kibibyte                = 1024
 	minCollectionItems      = 2
 	nilString               = "<nil>"

@@ -185,8 +185,46 @@ func (event Event) ReturnCode() int {
 			return 1
 		}
 	}
+	if responseStatusFailed(event.ToolResponse) {
+		return 1
+	}
 
 	return 0
+}
+
+func (event Event) HasReturnCode() bool {
+	if event.ToolResponse == nil {
+		return false
+	}
+
+	for _, key := range []string{
+		"return_code",
+		"returnCode",
+		"exitCode",
+		"exit_code",
+		"code",
+	} {
+		if _, ok := event.ToolResponse[key]; ok {
+			return true
+		}
+	}
+
+	return responseStatusFailed(event.ToolResponse)
+}
+
+func responseStatusFailed(response map[string]any) bool {
+	for _, key := range []string{"status", "state", "outcome"} {
+		value, ok := response[key].(string)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "blocked", "error", "failed", "failure":
+			return true
+		}
+	}
+
+	return false
 }
 
 func (event Event) ToolInputKeys() []string {
