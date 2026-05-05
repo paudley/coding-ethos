@@ -28,6 +28,16 @@ search engines, and AI-agent policy/security searches.
 - [x] Register the OpenSSF Best Practices Badge project and add the badge once
   the public checklist has an issued project URL.
 - [x] Document progress toward the OpenSSF Best Practices badge.
+- [ ] Use OpenSSF Best Practices Gold as an active project checklist:
+  - [x] Add a checked-in Best Practices prefill manifest.
+  - [x] Add a generator for human-reviewed Best Practices prefill URLs.
+  - [ ] Drive all generated `Unmet` and `?` criteria to either repo-side
+        remediation or an explicit external blocker.
+  - [ ] Raise coverage evidence from the current 80% gate toward Gold-level
+        statement and branch coverage expectations.
+  - [ ] Resolve review-capacity criteria such as two-person review and
+        unassociated significant contributors when project governance supports
+        them honestly.
 - [x] Add a small demo walkthrough showing an agent using MCP instead of
   invoking lint directly.
 - [x] Add a short docs landing page optimized for "policy as code for AI

@@ -530,6 +530,7 @@ func evaluateHookPolicy(
 		ToolResponseKeys: event.ToolResponseKeys(),
 		TranscriptPath:   event.TranscriptPath,
 		ReturnCode:       event.ReturnCode(),
+		HasReturnCode:    event.HasReturnCode(),
 		HasToolInput:     event.ToolInput != nil,
 		HasToolResponse:  event.ToolResponse != nil,
 		Argv:             commandArgv(event.Command()),

@@ -15,7 +15,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-func TestEvaluateGitCommitHeadAdvancedRecordsUnchangedHead(t *testing.T) {
+func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 	t.Parallel()
 
 	repo := initCommitHeadRepo(t)
@@ -35,6 +35,7 @@ func TestEvaluateGitCommitHeadAdvancedRecordsUnchangedHead(t *testing.T) {
 
 	context.Scope = "PostToolUse"
 	context.HasToolResponse = true
+	context.HasReturnCode = true
 	context.ReturnCode = 0
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
@@ -46,7 +47,7 @@ func TestEvaluateGitCommitHeadAdvancedRecordsUnchangedHead(t *testing.T) {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+	if decisions[0].Decision != "block" || decisions[0].Severity != "block" {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 
@@ -84,6 +85,7 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 
 	context.Scope = "PostToolUse"
 	context.HasToolResponse = true
+	context.HasReturnCode = true
 	context.ReturnCode = 0
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
@@ -125,6 +127,7 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockFailedCommit(t *testing.T) {
 
 	context.Scope = "PostToolUse"
 	context.HasToolResponse = true
+	context.HasReturnCode = true
 	context.ReturnCode = 1
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
@@ -169,6 +172,46 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingToolResponse(t *testing
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
 	if err != nil {
 		t.Fatalf("verify missing tool response: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+		t.Fatalf("decision mismatch: %#v", decisions[0])
+	}
+
+	ok, err := ReadCommitHeadState(repo)
+	if err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingReturnCode(t *testing.T) {
+	t.Parallel()
+
+	repo := initCommitHeadRepo(t)
+	policyDef := policy.ExampleBundle().Policies["git.commit_head_advanced"]
+
+	context := Context{
+		Scope:   "PreToolUse",
+		Argv:    []string{"git", "commit", "-m", "test"},
+		Command: "git commit -m test",
+		Cwd:     repo,
+	}
+
+	_, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("record head: %v", err)
+	}
+
+	context.Scope = "PostToolUse"
+	context.HasToolResponse = true
+
+	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
+	if err != nil {
+		t.Fatalf("verify missing return code: %v", err)
 	}
 
 	if len(decisions) != 1 {

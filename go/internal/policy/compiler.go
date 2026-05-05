@@ -2421,7 +2421,7 @@ func addCommitHeadDispatch(
 			hooks["PostToolUse"]["Bash"],
 			HookDispatchEntry{
 				PolicyID:        "git.commit_head_advanced",
-				Mode:            "record",
+				Mode:            "block",
 				CommandPatterns: []string{"git commit"},
 			},
 		)

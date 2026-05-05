@@ -125,6 +125,19 @@ func verifyCommitHead(
 		return []policy.Decision{decision}, nil
 	}
 
+	if !context.HasReturnCode {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Evidence = map[string]any{
+			"phase":    "post",
+			"pre_head": state.Head,
+			"advanced": false,
+			"skipped":  "missing tool return code",
+		}
+
+		return []policy.Decision{decision}, nil
+	}
+
 	if context.ReturnCode != 0 {
 		decision := policy.NewDecision(recordDecision, policyDef)
 		decision.Severity = recordDecision
@@ -157,8 +170,8 @@ func verifyCommitHead(
 		return []policy.Decision{decision}, nil
 	}
 
-	decision := policy.NewDecision(recordDecision, policyDef)
-	decision.Severity = recordDecision
+	decision := policy.NewDecision("block", policyDef)
+	decision.Severity = "block"
 	decision.Evidence = map[string]any{
 		"phase":     "post",
 		"pre_head":  state.Head,

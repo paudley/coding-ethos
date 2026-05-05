@@ -11,6 +11,16 @@
   enforcement, MCP, CEL, SARIF, sandboxing, and roadmap entry points.
 - `docs/TRUST_SIGNALS.md`: OpenSSF, release, security, social-preview, and
   publication checklist for project credibility and organic discovery.
+- `docs/OPENSSF_GOLD_CHECKLIST.md`: Best Practices Gold target, prefill
+  generator workflow, remaining gaps, and remediation plan.
+- `docs/SECURITY_ASSURANCE_CASE.md`: security claims, evidence, validation
+  posture, secure-design posture, and explicit limits.
+- `docs/GOLD_SECURITY_POSTURE.md`: OpenSSF Gold evidence for cryptography
+  applicability, TLS verification, hosted-site hardening, and signed releases.
+- `docs/BUILD_REPRODUCIBILITY.md`: repeatable build controls, deterministic Go
+  build flags, release provenance, and known reproducibility limits.
+- `tools/MODULE.md`: repository-local helper tool contract and test
+  expectations for maintenance automation.
 - `docs/SUPPLY_CHAIN_ATTESTATIONS.md`: Scorecard publishing, GitHub artifact
   attestations, SBOM generation, PyPI Trusted Publishing, checksum policy, and
   verification commands.

@@ -166,18 +166,7 @@ func reportSharedToolResult(
 	guidance []string,
 ) int {
 	if result.RunnerFailure != nil {
-		fmt.Fprintln(os.Stdout, formatHookReport(hookReport{
-			Tool:  name,
-			Title: strings.ToUpper(name) + " RUNNER FAILED",
-			Findings: []hookFinding{{
-				Tool:     name,
-				Severity: "fatal",
-				Message:  result.RunnerFailure.Error(),
-			}},
-			Guidance: []string{
-				"Install the required tool or fix the hook runner configuration.",
-			},
-		}, selectedHookOutputFormat()))
+		fmt.Fprintln(os.Stdout, formatSharedToolRunnerFailure(name, result))
 
 		return 1
 	}
@@ -207,6 +196,26 @@ func reportSharedToolResult(
 	}
 
 	return result.ExitCode
+}
+
+func formatSharedToolRunnerFailure(name string, result externalToolResult) string {
+	message := ""
+	if result.RunnerFailure != nil {
+		message = result.RunnerFailure.Error()
+	}
+
+	return formatHookReport(hookReport{
+		Tool:  name,
+		Title: strings.ToUpper(name) + " RUNNER FAILED",
+		Findings: []hookFinding{{
+			Tool:     name,
+			Severity: "fatal",
+			Message:  message,
+		}},
+		Guidance: []string{
+			"Install the required tool or fix the hook runner configuration.",
+		},
+	}, selectedHookOutputFormat())
 }
 
 func genericToolFailureFinding(name string, exitCode int) hookFinding {

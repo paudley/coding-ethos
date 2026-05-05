@@ -24,6 +24,14 @@ Git hooks, MCP tools, SARIF output, runtime sandbox evidence, and CI gates.
   chunks, SARIF/remediation evidence, and MCP retrieval surfaces.
 - [Trust signals](TRUST_SIGNALS.md): OpenSSF Scorecard, Best Practices badge,
   security posture, and publication checklist.
+- [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md): generated prefill
+  workflow, remaining Gold gaps, and remediation plan.
+- [Security assurance case](SECURITY_ASSURANCE_CASE.md): security claims,
+  evidence, input-validation posture, and known limits.
+- [Gold security posture](GOLD_SECURITY_POSTURE.md): cryptography
+  applicability, TLS verification, site hardening, and release signing.
+- [Build reproducibility](BUILD_REPRODUCIBILITY.md): repeatable build inputs,
+  deterministic Go flags, generated artifact checks, and known limits.
 - [Supply-chain attestations](SUPPLY_CHAIN_ATTESTATIONS.md): Scorecard
   publishing, GitHub artifact provenance, SBOMs, PyPI Trusted Publishing,
   checksums, and verification commands.

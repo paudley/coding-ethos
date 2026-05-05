@@ -82,8 +82,29 @@ Current areas to monitor in the published result:
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12737/badge)](https://www.bestpractices.dev/en/projects/12737)
 
 The OpenSSF Best Practices Badge is a separate human-reviewed checklist. The
-project tracks its passing badge at
+project tracks its public badge record at
 `https://www.bestpractices.dev/en/projects/12737`.
+
+The project target is the **Gold** badge. Treat the badge as a project-quality
+checklist, not as badge decoration. Repo-side gaps should be remediated in code,
+docs, CI, or governance before a criterion is left as unmet. Criteria that
+depend on external GitHub organization settings, independent contributors, or
+human review capacity must remain explicit in the gap list until the underlying
+condition is true.
+
+The root `.bestpractices.json` file is the durable repo-hosted proposal file
+consumed by the Best Practices site. The checked-in source manifest for the
+URL helper lives at `docs/best_practices_prefill.json`. Generate
+human-reviewed chunked edit URLs and a gap report with:
+
+```bash
+make best-practices-prefill
+```
+
+Prefer the repo-hosted `.bestpractices.json` reanalysis path. Apply the emitted
+URLs only as a fallback, in order, saving the Best Practices project after each
+chunk. The URLs are deliberately bounded because the Best Practices edit
+endpoint can reject a full Gold prefill query as too long.
 
 OpenSSF Scorecard's `CII-Best-Practices` check is not controlled by repo-local
 SARIF or workflow output. It calls the Best Practices badge API for the Git
@@ -106,6 +127,10 @@ Preparation checklist:
 - [x] Document the project governance, contribution certification, and
   maintainer contact path.
 - [x] Review license, contribution, and issue-template completeness.
+- [x] Add a machine-readable Best Practices prefill manifest and generator.
+- [x] Add root `.bestpractices.json` for repo-hosted Best Practices
+      automation proposals.
+- [ ] Resolve remaining Gold gaps from the generated report.
 
 ## Public Release Checklist
 

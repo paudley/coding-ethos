@@ -29,6 +29,7 @@ UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
+GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 
 empty :=
 space := $(empty) $(empty)
@@ -439,6 +440,11 @@ check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync
 	@$(call print_info,primary: $(PRIMARY))
 	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
 
+BEST_PRACTICES_MAX_URL_LENGTH ?= 1800
+
+best-practices-prefill: ensure-uv ## Print chunked OpenSSF Best Practices Gold prefill URLs and gap report.
+	@$(UV) run $(PYTHON) tools/best_practices_prefill.py --section gold --max-url-length "$(BEST_PRACTICES_MAX_URL_LENGTH)"
+
 build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
@@ -456,7 +462,7 @@ managed-go-tools-install: managed-toolchain-install ## Alias for installing mana
 go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the checkout-local bin directory.
 	@$(call print_step,Installing bundled Go hook runner)
 	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build -buildvcs=false -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" .
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build $(GO_BUILD_FLAGS) -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" .
 	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
 
 _sync-git-hooks: ensure-go go-tools-install
@@ -570,7 +576,7 @@ go-tools-build: ensure-go ## Build shared Go tools into go/bin.
 	@$(call print_step,Building shared Go tools)
 	@mkdir -p "$(GO_TOOLS_DIR)/bin"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		"$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
+		"$(GO)" build $(GO_BUILD_FLAGS) -o "bin/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,built: $(GO_TOOLS_DIR)/bin)
 
@@ -578,7 +584,7 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 	@$(call print_step,Installing shared Go tools)
 	@mkdir -p "$(GO_TOOLS_BIN_DIR)"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		"$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
+		"$(GO)" build $(GO_BUILD_FLAGS) -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 

@@ -273,7 +273,7 @@ func TestDecodeEventTreatsFailedTopLevelStatusAsNonzeroReturnCode(t *testing.T) 
 	}
 }
 
-func TestRunDoesNotBlockWhenCommitHeadDidNotAdvance(t *testing.T) {
+func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	t.Parallel()
 
 	repo := initHookRepo(t)
@@ -308,6 +308,56 @@ func TestRunDoesNotBlockWhenCommitHeadDidNotAdvance(t *testing.T) {
 				"return_code": 0,
 				"stdout":      "",
 				"stderr":      "",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run post hook: %v", err)
+	}
+	if postResult.Status != statusBlocked {
+		t.Fatalf("post status = %q decisions %#v", postResult.Status, postResult.Decisions)
+	}
+	if len(postResult.Decisions) != 1 ||
+		postResult.Decisions[0].PolicyID != "git.commit_head_advanced" ||
+		postResult.Decisions[0].Decision != "block" {
+		t.Fatalf("post decision mismatch: %#v", postResult.Decisions)
+	}
+}
+
+func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	bundle := policy.ExampleBundle()
+
+	preResult, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m 'feat(test): subject'",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run pre hook: %v", err)
+	}
+	if preResult.Status != statusAllowed {
+		t.Fatalf("pre status = %q decisions %#v", preResult.Status, preResult.Decisions)
+	}
+
+	postResult, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m 'feat(test): subject'",
+			},
+			ToolResponse: map[string]any{
+				"stdout": "",
+				"stderr": "",
 			},
 		},
 	})
