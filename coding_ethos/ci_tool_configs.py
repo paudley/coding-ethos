@@ -29,7 +29,7 @@ GENERATED_CI_CONFIGS: tuple[str, ...] = (
 )
 SANDBOX_MODES = {"auto", "off", "required"}
 SETUP_UV_USES_LINE = (
-    "        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+    "        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78"
 )
 
 
