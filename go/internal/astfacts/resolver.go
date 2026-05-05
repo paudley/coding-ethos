@@ -23,13 +23,18 @@ type Context struct {
 
 type Resolver struct {
 	mu      sync.Mutex
-	parsers map[string]*tree_sitter.Parser
+	parsers map[string]*parserEntry
+}
+
+type parserEntry struct {
+	mu     sync.Mutex
+	parser *tree_sitter.Parser
 }
 
 var defaultResolver = NewResolver()
 
 func NewResolver() *Resolver {
-	return &Resolver{parsers: map[string]*tree_sitter.Parser{}}
+	return &Resolver{parsers: map[string]*parserEntry{}}
 }
 
 func Analyze(path string, contents []byte) (File, bool, error) {
@@ -38,6 +43,10 @@ func Analyze(path string, contents []byte) (File, bool, error) {
 
 func ContextForLine(path string, contents []byte, line int) (Context, bool, error) {
 	return defaultResolver.ContextForLine(path, contents, line)
+}
+
+func Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
+	return defaultResolver.Parse(path, contents)
 }
 
 func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, error) {
@@ -87,28 +96,58 @@ func (resolver *Resolver) ContextForLine(path string, contents []byte, line int)
 	}, true, nil
 }
 
+func (resolver *Resolver) Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
+	language, parserLanguage, ok := languageForPath(path)
+	if !ok {
+		return nil, false, nil
+	}
+	tree, err := resolver.parse(path, language, parserLanguage, contents)
+	if err != nil {
+		return nil, true, err
+	}
+
+	return tree, true, nil
+}
+
 func (resolver *Resolver) parse(
 	path string,
 	language string,
 	parserLanguage unsafe.Pointer,
 	contents []byte,
 ) (*tree_sitter.Tree, error) {
-	resolver.mu.Lock()
-	defer resolver.mu.Unlock()
-
-	parser := resolver.parsers[language]
-	if parser == nil {
-		parser = tree_sitter.NewParser()
-		if err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage)); err != nil {
-			parser.Close()
-			return nil, fmt.Errorf("set tree-sitter language for %q: %w", path, err)
-		}
-		resolver.parsers[language] = parser
+	entry, err := resolver.parserEntry(path, language, parserLanguage)
+	if err != nil {
+		return nil, err
 	}
-	tree := parser.Parse(contents, nil)
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	tree := entry.parser.Parse(contents, nil)
 	if tree == nil {
 		return nil, fmt.Errorf("parse %q with tree-sitter returned nil tree", path)
 	}
 
 	return tree, nil
+}
+
+func (resolver *Resolver) parserEntry(
+	path string,
+	language string,
+	parserLanguage unsafe.Pointer,
+) (*parserEntry, error) {
+	resolver.mu.Lock()
+	defer resolver.mu.Unlock()
+
+	entry := resolver.parsers[language]
+	if entry == nil {
+		parser := tree_sitter.NewParser()
+		if err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage)); err != nil {
+			parser.Close()
+			return nil, fmt.Errorf("set tree-sitter language for %q: %w", path, err)
+		}
+		entry = &parserEntry{parser: parser}
+		resolver.parsers[language] = entry
+	}
+
+	return entry, nil
 }

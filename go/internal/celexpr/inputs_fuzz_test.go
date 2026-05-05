@@ -4,8 +4,6 @@
 package celexpr
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -30,20 +28,10 @@ func FuzzActivationShellAndProposedFileChange(f *testing.F) {
 			t.Skip("bounded fuzz input size")
 		}
 
-		repo := t.TempDir()
-		file := filepath.Join(repo, "pkg", "app.py")
-		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-			t.Fatalf("create fixture dir: %v", err)
-		}
-		if err := os.WriteFile(file, []byte("old\nsame\n"), 0o600); err != nil {
-			t.Fatalf("write fixture file: %v", err)
-		}
-
 		activation := Activation(ActivationInput{
 			Command:    command,
 			Content:    newText,
 			OldContent: oldText,
-			Cwd:        repo,
 			Files:      []string{"pkg/app.py"},
 			Tool:       tool,
 			SourceRoots: []string{

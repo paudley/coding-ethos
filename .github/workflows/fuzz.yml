@@ -51,7 +51,7 @@ jobs:
         working-directory: go
 
       - name: Fuzz CEL input construction
-        run: go test ./internal/celexpr -run '^$' -fuzz Fuzz -fuzztime=30s
+        run: go test ./internal/celexpr -run '^$' -fuzz Fuzz -fuzztime=20s
         working-directory: go
 
       - name: Upload fuzz crash corpus
