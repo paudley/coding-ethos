@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+title: "[agent integration] "
+labels:
+  - agents
+  - integration
+  - discussion
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this to discuss Claude, Codex, Gemini, MCP, or other agent
+        integration behavior.
+
+  - type: input
+    id: agent
+    attributes:
+      label: Agent or client
+      placeholder: "Claude Code, Codex, Gemini CLI, custom MCP client"
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: What is the agent trying to do, and where should coding-ethos help?
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What happens today?
+
+  - type: textarea
+    id: desired
+    attributes:
+      label: Desired behavior
+      description: What would be more useful, safer, or easier for agents?
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, hook output, trace IDs, MCP output, or links to relevant docs.

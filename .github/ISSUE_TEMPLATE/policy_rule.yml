@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+name: Policy rule request
+description: Propose a new or changed ETHOS, CEL, SARIF, hook, or agent policy.
+title: "[policy] "
+labels:
+  - policy
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Policy belongs in the ETHOS spine first. Use this template to describe
+        the principle, examples, enforcement mode, and false-positive risk.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and discussions first.
+          required: true
+        - label: >-
+            I considered whether this should be advice, record-only telemetry,
+            or a blocking rule.
+          required: true
+
+  - type: textarea
+    id: principle
+    attributes:
+      label: ETHOS grounding
+      description: >-
+        Which existing principle should own this policy, or what new principle
+        is needed?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Desired enforcement mode
+      options:
+        - advice
+        - record-only
+        - blocking
+        - SARIF-only
+        - unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: block_examples
+    attributes:
+      label: Examples that should be blocked or flagged
+      description: Include commands, code snippets, files, or traces.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: allow_examples
+    attributes:
+      label: Examples that must remain allowed
+      description: Include legitimate workflows that should not be disrupted.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: sarif
+    attributes:
+      label: SARIF expectations
+      description: >-
+        What file, line, rule ID, help URI, or remediation should appear?
+
+  - type: textarea
+    id: mcp
+    attributes:
+      label: MCP guidance expectations
+      description: Which MCP tool should explain or remediate this policy?
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: False-positive risks
+      description: >-
+        What valid agent or maintainer behavior could this accidentally block?
+    validations:
+      required: true

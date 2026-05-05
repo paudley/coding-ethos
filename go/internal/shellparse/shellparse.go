@@ -180,6 +180,11 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 		if command.Command != "" {
 			*fields = append(*fields, command.Command)
 		}
+		walkStatement(cmd.Body, commands, fields)
+	case *syntax.Block:
+		walkStatements(cmd.Stmts, commands, fields)
+	case *syntax.Subshell:
+		walkStatements(cmd.Stmts, commands, fields)
 	default:
 		rendered := renderNode(cmd)
 		if rendered != "" {
@@ -202,6 +207,15 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 			(*commands)[len(*commands)-1].Background = true
 		}
 		*fields = append(*fields, "&")
+	}
+}
+
+func walkStatements(stmts []*syntax.Stmt, commands *[]Command, fields *[]string) {
+	for index, stmt := range stmts {
+		if index > 0 {
+			*fields = append(*fields, ";")
+		}
+		walkStatement(stmt, commands, fields)
 	}
 }
 

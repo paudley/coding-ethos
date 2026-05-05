@@ -9,6 +9,36 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+      - "python"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "uv"
+    directory: "/pre-commit/hooks"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "python"
+      - "pre-commit"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "gomod"
+    directory: "/go"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "gomod"
+    directory: "/pre-commit/hooks/go-hooks"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "go"
+      - "pre-commit"
     open-pull-requests-limit: 10
 
   - package-ecosystem: "github-actions"
