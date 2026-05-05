@@ -812,7 +812,7 @@ python:
     enabled: true
     threshold: 90
     command:
-      - interrogate
+      - coding-ethos-docstring-coverage
     use_hook_project: true
     verbose: true
     ignore_init_method: true

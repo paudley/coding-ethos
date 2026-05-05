@@ -423,7 +423,7 @@ Important configurable areas:
 - `python.type_check` - aggregated Ruff, mypy, pyright, and optional pylint
   command execution, hook-project execution, config injection, per-checker
   enablement, and excluded path fragments
-- `python.docstring_coverage` - interrogate command, threshold, path selection, exclude regexes, and ignore flags
+- `python.docstring_coverage` - native Tree-sitter docstring coverage threshold, path selection, exclude regexes, and ignore flags
 - `hooks.*` - normalized output format, agent environment detection,
   external tool timeout, severity thresholds, and canonical hook groups
 - `tooling.pyright`, `tooling.mypy`, `tooling.ruff`, `tooling.pylint`,

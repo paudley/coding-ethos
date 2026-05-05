@@ -5,6 +5,12 @@ name: OpenSSF Scorecard
 
 on:
   branch_protection_rule:
+  merge_group:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main

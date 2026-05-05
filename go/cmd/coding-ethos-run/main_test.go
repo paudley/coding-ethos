@@ -334,7 +334,7 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 }
 
 func TestRunCISARIFRequiresProviderAndOutputPath(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODING_ETHOS_SARIF_PATH", "")
 
 	if err := runCISARIF(runtimePaths{}, nil); err == nil ||
 		!strings.Contains(err.Error(), "requires --provider") {
