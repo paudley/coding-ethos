@@ -176,6 +176,144 @@ exit 1
 	}
 }
 
+func TestRunCapturedRuffWarningOutputCanBePromotedByCELIntoSARIFError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "ruff-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte(`#!/usr/bin/env sh
+case " $* " in
+  *" --output-format=json "*) ;;
+  *) echo "missing json output flag" >&2; exit 2 ;;
+esac
+echo 'warning: top-level linter warning that does not affect exit status' >&2
+exit 0
+`),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"ruff",
+			tool,
+			repo,
+			"",
+			[]string{"check", "pkg/app.py"},
+			capturePolicyData{
+				Policies: []policy.Policy{{
+					ID:              "tool.ruff.warning_output_denied",
+					Category:        "expression",
+					DefaultSeverity: "block",
+					Message:         "Ruff warning output is blocking under policy.",
+					Suggestion:      "Read and resolve ruff warning output before committing.",
+					AppliesTo:       policy.AppliesTo{Tools: []string{"ruff"}},
+					DefenseLayers:   policy.CodeDefenseLayers(),
+					SupportedModes:  []string{"block", "record", "advise"},
+					PrincipleIDs:    []string{"radical-visibility"},
+					Evaluators: []policy.Evaluator{{
+						Kind: "cel",
+						Name: "cel.expression",
+						Options: map[string]any{
+							"when": `findings.exists(item,
+								item.tool == "ruff" &&
+								item.policy_id == "tool.output_visible" &&
+								item.severity == "warning"
+							)`,
+						},
+					}},
+				}},
+			},
+			hookoutput.FormatSARIF,
+		)
+		if exitCode != blockedExitCode {
+			t.Fatalf("exit code = %d, want %d", exitCode, blockedExitCode)
+		}
+	})
+
+	for _, want := range []string{
+		`"ruleId": "tool.ruff.warning_output_denied"`,
+		`"level": "error"`,
+		`"uri": "pkg/app.py"`,
+		`"matched_diagnostic_policy_id": "tool.output_visible"`,
+		`"matched_diagnostic_severity": "warning"`,
+		`"cel_expression": "findings.exists`,
+		`"executionSuccessful": false`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output)
+		}
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"policy_id": "tool.output_visible"`,
+		`"policy_id": "tool.ruff.warning_output_denied"`,
+		`"output_excerpt": "warning: top-level linter warning`,
+		`"status": "blocked"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestRunCapturedRuffWarningOutputDisplaysWhenToolPasses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "ruff-fixture")
+	if err := os.WriteFile(
+		tool,
+		[]byte(`#!/usr/bin/env sh
+case " $* " in
+  *" --output-format=json "*) ;;
+  *) echo "missing json output flag" >&2; exit 2 ;;
+esac
+echo 'warning: ruff emitted a non-fatal warning' >&2
+exit 0
+`),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fixture tool: %v", err)
+	}
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedTool(
+			"ruff",
+			tool,
+			repo,
+			"",
+			[]string{"check", "pkg/app.py"},
+			capturePolicyData{},
+			"",
+		)
+		if exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0", exitCode)
+		}
+	})
+
+	for _, want := range []string{
+		"format: toon",
+		"tool: ruff",
+		"status: PASS",
+		"ruff,pkg/app.py,0,0,warning,TOOL_OUTPUT,tool.output_visible,,ruff emitted output while passing",
+		"warning: ruff emitted a non-fatal warning",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	repo := t.TempDir()
 

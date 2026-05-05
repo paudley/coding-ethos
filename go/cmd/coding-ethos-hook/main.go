@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -22,58 +23,70 @@ var (
 )
 
 func main() {
+	os.Exit(runWithIO(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func runWithIO(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("coding-ethos-hook", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	jsonOutput := flags.Bool("json", false, "Emit JSON result to stdout")
 
-	err := flags.Parse(os.Args[1:])
+	err := flags.Parse(args)
 	if err != nil {
-		exitErr(err)
+		printErr(stderr, err)
+		return 1
 	}
 
 	if *bundlePath == "" {
-		exitErr(errBundleRequired)
+		printErr(stderr, errBundleRequired)
+		return 1
 	}
 
 	bundle, err := readBundle(*bundlePath)
 	if err != nil {
-		exitErr(err)
+		printErr(stderr, err)
+		return 1
 	}
 
 	err = bundle.Validate()
 	if err != nil {
-		exitErr(
-			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
-		)
+		printErr(stderr, fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)))
+		return 1
 	}
 
-	event, err := hooks.DecodeEvent(os.Stdin)
+	event, err := hooks.DecodeEvent(stdin)
 	if err != nil {
-		exitErr(err)
+		printErr(stderr, err)
+		return 1
 	}
 
 	startedAt := time.Now()
 	result, err := hooks.Run(bundle, hooks.Options{Event: event})
 	if err != nil {
-		exitErr(err)
+		printErr(stderr, err)
+		return 1
 	}
 	result.RuntimeMS = time.Since(startedAt).Milliseconds()
 
 	if err := hooks.WriteAgentHookTraceFromEnv(event, result); err != nil {
-		exitErr(err)
+		printErr(stderr, err)
+		return 1
 	}
 
 	if *jsonOutput {
-		err = hooks.EncodeResult(os.Stdout, result)
+		err = hooks.EncodeResult(stdout, result)
 		if err != nil {
-			exitErr(err)
+			printErr(stderr, err)
+			return 1
 		}
 	}
 
 	if result.Blocked() {
-		printBlocked(result)
-		os.Exit(blockedExitCode)
+		printBlocked(stderr, result)
+		return blockedExitCode
 	}
+
+	return 0
 }
 
 func readBundle(path string) (policy.Bundle, error) {
@@ -91,7 +104,7 @@ func readBundle(path string) (policy.Bundle, error) {
 	return bundle, nil
 }
 
-func printBlocked(result hooks.Result) {
+func printBlocked(writer io.Writer, result hooks.Result) {
 	advice := hooks.BlockedAdvice(result)
 	if result.Provider != "" {
 		advice = hooks.ProviderBlockMessage(result)
@@ -100,10 +113,14 @@ func printBlocked(result hooks.Result) {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, advice)
+	fmt.Fprintln(writer, advice)
 }
 
 func exitErr(err error) {
-	fmt.Fprintf(os.Stderr, "%s\n", err)
+	printErr(os.Stderr, err)
 	os.Exit(1)
+}
+
+func printErr(writer io.Writer, err error) {
+	fmt.Fprintf(writer, "%s\n", err)
 }

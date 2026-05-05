@@ -242,6 +242,18 @@ func mergeTopLevelResponseStatus(
 
 		response[key] = value
 	}
+	for _, key := range []string{"status", "state", "outcome"} {
+		value, ok := decodeString(payload[key])
+		if !ok {
+			continue
+		}
+
+		if response == nil {
+			response = map[string]any{}
+		}
+
+		response[key] = value
+	}
 
 	return response
 }

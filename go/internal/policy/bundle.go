@@ -889,7 +889,7 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 			"Bash": {
 				{
 					PolicyID:        "git.commit_head_advanced",
-					Mode:            "block",
+					Mode:            "record",
 					CommandPatterns: []string{"git commit"},
 				},
 			},

@@ -5,6 +5,8 @@ package policy_test
 
 import (
 	. "blackcat.ca/coding-ethos/go/internal/policy"
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +60,36 @@ func TestBuildMetadataUsesBundleGeneratedAt(t *testing.T) {
 
 	if metadata.SourceHashes["config.yaml"] != "sha256:test" {
 		t.Fatalf("source hash missing: %#v", metadata.SourceHashes)
+	}
+}
+
+func TestEncodeDecodeMetadataRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	original := Metadata{
+		BundleHash:  "sha256:bundle",
+		GeneratedAt: "2026-05-04T00:00:00Z",
+		SourceHashes: map[string]string{
+			"coding_ethos.yml": "sha256:source",
+		},
+	}
+
+	var buffer bytes.Buffer
+	if err := EncodeMetadata(&buffer, original); err != nil {
+		t.Fatalf("EncodeMetadata() error = %v", err)
+	}
+	if !strings.Contains(buffer.String(), `"bundle_hash": "sha256:bundle"`) {
+		t.Fatalf("metadata JSON should be indented and stable: %s", buffer.String())
+	}
+
+	decoded, err := DecodeMetadata(&buffer)
+	if err != nil {
+		t.Fatalf("DecodeMetadata() error = %v", err)
+	}
+	if decoded.BundleHash != original.BundleHash ||
+		decoded.GeneratedAt != original.GeneratedAt ||
+		decoded.SourceHashes["coding_ethos.yml"] != "sha256:source" {
+		t.Fatalf("decoded metadata mismatch: %#v", decoded)
 	}
 }
 
@@ -117,5 +149,34 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("validation error %q missing %q", err, want)
 		}
+	}
+}
+
+func TestFormatValidationErrorSortsMultilineErrors(t *testing.T) {
+	t.Parallel()
+
+	formatted := FormatValidationError(errors.New("z problem\na problem"))
+	if formatted != "a problem\nz problem" {
+		t.Fatalf("validation formatting should sort lines: %q", formatted)
+	}
+
+	err := ValidateMetadataSourceHashes(Metadata{
+		SourceHashes: map[string]string{
+			"/tmp/z-missing": "sha256:z",
+			"/tmp/a-missing": "sha256:a",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	formatted = FormatValidationError(err)
+	lines := strings.Split(formatted, "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "/tmp/a-missing") ||
+		!strings.Contains(lines[1], "/tmp/z-missing") {
+		t.Fatalf("formatted validation error not sorted: %q", formatted)
+	}
+	if FormatValidationError(nil) != "" {
+		t.Fatal("nil validation error should format as an empty string")
 	}
 }

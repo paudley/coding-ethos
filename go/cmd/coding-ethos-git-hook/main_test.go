@@ -141,6 +141,117 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 	}
 }
 
+func TestGitHookReadBundleRoundTripsExample(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "policy-bundle.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
+		t.Fatalf("encode bundle: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close bundle: %v", err)
+	}
+
+	bundle, err := readBundle(path)
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	if bundle.BundleID != policy.ExampleBundle().BundleID {
+		t.Fatalf("bundle id = %q", bundle.BundleID)
+	}
+}
+
+func TestRunWithArgsHandlesValidationAndAllowedHooks(t *testing.T) {
+	repo := t.TempDir()
+	runner := filepath.Join(repo, "runner")
+	if err := os.WriteFile(runner, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write runner: %v", err)
+	}
+	bundlePath := filepath.Join(repo, "policy-bundle.json")
+	file, err := os.Create(bundlePath)
+	if err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
+		t.Fatalf("encode bundle: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close bundle: %v", err)
+	}
+	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
+	if err := os.WriteFile(messagePath, []byte("fix(test): valid subject\n"), 0o600); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{
+			name: "missing bundle",
+			args: nil,
+			want: 1,
+		},
+		{
+			name: "missing runner",
+			args: []string{"--bundle", bundlePath},
+			want: 1,
+		},
+		{
+			name: "missing hook",
+			args: []string{"--bundle", bundlePath, "--runner", runner},
+			want: 1,
+		},
+		{
+			name: "commit message allowed",
+			args: []string{"--bundle", bundlePath, "--runner", runner, "--cwd", repo, "commit-msg", messagePath},
+			want: 0,
+		},
+		{
+			name: "pre push allowed then legacy runner",
+			args: []string{"--bundle", bundlePath, "--runner", runner, "--cwd", repo, "pre-push"},
+			want: 0,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := runWithArgs(test.args); got != test.want {
+				t.Fatalf("runWithArgs() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRunLegacyRunnerReturnsExitStatus(t *testing.T) {
+	t.Parallel()
+
+	runner := filepath.Join(t.TempDir(), "runner")
+	if err := os.WriteFile(
+		runner,
+		[]byte("#!/bin/sh\nexit 7\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write runner: %v", err)
+	}
+
+	if status := runLegacyRunner(runner, []string{"pre-commit"}); status != 7 {
+		t.Fatalf("status = %d, want 7", status)
+	}
+}
+
+func TestRunLegacyRunnerReportsLaunchFailure(t *testing.T) {
+	t.Parallel()
+
+	if status := runLegacyRunner(filepath.Join(t.TempDir(), "missing"), []string{"pre-commit"}); status != 1 {
+		t.Fatalf("status = %d, want 1", status)
+	}
+}
+
 func runTestGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 

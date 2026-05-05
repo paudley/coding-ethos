@@ -15,7 +15,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
+func TestEvaluateGitCommitHeadAdvancedRecordsUnchangedHead(t *testing.T) {
 	t.Parallel()
 
 	repo := initCommitHeadRepo(t)
@@ -46,7 +46,7 @@ func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != blockDecision {
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 

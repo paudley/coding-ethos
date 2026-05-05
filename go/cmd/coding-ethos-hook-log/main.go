@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/hooklog"
@@ -29,19 +30,28 @@ func main() {
 }
 
 func run() error {
+	return runWithIO(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runWithIO(
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	flags := flag.NewFlagSet("coding-ethos-hook-log", flag.ExitOnError)
 	root := flags.String("root", "", "Repository root for hook logs")
 	bundleRoot := flags.String("bundle-root", "", "coding-ethos pre-commit bundle root")
 	gitPath := flags.String("git", "/usr/bin/git", "Git binary used for ignore validation")
 
-	if err := flags.Parse(os.Args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 
 	return hooklog.Run(hooklog.Options{
-		Stdin:      os.Stdin,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
+		Stdin:      stdin,
+		Stdout:     stdout,
+		Stderr:     stderr,
 		GitPath:    *gitPath,
 		Root:       *root,
 		BundleRoot: *bundleRoot,

@@ -28,6 +28,9 @@ GENERATED_CI_CONFIGS: tuple[str, ...] = (
     ".gitlab-ci.yml",
 )
 SANDBOX_MODES = {"auto", "off", "required"}
+SETUP_UV_USES_LINE = (
+    "        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+)
 
 
 def _with_hash_spdx_header(content: str) -> str:
@@ -146,7 +149,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+{SETUP_UV_USES_LINE}
         with:
           enable-cache: true
 

@@ -53,6 +53,17 @@ bundle:
     - coding-ethos.pre-commit.yaml
     - coding-ethos.pre-commit.yml
 
+sandbox:
+  read_write_paths:
+    - .code-ethos/cache/
+    - .coding-ethos/cache/
+    - .pytest_cache/
+    - .mypy_cache/
+    - .ruff_cache/
+    - .uv-cache/
+    - .venv/
+    - __pycache__/
+
 hooks:
   output_format: auto
   success_output: silent

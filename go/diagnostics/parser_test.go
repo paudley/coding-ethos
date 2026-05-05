@@ -380,6 +380,86 @@ func TestParseToolchainDiagnostics(t *testing.T) {
 	}
 }
 
+func TestParseTextToolDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tool   string
+		output string
+		want   diagnostics.Diagnostic
+	}{
+		{
+			name:   "golangci-text",
+			tool:   "golangci-lint",
+			output: "pkg/app.go:8:2: unchecked error (errcheck)\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "golangci-lint",
+				File:     "pkg/app.go",
+				Line:     8,
+				Column:   2,
+				Severity: "error",
+				Code:     "errcheck",
+				Message:  "unchecked error",
+			},
+		},
+		{
+			name:   "hadolint-text",
+			tool:   "hadolint",
+			output: "Dockerfile:3 DL3008 warning: Pin versions in apt get install.\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "hadolint",
+				File:     "Dockerfile",
+				Line:     3,
+				Severity: "warning",
+				Code:     "DL3008",
+				Message:  "Pin versions in apt get install.",
+			},
+		},
+		{
+			name:   "actionlint-text",
+			tool:   "actionlint",
+			output: ".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "actionlint",
+				File:     ".github/workflows/ci.yml",
+				Line:     12,
+				Column:   5,
+				Severity: "error",
+				Code:     "syntax-check",
+				Message:  `property "run" is not defined`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
+		})
+	}
+}
+
+func TestInferToolRecognizesCommonDirectTools(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"actionlint":    {"actionlint", "-format", "{{json .}}"},
+		"bandit":        {"python", "-m", "bandit", "-r", "pkg"},
+		"golangci-lint": {"golangci-lint", "run"},
+		"hadolint":      {"/usr/local/bin/hadolint", "Dockerfile"},
+		"mypy":          {"uv", "run", "mypy", "pkg"},
+		"custom-tool":   {"custom-tool", "arg"},
+		"yamllint":      {"yamllint", "."},
+	}
+	for want, argv := range tests {
+		if got := diagnostics.InferTool(argv); got != want {
+			t.Fatalf("InferTool(%#v) = %q, want %q", argv, got, want)
+		}
+	}
+}
+
 func TestFallbackParserUsesStderrWhenStdoutEmpty(t *testing.T) {
 	t.Parallel()
 

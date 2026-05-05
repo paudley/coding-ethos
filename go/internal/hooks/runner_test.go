@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -246,6 +247,150 @@ func TestRunEvaluatesProviderNativeCELPolicy(t *testing.T) {
 	}
 	if len(result.Decisions) != 1 ||
 		result.Decisions[0].PolicyID != "custom.codex_failed_bash" {
+		t.Fatalf("decision mismatch: %#v", result.Decisions)
+	}
+}
+
+func TestDecodeEventTreatsFailedTopLevelStatusAsNonzeroReturnCode(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "Bash",
+		"status": "failed",
+		"input": {"command": "git commit -F /tmp/commit_msg.txt"},
+		"output": "format: toon\nstatus: FAIL\n"
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if event.ReturnCode() != 1 {
+		t.Fatalf("return code = %d, want failed status to be nonzero", event.ReturnCode())
+	}
+	if output := event.ToolOutput(); !strings.Contains(output, "status: FAIL") {
+		t.Fatalf("tool output = %q", output)
+	}
+}
+
+func TestRunDoesNotBlockWhenCommitHeadDidNotAdvance(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	bundle := policy.ExampleBundle()
+
+	preResult, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m 'feat(test): subject'",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run pre hook: %v", err)
+	}
+	if preResult.Status != statusAllowed {
+		t.Fatalf("pre status = %q decisions %#v", preResult.Status, preResult.Decisions)
+	}
+
+	postResult, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: "PostToolUse",
+			ToolName:      "Bash",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m 'feat(test): subject'",
+			},
+			ToolResponse: map[string]any{
+				"return_code": 0,
+				"stdout":      "",
+				"stderr":      "",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run post hook: %v", err)
+	}
+	if postResult.Status != statusAllowed {
+		t.Fatalf("post status = %q decisions %#v", postResult.Status, postResult.Decisions)
+	}
+	if len(postResult.Decisions) != 1 ||
+		postResult.Decisions[0].PolicyID != "git.commit_head_advanced" ||
+		postResult.Decisions[0].Decision != "record" {
+		t.Fatalf("post decision mismatch: %#v", postResult.Decisions)
+	}
+}
+
+func TestRunBlocksCodexApplyPatchThatGrowsLargeGoFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "pre-commit", "hooks", "go-hooks", "main.go")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(file, []byte(strings.Repeat("line\n", 2001)), 0o600); err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "functions.apply_patch",
+		"cwd": ` + strconv.Quote(repo) + `,
+		"input": {
+			"cmd": "*** Begin Patch\n*** Update File: pre-commit/hooks/go-hooks/main.go\n@@\n+newLine\n*** End Patch\n"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	bundle := policy.ExampleBundle()
+	bundle.Policies["filesystem.line_limits"] = policy.Policy{
+		ID:              "filesystem.line_limits",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Message:         "Large source files must not keep growing.",
+		Suggestion:      "Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		SupportedModes:  []string{"block", "record", "advise"},
+		PrincipleIDs:    []string{"solid-is-law"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"mode":        "block",
+				"scope":       "file",
+				"hook_events": []string{"PreToolUse"},
+				"tools":       []string{"Edit"},
+				"when": `proposed_file_changes.exists(file,
+					file.ext == ".go" &&
+					file.proposed_line_count > 2000 &&
+					file.line_count_grows &&
+					file.nonblank_line_count_grows
+				)`,
+			},
+		}},
+	}
+	bundle.Dispatch.Hooks["PreToolUse"]["Edit"] = append(
+		bundle.Dispatch.Hooks["PreToolUse"]["Edit"],
+		policy.HookDispatchEntry{PolicyID: "filesystem.line_limits", Mode: "block"},
+	)
+
+	result, err := Run(bundle, Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+	if len(result.Decisions) != 1 ||
+		result.Decisions[0].PolicyID != "filesystem.line_limits" ||
+		result.Decisions[0].Diagnostics[0].File != "pre-commit/hooks/go-hooks/main.go" {
 		t.Fatalf("decision mismatch: %#v", result.Decisions)
 	}
 }

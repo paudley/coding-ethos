@@ -39,6 +39,86 @@ func TestLoadHookLogSummaryReadsMetadataRuns(t *testing.T) {
 	}
 }
 
+func TestHookLogCommandsPrintSummaryAndAnalysis(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "run-a", "metadata.env"),
+		"run_id=run-a\nstarted_at_utc=20260427T000000Z\nexit_code=1\n",
+	)
+	writeHookLogAnalysisFixtures(t, root)
+
+	summaryOutput := captureStdout(t, func() {
+		if got := hookLogSummaryCommand(Config{}, []string{root}); got != 0 {
+			t.Fatalf("hookLogSummaryCommand() = %d, want 0", got)
+		}
+	})
+	if !strings.Contains(summaryOutput, "run-a") {
+		t.Fatalf("summary output = %q", summaryOutput)
+	}
+
+	analysisOutput := captureStdout(t, func() {
+		if got := hookLogAnalyzeCommand(Config{}, []string{root}); got != 0 {
+			t.Fatalf("hookLogAnalyzeCommand() = %d, want 0", got)
+		}
+	})
+	if !strings.Contains(analysisOutput, "top_tools") &&
+		!strings.Contains(analysisOutput, "Hook log analysis") {
+		t.Fatalf("analysis output = %q", analysisOutput)
+	}
+}
+
+func TestHookLogCommandsReportMissingRoot(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	stderr := captureStderr(t, func() {
+		if got := hookLogSummaryCommand(Config{}, []string{missing}); got != 1 {
+			t.Fatalf("hookLogSummaryCommand() = %d, want 1", got)
+		}
+
+		if got := hookLogAnalyzeCommand(Config{}, []string{missing}); got != 1 {
+			t.Fatalf("hookLogAnalyzeCommand() = %d, want 1", got)
+		}
+	})
+	if !strings.Contains(stderr, "FATAL:") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestHookLogSummaryFormatsJSONAndHumanCounts(t *testing.T) {
+	t.Parallel()
+
+	summary := hookLogSummary{
+		Format: hookOutputFormatJSON,
+		Path:   "logs",
+		Total:  1,
+		Failed: 1,
+		Runs: []hookLogRun{{
+			RunID:        "run-a",
+			StartedAtUTC: "20260427T000000Z",
+			ExitCode:     1,
+		}},
+	}
+
+	jsonOutput := formatHookLogSummary(summary)
+	if !strings.Contains(jsonOutput, `"run_id": "run-a"`) {
+		t.Fatalf("JSON summary = %q", jsonOutput)
+	}
+
+	gotCounts := hookLogCountsHuman([]hookLogCount{{Key: "ruff:E402", Count: 2}})
+	if gotCounts != "ruff:E402=2" {
+		t.Fatalf("hookLogCountsHuman() = %q", gotCounts)
+	}
+
+	if got := hookLogCountsHuman(nil); got != pythonNodeNone {
+		t.Fatalf("empty hookLogCountsHuman() = %q", got)
+	}
+}
+
 func TestParseMetadataEnvTrimsQuotedValues(t *testing.T) {
 	t.Parallel()
 

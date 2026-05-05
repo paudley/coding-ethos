@@ -50,6 +50,9 @@ skill metadata used by those enforcement paths.
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,
   language, symbol kind, or symbol name before agents read whole files.
+- `code_intel_code_context`: expand a known chunk ID or exact path/symbol
+  request into surrounding Tree-sitter context, graph edges, and linked
+  findings without broad file reads.
 - `code_intel_embedding_candidates`: return compact SARIF/remediation/code
   chunk records ready for an approved embedding producer.
 - `skill_recommend`: rank generated skills for a task, command, path, or

@@ -4,7 +4,9 @@
 package shellparse
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +118,56 @@ func TestCommandsExposeDynamicShellFacts(t *testing.T) {
 		!command.HasProcessSubstitution ||
 		!command.HasDynamicExpansion {
 		t.Fatalf("dynamic flags mismatch: %#v", command)
+	}
+}
+
+func TestCommandsExposeFunctionsAndNestedStatements(t *testing.T) {
+	t.Parallel()
+
+	commands, err := Commands("stage_files() { git add one.py; git add two.py; }\nstage_files")
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+	if len(commands) != 4 {
+		t.Fatalf("command count mismatch: got %d: %#v", len(commands), commands)
+	}
+	if !commands[0].IsFunctionDeclaration || commands[0].Name != "stage_files" {
+		t.Fatalf("function declaration missing: %#v", commands[0])
+	}
+	if !reflect.DeepEqual(commands[1].Argv, []string{"git", "add", "one.py"}) ||
+		!reflect.DeepEqual(commands[2].Argv, []string{"git", "add", "two.py"}) ||
+		!reflect.DeepEqual(commands[3].Argv, []string{"stage_files"}) {
+		t.Fatalf("nested command facts mismatch: %#v", commands)
+	}
+
+	fields, err := ControlFields("(git status; ruff check .)")
+	if err != nil {
+		t.Fatalf("parse shell subshell block: %v", err)
+	}
+	if !reflect.DeepEqual(fields, []string{"git", "status", ";", "ruff", "check", "."}) {
+		t.Fatalf("subshell fields mismatch: %#v", fields)
+	}
+}
+
+func TestParseErrorsPreserveLocationAndCause(t *testing.T) {
+	t.Parallel()
+
+	_, err := Fields("git commit &&")
+	if err == nil {
+		t.Fatal("expected malformed shell command to fail")
+	}
+
+	var parseErr Error
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("expected shellparse.Error, got %T: %v", err, err)
+	}
+	if parseErr.Line == 0 || parseErr.Column == 0 {
+		t.Fatalf("parse error location missing: %#v", parseErr)
+	}
+	if !strings.Contains(parseErr.Error(), "parse shell command") {
+		t.Fatalf("parse error should include wrapped message: %v", parseErr)
+	}
+	if parseErr.Unwrap() == nil {
+		t.Fatalf("parse error should expose wrapped cause: %#v", parseErr)
 	}
 }

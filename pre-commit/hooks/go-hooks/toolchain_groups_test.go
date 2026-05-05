@@ -7,6 +7,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -153,6 +154,242 @@ func TestParsePythonQualityFindings(t *testing.T) {
 	assertMaintainabilityFinding(t)
 	assertMaintainabilityTimeoutFinding(t)
 	assertVultureFinding(t)
+}
+
+func TestPythonQualityCommandsRunExternalToolsAndReportFindings(t *testing.T) {
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	mustWriteTestFile(t, "pkg/app.py", "def helper():\n    return 1\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "uv"),
+		`#!/usr/bin/env sh
+case "$*" in
+  *" radon cc "*)
+    printf '{"pkg/app.py":[{"type":"function","rank":"C","lineno":3,"name":"complex","complexity":19}]}'
+    exit 0
+    ;;
+  *" radon mi "*)
+    printf '{"pkg/app.py":{"mi":42.5,"rank":"C"}}'
+    exit 0
+    ;;
+  *" vulture "*)
+    printf "pkg/app.py:17: unused function 'helper' (90%% confidence)\n"
+    exit 1
+    ;;
+esac
+printf 'unexpected uv invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout := captureStdout(t, func() {
+		if got := runPythonComplexity(Config{}, []string{"pkg/app.py"}); got != 1 {
+			t.Fatalf("runPythonComplexity() = %d, want 1", got)
+		}
+
+		if got := runPythonMaintainability(Config{}, []string{"pkg/app.py"}); got != 0 {
+			t.Fatalf("runPythonMaintainability() = %d, want 0", got)
+		}
+
+		if got := runPythonVulture(Config{}, []string{"pkg/app.py"}); got != 1 {
+			t.Fatalf("runPythonVulture() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"COMPLEXITY FAILED",
+		"complex",
+		"VULTURE FAILED",
+		"unused function",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("quality output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, "go:\n  worktree: go\n")
+	t.Setenv(configEnv, overridePath)
+
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "go"),
+		`#!/usr/bin/env sh
+case "$1 $2" in
+  "vet ./..."|"test ./...")
+    exit 0
+    ;;
+esac
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "gofmt"),
+		"#!/usr/bin/env sh\nprintf 'go/main.go\\n'\nexit 0\n",
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runGoVet(Config{}, []string{"go/main.go"}); got != 0 {
+		t.Fatalf("runGoVet() = %d, want 0", got)
+	}
+
+	if got := runGoTests(Config{}, []string{"go/main.go"}); got != 0 {
+		t.Fatalf("runGoTests() = %d, want 0", got)
+	}
+
+	stdout := captureStdout(t, func() {
+		if got := runGoFormatCheck(Config{}, []string{"go/main.go"}); got != 1 {
+			t.Fatalf("runGoFormatCheck() = %d, want 1", got)
+		}
+	})
+	if !strings.Contains(stdout, "GOFMT CHECK FAILED") ||
+		!strings.Contains(stdout, "go/main.go") {
+		t.Fatalf("gofmt output missing expected finding:\n%s", stdout)
+	}
+}
+
+func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
+	bundleRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatalf("resolve bundle root: %v", err)
+	}
+
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	writeCatalogLintFixtures(t)
+	writeCatalogLintTools(t, tempDir)
+
+	stdout := captureStdout(t, func() {
+		assertCatalogCommand(t, "hadolint", runHadolint, "Dockerfile")
+		assertCatalogCommand(
+			t,
+			"actionlint",
+			runActionlint,
+			".github/workflows/ci.yml",
+		)
+		assertCatalogCommand(t, "bandit", runBandit, "pkg/app.py")
+		assertCatalogCommand(t, "sqlfluff", runSQLFluff, "queries/app.sql")
+		assertCatalogCommand(t, "tombi", runTombi, "config.toml")
+		assertCatalogCommand(t, "dotenv-linter", runDotenvLinter, ".env.example")
+	})
+
+	for _, want := range []string{
+		"HADOLINT FAILED",
+		"ACTIONLINT FAILED",
+		"BANDIT FAILED",
+		"SQLFLUFF FAILED",
+		"TOMBI FAILED",
+		"DOTENV-LINTER FAILED",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("catalog lint output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func writeCatalogLintFixtures(t *testing.T) {
+	t.Helper()
+
+	mustWriteTestFile(t, "Dockerfile", "FROM ubuntu\n")
+	mustWriteTestFile(t, ".github/workflows/ci.yml", "name: ci\n")
+	mustWriteTestFile(t, "pkg/app.py", "print('ok')\n")
+	mustWriteTestFile(t, "queries/app.sql", "select 1\n")
+	mustWriteTestFile(t, "config.toml", "bad = true\n")
+	mustWriteTestFile(t, ".env.example", "lower=value\n")
+}
+
+func writeCatalogLintTools(t *testing.T, tempDir string) {
+	t.Helper()
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "hadolint"),
+		`#!/usr/bin/env sh
+printf '{"line":3,"column":1,"file":"Dockerfile","level":"warning","code":"DL3008","message":"Pin versions in apt get install."}\n'
+exit 1
+`,
+	)
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "actionlint"),
+		`#!/usr/bin/env sh
+printf '{"filepath":".github/workflows/ci.yml","line":12,"column":5,"kind":"syntax-check","message":"property \"run\" is not defined"}\n'
+exit 1
+`,
+	)
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "dotenv-linter"),
+		"#!/usr/bin/env sh\nprintf '.env.example:3 LowercaseKey: The key should be uppercase\\n'\nexit 1\n",
+	)
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "uv"),
+		`#!/usr/bin/env sh
+case "$*" in
+  *" bandit "*)
+    printf '{"results":[{"filename":"pkg/app.py","line_number":10,"issue_severity":"HIGH","test_id":"B602","issue_text":"subprocess call with shell=True"}]}'
+    exit 1
+    ;;
+  *" sqlfluff "*)
+    printf '[{"filepath":"queries/app.sql","violations":[{"line_no":2,"line_pos":7,"code":"LT01","description":"Expected single whitespace."}]}]'
+    exit 1
+    ;;
+  *" tombi "*)
+    printf 'Error: invalid key\n    at config.toml:2:4\n'
+    exit 1
+    ;;
+esac
+printf 'unexpected uv invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func assertCatalogCommand(
+	t *testing.T,
+	name string,
+	run func(Config, []string) int,
+	file string,
+) {
+	t.Helper()
+
+	if got := run(Config{}, []string{file}); got != 1 {
+		t.Fatalf("%s command = %d, want 1", name, got)
+	}
 }
 
 func assertComplexityFinding(t *testing.T) {

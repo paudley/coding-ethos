@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -34,6 +35,7 @@ type captureRequest struct {
 	SandboxBackendPath string
 	Capabilities       sandbox.Capabilities
 	EvidenceMaps       []diagnostics.EvidenceMap
+	Policies           []policy.Policy
 	Skills             map[string]policy.Skill
 }
 
@@ -61,6 +63,7 @@ func runCapturedTool(
 		TraceRoot:    traceRoot,
 		Args:         append([]string(nil), args...),
 		EvidenceMaps: policyContext.EvidenceMaps,
+		Policies:     policyContext.Policies,
 		Skills:       policyContext.Skills,
 	}
 	if strings.TrimSpace(request.ToolPath) == "" {
@@ -207,6 +210,7 @@ func capturedToolResult(
 		Diagnostics: parsed,
 		Findings:    capturedFindings(request, execution, outputExcerpt, parsed),
 	}
+	result = applyCapturePolicies(request, result)
 	result.SkillHints = lint.SkillHintsForDiagnostics(parsed, request.Skills)
 
 	return result
@@ -243,7 +247,11 @@ func capturedFindings(
 			}}
 		}
 		if execution.ExitCode == 0 {
-			return nil
+			if outputExcerpt == "" {
+				return nil
+			}
+
+			return []lint.Finding{capturedPassingOutputFinding(request, execution, outputExcerpt)}
 		}
 
 		return []lint.Finding{{
@@ -292,6 +300,249 @@ func capturedFindings(
 	return findings
 }
 
+func capturedPassingOutputFinding(
+	request captureRequest,
+	execution captureExecution,
+	outputExcerpt string,
+) lint.Finding {
+	file := firstCapturedArgFile(request.Args)
+
+	return lint.Finding{
+		RawOutcome: map[string]any{
+			"category":  "tool_output",
+			"args":      append([]string(nil), request.Args...),
+			"exit_code": execution.ExitCode,
+			"run_args":  append([]string(nil), execution.RunArgs...),
+			"output":    outputExcerpt,
+		},
+		CheckID:    "tool." + request.Tool + ".output",
+		Code:       "TOOL_OUTPUT",
+		File:       file,
+		Message:    request.Tool + " emitted output while passing",
+		PolicyID:   "tool.output_visible",
+		Severity:   "warning",
+		SourceTool: request.Tool,
+		Status:     "warn",
+		Blocking:   false,
+	}
+}
+
+func applyCapturePolicies(request captureRequest, result lint.Result) lint.Result {
+	if len(request.Policies) == 0 {
+		return result
+	}
+
+	outputDiagnostics := lint.OutputDiagnostics(result)
+	context := evaluators.Context{
+		Cwd:         firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
+		EventName:   "lint-capture",
+		Provider:    "lint",
+		Scope:       result.Scope,
+		Tool:        request.Tool,
+		Files:       capturedDiagnosticFiles(outputDiagnostics),
+		Argv:        append([]string(nil), request.Args...),
+		Diagnostics: outputDiagnostics,
+		Findings:    capturedFindingActivations(result.Findings),
+	}
+	if len(outputDiagnostics) == 1 {
+		context.Diagnostic = &outputDiagnostics[0]
+	}
+
+	registry := evaluators.DefaultRegistry()
+	for _, policyDef := range request.Policies {
+		if !capturePolicyAppliesToTool(policyDef, request.Tool) {
+			continue
+		}
+		decisions, err := evaluateCapturePolicy(policyDef, context, registry)
+		if err != nil {
+			result.Status = "blocked"
+			result.Findings = append(result.Findings, capturedPolicyErrorFinding(policyDef, err))
+			continue
+		}
+		if len(decisions) == 0 {
+			continue
+		}
+		result.Decisions = append(result.Decisions, decisions...)
+		for _, decision := range decisions {
+			result.Diagnostics = append(result.Diagnostics, decision.Diagnostics...)
+			result.Findings = append(result.Findings, capturedDecisionFindings(decision, context.Files)...)
+			if decision.Decision == "block" || decision.Severity == "block" {
+				result.Status = "blocked"
+			}
+		}
+	}
+
+	return result
+}
+
+func capturedPolicyErrorFinding(policyDef policy.Policy, err error) lint.Finding {
+	return lint.Finding{
+		RawOutcome: map[string]any{
+			"category": "capture_policy_error",
+			"error":    err.Error(),
+		},
+		CheckID:  policyDef.ID,
+		Message:  "Captured tool policy evaluation failed.",
+		PolicyID: policyDef.ID,
+		Severity: "error",
+		Status:   "fail",
+		Blocking: true,
+	}
+}
+
+func evaluateCapturePolicy(
+	policyDef policy.Policy,
+	context evaluators.Context,
+	registry evaluators.Registry,
+) ([]policy.Decision, error) {
+	decisions := []policy.Decision{}
+	for _, evaluatorSpec := range policyDef.Evaluators {
+		if evaluatorSpec.Name != "cel.expression" {
+			continue
+		}
+		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
+		if !ok {
+			continue
+		}
+		context.EvaluatorOptions = evaluatorSpec.Options
+		evaluated, err := evaluator.Evaluate(policyDef, context)
+		if err != nil {
+			return nil, err
+		}
+		decisions = append(decisions, evaluated...)
+	}
+
+	return decisions, nil
+}
+
+func capturePolicyAppliesToTool(policyDef policy.Policy, tool string) bool {
+	for _, candidate := range policyDef.AppliesTo.Tools {
+		if strings.EqualFold(strings.TrimSpace(candidate), tool) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func capturedDecisionFindings(
+	decision policy.Decision,
+	files []string,
+) []lint.Finding {
+	if len(decision.Diagnostics) == 0 {
+		return []lint.Finding{{
+			CheckID:    decision.PolicyID,
+			PolicyID:   decision.PolicyID,
+			Status:     capturedDecisionStatus(decision),
+			Severity:   decision.Severity,
+			Message:    decision.Message,
+			Advice:     decision.Suggestion,
+			EthosIDs:   append([]string(nil), decision.PrincipleIDs...),
+			Files:      append([]string(nil), files...),
+			Blocking:   capturedDecisionBlocks(decision),
+			RawOutcome: capturedDecisionRawOutcome(decision),
+		}}
+	}
+
+	findings := make([]lint.Finding, 0, len(decision.Diagnostics))
+	for _, diagnostic := range decision.Diagnostics {
+		findings = append(findings, lint.Finding{
+			CheckID:    firstCaptureNonEmpty(diagnostic.PolicyID, decision.PolicyID),
+			PolicyID:   firstCaptureNonEmpty(diagnostic.PolicyID, decision.PolicyID),
+			SourceTool: firstCaptureNonEmpty(diagnostic.Tool, "policy"),
+			Status:     capturedDecisionStatus(decision),
+			Severity:   firstCaptureNonEmpty(diagnostic.Severity, decision.Severity),
+			Code:       diagnostic.Code,
+			File:       diagnostic.File,
+			Line:       diagnostic.Line,
+			Column:     diagnostic.Column,
+			SkillID:    diagnostic.SkillID,
+			Message:    diagnostic.Message,
+			Advice:     firstCaptureNonEmpty(diagnostic.Advice, decision.Suggestion),
+			EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
+			Files:      append([]string(nil), files...),
+			Blocking:   capturedDecisionBlocks(decision),
+			RawOutcome: capturedDecisionRawOutcome(decision),
+		})
+	}
+
+	return findings
+}
+
+func capturedDecisionStatus(decision policy.Decision) string {
+	if capturedDecisionBlocks(decision) {
+		return "fail"
+	}
+	if decision.Decision == "record" || decision.Severity == "record" {
+		return "pass"
+	}
+
+	return decision.Decision
+}
+
+func capturedDecisionBlocks(decision policy.Decision) bool {
+	return decision.Decision == "block" || decision.Severity == "block"
+}
+
+func capturedDecisionRawOutcome(decision policy.Decision) map[string]any {
+	outcome := map[string]any{}
+	for key, value := range decision.Evidence {
+		outcome[key] = value
+	}
+
+	return outcome
+}
+
+func capturedFindingActivations(findings []lint.Finding) []evaluators.Finding {
+	activations := make([]evaluators.Finding, 0, len(findings))
+	for _, finding := range findings {
+		activations = append(activations, evaluators.Finding{
+			Tool:         finding.SourceTool,
+			Code:         finding.Code,
+			Message:      finding.Message,
+			File:         finding.File,
+			Severity:     finding.Severity,
+			PolicyID:     finding.PolicyID,
+			SkillID:      finding.SkillID,
+			PrincipleIDs: append([]string(nil), finding.EthosIDs...),
+			Column:       finding.Column,
+			Line:         finding.Line,
+		})
+	}
+
+	return activations
+}
+
+func capturedDiagnosticFiles(items []diagnostics.Diagnostic) []string {
+	files := []string{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		file := strings.TrimSpace(item.File)
+		if file == "" || seen[file] {
+			continue
+		}
+		files = append(files, file)
+		seen[file] = true
+	}
+
+	return files
+}
+
+func firstCapturedArgFile(args []string) string {
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if arg == "check" || arg == "run" || arg == "lint" {
+			continue
+		}
+		return filepath.ToSlash(arg)
+	}
+
+	return ""
+}
+
 func capturedToolMetadata(
 	request captureRequest,
 	execution captureExecution,
@@ -301,7 +552,7 @@ func capturedToolMetadata(
 	return &lint.ToolCapture{
 		Tool:          request.Tool,
 		Parser:        request.Tool,
-		ParseStatus:   capturedParseStatus(execution.ExitCode, items),
+		ParseStatus:   capturedParseStatus(execution.ExitCode, items, outputExcerpt),
 		OutputExcerpt: outputExcerpt,
 		Args:          append([]string(nil), request.Args...),
 		RunArgs:       append([]string(nil), execution.RunArgs...),
@@ -411,11 +662,15 @@ func sandboxEvidenceFromLint(evidence lint.SandboxEvidence) sandbox.Evidence {
 	}
 }
 
-func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic) string {
+func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic, outputExcerpt string) string {
 	if len(items) > 0 {
 		return "parsed"
 	}
 	if exitCode == 0 {
+		if strings.TrimSpace(outputExcerpt) != "" {
+			return "output"
+		}
+
 		return "empty"
 	}
 	if exitCode == 2 {

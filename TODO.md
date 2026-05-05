@@ -72,6 +72,50 @@ Acceptance criteria:
 - [x] Security-focused visitors can find trust signals and roadmap status
   without reading implementation docs first.
 
+## Functional End-to-End Test Suite
+
+Goal: prove the actual coding-ethos workflows users and agents depend on by
+creating real temporary git checkouts, installing the real hook/runtime path,
+running real commands, and inspecting real output and repository state.
+
+- [ ] Build a Go-based end-to-end test harness that creates isolated git
+  checkouts with known sample files, initializes commits, installs
+  coding-ethos hook/runtime artifacts, and runs ordinary git commands through
+  the same path a user or agent uses.
+- [ ] Add a successful commit regression: stage a compliant file, run real
+  `git commit`, assert the command succeeds, HEAD advances, hook traces are
+  written, and no internal bookkeeping policy is surfaced as a user failure.
+- [ ] Add a failed commit regression: stage a known policy violation, run real
+  `git commit`, assert the command fails with the original lint/policy finding,
+  and assert `git.commit_head_advanced` does not replace or mask that failure.
+- [ ] Add managed lint capture workflow tests that run real fixture executables
+  for clean output, warning output with exit code 0, parseable diagnostics, and
+  unparseable failures; assert TOON/JSON/SARIF and trace outputs preserve the
+  evidence.
+- [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
+  Codex, Claude, and Gemini shapes using real command text, file edits,
+  apply-patch payloads, and provider-specific output fields.
+- [ ] Add MCP workflow tests that exercise the real stdio framing and request
+  handling path for policy explanation, command checks, code-intel queries, and
+  managed lint advice.
+- [ ] Add sandbox workflow tests that verify generated tool capabilities,
+  filesystem write allowances, blocked capability requests, and trace/SARIF
+  evidence using the real sandbox planner and available backend behavior.
+- [ ] Evaluate whether Go's standard `testing` package remains sufficient or
+  whether this needs a small internal scenario harness for fixture setup,
+  command execution, output assertions, and trace inspection.
+
+Acceptance criteria:
+
+- [ ] The suite fails if a real `git commit` path is broken, even when unit
+  tests for individual evaluators pass.
+- [ ] The suite distinguishes product failures from internal telemetry; internal
+  bookkeeping checks must not become user-facing policy blocks.
+- [ ] The suite runs in CI on pull requests and has clear local invocation
+  instructions.
+- [ ] Mocking is limited to dependencies that cannot be exercised safely or
+  practically, with every mock documenting what real behavior it replaces.
+
 ## Hook Runtime Bootstrap
 
 Goal: make the checked-out `coding-ethos` repository the single build and

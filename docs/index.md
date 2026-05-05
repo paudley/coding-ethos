@@ -17,6 +17,11 @@ Git hooks, MCP tools, SARIF output, runtime sandbox evidence, and CI gates.
   generated artifacts, and verification model.
 - [Strategic roadmap](STRATEGIC_ROADMAP.md): major platform directions for MCP,
   CEL, SARIF, sandboxing, and agent remediation loops.
+- [AST/CEL/SARIF architecture](AST_CEL_SARIF_ARCHITECTURE.md): the preferred
+  path for turning parsed source facts into principle-owned CEL policy,
+  stable SARIF, and code-intelligence storage.
+- [Code intelligence](CODE_INTEL.md): local SQLite, sqlite-vec, Tree-sitter
+  chunks, SARIF/remediation evidence, and MCP retrieval surfaces.
 - [Trust signals](TRUST_SIGNALS.md): OpenSSF Scorecard, Best Practices badge,
   security posture, and publication checklist.
 - [Supply-chain attestations](SUPPLY_CHAIN_ATTESTATIONS.md): Scorecard
@@ -42,6 +47,8 @@ Code, Gemini CLI, and human contributors need the same enforceable rules.
 
 - [MCP server](MCP_SERVER.md): stdio MCP tools for policy checks, lint advice,
   SARIF remediation, risk summaries, and capability inspection.
+- [Code intelligence](CODE_INTEL.md): MCP-backed search over stored SARIF,
+  remediation outcomes, hook traces, Tree-sitter chunks, and vector metadata.
 - [Integrations](INTEGRATIONS.md): setup notes for Codex, Claude Code, Gemini
   CLI, MCP clients, GitHub Actions, GitLab CI, SARIF consumers, and managed
   tools.
@@ -58,6 +65,8 @@ enforce.
 
 - [Policy language strategy](POLICY_LANGUAGE_STRATEGY.md): CEL inputs, helper
   functions, staged migration path, and limits.
+- [AST/CEL/SARIF architecture](AST_CEL_SARIF_ARCHITECTURE.md): source-fact
+  collection, CEL evaluation, SARIF emission, and code-intel persistence.
 - [MCP server](MCP_SERVER.md): policy explanation and policy check tools that
   expose compiled CEL behavior to agents.
 
@@ -71,6 +80,8 @@ artifact, trend, and remediation workflows.
   analysis, editor loops, and policy feedback.
 - [SARIF editor integration](SARIF_EDITOR_INTEGRATION.md): local workflows for
   developers and agents.
+- [Code intelligence](CODE_INTEL.md): persistent SARIF and AST-backed
+  retrieval for repeated-failure analysis and remediation memory.
 
 ## Hook And Tool Runtime
 

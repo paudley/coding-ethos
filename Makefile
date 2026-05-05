@@ -78,7 +78,9 @@ GO_TOOL_CMDS := \
 	coding-ethos-git-hook \
 	coding-ethos-git
 
-GO_TOOLS_CACHE_DIR ?= $(GO_TOOLS_DIR)/.cache/go-build
+GO_COVERAGE_MIN ?= 80.0
+PYTHON_COVERAGE_MIN ?= 80
+GO_COVERAGE_DIR ?= $(LOCAL_BUILD_DIR)/coverage
 REPO ?= $(LOCAL_REPO_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
 REPO_ETHOS ?=
@@ -324,6 +326,13 @@ test: ensure-uv ## Run the current automated test suite.
 	@$(call print_step,Running pytest)
 	@$(UV) run pytest
 
+python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
+	@$(call print_step,Running Python coverage)
+	@mkdir -p "$(GO_COVERAGE_DIR)"
+	@$(UV) run coverage run --source=coding_ethos -m pytest tests
+	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
+	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
+
 check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
 
 package-smoke: ## Build, install, and smoke test the wheel outside the source checkout.
@@ -527,6 +536,22 @@ go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
 	@cd "$(HOOKS_GO_DIR)" && "$(GO)" test ./...
 
+go-coverage: go-tools-coverage go-hooks-coverage ## Run all Go tests with coverage enforcement.
+
+go-tools-coverage: ensure-go ## Run shared Go tool tests with coverage enforcement.
+	@$(call print_step,Running shared Go coverage)
+	@mkdir -p "$(GO_COVERAGE_DIR)"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test ./... -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-shared.out"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-shared.out" > "$(GO_COVERAGE_DIR)/go-shared.txt"
+	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "shared Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-shared.txt"
+
+go-hooks-coverage: ensure-go ## Run bundled Go hook tests with coverage enforcement.
+	@$(call print_step,Running bundled Go hook coverage)
+	@mkdir -p "$(GO_COVERAGE_DIR)"
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" test ./... -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-hooks.out"
+	@cd "$(HOOKS_GO_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-hooks.out" > "$(GO_COVERAGE_DIR)/go-hooks.txt"
+	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "hook Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-hooks.txt"
+
 go-tidy: ensure-go go-fmt ## Tidy and format the bundled Go hook helper.
 	@$(call print_step,Tidying bundled Go hook helper)
 	@cd "$(HOOKS_GO_DIR)" && "$(GO)" mod tidy
@@ -539,24 +564,21 @@ fmt: go-fmt ## Format repo-owned generated helper source files.
 
 go-tools-test: ensure-go ## Run the shared Go tool tests.
 	@$(call print_step,Running shared Go tool tests)
-	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
-	@cd "$(GO_TOOLS_DIR)" && GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" test ./...
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test ./...
 
 go-tools-build: ensure-go ## Build shared Go tools into go/bin.
 	@$(call print_step,Building shared Go tools)
 	@mkdir -p "$(GO_TOOLS_DIR)/bin"
-	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
+		"$(GO)" build -buildvcs=false -o "bin/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,built: $(GO_TOOLS_DIR)/bin)
 
 go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook bin directory.
 	@$(call print_step,Installing shared Go tools)
 	@mkdir -p "$(GO_TOOLS_BIN_DIR)"
-	@mkdir -p "$(GO_TOOLS_CACHE_DIR)"
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
-		GOCACHE="$(GO_TOOLS_CACHE_DIR)" "$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
+		"$(GO)" build -buildvcs=false -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 

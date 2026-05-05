@@ -5,6 +5,8 @@ package evaluators_test
 
 import (
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -214,6 +216,126 @@ func TestEvaluatePythonDirectImportsAllowsPackageInternalImports(t *testing.T) {
 
 	if len(decisions) != 0 {
 		t.Fatalf("expected internal import allowed, got %#v", decisions)
+	}
+}
+
+func TestPythonTextEvaluatorsReadOnlyPythonFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	pythonFile := filepath.Join(dir, "app.py")
+	textFile := filepath.Join(dir, "notes.txt")
+	missingFile := filepath.Join(dir, "missing.py")
+	if err := os.WriteFile(
+		pythonFile,
+		[]byte("def dependency() -> Optional[Service]:\n    return None\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write python file: %v", err)
+	}
+	if err := os.WriteFile(textFile, []byte("def ignored() -> Optional[str]:\n"), 0o600); err != nil {
+		t.Fatalf("write text file: %v", err)
+	}
+
+	policyDef := compiledPythonPolicy(t, "python.optional_returns")
+	decisions, err := EvaluatePythonOptionalReturns(policyDef, Context{
+		Files: []string{textFile, missingFile, pythonFile},
+	})
+	if err != nil {
+		t.Fatalf("evaluate file-backed optional returns: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+	diagnostic := decisions[0].Diagnostics[0]
+	if diagnostic.File != pythonFile || diagnostic.Line != 1 {
+		t.Fatalf("diagnostic = %#v", diagnostic)
+	}
+}
+
+func TestPythonSourcesReturnReadErrorsForUnreadablePythonPaths(t *testing.T) {
+	t.Parallel()
+
+	dirPath := filepath.Join(t.TempDir(), "package.py")
+	if err := os.Mkdir(dirPath, 0o700); err != nil {
+		t.Fatalf("create directory with .py suffix: %v", err)
+	}
+	policyDef := compiledPythonPolicy(t, "python.optional_returns")
+	_, err := EvaluatePythonOptionalReturns(policyDef, Context{
+		Files: []string{dirPath},
+	})
+	if err == nil {
+		t.Fatal("expected read error for directory with .py suffix")
+	}
+}
+
+func TestPythonTextEvaluatorsAllowNonViolatingCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		policyID string
+		run      func(policy.Policy, Context) ([]policy.Decision, error)
+		content  string
+	}{
+		{
+			name:     "optional exit method",
+			policyID: "python.optional_returns",
+			run:      EvaluatePythonOptionalReturns,
+			content:  "def __exit__(self) -> bool | None:\n    return None\n",
+		},
+		{
+			name:     "non silent exception",
+			policyID: "python.catch_and_silence",
+			run:      EvaluatePythonCatchAndSilence,
+			content:  "try:\n    run()\nexcept Exception:\n    raise\n",
+		},
+		{
+			name:     "structured logging args",
+			policyID: "python.structured_logging",
+			run:      EvaluatePythonStructuredLogging,
+			content:  "logger.info('user logged in', extra={'user_id': user_id})\n",
+		},
+		{
+			name:     "direct imports outside target package",
+			policyID: "python.direct_imports",
+			run:      EvaluatePythonDirectImports,
+			content:  "from other_package.loaders import load\n",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := test.run(compiledPythonPolicy(t, test.policyID), Context{
+				Files:   []string{"src/app.py"},
+				Content: test.content,
+			})
+			if err != nil {
+				t.Fatalf("evaluate %s: %v", test.policyID, err)
+			}
+			if len(decisions) != 0 {
+				t.Fatalf("expected no decisions, got %#v", decisions)
+			}
+		})
+	}
+}
+
+func TestEvaluatePythonDirectImportsBlocksExternalPackageUse(t *testing.T) {
+	t.Parallel()
+
+	decision := evaluatePythonPolicy(
+		t,
+		"python.direct_imports",
+		"from coding_ethos.loaders import load\n",
+	)
+	if decision.PolicyID != "python.direct_imports" {
+		t.Fatalf("policy mismatch: %#v", decision)
+	}
+	if decision.Diagnostics[0].File != "src/app.py" {
+		t.Fatalf("diagnostic = %#v", decision.Diagnostics[0])
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,206 @@ func main() {
 		"--path", "cmd/app.go", "--symbol-name", "main",
 	}); err != nil {
 		t.Fatalf("code-chunks command returned error: %v", err)
+	}
+	if err := run(ctx, []string{
+		"code-context", "--root", root, "--db", dbPath,
+		"--path", "cmd/app.go", "--symbol-path", "main",
+	}); err != nil {
+		t.Fatalf("code-context by symbol returned error: %v", err)
+	}
+	if err := run(ctx, []string{
+		"code-context", "--root", root, "--db", dbPath,
+		"--path", "cmd/app.go", "--line", "3",
+	}); err != nil {
+		t.Fatalf("code-context by line returned error: %v", err)
+	}
+	if err := run(ctx, []string{"code-context", "--root", root, "--db", dbPath}); err == nil ||
+		!strings.Contains(err.Error(), "--chunk-id") {
+		t.Fatalf("code-context without identifier error = %v", err)
+	}
+}
+
+func TestRecordAndQueryCommands(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	ctx := context.Background()
+	baseArgs := []string{"--root", root, "--db", dbPath}
+
+	commands := [][]string{
+		append([]string{
+			"record-outcome",
+			"--remediation-id", "rem-1",
+			"--finding-id", "finding-1",
+			"--policy-id", "policy.one",
+			"--skill-id", "skill-one",
+			"--path", "pkg/app.py",
+			"--provider", "codex",
+			"--tool", "Edit",
+			"--outcome", "fixed",
+			"--attempt", "2",
+		}, baseArgs...),
+		append([]string{
+			"record-hook-review",
+			"--trace-id", "trace-1",
+			"--tracking-id", "track-1",
+			"--disposition", "correct_block",
+			"--reviewer", "qa",
+			"--notes", "expected",
+			"--recorded-at", "2026-01-02T03:04:05Z",
+		}, baseArgs...),
+		append([]string{
+			"record-embedding",
+			"--backend", "sqlite-vec",
+			"--collection", "remediations",
+			"--model-id", "code-model",
+			"--record-kind", "remediation",
+			"--record-id", "rem-1",
+			"--dimension", "2",
+			"--path", "pkg/app.py",
+			"--policy-id", "policy.one",
+			"--skill-id", "skill-one",
+			"--backend-row-id", "vec-1",
+		}, baseArgs...),
+		append([]string{
+			"upsert-vector",
+			"--uri", filepath.Join(root, ".coding-ethos", "vectors.db"),
+			"--collection", "remediations",
+			"--model-id", "code-model",
+			"--id", "vec-1",
+			"--vector", "0.1,0.2",
+			"--record-kind", "remediation",
+			"--record-id", "rem-1",
+			"--policy-id", "policy.one",
+			"--skill-id", "skill-one",
+			"--path", "pkg/app.py",
+			"--outcome", "fixed",
+			"--message", "split large file",
+		}, baseArgs...),
+	}
+
+	for _, args := range commands {
+		if err := run(ctx, args); err != nil {
+			t.Fatalf("run(%s) returned error: %v", args[0], err)
+		}
+	}
+
+	queryCommands := [][]string{
+		append([]string{"remediation-outcomes", "--policy-id", "policy.one"}, baseArgs...),
+		append([]string{"remediation-effectiveness", "--policy-id", "policy.one"}, baseArgs...),
+		append([]string{"embedding-records", "--record-kind", "remediation"}, baseArgs...),
+		append([]string{"embedding-candidates", "--record-kind", "remediation"}, baseArgs...),
+		append([]string{"hook-reviews", "--trace-id", "trace-1"}, baseArgs...),
+		append([]string{"index-status", "--uri", filepath.Join(root, ".coding-ethos", "vectors.db"), "--collection", "remediations", "--model-id", "code-model"}, baseArgs...),
+		append([]string{"hybrid-search", "--uri", filepath.Join(root, ".coding-ethos", "vectors.db"), "--text", "split", "--vector", "0.1,0.2", "--model-id", "code-model"}, baseArgs...),
+		append([]string{"search", "--text", "split"}, baseArgs...),
+	}
+
+	for _, args := range queryCommands {
+		if err := run(ctx, args); err != nil {
+			t.Fatalf("run(%s) returned error: %v", args[0], err)
+		}
+	}
+}
+
+func TestSARIFCommands(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	sarifPath := filepath.Join(root, "policy.sarif")
+	payload := `{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "coding-ethos", "rules": [{"id": "policy.one"}]}},
+    "automationDetails": {"id": "policy"},
+    "results": [{
+      "ruleId": "policy.one",
+      "level": "error",
+      "message": {"text": "split large file"},
+      "locations": [{"physicalLocation": {"artifactLocation": {"uri": "pkg/app.py"}, "region": {"startLine": 4}}}],
+      "partialFingerprints": {"findingId": "finding-1", "remediationId": "rem-1", "policyId": "policy.one", "skillId": "skill-one"}
+    }]
+  }]
+}`
+	if err := os.WriteFile(sarifPath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write sarif: %v", err)
+	}
+
+	ctx := context.Background()
+	baseArgs := []string{"--root", root, "--db", dbPath}
+	if err := run(ctx, append([]string{"ingest-sarif", "--file", sarifPath}, baseArgs...)); err != nil {
+		t.Fatalf("ingest-sarif returned error: %v", err)
+	}
+	if err := run(ctx, append([]string{"sarif-results", "--policy-id", "policy.one"}, baseArgs...)); err != nil {
+		t.Fatalf("sarif-results returned error: %v", err)
+	}
+	if err := run(ctx, append([]string{"repeated-failures", "--policy-id", "policy.one"}, baseArgs...)); err != nil {
+		t.Fatalf("repeated-failures returned error: %v", err)
+	}
+}
+
+func TestIngestTracesAndHookUsageCommands(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	traceDir := filepath.Join(root, ".coding-ethos", "hook-runs", "run-a")
+	if err := os.MkdirAll(traceDir, 0o700); err != nil {
+		t.Fatalf("create trace dir: %v", err)
+	}
+	payload := `{
+  "trace_id": "hook-trace-a",
+  "tracking_id": "deny-a",
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "cwd": "/repo",
+  "command": {"sha256": "` + strings.Repeat("a", 64) + `", "shape_sha256": "` + strings.Repeat("b", 64) + `", "preview": "git reset --hard"},
+  "status": "denied",
+  "decision": "block",
+  "recorded_at_utc": "2026-01-01T00:00:00Z",
+  "diagnostics": [{
+    "policy_id": "git.destructive_command",
+    "skill_id": "safe-git-workflow",
+    "message": "destructive git command",
+    "severity": "block"
+  }]
+}`
+	if err := os.WriteFile(filepath.Join(traceDir, "event.json"), []byte(payload), 0o600); err != nil {
+		t.Fatalf("write hook trace: %v", err)
+	}
+
+	ctx := context.Background()
+	baseArgs := []string{"--root", root, "--db", dbPath}
+	if err := run(ctx, append([]string{"ingest-traces"}, baseArgs...)); err != nil {
+		t.Fatalf("ingest-traces returned error: %v", err)
+	}
+	if err := run(ctx, append([]string{"hook-usage", "--provider", "codex", "--status", "denied"}, baseArgs...)); err != nil {
+		t.Fatalf("hook-usage returned error: %v", err)
+	}
+}
+
+func TestParseVectorHelpers(t *testing.T) {
+	t.Parallel()
+
+	vector, err := parseOptionalVector("1.5, 2, , 3")
+	if err != nil {
+		t.Fatalf("parseOptionalVector returned error: %v", err)
+	}
+	if len(vector) != 3 || vector[0] != 1.5 || vector[2] != 3 {
+		t.Fatalf("vector = %#v", vector)
+	}
+
+	empty, err := parseOptionalVector(" ")
+	if err != nil || empty != nil {
+		t.Fatalf("empty vector = %#v, %v", empty, err)
+	}
+
+	for _, value := range []string{"", " , ", "1, nope"} {
+		if _, err := parseVector(value); err == nil || !strings.Contains(err.Error(), "vector") {
+			t.Fatalf("parseVector(%q) error = %v", value, err)
+		}
 	}
 }

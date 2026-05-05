@@ -5,11 +5,12 @@ package main
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,23 +40,15 @@ func TestReleaseAssetURLSelectsMatchingAsset(t *testing.T) {
 	t.Parallel()
 
 	var authHeader string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	client := &http.Client{Transport: fakeGitHubTransport(func(request *http.Request) *http.Response {
 		authHeader = request.Header.Get("Authorization")
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{
+		return jsonResponse(`{
 			"assets": [
 				{"name": "tool-darwin-amd64.tar.gz", "browser_download_url": "https://example.invalid/darwin"},
 				{"name": "tool-linux-amd64.tar.gz", "browser_download_url": "https://example.invalid/linux"}
 			]
-		}`))
-	}))
-	defer server.Close()
-
-	client := server.Client()
-	client.Transport = rewriteGitHubTransport{
-		base:      server.URL,
-		transport: client.Transport,
-	}
+		}`)
+	})}
 
 	url, err := releaseAssetURL(client, "owner/repo", "v1.2.3", "linux-amd64", "token")
 	if err != nil {
@@ -72,17 +65,9 @@ func TestReleaseAssetURLSelectsMatchingAsset(t *testing.T) {
 func TestReleaseAssetURLReportsMissingAsset(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"assets": []}`))
-	}))
-	defer server.Close()
-
-	client := server.Client()
-	client.Transport = rewriteGitHubTransport{
-		base:      server.URL,
-		transport: client.Transport,
-	}
+	client := &http.Client{Transport: fakeGitHubTransport(func(_ *http.Request) *http.Response {
+		return jsonResponse(`{"assets": []}`)
+	})}
 
 	_, err := releaseAssetURL(client, "owner/repo", "v1.2.3", "linux-amd64", "")
 	if err == nil || !strings.Contains(err.Error(), "release asset not found") {
@@ -94,31 +79,19 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 	t.Parallel()
 
 	const assetPayload = "binary payload\n"
-	var assetURL string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	client := &http.Client{Transport: fakeGitHubTransport(func(request *http.Request) *http.Response {
 		if request.URL.Path == "/repos/owner/repo/releases/tags/v1.2.3" {
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{
+			return jsonResponse(`{
 				"assets": [
-					{"name": "tool-linux-amd64", "browser_download_url": "` + assetURL + `"}
+					{"name": "tool-linux-amd64", "browser_download_url": "https://api.github.com/tool-linux-amd64"}
 				]
-			}`))
-			return
+			}`)
 		}
 		if request.URL.Path == "/tool-linux-amd64" {
-			_, _ = writer.Write([]byte(assetPayload))
-			return
+			return textResponse(assetPayload)
 		}
-		http.NotFound(writer, request)
-	}))
-	defer server.Close()
-	assetURL = server.URL + "/tool-linux-amd64"
-
-	client := server.Client()
-	client.Transport = rewriteGitHubTransport{
-		base:      server.URL,
-		transport: client.Transport,
-	}
+		return textStatusResponse(http.StatusNotFound, "not found")
+	})}
 	sumBytes := sha256.Sum256([]byte(assetPayload))
 	sum := hex.EncodeToString(sumBytes[:])
 	destDir := t.TempDir()
@@ -202,6 +175,48 @@ func TestInstallGitShimWritesQuotedWrapper(t *testing.T) {
 	}
 }
 
+func TestInstallGitShimCommandValidatesAndInstalls(t *testing.T) {
+	t.Parallel()
+
+	if err := installGitShimCommand(nil); err != errDestRequired {
+		t.Fatalf("installGitShimCommand(nil) = %v, want %v", err, errDestRequired)
+	}
+	if err := installGitShimCommand([]string{"--dest-dir", t.TempDir()}); err != errGitRequired {
+		t.Fatalf("installGitShimCommand missing git = %v, want %v", err, errGitRequired)
+	}
+	destDir := t.TempDir()
+	err := installGitShimCommand([]string{
+		"--dest-dir", destDir,
+		"--real-git", "/usr/bin/git",
+		"--runner", "/repo/bin/coding-ethos-run",
+	})
+	if err != nil {
+		t.Fatalf("installGitShimCommand: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "git")); err != nil {
+		t.Fatalf("git shim not installed: %v", err)
+	}
+}
+
+func TestManagedAndGitHubInstallCommandValidation(t *testing.T) {
+	t.Parallel()
+
+	if err := installManagedToolchainCommand(nil); err != errManifestRequired {
+		t.Fatalf("installManagedToolchainCommand(nil) = %v, want %v", err, errManifestRequired)
+	}
+	manifest := filepath.Join(t.TempDir(), "manifest.tsv")
+	if err := os.WriteFile(manifest, []byte(""), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	err := installManagedToolchainCommand([]string{"--manifest-source", manifest})
+	if err == nil || !strings.Contains(err.Error(), "--go-bin-dir") {
+		t.Fatalf("missing go bin error = %v", err)
+	}
+	if err := installGitHubBinaryCommand(nil); err != errRepoRequired {
+		t.Fatalf("installGitHubBinaryCommand(nil) = %v, want %v", err, errRepoRequired)
+	}
+}
+
 func TestInstallAndVerifyGitHookShims(t *testing.T) {
 	t.Parallel()
 
@@ -261,6 +276,21 @@ func TestGitHookFixItemsReportsMissingAndStaleHooks(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("fix items missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestGitHookFixItemsCommandPrintsItems(t *testing.T) {
+	hooksDir := t.TempDir()
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
+
+	stdout := captureToolchainStdout(t, func() {
+		if err := gitHookFixItems([]string{"--hooks-dir", hooksDir, "--runner", runner}); err != nil {
+			t.Fatalf("gitHookFixItems: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, "pre-commit missing or not executable") {
+		t.Fatalf("git hook fix stdout = %q", stdout)
 	}
 }
 
@@ -331,6 +361,61 @@ func TestCutoverReportLines(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("cutover report missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCutoverReportCommandValidatesAndPrintsReport(t *testing.T) {
+	fixItemsPath := filepath.Join(t.TempDir(), "fix-items.toon")
+	if err := os.WriteFile(
+		fixItemsPath,
+		[]byte("  git-hooks,stale hook,run make build\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write fix items: %v", err)
+	}
+
+	if err := cutoverReport(nil); err != errActionRequired {
+		t.Fatalf("missing action error = %v, want %v", err, errActionRequired)
+	}
+	if _, err := newCutoverReport(
+		"verify",
+		"blocked",
+		"/repo",
+		map[string]string{
+			"git-hooks":      "FAIL",
+			"agent-hooks":    "PASS",
+			"repo-ignores":   "PASS",
+			"policy-runtime": "PASS",
+		},
+		filepath.Join(t.TempDir(), "missing"),
+	); err == nil || !strings.Contains(err.Error(), errFixItemsOpen.Error()) {
+		t.Fatalf("missing fix item error = %v", err)
+	}
+
+	stdout := captureToolchainStdout(t, func() {
+		if err := cutoverReport([]string{
+			"--action", "install",
+			"--status", "blocked",
+			"--repo", "/repo",
+			"--git-hooks", "FAIL",
+			"--agent-hooks", "PASS",
+			"--repo-ignores", "PASS",
+			"--runtime", "PASS",
+			"--fix-items", fixItemsPath,
+		}); err != nil {
+			t.Fatalf("cutoverReport: %v", err)
+		}
+	})
+	for _, want := range []string{
+		"action: install",
+		"status: blocked",
+		"  git-hooks,FAIL",
+		"fix_first[1]{surface,problem,action}:",
+		"  git-hooks,stale hook,run make build",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("cutover report stdout missing %q:\n%s", want, stdout)
 		}
 	}
 }
@@ -518,6 +603,64 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 	}
 }
 
+func TestRepoIgnoreFixItemsCommandPrintsItems(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+
+	stdout := captureToolchainStdout(t, func() {
+		if err := repoIgnoreFixItems([]string{"--repo-root", repo, "--real-git", "git"}); err != nil {
+			t.Fatalf("repoIgnoreFixItems: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, ".coding-ethos/ is not ignored") {
+		t.Fatalf("repo ignore fix stdout = %q", stdout)
+	}
+}
+
+func TestExtractZipExtractsFilesAndRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "asset.zip")
+	writeZipFixture(t, archivePath, map[string]string{
+		"nested/tool": "payload\n",
+	})
+	destDir := filepath.Join(root, "extract")
+	if err := extractZip(archivePath, destDir); err != nil {
+		t.Fatalf("extract zip: %v", err)
+	}
+	payload, err := os.ReadFile(filepath.Join(destDir, "nested", "tool"))
+	if err != nil {
+		t.Fatalf("read extracted zip member: %v", err)
+	}
+	if string(payload) != "payload\n" {
+		t.Fatalf("zip payload = %q", payload)
+	}
+
+	traversalPath := filepath.Join(root, "traversal.zip")
+	writeZipFixture(t, traversalPath, map[string]string{
+		"../escape": "no\n",
+	})
+	if err := extractZip(traversalPath, filepath.Join(root, "bad")); err == nil {
+		t.Fatal("extractZip should reject traversal member")
+	}
+}
+
+func TestGithubAssetURLValidatesRequiredFlags(t *testing.T) {
+	t.Parallel()
+
+	if err := githubAssetURL(nil); err != errRepoRequired {
+		t.Fatalf("githubAssetURL(nil) = %v, want %v", err, errRepoRequired)
+	}
+	if err := githubAssetURL([]string{"--repo", "owner/repo"}); err != errTagRequired {
+		t.Fatalf("githubAssetURL missing tag = %v, want %v", err, errTagRequired)
+	}
+	err := githubAssetURL([]string{"--repo", "owner/repo", "--tag", "v1.0.0"})
+	if err != errAssetRequired {
+		t.Fatalf("githubAssetURL missing asset = %v, want %v", err, errAssetRequired)
+	}
+}
+
 func TestRuntimeFixItemsReadsNonEmptyOutput(t *testing.T) {
 	t.Parallel()
 
@@ -533,6 +676,221 @@ func TestRuntimeFixItemsReadsNonEmptyOutput(t *testing.T) {
 	if info.Size() == 0 {
 		t.Fatal("runtime fixture should be non-empty")
 	}
+}
+
+func TestRunCLIDispatchesToolchainCommands(t *testing.T) {
+	root := t.TempDir()
+	shaFile := filepath.Join(root, "payload.txt")
+	if err := os.WriteFile(shaFile, []byte("payload\n"), 0o600); err != nil {
+		t.Fatalf("write sha file: %v", err)
+	}
+	hooksDir := filepath.Join(root, "hooks")
+	runner := filepath.Join(root, "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
+	repo := filepath.Join(root, "repo")
+	if err := os.Mkdir(repo, 0o700); err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	runGit(t, repo, "init")
+	agentOutput := filepath.Join(root, "agent.out")
+	runtimeOutput := filepath.Join(root, "runtime.out")
+	if err := os.WriteFile(agentOutput, []byte("Gemini .gemini/settings.json mismatch\n"), 0o600); err != nil {
+		t.Fatalf("write agent output: %v", err)
+	}
+	if err := os.WriteFile(runtimeOutput, []byte("runtime failed\n"), 0o600); err != nil {
+		t.Fatalf("write runtime output: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "sha256",
+			args: []string{"sha256", "--file", shaFile},
+			want: "d4e4877bac978b7952f0d544fc52ebff5411d351d129f1f056fa43f11da9af2b",
+		},
+		{
+			name: "install hooks",
+			args: []string{"install-git-hooks", "--hooks-dir", hooksDir, "--runner", runner},
+		},
+		{
+			name: "verify hooks",
+			args: []string{"verify-git-hooks", "--hooks-dir", hooksDir, "--runner", runner},
+		},
+		{
+			name: "git hook fix items",
+			args: []string{"git-hook-fix-items", "--hooks-dir", filepath.Join(root, "missing-hooks"), "--runner", runner},
+			want: "pre-commit missing or not executable",
+		},
+		{
+			name: "repo ignore fix items",
+			args: []string{"repo-ignore-fix-items", "--repo-root", repo, "--real-git", "git"},
+			want: ".coding-ethos/ is not ignored",
+		},
+		{
+			name: "agent hook fix items",
+			args: []string{"agent-hook-fix-items", "--input", agentOutput},
+			want: ".gemini/settings.json",
+		},
+		{
+			name: "runtime fix items",
+			args: []string{"runtime-fix-items", "--input", runtimeOutput},
+			want: "git-hook validate failed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout := captureToolchainStdout(t, func() {
+				if code := runCLI(test.args); code != 0 {
+					t.Fatalf("exit = %d for args %#v", code, test.args)
+				}
+			})
+			if test.want != "" && !strings.Contains(stdout, test.want) {
+				t.Fatalf("stdout missing %q:\n%s", test.want, stdout)
+			}
+		})
+	}
+}
+
+func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{
+			name: "missing command",
+			args: nil,
+			want: commandArgsOffset,
+		},
+		{
+			name: "unknown command",
+			args: []string{"unknown"},
+			want: commandArgsOffset,
+		},
+		{
+			name: "command error",
+			args: []string{"sha256"},
+			want: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if code := runCLI(test.args); code != test.want {
+				t.Fatalf("exit = %d, want %d", code, test.want)
+			}
+		})
+	}
+}
+
+func TestFixItemCommandsPrintStructuredRows(t *testing.T) {
+	root := t.TempDir()
+	agentOutput := filepath.Join(root, "agent.out")
+	runtimeOutput := filepath.Join(root, "runtime.out")
+	if err := os.WriteFile(agentOutput, []byte("Gemini .gemini/settings.json mismatch\n"), 0o600); err != nil {
+		t.Fatalf("write agent output: %v", err)
+	}
+	if err := os.WriteFile(runtimeOutput, []byte("validate failed\n"), 0o600); err != nil {
+		t.Fatalf("write runtime output: %v", err)
+	}
+
+	agentStdout := captureToolchainStdout(t, func() {
+		if err := agentHookFixItems([]string{"--input", agentOutput}); err != nil {
+			t.Fatalf("agentHookFixItems() returned error: %v", err)
+		}
+	})
+	if !strings.Contains(agentStdout, "agent-hooks") ||
+		!strings.Contains(agentStdout, ".gemini/settings.json") {
+		t.Fatalf("agent fix items output = %q", agentStdout)
+	}
+
+	runtimeStdout := captureToolchainStdout(t, func() {
+		if err := runtimeFixItems([]string{"--input", runtimeOutput}); err != nil {
+			t.Fatalf("runtimeFixItems() returned error: %v", err)
+		}
+	})
+	if !strings.Contains(runtimeStdout, "policy-runtime") ||
+		!strings.Contains(runtimeStdout, "git-hook validate failed") {
+		t.Fatalf("runtime fix items output = %q", runtimeStdout)
+	}
+
+	if _, err := inputFileFlag("test", nil); err != errInputRequired {
+		t.Fatalf("inputFileFlag() error = %v, want %v", err, errInputRequired)
+	}
+}
+
+func TestFilesEqualAndSHACommand(t *testing.T) {
+	root := t.TempDir()
+	left := filepath.Join(root, "left")
+	right := filepath.Join(root, "right")
+	other := filepath.Join(root, "other")
+	if err := os.WriteFile(left, []byte("same\n"), 0o600); err != nil {
+		t.Fatalf("write left: %v", err)
+	}
+	if err := os.WriteFile(right, []byte("same\n"), 0o600); err != nil {
+		t.Fatalf("write right: %v", err)
+	}
+	if err := os.WriteFile(other, []byte("different\n"), 0o600); err != nil {
+		t.Fatalf("write other: %v", err)
+	}
+
+	equal, err := filesEqual(left, right)
+	if err != nil || !equal {
+		t.Fatalf("filesEqual(left,right) = %v, %v", equal, err)
+	}
+	equal, err = filesEqual(left, other)
+	if err != nil || equal {
+		t.Fatalf("filesEqual(left,other) = %v, %v", equal, err)
+	}
+
+	stdout := captureToolchainStdout(t, func() {
+		if err := printSHA256([]string{"--file", left}); err != nil {
+			t.Fatalf("printSHA256() returned error: %v", err)
+		}
+	})
+	if len(strings.TrimSpace(stdout)) != sha256.Size*2 {
+		t.Fatalf("sha stdout = %q", stdout)
+	}
+	if err := printSHA256(nil); err != errFileRequired {
+		t.Fatalf("printSHA256(nil) = %v, want %v", err, errFileRequired)
+	}
+}
+
+func captureToolchainStdout(t *testing.T, run func()) string {
+	t.Helper()
+
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+
+	run()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	var buffer strings.Builder
+	if _, err := io.Copy(&buffer, reader); err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+
+	return buffer.String()
 }
 
 func writeExecutableFixture(t *testing.T, path string, payload string) {
@@ -580,30 +938,67 @@ func writeTarGzipFixture(
 	}
 }
 
+func writeZipFixture(t *testing.T, path string, members map[string]string) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create zip fixture: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	for name, payload := range members {
+		member, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip member %s: %v", name, err)
+		}
+		if _, err := member.Write([]byte(payload)); err != nil {
+			t.Fatalf("write zip member %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close zip fixture: %v", err)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
 	command := exec.Command("git", args...)
 	command.Dir = dir
+	command.Env = append(
+		os.Environ(),
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
+	)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
 }
 
-type rewriteGitHubTransport struct {
-	base      string
-	transport http.RoundTripper
+type fakeGitHubTransport func(*http.Request) *http.Response
+
+func (transport fakeGitHubTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request), nil
 }
 
-func (transport rewriteGitHubTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	rewritten := request.Clone(request.Context())
-	baseRequest, err := http.NewRequest(http.MethodGet, transport.base, nil)
-	if err != nil {
-		return nil, err
-	}
-	rewritten.URL.Scheme = baseRequest.URL.Scheme
-	rewritten.URL.Host = baseRequest.URL.Host
+func jsonResponse(body string) *http.Response {
+	response := textStatusResponse(http.StatusOK, body)
+	response.Header.Set("Content-Type", "application/json")
+	return response
+}
 
-	return transport.transport.RoundTrip(rewritten)
+func textResponse(body string) *http.Response {
+	return textStatusResponse(http.StatusOK, body)
+}
+
+func textStatusResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }

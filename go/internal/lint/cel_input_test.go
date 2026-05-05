@@ -4,6 +4,8 @@
 package lint
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -51,5 +53,50 @@ func TestFindingPopulatesCELFindingInput(t *testing.T) {
 	}
 	if matched, ok := output.Value().(bool); !ok || !matched {
 		t.Fatalf("finding expression output = %#v, want true", output.Value())
+	}
+}
+
+func TestEncodeResultAndOutputStatusHelpers(t *testing.T) {
+	t.Parallel()
+
+	result := Result{
+		TraceID: "trace-1",
+		Scope:   "tool:ruff",
+		Status:  "blocked",
+		Findings: []Finding{{
+			SourceTool: "ruff",
+			Code:       "F401",
+			File:       "pkg/app.py",
+			Line:       3,
+			Severity:   "error",
+			Message:    "unused import",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	if tool := ResultTool(result); tool != "ruff" {
+		t.Fatalf("ResultTool() = %q, want ruff", tool)
+	}
+	if status := ResultStatus(result); status != "FAIL" {
+		t.Fatalf("ResultStatus() = %q, want FAIL", status)
+	}
+
+	var buffer bytes.Buffer
+	if err := EncodeResult(&buffer, result); err != nil {
+		t.Fatalf("EncodeResult() error = %v", err)
+	}
+	output := buffer.String()
+	if !strings.Contains(output, `"scope": "tool:ruff"`) ||
+		!strings.Contains(output, `"trace_id"`) {
+		t.Fatalf("encoded result did not use indented JSON result schema: %s", output)
+	}
+
+	pass := Result{Scope: "staged", Status: "passed"}
+	if tool := ResultTool(pass); tool != "policy-lint" {
+		t.Fatalf("default ResultTool() = %q, want policy-lint", tool)
+	}
+	if status := ResultStatus(pass); status != "PASS" {
+		t.Fatalf("passing ResultStatus() = %q, want PASS", status)
 	}
 }

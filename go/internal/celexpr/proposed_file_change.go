@@ -74,6 +74,10 @@ type ProposedSymbolChangeInput struct {
 }
 
 func proposedFileChangeInputs(input ActivationInput) []ProposedFileChangeInput {
+	if changes := proposedApplyPatchChangeInputs(input); len(changes) > 0 {
+		return changes
+	}
+
 	files := cleanStringSlice(input.Files)
 	if len(files) == 0 {
 		return nil
@@ -88,6 +92,172 @@ func proposedFileChangeInputs(input ActivationInput) []ProposedFileChangeInput {
 	}
 
 	return changes
+}
+
+type applyPatchFileDelta struct {
+	file              string
+	lineDelta         int
+	nonBlankLineDelta int
+	sizeDelta         int
+	deleteFile        bool
+}
+
+func proposedApplyPatchChangeInputs(input ActivationInput) []ProposedFileChangeInput {
+	deltas := parseApplyPatchDeltas(input.Command)
+	if len(deltas) == 0 {
+		return nil
+	}
+
+	changes := make([]ProposedFileChangeInput, 0, len(deltas))
+	for _, delta := range deltas {
+		change, ok := proposedApplyPatchChangeInput(input.Cwd, delta)
+		if ok {
+			changes = append(changes, change)
+		}
+	}
+
+	return changes
+}
+
+func parseApplyPatchDeltas(command string) []applyPatchFileDelta {
+	if !strings.Contains(command, "*** Begin Patch") {
+		return nil
+	}
+
+	deltas := []applyPatchFileDelta{}
+	current := applyPatchFileDelta{}
+	inFile := false
+	for _, rawLine := range strings.Split(command, "\n") {
+		switch {
+		case strings.HasPrefix(rawLine, "*** Add File: "):
+			if inFile {
+				deltas = append(deltas, current)
+			}
+			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Add File: "))}
+			inFile = true
+		case strings.HasPrefix(rawLine, "*** Update File: "):
+			if inFile {
+				deltas = append(deltas, current)
+			}
+			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Update File: "))}
+			inFile = true
+		case strings.HasPrefix(rawLine, "*** Delete File: "):
+			if inFile {
+				deltas = append(deltas, current)
+			}
+			current = applyPatchFileDelta{
+				file:       strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Delete File: ")),
+				deleteFile: true,
+			}
+			inFile = true
+		case strings.HasPrefix(rawLine, "*** Move to: "):
+			if inFile {
+				current.file = strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Move to: "))
+			}
+		case !inFile:
+			continue
+		case strings.HasPrefix(rawLine, "***"):
+			continue
+		case strings.HasPrefix(rawLine, "@@"):
+			continue
+		case strings.HasPrefix(rawLine, "+"):
+			added := strings.TrimPrefix(rawLine, "+")
+			current.lineDelta++
+			current.sizeDelta += len([]byte(added)) + 1
+			if !isBlankLine(added) {
+				current.nonBlankLineDelta++
+			}
+		case strings.HasPrefix(rawLine, "-"):
+			removed := strings.TrimPrefix(rawLine, "-")
+			current.lineDelta--
+			current.sizeDelta -= len([]byte(removed)) + 1
+			if !isBlankLine(removed) {
+				current.nonBlankLineDelta--
+			}
+		}
+	}
+	if inFile {
+		deltas = append(deltas, current)
+	}
+
+	out := make([]applyPatchFileDelta, 0, len(deltas))
+	for _, delta := range deltas {
+		if cleanInputFile(delta.file) != "" {
+			out = append(out, delta)
+		}
+	}
+
+	return out
+}
+
+func proposedApplyPatchChangeInput(
+	cwd string,
+	delta applyPatchFileDelta,
+) (ProposedFileChangeInput, bool) {
+	cleanFile := cleanInputFile(delta.file)
+	if cleanFile == "" {
+		return ProposedFileChangeInput{}, false
+	}
+
+	currentContent, exists, binary := readTextFile(cwd, cleanFile)
+	if binary {
+		return ProposedFileChangeInput{
+			Base:     path.Base(cleanFile),
+			Dir:      path.Dir(cleanFile),
+			Ext:      strings.ToLower(path.Ext(cleanFile)),
+			File:     cleanFile,
+			Exists:   exists,
+			IsBinary: true,
+		}, true
+	}
+
+	currentLines := countLines(currentContent)
+	currentNonBlankLines := countNonBlankLines(currentContent)
+	currentSize := int64(len([]byte(currentContent)))
+	proposedLines := currentLines + delta.lineDelta
+	proposedNonBlankLines := currentNonBlankLines + delta.nonBlankLineDelta
+	proposedSize := currentSize + int64(delta.sizeDelta)
+	if delta.deleteFile {
+		proposedLines = 0
+		proposedNonBlankLines = 0
+		proposedSize = 0
+	}
+	if proposedLines < 0 {
+		proposedLines = 0
+	}
+	if proposedNonBlankLines < 0 {
+		proposedNonBlankLines = 0
+	}
+	if proposedSize < 0 {
+		proposedSize = 0
+	}
+
+	return ProposedFileChangeInput{
+		Base:                      path.Base(cleanFile),
+		Dir:                       path.Dir(cleanFile),
+		Ext:                       strings.ToLower(path.Ext(cleanFile)),
+		File:                      cleanFile,
+		CurrentLineCount:          int64(currentLines),
+		ProposedLineCount:         int64(proposedLines),
+		LineDelta:                 int64(proposedLines - currentLines),
+		CurrentNonBlankLineCount:  int64(currentNonBlankLines),
+		ProposedNonBlankLineCount: int64(proposedNonBlankLines),
+		NonBlankLineDelta:         int64(proposedNonBlankLines - currentNonBlankLines),
+		CurrentSizeBytes:          currentSize,
+		ProposedSizeBytes:         proposedSize,
+		SizeDelta:                 proposedSize - currentSize,
+		Exists:                    exists,
+		HasProposedContent:        false,
+		IsGenerated:               isGeneratedPath(cleanFile),
+		IsTest:                    isTestPath(cleanFile),
+		LineCountGrows:            proposedLines > currentLines,
+		LineCountShrinks:          proposedLines < currentLines,
+		NonBlankLineCountGrows:    proposedNonBlankLines > currentNonBlankLines,
+		NonBlankLineCountShrinks:  proposedNonBlankLines < currentNonBlankLines,
+		SizeGrows:                 proposedSize > currentSize,
+		SizeShrinks:               proposedSize < currentSize,
+		ReplacementMatched:        true,
+	}, true
 }
 
 func proposedSymbolChangeInputs(input ActivationInput) []ProposedSymbolChangeInput {

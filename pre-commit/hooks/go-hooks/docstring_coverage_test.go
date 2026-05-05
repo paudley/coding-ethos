@@ -149,6 +149,43 @@ python:
 	}
 }
 
+func TestCheckDocstringCoverageCommandPassesOnSuccessfulRunner(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  docstring_coverage:
+    enabled: true
+    threshold: 80
+    command:
+      - /bin/sh
+      - -lc
+      - "printf 'Coverage: 100.0\\n'; exit 0"
+    use_hook_project: false
+    check_paths:
+      - pkg
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	stdout := captureStdout(t, func() {
+		stderr := captureStderr(t, func() {
+			if got := checkDocstringCoverageCommand(Config{}, nil); got != 0 {
+				t.Fatalf("checkDocstringCoverageCommand() = %d, want 0", got)
+			}
+		})
+		if strings.TrimSpace(stderr) != "" {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+	})
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("unexpected stdout: %q", stdout)
+	}
+}
+
 func TestFormatDocstringCoverageFailureTOON(t *testing.T) {
 	t.Parallel()
 

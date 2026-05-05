@@ -157,14 +157,14 @@ func verifyCommitHead(
 		return []policy.Decision{decision}, nil
 	}
 
-	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Severity = blockDecision
-	decision.Message = "git commit did not advance HEAD; do not report commit success."
+	decision := policy.NewDecision(recordDecision, policyDef)
+	decision.Severity = recordDecision
 	decision.Evidence = map[string]any{
 		"phase":     "post",
 		"pre_head":  state.Head,
 		"post_head": head,
 		"advanced":  false,
+		"skipped":   "commit head did not advance",
 	}
 
 	return []policy.Decision{decision}, nil

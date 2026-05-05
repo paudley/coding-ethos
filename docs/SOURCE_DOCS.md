@@ -37,6 +37,9 @@
 - `docs/CODE_INTEL.md`: Tree-sitter AST code intelligence plan and current
   implementation, SQLite canonical storage, sqlite-vec vector search, hybrid
   retrieval, and MCP search tools.
+- `docs/AST_CEL_SARIF_ARCHITECTURE.md`: preferred architecture for collecting
+  parsed source facts, evaluating principle-owned CEL policies, emitting
+  stable SARIF, and storing code-intelligence evidence.
 - `docs/POLICY_LANGUAGE_STRATEGY.md`: CEL policy-language strategy, typed
   inputs, helper functions, and the path from Go evaluators into
   principle-owned policy-as-code.

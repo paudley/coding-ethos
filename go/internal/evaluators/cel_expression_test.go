@@ -341,7 +341,7 @@ func TestEvaluateCELExpressionBlocksLineLimitGrowthFromFileChanges(t *testing.T)
 		Path: "principles[solid-is-law].policy.expressions[0]",
 	}
 	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.Suggestion = "Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing."
 	policyDef.PrincipleIDs = []string{"solid-is-law"}
 
 	decisions, err := EvaluateCELExpression(
@@ -569,7 +569,7 @@ func TestEvaluateCELExpressionAllowsShrinkingLargeFileAtHookTime(t *testing.T) {
 	policyDef := celExpressionPolicy()
 	policyDef.ID = "filesystem.line_limits"
 	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.Suggestion = "Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing."
 	policyDef.PrincipleIDs = []string{"solid-is-law"}
 
 	decisions, err := EvaluateCELExpression(
@@ -616,7 +616,7 @@ func TestEvaluateCELExpressionBlocksGrowingLargeFileAtHookTime(t *testing.T) {
 	policyDef := celExpressionPolicy()
 	policyDef.ID = "filesystem.line_limits"
 	policyDef.Message = "Large source files must not keep growing."
-	policyDef.Suggestion = "Split large files into focused modules before committing."
+	policyDef.Suggestion = "Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing."
 	policyDef.PrincipleIDs = []string{"solid-is-law"}
 
 	decisions, err := EvaluateCELExpression(
@@ -645,6 +645,45 @@ func TestEvaluateCELExpressionBlocksGrowingLargeFileAtHookTime(t *testing.T) {
 	if len(decisions) != 1 ||
 		decisions[0].PolicyID != "filesystem.line_limits" ||
 		decisions[0].Diagnostics[0].File != "app.py" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionBlocksGrowingLargeApplyPatchAtHookTime(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "pre-commit", "hooks", "go-hooks", "main.go")
+	if err := os.MkdirAll(filepath.Dir(sourceFile), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	initial := strings.Repeat("line\n", 2001)
+	if err := os.WriteFile(sourceFile, []byte(initial), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:   repo,
+			Tool:  "Edit",
+			Scope: "PreToolUse",
+			Command: `*** Begin Patch
+*** Update File: pre-commit/hooks/go-hooks/main.go
+@@
++newLine
+*** End Patch
+`,
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "filesystem.line_limits" ||
+		decisions[0].Diagnostics[0].File != "pre-commit/hooks/go-hooks/main.go" {
 		t.Fatalf("decisions = %#v", decisions)
 	}
 }
@@ -710,6 +749,11 @@ func runCELGit(t *testing.T, dir string, args ...string) {
 
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(
+		os.Environ(),
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
+	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
