@@ -41,7 +41,7 @@ jobs:
       ${{ github.event_name == 'pull_request' ||
       github.event_name == 'merge_group' }}
     uses: >-
-      google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@1f1242919d8a60496dd1874b24b62b2370ed4c78
+      google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@c51854704019a247608d928f370c98740469d4b5
     permissions:
       contents: read
       security-events: write
