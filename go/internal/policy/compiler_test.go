@@ -987,6 +987,7 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.pii_scrubber")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.license_header")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.forbidden_strings")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "python.functional_idioms")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.merge_conflict")
@@ -996,8 +997,46 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.line_limits")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.pii_scrubber")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.license_header")
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "python.functional_idioms")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commitlint")
 	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commit_attribution")
+}
+
+func TestCompileDispatchesConditionalImportsAsBlockingWritePolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	conditional := assertHookPolicyDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Write"],
+		"python.conditional_imports",
+	)
+	if conditional.Mode != "block" {
+		t.Fatalf("conditional import write dispatch mode = %q, want block", conditional.Mode)
+	}
+
+	functional := assertHookPolicyDispatched(
+		t,
+		bundle.Dispatch.Hooks["PreToolUse"]["Write"],
+		"python.functional_idioms",
+	)
+	if functional.Mode != "advise" {
+		t.Fatalf("functional idiom write dispatch mode = %q, want advise", functional.Mode)
+	}
 }
 
 func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
@@ -1904,6 +1943,8 @@ const testConfigYAML = `
 version: 1
 python:
   conditional_imports:
+    enabled: true
+  functional_idioms:
     enabled: true
   optional_returns:
     enabled: false

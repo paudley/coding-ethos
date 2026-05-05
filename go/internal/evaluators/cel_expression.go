@@ -26,7 +26,7 @@ func EvaluateCELExpression(
 		return nil, err
 	}
 
-	activation := celActivation(context)
+	activation := celActivation(context, source)
 	output, _, err := program.Eval(activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
@@ -275,7 +275,7 @@ func policySource(policyDef policy.Policy) string {
 	return policyDef.Source.File
 }
 
-func celActivation(context Context) map[string]any {
+func celActivation(context Context, source string) map[string]any {
 	return celexpr.Activation(celexpr.ActivationInput{
 		Argv:             context.Argv,
 		Command:          context.Command,
@@ -303,6 +303,7 @@ func celActivation(context Context) map[string]any {
 		Diagnostic:       context.Diagnostic,
 		Diagnostics:      context.Diagnostics,
 		Findings:         celFindings(context.Findings),
+		PythonASTFacts:   celPythonASTFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
 			"protected_paths",

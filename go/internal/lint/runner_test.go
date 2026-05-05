@@ -29,17 +29,18 @@ func TestRunResolvesFileScopePolicies(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if len(result.Decisions) != 1 {
+	if len(result.Decisions) != 2 {
 		t.Fatalf("decision count mismatch: got %d", len(result.Decisions))
 	}
 
-	decision := result.Decisions[0]
-	if decision.PolicyID != "python.conditional_imports" {
-		t.Fatalf("policy mismatch: got %q", decision.PolicyID)
-	}
-
-	if decision.Decision != "record" || decision.Severity != "record" {
-		t.Fatalf("decision should be record/record: %#v", decision)
+	for _, decision := range result.Decisions {
+		if decision.PolicyID != "python.conditional_imports" &&
+			decision.PolicyID != "python.functional_idioms" {
+			t.Fatalf("policy mismatch: got %q", decision.PolicyID)
+		}
+		if decision.Decision != "record" || decision.Severity != "record" {
+			t.Fatalf("decision should be record/record: %#v", decision)
+		}
 	}
 }
 

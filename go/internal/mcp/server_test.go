@@ -1015,6 +1015,19 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		!strings.Contains(contextOutput, `"build_message"`) {
 		t.Fatalf("code context output missing indexed symbol:\n%s", contextOutput)
 	}
+	lineContextOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":34,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_code_context",
+			"arguments":{"path":"pkg/app.py","line":2}
+		}
+	}`), runtime)
+	if !strings.Contains(lineContextOutput, `"code_intel_code_context"`) ||
+		!strings.Contains(lineContextOutput, `"build_message"`) {
+		t.Fatalf("line code context output missing indexed symbol:\n%s", lineContextOutput)
+	}
 }
 
 func TestServerRejectsUnderspecifiedCodeContext(t *testing.T) {
@@ -1029,7 +1042,7 @@ func TestServerRejectsUnderspecifiedCodeContext(t *testing.T) {
 			"arguments":{}
 		}
 	}`), mcp.Runtime{ConsumerRoot: t.TempDir()})
-	if !strings.Contains(output, "chunk_id or both path and symbol_path are required") {
+	if !strings.Contains(output, "chunk_id, both path and symbol_path, or path and line are required") {
 		t.Fatalf("missing underspecified context error:\n%s", output)
 	}
 }

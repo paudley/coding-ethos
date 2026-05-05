@@ -614,200 +614,6 @@ func compilePolicies(
 	return policies, nil
 }
 
-func addConfiguredPythonPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-) {
-	for _, spec := range pythonPolicySpecs(config, principles) {
-		addPolicyIfEnabled(
-			policies,
-			config,
-			principles,
-			spec.ID,
-			spec.EnabledPath,
-			spec.Policy,
-		)
-	}
-}
-
-type compiledPolicySpec struct {
-	Policy      Policy
-	ID          string
-	EnabledPath []string
-}
-
-func pythonPolicySpecs(
-	config map[string]any,
-	principles map[string]Principle,
-) []compiledPolicySpec {
-	return []compiledPolicySpec{
-		pythonPolicySpec(
-			"python.conditional_imports",
-			[]string{"python", "conditional_imports"},
-			principleRefs(principles, "no-conditional-imports"),
-		),
-		pythonPolicySpec(
-			"python.optional_returns",
-			[]string{"python", "optional_returns"},
-			principleRefs(principles, "no-optional-types-for-required-dependencies"),
-		),
-		pythonPolicySpec(
-			"python.catch_and_silence",
-			[]string{"python", "catch_and_silence"},
-			principleRefs(
-				principles,
-				"fail-fast-fail-hard-overview",
-				"exception-hierarchy-and-error-messages",
-			),
-		),
-		pythonPolicySpec(
-			"python.structured_logging",
-			[]string{"python", "structured_logging"},
-			principleRefs(principles, "radical-visibility"),
-		),
-		pythonPolicySpec(
-			"python.direct_imports",
-			[]string{"python", "direct_imports"},
-			principleRefs(principles, "protocol-first-design"),
-		),
-		pythonPolicySpec(
-			"python.bare_except",
-			[]string{"python", "catch_and_silence"},
-			principleRefs(principles, "exception-hierarchy-and-error-messages"),
-		),
-		pythonPolicySpec(
-			"python.unexplained_type_ignore",
-			[]string{"python", "comment_suppressions"},
-			principleRefs(principles, "linting-as-code-quality-enforcement"),
-		),
-		pyprojectIgnoresPolicySpec(config, principles),
-		uvExcludeNewerPolicySpec(config, principles),
-		pytestGatePolicySpec(config, principles),
-	}
-}
-
-func pythonPolicySpec(
-	policyID string,
-	enabledPath []string,
-	principleIDs []string,
-) compiledPolicySpec {
-	policy := Policy{
-		ID:              policyID,
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: policyID},
-		PrincipleIDs:    principleIDs,
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "advise", "annotate", "record"},
-		Message:         pythonPolicyMessage(policyID),
-		Suggestion:      pythonPolicySuggestion(policyID),
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo: AppliesTo{
-			Languages:    []string{"python"},
-			FilePatterns: []string{"**/*.py"},
-		},
-		Evaluators: []Evaluator{{Kind: "ast", Name: policyID}},
-	}
-
-	return compiledPolicySpec{ID: policyID, EnabledPath: enabledPath, Policy: policy}
-}
-
-func pytestGatePolicySpec(
-	config map[string]any,
-	principles map[string]Principle,
-) compiledPolicySpec {
-	command := stringSliceAt(
-		config,
-		[]string{"python", "pytest_gate", "test_command"},
-		[]string{"pytest"},
-	)
-
-	policy := Policy{
-		ID:              "pytest.gate",
-		Category:        "pytest",
-		Source:          SourceRef{File: "config.yaml", Path: "python.pytest_gate"},
-		PrincipleIDs:    principleRefs(principles, "testing-as-specification"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "prepare", "annotate", "record"},
-		Message:         "The configured pytest gate must pass before claiming readiness.",
-		Suggestion:      "Run the configured pytest gate and address failures.",
-		DefenseLayers:   PytestDefenseLayers(),
-		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
-		Evaluators: []Evaluator{{
-			Kind:    "external",
-			Name:    "pytest.gate",
-			Options: map[string]any{"command": command},
-		}},
-	}
-
-	return compiledPolicySpec{
-		ID:          "pytest.gate",
-		EnabledPath: []string{"python", "pytest_gate"},
-		Policy:      policy,
-	}
-}
-
-func pythonPolicyMessage(policyID string) string {
-	switch policyID {
-	case "python.conditional_imports":
-		return sentence(
-			"Required dependencies should fail immediately;",
-			"ImportError fallback creates a soft dependency path.",
-		)
-	case "python.optional_returns":
-		return sentence(
-			"Required values should not be modeled as optional",
-			"returns unless explicitly exempted.",
-		)
-	case "python.catch_and_silence":
-		return sentence(
-			"Silent exception handling hides failures and violates",
-			"fail-fast behavior.",
-		)
-	case "python.structured_logging":
-		return sentence(
-			"Logging should preserve structured context instead of",
-			"formatting it away.",
-		)
-	case "python.direct_imports":
-		return sentence(
-			"Direct imports from protected packages bypass the",
-			"intended public interface.",
-		)
-	case "python.bare_except":
-		return "Bare except clauses hide exception types and are forbidden."
-	case "python.pyproject_ignores":
-		return "pyproject.toml contains forbidden linter ignore configuration."
-	case "python.uv_exclude_newer":
-		return "uv dependency resolution must exclude newly uploaded packages."
-	default:
-		return "Unexplained type ignore suppressions are forbidden."
-	}
-}
-
-func pythonPolicySuggestion(policyID string) string {
-	switch policyID {
-	case "python.conditional_imports":
-		return "Remove the conditional import or configure an explicit exemption."
-	case "python.optional_returns":
-		return "Use a required return type or configure a narrow exemption."
-	case "python.catch_and_silence":
-		return "Handle the exception explicitly or let it fail with useful context."
-	case "python.structured_logging":
-		return "Use structured logging fields according to the repo policy."
-	case "python.direct_imports":
-		return "Import through the package public API or configure an exempt path."
-	case "python.bare_except":
-		return "Catch a precise exception type and handle it explicitly."
-	case "python.pyproject_ignores":
-		return "Move file-specific ignores into the target files with documented justification."
-	case "python.uv_exclude_newer":
-		return "Set [tool.uv].exclude-newer to the configured review window."
-	default:
-		return "Remove the suppression or document the narrow technical reason."
-	}
-}
-
 func addGitPolicies(
 	policies map[string]Policy,
 	config map[string]any,
@@ -2564,6 +2370,7 @@ func addPythonWriteDispatch(
 ) {
 	for _, policyID := range []string{
 		"python.conditional_imports",
+		"python.functional_idioms",
 		"python.optional_returns",
 		"python.catch_and_silence",
 		"python.structured_logging",
@@ -2578,13 +2385,21 @@ func addPythonWriteDispatch(
 					hooks["PreToolUse"][tool],
 					HookDispatchEntry{
 						PolicyID:     policyID,
-						Mode:         "advise",
+						Mode:         pythonWriteDispatchMode(policyID),
 						PathPatterns: []string{"**/*.py"},
 					},
 				)
 			}
 		}
 	}
+}
+
+func pythonWriteDispatchMode(policyID string) string {
+	if policyID == "python.conditional_imports" {
+		return "block"
+	}
+
+	return "advise"
 }
 
 func addCommitHeadDispatch(
@@ -2697,6 +2512,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"shell.best_practices",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
+			"python.functional_idioms",
 			"python.optional_returns",
 			"python.catch_and_silence",
 			"python.structured_logging",
@@ -2735,6 +2551,7 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 			"repo.pii_scrubber",
 			"repo.license_header",
 			"python.conditional_imports",
+			"python.functional_idioms",
 			"python.optional_returns",
 			"python.catch_and_silence",
 			"python.structured_logging",

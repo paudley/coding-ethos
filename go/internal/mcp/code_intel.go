@@ -196,8 +196,9 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("parse code intelligence code-context arguments: %w", err)
 	}
 	if strings.TrimSpace(input.ChunkID) == "" &&
-		(strings.TrimSpace(input.Path) == "" || strings.TrimSpace(input.SymbolPath) == "") {
-		return nil, fmt.Errorf("chunk_id or both path and symbol_path are required")
+		((strings.TrimSpace(input.Path) == "" || strings.TrimSpace(input.SymbolPath) == "") &&
+			(strings.TrimSpace(input.Path) == "" || input.Line <= 0)) {
+		return nil, fmt.Errorf("chunk_id, both path and symbol_path, or path and line are required")
 	}
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
@@ -209,6 +210,7 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 		ChunkID:    input.ChunkID,
 		Path:       input.Path,
 		SymbolPath: input.SymbolPath,
+		Line:       input.Line,
 		Limit:      input.Limit,
 	})
 	if err != nil {

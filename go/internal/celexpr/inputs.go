@@ -262,6 +262,7 @@ type ActivationInput struct {
 	Diagnostics       []diagnostics.Diagnostic
 	Finding           *FindingActivation
 	Findings          []FindingActivation
+	PythonASTFacts    []PythonASTFactInput
 	Source            SourceActivation
 	ProtectedPaths    []string
 	ProtectedBranches []string
@@ -311,6 +312,7 @@ func InputSchema() []string {
 		"paths: list({file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root})",
 		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
 		"diagnostics: list({tool, code, message, file, line, column, severity, policy_id})",
+		"python_ast: list({file, language, node_kind, symbol_kind, symbol_name, symbol_path, parent_symbol_path, text, import_module, call_name, annotation_role, line, column, end_line, parameter_count, has_varargs, has_kwargs, module_level, under_class, under_conditional, under_function, under_try, under_type_checking, is_import, is_import_fallback, is_dynamic_import, is_assigned_lambda, is_closure_factory})",
 		"finding: {tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids}",
 		"findings: list({tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids})",
 		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
@@ -360,6 +362,7 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeOf(ShellCommandInput{}),
 			reflect.TypeOf(PathInput{}),
 			reflect.TypeOf(DiagnosticInput{}),
+			reflect.TypeOf(PythonASTFactInput{}),
 			reflect.TypeOf(FindingInput{}),
 			reflect.TypeOf(SourceInput{}),
 			reflect.TypeOf(RepoInput{}),
@@ -427,6 +430,10 @@ func newEnvironment() (*cel.Env, error) {
 		cel.Variable(
 			"diagnostics",
 			cel.ListType(cel.ObjectType("celexpr.DiagnosticInput")),
+		),
+		cel.Variable(
+			"python_ast",
+			cel.ListType(cel.ObjectType("celexpr.PythonASTFactInput")),
 		),
 		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
 		cel.Variable(
@@ -601,6 +608,7 @@ func Activation(input ActivationInput) map[string]any {
 		"paths":       paths,
 		"diagnostic":  diagnosticInput(input.Diagnostic),
 		"diagnostics": diagnosticInputs(input.Diagnostics, input.Diagnostic),
+		"python_ast":  append([]PythonASTFactInput(nil), input.PythonASTFacts...),
 		"finding":     findingInput(input.Finding),
 		"findings":    findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{

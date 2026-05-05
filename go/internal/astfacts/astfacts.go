@@ -6,18 +6,10 @@ package astfacts
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
-	"unsafe"
 
-	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
-	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
-	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 )
 
 type File struct {
@@ -50,34 +42,6 @@ type Symbol struct {
 	StartLine       int
 }
 
-func Analyze(path string, contents []byte) (File, bool, error) {
-	language, parserLanguage, ok := languageForPath(path)
-	if !ok {
-		return File{}, false, nil
-	}
-	parser := tree_sitter.NewParser()
-	defer parser.Close()
-	if err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage)); err != nil {
-		return File{}, false, fmt.Errorf("set tree-sitter language for %q: %w", path, err)
-	}
-	tree := parser.Parse(contents, nil)
-	if tree == nil {
-		return File{}, false, fmt.Errorf("parse %q with tree-sitter returned nil tree", path)
-	}
-	defer tree.Close()
-
-	lineCount := LineCount(contents)
-	root := tree.RootNode()
-
-	return File{
-		Symbols:     CollectSymbols(path, language, contents, root, lineCount),
-		Imports:     CollectImports(language, contents, root),
-		ContentHash: ContentHash(contents),
-		Language:    language,
-		LineCount:   lineCount,
-	}, true, nil
-}
-
 func CollectSymbols(
 	path string,
 	language string,
@@ -106,6 +70,24 @@ func CollectSymbols(
 	visit(root, nil)
 
 	return symbols
+}
+
+func nearestSymbolForLine(symbols []Symbol, line int) (Symbol, bool) {
+	var best Symbol
+	found := false
+	for _, symbol := range symbols {
+		if symbol.StartLine > line || symbol.EndLine < line {
+			continue
+		}
+		if !found ||
+			symbol.StartLine > best.StartLine ||
+			(symbol.StartLine == best.StartLine && symbol.LineCount < best.LineCount) {
+			best = symbol
+			found = true
+		}
+	}
+
+	return best, found
 }
 
 func SymbolFromNode(
@@ -264,29 +246,6 @@ func referenceIdentifierKind(language string, nodeKind string) bool {
 	}
 }
 
-func LanguageForPath(path string) (string, bool) {
-	language, _, ok := languageForPath(path)
-
-	return language, ok
-}
-
-func languageForPath(path string) (string, unsafe.Pointer, bool) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return "go", tree_sitter_go.Language(), true
-	case ".py":
-		return "python", tree_sitter_python.Language(), true
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx":
-		return "javascript", tree_sitter_javascript.Language(), true
-	case ".sh", ".bash", ".zsh":
-		return "shell", tree_sitter_bash.Language(), true
-	case ".yaml", ".yml":
-		return "yaml", tree_sitter_yaml.Language(), true
-	default:
-		return "", nil, false
-	}
-}
-
 func SymbolKindForNode(language string, nodeKind string) (string, bool) {
 	switch language {
 	case "go":
@@ -314,6 +273,17 @@ func SymbolKindForNode(language string, nodeKind string) (string, bool) {
 		if nodeKind == "function_definition" {
 			return "function", true
 		}
+	case "json":
+		if nodeKind == "pair" {
+			return "config_entry", true
+		}
+	case "toml":
+		switch nodeKind {
+		case "pair":
+			return "config_entry", true
+		case "table", "table_array_element":
+			return "config_section", true
+		}
 	case "yaml":
 		if nodeKind == "block_mapping_pair" {
 			return "config_entry", true
@@ -329,10 +299,24 @@ func SymbolName(node *tree_sitter.Node, contents []byte) string {
 		name = node.ChildByFieldName("key")
 	}
 	if name == nil {
-		return ""
+		nameText := firstDescendantText(contents, node, keyNodeKind)
+		if nameText == "" {
+			return ""
+		}
+
+		return cleanSymbolName(nameText)
 	}
 
 	return cleanSymbolName(name.Utf8Text(contents))
+}
+
+func keyNodeKind(nodeKind string) bool {
+	switch nodeKind {
+	case "bare_key", "dotted_key", "quoted_key", "string":
+		return true
+	default:
+		return false
+	}
 }
 
 func cleanSymbolName(value string) string {

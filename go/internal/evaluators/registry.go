@@ -80,6 +80,10 @@ func registerPythonEvaluators(registry Registry) {
 		EvaluatorFunc(EvaluatePythonConditionalImports),
 	)
 	registry.Register(
+		"python.functional_idioms",
+		EvaluatorFunc(EvaluatePythonFunctionalIdioms),
+	)
+	registry.Register(
 		"python.optional_returns",
 		EvaluatorFunc(EvaluatePythonOptionalReturns),
 	)

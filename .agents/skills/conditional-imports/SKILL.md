@@ -61,6 +61,14 @@ environment is missing a requirement, the application must crash at
 the
 import stage.
 
+This is broader than `except ImportError`. The same rule forbids
+local imports inside functions, `TYPE_CHECKING` import branches for
+runtime dependencies, module-level `__getattr__` import tricks,
+`__import__`, `importlib.import_module`, and any other indirection
+that hides a required dependency from normal module import
+validation. Those patterns are usually symptoms of a cyclic boundary
+or missing protocol; fix the boundary instead of hiding the import.
+
 **The Anti-Pattern (Forbidden):**
 
 ```python

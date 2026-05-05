@@ -28,6 +28,7 @@ calibrated risk management over intuition alone.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/ and installs direct Go runner shims into `.git/hooks/`.
 - style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and .golangci.yml's lll line-length setting.
 - Hook runtime, policy enforcement, Python policy checks, and bundled analyzer orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+- Source-aware enforcement follows the AST/CEL/SARIF architecture documented in docs/AST_CEL_SARIF_ARCHITECTURE.md. Extend shared Go Tree-sitter fact collection first, express configurable decisions in CEL where possible, and let SARIF carry stable AST identity and remediation metadata. Do not add ad hoc text scanners or policy-specific AST walkers before checking this path.
 - If you fix hook, policy, lint-capture, runtime, generated-config, or parent integration behavior, run `make build` before claiming the bug is fixed. Without rebuilding, the parent repo can keep executing stale runtime binaries and configs, which means the fix has not actually landed for agents.
 - Prefer replacing shell and Python implementation glue with Go wherever practical. Every branch should identify at least one related shell or Python path that can move into compiled Go, even if the branch only documents why it is not the right time to migrate it.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
@@ -195,6 +196,14 @@ imports in try/except blocks to hide missing dependencies. If the
 environment is missing a requirement, the application must crash at
 the
 import stage.
+
+This is broader than `except ImportError`. The same rule forbids
+local imports inside functions, `TYPE_CHECKING` import branches for
+runtime dependencies, module-level `__getattr__` import tricks,
+`__import__`, `importlib.import_module`, and any other indirection
+that hides a required dependency from normal module import
+validation. Those patterns are usually symptoms of a cyclic boundary
+or missing protocol; fix the boundary instead of hiding the import.
 
 **The Anti-Pattern (Forbidden):**
 
@@ -1572,6 +1581,25 @@ for label, group in groupby(
 # Flatten nested results
 all_results = list(chain.from_iterable(retriever_results))
 ```
+
+### Avoid Ad-Hoc Closures
+Assigned lambdas and nested functions returned from factory helpers
+often hide a reusable operation that Python's standard functional
+tools already express more clearly.
+
+Prefer `functools.partial`, `operator` helpers, `itertools`
+utilities, or an explicitly named helper function when the behavior
+is intended to be reused or passed around.
+
+```python
+from functools import partial
+
+normalize_label = partial(normalize, mode="label")
+```
+
+Do not assign lambdas or return nested functions just to carry a
+small amount of state. If the behavior needs a protocol boundary,
+define that boundary directly.
 
 ### Why This Matters
 * **Performance:** `lru_cache` eliminates redundant computation.

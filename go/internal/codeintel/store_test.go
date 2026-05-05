@@ -613,6 +613,17 @@ class Worker:
 	if !codeEdgesContainTarget(context.OutgoingEdges, "helper") {
 		t.Fatalf("context outgoing edges missing helper reference: %#v", context.OutgoingEdges)
 	}
+	lineContext, err := store.CodeContext(ctx, CodeContextQuery{
+		Path:  "pkg/worker.py",
+		Line:  14,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("line code context: %v", err)
+	}
+	if lineContext.Chunk.SymbolPath != "Worker.run" {
+		t.Fatalf("line context = %#v", lineContext.Chunk)
+	}
 	configContext, err := store.CodeContext(ctx, CodeContextQuery{
 		Path:       "pkg/worker.py",
 		SymbolPath: "load_a_config",

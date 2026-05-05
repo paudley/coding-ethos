@@ -730,10 +730,17 @@ Acceptance criteria:
 - [x] Add Tree-sitter AST indexing for Go, Python, JavaScript/TypeScript,
   shell, and YAML into the canonical SQLite store with stable `code_chunk`
   records, FTS rows, and embedding-candidate export.
+- [x] Refactor Tree-sitter extraction toward a resolver-style AST service
+  inspired by `~/Active/pyqa_lint`: parser reuse, shared traversal helpers,
+  and line-to-nearest-context lookup.
+- [x] Add JSON and TOML config-entry AST chunks so policy, SARIF, MCP, and
+  code-intel retrieval can target precise config entries.
 - [x] Expose AST code intelligence through `code-intel index-code`,
   `code-intel code-chunks`, `code_intel_index_code`, and
   `code_intel_code_chunks` so agents can retrieve focused symbol context
   before broad file reads.
+- [x] Expose line-based AST code context lookup through `code-intel
+  code-context --path ... --line ...` and `code_intel_code_context`.
 - [ ] Add Markdown AST chunking after choosing a maintained Go binding or a
   first-class adapter for the markdown parser layout.
 - [x] Add initial AST graph edges for containment, imports, and same-file
@@ -767,6 +774,66 @@ Acceptance criteria:
   start/end lines, byte offsets, and region snippets.
 - [x] Include AST node kind and symbol identity in SARIF properties for
   Tree-sitter-backed CEL findings.
+- [x] Document the required AST/CEL/SARIF architecture in
+  `docs/AST_CEL_SARIF_ARCHITECTURE.md`: Go collects facts, CEL evaluates
+  configurable decisions, SARIF reports stable remediation-ready findings.
+- [x] Add a shared Python AST fact surface for policy evaluators and CEL:
+  imports, calls, functions, classes, assignments, lambdas, exception handlers,
+  symbol context, ancestry flags, and initial signature facts.
+- [x] Expose Python AST facts to CEL as `python_ast` so future pyqa_lint ports
+  can move decision logic into principle-owned expressions before adding new Go
+  evaluators.
+- [x] Extend SARIF AST identity to diagnostics with AST node metadata even when
+  the finding has no named symbol path, and include parent-symbol metadata for
+  source-backed findings.
+- [x] Use Tree-sitter-backed Python policy checks to block conditional import
+  workarounds at write time: nested imports, `TYPE_CHECKING` import branches,
+  module `__getattr__`, `__import__`, and `importlib.import_module`.
+- [x] Add pyqa-inspired Python functional idiom diagnostics for assigned
+  lambdas and closure factories, grounded in the Functional Idioms principle.
+- [ ] Port pyqa_lint's strict typing AST guidance into principle-owned Python
+  policy: flag `Any`, `typing.Any`, `object`, and `builtins.object` in
+  parameter, return, `*args`, `**kwargs`, and annotated-assignment positions;
+  ground it in No Optional Types for Required Dependencies and Static Analysis
+  as the First Line of Defense.
+- [ ] Port pyqa_lint's signature-width AST guidance into a SOLID/SRP policy:
+  count positional-only, positional, keyword-only, varargs, and kwargs on
+  function definitions; recommend parameter objects or smaller seams when
+  signatures exceed the configured threshold or rely on `**kwargs`.
+- [ ] Port pyqa_lint's Tree-sitter docstring structure checks into
+  Documentation as Contract: index module/class/function docstrings, require
+  summaries, enforce Args/Returns/Yields sections from actual AST parameters
+  and return/yield behavior, and emit symbol-level SARIF regions.
+- [ ] Port pyqa_lint's generic value-type Tree-sitter analysis as configurable
+  class-trait policy: derive dataclass/frozen/slots/enum/iterable/sequence/
+  mapping/value traits from decorators, bases, methods, and `__slots__`, then
+  require or recommend dunder methods such as `__eq__`, `__hash__`, `__repr__`,
+  `__str__`, `__len__`, `__bool__`, `__iter__`, and `__contains__`.
+- [ ] Generalize pyqa_lint's interface-first AST rules into configurable
+  architecture policy: detect concrete imports across configured layer/domain
+  boundaries, forbid concrete functions/classes/assignments in configured
+  interface modules except Protocol/ABC/TypedDict/Enum/dataclass-like
+  contracts, and link violations to Protocol-First Design.
+- [ ] Generalize pyqa_lint's DI composition-root AST rule: detect configured
+  service-container registration calls such as `container.register(...)` and
+  allow them only in configured composition roots or bootstrap modules.
+- [ ] Generalize pyqa_lint's cache-wrapper AST rule: resolve imported aliases
+  and decorator calls for banned cache decorators such as `functools.lru_cache`,
+  then require the repo's configured cache abstraction when a principle says
+  caching must be centralized or observable.
+- [ ] Replace remaining text-only Python hygiene checks with AST-backed policy
+  facts inspired by pyqa_lint: detect debug breakpoints/tracing, bare except,
+  broad `except Exception` without justification, debug imports, direct
+  `SystemExit`/`sys.exit` outside CLI modules, module `__main__` blocks, and
+  unsanctioned `print` calls while avoiding strings/comments false positives.
+- [ ] Port pyqa_lint's package module documentation convention as configurable
+  Documentation as Contract policy: discover package directories from
+  `__init__.py`, require configured module docs such as `MODULE.md` or
+  package-derived docs, and verify required sections.
+- [x] Reuse pyqa_lint's AST visitor/reporting pattern conceptually by adding a
+  shared Go policy visitor helper for Python AST evaluators: one parse path,
+  one suppression check path, consistent diagnostic metadata, and no duplicate
+  ad-hoc Tree-sitter traversals per policy.
 - [x] Add SARIF partial fingerprints based on path, language, symbol path,
   node kind, rule/policy ID, and content hash so findings remain stable across
   unrelated line movement.
@@ -799,6 +866,11 @@ Acceptance criteria:
 - [ ] Extend context expansion with siblings, language-specific callers/callees,
   related tests, related docs, recent policy failures, and prior fixes for the
   same symbol.
+- [ ] Promote diagnostic signature tokens into a first-class stored column or
+  relation once repeated-failure clustering needs querying beyond FTS search.
+- [ ] Add query-driven AST capture specs for imports, references, config keys,
+  headings, and documentation chunks; keep enforcement policy in
+  `coding_ethos.yml` and use capture specs only to supply facts.
 - [x] Add first staleness and trust metadata to indexed AST files: indexed
   content hash, index timestamp, and parser metadata.
 - [ ] Add stale-result refusal behavior and current-content validation for

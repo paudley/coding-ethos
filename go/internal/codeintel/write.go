@@ -118,14 +118,21 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 			return fmt.Errorf("insert finding occurrence %q: %w", finding.ID, err)
 		}
 		if err := insertFTS(ctx, tx, ftsRow{
-			Kind:       "finding",
-			RecordID:   finding.ID,
-			TraceID:    trace.ID,
-			PolicyID:   finding.PolicyID,
-			SkillID:    finding.SkillID,
-			Path:       finding.SourceSpan.Path,
-			Message:    finding.Message,
-			SearchText: finding.SearchText,
+			Kind:     "finding",
+			RecordID: finding.ID,
+			TraceID:  trace.ID,
+			PolicyID: finding.PolicyID,
+			SkillID:  finding.SkillID,
+			Path:     finding.SourceSpan.Path,
+			Message:  finding.Message,
+			SearchText: diagnosticSearchText(
+				finding.SearchText,
+				finding.RuleID,
+				finding.Code,
+				finding.Message,
+				finding.SourceSpan.SymbolName,
+				finding.SourceSpan.SymbolKind,
+			),
 		}); err != nil {
 			return err
 		}
@@ -189,6 +196,16 @@ func insertSARIFResult(
 	if err != nil {
 		return fmt.Errorf("marshal SARIF result %q: %w", result.ID, err)
 	}
+	result.SearchText = diagnosticSearchText(
+		result.SearchText,
+		result.RuleID,
+		result.Message,
+		result.PolicyID,
+		result.SkillID,
+		result.ASTSymbolName,
+		result.ASTSymbolKind,
+		result.ASTSymbolPath,
+	)
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO sarif_results(

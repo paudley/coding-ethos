@@ -405,11 +405,12 @@ Core inputs:
 - `proposed_symbol_changes`: hook-time Tree-sitter symbol deltas for proposed
   write/edit operations. These include symbol identity, action, line spans,
   content hashes, and line-count deltas so CEL can enforce size policy at the
-  function/class/type/shell-function/YAML-entry level instead of only at the
-  whole-file level.
+  function/class/type/shell-function/config-entry level instead of only at the
+  whole-file level. Current config-entry coverage includes YAML, JSON, and
+  TOML.
 - `changed_symbols`: staged-diff Tree-sitter symbol deltas. These map reviewed
-  diff hunks to affected functions, classes, types, shell functions, and YAML
-  entries so pre-commit, CI, SARIF, and hooks can enforce the same
+  diff hunks to affected functions, classes, types, shell functions, and
+  config entries so pre-commit, CI, SARIF, and hooks can enforce the same
   symbol-level policy surface.
 - `config`: configured repo override candidates and candidates present in the
   current file set.
@@ -504,10 +505,24 @@ Git state, execute managed external checks, validate generated config freshness,
 scan file contents, or prepare normalized facts. Examples include commit-message
 linting, staged-admin-file detection, commit-HEAD verification, structured-data
 syntax checks, private-key and PII scanning, SPDX license validation, Python AST
-checks, shell-script best-practice parsing, generated-config freshness, and
-managed pytest/toolchain gates. If one of these later reduces to pure matching
-over already available facts, move only that decision branch into
+fact collection, shell-script best-practice parsing, generated-config freshness,
+and managed pytest/toolchain gates. If one of these later reduces to pure
+matching over already available facts, move only that decision branch into
 `coding_ethos.yml` and keep the fact collection in Go.
+
+For source-aware policy, follow
+[`AST_CEL_SARIF_ARCHITECTURE.md`](AST_CEL_SARIF_ARCHITECTURE.md) first: Go
+collects AST facts, CEL expresses configurable decisions, and SARIF carries
+stable locations, fingerprints, principle IDs, and remediation metadata. A new
+policy-specific AST walker is a design smell unless the shared fact surface
+cannot represent the required input yet.
+
+Python import policy is a model for that split: Tree-sitter extracts the
+runtime import facts, while the decision remains grounded in the
+No Conditional Imports principle. This catches `except ImportError`,
+function-local imports, `TYPE_CHECKING` import branches, module `__getattr__`,
+`__import__`, and `importlib.import_module` as the same policy family instead
+of treating each workaround as a separate ad-hoc hook.
 
 Migration workflow:
 

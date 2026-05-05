@@ -242,6 +242,7 @@ type codeIntelCodeContextInput struct {
 	ChunkID    string `json:"chunk_id,omitempty"`
 	Path       string `json:"path,omitempty"`
 	SymbolPath string `json:"symbol_path,omitempty"`
+	Line       int    `json:"line,omitempty"`
 	Limit      int    `json:"limit,omitempty"`
 }
 
@@ -667,6 +668,7 @@ func toolDefinitions() []map[string]any {
 				"chunk_id":    map[string]any{"type": "string"},
 				"path":        map[string]any{"type": "string"},
 				"symbol_path": map[string]any{"type": "string"},
+				"line":        map[string]any{"type": "integer"},
 				"limit":       map[string]any{"type": "integer"},
 			},
 			nil,

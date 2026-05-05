@@ -232,12 +232,21 @@ func examplePrinciples() map[string]Principle {
 			Summary:   "Bypass attempts are forbidden even when framed as convenience.",
 			Tags:      []string{"workflow", "safety", "git"},
 		},
+		"functional-idioms": {
+			ID:        "functional-idioms",
+			Order:     17,
+			Title:     "Functional Idioms",
+			Directive: "Use Python's functional tools when they make code clearer and more local.",
+			Summary:   "Python's itertools and functools modules exist for a reason.",
+			Tags:      []string{"python", "style", "simplicity"},
+		},
 	}
 }
 
 func examplePolicies() map[string]Policy {
 	return map[string]Policy{
 		"python.conditional_imports":     exampleConditionalImportPolicy(),
+		"python.functional_idioms":       exampleFunctionalIdiomPolicy(),
 		"git.hook_bypass":                exampleHookBypassPolicy(),
 		"git.protected_submodule_update": exampleProtectedSubmoduleUpdatePolicy(),
 		"git.commit_attribution":         exampleCommitAttributionPolicy(),
@@ -327,11 +336,11 @@ func exampleConditionalImportPolicy() Policy {
 		SupportedModes:  []string{"block", "advise", "annotate", "record"},
 		Message: sentence(
 			"Required dependencies should fail immediately;",
-			"ImportError fallback creates a soft dependency path.",
+			"conditional, nested, or dynamic imports create soft dependency paths.",
 		),
 		Suggestion: sentence(
-			"Remove the conditional import or configure an",
-			"explicit exemption.",
+			"Move required imports to module scope or repair the module boundary",
+			"that made the import conditional.",
 		),
 		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
@@ -339,6 +348,31 @@ func exampleConditionalImportPolicy() Policy {
 			FilePatterns: []string{"**/*.py"},
 		},
 		Evaluators: []Evaluator{{Kind: "ast", Name: "python.conditional_imports"}},
+	}
+}
+
+func exampleFunctionalIdiomPolicy() Policy {
+	return Policy{
+		ID:              "python.functional_idioms",
+		Category:        "python",
+		Source:          SourceRef{File: "config.yaml", Path: "python.functional_idioms"},
+		PrincipleIDs:    []string{"functional-idioms"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "advise", "annotate", "record"},
+		Message: sentence(
+			"Ad-hoc closures and assigned lambdas obscure reusable behavior;",
+			"use Python's functional helpers when they make intent clearer.",
+		),
+		Suggestion: sentence(
+			"Use functools.partial, operator helpers, itertools utilities,",
+			"or a named helper instead of ad-hoc closure factories.",
+		),
+		DefenseLayers: CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			Languages:    []string{"python"},
+			FilePatterns: []string{"**/*.py"},
+		},
+		Evaluators: []Evaluator{{Kind: "ast", Name: "python.functional_idioms"}},
 	}
 }
 
@@ -884,7 +918,7 @@ func exampleShellMalformedCommandPolicy() Policy {
 
 func exampleLinterDispatch() map[string][]string {
 	return map[string][]string{
-		"files": {"python.conditional_imports"},
+		"files": {"python.conditional_imports", "python.functional_idioms"},
 		"staged": {
 			"git.hook_bypass",
 			"git.commit_attribution",
@@ -893,6 +927,7 @@ func exampleLinterDispatch() map[string][]string {
 			"shell.malformed_command",
 			"shell.forbidden_strings",
 			"python.conditional_imports",
+			"python.functional_idioms",
 		},
 	}
 }
