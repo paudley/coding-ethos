@@ -3,6 +3,15 @@
 
 blank_issues_enabled: false
 contact_links:
+  - name: Documentation
+    url: https://paudley.github.io/coding-ethos/
+    about: Read install, usage, policy, MCP, CI, and release documentation.
   - name: Security policy
     url: https://github.com/paudley/coding-ethos/blob/main/SECURITY.md
     about: Report vulnerabilities privately using the process described in SECURITY.md.
+  - name: Release process
+    url: https://github.com/paudley/coding-ethos/blob/main/docs/RELEASE.md
+    about: Review release, attestation, SBOM, and PyPI trusted-publishing details.
+  - name: MCP server documentation
+    url: https://github.com/paudley/coding-ethos/blob/main/docs/MCP_SERVER.md
+    about: Learn about the MCP tools exposed to agents.

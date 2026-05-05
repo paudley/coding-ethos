@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+title: "[support] "
+labels:
+  - support
+  - discussion
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for usage questions that are not reproducible bugs or concrete
+        feature requests.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What are you trying to accomplish?
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: >-
+        Repository shape, agent, OS, Python/Go versions, and relevant
+        coding-ethos version.
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Commands, configuration, docs, or examples already checked.
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Paste concise output, tracking IDs, or error messages if relevant.

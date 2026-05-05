@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+name: MCP tool request
+description: >-
+  Propose a new or changed MCP tool for agent-facing policy and code
+  intelligence.
+title: "[mcp] "
+labels:
+  - mcp
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        MCP tools should help agents choose the right next action without
+        bypassing policy, duplicating lint work, or inventing ad hoc context
+        gathering.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing MCP issues and docs first.
+          required: true
+        - label: I described the agent workflow, not only the API shape.
+          required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Agent workflow
+      description: What is the agent trying to accomplish when it calls this tool?
+    validations:
+      required: true
+
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Inputs
+      description: What arguments should the MCP tool accept?
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: outputs
+    attributes:
+      label: Outputs
+      description: What structured result should the tool return?
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: policy
+    attributes:
+      label: Policy and ETHOS grounding
+      description: >-
+        Which principle, CEL policy, SARIF rule, or stored telemetry should
+        ground the tool?
+    validations:
+      required: true
+
+  - type: textarea
+    id: storage
+    attributes:
+      label: Storage or code-intel needs
+      description: >-
+        Should this read/write hook traces, SARIF, AST facts, embeddings, or
+        remediation outcomes?
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Safety and abuse risks
+      description: >-
+        How could this tool be misused, and what should be denied or
+        redacted?

@@ -58,7 +58,7 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if !routeOK || commandMentionsGit(command) || evasiveGitShell(command) {
+	if !routeOK || commandReferencesUnmanagedGit(command) || evasiveGitShell(command) {
 		return InspectionRoute{
 			Reason: sentence(
 				gitWrapperCircumventionRefusal,
@@ -176,16 +176,21 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return "", true
 	}
 
-	if filepath.Base(segment[0]) == "coding-ethos-run" {
-		return "", isTrustedRunnerCommand(segment[0])
+	commandSegment := trimLeadingEnvAssignments(segment)
+	if len(commandSegment) == 0 {
+		return "", true
 	}
 
-	if managedGitWrapperImpersonation(segment[0]) {
+	if filepath.Base(commandSegment[0]) == "coding-ethos-run" {
+		return "", isTrustedRunnerCommand(commandSegment[0])
+	}
+
+	if managedGitWrapperImpersonation(commandSegment[0]) {
 		return "", false
 	}
 
-	if segment[0] == tokenGit {
-		args, redirections := splitShellRedirections(segment[1:])
+	if commandSegment[0] == tokenGit {
+		args, redirections := splitShellRedirections(commandSegment[1:])
 		command := wrapperCommand(args)
 		if len(redirections) > 0 {
 			command += " " + strings.Join(redirections, " ")
@@ -194,7 +199,7 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return command, true
 	}
 
-	if segmentMentionsUnmanagedGit(segment) {
+	if segmentMentionsUnmanagedGit(commandSegment) {
 		return "", false
 	}
 
@@ -376,7 +381,7 @@ func isShellControlToken(token string) bool {
 	}
 }
 
-func commandMentionsGit(command string) bool {
+func commandReferencesUnmanagedGit(command string) bool {
 	commands, err := shellparse.Commands(command)
 	if err != nil {
 		return true
@@ -386,13 +391,17 @@ func commandMentionsGit(command string) bool {
 			return true
 		}
 		for _, token := range command.Argv {
-			if token == tokenGit || isGitPath(token) {
+			if shellTokenIsGitTool(token) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+func shellTokenIsGitTool(token string) bool {
+	return filepath.Base(token) == tokenGit || isGitPath(token)
 }
 
 func isGitPath(token string) bool {
@@ -414,7 +423,9 @@ func evasiveGitShell(command string) bool {
 	for _, parsed := range commands {
 		if shellCommandIsGit(parsed) ||
 			shellCommandWrapsTool(parsed, tokenGit) ||
-			shellCommandArgMentions(parsed, "git") {
+			shellCommandArgReferencesTool(parsed, tokenGit) ||
+			shellExecArgumentReferencesGit(parsed) ||
+			pythonExecArgumentReferencesTool(parsed, tokenGit) {
 			mentionsGit = true
 			break
 		}
@@ -425,7 +436,7 @@ func evasiveGitShell(command string) bool {
 
 	for _, parsed := range commands {
 		if parsed.IsFunctionDeclaration &&
-			(parsed.Name == tokenGit || strings.Contains(parsed.Command, " git")) {
+			shellTokenIsGitTool(parsed.Name) {
 			return true
 		}
 		if parsed.HasCommandSubstitution ||
@@ -438,13 +449,13 @@ func evasiveGitShell(command string) bool {
 		name := shellCommandName(parsed)
 		switch name {
 		case "bash", "sh", "zsh", "dash":
-			if shellExecArgumentMentions(parsed, "git") {
+			if shellExecArgumentReferencesGit(parsed) {
 				return true
 			}
 		case "command", "env", "eval", "alias", "exec":
 			return true
 		default:
-			if pythonExecArgumentMentions(parsed, "git") ||
+			if pythonExecArgumentReferencesTool(parsed, tokenGit) ||
 				shellCommandArgMentions(parsed, "subprocess") ||
 				shellCommandArgMentions(parsed, "os.system") ||
 				shellCommandArgMentions(parsed, "os.popen") {
@@ -508,6 +519,16 @@ func shellCommandUsesPathOverride(command shellparse.Command) bool {
 	return false
 }
 
+func shellCommandArgReferencesTool(command shellparse.Command, tool string) bool {
+	for _, arg := range command.Argv {
+		if filepath.Base(arg) == tool || isGitPath(arg) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func shellCommandArgMentions(command shellparse.Command, needle string) bool {
 	needle = strings.ToLower(needle)
 	for _, arg := range command.Argv {
@@ -529,14 +550,60 @@ func shellExecArgumentMentions(command shellparse.Command, needle string) bool {
 	return false
 }
 
-func pythonExecArgumentMentions(command shellparse.Command, needle string) bool {
+func shellExecArgumentReferencesGit(command shellparse.Command) bool {
 	for index, arg := range command.Argv {
-		if arg == "-c" && index+1 < len(command.Argv) {
-			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
+		if arg != "-c" || index+1 >= len(command.Argv) {
+			continue
+		}
+		referencesGit, err := parsedShellReferencesGit(command.Argv[index+1])
+		if err != nil || referencesGit {
+			return true
 		}
 	}
 
 	return false
+}
+
+func parsedShellReferencesGit(command string) (bool, error) {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return false, err
+	}
+	for _, parsed := range commands {
+		if shellCommandIsGit(parsed) ||
+			shellCommandWrapsTool(parsed, tokenGit) ||
+			shellCommandArgReferencesTool(parsed, tokenGit) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func pythonExecArgumentReferencesTool(command shellparse.Command, tool string) bool {
+	for index, arg := range command.Argv {
+		if arg != "-c" || index+1 >= len(command.Argv) {
+			continue
+		}
+		for _, token := range pythonLikeTokens(command.Argv[index+1]) {
+			if filepath.Base(token) == tool || isGitPath(token) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func pythonLikeTokens(source string) []string {
+	return strings.FieldsFunc(source, func(char rune) bool {
+		switch char {
+		case ' ', '\t', '\n', '\r', '\'', '"', '[', ']', '(', ')', ',', ';':
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 func gitWrapperBlockDecision(bundle policy.Bundle, reason string) policy.Decision {

@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+title: "[policy idea] "
+labels:
+  - policy
+  - discussion
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for early discussion of ETHOS, CEL, SARIF, hook, or
+        agent-policy ideas before they are ready for an issue.
+
+  - type: textarea
+    id: principle
+    attributes:
+      label: ETHOS principle
+      description: >-
+        Which existing principle should ground this idea, or what gap suggests
+        a new principle?
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Desired behavior
+      description: >-
+        Describe what agents or contributors should be guided to do
+        differently.
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples
+      description: >-
+        Include examples that should be allowed, blocked, advised, or surfaced
+        as SARIF.
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: False-positive and adoption risks
+      description: What legitimate workflows might this disrupt?

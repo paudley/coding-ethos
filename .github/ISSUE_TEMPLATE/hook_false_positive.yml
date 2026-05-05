@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: MIT
+
+name: Hook false positive
+description: Report a coding-ethos hook block that should have been allowed.
+title: "[hook false positive] "
+labels:
+  - bug
+  - hooks
+  - false-positive
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include the tracking ID from the denial. Hook fixes are not complete
+        until `make build` has been run and the installed runtime is verified.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I included the hook tracking ID if one was emitted.
+          required: true
+        - label: I included the exact tool, event, and command or path that was blocked.
+          required: true
+
+  - type: input
+    id: tracking_id
+    attributes:
+      label: Tracking ID
+      description: The `trackingID` or `trace_id` from the hook output.
+      placeholder: "hook-..."
+
+  - type: input
+    id: policy
+    attributes:
+      label: Policy ID
+      placeholder: "git.wrapper_required"
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Agent or provider
+      placeholder: "Claude, Codex, Gemini, local shell"
+
+  - type: input
+    id: event
+    attributes:
+      label: Hook event and tool
+      placeholder: "PreToolUse Bash"
+    validations:
+      required: true
+
+  - type: textarea
+    id: blocked_action
+    attributes:
+      label: Blocked action
+      description: Paste the exact command, path, or tool payload that was blocked.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Hook output
+      description: Paste the relevant hook output.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Why this should be allowed
+      description: Explain the legitimate workflow and expected decision.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Fix verification expectations
+      description: >-
+        What regression test or runtime check would prove the false positive
+        is gone?

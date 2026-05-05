@@ -909,6 +909,35 @@ func TestRunBlocksUnmanagedGitPath(t *testing.T) {
 	}
 }
 
+func TestRunAllowsGitHubAPIHeredocWithoutGitCommand(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: "PreToolUse",
+			ToolName:      "Bash",
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "gh api repos/paudley/coding-ethos/rulesets/1 --method PUT --input - <<'EOF'\n" +
+					"{\"name\":\"GitHub branch rules\"}\n" +
+					"EOF\n" +
+					"gh pr edit 44 --body 'verified GitHub rulesets after update'",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unexpected rewrite for non-git command: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestRunBlocksRawGitEvenWhenCommandMentionsManagedWrapper(t *testing.T) {
 	t.Parallel()
 
