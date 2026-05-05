@@ -282,6 +282,7 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	preResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: "PreToolUse",
+			ProviderHint:  "codex",
 			ToolName:      "Bash",
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -299,6 +300,7 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	postResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: "PostToolUse",
+			ProviderHint:  "codex",
 			ToolName:      "Bash",
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -333,6 +335,7 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	preResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: "PreToolUse",
+			ProviderHint:  "codex",
 			ToolName:      "Bash",
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -350,6 +353,7 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	postResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: "PostToolUse",
+			ProviderHint:  "codex",
 			ToolName:      "Bash",
 			Cwd:           repo,
 			ToolInput: map[string]any{

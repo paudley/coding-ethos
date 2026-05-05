@@ -277,12 +277,8 @@ exit 2
 }
 
 func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
-	bundleRoot, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("resolve bundle root: %v", err)
-	}
-
 	tempDir := setupGitHookTestRepo(t)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
 	t.Chdir(tempDir)
 	t.Setenv(consumerRootEnv, tempDir)
 	t.Setenv(precommitRootEnv, bundleRoot)
@@ -318,6 +314,20 @@ func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
 	}
 }
 
+func writeManagedToolchainBundle(t *testing.T, root string) string {
+	t.Helper()
+
+	bundleRoot := filepath.Join(root, "code-ethos", "pre-commit")
+	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"), "")
+
+	err := os.MkdirAll(filepath.Join(bundleRoot, "hooks", "go-hooks"), 0o755)
+	if err != nil {
+		t.Fatalf("create fake hook runtime: %v", err)
+	}
+
+	return bundleRoot
+}
+
 func writeCatalogLintFixtures(t *testing.T) {
 	t.Helper()
 
@@ -333,9 +343,11 @@ func writeCatalogLintTools(t *testing.T, tempDir string) {
 	t.Helper()
 
 	fakeBin := filepath.Join(tempDir, "bin")
+	goBin := filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin")
+	githubBin := filepath.Join(tempDir, "code-ethos", "build", "toolchain", "github-bin")
 	mustWriteExecutable(
 		t,
-		filepath.Join(fakeBin, "hadolint"),
+		filepath.Join(githubBin, "hadolint"),
 		`#!/usr/bin/env sh
 printf '{"line":3,"column":1,"file":"Dockerfile","level":"warning","code":"DL3008","message":"Pin versions in apt get install."}\n'
 exit 1
@@ -343,7 +355,7 @@ exit 1
 	)
 	mustWriteExecutable(
 		t,
-		filepath.Join(fakeBin, "actionlint"),
+		filepath.Join(goBin, "actionlint"),
 		`#!/usr/bin/env sh
 printf '{"filepath":".github/workflows/ci.yml","line":12,"column":5,"kind":"syntax-check","message":"property \"run\" is not defined"}\n'
 exit 1
@@ -351,7 +363,7 @@ exit 1
 	)
 	mustWriteExecutable(
 		t,
-		filepath.Join(fakeBin, "dotenv-linter"),
+		filepath.Join(githubBin, "dotenv-linter"),
 		"#!/usr/bin/env sh\nprintf '.env.example:3 LowercaseKey: The key should be uppercase\\n'\nexit 1\n",
 	)
 	mustWriteExecutable(
