@@ -682,6 +682,9 @@ python:
       - ModuleNotFoundError
     capability_prefix: HAS_
 
+  functional_idioms:
+    enabled: true
+
   type_checking_imports:
     enabled: true
     type_checking_names:

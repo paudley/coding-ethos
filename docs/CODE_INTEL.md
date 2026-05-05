@@ -105,10 +105,34 @@ lets principle-owned CEL block growth of oversized functions, classes/types,
 shell functions, and YAML config entries while still allowing refactors that
 shrink large files.
 
+Source-aware policy follows
+[`AST_CEL_SARIF_ARCHITECTURE.md`](AST_CEL_SARIF_ARCHITECTURE.md): Go collects
+Tree-sitter facts, CEL evaluates configurable predicates, and SARIF reports
+stable AST-backed findings. Code-intel storage and MCP retrieval build on those
+same facts; they must not become a second parsing or policy interpretation path.
+
+The AST layer follows the resolver pattern proven in `~/Active/pyqa_lint`:
+language detection, parser binding, parser reuse, tree traversal, and
+line-to-nearest-context lookup live behind one Go entrypoint. The active
+resolver supports Go, Python, JavaScript/TypeScript, shell, YAML, JSON, and
+TOML. JSON and TOML are treated as first-class config-policy surfaces, so
+agents can retrieve precise config entries instead of reading whole config
+files. Markdown remains intentionally deferred until the project selects a
+maintained Go binding or a first-class adapter for its parser layout.
+
 Tree-sitter-backed policy diagnostics carry AST metadata into SARIF result
 properties and partial fingerprints. Code scanning can therefore track the
 symbol-level finding across unrelated line movement instead of treating every
 nearby edit as a new whole-file violation.
+
+Python policy enforcement now uses the same AST foundation for import and
+functional-idiom rules. The `python.conditional_imports` evaluator blocks
+write-time attempts to introduce nested imports, `TYPE_CHECKING` import
+branches, module `__getattr__` shims, `__import__`, and
+`importlib.import_module`. The `python.functional_idioms` evaluator records
+assigned lambdas and closure factories so agents get principle-grounded advice
+to use `functools`, `operator`, or `itertools` helpers instead of ad-hoc
+closures.
 
 The first storage layer now lives in `go/internal/codeintel`. It creates the
 canonical `.coding-ethos/code-intel.db` SQLite store, ingests retained lint and
@@ -384,9 +408,12 @@ Acceptance criteria:
 
 - [x] Add Tree-sitter extraction for the first language set: Go, Python, YAML,
   shell, JavaScript/TypeScript.
+- [x] Add JSON and TOML config-entry extraction to the AST resolver.
 - [x] Store AST chunks, symbol metadata, byte ranges, line ranges, content
   hashes, and search text in SQLite.
 - [x] Expose AST chunks through FTS, embedding candidates, CLI, and MCP.
+- [x] Expose line-to-nearest-symbol/config lookup through CLI and MCP code
+  context.
 - [x] Expose AST-backed proposed symbol changes to CEL edit preflight.
 - [x] Store parser metadata, parent chunk IDs, graph edges, and AST finding
   links in SQLite.

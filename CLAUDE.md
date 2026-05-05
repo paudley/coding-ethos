@@ -20,4 +20,5 @@
 - Open the matching detail doc before changing output structure, merge rules, or YAML validation behavior.
 - Use CLAUDE.md as a thin import hub; keep repo-specific operational detail in the shared generated docs.
 - Prefer compiled Go for hook, policy, lint-capture, and runtime glue; treat shell and Python as transitional unless they are clearly the right interface.
+- For source-aware policy, read docs/AST_CEL_SARIF_ARCHITECTURE.md before adding new checks; extend AST facts first and avoid ad hoc scanners.
 - Run `make build` after hook, policy, lint-capture, runtime, generated-config, or parent integration fixes so installed parent-runtime artifacts are refreshed.

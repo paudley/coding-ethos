@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -267,49 +268,12 @@ func nextCommitMessageValue(args []string, idx int) (int, string, bool, error) {
 }
 
 func normalizeCommitMessageValue(value string) string {
-	message, ok := catHeredocCommandSubstitution(value)
+	message, ok := shellparse.CatHeredocCommandSubstitution(value)
 	if ok {
 		return message
 	}
 
 	return value
-}
-
-func catHeredocCommandSubstitution(value string) (string, bool) {
-	trimmed := strings.TrimSpace(value)
-	if !strings.HasPrefix(trimmed, "$(") || !strings.HasSuffix(trimmed, ")") {
-		return "", false
-	}
-
-	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
-	if !strings.HasPrefix(inner, "cat") {
-		return "", false
-	}
-
-	afterCat := strings.TrimSpace(strings.TrimPrefix(inner, "cat"))
-	if !strings.HasPrefix(afterCat, "<<") {
-		return "", false
-	}
-
-	rest := strings.TrimSpace(strings.TrimPrefix(afterCat, "<<"))
-	newline := strings.IndexByte(rest, '\n')
-	if newline < 0 {
-		return "", false
-	}
-
-	delimiter := strings.Trim(strings.TrimSpace(rest[:newline]), `'"`)
-	if delimiter == "" {
-		return "", false
-	}
-
-	lines := strings.Split(rest[newline+1:], "\n")
-	for index, line := range lines {
-		if strings.TrimSuffix(line, "\r") == delimiter {
-			return strings.Join(lines[:index], "\n"), true
-		}
-	}
-
-	return "", false
 }
 
 func nextCommitMessageFile(

@@ -20,4 +20,5 @@ full corpus every time.
 - Prefer targeted reads of the module that owns the behavior rather than summarizing the whole repo at once.
 - When discussing generated outputs, anchor the explanation in the source YAML and renderer pipeline.
 - Include a shell/Python-to-Go migration opportunity in branch analysis when the work touches hooks, policy, linting, or runtime orchestration.
+- For source-aware policy, follow docs/AST_CEL_SARIF_ARCHITECTURE.md: Go facts, CEL decisions, SARIF findings.
 - Run `make build` after fixing hook, policy, lint-capture, runtime, generated-config, or parent integration behavior; tests alone do not refresh the parent repo runtime.

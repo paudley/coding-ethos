@@ -185,6 +185,13 @@ for transitional policy that has not yet been expressed as part of the ETHOS
 contract. The compiler checks CEL up front, dispatches it through hook and lint
 paths, and emits normal policy decisions with ETHOS grounding and skill hints.
 
+Source-aware policy follows the documented
+[AST, CEL, and SARIF architecture](docs/AST_CEL_SARIF_ARCHITECTURE.md). Go
+collects normalized Tree-sitter facts, CEL owns configurable policy predicates,
+and SARIF carries stable AST identity plus remediation metadata. New Python,
+Go, shell, or config policies should extend that path before adding ad hoc text
+scanners or policy-specific AST walkers.
+
 Runtime capability policy uses the same path. Managed tools declare whether
 they need network, Git, environment access, writable paths, sandbox profiles,
 timeouts, memory, CPU, and seccomp profiles. Those facts are available to CEL
@@ -269,9 +276,11 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
   embedding coverage.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
-  JavaScript/TypeScript, shell, and YAML paths.
+  JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
   file reads.
+- `code_intel_code_context`: expand a known chunk, symbol path, or file line
+  into nearest AST context, graph edges, and linked findings.
 - `code_intel_embedding_candidates`: return compact traceable records for an
   approved embedding producer.
 - `skill_recommend`: recommend ETHOS-derived skills for the task at hand.
@@ -1013,6 +1022,13 @@ checks, structured-data syntax validation, merge-conflict detection,
 private-key detection, PII scrubbing, repo-specific license headers, required
 runtime ignore checks, shebang checks, large-file limits, line limits, and
 shell best-practice checks.
+
+Python policy checks use Tree-sitter for the import and functional-idiom
+surfaces. Conditional-import enforcement blocks write-time introduction of
+function-local imports, `TYPE_CHECKING` import branches, module `__getattr__`
+import shims, `__import__`, and `importlib.import_module`; functional-idiom
+guidance flags assigned lambdas and closure factories with `functools`,
+`operator`, and `itertools` remediation advice.
 
 Gemini review checks remain in pre-commit/pre-push. Agent hooks never call
 Gemini or another model from the tool-use path.

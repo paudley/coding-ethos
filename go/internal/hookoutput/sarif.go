@@ -105,6 +105,7 @@ type sarifArtifactLocation struct {
 type sarifRegion struct {
 	StartLine   int `json:"startLine,omitempty"`
 	StartColumn int `json:"startColumn,omitempty"`
+	EndLine     int `json:"endLine,omitempty"`
 }
 
 type sarifResultProperties struct {
@@ -113,6 +114,7 @@ type sarifResultProperties struct {
 	ASTChangeSource           string                      `json:"ast_change_source,omitempty"`
 	ASTLanguage               string                      `json:"ast_language,omitempty"`
 	ASTNodeKind               string                      `json:"ast_node_kind,omitempty"`
+	ASTParentSymbolPath       string                      `json:"ast_parent_symbol_path,omitempty"`
 	ASTSymbolKind             string                      `json:"ast_symbol_kind,omitempty"`
 	ASTSymbolName             string                      `json:"ast_symbol_name,omitempty"`
 	ASTSymbolPath             string                      `json:"ast_symbol_path,omitempty"`
@@ -332,6 +334,7 @@ func sarifResults(
 				ASTChangeSource:           sarifStringMetadata(item, "ast_change_source"),
 				ASTLanguage:               sarifStringMetadata(item, "ast_language"),
 				ASTNodeKind:               sarifStringMetadata(item, "ast_node_kind"),
+				ASTParentSymbolPath:       sarifStringMetadata(item, "ast_parent_symbol_path"),
 				ASTSymbolKind:             sarifStringMetadata(item, "ast_symbol_kind"),
 				ASTSymbolName:             sarifStringMetadata(item, "ast_symbol_name"),
 				ASTSymbolPath:             sarifStringMetadata(item, "ast_symbol_path"),
@@ -495,6 +498,9 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	if item.Column > 0 {
 		location.PhysicalLocation.Region.StartColumn = item.Column
 	}
+	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > item.Line {
+		location.PhysicalLocation.Region.EndLine = int(endLine)
+	}
 
 	return []sarifLocation{location}
 }
@@ -545,7 +551,7 @@ func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
 }
 
 func sarifASTIdentity(item diagnostics.Diagnostic) string {
-	if sarifStringMetadata(item, "ast_symbol_path") == "" {
+	if sarifStringMetadata(item, "ast_node_kind") == "" {
 		return ""
 	}
 	parts := []string{
@@ -554,6 +560,7 @@ func sarifASTIdentity(item diagnostics.Diagnostic) string {
 		sarifStringMetadata(item, "ast_node_kind"),
 		sarifStringMetadata(item, "ast_symbol_kind"),
 		sarifStringMetadata(item, "ast_symbol_path"),
+		sarifStringMetadata(item, "ast_parent_symbol_path"),
 	}
 	return strings.Join(parts, "\x00")
 }

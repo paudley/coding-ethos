@@ -2962,7 +2962,7 @@ func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "compiled_lint:") ||
 		!strings.Contains(context, "findings: 1") ||
-		!strings.Contains(context, "python.conditional_imports") ||
+		!strings.Contains(context, "conditional-import") ||
 		!strings.Contains(context, "<repo>/app.py") {
 		t.Fatalf("missing compiled lint finding: %s", context)
 	}

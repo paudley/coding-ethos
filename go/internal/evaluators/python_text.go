@@ -15,9 +15,6 @@ import (
 )
 
 var (
-	conditionalImportPattern = regexp.MustCompile(
-		`^\s*except\s+(\([^)]*)?(ImportError|ModuleNotFoundError)\b`,
-	)
 	optionalReturnPattern = regexp.MustCompile(
 		`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*->\s*([^:]+):`,
 	)
@@ -33,15 +30,6 @@ const (
 	logCallMatchCount        = 2
 	optionalReturnMatchCount = 3
 )
-
-func EvaluatePythonConditionalImports(
-	policyDef policy.Policy,
-	context Context,
-) ([]policy.Decision, error) {
-	return evaluatePythonLines(policyDef, context, func(line string) bool {
-		return conditionalImportPattern.MatchString(line)
-	})
-}
 
 func EvaluatePythonOptionalReturns(
 	policyDef policy.Policy,

@@ -57,6 +57,9 @@ func (store *Store) findCodeContextChunk(
 	if strings.TrimSpace(query.ChunkID) != "" {
 		return store.codeChunkByID(ctx, strings.TrimSpace(query.ChunkID))
 	}
+	if strings.TrimSpace(query.Path) != "" && query.Line > 0 {
+		return store.codeChunkByPathLine(ctx, strings.TrimSpace(query.Path), query.Line)
+	}
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
 		Path:       strings.TrimSpace(query.Path),
 		SymbolPath: strings.TrimSpace(query.SymbolPath),
@@ -70,6 +73,38 @@ func (store *Store) findCodeContextChunk(
 	}
 
 	return CodeChunk{}, fmt.Errorf("code chunk context not found")
+}
+
+func (store *Store) codeChunkByPathLine(ctx context.Context, path string, line int) (CodeChunk, error) {
+	rows, err := store.db.QueryContext(
+		ctx,
+		`SELECT
+			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
+			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
+			start_line, end_line, content_hash, search_text, raw_text
+		FROM code_chunks
+		WHERE path = ?
+			AND start_line <= ?
+			AND end_line >= ?
+		ORDER BY start_line DESC, (end_line - start_line) ASC, start_byte DESC
+		LIMIT 1`,
+		path,
+		line,
+		line,
+	)
+	if err != nil {
+		return CodeChunk{}, fmt.Errorf("query code chunk at %s:%d: %w", path, line, err)
+	}
+	defer rows.Close()
+	chunks, err := scanCodeChunks(rows)
+	if err != nil {
+		return CodeChunk{}, err
+	}
+	if len(chunks) != 1 {
+		return CodeChunk{}, fmt.Errorf("code chunk context not found at %s:%d", path, line)
+	}
+
+	return chunks[0], nil
 }
 
 func (store *Store) codeChunkByID(ctx context.Context, id string) (CodeChunk, error) {

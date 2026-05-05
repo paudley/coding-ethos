@@ -245,6 +245,7 @@ type CodeContextQuery struct {
 	ChunkID    string
 	Path       string
 	SymbolPath string
+	Line       int
 	Limit      int
 }
 

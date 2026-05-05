@@ -78,13 +78,15 @@ func printCodeContext(ctx context.Context, args []string) error {
 	chunkID := flags.String("chunk-id", "", "Code chunk ID")
 	path := flags.String("path", "", "Filter by source path")
 	symbolPath := flags.String("symbol-path", "", "Symbol path")
+	line := flags.Int("line", 0, "One-based source line for nearest context lookup")
 	limit := flags.Int("limit", 20, "Maximum related item count")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse code-context flags: %w", err)
 	}
 	if strings.TrimSpace(*chunkID) == "" &&
-		(strings.TrimSpace(*path) == "" || strings.TrimSpace(*symbolPath) == "") {
-		return errors.New("--chunk-id or both --path and --symbol-path are required")
+		((strings.TrimSpace(*path) == "" || strings.TrimSpace(*symbolPath) == "") &&
+			(strings.TrimSpace(*path) == "" || *line <= 0)) {
+		return errors.New("--chunk-id, both --path and --symbol-path, or --path and --line are required")
 	}
 
 	store, err := openStore(ctx, *root, *dbPath)
@@ -97,6 +99,7 @@ func printCodeContext(ctx context.Context, args []string) error {
 		ChunkID:    *chunkID,
 		Path:       *path,
 		SymbolPath: *symbolPath,
+		Line:       *line,
 		Limit:      *limit,
 	})
 	if err != nil {

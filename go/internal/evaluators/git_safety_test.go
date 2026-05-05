@@ -6,6 +6,7 @@ package evaluators_test
 import (
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"os"
 	"path/filepath"
 	"testing"
@@ -318,6 +319,35 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 				t.Fatalf("expected allow decision, got %#v", decisions)
 			}
 		})
+	}
+}
+
+func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
+	t.Parallel()
+
+	argv, err := shellparse.Fields(
+		"git commit -m \"$(cat <<'EOF'\n" +
+			"refactor(sql): wire domain values into parameterized SQL builders\n" +
+			"\n" +
+			"Complete the contract updates.\n" +
+			"EOF\n" +
+			")\"",
+	)
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+	decisions, err := EvaluateGitCommitLint(policyDef, Context{
+		Argv:             argv,
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allow decision, got %#v", decisions)
 	}
 }
 
