@@ -240,7 +240,6 @@ func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
 		"python-complexity",
 		"python-maintainability",
 		"python-vulture",
-		"interrogate",
 		"pytest-gate",
 		"gemini-check",
 	} {

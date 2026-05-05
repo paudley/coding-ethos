@@ -290,6 +290,119 @@ func TestStoreIngestsSARIFResultsWithCELProvenance(t *testing.T) {
 	}
 }
 
+func TestDecodeSARIFRunsMergesRuleResultAndFindingMetadata(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{
+		"version":"2.1.0",
+		"runs":[{
+			"automationDetails":{"id":"policy","guid":"run-guid"},
+			"baselineGuid":"base-guid",
+			"properties":{"scope":"staged"},
+			"tool":{"driver":{"name":"coding-ethos","rules":[{
+				"id":"R1",
+				"properties":{
+					"policy_id":"rule.policy",
+					"skill_id":"rule-skill",
+					"source_tool":"ruff",
+					"ethos_ids":["static-analysis"],
+					"advice":"rule advice"
+				}
+			}]}},
+			"results":[{
+				"ruleId":"R1",
+				"level":"error",
+				"message":{"text":"result message"},
+				"locations":[{
+					"physicalLocation":{
+						"artifactLocation":{"uri":"pkg/app.py"},
+						"region":{"startLine":7,"startColumn":3}
+					}
+				}],
+				"partialFingerprints":{"primaryLocationLineHash":"line-hash"},
+				"properties":{
+					"finding":{
+						"id":"finding-1",
+						"policy_id":"finding.policy",
+						"skill_id":"finding-skill",
+						"evaluator_kind":"cel",
+						"search_text":"finding search",
+						"principle_ids":["no-conditional-imports"]
+					},
+					"agent_remediation":[{
+						"id":"rem-1",
+						"policy_id":"finding.policy",
+						"skill_id":"finding-skill",
+						"message":"Move import",
+						"advice":"Use module scope",
+						"file":"pkg/app.py"
+					}],
+					"policy_id":"result.policy",
+					"skill_id":"result-skill",
+					"implementation":"cel",
+					"cel_expression":"diagnostic.code == 'PLC0415'",
+					"policy_source":"coding_ethos.yml:principles.3",
+					"ast_language":"python",
+					"ast_node_kind":"import_statement",
+					"ast_symbol_kind":"import",
+					"ast_symbol_name":"plugin",
+					"ast_symbol_path":"plugin",
+					"ethos_ids":["conditional-imports"]
+				}
+			}]
+		}]
+	}`)
+
+	run, err := DecodeSARIFRun("policy.sarif", payload)
+	if err != nil {
+		t.Fatalf("decode SARIF run: %v", err)
+	}
+	if run.SourcePath != "policy.sarif" ||
+		run.Category != "staged" ||
+		run.ToolName != "coding-ethos" ||
+		run.AutomationID != "policy" ||
+		run.RunGUID != "run-guid" ||
+		run.BaselineGUID != "base-guid" {
+		t.Fatalf("run metadata = %#v", run)
+	}
+	if len(run.Results) != 1 {
+		t.Fatalf("results = %#v", run.Results)
+	}
+	result := run.Results[0]
+	if result.FindingID != "finding-1" ||
+		result.RemediationID != "rem-1" ||
+		result.PolicyID != "result.policy" ||
+		result.SkillID != "result-skill" ||
+		result.EvaluatorKind != "cel" ||
+		result.CELExpression != "diagnostic.code == 'PLC0415'" ||
+		result.PolicySource != "coding_ethos.yml:principles.3" ||
+		result.Path != "pkg/app.py" ||
+		result.StartLine != 7 ||
+		result.StartColumn != 3 ||
+		result.Fingerprint != "line-hash" ||
+		result.ASTLanguage != "python" ||
+		result.ASTSymbolPath != "plugin" ||
+		!strings.Contains(result.SearchText, "Move import") ||
+		!strings.Contains(result.SearchText, "Use module scope") {
+		t.Fatalf("result metadata = %#v", result)
+	}
+	if !strings.Contains(strings.Join(result.PrincipleIDs, ","), "no-conditional-imports") ||
+		!strings.Contains(strings.Join(result.PrincipleIDs, ","), "conditional-imports") {
+		t.Fatalf("principle IDs = %#v", result.PrincipleIDs)
+	}
+}
+
+func TestDecodeSARIFRunsRejectsMalformedLogs(t *testing.T) {
+	t.Parallel()
+
+	if _, err := DecodeSARIFRuns("bad.sarif", []byte("{")); err == nil {
+		t.Fatal("expected malformed SARIF decode error")
+	}
+	if _, err := DecodeSARIFRuns("empty.sarif", []byte(`{"version":"2.1.0","runs":[]}`)); err == nil {
+		t.Fatal("expected no-runs SARIF error")
+	}
+}
+
 func TestStoreQueriesMigratedSARIFResultsWithNullASTColumns(t *testing.T) {
 	t.Parallel()
 
@@ -842,6 +955,50 @@ func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
 	if stats.Backend != "sqlite-vec" || stats.Rows != 2 {
 		t.Fatalf("stats = %#v", stats)
 	}
+
+	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
+		ID:         "near",
+		Collection: "remediations",
+		ModelID:    "test-model",
+		Vector:     []float32{0, 0, 1, 0},
+		Dimension:  4,
+		Metadata:   map[string]string{"policy_id": "python.unused_imports"},
+	}); err != nil {
+		t.Fatalf("replace vector with new dimension: %v", err)
+	}
+	if err := index.DeleteEmbedding(ctx, "far", "test-model"); err != nil {
+		t.Fatalf("delete vector: %v", err)
+	}
+	if err := index.DeleteEmbedding(ctx, "missing", "test-model"); err != nil {
+		t.Fatalf("delete missing vector: %v", err)
+	}
+	stats, err = index.Stats(ctx)
+	if err != nil {
+		t.Fatalf("vector stats after delete: %v", err)
+	}
+	if stats.Rows != 1 {
+		t.Fatalf("stats after delete = %#v", stats)
+	}
+	if err := index.Rebuild(ctx, "remediations"); err != nil {
+		t.Fatalf("rebuild vectors: %v", err)
+	}
+	stats, err = index.Stats(ctx)
+	if err != nil {
+		t.Fatalf("vector stats after rebuild: %v", err)
+	}
+	if stats.Rows != 0 {
+		t.Fatalf("stats after rebuild = %#v", stats)
+	}
+
+	if _, err := NewSQLiteVectorIndex(ctx, ""); err == nil {
+		t.Fatal("NewSQLiteVectorIndex(empty) returned nil error")
+	}
+	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{}); err == nil {
+		t.Fatal("UpsertEmbedding(empty) returned nil error")
+	}
+	if _, err := index.Search(ctx, evidence.VectorQuery{}); err == nil {
+		t.Fatal("Search(empty) returned nil error")
+	}
 }
 
 func TestHybridSearchCombinesFTSVectorAndOutcomeBoost(t *testing.T) {
@@ -1018,6 +1175,93 @@ run_check() {
 	}
 	if len(yamlChunks) != 1 || yamlChunks[0].SymbolKind != "config_entry" {
 		t.Fatalf("yaml chunks = %#v", yamlChunks)
+	}
+}
+
+func TestVectorFactoryDefaultPathAndIndexStatus(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	if got := DefaultVectorPath(root); got != filepath.Join(root, ".coding-ethos", "code-intel-vectors.db") {
+		t.Fatalf("DefaultVectorPath() = %q", got)
+	}
+	if _, err := NewVectorIndex(ctx, VectorBackendConfig{Backend: "unknown", URI: filepath.Join(root, "bad.db")}); err == nil {
+		t.Fatal("unsupported vector backend should fail")
+	}
+	index, err := NewVectorIndex(ctx, VectorBackendConfig{URI: filepath.Join(root, "vectors.db")})
+	if err != nil {
+		t.Fatalf("new vector index: %v", err)
+	}
+	t.Cleanup(func() {
+		if closer, ok := index.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				t.Fatalf("close vector index: %v", err)
+			}
+		}
+	})
+
+	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if err := store.ReplaceCodeFileChunks(ctx, CodeFile{
+		Path:        "pkg/app.py",
+		Language:    "python",
+		ContentHash: "hash-file",
+		SizeBytes:   20,
+		LineCount:   3,
+	}, []CodeChunk{{
+		ID:          "chunk-1",
+		Path:        "pkg/app.py",
+		Language:    "python",
+		NodeKind:    "function_definition",
+		SymbolKind:  "function",
+		SymbolName:  "run",
+		SymbolPath:  "run",
+		ContentHash: "hash-chunk",
+		SearchText:  "run function",
+		RawText:     "def run(): pass",
+		StartLine:   1,
+		EndLine:     1,
+	}}); err != nil {
+		t.Fatalf("replace chunks: %v", err)
+	}
+	stats, err := index.Stats(ctx)
+	if err != nil {
+		t.Fatalf("vector stats: %v", err)
+	}
+	status, err := store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
+		Backend:    "sqlite-vec",
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("index status: %v", err)
+	}
+	if status.ReadyRecords == 0 || status.MissingVectors == 0 || status.Fresh {
+		t.Fatalf("status before embedding = %#v", status)
+	}
+
+	if err := store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
+		Backend:    "sqlite-vec",
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+		InputKind:  "text",
+		RecordKind: "code_chunk",
+		RecordID:   "chunk-1",
+		Dimension:  3,
+		Path:       "pkg/app.py",
+	}); err != nil {
+		t.Fatalf("upsert embedding record: %v", err)
+	}
+	status, err = store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
+		Backend:    "sqlite-vec",
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("index status after embedding: %v", err)
+	}
+	if status.EmbeddingRecords != 1 || status.MissingVectors != 0 || !status.Fresh {
+		t.Fatalf("status after embedding = %#v", status)
 	}
 }
 

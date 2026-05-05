@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -87,7 +88,14 @@ bundle:
     - repo_config.yml
 sandbox:
   read_write_paths:
-    - .coding-ethos/cache
+    - .code-ethos/cache/
+    - .coding-ethos/cache/
+    - .pytest_cache/
+    - .mypy_cache/
+    - .ruff_cache/
+    - .uv-cache/
+    - .venv/
+    - __pycache__/
 `)
 	writeFile(t, filepath.Join(consumer, "repo_config.yml"), `
 sandbox:
@@ -104,9 +112,23 @@ sandbox:
 		t.Fatalf("LoadRuntimeConfig(): %v", err)
 	}
 
-	want := []string{"/opt/foundation", "/opt/src/vllm", "/scratch/lbox"}
-	if got := config.SandboxReadWritePaths(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("SandboxReadWritePaths() = %#v, want %#v", got, want)
+	got := config.SandboxReadWritePaths()
+	for _, want := range []string{
+		".code-ethos/cache/",
+		".coding-ethos/cache/",
+		".pytest_cache/",
+		".mypy_cache/",
+		".ruff_cache/",
+		".uv-cache/",
+		".venv/",
+		"__pycache__/",
+		"/opt/foundation",
+		"/opt/src/vllm",
+		"/scratch/lbox",
+	} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("SandboxReadWritePaths() missing %q: %#v", want, got)
+		}
 	}
 }
 

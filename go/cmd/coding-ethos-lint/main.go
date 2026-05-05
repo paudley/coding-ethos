@@ -29,6 +29,10 @@ var (
 const blockedExitCode = 2
 
 func main() {
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+func runCLI(args []string) int {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
@@ -108,7 +112,7 @@ func main() {
 	)
 	scope := scopeFlagSet(flags)
 
-	err := flags.Parse(os.Args[1:])
+	err := flags.Parse(args)
 	if err != nil {
 		exitErr(err)
 	}
@@ -125,7 +129,7 @@ func main() {
 	}
 
 	if *captureTool != "" {
-		os.Exit(runCapturedTool(
+		return runCapturedTool(
 			*captureTool,
 			*toolPath,
 			*cwd,
@@ -133,11 +137,11 @@ func main() {
 			flags.Args(),
 			capturePolicyContext(*bundlePath),
 			outputFormat,
-		))
+		)
 	}
 
 	if *managedCaptureTool != "" {
-		os.Exit(runManagedCapture(managedCaptureOptions{
+		return runManagedCapture(managedCaptureOptions{
 			Tool:          *managedCaptureTool,
 			EthosRoot:     *ethosRoot,
 			ConsumerRoot:  *consumerRoot,
@@ -146,19 +150,19 @@ func main() {
 			SandboxMode:   *sandboxMode,
 			OutputFormat:  outputFormat,
 			PolicyContext: capturePolicyContext(*bundlePath),
-		}))
+		})
 	}
 
 	if *listCapturedTools {
 		printCapturedTools()
-		return
+		return 0
 	}
 
 	if *installShims {
 		if err := installCapturedToolShims(*toolsBinDir, *runner, *ethosRoot); err != nil {
 			exitErr(err)
 		}
-		return
+		return 0
 	}
 
 	if *analyzeLog {
@@ -191,7 +195,7 @@ func main() {
 			exitErr(encodeErr)
 		}
 
-		return
+		return 0
 	}
 
 	if *replayTrace != "" {
@@ -204,10 +208,10 @@ func main() {
 			exitErr(encodeErr)
 		}
 		if result.Blocked() {
-			os.Exit(blockedExitCode)
+			return blockedExitCode
 		}
 
-		return
+		return 0
 	}
 
 	if *bundlePath == "" {
@@ -251,7 +255,7 @@ func main() {
 			exitErr(encodeErr)
 		}
 
-		return
+		return 0
 	}
 
 	files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
@@ -274,7 +278,7 @@ func main() {
 			exitErr(err)
 		}
 
-		return
+		return 0
 	}
 	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
 		files, err = stagedFiles(*cwd)
@@ -314,8 +318,10 @@ func main() {
 	}
 
 	if result.Blocked() {
-		os.Exit(blockedExitCode)
+		return blockedExitCode
 	}
+
+	return 0
 }
 
 func encodeLintResult(
@@ -382,6 +388,7 @@ func shouldReturnEmptyExplicitFileScope(
 
 type capturePolicyData struct {
 	EvidenceMaps []diagnostics.EvidenceMap
+	Policies     []policy.Policy
 	Skills       map[string]policy.Skill
 }
 
@@ -403,8 +410,26 @@ func capturePolicyContext(bundlePath string) capturePolicyData {
 
 	return capturePolicyData{
 		EvidenceMaps: bundle.EvidenceMaps,
+		Policies:     capturePolicies(bundle.Policies),
 		Skills:       bundle.Skills,
 	}
+}
+
+func capturePolicies(policies map[string]policy.Policy) []policy.Policy {
+	items := make([]policy.Policy, 0, len(policies))
+	for _, policyDef := range policies {
+		if len(policyDef.AppliesTo.Tools) == 0 {
+			continue
+		}
+		for _, evaluator := range policyDef.Evaluators {
+			if evaluator.Name == "cel.expression" {
+				items = append(items, policyDef)
+				break
+			}
+		}
+	}
+
+	return items
 }
 
 func readBundle(path string) (policy.Bundle, error) {

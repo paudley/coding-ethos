@@ -81,6 +81,70 @@ func TestFromDecisionKeepsEvidenceKeysAndActionContext(t *testing.T) {
 	}
 }
 
+func TestFromDiagnosticsAndDecisionsFilterEmptyRecords(t *testing.T) {
+	t.Parallel()
+
+	findings := FromDiagnostics([]diagnostics.Diagnostic{
+		{},
+		{
+			Tool:     "ruff",
+			Code:     "F401",
+			File:     "pkg/app.py",
+			Message:  "unused import",
+			PolicyID: "python.unused_imports",
+		},
+	})
+	if len(findings) != 1 || findings[0].PolicyID != "python.unused_imports" {
+		t.Fatalf("findings = %#v", findings)
+	}
+
+	decisionFindings := FromDecisions([]policy.Decision{
+		{},
+		{
+			PolicyID: "git.hook_bypass",
+			Message:  "blocked",
+			Evidence: map[string]any{"tool": "Bash"},
+		},
+		{
+			PolicyID: "diagnostic.policy",
+			Diagnostics: []diagnostics.Diagnostic{{
+				File:     "pkg/diag.py",
+				Message:  "diagnostic message",
+				PolicyID: "diagnostic.policy",
+			}},
+		},
+	})
+	if len(decisionFindings) != 2 {
+		t.Fatalf("decision findings = %#v", decisionFindings)
+	}
+	if decisionFindings[0].PolicyID != "git.hook_bypass" ||
+		decisionFindings[1].SourceSpan.Path != "pkg/diag.py" {
+		t.Fatalf("decision findings = %#v", decisionFindings)
+	}
+}
+
+func TestEnvelopeFromFindingPreservesMetadataCopies(t *testing.T) {
+	t.Parallel()
+
+	finding := Finding{
+		ID:            "finding-1",
+		PolicyID:      "policy.a",
+		SkillID:       "skill-a",
+		EvaluatorKind: "cel",
+		EvidenceKeys:  []string{"command"},
+		SchemaVersion: SchemaVersion,
+	}
+	envelope := EnvelopeFromFinding(finding)
+	finding.EvidenceKeys[0] = "mutated"
+
+	if envelope.ID != "finding-1" ||
+		envelope.PolicyID != "policy.a" ||
+		envelope.EvidenceKeys[0] != "command" ||
+		envelope.SchemaVersion != SchemaVersion {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+}
+
 func TestRemediationEventsLinkRemediationToFinding(t *testing.T) {
 	t.Parallel()
 

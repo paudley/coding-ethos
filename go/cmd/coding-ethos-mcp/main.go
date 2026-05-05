@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/mcp"
@@ -23,6 +24,10 @@ func main() {
 }
 
 func run() error {
+	return runWithIO(os.Args[1:], os.Stdin, os.Stdout)
+}
+
+func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	flags := flag.NewFlagSet("coding-ethos-mcp", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
@@ -30,7 +35,7 @@ func run() error {
 	invocationCwd := flags.String("invocation-cwd", "", "original command working directory")
 	lintBinary := flags.String("lint-binary", "", "Path to coding-ethos-lint")
 
-	if err := flags.Parse(os.Args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 	if *bundlePath == "" {
@@ -51,7 +56,7 @@ func run() error {
 		ConsumerRoot:  *consumerRoot,
 		InvocationCwd: *invocationCwd,
 		LintBinary:    *lintBinary,
-	}).Serve(os.Stdin, os.Stdout)
+	}).Serve(stdin, stdout)
 }
 
 func readBundle(path string) (policy.Bundle, error) {

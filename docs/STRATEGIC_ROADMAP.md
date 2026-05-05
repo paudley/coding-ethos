@@ -3,159 +3,231 @@
 
 # Strategic Roadmap
 
-`coding-ethos` exists to act as the defensive guardrail and quality gatekeeper
-between AI coding agents and a repository. Its job is not only to document
-engineering standards, but to compile those standards into runnable policy,
-managed toolchains, agent hooks, Git hooks, and normalized feedback that blocks
-unsafe or low-quality work before it lands.
+`coding-ethos` is a defensive guardrail and quality gatekeeper between AI
+coding agents and a repository. It turns an ETHOS contract into runnable
+policy, managed toolchains, agent hooks, Git hooks, MCP tools, SARIF output,
+runtime sandbox evidence, code-intelligence storage, and compact remediation
+advice.
 
-The work below extends that mission beyond local hook enforcement while keeping
-the same defense-in-depth model: one source of policy truth, multiple execution
-surfaces, compact agent-native advice, and auditable traces.
+This roadmap describes the intended direction for the next year and the work
+the project intentionally does not plan to do. It is updated as major platform
+work lands so it can serve as both public roadmap and OpenSSF Best Practices
+evidence.
 
-## Real-Time Context Through MCP
+## Current Platform Baseline
 
-Generated Markdown and generated skills are useful durable context, but they
-still front-load rules into an agent context window. A Model Context Protocol
-server lets agents query `coding-ethos` at the moment of need. The current
-server contract and expansion design are tracked in
-[MCP_SERVER.md](MCP_SERVER.md).
+The current supported platform includes:
 
-High-value queries include:
+- generated agent surfaces for Codex, Claude Code, Gemini CLI, and generic
+  agent docs;
+- Git and agent hook enforcement backed by a compiled Go runtime;
+- first-class CEL policy expressions grounded in `coding_ethos.yml` principles;
+- AST/CEL/SARIF architecture where Go collects facts, CEL decides over facts,
+  SARIF reports findings, and code-intel stores evidence;
+- managed static-analysis capture for local hooks and CI;
+- stdio MCP tools for policy checks, edit checks, lint advice, SARIF
+  remediation, tool capabilities, skills, and code-intelligence retrieval;
+- generated GitHub Actions and GitLab SARIF CI gates;
+- repo-level CodeQL, OSV-Scanner, Zizmor, Scorecard, actionlint, release
+  attestations, SBOMs, and package validation;
+- runtime sandbox support for managed tool execution with Bubblewrap/cgroup
+  evidence where available;
+- repo-local SQLite code-intelligence storage for hook traces, lint traces,
+  SARIF, remediation outcomes, hook analytics, Tree-sitter chunks, AST links,
+  FTS5 search, and sqlite-vec derived embedding rows;
+- CLA Assistant contribution certification, CODEOWNERS, governance,
+  continuity, security policy, issue templates, and release documentation.
 
-- whether a proposed shell command is allowed before running it
-- whether a proposed edit is allowed before applying it
-- what managed linter findings apply to the current work without invoking the
-  linter directly
-- what compiled lint policy findings apply before a managed tool run is needed
-- which ETHOS policy, advice, rerun command, and skill map to a lint finding
-- why a policy exists and which ETHOS principle grounds it
-- which generated skill best fits the current task
+Detailed architecture is documented in:
 
-The first MCP surface is a local stdio server exposed through
-`bin/coding-ethos-run mcp`. It reads from the same compiled policy
-bundle and skill data as the hooks, and starts with command checks, proposed
-edit checks, managed lint capture, compiled lint checks, lint advice, policy
-explanations, skill lookup, task-based skill recommendation, and per-tool
-capability metadata. It must not become an alternate enforcement path or a way
-to bypass local Git and agent hooks.
+- [AST_CEL_SARIF_ARCHITECTURE.md](AST_CEL_SARIF_ARCHITECTURE.md)
+- [CODE_INTEL.md](CODE_INTEL.md)
+- [MCP_SERVER.md](MCP_SERVER.md)
+- [CI_CD_SARIF.md](CI_CD_SARIF.md)
+- [RUNTIME_SANDBOXING.md](RUNTIME_SANDBOXING.md)
+- [TRUST_SIGNALS.md](TRUST_SIGNALS.md)
 
-A later expansion should add focused remediation advice through a constrained
-agent-provider adapter. That adapter may call an available provider such as
-`claude -p`, but only inside a managed, read-only, advice-only hook environment
-that can read selected files and query the `coding-ethos` MCP stack. It must not
-write files, run arbitrary shell commands, access raw Git, or bypass policy.
+## Next-Year Priorities
 
-## Standardized Policy Language
+### 1. Agent-First Remediation Loops
 
-Many policies are currently compiled Go evaluators configured by YAML. That is
-appropriate for critical built-in checks, but it makes custom organization
-policy require Go changes.
+Agents should repair policy failures through structured guidance instead of
+rerunning broad shell commands and guessing from terminal output.
 
-The policy-language strategy is CEL first, with OPA/Rego deferred until a
-specific policy class proves it needs a full policy engine. CEL fits the first
-custom-policy target because it is embedded, typed, deterministic,
-non-Turing-complete, and expression-oriented.
+Planned work:
 
-The target is not replacing every evaluator. The target is letting consuming
-repos add rich custom checks through `repo_ethos.yml` or `repo_config.yaml`
-while still receiving normalized diagnostics, ETHOS links, skill hints, and
-TOON/human output.
+- add provider-backed `remediation_advice` MCP support behind a constrained,
+  read-only, advice-only adapter;
+- measure remediation outcomes from stored hook/lint/SARIF traces;
+- improve repeated-failure analysis so noisy or unclear policies are visible;
+- add more provider-native output tests for Codex, Claude Code, Gemini CLI, and
+  generic MCP clients;
+- use code-intel history to rank the most relevant prior fixes before an agent
+  edits a file.
 
-Expression-backed policy must be compiled, validated, deterministic, and
-host-independent. Networked, time-dependent, or unsafe host access should be
-rejected before runtime.
+Out of scope:
 
-See [POLICY_LANGUAGE_STRATEGY.md](POLICY_LANGUAGE_STRATEGY.md).
+- allowing MCP remediation tools to edit files directly;
+- giving advice providers raw shell, raw Git, broad repository write access, or
+  network access by default;
+- treating provider-generated advice as policy truth.
 
-## Native IDE And Cursor Integration
+### 2. AST-Backed Policy Expansion
 
-Git hooks catch bad work at the gate. IDE integration catches it earlier.
+Source-aware policy should use the shared Tree-sitter fact path before adding
+new ad hoc scanners.
 
-A VS Code/Cursor extension should run `coding-ethos-policy` and
-`coding-ethos-lint` against the current workspace using the same compiled
-bundle and managed toolchain as local hooks. The extension should surface
-diagnostics at edit time, link to ETHOS principles and generated skills, and
-warn before applying edits that would tamper with protected files or introduce
-known high-value policy failures.
+Planned work:
 
-The first version can be advisory. Managed workspaces should be able to opt into
-blocking behavior for protected paths and other critical rules.
+- port high-value `pyqa_lint` guidance into Go fact collectors plus
+  principle-owned CEL policies;
+- add richer Tree-sitter facts for function/class complexity, docstring
+  structure, return/yield shape, import topology, and config-file entries;
+- add CEL helper functions over AST facts while keeping CEL pure and
+  host-independent;
+- emit symbol-level SARIF regions, related locations, and code flows where the
+  underlying AST evidence supports them;
+- add regression tests proving AST facts are identical across hook, lint, CLI,
+  MCP, and CI/SARIF paths.
 
-## CI/CD Components And SARIF
+Out of scope:
 
-Local hooks are necessary, but CI must remain the final independent gate. If an
-agent or developer bypasses local hooks, the pull request still must not merge.
+- language-specific policy paths that bypass the shared fact collector;
+- parsing files from inside CEL expressions;
+- probabilistic or embedding-based enforcement decisions.
 
-`coding-ethos` emits SARIF for normalized policy and lint diagnostics through
-`policy-lint --sarif`. SARIF rules carry stable policy IDs, ETHOS principle
-IDs, skill IDs, file/line locations, and remediation advice so violations can
-appear naturally in PR annotations and code scanning views.
+### 3. Code-Intelligence Storage And Retrieval
 
-The initial CI documentation provides GitHub Actions and GitLab CI examples in
-[CI_CD_SARIF.md](CI_CD_SARIF.md). The next step is packaging those examples as
-reusable components that pin the managed runtime, publish SARIF, and preserve
-`.coding-ethos` traces as audit artifacts.
+The local code-intelligence database should become the agent memory layer for
+policy, code, and remediation evidence.
 
-CI output should stay compact for agents while preserving full artifacts for
-audit and later trace analysis.
+Planned work:
 
-## Adversarial Red-Team Test Suite
+- harden sqlite-vec hybrid search and embedding metadata workflows;
+- add scheduled or explicit indexing commands suitable for CI and local
+  worktrees;
+- improve MCP result expansion with nearby symbols, graph edges, linked SARIF,
+  related remediation history, and validation commands;
+- add stale-index detection and safe rebuild workflows;
+- add privacy and secret-exclusion tests for index inputs.
 
-AI agents routinely invent workarounds when blocked. Testing must model that
-behavior directly.
+Out of scope:
 
-The red-team suite should run in isolated sample repositories and prompt agents
-or LLM APIs to attempt bypasses: raw Git execution, absolute binaries, nested
-shells, symlink traversal, protected path writes, config drift, hook deletion,
-managed toolchain evasion, and other known failure modes.
+- hosted vector databases as a required runtime dependency;
+- indexing `.git`, credential directories, secrets, or protected enforcement
+  internals;
+- replacing exact policy checks with vector search.
 
-Every bypass attempt should produce either a clear block or a filed gap with a
-failing regression test. The suite should exercise Claude, Codex, Gemini, and
-generic shell workflows where practical.
+### 4. Runtime Sandboxing And Capability Enforcement
 
-## Centralized ETHOS Registry And Inheritance
+CEL is the control plane. Runtime sandboxing is the data-plane boundary for
+managed tools and future constrained advice providers.
 
-Organizations need baseline guardrails with local refinement. `coding-ethos`
-should support inheritance from local presets, GitHub-hosted presets, and
-enterprise registries.
+Planned work:
 
-An inherited policy source might provide strict Python, strict Go, agent-safe
-Git, or security-first defaults. A consuming repo should override local context
-without copying the whole baseline.
+- improve Bubblewrap profile coverage for common linters and formatters;
+- document and test repo-specific read/write allow-lists for consumer
+  workspaces;
+- add more sandbox evidence to SARIF and code-intel analytics;
+- evaluate high-isolation backends such as gVisor, eBPF observability, and
+  seccomp profile generation for CI/server-side use cases.
 
-Inheritance must be deterministic and auditable. Remote sources should be
-pinned, hashed, and visible in policy trace output. Unpinned remote policy
-inputs should be rejected unless explicitly allowed.
+Out of scope:
 
-## Agent Remediation Loop
+- `LD_PRELOAD` as a security boundary;
+- best-effort sandbox claims without trace evidence;
+- silently degrading required CI sandbox mode to advisory behavior.
 
-Agents are poor consumers of noisy terminal output. Hook failures should produce
-machine-readable remediation payloads in addition to human output.
+### 5. Supply-Chain, Governance, And Trust Signals
 
-The remediation payload should include:
+The project should keep improving public trust signals while staying honest
+about what is repo-local and what depends on external services.
 
-- policy ID
-- ETHOS principle ID
-- skill ID
-- file and line
-- failed action or command
-- concrete next step
-- rerun command when appropriate
+Planned work:
 
-The first implementation derives `agent_remediation` from normalized
-diagnostics and policy decisions. It is emitted in agent-facing JSON and TOON
-output, provider-native blocked hook responses, SARIF result properties, hook
-traces, and retained lint traces. Each item has a stable remediation ID,
-concrete next steps, skill-loading instructions when available, action context
-when policy evidence carries it, and the MCP call an agent should make. Agents
-can call `remediation_explain` with the full payload, or use the embedded
-`policy_explain` / `skill_lookup` call directly.
+- complete OpenSSF Best Practices Silver and Gold criteria where applicable;
+- keep Scorecard, CodeQL, OSV-Scanner, Zizmor, Dependabot, fuzz smoke,
+  attestations, SBOMs, and pinned Actions current;
+- require CLA Assistant once its PR status check is visible and stable;
+- keep governance, continuity, security, release, and contribution docs current;
+- expand fuzz coverage beyond smoke tests for shell parsing, SARIF, CEL inputs,
+  hook payloads, and code-intel ingestion.
 
-Hook and lint traces also include `remediation_summary` so later storage can
-measure repeated policy failures and which remediation guidance was suggested
-without reparsing provider-specific output.
+Out of scope:
 
-Claude, Codex, Gemini, and future MCP clients should receive this feedback in
-the strongest native format they support. The same normalized data should drive
-human output, TOON output, traces, and remediation payloads.
+- claiming OpenSSF Best Practices tiers before the public API reports them;
+- treating badges as substitutes for tests, review, and release evidence;
+- requiring contributors to accept unnecessary employment-style obligations.
+
+### 6. Centralized ETHOS Registry And Inheritance
+
+Organizations need baseline guardrails with local refinement.
+
+Planned work:
+
+- support inherited ETHOS and policy presets from local files, pinned GitHub
+  sources, or enterprise registries;
+- record inherited source hashes and provenance in generated artifacts and
+  traces;
+- allow local repos to override context without copying the full baseline;
+- reject unpinned remote policy sources unless explicitly allowed.
+
+Out of scope:
+
+- mutable remote policy inputs without hashes or provenance;
+- hidden organization policy that cannot be audited from generated outputs;
+- repo-local overrides that weaken critical policy without explicit review.
+
+### 7. IDE And Editor Integration
+
+Git hooks catch bad work at the gate. Editor integration should catch it
+earlier.
+
+Planned work:
+
+- prototype a VS Code/Cursor extension that consumes `coding-ethos` policy and
+  SARIF output;
+- surface ETHOS, skill, and MCP remediation links next to diagnostics;
+- support advisory edit-time checks before considering blocking editor flows.
+
+Out of scope:
+
+- editor-only enforcement that disagrees with hook/CI policy;
+- duplicating policy logic in TypeScript when the compiled Go runtime can
+  provide the answer.
+
+### 8. Localization Readiness
+
+The project is currently English-first because its target audience, ETHOS
+contract, generated agent instructions, remediation advice, contribution
+process, and security process are maintained in English. Localization is not a
+current release commitment, but it should be approached deliberately if the
+project starts serving non-English contributor communities.
+
+Planned work:
+
+- keep runtime UI strings distinguishable from authored ETHOS policy content;
+- add message IDs for stable CLI, hook, MCP, and validation UI strings before
+  adding any second language;
+- evaluate `gettext`/`.po` for Python and a Go message catalog such as
+  `go-i18n` for compiled runtime text;
+- add tests that enumerate message IDs and verify catalog completeness for
+  supported locales.
+
+Out of scope:
+
+- ad hoc translation of ETHOS principles, generated skills, policy advice, or
+  remediation prose without treating those translations as reviewed policy
+  content;
+- locale-sensitive behavior that changes enforcement decisions;
+- committing to a translated UI before there is demonstrated user demand.
+
+## Maintenance Rules
+
+- Every roadmap item that lands should update this file or the linked design
+  document in the same branch.
+- New policy work should prefer the AST/CEL/SARIF architecture before adding a
+  bespoke evaluator.
+- New agent-facing features should expose MCP and trace evidence when useful.
+- New trust claims should link to public evidence and avoid overstating
+  external badge state.

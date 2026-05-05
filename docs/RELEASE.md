@@ -18,6 +18,32 @@ This document describes the public release path for `coding-ethos`.
 
 The Python package version lives in `pyproject.toml`.
 
+## Support And Upgrade Policy
+
+`coding-ethos` provides an upgrade path to newer supported releases rather
+than maintaining long-lived older release branches. Patch releases preserve
+supported behavior and should be safe upgrades within the same minor release.
+Minor releases may add new policy surfaces, MCP tools, generated configs, or CI
+features, but should remain backward-compatible unless the release notes call
+out a migration step. Major releases may change generated config contracts,
+hook behavior, or policy bundle compatibility.
+
+Each release note entry must describe the supported upgrade path and any
+migration notes for consumer repositories. If a release changes hooks, MCP
+tools, CEL inputs, SARIF behavior, generated config, package layout, or runtime
+bootstrap behavior, the release notes must include the changed interface and
+the steps consumers should take to regenerate configs, rebuild hooks, or update
+their integration.
+
+The normal upgrade path is:
+
+1. Update the installed package or checkout to the new release.
+2. Run `make build` so generated configs, hook runtimes, managed tools, MCP
+   settings, skills, and prompt packs are refreshed.
+3. Run `make check-tool-configs` to detect generated config drift.
+4. Run the project gate, normally `make check`.
+5. Review the release notes for any release-specific migration steps.
+
 ## Pre-Release Checklist
 
 - [ ] Confirm the branch is not `main`.

@@ -277,6 +277,127 @@ func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
 	}
 }
 
+func TestServerExplainsPolicyByID(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":13,
+		"method":"tools/call",
+		"params":{
+			"name":"policy_explain",
+			"arguments":{
+				"policy_id":"git.hook_bypass"
+			}
+		}
+	}`))
+	response := decodeResponse(t, output)
+
+	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	if content["policy_id"] != "git.hook_bypass" {
+		t.Fatalf("policy_id = %#v", content["policy_id"])
+	}
+	explanation, ok := content["explanation"].(string)
+	if !ok || !strings.Contains(explanation, "git.hook_bypass") ||
+		!strings.Contains(explanation, "CEL Expression") {
+		t.Fatalf("policy explanation mismatch: %#v", content)
+	}
+}
+
+func TestServerRejectsPolicyExplainWithoutID(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":14,
+		"method":"tools/call",
+		"params":{"name":"policy_explain","arguments":{}}
+	}`))
+	response := decodeResponse(t, output)
+	if response["error"] == nil || !strings.Contains(output, "policy_id is required") {
+		t.Fatalf("expected policy explain error, got:\n%s", output)
+	}
+}
+
+func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("def run():\n    return 'ok'\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	ctx := context.Background()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	if _, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"}); err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+	if err := store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
+		RemediationID: "rem-1",
+		FindingID:     "finding-1",
+		PolicyID:      "python.conditional_imports",
+		SkillID:       "conditional-imports",
+		Path:          "pkg/app.py",
+		Outcome:       "fixed",
+		SearchText:    "Move import to module scope.",
+	}); err != nil {
+		t.Fatalf("record outcome: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+	requests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "search",
+			body: `{"text":"Move import","policy_id":"python.conditional_imports"}`,
+			want: "code_intel_search",
+		},
+		{
+			name: "code chunks",
+			body: `{"path":"pkg/app.py","symbol_name":"run"}`,
+			want: "code_intel_code_chunks",
+		},
+		{
+			name: "code context",
+			body: `{"path":"pkg/app.py","symbol_path":"run"}`,
+			want: "code_intel_code_context",
+		},
+		{
+			name: "embedding candidates",
+			body: `{"record_kind":"remediation_outcome","policy_id":"python.conditional_imports"}`,
+			want: "code_intel_embedding_candidates",
+		},
+		{
+			name: "index status",
+			body: `{"collection":"remediations","model_id":"test-model"}`,
+			want: "ready_records",
+		},
+	}
+	for index, request := range requests {
+		output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+			"jsonrpc":"2.0",
+			"id":%d,
+			"method":"tools/call",
+			"params":{"name":"code_intel_%s","arguments":%s}
+		}`, 40+index, strings.ReplaceAll(request.name, " ", "_"), request.body)), runtime)
+		if !strings.Contains(output, request.want) {
+			t.Fatalf("%s output missing %q:\n%s", request.name, request.want, output)
+		}
+	}
+}
+
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 	t.Parallel()
 

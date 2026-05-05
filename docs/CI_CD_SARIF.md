@@ -17,6 +17,23 @@ deduplication, audit bundles, and editor diagnostics, see
 [`SARIF_USES.md`](SARIF_USES.md) and
 [`SARIF_EDITOR_INTEGRATION.md`](SARIF_EDITOR_INTEGRATION.md).
 
+The repository CI stack now uses multiple independent code-scanning and
+workflow-security gates:
+
+- Coding Ethos SARIF for ETHOS/CEL/managed-tool policy enforcement.
+- CodeQL for GitHub Actions workflows, Go, and Python.
+- OSV-Scanner for dependency vulnerability evidence on PR, merge queue, `main`,
+  scheduled, and manual runs.
+- Zizmor for GitHub Actions security posture with SARIF upload.
+- Managed `actionlint` for workflow syntax and semantics before policy gates
+  depend on those workflows.
+- OpenSSF Scorecard for public supply-chain posture signals.
+
+Those tools are complementary. Coding Ethos owns repo-specific policy and agent
+workflow rules; CodeQL, OSV, Zizmor, actionlint, and Scorecard provide
+independent witnesses for security, dependency, workflow, and supply-chain
+posture.
+
 ## Output Contract
 
 Use `--sarif` on lint result paths:
@@ -161,7 +178,7 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       - run: make -C coding-ethos build
       - run: >-
           coding-ethos/bin/coding-ethos-run policy-tool actionlint
@@ -228,6 +245,10 @@ safe diff base is available.
   release artifacts.
 - GitHub workflow YAML should be validated with managed `actionlint` as a
   normal required job.
+- Dependency and workflow-security scanners should run as separate required
+  checks rather than being folded into one omnibus shell step. Keep OSV,
+  Zizmor, CodeQL, Scorecard, actionlint, and Coding Ethos SARIF independently
+  visible so regressions identify the failing control.
 - Build jobs should validate distributions before upload. For Python packages,
   `uvx twine check dist/*` catches broken metadata before artifacts leave CI.
 - Build artifacts that may be consumed outside CI should have provenance

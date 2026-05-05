@@ -92,6 +92,7 @@ func runManagedCapture(options managedCaptureOptions) int {
 		SandboxMode:  options.SandboxMode,
 		Capabilities: sandboxCapabilities(tool, config),
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
+		Policies:     options.PolicyContext.Policies,
 		Skills:       options.PolicyContext.Skills,
 	}, firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()))
 }
@@ -129,7 +130,7 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 		request.Skills,
 	)
 	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
-	if result.Blocked() || len(result.Diagnostics) > 0 {
+	if result.Blocked() || len(result.Diagnostics) > 0 || len(result.Findings) > 0 {
 		if err := hookoutput.EncodeLintResult(
 			os.Stdout,
 			result,
@@ -137,6 +138,9 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 		); err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: lint result not rendered: %v\n", err)
 		}
+	}
+	if result.Blocked() && execution.ExitCode == 0 {
+		return blockedExitCode
 	}
 
 	return execution.ExitCode

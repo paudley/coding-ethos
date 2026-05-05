@@ -11,7 +11,6 @@ license = "MIT"
 dependencies = [
     "bandit[baseline,sarif,toml]>=1.8.6",
     "black>=26.1.0",
-    "interrogate>=1.7.0",
     "mypy>=1.19.1",
     "mypy-extensions>=1.1.0",
     "pandas-stubs>=3.0.0.260204",

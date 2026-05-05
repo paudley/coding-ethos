@@ -527,18 +527,21 @@ def test_lifecycle_policy_lint_does_not_fail_on_policy_mtime_drift(
 ) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     policy_source = REPO_ROOT / "coding_ethos.yml"
+    original_times = policy_source.stat()
     future = time.time() + 10
-    os.utime(policy_source, (future, future))
-
-    result = _run(
-        [
-            str(REPO_ROOT / "bin" / "coding-ethos-run"),
-            "policy-lint",
-            "--help",
-        ],
-        cwd=consumer,
-        timeout=180,
-    )
+    try:
+        os.utime(policy_source, (future, future))
+        result = _run(
+            [
+                str(REPO_ROOT / "bin" / "coding-ethos-run"),
+                "policy-lint",
+                "--help",
+            ],
+            cwd=consumer,
+            timeout=180,
+        )
+    finally:
+        os.utime(policy_source, (original_times.st_atime, original_times.st_mtime))
 
     output = result.stdout + result.stderr
     assert "Usage of coding-ethos-lint" in output
@@ -547,15 +550,31 @@ def test_lifecycle_policy_lint_does_not_fail_on_policy_mtime_drift(
 
 
 def test_validate_uses_policy_source_hashes_not_mtime(tmp_path: Path) -> None:
-    _prepare_consumer_repo(tmp_path)
+    consumer = _prepare_consumer_repo(tmp_path)
     policy_source = REPO_ROOT / "coding_ethos.yml"
+    original_times = policy_source.stat()
     future = time.time() + 10
-    os.utime(policy_source, (future, future))
+    try:
+        os.utime(policy_source, (future, future))
 
-    result = _run(["make", "validate"], cwd=REPO_ROOT, timeout=180)
+        env = os.environ.copy()
+        env["CODE_ETHOS_CONSUMER_ROOT"] = str(consumer)
+        _run(
+            ["make", "policy-bundle-install", "go-hook-runner-install"],
+            cwd=REPO_ROOT,
+            env=env,
+            timeout=180,
+        )
+        result = _run(
+            [str(REPO_ROOT / "bin" / "coding-ethos-run"), "git-hook", "validate"],
+            cwd=REPO_ROOT,
+            env=env,
+            timeout=180,
+        )
+    finally:
+        os.utime(policy_source, (original_times.st_atime, original_times.st_mtime))
 
     output = result.stdout + result.stderr
-    assert "Validating bundled hook runtime" in output
     assert "compiled policy bundle is older" not in output
     assert "hook runtime is not installed or is stale" not in output
 

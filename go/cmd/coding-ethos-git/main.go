@@ -39,6 +39,10 @@ func main() {
 }
 
 func run() error {
+	return runWithArgs(os.Args[1:])
+}
+
+func runWithArgs(args []string) error {
 	flags := flag.NewFlagSet("coding-ethos-git", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	realGit := flags.String("real-git", "", "Real git executable")
@@ -50,7 +54,7 @@ func run() error {
 		"Allow admin-protected coding-ethos commits when process ancestry is approved",
 	)
 
-	err := flags.Parse(os.Args[1:])
+	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}

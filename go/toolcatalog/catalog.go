@@ -419,7 +419,6 @@ func hookOwnedToolDefinitions() []Tool {
 		radonComplexityTool(),
 		radonMaintainabilityTool(),
 		vultureTool(),
-		interrogateTool(),
 		pytestGateTool(),
 		geminiCheckTool(),
 	}
@@ -851,23 +850,6 @@ func vultureTool() Tool {
 		FileExtensions:   []string{".py"},
 		Languages:        []string{"python"},
 		PassFilesAsArgs:  false,
-		UseHookProject:   true,
-		EnabledByDefault: true,
-	}
-}
-
-func interrogateTool() Tool {
-	return Tool{
-		Name:             "interrogate",
-		Parser:           "fallback",
-		Category:         "docs",
-		OutputFormat:     "text",
-		Advice:           "Add useful docstrings where documentation coverage falls below policy.",
-		Runtime:          RuntimePython,
-		Command:          []string{"interrogate"},
-		FileExtensions:   []string{".py"},
-		Languages:        []string{"python"},
-		PassFilesAsArgs:  true,
 		UseHookProject:   true,
 		EnabledByDefault: true,
 	}

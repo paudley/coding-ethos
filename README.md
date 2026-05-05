@@ -10,6 +10,8 @@
 [![CI](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/ci.yml)
 [![Coding Ethos SARIF](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/coding-ethos-sarif.yml)
 [![CodeQL](https://github.com/paudley/coding-ethos/actions/workflows/codeql.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/codeql.yml)
+[![OSV-Scanner](https://github.com/paudley/coding-ethos/actions/workflows/osv-scanner.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/osv-scanner.yml)
+[![Zizmor](https://github.com/paudley/coding-ethos/actions/workflows/zizmor.yml/badge.svg)](https://github.com/paudley/coding-ethos/actions/workflows/zizmor.yml)
 [![Release](https://img.shields.io/github/v/release/paudley/coding-ethos?sort=semver)](https://github.com/paudley/coding-ethos/releases)
 [![PyPI](https://img.shields.io/pypi/v/coding-ethos)](https://pypi.org/project/coding-ethos/)
 [![Python](https://img.shields.io/pypi/pyversions/coding-ethos)](https://pypi.org/project/coding-ethos/)
@@ -46,6 +48,9 @@ Use `coding-ethos` when you need:
   principle they enforce.
 - SARIF and code-scanning output for CI, pull requests, IDEs, and trend
   analysis.
+- Code intelligence that stores hook traces, SARIF, remediation outcomes,
+  Tree-sitter chunks, AST links, and sqlite-vec metadata in a repo-local
+  SQLite store for agent search.
 
 ## 30-Second Start
 
@@ -109,8 +114,8 @@ the places contributors actually work:
 | Agent hooks | Claude, Codex, and Gemini tool-use guards |
 | MCP | stdio policy, skill, lint, SARIF, and tool-capability queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
-| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, artifacts, package validation, and sandbox evidence |
-| Audit data | `.coding-ethos/hook-runs/` and `.coding-ethos/lint-runs/` logs with policy, tool, SARIF, and sandbox evidence |
+| CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, CodeQL, OSV-Scanner, zizmor, artifacts, package validation, and sandbox evidence |
+| Audit data | `.coding-ethos/hook-runs/`, `.coding-ethos/lint-runs/`, and `.coding-ethos/code-intel.db` with policy, tool, SARIF, AST, remediation, and sandbox evidence |
 
 ## Agents Used In This Repository
 
@@ -188,9 +193,11 @@ paths, and emits normal policy decisions with ETHOS grounding and skill hints.
 Source-aware policy follows the documented
 [AST, CEL, and SARIF architecture](docs/AST_CEL_SARIF_ARCHITECTURE.md). Go
 collects normalized Tree-sitter facts, CEL owns configurable policy predicates,
-and SARIF carries stable AST identity plus remediation metadata. New Python,
-Go, shell, or config policies should extend that path before adding ad hoc text
-scanners or policy-specific AST walkers.
+and SARIF carries stable AST identity plus remediation metadata. The same facts
+feed hook preflight, lint policy, SARIF, MCP, and code-intelligence storage.
+New Python, Go, shell, JavaScript/TypeScript, YAML, JSON, TOML, or config
+policies should extend that path before adding ad hoc text scanners or
+policy-specific AST walkers.
 
 Runtime capability policy uses the same path. Managed tools declare whether
 they need network, Git, environment access, writable paths, sandbox profiles,
@@ -209,6 +216,23 @@ process start in a delegated hierarchy and cleaned up after exit. Required
 sandbox mode fails closed with a normalized policy finding; advisory mode
 records degraded evidence without claiming enforcement. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
+
+Code-intelligence storage is the memory layer for this evidence. The
+repo-local SQLite store ingests hook traces, lint traces, SARIF, remediation
+outcomes, hook usage analytics, Tree-sitter chunks, graph edges, and
+AST-to-finding links. FTS5 provides exact search, while sqlite-vec stores
+derived embedding rows for hybrid retrieval without a daemon or hosted vector
+service. MCP tools expose search, code indexing, focused chunk lookup,
+embedding candidates, and index status so agents can retrieve relevant context
+before broad file reads or repeated failed repairs. See
+[docs/CODE_INTEL.md](docs/CODE_INTEL.md).
+
+Repository trust surfaces are part of the product. The public repo now carries
+CODEOWNERS, structured issue templates for policy rules, hook false positives,
+and MCP tool requests, GitHub Discussion templates, Dependabot cooldowns for
+all managed ecosystems, restricted Actions allow-lists, CodeQL, OSV-Scanner,
+zizmor, Scorecard, fuzz smoke, release attestations, and SBOM generation. See
+[docs/TRUST_SIGNALS.md](docs/TRUST_SIGNALS.md).
 
 For larger platform directions such as deeper MCP context serving,
 policy-language support, IDE integration, SARIF/CI components, red-team

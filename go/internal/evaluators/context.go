@@ -23,6 +23,7 @@ type Context struct {
 	ToolResponseKeys []string
 	TranscriptPath   string
 	ReturnCode       int
+	HasReturnCode    bool
 	HasToolInput     bool
 	HasToolResponse  bool
 	Files            []string

@@ -18,8 +18,8 @@ func runCutover(paths runtimePaths, args []string) error {
 	case "verify":
 		execCutoverVerify(paths, "verify")
 	case "install":
-		runTool(paths, "coding-ethos-toolchain", "install-git-hooks", "--hooks-dir", paths.HooksDir, "--runner", paths.RunBinary)
-		runTool(paths, "coding-ethos-agent-hooks", "sync", "--root", paths.Root)
+		runtimeRunTool(paths, "coding-ethos-toolchain", "install-git-hooks", "--hooks-dir", paths.HooksDir, "--runner", paths.RunBinary)
+		runtimeRunTool(paths, "coding-ethos-agent-hooks", "sync", "--root", paths.Root)
 		execCutoverVerify(paths, "install")
 	default:
 		return fmt.Errorf("unknown cutover action %q", action)
@@ -29,7 +29,7 @@ func runCutover(paths runtimePaths, args []string) error {
 }
 
 func execCutoverVerify(paths runtimePaths, action string) {
-	execTool(paths, "coding-ethos-toolchain",
+	runtimeExecTool(paths, "coding-ethos-toolchain",
 		"cutover-verify",
 		"--action", action,
 		"--root", paths.Root,
@@ -41,7 +41,7 @@ func execCutoverVerify(paths runtimePaths, action string) {
 }
 
 func installGitWrapperShim(paths runtimePaths) {
-	runTool(paths, "coding-ethos-toolchain",
+	runtimeRunTool(paths, "coding-ethos-toolchain",
 		"install-git-shim",
 		"--dest-dir", paths.BinDir,
 		"--real-git", paths.RealGit,
@@ -50,7 +50,7 @@ func installGitWrapperShim(paths runtimePaths) {
 }
 
 func installLintToolShims(paths runtimePaths) {
-	runTool(paths, "coding-ethos-lint",
+	runtimeRunTool(paths, "coding-ethos-lint",
 		"--install-shims",
 		"--tools-bin-dir", paths.BinDir,
 		"--runner", paths.RunBinary,

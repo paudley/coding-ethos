@@ -296,7 +296,10 @@ principles:
             - staged
           tools: []
           message: Large source files must not keep growing.
-          advice: Split large files into focused modules before committing.
+          advice: >-
+            Do not make cosmetic or documentation-only edits just to satisfy the
+            limit; apply SOLID refactoring and split the file into focused
+            modules before committing.
           when: >-
             proposed_file_changes.exists(file, !file.is_binary &&
               !file.is_test && file.line_count_grows &&
@@ -3863,6 +3866,155 @@ principles:
           is
           wrong or the test is wrong—but something IS wrong. Fix it; don't hide
           it.
+  - id: functional-testing-is-the-proof
+    order: 28
+    title: Functional Testing Is the Proof
+    summary: Real workflow tests are the primary evidence that core behavior works.
+    directive: Prove critical behavior with real functional workflows before relying on
+      unit tests or mocks.
+    quick_ref:
+      - Real workflow tests are the primary evidence that core behavior works.
+      - Unit tests are useful but low-value compared with tests that exercise the
+        actual user path.
+      - Mocking distorts reality; use it only as a last resort for narrow,
+        explicitly bounded cases.
+    axioms:
+      - axiom: The real workflow outranks the isolated unit.
+        action: >-
+          For critical behavior, create an end-to-end test that uses the real
+          command, filesystem, process, and output path.
+      - axiom: A mock is a distortion, not proof.
+        action: >-
+          Treat mocked tests as design aids or edge-case checks, never as the
+          sole evidence that an operator workflow works.
+      - axiom: Core deliverables require executable proof.
+        action: >-
+          If the feature is a hook, run the hook. If the feature is git safety,
+          run real git. If the feature is lint capture, run a real captured
+          tool.
+    merge_topics:
+      - functional testing
+      - end-to-end tests
+      - test fidelity
+      - workflow verification
+    tags:
+      - testing
+      - verification
+      - quality
+      - workflow
+    related:
+      - testing-as-specification
+      - evidence-based-engineering-and-decision-quality
+      - radical-visibility
+      - one-path-for-critical-operations
+    agent_hints:
+      codex: Prefer real workflow regressions for hook, git, lint, MCP, CEL, SARIF,
+        and sandbox behavior; do not claim a core path works from unit tests alone.
+      claude: In reviews, treat mocked-only coverage of critical workflows as a
+        test gap, even when the unit tests pass.
+      gemini: Anchor verification advice in runnable user workflows and visible
+        outputs.
+    sections:
+      - id: overview
+        kind: overview
+        title: Overview
+        summary: Real workflow tests are the primary evidence that core behavior
+          works.
+        body: |-
+          The value of a test depends on how faithfully it exercises the system
+          behavior users depend on. A unit test can be useful for small pure
+          logic, parsers, and edge cases, but its value is minuscule compared
+          with a functional test that proves the actual workflow works end to
+          end.
+
+          For coding-ethos, the core product is not a collection of isolated
+          functions. The product is the working integration of git hooks,
+          managed lint capture, CEL policy evaluation, SARIF output, MCP tools,
+          agent routing, runtime bootstrap, and sandbox decisions. Those paths
+          must be tested as real workflows.
+      - id: test-value-hierarchy
+        kind: guidance
+        title: Test Value Hierarchy
+        summary: The closer a test is to real operator behavior, the stronger its
+          evidence.
+        body: |-
+          Test evidence is ranked by fidelity:
+
+          1. **Functional workflow tests:** Create real inputs, run the actual
+             command or hook, and inspect the real output and resulting state.
+          2. **Integration tests:** Exercise real components together with only
+             unavoidable substitutions.
+          3. **Unit tests:** Validate small, local logic where the behavior is
+             genuinely isolated.
+          4. **Mock-heavy tests:** Use only for unsafe, unavailable, or
+             prohibitively expensive dependencies, and never as the only proof
+             for a critical workflow.
+
+          A passing unit test proves the unit did what the test asked. It does
+          not prove that the user-facing workflow works.
+      - id: mocks-distort-reality
+        kind: rule
+        title: Mocks Distort Reality
+        summary: Mocking makes tests easier by removing real behavior; that is a
+          trade-off, not an upgrade.
+        body: |-
+          Mocking is a way of distorting reality to make a test easier to write.
+          It is not a way to increase the value or usefulness of the test.
+
+          Mocks can hide exactly the behavior that matters:
+
+          * process exit-code propagation
+          * stdout and stderr formatting
+          * filesystem permissions and paths
+          * git state and hook invocation semantics
+          * provider payload shape
+          * generated runtime artifacts
+          * SARIF, TOON, JSON, and trace output contracts
+
+          Use mocks only when the real dependency cannot be exercised safely or
+          practically, and document what reality the mock is replacing.
+      - id: core-workflow-requirements
+        kind: rule
+        title: Core Workflow Requirements
+        summary: Core deliverables require real workflow tests.
+        body: |-
+          Any change to a core coding-ethos deliverable must have at least one
+          representative functional regression:
+
+          * Git hook behavior must be tested by running the installed hook path
+            against a real temporary git checkout.
+          * Commit behavior must be tested by staging files and running a real
+            `git commit`.
+          * Managed lint capture must run a real executable and inspect the
+            emitted output, trace, CEL inputs, and SARIF.
+          * MCP behavior must use the real MCP server framing and request path.
+          * CEL policy changes must be verified against the real activation data
+            used by the workflow.
+          * SARIF changes must be validated against emitted SARIF, not only
+            helper structs.
+
+          If a core workflow lacks a functional test, the implementation is not
+          proved.
+      - id: anti-patterns-forbidden
+        kind: anti_patterns
+        title: Anti-Patterns (Forbidden)
+        summary: >-
+          ❌ Treating mocked unit tests as proof of hook behavior ❌ Testing
+          hand-built contexts while skipping the real command path ❌ Claiming
+          git safety without running real git ❌ Hiding output contracts behind
+          fake return values
+        body: |-
+          * ❌ Treating mocked unit tests as proof of hook behavior
+          * ❌ Testing hand-built contexts while skipping the real command path
+          * ❌ Claiming git safety without running real git
+          * ❌ Claiming lint capture works without running a real captured tool
+          * ❌ Replacing stdout/stderr, exit codes, or provider payloads with
+            convenient fake values
+          * ❌ Adding a unit test for the easiest helper while leaving the user
+            workflow uncovered
+
+          **The Rule:** The real workflow is the proof. Unit tests support that
+          proof; they do not replace it.
   - id: exception-hierarchy-and-error-messages
     order: 23
     title: Exception Hierarchy and Error Messages

@@ -30,6 +30,7 @@ different classes of problems.
 - [Forward Motion Only](../../.agents/ethos/forward-motion-only.md) - Fix the current state instead of blaming history or prior authors.
 - [No Rationalized Shortcuts](../../.agents/ethos/no-rationalized-shortcuts.md) - Do not discard work or bypass safety checks in the name of pragmatism.
 - [Testing as Specification](../../.agents/ethos/testing-as-specification.md) - Treat tests as executable behavioral contracts and update them with code changes.
+- [Functional Testing Is the Proof](../../.agents/ethos/functional-testing-is-the-proof.md) - Prove critical behavior with real functional workflows before relying on unit tests or mocks.
 - [Exception Hierarchy and Error Messages](../../.agents/ethos/exception-hierarchy-and-error-messages.md) - Use precise exception types and actionable, context-rich error messages.
 - [Security by Design](../../.agents/ethos/security-by-design.md) - Design for least privilege, validation, and safe defaults from the start.
 - [Sub-Agent Delegation and Context Isolation](../../.agents/ethos/sub-agent-delegation-and-context-isolation.md) - Use specialized agents with scoped context instead of overloading one thread.

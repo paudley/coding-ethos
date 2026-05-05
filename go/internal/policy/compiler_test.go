@@ -1697,7 +1697,7 @@ principles:
           severity: block
           mode: block
           message: Large source files must not keep growing.
-          advice: Split large files into focused modules before committing.
+          advice: Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing.
           when: "file_changes.exists(file, file.ext == '.py' && file.line_count > 1000)"
   - id: security-by-design
     order: 24

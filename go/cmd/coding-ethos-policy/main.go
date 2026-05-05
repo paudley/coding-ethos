@@ -45,37 +45,43 @@ type configTraceReport struct {
 }
 
 func main() {
-	if len(os.Args) < commandArgsOffset {
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+func runCLI(args []string) int {
+	if len(args) == 0 {
 		usage()
-		os.Exit(commandArgsOffset)
+		return commandArgsOffset
 	}
 
 	var err error
 
-	switch os.Args[commandArgIndex] {
+	switch args[0] {
 	case "compile":
-		err = compile(os.Args[commandArgsOffset:])
+		err = compile(args[1:])
 	case "dump-example":
-		err = dumpExample(os.Args[commandArgsOffset:])
+		err = dumpExample(args[1:])
 	case "write-example":
-		err = writeExample(os.Args[commandArgsOffset:])
+		err = writeExample(args[1:])
 	case "validate":
-		err = validate(os.Args[commandArgsOffset:])
+		err = validate(args[1:])
 	case "validate-metadata":
-		err = validateMetadata(os.Args[commandArgsOffset:])
+		err = validateMetadata(args[1:])
 	case "explain":
-		err = explain(os.Args[commandArgsOffset:])
+		err = explain(args[1:])
 	case "config-trace":
-		err = configTrace(os.Args[commandArgsOffset:])
+		err = configTrace(args[1:])
 	default:
 		usage()
-		os.Exit(commandArgsOffset)
+		return commandArgsOffset
 	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
-		os.Exit(1)
+		return 1
 	}
+
+	return 0
 }
 
 func validateMetadata(args []string) error {

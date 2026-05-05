@@ -30,6 +30,7 @@ var (
 		"gemini cachedContents.create returned no cache name",
 	)
 	errManifestCandidateNotFound = errors.New("manifest candidate not found")
+	errPlanPathEscapesRoot       = errors.New("path escapes plan root")
 	errPytestGateCommandEmpty    = errors.New("pytest gate command is empty")
 	errPythonParse               = errors.New("failed to parse python source")
 	errUnknownFlag               = errors.New("unknown flag")
