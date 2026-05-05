@@ -10,6 +10,8 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
 
   - package-ecosystem: "uv"
@@ -20,6 +22,8 @@ updates:
       - "dependencies"
       - "python"
       - "pre-commit"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
 
   - package-ecosystem: "gomod"
@@ -29,6 +33,8 @@ updates:
     labels:
       - "dependencies"
       - "go"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
 
   - package-ecosystem: "gomod"
@@ -39,6 +45,8 @@ updates:
       - "dependencies"
       - "go"
       - "pre-commit"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
 
   - package-ecosystem: "github-actions"
@@ -48,4 +56,6 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
