@@ -589,6 +589,7 @@ func TestEnrichMapsMessageDiagnosticEvidence(t *testing.T) {
 	if enriched[0].PolicyID != "python.import_cycles" {
 		t.Fatalf("message-mapped policy = %q", enriched[0].PolicyID)
 	}
+
 	if enriched[0].Advice != "Break the concrete dependency cycle." {
 		t.Fatalf("message-mapped advice = %q", enriched[0].Advice)
 	}
@@ -624,10 +625,12 @@ func TestDedupeMergesSamePolicyLocation(t *testing.T) {
 	if len(deduped) != 1 {
 		t.Fatalf("deduped = %#v", deduped)
 	}
+
 	if deduped[0].Tool != "mypy" ||
 		!strings.Contains(deduped[0].Detail, "pyright:reportOptionalMemberAccess") {
 		t.Fatalf("merged diagnostic = %#v", deduped[0])
 	}
+
 	if len(deduped[0].PrincipleIDs) != 2 {
 		t.Fatalf("principles = %#v", deduped[0].PrincipleIDs)
 	}

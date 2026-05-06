@@ -16,16 +16,20 @@ func celPythonASTFacts(
 	if !celExpressionNeedsPythonAST(expression) {
 		return nil
 	}
+
 	sources, err := pythonSources(context)
 	if err != nil {
 		return nil
 	}
+
 	facts := []celexpr.PythonASTFactInput{}
+
 	for _, source := range sources {
 		sourceFacts, err := collectPythonASTFacts(source)
 		if err != nil {
 			continue
 		}
+
 		for _, fact := range sourceFacts {
 			facts = append(facts, pythonASTFactInput(fact))
 		}

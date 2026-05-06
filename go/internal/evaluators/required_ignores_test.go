@@ -4,6 +4,7 @@
 package evaluators_test
 
 import (
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,10 +59,10 @@ func TestEvaluateRequiredIgnoresCELUsesConfiguredPaths(t *testing.T) {
 	repo := newRequiredIgnoreRepo(t)
 	writeRequiredIgnoreFile(t, repo, ".coding-ethos/\n")
 	policyDef := compiledRepoBundle(t).Policies["repo.required_ignores"]
+
 	options := map[string]any{}
-	for key, value := range policyDef.Evaluators[0].Options {
-		options[key] = value
-	}
+	maps.Copy(options, policyDef.Evaluators[0].Options)
+
 	options["required_ignore_paths"] = []string{"build-cache/"}
 
 	decisions, err := EvaluateCELExpression(policyDef, Context{
@@ -82,6 +83,7 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 
 	repo := t.TempDir()
 	cmd := exec.Command("git", "init")
+
 	cmd.Dir = repo
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, output)
@@ -90,11 +92,13 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 	return repo
 }
 
-func writeRequiredIgnoreFile(t *testing.T, repo string, content string) {
+func writeRequiredIgnoreFile(t *testing.T, repo, content string) {
 	t.Helper()
 
 	path := filepath.Join(repo, ".gitignore")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+
+	err := os.WriteFile(path, []byte(content), 0o644)
+	if err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}
 }

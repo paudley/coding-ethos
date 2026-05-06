@@ -39,6 +39,7 @@ func SelectedFormatWithEnv(getenv func(string) string) string {
 		if IsAgentEnvironment(getenv) {
 			return FormatTOON
 		}
+
 		return FormatHuman
 	default:
 		return FormatHuman
@@ -81,6 +82,7 @@ func TOONCell(value string) string {
 
 func TOONFindingCell(value string) string {
 	cleaned := TOONCell(value)
+
 	runes := []rune(cleaned)
 	if len(runes) <= maxTOONFindingCellRunes {
 		return cleaned
@@ -91,6 +93,7 @@ func TOONFindingCell(value string) string {
 
 func FormatLintResult(result lint.Result, format string) (string, error) {
 	lint.EnsureTraceID(&result)
+
 	switch format {
 	case FormatJSON:
 		return FormatLintResultJSON(result)
@@ -118,6 +121,7 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 	diagnostics := lint.OutputDiagnostics(result)
 	payload := struct {
 		lint.Result
+
 		AgentRemediation []agentmsg.Remediation `json:"agent_remediation,omitempty"`
 	}{
 		Result:           result,
@@ -125,10 +129,13 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 	}
 
 	var builder strings.Builder
+
 	encoder := json.NewEncoder(&builder)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(payload); err != nil {
+
+	err := encoder.Encode(payload)
+	if err != nil {
 		return "", err
 	}
 
@@ -138,6 +145,7 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 func FormatLintResultTOON(result lint.Result) string {
 	findings := lint.OutputDiagnostics(result)
 	status := lint.ResultStatus(result)
+
 	lines := []string{
 		"format: toon",
 		"tool: " + TOONCell(lint.ResultTool(result)),
@@ -146,6 +154,7 @@ func FormatLintResultTOON(result lint.Result) string {
 	if result.TraceID != "" {
 		lines = append(lines, "trace_id: "+TOONCell(result.TraceID))
 	}
+
 	lines = append(
 		lines,
 		"title: "+TOONCell(lintResultTitle(result)),
@@ -171,6 +180,7 @@ func FormatLintResultTOON(result lint.Result) string {
 			TOONFindingCell(finding.Detail),
 		))
 	}
+
 	if len(result.SkillHints) > 0 {
 		lines = append(
 			lines,
@@ -187,6 +197,7 @@ func FormatLintResultTOON(result lint.Result) string {
 			))
 		}
 	}
+
 	if remediation := agentmsg.FromDiagnostics(findings); len(remediation) > 0 {
 		lines = append(
 			lines,
@@ -207,6 +218,7 @@ func FormatLintResultTOON(result lint.Result) string {
 			))
 		}
 	}
+
 	if result.Blocked() {
 		lines = append(
 			lines,
@@ -249,6 +261,7 @@ func compactSkillHintMessage(message string) string {
 
 func FormatLintResultHuman(result lint.Result) string {
 	findings := lint.OutputDiagnostics(result)
+
 	lines := []string{
 		"coding-ethos lint result: " + lint.ResultStatus(result),
 		"tool: " + lint.ResultTool(result),
@@ -257,11 +270,13 @@ func FormatLintResultHuman(result lint.Result) string {
 	if result.TraceID != "" {
 		lines = append(lines, "trace_id: "+result.TraceID)
 	}
+
 	for _, finding := range findings {
 		location := finding.File
 		if finding.Line > 0 {
 			location += ":" + strconv.Itoa(finding.Line)
 		}
+
 		lines = append(lines, fmt.Sprintf(
 			"- %s [%s] %s",
 			location,
@@ -271,10 +286,12 @@ func FormatLintResultHuman(result lint.Result) string {
 		if finding.Advice != "" {
 			lines = append(lines, "  advice: "+finding.Advice)
 		}
+
 		if finding.Detail != "" {
 			lines = append(lines, "  detail: "+finding.Detail)
 		}
 	}
+
 	if len(result.SkillHints) > 0 {
 		lines = append(lines, "skill advice:")
 		for _, hint := range result.SkillHints {
@@ -284,6 +301,7 @@ func FormatLintResultHuman(result lint.Result) string {
 			)
 		}
 	}
+
 	if result.Blocked() {
 		lines = append(lines, "Fix the reported diagnostics before continuing.")
 	}

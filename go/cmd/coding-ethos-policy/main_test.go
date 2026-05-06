@@ -4,13 +4,15 @@
 package main
 
 import (
-	"blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestValidatedConfigSectionsRejectsUnknownTopLevelKeys(t *testing.T) {
@@ -29,6 +31,7 @@ func TestValidatedConfigSectionsRejectsUnknownTopLevelKeys(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unknown top-level section error")
 	}
+
 	if !strings.Contains(err.Error(), `wrong_section`) {
 		t.Fatalf("error = %v", err)
 	}
@@ -63,6 +66,7 @@ func TestValidateRepoConfigSectionsRejectsNestedTypos(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
 	if err := os.WriteFile(
 		configPath,
 		[]byte("python:\n  comment_suppressions:\n    enabled: true\n"),
@@ -70,6 +74,7 @@ func TestValidateRepoConfigSectionsRejectsNestedTypos(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+
 	if err := os.WriteFile(
 		repoConfigPath,
 		[]byte("python:\n  comment_supressions:\n    enabled: false\n"),
@@ -82,10 +87,12 @@ func TestValidateRepoConfigSectionsRejectsNestedTypos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
+
 	_, err = validateRepoConfigSections(repoConfigPath, configShape)
 	if err == nil {
 		t.Fatal("expected nested typo error")
 	}
+
 	if !strings.Contains(err.Error(), "python.comment_supressions") {
 		t.Fatalf("error = %v", err)
 	}
@@ -97,9 +104,15 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
-	if err := os.WriteFile(configPath, []byte("style:\n  line_length: 100\n"), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		configPath,
+		[]byte("style:\n  line_length: 100\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+
 	if err := os.WriteFile(
 		repoConfigPath,
 		[]byte("repo:\n  license:\n    spdx_identifier: MIT\n    copyright: Example Inc.\n"),
@@ -112,10 +125,12 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate config: %v", err)
 	}
+
 	sections, err := validateRepoConfigSections(repoConfigPath, configShape)
 	if err != nil {
 		t.Fatalf("validate repo config: %v", err)
 	}
+
 	if strings.Join(sections, ",") != "repo" {
 		t.Fatalf("sections = %#v", sections)
 	}
@@ -127,6 +142,7 @@ func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 	dir := t.TempDir()
 	sourcePath := filepath.Join(dir, "config.yaml")
 	metadataPath := filepath.Join(dir, "policy-metadata.json")
+
 	if err := os.WriteFile(sourcePath, []byte("style: {}\n"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
@@ -138,13 +154,16 @@ func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 		BundleHash:  "sha256:bundle",
 		GeneratedAt: "2026-05-01T00:00:00Z",
 	}
+
 	file, err := os.Create(metadataPath)
 	if err != nil {
 		t.Fatalf("create metadata: %v", err)
 	}
+
 	if err := policy.EncodeMetadata(file, metadata); err != nil {
 		t.Fatalf("encode metadata: %v", err)
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatalf("close metadata: %v", err)
 	}
@@ -153,9 +172,14 @@ func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 		t.Fatalf("validate metadata: %v", err)
 	}
 
-	if err := os.WriteFile(sourcePath, []byte("style:\n  line_length: 88\n"), 0o600); err != nil {
+	if err := os.WriteFile(
+		sourcePath,
+		[]byte("style:\n  line_length: 88\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("rewrite source: %v", err)
 	}
+
 	err = validateMetadata([]string{"--metadata", metadataPath})
 	if err == nil || !strings.Contains(err.Error(), "policy source hash mismatch") {
 		t.Fatalf("validate stale metadata error = %v", err)
@@ -165,7 +189,8 @@ func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 func TestPolicyArtifactCommandsRoundTripExampleBundle(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "policy")
 	captureStdout(t, func() {
-		if err := writeExample([]string{"--out-dir", outDir}); err != nil {
+		err := writeExample([]string{"--out-dir", outDir})
+		if err != nil {
 			t.Fatalf("write example: %v", err)
 		}
 	})
@@ -181,8 +206,10 @@ func TestPolicyArtifactCommandsRoundTripExampleBundle(t *testing.T) {
 	}
 
 	bundlePath := filepath.Join(outDir, "policy-bundle.json")
+
 	validateOutput := captureStdout(t, func() {
-		if err := validate([]string{"--bundle", bundlePath}); err != nil {
+		err := validate([]string{"--bundle", bundlePath})
+		if err != nil {
 			t.Fatalf("validate bundle: %v", err)
 		}
 	})
@@ -191,7 +218,8 @@ func TestPolicyArtifactCommandsRoundTripExampleBundle(t *testing.T) {
 	}
 
 	explainOutput := captureStdout(t, func() {
-		if err := explain([]string{"--bundle", bundlePath, "git.hook_bypass"}); err != nil {
+		err := explain([]string{"--bundle", bundlePath, "git.hook_bypass"})
+		if err != nil {
 			t.Fatalf("explain policy: %v", err)
 		}
 	})
@@ -213,6 +241,7 @@ func TestRunCLIDispatchesPolicyCommands(t *testing.T) {
 	}
 
 	bundlePath := filepath.Join(outDir, "policy-bundle.json")
+
 	validateOutput := captureStdout(t, func() {
 		if code := runCLI([]string{"validate", "--bundle", bundlePath}); code != 0 {
 			t.Fatalf("validate exit = %d", code)
@@ -223,7 +252,9 @@ func TestRunCLIDispatchesPolicyCommands(t *testing.T) {
 	}
 
 	explainOutput := captureStdout(t, func() {
-		if code := runCLI([]string{"explain", "--bundle", bundlePath, "git.hook_bypass"}); code != 0 {
+		if code := runCLI(
+			[]string{"explain", "--bundle", bundlePath, "git.hook_bypass"},
+		); code != 0 {
 			t.Fatalf("explain exit = %d", code)
 		}
 	})
@@ -281,9 +312,9 @@ func TestPolicyCommandRequiredFlagErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func() error
 		want error
+		run  func() error
+		name string
 	}{
 		{
 			name: "compile out dir",
@@ -316,7 +347,8 @@ func TestPolicyCommandRequiredFlagErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			if err := test.run(); err != test.want {
+			err := test.run()
+			if !errors.Is(err, test.want) {
 				t.Fatalf("error = %v, want %v", err, test.want)
 			}
 		})
@@ -330,13 +362,24 @@ func TestConfigTraceReportsConfigAndRepoSections(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
 	if err := os.WriteFile(primaryPath, []byte("principles: []\n"), 0o600); err != nil {
 		t.Fatalf("write primary: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("style:\n  line_length: 100\n"), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		configPath,
+		[]byte("style:\n  line_length: 100\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := os.WriteFile(repoConfigPath, []byte("repo:\n  license:\n    spdx_identifier: MIT\n"), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		repoConfigPath,
+		[]byte("repo:\n  license:\n    spdx_identifier: MIT\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("write repo config: %v", err)
 	}
 
@@ -356,6 +399,7 @@ func TestConfigTraceReportsConfigAndRepoSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate repo config sections: %v", err)
 	}
+
 	if strings.Join(sections, ",") != "repo" {
 		t.Fatalf("sections = %#v", sections)
 	}
@@ -365,11 +409,14 @@ func captureStdout(t *testing.T, run func()) string {
 	t.Helper()
 
 	original := os.Stdout
+
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe stdout: %v", err)
 	}
+
 	os.Stdout = writer
+
 	defer func() {
 		os.Stdout = original
 	}()
@@ -379,10 +426,12 @@ func captureStdout(t *testing.T, run func()) string {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close stdout writer: %v", err)
 	}
+
 	var buffer bytes.Buffer
 	if _, err := io.Copy(&buffer, reader); err != nil {
 		t.Fatalf("read stdout: %v", err)
 	}
+
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close stdout reader: %v", err)
 	}

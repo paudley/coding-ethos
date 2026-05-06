@@ -14,11 +14,20 @@ func runCutover(paths runtimePaths, args []string) error {
 	if len(args) > 0 {
 		action = args[0]
 	}
+
 	switch action {
 	case "verify":
 		execCutoverVerify(paths, "verify")
 	case "install":
-		runtimeRunTool(paths, "coding-ethos-toolchain", "install-git-hooks", "--hooks-dir", paths.HooksDir, "--runner", paths.RunBinary)
+		runtimeRunTool(
+			paths,
+			"coding-ethos-toolchain",
+			"install-git-hooks",
+			"--hooks-dir",
+			paths.HooksDir,
+			"--runner",
+			paths.RunBinary,
+		)
 		runtimeRunTool(paths, "coding-ethos-agent-hooks", "sync", "--root", paths.Root)
 		execCutoverVerify(paths, "install")
 	default:
@@ -63,11 +72,14 @@ func persistAgentEnvironment(paths runtimePaths) {
 	if envFile == "" {
 		return
 	}
+
 	installGitWrapperShim(paths)
+
 	file, err := os.OpenFile(envFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		exitErr(fmt.Errorf("open Claude env file %s: %w", envFile, err))
 	}
+
 	_, err = fmt.Fprintf(
 		file,
 		"export CODING_ETHOS_REAL_GIT=%q\nexport CODING_ETHOS_RUN_GO_HOOK=%q\nexport PATH=%q:\"$PATH\"\n",
@@ -77,8 +89,10 @@ func persistAgentEnvironment(paths runtimePaths) {
 	)
 	if err != nil {
 		_ = file.Close()
+
 		exitErr(fmt.Errorf("write Claude env file %s: %w", envFile, err))
 	}
+
 	if err := file.Close(); err != nil {
 		exitErr(fmt.Errorf("close Claude env file %s: %w", envFile, err))
 	}

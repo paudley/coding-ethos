@@ -13,10 +13,12 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 
 	rewriteProviders := map[string]bool{}
 	blockProviders := map[string]bool{}
+
 	for _, probe := range hookProbes() {
 		if strings.Contains(probe.payload, "git status --short") {
 			rewriteProviders[probe.provider] = true
 		}
+
 		if strings.Contains(probe.payload, "coding-ethos-"+"hooks") {
 			blockProviders[probe.provider] = true
 		}
@@ -30,6 +32,7 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 		if !rewriteProviders[provider] {
 			t.Fatalf("missing rewrite doctor probe for %s", provider)
 		}
+
 		if !blockProviders[provider] {
 			t.Fatalf("missing block doctor probe for %s", provider)
 		}
@@ -51,13 +54,18 @@ func TestClaudeDoctorRewriteRequiresRedirection(t *testing.T) {
 		},
 	}
 
-	if err := validateClaudeRewriteProbe(result); err == nil {
+	err := validateClaudeRewriteProbe(result)
+	if err == nil {
 		t.Fatal("Claude rewrite without redirection passed doctor validation")
 	}
-	if err := validateCodexRewriteProbe(result); err == nil {
+
+	err = validateCodexRewriteProbe(result)
+	if err == nil {
 		t.Fatal("Codex rewrite probe should reject unsupported updatedInput")
 	}
-	if err := validateGeminiRewriteProbe(result); err != nil {
+
+	err = validateGeminiRewriteProbe(result)
+	if err != nil {
 		t.Fatalf("Gemini rewrite should not require Claude redirection: %v", err)
 	}
 }

@@ -26,6 +26,7 @@ func TestCollectInspectionContextAnnotatesAdminReadOnlyOnce(t *testing.T) {
 	if !ctx.AdminApproved || !ctx.ReadOnlyInspection {
 		t.Fatalf("inspection context not annotated: %#v", ctx)
 	}
+
 	if ctx.Provider != providerCodex {
 		t.Fatalf("provider = %q, want %q", ctx.Provider, providerCodex)
 	}
@@ -70,6 +71,7 @@ func TestDecideInspectionClearsRewriteWhenPolicyBlocks(t *testing.T) {
 	if decision.Status != statusBlocked {
 		t.Fatalf("status = %q, want blocked", decision.Status)
 	}
+
 	if decision.Route.Rewrite || len(decision.Route.UpdatedInput) > 0 {
 		t.Fatalf("blocked inspection must clear route rewrite: %#v", decision.Route)
 	}
@@ -90,6 +92,7 @@ func TestDecideInspectionConvertsRouteBlockToPolicyDecision(t *testing.T) {
 	if decision.Status != statusBlocked || len(decision.Policies) != 1 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
+
 	if decision.Policies[0].PolicyID != "git.wrapper_required" {
 		t.Fatalf("policy = %#v", decision.Policies[0])
 	}
@@ -110,9 +113,11 @@ func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
 	if decision.Status != statusBlocked || len(decision.Policies) != 1 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
+
 	if decision.Policies[0].PolicyID != providerRewritePolicyID {
 		t.Fatalf("policy = %#v", decision.Policies[0])
 	}
+
 	if decision.Route.Rewrite || len(decision.Route.UpdatedInput) > 0 {
 		t.Fatalf("blocked inspection must clear route rewrite: %#v", decision.Route)
 	}
@@ -133,8 +138,12 @@ func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
 	if decision.Status != statusAllowed || len(decision.Policies) != 0 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
+
 	if decision.Route.Rewrite || len(decision.Route.UpdatedInput) > 0 {
-		t.Fatalf("unsupported provider inspection must clear route rewrite: %#v", decision.Route)
+		t.Fatalf(
+			"unsupported provider inspection must clear route rewrite: %#v",
+			decision.Route,
+		)
 	}
 }
 

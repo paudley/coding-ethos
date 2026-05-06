@@ -55,6 +55,7 @@ func priorityEthosRemindersFor(
 		minInt(maxPriorityEthosReminders, len(candidates)),
 	)
 	seen := map[string]bool{}
+
 	for _, decision := range decisions {
 		for _, principleID := range decision.PrincipleIDs {
 			key := decision.PolicyID + "\x00" + principleID
@@ -77,6 +78,7 @@ func priorityEthosRemindersFor(
 				renderPolicyReminder(decision.PolicyID, selected, reminderKindPriority),
 			)
 			seen[key] = true
+
 			if len(reminders) >= maxPriorityEthosReminders {
 				return reminders
 			}
@@ -93,6 +95,7 @@ func postToolEthosRemindersFor(
 	if event.HookEventName != "PostToolUse" {
 		return nil
 	}
+
 	if len(config.Items) == 0 {
 		config = fallbackReminderConfig()
 	}
@@ -127,9 +130,11 @@ func ambientPostToolReminder(
 	if percent == 0 && config.QuietFrequency > 0 {
 		percent = 100 / config.QuietFrequency
 	}
+
 	if percent <= 0 {
 		percent = policy.DefaultReminderAmbientFrequencyPercent()
 	}
+
 	if percent > 100 {
 		percent = 100
 	}
@@ -151,6 +156,7 @@ func postToolPriorityReminders(
 	}
 
 	reminders := []renderedEthosReminder{}
+
 	for _, principleID := range []string{staticAnalysisPrincipleID, lintQualityPrincipleID} {
 		principleReminders := ethosRemindersForPrinciple(config, principleID)
 		if len(principleReminders) == 0 {
@@ -185,6 +191,7 @@ func appendRenderedReminders(
 	}
 
 	lines = append(lines, "", header)
+
 	for _, reminder := range reminders {
 		if reminder.Kind == reminderKindAmbient {
 			lines = append(
@@ -322,6 +329,7 @@ func ethosRemindersForPrinciple(
 	principleID string,
 ) []policy.EthosReminder {
 	reminders := []policy.EthosReminder{}
+
 	for _, reminder := range config.Items {
 		if reminder.PrincipleID == principleID {
 			reminders = append(reminders, reminder)
@@ -382,7 +390,7 @@ func isLintCommand(command string) bool {
 	return false
 }
 
-func commandMentionsToken(command string, token string) bool {
+func commandMentionsToken(command, token string) bool {
 	return strings.Contains(" "+command+" ", " "+token+" ") ||
 		strings.Contains(command, "/"+token+" ") ||
 		strings.Contains(command, "/"+token+"\n") ||
@@ -402,7 +410,7 @@ func stableStringIndex(parts []string, candidateCount int) int {
 	return index
 }
 
-func minInt(first int, second int) int {
+func minInt(first, second int) int {
 	if first < second {
 		return first
 	}

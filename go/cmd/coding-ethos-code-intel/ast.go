@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -16,21 +15,23 @@ import (
 
 func indexCode(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("index-code", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root to index")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse index-code flags: %w", err)
-	}
+	storeFlags := addStoreFlags(flags, "Repository root to index")
 
-	store, err := openStore(ctx, *root, *dbPath)
+	err := parseCommandFlags(flags, args, "index-code")
 	if err != nil {
 		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return fmt.Errorf("index code paths: %w", err)
 	}
 	defer store.Close()
 
-	summary, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, *root, flags.Args())
+	summary, err := codeintel.NewASTIndexer(store).
+		IndexPaths(ctx, *storeFlags.root, flags.Args())
 	if err != nil {
-		return err
+		return fmt.Errorf("index code paths: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, summary)
@@ -38,58 +39,58 @@ func indexCode(ctx context.Context, args []string) error {
 
 func printCodeChunks(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("code-chunks", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	path := flags.String("path", "", "Filter by source path")
 	language := flags.String("language", "", "Filter by language")
 	symbolKind := flags.String("symbol-kind", "", "Filter by symbol kind")
 	symbolName := flags.String("symbol-name", "", "Filter by symbol name")
 	symbolPath := flags.String("symbol-path", "", "Filter by symbol path")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse code-chunks flags: %w", err)
-	}
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
-		Path:       *path,
-		Language:   *language,
-		SymbolKind: *symbolKind,
-		SymbolName: *symbolName,
-		SymbolPath: *symbolPath,
-		Limit:      *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, chunks)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"code-chunks",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+				Path:       *path,
+				Language:   *language,
+				SymbolKind: *symbolKind,
+				SymbolName: *symbolName,
+				SymbolPath: *symbolPath,
+				Limit:      *limit,
+			})
+		},
+	)
 }
 
 func printCodeContext(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("code-context", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	chunkID := flags.String("chunk-id", "", "Code chunk ID")
 	path := flags.String("path", "", "Filter by source path")
 	symbolPath := flags.String("symbol-path", "", "Symbol path")
 	line := flags.Int("line", 0, "One-based source line for nearest context lookup")
-	limit := flags.Int("limit", 20, "Maximum related item count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse code-context flags: %w", err)
+	limit := addRelatedLimit(flags)
+
+	err := parseCommandFlags(flags, args, "code-context")
+	if err != nil {
+		return err
 	}
+
 	if strings.TrimSpace(*chunkID) == "" &&
 		((strings.TrimSpace(*path) == "" || strings.TrimSpace(*symbolPath) == "") &&
 			(strings.TrimSpace(*path) == "" || *line <= 0)) {
-		return errors.New("--chunk-id, both --path and --symbol-path, or --path and --line are required")
+		return fmt.Errorf(
+			"%w: %s",
+			errCodeContextTarget,
+			"--chunk-id, both --path and --symbol-path, or --path and --line are required",
+		)
 	}
 
-	store, err := openStore(ctx, *root, *dbPath)
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
 	if err != nil {
 		return err
 	}
@@ -103,7 +104,7 @@ func printCodeContext(ctx context.Context, args []string) error {
 		Limit:      *limit,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("read code context: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, context)

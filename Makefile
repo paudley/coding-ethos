@@ -9,10 +9,10 @@ SHELL := bash
 .DELETE_ON_ERROR:
 
 LOCAL_REPO_ROOT := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
-PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
-HOOKS_GO_DIR := $(PRECOMMIT_DIR)hooks/go-hooks
-GO_HOOK_SOURCES := $(wildcard $(HOOKS_GO_DIR)/*.go)
 GO_TOOLS_DIR := $(LOCAL_REPO_ROOT)/go
+PRECOMMIT_DIR := $(LOCAL_REPO_ROOT)/pre-commit/
+HOOK_RUNNER_GO_DIR := $(GO_TOOLS_DIR)/cmd/coding-ethos-hook-runner
+GO_HOOK_SOURCES := $(wildcard $(HOOK_RUNNER_GO_DIR)/*.go)
 LOCAL_BIN_DIR := $(LOCAL_REPO_ROOT)/bin
 GO_HOOK := $(LOCAL_BIN_DIR)/coding-ethos-run
 LOCAL_BUILD_DIR := $(LOCAL_REPO_ROOT)/build
@@ -23,6 +23,8 @@ MANAGED_PREFIX_DIR := $(TOOLCHAIN_DIR)/prefix
 MANAGED_GITHUB_BIN_DIR := $(TOOLCHAIN_DIR)/github-bin
 MANAGED_TOOLCHAIN_SOURCE := $(PRECOMMIT_DIR)hooks/managed-toolchain.tsv
 MANAGED_TOOLCHAIN_MANIFEST := $(TOOLCHAIN_DIR)/manifest.tsv
+GOLANGCI_LINT := $(MANAGED_GO_BIN_DIR)/golangci-lint
+GOLINES := $(MANAGED_GO_BIN_DIR)/golines
 
 GIT ?= /usr/bin/git
 UV ?= uv
@@ -81,7 +83,10 @@ GO_TOOL_CMDS := \
 
 GO_COVERAGE_MIN ?= 80.0
 PYTHON_COVERAGE_MIN ?= 80
+GO_TEST_TIMEOUT ?= 30s
 GO_COVERAGE_DIR ?= $(LOCAL_BUILD_DIR)/coverage
+GO_E2E_COVERDIR ?= $(GO_COVERAGE_DIR)/e2e-coverdir
+GO_E2E_TEST_BINARY ?= $(GO_COVERAGE_DIR)/coding-ethos-e2e.test
 REPO ?= $(LOCAL_REPO_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
 REPO_ETHOS ?=
@@ -190,8 +195,14 @@ endef
 	hook-plan \
 	validate \
 	go-test \
+	go-lint \
+	go-lint-fix \
+	go-e2e-test \
 	go-tidy \
 	go-fmt \
+	go-tools-fmt \
+	python-autofix \
+	autofix \
 	fmt \
 	go-tools-test \
 	go-tools-build \
@@ -334,7 +345,7 @@ python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
 	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
 	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
 
-check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-tools-smoke ## Run the repo's current verification gate.
+check: test check-tool-configs check-gemini-prompts go-test go-tools-test go-e2e-test go-tools-smoke ## Run the repo's current verification gate.
 
 package-smoke: ## Build, install, and smoke test the wheel outside the source checkout.
 	@$(call print_step,Smoke testing built Python package)
@@ -350,11 +361,7 @@ package-smoke: ## Build, install, and smoke test the wheel outside the source ch
 			dist/coding_ethos-*.whl >/dev/null && \
 		cd "$$consumer" && \
 		"$$smoke_env/bin/coding-ethos" --repo generated >/dev/null && \
-		"$$smoke_env/bin/coding-ethos" --repo configs --sync-tool-configs >/dev/null && \
-		"$$smoke_env/bin/coding-ethos" --repo prompts --sync-gemini-prompts >/dev/null && \
-		test -s generated/ETHOS.md && \
-		test -s configs/pyrightconfig.json && \
-		test -s prompts/.code-ethos/gemini/prompt-pack.json
+		test -s generated/ETHOS.md
 	@$(call print_info,package smoke passed)
 
 release-dry-run: package-smoke ## Validate release package metadata, checksums, and GitHub workflows locally.
@@ -371,51 +378,62 @@ release-dry-run: package-smoke ## Validate release package metadata, checksums, 
 	@$(call print_info,release dry run passed)
 
 ##@ Hooks
-sync-tool-configs: ensure-uv ## Generate repo-root static-analysis configs from policy.
+sync-tool-configs: ensure-go ## Generate repo-root static-analysis configs from policy.
 	@$(call print_step,Syncing generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
-	@$(APP) $(TOOL_CONFIG_FLAGS) --sync-tool-configs
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		sync-tool-configs --ethos-root "$(LOCAL_REPO_ROOT)" $(TOOL_CONFIG_FLAGS)
 
-sync-consumer-tool-configs: ensure-uv ## Generate consumer repo tool configs when installed in a parent repo.
+sync-consumer-tool-configs: ensure-go ## Generate consumer repo tool configs when installed in a parent repo.
 	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
 		$(call print_step,Syncing generated consumer tool configs); \
 		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
-		$(APP) --repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG) --sync-tool-configs; \
+		cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+			sync-tool-configs --ethos-root "$(LOCAL_REPO_ROOT)" \
+			--repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG); \
 	fi
 
-fix-configs: ensure-uv ## Restore generated consumer repo tool configs.
+fix-configs: ensure-go ## Restore generated consumer repo tool configs.
 	@$(call print_step,Restoring generated consumer tool configs)
 	@$(call print_info,repo: $(HOOK_CONSUMER_ROOT))
-	@$(APP) --repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG) --sync-tool-configs
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		sync-tool-configs --ethos-root "$(LOCAL_REPO_ROOT)" \
+		--repo "$(HOOK_CONSUMER_ROOT)" $(REPO_CONFIG_FLAG)
 
-check-tool-configs: ensure-uv ## Fail if repo-root generated tool configs are out of sync.
+check-tool-configs: ensure-go ## Fail if repo-root generated tool configs are out of sync.
 	@$(call print_step,Checking generated tool configs)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
-	@$(APP) $(TOOL_CONFIG_FLAGS) --check-tool-configs
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		check-tool-configs --ethos-root "$(LOCAL_REPO_ROOT)" $(TOOL_CONFIG_FLAGS)
 
-sync-gemini-prompts: ensure-uv ## Generate the grounded Gemini prompt pack for hook runtime.
+sync-gemini-prompts: ensure-go ## Generate the grounded Gemini prompt pack for hook runtime.
 	@$(call print_step,Syncing grounded Gemini prompt pack)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(call print_info,primary: $(PRIMARY))
-	@$(APP) $(GEMINI_PROMPT_FLAGS) --sync-gemini-prompts
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		sync-gemini-prompts --ethos-root "$(LOCAL_REPO_ROOT)" $(GEMINI_PROMPT_FLAGS)
 
-check-gemini-prompts: ensure-uv ## Fail if the grounded Gemini prompt pack is out of sync.
+check-gemini-prompts: ensure-go ## Fail if the grounded Gemini prompt pack is out of sync.
 	@$(call print_step,Checking grounded Gemini prompt pack)
 	@$(call print_info,repo: $(TOOL_CONFIG_REPO))
 	@$(call print_info,primary: $(PRIMARY))
-	@$(APP) $(GEMINI_PROMPT_FLAGS) --check-gemini-prompts
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		check-gemini-prompts --ethos-root "$(LOCAL_REPO_ROOT)" $(GEMINI_PROMPT_FLAGS)
 
-_sync-agent-skills: ensure-uv
+_sync-agent-skills: ensure-go
 	@$(call print_step,Syncing generated agent skill surfaces)
 	@$(call print_info,repo: $(REPO))
 	@$(call print_info,primary: $(PRIMARY))
-	@$(APP) $(AGENT_SKILL_FLAGS) --sync-agent-skills
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		sync-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" $(AGENT_SKILL_FLAGS)
 
-_sync-consumer-agent-skills: ensure-uv
+_sync-consumer-agent-skills: ensure-go
 	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
 		$(call print_step,Syncing generated consumer agent skill surfaces); \
 		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
-		$(APP) --repo "$(HOOK_CONSUMER_ROOT)" --primary "$(PRIMARY)" --sync-agent-skills; \
+		cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+			sync-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" \
+			--repo "$(HOOK_CONSUMER_ROOT)" --primary "$(PRIMARY)"; \
 	fi
 
 _sync-agent-hooks: ensure-go go-tools-install
@@ -434,16 +452,12 @@ _sync-consumer-agent-hooks: ensure-go go-tools-install
 			--hook-command "$(GO_HOOK) agent-hook"; \
 	fi
 
-check-agent-skills: ensure-uv ## Fail if provider skill surfaces are out of sync.
+check-agent-skills: ensure-go ## Fail if provider skill surfaces are out of sync.
 	@$(call print_step,Checking generated agent skill surfaces)
 	@$(call print_info,repo: $(REPO))
 	@$(call print_info,primary: $(PRIMARY))
-	@$(APP) $(AGENT_SKILL_FLAGS) --check-agent-skills
-
-BEST_PRACTICES_MAX_URL_LENGTH ?= 1800
-
-best-practices-prefill: ensure-uv ## Print chunked OpenSSF Best Practices Gold prefill URLs and gap report.
-	@$(UV) run $(PYTHON) tools/best_practices_prefill.py --section gold --max-url-length "$(BEST_PRACTICES_MAX_URL_LENGTH)"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" run ./cmd/coding-ethos-policy \
+		check-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" $(AGENT_SKILL_FLAGS)
 
 build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
@@ -462,7 +476,7 @@ managed-go-tools-install: managed-toolchain-install ## Alias for installing mana
 go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the checkout-local bin directory.
 	@$(call print_step,Installing bundled Go hook runner)
 	@mkdir -p "$(LOCAL_BIN_DIR)"
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" build $(GO_BUILD_FLAGS) -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" .
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" build $(GO_BUILD_FLAGS) -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" ./cmd/coding-ethos-hook-runner
 	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
 
 _sync-git-hooks: ensure-go go-tools-install
@@ -540,33 +554,83 @@ validate: build ## Validate the bundled hook runtime.
 
 go-test: ensure-go ## Run the bundled Go helper tests.
 	@$(call print_step,Running bundled Go hook tests)
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" test ./...
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -timeout="$(GO_TEST_TIMEOUT)" ./cmd/coding-ethos-hook-runner
+
+go-lint: ensure-go ## Run managed golangci-lint against the full shared Go module.
+	@$(call print_step,Running managed golangci-lint against shared Go module)
+	@test -x "$(GOLANGCI_LINT)" || { \
+		printf '$(COLOR_WARN)%s is missing; run `make build` first.$(COLOR_RESET)\n' "$(GOLANGCI_LINT)" >&2; \
+		exit 1; \
+	}
+	@cd "$(GO_TOOLS_DIR)" && "$(GOLANGCI_LINT)" run --config ../.golangci.yml ./...
+
+go-lint-fix: ensure-go ## Apply managed golangci-lint autofixes to the full shared Go module.
+	@$(call print_step,Applying managed golangci-lint autofixes)
+	@test -x "$(GOLANGCI_LINT)" || { \
+		printf '$(COLOR_WARN)%s is missing; run `make build` first.$(COLOR_RESET)\n' "$(GOLANGCI_LINT)" >&2; \
+		exit 1; \
+	}
+	@cd "$(GO_TOOLS_DIR)" && "$(GOLANGCI_LINT)" run --fix --config ../.golangci.yml ./...
+
+go-tools-fmt: ensure-go ## Format shared Go tools with managed golangci-lint formatters.
+	@$(call print_step,Formatting shared Go tools)
+	@test -x "$(GOLANGCI_LINT)" || { \
+		printf '$(COLOR_WARN)%s is missing; run `make build` first.$(COLOR_RESET)\n' "$(GOLANGCI_LINT)" >&2; \
+		exit 1; \
+	}
+	@test -x "$(GOLINES)" || { \
+		printf '$(COLOR_WARN)%s is missing; run `make build` first.$(COLOR_RESET)\n' "$(GOLINES)" >&2; \
+		exit 1; \
+	}
+	@cd "$(GO_TOOLS_DIR)" && "$(GOLANGCI_LINT)" fmt --config ../.golangci.yml
+
+go-e2e-test: build ensure-go ## Run real workflow Go end-to-end tests.
+	@$(call print_step,Running Go end-to-end workflow tests)
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -timeout="$(GO_TEST_TIMEOUT)" ./internal/e2e -count=1
 
 go-coverage: go-tools-coverage go-hooks-coverage ## Run all Go tests with coverage enforcement.
 
-go-tools-coverage: ensure-go ## Run shared Go tool tests with coverage enforcement.
+go-tools-coverage: build ensure-go ## Run shared Go tool tests with coverage enforcement.
 	@$(call print_step,Running shared Go coverage)
 	@mkdir -p "$(GO_COVERAGE_DIR)"
-	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test ./... -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-shared.out"
+	@rm -rf "$(GO_E2E_COVERDIR)"
+	@mkdir -p "$(GO_E2E_COVERDIR)"
+	@cd "$(GO_TOOLS_DIR)" && mapfile -t packages < <("$(GO)" list -buildvcs=false ./... | grep -v '/internal/e2e$$') && \
+		"$(GO)" test -buildvcs=false -short "$${packages[@]}" -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-shared.out"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -c -buildvcs=false -cover -coverpkg=./... -o "$(GO_E2E_TEST_BINARY)" ./internal/e2e
+	@cd "$(GO_TOOLS_DIR)" && \
+		export GOCOVERDIR="$(GO_E2E_COVERDIR)" && \
+		"$(GO_E2E_TEST_BINARY)" -test.timeout="$(GO_TEST_TIMEOUT)" -test.v
+	@if find "$(GO_E2E_COVERDIR)" -type f -name 'covmeta.*' -print -quit | grep -q .; then \
+		"$(GO)" tool covdata textfmt -i="$(GO_E2E_COVERDIR)" -o="$(GO_COVERAGE_DIR)/go-e2e-subprocess.out"; \
+		"$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-e2e-subprocess.out" > "$(GO_COVERAGE_DIR)/go-e2e-subprocess.txt"; \
+	fi
 	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-shared.out" > "$(GO_COVERAGE_DIR)/go-shared.txt"
 	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "shared Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-shared.txt"
 
 go-hooks-coverage: ensure-go ## Run bundled Go hook tests with coverage enforcement.
 	@$(call print_step,Running bundled Go hook coverage)
 	@mkdir -p "$(GO_COVERAGE_DIR)"
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" test ./... -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-hooks.out"
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-hooks.out" > "$(GO_COVERAGE_DIR)/go-hooks.txt"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -buildvcs=false -timeout="$(GO_TEST_TIMEOUT)" ./cmd/coding-ethos-hook-runner -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-hooks.out"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-hooks.out" > "$(GO_COVERAGE_DIR)/go-hooks.txt"
 	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "hook Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-hooks.txt"
 
-go-tidy: ensure-go go-fmt ## Tidy and format the bundled Go hook helper.
-	@$(call print_step,Tidying bundled Go hook helper)
-	@cd "$(HOOKS_GO_DIR)" && "$(GO)" mod tidy
+go-tidy: ensure-go go-fmt ## Tidy the shared Go module.
+	@$(call print_step,Tidying shared Go module)
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" mod tidy
 
-go-fmt: ensure-gofmt ## Format the bundled Go hook helper.
-	@$(call print_step,Formatting bundled Go hook helper)
+go-fmt: ensure-gofmt ## Format the bundled Go hook runner.
+	@$(call print_step,Formatting bundled Go hook runner)
 	@"$(GOFMT)" -w $(GO_HOOK_SOURCES)
 
-fmt: go-fmt ## Format repo-owned generated helper source files.
+python-autofix: ensure-uv ## Apply Ruff autofixes and formatting to Python sources.
+	@$(call print_step,Applying Ruff autofixes)
+	@$(UV) run ruff check --fix --ignore-noqa coding_ethos tests
+	@$(UV) run ruff format --quiet coding_ethos tests
+
+autofix: python-autofix go-tools-fmt go-lint-fix ## Apply managed autofixers and formatters.
+
+fmt: python-autofix go-fmt go-tools-fmt ## Format repo-owned source files.
 
 go-tools-test: ensure-go ## Run the shared Go tool tests.
 	@$(call print_step,Running shared Go tool tests)
@@ -621,7 +685,7 @@ seed: ensure-uv guard-SEED_FROM ## Seed or refresh the primary ethos YAML from m
 	@$(call print_info,destination: $(PRIMARY))
 	@$(APP) --primary "$(PRIMARY)" --seed-from-markdown "$(SEED_FROM)"
 
-generate: ensure-uv ## Generate agent-facing files into REPO.
+generate: ensure-uv _sync-agent-skills ## Generate agent-facing files into REPO.
 	@$(call print_step,Generating agent-facing files)
 	@$(call print_info,repo: $(REPO))
 	@$(call print_info,primary: $(PRIMARY))

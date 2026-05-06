@@ -23,7 +23,7 @@ func intOption(options map[string]any, key string, defaultValue int) int {
 	}
 }
 
-func stringOption(options map[string]any, key string, defaultValue string) string {
+func stringOption(options map[string]any, key, defaultValue string) string {
 	raw, exists := options[key]
 	if !exists {
 		return defaultValue

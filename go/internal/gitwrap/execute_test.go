@@ -4,7 +4,6 @@
 package gitwrap_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"context"
 	"os"
 	"os/exec"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 

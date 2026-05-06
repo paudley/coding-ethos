@@ -24,7 +24,10 @@ func NewTraceIngester(store *Store) TraceIngester {
 	return TraceIngester{store: store}
 }
 
-func (ingester TraceIngester) IngestLintTrace(ctx context.Context, payload []byte) error {
+func (ingester TraceIngester) IngestLintTrace(
+	ctx context.Context,
+	payload []byte,
+) error {
 	trace, err := DecodeLintTrace("", payload)
 	if err != nil {
 		return err
@@ -33,7 +36,10 @@ func (ingester TraceIngester) IngestLintTrace(ctx context.Context, payload []byt
 	return ingester.store.IngestTrace(ctx, trace)
 }
 
-func (ingester TraceIngester) IngestHookTrace(ctx context.Context, payload []byte) error {
+func (ingester TraceIngester) IngestHookTrace(
+	ctx context.Context,
+	payload []byte,
+) error {
 	trace, err := DecodeHookTrace("", payload)
 	if err != nil {
 		return err
@@ -47,20 +53,24 @@ func (ingester TraceIngester) IngestTraceDirs(
 	root string,
 ) (IngestSummary, error) {
 	summary := IngestSummary{}
-	if err := ingester.ingestTraceDir(
+
+	err := ingester.ingestTraceDir(
 		ctx,
 		filepath.Join(root, ".coding-ethos", "lint-runs"),
 		"lint",
 		&summary,
-	); err != nil {
+	)
+	if err != nil {
 		return summary, err
 	}
-	if err := ingester.ingestTraceDir(
+
+	err = ingester.ingestTraceDir(
 		ctx,
 		filepath.Join(root, ".coding-ethos", "hook-runs"),
 		"hook",
 		&summary,
-	); err != nil {
+	)
+	if err != nil {
 		return summary, err
 	}
 
@@ -78,23 +88,30 @@ func (ingester TraceIngester) ingestTraceDir(
 			if os.IsNotExist(err) {
 				return filepath.SkipDir
 			}
+
 			return fmt.Errorf("walk trace dir %q: %w", dir, err)
 		}
+
 		if entry.IsDir() || filepath.Ext(path) != ".json" {
 			return nil
 		}
+
 		if kind == "hook" && filepath.Base(path) != "event.json" {
 			return nil
 		}
 
 		summary.FilesScanned++
+
 		payload, readErr := os.ReadFile(filepath.Clean(path))
 		if readErr != nil {
 			return fmt.Errorf("read trace %q: %w", path, readErr)
 		}
-		if ingestErr := ingester.ingestTracePayload(ctx, kind, path, payload); ingestErr != nil {
+
+		ingestErr := ingester.ingestTracePayload(ctx, kind, path, payload)
+		if ingestErr != nil {
 			return ingestErr
 		}
+
 		summary.FilesIngested++
 
 		return nil
@@ -111,6 +128,7 @@ func (ingester TraceIngester) ingestTracePayload(
 		trace Trace
 		err   error
 	)
+
 	switch kind {
 	case "lint":
 		trace, err = DecodeLintTrace(path, payload)
@@ -119,6 +137,7 @@ func (ingester TraceIngester) ingestTracePayload(
 	default:
 		return fmt.Errorf("unsupported trace kind %q", kind)
 	}
+
 	if err != nil {
 		return err
 	}
@@ -128,9 +147,12 @@ func (ingester TraceIngester) ingestTracePayload(
 
 func DecodeLintTrace(path string, payload []byte) (Trace, error) {
 	var record lint.TraceRecord
-	if err := json.Unmarshal(payload, &record); err != nil {
+
+	err := json.Unmarshal(payload, &record)
+	if err != nil {
 		return Trace{}, fmt.Errorf("decode lint trace %q: %w", path, err)
 	}
+
 	traceID := traceIDOrSourceFallback(record.TraceID, path)
 
 	return Trace{
@@ -149,9 +171,12 @@ func DecodeLintTrace(path string, payload []byte) (Trace, error) {
 
 func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 	var record hooks.HookTrace
-	if err := json.Unmarshal(payload, &record); err != nil {
+
+	err := json.Unmarshal(payload, &record)
+	if err != nil {
 		return Trace{}, fmt.Errorf("decode hook trace %q: %w", path, err)
 	}
+
 	record.TraceID = traceIDOrSourceFallback(record.TraceID, path)
 
 	return Trace{
@@ -174,7 +199,7 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 	}, nil
 }
 
-func traceIDOrSourceFallback(traceID string, path string) string {
+func traceIDOrSourceFallback(traceID, path string) string {
 	if strings.TrimSpace(traceID) != "" || strings.TrimSpace(path) == "" {
 		return traceID
 	}
@@ -222,6 +247,7 @@ func hookDecisionAnalytics(record hooks.HookTrace) []HookDecisionAnalytics {
 	if len(record.Decisions) == 0 {
 		return nil
 	}
+
 	decisions := make([]HookDecisionAnalytics, 0, len(record.Decisions))
 	for index, decision := range record.Decisions {
 		decisions = append(decisions, HookDecisionAnalytics{
@@ -249,6 +275,7 @@ func hookTargetAnalytics(record hooks.HookTrace) []HookTargetAnalytics {
 	if len(record.Files) == 0 {
 		return nil
 	}
+
 	targets := make([]HookTargetAnalytics, 0, len(record.Files))
 	for index, target := range record.Files {
 		targets = append(targets, HookTargetAnalytics{

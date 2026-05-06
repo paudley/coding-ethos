@@ -6,6 +6,7 @@ package hooks
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	files := event.Files()
 	lintState := postEditLintState(bundle, event)
 	fastLintState := postEditFastLintState(bundle, event)
+
 	lintHistory := postEditLintHistory(event)
 	if event.Provider() == providerCodex &&
 		!postEditHasActionableSignal(lintState, fastLintState, lintHistory) {
@@ -123,6 +125,7 @@ func buildPostEditContext(
 
 func postEditLanguageAdvice(files []string) []string {
 	languages := map[string]bool{}
+
 	for _, file := range files {
 		normalized := filepath.ToSlash(file)
 		switch strings.ToLower(filepath.Ext(normalized)) {
@@ -137,6 +140,7 @@ func postEditLanguageAdvice(files []string) []string {
 		case ".md":
 			languages["markdown"] = true
 		}
+
 		if strings.HasPrefix(normalized, ".github/workflows/") {
 			languages["github_actions"] = true
 		}
@@ -149,20 +153,27 @@ func postEditLanguageAdvice(files []string) []string {
 			"- python: run ruff/mypy/pyright or a focused pytest target before claiming the edit is complete.",
 		)
 	}
+
 	if languages["go"] {
 		advice = append(
 			advice,
 			"- go: run gofmt plus focused go test/golangci-lint for the touched package.",
 		)
 	}
+
 	if languages["shell"] {
-		advice = append(advice, "- shell: run shellcheck and verify quoting/fail-fast behavior.")
+		advice = append(
+			advice,
+			"- shell: run shellcheck and verify quoting/fail-fast behavior.",
+		)
 	}
+
 	if languages["github_actions"] {
 		advice = append(advice, "- github-actions: run actionlint for workflow changes.")
 	} else if languages["yaml"] {
 		advice = append(advice, "- yaml: run yamllint or the repo-specific YAML validator.")
 	}
+
 	if languages["markdown"] {
 		advice = append(
 			advice,
@@ -174,9 +185,9 @@ func postEditLanguageAdvice(files []string) []string {
 }
 
 type postEditLintResult struct {
-	Diagnostics []diagnostics.Diagnostic
 	Error       string
 	Status      string
+	Diagnostics []diagnostics.Diagnostic
 	Checked     bool
 }
 
@@ -232,6 +243,7 @@ func postEditLintHistory(event Event) postEditLintHistoryResult {
 
 func postEditHistoryFiles(event Event) []string {
 	files := []string{}
+
 	for _, file := range event.Files() {
 		item := file
 		if event.Cwd != "" && filepath.IsAbs(item) {
@@ -241,6 +253,7 @@ func postEditHistoryFiles(event Event) []string {
 				item = relative
 			}
 		}
+
 		files = append(files, item)
 	}
 
@@ -248,7 +261,7 @@ func postEditHistoryFiles(event Event) []string {
 }
 
 func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult {
-	files := pythonPostEditFiles(event.Files())
+	files := existingPythonPostEditFiles(event.Cwd, event.Files())
 	if len(files) == 0 {
 		return postEditLintResult{}
 	}
@@ -264,12 +277,15 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 	command.Dir = event.Cwd
 
 	output, err := command.CombinedOutput()
+
 	parsed := diagnostics.Parse("ruff", string(output), "")
 	if len(parsed) > 0 {
 		parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
 		parsed = diagnostics.Dedupe(parsed)
+
 		return postEditLintResult{Checked: true, Status: statusBlocked, Diagnostics: parsed}
 	}
+
 	if err != nil {
 		if ctx.Err() != nil {
 			return postEditLintResult{Checked: true, Error: "ruff timed out"}
@@ -283,6 +299,7 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 
 func pythonPostEditFiles(files []string) []string {
 	pythonFiles := []string{}
+
 	for _, file := range files {
 		if strings.EqualFold(filepath.Ext(file), ".py") {
 			pythonFiles = append(pythonFiles, file)
@@ -290,6 +307,25 @@ func pythonPostEditFiles(files []string) []string {
 	}
 
 	return pythonFiles
+}
+
+func existingPythonPostEditFiles(cwd string, files []string) []string {
+	existing := []string{}
+	for _, file := range pythonPostEditFiles(files) {
+		path := file
+		if cwd != "" && !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		existing = append(existing, file)
+	}
+
+	return existing
 }
 
 func appendPostEditLintHistory(
@@ -301,6 +337,7 @@ func appendPostEditLintHistory(
 	}
 
 	analysis := history.Analysis
+
 	lines = append(
 		lines,
 		"",
@@ -310,12 +347,21 @@ func appendPostEditLintHistory(
 	if len(analysis.TopChecks) > 0 {
 		lines = append(lines, "- recurring_checks: "+postEditCountsLine(analysis.TopChecks))
 	}
+
 	if len(analysis.TopCodes) > 0 {
-		lines = append(lines, "- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes))
+		lines = append(
+			lines,
+			"- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes),
+		)
 	}
+
 	if len(analysis.UnmappedCodes) > 0 {
-		lines = append(lines, "- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes))
+		lines = append(
+			lines,
+			"- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes),
+		)
 	}
+
 	if len(analysis.GuidanceCandidates) == 0 {
 		return lines
 	}
@@ -337,6 +383,7 @@ func appendPostEditSkillAdvice(
 	for _, state := range states {
 		diagnostics = append(diagnostics, state.Diagnostics...)
 	}
+
 	hints := lint.SkillHintsForDiagnostics(diagnostics, skills)
 	if len(hints) == 0 {
 		return lines
@@ -367,6 +414,7 @@ func postEditGuidanceCandidateLine(candidate lint.GuidanceCandidate) string {
 	if code == "" {
 		code = candidate.CheckID
 	}
+
 	if code != "" {
 		code = " [" + code + "]"
 	}
@@ -472,6 +520,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 			location += fmt.Sprintf(":%d", item.Column)
 		}
 	}
+
 	if location == "" {
 		location = "<unknown>"
 	}
@@ -480,6 +529,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 	if code == "" {
 		code = item.PolicyID
 	}
+
 	if code != "" {
 		code = " [" + code + "]"
 	}
@@ -488,6 +538,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 	if advice != "" {
 		advice = " advice: " + advice
 	}
+
 	skill := item.SkillID
 	if skill != "" {
 		skill = " skill: " + skill

@@ -9,13 +9,13 @@ import "blackcat.ca/coding-ethos/go/internal/policy"
 type Result struct {
 	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
 	Event              string              `json:"event"`
-	Advice             policy.Advice       `json:"advice,omitempty"`
 	Provider           string              `json:"provider,omitempty"`
-	RuntimeMS          int64               `json:"runtime_ms,omitempty"`
 	Status             string              `json:"status"`
 	TrackingID         string              `json:"trackingID,omitempty"`
 	Tool               string              `json:"tool,omitempty"`
 	Decisions          []policy.Decision   `json:"decisions,omitempty"`
+	Advice             policy.Advice       `json:"advice,omitempty"`
+	RuntimeMS          int64               `json:"runtime_ms,omitempty"`
 }
 
 func (result Result) Blocked() bool {

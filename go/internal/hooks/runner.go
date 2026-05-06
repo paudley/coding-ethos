@@ -66,6 +66,7 @@ func evaluateInspection(
 	registry evaluators.Registry,
 ) (InspectionDecision, error) {
 	route := routeToolUse(ctx)
+
 	decisions, err := evaluateDispatchedPolicies(bundle, ctx, registry)
 	if err != nil {
 		return InspectionDecision{}, err
@@ -98,6 +99,7 @@ func evaluateDispatchedPolicies(
 ) ([]policy.Decision, error) {
 	event := ctx.Event
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
+
 	decisions := make([]policy.Decision, 0, len(entries))
 	for _, entry := range entries {
 		policyDef, ok := bundle.Policies[entry.PolicyID]
@@ -140,6 +142,7 @@ func buildResult(
 	if result.Blocked() {
 		result.TrackingID = newDenialTrackingID(event, decision.Policies)
 	}
+
 	if result.HookSpecificOutput == nil {
 		result.HookSpecificOutput = blockedHookSpecificOutput(result)
 	}
@@ -209,7 +212,7 @@ func hookSpecificOutput(
 	}
 }
 
-func shouldEmitPostToolBashContext(event Event, command string, output string) bool {
+func shouldEmitPostToolBashContext(event Event, command, output string) bool {
 	if isLintCommand(command) {
 		return true
 	}
@@ -367,6 +370,7 @@ func buildHookOutputContextTOON(
 				"Treat linter output as important and fix findings structurally.",
 		),
 	}
+
 	outputLines := compactHookOutputLines(output)
 	if len(outputLines) > 0 {
 		lines = append(lines, fmt.Sprintf("hook_output[%d]{line}:", len(outputLines)))
@@ -374,6 +378,7 @@ func buildHookOutputContextTOON(
 			lines = append(lines, "  "+toonCell(line))
 		}
 	}
+
 	lines = appendRenderedReminders(lines, reminders)
 
 	return strings.Join(lines, "\n")
@@ -402,6 +407,7 @@ func buildHookOutputContextJSON(
 			"Treat linter output as important and fix findings structurally.",
 		),
 	}
+
 	if len(reminders) > 0 {
 		if reminders[0].Kind == reminderKindPriority {
 			payload["priority_ethos_reminders"] = reminders
@@ -425,7 +431,7 @@ func buildHookOutputContextJSON(
 	return string(encoded)
 }
 
-func hookOutputSummary(operation string, status string) string {
+func hookOutputSummary(operation, status string) string {
 	if status == statusBlocked {
 		return operation + " was blocked by hooks"
 	}
@@ -449,23 +455,28 @@ func hookOutputNormalizer(cwd string) hookTextNormalizer {
 			roots = append(roots, hookTextReplacement{Old: current, New: "<repo>"})
 		}
 	}
+
 	if home, err := os.UserHomeDir(); err == nil {
 		roots = append(roots, hookTextReplacement{Old: home, New: "<home>"})
 	}
+
 	roots = append(roots, hookTextReplacement{Old: os.TempDir(), New: "<tmp>"})
 
 	replacements := []hookTextReplacement{}
+
 	for _, root := range roots {
 		cleaned := strings.TrimRight(filepath.Clean(root.Old), string(filepath.Separator))
 		if cleaned == "." || cleaned == "" {
 			continue
 		}
+
 		replacements = append(replacements, hookTextReplacement{
 			Old: filepath.ToSlash(cleaned),
 			New: root.New,
 		})
 	}
-	slices.SortFunc(replacements, func(left hookTextReplacement, right hookTextReplacement) int {
+
+	slices.SortFunc(replacements, func(left, right hookTextReplacement) int {
 		return cmp.Compare(len(right.Old), len(left.Old))
 	})
 
@@ -487,11 +498,13 @@ func (normalizer hookTextNormalizer) preserveLines(value string) string {
 
 func compactHookOutputLines(output string) []string {
 	lines := []string{}
+
 	for line := range strings.SplitSeq(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
+
 		lines = append(lines, trimmed)
 	}
 
@@ -519,27 +532,28 @@ func evaluateHookPolicy(
 	}
 
 	context := evaluators.Context{
-		Scope:            event.HookEventName,
-		EventName:        event.HookEventName,
-		EventMatcher:     event.Matcher,
-		EventSource:      event.Source,
-		Provider:         event.Provider(),
-		SessionID:        event.SessionID,
-		Tool:             event.ToolName,
-		ToolInputKeys:    event.ToolInputKeys(),
-		ToolResponseKeys: event.ToolResponseKeys(),
-		TranscriptPath:   event.TranscriptPath,
-		ReturnCode:       event.ReturnCode(),
-		HasReturnCode:    event.HasReturnCode(),
-		HasToolInput:     event.ToolInput != nil,
-		HasToolResponse:  event.ToolResponse != nil,
-		Argv:             commandArgv(event.Command()),
-		Command:          event.Command(),
-		Content:          event.Content(),
-		OldContent:       event.OldContent(),
-		Cwd:              event.Cwd,
-		Files:            event.Files(),
-		AdminApproved:    ctx.AdminApproved,
+		Scope:              event.HookEventName,
+		EventName:          event.HookEventName,
+		EventMatcher:       event.Matcher,
+		EventSource:        event.Source,
+		Provider:           event.Provider(),
+		SessionID:          event.SessionID,
+		Tool:               event.ToolName,
+		ToolInputKeys:      event.ToolInputKeys(),
+		ToolResponseKeys:   event.ToolResponseKeys(),
+		TranscriptPath:     event.TranscriptPath,
+		ReturnCode:         event.ReturnCode(),
+		HasReturnCode:      event.HasReturnCode(),
+		HasToolInput:       event.ToolInput != nil,
+		HasToolResponse:    event.ToolResponse != nil,
+		Argv:               commandArgv(event.Command()),
+		Command:            event.Command(),
+		Content:            event.Content(),
+		OldContent:         event.OldContent(),
+		Cwd:                event.Cwd,
+		Files:              event.Files(),
+		AdminApproved:      ctx.AdminApproved,
+		ReadOnlyInspection: ctx.ReadOnlyInspection,
 	}
 
 	for _, evaluatorSpec := range policyDef.Evaluators {
@@ -625,7 +639,7 @@ func matchesCommandPatterns(command string, patterns []string) bool {
 	return false
 }
 
-func matchesPathPatterns(files []string, patterns []string) bool {
+func matchesPathPatterns(files, patterns []string) bool {
 	if len(patterns) == 0 {
 		return true
 	}
@@ -645,7 +659,7 @@ func matchesPathPatterns(files []string, patterns []string) bool {
 	return false
 }
 
-func matchesPathPattern(file string, pattern string) bool {
+func matchesPathPattern(file, pattern string) bool {
 	normalizedFile := strings.TrimPrefix(filepath.ToSlash(file), "./")
 
 	normalizedPattern := strings.TrimPrefix(filepath.ToSlash(pattern), "./")
@@ -693,7 +707,7 @@ func matchesPathPattern(file string, pattern string) bool {
 	return false
 }
 
-func pathMatches(pattern string, name string) (bool, error) {
+func pathMatches(pattern, name string) (bool, error) {
 	matched, err := filepath.Match(pattern, name)
 	if err != nil {
 		return false, fmt.Errorf("%w: %q", errInvalidPathPattern, pattern)

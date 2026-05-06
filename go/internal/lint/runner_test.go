@@ -4,13 +4,13 @@
 package lint_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/lint"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	. "blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -38,6 +38,7 @@ func TestRunResolvesFileScopePolicies(t *testing.T) {
 			decision.PolicyID != "python.functional_idioms" {
 			t.Fatalf("policy mismatch: got %q", decision.PolicyID)
 		}
+
 		if decision.Decision != "record" || decision.Severity != "record" {
 			t.Fatalf("decision should be record/record: %#v", decision)
 		}
@@ -91,7 +92,7 @@ func TestRunAcceptsCutoverScope(t *testing.T) {
 		},
 		Dispatch: policy.Dispatch{
 			Linter: map[string][]string{
-				ScopeCutover: []string{"filesystem.required_ignores"},
+				ScopeCutover: {"filesystem.required_ignores"},
 			},
 		},
 	}
@@ -143,16 +144,20 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 
 	repo := t.TempDir()
 	sourcePath := filepath.Join(repo, "go", "internal", "hooks", "runner.go")
+
 	scriptPath := filepath.Join(repo, "scripts", "touch-hook.sh")
 	for _, path := range []string{sourcePath, scriptPath} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		err := os.MkdirAll(filepath.Dir(path), 0o755)
+		if err != nil {
 			t.Fatalf("mkdir fixture: %v", err)
 		}
 	}
+
 	content := []byte("coding-ethos-hooks/bin/coding-ethos-policy\n")
 	if err := os.WriteFile(sourcePath, content, 0o600); err != nil {
 		t.Fatalf("write source fixture: %v", err)
 	}
+
 	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
 		t.Fatalf("write script fixture: %v", err)
 	}
@@ -165,8 +170,13 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 	if err != nil {
 		t.Fatalf("run source lint: %v", err)
 	}
+
 	if sourceResult.Status != "resolved" {
-		t.Fatalf("source status mismatch: got %q, decisions %#v", sourceResult.Status, sourceResult.Decisions)
+		t.Fatalf(
+			"source status mismatch: got %q, decisions %#v",
+			sourceResult.Status,
+			sourceResult.Decisions,
+		)
 	}
 
 	scriptResult, err := Run(policy.ExampleBundle(), Options{
@@ -177,6 +187,7 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 	if err != nil {
 		t.Fatalf("run script lint: %v", err)
 	}
+
 	if scriptResult.Status != "blocked" ||
 		!lintResultHasDecision(scriptResult, "shell.forbidden_strings") {
 		t.Fatalf("expected forbidden-string script block, got %#v", scriptResult)
@@ -187,6 +198,7 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
 	if err := os.WriteFile(messagePath, []byte("bad header\n"), 0o600); err != nil {
 		t.Fatalf("write commit message: %v", err)
@@ -206,7 +218,7 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 		},
 		Dispatch: policy.Dispatch{
 			Linter: map[string][]string{
-				ScopeCommit: []string{"git.commitlint"},
+				ScopeCommit: {"git.commitlint"},
 			},
 		},
 	}
@@ -219,6 +231,7 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run lint: %v", err)
 	}
+
 	if result.Status != "blocked" {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
@@ -251,7 +264,7 @@ func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {
 		},
 		Dispatch: policy.Dispatch{
 			Linter: map[string][]string{
-				ScopeFiles: []string{"python.missing_evaluator"},
+				ScopeFiles: {"python.missing_evaluator"},
 			},
 		},
 	}
@@ -309,7 +322,7 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 		},
 		Dispatch: policy.Dispatch{
 			Linter: map[string][]string{
-				ScopeSmoke: []string{"pytest.gate"},
+				ScopeSmoke: {"pytest.gate"},
 			},
 		},
 	}
@@ -342,6 +355,7 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 	if len(result.Findings) != 1 {
 		t.Fatalf("findings = %#v", result.Findings)
 	}
+
 	if result.Findings[0].CheckID != "python.direct_imports" ||
 		result.Findings[0].SourceTool != "ruff" ||
 		result.Findings[0].Advice != "Remove the unused import or use the protocol." ||

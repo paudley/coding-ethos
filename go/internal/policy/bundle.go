@@ -7,7 +7,6 @@ import "blackcat.ca/coding-ethos/go/diagnostics"
 
 type Bundle struct {
 	Dispatch     Dispatch                  `json:"dispatch"`
-	Advice       Advice                    `json:"advice,omitempty"`
 	Principles   map[string]Principle      `json:"principles"`
 	Policies     map[string]Policy         `json:"policies"`
 	Skills       map[string]Skill          `json:"skills,omitempty"`
@@ -15,6 +14,7 @@ type Bundle struct {
 	BundleID     string                    `json:"bundle_id"`
 	GeneratedAt  string                    `json:"generated_at"`
 	EvidenceMaps []diagnostics.EvidenceMap `json:"evidence_maps,omitempty"`
+	Advice       Advice                    `json:"advice,omitempty"`
 	Version      int                       `json:"version"`
 }
 
@@ -378,10 +378,16 @@ func exampleFunctionalIdiomPolicy() Policy {
 
 func exampleHookBypassPolicy() Policy {
 	return Policy{
-		ID:              "git.hook_bypass",
-		Category:        "expression",
-		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[1]"},
-		PrincipleIDs:    []string{"one-path-for-critical-operations", "no-rationalized-shortcuts"},
+		ID:       "git.hook_bypass",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[1]",
+		},
+		PrincipleIDs: []string{
+			"one-path-for-critical-operations",
+			"no-rationalized-shortcuts",
+		},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Hook bypass is forbidden.",
@@ -455,10 +461,17 @@ func exampleHookBypassPolicy() Policy {
 
 func exampleProtectedSubmoduleUpdatePolicy() Policy {
 	return Policy{
-		ID:              "git.protected_submodule_update",
-		Category:        "expression",
-		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[2]"},
-		PrincipleIDs:    []string{"security-by-design", "one-path-for-critical-operations", "no-rationalized-shortcuts"},
+		ID:       "git.protected_submodule_update",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[2]",
+		},
+		PrincipleIDs: []string{
+			"security-by-design",
+			"one-path-for-critical-operations",
+			"no-rationalized-shortcuts",
+		},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Protected submodules cannot be initialized or checked out to a recorded SHA.",
@@ -496,9 +509,12 @@ func exampleProtectedSubmoduleUpdatePolicy() Policy {
 
 func exampleProtectedPathPolicy() Policy {
 	return Policy{
-		ID:              "filesystem.protected_path",
-		Category:        "expression",
-		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[0]"},
+		ID:       "filesystem.protected_path",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[0]",
+		},
 		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record", "advise"},
@@ -528,13 +544,15 @@ func exampleProtectedPathPolicy() Policy {
 				"scope":    "file",
 				"skill_id": "safe-git-workflow",
 				"tools":    []string{"Bash", "Write", "Edit", "MultiEdit"},
-				"when": `any_contains(repo.protected_paths, command_fact.lower) ||
+				"when": `!metadata.admin_approved && (
+					any_contains(repo.protected_paths, command_fact.lower) ||
 					paths.exists(path, is_protected_path(path.file, repo.protected_paths)) ||
 					shell_commands.exists(command,
 						command.write_targets.exists(target,
 							is_protected_path(target, repo.protected_paths)
 						)
-					)`,
+					)
+				)`,
 			},
 		}},
 	}
@@ -542,9 +560,12 @@ func exampleProtectedPathPolicy() Policy {
 
 func exampleEditEvasiveGitExecutionPolicy() Policy {
 	return Policy{
-		ID:              "git.edit_evasive_git_execution",
-		Category:        "expression",
-		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[0]"},
+		ID:       "git.edit_evasive_git_execution",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[0]",
+		},
 		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record", "advise"},
@@ -644,9 +665,12 @@ func exampleCommitAttributionPolicy() Policy {
 
 func exampleShellForbiddenStringsPolicy() Policy {
 	return Policy{
-		ID:              "shell.forbidden_strings",
-		Category:        "expression",
-		Source:          SourceRef{File: "coding_ethos.yml", Path: "principles.no-rationalized-shortcuts.policy.expressions[1]"},
+		ID:       "shell.forbidden_strings",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[1]",
+		},
 		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record", "advise"},
@@ -666,7 +690,7 @@ func exampleShellForbiddenStringsPolicy() Policy {
 				"scope":       "command",
 				"skill_id":    "safe-git-workflow",
 				"tools":       []string{"Bash", "Write", "Edit", "MultiEdit"},
-				"when": `(
+				"when": `!(metadata.admin_approved && metadata.read_only_inspection) && (
 						(
 							event.tool == "Bash" &&
 							any_contains(
@@ -737,6 +761,9 @@ func exampleShellForbiddenStringsPolicy() Policy {
 									"**/*.md",
 									".code-ethos/**",
 									"coding_ethos.yml",
+									"go/internal/policy/**",
+									"go/internal/redteam/**",
+									"go/scripts/smoke_hook_edges.sh",
 									"**/*_test.go",
 									"**/testdata/**"
 								],
@@ -899,10 +926,13 @@ func exampleHookDispatch() map[string]map[string][]HookDispatchEntry {
 
 func exampleShellMalformedCommandPolicy() Policy {
 	return Policy{
-		ID:              "shell.malformed_command",
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: "shell.malformed_command"},
-		PrincipleIDs:    []string{"validation-at-the-gate", "one-path-for-critical-operations"},
+		ID:       "shell.malformed_command",
+		Category: "shell",
+		Source:   SourceRef{File: "config.yaml", Path: "shell.malformed_command"},
+		PrincipleIDs: []string{
+			"validation-at-the-gate",
+			"one-path-for-critical-operations",
+		},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Malformed shell command text is forbidden.",

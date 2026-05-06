@@ -15,26 +15,40 @@ func TestIsCodingEthosRepoRequiresCompleteMarkerSet(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(t.TempDir(), "coding-ethos")
-	if err := os.MkdirAll(filepath.Join(root, "go"), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Join(root, "go"), 0o700)
+	if err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
+
 	for _, marker := range []string{
 		"coding_ethos.yml",
 		"config.yaml",
 		"go/go.mod",
 	} {
-		if err := os.WriteFile(filepath.Join(root, marker), []byte("x\n"), 0o600); err != nil {
+		err := os.WriteFile(filepath.Join(root, marker), []byte("x\n"), 0o600)
+		if err != nil {
 			t.Fatalf("write marker %s: %v", marker, err)
 		}
 	}
+
 	if isCodingEthosRepo(root) {
 		t.Fatal("repo without runner marker should not be admin-approved")
 	}
+
 	bin := filepath.Join(root, "bin")
-	if err := os.MkdirAll(bin, 0o700); err != nil {
+
+	err = os.MkdirAll(bin, 0o700)
+	if err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "coding-ethos-run"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+
+	err = os.WriteFile(
+		filepath.Join(bin, "coding-ethos-run"),
+		[]byte("#!/bin/sh\n"),
+		0o700,
+	)
+	if err != nil {
 		t.Fatalf("write runner marker: %v", err)
 	}
 
@@ -48,14 +62,17 @@ func TestReadApprovedPIDsParsesBlankLinesAndRejectsBadRecords(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+
 	path := filepath.Join(dir, "pids")
 	if err := os.WriteFile(path, []byte("\n 123 \n456\n"), 0o600); err != nil {
 		t.Fatalf("write pid file: %v", err)
 	}
+
 	approved, err := readApprovedPIDs(path)
 	if err != nil {
 		t.Fatalf("read approved pids: %v", err)
 	}
+
 	if !approved[123] || !approved[456] {
 		t.Fatalf("approved pids = %#v", approved)
 	}
@@ -64,6 +81,7 @@ func TestReadApprovedPIDsParsesBlankLinesAndRejectsBadRecords(t *testing.T) {
 	if err := os.WriteFile(badPath, []byte("not-a-pid\n"), 0o600); err != nil {
 		t.Fatalf("write bad pid file: %v", err)
 	}
+
 	_, err = readApprovedPIDs(badPath)
 	if err == nil || !strings.Contains(err.Error(), "parse admin pid") {
 		t.Fatalf("bad pid error = %v", err)
@@ -77,21 +95,29 @@ func TestProcessAncestryApprovedMatchesCurrentPID(t *testing.T) {
 	if err := os.WriteFile(path, []byte("999999\n"), 0o600); err != nil {
 		t.Fatalf("write pid file: %v", err)
 	}
+
 	approved, err := processAncestryApproved(os.Getpid(), path)
 	if err != nil {
 		t.Fatalf("check ancestry: %v", err)
 	}
+
 	if approved {
 		t.Fatal("unlisted process should not be approved")
 	}
 
-	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(
+		path,
+		[]byte(strconv.Itoa(os.Getpid())+"\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("rewrite pid file: %v", err)
 	}
+
 	approved, err = processAncestryApproved(os.Getpid(), path)
 	if err != nil {
 		t.Fatalf("check approved ancestry: %v", err)
 	}
+
 	if !approved {
 		t.Fatal("current process should be approved")
 	}

@@ -83,10 +83,12 @@ func main() {
 func runCLI(args []string) int {
 	if len(args) == 0 {
 		usage()
+
 		return commandArgsOffset
 	}
 
 	var err error
+
 	switch args[0] {
 	case "agent-hook-fix-items":
 		err = agentHookFixItems(args[1:])
@@ -116,10 +118,13 @@ func runCLI(args []string) int {
 		err = verifyGitHooks(args[1:])
 	default:
 		usage()
+
 		return commandArgsOffset
 	}
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+
 		return 1
 	}
 
@@ -134,10 +139,12 @@ func cutoverVerify(args []string) error {
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
 	flags.String("source-dir", "", "Deprecated; hook files are generated from --runner")
 	realGit := flags.String("real-git", "", "Real git executable")
+
 	bundleRoot := flags.String("bundle-root", "", "Policy bundle root")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse cutover-verify flags: %w", err)
 	}
+
 	for name, value := range map[string]string{
 		"root":        *root,
 		"runner":      *runner,
@@ -163,9 +170,11 @@ func cutoverVerify(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	if len(gitItems) > 0 {
 		status = "blocked"
 		surfaces["git-hooks"] = "FAIL"
+
 		fixItems = append(fixItems, gitItems...)
 	}
 
@@ -176,6 +185,7 @@ func cutoverVerify(args []string) error {
 	if agentErr != nil {
 		status = "blocked"
 		surfaces["agent-hooks"] = "FAIL"
+
 		fixItems = append(fixItems, agentHookFixItemLines(agentOutput)...)
 	}
 
@@ -186,10 +196,12 @@ func cutoverVerify(args []string) error {
 	if repoIgnoreErr != nil {
 		status = "blocked"
 		surfaces["repo-ignores"] = "FAIL"
+
 		items, err := repoIgnoreFixItemLines(*realGit, *root)
 		if err != nil {
 			return err
 		}
+
 		fixItems = append(fixItems, items...)
 	}
 
@@ -203,6 +215,7 @@ func cutoverVerify(args []string) error {
 	if runtimeErr != nil {
 		status = "blocked"
 		surfaces["policy-runtime"] = "FAIL"
+
 		fixItems = append(fixItems, runtimeFixItemLines(runtimeOutput)...)
 	}
 
@@ -216,17 +229,21 @@ func cutoverVerify(args []string) error {
 	for _, line := range cutoverReportLines(report) {
 		fmt.Fprintln(os.Stdout, line)
 	}
+
 	if status == "ready" {
 		return nil
 	}
+
 	if agentErr != nil {
 		fmt.Fprintln(os.Stderr, "agent hook verify output:")
 		fmt.Fprint(os.Stderr, agentOutput)
 	}
+
 	if runtimeErr != nil {
 		fmt.Fprintln(os.Stderr, "policy runtime verify output:")
 		fmt.Fprint(os.Stderr, runtimeOutput)
 	}
+
 	if repoIgnoreErr != nil {
 		fmt.Fprintln(os.Stderr, "repo ignore verify output:")
 		fmt.Fprint(os.Stderr, repoIgnoreOutput)
@@ -239,11 +256,14 @@ func runCutoverCommand(args []string, env map[string]string) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("cutover command args are required")
 	}
+
 	command := exec.Command(args[0], args[1:]...)
+
 	command.Env = os.Environ()
 	for key, value := range env {
 		command.Env = append(command.Env, key+"="+value)
 	}
+
 	output, err := command.CombinedOutput()
 
 	return string(output), err
@@ -261,29 +281,40 @@ type managedTool struct {
 }
 
 type managedToolInstaller struct {
-	InstallGo     func(module string, version string, destDir string) error
-	InstallRust   func(crate string, version string, binary string, destDir string) error
+	InstallGo     func(module, version, destDir string) error
+	InstallRust   func(crate, version, binary, destDir string) error
 	InstallGitHub func(tool managedTool, destDir string) error
 }
 
 func installManagedToolchainCommand(args []string) error {
 	flags := flag.NewFlagSet("install-managed-toolchain", flag.ExitOnError)
-	manifestSource := flags.String("manifest-source", "", "Managed toolchain source manifest")
+	manifestSource := flags.String(
+		"manifest-source",
+		"",
+		"Managed toolchain source manifest",
+	)
 	goBinDir := flags.String("go-bin-dir", "", "Managed Go binary directory")
 	githubBinDir := flags.String("github-bin-dir", "", "Managed GitHub binary directory")
+
 	installedManifest := flags.String("installed-manifest", "", "Installed manifest path")
-	if err := flags.Parse(args); err != nil {
+
+	err := flags.Parse(args)
+	if err != nil {
 		return fmt.Errorf("parse install-managed-toolchain flags: %w", err)
 	}
+
 	if strings.TrimSpace(*manifestSource) == "" {
 		return errManifestRequired
 	}
+
 	if strings.TrimSpace(*goBinDir) == "" {
 		return errors.New("install-managed-toolchain requires --go-bin-dir")
 	}
+
 	if strings.TrimSpace(*githubBinDir) == "" {
 		return errors.New("install-managed-toolchain requires --github-bin-dir")
 	}
+
 	if strings.TrimSpace(*installedManifest) == "" {
 		return errors.New("install-managed-toolchain requires --installed-manifest")
 	}
@@ -308,16 +339,23 @@ func installManagedToolchain(
 	if err != nil {
 		return err
 	}
+
 	goBinDir, err = ensureAbsoluteDir(goBinDir)
 	if err != nil {
 		return err
 	}
+
 	githubBinDir, err = ensureAbsoluteDir(githubBinDir)
 	if err != nil {
 		return err
 	}
+
 	if err := os.MkdirAll(filepath.Dir(installedManifest), 0o755); err != nil {
-		return fmt.Errorf("create managed manifest dir %s: %w", filepath.Dir(installedManifest), err)
+		return fmt.Errorf(
+			"create managed manifest dir %s: %w",
+			filepath.Dir(installedManifest),
+			err,
+		)
 	}
 
 	records := make([]string, 0, len(tools))
@@ -326,16 +364,21 @@ func installManagedToolchain(
 		if err != nil {
 			return err
 		}
+
 		installedPath := filepath.Join(destDir, tool.Binary)
+
 		record := managedToolManifestRecord(tool, installedPath)
 		if !managedToolAlreadyInstalled(installedManifest, installedPath, record) {
-			if err := installManagedTool(tool, destDir, installer); err != nil {
+			err := installManagedTool(tool, destDir, installer)
+			if err != nil {
 				return err
 			}
 		}
+
 		if err := requireExecutableManagedTool(tool.Tool, installedPath); err != nil {
 			return err
 		}
+
 		records = append(records, record)
 	}
 
@@ -350,17 +393,24 @@ func readManagedToolManifest(path string) ([]managedTool, error) {
 	defer file.Close()
 
 	tools := make([]managedTool, 0)
+
 	scanner := bufio.NewScanner(file)
 	for lineNumber := 1; scanner.Scan(); lineNumber++ {
 		line := scanner.Text()
+
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
+
 		fields := strings.Split(line, "\t")
 		if len(fields) != 8 {
-			return nil, fmt.Errorf("invalid managed toolchain manifest line %d: expected 8 tab-separated fields", lineNumber)
+			return nil, fmt.Errorf(
+				"invalid managed toolchain manifest line %d: expected 8 tab-separated fields",
+				lineNumber,
+			)
 		}
+
 		tool := managedTool{
 			Tool:           fields[0],
 			Installer:      fields[1],
@@ -371,11 +421,15 @@ func readManagedToolManifest(path string) ([]managedTool, error) {
 			SHA256:         fields[6],
 			Dest:           fields[7],
 		}
-		if err := validateManagedTool(tool, lineNumber); err != nil {
+
+		err := validateManagedTool(tool, lineNumber)
+		if err != nil {
 			return nil, err
 		}
+
 		tools = append(tools, tool)
 	}
+
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read managed toolchain manifest %s: %w", path, err)
 	}
@@ -395,7 +449,11 @@ func validateManagedTool(tool managedTool, lineNumber int) error {
 		"dest":            tool.Dest,
 	} {
 		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("invalid managed toolchain manifest line %d: %s is required", lineNumber, name)
+			return fmt.Errorf(
+				"invalid managed toolchain manifest line %d: %s is required",
+				lineNumber,
+				name,
+			)
 		}
 	}
 
@@ -406,6 +464,7 @@ func ensureAbsoluteDir(path string) (string, error) {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", fmt.Errorf("create managed tool dir %s: %w", path, err)
 	}
+
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve managed tool dir %s: %w", path, err)
@@ -414,7 +473,7 @@ func ensureAbsoluteDir(path string) (string, error) {
 	return absolute, nil
 }
 
-func managedToolDestDir(dest string, goBinDir string, githubBinDir string) (string, error) {
+func managedToolDestDir(dest, goBinDir, githubBinDir string) (string, error) {
 	switch dest {
 	case "go-bin":
 		return goBinDir, nil
@@ -441,15 +500,17 @@ func managedToolManifestRecord(tool managedTool, installedPath string) string {
 	)
 }
 
-func managedToolAlreadyInstalled(installedManifest string, installedPath string, record string) bool {
+func managedToolAlreadyInstalled(installedManifest, installedPath, record string) bool {
 	info, err := os.Stat(installedPath)
 	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 		return false
 	}
+
 	payload, err := os.ReadFile(installedManifest)
 	if err != nil {
 		return false
 	}
+
 	for _, line := range strings.Split(string(payload), "\n") {
 		if line == record {
 			return true
@@ -459,7 +520,11 @@ func managedToolAlreadyInstalled(installedManifest string, installedPath string,
 	return false
 }
 
-func installManagedTool(tool managedTool, destDir string, installer managedToolInstaller) error {
+func installManagedTool(
+	tool managedTool,
+	destDir string,
+	installer managedToolInstaller,
+) error {
 	switch tool.Installer {
 	case "go":
 		return installer.InstallGo(tool.Source, tool.Version, destDir)
@@ -468,34 +533,67 @@ func installManagedTool(tool managedTool, destDir string, installer managedToolI
 	case "github":
 		return installer.InstallGitHub(tool, destDir)
 	default:
-		return fmt.Errorf("unknown installer %q for managed tool %q", tool.Installer, tool.Tool)
+		return fmt.Errorf(
+			"unknown installer %q for managed tool %q",
+			tool.Installer,
+			tool.Tool,
+		)
 	}
 }
 
 func realManagedToolInstaller() managedToolInstaller {
 	return managedToolInstaller{
-		InstallGo: func(module string, version string, destDir string) error {
+		InstallGo: func(module, version, destDir string) error {
 			command := exec.Command("go", "install", module+"@"+version)
+
 			command.Env = append(os.Environ(), "GOBIN="+destDir)
+
 			output, err := command.CombinedOutput()
 			if err != nil {
-				return fmt.Errorf("install Go tool %s@%s: %w: %s", module, version, err, strings.TrimSpace(string(output)))
+				return fmt.Errorf(
+					"install Go tool %s@%s: %w: %s",
+					module,
+					version,
+					err,
+					strings.TrimSpace(string(output)),
+				)
 			}
 
 			return nil
 		},
-		InstallRust: func(crate string, version string, binary string, destDir string) error {
+		InstallRust: func(crate, version, binary, destDir string) error {
 			workDir, err := os.MkdirTemp(destDir, ".coding-ethos-cargo.")
 			if err != nil {
 				return fmt.Errorf("create cargo install workspace: %w", err)
 			}
 			defer os.RemoveAll(workDir)
-			command := exec.Command("cargo", "install", crate, "--version", version, "--locked", "--root", workDir)
+
+			command := exec.Command(
+				"cargo",
+				"install",
+				crate,
+				"--version",
+				version,
+				"--locked",
+				"--root",
+				workDir,
+			)
+
 			output, err := command.CombinedOutput()
 			if err != nil {
-				return fmt.Errorf("install Rust tool %s@%s: %w: %s", crate, version, err, strings.TrimSpace(string(output)))
+				return fmt.Errorf(
+					"install Rust tool %s@%s: %w: %s",
+					crate,
+					version,
+					err,
+					strings.TrimSpace(string(output)),
+				)
 			}
-			return installBinaryFile(filepath.Join(workDir, "bin", binary), filepath.Join(destDir, binary))
+
+			return installBinaryFile(
+				filepath.Join(workDir, "bin", binary),
+				filepath.Join(destDir, binary),
+			)
 		},
 		InstallGitHub: func(tool managedTool, destDir string) error {
 			return installGitHubBinary(
@@ -512,13 +610,23 @@ func realManagedToolInstaller() managedToolInstaller {
 	}
 }
 
-func requireExecutableManagedTool(tool string, installedPath string) error {
+func requireExecutableManagedTool(tool, installedPath string) error {
 	info, err := os.Stat(installedPath)
 	if err != nil {
-		return fmt.Errorf("managed tool %s was not installed as executable: %s: %w", tool, installedPath, err)
+		return fmt.Errorf(
+			"managed tool %s was not installed as executable: %s: %w",
+			tool,
+			installedPath,
+			err,
+		)
 	}
+
 	if info.IsDir() || info.Mode()&0o111 == 0 {
-		return fmt.Errorf("managed tool %s was not installed as executable: %s", tool, installedPath)
+		return fmt.Errorf(
+			"managed tool %s was not installed as executable: %s",
+			tool,
+			installedPath,
+		)
 	}
 
 	return nil
@@ -526,10 +634,17 @@ func requireExecutableManagedTool(tool string, installedPath string) error {
 
 func writeManagedToolInstalledManifest(path string, records []string) error {
 	payload := strings.Builder{}
-	payload.WriteString("# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>\n")
+	payload.WriteString(
+		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>\n",
+	)
 	payload.WriteString("# SPDX-License-Identifier: MIT\n")
-	payload.WriteString("# Generated by coding-ethos-toolchain install-managed-toolchain. Do not edit.\n")
-	payload.WriteString("# tool\tinstaller\tsource\tversion\tasset_substring\tbinary\tsha256\tpath\n")
+	payload.WriteString(
+		"# Generated by coding-ethos-toolchain install-managed-toolchain. Do not edit.\n",
+	)
+	payload.WriteString(
+		"# tool\tinstaller\tsource\tversion\tasset_substring\tbinary\tsha256\tpath\n",
+	)
+
 	for _, record := range records {
 		payload.WriteString(record)
 		payload.WriteByte('\n')
@@ -539,15 +654,20 @@ func writeManagedToolInstalledManifest(path string, records []string) error {
 	if err != nil {
 		return fmt.Errorf("create temporary managed manifest %s: %w", path, err)
 	}
+
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
+
 	if _, err := tmp.WriteString(payload.String()); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("write temporary managed manifest %s: %w", path, err)
 	}
+
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temporary managed manifest %s: %w", path, err)
 	}
+
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("install managed manifest %s: %w", path, err)
 	}
@@ -562,10 +682,14 @@ func installGitHubBinaryCommand(args []string) error {
 	assetSubstring := flags.String("asset-substring", "", "Release asset name substring")
 	binary := flags.String("binary", "", "Binary name to install")
 	destDir := flags.String("dest-dir", "", "Destination directory")
+
 	expectedSHA256 := flags.String("sha256", "", "Expected release asset SHA-256")
-	if err := flags.Parse(args); err != nil {
+
+	err := flags.Parse(args)
+	if err != nil {
 		return fmt.Errorf("parse install-github-binary flags: %w", err)
 	}
+
 	switch {
 	case strings.TrimSpace(*repo) == "":
 		return errRepoRequired
@@ -607,6 +731,7 @@ func installGitHubBinary(
 	if err != nil {
 		return err
 	}
+
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create managed binary destination %s: %w", destDir, err)
 	}
@@ -621,10 +746,12 @@ func installGitHubBinary(
 	if err := downloadGitHubAsset(client, url, archivePath, token); err != nil {
 		return err
 	}
+
 	actualSHA256, err := sha256File(archivePath)
 	if err != nil {
 		return err
 	}
+
 	if actualSHA256 != expectedSHA256 {
 		return fmt.Errorf(
 			"SHA-256 mismatch for %s: expected %s, actual %s",
@@ -634,7 +761,12 @@ func installGitHubBinary(
 		)
 	}
 
-	return installDownloadedAsset(archivePath, binary, destDir, filepath.Join(workDir, "extract"))
+	return installDownloadedAsset(
+		archivePath,
+		binary,
+		destDir,
+		filepath.Join(workDir, "extract"),
+	)
 }
 
 func downloadedFileName(rawURL string) string {
@@ -642,6 +774,7 @@ func downloadedFileName(rawURL string) string {
 	if err != nil {
 		return "asset"
 	}
+
 	name := filepath.Base(parsedURL.Path)
 	if name == "." || name == "/" || name == "" {
 		return "asset"
@@ -650,25 +783,29 @@ func downloadedFileName(rawURL string) string {
 	return name
 }
 
-func downloadGitHubAsset(client *http.Client, rawURL string, outputPath string, token string) error {
+func downloadGitHubAsset(client *http.Client, rawURL, outputPath, token string) error {
 	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fmt.Errorf("create GitHub asset request: %w", err)
 	}
+
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
-		request.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
+		request.Header.Set("X-Github-Api-Version", githubAPIVersion)
 	}
 
 	httpClient := clientWithTimeout(client)
+
 	response, err := httpClient.Do(request)
 	if err != nil {
 		return fmt.Errorf("download GitHub asset %s: %w", rawURL, err)
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+	if response.StatusCode < http.StatusOK ||
+		response.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+
 		return fmt.Errorf(
 			"download GitHub asset %s: status %d: %s",
 			rawURL,
@@ -681,10 +818,13 @@ func downloadGitHubAsset(client *http.Client, rawURL string, outputPath string, 
 	if err != nil {
 		return fmt.Errorf("create downloaded asset %s: %w", outputPath, err)
 	}
+
 	if _, err := io.Copy(output, response.Body); err != nil {
 		_ = output.Close()
+
 		return fmt.Errorf("write downloaded asset %s: %w", outputPath, err)
 	}
+
 	if err := output.Close(); err != nil {
 		return fmt.Errorf("close downloaded asset %s: %w", outputPath, err)
 	}
@@ -692,18 +832,21 @@ func downloadGitHubAsset(client *http.Client, rawURL string, outputPath string, 
 	return nil
 }
 
-func installDownloadedAsset(archivePath string, binary string, destDir string, extractDir string) error {
+func installDownloadedAsset(archivePath, binary, destDir, extractDir string) error {
 	switch {
 	case strings.HasSuffix(archivePath, ".tar.gz"), strings.HasSuffix(archivePath, ".tgz"):
-		if err := extractTarGzip(archivePath, extractDir); err != nil {
+		err := extractTarGzip(archivePath, extractDir)
+		if err != nil {
 			return err
 		}
 	case strings.HasSuffix(archivePath, ".zip"):
-		if err := extractZip(archivePath, extractDir); err != nil {
+		err := extractZip(archivePath, extractDir)
+		if err != nil {
 			return err
 		}
 	case strings.HasSuffix(archivePath, ".tar.xz"), strings.HasSuffix(archivePath, ".txz"):
-		if err := extractTarXZ(archivePath, extractDir); err != nil {
+		err := extractTarXZ(archivePath, extractDir)
+		if err != nil {
 			return err
 		}
 	default:
@@ -718,7 +861,7 @@ func installDownloadedAsset(archivePath string, binary string, destDir string, e
 	return installBinaryFile(found, filepath.Join(destDir, binary))
 }
 
-func extractTarGzip(archivePath string, destDir string) error {
+func extractTarGzip(archivePath, destDir string) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open tar.gz asset %s: %w", archivePath, err)
@@ -735,38 +878,52 @@ func extractTarGzip(archivePath string, destDir string) error {
 }
 
 func extractTar(tarReader *tar.Reader, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	err := os.MkdirAll(destDir, 0o755)
+	if err != nil {
 		return fmt.Errorf("create extract dir %s: %w", destDir, err)
 	}
+
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
+
 		if err != nil {
 			return fmt.Errorf("read tar asset: %w", err)
 		}
+
 		target, err := safeExtractPath(destDir, header.Name)
 		if err != nil {
 			return err
 		}
+
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			err := os.MkdirAll(target, 0o755)
+			if err != nil {
 				return fmt.Errorf("create tar directory %s: %w", target, err)
 			}
 		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create tar parent directory %s: %w", filepath.Dir(target), err)
 			}
-			output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, header.FileInfo().Mode())
+
+			output, err := os.OpenFile(
+				target,
+				os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+				header.FileInfo().Mode(),
+			)
 			if err != nil {
 				return fmt.Errorf("create tar file %s: %w", target, err)
 			}
+
 			if _, err := io.Copy(output, tarReader); err != nil {
 				_ = output.Close()
+
 				return fmt.Errorf("write tar file %s: %w", target, err)
 			}
+
 			if err := output.Close(); err != nil {
 				return fmt.Errorf("close tar file %s: %w", target, err)
 			}
@@ -774,47 +931,65 @@ func extractTar(tarReader *tar.Reader, destDir string) error {
 	}
 }
 
-func extractZip(archivePath string, destDir string) error {
+func extractZip(archivePath, destDir string) error {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return fmt.Errorf("open zip asset %s: %w", archivePath, err)
 	}
 	defer reader.Close()
+
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create extract dir %s: %w", destDir, err)
 	}
+
 	for _, file := range reader.File {
 		target, err := safeExtractPath(destDir, file.Name)
 		if err != nil {
 			return err
 		}
+
 		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			err := os.MkdirAll(target, 0o755)
+			if err != nil {
 				return fmt.Errorf("create zip directory %s: %w", target, err)
 			}
+
 			continue
 		}
+
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create zip parent directory %s: %w", filepath.Dir(target), err)
 		}
+
 		source, err := file.Open()
 		if err != nil {
 			return fmt.Errorf("open zip member %s: %w", file.Name, err)
 		}
-		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, file.FileInfo().Mode())
+
+		output, err := os.OpenFile(
+			target,
+			os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+			file.FileInfo().Mode(),
+		)
 		if err != nil {
 			_ = source.Close()
+
 			return fmt.Errorf("create zip file %s: %w", target, err)
 		}
+
 		if _, err := io.Copy(output, source); err != nil {
 			_ = source.Close()
 			_ = output.Close()
+
 			return fmt.Errorf("write zip file %s: %w", target, err)
 		}
+
 		if err := source.Close(); err != nil {
 			_ = output.Close()
+
 			return fmt.Errorf("close zip member %s: %w", file.Name, err)
 		}
+
 		if err := output.Close(); err != nil {
 			return fmt.Errorf("close zip file %s: %w", target, err)
 		}
@@ -823,29 +998,40 @@ func extractZip(archivePath string, destDir string) error {
 	return nil
 }
 
-func extractTarXZ(archivePath string, destDir string) error {
+func extractTarXZ(archivePath, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create extract dir %s: %w", destDir, err)
 	}
+
 	command := exec.Command("tar", "-xJf", archivePath, "-C", destDir)
+
 	output, err := command.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("extract tar.xz asset %s: %w: %s", archivePath, err, strings.TrimSpace(string(output)))
+		return fmt.Errorf(
+			"extract tar.xz asset %s: %w: %s",
+			archivePath,
+			err,
+			strings.TrimSpace(string(output)),
+		)
 	}
 
 	return nil
 }
 
-func safeExtractPath(destDir string, memberName string) (string, error) {
+func safeExtractPath(destDir, memberName string) (string, error) {
 	cleanName := filepath.Clean(memberName)
-	if filepath.IsAbs(cleanName) || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
+	if filepath.IsAbs(cleanName) || cleanName == ".." ||
+		strings.HasPrefix(cleanName, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("archive member escapes extract dir: %s", memberName)
 	}
+
 	target := filepath.Join(destDir, cleanName)
+
 	rel, err := filepath.Rel(destDir, target)
 	if err != nil {
 		return "", fmt.Errorf("resolve archive member %s: %w", memberName, err)
 	}
+
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("archive member escapes extract dir: %s", memberName)
 	}
@@ -853,29 +1039,38 @@ func safeExtractPath(destDir string, memberName string) (string, error) {
 	return target, nil
 }
 
-func findExecutableNamed(root string, binary string) (string, error) {
+func findExecutableNamed(root, binary string) (string, error) {
 	var found string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || entry.Name() != binary || found != "" {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode()&0o111 != 0 {
-			found = path
-			return filepath.SkipAll
-		}
 
-		return nil
-	})
+	err := filepath.WalkDir(
+		root,
+		func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+
+			if entry.IsDir() || entry.Name() != binary || found != "" {
+				return nil
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+
+			if info.Mode()&0o111 != 0 {
+				found = path
+
+				return filepath.SkipAll
+			}
+
+			return nil
+		},
+	)
 	if err != nil {
 		return "", fmt.Errorf("scan extracted asset %s: %w", root, err)
 	}
+
 	if found == "" {
 		return "", fmt.Errorf("%s not found as executable in downloaded GitHub asset", binary)
 	}
@@ -883,11 +1078,12 @@ func findExecutableNamed(root string, binary string) (string, error) {
 	return found, nil
 }
 
-func installBinaryFile(source string, target string) error {
+func installBinaryFile(source, target string) error {
 	payload, err := os.ReadFile(source)
 	if err != nil {
 		return fmt.Errorf("read binary %s: %w", source, err)
 	}
+
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("create binary destination dir %s: %w", filepath.Dir(target), err)
 	}
@@ -904,6 +1100,7 @@ func cutoverReport(args []string) error {
 	agentHooks := flags.String("agent-hooks", "", "Agent hook status")
 	repoIgnores := flags.String("repo-ignores", "", "Repository ignore status")
 	runtime := flags.String("runtime", "", "Policy runtime status")
+
 	fixItems := flags.String("fix-items", "", "File containing TOON fix rows")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse cutover-report flags: %w", err)
@@ -924,6 +1121,7 @@ func cutoverReport(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	for _, line := range cutoverReportLines(report) {
 		fmt.Fprintln(os.Stdout, line)
 	}
@@ -956,17 +1154,21 @@ func newCutoverReport(
 	if report.Action == "" {
 		return report, errActionRequired
 	}
+
 	if report.Status == "" {
 		return report, errors.New("cutover-report requires --status")
 	}
+
 	if report.Repo == "" {
 		return report, errors.New("cutover-report requires --repo")
 	}
+
 	for _, surface := range cutoverSurfaceOrder() {
 		if strings.TrimSpace(report.Surfaces[surface]) == "" {
 			return report, fmt.Errorf("cutover-report requires --%s", surface)
 		}
 	}
+
 	if strings.TrimSpace(fixItemsPath) == "" {
 		return report, nil
 	}
@@ -975,7 +1177,9 @@ func newCutoverReport(
 	if err != nil {
 		return report, fmt.Errorf("%w: %s: %w", errFixItemsOpen, fixItemsPath, err)
 	}
+
 	report.HasFixFile = true
+
 	for _, line := range strings.Split(string(payload), "\n") {
 		if strings.TrimSpace(line) != "" {
 			report.FixItems = append(report.FixItems, line)
@@ -997,8 +1201,12 @@ func cutoverReportLines(report cutoverStatusReport) []string {
 	for _, surface := range cutoverSurfaceOrder() {
 		lines = append(lines, fmt.Sprintf("  %s,%s", surface, report.Surfaces[surface]))
 	}
+
 	if len(report.FixItems) > 0 {
-		lines = append(lines, fmt.Sprintf("fix_first[%d]{surface,problem,action}:", len(report.FixItems)))
+		lines = append(
+			lines,
+			fmt.Sprintf("fix_first[%d]{surface,problem,action}:", len(report.FixItems)),
+		)
 		lines = append(lines, report.FixItems...)
 	}
 
@@ -1013,16 +1221,22 @@ func installGitShimCommand(args []string) error {
 	flags := flag.NewFlagSet("install-git-shim", flag.ExitOnError)
 	destDir := flags.String("dest-dir", "", "Directory where the git shim is installed")
 	realGit := flags.String("real-git", "", "Real git executable")
+
 	runner := flags.String("runner", "", "runner path")
-	if err := flags.Parse(args); err != nil {
+
+	err := flags.Parse(args)
+	if err != nil {
 		return fmt.Errorf("parse install-git-shim flags: %w", err)
 	}
+
 	if strings.TrimSpace(*destDir) == "" {
 		return errDestRequired
 	}
+
 	if strings.TrimSpace(*realGit) == "" {
 		return errGitRequired
 	}
+
 	if strings.TrimSpace(*runner) == "" {
 		return errHookRequired
 	}
@@ -1030,8 +1244,9 @@ func installGitShimCommand(args []string) error {
 	return installGitShim(*destDir, *realGit, *runner)
 }
 
-func installGitShim(destDir string, realGit string, runner string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+func installGitShim(destDir, realGit, runner string) error {
+	err := os.MkdirAll(destDir, 0o755)
+	if err != nil {
 		return fmt.Errorf("create git shim dir %s: %w", destDir, err)
 	}
 
@@ -1054,12 +1269,15 @@ func installGitHooks(args []string) error {
 	}
 
 	for _, hook := range gitHookNames {
-		if err := installHookEntrypoint(hooksDir, runner, hook); err != nil {
+		err := installHookEntrypoint(hooksDir, runner, hook)
+		if err != nil {
 			return err
 		}
 	}
+
 	for _, hook := range lfsHookNames {
-		if err := installHookEntrypoint(hooksDir, runner, hook); err != nil {
+		err := installHookEntrypoint(hooksDir, runner, hook)
+		if err != nil {
 			return err
 		}
 	}
@@ -1077,6 +1295,7 @@ func verifyGitHooks(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	if len(stale) > 0 {
 		return errors.New("git hook entrypoints missing or stale")
 	}
@@ -1094,6 +1313,7 @@ func gitHookFixItems(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	for _, item := range items {
 		fmt.Fprintln(os.Stdout, item)
 	}
@@ -1111,6 +1331,7 @@ func agentHookFixItems(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read agent hook verify output %s: %w", input, err)
 	}
+
 	for _, item := range agentHookFixItemLines(string(payload)) {
 		fmt.Fprintln(os.Stdout, item)
 	}
@@ -1119,7 +1340,10 @@ func agentHookFixItems(args []string) error {
 }
 
 func agentHookFixItemLines(output string) []string {
-	if strings.Contains(output, "settings do not contain expected hooks for all providers") {
+	if strings.Contains(
+		output,
+		"settings do not contain expected hooks for all providers",
+	) {
 		return []string{
 			"  agent-hooks,native agent settings missing or stale,run cutover install",
 		}
@@ -1133,6 +1357,7 @@ func agentHookFixItemLines(output string) []string {
 			"  agent-hooks,.codex/config.toml missing codex_hooks=true,run cutover install",
 		)
 	}
+
 	if strings.Contains(output, ".gemini/settings.json") ||
 		strings.Contains(output, "Gemini") {
 		items = append(
@@ -1154,6 +1379,7 @@ func runtimeFixItems(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read runtime verify output %s: %w", input, err)
 	}
+
 	for _, item := range runtimeFixItemLines(string(payload)) {
 		fmt.Fprintln(os.Stdout, item)
 	}
@@ -1174,13 +1400,16 @@ func runtimeFixItemLines(output string) []string {
 func repoIgnoreFixItems(args []string) error {
 	flags := flag.NewFlagSet("repo-ignore-fix-items", flag.ExitOnError)
 	repoRoot := flags.String("repo-root", "", "Repository root")
+
 	realGit := flags.String("real-git", "", "Real git executable")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse repo-ignore-fix-items flags: %w", err)
 	}
+
 	if strings.TrimSpace(*repoRoot) == "" {
 		return errRepoRootRequired
 	}
+
 	if strings.TrimSpace(*realGit) == "" {
 		return errRealGitRequired
 	}
@@ -1189,6 +1418,7 @@ func repoIgnoreFixItems(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	for _, item := range items {
 		fmt.Fprintln(os.Stdout, item)
 	}
@@ -1196,7 +1426,7 @@ func repoIgnoreFixItems(args []string) error {
 	return nil
 }
 
-func repoIgnoreFixItemLines(realGit string, repoRoot string) ([]string, error) {
+func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
 	requiredIgnores := []string{
 		".coding-ethos/",
 		".coding-ethos/hook-runs/example/stdout.log",
@@ -1208,6 +1438,7 @@ func repoIgnoreFixItemLines(realGit string, repoRoot string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		if !ignored {
 			items = append(
 				items,
@@ -1222,8 +1453,9 @@ func repoIgnoreFixItemLines(realGit string, repoRoot string) ([]string, error) {
 	return items, nil
 }
 
-func gitCheckIgnore(realGit string, repoRoot string, path string) (bool, error) {
+func gitCheckIgnore(realGit, repoRoot, path string) (bool, error) {
 	command := exec.Command(realGit, "-C", repoRoot, "check-ignore", "--quiet", path)
+
 	err := command.Run()
 	if err == nil {
 		return true, nil
@@ -1239,10 +1471,14 @@ func gitCheckIgnore(realGit string, repoRoot string, path string) (bool, error) 
 
 func inputFileFlag(command string, args []string) (string, error) {
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
+
 	input := flags.String("input", "", "Input file to parse")
-	if err := flags.Parse(args); err != nil {
+
+	err := flags.Parse(args)
+	if err != nil {
 		return "", fmt.Errorf("parse %s flags: %w", command, err)
 	}
+
 	if strings.TrimSpace(*input) == "" {
 		return "", errInputRequired
 	}
@@ -1255,12 +1491,16 @@ func gitHookShimFlags(command string, args []string) (string, string, error) {
 	hooksDir := flags.String("hooks-dir", "", "Git hooks directory")
 	runner := flags.String("runner", "", "coding-ethos-run executable")
 	flags.String("source-dir", "", "Deprecated; hook files are generated from --runner")
-	if err := flags.Parse(args); err != nil {
+
+	err := flags.Parse(args)
+	if err != nil {
 		return "", "", fmt.Errorf("parse %s flags: %w", command, err)
 	}
+
 	if strings.TrimSpace(*hooksDir) == "" {
 		return "", "", errHooksRequired
 	}
+
 	if strings.TrimSpace(*runner) == "" {
 		return "", "", errHookRequired
 	}
@@ -1268,12 +1508,16 @@ func gitHookShimFlags(command string, args []string) (string, string, error) {
 	return *hooksDir, *runner, nil
 }
 
-func installHookEntrypoint(hooksDir string, runner string, hookName string) error {
+func installHookEntrypoint(hooksDir, runner, hookName string) error {
 	target := filepath.Join(hooksDir, hookName)
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+
+	err := os.MkdirAll(hooksDir, 0o755)
+	if err != nil {
 		return fmt.Errorf("create hooks dir %s: %w", hooksDir, err)
 	}
-	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+
+	err = os.Remove(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove existing hook %s: %w", target, err)
 	}
 
@@ -1281,6 +1525,7 @@ func installHookEntrypoint(hooksDir string, runner string, hookName string) erro
 	if slices.Contains(lfsHookNames, hookName) {
 		command = "lfs-hook"
 	}
+
 	payload := strings.Join([]string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
@@ -1291,22 +1536,26 @@ func installHookEntrypoint(hooksDir string, runner string, hookName string) erro
 	return writeExecutableFile(target, []byte(payload))
 }
 
-func gitHookShimFixItems(hooksDir string, runner string) ([]string, error) {
+func gitHookShimFixItems(hooksDir, runner string) ([]string, error) {
 	items := make([]string, 0)
+
 	for _, hook := range gitHookNames {
 		item, err := hookShimFixItem(hooksDir, runner, hook)
 		if err != nil {
 			return nil, err
 		}
+
 		if item != "" {
 			items = append(items, item)
 		}
 	}
+
 	for _, hook := range lfsHookNames {
 		item, err := hookShimFixItem(hooksDir, runner, hook)
 		if err != nil {
 			return nil, err
 		}
+
 		if item != "" {
 			items = append(items, item)
 		}
@@ -1321,6 +1570,7 @@ func hookShimFixItem(
 	hookName string,
 ) (string, error) {
 	target := filepath.Join(hooksDir, hookName)
+
 	info, err := os.Stat(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -1332,6 +1582,7 @@ func hookShimFixItem(
 
 		return "", fmt.Errorf("stat hook shim %s: %w", target, err)
 	}
+
 	if info.IsDir() || info.Mode()&0o111 == 0 {
 		return fmt.Sprintf(
 			"  git-hooks,%s missing or not executable,run cutover install",
@@ -1343,6 +1594,7 @@ func hookShimFixItem(
 	if err != nil {
 		return "", err
 	}
+
 	if !matches {
 		return fmt.Sprintf(
 			"  git-hooks,%s does not route to coding-ethos-run,run cutover install",
@@ -1353,30 +1605,37 @@ func hookShimFixItem(
 	return "", nil
 }
 
-func hookEntrypointTargetsRunner(target string, runner string, hookName string) (bool, error) {
+func hookEntrypointTargetsRunner(target, runner, hookName string) (bool, error) {
 	payload, err := os.ReadFile(target)
 	if err != nil {
 		return false, fmt.Errorf("read hook entrypoint %s: %w", target, err)
 	}
+
 	command := "git-hook"
 	if slices.Contains(lfsHookNames, hookName) {
 		command = "lfs-hook"
 	}
 
-	want := "exec " + shellQuote(runner) + " " + command + " " + shellQuote(hookName) + ` "$@"`
+	want := "exec " + shellQuote(
+		runner,
+	) + " " + command + " " + shellQuote(
+		hookName,
+	) + ` "$@"`
 
 	return strings.Contains(string(payload), want), nil
 }
 
-func filesEqual(left string, right string) (bool, error) {
+func filesEqual(left, right string) (bool, error) {
 	leftPayload, err := os.ReadFile(left)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", left, err)
 	}
+
 	rightPayload, err := os.ReadFile(right)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", right, err)
 	}
+
 	if len(leftPayload) != len(rightPayload) {
 		return false, nil
 	}
@@ -1389,21 +1648,27 @@ func writeExecutableFile(path string, payload []byte) error {
 	if err != nil {
 		return fmt.Errorf("create temporary file for %s: %w", path, err)
 	}
+
 	tmpPath := tmp.Name()
+
 	defer func() {
 		_ = os.Remove(tmpPath)
 	}()
 
 	if _, err := tmp.Write(payload); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("write temporary file for %s: %w", path, err)
 	}
+
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temporary file for %s: %w", path, err)
 	}
+
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return fmt.Errorf("chmod temporary file for %s: %w", path, err)
 	}
+
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("install %s: %w", path, err)
 	}
@@ -1424,17 +1689,26 @@ func githubAssetURL(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse github-asset-url flags: %w", err)
 	}
+
 	if strings.TrimSpace(*repo) == "" {
 		return errRepoRequired
 	}
+
 	if strings.TrimSpace(*tag) == "" {
 		return errTagRequired
 	}
+
 	if strings.TrimSpace(*assetSubstring) == "" {
 		return errAssetRequired
 	}
 
-	url, err := releaseAssetURL(http.DefaultClient, *repo, *tag, *assetSubstring, os.Getenv("GITHUB_TOKEN"))
+	url, err := releaseAssetURL(
+		http.DefaultClient,
+		*repo,
+		*tag,
+		*assetSubstring,
+		os.Getenv("GITHUB_TOKEN"),
+	)
 	if err != nil {
 		return err
 	}
@@ -1451,13 +1725,20 @@ func releaseAssetURL(
 	assetSubstring string,
 	token string,
 ) (string, error) {
-	requestURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, tag)
+	requestURL := fmt.Sprintf(
+		"https://api.github.com/repos/%s/releases/tags/%s",
+		repo,
+		tag,
+	)
+
 	request, err := http.NewRequest(http.MethodGet, requestURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create GitHub release request: %w", err)
 	}
+
 	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
+	request.Header.Set("X-Github-Api-Version", githubAPIVersion)
+
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -1468,8 +1749,10 @@ func releaseAssetURL(
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+	if response.StatusCode < http.StatusOK ||
+		response.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+
 		return "", fmt.Errorf(
 			"fetch GitHub release %s@%s: status %d: %s",
 			repo,
@@ -1490,13 +1773,20 @@ func releaseAssetURL(
 		}
 	}
 
-	return "", fmt.Errorf("%w: no release asset for %s@%s contains %q", errAssetNotFound, repo, tag, assetSubstring)
+	return "", fmt.Errorf(
+		"%w: no release asset for %s@%s contains %q",
+		errAssetNotFound,
+		repo,
+		tag,
+		assetSubstring,
+	)
 }
 
 func clientWithTimeout(client *http.Client) *http.Client {
 	if client == nil {
 		return &http.Client{Timeout: 30 * time.Second}
 	}
+
 	if client.Timeout != 0 {
 		return client
 	}
@@ -1509,10 +1799,12 @@ func clientWithTimeout(client *http.Client) *http.Client {
 
 func printSHA256(args []string) error {
 	flags := flag.NewFlagSet("sha256", flag.ExitOnError)
+
 	path := flags.String("file", "", "File to hash")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse sha256 flags: %w", err)
 	}
+
 	if strings.TrimSpace(*path) == "" {
 		return errFileRequired
 	}

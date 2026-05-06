@@ -4,6 +4,7 @@
 package lint
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -34,11 +35,13 @@ func SkillHintsForDiagnostics(
 
 	hints := []SkillHint{}
 	seen := map[string]bool{}
+
 	for _, item := range items {
 		skillID := skillIDForDiagnostic(item, skills)
 		if skillID == "" || seen[skillID] {
 			continue
 		}
+
 		skill, ok := skills[skillID]
 		if !ok {
 			continue
@@ -80,13 +83,17 @@ func enrichDiagnosticsWithSkills(
 		if strings.TrimSpace(enriched[index].SkillID) != "" {
 			continue
 		}
+
 		enriched[index].SkillID = skillIDForDiagnostic(enriched[index], skills)
 	}
 
 	return enriched
 }
 
-func enrichFindingsWithSkills(findings []Finding, skills map[string]policy.Skill) []Finding {
+func enrichFindingsWithSkills(
+	findings []Finding,
+	skills map[string]policy.Skill,
+) []Finding {
 	if len(findings) == 0 {
 		return findings
 	}
@@ -96,6 +103,7 @@ func enrichFindingsWithSkills(findings []Finding, skills map[string]policy.Skill
 		if strings.TrimSpace(enriched[index].SkillID) != "" {
 			continue
 		}
+
 		enriched[index].SkillID = skillIDForFinding(enriched[index], skills)
 	}
 
@@ -124,10 +132,10 @@ func enrichDecisionsWithSkills(
 		if skillID == "" {
 			continue
 		}
+
 		evidence := make(map[string]any)
-		for key, value := range enriched[index].Evidence {
-			evidence[key] = value
-		}
+		maps.Copy(evidence, enriched[index].Evidence)
+
 		evidence["skill_id"] = skillID
 		enriched[index].Evidence = evidence
 	}
@@ -213,11 +221,13 @@ func skillIDByPrincipleOverlap(
 ) string {
 	bestID := ""
 	bestScore := 0
+
 	for skillID, skill := range skills {
 		score := skillPrincipleOverlap(principleIDs, skill.PrincipleIDs)
 		if score == 0 {
 			continue
 		}
+
 		if score > bestScore || (score == bestScore && skillID < bestID) {
 			bestID = skillID
 			bestScore = score
@@ -227,13 +237,15 @@ func skillIDByPrincipleOverlap(
 	return bestID
 }
 
-func skillPrincipleOverlap(left []string, right []string) int {
+func skillPrincipleOverlap(left, right []string) int {
 	score := 0
+
 	for _, principleID := range left {
 		normalized := strings.TrimSpace(principleID)
 		if normalized == "" {
 			continue
 		}
+
 		if slices.Contains(right, normalized) {
 			score++
 		}
@@ -244,10 +256,12 @@ func skillPrincipleOverlap(left []string, right []string) int {
 
 func skillIDByTriggerSignal(signals []string, skills map[string]policy.Skill) string {
 	bestID := ""
+
 	for skillID, skill := range skills {
 		if !skillMatchesSignals(skill, signals) {
 			continue
 		}
+
 		if bestID == "" || skillID < bestID {
 			bestID = skillID
 		}
@@ -262,6 +276,7 @@ func skillMatchesSignals(skill policy.Skill, signals []string) bool {
 		if normalizedTrigger == "" {
 			continue
 		}
+
 		for _, signal := range signals {
 			if strings.Contains(strings.ToLower(strings.TrimSpace(signal)), normalizedTrigger) {
 				return true

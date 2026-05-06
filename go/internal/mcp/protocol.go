@@ -6,6 +6,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -23,9 +24,9 @@ const (
 
 type requestMessage struct {
 	ID      any             `json:"id,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type initializeParams struct {
@@ -45,20 +46,23 @@ type rpcError struct {
 }
 
 type toolCallParams struct {
-	Arguments json.RawMessage `json:"arguments,omitempty"`
 	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
 	contentLength := -1
+
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, "", err
 	}
+
 	header := strings.TrimRight(line, "\r\n")
 	if header == "" {
-		return nil, "", fmt.Errorf("empty MCP message")
+		return nil, "", errors.New("empty MCP message")
 	}
+
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(header)), "content-length:") {
 		return []byte(header), framingJSONLine, nil
 	}
@@ -68,11 +72,13 @@ func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
 		if !found {
 			return nil, "", fmt.Errorf("invalid MCP header %q", header)
 		}
+
 		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			parsed, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil || parsed < 0 {
 				return nil, "", fmt.Errorf("invalid MCP content length %q", value)
 			}
+
 			contentLength = parsed
 		}
 
@@ -80,13 +86,15 @@ func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
 		if err != nil {
 			return nil, "", err
 		}
+
 		header = strings.TrimRight(line, "\r\n")
 		if header == "" {
 			break
 		}
 	}
+
 	if contentLength < 0 {
-		return nil, "", fmt.Errorf("missing MCP Content-Length header")
+		return nil, "", errors.New("missing MCP Content-Length header")
 	}
 
 	payload := make([]byte, contentLength)
@@ -140,26 +148,26 @@ type skillLookupInput struct {
 }
 
 type skillRecommendInput struct {
-	Diagnostic lintAdviceInput `json:"diagnostic,omitempty"`
 	Command    string          `json:"command,omitempty"`
 	Intent     string          `json:"intent,omitempty"`
 	Path       string          `json:"path,omitempty"`
+	Diagnostic lintAdviceInput `json:"diagnostic,omitempty"`
 	Limit      int             `json:"limit,omitempty"`
 }
 
 type remediationExplainInput struct {
-	Remediation  agentmsg.Remediation `json:"remediation,omitempty"`
-	Code         string               `json:"code,omitempty"`
+	Message      string               `json:"message,omitempty"`
+	SkillID      string               `json:"skill_id,omitempty"`
 	Command      string               `json:"command,omitempty"`
 	FailedAction string               `json:"failed_action,omitempty"`
 	File         string               `json:"file,omitempty"`
 	ID           string               `json:"id,omitempty"`
-	Message      string               `json:"message,omitempty"`
-	Path         string               `json:"path,omitempty"`
 	PolicyID     string               `json:"policy_id,omitempty"`
+	Path         string               `json:"path,omitempty"`
+	Code         string               `json:"code,omitempty"`
 	Severity     string               `json:"severity,omitempty"`
-	SkillID      string               `json:"skill_id,omitempty"`
 	Tool         string               `json:"tool,omitempty"`
+	Remediation  agentmsg.Remediation `json:"remediation,omitempty"`
 	Column       int                  `json:"column,omitempty"`
 	Line         int                  `json:"line,omitempty"`
 }
@@ -273,9 +281,14 @@ func writeResponse(
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
+	if _, err := fmt.Fprintf(
+		writer,
+		"Content-Length: %d\r\n\r\n",
+		len(payload),
+	); err != nil {
 		return fmt.Errorf("write MCP response header: %w", err)
 	}
+
 	if _, err := writer.Write(payload); err != nil {
 		return fmt.Errorf("write MCP response: %w", err)
 	}
@@ -285,8 +298,11 @@ func writeResponse(
 
 func initializeResult(params json.RawMessage) map[string]any {
 	version := protocolVersion
+
 	var parsed initializeParams
-	if err := json.Unmarshal(params, &parsed); err == nil &&
+
+	err := json.Unmarshal(params, &parsed)
+	if err == nil &&
 		strings.TrimSpace(parsed.ProtocolVersion) != "" {
 		version = strings.TrimSpace(parsed.ProtocolVersion)
 	}
@@ -362,10 +378,16 @@ func toolDefinitions() []map[string]any {
 			"lint_check",
 			"Run managed lint capture for a named tool, or compiled coding-ethos policy lint checks when no tool is provided.",
 			map[string]any{
-				"scope":          map[string]any{"type": "string"},
-				"tool":           map[string]any{"type": "string"},
-				"files":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"argv":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"scope": map[string]any{"type": "string"},
+				"tool":  map[string]any{"type": "string"},
+				"files": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"argv": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
 				"command":        map[string]any{"type": "string"},
 				"cwd":            map[string]any{"type": "string"},
 				"admin_approved": map[string]any{"type": "boolean"},
@@ -441,8 +463,14 @@ func toolDefinitions() []map[string]any {
 				"current_sarif":     map[string]any{"type": "string"},
 				"baseline_trace_id": map[string]any{"type": "string"},
 				"current_trace_id":  map[string]any{"type": "string"},
-				"history_sarif":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"history_trace_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"history_sarif": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"history_trace_ids": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
 			},
 			nil,
 			toolMetadata{
@@ -547,8 +575,11 @@ func toolDefinitions() []map[string]any {
 			"code_intel_search",
 			"Search stored remediation, SARIF, policy, and embedding evidence with FTS plus sqlite-vec when a query vector is supplied.",
 			map[string]any{
-				"text":       map[string]any{"type": "string"},
-				"vector":     map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
+				"text": map[string]any{"type": "string"},
+				"vector": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "number"},
+				},
 				"collection": map[string]any{"type": "string"},
 				"model_id":   map[string]any{"type": "string"},
 				"policy_id":  map[string]any{"type": "string"},

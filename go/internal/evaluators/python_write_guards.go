@@ -39,6 +39,7 @@ func EvaluatePythonUnexplainedTypeIgnore(
 
 func pythonContentDecision(policyDef policy.Policy, context Context) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
+
 	decision.Diagnostics = []diagnostics.Diagnostic{{
 		Tool:     policyDef.ID,
 		File:     firstFile(context.Files),

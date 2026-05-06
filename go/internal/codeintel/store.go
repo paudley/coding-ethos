@@ -56,13 +56,17 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
+
 	store := &Store{db: db}
 	if err := store.configure(ctx); err != nil {
 		_ = db.Close()
+
 		return nil, err
 	}
+
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
+
 		return nil, err
 	}
 
@@ -93,13 +97,16 @@ func (store *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate code intelligence store: %w", err)
 		}
 	}
+
 	for table, columns := range migrationColumns {
 		for _, column := range columns {
-			if err := store.ensureColumn(ctx, table, column); err != nil {
+			err := store.ensureColumn(ctx, table, column)
+			if err != nil {
 				return err
 			}
 		}
 	}
+
 	_, err := store.db.ExecContext(
 		ctx,
 		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
@@ -112,14 +119,20 @@ func (store *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (store *Store) ensureColumn(ctx context.Context, table string, column migrationColumn) error {
+func (store *Store) ensureColumn(
+	ctx context.Context,
+	table string,
+	column migrationColumn,
+) error {
 	exists, err := store.columnExists(ctx, table, column.Name)
 	if err != nil {
 		return err
 	}
+
 	if exists {
 		return nil
 	}
+
 	if _, err := store.db.ExecContext(
 		ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column.Name, column.Type),
@@ -130,7 +143,10 @@ func (store *Store) ensureColumn(ctx context.Context, table string, column migra
 	return nil
 }
 
-func (store *Store) columnExists(ctx context.Context, table string, name string) (bool, error) {
+func (store *Store) columnExists(
+	ctx context.Context,
+	table, name string,
+) (bool, error) {
 	rows, err := store.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return false, fmt.Errorf("inspect %s columns: %w", table, err)
@@ -146,13 +162,17 @@ func (store *Store) columnExists(ctx context.Context, table string, name string)
 			defaultVal any
 			pk         int
 		)
-		if err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk); err != nil {
+
+		err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk)
+		if err != nil {
 			return false, fmt.Errorf("scan %s column info: %w", table, err)
 		}
+
 		if columnName == name {
 			return true, nil
 		}
 	}
+
 	if err := rows.Err(); err != nil {
 		return false, fmt.Errorf("iterate %s column info: %w", table, err)
 	}
@@ -162,6 +182,7 @@ func (store *Store) columnExists(ctx context.Context, table string, name string)
 
 func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	stats := Stats{SchemaVersion: schemaVersion}
+
 	counts := map[string]*int{
 		"traces":               &stats.Traces,
 		"hook_events":          &stats.HookEvents,
@@ -183,7 +204,9 @@ func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	}
 	for table, target := range counts {
 		row := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table)
-		if err := row.Scan(target); err != nil {
+
+		err := row.Scan(target)
+		if err != nil {
 			return Stats{}, fmt.Errorf("count %s: %w", table, err)
 		}
 	}

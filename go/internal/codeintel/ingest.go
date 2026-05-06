@@ -6,6 +6,7 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,7 +41,7 @@ type Trace struct {
 
 func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 	if strings.TrimSpace(trace.ID) == "" {
-		return fmt.Errorf("trace id is required")
+		return errors.New("trace id is required")
 	}
 
 	tx, err := store.db.BeginTx(ctx, nil)
@@ -52,21 +53,27 @@ func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 	if err := deleteTraceRows(ctx, tx, trace.ID); err != nil {
 		return err
 	}
+
 	if err := insertTrace(ctx, tx, trace); err != nil {
 		return err
 	}
+
 	if err := insertFindings(ctx, tx, trace); err != nil {
 		return err
 	}
+
 	if err := insertRemediations(ctx, tx, trace); err != nil {
 		return err
 	}
+
 	if err := insertRemediationEvents(ctx, tx, trace); err != nil {
 		return err
 	}
+
 	if err := insertHookAnalytics(ctx, tx, trace); err != nil {
 		return err
 	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit trace ingest: %w", err)
 	}

@@ -63,6 +63,7 @@ func DefaultTraceDir(cwd string) (string, error) {
 	root := cwd
 	if root == "" {
 		var err error
+
 		root, err = os.Getwd()
 		if err != nil {
 			return "", fmt.Errorf("resolve lint trace root: %w", err)
@@ -72,7 +73,7 @@ func DefaultTraceDir(cwd string) (string, error) {
 	return filepath.Join(root, ".coding-ethos", "lint-runs"), nil
 }
 
-func TracePathForID(cwd string, traceID string) (string, error) {
+func TracePathForID(cwd, traceID string) (string, error) {
 	dir, err := DefaultTraceDir(cwd)
 	if err != nil {
 		return "", err
@@ -102,15 +103,17 @@ func ReplayTrace(path string) (Result, error) {
 func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, error) {
 	files := normalizeAnalysisFiles(options.Files)
 	analysis := Analysis{Path: path, Files: files}
+
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return analysis, nil
 		}
+
 		return analysis, fmt.Errorf("read lint trace dir %q: %w", path, err)
 	}
 
-	sort.Slice(entries, func(left int, right int) bool {
+	sort.Slice(entries, func(left, right int) bool {
 		return entries[left].Name() > entries[right].Name()
 	})
 
@@ -139,18 +142,22 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 		if err != nil {
 			continue
 		}
+
 		analysis.RunsAnalyzed++
 
 		relevantSkillIDs := map[string]bool{}
+
 		for _, finding := range record.Result.Findings {
 			if !findingFailed(finding) || !findingRelevantToFiles(finding, files) {
 				continue
 			}
+
 			if finding.SkillID != "" {
 				relevantSkillIDs[finding.SkillID] = true
 			}
 
 			analysis.Findings++
+
 			incrementFindingCounts(
 				finding,
 				checkCounts,
@@ -162,7 +169,13 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				candidates,
 			)
 		}
-		incrementSkillHintCounts(record.Result.SkillHints, skillHintCounts, relevantSkillIDs, files)
+
+		incrementSkillHintCounts(
+			record.Result.SkillHints,
+			skillHintCounts,
+			relevantSkillIDs,
+			files,
+		)
 	}
 
 	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
@@ -202,6 +215,7 @@ func findingFailed(finding Finding) bool {
 func normalizeAnalysisFiles(files []string) []string {
 	normalized := []string{}
 	seen := map[string]bool{}
+
 	for _, file := range files {
 		cleaned := normalizeAnalysisFile(file)
 		if cleaned == "" || seen[cleaned] {
@@ -233,6 +247,7 @@ func findingRelevantToFiles(finding Finding, files []string) bool {
 	if finding.File == "" {
 		candidates = append(candidates, finding.Files...)
 	}
+
 	for _, candidate := range candidates {
 		if fileRelevantToFiles(candidate, files) {
 			return true
@@ -264,7 +279,7 @@ func fileRelevantToFiles(candidate string, files []string) bool {
 	return false
 }
 
-func pathMatchesFileArea(path string, pattern string) bool {
+func pathMatchesFileArea(path, pattern string) bool {
 	prefix := strings.TrimSuffix(pattern, "/...")
 	if prefix == "" || prefix == pattern {
 		return false
@@ -288,6 +303,7 @@ func incrementFindingCounts(
 
 	if finding.SourceTool != "" && finding.Code != "" {
 		toolCode := finding.SourceTool + ":" + finding.Code
+
 		codeCounts[toolCode]++
 		if findingUnmapped(finding) {
 			unmappedCodeCounts[toolCode]++
@@ -304,11 +320,13 @@ func incrementFindingCounts(
 			ethosCounts[ethosID]++
 		}
 	}
+
 	if finding.SkillID != "" {
 		skillCounts[finding.SkillID]++
 	}
 
 	candidateKey := guidanceCandidateKey(finding)
+
 	candidate := candidates[candidateKey]
 	if candidate.Key == "" {
 		candidate = GuidanceCandidate{
@@ -322,6 +340,7 @@ func incrementFindingCounts(
 			Blocking: finding.Blocking,
 		}
 	}
+
 	candidate.Count++
 	candidates[candidateKey] = candidate
 }
@@ -337,6 +356,7 @@ func incrementSkillHintCounts(
 		if skillID == "" {
 			continue
 		}
+
 		if len(files) > 0 && !relevantSkillIDs[skillID] {
 			continue
 		}
@@ -359,6 +379,7 @@ func repeatedPatternKey(finding Finding) string {
 	if filePart == "" && len(finding.Files) > 0 {
 		filePart = normalizedFilePattern(finding.Files[0])
 	}
+
 	if filePart == "" {
 		filePart = "<repo>"
 	}
@@ -381,16 +402,13 @@ func normalizedFilePattern(path string) string {
 	}
 
 	normalized := filepath.ToSlash(path)
+
 	parts := strings.Split(normalized, "/")
 	if len(parts) <= 2 {
 		return normalized
 	}
 
 	return strings.Join(parts[:2], "/") + "/..."
-}
-
-func topCounts(counts map[string]int) []Count {
-	return topCountsLimit(counts, maxTraceTopCounts)
 }
 
 func topCountsLimit(counts map[string]int, limit int) []Count {
@@ -403,7 +421,7 @@ func topCountsLimit(counts map[string]int, limit int) []Count {
 		items = append(items, Count{Key: key, Count: count})
 	}
 
-	sort.Slice(items, func(left int, right int) bool {
+	sort.Slice(items, func(left, right int) bool {
 		if items[left].Count != items[right].Count {
 			return items[left].Count > items[right].Count
 		}
@@ -416,12 +434,6 @@ func topCountsLimit(counts map[string]int, limit int) []Count {
 	}
 
 	return items
-}
-
-func topGuidanceCandidates(
-	candidates map[string]GuidanceCandidate,
-) []GuidanceCandidate {
-	return topGuidanceCandidatesLimit(candidates, maxGuidanceCandidateRows)
 }
 
 func topGuidanceCandidatesLimit(
@@ -437,7 +449,7 @@ func topGuidanceCandidatesLimit(
 		items = append(items, candidate)
 	}
 
-	sort.Slice(items, func(left int, right int) bool {
+	sort.Slice(items, func(left, right int) bool {
 		if items[left].Count != items[right].Count {
 			return items[left].Count > items[right].Count
 		}
@@ -507,6 +519,7 @@ func FormatAnalysisHuman(analysis Analysis) string {
 			if candidate.SkillID != "" {
 				lines = append(lines, "  skill: "+candidate.SkillID)
 			}
+
 			lines = append(lines, "  message: "+candidate.Message)
 			if candidate.Advice != "" {
 				lines = append(lines, "  advice: "+candidate.Advice)
@@ -547,6 +560,7 @@ func FormatAnalysisTOON(analysis Analysis) string {
 			lines = append(lines, "  "+toonCell(file))
 		}
 	}
+
 	lines = appendAnalysisCountsTOON(lines, "top_checks", analysis.TopChecks)
 	lines = appendAnalysisCountsTOON(lines, "top_codes", analysis.TopCodes)
 	lines = appendAnalysisCountsTOON(lines, "unmapped_codes", analysis.UnmappedCodes)
@@ -554,6 +568,7 @@ func FormatAnalysisTOON(analysis Analysis) string {
 	lines = appendAnalysisCountsTOON(lines, "top_ethos_ids", analysis.TopEthosIDs)
 	lines = appendAnalysisCountsTOON(lines, "top_skill_ids", analysis.TopSkillIDs)
 	lines = appendAnalysisCountsTOON(lines, "top_skill_hints", analysis.TopSkillHints)
+
 	lines = append(
 		lines,
 		fmt.Sprintf(

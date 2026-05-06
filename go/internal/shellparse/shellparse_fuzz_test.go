@@ -1,9 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package shellparse
+package shellparse_test
 
-import "testing"
+import (
+	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
+)
 
 func FuzzShellParser(f *testing.F) {
 	for _, seed := range []string{
@@ -26,9 +30,10 @@ func FuzzShellParser(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		fields, fieldsErr := Fields(input)
-		controlFields, controlErr := ControlFields(input)
-		commands, commandsErr := Commands(input)
+		fields, fieldsErr := shellparse.Fields(input)
+		controlFields, controlErr := shellparse.ControlFields(input)
+
+		commands, commandsErr := shellparse.Commands(input)
 		if (fieldsErr == nil) != (controlErr == nil) ||
 			(fieldsErr == nil) != (commandsErr == nil) {
 			t.Fatalf(
@@ -38,11 +43,14 @@ func FuzzShellParser(f *testing.F) {
 				commandsErr,
 			)
 		}
+
 		if fieldsErr != nil {
 			return
 		}
+
 		_ = fields
 		_ = controlFields
+
 		for _, command := range commands {
 			if command.Line < 0 || command.Column < 0 {
 				t.Fatalf("invalid position for %#v", command)

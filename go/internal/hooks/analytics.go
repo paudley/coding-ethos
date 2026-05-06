@@ -40,9 +40,10 @@ func traceAnalytics(event Event, result Result) hookTraceAnalytics {
 	}
 }
 
-func operationKind(toolName string, command string) string {
+func operationKind(toolName, command string) string {
 	tool := strings.ToLower(strings.TrimSpace(toolName))
 	commandText := strings.ToLower(strings.TrimSpace(command))
+
 	switch tool {
 	case "bash", "shell":
 		return shellOperationKind(commandText)
@@ -85,6 +86,7 @@ func shellOperationKind(command string) string {
 			return candidate.kind
 		}
 	}
+
 	if command == "" {
 		return "shell"
 	}
@@ -104,10 +106,12 @@ func targetKind(targets []string, command string) string {
 			return "generated_config"
 		}
 	}
+
 	if strings.Contains(strings.ToLower(command), " git ") ||
 		strings.HasPrefix(strings.ToLower(strings.TrimSpace(command)), "git ") {
 		return "repo_state"
 	}
+
 	if len(targets) > 0 {
 		return "source_file"
 	}
@@ -123,8 +127,10 @@ func riskCategory(decisions []policy.Decision, status string) string {
 
 		return "allowed"
 	}
+
 	for _, decision := range decisions {
 		policyID := strings.ToLower(decision.PolicyID)
+
 		message := strings.ToLower(decision.Message + " " + decision.Suggestion)
 		switch {
 		case strings.Contains(policyID, "bypass") ||
@@ -159,6 +165,7 @@ func commandShapeHash(command string) string {
 	if shape == "" {
 		return ""
 	}
+
 	shape = shellQuotedStringPattern.ReplaceAllString(shape, "?")
 	shape = shellNumberPattern.ReplaceAllString(shape, "#")
 	shape = shellWhitespacePattern.ReplaceAllString(shape, " ")
@@ -182,6 +189,7 @@ func normalizedTargets(targets []string) []string {
 			normalized = append(normalized, target)
 		}
 	}
+
 	slices.Sort(normalized)
 
 	return dedupeStrings(normalized)
@@ -205,12 +213,11 @@ func isEnforcementPath(path string) bool {
 }
 
 func isAgentStatePath(path string) bool {
-	if !(strings.Contains(path, "/.claude/") ||
-		strings.Contains(path, "/.codex/") ||
-		strings.Contains(path, "/.gemini/") ||
-		strings.HasPrefix(path, ".claude/") ||
-		strings.HasPrefix(path, ".codex/") ||
-		strings.HasPrefix(path, ".gemini/")) {
+	if !strings.Contains(path, "/.claude/") && !strings.Contains(path, "/.codex/") &&
+		!strings.Contains(path, "/.gemini/") &&
+		!strings.HasPrefix(path, ".claude/") &&
+		!strings.HasPrefix(path, ".codex/") &&
+		!strings.HasPrefix(path, ".gemini/") {
 		return false
 	}
 

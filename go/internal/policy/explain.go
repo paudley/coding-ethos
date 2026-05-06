@@ -73,8 +73,9 @@ func expressionExplanation(bundle Bundle, policy Policy) string {
 	if skillID := explainStringOption(evaluator.Options, "skill_id"); skillID != "" {
 		parts = append(parts, fmt.Sprintf("- Skill: `%s`", skillID))
 		if skill, ok := bundle.Skills[skillID]; ok && skill.ShortHint != "" {
-			parts = append(parts, fmt.Sprintf(" - %s", skill.ShortHint))
+			parts = append(parts, " - "+skill.ShortHint)
 		}
+
 		parts = append(parts, "\n")
 	}
 

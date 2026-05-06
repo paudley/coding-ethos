@@ -14,13 +14,28 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
-	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
-var errCommandRequired = errors.New("code intelligence command is required")
+const (
+	defaultResultLimit = 20
+	defaultSearchLimit = 10
+)
+
+var (
+	errCommandRequired         = errors.New("code intelligence command is required")
+	errCodeContextTarget       = errors.New("code context target is required")
+	errSARIFFileRequired       = errors.New("SARIF file is required")
+	errSearchTargetRequired    = errors.New("search text or vector is required")
+	errSearchTextRequired      = errors.New("search text is required")
+	errVectorValuesRequired    = errors.New("vector must include at least one value")
+	errUnknownCodeIntelCommand = errors.New(
+		"unknown code intelligence command",
+	)
+)
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	err := run(context.Background(), os.Args[1:])
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
@@ -31,150 +46,129 @@ func run(ctx context.Context, args []string) error {
 		return errCommandRequired
 	}
 
-	switch args[0] {
-	case "ingest-traces":
-		return ingestTraces(ctx, args[1:])
-	case "ingest-sarif":
-		return ingestSARIF(ctx, args[1:])
-	case "index-code":
-		return indexCode(ctx, args[1:])
-	case "record-outcome":
-		return recordOutcome(ctx, args[1:])
-	case "record-hook-review":
-		return recordHookReview(ctx, args[1:])
-	case "record-embedding":
-		return recordEmbedding(ctx, args[1:])
-	case "upsert-vector":
-		return upsertVector(ctx, args[1:])
-	case "stats":
-		return printStats(ctx, args[1:])
-	case "hook-usage":
-		return printHookUsage(ctx, args[1:])
-	case "hook-reviews":
-		return printHookReviews(ctx, args[1:])
-	case "repeated-failures":
-		return printRepeatedFailures(ctx, args[1:])
-	case "sarif-results":
-		return printSARIFResults(ctx, args[1:])
-	case "remediation-outcomes":
-		return printRemediationOutcomes(ctx, args[1:])
-	case "remediation-effectiveness":
-		return printRemediationEffectiveness(ctx, args[1:])
-	case "vector-stats":
-		return printVectorStats(ctx, args[1:])
-	case "embedding-records":
-		return printEmbeddingRecords(ctx, args[1:])
-	case "embedding-candidates":
-		return printEmbeddingCandidates(ctx, args[1:])
-	case "code-chunks":
-		return printCodeChunks(ctx, args[1:])
-	case "code-context":
-		return printCodeContext(ctx, args[1:])
-	case "hybrid-search":
-		return hybridSearch(ctx, args[1:])
-	case "index-status":
-		return printIndexStatus(ctx, args[1:])
-	case "search":
-		return search(ctx, args[1:])
-	default:
-		return fmt.Errorf("unknown code intelligence command %q", args[0])
+	handler, ok := commandHandlers()[args[0]]
+	if !ok {
+		return fmt.Errorf("%w: %q", errUnknownCodeIntelCommand, args[0])
+	}
+
+	return handler(ctx, args[1:])
+}
+
+type codeIntelCommand func(context.Context, []string) error
+
+func commandHandlers() map[string]codeIntelCommand {
+	return map[string]codeIntelCommand{
+		"code-chunks":               printCodeChunks,
+		"code-context":              printCodeContext,
+		"embedding-candidates":      printEmbeddingCandidates,
+		"embedding-records":         printEmbeddingRecords,
+		"hook-reviews":              printHookReviews,
+		"hook-usage":                printHookUsage,
+		"hybrid-search":             hybridSearch,
+		"index-code":                indexCode,
+		"index-status":              printIndexStatus,
+		"ingest-sarif":              ingestSARIF,
+		"ingest-traces":             ingestTraces,
+		"record-embedding":          recordEmbedding,
+		"record-hook-review":        recordHookReview,
+		"record-outcome":            recordOutcome,
+		"remediation-effectiveness": printRemediationEffectiveness,
+		"remediation-outcomes":      printRemediationOutcomes,
+		"repeated-failures":         printRepeatedFailures,
+		"sarif-results":             printSARIFResults,
+		"search":                    search,
+		"stats":                     printStats,
+		"upsert-vector":             upsertVector,
+		"vector-stats":              printVectorStats,
 	}
 }
 
-func upsertVector(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("upsert-vector", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	uri := flags.String("uri", "", "Vector backend URI")
-	collection := flags.String("collection", "remediations", "Vector collection")
-	modelID := flags.String("model-id", "", "Embedding model ID")
-	id := flags.String("id", "", "Vector record ID")
-	vectorText := flags.String("vector", "", "Comma-separated float32 embedding values")
-	recordKind := flags.String("record-kind", "", "Source record kind")
-	recordID := flags.String("record-id", "", "Source record ID")
-	policyID := flags.String("policy-id", "", "Policy ID metadata")
-	skillID := flags.String("skill-id", "", "Skill ID metadata")
-	path := flags.String("path", "", "Path metadata")
-	outcome := flags.String("outcome", "", "Outcome metadata")
-	message := flags.String("message", "", "Message metadata")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse upsert-vector flags: %w", err)
-	}
-	vector, err := parseVector(*vectorText)
-	if err != nil {
-		return err
-	}
-	if *uri == "" {
-		*uri = codeintel.DefaultVectorPath(*root)
-	}
-	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: "sqlite-vec",
-		URI:     *uri,
-	})
-	if err != nil {
-		return err
-	}
-	if closer, ok := index.(interface{ Close() error }); ok {
-		defer closer.Close()
-	}
-	metadata := map[string]string{
-		"record_kind": strings.TrimSpace(*recordKind),
-		"record_id":   strings.TrimSpace(*recordID),
-		"policy_id":   strings.TrimSpace(*policyID),
-		"skill_id":    strings.TrimSpace(*skillID),
-		"path":        strings.TrimSpace(*path),
-		"outcome":     strings.TrimSpace(*outcome),
-		"message":     strings.TrimSpace(*message),
-	}
-	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
-		ID:         *id,
-		Collection: *collection,
-		ModelID:    *modelID,
-		InputKind:  "text",
-		Text:       *message,
-		Vector:     vector,
-		Dimension:  len(vector),
-		Metadata:   metadata,
-	}); err != nil {
-		return err
-	}
-	if strings.TrimSpace(*recordKind) != "" && strings.TrimSpace(*recordID) != "" {
-		store, err := openStore(ctx, *root, *dbPath)
-		if err != nil {
-			return err
-		}
-		defer store.Close()
-		if err := store.UpsertEmbeddingRecord(ctx, codeintel.EmbeddingRecord{
-			Backend:      "sqlite-vec",
-			Collection:   *collection,
-			ModelID:      *modelID,
-			InputKind:    "text",
-			RecordKind:   *recordKind,
-			RecordID:     *recordID,
-			Dimension:    len(vector),
-			PolicyID:     *policyID,
-			SkillID:      *skillID,
-			Path:         *path,
-			BackendRowID: *id,
-		}); err != nil {
-			return err
-		}
-	}
+type storeFlags struct {
+	root   *string
+	dbPath *string
+}
 
-	stats, err := index.Stats(ctx)
+type policyPathFlags struct {
+	policyID *string
+	skillID  *string
+	path     *string
+}
+
+type policySkillFlags struct {
+	policyID *string
+	skillID  *string
+}
+
+func addStoreFlags(flags *flag.FlagSet, rootUsage string) storeFlags {
+	return storeFlags{
+		root:   flags.String("root", ".", rootUsage),
+		dbPath: flags.String("db", "", "SQLite code intelligence database path"),
+	}
+}
+
+func addPolicyPathFlags(flags *flag.FlagSet, pathUsage string) policyPathFlags {
+	policySkill := addPolicySkillFlags(flags)
+
+	return policyPathFlags{
+		policyID: policySkill.policyID,
+		skillID:  policySkill.skillID,
+		path:     flags.String("path", "", pathUsage),
+	}
+}
+
+func addPolicySkillFlags(flags *flag.FlagSet) policySkillFlags {
+	return policySkillFlags{
+		policyID: flags.String("policy-id", "", "Filter by policy ID"),
+		skillID:  flags.String("skill-id", "", "Filter by skill ID"),
+	}
+}
+
+func addResultLimit(flags *flag.FlagSet) *int {
+	return flags.Int("limit", defaultResultLimit, "Maximum result count")
+}
+
+func addRelatedLimit(flags *flag.FlagSet) *int {
+	return flags.Int("limit", defaultResultLimit, "Maximum related item count")
+}
+
+func addSearchLimit(flags *flag.FlagSet) *int {
+	return flags.Int("limit", defaultSearchLimit, "Maximum result count")
+}
+
+func parseAndPrintStoreJSON(
+	ctx context.Context,
+	args []string,
+	command string,
+	flags *flag.FlagSet,
+	storeFlags storeFlags,
+	query func(*codeintel.Store) (any, error),
+) error {
+	err := parseCommandFlags(flags, args, command)
 	if err != nil {
 		return err
 	}
 
-	return encodeJSON(os.Stdout, stats)
+	return printStoreJSON(ctx, *storeFlags.root, *storeFlags.dbPath, query)
+}
+
+func parseCommandFlags(flags *flag.FlagSet, args []string, command string) error {
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse %s flags: %w", command, err)
+	}
+
+	return nil
 }
 
 func ingestTraces(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("ingest-traces", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos traces")
+
 	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse ingest-traces flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "ingest-traces")
+	if err != nil {
+		return err
 	}
 
 	store, err := openStore(ctx, *root, *dbPath)
@@ -185,7 +179,7 @@ func ingestTraces(ctx context.Context, args []string) error {
 
 	summary, err := codeintel.NewTraceIngester(store).IngestTraceDirs(ctx, *root)
 	if err != nil {
-		return err
+		return fmt.Errorf("ingest trace directories: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, summary)
@@ -195,31 +189,37 @@ func ingestSARIF(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("ingest-sarif", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
 	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+
 	file := flags.String("file", "", "SARIF file to ingest")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse ingest-sarif flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "ingest-sarif")
+	if err != nil {
+		return err
 	}
+
 	if *file == "" {
-		return errors.New("--file is required")
+		return fmt.Errorf("%w: --file", errSARIFFileRequired)
 	}
 
 	payload, err := os.ReadFile(*file)
 	if err != nil {
 		return fmt.Errorf("read SARIF file %q: %w", *file, err)
 	}
+
 	store, err := openStore(ctx, *root, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
 
-	if err := codeintel.NewTraceIngester(store).IngestSARIF(ctx, *file, payload); err != nil {
-		return err
+	err = codeintel.NewTraceIngester(store).IngestSARIF(ctx, *file, payload)
+	if err != nil {
+		return fmt.Errorf("ingest SARIF: %w", err)
 	}
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read code intelligence stats: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, stats)
@@ -231,17 +231,32 @@ func recordOutcome(ctx context.Context, args []string) error {
 	dbPath := flags.String("db", "", "SQLite code intelligence database path")
 	remediationID := flags.String("remediation-id", "", "Remediation ID")
 	findingID := flags.String("finding-id", "", "Finding ID")
-	sourceTraceID := flags.String("source-trace-id", "", "Trace that emitted the remediation")
-	followupTraceID := flags.String("followup-trace-id", "", "Trace from the follow-up attempt")
+	sourceTraceID := flags.String(
+		"source-trace-id",
+		"",
+		"Trace that emitted the remediation",
+	)
+	followupTraceID := flags.String(
+		"followup-trace-id",
+		"",
+		"Trace from the follow-up attempt",
+	)
 	policyID := flags.String("policy-id", "", "Policy ID")
 	skillID := flags.String("skill-id", "", "Skill ID")
 	path := flags.String("path", "", "File/path context")
 	provider := flags.String("provider", "", "Agent provider")
 	tool := flags.String("tool", "", "Agent tool")
-	outcome := flags.String("outcome", "", "Outcome: attempted, fixed, repeated, superseded, or unknown")
+	outcome := flags.String(
+		"outcome",
+		"",
+		"Outcome: attempted, fixed, repeated, superseded, or unknown",
+	)
+
 	attempt := flags.Int("attempt", 0, "Attempt ordinal")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse record-outcome flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "record-outcome")
+	if err != nil {
+		return err
 	}
 
 	store, err := openStore(ctx, *root, *dbPath)
@@ -250,7 +265,7 @@ func recordOutcome(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	if err := store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
+	err = store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
 		RemediationID:   *remediationID,
 		FindingID:       *findingID,
 		SourceTraceID:   *sourceTraceID,
@@ -262,13 +277,14 @@ func recordOutcome(ctx context.Context, args []string) error {
 		Tool:            *tool,
 		Outcome:         *outcome,
 		AttemptOrdinal:  *attempt,
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return fmt.Errorf("record remediation outcome: %w", err)
 	}
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read code intelligence stats: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, stats)
@@ -287,9 +303,12 @@ func recordEmbedding(ctx context.Context, args []string) error {
 	path := flags.String("path", "", "Path context")
 	policyID := flags.String("policy-id", "", "Policy ID")
 	skillID := flags.String("skill-id", "", "Skill ID")
+
 	backendRowID := flags.String("backend-row-id", "", "Backend row ID")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse record-embedding flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "record-embedding")
+	if err != nil {
+		return err
 	}
 
 	store, err := openStore(ctx, *root, *dbPath)
@@ -298,7 +317,7 @@ func recordEmbedding(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	if err := store.UpsertEmbeddingRecord(ctx, codeintel.EmbeddingRecord{
+	err = store.UpsertEmbeddingRecord(ctx, codeintel.EmbeddingRecord{
 		Backend:      *backend,
 		Collection:   *collection,
 		ModelID:      *modelID,
@@ -309,13 +328,14 @@ func recordEmbedding(ctx context.Context, args []string) error {
 		PolicyID:     *policyID,
 		SkillID:      *skillID,
 		BackendRowID: *backendRowID,
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return fmt.Errorf("record embedding metadata: %w", err)
 	}
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read code intelligence stats: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, stats)
@@ -324,9 +344,12 @@ func recordEmbedding(ctx context.Context, args []string) error {
 func printStats(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("stats", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
+
 	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse stats flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "stats")
+	if err != nil {
+		return err
 	}
 
 	store, err := openStore(ctx, *root, *dbPath)
@@ -337,7 +360,7 @@ func printStats(ctx context.Context, args []string) error {
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read code intelligence stats: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, stats)
@@ -345,140 +368,112 @@ func printStats(ctx context.Context, args []string) error {
 
 func printRepeatedFailures(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("repeated-failures", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	policyID := flags.String("policy-id", "", "Filter by policy ID")
-	skillID := flags.String("skill-id", "", "Filter by skill ID")
-	path := flags.String("path", "", "Filter by normalized source path")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse repeated-failures flags: %w", err)
-	}
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	filters := addPolicyPathFlags(flags, "Filter by normalized source path")
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
-		PolicyID: *policyID,
-		SkillID:  *skillID,
-		Path:     *path,
-		Limit:    *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"repeated-failures",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
+				PolicyID: *filters.policyID,
+				SkillID:  *filters.skillID,
+				Path:     *filters.path,
+				Limit:    *limit,
+			})
+		},
+	)
 }
 
 func printSARIFResults(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("sarif-results", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	runID := flags.String("run-id", "", "Filter by SARIF run ID")
 	traceID := flags.String("trace-id", "", "Filter by linked trace ID")
-	policyID := flags.String("policy-id", "", "Filter by policy ID")
-	skillID := flags.String("skill-id", "", "Filter by skill ID")
-	path := flags.String("path", "", "Filter by source path")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse sarif-results flags: %w", err)
-	}
+	filters := addPolicyPathFlags(flags, "Filter by source path")
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.SARIFResults(ctx, codeintel.SARIFResultQuery{
-		RunID:    *runID,
-		TraceID:  *traceID,
-		PolicyID: *policyID,
-		SkillID:  *skillID,
-		Path:     *path,
-		Limit:    *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"sarif-results",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.SARIFResults(ctx, codeintel.SARIFResultQuery{
+				RunID:    *runID,
+				TraceID:  *traceID,
+				PolicyID: *filters.policyID,
+				SkillID:  *filters.skillID,
+				Path:     *filters.path,
+				Limit:    *limit,
+			})
+		},
+	)
 }
 
 func printRemediationOutcomes(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("remediation-outcomes", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	policyID := flags.String("policy-id", "", "Filter by policy ID")
-	skillID := flags.String("skill-id", "", "Filter by skill ID")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	filters := addPolicyPathFlags(flags, "Filter by source path")
 	outcome := flags.String("outcome", "", "Filter by outcome")
-	path := flags.String("path", "", "Filter by source path")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse remediation-outcomes flags: %w", err)
-	}
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.RemediationOutcomes(ctx, codeintel.RemediationOutcomeQuery{
-		PolicyID: *policyID,
-		SkillID:  *skillID,
-		Outcome:  *outcome,
-		Path:     *path,
-		Limit:    *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"remediation-outcomes",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.RemediationOutcomes(ctx, codeintel.RemediationOutcomeQuery{
+				PolicyID: *filters.policyID,
+				SkillID:  *filters.skillID,
+				Outcome:  *outcome,
+				Path:     *filters.path,
+				Limit:    *limit,
+			})
+		},
+	)
 }
 
 func printRemediationEffectiveness(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("remediation-effectiveness", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
-	policyID := flags.String("policy-id", "", "Filter by policy ID")
-	skillID := flags.String("skill-id", "", "Filter by skill ID")
-	path := flags.String("path", "", "Filter by source path")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse remediation-effectiveness flags: %w", err)
-	}
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	filters := addPolicyPathFlags(flags, "Filter by source path")
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.RemediationEffectiveness(ctx, codeintel.RemediationOutcomeQuery{
-		PolicyID: *policyID,
-		SkillID:  *skillID,
-		Path:     *path,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"remediation-effectiveness",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.RemediationEffectiveness(ctx, codeintel.RemediationOutcomeQuery{
+				PolicyID: *filters.policyID,
+				SkillID:  *filters.skillID,
+				Path:     *filters.path,
+			})
+		},
+	)
 }
 
 func printVectorStats(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("vector-stats", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
 	backend := flags.String("backend", "sqlite-vec", "Vector backend")
+
 	uri := flags.String("uri", "", "Vector backend URI")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse vector-stats flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "vector-stats")
+	if err != nil {
+		return err
 	}
+
 	if *uri == "" {
 		*uri = codeintel.DefaultVectorPath(*root)
 	}
@@ -488,14 +483,16 @@ func printVectorStats(ctx context.Context, args []string) error {
 		URI:     *uri,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("open vector index: %w", err)
 	}
+
 	if closer, ok := index.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
+
 	stats, err := index.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read vector stats: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, stats)
@@ -503,70 +500,56 @@ func printVectorStats(ctx context.Context, args []string) error {
 
 func printEmbeddingRecords(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("embedding-records", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	backend := flags.String("backend", "", "Filter by vector backend")
 	collection := flags.String("collection", "", "Filter by collection")
 	modelID := flags.String("model-id", "", "Filter by embedding model ID")
 	recordKind := flags.String("record-kind", "", "Filter by source record kind")
 	recordID := flags.String("record-id", "", "Filter by source record ID")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse embedding-records flags: %w", err)
-	}
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.EmbeddingRecords(ctx, codeintel.EmbeddingRecordQuery{
-		Backend:    *backend,
-		Collection: *collection,
-		ModelID:    *modelID,
-		RecordKind: *recordKind,
-		RecordID:   *recordID,
-		Limit:      *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"embedding-records",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.EmbeddingRecords(ctx, codeintel.EmbeddingRecordQuery{
+				Backend:    *backend,
+				Collection: *collection,
+				ModelID:    *modelID,
+				RecordKind: *recordKind,
+				RecordID:   *recordID,
+				Limit:      *limit,
+			})
+		},
+	)
 }
 
 func printEmbeddingCandidates(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("embedding-candidates", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	recordKind := flags.String("record-kind", "", "Filter by source record kind")
-	policyID := flags.String("policy-id", "", "Filter by policy ID")
-	skillID := flags.String("skill-id", "", "Filter by skill ID")
-	path := flags.String("path", "", "Filter by path")
-	limit := flags.Int("limit", 20, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse embedding-candidates flags: %w", err)
-	}
+	filters := addPolicyPathFlags(flags, "Filter by path")
+	limit := addResultLimit(flags)
 
-	store, err := openStore(ctx, *root, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-
-	results, err := store.EmbeddingCandidates(ctx, codeintel.EmbeddingCandidateQuery{
-		RecordKind: *recordKind,
-		PolicyID:   *policyID,
-		SkillID:    *skillID,
-		Path:       *path,
-		Limit:      *limit,
-	})
-	if err != nil {
-		return err
-	}
-
-	return encodeJSON(os.Stdout, results)
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"embedding-candidates",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.EmbeddingCandidates(ctx, codeintel.EmbeddingCandidateQuery{
+				RecordKind: *recordKind,
+				PolicyID:   *filters.policyID,
+				SkillID:    *filters.skillID,
+				Path:       *filters.path,
+				Limit:      *limit,
+			})
+		},
+	)
 }
 
 func hybridSearch(ctx context.Context, args []string) error {
@@ -581,35 +564,45 @@ func hybridSearch(ctx context.Context, args []string) error {
 	policyID := flags.String("policy-id", "", "Filter by policy ID")
 	skillID := flags.String("skill-id", "", "Filter by skill ID")
 	path := flags.String("path", "", "Filter by path")
-	limit := flags.Int("limit", 10, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse hybrid-search flags: %w", err)
+
+	limit := addSearchLimit(flags)
+
+	err := parseCommandFlags(flags, args, "hybrid-search")
+	if err != nil {
+		return err
 	}
+
 	vector, err := parseOptionalVector(*vectorText)
 	if err != nil {
 		return err
 	}
+
 	if *text == "" && len(vector) == 0 {
-		return errors.New("--text or --vector is required")
+		return fmt.Errorf("%w: --text or --vector", errSearchTargetRequired)
 	}
+
 	store, err := openStore(ctx, *root, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+
 	if *uri == "" {
 		*uri = codeintel.DefaultVectorPath(*root)
 	}
+
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
 		Backend: "sqlite-vec",
 		URI:     *uri,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("open vector index: %w", err)
 	}
+
 	if closer, ok := index.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
+
 	results, err := store.HybridSearch(ctx, index, codeintel.HybridSearchQuery{
 		Text:       *text,
 		Collection: *collection,
@@ -621,7 +614,7 @@ func hybridSearch(ctx context.Context, args []string) error {
 		Limit:      *limit,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("run hybrid search: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, results)
@@ -633,39 +626,48 @@ func printIndexStatus(ctx context.Context, args []string) error {
 	dbPath := flags.String("db", "", "SQLite code intelligence database path")
 	uri := flags.String("uri", "", "Vector backend URI")
 	collection := flags.String("collection", "remediations", "Vector collection")
+
 	modelID := flags.String("model-id", "", "Embedding model ID")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse index-status flags: %w", err)
+
+	err := parseCommandFlags(flags, args, "index-status")
+	if err != nil {
+		return err
 	}
+
 	store, err := openStore(ctx, *root, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
+
 	if *uri == "" {
 		*uri = codeintel.DefaultVectorPath(*root)
 	}
+
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
 		Backend: "sqlite-vec",
 		URI:     *uri,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("open vector index: %w", err)
 	}
+
 	if closer, ok := index.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
+
 	vectorStats, err := index.Stats(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read vector stats: %w", err)
 	}
+
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
 		Backend:    "sqlite-vec",
 		Collection: *collection,
 		ModelID:    *modelID,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("read index status: %w", err)
 	}
 
 	return encodeJSON(os.Stdout, status)
@@ -673,27 +675,45 @@ func printIndexStatus(ctx context.Context, args []string) error {
 
 func search(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("search", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
 	text := flags.String("text", "", "FTS query text")
-	limit := flags.Int("limit", 10, "Maximum result count")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse search flags: %w", err)
-	}
-	if *text == "" {
-		return errors.New("--text is required")
+	limit := addSearchLimit(flags)
+
+	err := parseCommandFlags(flags, args, "search")
+	if err != nil {
+		return err
 	}
 
-	store, err := openStore(ctx, *root, *dbPath)
+	if *text == "" {
+		return fmt.Errorf("%w: --text", errSearchTextRequired)
+	}
+
+	return printStoreJSON(
+		ctx,
+		*storeFlags.root,
+		*storeFlags.dbPath,
+		func(store *codeintel.Store) (any, error) {
+			return store.Search(ctx, codeintel.SearchQuery{
+				Text:  *text,
+				Limit: *limit,
+			})
+		},
+	)
+}
+
+func printStoreJSON(
+	ctx context.Context,
+	root string,
+	dbPath string,
+	query func(*codeintel.Store) (any, error),
+) error {
+	store, err := openStore(ctx, root, dbPath)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
 
-	results, err := store.Search(ctx, codeintel.SearchQuery{
-		Text:  *text,
-		Limit: *limit,
-	})
+	results, err := query(store)
 	if err != nil {
 		return err
 	}
@@ -701,11 +721,16 @@ func search(ctx context.Context, args []string) error {
 	return encodeJSON(os.Stdout, results)
 }
 
-func openStore(ctx context.Context, root string, dbPath string) (*codeintel.Store, error) {
-	return codeintel.Open(ctx, resolvedDBPath(root, dbPath))
+func openStore(ctx context.Context, root, dbPath string) (*codeintel.Store, error) {
+	store, err := codeintel.Open(ctx, resolvedDBPath(root, dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
+	}
+
+	return store, nil
 }
 
-func resolvedDBPath(root string, dbPath string) string {
+func resolvedDBPath(root, dbPath string) string {
 	if dbPath != "" {
 		return dbPath
 	}
@@ -717,7 +742,9 @@ func encodeJSON(output *os.File, value any) error {
 	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(value); err != nil {
+
+	err := encoder.Encode(value)
+	if err != nil {
 		return fmt.Errorf("encode JSON: %w", err)
 	}
 
@@ -734,20 +761,24 @@ func parseOptionalVector(value string) ([]float32, error) {
 
 func parseVector(value string) ([]float32, error) {
 	parts := strings.Split(strings.TrimSpace(value), ",")
+
 	vector := make([]float32, 0, len(parts))
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
+
 		parsed, err := strconv.ParseFloat(part, 32)
 		if err != nil {
 			return nil, fmt.Errorf("parse vector value %q: %w", part, err)
 		}
+
 		vector = append(vector, float32(parsed))
 	}
+
 	if len(vector) == 0 {
-		return nil, errors.New("vector must include at least one value")
+		return nil, errVectorValuesRequired
 	}
 
 	return vector, nil

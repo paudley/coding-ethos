@@ -38,6 +38,7 @@ func evidenceMapForDiagnostic(
 		if !strings.EqualFold(strings.TrimSpace(mapping.Source), item.Tool) {
 			continue
 		}
+
 		if len(mapping.Codes) == 0 && len(mapping.MessageSubstrings) == 0 {
 			continue
 		}
@@ -85,7 +86,7 @@ func evidenceMessagesMatch(patterns []string, message string) bool {
 	return false
 }
 
-func diagnosticCodeMatches(pattern string, code string) bool {
+func diagnosticCodeMatches(pattern, code string) bool {
 	normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
 	normalizedCode := strings.ToLower(strings.TrimSpace(code))
 

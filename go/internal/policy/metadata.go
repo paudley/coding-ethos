@@ -21,7 +21,9 @@ type Metadata struct {
 	GeneratedAt  string            `json:"generated_at"`
 }
 
-var errMetadataSourceHashesRequired = errors.New("metadata does not contain source_hashes")
+var errMetadataSourceHashesRequired = errors.New(
+	"metadata does not contain source_hashes",
+)
 
 func HashBundle(bundle Bundle) (string, error) {
 	payload, err := json.Marshal(bundle)
@@ -62,7 +64,9 @@ func EncodeMetadata(writer io.Writer, metadata Metadata) error {
 
 func DecodeMetadata(reader io.Reader) (Metadata, error) {
 	var metadata Metadata
-	if err := json.NewDecoder(reader).Decode(&metadata); err != nil {
+
+	err := json.NewDecoder(reader).Decode(&metadata)
+	if err != nil {
 		return Metadata{}, fmt.Errorf("decode policy metadata: %w", err)
 	}
 
@@ -78,20 +82,25 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 	for path := range metadata.SourceHashes {
 		paths = append(paths, path)
 	}
+
 	sort.Strings(paths)
 
 	var failures []string
+
 	for _, path := range paths {
 		actual, err := hashFile(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				failures = append(failures, "missing policy source: "+path)
+
 				continue
 			}
 
 			failures = append(failures, fmt.Sprintf("hash policy source %s: %v", path, err))
+
 			continue
 		}
+
 		if actual != metadata.SourceHashes[path] {
 			failures = append(failures, "policy source hash mismatch: "+path)
 		}

@@ -27,6 +27,7 @@ func main() {
 func runCLI(args []string) int {
 	if len(args) == 0 {
 		usage()
+
 		return commandArgsOffset
 	}
 
@@ -49,6 +50,7 @@ func runCLI(args []string) int {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
+
 		return 1
 	}
 
@@ -125,7 +127,8 @@ func verifySettings(args []string) error {
 
 	report, err := agenthooks.VerifySettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
-		if encodeErr := writeJSONReport(os.Stdout, report); encodeErr != nil {
+		encodeErr := writeJSONReport(os.Stdout, report)
+		if encodeErr != nil {
 			return encodeErr
 		}
 
@@ -144,6 +147,7 @@ func defaultHookCommand(hookCommand string) string {
 	if strings.TrimSpace(hookCommand) != "" {
 		return hookCommand
 	}
+
 	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
 	if runner == "" {
 		return ""

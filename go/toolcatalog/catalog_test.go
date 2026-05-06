@@ -53,6 +53,7 @@ func TestPythonStaticToolsRequestStructuredOutput(t *testing.T) {
 		if !slices.Contains(tool.Command, expected.token) {
 			t.Fatalf("%s command missing %q: %#v", name, expected.token, tool.Command)
 		}
+
 		if tool.Category != "python-static" ||
 			tool.OutputFormat != expected.outputFormat ||
 			!slices.Contains(tool.Languages, "python") ||
@@ -70,12 +71,15 @@ func TestHookProjectToolsAreDeclaredDependencies(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime caller unavailable")
 	}
+
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", ".."))
 	pyprojectPath := filepath.Join(repoRoot, "pre-commit", "hooks", "pyproject.toml")
+
 	content, err := os.ReadFile(pyprojectPath)
 	if err != nil {
 		t.Fatalf("read hook pyproject: %v", err)
 	}
+
 	pyproject := string(content)
 
 	for _, captured := range toolcatalog.CapturedLintTools() {
@@ -83,10 +87,12 @@ func TestHookProjectToolsAreDeclaredDependencies(t *testing.T) {
 		if !found {
 			t.Fatalf("captured tool %q missing hook-owned metadata", captured.Name)
 		}
+
 		runtimeSpec := tool.RuntimeSpec()
 		if !runtimeSpec.Project || len(runtimeSpec.Command) == 0 {
 			continue
 		}
+
 		if runtimeSpec.Runtime != toolcatalog.RuntimePython &&
 			runtimeSpec.Runtime != toolcatalog.RuntimeUV {
 			continue
@@ -142,10 +148,23 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
 	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
 	assertToolCommand(t, tools["bandit"], []string{"bandit", "-q", "-f", "json"})
-	assertToolCommand(t, tools["sqlfluff"], []string{"sqlfluff", "lint", "--format", "json"})
-	assertToolCommand(t, tools["tombi"], []string{"tombi", "lint", "--quiet", "--error-on-warnings"})
-	assertToolCommand(t, tools["dotenv-linter"], []string{"dotenv-linter", "--plain", "--quiet", "check"})
+	assertToolCommand(
+		t,
+		tools["sqlfluff"],
+		[]string{"sqlfluff", "lint", "--format", "json"},
+	)
+	assertToolCommand(
+		t,
+		tools["tombi"],
+		[]string{"tombi", "lint", "--quiet", "--error-on-warnings"},
+	)
+	assertToolCommand(
+		t,
+		tools["dotenv-linter"],
+		[]string{"dotenv-linter", "--plain", "--quiet", "check"},
+	)
 	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
+	assertToolCommand(t, tools["golines"], []string{"golines", "-w", "-m", "88"})
 
 	for name, want := range map[string]string{
 		"hadolint":      "docker",
@@ -158,6 +177,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"tombi":         "syntax",
 		"dotenv-linter": "dotenv",
 		"golangci-lint": "go-static",
+		"golines":       "format",
 	} {
 		tool := tools[name]
 		if tool.Category != want || tool.OutputFormat == "" || tool.Advice == "" {
@@ -193,6 +213,7 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 	assertToolFileMetadata(t, tools["tombi"], []string{".toml"}, nil, nil)
 	assertToolFileMetadata(t, tools["dotenv-linter"], nil, nil, []string{".env"})
 	assertToolFileMetadata(t, tools["golangci-lint"], []string{".go"}, nil, nil)
+	assertToolFileMetadata(t, tools["golines"], []string{".go"}, nil, nil)
 
 	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
 		tools["yamllint"].ConfigFlags[0] != "-c" {
@@ -234,6 +255,7 @@ func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
 		"pyupgrade",
 		"ruff-format",
 		"ruff-autofix",
+		"golangci-lint-autofix",
 		"gofmt",
 		"go-vet",
 		"go-test",
@@ -247,6 +269,7 @@ func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
 		if !ok {
 			t.Fatalf("HookOwnedTools() missing %q", name)
 		}
+
 		if tool.Category == "" || tool.OutputFormat == "" || tool.Advice == "" {
 			t.Fatalf("%s metadata is incomplete: %#v", name, tool)
 		}
@@ -273,9 +296,11 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		if !found {
 			t.Fatalf("HookOwnedTool(%q) missing", name)
 		}
+
 		if tool.Parser == "" || len(tool.CaptureOutputArgs) == 0 {
 			t.Fatalf("%s missing parser or capture metadata: %#v", name, tool)
 		}
+
 		if len(tool.CaptureStripArgs) == 0 && len(tool.CaptureStripFlags) == 0 {
 			t.Fatalf("%s cannot strip caller output flags: %#v", name, tool)
 		}
@@ -309,13 +334,16 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 		if !found {
 			t.Fatalf("HookOwnedTool(%q) missing", name)
 		}
+
 		capture, found := captured[name]
 		if !found {
 			t.Fatalf("CapturedLintTools() missing %q", name)
 		}
+
 		if capture.Description == "" {
 			t.Fatalf("CapturedLintTools(%q) missing description", name)
 		}
+
 		if tool.Runtime == toolcatalog.RuntimePython ||
 			tool.Runtime == toolcatalog.RuntimeUV {
 			if !capture.PythonModule || len(capture.ModuleNames) == 0 {
@@ -335,11 +363,13 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 
 	capture := tool.CaptureSpec()
 	capture.OutputArgs[0] = "--broken"
+
 	if tool.CaptureOutputArgs[0] == "--broken" {
 		t.Fatal("CaptureSpec shared backing array with Tool")
 	}
 
 	runtime := tool.RuntimeSpec()
+
 	runtime.Command[0] = "broken"
 	if tool.Command[0] == "broken" {
 		t.Fatal("RuntimeSpec shared backing array with Tool")
@@ -347,17 +377,21 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 
 	files := tool.FileMatchSpec()
 	files.Extensions[0] = ".broken"
+
 	if tool.FileExtensions[0] == ".broken" {
 		t.Fatal("FileMatchSpec shared backing array with Tool")
 	}
 
 	config := tool.ConfigSpec()
 	config.Flags = append(config.Flags, "--broken")
-	if len(tool.ConfigFlags) > 0 && tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
+
+	if len(tool.ConfigFlags) > 0 &&
+		tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
 		t.Fatal("ConfigSpec shared backing array with Tool")
 	}
 
 	capabilities := tool.CapabilitySpec()
+
 	capabilities.ReadPaths = append(capabilities.ReadPaths, "/broken")
 	if len(tool.Capabilities.ReadPaths) > 0 &&
 		tool.Capabilities.ReadPaths[len(tool.Capabilities.ReadPaths)-1] == "/broken" {
@@ -378,18 +412,23 @@ func TestToolCapabilitiesAreDenyByDefaultForNetwork(t *testing.T) {
 				!slices.Contains(capabilities.Tags, "no-git") {
 				t.Fatalf("gemini-check capabilities = %#v", capabilities)
 			}
+
 			continue
 		}
+
 		if capabilities.RequiresNetwork {
 			t.Fatalf("%s unexpectedly requires network: %#v", tool.Name, capabilities)
 		}
+
 		if !slices.Contains(capabilities.Tags, "no-network") ||
 			slices.Contains(capabilities.Tags, "network") {
 			t.Fatalf("%s missing no-network tag: %#v", tool.Name, capabilities)
 		}
+
 		if !capabilities.RequiresGit && !slices.Contains(capabilities.Tags, "no-git") {
 			t.Fatalf("%s missing no-git tag: %#v", tool.Name, capabilities)
 		}
+
 		if capabilities.TimeoutSeconds <= 0 ||
 			capabilities.MemoryMB <= 0 ||
 			capabilities.CPUQuotaPercent <= 0 ||
@@ -406,6 +445,7 @@ func TestToolCapabilityViewsExposeCommandsAndDefensiveCopies(t *testing.T) {
 	if len(views) == 0 {
 		t.Fatal("ToolCapabilityViews() returned no tools")
 	}
+
 	views[0].Command = append(views[0].Command, "mutated")
 
 	again := toolcatalog.ToolCapabilityViews()
@@ -418,25 +458,63 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join(string(filepath.Separator), "repo", "coding-ethos")
+
 	shellcheck, found := toolcatalog.HookOwnedTool("shellcheck")
 	if !found {
 		t.Fatal("missing shellcheck")
 	}
-	if got := shellcheck.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck") {
+
+	if got := shellcheck.ManagedExecutablePath(
+		root,
+	); got != filepath.Join(
+		root,
+		"build",
+		"toolchain",
+		"github-bin",
+		"shellcheck",
+	) {
 		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
 	}
+
 	actionlint, found := toolcatalog.HookOwnedTool("actionlint")
 	if !found {
 		t.Fatal("missing actionlint")
 	}
-	if got := actionlint.ManagedExecutablePath(root); got != filepath.Join(root, "build", "toolchain", "go-bin", "actionlint") {
+
+	if got := actionlint.ManagedExecutablePath(
+		root,
+	); got != filepath.Join(
+		root,
+		"build",
+		"toolchain",
+		"go-bin",
+		"actionlint",
+	) {
 		t.Fatalf("ManagedExecutablePath(actionlint) = %q", got)
+	}
+
+	golangciAutofix, found := toolcatalog.HookOwnedTool("golangci-lint-autofix")
+	if !found {
+		t.Fatal("missing golangci-lint-autofix")
+	}
+
+	if got := golangciAutofix.ManagedExecutablePath(
+		root,
+	); got != filepath.Join(
+		root,
+		"build",
+		"toolchain",
+		"go-bin",
+		"golangci-lint",
+	) {
+		t.Fatalf("ManagedExecutablePath(golangci-lint-autofix) = %q", got)
 	}
 
 	ruff, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
 		t.Fatal("missing ruff")
 	}
+
 	if got := ruff.ManagedExecutablePath(root); got != "" {
 		t.Fatalf("ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools", got)
 	}
@@ -446,6 +524,7 @@ func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
 	t.Parallel()
 
 	specs := toolcatalog.CapturedLintShimSpecs("/repo/coding-ethos-run")
+
 	byTool := map[string]toolcatalog.ShimSpec{}
 	for _, spec := range specs {
 		byTool[spec.ToolName] = spec
@@ -455,6 +534,7 @@ func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
 	if !found {
 		t.Fatal("missing ruff shim spec")
 	}
+
 	want := []string{"/repo/coding-ethos-run", "policy-tool", "ruff"}
 	if !reflect.DeepEqual(spec.Command, want) {
 		t.Fatalf("ruff shim command = %#v, want %#v", spec.Command, want)
@@ -539,10 +619,12 @@ func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 			if !found {
 				t.Fatalf("missing tool %q", test.name)
 			}
+
 			got, ok := tool.CaptureArgs(test.args)
 			if !ok {
 				t.Fatalf("CaptureArgs(%s) did not apply", test.name)
 			}
+
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("CaptureArgs(%s) = %#v, want %#v", test.name, got, test.want)
 			}
@@ -557,6 +639,7 @@ func TestToolCaptureArgsSkipsMutatingCommands(t *testing.T) {
 	if !found {
 		t.Fatal("missing ruff")
 	}
+
 	got, ok := tool.CaptureArgs([]string{"format", "pkg"})
 	if ok {
 		t.Fatalf("CaptureArgs applied to mutating ruff format: %#v", got)
@@ -570,6 +653,7 @@ func TestToolCaptureArgsSkipsInformationalCommands(t *testing.T) {
 	if !found {
 		t.Fatal("missing ruff")
 	}
+
 	got, ok := tool.CaptureArgs([]string{"--version"})
 	if ok {
 		t.Fatalf("CaptureArgs applied to informational ruff call: %#v", got)

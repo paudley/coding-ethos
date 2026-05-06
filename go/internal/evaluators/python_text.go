@@ -267,7 +267,7 @@ func leadingSpaces(line string) int {
 	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
-func insidePackage(path string, packageName string) bool {
+func insidePackage(path, packageName string) bool {
 	normalized := strings.TrimPrefix(filepath.ToSlash(path), "./")
 
 	return normalized == packageName || strings.HasPrefix(normalized, packageName+"/")

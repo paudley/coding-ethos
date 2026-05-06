@@ -44,13 +44,18 @@ type ChangedSymbolInput struct {
 	NonBlankLineCountShrinks  bool    `json:"nonblank_line_count_shrinks"`
 }
 
-func changedSymbolInputs(cwd string, files []string, hunks []DiffHunkInput) []ChangedSymbolInput {
+func changedSymbolInputs(
+	cwd string,
+	files []string,
+	hunks []DiffHunkInput,
+) []ChangedSymbolInput {
 	if cwd == "" {
 		return nil
 	}
 
 	statuses := gitFileStatuses(cwd)
 	changes := []ChangedSymbolInput{}
+
 	for _, file := range cleanStringSlice(files) {
 		status := statuses[file]
 		fileChanges := changedSymbolsForFile(cwd, file, status, hunks)
@@ -67,17 +72,24 @@ func changedSymbolsForFile(
 	hunks []DiffHunkInput,
 ) []ChangedSymbolInput {
 	currentContent, hasCurrent := gitTextBlob(cwd, ":"+file)
+
 	originalFile := file
 	if status.OldFile != "" {
 		originalFile = status.OldFile
 	}
+
 	originalContent, hasOriginal := gitTextBlob(cwd, "HEAD:"+originalFile)
 	if !hasCurrent && !hasOriginal {
 		return nil
 	}
 
 	currentFile, currentOK := analyzeOptionalFile(file, currentContent, hasCurrent)
-	originalFileFacts, originalOK := analyzeOptionalFile(file, originalContent, hasOriginal)
+
+	originalFileFacts, originalOK := analyzeOptionalFile(
+		file,
+		originalContent,
+		hasOriginal,
+	)
 	if !currentOK && !originalOK {
 		return nil
 	}
@@ -86,10 +98,12 @@ func changedSymbolsForFile(
 	original := symbolsByKey(originalFileFacts.Symbols)
 	keys := sortedSymbolKeys(original, current)
 	addedLines, removedLines := changedLineSets(file, hunks)
+
 	changes := make([]ChangedSymbolInput, 0, len(keys))
 	for _, key := range keys {
 		originalSymbol, hasOriginalSymbol := original[key]
 		currentSymbol, hasCurrentSymbol := current[key]
+
 		change := changedSymbolInput(
 			file,
 			originalSymbol,
@@ -107,10 +121,11 @@ func changedSymbolsForFile(
 	return changes
 }
 
-func analyzeOptionalFile(file string, content string, ok bool) (astfacts.File, bool) {
+func analyzeOptionalFile(file, content string, ok bool) (astfacts.File, bool) {
 	if !ok {
 		return astfacts.File{}, false
 	}
+
 	facts, supported, err := astfacts.Analyze(file, []byte(content))
 	if err != nil || !supported {
 		return astfacts.File{}, false
@@ -119,7 +134,7 @@ func analyzeOptionalFile(file string, content string, ok bool) (astfacts.File, b
 	return facts, true
 }
 
-func gitTextBlob(cwd string, ref string) (string, bool) {
+func gitTextBlob(cwd, ref string) (string, bool) {
 	content, err := gitOutput(cwd, "show", ref)
 	if err != nil || bytes.Contains([]byte(content), []byte{0}) {
 		return "", false
@@ -128,18 +143,24 @@ func gitTextBlob(cwd string, ref string) (string, bool) {
 	return content, true
 }
 
-func changedLineSets(file string, hunks []DiffHunkInput) (map[int64]bool, map[int64]bool) {
+func changedLineSets(
+	file string,
+	hunks []DiffHunkInput,
+) (map[int64]bool, map[int64]bool) {
 	added := map[int64]bool{}
 	removed := map[int64]bool{}
+
 	for _, hunk := range hunks {
 		if hunk.File != file {
 			continue
 		}
+
 		for _, line := range hunk.AddedLines {
 			if line.NewLine > 0 {
 				added[line.NewLine] = true
 			}
 		}
+
 		for _, line := range hunk.RemovedLines {
 			if line.OldLine > 0 {
 				removed[line.OldLine] = true
@@ -163,19 +184,24 @@ func changedSymbolInput(
 	if !hasCurrent {
 		symbol = original
 	}
+
 	originalLines := 0
 	currentLines := 0
 	originalNonBlankLines := 0
 	currentNonBlankLines := 0
+
 	if hasOriginal {
 		originalLines = original.LineCount
 		originalNonBlankLines = countNonBlankLines(original.RawText)
 	}
+
 	if hasCurrent {
 		currentLines = current.LineCount
 		currentNonBlankLines = countNonBlankLines(current.RawText)
 	}
+
 	action := "unchanged"
+
 	switch {
 	case !hasOriginal && hasCurrent:
 		action = "added"
@@ -186,19 +212,26 @@ func changedSymbolInput(
 	}
 
 	return ChangedSymbolInput{
-		Base:                      path.Base(file),
-		CurrentContentHash:        current.ContentHash,
-		Dir:                       path.Dir(file),
-		Ext:                       strings.ToLower(path.Ext(file)),
-		File:                      file,
-		Language:                  symbol.Language,
-		NodeKind:                  symbol.NodeKind,
-		OriginalContentHash:       original.ContentHash,
-		SymbolKind:                symbol.SymbolKind,
-		SymbolName:                symbol.SymbolName,
-		SymbolPath:                symbol.SymbolPath,
-		Action:                    action,
-		ChangedLines:              changedSymbolLines(original, hasOriginal, current, hasCurrent, addedLines, removedLines),
+		Base:                path.Base(file),
+		CurrentContentHash:  current.ContentHash,
+		Dir:                 path.Dir(file),
+		Ext:                 strings.ToLower(path.Ext(file)),
+		File:                file,
+		Language:            symbol.Language,
+		NodeKind:            symbol.NodeKind,
+		OriginalContentHash: original.ContentHash,
+		SymbolKind:          symbol.SymbolKind,
+		SymbolName:          symbol.SymbolName,
+		SymbolPath:          symbol.SymbolPath,
+		Action:              action,
+		ChangedLines: changedSymbolLines(
+			original,
+			hasOriginal,
+			current,
+			hasCurrent,
+			addedLines,
+			removedLines,
+		),
 		CurrentEndLine:            int64(current.EndLine),
 		CurrentLineCount:          int64(currentLines),
 		CurrentNonBlankLineCount:  int64(currentNonBlankLines),
@@ -226,11 +259,17 @@ func symbolTouched(
 	if len(change.ChangedLines) > 0 {
 		return true
 	}
+
 	if change.Action == "added" {
 		return spanIntersectsLines(change.CurrentStartLine, change.CurrentEndLine, addedLines)
 	}
+
 	if change.Action == "deleted" {
-		return spanIntersectsLines(change.OriginalStartLine, change.OriginalEndLine, removedLines)
+		return spanIntersectsLines(
+			change.OriginalStartLine,
+			change.OriginalEndLine,
+			removedLines,
+		)
 	}
 
 	return false
@@ -248,26 +287,31 @@ func changedSymbolLines(
 	if hasCurrent {
 		lines = append(lines, linesInSpan(current.StartLine, current.EndLine, addedLines)...)
 	}
+
 	if hasOriginal {
-		lines = append(lines, linesInSpan(original.StartLine, original.EndLine, removedLines)...)
+		lines = append(
+			lines,
+			linesInSpan(original.StartLine, original.EndLine, removedLines)...)
 	}
 
 	return uniqueInt64s(lines)
 }
 
-func linesInSpan(start int, end int, lines map[int64]bool) []int64 {
+func linesInSpan(start, end int, lines map[int64]bool) []int64 {
 	return linesInInt64Span(int64(start), int64(end), lines)
 }
 
-func spanIntersectsLines(start int64, end int64, lines map[int64]bool) bool {
+func spanIntersectsLines(start, end int64, lines map[int64]bool) bool {
 	return len(linesInInt64Span(start, end, lines)) > 0
 }
 
-func linesInInt64Span(start int64, end int64, lines map[int64]bool) []int64 {
+func linesInInt64Span(start, end int64, lines map[int64]bool) []int64 {
 	if start <= 0 || end <= 0 || end < start {
 		return nil
 	}
+
 	matches := []int64{}
+
 	for line := range lines {
 		if line >= start && line <= end {
 			matches = append(matches, line)
@@ -280,10 +324,12 @@ func linesInInt64Span(start int64, end int64, lines map[int64]bool) []int64 {
 func uniqueInt64s(values []int64) []int64 {
 	seen := map[int64]bool{}
 	unique := []int64{}
+
 	for _, value := range sortedInt64s(values) {
 		if seen[value] {
 			continue
 		}
+
 		seen[value] = true
 		unique = append(unique, value)
 	}

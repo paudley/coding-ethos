@@ -5,6 +5,7 @@ package policy
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -17,11 +18,11 @@ type expressionPolicySource struct {
 }
 
 type expressionPolicyGovernance struct {
+	OverrideReason      string
 	Override            bool
 	AllowOverride       bool
 	AllowSeverityWeaken bool
 	Protected           bool
-	OverrideReason      string
 }
 
 func expressionPolicySourceFromConfig(
@@ -58,15 +59,18 @@ func expressionPolicySourcesFromPrinciples(
 	}
 
 	sources := []expressionPolicySource{}
+
 	for index, rawPrinciple := range rawPrinciples {
 		principle, ok := rawPrinciple.(map[string]any)
 		if !ok {
 			continue
 		}
+
 		rawExpressions, ok := valueAt(principle, "policy", "expressions")
 		if !ok {
 			continue
 		}
+
 		expressions, ok := rawExpressions.([]any)
 		if !ok {
 			sources = append(sources, expressionPolicySource{
@@ -74,6 +78,7 @@ func expressionPolicySourcesFromPrinciples(
 				PathPrefix:  fmt.Sprintf("principles[%d].policy.expressions", index),
 				Expressions: []any{rawExpressions},
 			})
+
 			continue
 		}
 
@@ -97,15 +102,17 @@ func principleExpressionDefaults(expressions []any, principleID string) []any {
 		expression, ok := rawExpression.(map[string]any)
 		if !ok {
 			normalized = append(normalized, rawExpression)
+
 			continue
 		}
+
 		copied := map[string]any{}
-		for key, value := range expression {
-			copied[key] = value
-		}
+		maps.Copy(copied, expression)
+
 		if _, ok := copied["principle_ids"]; !ok && principleID != "" {
 			copied["principle_ids"] = []any{principleID}
 		}
+
 		normalized = append(normalized, copied)
 	}
 
@@ -119,12 +126,13 @@ func addExpressionPolicies(
 	principles map[string]Principle,
 ) error {
 	for _, source := range sources {
-		if err := addExpressionPoliciesFromSource(
+		err := addExpressionPoliciesFromSource(
 			policies,
 			source,
 			config,
 			principles,
-		); err != nil {
+		)
+		if err != nil {
 			return err
 		}
 	}
@@ -160,17 +168,20 @@ func addExpressionPoliciesFromSource(
 		if err != nil {
 			return err
 		}
+
 		if !enabled {
 			continue
 		}
+
 		if existing, exists := policies[policyDef.ID]; exists {
-			if err := validateExpressionPolicyOverride(
+			err := validateExpressionPolicyOverride(
 				source.File,
 				index,
 				policyDef,
 				governance,
 				existing,
-			); err != nil {
+			)
+			if err != nil {
 				return err
 			}
 		} else if governance.Override {
@@ -182,6 +193,7 @@ func addExpressionPoliciesFromSource(
 				policyDef.ID,
 			)
 		}
+
 		policies[policyDef.ID] = policyDef
 	}
 
@@ -220,6 +232,7 @@ func expressionPolicy(
 			index,
 		)
 	}
+
 	if !enabled {
 		if governance.Protected {
 			return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
@@ -243,6 +256,7 @@ func expressionPolicy(
 			index,
 		)
 	}
+
 	if err := celexpr.Validate(policyID, when); err != nil {
 		return Policy{}, false, expressionPolicyGovernance{}, err
 	}
@@ -256,6 +270,7 @@ func expressionPolicy(
 			index,
 		)
 	}
+
 	for _, principleID := range principleIDs {
 		if _, ok := principles[principleID]; !ok {
 			return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
@@ -276,6 +291,7 @@ func expressionPolicy(
 			index,
 		)
 	}
+
 	advice := stringOptionFromMap(expression, "advice", "")
 	if advice == "" {
 		return Policy{}, false, expressionPolicyGovernance{}, fmt.Errorf(
@@ -293,7 +309,10 @@ func expressionPolicy(
 		firstPresentValue(expression, "lint_scopes", "dispatch_scopes"),
 		defaultExpressionDispatchScopes(scope),
 	)
-	hookEvents := stringSliceValueAllowEmpty(expression["hook_events"], []string{"PreToolUse"})
+	hookEvents := stringSliceValueAllowEmpty(
+		expression["hook_events"],
+		[]string{"PreToolUse"},
+	)
 	tools := stringSliceValue(expression["tools"], expressionHookTools(scope))
 	commandPatterns := stringSliceValue(expression["command_patterns"], nil)
 	pathPatterns := stringSliceValue(expression["path_patterns"], nil)
@@ -351,7 +370,11 @@ func expressionPolicy(
 				"scope":                 scope,
 				"skill_id":              stringOptionFromMap(expression, "skill_id", ""),
 				"source_file":           sourceFile,
-				"source_roots":          stringSliceAt(config, []string{"python", "source_paths"}, nil),
+				"source_roots": stringSliceAt(
+					config,
+					[]string{"python", "source_paths"},
+					nil,
+				),
 				"tools":                 tools,
 				"when":                  when,
 				"allow_override":        governance.AllowOverride,
@@ -417,6 +440,7 @@ func expressionGovernance(
 			index,
 		)
 	}
+
 	override, err := boolOptionFromMap(expression, "override", false)
 	if err != nil {
 		return expressionPolicyGovernance{}, fmt.Errorf(
@@ -425,6 +449,7 @@ func expressionGovernance(
 			index,
 		)
 	}
+
 	allowOverride, err := boolOptionFromMap(expression, "allow_override", false)
 	if err != nil {
 		return expressionPolicyGovernance{}, fmt.Errorf(
@@ -433,6 +458,7 @@ func expressionGovernance(
 			index,
 		)
 	}
+
 	allowSeverityWeaken, err := boolOptionFromMap(
 		expression,
 		"allow_severity_weaken",
@@ -470,6 +496,7 @@ func validateExpressionPolicyOverride(
 			replacement.ID,
 		)
 	}
+
 	if governance.OverrideReason == "" {
 		return fmt.Errorf(
 			"%s policy.expressions[%d].override_reason is required for override of %q",
@@ -489,6 +516,7 @@ func validateExpressionPolicyOverride(
 			existing.Source.File,
 		)
 	}
+
 	if severityRank(replacement.DefaultSeverity) <
 		severityRank(existing.DefaultSeverity) &&
 		!existingGovernance.AllowSeverityWeaken {
@@ -511,6 +539,7 @@ func expressionPolicyGovernanceFromPolicy(
 	if policyDef.Category != "expression" {
 		return expressionPolicyGovernance{}, false
 	}
+
 	for _, evaluator := range policyDef.Evaluators {
 		if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
 			continue

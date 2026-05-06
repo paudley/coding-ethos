@@ -1,19 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package shellparse
+package shellparse_test
 
 import (
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 func TestControlFieldsParsesMultilineGitAdd(t *testing.T) {
 	t.Parallel()
 
-	fields, err := ControlFields(
+	fields, err := shellparse.ControlFields(
 		"# stage files\n" +
 			"git add \\\n" +
 			"  'path with spaces.py' \\\n" +
@@ -37,7 +39,9 @@ func TestControlFieldsParsesMultilineGitAdd(t *testing.T) {
 func TestControlFieldsPreservesOperatorsAndRedirects(t *testing.T) {
 	t.Parallel()
 
-	fields, err := ControlFields("git status -s 2>&1 | grep file && ruff check .")
+	fields, err := shellparse.ControlFields(
+		"git status -s 2>&1 | grep file && ruff check .",
+	)
 	if err != nil {
 		t.Fatalf("parse command: %v", err)
 	}
@@ -57,7 +61,9 @@ func TestControlFieldsPreservesOperatorsAndRedirects(t *testing.T) {
 func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
 	t.Parallel()
 
-	fields, err := Fields("git commit -m \"$(cat <<'EOF'\nfix(test): subject\n\nBody.\nEOF\n)\"")
+	fields, err := shellparse.Fields(
+		"git commit -m \"$(cat <<'EOF'\nfix(test): subject\n\nBody.\nEOF\n)\"",
+	)
 	if err != nil {
 		t.Fatalf("parse command: %v", err)
 	}
@@ -65,7 +71,8 @@ func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
 	if len(fields) != 4 {
 		t.Fatalf("fields mismatch: %#v", fields)
 	}
-	message, ok := CatHeredocCommandSubstitution(fields[3])
+
+	message, ok := shellparse.CatHeredocCommandSubstitution(fields[3])
 	if !ok {
 		t.Fatalf("expected extractable heredoc command substitution: %#v", fields[3])
 	}
@@ -79,10 +86,11 @@ func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
 func TestCommandsExposeStructuredFacts(t *testing.T) {
 	t.Parallel()
 
-	commands, err := Commands("FOO=bar python -m ruff check . &")
+	commands, err := shellparse.Commands("FOO=bar python -m ruff check . &")
 	if err != nil {
 		t.Fatalf("parse command: %v", err)
 	}
+
 	if len(commands) != 1 {
 		t.Fatalf("command count mismatch: got %d", len(commands))
 	}
@@ -91,9 +99,11 @@ func TestCommandsExposeStructuredFacts(t *testing.T) {
 	if !reflect.DeepEqual(command.Assignments, []string{"FOO=bar"}) {
 		t.Fatalf("assignments mismatch: %#v", command.Assignments)
 	}
+
 	if !reflect.DeepEqual(command.Argv, []string{"python", "-m", "ruff", "check", "."}) {
 		t.Fatalf("argv mismatch: %#v", command.Argv)
 	}
+
 	if !command.Background {
 		t.Fatalf("expected background command")
 	}
@@ -102,10 +112,13 @@ func TestCommandsExposeStructuredFacts(t *testing.T) {
 func TestCommandsExposeDynamicShellFacts(t *testing.T) {
 	t.Parallel()
 
-	commands, err := Commands("PATH=$(pwd):$PATH bash -c 'git status' <(cat file)")
+	commands, err := shellparse.Commands(
+		"PATH=$(pwd):$PATH bash -c 'git status' <(cat file)",
+	)
 	if err != nil {
 		t.Fatalf("parse command: %v", err)
 	}
+
 	if len(commands) != 1 {
 		t.Fatalf("command count mismatch: got %d", len(commands))
 	}
@@ -114,6 +127,7 @@ func TestCommandsExposeDynamicShellFacts(t *testing.T) {
 	if command.Name != "bash" || command.Line != 1 || command.Column != 1 {
 		t.Fatalf("command identity mismatch: %#v", command)
 	}
+
 	if !command.HasCommandSubstitution ||
 		!command.HasProcessSubstitution ||
 		!command.HasDynamicExpansion {
@@ -124,26 +138,32 @@ func TestCommandsExposeDynamicShellFacts(t *testing.T) {
 func TestCommandsExposeFunctionsAndNestedStatements(t *testing.T) {
 	t.Parallel()
 
-	commands, err := Commands("stage_files() { git add one.py; git add two.py; }\nstage_files")
+	commands, err := shellparse.Commands(
+		"stage_files() { git add one.py; git add two.py; }\nstage_files",
+	)
 	if err != nil {
 		t.Fatalf("parse command: %v", err)
 	}
+
 	if len(commands) != 4 {
 		t.Fatalf("command count mismatch: got %d: %#v", len(commands), commands)
 	}
+
 	if !commands[0].IsFunctionDeclaration || commands[0].Name != "stage_files" {
 		t.Fatalf("function declaration missing: %#v", commands[0])
 	}
+
 	if !reflect.DeepEqual(commands[1].Argv, []string{"git", "add", "one.py"}) ||
 		!reflect.DeepEqual(commands[2].Argv, []string{"git", "add", "two.py"}) ||
 		!reflect.DeepEqual(commands[3].Argv, []string{"stage_files"}) {
 		t.Fatalf("nested command facts mismatch: %#v", commands)
 	}
 
-	fields, err := ControlFields("(git status; ruff check .)")
+	fields, err := shellparse.ControlFields("(git status; ruff check .)")
 	if err != nil {
 		t.Fatalf("parse shell subshell block: %v", err)
 	}
+
 	if !reflect.DeepEqual(fields, []string{"git", "status", ";", "ruff", "check", "."}) {
 		t.Fatalf("subshell fields mismatch: %#v", fields)
 	}
@@ -152,21 +172,24 @@ func TestCommandsExposeFunctionsAndNestedStatements(t *testing.T) {
 func TestParseErrorsPreserveLocationAndCause(t *testing.T) {
 	t.Parallel()
 
-	_, err := Fields("git commit &&")
+	_, err := shellparse.Fields("git commit &&")
 	if err == nil {
 		t.Fatal("expected malformed shell command to fail")
 	}
 
-	var parseErr Error
+	var parseErr shellparse.Error
 	if !errors.As(err, &parseErr) {
 		t.Fatalf("expected shellparse.Error, got %T: %v", err, err)
 	}
+
 	if parseErr.Line == 0 || parseErr.Column == 0 {
 		t.Fatalf("parse error location missing: %#v", parseErr)
 	}
+
 	if !strings.Contains(parseErr.Error(), "parse shell command") {
 		t.Fatalf("parse error should include wrapped message: %v", parseErr)
 	}
+
 	if parseErr.Unwrap() == nil {
 		t.Fatalf("parse error should expose wrapped cause: %#v", parseErr)
 	}

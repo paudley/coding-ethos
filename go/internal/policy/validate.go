@@ -130,6 +130,7 @@ func validateSkills(
 				),
 			)
 		}
+
 		if skill.Title == "" || skill.Description == "" {
 			errs = append(
 				errs,
@@ -140,6 +141,7 @@ func validateSkills(
 				),
 			)
 		}
+
 		for _, principleID := range skill.PrincipleIDs {
 			if _, ok := principles[principleID]; !ok {
 				errs = append(
@@ -362,7 +364,8 @@ func validateExpressionEvaluator(policyID string, evaluator Evaluator) []error {
 	}
 
 	if source != "" && source != "<nil>" {
-		if err := celexpr.Validate(policyID, source); err != nil {
+		err := celexpr.Validate(policyID, source)
+		if err != nil {
 			errs = append(errs, fmt.Errorf(
 				"%w: policy %q CEL evaluator failed validation: %w",
 				errValidationFailed,
@@ -683,7 +686,16 @@ func validMode(mode string) bool {
 
 func validEvaluatorKind(kind string) bool {
 	switch kind {
-	case "argv", "shell", "path", "ast", "text", "toml", "config", "git_state", "external", "cel":
+	case "argv",
+		"shell",
+		"path",
+		"ast",
+		"text",
+		"toml",
+		"config",
+		"git_state",
+		"external",
+		"cel":
 		return true
 	default:
 		return false

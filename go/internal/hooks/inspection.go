@@ -36,9 +36,9 @@ func collectInspectionContext(event Event) InspectionContext {
 }
 
 type InspectionDecision struct {
+	Status   string
 	Route    InspectionRoute
 	Policies []policy.Decision
-	Status   string
 }
 
 func decideInspection(
@@ -55,12 +55,17 @@ func decideInspection(
 			"Hook rewrites require a known agent provider so the updated input can be emitted with the correct provider schema.",
 		))
 	}
+
 	if route.Block && resultStatus(decisions) != statusBlocked {
-		decisions = append(decisions, routeBlockDecision(bundle, route.BlockPolicyID, route.Reason))
+		decisions = append(
+			decisions,
+			routeBlockDecision(bundle, route.BlockPolicyID, route.Reason),
+		)
 	}
 
 	status := resultStatus(decisions)
-	if status == statusBlocked || (route.Rewrite && !providerSupportsUpdatedInput(ctx.Provider)) {
+	if status == statusBlocked ||
+		(route.Rewrite && !providerSupportsUpdatedInput(ctx.Provider)) {
 		route = InspectionRoute{}
 	}
 

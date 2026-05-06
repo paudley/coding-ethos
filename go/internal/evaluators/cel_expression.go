@@ -27,6 +27,7 @@ func EvaluateCELExpression(
 	}
 
 	activation := celActivation(context, source)
+
 	output, _, err := program.Eval(activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
@@ -41,7 +42,9 @@ func EvaluateCELExpression(
 	if decisionMode == "" {
 		decisionMode = blockDecision
 	}
+
 	decision := policy.NewDecision(decisionMode, policyDef)
+
 	decision.Evidence = map[string]any{
 		"argv":                 append([]string(nil), context.Argv...),
 		"command":              context.Command,
@@ -54,12 +57,15 @@ func EvaluateCELExpression(
 	if context.Tool != "" {
 		decision.Evidence["tool"] = context.Tool
 	}
+
 	if policyDef.Source.File != "" {
 		decision.Evidence["policy_source"] = policySource(policyDef)
 	}
+
 	if skillID := stringOption(context.EvaluatorOptions, "skill_id", ""); skillID != "" {
 		decision.Evidence["skill_id"] = skillID
 	}
+
 	decision.Diagnostics = []diagnostics.Diagnostic{celDiagnostic(
 		context,
 		policyDef,
@@ -105,14 +111,17 @@ func celDiagnostic(
 
 		return diagnostic
 	}
+
 	if len(context.Files) == 1 {
 		diagnostic.File = context.Files[0]
 	}
+
 	if policyDef.ID == "filesystem.line_limits" {
 		applyLineLimitFileDiagnostic(&diagnostic, activation)
 
 		return diagnostic
 	}
+
 	if symbol, ok := firstGrowingProposedSymbol(activation); ok {
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
@@ -150,7 +159,10 @@ func celDiagnostic(
 	return diagnostic
 }
 
-func applyLineLimitFileDiagnostic(diagnostic *diagnostics.Diagnostic, activation map[string]any) {
+func applyLineLimitFileDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	activation map[string]any,
+) {
 	if file, ok := firstLineLimitProposedFile(activation); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "proposed"
@@ -161,6 +173,7 @@ func applyLineLimitFileDiagnostic(diagnostic *diagnostics.Diagnostic, activation
 
 		return
 	}
+
 	if file, ok := firstLineLimitChangedFile(activation); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "staged"
@@ -178,6 +191,7 @@ func firstLineLimitProposedFile(
 	if !ok {
 		return celexpr.ProposedFileChangeInput{}, false
 	}
+
 	for _, file := range files {
 		if proposedFileMatchesLineLimit(file) {
 			return file, true
@@ -202,10 +216,12 @@ func firstLineLimitChangedFile(
 	if ok && len(proposedFiles) != 0 {
 		return celexpr.FileChangeInput{}, false
 	}
+
 	files, ok := activation["file_changes"].([]celexpr.FileChangeInput)
 	if !ok {
 		return celexpr.FileChangeInput{}, false
 	}
+
 	for _, file := range files {
 		if changedFileMatchesLineLimit(file) {
 			return file, true
@@ -223,7 +239,7 @@ func changedFileMatchesLineLimit(file celexpr.FileChangeInput) bool {
 		(file.OriginalNonBlankLineCount < 0 || file.NonBlankLineCountGrows)
 }
 
-func fileExceedsLineLimit(ext string, file string, lineCount int64) bool {
+func fileExceedsLineLimit(ext, file string, lineCount int64) bool {
 	switch {
 	case ext == ".py":
 		return lineCount > 1000
@@ -243,6 +259,7 @@ func firstGrowingProposedSymbol(
 	if !ok {
 		return celexpr.ProposedSymbolChangeInput{}, false
 	}
+
 	for _, symbol := range symbols {
 		if symbol.LineCountGrows {
 			return symbol, true
@@ -259,6 +276,7 @@ func firstGrowingChangedSymbol(
 	if !ok {
 		return celexpr.ChangedSymbolInput{}, false
 	}
+
 	for _, symbol := range symbols {
 		if symbol.LineCountGrows {
 			return symbol, true
@@ -278,33 +296,34 @@ func policySource(policyDef policy.Policy) string {
 
 func celActivation(context Context, source string) map[string]any {
 	return celexpr.Activation(celexpr.ActivationInput{
-		Argv:             context.Argv,
-		Command:          context.Command,
-		Content:          context.Content,
-		OldContent:       context.OldContent,
-		Cwd:              context.Cwd,
-		EventName:        context.EventName,
-		EventMatcher:     context.EventMatcher,
-		EventSource:      context.EventSource,
-		Files:            context.Files,
-		ChangedFiles:     context.ChangedFiles,
-		StagedFiles:      context.StagedFiles,
-		Provider:         context.Provider,
-		Mode:             stringOption(context.EvaluatorOptions, "mode", ""),
-		Scope:            context.Scope,
-		SessionID:        context.SessionID,
-		Tool:             context.Tool,
-		ToolInputKeys:    context.ToolInputKeys,
-		ToolResponseKeys: context.ToolResponseKeys,
-		TranscriptPath:   context.TranscriptPath,
-		ReturnCode:       context.ReturnCode,
-		HasToolInput:     context.HasToolInput,
-		HasToolResponse:  context.HasToolResponse,
-		AdminApproved:    context.AdminApproved,
-		Diagnostic:       context.Diagnostic,
-		Diagnostics:      context.Diagnostics,
-		Findings:         celFindings(context.Findings),
-		PythonASTFacts:   celPythonASTFacts(context, source),
+		Argv:               context.Argv,
+		Command:            context.Command,
+		Content:            context.Content,
+		OldContent:         context.OldContent,
+		Cwd:                context.Cwd,
+		EventName:          context.EventName,
+		EventMatcher:       context.EventMatcher,
+		EventSource:        context.EventSource,
+		Files:              context.Files,
+		ChangedFiles:       context.ChangedFiles,
+		StagedFiles:        context.StagedFiles,
+		Provider:           context.Provider,
+		Mode:               stringOption(context.EvaluatorOptions, "mode", ""),
+		Scope:              context.Scope,
+		SessionID:          context.SessionID,
+		Tool:               context.Tool,
+		ToolInputKeys:      context.ToolInputKeys,
+		ToolResponseKeys:   context.ToolResponseKeys,
+		TranscriptPath:     context.TranscriptPath,
+		ReturnCode:         context.ReturnCode,
+		HasToolInput:       context.HasToolInput,
+		HasToolResponse:    context.HasToolResponse,
+		AdminApproved:      context.AdminApproved,
+		ReadOnlyInspection: context.ReadOnlyInspection,
+		Diagnostic:         context.Diagnostic,
+		Diagnostics:        context.Diagnostics,
+		Findings:           celFindings(context.Findings),
+		PythonASTFacts:     celPythonASTFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
 			"protected_paths",
@@ -335,12 +354,19 @@ func celCurrentBranch(context Context) string {
 	if branch := strings.TrimSpace(context.CurrentBranch); branch != "" {
 		return branch
 	}
-	if branch := stringOption(context.EvaluatorOptions, "current_branch", ""); branch != "" {
+
+	if branch := stringOption(
+		context.EvaluatorOptions,
+		"current_branch",
+		"",
+	); branch != "" {
 		return branch
 	}
+
 	if context.Cwd == "" {
 		return ""
 	}
+
 	branch, ok := currentBranch(context.Cwd)
 	if !ok {
 		return ""

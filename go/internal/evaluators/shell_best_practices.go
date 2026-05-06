@@ -53,6 +53,7 @@ func EvaluateShellBestPractices(
 		if err != nil {
 			return nil, err
 		}
+
 		if binary {
 			continue
 		}
@@ -108,6 +109,7 @@ func shellBestPracticeViolations(
 			Column:  1,
 		})
 	}
+
 	commands, err := shellparse.Commands(text)
 	if err != nil {
 		violation := shellViolation{
@@ -115,11 +117,13 @@ func shellBestPracticeViolations(
 			Line:    1,
 			Column:  1,
 		}
+
 		var parseErr shellparse.Error
 		if errors.As(err, &parseErr) {
 			violation.Line = parseErr.Line
 			violation.Column = parseErr.Column
 		}
+
 		violations = append(violations, violation)
 	}
 
@@ -139,6 +143,7 @@ func shellBestPracticeViolations(
 			Column:  1,
 		})
 	}
+
 	for _, command := range commands {
 		if command.Name == "eval" {
 			violations = append(violations, shellViolation{
@@ -147,6 +152,7 @@ func shellBestPracticeViolations(
 				Column:  command.Column,
 			})
 		}
+
 		if command.IsFunctionDeclaration &&
 			(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
 			violations = append(violations, shellViolation{
@@ -162,6 +168,7 @@ func shellBestPracticeViolations(
 
 func validShellShebang(text string) bool {
 	reader := strings.NewReader(text)
+
 	line, err := readFirstLine(reader)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false
@@ -175,20 +182,24 @@ func validShellShebang(text string) bool {
 
 func readFirstLine(reader *strings.Reader) (string, error) {
 	var builder strings.Builder
+
 	for {
 		char, _, err := reader.ReadRune()
 		if err != nil {
 			return builder.String(), err
 		}
+
 		if char == '\n' {
 			return builder.String(), nil
 		}
+
 		builder.WriteRune(char)
 	}
 }
 
 func hasConfiguredPrefix(path string, prefixes []string) bool {
 	normalized := filepath.ToSlash(path)
+
 	normalized = strings.TrimPrefix(normalized, "./")
 	for _, prefix := range prefixes {
 		cleaned := strings.TrimPrefix(filepath.ToSlash(prefix), "./")
@@ -207,6 +218,7 @@ func shellBestPracticesDecision(
 ) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	diagnosticItems := make([]diagnostics.Diagnostic, 0, len(violations))
+
 	messages := make([]string, 0, len(violations))
 	for _, violation := range violations {
 		messages = append(messages, violation.Message)
@@ -221,6 +233,7 @@ func shellBestPracticesDecision(
 			Advice:   policyDef.Suggestion,
 		})
 	}
+
 	decision.Diagnostics = diagnosticItems
 	decision.Evidence = map[string]any{
 		"file":       file,

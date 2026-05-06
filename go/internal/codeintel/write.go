@@ -73,6 +73,7 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		if err != nil {
 			return fmt.Errorf("marshal finding %q: %w", finding.ID, err)
 		}
+
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT OR REPLACE INTO findings(
@@ -102,6 +103,7 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		); err != nil {
 			return fmt.Errorf("insert finding %q: %w", finding.ID, err)
 		}
+
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO finding_occurrences(
@@ -117,6 +119,7 @@ func insertFindings(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		); err != nil {
 			return fmt.Errorf("insert finding occurrence %q: %w", finding.ID, err)
 		}
+
 		if err := insertFTS(ctx, tx, ftsRow{
 			Kind:     "finding",
 			RecordID: finding.ID,
@@ -149,6 +152,7 @@ func insertSARIFRun(ctx context.Context, tx *sql.Tx, run SARIFRun) error {
 	); err != nil {
 		return fmt.Errorf("delete existing SARIF FTS rows: %w", err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		"DELETE FROM sarif_runs WHERE sarif_run_id = ?",
@@ -156,6 +160,7 @@ func insertSARIFRun(ctx context.Context, tx *sql.Tx, run SARIFRun) error {
 	); err != nil {
 		return fmt.Errorf("delete existing SARIF run %q: %w", run.ID, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT INTO sarif_runs(
@@ -175,8 +180,10 @@ func insertSARIFRun(ctx context.Context, tx *sql.Tx, run SARIFRun) error {
 	); err != nil {
 		return fmt.Errorf("insert SARIF run %q: %w", run.ID, err)
 	}
+
 	for index, result := range run.Results {
-		if err := insertSARIFResult(ctx, tx, run.ID, index, result); err != nil {
+		err := insertSARIFResult(ctx, tx, run.ID, index, result)
+		if err != nil {
 			return err
 		}
 	}
@@ -191,11 +198,16 @@ func insertSARIFResult(
 	index int,
 	result SARIFResultReference,
 ) error {
-	result.LinkedChunkID = firstNonEmpty(result.LinkedChunkID, linkedChunkID(ctx, tx, result))
+	result.LinkedChunkID = firstNonEmpty(
+		result.LinkedChunkID,
+		linkedChunkID(ctx, tx, result),
+	)
+
 	raw, err := json.Marshal(result.Raw)
 	if err != nil {
 		return fmt.Errorf("marshal SARIF result %q: %w", result.ID, err)
 	}
+
 	result.SearchText = diagnosticSearchText(
 		result.SearchText,
 		result.RuleID,
@@ -246,9 +258,15 @@ func insertSARIFResult(
 	); err != nil {
 		return fmt.Errorf("insert SARIF result %q: %w", result.ID, err)
 	}
+
 	if result.LinkedChunkID != "" {
-		if err := insertASTFindingLink(ctx, tx, ASTFindingLink{
-			ID:          stableID("ast-finding-link", "sarif_result", result.ID, result.LinkedChunkID),
+		err := insertASTFindingLink(ctx, tx, ASTFindingLink{
+			ID: stableID(
+				"ast-finding-link",
+				"sarif_result",
+				result.ID,
+				result.LinkedChunkID,
+			),
 			FindingKind: "sarif_result",
 			FindingID:   result.ID,
 			ChunkID:     result.LinkedChunkID,
@@ -256,10 +274,12 @@ func insertSARIFResult(
 			PolicyID:    result.PolicyID,
 			SkillID:     result.SkillID,
 			SymbolPath:  result.ASTSymbolPath,
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
 	}
+
 	return insertFTS(ctx, tx, ftsRow{
 		Kind:       "sarif_result",
 		RecordID:   result.ID,
@@ -272,11 +292,16 @@ func insertSARIFResult(
 	})
 }
 
-func insertRemediationOutcome(ctx context.Context, tx *sql.Tx, outcome RemediationOutcome) error {
+func insertRemediationOutcome(
+	ctx context.Context,
+	tx *sql.Tx,
+	outcome RemediationOutcome,
+) error {
 	raw, err := json.Marshal(outcome)
 	if err != nil {
 		return fmt.Errorf("marshal remediation outcome %q: %w", outcome.ID, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO remediation_outcomes(
@@ -303,6 +328,7 @@ func insertRemediationOutcome(ctx context.Context, tx *sql.Tx, outcome Remediati
 	); err != nil {
 		return fmt.Errorf("insert remediation outcome %q: %w", outcome.ID, err)
 	}
+
 	return insertFTS(ctx, tx, ftsRow{
 		Kind:       "remediation_outcome",
 		RecordID:   outcome.ID,
@@ -315,11 +341,16 @@ func insertRemediationOutcome(ctx context.Context, tx *sql.Tx, outcome Remediati
 	})
 }
 
-func insertEmbeddingRecord(ctx context.Context, tx *sql.Tx, record EmbeddingRecord) error {
+func insertEmbeddingRecord(
+	ctx context.Context,
+	tx *sql.Tx,
+	record EmbeddingRecord,
+) error {
 	raw, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("marshal embedding record %q: %w", record.ID, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO embedding_records(
@@ -347,6 +378,7 @@ func insertEmbeddingRecord(ctx context.Context, tx *sql.Tx, record EmbeddingReco
 	); err != nil {
 		return fmt.Errorf("insert embedding record %q: %w", record.ID, err)
 	}
+
 	return insertFTS(ctx, tx, ftsRow{
 		Kind:       "embedding_record",
 		RecordID:   record.ID,
@@ -373,6 +405,7 @@ func replaceCodeFileChunks(
 	); err != nil {
 		return fmt.Errorf("delete code chunk FTS rows for %q: %w", file.Path, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		"DELETE FROM code_edges WHERE path = ?",
@@ -380,6 +413,7 @@ func replaceCodeFileChunks(
 	); err != nil {
 		return fmt.Errorf("delete code edges for %q: %w", file.Path, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		"DELETE FROM ast_finding_links WHERE path = ?",
@@ -387,6 +421,7 @@ func replaceCodeFileChunks(
 	); err != nil {
 		return fmt.Errorf("delete stale AST finding links for %q: %w", file.Path, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		"DELETE FROM code_chunks WHERE path = ?",
@@ -394,6 +429,7 @@ func replaceCodeFileChunks(
 	); err != nil {
 		return fmt.Errorf("delete code chunks for %q: %w", file.Path, err)
 	}
+
 	if _, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO code_files(
@@ -412,13 +448,17 @@ func replaceCodeFileChunks(
 	); err != nil {
 		return fmt.Errorf("upsert code file %q: %w", file.Path, err)
 	}
+
 	for _, chunk := range chunks {
-		if err := insertCodeChunk(ctx, tx, chunk); err != nil {
+		err := insertCodeChunk(ctx, tx, chunk)
+		if err != nil {
 			return err
 		}
 	}
+
 	for _, edge := range edges {
-		if err := insertCodeEdge(ctx, tx, edge); err != nil {
+		err := insertCodeEdge(ctx, tx, edge)
+		if err != nil {
 			return err
 		}
 	}
@@ -453,11 +493,15 @@ func insertCodeChunk(ctx context.Context, tx *sql.Tx, chunk CodeChunk) error {
 	); err != nil {
 		return fmt.Errorf("insert code chunk %q: %w", chunk.ID, err)
 	}
+
 	return insertFTS(ctx, tx, ftsRow{
-		Kind:       "code_chunk",
-		RecordID:   chunk.ID,
-		Path:       chunk.Path,
-		Message:    strings.Join(compactStrings([]string{chunk.SymbolKind, chunk.SymbolName}), " "),
+		Kind:     "code_chunk",
+		RecordID: chunk.ID,
+		Path:     chunk.Path,
+		Message: strings.Join(
+			compactStrings([]string{chunk.SymbolKind, chunk.SymbolName}),
+			" ",
+		),
 		SearchText: chunk.SearchText,
 	})
 }
@@ -509,10 +553,15 @@ func insertASTFindingLink(ctx context.Context, tx *sql.Tx, link ASTFindingLink) 
 	return nil
 }
 
-func linkedChunkID(ctx context.Context, tx *sql.Tx, result SARIFResultReference) string {
+func linkedChunkID(
+	ctx context.Context,
+	tx *sql.Tx,
+	result SARIFResultReference,
+) string {
 	if result.Path == "" || result.ASTSymbolPath == "" {
 		return ""
 	}
+
 	row := tx.QueryRowContext(
 		ctx,
 		`SELECT chunk_id FROM code_chunks
@@ -526,8 +575,11 @@ func linkedChunkID(ctx context.Context, tx *sql.Tx, result SARIFResultReference)
 		result.ASTNodeKind,
 		result.ASTNodeKind,
 	)
+
 	var id string
-	if err := row.Scan(&id); err != nil {
+
+	err := row.Scan(&id)
+	if err != nil {
 		return ""
 	}
 
@@ -548,11 +600,14 @@ func insertRemediations(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		if strings.TrimSpace(id) == "" {
 			id = fmt.Sprintf("%s:remediation:%d", trace.ID, index)
 		}
+
 		search := remediationSearchText(remediation)
+
 		raw, err := json.Marshal(remediation)
 		if err != nil {
 			return fmt.Errorf("marshal remediation %q: %w", id, err)
 		}
+
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT OR REPLACE INTO remediations(
@@ -571,6 +626,7 @@ func insertRemediations(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		); err != nil {
 			return fmt.Errorf("insert remediation %q: %w", id, err)
 		}
+
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT INTO remediation_occurrences(
@@ -589,6 +645,7 @@ func insertRemediations(ctx context.Context, tx *sql.Tx, trace Trace) error {
 		); err != nil {
 			return fmt.Errorf("insert remediation occurrence %q: %w", id, err)
 		}
+
 		if err := insertFTS(ctx, tx, ftsRow{
 			Kind:       "remediation",
 			RecordID:   id,
@@ -612,10 +669,12 @@ func insertRemediationEvents(ctx context.Context, tx *sql.Tx, trace Trace) error
 		if strings.TrimSpace(id) == "" {
 			id = fmt.Sprintf("%s:remediation-event:%d", trace.ID, index)
 		}
+
 		raw, err := json.Marshal(event)
 		if err != nil {
 			return fmt.Errorf("marshal remediation event %q: %w", id, err)
 		}
+
 		if _, err := tx.ExecContext(
 			ctx,
 			`INSERT OR REPLACE INTO remediation_events(
@@ -697,6 +756,7 @@ func firstNonEmpty(values ...string) string {
 
 func compactStrings(values []string) []string {
 	result := []string{}
+
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)
 		if trimmed != "" {
@@ -709,6 +769,7 @@ func compactStrings(values []string) []string {
 
 func stableID(prefix string, values ...string) string {
 	hash := sha256.New()
+
 	_, _ = hash.Write([]byte(prefix))
 	for _, value := range values {
 		_, _ = hash.Write([]byte{0})

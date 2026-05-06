@@ -20,20 +20,25 @@ func (store *Store) HybridSearch(
 	if limit <= 0 {
 		limit = 10
 	}
+
 	resultMap := map[string]HybridSearchResult{}
+
 	if strings.TrimSpace(query.Text) != "" {
 		ftsResults, err := store.Search(ctx, SearchQuery{Text: query.Text, Limit: limit * 2})
 		if err != nil {
 			return nil, err
 		}
+
 		for position, result := range ftsResults {
 			item := hybridFromFTS(result, position)
 			if !hybridMatches(item, query) {
 				continue
 			}
+
 			resultMap[hybridKey(item)] = item
 		}
 	}
+
 	if len(query.Vector) > 0 {
 		vectorResults, err := index.Search(ctx, evidence.VectorQuery{
 			Collection: firstNonEmpty(query.Collection, "remediations"),
@@ -45,45 +50,57 @@ func (store *Store) HybridSearch(
 		if err != nil {
 			return nil, err
 		}
+
 		for _, match := range vectorResults {
 			item := hybridFromVector(match)
 			if !hybridMatches(item, query) {
 				continue
 			}
+
 			key := hybridKey(item)
+
 			existing, found := resultMap[key]
 			if found {
 				existing.Source = joinSource(existing.Source, "vector")
 				existing.VectorID = match.ID
+
 				existing.VectorScore = match.Score
 				if existing.Outcome == "" {
 					existing.Outcome = item.Outcome
 				}
+
 				if len(existing.Metadata) == 0 {
 					existing.Metadata = item.Metadata
 				}
+
 				existing.Score += match.Score * 2
 				resultMap[key] = existing
+
 				continue
 			}
+
 			resultMap[key] = item
 		}
 	}
+
 	results := make([]HybridSearchResult, 0, len(resultMap))
 	for _, result := range resultMap {
 		result = applyOutcomeScore(result)
 		results = append(results, result)
 	}
-	slices.SortFunc(results, func(left HybridSearchResult, right HybridSearchResult) int {
+
+	slices.SortFunc(results, func(left, right HybridSearchResult) int {
 		if left.Score != right.Score {
 			if left.Score > right.Score {
 				return -1
 			}
+
 			return 1
 		}
 
 		return strings.Compare(left.RecordID, right.RecordID)
 	})
+
 	if len(results) > limit {
 		results = results[:limit]
 	}
@@ -100,6 +117,7 @@ func (store *Store) IndexStatus(
 	if err != nil {
 		return IndexStatus{}, err
 	}
+
 	records, err := store.EmbeddingRecords(ctx, EmbeddingRecordQuery{
 		Backend:    query.Backend,
 		Collection: query.Collection,
@@ -109,6 +127,7 @@ func (store *Store) IndexStatus(
 	if err != nil {
 		return IndexStatus{}, err
 	}
+
 	status := IndexStatus{
 		Stats:            stats,
 		VectorStats:      vectorStats,
@@ -119,10 +138,9 @@ func (store *Store) IndexStatus(
 	}
 	status.ReadyRecords = stats.SARIFResults + stats.RemediationOutcomes +
 		stats.Remediations + stats.CodeChunks
-	status.MissingVectors = status.ReadyRecords - status.EmbeddingRecords
-	if status.MissingVectors < 0 {
-		status.MissingVectors = 0
-	}
+
+	status.MissingVectors = max(status.ReadyRecords-status.EmbeddingRecords, 0)
+
 	status.Fresh = status.MissingVectors == 0
 
 	return status, nil
@@ -167,17 +185,21 @@ func hybridFromVector(match evidence.VectorMatch) HybridSearchResult {
 
 func hybridVectorFilters(query HybridSearchQuery) map[string]string {
 	filters := map[string]string{}
+
 	for key, value := range query.Filters {
 		if strings.TrimSpace(value) != "" {
 			filters[key] = strings.TrimSpace(value)
 		}
 	}
+
 	if strings.TrimSpace(query.PolicyID) != "" {
 		filters["policy_id"] = strings.TrimSpace(query.PolicyID)
 	}
+
 	if strings.TrimSpace(query.SkillID) != "" {
 		filters["skill_id"] = strings.TrimSpace(query.SkillID)
 	}
+
 	if strings.TrimSpace(query.Path) != "" {
 		filters["path"] = strings.TrimSpace(query.Path)
 	}
@@ -189,9 +211,11 @@ func hybridMatches(result HybridSearchResult, query HybridSearchQuery) bool {
 	if strings.TrimSpace(query.PolicyID) != "" && result.PolicyID != query.PolicyID {
 		return false
 	}
+
 	if strings.TrimSpace(query.SkillID) != "" && result.SkillID != query.SkillID {
 		return false
 	}
+
 	if strings.TrimSpace(query.Path) != "" && result.Path != query.Path {
 		return false
 	}
@@ -203,10 +227,11 @@ func hybridKey(result HybridSearchResult) string {
 	return result.Kind + "\x00" + result.RecordID
 }
 
-func joinSource(left string, right string) string {
+func joinSource(left, right string) string {
 	if left == "" {
 		return right
 	}
+
 	if right == "" || strings.Contains(left, right) {
 		return left
 	}

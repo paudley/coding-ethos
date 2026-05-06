@@ -16,9 +16,11 @@ func TestDefaultScenariosBlockKnownBypassClasses(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	if output, err := exec.Command("git", "-C", repoRoot, "init").CombinedOutput(); err != nil {
+	if output, err := exec.Command("git", "-C", repoRoot, "init").
+		CombinedOutput(); err != nil {
 		t.Fatalf("init isolated git repo: %v\n%s", err, output)
 	}
+
 	realGit, _ := exec.LookPath("git")
 	bundle := compileRepoBundle(t)
 
@@ -40,6 +42,7 @@ func compileRepoBundle(t *testing.T) policy.Bundle {
 	t.Helper()
 
 	root := repoRoot(t)
+
 	bundle, _, err := policy.Compile(policy.CompileOptions{
 		Primary:     filepath.Join(root, "coding_ethos.yml"),
 		Config:      filepath.Join(root, "config.yaml"),
@@ -60,14 +63,17 @@ func repoRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("get working directory: %v", err)
 	}
+
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "coding_ethos.yml")); err == nil {
 			return dir
 		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			t.Fatal("could not find repository root")
 		}
+
 		dir = parent
 	}
 }

@@ -48,6 +48,7 @@ func TestEnrichResultWithSkillsDerivesSkillFromEthosOverlap(t *testing.T) {
 	if enriched.Findings[0].SkillID != "conditional-imports" {
 		t.Fatalf("finding skill = %q", enriched.Findings[0].SkillID)
 	}
+
 	if len(enriched.SkillHints) != 1 ||
 		enriched.SkillHints[0].SkillID != "conditional-imports" ||
 		enriched.SkillHints[0].PrincipleID != "no-conditional-imports" {

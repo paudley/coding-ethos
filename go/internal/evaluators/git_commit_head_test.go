@@ -4,7 +4,6 @@
 package evaluators_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"context"
 	"os"
 	"os/exec"
@@ -12,36 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 	t.Parallel()
 
-	repo := initCommitHeadRepo(t)
-	policyDef := policy.ExampleBundle().Policies["git.commit_head_advanced"]
-
-	context := Context{
-		Scope:   "PreToolUse",
-		Argv:    []string{"git", "commit", "-m", "test"},
-		Command: "git commit -m test",
-		Cwd:     repo,
-	}
-
-	_, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
-	if err != nil {
-		t.Fatalf("record head: %v", err)
-	}
-
-	context.Scope = "PostToolUse"
-	context.HasToolResponse = true
-	context.HasReturnCode = true
-	context.ReturnCode = 0
-
-	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
-	if err != nil {
-		t.Fatalf("verify head: %v", err)
-	}
+	repo, decisions := evaluateRecordedCommitHead(t, 0)
 
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
@@ -110,9 +87,30 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 func TestEvaluateGitCommitHeadAdvancedDoesNotBlockFailedCommit(t *testing.T) {
 	t.Parallel()
 
+	repo, decisions := evaluateRecordedCommitHead(t, 1)
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+		t.Fatalf("decision mismatch: %#v", decisions[0])
+	}
+
+	ok, err := ReadCommitHeadState(repo)
+	if err != nil || ok {
+		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
+	}
+}
+
+func evaluateRecordedCommitHead(
+	t *testing.T,
+	returnCode int,
+) (string, []policy.Decision) {
+	t.Helper()
+
 	repo := initCommitHeadRepo(t)
 	policyDef := policy.ExampleBundle().Policies["git.commit_head_advanced"]
-
 	context := Context{
 		Scope:   "PreToolUse",
 		Argv:    []string{"git", "commit", "-m", "test"},
@@ -128,25 +126,14 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockFailedCommit(t *testing.T) {
 	context.Scope = "PostToolUse"
 	context.HasToolResponse = true
 	context.HasReturnCode = true
-	context.ReturnCode = 1
+	context.ReturnCode = returnCode
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
 	if err != nil {
-		t.Fatalf("verify failed commit: %v", err)
+		t.Fatalf("verify head: %v", err)
 	}
 
-	if len(decisions) != 1 {
-		t.Fatalf("decision count mismatch: %#v", decisions)
-	}
-
-	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
-		t.Fatalf("decision mismatch: %#v", decisions[0])
-	}
-
-	ok, err := ReadCommitHeadState(repo)
-	if err != nil || ok {
-		t.Fatalf("expected consumed commit-head state, ok=%v err=%v", ok, err)
-	}
+	return repo, decisions
 }
 
 func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingToolResponse(t *testing.T) {

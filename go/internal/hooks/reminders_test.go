@@ -36,9 +36,12 @@ func TestRenderPrincipleReminderEscapesMCPArguments(t *testing.T) {
 	}, reminderKindAmbient)
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(reminder.MCPArguments), &payload); err != nil {
+
+	err := json.Unmarshal([]byte(reminder.MCPArguments), &payload)
+	if err != nil {
 		t.Fatalf("MCP arguments are not valid JSON: %q: %v", reminder.MCPArguments, err)
 	}
+
 	intent, ok := payload["intent"].(string)
 	if !ok || !strings.Contains(intent, `principle"with\chars`) {
 		t.Fatalf("MCP intent was not preserved: %#v", payload)

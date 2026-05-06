@@ -81,7 +81,10 @@ func Explain(bundle policy.Bundle, scope string) (ExplainResult, error) {
 	return ExplainWithOptions(bundle, ExplainOptions{Scope: scope})
 }
 
-func ExplainWithOptions(bundle policy.Bundle, options ExplainOptions) (ExplainResult, error) {
+func ExplainWithOptions(
+	bundle policy.Bundle,
+	options ExplainOptions,
+) (ExplainResult, error) {
 	scope := options.Scope
 	if scope == "" {
 		scope = ScopeFiles
@@ -122,7 +125,7 @@ func ExplainWithOptions(bundle policy.Bundle, options ExplainOptions) (ExplainRe
 		})
 	}
 
-	sort.Slice(result.Checks, func(left int, right int) bool {
+	sort.Slice(result.Checks, func(left, right int) bool {
 		return result.Checks[left].CheckID < result.Checks[right].CheckID
 	})
 
@@ -132,6 +135,7 @@ func ExplainWithOptions(bundle policy.Bundle, options ExplainOptions) (ExplainRe
 			result.SelectedTools++
 		}
 	}
+
 	result.EvidenceMaps = explainEvidenceMaps(bundle.EvidenceMaps, result.Tools)
 	result.SelectedEvidenceMaps = len(result.EvidenceMaps)
 
@@ -171,11 +175,13 @@ func FormatExplainResultHuman(result ExplainResult) string {
 	if len(result.Files) > 0 {
 		lines = append(lines, "files: "+strings.Join(result.Files, ", "))
 	}
+
 	for _, check := range result.Checks {
 		detail := []string{check.Status}
 		if check.Severity != "" {
 			detail = append(detail, check.Severity)
 		}
+
 		if len(check.Evaluators) > 0 {
 			detail = append(detail, "evaluators="+strings.Join(check.Evaluators, "+"))
 		}
@@ -186,9 +192,11 @@ func FormatExplainResultHuman(result ExplainResult) string {
 			"  reason: "+check.Reason,
 		)
 	}
+
 	if len(result.Tools) > 0 {
 		lines = append(lines, "tools:")
 	}
+
 	for _, tool := range result.Tools {
 		lines = append(
 			lines,
@@ -203,9 +211,11 @@ func FormatExplainResultHuman(result ExplainResult) string {
 			"  reason: "+tool.Reason,
 		)
 	}
+
 	if len(result.EvidenceMaps) > 0 {
 		lines = append(lines, "evidence maps:")
 	}
+
 	for _, evidenceMap := range result.EvidenceMaps {
 		lines = append(
 			lines,
@@ -220,6 +230,7 @@ func FormatExplainResultHuman(result ExplainResult) string {
 		if evidenceMap.Meaning != "" {
 			lines = append(lines, "  meaning: "+evidenceMap.Meaning)
 		}
+
 		if len(evidenceMap.EthosIDs) > 0 {
 			lines = append(lines, "  ethos: "+strings.Join(evidenceMap.EthosIDs, ", "))
 		}
@@ -244,9 +255,13 @@ func FormatExplainResultTOON(result ExplainResult) string {
 			lines = append(lines, "  "+toonCell(file))
 		}
 	}
+
 	lines = append(
 		lines,
-		fmt.Sprintf("checks[%d]{check_id,status,severity,evaluators,reason}:", len(result.Checks)),
+		fmt.Sprintf(
+			"checks[%d]{check_id,status,severity,evaluators,reason}:",
+			len(result.Checks),
+		),
 	)
 	for _, check := range result.Checks {
 		lines = append(lines, fmt.Sprintf(
@@ -258,9 +273,13 @@ func FormatExplainResultTOON(result ExplainResult) string {
 			toonCell(check.Reason),
 		))
 	}
+
 	lines = append(
 		lines,
-		fmt.Sprintf("tools[%d]{name,status,category,parser,output_format,reason}:", len(result.Tools)),
+		fmt.Sprintf(
+			"tools[%d]{name,status,category,parser,output_format,reason}:",
+			len(result.Tools),
+		),
 	)
 	for _, tool := range result.Tools {
 		lines = append(lines, fmt.Sprintf(
@@ -273,10 +292,13 @@ func FormatExplainResultTOON(result ExplainResult) string {
 			toonCell(tool.Reason),
 		))
 	}
+
 	lines = append(
 		lines,
-		fmt.Sprintf("evidence_maps[%d]{source,match,policy_id,skill_id,confidence,ethos_ids,advice}:",
-			len(result.EvidenceMaps)),
+		fmt.Sprintf(
+			"evidence_maps[%d]{source,match,policy_id,skill_id,confidence,ethos_ids,advice}:",
+			len(result.EvidenceMaps),
+		),
 	)
 	for _, evidenceMap := range result.EvidenceMaps {
 		lines = append(lines, fmt.Sprintf(
@@ -300,6 +322,7 @@ func evaluatorNames(evaluators []policy.Evaluator) []string {
 		if evaluator.Name == "" {
 			continue
 		}
+
 		names = append(names, evaluator.Name)
 	}
 
@@ -308,6 +331,7 @@ func evaluatorNames(evaluators []policy.Evaluator) []string {
 
 func explainTools(files []string) []ExplainTool {
 	tools := toolcatalog.HookOwnedTools()
+
 	result := make([]ExplainTool, 0, len(tools))
 	for _, tool := range tools {
 		status, reason := explainToolStatus(tool, files)
@@ -331,7 +355,7 @@ func explainTools(files []string) []ExplainTool {
 		})
 	}
 
-	sort.Slice(result, func(left int, right int) bool {
+	sort.Slice(result, func(left, right int) bool {
 		if result[left].Status != result[right].Status {
 			return result[left].Status == "selected"
 		}
@@ -351,6 +375,7 @@ func explainEvidenceMaps(
 	}
 
 	selectedTools := map[string]bool{}
+
 	for _, tool := range tools {
 		if tool.Status == "selected" {
 			selectedTools[strings.ToLower(tool.Name)] = true
@@ -359,17 +384,22 @@ func explainEvidenceMaps(
 
 	result := make([]ExplainEvidenceMap, 0, len(maps))
 	seen := map[string]bool{}
+
 	for _, mapping := range maps {
 		selected := selectedTools[strings.ToLower(mapping.Source)]
 		if len(selectedTools) > 0 && !selected {
 			continue
 		}
+
 		match := evidenceMapMatch(mapping)
+
 		key := strings.ToLower(mapping.Source + "|" + match + "|" + mapping.PolicyID)
 		if seen[key] {
 			continue
 		}
+
 		seen[key] = true
+
 		result = append(result, ExplainEvidenceMap{
 			Source:       mapping.Source,
 			Match:        match,
@@ -387,10 +417,11 @@ func explainEvidenceMaps(
 		})
 	}
 
-	sort.Slice(result, func(left int, right int) bool {
+	sort.Slice(result, func(left, right int) bool {
 		if result[left].Source != result[right].Source {
 			return result[left].Source < result[right].Source
 		}
+
 		if result[left].PolicyID != result[right].PolicyID {
 			return result[left].PolicyID < result[right].PolicyID
 		}
@@ -406,12 +437,14 @@ func evidenceMapMatch(mapping diagnostics.EvidenceMap) string {
 	if len(mapping.Codes) > 0 {
 		parts = append(parts, "codes="+strings.Join(mapping.Codes, "+"))
 	}
+
 	if len(mapping.MessageSubstrings) > 0 {
 		parts = append(
 			parts,
 			"messages="+strings.Join(mapping.MessageSubstrings, "+"),
 		)
 	}
+
 	if len(parts) == 0 {
 		return "all"
 	}
@@ -423,9 +456,11 @@ func explainToolStatus(tool toolcatalog.Tool, files []string) (string, string) {
 	if !tool.EnabledByDefault {
 		return "skipped", "tool is disabled by default"
 	}
+
 	if len(files) == 0 {
 		return "selected", "enabled by default for this scope"
 	}
+
 	for _, file := range files {
 		if toolMatchesFile(tool, file) {
 			return "selected", "file selector matched " + file
@@ -438,26 +473,33 @@ func explainToolStatus(tool toolcatalog.Tool, files []string) (string, string) {
 func toolMatchesFile(tool toolcatalog.Tool, file string) bool {
 	normalized := strings.TrimPrefix(filepath.ToSlash(file), "./")
 	base := filepath.Base(normalized)
+
 	if len(tool.FilePrefixes) > 0 {
 		for _, prefix := range tool.FilePrefixes {
-			if strings.HasPrefix(normalized, strings.TrimPrefix(filepath.ToSlash(prefix), "./")) {
+			if strings.HasPrefix(
+				normalized,
+				strings.TrimPrefix(filepath.ToSlash(prefix), "./"),
+			) {
 				return true
 			}
 		}
 
 		return false
 	}
+
 	for _, basePrefix := range tool.BaseNamePrefixes {
 		if strings.HasPrefix(base, basePrefix) {
 			return true
 		}
 	}
+
 	extension := strings.ToLower(filepath.Ext(normalized))
 	for _, candidate := range tool.FileExtensions {
 		if extension == strings.ToLower(candidate) {
 			return true
 		}
 	}
+
 	language := languageForFile(normalized)
 	for _, candidate := range tool.Languages {
 		if language != "" && language == strings.ToLower(candidate) {
@@ -496,11 +538,16 @@ func languageForFile(file string) string {
 func normalizeExplainFiles(files []string) []string {
 	normalized := []string{}
 	seen := map[string]bool{}
+
 	for _, file := range files {
-		cleaned := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(strings.TrimSpace(file))), "./")
+		cleaned := strings.TrimPrefix(
+			filepath.ToSlash(filepath.Clean(strings.TrimSpace(file))),
+			"./",
+		)
 		if cleaned == "" || cleaned == "." || seen[cleaned] {
 			continue
 		}
+
 		normalized = append(normalized, cleaned)
 		seen[cleaned] = true
 	}

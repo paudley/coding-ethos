@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,9 +18,11 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence search arguments: %w", err)
 	}
+
 	if strings.TrimSpace(input.Text) == "" && len(input.Vector) == 0 {
-		return nil, fmt.Errorf("text or vector is required")
+		return nil, errors.New("text or vector is required")
 	}
+
 	store, index, closeAll, err := server.openCodeIntel()
 	if err != nil {
 		return nil, err
@@ -53,6 +56,7 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence index-status arguments: %w", err)
 	}
+
 	store, index, closeAll, err := server.openCodeIntel()
 	if err != nil {
 		return nil, err
@@ -60,10 +64,12 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	defer closeAll()
 
 	ctx := argsContext()
+
 	vectorStats, err := index.Stats(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
 		Backend:    "sqlite-vec",
 		Collection: firstNonEmpty(input.Collection, "remediations"),
@@ -81,6 +87,7 @@ func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence hook-usage arguments: %w", err)
 	}
+
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
 		return nil, err
@@ -112,16 +119,20 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence index-code arguments: %w", err)
 	}
+
 	root := server.codeIntelRoot()
 	if strings.TrimSpace(root) == "" {
 		return nil, errManagedLintRuntimeUnavailable
 	}
+
 	ctx := argsContext()
+
 	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
 		return nil, err
 	}
 	defer store.Close()
+
 	summary, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, root, input.Paths)
 	if err != nil {
 		return nil, err
@@ -136,21 +147,28 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 func (server Server) codeIntelEmbeddingCandidates(args json.RawMessage) (any, error) {
 	var input codeIntelEmbeddingCandidatesInput
 	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence embedding-candidates arguments: %w", err)
+		return nil, fmt.Errorf(
+			"parse code intelligence embedding-candidates arguments: %w",
+			err,
+		)
 	}
+
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
 		return nil, err
 	}
 	defer closeStore()
 
-	candidates, err := store.EmbeddingCandidates(argsContext(), codeintel.EmbeddingCandidateQuery{
-		RecordKind: input.RecordKind,
-		PolicyID:   input.PolicyID,
-		SkillID:    input.SkillID,
-		Path:       input.Path,
-		Limit:      input.Limit,
-	})
+	candidates, err := store.EmbeddingCandidates(
+		argsContext(),
+		codeintel.EmbeddingCandidateQuery{
+			RecordKind: input.RecordKind,
+			PolicyID:   input.PolicyID,
+			SkillID:    input.SkillID,
+			Path:       input.Path,
+			Limit:      input.Limit,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +184,7 @@ func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence code-chunks arguments: %w", err)
 	}
+
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
 		return nil, err
@@ -195,11 +214,15 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	if err := json.Unmarshal(args, &input); err != nil {
 		return nil, fmt.Errorf("parse code intelligence code-context arguments: %w", err)
 	}
+
 	if strings.TrimSpace(input.ChunkID) == "" &&
 		((strings.TrimSpace(input.Path) == "" || strings.TrimSpace(input.SymbolPath) == "") &&
 			(strings.TrimSpace(input.Path) == "" || input.Line <= 0)) {
-		return nil, fmt.Errorf("chunk_id, both path and symbol_path, or path and line are required")
+		return nil, errors.New(
+			"chunk_id, both path and symbol_path, or path and line are required",
+		)
 	}
+
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
 		return nil, err
@@ -228,19 +251,24 @@ func (server Server) openCodeIntel() (*codeintel.Store, evidence.VectorIndex, fu
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
 	ctx := argsContext()
+
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
 		Backend: "sqlite-vec",
 		URI:     codeintel.DefaultVectorPath(server.codeIntelRoot()),
 	})
 	if err != nil {
 		closeStore()
+
 		return nil, nil, nil, err
 	}
+
 	closeAll := func() {
 		if closer, ok := index.(interface{ Close() error }); ok {
 			_ = closer.Close()
 		}
+
 		closeStore()
 	}
 
@@ -252,10 +280,12 @@ func (server Server) openCodeIntelStore() (*codeintel.Store, func(), error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, nil, errManagedLintRuntimeUnavailable
 	}
+
 	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(root))
 	if err != nil {
 		return nil, nil, err
 	}
+
 	closeStore := func() {
 		_ = store.Close()
 	}

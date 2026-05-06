@@ -56,8 +56,7 @@ Quick ref:
 - Make ruff and mypy blocking quality gates rather than advisory tools.
 - We rely on linters (ruff) and type checkers (mypy) to catch errors
 before the code ever runs.
-- Static analysis belongs in enforced local hooks and CI, not in
-optional tribal knowledge.
+- Treat repo hook and CI gates as authoritative, not optional reminders.
 
 #### Overview
 We rely on linters (ruff) and type checkers (mypy) to catch errors
@@ -145,7 +144,7 @@ Quick ref:
 - Keep one explicit, validated path for critical operations.
 - When there are multiple ways to accomplish a critical operation, bugs
 hide in the less-traveled path.
-- We strictly ban boolean parameters that fundamentally change what a function does.
+- Use the repo's canonical validation entrypoint; do not invent partial substitutes.
 
 #### Overview
 When there are multiple ways to accomplish a critical operation, bugs
@@ -314,7 +313,6 @@ Quick ref:
 - Security is not a feature to be added later—it is a property of the design.
 - Secrets, credentials, and API keys must never appear in source code,
 configuration files, or commit history.
-- Treat security scanners and guard hooks as part of the build contract.
 
 #### Overview
 Security is not a feature to be added later—it is a property of the

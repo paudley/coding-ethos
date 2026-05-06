@@ -19,6 +19,7 @@ func TestParseDiffHunksUnquotesDiffPaths(t *testing.T) {
 	if len(hunks) != 1 {
 		t.Fatalf("hunks = %#v, want one parsed hunk", hunks)
 	}
+
 	if hunks[0].File != "path with spaces.py" {
 		t.Fatalf("hunk file = %q, want unquoted path", hunks[0].File)
 	}

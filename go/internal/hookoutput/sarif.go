@@ -5,9 +5,11 @@ package hookoutput
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -30,9 +32,9 @@ type sarifLog struct {
 }
 
 type sarifRun struct {
+	AutomationDetails sarifRunAutomationDetails `json:"automationDetails,omitempty"`
 	Tool              sarifTool                 `json:"tool"`
 	Invocations       []sarifInvocation         `json:"invocations,omitempty"`
-	AutomationDetails sarifRunAutomationDetails `json:"automationDetails,omitempty"`
 	Results           []sarifResult             `json:"results"`
 	Properties        sarifRunProperties        `json:"properties,omitempty"`
 }
@@ -56,17 +58,17 @@ type sarifRule struct {
 }
 
 type sarifRuleProperty struct {
-	Tags               []string `json:"tags,omitempty"`
 	Precision          string   `json:"precision,omitempty"`
 	SecuritySeverity   string   `json:"security-severity,omitempty"`
 	PolicyID           string   `json:"policy_id,omitempty"`
 	SkillID            string   `json:"skill_id,omitempty"`
 	SourceTool         string   `json:"source_tool,omitempty"`
 	Implementation     string   `json:"implementation,omitempty"`
-	InputSchemaVersion int64    `json:"input_schema_version,omitempty"`
 	PolicySource       string   `json:"policy_source,omitempty"`
 	CELExpression      string   `json:"cel_expression,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
 	EthosIDs           []string `json:"ethos_ids,omitempty"`
+	InputSchemaVersion int64    `json:"input_schema_version,omitempty"`
 	CodingEthos        bool     `json:"coding_ethos"`
 }
 
@@ -109,10 +111,10 @@ type sarifRegion struct {
 }
 
 type sarifResultProperties struct {
-	Advice                    string                      `json:"advice,omitempty"`
-	ASTAction                 string                      `json:"ast_action,omitempty"`
-	ASTChangeSource           string                      `json:"ast_change_source,omitempty"`
-	ASTLanguage               string                      `json:"ast_language,omitempty"`
+	Finding                   *evidence.Finding           `json:"finding,omitempty"`
+	SourceSpan                *evidence.SourceSpan        `json:"source_span,omitempty"`
+	SkillID                   string                      `json:"skill_id,omitempty"`
+	SearchText                string                      `json:"search_text,omitempty"`
 	ASTNodeKind               string                      `json:"ast_node_kind,omitempty"`
 	ASTParentSymbolPath       string                      `json:"ast_parent_symbol_path,omitempty"`
 	ASTSymbolKind             string                      `json:"ast_symbol_kind,omitempty"`
@@ -122,21 +124,21 @@ type sarifResultProperties struct {
 	CodingEthosGroupKey       string                      `json:"coding_ethos_group_key,omitempty"`
 	Code                      string                      `json:"code,omitempty"`
 	Detail                    string                      `json:"detail,omitempty"`
-	PolicyID                  string                      `json:"policy_id,omitempty"`
-	SkillID                   string                      `json:"skill_id,omitempty"`
-	SourceTool                string                      `json:"source_tool,omitempty"`
 	Implementation            string                      `json:"implementation,omitempty"`
-	InputSchemaVersion        int64                       `json:"input_schema_version,omitempty"`
+	ASTLanguage               string                      `json:"ast_language,omitempty"`
+	Advice                    string                      `json:"advice,omitempty"`
+	PolicyID                  string                      `json:"policy_id,omitempty"`
+	SourceTool                string                      `json:"source_tool,omitempty"`
 	PolicySource              string                      `json:"policy_source,omitempty"`
 	CELExpression             string                      `json:"cel_expression,omitempty"`
 	MatchedDiagnosticPolicyID string                      `json:"matched_diagnostic_policy_id,omitempty"`
 	MatchedDiagnosticSeverity string                      `json:"matched_diagnostic_severity,omitempty"`
-	AgentRemediation          []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
+	ASTAction                 string                      `json:"ast_action,omitempty"`
+	ASTChangeSource           string                      `json:"ast_change_source,omitempty"`
 	RemediationEvents         []evidence.RemediationEvent `json:"remediation_events,omitempty"`
-	Finding                   *evidence.Finding           `json:"finding,omitempty"`
-	SourceSpan                *evidence.SourceSpan        `json:"source_span,omitempty"`
-	SearchText                string                      `json:"search_text,omitempty"`
+	AgentRemediation          []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
 	EthosIDs                  []string                    `json:"ethos_ids,omitempty"`
+	InputSchemaVersion        int64                       `json:"input_schema_version,omitempty"`
 	CodingEthos               bool                        `json:"coding_ethos"`
 }
 
@@ -150,10 +152,10 @@ type sarifRunAutomationDetails struct {
 }
 
 type sarifRunProperties struct {
-	Scope          string                `json:"scope,omitempty"`
-	PolicyCoverage sarifPolicyCoverage   `json:"policy_coverage,omitempty"`
-	FindingGroups  []sarifFindingGroup   `json:"finding_groups,omitempty"`
 	Sandbox        *lint.SandboxEvidence `json:"sandbox,omitempty"`
+	Scope          string                `json:"scope,omitempty"`
+	FindingGroups  []sarifFindingGroup   `json:"finding_groups,omitempty"`
+	PolicyCoverage sarifPolicyCoverage   `json:"policy_coverage,omitempty"`
 }
 
 type sarifPolicyCoverage struct {
@@ -265,6 +267,7 @@ func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
 		if sarifArtifactURI(item.File) == "" {
 			continue
 		}
+
 		locatable = append(locatable, item)
 	}
 
@@ -274,11 +277,13 @@ func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
 	rules := []sarifRule{}
 	seen := map[string]bool{}
+
 	for _, item := range items {
 		ruleID := sarifRuleID(item)
 		if seen[ruleID] {
 			continue
 		}
+
 		seen[ruleID] = true
 		rules = append(rules, sarifRule{
 			ID:   ruleID,
@@ -329,27 +334,30 @@ func sarifResults(
 			Locations:           sarifLocations(item),
 			PartialFingerprints: sarifPartialFingerprints(item),
 			Properties: sarifResultProperties{
-				Advice:                    item.Advice,
-				ASTAction:                 sarifStringMetadata(item, "ast_action"),
-				ASTChangeSource:           sarifStringMetadata(item, "ast_change_source"),
-				ASTLanguage:               sarifStringMetadata(item, "ast_language"),
-				ASTNodeKind:               sarifStringMetadata(item, "ast_node_kind"),
-				ASTParentSymbolPath:       sarifStringMetadata(item, "ast_parent_symbol_path"),
-				ASTSymbolKind:             sarifStringMetadata(item, "ast_symbol_kind"),
-				ASTSymbolName:             sarifStringMetadata(item, "ast_symbol_name"),
-				ASTSymbolPath:             sarifStringMetadata(item, "ast_symbol_path"),
-				CodingEthosGroupID:        group.ID,
-				CodingEthosGroupKey:       group.Key,
-				Code:                      item.Code,
-				Detail:                    item.Detail,
-				PolicyID:                  item.PolicyID,
-				SkillID:                   item.SkillID,
-				SourceTool:                item.Tool,
-				Implementation:            sarifStringMetadata(item, "implementation"),
-				InputSchemaVersion:        sarifIntMetadata(item, "input_schema_version"),
-				PolicySource:              sarifStringMetadata(item, "policy_source"),
-				CELExpression:             sarifStringMetadata(item, "when"),
-				MatchedDiagnosticPolicyID: sarifStringMetadata(item, "matched_diagnostic_policy_id"),
+				Advice:              item.Advice,
+				ASTAction:           sarifStringMetadata(item, "ast_action"),
+				ASTChangeSource:     sarifStringMetadata(item, "ast_change_source"),
+				ASTLanguage:         sarifStringMetadata(item, "ast_language"),
+				ASTNodeKind:         sarifStringMetadata(item, "ast_node_kind"),
+				ASTParentSymbolPath: sarifStringMetadata(item, "ast_parent_symbol_path"),
+				ASTSymbolKind:       sarifStringMetadata(item, "ast_symbol_kind"),
+				ASTSymbolName:       sarifStringMetadata(item, "ast_symbol_name"),
+				ASTSymbolPath:       sarifStringMetadata(item, "ast_symbol_path"),
+				CodingEthosGroupID:  group.ID,
+				CodingEthosGroupKey: group.Key,
+				Code:                item.Code,
+				Detail:              item.Detail,
+				PolicyID:            item.PolicyID,
+				SkillID:             item.SkillID,
+				SourceTool:          item.Tool,
+				Implementation:      sarifStringMetadata(item, "implementation"),
+				InputSchemaVersion:  sarifIntMetadata(item, "input_schema_version"),
+				PolicySource:        sarifStringMetadata(item, "policy_source"),
+				CELExpression:       sarifStringMetadata(item, "when"),
+				MatchedDiagnosticPolicyID: sarifStringMetadata(
+					item,
+					"matched_diagnostic_policy_id",
+				),
 				MatchedDiagnosticSeverity: sarifStringMetadata(item, "matched_diagnostic_severity"),
 				AgentRemediation:          remediation,
 				RemediationEvents: evidence.RemediationEvents(
@@ -407,9 +415,11 @@ func sarifRuleTags(item diagnostics.Diagnostic) []string {
 	if sarifSecuritySeverity(item) != "" && !containsString(tags, "security") {
 		tags = append(tags, "security")
 	}
+
 	if item.PolicyID != "" && !containsString(tags, "policy") {
 		tags = append(tags, "policy")
 	}
+
 	if item.SkillID != "" && !containsString(tags, "remediation") {
 		tags = append(tags, "remediation")
 	}
@@ -421,6 +431,7 @@ func sarifPrecision(item diagnostics.Diagnostic) string {
 	if item.PolicyID != "" || len(item.PrincipleIDs) > 0 {
 		return "high"
 	}
+
 	if item.Code != "" {
 		return "medium"
 	}
@@ -469,9 +480,11 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 	if item.Advice != "" {
 		parts = append(parts, item.Advice)
 	}
+
 	if item.SkillID != "" {
 		parts = append(parts, "Skill: `"+item.SkillID+"`")
 	}
+
 	if len(item.PrincipleIDs) > 0 {
 		parts = append(parts, "ETHOS: `"+strings.Join(item.PrincipleIDs, "`, `")+"`")
 	}
@@ -495,11 +508,13 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	if item.Line > 0 {
 		location.PhysicalLocation.Region.StartLine = item.Line
 	}
+
 	if item.Column > 0 {
 		location.PhysicalLocation.Region.StartColumn = item.Column
 	}
+
 	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > item.Line {
-		location.PhysicalLocation.Region.EndLine = int(endLine)
+		location.PhysicalLocation.Region.EndLine = endLine
 	}
 
 	return []sarifLocation{location}
@@ -519,8 +534,8 @@ func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
 	locationSeed := []string{
 		sarifRuleID(item),
 		sarifArtifactURI(item.File),
-		fmt.Sprint(item.Line),
-		fmt.Sprint(item.Column),
+		strconv.Itoa(item.Line),
+		strconv.Itoa(item.Column),
 		item.Message,
 	}
 	stableSeed := []string{
@@ -530,10 +545,12 @@ func sarifPartialFingerprints(item diagnostics.Diagnostic) map[string]string {
 		item.PolicyID,
 		item.Message,
 	}
+
 	if astIdentity != "" {
 		locationSeed = append(locationSeed, astIdentity)
 		stableSeed = append(stableSeed, astIdentity)
 	}
+
 	fingerprints := map[string]string{
 		"coding-ethos/v1":         sarifHashStrings(locationSeed...),
 		"coding-ethos/stable/v1":  sarifHashStrings(stableSeed...),
@@ -554,6 +571,7 @@ func sarifASTIdentity(item diagnostics.Diagnostic) string {
 	if sarifStringMetadata(item, "ast_node_kind") == "" {
 		return ""
 	}
+
 	parts := []string{
 		sarifStringMetadata(item, "ast_change_source"),
 		sarifStringMetadata(item, "ast_language"),
@@ -562,6 +580,7 @@ func sarifASTIdentity(item diagnostics.Diagnostic) string {
 		sarifStringMetadata(item, "ast_symbol_path"),
 		sarifStringMetadata(item, "ast_parent_symbol_path"),
 	}
+
 	return strings.Join(parts, "\x00")
 }
 
@@ -575,11 +594,13 @@ type sarifFindingGroupAccumulator struct {
 
 func sarifFindingGroups(items []diagnostics.Diagnostic) sarifFindingGroupIndex {
 	groups := sarifFindingGroupIndex{}
+
 	for _, item := range items {
 		key := sarifFindingGroupKey(item)
 		if key == "" {
 			continue
 		}
+
 		group, ok := groups[key]
 		if !ok {
 			group = &sarifFindingGroupAccumulator{
@@ -596,8 +617,10 @@ func sarifFindingGroups(items []diagnostics.Diagnostic) sarifFindingGroupIndex {
 			}
 			groups[key] = group
 		}
+
 		group.summary.ResultCount++
 		sarifAddCoverageValue(group.sourceTools, item.Tool)
+
 		if stable := sarifPartialFingerprints(item)["coding-ethos/stable/v1"]; stable != "" {
 			sarifAddCoverageValue(group.stableFingerprints, stable)
 		}
@@ -613,6 +636,7 @@ func (groups sarifFindingGroupIndex) Group(
 	if key == "" {
 		return sarifFindingGroup{}
 	}
+
 	group, ok := groups[key]
 	if !ok {
 		return sarifFindingGroup{}
@@ -626,7 +650,8 @@ func (groups sarifFindingGroupIndex) Summaries() []sarifFindingGroup {
 	for _, group := range groups {
 		summaries = append(summaries, group.withSortedValues())
 	}
-	sort.Slice(summaries, func(left int, right int) bool {
+
+	sort.Slice(summaries, func(left, right int) bool {
 		return summaries[left].Key < summaries[right].Key
 	})
 
@@ -651,7 +676,7 @@ func sarifFindingGroupKey(item diagnostics.Diagnostic) string {
 		firstSarifNonEmpty(item.PolicyID, sarifRuleID(item)),
 		item.SkillID,
 		file,
-		fmt.Sprint(item.Line),
+		strconv.Itoa(item.Line),
 	}, "|")
 }
 
@@ -667,10 +692,12 @@ func sarifCoverage(
 	for _, decision := range result.Decisions {
 		sarifAddPolicyCoverageDecision(policies, ethosIDs, skills, tools, decision)
 	}
+
 	for _, item := range items {
 		sarifAddCoverageValue(policies, item.PolicyID)
 		sarifAddCoverageValue(skills, item.SkillID)
 		sarifAddCoverageValue(tools, item.Tool)
+
 		for _, principleID := range item.PrincipleIDs {
 			sarifAddCoverageValue(ethosIDs, principleID)
 		}
@@ -699,13 +726,16 @@ func sarifAddPolicyCoverageDecision(
 	decision policy.Decision,
 ) {
 	sarifAddCoverageValue(policies, decision.PolicyID)
+
 	for _, principleID := range decision.PrincipleIDs {
 		sarifAddCoverageValue(ethosIDs, principleID)
 	}
+
 	for _, diagnostic := range decision.Diagnostics {
 		sarifAddCoverageValue(policies, diagnostic.PolicyID)
 		sarifAddCoverageValue(skills, diagnostic.SkillID)
 		sarifAddCoverageValue(tools, diagnostic.Tool)
+
 		for _, principleID := range diagnostic.PrincipleIDs {
 			sarifAddCoverageValue(ethosIDs, principleID)
 		}
@@ -724,6 +754,7 @@ func sarifSortedKeys(values map[string]bool) []string {
 	for value := range values {
 		keys = append(keys, value)
 	}
+
 	sort.Strings(keys)
 
 	return keys
@@ -734,6 +765,7 @@ func sarifStringMetadata(item diagnostics.Diagnostic, key string) string {
 	if !ok {
 		return ""
 	}
+
 	switch typed := value.(type) {
 	case string:
 		return strings.TrimSpace(typed)
@@ -749,6 +781,7 @@ func sarifIntMetadata(item diagnostics.Diagnostic, key string) int64 {
 	if !ok {
 		return 0
 	}
+
 	switch typed := value.(type) {
 	case int:
 		return int64(typed)
@@ -787,6 +820,7 @@ func sarifAutomationID(scope string, options SARIFOptions) string {
 	}
 
 	replacer := strings.NewReplacer(":", "/", " ", "-", "\\", "/", ",", "-")
+
 	return "coding-ethos/" + strings.Trim(replacer.Replace(scope), "/")
 }
 
@@ -795,6 +829,7 @@ func sarifAutomationCategory(category string) string {
 	category = strings.Trim(category, "/")
 
 	replacer := strings.NewReplacer("\\", "/", " ", "-", ",", "-")
+
 	return strings.Trim(replacer.Replace(category), "/")
 }
 
@@ -805,7 +840,7 @@ func sarifHashStrings(values ...string) string {
 		hash.Write([]byte{0})
 	}
 
-	return fmt.Sprintf("%x", hash.Sum(nil))
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func containsString(values []string, needle string) bool {
@@ -826,7 +861,7 @@ func limitStrings(values []string, limit int) []string {
 	return values[:limit]
 }
 
-func joinSarifID(first string, second string) string {
+func joinSarifID(first, second string) string {
 	if first == "" || second == "" {
 		return ""
 	}

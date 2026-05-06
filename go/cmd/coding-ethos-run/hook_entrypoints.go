@@ -31,16 +31,26 @@ func runGitHook(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
 		return errors.New("git-hook requires a hook name")
 	}
+
 	requirePolicyBundle(paths)
+
 	if args[0] == "validate" {
 		requireRuntimeFile(paths.PolicyMetadata, "compiled policy metadata")
-		runtimeRunTool(paths, "coding-ethos-policy", "validate-metadata", "--metadata", paths.PolicyMetadata)
+		runtimeRunTool(
+			paths,
+			"coding-ethos-policy",
+			"validate-metadata",
+			"--metadata",
+			paths.PolicyMetadata,
+		)
 	}
+
 	switch args[0] {
 	case "pre-commit", "pre-push", "commit-msg", "validate":
 	default:
 		return fmt.Errorf("unknown git hook %q", args[0])
 	}
+
 	requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
 	installLintToolShims(paths)
 	runtimeExecTool(paths, "coding-ethos-git-hook", append([]string{
@@ -56,12 +66,16 @@ func runLFSHook(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
 		return errors.New("lfs-hook requires a hook name")
 	}
+
 	if !isLFSHookName(args[0]) {
 		return fmt.Errorf("unknown LFS hook %q", args[0])
 	}
-	if err := exec.Command(paths.RealGit, "lfs", "version").Run(); err != nil {
-		return nil
+
+	err := exec.Command(paths.RealGit, "lfs", "version").Run()
+	if err != nil {
+		return fmt.Errorf("git-lfs is required for lfs-hook: %w", err)
 	}
+
 	runtimeExecExternal(paths.RealGit, append([]string{"lfs", args[0]}, args[1:]...)...)
 
 	return nil

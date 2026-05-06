@@ -127,24 +127,32 @@ func parseApplyPatchDeltas(command string) []applyPatchFileDelta {
 	deltas := []applyPatchFileDelta{}
 	current := applyPatchFileDelta{}
 	inFile := false
-	for _, rawLine := range strings.Split(command, "\n") {
+
+	for rawLine := range strings.SplitSeq(command, "\n") {
 		switch {
 		case strings.HasPrefix(rawLine, "*** Add File: "):
 			if inFile {
 				deltas = append(deltas, current)
 			}
-			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Add File: "))}
+
+			current = applyPatchFileDelta{
+				file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Add File: ")),
+			}
 			inFile = true
 		case strings.HasPrefix(rawLine, "*** Update File: "):
 			if inFile {
 				deltas = append(deltas, current)
 			}
-			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Update File: "))}
+
+			current = applyPatchFileDelta{
+				file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Update File: ")),
+			}
 			inFile = true
 		case strings.HasPrefix(rawLine, "*** Delete File: "):
 			if inFile {
 				deltas = append(deltas, current)
 			}
+
 			current = applyPatchFileDelta{
 				file:       strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Delete File: ")),
 				deleteFile: true,
@@ -163,6 +171,7 @@ func parseApplyPatchDeltas(command string) []applyPatchFileDelta {
 		case strings.HasPrefix(rawLine, "+"):
 			added := strings.TrimPrefix(rawLine, "+")
 			current.lineDelta++
+
 			current.sizeDelta += len([]byte(added)) + 1
 			if !isBlankLine(added) {
 				current.nonBlankLineDelta++
@@ -170,12 +179,14 @@ func parseApplyPatchDeltas(command string) []applyPatchFileDelta {
 		case strings.HasPrefix(rawLine, "-"):
 			removed := strings.TrimPrefix(rawLine, "-")
 			current.lineDelta--
+
 			current.sizeDelta -= len([]byte(removed)) + 1
 			if !isBlankLine(removed) {
 				current.nonBlankLineDelta--
 			}
 		}
 	}
+
 	if inFile {
 		deltas = append(deltas, current)
 	}
@@ -216,18 +227,22 @@ func proposedApplyPatchChangeInput(
 	currentSize := int64(len([]byte(currentContent)))
 	proposedLines := currentLines + delta.lineDelta
 	proposedNonBlankLines := currentNonBlankLines + delta.nonBlankLineDelta
+
 	proposedSize := currentSize + int64(delta.sizeDelta)
 	if delta.deleteFile {
 		proposedLines = 0
 		proposedNonBlankLines = 0
 		proposedSize = 0
 	}
+
 	if proposedLines < 0 {
 		proposedLines = 0
 	}
+
 	if proposedNonBlankLines < 0 {
 		proposedNonBlankLines = 0
 	}
+
 	if proposedSize < 0 {
 		proposedSize = 0
 	}
@@ -267,15 +282,18 @@ func proposedSymbolChangeInputs(input ActivationInput) []ProposedSymbolChangeInp
 	}
 
 	changes := []ProposedSymbolChangeInput{}
+
 	for _, file := range files {
 		change, ok := proposedFileChangeInput(input, file)
 		if !ok || !change.HasProposedContent || change.IsBinary {
 			continue
 		}
+
 		currentContent, _, binary := readTextFile(input.Cwd, change.File)
 		if binary {
 			continue
 		}
+
 		proposedContent, _, _, ok := proposedContentForTool(
 			input.Tool,
 			currentContent,
@@ -286,7 +304,10 @@ func proposedSymbolChangeInputs(input ActivationInput) []ProposedSymbolChangeInp
 		if !ok {
 			continue
 		}
-		changes = append(changes, symbolChangesForContent(change.File, currentContent, proposedContent)...)
+
+		changes = append(
+			changes,
+			symbolChangesForContent(change.File, currentContent, proposedContent)...)
 	}
 
 	return changes
@@ -298,18 +319,31 @@ func symbolChangesForContent(
 	proposedContent string,
 ) []ProposedSymbolChangeInput {
 	currentFile, currentOK, currentErr := astfacts.Analyze(file, []byte(currentContent))
-	proposedFile, proposedOK, proposedErr := astfacts.Analyze(file, []byte(proposedContent))
+
+	proposedFile, proposedOK, proposedErr := astfacts.Analyze(
+		file,
+		[]byte(proposedContent),
+	)
 	if currentErr != nil || proposedErr != nil || !currentOK || !proposedOK {
 		return nil
 	}
+
 	current := symbolsByKey(currentFile.Symbols)
 	proposed := symbolsByKey(proposedFile.Symbols)
 	keys := sortedSymbolKeys(current, proposed)
+
 	changes := make([]ProposedSymbolChangeInput, 0, len(keys))
 	for _, key := range keys {
 		currentSymbol, hasCurrent := current[key]
 		proposedSymbol, hasProposed := proposed[key]
-		change := proposedSymbolChange(file, currentSymbol, hasCurrent, proposedSymbol, hasProposed)
+
+		change := proposedSymbolChange(
+			file,
+			currentSymbol,
+			hasCurrent,
+			proposedSymbol,
+			hasProposed,
+		)
 		if change.Action != "unchanged" {
 			changes = append(changes, change)
 		}
@@ -327,16 +361,18 @@ func symbolsByKey(symbols []astfacts.Symbol) map[string]astfacts.Symbol {
 	return result
 }
 
-func sortedSymbolKeys(left map[string]astfacts.Symbol, right map[string]astfacts.Symbol) []string {
+func sortedSymbolKeys(left, right map[string]astfacts.Symbol) []string {
 	keys := make([]string, 0, len(left)+len(right))
 	for key := range left {
 		keys = append(keys, key)
 	}
+
 	for key := range right {
 		if _, ok := left[key]; !ok {
 			keys = append(keys, key)
 		}
 	}
+
 	slices.Sort(keys)
 
 	return keys
@@ -362,19 +398,24 @@ func proposedSymbolChange(
 	if !hasProposed {
 		symbol = current
 	}
+
 	currentLines := 0
 	proposedLines := 0
 	currentNonBlankLines := 0
 	proposedNonBlankLines := 0
+
 	if hasCurrent {
 		currentLines = current.LineCount
 		currentNonBlankLines = countNonBlankLines(current.RawText)
 	}
+
 	if hasProposed {
 		proposedLines = proposed.LineCount
 		proposedNonBlankLines = countNonBlankLines(proposed.RawText)
 	}
+
 	action := "unchanged"
+
 	switch {
 	case !hasCurrent && hasProposed:
 		action = "added"
@@ -498,10 +539,12 @@ func proposedContentForTool(
 		if oldContent == "" {
 			return "", false, false, false
 		}
+
 		count := strings.Count(currentContent, oldContent)
 		if count == 0 {
 			return currentContent, false, false, true
 		}
+
 		if count > 1 {
 			return strings.ReplaceAll(currentContent, oldContent, newContent), true, true, true
 		}
@@ -512,11 +555,12 @@ func proposedContentForTool(
 	}
 }
 
-func readTextFile(cwd string, file string) (string, bool, bool) {
+func readTextFile(cwd, file string) (string, bool, bool) {
 	content, err := os.ReadFile(resolveFilePath(cwd, file))
 	if err != nil {
 		return "", false, false
 	}
+
 	if bytes.Contains(content, []byte{0}) {
 		return "", true, true
 	}

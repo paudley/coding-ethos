@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -101,6 +102,7 @@ func rewriteGitCommandChain(command string) (string, bool, bool) {
 	if !parseOK {
 		return "", false, false
 	}
+
 	if len(tokens) == 0 {
 		return "", false, true
 	}
@@ -146,6 +148,7 @@ func managedGitCommandChain(command string) bool {
 	if !parseOK {
 		return false
 	}
+
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			index++
@@ -191,6 +194,7 @@ func rewriteGitSegment(segment []string) (string, bool) {
 
 	if commandSegment[0] == tokenGit {
 		args, redirections := splitShellRedirections(commandSegment[1:])
+
 		command := wrapperCommand(args)
 		if len(redirections) > 0 {
 			command += " " + strings.Join(redirections, " ")
@@ -217,6 +221,7 @@ func managedGitSegment(segment []string) bool {
 	}
 
 	command := segment[0]
+
 	commandBase := filepath.Base(command)
 	if commandBase == "coding-ethos-run" {
 		return isTrustedRunnerCommand(command) &&
@@ -253,12 +258,15 @@ func isShellEnvAssignment(token string) bool {
 		if char == '_' {
 			continue
 		}
+
 		if char >= 'A' && char <= 'Z' {
 			continue
 		}
+
 		if char >= 'a' && char <= 'z' {
 			continue
 		}
+
 		if index > 0 && char >= '0' && char <= '9' {
 			continue
 		}
@@ -283,10 +291,8 @@ func isTrustedRunnerCommand(command string) bool {
 	}
 
 	for _, resolved := range resolvedRunnerCommandPaths(command) {
-		for _, trusted := range trustedRunnerPaths() {
-			if resolved == trusted {
-				return true
-			}
+		if slices.Contains(trustedRunnerPaths(), resolved) {
+			return true
 		}
 	}
 
@@ -296,7 +302,12 @@ func isTrustedRunnerCommand(command string) bool {
 func trustedRunnerPaths() []string {
 	candidates := []string{
 		os.Getenv("CODING_ETHOS_RUN_GO_HOOK"),
-		filepath.Join(os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"), "..", "bin", "coding-ethos-run"),
+		filepath.Join(
+			os.Getenv("CODE_ETHOS_PRECOMMIT_ROOT"),
+			"..",
+			"bin",
+			"coding-ethos-run",
+		),
 	}
 
 	cleaned := make([]string, 0, len(candidates))
@@ -358,7 +369,7 @@ func segmentMentionsUnmanagedGit(segment []string) bool {
 	return false
 }
 
-func appendQuotedTokens(rewritten []string, tokens []string) []string {
+func appendQuotedTokens(rewritten, tokens []string) []string {
 	for _, token := range tokens {
 		if isShellRedirectionSyntax(token) {
 			rewritten = append(rewritten, token)
@@ -386,14 +397,14 @@ func commandReferencesUnmanagedGit(command string) bool {
 	if err != nil {
 		return true
 	}
+
 	for _, command := range commands {
 		if shellCommandIsGit(command) || shellCommandWrapsTool(command, tokenGit) {
 			return true
 		}
-		for _, token := range command.Argv {
-			if shellTokenIsGitTool(token) {
-				return true
-			}
+
+		if slices.ContainsFunc(command.Argv, shellTokenIsGitTool) {
+			return true
 		}
 	}
 
@@ -420,6 +431,7 @@ func evasiveGitShell(command string) bool {
 	}
 
 	mentionsGit := false
+
 	for _, parsed := range commands {
 		if shellCommandIsGit(parsed) ||
 			shellCommandWrapsTool(parsed, tokenGit) ||
@@ -427,9 +439,11 @@ func evasiveGitShell(command string) bool {
 			shellExecArgumentReferencesGit(parsed) ||
 			pythonExecArgumentReferencesTool(parsed, tokenGit) {
 			mentionsGit = true
+
 			break
 		}
 	}
+
 	if !mentionsGit {
 		return false
 	}
@@ -439,6 +453,7 @@ func evasiveGitShell(command string) bool {
 			shellTokenIsGitTool(parsed.Name) {
 			return true
 		}
+
 		if parsed.HasCommandSubstitution ||
 			parsed.HasProcessSubstitution ||
 			parsed.HasHeredoc ||
@@ -446,6 +461,7 @@ func evasiveGitShell(command string) bool {
 			shellCommandUsesPathOverride(parsed) {
 			return true
 		}
+
 		name := shellCommandName(parsed)
 		switch name {
 		case "bash", "sh", "zsh", "dash":
@@ -471,6 +487,7 @@ func shellCommandName(command shellparse.Command) string {
 	if command.Name != "" {
 		return filepath.Base(command.Name)
 	}
+
 	if len(command.Argv) == 0 {
 		return ""
 	}
@@ -488,6 +505,7 @@ func shellCommandWrapsTool(command shellparse.Command, tool string) bool {
 	if len(command.Argv) < 2 {
 		return false
 	}
+
 	switch shellCommandName(command) {
 	case "command", "env":
 		for _, arg := range command.Argv[1:] {
@@ -508,6 +526,7 @@ func shellCommandUsesPathOverride(command shellparse.Command) bool {
 			return true
 		}
 	}
+
 	if shellCommandName(command) == "env" {
 		for _, arg := range command.Argv[1:] {
 			if strings.HasPrefix(arg, "PATH=") {
@@ -540,21 +559,12 @@ func shellCommandArgMentions(command shellparse.Command, needle string) bool {
 	return false
 }
 
-func shellExecArgumentMentions(command shellparse.Command, needle string) bool {
-	for index, arg := range command.Argv {
-		if arg == "-c" && index+1 < len(command.Argv) {
-			return strings.Contains(strings.ToLower(command.Argv[index+1]), needle)
-		}
-	}
-
-	return false
-}
-
 func shellExecArgumentReferencesGit(command shellparse.Command) bool {
 	for index, arg := range command.Argv {
 		if arg != "-c" || index+1 >= len(command.Argv) {
 			continue
 		}
+
 		referencesGit, err := parsedShellReferencesGit(command.Argv[index+1])
 		if err != nil || referencesGit {
 			return true
@@ -569,6 +579,7 @@ func parsedShellReferencesGit(command string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	for _, parsed := range commands {
 		if shellCommandIsGit(parsed) ||
 			shellCommandWrapsTool(parsed, tokenGit) ||
@@ -585,6 +596,7 @@ func pythonExecArgumentReferencesTool(command shellparse.Command, tool string) b
 		if arg != "-c" || index+1 >= len(command.Argv) {
 			continue
 		}
+
 		for _, token := range pythonLikeTokens(command.Argv[index+1]) {
 			if filepath.Base(token) == tool || isGitPath(token) {
 				return true
@@ -623,6 +635,7 @@ func routeBlockDecision(
 	if policyID != gitWrapperPolicyID {
 		policyDef, ok = bundle.Policies[policyID]
 	}
+
 	if !ok {
 		policyDef = policy.Policy{
 			ID:              policyID,
@@ -636,6 +649,7 @@ func routeBlockDecision(
 
 	decision := policy.NewDecision(modeBlock, policyDef)
 	decision.Severity = modeBlock
+
 	decision.Message = reason
 	if policyDef.Suggestion != "" {
 		decision.Suggestion = policyDef.Suggestion

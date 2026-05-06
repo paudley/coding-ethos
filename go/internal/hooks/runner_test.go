@@ -4,7 +4,6 @@
 package hooks_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -183,6 +183,7 @@ func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if len(result.Decisions) != 1 ||
 		result.Decisions[0].PolicyID != "custom.no_subprocess_git" {
 		t.Fatalf("decision mismatch: %#v", result.Decisions)
@@ -245,6 +246,7 @@ func TestRunEvaluatesProviderNativeCELPolicy(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if len(result.Decisions) != 1 ||
 		result.Decisions[0].PolicyID != "custom.codex_failed_bash" {
 		t.Fatalf("decision mismatch: %#v", result.Decisions)
@@ -265,9 +267,11 @@ func TestDecodeEventTreatsFailedTopLevelStatusAsNonzeroReturnCode(t *testing.T) 
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
+
 	if event.ReturnCode() != 1 {
 		t.Fatalf("return code = %d, want failed status to be nonzero", event.ReturnCode())
 	}
+
 	if output := event.ToolOutput(); !strings.Contains(output, "status: FAIL") {
 		t.Fatalf("tool output = %q", output)
 	}
@@ -293,6 +297,7 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run pre hook: %v", err)
 	}
+
 	if preResult.Status != statusAllowed {
 		t.Fatalf("pre status = %q decisions %#v", preResult.Status, preResult.Decisions)
 	}
@@ -316,9 +321,11 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run post hook: %v", err)
 	}
+
 	if postResult.Status != statusBlocked {
 		t.Fatalf("post status = %q decisions %#v", postResult.Status, postResult.Decisions)
 	}
+
 	if len(postResult.Decisions) != 1 ||
 		postResult.Decisions[0].PolicyID != "git.commit_head_advanced" ||
 		postResult.Decisions[0].Decision != "block" {
@@ -346,6 +353,7 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run pre hook: %v", err)
 	}
+
 	if preResult.Status != statusAllowed {
 		t.Fatalf("pre status = %q decisions %#v", preResult.Status, preResult.Decisions)
 	}
@@ -368,9 +376,11 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run post hook: %v", err)
 	}
+
 	if postResult.Status != statusAllowed {
 		t.Fatalf("post status = %q decisions %#v", postResult.Status, postResult.Decisions)
 	}
+
 	if len(postResult.Decisions) != 1 ||
 		postResult.Decisions[0].PolicyID != "git.commit_head_advanced" ||
 		postResult.Decisions[0].Decision != "record" {
@@ -382,11 +392,17 @@ func TestRunBlocksCodexApplyPatchThatGrowsLargeGoFile(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
-	file := filepath.Join(repo, "pre-commit", "hooks", "go-hooks", "main.go")
+
+	file := filepath.Join(repo, "go", "cmd", "coding-ethos-hook-runner", "main.go")
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte(strings.Repeat("line\n", 2001)), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		file,
+		[]byte(strings.Repeat("line\n", 2001)),
+		0o600,
+	); err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
@@ -396,7 +412,7 @@ func TestRunBlocksCodexApplyPatchThatGrowsLargeGoFile(t *testing.T) {
 		"tool": "functions.apply_patch",
 		"cwd": ` + strconv.Quote(repo) + `,
 		"input": {
-			"cmd": "*** Begin Patch\n*** Update File: pre-commit/hooks/go-hooks/main.go\n@@\n+newLine\n*** End Patch\n"
+			"cmd": "*** Begin Patch\n*** Update File: go/cmd/coding-ethos-hook-runner/main.go\n@@\n+newLine\n*** End Patch\n"
 		}
 	}`))
 	if err != nil {
@@ -439,12 +455,14 @@ func TestRunBlocksCodexApplyPatchThatGrowsLargeGoFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
+
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
 	}
+
 	if len(result.Decisions) != 1 ||
 		result.Decisions[0].PolicyID != "filesystem.line_limits" ||
-		result.Decisions[0].Diagnostics[0].File != "pre-commit/hooks/go-hooks/main.go" {
+		result.Decisions[0].Diagnostics[0].File != "go/cmd/coding-ethos-hook-runner/main.go" {
 		t.Fatalf("decision mismatch: %#v", result.Decisions)
 	}
 }
@@ -469,6 +487,7 @@ func TestRunRewritesRuffThroughCaptureWrapper(t *testing.T) {
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if result.HookSpecificOutput == nil {
 		t.Fatal("missing hook output")
 	}
@@ -611,6 +630,7 @@ func TestRunBlocksLintToolWithPathOverride(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if result.Decisions[len(result.Decisions)-1].PolicyID != "tool.ruff_capture_required" {
 		t.Fatalf("decisions = %#v", result.Decisions)
 	}
@@ -627,13 +647,16 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write pyproject: %v", err)
 	}
+
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
+
 	nested := filepath.Join(root, "pkg")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
+
 	if err := os.WriteFile(
 		filepath.Join(nested, "pyproject.toml"),
 		[]byte("[project]\nname = \"nested\"\n"),
@@ -656,14 +679,21 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
+
 	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
 		t.Fatalf("result = %#v", result)
 	}
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "uv run --project '"+root+"' python 'scripts/check.py' '--flag'") ||
-		!strings.Contains(rewritten, "uv run --project '"+root+"' python '-m' 'pytest' 'tests'") {
+		!strings.Contains(
+			rewritten,
+			"uv run --project '"+root+"' python 'scripts/check.py' '--flag'",
+		) ||
+		!strings.Contains(
+			rewritten,
+			"uv run --project '"+root+"' python '-m' 'pytest' 'tests'",
+		) {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
@@ -675,14 +705,21 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
+
 	venvBin := filepath.Join(root, ".venv", "bin")
 	if err := os.MkdirAll(venvBin, 0o755); err != nil {
 		t.Fatalf("mkdir venv: %v", err)
 	}
+
 	pythonPath := filepath.Join(venvBin, "python")
-	if err := os.WriteFile(pythonPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o644); err != nil {
+	if err := os.WriteFile(
+		pythonPath,
+		[]byte("#!/usr/bin/env sh\nexit 0\n"),
+		0o644,
+	); err != nil {
 		t.Fatalf("write python: %v", err)
 	}
+
 	if err := os.Chmod(pythonPath, 0o755); err != nil {
 		t.Fatalf("chmod python: %v", err)
 	}
@@ -730,9 +767,11 @@ func TestRunAllowsCodexPythonRuntimeWithoutUnsupportedRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
+
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result)
@@ -763,13 +802,16 @@ func TestRunBlocksRewriteWhenProviderMissing(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if result.Provider != "" {
 		t.Fatalf("provider = %q, want unknown provider", result.Provider)
 	}
+
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("unsupported updatedInput emitted: %#v", result.HookSpecificOutput)
 	}
+
 	if result.Decisions[len(result.Decisions)-1].PolicyID != "hook.provider_required" {
 		t.Fatalf("decisions = %#v", result.Decisions)
 	}
@@ -860,9 +902,13 @@ func TestRunAllowsCodexGitWithoutUnsupportedUpdatedInput(t *testing.T) {
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
 	}
+
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result.HookSpecificOutput)
+		t.Fatalf(
+			"Codex must not receive unsupported updatedInput: %#v",
+			result.HookSpecificOutput,
+		)
 	}
 }
 
@@ -896,6 +942,7 @@ func TestRunBlocksWrappedGitBypassCommands(t *testing.T) {
 			if result.Status != statusBlocked {
 				t.Fatalf("status for %q = %q", command, result.Status)
 			}
+
 			if !hasDecision(result.Decisions, "git.wrapper_required") {
 				t.Fatalf("expected git wrapper decision, got %#v", result.Decisions)
 			}
@@ -1044,11 +1091,16 @@ func TestRunBlocksMalformedShellCommand(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
+
 	if !hasDecision(result.Decisions, "shell.malformed_command") {
 		t.Fatalf("expected malformed shell decision, got %#v", result.Decisions)
 	}
+
 	if strings.Contains(ProviderBlockMessage(result), "coding-ethos git wrapper") {
-		t.Fatalf("malformed shell block used git wrapper guidance: %s", ProviderBlockMessage(result))
+		t.Fatalf(
+			"malformed shell block used git wrapper guidance: %s",
+			ProviderBlockMessage(result),
+		)
 	}
 }
 
@@ -1131,6 +1183,7 @@ func TestRunAllowsGitHubAPIHeredocWithoutGitCommand(t *testing.T) {
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
 	}
+
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("unexpected rewrite for non-git command: %#v", result.HookSpecificOutput)
@@ -1263,6 +1316,7 @@ func TestRunBlocksFakeRunnerPathEvenWithPolicyGit(t *testing.T) {
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
 	}
+
 	if !hasDecision(result.Decisions, "git.wrapper_required") &&
 		!hasDecision(result.Decisions, "shell.forbidden_strings") {
 		t.Fatalf("expected wrapper or shell block, got %#v", result.Decisions)
@@ -1367,7 +1421,10 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if !strings.Contains(result.Decisions[0].Message, "CODING-ETHOS EMPLOYMENT VIOLATION") {
+	if !strings.Contains(
+		result.Decisions[0].Message,
+		"CODING-ETHOS EMPLOYMENT VIOLATION",
+	) {
 		t.Fatalf("unexpected refusal message: %#v", result.Decisions[0])
 	}
 }
@@ -1548,7 +1605,11 @@ func TestRunAllowsAgentWorkspaceMemoryWithGitLearning(t *testing.T) {
 	}
 
 	if result.Status != statusAllowed {
-		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
+		t.Fatalf(
+			"status mismatch: got %q with decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
 	}
 }
 
@@ -1570,7 +1631,11 @@ func TestRunAllowsAgentWorkspaceMemoryWithHookMarker(t *testing.T) {
 	}
 
 	if result.Status != statusAllowed {
-		t.Fatalf("status mismatch: got %q with decisions %#v", result.Status, result.Decisions)
+		t.Fatalf(
+			"status mismatch: got %q with decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
 	}
 }
 
@@ -1665,17 +1730,35 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 		"format: toon",
 	) ||
 		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "ruff...Failed") ||
-		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "hook_output[3]{line}:") {
+		!strings.Contains(
+			result.HookSpecificOutput.AdditionalContext,
+			"hook_output[3]{line}:",
+		) {
 		t.Fatalf("unexpected context: %#v", result.HookSpecificOutput)
 	}
+
 	if strings.Contains(result.HookSpecificOutput.AdditionalContext, repo) {
-		t.Fatalf("context leaked absolute repo path: %s", result.HookSpecificOutput.AdditionalContext)
+		t.Fatalf(
+			"context leaked absolute repo path: %s",
+			result.HookSpecificOutput.AdditionalContext,
+		)
 	}
+
 	if strings.Contains(result.HookSpecificOutput.AdditionalContext, "\\n") {
-		t.Fatalf("context leaked escaped newlines: %s", result.HookSpecificOutput.AdditionalContext)
+		t.Fatalf(
+			"context leaked escaped newlines: %s",
+			result.HookSpecificOutput.AdditionalContext,
+		)
 	}
-	if !strings.Contains(result.HookSpecificOutput.AdditionalContext, "<repo>/lib/app.py") {
-		t.Fatalf("context did not normalize repo path: %s", result.HookSpecificOutput.AdditionalContext)
+
+	if !strings.Contains(
+		result.HookSpecificOutput.AdditionalContext,
+		"<repo>/lib/app.py",
+	) {
+		t.Fatalf(
+			"context did not normalize repo path: %s",
+			result.HookSpecificOutput.AdditionalContext,
+		)
 	}
 }
 
@@ -1700,7 +1783,10 @@ func TestRunSuppressesSuccessfulPostToolHookOutputContext(t *testing.T) {
 	}
 
 	if result.HookSpecificOutput != nil {
-		t.Fatalf("successful hook-like output should stay silent: %#v", result.HookSpecificOutput)
+		t.Fatalf(
+			"successful hook-like output should stay silent: %#v",
+			result.HookSpecificOutput,
+		)
 	}
 }
 
@@ -1768,6 +1854,7 @@ func TestBlockedAdvicePrefixesSevereViolationInHumanOutput(t *testing.T) {
 	if !strings.HasPrefix(advice, "!!! CODING-ETHOS EMPLOYMENT VIOLATION:") {
 		t.Fatalf("severe warning was not first in human advice: %s", advice)
 	}
+
 	for _, expected := range []string{
 		"You have done something wrong.",
 		"may result in termination",
@@ -2037,6 +2124,7 @@ func legacyFixtureBundle() policy.Bundle {
 	if bundle.Dispatch.Hooks["PostToolUse"] != nil {
 		delete(bundle.Dispatch.Hooks["PostToolUse"], "Bash")
 	}
+
 	addLegacyPolicy(
 		&bundle,
 		"shell.github_admin",
@@ -2431,15 +2519,18 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 	root := t.TempDir()
 	parent := filepath.Join(root, "parent")
+
 	child := filepath.Join(parent, "coding-ethos")
 	for _, dir := range []string{
 		filepath.Join(parent, ".git"),
 		filepath.Join(child, ".git"),
 	} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		err := os.MkdirAll(dir, 0o755)
+		if err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
+
 	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", parent)
 
 	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
@@ -2463,6 +2554,7 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 	}
 
 	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", child)
+
 	result, err = Run(policy.ExampleBundle(), Options{Event: event})
 	if err != nil {
 		t.Fatalf("run nearest hook: %v", err)
@@ -2470,7 +2562,10 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 
 	if result.Status != statusAllowed ||
 		(result.HookSpecificOutput != nil && len(result.HookSpecificOutput.UpdatedInput) > 0) {
-		t.Fatalf("nested owner hook should allow without unsupported Codex rewrite, got %#v", result)
+		t.Fatalf(
+			"nested owner hook should allow without unsupported Codex rewrite, got %#v",
+			result,
+		)
 	}
 }
 
@@ -2513,9 +2608,11 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 			t.Fatalf("missing %q in Codex output:\n%s", expected, output)
 		}
 	}
+
 	if strings.Contains(output, `\n`) {
 		t.Fatalf("Codex block output must be single-line-safe JSON strings:\n%s", output)
 	}
+
 	for _, forbidden := range []string{
 		`"systemMessage"`,
 		"format: toon",
@@ -2567,7 +2664,9 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 	}
 }
 
-func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t *testing.T) {
+func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	event, err := DecodeEvent(strings.NewReader(`{
@@ -2594,14 +2693,20 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(t
 	if strings.Contains(output, "hookSpecificOutput") {
 		t.Fatalf("Claude SessionEnd output must not include hookSpecificOutput:\n%s", output)
 	}
+
 	if !strings.Contains(output, `"systemMessage"`) ||
 		!strings.Contains(output, "Before ending:") ||
 		!strings.Contains(output, "planned work remains") {
 		t.Fatalf("missing Claude SessionEnd systemMessage:\n%s", output)
 	}
+
 	if strings.Contains(output, "guidance:") {
-		t.Fatalf("Claude terminal lifecycle output should not begin with generic guidance label:\n%s", output)
+		t.Fatalf(
+			"Claude terminal lifecycle output should not begin with generic guidance label:\n%s",
+			output,
+		)
 	}
+
 	assertNoRoutineContextClutter(t, output)
 }
 
@@ -2658,7 +2763,10 @@ func TestRunRewritesCodexGitCommandFromDecodedEvent(t *testing.T) {
 
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result.HookSpecificOutput)
+		t.Fatalf(
+			"Codex must not receive unsupported updatedInput: %#v",
+			result.HookSpecificOutput,
+		)
 	}
 }
 
@@ -2756,12 +2864,18 @@ func TestRunCapturesAndInjectsContinuationContext(t *testing.T) {
 		!strings.Contains(additionalContext, "finish the hook cutover") {
 		t.Fatalf("unexpected inject output: %#v", inject.HookSpecificOutput)
 	}
+
 	assertNoRoutineContextClutter(t, additionalContext)
+
 	if strings.Contains(additionalContext, transcript) {
 		t.Fatalf("continuation context leaked transcript path: %s", additionalContext)
 	}
+
 	if !strings.Contains(additionalContext, "<tmp>") {
-		t.Fatalf("continuation context did not normalize transcript path: %s", additionalContext)
+		t.Fatalf(
+			"continuation context did not normalize transcript path: %s",
+			additionalContext,
+		)
 	}
 }
 
@@ -2818,6 +2932,7 @@ func TestRunAddsUserPromptGuidance(t *testing.T) {
 		!strings.Contains(context, "finish hook replacement") {
 		t.Fatalf("unexpected prompt guidance: %s", context)
 	}
+
 	assertNoRoutineContextClutter(t, context)
 }
 
@@ -2846,9 +2961,14 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 		!strings.Contains(context, "planned work remains") {
 		t.Fatalf("unexpected stop guidance: %s", context)
 	}
+
 	if strings.Contains(context, "guidance:") {
-		t.Fatalf("terminal lifecycle context should not start with generic guidance label: %s", context)
+		t.Fatalf(
+			"terminal lifecycle context should not start with generic guidance label: %s",
+			context,
+		)
 	}
+
 	assertNoRoutineContextClutter(t, context)
 }
 
@@ -2882,6 +3002,7 @@ func TestRunAddsPostEditCheckpointGuidance(t *testing.T) {
 		!strings.Contains(context, "Run focused formatting") {
 		t.Fatalf("unexpected post-edit guidance: %s", context)
 	}
+
 	assertNoRoutineContextClutter(t, context)
 }
 
@@ -2935,6 +3056,7 @@ func TestRunAddsPriorityEthosRemindersForLintCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
+
 	if result.HookSpecificOutput == nil {
 		t.Fatal("lint calls should produce ETHOS guidance context")
 	}
@@ -2950,6 +3072,7 @@ func TestRunAddsPriorityEthosRemindersForLintCalls(t *testing.T) {
 			t.Fatalf("missing %q in lint reminder context: %s", expected, context)
 		}
 	}
+
 	if strings.Contains(context, "ethos_reminder:") {
 		t.Fatalf("priority reminders should suppress ambient reminders: %s", context)
 	}
@@ -2969,6 +3092,7 @@ func TestEncodeProviderResultCompactsCodexPostEditContext(t *testing.T) {
 	}
 
 	var buffer strings.Builder
+
 	err := EncodeResult(&buffer, result)
 	if err != nil {
 		t.Fatalf("encode result: %v", err)
@@ -3001,7 +3125,10 @@ func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
 	}
 
 	if result.HookSpecificOutput != nil {
-		t.Fatalf("Codex post-edit advice should require actionable signal: %#v", result.HookSpecificOutput)
+		t.Fatalf(
+			"Codex post-edit advice should require actionable signal: %#v",
+			result.HookSpecificOutput,
+		)
 	}
 }
 
@@ -3036,11 +3163,13 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		if err != nil {
 			t.Fatalf("run hook: %v", err)
 		}
+
 		if result.HookSpecificOutput == nil {
 			t.Fatalf("test fixture should still exercise internal context: %#v", result)
 		}
 
 		var buffer strings.Builder
+
 		err = EncodeResult(&buffer, result)
 		if err != nil {
 			t.Fatalf("encode result: %v", err)
@@ -3050,6 +3179,7 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		if !strings.Contains(output, tc.expected) {
 			t.Fatalf("missing compact lifecycle message %q:\n%s", tc.expected, output)
 		}
+
 		for _, forbidden := range []string{
 			"guidance:",
 			"\\n",
@@ -3066,7 +3196,11 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	t.Setenv("CODEX_THREAD_ID", "thread")
 
-	event, err := DecodeEvent(strings.NewReader(`{"event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`))
+	event, err := DecodeEvent(
+		strings.NewReader(
+			`{"event":"UserPromptSubmit","input":{"prompt":"finish hook replacement"}}`,
+		),
+	)
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
@@ -3075,11 +3209,13 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
 	}
+
 	if result.Provider != "codex" {
 		t.Fatalf("provider = %q, want codex", result.Provider)
 	}
 
 	var buffer strings.Builder
+
 	err = EncodeResult(&buffer, result)
 	if err != nil {
 		t.Fatalf("encode result: %v", err)
@@ -3094,7 +3230,7 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	}
 }
 
-func assertCodexCompactContext(t *testing.T, output string, message string) {
+func assertCodexCompactContext(t *testing.T, output, message string) {
 	t.Helper()
 
 	for _, expected := range []string{
@@ -3105,6 +3241,7 @@ func assertCodexCompactContext(t *testing.T, output string, message string) {
 			t.Fatalf("Codex compact context missing %q:\n%s", expected, output)
 		}
 	}
+
 	for _, forbidden := range []string{
 		"updatedInput",
 		"systemMessage",
@@ -3114,27 +3251,6 @@ func assertCodexCompactContext(t *testing.T, output string, message string) {
 	} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("Codex compact context leaked %q:\n%s", forbidden, output)
-		}
-	}
-}
-
-func assertCodexAllowedContextQuiet(t *testing.T, output string) {
-	t.Helper()
-
-	if strings.TrimSpace(output) != "{}" {
-		t.Fatalf("Codex allowed context output must be empty provider JSON:\n%s", output)
-	}
-	for _, forbidden := range []string{
-		"hookSpecificOutput",
-		"updatedInput",
-		"systemMessage",
-		"guidance",
-		"Before ending",
-		"tool: Write",
-		"Review the edited file",
-	} {
-		if strings.Contains(output, forbidden) {
-			t.Fatalf("Codex allowed context leaked %q:\n%s", forbidden, output)
 		}
 	}
 }
@@ -3162,6 +3278,7 @@ func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
 
 	dir := t.TempDir()
 	sourcePath := filepath.Join(dir, "app.py")
+
 	err := os.WriteFile(
 		sourcePath,
 		[]byte("try:\n    import missing\nexcept ImportError:\n    missing = None\n"),
@@ -3200,6 +3317,7 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	dir := t.TempDir()
 	binDir := t.TempDir()
 	sourcePath := filepath.Join(dir, "app.py")
+
 	err := os.WriteFile(sourcePath, []byte("import os\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write source: %v", err)
@@ -3207,6 +3325,7 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 
 	ruffPath := filepath.Join(binDir, "ruff")
 	ruffCode := "PLC" + "0415"
+
 	err = os.WriteFile(
 		ruffPath,
 		[]byte(
@@ -3221,6 +3340,7 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write fake ruff: %v", err)
 	}
+
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
@@ -3256,17 +3376,24 @@ func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+
 	err := os.MkdirAll(filepath.Join(dir, ".coding-ethos", "lint-runs"), 0o700)
 	if err != nil {
 		t.Fatalf("create lint trace dir: %v", err)
 	}
-	writeHookTraceFixture(t, filepath.Join(dir, ".coding-ethos", "lint-runs", "trace.json"))
+
+	writeHookTraceFixture(
+		t,
+		filepath.Join(dir, ".coding-ethos", "lint-runs", "trace.json"),
+	)
 
 	sourcePath := filepath.Join(dir, "lib", "python", "new_module.py")
+
 	err = os.MkdirAll(filepath.Dir(sourcePath), 0o700)
 	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
+
 	err = os.WriteFile(sourcePath, []byte("print(1)\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write source: %v", err)
@@ -3296,9 +3423,11 @@ func TestRunAddsRelevantPostEditLintHistory(t *testing.T) {
 		!strings.Contains(context, "Move imports to module scope.") {
 		t.Fatalf("missing relevant lint history: %s", context)
 	}
+
 	if strings.Contains(context, "go.license") {
 		t.Fatalf("irrelevant lint history leaked into post-edit context: %s", context)
 	}
+
 	assertNoRoutineContextClutter(t, context)
 }
 

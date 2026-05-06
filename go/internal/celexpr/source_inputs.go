@@ -4,21 +4,21 @@
 package celexpr
 
 type FindingInput struct {
-	Tool         string   `json:"tool"`
-	Code         string   `json:"code"`
+	SymbolKind   string   `json:"symbol_kind"`
+	ChunkHash    string   `json:"chunk_hash"`
 	Message      string   `json:"message"`
 	File         string   `json:"file"`
 	Language     string   `json:"language"`
 	SymbolName   string   `json:"symbol_name"`
-	SymbolKind   string   `json:"symbol_kind"`
-	ChunkHash    string   `json:"chunk_hash"`
+	Code         string   `json:"code"`
+	SkillID      string   `json:"skill_id"`
+	Tool         string   `json:"tool"`
+	PolicyID     string   `json:"policy_id"`
+	Severity     string   `json:"severity"`
+	PrincipleIDs []string `json:"principle_ids"`
 	Line         int64    `json:"line"`
 	LineCount    int64    `json:"line_count"`
 	ChangedLines int64    `json:"changed_lines"`
-	Severity     string   `json:"severity"`
-	PolicyID     string   `json:"policy_id"`
-	SkillID      string   `json:"skill_id"`
-	PrincipleIDs []string `json:"principle_ids"`
 }
 
 type SourceInput struct {
@@ -107,27 +107,35 @@ func sourceInput(
 	if result.Path == "" {
 		result.Path = primaryPath.File
 	}
+
 	if finding == nil {
 		return result
 	}
+
 	if result.Path == "" {
 		result.Path = cleanInputFile(finding.File)
 	}
+
 	if result.Language == "" {
 		result.Language = finding.Language
 	}
+
 	if result.SymbolName == "" {
 		result.SymbolName = finding.SymbolName
 	}
+
 	if result.SymbolKind == "" {
 		result.SymbolKind = finding.SymbolKind
 	}
+
 	if result.ChunkHash == "" {
 		result.ChunkHash = finding.ChunkHash
 	}
+
 	if result.LineCount == 0 {
 		result.LineCount = int64(finding.LineCount)
 	}
+
 	if result.ChangedLines == 0 {
 		result.ChangedLines = int64(finding.ChangedLines)
 	}

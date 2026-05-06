@@ -4,12 +4,13 @@
 package evaluators_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/evaluators"
-	"blackcat.ca/coding-ethos/go/internal/policy"
-	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const decisionBlock = "block"
@@ -189,6 +190,7 @@ func TestGitCommitAttributionBlocksMessageFile(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != decisionBlock {
 		t.Fatalf("expected block decision, got %#v", decisions)
 	}
+
 	if decisions[0].Evidence["example"] == "" {
 		t.Fatalf("missing commitlint example evidence: %#v", decisions[0].Evidence)
 	}
@@ -228,8 +230,8 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		argv    []string
 		stdin   string
+		argv    []string
 		blocked bool
 	}{
 		{
@@ -315,6 +317,7 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 			if test.blocked && len(decisions) != 1 {
 				t.Fatalf("expected block decision, got %#v", decisions)
 			}
+
 			if !test.blocked && len(decisions) != 0 {
 				t.Fatalf("expected allow decision, got %#v", decisions)
 			}
@@ -338,6 +341,7 @@ func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
 	}
 
 	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+
 	decisions, err := EvaluateGitCommitLint(policyDef, Context{
 		Argv:             argv,
 		EvaluatorOptions: policyDef.Evaluators[0].Options,

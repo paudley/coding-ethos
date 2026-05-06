@@ -58,10 +58,12 @@ func uvExcludeNewerPolicySpec(
 	principles map[string]Principle,
 ) compiledPolicySpec {
 	policyID := "python.uv_exclude_newer"
+
 	expectedValue := stringAt(config, "python", "uv_exclude_newer", "expected_value")
 	if expectedValue == "" {
 		expectedValue = "7 days"
 	}
+
 	options := map[string]any{
 		"expected_value": expectedValue,
 	}

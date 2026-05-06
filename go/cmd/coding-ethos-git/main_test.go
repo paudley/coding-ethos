@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -53,7 +54,12 @@ func TestGitCommitReadsMessageFromStdin(t *testing.T) {
 			t.Parallel()
 
 			if got := gitCommitReadsMessageFromStdin(test.argv); got != test.want {
-				t.Fatalf("gitCommitReadsMessageFromStdin(%#v) = %v, want %v", test.argv, got, test.want)
+				t.Fatalf(
+					"gitCommitReadsMessageFromStdin(%#v) = %v, want %v",
+					test.argv,
+					got,
+					test.want,
+				)
 			}
 		})
 	}
@@ -66,9 +72,11 @@ func TestGitOptionsForNonStdinCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gitOptions: %v", err)
 	}
+
 	if strings.Join(options.Argv, " ") != "status --short" {
 		t.Fatalf("argv = %#v", options.Argv)
 	}
+
 	if len(options.Stdin) != 0 {
 		t.Fatalf("stdin should be empty: %q", options.Stdin)
 	}
@@ -76,17 +84,21 @@ func TestGitOptionsForNonStdinCommand(t *testing.T) {
 
 func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
+
 	bundle, err := readBundle(bundlePath)
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
+
 	if bundle.BundleID != policy.ExampleBundle().BundleID {
 		t.Fatalf("bundle id = %q", bundle.BundleID)
 	}
 
 	result := gitwrap.Result{Status: "allowed", Argv: []string{"status"}}
+
 	output := captureGitStdout(t, func() {
-		if err := maybePrintJSON(true, result); err != nil {
+		err := maybePrintJSON(true, result)
+		if err != nil {
 			t.Fatalf("maybePrintJSON: %v", err)
 		}
 	})
@@ -97,13 +109,15 @@ func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 
 func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
+
 	output := captureGitStdout(t, func() {
-		if err := runWithArgs([]string{
+		err := runWithArgs([]string{
 			"--bundle", bundlePath,
 			"--check-only",
 			"status",
 			"--short",
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("runWithArgs() returned error: %v", err)
 		}
 	})
@@ -114,14 +128,16 @@ func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 
 func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
+
 	output := captureGitStdout(t, func() {
-		if err := runWithArgs([]string{
+		err := runWithArgs([]string{
 			"--bundle", bundlePath,
 			"--check-only",
 			"--json",
 			"status",
 			"--short",
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("runWithArgs() returned error: %v", err)
 		}
 	})
@@ -134,6 +150,7 @@ func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 	root := t.TempDir()
 	marker := filepath.Join(root, "git-ran")
+
 	realGit := filepath.Join(root, "git")
 	if err := os.WriteFile(
 		realGit,
@@ -160,6 +177,7 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fake git marker: %v", err)
 	}
+
 	if strings.TrimSpace(string(data)) != "status\n--short" {
 		t.Fatalf("fake git argv = %q", string(data))
 	}
@@ -168,8 +186,11 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 func TestRunUsesProcessArgs(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
 	originalArgs := os.Args
+
 	t.Cleanup(func() { os.Args = originalArgs })
-	os.Args = []string{"coding-ethos-git",
+
+	os.Args = []string{
+		"coding-ethos-git",
 		"--bundle", bundlePath,
 		"--check-only",
 		"status",
@@ -177,7 +198,8 @@ func TestRunUsesProcessArgs(t *testing.T) {
 	}
 
 	output := captureGitStdout(t, func() {
-		if err := run(); err != nil {
+		err := run()
+		if err != nil {
 			t.Fatalf("run() returned error: %v", err)
 		}
 	})
@@ -187,7 +209,8 @@ func TestRunUsesProcessArgs(t *testing.T) {
 }
 
 func TestRunRequiresBundleFlag(t *testing.T) {
-	if err := runWithArgs([]string{"status"}); err != errBundleRequired {
+	err := runWithArgs([]string{"status"})
+	if !errors.Is(err, errBundleRequired) {
 		t.Fatalf("runWithArgs() error = %v, want %v", err, errBundleRequired)
 	}
 }
@@ -219,13 +242,16 @@ func writeGitTestBundle(t *testing.T) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "policy-bundle.json")
+
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create bundle: %v", err)
 	}
+
 	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
 		t.Fatalf("encode bundle: %v", err)
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatalf("close bundle: %v", err)
 	}
@@ -237,11 +263,14 @@ func captureGitStdout(t *testing.T, run func()) string {
 	t.Helper()
 
 	original := os.Stdout
+
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe stdout: %v", err)
 	}
+
 	os.Stdout = writer
+
 	defer func() {
 		os.Stdout = original
 	}()
@@ -255,11 +284,14 @@ func captureGitStderr(t *testing.T, run func()) string {
 	t.Helper()
 
 	original := os.Stderr
+
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe stderr: %v", err)
 	}
+
 	os.Stderr = writer
+
 	defer func() {
 		os.Stderr = original
 	}()
@@ -269,17 +301,21 @@ func captureGitStderr(t *testing.T, run func()) string {
 	return readGitPipe(t, reader, writer)
 }
 
-func readGitPipe(t *testing.T, reader *os.File, writer *os.File) string {
+func readGitPipe(t *testing.T, reader, writer *os.File) string {
 	t.Helper()
 
-	if err := writer.Close(); err != nil {
+	err := writer.Close()
+	if err != nil {
 		t.Fatalf("close pipe writer: %v", err)
 	}
+
 	var buffer bytes.Buffer
 	if _, err := io.Copy(&buffer, reader); err != nil {
 		t.Fatalf("read pipe: %v", err)
 	}
-	if err := reader.Close(); err != nil {
+
+	err = reader.Close()
+	if err != nil {
 		t.Fatalf("close pipe reader: %v", err)
 	}
 

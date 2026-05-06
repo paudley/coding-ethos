@@ -139,6 +139,7 @@ func gitOptions(
 			return gitwrap.Options{}, fmt.Errorf("verify admin approval: %w", err)
 		}
 	}
+
 	stdin, err := stdinForGitArgv(argv)
 	if err != nil {
 		return gitwrap.Options{}, err
@@ -172,11 +173,12 @@ func gitCommitReadsMessageFromStdin(argv []string) bool {
 	}
 
 	args := parsed.Argv
-	for index := 0; index < len(args); index++ {
+	for index := range args {
 		arg := args[index]
 		if arg == "-F" || arg == "--file" {
 			return index+1 < len(args) && args[index+1] == "-"
 		}
+
 		if arg == "-F-" || arg == "--file=-" {
 			return true
 		}

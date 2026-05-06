@@ -14,8 +14,10 @@ func run(paths runtimePaths, args []string) error {
 		requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
 		runtimeExecPath(paths.GitHookRunner)
 	}
+
 	command := args[0]
 	rest := args[1:]
+
 	switch command {
 	case "agent-hook":
 		runAgentHook(paths, rest)
@@ -29,9 +31,13 @@ func run(paths runtimePaths, args []string) error {
 		return runCutover(paths, rest)
 	case "policy-lint":
 		requirePolicyBundle(paths)
-		runtimeExecTool(paths, "coding-ethos-lint", append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+		runtimeExecTool(
+			paths,
+			"coding-ethos-lint",
+			append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
 	case "ci-sarif":
 		requirePolicyBundle(paths)
+
 		return runCISARIF(paths, rest)
 	case "policy":
 		runtimeExecTool(paths, "coding-ethos-policy", rest...)
@@ -42,7 +48,10 @@ func run(paths runtimePaths, args []string) error {
 	case "policy-git":
 		requirePolicyBundle(paths)
 		installGitWrapperShim(paths)
-		runtimeExecTool(paths, "coding-ethos-git", append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+		runtimeExecTool(
+			paths,
+			"coding-ethos-git",
+			append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
 	case "mcp":
 		runMCP(paths, rest)
 	default:
@@ -59,29 +68,42 @@ func runAgentHook(paths runtimePaths, rest []string) {
 	installLintToolShims(paths)
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
-	runtimeExecTool(paths, "coding-ethos-hook", append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-hook",
+		append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
 	installGitWrapperShim(paths)
 	installLintToolShims(paths)
 	_ = os.Setenv("CODE_ETHOS_CONSUMER_ROOT", rootFlagValue(rest, paths.Root))
-	runtimeExecTool(paths, "coding-ethos-agent-hooks", withDefaultHookCommand(paths, rest)...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-agent-hooks",
+		withDefaultHookCommand(paths, rest)...)
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
 	if len(rest) == 0 {
 		return errors.New("policy-tool requires a tool name")
 	}
+
 	requirePolicyBundle(paths)
-	runtimeExecTool(paths, "coding-ethos-lint", policyToolLintArgs(paths, rest[0], rest[1:])...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-lint",
+		policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
 }
 
 func runMCP(paths runtimePaths, rest []string) {
 	requirePolicyBundle(paths)
-	requireRuntimeBinary(filepath.Join(paths.BinDir, "coding-ethos-lint"), "coding-ethos-lint")
+	requireRuntimeBinary(
+		filepath.Join(paths.BinDir, "coding-ethos-lint"),
+		"coding-ethos-lint",
+	)
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", paths.PolicyBundle,
 		"--ethos-root", paths.EthosRoot,

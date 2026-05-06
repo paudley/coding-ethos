@@ -41,11 +41,26 @@ func TestFormatLintResultJSONIncludesAgentRemediation(t *testing.T) {
 		t.Fatalf("decode JSON: %v\n%s", err, output)
 	}
 
-	assertJSONPath(t, payload, "agent_remediation.0.policy_id", "python.conditional_imports")
+	assertJSONPath(
+		t,
+		payload,
+		"agent_remediation.0.policy_id",
+		"python.conditional_imports",
+	)
 	assertJSONPath(t, payload, "agent_remediation.0.skill_id", "conditional-imports")
 	assertJSONPath(t, payload, "agent_remediation.0.mcp.tool", "policy_explain")
-	assertJSONPath(t, payload, "agent_remediation.0.mcp.arguments.policy_id", "python.conditional_imports")
-	assertJSONPath(t, payload, "agent_remediation.0.next_steps.0", "Call MCP policy_explain with policy_id=python.conditional_imports before retrying.")
+	assertJSONPath(
+		t,
+		payload,
+		"agent_remediation.0.mcp.arguments.policy_id",
+		"python.conditional_imports",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"agent_remediation.0.next_steps.0",
+		"Call MCP policy_explain with policy_id=python.conditional_imports before retrying.",
+	)
 }
 
 func TestFormatLintResultTOONIncludesAgentRemediation(t *testing.T) {
@@ -116,14 +131,59 @@ func TestFormatLintResultSARIFIncludesNormalizedEvidence(t *testing.T) {
 		t.Fatalf("decode SARIF: %v\n%s", err, output)
 	}
 
-	assertJSONPathPrefix(t, payload, "runs.0.results.0.partialFingerprints.coding-ethos/finding/v1", 64)
-	assertJSONPath(t, payload, "runs.0.results.0.properties.agent_remediation.0.policy_id", "python.unused_imports")
-	assertJSONPath(t, payload, "runs.0.results.0.properties.agent_remediation.0.skill_id", "lint-remediation")
-	assertJSONPath(t, payload, "runs.0.results.0.properties.agent_remediation.0.mcp.tool", "policy_explain")
+	assertJSONPathPrefix(
+		t,
+		payload,
+		"runs.0.results.0.partialFingerprints.coding-ethos/finding/v1",
+		64,
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.agent_remediation.0.policy_id",
+		"python.unused_imports",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.agent_remediation.0.skill_id",
+		"lint-remediation",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.agent_remediation.0.mcp.tool",
+		"policy_explain",
+	)
 	assertJSONPathPrefix(t, payload, "runs.0.results.0.properties.finding.id", 64)
-	assertJSONPath(t, payload, "runs.0.results.0.properties.finding.source_span.language", "python")
-	assertJSONPath(t, payload, "runs.0.results.0.properties.finding.source_span.symbol_kind", "module")
-	assertJSONPath(t, payload, "runs.0.results.0.properties.source_span.path", "pkg/app.py")
-	assertJSONPath(t, payload, "runs.0.results.0.properties.source_span.start_line", float64(4))
-	assertJSONPathPrefix(t, payload, "runs.0.results.0.properties.remediation_events.0.id", 64)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.finding.source_span.language",
+		"python",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.finding.source_span.symbol_kind",
+		"module",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.source_span.path",
+		"pkg/app.py",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.source_span.start_line",
+		float64(4),
+	)
+	assertJSONPathPrefix(
+		t,
+		payload,
+		"runs.0.results.0.properties.remediation_events.0.id",
+		64,
+	)
 }

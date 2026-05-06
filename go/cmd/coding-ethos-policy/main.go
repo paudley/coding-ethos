@@ -13,8 +13,12 @@ import (
 	"sort"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/internal/policy"
 	"go.yaml.in/yaml/v3"
+
+	"blackcat.ca/coding-ethos/go/internal/agentskills"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 const (
@@ -30,15 +34,18 @@ var (
 	errValidateMetadataRequired   = errors.New("validate-metadata requires --metadata")
 	errExplainBundleRequired      = errors.New("explain requires --bundle")
 	errExplainPolicyIDRequired    = errors.New("explain requires exactly one policy ID")
+	errToolConfigRepoRequired     = errors.New("tool config command requires --repo")
+	errGeminiPromptRepoRequired   = errors.New("gemini prompt command requires --repo")
+	errAgentSkillRepoRequired     = errors.New("agent skill command requires --repo")
 	errInvalidBundle              = errors.New("invalid policy bundle")
 )
 
 type configTraceReport struct {
-	ConfigSections     []string `json:"config_sections"`
-	RepoConfigSections []string `json:"repo_config_sections,omitempty"`
 	Config             string   `json:"config"`
 	RepoConfig         string   `json:"repo_config,omitempty"`
 	Status             string   `json:"status"`
+	ConfigSections     []string `json:"config_sections"`
+	RepoConfigSections []string `json:"repo_config_sections,omitempty"`
 	DispatchScopes     int      `json:"dispatch_scopes"`
 	EvidenceMaps       int      `json:"evidence_maps"`
 	Policies           int      `json:"policies"`
@@ -51,6 +58,7 @@ func main() {
 func runCLI(args []string) int {
 	if len(args) == 0 {
 		usage()
+
 		return commandArgsOffset
 	}
 
@@ -71,17 +79,236 @@ func runCLI(args []string) int {
 		err = explain(args[1:])
 	case "config-trace":
 		err = configTrace(args[1:])
+	case "sync-tool-configs":
+		err = syncToolConfigs(args[1:])
+	case "check-tool-configs":
+		err = checkToolConfigs(args[1:])
+	case "sync-gemini-prompts":
+		err = syncGeminiPrompts(args[1:])
+	case "check-gemini-prompts":
+		err = checkGeminiPrompts(args[1:])
+	case "sync-agent-skills":
+		err = syncAgentSkills(args[1:])
+	case "check-agent-skills":
+		err = checkAgentSkills(args[1:])
 	default:
 		usage()
+
 		return commandArgsOffset
 	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
+
 		return 1
 	}
 
 	return 0
+}
+
+func syncToolConfigs(args []string) error {
+	options, err := parseToolConfigFlags("sync-tool-configs", args)
+	if err != nil {
+		return err
+	}
+
+	written, err := toolconfigs.Sync(options.ethosRoot, options.repo, options.repoConfig)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range written {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	return nil
+}
+
+func checkToolConfigs(args []string) error {
+	options, err := parseToolConfigFlags("check-tool-configs", args)
+	if err != nil {
+		return err
+	}
+
+	mismatched, err := toolconfigs.Check(
+		options.ethosRoot,
+		options.repo,
+		options.repoConfig,
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range mismatched {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	if len(mismatched) > 0 {
+		return errors.New("generated tool configs out of sync")
+	}
+
+	return nil
+}
+
+type toolConfigOptions struct {
+	ethosRoot  string
+	repo       string
+	repoConfig string
+}
+
+func parseToolConfigFlags(command string, args []string) (toolConfigOptions, error) {
+	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
+	repo := flags.String("repo", "", "Repository root where configs are generated")
+	repoConfig := flags.String("repo-config", "", "Optional repo override config")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return toolConfigOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
+	}
+
+	if strings.TrimSpace(*repo) == "" {
+		return toolConfigOptions{}, errToolConfigRepoRequired
+	}
+
+	return toolConfigOptions{
+		ethosRoot:  *ethosRoot,
+		repo:       *repo,
+		repoConfig: *repoConfig,
+	}, nil
+}
+
+func syncGeminiPrompts(args []string) error {
+	options, err := parseGeminiPromptFlags("sync-gemini-prompts", args)
+	if err != nil {
+		return err
+	}
+
+	written, err := geminiprompts.Sync(options)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range written {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	return nil
+}
+
+func checkGeminiPrompts(args []string) error {
+	options, err := parseGeminiPromptFlags("check-gemini-prompts", args)
+	if err != nil {
+		return err
+	}
+
+	mismatched, err := geminiprompts.Check(options)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range mismatched {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	if len(mismatched) > 0 {
+		return errors.New("generated Gemini prompt pack out of sync")
+	}
+
+	return nil
+}
+
+func syncAgentSkills(args []string) error {
+	options, err := parseAgentSkillFlags("sync-agent-skills", args)
+	if err != nil {
+		return err
+	}
+
+	written, err := agentskills.Sync(options)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range written {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	return nil
+}
+
+func checkAgentSkills(args []string) error {
+	options, err := parseAgentSkillFlags("check-agent-skills", args)
+	if err != nil {
+		return err
+	}
+
+	mismatched, err := agentskills.Check(options)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range mismatched {
+		fmt.Fprintln(os.Stdout, path)
+	}
+
+	if len(mismatched) > 0 {
+		return errors.New("generated agent skill surfaces out of sync")
+	}
+
+	return nil
+}
+
+func parseAgentSkillFlags(command string, args []string) (agentskills.Options, error) {
+	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
+	repo := flags.String("repo", "", "Repository root where skills are generated")
+	primary := flags.String("primary", "", "Path to coding_ethos.yml")
+	repoEthos := flags.String("repo-ethos", "", "Optional repo ethos overlay")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return agentskills.Options{}, fmt.Errorf("parse %s flags: %w", command, err)
+	}
+
+	if strings.TrimSpace(*repo) == "" {
+		return agentskills.Options{}, errAgentSkillRepoRequired
+	}
+
+	return agentskills.Options{
+		EthosRoot: *ethosRoot,
+		RepoRoot:  *repo,
+		Primary:   *primary,
+		RepoEthos: *repoEthos,
+	}, nil
+}
+
+func parseGeminiPromptFlags(
+	command string,
+	args []string,
+) (geminiprompts.Options, error) {
+	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
+	repo := flags.String("repo", "", "Repository root where prompt pack is generated")
+	primary := flags.String("primary", "", "Path to coding_ethos.yml")
+	repoEthos := flags.String("repo-ethos", "", "Optional repo ethos overlay")
+	repoConfig := flags.String("repo-config", "", "Optional repo override config")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return geminiprompts.Options{}, fmt.Errorf("parse %s flags: %w", command, err)
+	}
+
+	if strings.TrimSpace(*repo) == "" {
+		return geminiprompts.Options{}, errGeminiPromptRepoRequired
+	}
+
+	return geminiprompts.Options{
+		EthosRoot:  *ethosRoot,
+		RepoRoot:   *repo,
+		Primary:    *primary,
+		RepoEthos:  *repoEthos,
+		RepoConfig: *repoConfig,
+	}, nil
 }
 
 func validateMetadata(args []string) error {
@@ -92,6 +319,7 @@ func validateMetadata(args []string) error {
 	if err != nil {
 		return fmt.Errorf("parse validate-metadata flags: %w", err)
 	}
+
 	if *metadataPath == "" {
 		return errValidateMetadataRequired
 	}
@@ -135,6 +363,7 @@ func configTrace(args []string) error {
 	if err != nil {
 		return err
 	}
+
 	repoConfigSections := []string{}
 	if strings.TrimSpace(*repoConfig) != "" {
 		repoConfigSections, err = validateRepoConfigSections(*repoConfig, configShape)
@@ -152,6 +381,7 @@ func configTrace(args []string) error {
 	if err != nil {
 		return fmt.Errorf("compile policy bundle: %w", err)
 	}
+
 	if err := bundle.Validate(); err != nil {
 		return fmt.Errorf(
 			"%w:\n%s",
@@ -170,15 +400,22 @@ func configTrace(args []string) error {
 		EvidenceMaps:       len(bundle.EvidenceMaps),
 		DispatchScopes:     dispatchScopeCount(bundle),
 	}
+
 	if *jsonOutput {
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
+
 		return encoder.Encode(report)
 	}
 
 	fmt.Fprintf(os.Stdout, "status: %s\n", report.Status)
 	fmt.Fprintf(os.Stdout, "config: %s\n", report.Config)
-	fmt.Fprintf(os.Stdout, "config_sections: %s\n", strings.Join(report.ConfigSections, ", "))
+	fmt.Fprintf(
+		os.Stdout,
+		"config_sections: %s\n",
+		strings.Join(report.ConfigSections, ", "),
+	)
+
 	if report.RepoConfig != "" {
 		fmt.Fprintf(os.Stdout, "repo_config: %s\n", report.RepoConfig)
 		fmt.Fprintf(
@@ -187,6 +424,7 @@ func configTrace(args []string) error {
 			strings.Join(report.RepoConfigSections, ", "),
 		)
 	}
+
 	fmt.Fprintf(os.Stdout, "policies: %d\n", report.Policies)
 	fmt.Fprintf(os.Stdout, "evidence_maps: %d\n", report.EvidenceMaps)
 	fmt.Fprintf(os.Stdout, "dispatch_scopes: %d\n", report.DispatchScopes)
@@ -220,6 +458,7 @@ func validateRepoConfigSections(
 	addRepoConfigOnlyShape(reference)
 
 	_, sections, err := validatedConfigSections(path, reference)
+
 	return sections, err
 }
 
@@ -263,7 +502,8 @@ func validateConfigPathKeys(
 			}
 		}
 
-		if err := validateConfigChildKeys(file, value, referenceValue(reference, key), nextPath); err != nil {
+		err := validateConfigChildKeys(file, value, referenceValue(reference, key), nextPath)
+		if err != nil {
 			return err
 		}
 	}
@@ -280,6 +520,7 @@ func validateConfigChildKeys(
 	valueMap, isMap := value.(map[string]any)
 	if isMap {
 		referenceMap, _ := reference.(map[string]any)
+
 		return validateConfigPathKeys(file, valueMap, referenceMap, path)
 	}
 
@@ -289,6 +530,7 @@ func validateConfigChildKeys(
 	}
 
 	referenceItems, _ := reference.([]any)
+
 	referenceItem := firstMapItem(referenceItems)
 	if referenceItem == nil {
 		return nil
@@ -299,8 +541,11 @@ func validateConfigChildKeys(
 		if !ok {
 			continue
 		}
+
 		itemPath := append(append([]string(nil), path...), fmt.Sprintf("[%d]", index))
-		if err := validateConfigPathKeys(file, itemMap, referenceItem, itemPath); err != nil {
+
+		err := validateConfigPathKeys(file, itemMap, referenceItem, itemPath)
+		if err != nil {
 			return err
 		}
 	}
@@ -332,6 +577,7 @@ func sortedMapKeys(values map[string]any) []string {
 	for section := range values {
 		sections = append(sections, section)
 	}
+
 	sort.Strings(sections)
 
 	return sections
@@ -343,6 +589,7 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		repo = map[string]any{}
 		reference["repo"] = repo
 	}
+
 	repo["license"] = map[string]any{
 		"copyright":       "",
 		"license_file":    "",
@@ -376,25 +623,6 @@ func cloneAny(value any) any {
 	default:
 		return typed
 	}
-}
-
-func validateTopLevelConfigSections(path string) ([]string, error) {
-	decoded, err := readConfigMap(path)
-	if err != nil {
-		return nil, err
-	}
-
-	for section := range decoded {
-		if !knownConfigSection(section) {
-			return nil, fmt.Errorf(
-				"unknown top-level config section %q in %s",
-				section,
-				path,
-			)
-		}
-	}
-
-	return sortedMapKeys(decoded), nil
 }
 
 func knownConfigSection(section string) bool {
@@ -684,5 +912,19 @@ func usage() {
   coding-ethos-policy explain --bundle policy-bundle.json POLICY_ID
   coding-ethos-policy config-trace [--primary coding_ethos.yml] [--config config.yaml]
       [--repo-config repo_config.yaml] [--json]
+  coding-ethos-policy sync-tool-configs --repo REPO [--ethos-root .]
+      [--repo-config repo_config.yaml]
+  coding-ethos-policy check-tool-configs --repo REPO [--ethos-root .]
+      [--repo-config repo_config.yaml]
+  coding-ethos-policy sync-gemini-prompts --repo REPO [--ethos-root .]
+      [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
+      [--repo-config repo_config.yaml]
+  coding-ethos-policy check-gemini-prompts --repo REPO [--ethos-root .]
+      [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
+      [--repo-config repo_config.yaml]
+  coding-ethos-policy sync-agent-skills --repo REPO [--ethos-root .]
+      [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
+  coding-ethos-policy check-agent-skills --repo REPO [--ethos-root .]
+      [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
 `)
 }

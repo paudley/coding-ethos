@@ -4,9 +4,9 @@
 package gitwrap_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 

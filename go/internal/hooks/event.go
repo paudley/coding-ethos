@@ -185,6 +185,7 @@ func (event Event) ReturnCode() int {
 			return 1
 		}
 	}
+
 	if responseStatusFailed(event.ToolResponse) {
 		return 1
 	}
@@ -218,6 +219,7 @@ func responseStatusFailed(response map[string]any) bool {
 		if !ok {
 			continue
 		}
+
 		switch strings.ToLower(strings.TrimSpace(value)) {
 		case "blocked", "error", "failed", "failure":
 			return true
@@ -257,6 +259,7 @@ func mapKeys(values map[string]any) []string {
 			keys = append(keys, key)
 		}
 	}
+
 	sort.Strings(keys)
 
 	return keys

@@ -17,14 +17,6 @@ func selectedOutputFormat() string {
 	return hookoutput.SelectedFormat()
 }
 
-func isAgentEnvironment(getenv func(string) string) bool {
-	return hookoutput.IsAgentEnvironment(getenv)
-}
-
-func agentEnvironmentMarkers() []string {
-	return hookoutput.AgentEnvironmentMarkers()
-}
-
 func toonCell(value string) string {
 	return hookoutput.TOONCell(value)
 }

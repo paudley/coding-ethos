@@ -42,9 +42,11 @@ func FuzzActivationShellAndProposedFileChange(f *testing.F) {
 		if activation["command_fact"] == nil {
 			t.Fatal("activation missing command facts")
 		}
+
 		if activation["shell_commands"] == nil {
 			t.Fatal("activation missing shell command facts")
 		}
+
 		if activation["proposed_file_changes"] == nil {
 			t.Fatal("activation missing proposed file change facts")
 		}

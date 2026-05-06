@@ -4,10 +4,11 @@
 package policy_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestExplainPolicyWritesPolicyDetails(t *testing.T) {
@@ -75,6 +76,7 @@ func TestExplainPolicyWritesCELExpressionDetails(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
+
 	err := ExplainPolicy(&buffer, bundle, "custom.no_subprocess_git")
 	if err != nil {
 		t.Fatalf("explain policy: %v", err)

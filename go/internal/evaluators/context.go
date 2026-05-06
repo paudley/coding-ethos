@@ -6,35 +6,36 @@ package evaluators
 import "blackcat.ca/coding-ethos/go/diagnostics"
 
 type Context struct {
-	EvaluatorOptions map[string]any
-	Command          string
-	Content          string
-	OldContent       string
-	CurrentBranch    string
-	Cwd              string
-	EventName        string
-	EventMatcher     string
-	EventSource      string
-	Provider         string
-	Scope            string
-	SessionID        string
-	Tool             string
-	ToolInputKeys    []string
-	ToolResponseKeys []string
-	TranscriptPath   string
-	ReturnCode       int
-	HasReturnCode    bool
-	HasToolInput     bool
-	HasToolResponse  bool
-	Files            []string
-	ChangedFiles     []string
-	StagedFiles      []string
-	Argv             []string
-	Stdin            []byte
-	AdminApproved    bool
-	Diagnostic       *diagnostics.Diagnostic
-	Diagnostics      []diagnostics.Diagnostic
-	Findings         []Finding
+	Diagnostic         *diagnostics.Diagnostic
+	EvaluatorOptions   map[string]any
+	EventName          string
+	OldContent         string
+	CurrentBranch      string
+	Cwd                string
+	TranscriptPath     string
+	EventMatcher       string
+	EventSource        string
+	Provider           string
+	Scope              string
+	SessionID          string
+	Tool               string
+	Content            string
+	Command            string
+	ToolResponseKeys   []string
+	ToolInputKeys      []string
+	Findings           []Finding
+	Diagnostics        []diagnostics.Diagnostic
+	Files              []string
+	ChangedFiles       []string
+	StagedFiles        []string
+	Argv               []string
+	Stdin              []byte
+	ReturnCode         int
+	HasToolResponse    bool
+	AdminApproved      bool
+	ReadOnlyInspection bool
+	HasToolInput       bool
+	HasReturnCode      bool
 }
 
 type Finding struct {

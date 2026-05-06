@@ -43,9 +43,11 @@ func FuzzFormatLintResultSARIF(f *testing.F) {
 		if err := json.Unmarshal([]byte(output), &payload); err != nil {
 			t.Fatalf("decode SARIF: %v", err)
 		}
+
 		if payload["version"] != "2.1.0" {
 			t.Fatalf("unexpected SARIF version in %#v", payload)
 		}
+
 		runs, ok := payload["runs"].([]any)
 		if !ok || len(runs) != 1 {
 			t.Fatalf("unexpected SARIF runs in %#v", payload)

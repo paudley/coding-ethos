@@ -111,7 +111,7 @@ func executableFiles(paths []string) []string {
 	return files
 }
 
-func samePath(left string, right string) bool {
+func samePath(left, right string) bool {
 	leftAbs, leftErr := filepath.Abs(left)
 
 	rightAbs, rightErr := filepath.Abs(right)
@@ -122,7 +122,7 @@ func samePath(left string, right string) bool {
 	return leftAbs == rightAbs
 }
 
-func sameExecutable(left string, right string) bool {
+func sameExecutable(left, right string) bool {
 	leftInfo, leftErr := os.Stat(left)
 
 	rightInfo, rightErr := os.Stat(right)

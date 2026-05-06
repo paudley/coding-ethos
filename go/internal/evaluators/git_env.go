@@ -17,6 +17,7 @@ func gitCommand(cwd string, args ...string) *exec.Cmd {
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+
 	cmd.Env = cleanGitLocalEnv(os.Environ())
 
 	return cmd

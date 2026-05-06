@@ -42,12 +42,14 @@ func TestFromDiagnosticBuildsStableFindingWithSourceSpan(t *testing.T) {
 	if first.ID == "" || first.ID != second.ID {
 		t.Fatalf("unstable finding ID: first=%q second=%q", first.ID, second.ID)
 	}
+
 	if first.SourceSpan.Path != "pkg/app.py" ||
 		first.SourceSpan.Language != "python" ||
 		first.SourceSpan.SymbolName != "main" ||
 		first.SourceSpan.EndLine != 6 {
 		t.Fatalf("source span = %#v", first.SourceSpan)
 	}
+
 	if first.EvaluatorKind != "cel" ||
 		first.SchemaVersion != SchemaVersion ||
 		first.SearchText == "" {
@@ -76,6 +78,7 @@ func TestFromDecisionKeepsEvidenceKeysAndActionContext(t *testing.T) {
 		finding.EvaluatorKind != "cel" {
 		t.Fatalf("finding = %#v", finding)
 	}
+
 	if len(finding.EvidenceKeys) != 3 || finding.SearchText == "" {
 		t.Fatalf("evidence/search = %#v", finding)
 	}
@@ -117,6 +120,7 @@ func TestFromDiagnosticsAndDecisionsFilterEmptyRecords(t *testing.T) {
 	if len(decisionFindings) != 2 {
 		t.Fatalf("decision findings = %#v", decisionFindings)
 	}
+
 	if decisionFindings[0].PolicyID != "git.hook_bypass" ||
 		decisionFindings[1].SourceSpan.Path != "pkg/diag.py" {
 		t.Fatalf("decision findings = %#v", decisionFindings)
@@ -163,6 +167,7 @@ func TestRemediationEventsLinkRemediationToFinding(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("events = %#v", events)
 	}
+
 	event := events[0]
 	if event.ID == "" ||
 		event.RemediationID != "rem-1" ||

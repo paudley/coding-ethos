@@ -82,7 +82,6 @@ packages = ["coding_ethos"]
 "config.yaml" = "coding_ethos/resources/config.yaml"
 "repo_config.example.yaml" = "coding_ethos/resources/repo_config.example.yaml"
 "repo_ethos.example.yml" = "coding_ethos/resources/repo_ethos.example.yml"
-"pre-commit/prompts" = "coding_ethos/resources/prompts"
 
 [tool.uv]
 exclude-newer = "7 days"

@@ -8,9 +8,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	. "blackcat.ca/coding-ethos/go/internal/hooks"
-	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestGitRoutingIsProviderNeutral(t *testing.T) {
@@ -27,7 +24,6 @@ func TestRewriteRouteProducersAreProviderNeutral(t *testing.T) {
 		"lint_tool_capture.go",
 		"python_runtime_route.go",
 	} {
-		path := path
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			assertRouteProducerProviderNeutral(t, path)
@@ -42,6 +38,7 @@ func assertRouteProducerProviderNeutral(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("read route source %s: %v", path, err)
 	}
+
 	source := string(payload)
 	for _, forbidden := range []string{
 		"providerClaude",
@@ -56,29 +53,7 @@ func assertRouteProducerProviderNeutral(t *testing.T, path string) {
 	}
 }
 
-func runProviderGitCommand(t *testing.T, provider string, command string) Result {
-	t.Helper()
-
-	return runProviderGitCommandInCWD(t, provider, command, t.TempDir())
-}
-
-func runProviderGitCommandInCWD(t *testing.T, provider string, command string, cwd string) Result {
-	t.Helper()
-
-	payload := providerGitPayload(provider, cwd, command)
-	event, err := DecodeEvent(strings.NewReader(payload))
-	if err != nil {
-		t.Fatalf("decode %s payload: %v", provider, err)
-	}
-	result, err := Run(policy.ExampleBundle(), Options{Event: event})
-	if err != nil {
-		t.Fatalf("run %s hook: %v", provider, err)
-	}
-
-	return result
-}
-
-func providerGitPayload(provider string, cwd string, command string) string {
+func providerGitPayload(provider, cwd, command string) string {
 	switch provider {
 	case "claude":
 		return fmt.Sprintf(`{
@@ -107,9 +82,4 @@ func providerGitPayload(provider string, cwd string, command string) string {
 	default:
 		panic("unsupported provider " + provider)
 	}
-}
-
-func hookTamperProbeCommand() string {
-	return "rm /repo/.git/coding-ethos-" +
-		"hooks/coding-ethos-git-hook"
 }

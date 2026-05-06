@@ -29,6 +29,7 @@ func EvaluateGitCommitAttribution(
 	if err != nil {
 		return nil, err
 	}
+
 	if len(messages) == 0 {
 		return nil, nil
 	}
@@ -39,12 +40,14 @@ func EvaluateGitCommitAttribution(
 	}
 
 	decision := policy.NewDecision(blockDecision, policyDef)
+
 	decision.Evidence = map[string]any{
 		"matches": matches,
 	}
 	if len(context.Argv) > 0 {
 		decision.Evidence["argv"] = append([]string(nil), context.Argv...)
 	}
+
 	if len(context.Files) > 0 {
 		decision.Evidence["files"] = append([]string(nil), context.Files...)
 	}
@@ -60,6 +63,7 @@ func EvaluateGitCommitLint(
 	if err != nil {
 		return nil, err
 	}
+
 	if len(messages) == 0 {
 		return nil, nil
 	}
@@ -82,17 +86,9 @@ func EvaluateGitCommitLint(
 	return nil, nil
 }
 
-func blockGitDecision(policyDef policy.Policy, argv []string) []policy.Decision {
-	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Evidence = map[string]any{
-		"argv": append([]string(nil), argv...),
-	}
-
-	return []policy.Decision{decision}
-}
-
 func commitMessagesFromContext(context Context) ([]string, error) {
 	messages := []string{}
+
 	if isGitSubcommand(context.Argv, "commit") {
 		argvMessages, err := commitMessagesFromArgv(
 			context.Argv,
@@ -112,6 +108,7 @@ func commitMessagesFromContext(context Context) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			if strings.TrimSpace(message) != "" {
 				messages = append(messages, message)
 			}
@@ -159,6 +156,7 @@ func validateCommitMessageText(message string, options map[string]any) []string 
 	}
 
 	errs := []string{}
+
 	maxHeaderLength := intOption(options, "max_header_length", 150)
 	if len(header) > maxHeaderLength {
 		errs = append(errs, fmt.Sprintf("header must be <= %d characters", maxHeaderLength))
@@ -184,7 +182,8 @@ func validateCommitMessageText(message string, options map[string]any) []string 
 		errs = append(errs, "subject is required")
 	}
 
-	if commitHasBodyOrFooter(lines) && len(lines) > 1 && strings.TrimSpace(lines[1]) != "" {
+	if commitHasBodyOrFooter(lines) && len(lines) > 1 &&
+		strings.TrimSpace(lines[1]) != "" {
 		errs = append(errs, "body/footer must be separated from header by a blank line")
 	}
 
@@ -193,7 +192,8 @@ func validateCommitMessageText(message string, options map[string]any) []string 
 
 func commitMessageLines(message string) []string {
 	lines := []string{}
-	for _, line := range strings.Split(message, "\n") {
+
+	for line := range strings.SplitSeq(message, "\n") {
 		if !strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
 			lines = append(lines, strings.TrimRight(line, " \t\r"))
 		}
@@ -336,10 +336,11 @@ func gitArgsAfterSubcommand(argv []string) []string {
 	return nil
 }
 
-func readCommitMessageFile(path string, cwd string, stdin []byte) (string, error) {
+func readCommitMessageFile(path, cwd string, stdin []byte) (string, error) {
 	if path == "" {
 		return "", nil
 	}
+
 	if path == "-" {
 		return string(stdin), nil
 	}
@@ -356,7 +357,7 @@ func readCommitMessageFile(path string, cwd string, stdin []byte) (string, error
 	return string(data), nil
 }
 
-func forbiddenAttributionMatches(messages []string, names []string) []string {
+func forbiddenAttributionMatches(messages, names []string) []string {
 	patterns := attributionPatterns(names)
 	matches := []string{}
 
@@ -593,6 +594,7 @@ func protectedCheckoutTargets(argv []string) []string {
 
 func checkoutBranchTargets(args []string) []string {
 	targets := []string{}
+
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch {
@@ -601,6 +603,7 @@ func checkoutBranchTargets(args []string) []string {
 				targets = append(targets, args[index+1])
 				index++
 			}
+
 			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
 				index++
 			}
@@ -621,6 +624,7 @@ func checkoutBranchTargets(args []string) []string {
 
 func switchBranchTargets(args []string) []string {
 	targets := []string{}
+
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch {
@@ -629,6 +633,7 @@ func switchBranchTargets(args []string) []string {
 				targets = append(targets, args[index+1])
 				index++
 			}
+
 			if index+1 < len(args) && !strings.HasPrefix(args[index+1], "-") {
 				index++
 			}

@@ -4,11 +4,11 @@
 package evaluators_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"os"
 	"path/filepath"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -49,7 +49,6 @@ plugin = importlib.import_module("plugin")
 	}
 
 	for name, content := range cases {
-		content := content
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -57,6 +56,7 @@ plugin = importlib.import_module("plugin")
 			if decision.PolicyID != "python.conditional_imports" {
 				t.Fatalf("policy mismatch: %#v", decision)
 			}
+
 			if len(decision.Diagnostics) != 1 || decision.Diagnostics[0].Code == "" {
 				t.Fatalf("expected AST diagnostic code: %#v", decision.Diagnostics)
 			}
@@ -73,7 +73,6 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 	}
 
 	for name, content := range cases {
-		content := content
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -81,6 +80,7 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 			if decision.PolicyID != "python.conditional_imports" {
 				t.Fatalf("policy mismatch: %#v", decision)
 			}
+
 			if len(decision.Diagnostics) != 1 || decision.Diagnostics[0].Code == "" {
 				t.Fatalf("expected snippet diagnostic code: %#v", decision.Diagnostics)
 			}
@@ -100,6 +100,7 @@ func TestEvaluatePythonConditionalImportsAllowsModuleImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate conditional imports: %v", err)
 	}
+
 	if len(decisions) != 0 {
 		t.Fatalf("expected module imports allowed, got %#v", decisions)
 	}
@@ -119,7 +120,6 @@ func TestEvaluatePythonFunctionalIdioms(t *testing.T) {
 	}
 
 	for name, content := range cases {
-		content := content
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -127,6 +127,7 @@ func TestEvaluatePythonFunctionalIdioms(t *testing.T) {
 			if decision.PolicyID != "python.functional_idioms" {
 				t.Fatalf("policy mismatch: %#v", decision)
 			}
+
 			if len(decision.Diagnostics) != 1 || decision.Diagnostics[0].Code == "" {
 				t.Fatalf("expected functional idiom diagnostic code: %#v", decision.Diagnostics)
 			}
@@ -157,6 +158,7 @@ func TestEvaluateCELExpressionCanUsePythonASTFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL expression: %v", err)
 	}
+
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
@@ -226,6 +228,7 @@ func TestPythonTextEvaluatorsReadOnlyPythonFiles(t *testing.T) {
 	pythonFile := filepath.Join(dir, "app.py")
 	textFile := filepath.Join(dir, "notes.txt")
 	missingFile := filepath.Join(dir, "missing.py")
+
 	if err := os.WriteFile(
 		pythonFile,
 		[]byte("def dependency() -> Optional[Service]:\n    return None\n"),
@@ -233,20 +236,28 @@ func TestPythonTextEvaluatorsReadOnlyPythonFiles(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write python file: %v", err)
 	}
-	if err := os.WriteFile(textFile, []byte("def ignored() -> Optional[str]:\n"), 0o600); err != nil {
+
+	if err := os.WriteFile(
+		textFile,
+		[]byte("def ignored() -> Optional[str]:\n"),
+		0o600,
+	); err != nil {
 		t.Fatalf("write text file: %v", err)
 	}
 
 	policyDef := compiledPythonPolicy(t, "python.optional_returns")
+
 	decisions, err := EvaluatePythonOptionalReturns(policyDef, Context{
 		Files: []string{textFile, missingFile, pythonFile},
 	})
 	if err != nil {
 		t.Fatalf("evaluate file-backed optional returns: %v", err)
 	}
+
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+
 	diagnostic := decisions[0].Diagnostics[0]
 	if diagnostic.File != pythonFile || diagnostic.Line != 1 {
 		t.Fatalf("diagnostic = %#v", diagnostic)
@@ -260,7 +271,9 @@ func TestPythonSourcesReturnReadErrorsForUnreadablePythonPaths(t *testing.T) {
 	if err := os.Mkdir(dirPath, 0o700); err != nil {
 		t.Fatalf("create directory with .py suffix: %v", err)
 	}
+
 	policyDef := compiledPythonPolicy(t, "python.optional_returns")
+
 	_, err := EvaluatePythonOptionalReturns(policyDef, Context{
 		Files: []string{dirPath},
 	})
@@ -305,7 +318,6 @@ func TestPythonTextEvaluatorsAllowNonViolatingCases(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -316,6 +328,7 @@ func TestPythonTextEvaluatorsAllowNonViolatingCases(t *testing.T) {
 			if err != nil {
 				t.Fatalf("evaluate %s: %v", test.policyID, err)
 			}
+
 			if len(decisions) != 0 {
 				t.Fatalf("expected no decisions, got %#v", decisions)
 			}
@@ -334,6 +347,7 @@ func TestEvaluatePythonDirectImportsBlocksExternalPackageUse(t *testing.T) {
 	if decision.PolicyID != "python.direct_imports" {
 		t.Fatalf("policy mismatch: %#v", decision)
 	}
+
 	if decision.Diagnostics[0].File != "src/app.py" {
 		t.Fatalf("diagnostic = %#v", decision.Diagnostics[0])
 	}

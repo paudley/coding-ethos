@@ -75,19 +75,55 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	}
 
 	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
-	assertCapability(t, capabilities, "claude", "full", "UserPromptSubmit additionalContext")
+	assertCapability(
+		t,
+		capabilities,
+		"claude",
+		"full",
+		"UserPromptSubmit additionalContext",
+	)
 	assertCapability(t, capabilities, "claude", "full", "MCP stdio server")
 	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
-	assertCapability(t, capabilities, "codex", "partial", "PreToolUse apply_patch/edit policy hook")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse compact additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "PostToolUse edit verification advice")
+	assertCapability(
+		t,
+		capabilities,
+		"codex",
+		"partial",
+		"PreToolUse apply_patch/edit policy hook",
+	)
+	assertCapability(
+		t,
+		capabilities,
+		"codex",
+		"partial",
+		"PostToolUse compact additionalContext",
+	)
+	assertCapability(
+		t,
+		capabilities,
+		"codex",
+		"partial",
+		"PostToolUse edit verification advice",
+	)
 	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
-	assertCapability(t, capabilities, "codex", "partial", "UserPromptSubmit additionalContext")
+	assertCapability(
+		t,
+		capabilities,
+		"codex",
+		"partial",
+		"UserPromptSubmit additionalContext",
+	)
 	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
 	assertCapability(t, capabilities, "codex", "partial", "MCP stdio server")
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
-	assertCapability(t, capabilities, "gemini", "partial", "PreToolUse updatedInput rewrite")
+	assertCapability(
+		t,
+		capabilities,
+		"gemini",
+		"partial",
+		"PreToolUse updatedInput rewrite",
+	)
 	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
 	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
@@ -102,7 +138,6 @@ func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
 		agenthooks.ProviderCapabilities(),
 		"PreToolUse updatedInput rewrite",
 	) {
-		provider := provider
 		t.Run(provider, func(t *testing.T) {
 			t.Parallel()
 
@@ -112,10 +147,12 @@ func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode %s probe: %v", provider, err)
 			}
+
 			result, err := hooks.Run(policy.ExampleBundle(), hooks.Options{Event: event})
 			if err != nil {
 				t.Fatalf("run %s probe: %v", provider, err)
 			}
+
 			if result.Status != "allowed" ||
 				result.HookSpecificOutput == nil ||
 				len(result.HookSpecificOutput.UpdatedInput) == 0 {
@@ -193,6 +230,7 @@ func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
 	}
 
 	output := buffer.String()
+
 	codexSettings := providerSettingsSection(t, output, "codex", "gemini")
 	for _, expected := range []string{
 		`"PreToolUse"`,
@@ -209,6 +247,7 @@ func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
 			t.Fatalf("Codex settings missing %s:\n%s", expected, codexSettings)
 		}
 	}
+
 	for _, unsupported := range []string{
 		`"PostToolBatch"`,
 		`"SessionEnd"`,
@@ -216,7 +255,11 @@ func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
 		`"SubagentStop"`,
 	} {
 		if strings.Contains(codexSettings, unsupported) {
-			t.Fatalf("Codex must not install context-only hook %s:\n%s", unsupported, codexSettings)
+			t.Fatalf(
+				"Codex must not install context-only hook %s:\n%s",
+				unsupported,
+				codexSettings,
+			)
 		}
 	}
 }
@@ -225,12 +268,14 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	err := agenthooks.SyncSettings(root, "bin/coding-ethos-run agent-hook")
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
 	}
 
 	configPath := agenthooks.DefaultSettingsPaths(root).CodexConfig
+
 	payload, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read Codex config: %v", err)
@@ -243,11 +288,24 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		block := codexEventBlock(t, config, event)
-		assertCodexMatcherCount(t, block, event, "Bash|bash|exec_command|functions\\\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\\\.write_stdin|multi_tool_use\\\\.parallel", 1)
+		assertCodexMatcherCount(
+			t,
+			block,
+			event,
+			"Bash|bash|exec_command|functions\\\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\\\.write_stdin|multi_tool_use\\\\.parallel",
+			1,
+		)
 		assertCodexMatcherCount(t, block, event, "Write|create_file|write_file", 1)
-		assertCodexMatcherCount(t, block, event, "Edit|apply_patch|functions\\\\.apply_patch|edit_file", 1)
+		assertCodexMatcherCount(
+			t,
+			block,
+			event,
+			"Edit|apply_patch|functions\\\\.apply_patch|edit_file",
+			1,
+		)
 		assertCodexMatcherCount(t, block, event, "MultiEdit", 1)
 		assertCodexMatcherCount(t, block, event, "functions\\\\.update_plan", 1)
+
 		if strings.Contains(block, "{ hooks =") {
 			t.Fatalf("%s must not include catch-all command hooks:\n%s", event, block)
 		}
@@ -258,6 +316,7 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 		if strings.Contains(block, "matcher =") {
 			t.Fatalf("%s lifecycle hook must not have a tool matcher:\n%s", event, block)
 		}
+
 		if count := strings.Count(block, "command = "); count != 1 {
 			t.Fatalf("%s command count = %d, want 1:\n%s", event, count, block)
 		}
@@ -268,6 +327,7 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	err := agenthooks.SyncSettings(root, testHookCommand)
 	if err != nil {
 		t.Fatalf("sync settings: %v", err)
@@ -295,6 +355,7 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 			t.Fatalf("Codex MCP config missing %s:\n%s", expected, codex)
 		}
 	}
+
 	if strings.Contains(codex, "enabled = true") {
 		t.Fatalf("Codex MCP config should use the documented minimal schema:\n%s", codex)
 	}
@@ -330,6 +391,7 @@ func readJSONSettings(t *testing.T, path string) map[string]any {
 	}
 
 	settings := map[string]any{}
+
 	err = json.Unmarshal(payload, &settings)
 	if err != nil {
 		t.Fatalf("parse JSON settings %s: %v\n%s", path, err, string(payload))
@@ -359,6 +421,7 @@ func assertMCPServer(
 	if server["command"] != command {
 		t.Fatalf("command = %#v, want %q: %#v", server["command"], command, server)
 	}
+
 	args, ok := server["args"].([]any)
 	if !ok || len(args) != 1 || args[0] != "mcp" {
 		t.Fatalf("args mismatch: %#v", server)
@@ -367,6 +430,7 @@ func assertMCPServer(
 	if expectType && server["type"] != "stdio" {
 		t.Fatalf("type = %#v, want stdio: %#v", server["type"], server)
 	}
+
 	if !expectType {
 		if _, found := server["type"]; found {
 			t.Fatalf("Gemini MCP config should use minimal project schema: %#v", server)
@@ -374,7 +438,7 @@ func assertMCPServer(
 	}
 }
 
-func codexEventBlock(t *testing.T, config string, event string) string {
+func codexEventBlock(t *testing.T, config, event string) string {
 	t.Helper()
 
 	start := strings.Index(config, event+" = [")
@@ -507,11 +571,13 @@ func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid portable skill surface failure")
 	}
+
 	if report.Status != "invalid" {
 		t.Fatalf("status = %q, want invalid: %#v", report.Status, report)
 	}
 
 	found := false
+
 	for _, check := range report.Checks {
 		if check.Event == "skill-surface" &&
 			check.Provider == "portable" &&
@@ -521,6 +587,7 @@ func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
 			found = true
 		}
 	}
+
 	if !found {
 		t.Fatalf("missing failed portable skill-surface check: %#v", report.Checks)
 	}
@@ -553,11 +620,13 @@ func TestVerifySettingsRejectsMissingProviderSkillSurface(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing provider skill surface failure")
 	}
+
 	if report.Status != "invalid" {
 		t.Fatalf("status = %q, want invalid: %#v", report.Status, report)
 	}
 
 	found := false
+
 	for _, check := range report.Checks {
 		if check.Event == "skill-surface" &&
 			check.Provider == "codex" &&
@@ -566,6 +635,7 @@ func TestVerifySettingsRejectsMissingProviderSkillSurface(t *testing.T) {
 			found = true
 		}
 	}
+
 	if !found {
 		t.Fatalf("missing failed skill-surface check: %#v", report.Checks)
 	}
@@ -726,24 +796,27 @@ func TestDoctorSettingsRejectsMismatchedMCPServer(t *testing.T) {
 	}
 }
 
-func overwriteAgentSettings(t *testing.T, path string, content string) {
+func overwriteAgentSettings(t *testing.T, path, content string) {
 	t.Helper()
 
 	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		t.Fatalf("open settings for overwrite: %v", err)
 	}
+
 	_, err = file.WriteString(content)
 	if err != nil {
 		_ = file.Close()
+
 		t.Fatalf("write settings: %v", err)
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatalf("close settings: %v", err)
 	}
 }
 
-func writeGeneratedSkillSurfaces(t *testing.T, root string, skillID string) {
+func writeGeneratedSkillSurfaces(t *testing.T, root, skillID string) {
 	t.Helper()
 
 	content := strings.Join([]string{
@@ -772,10 +845,13 @@ func writeGeneratedSkillSurfaces(t *testing.T, root string, skillID string) {
 	}
 
 	for _, path := range paths {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		err := os.MkdirAll(filepath.Dir(path), 0o755)
+		if err != nil {
 			t.Fatalf("create skill dir %s: %v", path, err)
 		}
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+		err = os.WriteFile(path, []byte(content), 0o600)
+		if err != nil {
 			t.Fatalf("write skill surface %s: %v", path, err)
 		}
 	}
@@ -842,6 +918,7 @@ func providersWithCapability(
 	capability string,
 ) []string {
 	providers := []string{}
+
 	for _, provider := range capabilities {
 		if containsString(provider.Supported, capability) {
 			providers = append(providers, provider.Provider)
@@ -851,7 +928,7 @@ func providersWithCapability(
 	return providers
 }
 
-func capabilityProbePayload(provider string, cwd string) string {
+func capabilityProbePayload(provider, cwd string) string {
 	switch provider {
 	case "claude":
 		return fmt.Sprintf(`{
@@ -890,6 +967,7 @@ func fakeAgentHookCommand(t *testing.T) string {
 	t.Helper()
 
 	script := filepath.Join(t.TempDir(), "agent-hook")
+
 	err := os.WriteFile(
 		script,
 		[]byte(`#!/bin/sh

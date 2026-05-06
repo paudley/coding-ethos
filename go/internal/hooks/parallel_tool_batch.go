@@ -3,8 +3,10 @@
 
 package hooks
 
-const parallelToolBatchPolicyID = "hook.parallel_tool_batch_unsupported"
-const parallelToolBatchMarker = "__coding_ethos_parallel_batch"
+const (
+	parallelToolBatchPolicyID = "hook.parallel_tool_batch_unsupported"
+	parallelToolBatchMarker   = "__coding_ethos_parallel_batch"
+)
 
 func parallelToolBatchRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != "PreToolUse" || event.ToolInput == nil {

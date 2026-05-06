@@ -5,12 +5,14 @@ package evaluators
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type pythonASTFact struct {
@@ -45,19 +47,19 @@ type pythonASTFact struct {
 }
 
 type pythonASTIssue struct {
-	File             string
-	Line             int
-	Column           int
-	EndLine          int
+	SymbolKind       string
 	Code             string
 	Detail           string
 	Language         string
 	NodeKind         string
 	Snippet          string
-	SymbolKind       string
+	File             string
 	SymbolName       string
 	SymbolPath       string
 	ParentSymbolPath string
+	Line             int
+	Column           int
+	EndLine          int
 }
 
 type pythonASTIssueFunc func([]pythonASTFact) *pythonASTIssue
@@ -91,6 +93,7 @@ func evaluatePythonAST(
 		if err != nil {
 			return nil, err
 		}
+
 		issue := findIssue(facts)
 		if issue != nil {
 			return []policy.Decision{
@@ -104,13 +107,20 @@ func evaluatePythonAST(
 
 func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 	contents := []byte(source.Text)
+
 	tree, ok, err := astfacts.Parse(source.Path, contents)
 	if err != nil {
-		return nil, fmt.Errorf("parse python source %s with tree-sitter: %w", source.Path, err)
+		return nil, fmt.Errorf(
+			"parse python source %s with tree-sitter: %w",
+			source.Path,
+			err,
+		)
 	}
+
 	if !ok {
 		return pythonSnippetFallbackASTFacts(source), nil
 	}
+
 	defer tree.Close()
 
 	root := tree.RootNode()
@@ -125,7 +135,9 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 			facts = append(facts, fact)
 		}
 	})
-	if len(facts) == 0 || root.HasError() || pythonSourceNeedsSnippetFallback(source.Text) {
+
+	if len(facts) == 0 || root.HasError() ||
+		pythonSourceNeedsSnippetFallback(source.Text) {
 		facts = append(facts, pythonSnippetFallbackASTFacts(source)...)
 	}
 
@@ -134,11 +146,13 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 	facts := []pythonASTFact{}
+
 	for index, line := range strings.Split(source.Text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
+
 		if fact, ok := pythonSnippetFallbackFact(source, line, trimmed, index+1); ok {
 			facts = append(facts, fact)
 		}
@@ -148,7 +162,7 @@ func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 }
 
 func pythonSourceNeedsSnippetFallback(source string) bool {
-	for _, line := range strings.Split(source, "\n") {
+	for line := range strings.SplitSeq(source, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -169,6 +183,7 @@ func pythonSnippetFallbackFact(
 	lineNumber int,
 ) (pythonASTFact, bool) {
 	indent := leadingSpaces(line)
+
 	fact := pythonASTFact{
 		File:        source.Path,
 		Language:    "python",
@@ -281,6 +296,7 @@ func firstPythonFunctionalIdiomIssue(facts []pythonASTFact) *pythonASTIssue {
 				"Assigned lambdas obscure reusable behavior; use functools.partial, operator helpers, or a named function.",
 			)
 		}
+
 		if fact.IsClosureFactory {
 			return newPythonASTIssueFromFact(
 				fact,
@@ -306,26 +322,34 @@ func pythonASTFactFromNode(
 	if !pythonASTNodeIsFactCandidate(kind) {
 		return pythonASTFact{}, false
 	}
+
 	line, endLine, _ := astfacts.NodeRowSpan(node)
 	text := strings.TrimSpace(node.Utf8Text(contents))
 	fact := pythonASTFact{
-		File:              source.Path,
-		Language:          "python",
-		NodeKind:          kind,
-		SymbolKind:        pythonSymbolKind(node),
-		SymbolName:        pythonNodeSymbolName(node, contents),
-		Text:              text,
-		Line:              line,
-		Column:            int(node.StartPosition().Column) + 1,
-		EndLine:           endLine,
-		ModuleLevel:       pythonNodeIsModuleLevel(node),
-		UnderClass:        pythonHasAncestorKind(node, "class_definition"),
-		UnderConditional:  pythonHasAncestorKind(node, "if_statement", "for_statement", "while_statement", "match_statement"),
+		File:        source.Path,
+		Language:    "python",
+		NodeKind:    kind,
+		SymbolKind:  pythonSymbolKind(node),
+		SymbolName:  pythonNodeSymbolName(node, contents),
+		Text:        text,
+		Line:        line,
+		Column:      int(node.StartPosition().Column) + 1,
+		EndLine:     endLine,
+		ModuleLevel: pythonNodeIsModuleLevel(node),
+		UnderClass:  pythonHasAncestorKind(node, "class_definition"),
+		UnderConditional: pythonHasAncestorKind(
+			node,
+			"if_statement",
+			"for_statement",
+			"while_statement",
+			"match_statement",
+		),
 		UnderFunction:     pythonHasAncestorKind(node, "function_definition"),
 		UnderTry:          pythonHasAncestorKind(node, "try_statement", "except_clause"),
 		UnderTypeChecking: pythonUnderTypeChecking(node, contents),
 	}
 	fact.SymbolPath, fact.ParentSymbolPath = pythonSymbolPaths(node, contents)
+
 	switch kind {
 	case "import_statement", "import_from_statement":
 		fact.IsImport = true
@@ -363,9 +387,11 @@ func pythonNodeIsModuleLevel(node *tree_sitter.Node) bool {
 	if parent == nil {
 		return false
 	}
+
 	if parent.Kind() == "module" {
 		return true
 	}
+
 	if parent.Kind() == "decorated_definition" {
 		grandparent := parent.Parent()
 
@@ -377,10 +403,8 @@ func pythonNodeIsModuleLevel(node *tree_sitter.Node) bool {
 
 func pythonHasAncestorKind(node *tree_sitter.Node, kinds ...string) bool {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
-		for _, kind := range kinds {
-			if ancestor.Kind() == kind {
-				return true
-			}
+		if slices.Contains(kinds, ancestor.Kind()) {
+			return true
 		}
 	}
 
@@ -411,12 +435,17 @@ func pythonLambdaIsAssigned(node *tree_sitter.Node) bool {
 	return false
 }
 
-func pythonClosureFactorySymbols(root *tree_sitter.Node, contents []byte) map[string]bool {
+func pythonClosureFactorySymbols(
+	root *tree_sitter.Node,
+	contents []byte,
+) map[string]bool {
 	factories := map[string]bool{}
+
 	astfacts.Walk(root, func(node *tree_sitter.Node) {
 		if node.Kind() != "function_definition" {
 			return
 		}
+
 		for key := range pythonContainerClosureFactories(node, contents) {
 			factories[key] = true
 		}
@@ -425,16 +454,24 @@ func pythonClosureFactorySymbols(root *tree_sitter.Node, contents []byte) map[st
 	return factories
 }
 
-func pythonContainerClosureFactories(container *tree_sitter.Node, contents []byte) map[string]bool {
+func pythonContainerClosureFactories(
+	container *tree_sitter.Node,
+	contents []byte,
+) map[string]bool {
 	nestedByName := map[string][]string{}
 	referenced := map[string]bool{}
+
 	astfacts.Walk(container, func(child *tree_sitter.Node) {
 		if child.Equals(*container) {
 			return
 		}
+
 		switch child.Kind() {
 		case "function_definition":
-			if ancestor := nearestPythonFunctionAncestor(child); ancestor != nil && ancestor.Equals(*container) {
+			if ancestor := nearestPythonFunctionAncestor(
+				child,
+			); ancestor != nil &&
+				ancestor.Equals(*container) {
 				name := pythonFunctionName(child, contents)
 				if name != "" {
 					nestedByName[name] = append(nestedByName[name], pythonNodeKey(child, contents))
@@ -448,10 +485,12 @@ func pythonContainerClosureFactories(container *tree_sitter.Node, contents []byt
 	})
 
 	factories := map[string]bool{}
+
 	for name, keys := range nestedByName {
 		if !referenced[name] {
 			continue
 		}
+
 		for _, key := range keys {
 			factories[key] = true
 		}
@@ -465,6 +504,7 @@ func nearestPythonFunctionAncestor(node *tree_sitter.Node) *tree_sitter.Node {
 		if ancestor.Kind() == "function_definition" {
 			return ancestor
 		}
+
 		if ancestor.Kind() == "module" {
 			return nil
 		}
@@ -505,16 +545,20 @@ func pythonNodeSymbolName(node *tree_sitter.Node, contents []byte) string {
 
 func pythonSymbolPaths(node *tree_sitter.Node, contents []byte) (string, string) {
 	parts := []string{}
+
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
 		if ancestor.Kind() != "function_definition" && ancestor.Kind() != "class_definition" {
 			continue
 		}
+
 		name := pythonFunctionName(ancestor, contents)
 		if name != "" {
 			parts = append([]string{name}, parts...)
 		}
 	}
+
 	parent := strings.Join(parts, ".")
+
 	name := pythonNodeSymbolName(node, contents)
 	switch {
 	case name == "":
@@ -549,10 +593,13 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 	if parameters == nil {
 		return 0, false, false
 	}
+
 	count := 0
 	hasVarargs := false
 	hasKwargs := false
-	for index := uint(0); index < parameters.NamedChildCount(); index++ {
+
+	childCount := parameters.NamedChildCount()
+	for index := range childCount {
 		child := parameters.NamedChild(index)
 		switch child.Kind() {
 		case "identifier", "default_parameter", "typed_parameter",
@@ -560,9 +607,11 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 			"dictionary_splat_pattern":
 			count++
 		}
+
 		if child.Kind() == "list_splat_pattern" {
 			hasVarargs = true
 		}
+
 		if child.Kind() == "dictionary_splat_pattern" {
 			hasKwargs = true
 		}
@@ -571,13 +620,20 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 	return count, hasVarargs, hasKwargs
 }
 
-func pythonIfStatementConditionHasTypeChecking(node *tree_sitter.Node, contents []byte) bool {
+func pythonIfStatementConditionHasTypeChecking(
+	node *tree_sitter.Node,
+	contents []byte,
+) bool {
 	condition := node.ChildByFieldName("condition")
 
-	return condition != nil && strings.Contains(condition.Utf8Text(contents), "TYPE_CHECKING")
+	return condition != nil &&
+		strings.Contains(condition.Utf8Text(contents), "TYPE_CHECKING")
 }
 
-func pythonStatementReferencedIdentifier(node *tree_sitter.Node, contents []byte) (string, bool) {
+func pythonStatementReferencedIdentifier(
+	node *tree_sitter.Node,
+	contents []byte,
+) (string, bool) {
 	switch node.Kind() {
 	case "return_statement":
 		if node.NamedChildCount() == 0 {
@@ -601,6 +657,7 @@ func pythonIdentifierText(node *tree_sitter.Node, contents []byte) (string, bool
 	if node == nil || node.Kind() != "identifier" {
 		return "", false
 	}
+
 	name := strings.TrimSpace(node.Utf8Text(contents))
 
 	return name, name != ""

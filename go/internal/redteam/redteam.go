@@ -22,18 +22,18 @@ const (
 )
 
 type Scenario struct {
+	Symlinks       map[string]string
 	ID             string
 	Class          string
 	Surface        string
 	Description    string
 	Command        string
 	Tool           string
-	Files          []string
 	Content        string
-	Argv           []string
 	Scope          string
-	Symlinks       map[string]string
 	ExpectedPolicy string
+	Files          []string
+	Argv           []string
 }
 
 type Result struct {
@@ -90,11 +90,13 @@ func DefaultScenarios(realGitPath string) []Scenario {
 			ExpectedPolicy: "filesystem.protected_path",
 		},
 		{
-			ID:             "protected-hook-path-traversal",
-			Class:          "symlink-path-traversal",
-			Surface:        SurfaceAgentHook,
-			Description:    "Agent attempts to reach a managed hook path through relative traversal.",
-			Files:          []string{".git/coding-ethos-hooks/../coding-ethos-hooks/coding-ethos-git-hook"},
+			ID:          "protected-hook-path-traversal",
+			Class:       "symlink-path-traversal",
+			Surface:     SurfaceAgentHook,
+			Description: "Agent attempts to reach a managed hook path through relative traversal.",
+			Files: []string{
+				".git/coding-ethos-hooks/../coding-ethos-hooks/coding-ethos-git-hook",
+			},
 			Content:        "#!/usr/bin/env bash\nexit 0\n",
 			Tool:           "Write",
 			ExpectedPolicy: "filesystem.protected_path",
@@ -169,6 +171,7 @@ func RunScenarios(
 		if err != nil {
 			return nil, err
 		}
+
 		results = append(results, result)
 	}
 
@@ -180,7 +183,8 @@ func RunScenario(
 	scenario Scenario,
 	repoRoot string,
 ) (Result, error) {
-	if err := prepareScenarioFilesystem(repoRoot, scenario); err != nil {
+	err := prepareScenarioFilesystem(repoRoot, scenario)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -199,13 +203,19 @@ func RunScenario(
 func prepareScenarioFilesystem(repoRoot string, scenario Scenario) error {
 	for link, target := range scenario.Symlinks {
 		linkPath := filepath.Join(repoRoot, filepath.FromSlash(link))
-		if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+
+		err := os.MkdirAll(filepath.Dir(linkPath), 0o700)
+		if err != nil {
 			return fmt.Errorf("%s: prepare symlink parent: %w", scenario.ID, err)
 		}
-		if err := os.RemoveAll(linkPath); err != nil {
+
+		err = os.RemoveAll(linkPath)
+		if err != nil {
 			return fmt.Errorf("%s: remove existing symlink path: %w", scenario.ID, err)
 		}
-		if err := os.Symlink(target, linkPath); err != nil {
+
+		err = os.Symlink(target, linkPath)
+		if err != nil {
 			return fmt.Errorf("%s: create symlink: %w", scenario.ID, err)
 		}
 	}
@@ -215,6 +225,7 @@ func prepareScenarioFilesystem(repoRoot string, scenario Scenario) error {
 
 func Missed(results []Result) []Result {
 	missed := make([]Result, 0)
+
 	for _, result := range results {
 		if result.Missed {
 			missed = append(missed, result)
@@ -233,14 +244,17 @@ func runAgentHookScenario(
 	if tool == "" {
 		tool = "Bash"
 	}
+
 	input := map[string]any{}
 	if scenario.Command != "" {
 		input["command"] = scenario.Command
 	}
+
 	if len(scenario.Files) > 0 {
 		input["file_path"] = scenario.Files[0]
 		input["files"] = append([]string(nil), scenario.Files...)
 	}
+
 	if scenario.Content != "" {
 		input["content"] = scenario.Content
 	}
@@ -286,6 +300,7 @@ func runLintScenario(
 	if scope == "" {
 		scope = lint.ScopeStaged
 	}
+
 	result, err := lint.Run(bundle, lint.Options{
 		Argv:  scenario.Argv,
 		Cwd:   repoRoot,
@@ -324,11 +339,13 @@ func lintPolicies(decisions []policy.Decision) []string {
 
 func decisionPolicies(decisions []policy.Decision) []string {
 	policies := make([]string, 0, len(decisions))
+
 	seen := map[string]bool{}
 	for _, decision := range decisions {
 		if decision.PolicyID == "" || seen[decision.PolicyID] {
 			continue
 		}
+
 		seen[decision.PolicyID] = true
 		policies = append(policies, decision.PolicyID)
 	}

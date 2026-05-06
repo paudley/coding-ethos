@@ -8,19 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 )
 
 type Command struct {
+	Command                string
+	Name                   string
 	Argv                   []string
 	Assignments            []string
 	Redirects              []string
-	Command                string
-	Name                   string
-	Line                   int
 	Column                 int
+	Line                   int
 	Background             bool
 	HasCommandSubstitution bool
 	HasDynamicExpansion    bool
@@ -55,6 +56,7 @@ func Fields(command string) ([]string, error) {
 		if isControlToken(token) {
 			continue
 		}
+
 		fields = append(fields, token)
 	}
 
@@ -66,17 +68,21 @@ func ControlFields(command string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if len(tokens) > 0 {
 		return tokens, nil
 	}
 
 	fields := []string{}
+
 	for index, command := range commands {
 		if index > 0 {
 			fields = append(fields, ";")
 		}
+
 		fields = append(fields, command.Assignments...)
 		fields = append(fields, command.Argv...)
+
 		fields = append(fields, command.Redirects...)
 		if command.Background {
 			fields = append(fields, "&")
@@ -99,31 +105,46 @@ func CatHeredocCommandSubstitution(value string) (string, bool) {
 	}
 
 	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
+
 	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).
 		Parse(strings.NewReader(inner), "")
-	if err != nil || len(file.Stmts) != 1 {
+	if err != nil {
+		return "", false
+	}
+
+	return singleCatHeredoc(file)
+}
+
+func singleCatHeredoc(file *syntax.File) (string, bool) {
+	if len(file.Stmts) != 1 {
 		return "", false
 	}
 
 	stmt := file.Stmts[0]
-	call, ok := stmt.Cmd.(*syntax.CallExpr)
-	if !ok || len(call.Args) == 0 || wordString(call.Args[0]) != "cat" {
-		return "", false
-	}
-
-	if len(call.Args) > 1 {
+	if !isBareCatCall(stmt) {
 		return "", false
 	}
 
 	for _, redir := range stmt.Redirs {
-		if redir == nil || redir.Hdoc == nil || !strings.Contains(redir.Op.String(), "<<") {
-			continue
+		if isHeredocRedirect(redir) {
+			return wordString(redir.Hdoc), true
 		}
-
-		return wordString(redir.Hdoc), true
 	}
 
 	return "", false
+}
+
+func isBareCatCall(stmt *syntax.Stmt) bool {
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+
+	return wordString(call.Args[0]) == "cat"
+}
+
+func isHeredocRedirect(redir *syntax.Redirect) bool {
+	return redir != nil && redir.Hdoc != nil && strings.Contains(redir.Op.String(), "<<")
 }
 
 func parse(command string) ([]Command, []string, error) {
@@ -135,10 +156,12 @@ func parse(command string) ([]Command, []string, error) {
 
 	commands := []Command{}
 	controlFields := []string{}
+
 	for index, stmt := range file.Stmts {
 		if index > 0 {
 			controlFields = append(controlFields, ";")
 		}
+
 		walkStatement(stmt, &commands, &controlFields)
 	}
 
@@ -147,6 +170,7 @@ func parse(command string) ([]Command, []string, error) {
 
 func parseError(err error) error {
 	wrapped := fmt.Errorf("parse shell command: %w", err)
+
 	var syntaxErr syntax.ParseError
 	if errors.As(err, &syntaxErr) {
 		return Error{
@@ -176,10 +200,12 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 		*fields = append(*fields, command.Argv...)
 	case *syntax.FuncDecl:
 		command := commandFromFuncDecl(cmd)
+
 		*commands = append(*commands, command)
 		if command.Command != "" {
 			*fields = append(*fields, command.Command)
 		}
+
 		walkStatement(cmd.Body, commands, fields)
 	case *syntax.Block:
 		walkStatements(cmd.Stmts, commands, fields)
@@ -202,10 +228,12 @@ func walkStatement(stmt *syntax.Stmt, commands *[]Command, fields *[]string) {
 	}
 
 	appendRedirects(stmt.Redirs, commands, fields)
+
 	if stmt.Background {
 		if len(*commands) > 0 {
 			(*commands)[len(*commands)-1].Background = true
 		}
+
 		*fields = append(*fields, "&")
 	}
 }
@@ -215,12 +243,14 @@ func walkStatements(stmts []*syntax.Stmt, commands *[]Command, fields *[]string)
 		if index > 0 {
 			*fields = append(*fields, ";")
 		}
+
 		walkStatement(stmt, commands, fields)
 	}
 }
 
 func commandFromFuncDecl(decl *syntax.FuncDecl) Command {
 	rendered := renderNode(decl)
+
 	command := Command{
 		Argv:                  []string{rendered},
 		Command:               rendered,
@@ -231,6 +261,7 @@ func commandFromFuncDecl(decl *syntax.FuncDecl) Command {
 	if decl != nil && decl.Name != nil {
 		command.Name = decl.Name.Value
 	}
+
 	applyNodeFlags(decl, &command)
 
 	return command
@@ -250,11 +281,13 @@ func appendRedirects(
 		if rendered == "" {
 			continue
 		}
+
 		if len(*commands) > 0 {
 			last := &(*commands)[len(*commands)-1]
 			last.Redirects = append(last.Redirects, rendered)
 			last.HasHeredoc = last.HasHeredoc || redir.Hdoc != nil
 		}
+
 		*fields = append(*fields, rendered)
 	}
 }
@@ -268,7 +301,9 @@ func redirectString(redir *syntax.Redirect) string {
 	if redir.N != nil {
 		builder.WriteString(redir.N.Value)
 	}
+
 	builder.WriteString(redir.Op.String())
+
 	if redir.Word != nil {
 		builder.WriteString(wordString(redir.Word))
 	}
@@ -288,19 +323,23 @@ func commandFromCall(call *syntax.CallExpr) Command {
 		if rendered := assignmentString(assign); rendered != "" {
 			command.Assignments = append(command.Assignments, rendered)
 		}
+
 		if assign != nil && assign.Value != nil {
 			mergeWordInfo(&command, wordInfoFor(assign.Value))
 		}
 	}
+
 	for _, arg := range call.Args {
 		info := wordInfoFor(arg)
 		command.Argv = append(command.Argv, info.Text)
 		mergeWordInfo(&command, info)
 	}
+
 	if len(command.Argv) > 0 {
 		command.Name = commandName(command.Argv[0])
 		command.Command = strings.Join(command.Argv, " ")
 	}
+
 	applyNodeFlags(call, &command)
 
 	return command
@@ -310,9 +349,11 @@ func assignmentString(assign *syntax.Assign) string {
 	if assign == nil || assign.Name == nil {
 		return renderNode(assign)
 	}
+
 	if assign.Naked {
 		return assign.Name.Value
 	}
+
 	if assign.Value == nil {
 		return assign.Name.Value + "="
 	}
@@ -337,7 +378,9 @@ func wordInfoFor(word *syntax.Word) wordInfo {
 	}
 
 	var builder strings.Builder
+
 	info := wordInfo{}
+
 	for _, part := range word.Parts {
 		partInfo, ok := wordPartInfo(part)
 		if !ok {
@@ -346,6 +389,7 @@ func wordInfoFor(word *syntax.Word) wordInfo {
 
 			return info
 		}
+
 		builder.WriteString(partInfo.Text)
 		info.HasCommandSubstitution = info.HasCommandSubstitution ||
 			partInfo.HasCommandSubstitution
@@ -354,6 +398,7 @@ func wordInfoFor(word *syntax.Word) wordInfo {
 		info.HasProcessSubstitution = info.HasProcessSubstitution ||
 			partInfo.HasProcessSubstitution
 	}
+
 	info.Text = builder.String()
 
 	return info
@@ -366,24 +411,7 @@ func wordPartInfo(part syntax.WordPart) (wordInfo, bool) {
 	case *syntax.SglQuoted:
 		return wordInfo{Text: typed.Value}, true
 	case *syntax.DblQuoted:
-		var builder strings.Builder
-		info := wordInfo{}
-		for _, nested := range typed.Parts {
-			nestedInfo, ok := wordPartInfo(nested)
-			if !ok {
-				return wordInfo{}, false
-			}
-			builder.WriteString(nestedInfo.Text)
-			info.HasCommandSubstitution = info.HasCommandSubstitution ||
-				nestedInfo.HasCommandSubstitution
-			info.HasDynamicExpansion = info.HasDynamicExpansion ||
-				nestedInfo.HasDynamicExpansion
-			info.HasProcessSubstitution = info.HasProcessSubstitution ||
-				nestedInfo.HasProcessSubstitution
-		}
-		info.Text = builder.String()
-
-		return info, true
+		return doubleQuotedWordInfo(typed)
 	case *syntax.ParamExp:
 		return wordInfo{
 			Text:                renderNode(typed),
@@ -406,6 +434,31 @@ func wordPartInfo(part syntax.WordPart) (wordInfo, bool) {
 	}
 }
 
+func doubleQuotedWordInfo(quoted *syntax.DblQuoted) (wordInfo, bool) {
+	var builder strings.Builder
+
+	info := wordInfo{}
+
+	for _, nested := range quoted.Parts {
+		nestedInfo, ok := wordPartInfo(nested)
+		if !ok {
+			return wordInfo{}, false
+		}
+
+		builder.WriteString(nestedInfo.Text)
+		info.HasCommandSubstitution = info.HasCommandSubstitution ||
+			nestedInfo.HasCommandSubstitution
+		info.HasDynamicExpansion = info.HasDynamicExpansion ||
+			nestedInfo.HasDynamicExpansion
+		info.HasProcessSubstitution = info.HasProcessSubstitution ||
+			nestedInfo.HasProcessSubstitution
+	}
+
+	info.Text = builder.String()
+
+	return info, true
+}
+
 func mergeWordInfo(command *Command, info wordInfo) {
 	command.HasCommandSubstitution = command.HasCommandSubstitution ||
 		info.HasCommandSubstitution
@@ -420,6 +473,7 @@ func applyNodeFlags(node syntax.Node, command *Command) {
 		if current == nil {
 			return true
 		}
+
 		switch current.(type) {
 		case *syntax.CmdSubst:
 			command.HasCommandSubstitution = true
@@ -453,7 +507,7 @@ func lineNumber(pos syntax.Pos) int {
 		return 0
 	}
 
-	return int(pos.Line())
+	return syntaxPositionInt(pos.Line())
 }
 
 func columnNumber(pos syntax.Pos) int {
@@ -461,7 +515,16 @@ func columnNumber(pos syntax.Pos) int {
 		return 0
 	}
 
-	return int(pos.Col())
+	return syntaxPositionInt(pos.Col())
+}
+
+func syntaxPositionInt(value uint) int {
+	converted, err := strconv.Atoi(strconv.FormatUint(uint64(value), 10))
+	if err != nil {
+		return 0
+	}
+
+	return converted
 }
 
 func renderNode(node syntax.Node) string {
@@ -470,7 +533,9 @@ func renderNode(node syntax.Node) string {
 	}
 
 	var output bytes.Buffer
-	if err := syntax.NewPrinter().Print(&output, node); err != nil && err != io.EOF {
+
+	err := syntax.NewPrinter().Print(&output, node)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return ""
 	}
 

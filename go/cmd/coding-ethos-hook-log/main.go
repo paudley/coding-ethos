@@ -18,14 +18,18 @@ type exitCoder interface {
 
 func main() {
 	status := 0
-	if err := run(); err != nil {
+
+	err := run()
+	if err != nil {
 		if exitErr, ok := err.(exitCoder); ok {
 			status = exitErr.ExitCode()
 		} else {
 			status = 1
+
 			fmt.Fprintf(os.Stderr, "%s\n", err)
 		}
 	}
+
 	os.Exit(status)
 }
 
@@ -44,7 +48,8 @@ func runWithIO(
 	bundleRoot := flags.String("bundle-root", "", "coding-ethos pre-commit bundle root")
 	gitPath := flags.String("git", "/usr/bin/git", "Git binary used for ignore validation")
 
-	if err := flags.Parse(args); err != nil {
+	err := flags.Parse(args)
+	if err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 

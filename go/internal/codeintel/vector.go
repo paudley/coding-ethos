@@ -25,6 +25,7 @@ func NewVectorIndex(
 	if backend == "" {
 		backend = "sqlite-vec"
 	}
+
 	switch backend {
 	case "sqlite", "sqlite-vec":
 		return NewSQLiteVectorIndex(ctx, config.URI)

@@ -166,7 +166,8 @@ strict rules of engagement for our codebase.
   concretions. The Dependency Injection container (the DI container)
   is the
   heart of the application; manual instantiation of service chains in
-  business logic is forbidden. *(See [Protocol-First Design](#protocol-first-design) for how we implement this.)*
+  business logic is forbidden. *(See [Section 12: Protocol-First
+  Design](#12-protocol-first-design) for how we implement this.)*
 
 #### Beyond SOLID: Simplicity Precepts
 SOLID governs structure; these principles govern complexity:

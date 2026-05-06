@@ -129,14 +129,14 @@ type HybridSearchResult struct {
 }
 
 type IndexStatus struct {
+	Backend          string               `json:"backend"`
+	ModelID          string               `json:"model_id,omitempty"`
+	Collection       string               `json:"collection,omitempty"`
 	VectorStats      evidence.VectorStats `json:"vector_stats"`
 	Stats            Stats                `json:"stats"`
 	EmbeddingRecords int                  `json:"embedding_records"`
 	ReadyRecords     int                  `json:"ready_records"`
 	MissingVectors   int                  `json:"missing_vectors"`
-	Backend          string               `json:"backend"`
-	ModelID          string               `json:"model_id,omitempty"`
-	Collection       string               `json:"collection,omitempty"`
 	Fresh            bool                 `json:"fresh"`
 }
 
@@ -194,7 +194,10 @@ func (store *Store) RepeatedFailures(
 	return scanRepeatedFailures(rows)
 }
 
-func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
+func (store *Store) Search(
+	ctx context.Context,
+	query SearchQuery,
+) ([]SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 10
@@ -216,9 +219,11 @@ func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResu
 	defer rows.Close()
 
 	results := []SearchResult{}
+
 	for rows.Next() {
 		var result SearchResult
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.Kind,
 			&result.RecordID,
 			&result.TraceID,
@@ -226,11 +231,14 @@ func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResu
 			&result.SkillID,
 			&result.Path,
 			&result.Message,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan search result: %w", err)
 		}
+
 		results = append(results, result)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate search results: %w", err)
 	}
@@ -366,9 +374,11 @@ func (store *Store) RemediationEffectiveness(
 	defer rows.Close()
 
 	results := []RemediationEffectiveness{}
+
 	for rows.Next() {
 		var result RemediationEffectiveness
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Fixed,
@@ -377,11 +387,14 @@ func (store *Store) RemediationEffectiveness(
 			&result.Superseded,
 			&result.Unknown,
 			&result.Total,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan remediation effectiveness: %w", err)
 		}
+
 		results = append(results, result)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate remediation effectiveness: %w", err)
 	}
@@ -429,10 +442,16 @@ func (store *Store) EmbeddingRecords(
 	}
 	defer rows.Close()
 
+	return scanEmbeddingRecords(rows)
+}
+
+func scanEmbeddingRecords(rows *sql.Rows) ([]EmbeddingRecord, error) {
 	results := []EmbeddingRecord{}
+
 	for rows.Next() {
 		var result EmbeddingRecord
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.Backend,
 			&result.Collection,
@@ -449,12 +468,16 @@ func (store *Store) EmbeddingRecords(
 			&result.Provider,
 			&result.BackendRowID,
 			&result.CreatedAtUTC,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan embedding record: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate embedding records: %w", err)
 	}
 
@@ -469,6 +492,7 @@ func (store *Store) EmbeddingCandidates(
 	if limit <= 0 {
 		limit = 20
 	}
+
 	rows, err := store.db.QueryContext(
 		ctx,
 		`SELECT 'remediation' AS record_kind, remediation_id, policy_id, skill_id,
@@ -539,18 +563,22 @@ func (store *Store) EmbeddingCandidates(
 	defer rows.Close()
 
 	results := []EmbeddingCandidate{}
+
 	for rows.Next() {
 		var result EmbeddingCandidate
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.RecordKind,
 			&result.RecordID,
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Path,
 			&result.Text,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan embedding candidate: %w", err)
 		}
+
 		result.Metadata = map[string]string{
 			"record_kind": result.RecordKind,
 			"record_id":   result.RecordID,
@@ -560,6 +588,7 @@ func (store *Store) EmbeddingCandidates(
 		}
 		results = append(results, result)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate embedding candidates: %w", err)
 	}
@@ -575,6 +604,7 @@ func (store *Store) CodeChunks(
 	if limit <= 0 {
 		limit = 20
 	}
+
 	rows, err := store.db.QueryContext(
 		ctx,
 		`SELECT
@@ -606,43 +636,16 @@ func (store *Store) CodeChunks(
 	}
 	defer rows.Close()
 
-	results := []CodeChunk{}
-	for rows.Next() {
-		var result CodeChunk
-		if err := rows.Scan(
-			&result.ID,
-			&result.Path,
-			&result.Language,
-			&result.NodeKind,
-			&result.SymbolKind,
-			&result.SymbolName,
-			&result.SymbolPath,
-			&result.ParentSymbolPath,
-			&result.ParentChunkID,
-			&result.StartByte,
-			&result.EndByte,
-			&result.StartLine,
-			&result.EndLine,
-			&result.ContentHash,
-			&result.SearchText,
-			&result.RawText,
-		); err != nil {
-			return nil, fmt.Errorf("scan code chunk: %w", err)
-		}
-		results = append(results, result)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate code chunks: %w", err)
-	}
-
-	return results, nil
+	return scanCodeChunks(rows)
 }
 
 func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 	results := []RepeatedFailure{}
+
 	for rows.Next() {
 		var result RepeatedFailure
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Path,
@@ -650,12 +653,16 @@ func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 			&result.TraceCount,
 			&result.LastSeenUTC,
 			&result.LastTraceID,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan repeated failure: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate repeated failures: %w", err)
 	}
 
@@ -664,10 +671,14 @@ func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 
 func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 	results := []SARIFResultReference{}
+
 	for rows.Next() {
-		var result SARIFResultReference
-		var principleIDs string
-		if err := rows.Scan(
+		var (
+			result       SARIFResultReference
+			principleIDs string
+		)
+
+		err := rows.Scan(
 			&result.ID,
 			&result.RuleID,
 			&result.Level,
@@ -692,13 +703,17 @@ func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 			&result.CELExpression,
 			&result.PolicySource,
 			&result.SearchText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan SARIF result: %w", err)
 		}
+
 		result.PrincipleIDs = compactStrings(splitCSV(principleIDs))
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate SARIF results: %w", err)
 	}
 
@@ -707,9 +722,11 @@ func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 
 func scanRemediationOutcomes(rows *sql.Rows) ([]RemediationOutcome, error) {
 	results := []RemediationOutcome{}
+
 	for rows.Next() {
 		var result RemediationOutcome
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.RemediationID,
 			&result.FindingID,
@@ -725,12 +742,16 @@ func scanRemediationOutcomes(rows *sql.Rows) ([]RemediationOutcome, error) {
 			&result.AttemptOrdinal,
 			&result.RecordedAtUTC,
 			&result.SearchText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan remediation outcome: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate remediation outcomes: %w", err)
 	}
 

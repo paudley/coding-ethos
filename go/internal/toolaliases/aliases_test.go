@@ -27,7 +27,13 @@ func TestActiveCanonicalMatchesProviderAliasesAndSuffixes(t *testing.T) {
 
 			got, ok := ActiveCanonical(test.name)
 			if !ok || got != test.want {
-				t.Fatalf("ActiveCanonical(%q) = %q, %v; want %q, true", test.name, got, ok, test.want)
+				t.Fatalf(
+					"ActiveCanonical(%q) = %q, %v; want %q, true",
+					test.name,
+					got,
+					ok,
+					test.want,
+				)
 			}
 		})
 	}
@@ -50,9 +56,11 @@ func TestProviderAliasesAndNoopCanonical(t *testing.T) {
 	if len(aliases) == 0 {
 		t.Fatal("Codex shell aliases should be registered")
 	}
+
 	if !NoopCanonical("functions.update_plan") {
 		t.Fatal("known no-op tool should be recognized")
 	}
+
 	if NoopCanonical("Bash") {
 		t.Fatal("active tool must not be treated as no-op")
 	}

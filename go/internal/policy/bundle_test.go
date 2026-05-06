@@ -4,10 +4,11 @@
 package policy_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestExampleBundleValidates(t *testing.T) {
@@ -129,6 +130,7 @@ func TestValidateCompilesCELExpressionPoliciesOnBundleLoad(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
+
 	if !strings.Contains(err.Error(), "CEL evaluator failed validation") ||
 		!strings.Contains(err.Error(), "path.fiel") {
 		t.Fatalf("unexpected error: %v", err)

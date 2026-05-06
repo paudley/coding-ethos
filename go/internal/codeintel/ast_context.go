@@ -6,6 +6,7 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -18,33 +19,42 @@ func (store *Store) CodeContext(
 	if err != nil {
 		return CodeContext{}, err
 	}
+
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 20
 	}
+
 	context := CodeContext{Chunk: chunk}
 	if chunk.ParentChunkID != "" {
 		parent, err := store.codeChunkByID(ctx, chunk.ParentChunkID)
 		if err != nil {
 			return CodeContext{}, err
 		}
+
 		context.Parent = &parent
 	}
+
 	children, err := store.childCodeChunks(ctx, chunk.ID, limit)
 	if err != nil {
 		return CodeContext{}, err
 	}
+
 	context.Children = children
+
 	outgoing, incoming, err := store.codeEdgesForChunk(ctx, chunk.ID, limit)
 	if err != nil {
 		return CodeContext{}, err
 	}
+
 	context.OutgoingEdges = outgoing
 	context.IncomingEdges = incoming
+
 	links, err := store.astFindingLinksForChunk(ctx, chunk.ID, limit)
 	if err != nil {
 		return CodeContext{}, err
 	}
+
 	context.FindingLinks = links
 
 	return context, nil
@@ -57,9 +67,11 @@ func (store *Store) findCodeContextChunk(
 	if strings.TrimSpace(query.ChunkID) != "" {
 		return store.codeChunkByID(ctx, strings.TrimSpace(query.ChunkID))
 	}
+
 	if strings.TrimSpace(query.Path) != "" && query.Line > 0 {
 		return store.codeChunkByPathLine(ctx, strings.TrimSpace(query.Path), query.Line)
 	}
+
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
 		Path:       strings.TrimSpace(query.Path),
 		SymbolPath: strings.TrimSpace(query.SymbolPath),
@@ -68,14 +80,19 @@ func (store *Store) findCodeContextChunk(
 	if err != nil {
 		return CodeChunk{}, err
 	}
+
 	if len(chunks) == 1 {
 		return chunks[0], nil
 	}
 
-	return CodeChunk{}, fmt.Errorf("code chunk context not found")
+	return CodeChunk{}, errors.New("code chunk context not found")
 }
 
-func (store *Store) codeChunkByPathLine(ctx context.Context, path string, line int) (CodeChunk, error) {
+func (store *Store) codeChunkByPathLine(
+	ctx context.Context,
+	path string,
+	line int,
+) (CodeChunk, error) {
 	rows, err := store.db.QueryContext(
 		ctx,
 		`SELECT
@@ -96,10 +113,12 @@ func (store *Store) codeChunkByPathLine(ctx context.Context, path string, line i
 		return CodeChunk{}, fmt.Errorf("query code chunk at %s:%d: %w", path, line, err)
 	}
 	defer rows.Close()
+
 	chunks, err := scanCodeChunks(rows)
 	if err != nil {
 		return CodeChunk{}, err
 	}
+
 	if len(chunks) != 1 {
 		return CodeChunk{}, fmt.Errorf("code chunk context not found at %s:%d", path, line)
 	}
@@ -122,10 +141,12 @@ func (store *Store) codeChunkByID(ctx context.Context, id string) (CodeChunk, er
 		return CodeChunk{}, fmt.Errorf("query code chunk %q: %w", id, err)
 	}
 	defer rows.Close()
+
 	chunks, err := scanCodeChunks(rows)
 	if err != nil {
 		return CodeChunk{}, err
 	}
+
 	if len(chunks) != 1 {
 		return CodeChunk{}, fmt.Errorf("code chunk %q not found", id)
 	}
@@ -161,9 +182,11 @@ func (store *Store) childCodeChunks(
 
 func scanCodeChunks(rows *sql.Rows) ([]CodeChunk, error) {
 	results := []CodeChunk{}
+
 	for rows.Next() {
 		var result CodeChunk
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.Path,
 			&result.Language,
@@ -180,12 +203,16 @@ func scanCodeChunks(rows *sql.Rows) ([]CodeChunk, error) {
 			&result.ContentHash,
 			&result.SearchText,
 			&result.RawText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan code chunk: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate code chunks: %w", err)
 	}
 
@@ -201,6 +228,7 @@ func (store *Store) codeEdgesForChunk(
 	if err != nil {
 		return nil, nil, err
 	}
+
 	incoming, err := store.incomingCodeEdges(ctx, chunkID, limit)
 	if err != nil {
 		return nil, nil, err
@@ -261,9 +289,11 @@ func (store *Store) incomingCodeEdges(
 
 func scanCodeEdges(rows *sql.Rows) ([]CodeEdge, error) {
 	results := []CodeEdge{}
+
 	for rows.Next() {
 		var result CodeEdge
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.Kind,
 			&result.Path,
@@ -273,12 +303,16 @@ func scanCodeEdges(rows *sql.Rows) ([]CodeEdge, error) {
 			&result.TargetSymbolPath,
 			&result.TargetName,
 			&result.RawText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan code edge: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate code edges: %w", err)
 	}
 
@@ -305,11 +339,16 @@ func (store *Store) astFindingLinksForChunk(
 		return nil, fmt.Errorf("query AST finding links: %w", err)
 	}
 	defer rows.Close()
+
 	results := []ASTFindingLink{}
+
 	for rows.Next() {
-		var result ASTFindingLink
-		var stale int
-		if err := rows.Scan(
+		var (
+			result ASTFindingLink
+			stale  int
+		)
+
+		err := rows.Scan(
 			&result.ID,
 			&result.FindingKind,
 			&result.FindingID,
@@ -320,12 +359,15 @@ func (store *Store) astFindingLinksForChunk(
 			&result.SymbolPath,
 			&result.ContentHash,
 			&stale,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan AST finding link: %w", err)
 		}
+
 		result.Stale = stale != 0
 		results = append(results, result)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate AST finding links: %w", err)
 	}

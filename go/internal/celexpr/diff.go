@@ -29,7 +29,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 	newLine := int64(0)
 	currentHunk := -1
 
-	for _, rawLine := range strings.Split(diff, "\n") {
+	for rawLine := range strings.SplitSeq(diff, "\n") {
 		line := strings.TrimSuffix(rawLine, "\r")
 		if strings.HasPrefix(line, "+++ ") {
 			currentFile = diffPath(line[4:])
@@ -37,6 +37,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 
 			continue
 		}
+
 		if strings.HasPrefix(line, "@@ ") {
 			if currentFile == "" || !diffFileSelected(currentFile, selected) {
 				currentHunk = -1
@@ -50,6 +51,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 
 				continue
 			}
+
 			hunks = append(hunks, hunk)
 			currentHunk = len(hunks) - 1
 			oldLine = parsedOldLine
@@ -57,6 +59,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 
 			continue
 		}
+
 		if currentHunk == -1 || line == "" {
 			continue
 		}
@@ -96,6 +99,7 @@ func parseDiffHunks(diff string, files []string) []DiffHunkInput {
 
 func selectedDiffFiles(files []string) map[string]bool {
 	selected := map[string]bool{}
+
 	for _, file := range files {
 		cleanFile := cleanInputFile(file)
 		if cleanFile != "" {
@@ -115,6 +119,7 @@ func diffPath(raw string) string {
 	if trimmed == "/dev/null" {
 		return ""
 	}
+
 	if strings.HasPrefix(trimmed, "a/") || strings.HasPrefix(trimmed, "b/") {
 		trimmed = trimmed[2:]
 	}
@@ -135,6 +140,7 @@ func parseHunkHeader(
 	if !ok {
 		return DiffHunkInput{}, 0, 0, false
 	}
+
 	newStart, newLines, ok := parseDiffRange(strings.TrimPrefix(fields[2], "+"))
 	if !ok {
 		return DiffHunkInput{}, 0, 0, false
@@ -154,10 +160,12 @@ func parseHunkHeader(
 
 func parseDiffRange(source string) (int64, int64, bool) {
 	startText, lineText, hasLineCount := strings.Cut(source, ",")
+
 	start, err := strconv.ParseInt(startText, 10, 64)
 	if err != nil {
 		return 0, 0, false
 	}
+
 	if !hasLineCount {
 		return start, 1, true
 	}
@@ -173,6 +181,7 @@ func parseDiffRange(source string) (int64, int64, bool) {
 func diffLines(hunks []DiffHunkInput) ([]DiffLineInput, []DiffLineInput) {
 	added := []DiffLineInput{}
 	removed := []DiffLineInput{}
+
 	for _, hunk := range hunks {
 		added = append(added, hunk.AddedLines...)
 		removed = append(removed, hunk.RemovedLines...)

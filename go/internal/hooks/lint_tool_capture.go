@@ -71,17 +71,22 @@ func lintCaptureRequiredMessage(tool toolcatalog.CapturedTool) string {
 		"python -m, uv run, PATH edits, subprocesses, or shell bypasses."
 }
 
-func rewriteLintToolCommandChain(command string) (string, toolcatalog.CapturedTool, bool, bool) {
+func rewriteLintToolCommandChain(
+	command string,
+) (string, toolcatalog.CapturedTool, bool, bool) {
 	tokens, parseOK := shellControlFieldsOK(command)
 	if !parseOK {
 		return "", toolcatalog.CapturedTool{}, false, false
 	}
+
 	if len(tokens) == 0 {
 		return "", toolcatalog.CapturedTool{}, false, true
 	}
 
 	rewritten := make([]string, 0, len(tokens))
+
 	var routedTool toolcatalog.CapturedTool
+
 	rewrite := false
 
 	for index := 0; index < len(tokens); {
@@ -98,10 +103,12 @@ func rewriteLintToolCommandChain(command string) (string, toolcatalog.CapturedTo
 		}
 
 		segment := tokens[start:index]
+
 		segmentRewrite, segmentTool, segmentOK := rewriteLintToolSegment(segment)
 		if !segmentOK {
 			return "", segmentTool, false, false
 		}
+
 		if segmentRewrite != "" {
 			rewritten = append(rewritten, segmentRewrite)
 			routedTool = segmentTool
@@ -122,9 +129,11 @@ func rewriteLintToolSegment(
 	if len(segment) == 0 {
 		return "", toolcatalog.CapturedTool{}, true
 	}
+
 	if managedLintToolSegment(segment) {
 		return "", toolcatalog.CapturedTool{}, true
 	}
+
 	if segmentUsesPathOverride(segment) {
 		if tool := segmentMentionsUnmanagedLintTool(segment); tool.Name != "" {
 			return "", tool, false
@@ -132,6 +141,7 @@ func rewriteLintToolSegment(
 	}
 
 	args, redirections := splitShellRedirections(segment)
+
 	tool, toolArgs, ok := unmanagedLintToolArgs(args)
 	if ok {
 		command := lintCaptureCommand(tool.Name, toolArgs)
@@ -149,7 +159,9 @@ func rewriteLintToolSegment(
 	return "", toolcatalog.CapturedTool{}, true
 }
 
-func unmanagedLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
+func unmanagedLintToolArgs(
+	segment []string,
+) (toolcatalog.CapturedTool, []string, bool) {
 	if len(segment) == 0 {
 		return toolcatalog.CapturedTool{}, nil, false
 	}
@@ -183,6 +195,7 @@ func unmanagedLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string
 			if strings.Contains(token, "=") || strings.HasPrefix(token, "-") {
 				continue
 			}
+
 			if tool, ok := capturedToolForCommand(token); ok {
 				start := index + 2
 
@@ -225,6 +238,7 @@ func managedLintToolCommandChain(command string) bool {
 	if !parseOK {
 		return false
 	}
+
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			index++
@@ -269,7 +283,8 @@ func managedLintToolSegment(segment []string) bool {
 func capturedToolForCommand(token string) (toolcatalog.CapturedTool, bool) {
 	base := filepath.Base(token)
 	for _, tool := range toolcatalog.CapturedLintTools() {
-		if base == tool.Name && (token == tool.Name || strings.Contains(filepath.ToSlash(token), "/")) {
+		if base == tool.Name &&
+			(token == tool.Name || strings.Contains(filepath.ToSlash(token), "/")) {
 			return tool, true
 		}
 	}
@@ -298,10 +313,12 @@ func firstMentionedCapturedTool(command string) toolcatalog.CapturedTool {
 	if !parseOK {
 		return toolcatalog.CapturedTool{}
 	}
+
 	for _, token := range tokens {
 		if tool, ok := capturedToolForCommand(token); ok {
 			return tool
 		}
+
 		if tool, ok := capturedToolForModule(token); ok {
 			return tool
 		}
@@ -350,6 +367,7 @@ func evasiveLintToolShell(command string) bool {
 				return true
 			}
 		}
+
 		if mentionsLint &&
 			(parsed.HasCommandSubstitution ||
 				parsed.HasProcessSubstitution ||
@@ -367,10 +385,12 @@ func shellCommandIsLintTool(command shellparse.Command) bool {
 	if _, ok := capturedToolForCommand(shellCommandName(command)); ok {
 		return true
 	}
+
 	for _, arg := range command.Argv {
 		if _, ok := capturedToolForCommand(arg); ok {
 			return true
 		}
+
 		if _, ok := capturedToolForModule(arg); ok {
 			return true
 		}
@@ -390,13 +410,7 @@ func shellExecArgumentMentionsCapturedTool(command shellparse.Command) bool {
 }
 
 func shellCommandArgMentionsCapturedTool(command shellparse.Command) bool {
-	for _, arg := range command.Argv {
-		if commandStringMentionsCapturedTool(arg) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(command.Argv, commandStringMentionsCapturedTool)
 }
 
 func commandStringMentionsCapturedTool(value string) bool {
@@ -405,6 +419,7 @@ func commandStringMentionsCapturedTool(value string) bool {
 		if strings.Contains(lower, strings.ToLower(tool.Name)) {
 			return true
 		}
+
 		for _, module := range tool.ModuleNames {
 			if strings.Contains(lower, strings.ToLower(module)) {
 				return true

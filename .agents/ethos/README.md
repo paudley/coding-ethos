@@ -30,10 +30,10 @@ different classes of problems.
 - [20. Forward Motion Only](forward-motion-only.md) - Fix the current state instead of blaming history or prior authors.
 - [21. No Rationalized Shortcuts](no-rationalized-shortcuts.md) - Do not discard work or bypass safety checks in the name of pragmatism.
 - [22. Testing as Specification](testing-as-specification.md) - Treat tests as executable behavioral contracts and update them with code changes.
-- [23. Functional Testing Is the Proof](functional-testing-is-the-proof.md) - Prove critical behavior with real functional workflows before relying on unit tests or mocks.
-- [24. Exception Hierarchy and Error Messages](exception-hierarchy-and-error-messages.md) - Use precise exception types and actionable, context-rich error messages.
-- [25. Security by Design](security-by-design.md) - Design for least privilege, validation, and safe defaults from the start.
-- [26. Sub-Agent Delegation and Context Isolation](sub-agent-delegation-and-context-isolation.md) - Use specialized agents with scoped context instead of overloading one thread.
-- [27. Evidence-Based Engineering and Decision Quality](evidence-based-engineering-and-decision-quality.md) - Understand, plan, execute, and validate with evidence; measure before
+- [23. Exception Hierarchy and Error Messages](exception-hierarchy-and-error-messages.md) - Use precise exception types and actionable, context-rich error messages.
+- [24. Security by Design](security-by-design.md) - Design for least privilege, validation, and safe defaults from the start.
+- [25. Sub-Agent Delegation and Context Isolation](sub-agent-delegation-and-context-isolation.md) - Use specialized agents with scoped context instead of overloading one thread.
+- [26. Evidence-Based Engineering and Decision Quality](evidence-based-engineering-and-decision-quality.md) - Understand, plan, execute, and validate with evidence; measure before
 optimizing and make trade-offs explicit.
+- [28. Functional Testing Is the Proof](functional-testing-is-the-proof.md) - Prove critical behavior with real functional workflows before relying on unit tests or mocks.
 - [900. Generated Files Are Derived Artifacts](generated-files-are-derived-artifacts.md) - Edit the source ethos or renderer code first, then regenerate the checked-in agent files.

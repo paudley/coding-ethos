@@ -17,7 +17,8 @@ import (
 var errBundleRequired = errors.New("--bundle is required")
 
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
@@ -32,12 +33,17 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
 	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
-	invocationCwd := flags.String("invocation-cwd", "", "original command working directory")
+	invocationCwd := flags.String(
+		"invocation-cwd",
+		"",
+		"original command working directory",
+	)
 	lintBinary := flags.String("lint-binary", "", "Path to coding-ethos-lint")
 
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
+
 	if *bundlePath == "" {
 		return errBundleRequired
 	}
@@ -46,6 +52,7 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
 	if err := bundle.Validate(); err != nil {
 		return fmt.Errorf("invalid policy bundle:\n%s", policy.FormatValidationError(err))
 	}

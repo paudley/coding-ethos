@@ -41,9 +41,13 @@ var (
 	tombiLocationPattern = regexp.MustCompile(
 		`^\s*at\s+(.+?):(\d+):(\d+)\s*$`,
 	)
-	ruffCodePattern     = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
-	ruffFormatPattern   = regexp.MustCompile(`^(Would reformat|would reformat|reformatted):\s+(.+)$`)
-	ruffFormatUnchanged = regexp.MustCompile(`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`)
+	ruffCodePattern   = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	ruffFormatPattern = regexp.MustCompile(
+		`^(Would reformat|would reformat|reformatted):\s+(.+)$`,
+	)
+	ruffFormatUnchanged = regexp.MustCompile(
+		`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`,
+	)
 )
 
 const (
@@ -55,7 +59,7 @@ const (
 	yamllintParts            = 4
 )
 
-func Parse(tool string, stdout string, stderr string) []Diagnostic {
+func Parse(tool, stdout, stderr string) []Diagnostic {
 	output := strings.TrimSpace(firstNonEmpty(stdout, stderr))
 	if output == "" {
 		return nil
@@ -164,6 +168,7 @@ func parseRuffText(output string) []Diagnostic {
 		if text == "" || ruffFormatUnchanged.MatchString(text) {
 			continue
 		}
+
 		if matches := ruffFormatPattern.FindStringSubmatch(text); len(matches) == 3 {
 			diagnostics = append(diagnostics, Diagnostic{
 				Tool:     "ruff",
@@ -209,6 +214,7 @@ func splitRuffCodeMessage(raw string) (string, string) {
 	if len(fields) == 0 {
 		return "", ""
 	}
+
 	if ruffCodePattern.MatchString(fields[0]) {
 		return fields[0], strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
 	}
@@ -288,6 +294,7 @@ func parseMypyText(output string) []Diagnostic {
 
 func splitTrailingBracketCode(message string) (string, string) {
 	trimmed := strings.TrimSpace(message)
+
 	start := strings.LastIndex(trimmed, "[")
 	if start < 0 || !strings.HasSuffix(trimmed, "]") {
 		return trimmed, ""
@@ -744,11 +751,11 @@ func parseSQLFluff(output string) []Diagnostic {
 		Violations []struct {
 			Code         string `json:"code"`
 			Description  string `json:"description"`
+			Name         string `json:"name"`
 			LineNo       int    `json:"line_no"`
 			LinePos      int    `json:"line_pos"`
 			StartLineNo  int    `json:"start_line_no"`
 			StartLinePos int    `json:"start_line_pos"`
-			Name         string `json:"name"`
 			Warning      bool   `json:"warning"`
 		} `json:"violations"`
 	}
@@ -759,20 +766,24 @@ func parseSQLFluff(output string) []Diagnostic {
 	}
 
 	diagnostics := []Diagnostic{}
+
 	for _, item := range items {
 		for _, violation := range item.Violations {
 			severity := "error"
 			if violation.Warning {
 				severity = "warning"
 			}
+
 			line := violation.LineNo
 			if line == 0 {
 				line = violation.StartLineNo
 			}
+
 			column := violation.LinePos
 			if column == 0 {
 				column = violation.StartLinePos
 			}
+
 			diagnostics = append(diagnostics, Diagnostic{
 				Tool:     "sqlfluff",
 				File:     item.Filepath,
@@ -790,8 +801,9 @@ func parseSQLFluff(output string) []Diagnostic {
 
 func parseTombi(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
+
 	lines := strings.Split(stripANSI(output), "\n")
-	for index := 0; index < len(lines); index++ {
+	for index := range lines {
 		header := tombiHeaderPattern.FindStringSubmatch(strings.TrimSpace(lines[index]))
 		if len(header) != tombiHeaderMatchParts {
 			continue
@@ -807,16 +819,20 @@ func parseTombi(output string) []Diagnostic {
 			if line == "" {
 				continue
 			}
+
 			if tombiHeaderPattern.MatchString(line) {
 				break
 			}
+
 			location := tombiLocationPattern.FindStringSubmatch(line)
 			if len(location) != tombiLocationMatchParts {
 				continue
 			}
+
 			diagnostic.File = location[1]
 			diagnostic.Line, _ = parseInt(location[2])
 			diagnostic.Column, _ = parseInt(location[3])
+
 			break
 		}
 
@@ -845,6 +861,7 @@ func stripANSI(value string) string {
 
 func parseDotenvLinter(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
+
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" ||
@@ -873,7 +890,7 @@ func parseDotenvLinter(output string) []Diagnostic {
 	return diagnostics
 }
 
-func parseFallback(tool string, output string) []Diagnostic {
+func parseFallback(tool, output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
 
 	for line := range strings.SplitSeq(output, "\n") {

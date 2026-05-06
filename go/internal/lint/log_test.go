@@ -70,15 +70,18 @@ func TestLogResultWritesNormalizedTrace(t *testing.T) {
 		len(record.RemediationEvents) != 1 {
 		t.Fatalf("trace record = %#v", record)
 	}
+
 	if record.Findings[0].PolicyID != "python.conditional_imports" ||
 		record.Findings[0].ID == "" ||
 		record.Findings[0].SearchText == "" {
 		t.Fatalf("normalized findings = %#v", record.Findings)
 	}
+
 	if record.RemediationEvents[0].RemediationID != record.AgentRemediation[0].ID ||
 		record.RemediationEvents[0].FindingID != record.Findings[0].ID {
 		t.Fatalf("remediation events = %#v", record.RemediationEvents)
 	}
+
 	if record.AgentRemediation[0].PolicyID != "python.conditional_imports" ||
 		record.AgentRemediation[0].MCP == nil ||
 		record.AgentRemediation[0].MCP.Tool != "policy_explain" {
@@ -104,6 +107,7 @@ func TestLogResultSanitizesTraceScopeFilename(t *testing.T) {
 	if !strings.Contains(name, "-tool_ruff_json_output.json") {
 		t.Fatalf("trace filename not sanitized: %q", name)
 	}
+
 	if strings.ContainsAny(name, `: /\`) {
 		t.Fatalf("trace filename contains unsafe separator: %q", name)
 	}
@@ -113,6 +117,7 @@ func TestTracePathForIDStaysInsideLintTraceDir(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	path, err := TracePathForID(repo, "20260101T000000.000000000Z-123-tool_ruff.json")
 	if err != nil {
 		t.Fatalf("TracePathForID() returned error: %v", err)

@@ -33,13 +33,13 @@ type EvidenceAdvice struct {
 }
 
 type EvidenceMap struct {
-	Advice            EvidenceAdvice `json:"advice"`
 	Source            string         `json:"source"`
 	PolicyID          string         `json:"policy_id"`
 	Confidence        string         `json:"confidence,omitempty"`
 	Meaning           string         `json:"meaning,omitempty"`
+	SkillID           string         `json:"skill_id,omitempty"`
+	Advice            EvidenceAdvice `json:"advice"`
 	Codes             []string       `json:"codes,omitempty"`
 	MessageSubstrings []string       `json:"message_substrings,omitempty"`
 	PrincipleIDs      []string       `json:"principle_ids,omitempty"`
-	SkillID           string         `json:"skill_id,omitempty"`
 }

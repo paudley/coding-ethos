@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,25 +16,29 @@ import (
 
 func TestRunWithIORequiresBundle(t *testing.T) {
 	var stdout bytes.Buffer
+
 	err := runWithIO(nil, strings.NewReader(""), &stdout)
-	if err != errBundleRequired {
+	if !errors.Is(err, errBundleRequired) {
 		t.Fatalf("runWithIO(nil) error = %v, want %v", err, errBundleRequired)
 	}
 }
 
 func TestRunUsesProcessArgs(t *testing.T) {
 	originalArgs := os.Args
+
 	t.Cleanup(func() { os.Args = originalArgs })
+
 	os.Args = []string{"coding-ethos-mcp"}
 
 	err := run()
-	if err != errBundleRequired {
+	if !errors.Is(err, errBundleRequired) {
 		t.Fatalf("run() error = %v, want %v", err, errBundleRequired)
 	}
 }
 
 func TestRunWithIOHandlesInitializeRequest(t *testing.T) {
 	bundlePath := writeMCPTestBundle(t)
+
 	var stdout bytes.Buffer
 
 	err := runWithIO(
@@ -44,12 +49,15 @@ func TestRunWithIOHandlesInitializeRequest(t *testing.T) {
 			"--invocation-cwd", "/repo/pkg",
 			"--lint-binary", "/bin/coding-ethos-lint",
 		},
-		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`+"\n"),
+		strings.NewReader(
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`+"\n",
+		),
 		&stdout,
 	)
 	if err != nil {
 		t.Fatalf("runWithIO() returned error: %v", err)
 	}
+
 	for _, want := range []string{
 		`"jsonrpc":"2.0"`,
 		`"id":1`,
@@ -72,13 +80,16 @@ func writeMCPTestBundle(t *testing.T) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "policy-bundle.json")
+
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create bundle: %v", err)
 	}
+
 	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
 		t.Fatalf("encode bundle: %v", err)
 	}
+
 	if err := file.Close(); err != nil {
 		t.Fatalf("close bundle: %v", err)
 	}

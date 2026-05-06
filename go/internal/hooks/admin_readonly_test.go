@@ -58,8 +58,13 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 	if result.Status != statusAllowed {
 		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
 	}
-	if result.HookSpecificOutput != nil && len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf("admin read-only inspection must not emit updatedInput: %#v", result.HookSpecificOutput)
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf(
+			"admin read-only inspection must not emit updatedInput: %#v",
+			result.HookSpecificOutput,
+		)
 	}
 }
 

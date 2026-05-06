@@ -64,7 +64,7 @@ func TestAdminStartBranchRejectsInvalidBranchName(t *testing.T) {
 	}
 }
 
-func fakeAdminGit(t *testing.T, logPath string, statusOutput string) string {
+func fakeAdminGit(t *testing.T, logPath, statusOutput string) string {
 	t.Helper()
 
 	t.Setenv("FAKE_ADMIN_GIT_LOG", logPath)
@@ -78,6 +78,7 @@ if [[ "${1:-}" == "status" ]]; then
   printf '%s' "$FAKE_ADMIN_GIT_STATUS"
 fi
 `
+
 	err := os.WriteFile(scriptPath, []byte(script), 0o700)
 	if err != nil {
 		t.Fatalf("write fake git: %v", err)

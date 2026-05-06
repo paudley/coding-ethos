@@ -34,9 +34,11 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 	if !hookOutputDenies(result) {
 		t.Fatalf("result status mismatch: %#v", result)
 	}
+
 	if stderr == "" {
 		t.Fatalf("--json agent hook output must include a compact blocking reason on stderr")
 	}
+
 	trimmedStderr := strings.TrimSpace(stderr)
 	if strings.Contains(trimmedStderr, "format: toon") ||
 		strings.Contains(trimmedStderr, "\n") {
@@ -83,10 +85,12 @@ func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 
 func TestReadBundleAndPrintBlockedDirectly(t *testing.T) {
 	bundlePath := writeCLITestBundle(t)
+
 	bundle, err := readBundle(bundlePath)
 	if err != nil {
 		t.Fatalf("readBundle() returned error: %v", err)
 	}
+
 	if bundle.BundleID == "" {
 		t.Fatalf("bundle id should be populated: %#v", bundle)
 	}
@@ -108,8 +112,10 @@ func TestReadBundleAndPrintBlockedDirectly(t *testing.T) {
 }
 
 func TestRunWithIOBlocksBashBypass(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
 
 	status := runWithIO(
 		[]string{"--bundle", writeCLITestBundle(t), "--json"},
@@ -122,13 +128,18 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 	if status != blockedExitCode {
 		t.Fatalf("status = %d, want %d", status, blockedExitCode)
 	}
+
 	result := map[string]any{}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+
+	err := json.Unmarshal(stdout.Bytes(), &result)
+	if err != nil {
 		t.Fatalf("decode result: %v\n%s", err, stdout.String())
 	}
+
 	if !hookOutputDenies(result) {
 		t.Fatalf("result should deny: %#v", result)
 	}
+
 	if !strings.Contains(stderr.String(), "blocked") &&
 		!strings.Contains(stderr.String(), "bypass") {
 		t.Fatalf("stderr should contain compact denial advice: %q", stderr.String())
@@ -136,16 +147,24 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 }
 
 func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
 
 	status := runWithIO(nil, strings.NewReader("{}"), &stdout, &stderr)
 	if status != 1 || !strings.Contains(stderr.String(), "--bundle is required") {
-		t.Fatalf("missing bundle status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+		t.Fatalf(
+			"missing bundle status=%d stdout=%q stderr=%q",
+			status,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 
 	stdout.Reset()
 	stderr.Reset()
+
 	status = runWithIO(
 		[]string{"--bundle", writeCLITestBundle(t), "--json"},
 		strings.NewReader("{"),
@@ -153,7 +172,12 @@ func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
 		&stderr,
 	)
 	if status != 1 || !strings.Contains(stderr.String(), "decode hook event") {
-		t.Fatalf("bad input status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+		t.Fatalf(
+			"bad input status=%d stdout=%q stderr=%q",
+			status,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 }
 
@@ -219,11 +243,14 @@ func captureHookStderr(t *testing.T, run func()) string {
 	t.Helper()
 
 	original := os.Stderr
+
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe stderr: %v", err)
 	}
+
 	os.Stderr = writer
+
 	defer func() {
 		os.Stderr = original
 	}()
@@ -233,10 +260,12 @@ func captureHookStderr(t *testing.T, run func()) string {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close writer: %v", err)
 	}
+
 	var buffer bytes.Buffer
 	if _, err := buffer.ReadFrom(reader); err != nil {
 		t.Fatalf("read stderr: %v", err)
 	}
+
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close reader: %v", err)
 	}

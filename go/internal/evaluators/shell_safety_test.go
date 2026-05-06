@@ -4,9 +4,9 @@
 package evaluators_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -163,18 +163,5 @@ func TestEvaluateGitHookBypassBlocksRawEnvBypass(t *testing.T) {
 
 	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
 		t.Fatalf("expected block decision, got %#v", decisions)
-	}
-}
-
-func shellPolicy(policyID string) policy.Policy {
-	return policy.Policy{
-		ID:              policyID,
-		Category:        "shell",
-		Source:          policy.SourceRef{File: "config.yaml", Path: policyID},
-		DefaultSeverity: blockDecision,
-		SupportedModes:  []string{blockDecision, "record"},
-		Message:         "blocked",
-		DefenseLayers:   policy.GitDefenseLayers(blockDecision, "", blockDecision, "", ""),
-		Evaluators:      []policy.Evaluator{{Kind: "shell", Name: policyID}},
 	}
 }

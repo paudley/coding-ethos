@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -15,8 +16,8 @@ import (
 )
 
 type MCPCall struct {
-	Tool      string            `json:"tool,omitempty"`
 	Arguments map[string]string `json:"arguments,omitempty"`
+	Tool      string            `json:"tool,omitempty"`
 }
 
 type Remediation struct {
@@ -57,18 +58,22 @@ type PolicyRepeat struct {
 func Summarize(remediations []Remediation) Summary {
 	summary := Summary{RemediationCount: len(remediations)}
 	policyCounts := map[string]int{}
+
 	for _, remediation := range remediations {
 		if remediation.ID != "" {
 			summary.IDs = appendUnique(summary.IDs, remediation.ID)
 		}
+
 		if remediation.PolicyID != "" {
 			summary.PolicyIDs = appendUnique(summary.PolicyIDs, remediation.PolicyID)
 			policyCounts[remediation.PolicyID]++
 		}
+
 		if remediation.SkillID != "" {
 			summary.SkillIDs = appendUnique(summary.SkillIDs, remediation.SkillID)
 		}
 	}
+
 	for _, policyID := range summary.PolicyIDs {
 		if policyCounts[policyID] > 1 {
 			summary.RepeatedPolicy = append(summary.RepeatedPolicy, PolicyRepeat{
@@ -88,6 +93,7 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Remediation {
 		if remediation.Message == "" && remediation.PolicyID == "" && remediation.File == "" {
 			continue
 		}
+
 		remediations = append(remediations, remediation)
 	}
 
@@ -96,6 +102,7 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Remediation {
 
 func FromDecisions(decisions []policy.Decision, failedAction string) []Remediation {
 	remediations := []Remediation{}
+
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
 			for _, remediation := range FromDiagnostics(decision.Diagnostics) {
@@ -106,6 +113,7 @@ func FromDecisions(decisions []policy.Decision, failedAction string) []Remediati
 				remediation.ID = remediationID(remediation)
 				remediations = append(remediations, remediation)
 			}
+
 			continue
 		}
 
@@ -113,6 +121,7 @@ func FromDecisions(decisions []policy.Decision, failedAction string) []Remediati
 		if remediation.Message == "" && remediation.PolicyID == "" {
 			continue
 		}
+
 		remediations = append(remediations, remediation)
 	}
 
@@ -121,17 +130,22 @@ func FromDecisions(decisions []policy.Decision, failedAction string) []Remediati
 
 func fromDiagnostic(item diagnostics.Diagnostic) Remediation {
 	remediation := Remediation{
-		Advice:       strings.TrimSpace(item.Advice),
-		Code:         strings.TrimSpace(item.Code),
-		File:         strings.TrimSpace(item.File),
-		Message:      strings.TrimSpace(item.Message),
-		PolicyID:     strings.TrimSpace(item.PolicyID),
-		Severity:     strings.TrimSpace(item.Severity),
-		SkillID:      strings.TrimSpace(item.SkillID),
-		Tool:         strings.TrimSpace(item.Tool),
-		Column:       item.Column,
-		Line:         item.Line,
-		NextSteps:    remediationSteps(item.AdviceSteps, item.Advice, item.PolicyID, item.SkillID),
+		Advice:   strings.TrimSpace(item.Advice),
+		Code:     strings.TrimSpace(item.Code),
+		File:     strings.TrimSpace(item.File),
+		Message:  strings.TrimSpace(item.Message),
+		PolicyID: strings.TrimSpace(item.PolicyID),
+		Severity: strings.TrimSpace(item.Severity),
+		SkillID:  strings.TrimSpace(item.SkillID),
+		Tool:     strings.TrimSpace(item.Tool),
+		Column:   item.Column,
+		Line:     item.Line,
+		NextSteps: remediationSteps(
+			item.AdviceSteps,
+			item.Advice,
+			item.PolicyID,
+			item.SkillID,
+		),
 		PrincipleIDs: compactStrings(item.PrincipleIDs),
 		Rerun:        compactStrings(item.Rerun),
 	}
@@ -167,7 +181,11 @@ func fromDecision(decision policy.Decision, failedAction string) Remediation {
 		),
 		PrincipleIDs: compactStrings(decision.PrincipleIDs),
 	}
-	remediation.Path = firstNonEmpty(remediation.Path, remediation.File, firstFileEvidence(decision.Evidence))
+	remediation.Path = firstNonEmpty(
+		remediation.Path,
+		remediation.File,
+		firstFileEvidence(decision.Evidence),
+	)
 	remediation.MCP = remediationMCP(remediation.PolicyID, remediation.SkillID)
 	remediation.SkillUse = skillUse(remediation.SkillID)
 	remediation.ID = remediationID(remediation)
@@ -185,18 +203,24 @@ func remediationSteps(
 	if len(next) == 0 && strings.TrimSpace(advice) != "" {
 		next = append(next, strings.TrimSpace(advice))
 	}
+
 	if strings.TrimSpace(policyID) != "" {
 		next = append(
 			next,
 			fmt.Sprintf("Call MCP policy_explain with policy_id=%s before retrying.", policyID),
 		)
 	}
+
 	if strings.TrimSpace(skillID) != "" {
 		next = append(
 			next,
-			fmt.Sprintf("Call MCP skill_lookup with skill_id=%s for the repair playbook.", skillID),
+			fmt.Sprintf(
+				"Call MCP skill_lookup with skill_id=%s for the repair playbook.",
+				skillID,
+			),
 		)
 	}
+
 	if len(next) == 0 {
 		next = append(next, "Fix the reported violation before retrying.")
 	}
@@ -204,7 +228,7 @@ func remediationSteps(
 	return compactStrings(next)
 }
 
-func remediationMCP(policyID string, skillID string) *MCPCall {
+func remediationMCP(policyID, skillID string) *MCPCall {
 	if strings.TrimSpace(policyID) != "" {
 		return &MCPCall{
 			Tool: "policy_explain",
@@ -213,6 +237,7 @@ func remediationMCP(policyID string, skillID string) *MCPCall {
 			},
 		}
 	}
+
 	if strings.TrimSpace(skillID) != "" {
 		return &MCPCall{
 			Tool: "skill_lookup",
@@ -242,8 +267,8 @@ func remediationID(remediation Remediation) string {
 		remediation.Tool,
 		remediation.File,
 		remediation.Path,
-		fmt.Sprintf("%d", remediation.Line),
-		fmt.Sprintf("%d", remediation.Column),
+		strconv.Itoa(remediation.Line),
+		strconv.Itoa(remediation.Column),
 		remediation.FailedAction,
 		remediation.Command,
 		remediation.Message,
@@ -257,10 +282,12 @@ func evidenceString(evidence map[string]any, key string) string {
 	if len(evidence) == 0 {
 		return ""
 	}
+
 	value, ok := evidence[key]
 	if !ok {
 		return ""
 	}
+
 	text, ok := value.(string)
 	if !ok {
 		return ""
@@ -274,6 +301,7 @@ func firstFileEvidence(evidence map[string]any) string {
 	if !ok {
 		return ""
 	}
+
 	switch files := value.(type) {
 	case []string:
 		if len(files) > 0 {
@@ -292,11 +320,13 @@ func firstFileEvidence(evidence map[string]any) string {
 
 func compactStrings(values []string) []string {
 	compacted := []string{}
+
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		if value == "" || slices.Contains(compacted, value) {
 			continue
 		}
+
 		compacted = append(compacted, value)
 	}
 

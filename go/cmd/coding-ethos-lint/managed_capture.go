@@ -4,14 +4,14 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -20,18 +20,34 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
-var errUnknownCapturedTool = errors.New("unknown captured lint tool")
-var errManagedCaptureRootRequired = errors.New("managed capture requires --ethos-root and --consumer-root")
+const (
+	configArgCapacity       = 2
+	golangciLintAutofixTool = "golangci-lint-autofix"
+	golangciLintTool        = "golangci-lint"
+	golangciLintRunCommand  = "run"
+	ruffCheckCommand        = "check"
+	ruffFormatCommand       = "format"
+)
+
+var (
+	errUnknownCapturedTool        = errors.New("unknown captured lint tool")
+	errManagedCaptureRootRequired = errors.New(
+		"managed capture requires --ethos-root and --consumer-root",
+	)
+	errManagedRunnerUnconfigured = errors.New(
+		"managed runner is not configured for lint capture",
+	)
+)
 
 type managedCaptureOptions struct {
+	PolicyContext capturePolicyData
 	Tool          string
 	EthosRoot     string
 	ConsumerRoot  string
 	InvocationCwd string
-	Args          []string
 	SandboxMode   string
 	OutputFormat  string
-	PolicyContext capturePolicyData
+	Args          []string
 }
 
 type managedToolCommand struct {
@@ -40,7 +56,7 @@ type managedToolCommand struct {
 }
 
 func runManagedCapture(options managedCaptureOptions) int {
-	if strings.TrimSpace(options.EthosRoot) == "" || strings.TrimSpace(options.ConsumerRoot) == "" {
+	if managedCaptureRootsMissing(options) {
 		exitErr(errManagedCaptureRootRequired)
 	}
 
@@ -54,14 +70,16 @@ func runManagedCapture(options managedCaptureOptions) int {
 		exitErr(err)
 	}
 
-	if drift := generatedConfigDrift(options.EthosRoot, options.ConsumerRoot); len(drift) > 0 {
-		printConfigDriftAndExit(drift)
+	drift := generatedConfigDrift(options.EthosRoot, options.ConsumerRoot)
+	if len(drift) > 0 {
+		return printConfigDrift(drift)
 	}
 
 	sourceRoots, err := config.LintSourceRoots()
 	if err != nil {
 		exitBlockedErr(err)
 	}
+
 	resolver, err := lintcapture.NewTargetResolver(
 		options.ConsumerRoot,
 		options.InvocationCwd,
@@ -75,18 +93,32 @@ func runManagedCapture(options managedCaptureOptions) int {
 	if err != nil {
 		exitErr(err)
 	}
+
 	toolArgs := resolver.RelativizeArgs(resolvedArgs)
-	enforcedArgs := enforceManagedToolArgs(tool, toolArgs, options.ConsumerRoot, options.EthosRoot)
+	enforcedArgs := enforceManagedToolArgs(
+		tool,
+		toolArgs,
+		options.ConsumerRoot,
+	)
+
+	captureCwd := options.ConsumerRoot
+	if isGolangciLintTool(tool.Name) {
+		captureCwd, enforcedArgs = normalizeGolangciLintWorktree(
+			options.ConsumerRoot,
+			enforcedArgs,
+		)
+	}
+
 	command := managedToolCommandFor(tool, options.EthosRoot)
 	if command.Path == "" {
-		exitErr(fmt.Errorf("coding-ethos managed %s runner is not configured for lint capture", options.Tool))
+		exitErr(fmt.Errorf("%w: %s", errManagedRunnerUnconfigured, options.Tool))
 	}
 
 	return runCapturedToolWithRequest(captureRequest{
 		Tool:         options.Tool,
 		ToolPath:     command.Path,
 		ToolPrefix:   command.Prefix,
-		Cwd:          options.ConsumerRoot,
+		Cwd:          captureCwd,
 		TraceRoot:    options.ConsumerRoot,
 		Args:         enforcedArgs,
 		SandboxMode:  options.SandboxMode,
@@ -97,7 +129,15 @@ func runManagedCapture(options managedCaptureOptions) int {
 	}, firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()))
 }
 
-func sandboxCapabilities(tool toolcatalog.Tool, config lintcapture.RuntimeConfig) sandbox.Capabilities {
+func managedCaptureRootsMissing(options managedCaptureOptions) bool {
+	return strings.TrimSpace(options.EthosRoot) == "" ||
+		strings.TrimSpace(options.ConsumerRoot) == ""
+}
+
+func sandboxCapabilities(
+	tool toolcatalog.Tool,
+	config lintcapture.RuntimeConfig,
+) sandbox.Capabilities {
 	spec := tool.CapabilitySpec()
 	writePaths := append([]string(nil), spec.WritePaths...)
 	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
@@ -130,15 +170,18 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 		request.Skills,
 	)
 	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
+
 	if result.Blocked() || len(result.Diagnostics) > 0 || len(result.Findings) > 0 {
-		if err := hookoutput.EncodeLintResult(
-			os.Stdout,
+		err := hookoutput.EncodeLintResult(
+			captureOutputWriter(request),
 			result,
 			firstCaptureNonEmpty(outputFormat, hookoutput.SelectedFormat()),
-		); err != nil {
+		)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: lint result not rendered: %v\n", err)
 		}
 	}
+
 	if result.Blocked() && execution.ExitCode == 0 {
 		return blockedExitCode
 	}
@@ -146,7 +189,15 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 	return execution.ExitCode
 }
 
-func generatedConfigDrift(ethosRoot string, repoRoot string) []lintcapture.ConfigDrift {
+func captureOutputWriter(request captureRequest) io.Writer {
+	if request.Output != nil {
+		return request.Output
+	}
+
+	return os.Stdout
+}
+
+func generatedConfigDrift(ethosRoot, repoRoot string) []lintcapture.ConfigDrift {
 	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethosRoot, repoRoot)
 	if err != nil {
 		return []lintcapture.ConfigDrift{{File: lintcapture.ToolConfigHashManifest}}
@@ -155,19 +206,31 @@ func generatedConfigDrift(ethosRoot string, repoRoot string) []lintcapture.Confi
 	return drift
 }
 
-func printConfigDriftAndExit(drift []lintcapture.ConfigDrift) {
+func printConfigDrift(drift []lintcapture.ConfigDrift) int {
 	fmt.Fprintln(os.Stdout, "format: toon")
 	fmt.Fprintln(os.Stdout, "tool: coding-ethos-config-integrity")
 	fmt.Fprintln(os.Stdout, "status: FAIL")
 	fmt.Fprintln(os.Stdout, "title: GENERATED TOOL CONFIG DRIFT")
-	fmt.Fprintf(os.Stdout, "message: Hey - lint failed - you modified: %s. Restore it before continuing. Or run make -C coding-ethos fix-configs.\n", joinDriftFiles(drift))
+	fmt.Fprintf(
+		os.Stdout,
+		"message: Hey - lint failed - you modified: %s. "+
+			"Restore it before continuing. "+
+			"Or run make -C coding-ethos fix-configs.\n",
+		joinDriftFiles(drift),
+	)
 	fmt.Fprintf(os.Stdout, "drifted_configs[%d]{file}:\n", len(drift))
+
 	for _, item := range drift {
 		fmt.Fprintf(os.Stdout, "  %s\n", item.File)
 	}
+
 	fmt.Fprintln(os.Stdout, "next[1]{action}:")
-	fmt.Fprintln(os.Stdout, "  Run make -C coding-ethos fix-configs, then rerun the lint command.")
-	os.Exit(blockedExitCode)
+	fmt.Fprintln(
+		os.Stdout,
+		"  Run make -C coding-ethos fix-configs, then rerun the lint command.",
+	)
+
+	return blockedExitCode
 }
 
 func joinDriftFiles(drift []lintcapture.ConfigDrift) string {
@@ -181,9 +244,10 @@ func joinDriftFiles(drift []lintcapture.ConfigDrift) string {
 
 func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
 	if managed := tool.ManagedExecutablePath(ethosRoot); managed != "" {
-		if managedExecutableStarts(tool, managed) {
+		if isExecutable(managed) {
 			return managedToolCommand{Path: managed}
 		}
+
 		if command := managedGoToolFallback(tool); command.Path != "" {
 			return command
 		}
@@ -198,16 +262,20 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	uvBin := strings.TrimSpace(os.Getenv("UV"))
 	if uvBin == "" {
 		var err error
-		uvBin, err = lookUsablePath("uv")
+
+		uvBin, err = exec.LookPath("uv")
 		if err != nil {
 			return managedToolCommand{}
 		}
 	}
-	if resolved, err := exec.LookPath(uvBin); err != nil {
+
+	resolved, err := exec.LookPath(uvBin)
+	if err != nil {
 		return managedToolCommand{}
-	} else {
-		uvBin = resolved
 	}
+
+	uvBin = resolved
+
 	runtime := tool.RuntimeSpec()
 	if len(runtime.Command) == 0 {
 		return managedToolCommand{}
@@ -217,6 +285,7 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 		Path: uvBin,
 		Prefix: []string{
 			"run",
+			"--quiet",
 			"--project",
 			filepath.Join(ethosRoot, "pre-commit", "hooks"),
 			runtime.Command[0],
@@ -224,17 +293,22 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 	}
 }
 
-func managedPythonToolCommand(tool toolcatalog.Tool, ethosRoot string) managedToolCommand {
+func managedPythonToolCommand(
+	tool toolcatalog.Tool,
+	ethosRoot string,
+) managedToolCommand {
 	runtime := tool.RuntimeSpec()
-	if runtime.Runtime != toolcatalog.RuntimePython && runtime.Runtime != toolcatalog.RuntimeUV {
+	if runtime.Runtime != toolcatalog.RuntimePython &&
+		runtime.Runtime != toolcatalog.RuntimeUV {
 		return managedToolCommand{}
 	}
+
 	if len(runtime.Command) == 0 {
 		return managedToolCommand{}
 	}
 
 	python := filepath.Join(ethosRoot, ".venv", "bin", "python")
-	if isExecutable(python) && commandStarts(python, "-m", runtime.Command[0], "--version") {
+	if isExecutable(python) {
 		return managedToolCommand{
 			Path:   python,
 			Prefix: []string{"-m", runtime.Command[0]},
@@ -249,25 +323,12 @@ func managedPythonToolCommand(tool toolcatalog.Tool, ethosRoot string) managedTo
 	return managedToolCommand{}
 }
 
-func managedExecutableStarts(tool toolcatalog.Tool, path string) bool {
-	if !isExecutable(path) {
-		return false
-	}
-
-	switch tool.Name {
-	case "actionlint":
-		return commandStarts(path, "-version")
-	default:
-		return commandStarts(path, "--version")
-	}
-}
-
 func managedGoToolFallback(tool toolcatalog.Tool) managedToolCommand {
 	if tool.Name != "actionlint" {
 		return managedToolCommand{}
 	}
 
-	goBin, err := lookUsablePath("go")
+	goBin, err := exec.LookPath("go")
 	if err != nil {
 		return managedToolCommand{}
 	}
@@ -281,40 +342,10 @@ func managedGoToolFallback(tool toolcatalog.Tool) managedToolCommand {
 	}
 }
 
-func lookUsablePath(name string) (string, error) {
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if strings.TrimSpace(dir) == "" {
-			dir = "."
-		}
-		candidate := filepath.Clean(filepath.Join(dir, name))
-		if !isExecutable(candidate) {
-			continue
-		}
-		if commandStarts(candidate, "--version") {
-			return candidate, nil
-		}
-	}
-
-	return "", exec.ErrNotFound
-}
-
-func commandStarts(path string, args ...string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	command := exec.CommandContext(ctx, path, args...)
-	if err := command.Run(); err != nil {
-		return false
-	}
-
-	return ctx.Err() == nil
-}
-
 func enforceManagedToolArgs(
 	tool toolcatalog.Tool,
 	args []string,
 	consumerRoot string,
-	ethosRoot string,
 ) []string {
 	if captureArgsInformational(args) {
 		return append([]string(nil), args...)
@@ -337,19 +368,44 @@ func enforceManagedToolArgs(
 			filepath.Join(consumerRoot, config.RepoConfig),
 		)
 	case "tombi":
-		return enforceFirstCommandArgs(args, "lint", []string{"--quiet", "--error-on-warnings"})
-	case "golangci-lint":
+		return enforceFirstCommandArgs(
+			args,
+			"lint",
+			[]string{"--quiet", "--error-on-warnings"},
+		)
+	case golangciLintTool, golangciLintAutofixTool:
 		config := tool.ConfigSpec()
 
-		return enforceSubcommandConfigArgs(
+		enforced := enforceSubcommandConfigArgs(
 			args,
-			"run",
+			golangciLintRunCommand,
 			"--config",
 			filepath.Join(consumerRoot, config.RepoConfig),
 		)
+		if tool.Name == golangciLintAutofixTool {
+			return ensureGolangciLintFix(enforced)
+		}
+
+		return enforced
 	default:
 		return enforceCatalogConfigArgs(tool, args, consumerRoot)
 	}
+}
+
+func ensureGolangciLintFix(args []string) []string {
+	if slices.Contains(args, "--fix") {
+		return args
+	}
+
+	if len(args) == 0 || args[0] != golangciLintRunCommand {
+		return append([]string{golangciLintRunCommand, "--fix"}, args...)
+	}
+
+	return append([]string{golangciLintRunCommand, "--fix"}, args[1:]...)
+}
+
+func isGolangciLintTool(name string) bool {
+	return name == golangciLintTool || name == golangciLintAutofixTool
 }
 
 func captureArgsInformational(args []string) bool {
@@ -365,12 +421,15 @@ func captureArgsInformational(args []string) bool {
 }
 
 func enforceRuffArgs(args []string, consumerRoot string) []string {
-	configArgs := []string{"--config", filepath.Join(consumerRoot, "ruff.toml")}
-	if len(args) > 0 && args[0] == "check" {
-		return append(append([]string{"check"}, configArgs...), args[1:]...)
+	configArgs := make([]string, 0, configArgCapacity+len(args))
+
+	configArgs = append(configArgs, "--config", filepath.Join(consumerRoot, "ruff.toml"))
+	if len(args) > 0 && args[0] == ruffCheckCommand {
+		return append(append([]string{ruffCheckCommand}, configArgs...), args[1:]...)
 	}
-	if len(args) > 0 && args[0] == "format" {
-		return append(append([]string{"format"}, configArgs...), args[1:]...)
+
+	if len(args) > 0 && args[0] == ruffFormatCommand {
+		return append(append([]string{ruffFormatCommand}, configArgs...), args[1:]...)
 	}
 
 	return append(configArgs, args...)
@@ -394,7 +453,11 @@ func enforceDotenvLinterArgs(args []string) []string {
 	return append([]string{"--plain", "--quiet", "check"}, trimmed...)
 }
 
-func enforceFirstCommandArgs(args []string, command string, enforced []string) []string {
+func enforceFirstCommandArgs(
+	args []string,
+	command string,
+	enforced []string,
+) []string {
 	if len(args) > 0 && args[0] == command {
 		return append(append([]string{command}, enforced...), args[1:]...)
 	}
@@ -413,15 +476,64 @@ func enforceSubcommandConfigArgs(
 		return append(append([]string{command}, configArgs...), args[1:]...)
 	}
 
-	return append(configArgs, args...)
+	return append(append([]string{command}, configArgs...), args...)
 }
 
-func enforceCatalogConfigArgs(tool toolcatalog.Tool, args []string, consumerRoot string) []string {
+func normalizeGolangciLintWorktree(
+	consumerRoot string,
+	args []string,
+) (string, []string) {
+	if len(args) == 0 || args[0] != "run" {
+		return consumerRoot, args
+	}
+
+	moduleIndex, moduleDir := firstGoModuleArgument(consumerRoot, args[1:])
+	if moduleIndex < 0 {
+		return consumerRoot, args
+	}
+
+	normalized := append([]string(nil), args[:moduleIndex+1]...)
+	normalized = append(normalized, "./...")
+	normalized = append(normalized, args[moduleIndex+2:]...)
+
+	return moduleDir, normalized
+}
+
+func firstGoModuleArgument(consumerRoot string, args []string) (int, string) {
+	for index, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		candidate := filepath.Join(consumerRoot, filepath.FromSlash(arg))
+		if regularFileExists(filepath.Join(candidate, "go.mod")) {
+			return index, candidate
+		}
+	}
+
+	return -1, ""
+}
+
+func regularFileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && info.Mode().IsRegular()
+}
+
+func enforceCatalogConfigArgs(
+	tool toolcatalog.Tool,
+	args []string,
+	consumerRoot string,
+) []string {
 	enforced := append([]string(nil), args...)
+
 	config := tool.ConfigSpec()
 	if config.RepoConfig != "" && len(config.Flags) > 0 {
-		enforced = append([]string{config.Flags[0], filepath.Join(consumerRoot, config.RepoConfig)}, enforced...)
+		enforced = append(
+			[]string{config.Flags[0], filepath.Join(consumerRoot, config.RepoConfig)},
+			enforced...)
 	}
+
 	if len(config.PostArgs) > 0 {
 		enforced = append(enforced, config.PostArgs...)
 	}

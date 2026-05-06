@@ -87,28 +87,36 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 	if analysis.RunsAnalyzed != 3 || analysis.Findings != 4 {
 		t.Fatalf("analysis counts = %#v", analysis)
 	}
+
 	if analysis.TopChecks[0] != (Count{Key: "python.import_order", Count: 2}) {
 		t.Fatalf("top checks = %#v", analysis.TopChecks)
 	}
+
 	if analysis.TopCodes[0] != (Count{Key: "ruff:E402", Count: 2}) {
 		t.Fatalf("top codes = %#v", analysis.TopCodes)
 	}
+
 	if analysis.RepeatedPatterns[0] != (Count{Key: "python.import_order|lib/python/...", Count: 2}) {
 		t.Fatalf("patterns = %#v", analysis.RepeatedPatterns)
 	}
+
 	if analysis.TopEthosIDs[0] != (Count{Key: "no-conditional-imports", Count: 2}) {
 		t.Fatalf("ethos IDs = %#v", analysis.TopEthosIDs)
 	}
+
 	if analysis.TopSkillIDs[0] != (Count{Key: "conditional-imports", Count: 2}) {
 		t.Fatalf("skill IDs = %#v", analysis.TopSkillIDs)
 	}
+
 	if analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 2}) {
 		t.Fatalf("skill hints = %#v", analysis.TopSkillHints)
 	}
+
 	if len(analysis.UnmappedCodes) == 0 ||
 		analysis.UnmappedCodes[0] != (Count{Key: "pylint:no-member", Count: 1}) {
 		t.Fatalf("unmapped codes = %#v", analysis.UnmappedCodes)
 	}
+
 	if len(analysis.GuidanceCandidates) == 0 ||
 		analysis.GuidanceCandidates[0].Advice != "Move imports to module scope." {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
@@ -158,18 +166,24 @@ func TestEncodeAnalysisHonorsFormat(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
-	if err := EncodeAnalysis(&buffer, analysis, "toon"); err != nil {
+
+	err := EncodeAnalysis(&buffer, analysis, "toon")
+	if err != nil {
 		t.Fatalf("EncodeAnalysis() returned error: %v", err)
 	}
+
 	if !strings.Contains(buffer.String(), "format: toon") ||
 		!strings.Contains(buffer.String(), "unmapped_codes[1]{key,count}:") {
 		t.Fatalf("TOON analysis missing expected content:\n%s", buffer.String())
 	}
 
 	buffer.Reset()
-	if err := EncodeAnalysis(&buffer, analysis, "json"); err != nil {
+
+	err = EncodeAnalysis(&buffer, analysis, "json")
+	if err != nil {
 		t.Fatalf("EncodeAnalysis(json) returned error: %v", err)
 	}
+
 	if !strings.Contains(buffer.String(), `"unmapped_codes"`) {
 		t.Fatalf("JSON analysis missing expected content:\n%s", buffer.String())
 	}
@@ -216,14 +230,17 @@ func TestAnalyzeTracesFiltersByFilePattern(t *testing.T) {
 	if analysis.Findings != 1 {
 		t.Fatalf("analysis should only include relevant Python finding: %#v", analysis)
 	}
+
 	if len(analysis.TopCodes) != 1 ||
 		analysis.TopCodes[0] != (Count{Key: "ruff:E402", Count: 1}) {
 		t.Fatalf("top codes = %#v", analysis.TopCodes)
 	}
+
 	if len(analysis.GuidanceCandidates) != 1 ||
 		analysis.GuidanceCandidates[0].CheckID != "python.import_order" {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
 	}
+
 	if len(analysis.TopSkillHints) != 1 ||
 		analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 1}) {
 		t.Fatalf("scoped skill hints = %#v", analysis.TopSkillHints)
@@ -234,6 +251,7 @@ func TestAnalyzeTracesAllowsMissingTraceDirectory(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "missing", "lint-runs")
+
 	analysis, err := AnalyzeTraces(path)
 	if err != nil {
 		t.Fatalf("AnalyzeTraces() returned error: %v", err)
@@ -273,6 +291,7 @@ func TestReplayTraceReturnsSavedResult(t *testing.T) {
 	if !result.Blocked() || len(result.Findings) != 1 {
 		t.Fatalf("replayed result = %#v", result)
 	}
+
 	if result.Findings[0].CheckID != "tool.mypy" {
 		t.Fatalf("replayed finding = %#v", result.Findings[0])
 	}
@@ -287,6 +306,7 @@ func writeTraceFixture(
 	t.Helper()
 
 	path := filepath.Join(root, name)
+
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create fixture: %v", err)
@@ -310,6 +330,7 @@ func writeTraceFixture(
 
 func skillHintsForFixture(findings []Finding) []SkillHint {
 	hints := []SkillHint{}
+
 	seen := map[string]bool{}
 	for _, finding := range findings {
 		if finding.SkillID == "" || seen[finding.SkillID] {

@@ -13,7 +13,7 @@ This package provides shared utilities for coding-ethos Go hooks.
 
 The parent `pre-commit/hooks/` directory contains the actual hook implementations:
 
-- `go-hooks/` - Compiled policy preflight, generic file checks, shell checks,
+- `go/cmd/coding-ethos-hook-runner/` - Compiled policy preflight, generic file checks, shell checks,
   direct-import enforcement, utility and SQL centralization, file and module doc
   checks, type-check orchestration, Python quality orchestration, pytest gating,
   comment suppression enforcement, manifest and plan validation, compiled

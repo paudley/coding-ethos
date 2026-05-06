@@ -12,7 +12,11 @@ import (
 	"strings"
 )
 
-var errLintSourceRootEscapesRepo = errors.New("configured lint source root escapes repo")
+var errLintSourceRootEscapesRepo = errors.New(
+	"configured lint source root escapes repo",
+)
+
+const defaultSearchBaseCount = 2
 
 type TargetResolver struct {
 	InvocationCwd string
@@ -29,14 +33,18 @@ func NewTargetResolver(
 	if err != nil {
 		return TargetResolver{}, fmt.Errorf("resolve consumer root: %w", err)
 	}
+
 	root = filepath.Clean(root)
+
 	cwd := strings.TrimSpace(invocationCwd)
 	if cwd == "" {
 		cwd = root
 	}
+
 	if !filepath.IsAbs(cwd) {
 		cwd = filepath.Join(root, cwd)
 	}
+
 	cwd = filepath.Clean(cwd)
 
 	roots, err := containedSourceRoots(root, sourceRoots)
@@ -54,6 +62,7 @@ func (resolver TargetResolver) ResolveArgs(args []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		resolved = append(resolved, targets...)
 	}
 
@@ -67,25 +76,6 @@ func (resolver TargetResolver) RelativizeArgs(args []string) []string {
 	}
 
 	return relativized
-}
-
-func (resolver TargetResolver) resolveArg(arg string) ([]string, error) {
-	if passthroughArg(arg) {
-		return []string{arg}, nil
-	}
-	if hasGlob(arg) {
-		matches, err := resolver.resolveGlob(arg)
-		if err != nil {
-			return nil, err
-		}
-		if len(matches) > 0 {
-			return matches, nil
-		}
-
-		return []string{arg}, nil
-	}
-
-	return []string{resolver.ResolvePath(arg)}, nil
 }
 
 func (resolver TargetResolver) ResolvePath(arg string) string {
@@ -121,16 +111,40 @@ func (resolver TargetResolver) RelativizePath(arg string) string {
 	return filepath.ToSlash(rel)
 }
 
+func (resolver TargetResolver) resolveArg(arg string) ([]string, error) {
+	if passthroughArg(arg) {
+		return []string{arg}, nil
+	}
+
+	if hasGlob(arg) {
+		matches, err := resolver.resolveGlob(arg)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(matches) > 0 {
+			return matches, nil
+		}
+
+		return []string{arg}, nil
+	}
+
+	return []string{resolver.ResolvePath(arg)}, nil
+}
+
 func (resolver TargetResolver) resolveGlob(pattern string) ([]string, error) {
 	for _, base := range resolver.searchBases() {
 		matches, err := filepath.Glob(filepath.Join(base, filepath.FromSlash(pattern)))
 		if err != nil {
 			return nil, fmt.Errorf("resolve lint target glob %q: %w", pattern, err)
 		}
+
 		if len(matches) == 0 {
 			continue
 		}
+
 		slices.Sort(matches)
+
 		for index := range matches {
 			matches[index] = filepath.Clean(matches[index])
 		}
@@ -142,7 +156,9 @@ func (resolver TargetResolver) resolveGlob(pattern string) ([]string, error) {
 }
 
 func (resolver TargetResolver) searchBases() []string {
-	bases := []string{resolver.InvocationCwd, resolver.ConsumerRoot}
+	bases := make([]string, 0, defaultSearchBaseCount+len(resolver.SourceRoots))
+	bases = append(bases, resolver.InvocationCwd, resolver.ConsumerRoot)
+
 	for _, root := range resolver.SourceRoots {
 		bases = append(bases, filepath.Join(resolver.ConsumerRoot, root))
 	}
@@ -157,21 +173,28 @@ func containedSourceRoots(repoRoot string, roots []string) ([]string, error) {
 		if text == "" {
 			continue
 		}
+
 		if filepath.IsAbs(text) {
 			return nil, fmt.Errorf("%w: %s", errLintSourceRootEscapesRepo, root)
 		}
+
 		resolved, err := filepath.Abs(filepath.Join(repoRoot, text))
 		if err != nil {
 			return nil, fmt.Errorf("resolve lint source root %q: %w", root, err)
 		}
+
 		resolved = filepath.Clean(resolved)
+
 		rel, err := filepath.Rel(repoRoot, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if err != nil || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("%w: %s", errLintSourceRootEscapesRepo, root)
 		}
+
 		if rel == "." {
 			continue
 		}
+
 		contained = append(contained, filepath.ToSlash(rel))
 	}
 

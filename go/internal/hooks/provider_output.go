@@ -127,6 +127,7 @@ func geminiAllowedOutput(result Result) providerHookOutput {
 
 func providerBlockedOutput(result Result) providerHookOutput {
 	message := ProviderBlockMessage(result)
+
 	remediation := agentmsg.FromDecisions(blockingDecisions(result.Decisions), result.Tool)
 	switch result.Provider {
 	case "gemini":
@@ -153,6 +154,7 @@ func providerBlockedOutput(result Result) providerHookOutput {
 				PermissionDecisionReason: message,
 			}
 		}
+
 		return output
 	default:
 		return providerHookOutput{
@@ -208,16 +210,19 @@ func codexBlockMessage(result Result) string {
 	}
 
 	parts := make([]string, 0, 3)
+
 	parts = append(parts, prefix+".")
 	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
 		parts = append(parts, severeViolationWarning)
 	}
 
 	decision := blocking[0]
+
 	reason := decision.Message
 	if decision.Suggestion != "" && !strings.Contains(reason, decision.Suggestion) {
 		reason = sentence(reason, decision.Suggestion)
 	}
+
 	if reason != "" {
 		parts = append(parts, reason)
 	}
@@ -268,6 +273,7 @@ func providerContextSummary(context string) string {
 
 func codexAllowedMessage(output *HookSpecificOutput) string {
 	context := output.AdditionalContext
+
 	normalized := strings.Join(strings.Fields(context), " ")
 	if normalized == "" {
 		return ""

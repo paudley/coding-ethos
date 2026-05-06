@@ -159,9 +159,11 @@ func (store *Store) HookReviews(
 	defer rows.Close()
 
 	results := []HookReview{}
+
 	for rows.Next() {
 		var result HookReview
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.TraceID,
 			&result.TrackingID,
@@ -169,11 +171,14 @@ func (store *Store) HookReviews(
 			&result.Reviewer,
 			&result.Notes,
 			&result.RecordedAtUTC,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan hook review: %w", err)
 		}
+
 		results = append(results, result)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate hook reviews: %w", err)
 	}
@@ -183,10 +188,14 @@ func (store *Store) HookReviews(
 
 func scanHookUsage(rows *sql.Rows) ([]HookUsageSummary, error) {
 	results := []HookUsageSummary{}
+
 	for rows.Next() {
-		var result HookUsageSummary
-		var avgRuntime sql.NullFloat64
-		if err := rows.Scan(
+		var (
+			result     HookUsageSummary
+			avgRuntime sql.NullFloat64
+		)
+
+		err := rows.Scan(
 			&result.Provider,
 			&result.Tool,
 			&result.OperationKind,
@@ -203,15 +212,20 @@ func scanHookUsage(rows *sql.Rows) ([]HookUsageSummary, error) {
 			&result.LastSeenUTC,
 			&result.LastTraceID,
 			&result.LastTrackingID,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan hook usage: %w", err)
 		}
+
 		if avgRuntime.Valid {
 			result.AvgRuntimeMS = avgRuntime.Float64
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate hook usage: %w", err)
 	}
 

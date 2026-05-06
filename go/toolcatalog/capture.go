@@ -3,7 +3,10 @@
 
 package toolcatalog
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 func (tool Tool) CaptureArgs(args []string) ([]string, bool) {
 	if len(tool.CaptureOutputArgs) == 0 ||
@@ -53,6 +56,7 @@ func (tool Tool) stripCaptureOutputArgs(args []string) []string {
 
 func stripArgs(args []string, flags ...string) []string {
 	stripped := []string{}
+
 	for _, arg := range args {
 		if !stringInSet(arg, flags) {
 			stripped = append(stripped, arg)
@@ -64,6 +68,7 @@ func stripArgs(args []string, flags ...string) []string {
 
 func stripArgsWithValues(args []string, flags ...string) []string {
 	stripped := []string{}
+
 	skipNext := false
 	for _, arg := range args {
 		if skipNext {
@@ -73,6 +78,7 @@ func stripArgsWithValues(args []string, flags ...string) []string {
 		}
 
 		matchedFlag := false
+
 		for _, flag := range flags {
 			if arg == flag {
 				matchedFlag = true
@@ -80,12 +86,14 @@ func stripArgsWithValues(args []string, flags ...string) []string {
 
 				break
 			}
+
 			if strings.HasPrefix(arg, flag+"=") {
 				matchedFlag = true
 
 				break
 			}
 		}
+
 		if matchedFlag {
 			continue
 		}
@@ -103,11 +111,5 @@ func appendCopy(args []string, extra ...string) []string {
 }
 
 func stringInSet(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if value == candidate {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(candidates, value)
 }

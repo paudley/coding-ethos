@@ -13,13 +13,16 @@ import (
 	"os/exec"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedExitCode = 2
-const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
+const (
+	blockedExitCode  = 2
+	adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
+)
 
 var (
 	errBundleRequired = errors.New("--bundle is required")
@@ -27,6 +30,8 @@ var (
 	errRunnerRequired = errors.New("--runner is required")
 	errInvalidBundle  = errors.New("invalid policy bundle")
 )
+
+var verifyAdminApproved = gitwrap.VerifyAdminApproved
 
 func main() {
 	os.Exit(runWithArgs(os.Args[1:]))
@@ -41,34 +46,40 @@ func runWithArgs(args []string) int {
 	err := flags.Parse(args)
 	if err != nil {
 		printErr(err)
+
 		return 1
 	}
 
 	if *bundlePath == "" {
 		printErr(errBundleRequired)
+
 		return 1
 	}
 
 	if *runnerPath == "" {
 		printErr(errRunnerRequired)
+
 		return 1
 	}
 
 	hookArgs := flags.Args()
 	if len(hookArgs) == 0 {
 		printErr(errHookRequired)
+
 		return 1
 	}
 
 	bundle, err := readBundle(*bundlePath)
 	if err != nil {
 		printErr(err)
+
 		return 1
 	}
 
 	err = bundle.Validate()
 	if err != nil {
 		printErr(fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)))
+
 		return 1
 	}
 
@@ -76,23 +87,28 @@ func runWithArgs(args []string) int {
 	if hookName == "commit-msg" {
 		if len(hookArgs) < 2 || strings.TrimSpace(hookArgs[1]) == "" {
 			printErr(errors.New("commit-msg hook requires a message file"))
+
 			return 1
 		}
 
 		result, runErr := lint.Run(bundle, lint.Options{
-			Scope: lint.ScopeCommit,
-			Cwd:   *cwd,
-			Files: []string{hookArgs[1]},
+			AdminApproved: adminApproved(*cwd),
+			Scope:         lint.ScopeCommit,
+			Cwd:           *cwd,
+			Files:         []string{hookArgs[1]},
 		})
 		if runErr != nil {
 			printErr(runErr)
+
 			return 1
 		}
+
 		lint.EnsureTraceID(&result)
 		logLintResult(*cwd, result)
 
 		if result.Blocked() {
 			encodeLintResult(result)
+
 			return blockedExitCode
 		}
 
@@ -103,24 +119,28 @@ func runWithArgs(args []string) int {
 		files, err := hookFiles(*cwd, hookName)
 		if err != nil {
 			printErr(err)
+
 			return 1
 		}
 
 		result, runErr := lint.Run(bundle, lint.Options{
-			AdminApproved: os.Getenv(adminApprovedEnv) == "1",
+			AdminApproved: adminApproved(*cwd),
 			Scope:         lint.ScopeStaged,
 			Cwd:           *cwd,
 			Files:         files,
 		})
 		if runErr != nil {
 			printErr(runErr)
+
 			return 1
 		}
+
 		lint.EnsureTraceID(&result)
 		logLintResult(*cwd, result)
 
 		if result.Blocked() {
 			encodeLintResult(result)
+
 			return blockedExitCode
 		}
 	}
@@ -128,7 +148,15 @@ func runWithArgs(args []string) int {
 	return runLegacyRunner(*runnerPath, hookArgs)
 }
 
-func hookFiles(cwd string, hookName string) ([]string, error) {
+func adminApproved(cwd string) bool {
+	if os.Getenv(adminApprovedEnv) == "1" {
+		return true
+	}
+
+	return verifyAdminApproved(cwd) == nil
+}
+
+func hookFiles(cwd, hookName string) ([]string, error) {
 	if hookName != "pre-commit" {
 		return nil, nil
 	}
@@ -150,7 +178,8 @@ func hookFiles(cwd string, hookName string) ([]string, error) {
 	}
 
 	files := []string{}
-	for _, line := range strings.Split(string(output), "\n") {
+
+	for line := range strings.SplitSeq(string(output), "\n") {
 		file := strings.TrimSpace(line)
 		if file != "" {
 			files = append(files, file)
@@ -176,7 +205,8 @@ func readBundle(path string) (policy.Bundle, error) {
 }
 
 func encodeLintResult(result lint.Result) {
-	if err := encodeLintResultTo(os.Stderr, result); err != nil {
+	err := encodeLintResultTo(os.Stderr, result)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
 	}
 }
@@ -211,6 +241,7 @@ func blockedOnlyResult(result lint.Result) lint.Result {
 		filtered.Decisions = append(filtered.Decisions, decision)
 		filtered.Diagnostics = append(filtered.Diagnostics, decision.Diagnostics...)
 	}
+
 	for _, finding := range result.Findings {
 		if !finding.Blocking {
 			continue
@@ -242,11 +273,6 @@ func runLegacyRunner(runnerPath string, args []string) int {
 	fmt.Fprintf(os.Stderr, "run hook group runner: %v\n", err)
 
 	return 1
-}
-
-func exitErr(err error) {
-	printErr(err)
-	os.Exit(1)
 }
 
 func printErr(err error) {

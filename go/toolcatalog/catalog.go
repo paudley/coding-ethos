@@ -16,25 +16,26 @@ const (
 )
 
 type Tool struct {
+	FallbackBundleConfig string         `json:"fallback_bundle_config,omitempty"`
 	Name                 string         `json:"name"`
+	ManagedBinary        string         `json:"managed_binary,omitempty"`
 	Parser               string         `json:"parser"`
 	Category             string         `json:"category"`
 	OutputFormat         string         `json:"output_format"`
 	Advice               string         `json:"advice,omitempty"`
 	Runtime              Runtime        `json:"runtime"`
 	RepoConfig           string         `json:"repo_config,omitempty"`
-	FallbackBundleConfig string         `json:"fallback_bundle_config,omitempty"`
-	Command              []string       `json:"command"`
 	CaptureOutputArgs    []string       `json:"capture_output_args,omitempty"`
-	CaptureStripArgs     []string       `json:"capture_strip_args,omitempty"`
-	CaptureStripFlags    []string       `json:"capture_strip_flags,omitempty"`
+	FilePrefixes         []string       `json:"file_prefixes,omitempty"`
+	BaseNamePrefixes     []string       `json:"base_name_prefixes,omitempty"`
+	Command              []string       `json:"command"`
 	CaptureAfterFirst    []string       `json:"capture_after_first,omitempty"`
 	CaptureMutatingArgs  []string       `json:"capture_mutating_args,omitempty"`
 	CaptureMutatingFirst []string       `json:"capture_mutating_first,omitempty"`
 	ConfigFlags          []string       `json:"config_flags,omitempty"`
 	FileExtensions       []string       `json:"file_extensions,omitempty"`
-	FilePrefixes         []string       `json:"file_prefixes,omitempty"`
-	BaseNamePrefixes     []string       `json:"base_name_prefixes,omitempty"`
+	CaptureStripFlags    []string       `json:"capture_strip_flags,omitempty"`
+	CaptureStripArgs     []string       `json:"capture_strip_args,omitempty"`
 	Languages            []string       `json:"languages,omitempty"`
 	PostConfigArgs       []string       `json:"post_config_args,omitempty"`
 	Capabilities         CapabilitySpec `json:"capabilities,omitempty"`
@@ -46,8 +47,8 @@ type Tool struct {
 
 type CapturedTool struct {
 	Name         string
-	ModuleNames  []string
 	Description  string
+	ModuleNames  []string
 	PythonModule bool
 }
 
@@ -82,37 +83,37 @@ type FileMatchSpec struct {
 }
 
 type CapabilitySpec struct {
+	SandboxProfile     string   `json:"sandbox_profile,omitempty"`
+	SeccompProfilePath string   `json:"seccomp_profile_path,omitempty"`
+	SeccompProfile     string   `json:"seccomp_profile,omitempty"`
 	Tags               []string `json:"tags,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
-	SandboxProfile     string   `json:"sandbox_profile,omitempty"`
-	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
-	MemoryMB           int      `json:"memory_mb,omitempty"`
 	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
+	MemoryMB           int      `json:"memory_mb,omitempty"`
+	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
 	RequiresNetwork    bool     `json:"requires_network,omitempty"`
 	RequiresGit        bool     `json:"requires_git,omitempty"`
 	RequiresEnv        bool     `json:"requires_env,omitempty"`
 	RequiresProcesses  bool     `json:"requires_processes,omitempty"`
-	SeccompProfile     string   `json:"seccomp_profile,omitempty"`
-	SeccompProfilePath string   `json:"seccomp_profile_path,omitempty"`
 }
 
 type CapabilityView struct {
+	SeccompProfile     string   `json:"seccomp_profile"`
+	SandboxProfile     string   `json:"sandbox_profile"`
 	Name               string   `json:"name"`
+	SeccompProfilePath string   `json:"seccomp_profile_path"`
 	Command            []string `json:"command"`
 	Tags               []string `json:"tags"`
 	ReadPaths          []string `json:"read_paths"`
 	WritePaths         []string `json:"write_paths"`
-	SandboxProfile     string   `json:"sandbox_profile"`
 	TimeoutSeconds     int      `json:"timeout_seconds"`
-	MemoryMB           int      `json:"memory_mb"`
 	CPUQuotaPercent    int      `json:"cpu_quota_percent"`
+	MemoryMB           int      `json:"memory_mb"`
 	RequiresNetwork    bool     `json:"requires_network"`
 	RequiresGit        bool     `json:"requires_git"`
 	RequiresEnv        bool     `json:"requires_env"`
 	RequiresProcesses  bool     `json:"requires_processes"`
-	SeccompProfile     string   `json:"seccomp_profile"`
-	SeccompProfilePath string   `json:"seccomp_profile_path"`
 }
 
 type ShimSpec struct {
@@ -192,28 +193,35 @@ func (tool Tool) CapabilitySpec() CapabilitySpec {
 		spec.ReadPaths = append([]string{"."}, spec.ReadPaths...)
 		spec.WritePaths = append([]string{".coding-ethos/cache"}, spec.WritePaths...)
 	}
+
 	if spec.TimeoutSeconds == 0 && tool.Name != "gemini-check" {
 		spec.TimeoutSeconds = 300
 	}
+
 	if spec.MemoryMB == 0 && tool.Name != "gemini-check" {
 		spec.MemoryMB = 2048
 	}
+
 	if spec.CPUQuotaPercent == 0 && tool.Name != "gemini-check" {
 		spec.CPUQuotaPercent = 100
 	}
+
 	if spec.SeccompProfile == "" && tool.Name != "gemini-check" {
 		spec.SeccompProfile = "deny-privilege"
 	}
+
 	if tool.Name == "gemini-check" {
 		spec.Tags = appendCapabilityTags(spec.Tags, "network")
 	} else {
 		spec.Tags = appendCapabilityTags(spec.Tags, "no-network")
 	}
+
 	if spec.RequiresGit {
 		spec.Tags = appendCapabilityTags(spec.Tags, "git")
 	} else {
 		spec.Tags = appendCapabilityTags(spec.Tags, "no-git")
 	}
+
 	spec.Tags = append([]string(nil), spec.Tags...)
 	spec.ReadPaths = append([]string(nil), spec.ReadPaths...)
 	spec.WritePaths = append([]string(nil), spec.WritePaths...)
@@ -245,14 +253,17 @@ func (tool Tool) CapabilityView() CapabilityView {
 
 func appendCapabilityTags(existing []string, tags ...string) []string {
 	seen := map[string]struct{}{}
+
 	merged := make([]string, 0, len(existing)+len(tags))
 	for _, tag := range append(append([]string(nil), existing...), tags...) {
 		if tag == "" {
 			continue
 		}
+
 		if _, ok := seen[tag]; ok {
 			continue
 		}
+
 		seen[tag] = struct{}{}
 		merged = append(merged, tag)
 	}
@@ -262,6 +273,7 @@ func appendCapabilityTags(existing []string, tags ...string) []string {
 
 func ToolCapabilityViews() []CapabilityView {
 	tools := HookOwnedTools()
+
 	views := make([]CapabilityView, 0, len(tools))
 	for _, tool := range tools {
 		views = append(views, tool.CapabilityView())
@@ -273,12 +285,32 @@ func ToolCapabilityViews() []CapabilityView {
 func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
 	switch tool.Runtime {
 	case RuntimeGo:
-		return filepath.Join(ethosRoot, "build", "toolchain", "go-bin", tool.Name)
+		return filepath.Join(
+			ethosRoot,
+			"build",
+			"toolchain",
+			"go-bin",
+			tool.managedBinaryName(),
+		)
 	case RuntimeBinary:
-		return filepath.Join(ethosRoot, "build", "toolchain", "github-bin", tool.Name)
+		return filepath.Join(
+			ethosRoot,
+			"build",
+			"toolchain",
+			"github-bin",
+			tool.managedBinaryName(),
+		)
 	default:
 		return ""
 	}
+}
+
+func (tool Tool) managedBinaryName() string {
+	if tool.ManagedBinary != "" {
+		return tool.ManagedBinary
+	}
+
+	return tool.Name
 }
 
 func CapturedLintTools() []CapturedTool {
@@ -308,6 +340,7 @@ func CapturedLintTools() []CapturedTool {
 
 func CapturedLintShimSpecs(runnerPath string) []ShimSpec {
 	tools := CapturedLintTools()
+
 	specs := make([]ShimSpec, 0, len(tools))
 	for _, tool := range tools {
 		specs = append(specs, ShimSpec{
@@ -374,6 +407,10 @@ func displayNameForTool(name string) string {
 		return "ShellCheck"
 	case "golangci-lint":
 		return "golangci-lint"
+	case "golangci-lint-autofix":
+		return "golangci-lint autofix"
+	case "golines":
+		return "golines"
 	case "actionlint":
 		return "actionlint"
 	case "yamllint":
@@ -405,6 +442,7 @@ func toolchainToolDefinitions() []Tool {
 		tombiTool(),
 		dotenvLinterTool(),
 		golangciLintTool(),
+		golinesTool(),
 	}
 }
 
@@ -413,6 +451,7 @@ func hookOwnedToolDefinitions() []Tool {
 		pyupgradeTool(),
 		ruffFormatTool(),
 		ruffAutofixTool(),
+		golangciLintAutofixTool(),
 		gofmtTool(),
 		goVetTool(),
 		goTestTool(),
@@ -559,13 +598,18 @@ func actionlintTool() Tool {
 
 func shellcheckTool() Tool {
 	return Tool{
-		Name:              "shellcheck",
-		Parser:            "shellcheck",
-		Category:          "shell",
-		OutputFormat:      "json",
-		Advice:            "Fix shell diagnostics with quoted variables, explicit error handling, and portable constructs.",
-		Runtime:           RuntimeBinary,
-		Command:           []string{"shellcheck", "--severity=warning", "-x", "--format=json"},
+		Name:         "shellcheck",
+		Parser:       "shellcheck",
+		Category:     "shell",
+		OutputFormat: "json",
+		Advice:       "Fix shell diagnostics with quoted variables, explicit error handling, and portable constructs.",
+		Runtime:      RuntimeBinary,
+		Command: []string{
+			"shellcheck",
+			"--severity=warning",
+			"-x",
+			"--format=json",
+		},
 		CaptureOutputArgs: []string{"--format=json"},
 		CaptureStripArgs:  []string{"--format", "-f"},
 		FileExtensions:    []string{".sh", ".bash", ".zsh", ".ksh"},
@@ -631,10 +675,15 @@ func banditTool() Tool {
 		FileExtensions:    []string{".py"},
 		Languages:         []string{"python"},
 		RepoConfig:        ".bandit.yml",
-		PostConfigArgs:    []string{"--severity-level", "medium", "--confidence-level", "medium"},
-		PassFilesAsArgs:   true,
-		UseHookProject:    true,
-		EnabledByDefault:  true,
+		PostConfigArgs: []string{
+			"--severity-level",
+			"medium",
+			"--confidence-level",
+			"medium",
+		},
+		PassFilesAsArgs:  true,
+		UseHookProject:   true,
+		EnabledByDefault: true,
 	}
 }
 
@@ -737,19 +786,47 @@ func ruffFormatTool() Tool {
 
 func ruffAutofixTool() Tool {
 	return Tool{
-		Name:             "ruff-autofix",
-		Parser:           "ruff",
-		Category:         "format",
-		OutputFormat:     "json",
-		Advice:           "Apply Ruff autofixes, then resolve remaining diagnostics structurally.",
-		Runtime:          RuntimePython,
-		Command:          []string{"ruff", "check", "--fix", "--quiet", "--ignore-noqa", "--output-format", "json"},
+		Name:         "ruff-autofix",
+		Parser:       "ruff",
+		Category:     "format",
+		OutputFormat: "json",
+		Advice:       "Apply Ruff autofixes, then resolve remaining diagnostics structurally.",
+		Runtime:      RuntimePython,
+		Command: []string{
+			"ruff",
+			"check",
+			"--fix",
+			"--quiet",
+			"--ignore-noqa",
+			"--output-format",
+			"json",
+		},
 		ConfigFlags:      []string{"--config"},
 		FileExtensions:   []string{".py", ".pyi"},
 		Languages:        []string{"python"},
 		RepoConfig:       "ruff.toml",
 		PassFilesAsArgs:  true,
 		UseHookProject:   true,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func golangciLintAutofixTool() Tool {
+	return Tool{
+		Name:             "golangci-lint-autofix",
+		ManagedBinary:    "golangci-lint",
+		Parser:           "golangci-lint",
+		Category:         "format",
+		OutputFormat:     "json",
+		Advice:           "Apply golangci-lint autofixes, then resolve remaining diagnostics structurally.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"golangci-lint", "run", "--fix"},
+		ConfigFlags:      []string{"--config"},
+		FileExtensions:   []string{".go"},
+		Languages:        []string{"go"},
+		RepoConfig:       ".golangci.yml",
+		PassFilesAsArgs:  false,
 		Fast:             true,
 		EnabledByDefault: true,
 	}
@@ -767,6 +844,23 @@ func gofmtTool() Tool {
 		FileExtensions:   []string{".go"},
 		Languages:        []string{"go"},
 		PassFilesAsArgs:  false,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
+func golinesTool() Tool {
+	return Tool{
+		Name:             "golines",
+		Parser:           "fallback",
+		Category:         "format",
+		OutputFormat:     "text",
+		Advice:           "Run golines to keep Go code within the shared line-length policy.",
+		Runtime:          RuntimeGo,
+		Command:          []string{"golines", "-w", "-m", "88"},
+		FileExtensions:   []string{".go"},
+		Languages:        []string{"go"},
+		PassFilesAsArgs:  true,
 		Fast:             true,
 		EnabledByDefault: true,
 	}

@@ -12,8 +12,10 @@ import (
 )
 
 func TestRunWithIORequiresCommandRootAndBundleRoot(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
 
 	err := runWithIO(nil, strings.NewReader(""), &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "command is required") {
@@ -38,7 +40,9 @@ func TestRunWithIORequiresCommandRootAndBundleRoot(t *testing.T) {
 
 func TestRunUsesProcessArgs(t *testing.T) {
 	originalArgs := os.Args
+
 	t.Cleanup(func() { os.Args = originalArgs })
+
 	os.Args = []string{"coding-ethos-hook-log"}
 
 	err := run()
@@ -49,10 +53,12 @@ func TestRunUsesProcessArgs(t *testing.T) {
 
 func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 	root := t.TempDir()
+
 	bundleRoot := filepath.Join(root, "pre-commit")
 	if err := os.MkdirAll(bundleRoot, 0o755); err != nil {
 		t.Fatalf("create bundle root: %v", err)
 	}
+
 	gitPath := filepath.Join(root, "git")
 	if err := os.WriteFile(
 		gitPath,
@@ -61,6 +67,7 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write fake git: %v", err)
 	}
+
 	commandPath := filepath.Join(root, "hook")
 	if err := os.WriteFile(
 		commandPath,
@@ -70,8 +77,11 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 		t.Fatalf("write hook command: %v", err)
 	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
 	err := runWithIO(
 		[]string{
 			"--root", root,
@@ -86,14 +96,19 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runWithIO() returned error: %v", err)
 	}
+
 	if !strings.Contains(stdout.String(), "stdout text") ||
 		!strings.Contains(stderr.String(), "stderr text") {
 		t.Fatalf("captured stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	matches, err := filepath.Glob(filepath.Join(root, ".coding-ethos", "hook-runs", "*", "metadata.env"))
+
+	matches, err := filepath.Glob(
+		filepath.Join(root, ".coding-ethos", "hook-runs", "*", "metadata.env"),
+	)
 	if err != nil {
 		t.Fatalf("glob metadata: %v", err)
 	}
+
 	if len(matches) != 1 {
 		t.Fatalf("metadata matches = %#v", matches)
 	}

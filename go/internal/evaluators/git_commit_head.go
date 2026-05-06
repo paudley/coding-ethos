@@ -225,6 +225,7 @@ func commitHeadStatePath(cwd string) (string, error) {
 
 func gitWorktreeRoot(cwd string) (string, error) {
 	cmd := gitCommand(cwd, "rev-parse", "--show-toplevel")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("resolve git worktree root: %w", err)
@@ -237,6 +238,7 @@ var errNoHead = errors.New("git repository has no HEAD commit")
 
 func currentHead(cwd string) (string, error) {
 	cmd := gitCommand(cwd, "rev-parse", "--verify", "HEAD")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", errNoHead

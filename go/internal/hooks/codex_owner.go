@@ -22,6 +22,7 @@ func shouldSkipNestedCodexHook(event Event) bool {
 	cwd := event.Cwd
 	if strings.TrimSpace(cwd) == "" {
 		var err error
+
 		cwd, err = os.Getwd()
 		if err != nil {
 			return false

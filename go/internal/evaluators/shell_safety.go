@@ -17,6 +17,7 @@ func EvaluateShellMalformedCommand(
 	if strings.TrimSpace(context.Command) == "" {
 		return nil, nil
 	}
+
 	if _, err := shellparse.Commands(context.Command); err == nil {
 		return nil, nil
 	}
@@ -26,6 +27,7 @@ func EvaluateShellMalformedCommand(
 
 func blockShellDecision(policyDef policy.Policy, command string) []policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
+
 	decision.Evidence = map[string]any{"command": command}
 	if commands, err := shellparse.Commands(command); err == nil {
 		decision.Evidence["shell_commands"] = shellDecisionEvidence(commands)

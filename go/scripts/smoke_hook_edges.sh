@@ -14,9 +14,10 @@ case "${1:?usage: smoke_hook_edges.sh <gitlink|build-failure> ...}" in
     mkdir -p "$common_dir/coding-ethos-hooks/bin" "$common_dir/coding-ethos-hooks/policy"
     cp "$go_bin"/coding-ethos-* "$common_dir/coding-ethos-hooks/bin/"
     cp "$policy_dir"/policy-bundle.json "$common_dir/coding-ethos-hooks/policy/"
-    go build -C "$repo_root/pre-commit/hooks/go-hooks" \
+    go build -C "$repo_root/go" \
       -buildvcs=false \
-      -o "$common_dir/coding-ethos-hooks/coding-ethos-git-hook" .
+      -o "$common_dir/coding-ethos-hooks/coding-ethos-git-hook" \
+      ./cmd/coding-ethos-hook-runner
     ;;
   gitlink)
     lint_bin="${2:?lint bin required}"

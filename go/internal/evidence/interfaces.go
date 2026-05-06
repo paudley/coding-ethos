@@ -6,12 +6,12 @@ package evidence
 import "context"
 
 type CodeFact struct {
-	SourceSpan    SourceSpan `json:"source_span"`
 	ID            string     `json:"id"`
 	RepoID        string     `json:"repo_id,omitempty"`
 	NodeKind      string     `json:"node_kind,omitempty"`
 	Signature     string     `json:"signature,omitempty"`
 	SearchText    string     `json:"search_text,omitempty"`
+	SourceSpan    SourceSpan `json:"source_span"`
 	SchemaVersion int        `json:"schema_version"`
 }
 

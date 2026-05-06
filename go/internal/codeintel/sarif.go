@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -15,12 +16,6 @@ type sarifLog struct {
 }
 
 type sarifInputRun struct {
-	Tool struct {
-		Driver struct {
-			Name  string           `json:"name,omitempty"`
-			Rules []sarifInputRule `json:"rules,omitempty"`
-		} `json:"driver"`
-	} `json:"tool"`
 	AutomationDetails struct {
 		ID   string `json:"id,omitempty"`
 		GUID string `json:"guid,omitempty"`
@@ -28,8 +23,14 @@ type sarifInputRun struct {
 	Properties struct {
 		Scope string `json:"scope,omitempty"`
 	} `json:"properties,omitempty"`
-	Results      []sarifInputResult `json:"results"`
-	BaselineGUID string             `json:"baselineGuid,omitempty"`
+	BaselineGUID string `json:"baselineGuid,omitempty"`
+	Tool         struct {
+		Driver struct {
+			Name  string           `json:"name,omitempty"`
+			Rules []sarifInputRule `json:"rules,omitempty"`
+		} `json:"driver"`
+	} `json:"tool"`
+	Results []sarifInputResult `json:"results"`
 }
 
 type sarifInputRule struct {
@@ -71,6 +72,20 @@ type sarifInputProperties struct {
 		SearchText    string   `json:"search_text,omitempty"`
 		PrincipleIDs  []string `json:"principle_ids,omitempty"`
 	} `json:"finding,omitempty"`
+	CELExpression    string `json:"cel_expression,omitempty"`
+	Implementation   string `json:"implementation,omitempty"`
+	ASTLanguage      string `json:"ast_language,omitempty"`
+	ASTNodeKind      string `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind    string `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName    string `json:"ast_symbol_name,omitempty"`
+	Advice           string `json:"advice,omitempty"`
+	SourceTool       string `json:"source_tool,omitempty"`
+	Code             string `json:"code,omitempty"`
+	SkillID          string `json:"skill_id,omitempty"`
+	ASTSymbolPath    string `json:"ast_symbol_path,omitempty"`
+	PolicyID         string `json:"policy_id,omitempty"`
+	PolicySource     string `json:"policy_source,omitempty"`
+	SearchText       string `json:"search_text,omitempty"`
 	AgentRemediation []struct {
 		ID       string `json:"id,omitempty"`
 		PolicyID string `json:"policy_id,omitempty"`
@@ -80,30 +95,22 @@ type sarifInputProperties struct {
 		File     string `json:"file,omitempty"`
 		Path     string `json:"path,omitempty"`
 	} `json:"agent_remediation,omitempty"`
-	Advice         string   `json:"advice,omitempty"`
-	ASTLanguage    string   `json:"ast_language,omitempty"`
-	ASTNodeKind    string   `json:"ast_node_kind,omitempty"`
-	ASTSymbolKind  string   `json:"ast_symbol_kind,omitempty"`
-	ASTSymbolName  string   `json:"ast_symbol_name,omitempty"`
-	ASTSymbolPath  string   `json:"ast_symbol_path,omitempty"`
-	CELExpression  string   `json:"cel_expression,omitempty"`
-	Code           string   `json:"code,omitempty"`
-	EthosIDs       []string `json:"ethos_ids,omitempty"`
-	Implementation string   `json:"implementation,omitempty"`
-	PolicyID       string   `json:"policy_id,omitempty"`
-	PolicySource   string   `json:"policy_source,omitempty"`
-	SearchText     string   `json:"search_text,omitempty"`
-	SkillID        string   `json:"skill_id,omitempty"`
-	SourceTool     string   `json:"source_tool,omitempty"`
+	EthosIDs []string `json:"ethos_ids,omitempty"`
 }
 
-func (ingester TraceIngester) IngestSARIF(ctx context.Context, sourcePath string, payload []byte) error {
+func (ingester TraceIngester) IngestSARIF(
+	ctx context.Context,
+	sourcePath string,
+	payload []byte,
+) error {
 	runs, err := DecodeSARIFRuns(sourcePath, payload)
 	if err != nil {
 		return err
 	}
+
 	for _, run := range runs {
-		if err := ingester.store.IngestSARIFRun(ctx, run); err != nil {
+		err := ingester.store.IngestSARIFRun(ctx, run)
+		if err != nil {
 			return err
 		}
 	}
@@ -122,9 +129,12 @@ func DecodeSARIFRun(sourcePath string, payload []byte) (SARIFRun, error) {
 
 func DecodeSARIFRuns(sourcePath string, payload []byte) ([]SARIFRun, error) {
 	var log sarifLog
-	if err := json.Unmarshal(payload, &log); err != nil {
+
+	err := json.Unmarshal(payload, &log)
+	if err != nil {
 		return nil, fmt.Errorf("decode SARIF %q: %w", sourcePath, err)
 	}
+
 	if len(log.Runs) == 0 {
 		return nil, fmt.Errorf("SARIF %q has no runs", sourcePath)
 	}
@@ -135,6 +145,7 @@ func DecodeSARIFRuns(sourcePath string, payload []byte) ([]SARIFRun, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		runs = append(runs, run)
 	}
 
@@ -151,11 +162,12 @@ func decodeSARIFRun(
 	if err != nil {
 		return SARIFRun{}, fmt.Errorf("marshal SARIF run %q: %w", sourcePath, err)
 	}
+
 	run := SARIFRun{
 		ID: stableID(
 			"sarif-run",
 			sourcePath,
-			fmt.Sprintf("%d", runIndex),
+			strconv.Itoa(runIndex),
 			input.Tool.Driver.Name,
 			input.AutomationDetails.ID,
 			string(rawRun),
@@ -168,17 +180,23 @@ func decodeSARIFRun(
 		BaselineGUID: input.BaselineGUID,
 		Raw:          payload,
 	}
+
 	rules := map[string]sarifInputProperties{}
 	for _, rule := range input.Tool.Driver.Rules {
 		rules[rule.ID] = rule.Properties
 	}
+
 	for index, result := range input.Results {
 		rawResult, err := json.Marshal(result)
 		if err != nil {
 			return SARIFRun{}, fmt.Errorf("marshal SARIF result %d: %w", index, err)
 		}
+
 		result.raw = rawResult
-		run.Results = append(run.Results, sarifResultReference(run.ID, index, result, rules[result.RuleID]))
+		run.Results = append(
+			run.Results,
+			sarifResultReference(run.ID, index, result, rules[result.RuleID]),
+		)
 	}
 
 	return run, nil
@@ -193,20 +211,31 @@ func sarifResultReference(
 	properties := mergeSARIFInputProperties(ruleProperties, result.Properties)
 	location := firstSARIFInputLocation(result.Locations)
 	fingerprint := firstSARIFInputFingerprint(result.PartialFingerprints)
+
 	remediationID := ""
 	if len(properties.AgentRemediation) > 0 {
 		remediationID = strings.TrimSpace(properties.AgentRemediation[0].ID)
 	}
+
 	findingID := ""
 	if properties.Finding != nil {
 		findingID = strings.TrimSpace(properties.Finding.ID)
 	}
+
 	searchText := firstNonEmpty(
 		properties.SearchText,
 		sarifReferenceSearchText(result, properties, location.URI),
 	)
+
 	reference := SARIFResultReference{
-		ID:            stableID("sarif-result", runID, result.RuleID, fingerprint, location.URI, fmt.Sprintf("%d", index)),
+		ID: stableID(
+			"sarif-result",
+			runID,
+			result.RuleID,
+			fingerprint,
+			location.URI,
+			strconv.Itoa(index),
+		),
 		RuleID:        strings.TrimSpace(result.RuleID),
 		Level:         strings.TrimSpace(result.Level),
 		Message:       strings.TrimSpace(result.Message.Text),
@@ -233,10 +262,19 @@ func sarifResultReference(
 	if properties.Finding != nil {
 		reference.PolicyID = firstNonEmpty(reference.PolicyID, properties.Finding.PolicyID)
 		reference.SkillID = firstNonEmpty(reference.SkillID, properties.Finding.SkillID)
-		reference.EvaluatorKind = firstNonEmpty(reference.EvaluatorKind, properties.Finding.EvaluatorKind)
-		reference.SearchText = firstNonEmpty(reference.SearchText, properties.Finding.SearchText)
-		reference.PrincipleIDs = compactStrings(append(reference.PrincipleIDs, properties.Finding.PrincipleIDs...))
+		reference.EvaluatorKind = firstNonEmpty(
+			reference.EvaluatorKind,
+			properties.Finding.EvaluatorKind,
+		)
+		reference.SearchText = firstNonEmpty(
+			reference.SearchText,
+			properties.Finding.SearchText,
+		)
+		reference.PrincipleIDs = compactStrings(
+			append(reference.PrincipleIDs, properties.Finding.PrincipleIDs...),
+		)
 	}
+
 	reference.CELPolicyID = firstNonEmpty(reference.CELPolicyID, reference.PolicyID)
 
 	return reference
@@ -252,6 +290,7 @@ func firstSARIFInputLocation(locations []sarifInputLocation) sarifInputLocationV
 	if len(locations) == 0 {
 		return sarifInputLocationValue{}
 	}
+
 	location := locations[0].PhysicalLocation
 
 	return sarifInputLocationValue{
@@ -271,6 +310,7 @@ func firstSARIFInputFingerprint(fingerprints map[string]string) string {
 			return value
 		}
 	}
+
 	for _, value := range fingerprints {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
@@ -299,10 +339,12 @@ func mergeSARIFInputProperties(
 	merged.SearchText = firstNonEmpty(result.SearchText, merged.SearchText)
 	merged.SkillID = firstNonEmpty(result.SkillID, merged.SkillID)
 	merged.SourceTool = firstNonEmpty(result.SourceTool, merged.SourceTool)
+
 	merged.EthosIDs = append(append([]string{}, merged.EthosIDs...), result.EthosIDs...)
 	if result.Finding != nil {
 		merged.Finding = result.Finding
 	}
+
 	if len(result.AgentRemediation) > 0 {
 		merged.AgentRemediation = result.AgentRemediation
 	}

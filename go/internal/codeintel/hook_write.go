@@ -14,29 +14,39 @@ func insertHookAnalytics(ctx context.Context, tx *sql.Tx, trace Trace) error {
 	if trace.HookEvent == nil {
 		return nil
 	}
-	if err := insertHookEvent(ctx, tx, *trace.HookEvent); err != nil {
+
+	err := insertHookEvent(ctx, tx, *trace.HookEvent)
+	if err != nil {
 		return err
 	}
+
 	for _, decision := range trace.HookDecisions {
-		if err := insertHookDecision(ctx, tx, decision); err != nil {
+		err := insertHookDecision(ctx, tx, decision)
+		if err != nil {
 			return err
 		}
 	}
+
 	for _, target := range trace.HookTargets {
-		if err := insertHookTarget(ctx, tx, target); err != nil {
+		err := insertHookTarget(ctx, tx, target)
+		if err != nil {
 			return err
 		}
 	}
 
 	return insertFTS(ctx, tx, ftsRow{
-		Kind:       "hook_event",
-		RecordID:   trace.HookEvent.TraceID,
-		TraceID:    trace.HookEvent.TraceID,
-		PolicyID:   firstHookPolicy(trace.HookDecisions),
-		SkillID:    firstHookSkill(trace.HookDecisions),
-		Path:       firstHookTarget(trace.HookTargets),
-		Message:    trace.HookEvent.RiskCategory,
-		SearchText: hookEventSearchText(*trace.HookEvent, trace.HookDecisions, trace.HookTargets),
+		Kind:     "hook_event",
+		RecordID: trace.HookEvent.TraceID,
+		TraceID:  trace.HookEvent.TraceID,
+		PolicyID: firstHookPolicy(trace.HookDecisions),
+		SkillID:  firstHookSkill(trace.HookDecisions),
+		Path:     firstHookTarget(trace.HookTargets),
+		Message:  trace.HookEvent.RiskCategory,
+		SearchText: hookEventSearchText(
+			*trace.HookEvent,
+			trace.HookDecisions,
+			trace.HookTargets,
+		),
 	})
 }
 
@@ -80,7 +90,11 @@ func insertHookEvent(ctx context.Context, tx *sql.Tx, event HookEventAnalytics) 
 	return nil
 }
 
-func insertHookDecision(ctx context.Context, tx *sql.Tx, decision HookDecisionAnalytics) error {
+func insertHookDecision(
+	ctx context.Context,
+	tx *sql.Tx,
+	decision HookDecisionAnalytics,
+) error {
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_decisions(
@@ -104,13 +118,22 @@ func insertHookDecision(ctx context.Context, tx *sql.Tx, decision HookDecisionAn
 		decision.Suggestion,
 	)
 	if err != nil {
-		return fmt.Errorf("insert hook decision %q:%d: %w", decision.TraceID, decision.DecisionOrdinal, err)
+		return fmt.Errorf(
+			"insert hook decision %q:%d: %w",
+			decision.TraceID,
+			decision.DecisionOrdinal,
+			err,
+		)
 	}
 
 	return nil
 }
 
-func insertHookTarget(ctx context.Context, tx *sql.Tx, target HookTargetAnalytics) error {
+func insertHookTarget(
+	ctx context.Context,
+	tx *sql.Tx,
+	target HookTargetAnalytics,
+) error {
 	_, err := tx.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_targets(
@@ -122,7 +145,12 @@ func insertHookTarget(ctx context.Context, tx *sql.Tx, target HookTargetAnalytic
 		target.TargetKind,
 	)
 	if err != nil {
-		return fmt.Errorf("insert hook target %q:%d: %w", target.TraceID, target.TargetIndex, err)
+		return fmt.Errorf(
+			"insert hook target %q:%d: %w",
+			target.TraceID,
+			target.TargetIndex,
+			err,
+		)
 	}
 
 	return nil
@@ -148,11 +176,14 @@ func insertHookReview(ctx context.Context, tx *sql.Tx, review HookReview) error 
 	}
 
 	return insertFTS(ctx, tx, ftsRow{
-		Kind:       "hook_review",
-		RecordID:   review.ID,
-		TraceID:    review.TraceID,
-		Message:    review.Disposition,
-		SearchText: strings.Join(compactStrings([]string{review.Disposition, review.Reviewer, review.Notes}), "\n"),
+		Kind:     "hook_review",
+		RecordID: review.ID,
+		TraceID:  review.TraceID,
+		Message:  review.Disposition,
+		SearchText: strings.Join(
+			compactStrings([]string{review.Disposition, review.Reviewer, review.Notes}),
+			"\n",
+		),
 	})
 }
 
@@ -184,6 +215,7 @@ func hookEventSearchText(
 			strings.Join(decision.PrincipleIDs, " "),
 		)
 	}
+
 	for _, target := range targets {
 		values = append(values, target.TargetPath, target.TargetKind)
 	}

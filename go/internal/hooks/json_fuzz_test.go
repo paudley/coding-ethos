@@ -25,17 +25,20 @@ func FuzzDecodeEvent(f *testing.F) {
 		if err != nil {
 			return
 		}
+
 		provider := event.Provider()
 		switch provider {
 		case "", providerClaude, providerCodex, providerGemini:
 		default:
 			t.Fatalf("unexpected provider %q from %#v", provider, event)
 		}
+
 		for _, file := range event.Files() {
 			if strings.TrimSpace(file) == "" {
 				t.Fatalf("empty file path from %#v", event.ToolInput)
 			}
 		}
+
 		if event.ReturnCode() < 0 {
 			t.Fatalf("negative return code from %#v", event.ToolResponse)
 		}

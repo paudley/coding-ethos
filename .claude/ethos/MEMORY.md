@@ -30,10 +30,10 @@ different classes of problems.
 - [Forward Motion Only](../../.agents/ethos/forward-motion-only.md) - Fix the current state instead of blaming history or prior authors.
 - [No Rationalized Shortcuts](../../.agents/ethos/no-rationalized-shortcuts.md) - Do not discard work or bypass safety checks in the name of pragmatism.
 - [Testing as Specification](../../.agents/ethos/testing-as-specification.md) - Treat tests as executable behavioral contracts and update them with code changes.
-- [Functional Testing Is the Proof](../../.agents/ethos/functional-testing-is-the-proof.md) - Prove critical behavior with real functional workflows before relying on unit tests or mocks.
 - [Exception Hierarchy and Error Messages](../../.agents/ethos/exception-hierarchy-and-error-messages.md) - Use precise exception types and actionable, context-rich error messages.
 - [Security by Design](../../.agents/ethos/security-by-design.md) - Design for least privilege, validation, and safe defaults from the start.
 - [Sub-Agent Delegation and Context Isolation](../../.agents/ethos/sub-agent-delegation-and-context-isolation.md) - Use specialized agents with scoped context instead of overloading one thread.
 - [Evidence-Based Engineering and Decision Quality](../../.agents/ethos/evidence-based-engineering-and-decision-quality.md) - Understand, plan, execute, and validate with evidence; measure before
 optimizing and make trade-offs explicit.
+- [Functional Testing Is the Proof](../../.agents/ethos/functional-testing-is-the-proof.md) - Prove critical behavior with real functional workflows before relying on unit tests or mocks.
 - [Generated Files Are Derived Artifacts](../../.agents/ethos/generated-files-are-derived-artifacts.md) - Edit the source ethos or renderer code first, then regenerate the checked-in agent files.

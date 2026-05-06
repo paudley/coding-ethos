@@ -3,9 +3,10 @@
 
 # Repository Analysis
 
-`coding-ethos` is a Python CLI and bundled ETHOS enforcement package. Its core
-job is to keep generated agent documentation, generated tool configuration, and
-hook prompt grounding aligned with a shared structured ethos.
+`coding-ethos` is a Python agent-doc generator plus a Go enforcement and
+generated-artifact runtime. Its core job is to keep generated agent
+documentation, generated tool configuration, and hook prompt grounding aligned
+with a shared structured ethos.
 
 ## System responsibilities
 
@@ -13,25 +14,24 @@ hook prompt grounding aligned with a shared structured ethos.
   orchestration.
 - `coding_ethos/loaders.py`: primary ethos validation and repo overlay merge
   semantics.
-- `coding_ethos/models.py`: typed in-memory contract shared by renderers and
-  generators.
+- `coding_ethos/models.py`: typed in-memory contract shared by Python
+  documentation renderers.
 - `coding_ethos/renderers.py`: deterministic Markdown output for agent-facing
   files.
 - `coding_ethos/markdown_seed.py`: Markdown-to-YAML seeding.
 - `coding_ethos/merging.py`: managed-block injection and external LLM merge
   orchestration.
-- `coding_ethos/tool_configs.py`: generated tool config sync, drift checks,
+- `go/internal/toolconfigs`: generated tool config and CI sync, drift checks,
   and manifest handling.
-- `coding_ethos/ci_tool_configs.py`: generated GitHub Actions and GitLab
-  SARIF CI configs.
-- `coding_ethos/gemini_prompt_pack.py`: generated Gemini hook prompt pack.
+- `go/internal/geminiprompts`: generated Gemini hook prompt pack.
+- `go/internal/agentskills`: generated provider skill surfaces.
 - `pre-commit/prompts/`: prompt templates for Gemini review checks.
-- `pre-commit/hooks/go-hooks/`: active Git hook runtime and external check
+- `go/cmd/coding-ethos-hook-runner/`: active Git hook runtime and external check
   orchestration.
 - `go/internal/policy`, `go/internal/hooks`, `go/internal/gitwrap`, and
   `go/internal/agenthooks`: compiled policy runtime, agent hook adapters, and
   git wrapper enforcement.
-- `pre-commit/hooks/go-hooks/`: Go-owned policy checks, external analyzer
+- `go/cmd/coding-ethos-hook-runner/`: Go-owned policy checks, external analyzer
   orchestration, and normalized hook feedback.
 
 The CLI is intentionally thin. New behavior should usually land in one of the
@@ -123,9 +123,9 @@ verification failures rather than silently tolerating drift.
 - Repo overlay semantics: update `README.md`, `repo_ethos.example.yml`, and
   loader tests.
 - Tool-config rendering: update `README.md`, `repo_config.example.yaml`, and
-  `tests/test_cli.py`.
-- Gemini prompt-pack rendering: update `README.md`, prompt templates, and
-  `tests/test_gemini_prompt_pack.py`.
+  Go tests under `go/internal/toolconfigs`.
+- Gemini prompt-pack rendering: update `README.md`, prompt templates, and Go
+  tests under `go/internal/geminiprompts`.
 - Hook runtime behavior: update `pre-commit/PRE-COMMIT.md`,
   `pre-commit/hooks/HOOKS.md`, and Go tests.
 - Public package exports: update `coding_ethos/CODING_ETHOS.md` and tests.

@@ -4,9 +4,10 @@
 package hooks_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/hooks"
 )
 
 func TestDecodeEventNormalizesNamespacedCodexShellTool(t *testing.T) {

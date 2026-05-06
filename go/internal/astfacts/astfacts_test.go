@@ -4,6 +4,7 @@
 package astfacts
 
 import (
+	"slices"
 	"testing"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -20,9 +21,11 @@ func TestAnalyzeIndexesJSONAndTOMLConfigEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze json: %v", err)
 	}
+
 	if !ok || jsonFile.Language != "json" {
 		t.Fatalf("json language = %q, ok=%v", jsonFile.Language, ok)
 	}
+
 	if !hasSymbol(jsonFile.Symbols, "tools.ruff", "config_entry") {
 		t.Fatalf("json symbols missing tools.ruff: %#v", jsonFile.Symbols)
 	}
@@ -36,12 +39,15 @@ typeCheckingMode = "strict"
 	if err != nil {
 		t.Fatalf("analyze toml: %v", err)
 	}
+
 	if !ok || tomlFile.Language != "toml" {
 		t.Fatalf("toml language = %q, ok=%v", tomlFile.Language, ok)
 	}
+
 	if !hasSymbol(tomlFile.Symbols, "tool.ruff.line-length", "config_entry") {
 		t.Fatalf("toml symbols missing tool.ruff.line-length: %#v", tomlFile.Symbols)
 	}
+
 	if !hasSymbol(tomlFile.Symbols, "tool.pyright", "config_section") {
 		t.Fatalf("toml symbols missing tool.pyright section: %#v", tomlFile.Symbols)
 	}
@@ -57,9 +63,11 @@ func TestContextForLineReturnsNearestSymbol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("context: %v", err)
 	}
+
 	if !ok {
 		t.Fatalf("context not found")
 	}
+
 	if context.SymbolPath != "Worker.run" || context.SymbolKind != "function" {
 		t.Fatalf("context = %#v", context)
 	}
@@ -114,17 +122,31 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 			if err != nil {
 				t.Fatalf("analyze: %v", err)
 			}
+
 			if !ok || file.Language != test.language {
 				t.Fatalf("language = %q ok=%v", file.Language, ok)
 			}
+
 			if !hasSymbol(file.Symbols, test.symbolPath, test.symbolKind) {
-				t.Fatalf("missing symbol %s/%s: %#v", test.symbolPath, test.symbolKind, file.Symbols)
+				t.Fatalf(
+					"missing symbol %s/%s: %#v",
+					test.symbolPath,
+					test.symbolKind,
+					file.Symbols,
+				)
 			}
+
 			if !hasImport(file.Imports, test.importName) {
 				t.Fatalf("missing import %q: %#v", test.importName, file.Imports)
 			}
+
 			if !symbolReferences(file.Symbols, test.symbolPath, test.reference) {
-				t.Fatalf("symbol %q missing reference %q: %#v", test.symbolPath, test.reference, file.Symbols)
+				t.Fatalf(
+					"symbol %q missing reference %q: %#v",
+					test.symbolPath,
+					test.reference,
+					file.Symbols,
+				)
 			}
 		})
 	}
@@ -137,6 +159,7 @@ func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze shell: %v", err)
 	}
+
 	if !ok || !hasSymbol(shellFile.Symbols, "build", "function") {
 		t.Fatalf("shell symbols = %#v ok=%v", shellFile.Symbols, ok)
 	}
@@ -145,6 +168,7 @@ func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze yaml: %v", err)
 	}
+
 	if !ok || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
 		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, ok)
 	}
@@ -156,10 +180,17 @@ func TestUnsupportedPathsAndInvalidLinesReturnNoContext(t *testing.T) {
 	if language, ok := LanguageForPath("README.md"); ok || language != "" {
 		t.Fatalf("markdown language = %q ok=%v", language, ok)
 	}
+
 	if _, ok, err := Analyze("README.md", []byte("# docs\n")); err != nil || ok {
 		t.Fatalf("unsupported analyze ok=%v err=%v", ok, err)
 	}
-	if _, ok, err := ContextForLine("pkg/app.py", []byte("def run():\n    pass\n"), 0); err != nil || ok {
+
+	if _, ok, err := ContextForLine(
+		"pkg/app.py",
+		[]byte("def run():\n    pass\n"),
+		0,
+	); err != nil ||
+		ok {
 		t.Fatalf("invalid line context ok=%v err=%v", ok, err)
 	}
 }
@@ -171,33 +202,41 @@ func TestParseAndWalkExposeTreeTraversalHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+
 	if !ok {
 		t.Fatal("parse should support Python")
 	}
+
 	defer tree.Close()
 
 	visited := 0
+
 	Walk(tree.RootNode(), func(_ *tree_sitter.Node) {
 		visited++
 	})
+
 	if visited == 0 {
 		t.Fatal("walk should visit nodes")
 	}
+
 	deepest := 0
+
 	WalkWithDepth(tree.RootNode(), func(_ *tree_sitter.Node, depth int) {
 		if depth > deepest {
 			deepest = depth
 		}
 	})
+
 	if deepest == 0 {
 		t.Fatal("walk with depth should report nested nodes")
 	}
+
 	if !NodeContainsLine(tree.RootNode(), 1) {
 		t.Fatal("root should contain first line")
 	}
 }
 
-func hasSymbol(symbols []Symbol, path string, kind string) bool {
+func hasSymbol(symbols []Symbol, path, kind string) bool {
 	for _, symbol := range symbols {
 		if symbol.SymbolPath == path && symbol.SymbolKind == kind {
 			return true
@@ -217,15 +256,14 @@ func hasImport(imports []Import, target string) bool {
 	return false
 }
 
-func symbolReferences(symbols []Symbol, path string, reference string) bool {
+func symbolReferences(symbols []Symbol, path, reference string) bool {
 	for _, symbol := range symbols {
 		if symbol.SymbolPath != path {
 			continue
 		}
-		for _, name := range symbol.ReferencedNames {
-			if name == reference {
-				return true
-			}
+
+		if slices.Contains(symbol.ReferencedNames, reference) {
+			return true
 		}
 	}
 

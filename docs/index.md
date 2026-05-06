@@ -7,6 +7,9 @@
 engineering principles into generated agent instructions, CEL policy checks,
 Git hooks, MCP tools, SARIF output, runtime sandbox evidence, and CI gates.
 
+Current OpenSSF Best Practices status: **Silver**. Gold readiness and remaining
+gaps are tracked in the [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md).
+
 ![coding-ethos MCP and SARIF demo](assets/coding-ethos-demo.gif)
 
 ## Start Here
@@ -24,8 +27,8 @@ Git hooks, MCP tools, SARIF output, runtime sandbox evidence, and CI gates.
   chunks, SARIF/remediation evidence, and MCP retrieval surfaces.
 - [Trust signals](TRUST_SIGNALS.md): OpenSSF Scorecard, Best Practices badge,
   security posture, and publication checklist.
-- [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md): generated prefill
-  workflow, remaining Gold gaps, and remediation plan.
+- [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md): `.bestpractices.json`
+  evidence, remaining Gold gaps, and remediation plan.
 - [Security assurance case](SECURITY_ASSURANCE_CASE.md): security claims,
   evidence, input-validation posture, and known limits.
 - [Gold security posture](GOLD_SECURITY_POSTURE.md): cryptography

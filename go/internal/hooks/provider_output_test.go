@@ -44,7 +44,6 @@ func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testin
 	t.Parallel()
 
 	for _, provider := range []string{"claude", "gemini-cli"} {
-		provider := provider
 		t.Run(provider, func(t *testing.T) {
 			t.Parallel()
 
@@ -75,13 +74,17 @@ func TestEncodeProviderResultDoesNotEmitCodexUpdatedInput(t *testing.T) {
 	)
 
 	var decoded map[string]any
-	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+
+	err := json.Unmarshal([]byte(output), &decoded)
+	if err != nil {
 		t.Fatalf("decode output: %v", err)
 	}
+
 	hookOutput, _ := decoded["hookSpecificOutput"].(map[string]any)
 	if _, ok := hookOutput["updatedInput"]; ok {
 		t.Fatalf("Codex output must not include unsupported updatedInput field: %s", output)
 	}
+
 	if strings.TrimSpace(output) != "{}" {
 		t.Fatalf("Codex allowed rewrite fallback should emit empty output, got: %s", output)
 	}
@@ -159,6 +162,7 @@ func encodedProviderOutput(t *testing.T, payload string) string {
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
+
 	result, err := Run(policy.ExampleBundle(), Options{Event: event})
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
@@ -172,7 +176,7 @@ func encodedProviderOutput(t *testing.T, payload string) string {
 	return buffer.String()
 }
 
-func assertJSONMatchesFixture(t *testing.T, output string, fixturePath string) {
+func assertJSONMatchesFixture(t *testing.T, output, fixturePath string) {
 	t.Helper()
 
 	var got any
@@ -184,6 +188,7 @@ func assertJSONMatchesFixture(t *testing.T, output string, fixturePath string) {
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", fixturePath, err)
 	}
+
 	var want any
 	if err := json.Unmarshal(fixture, &want); err != nil {
 		t.Fatalf("decode fixture %s: %v", fixturePath, err)
@@ -192,7 +197,7 @@ func assertJSONMatchesFixture(t *testing.T, output string, fixturePath string) {
 	assertJSONContains(t, got, want, fixturePath)
 }
 
-func assertJSONContains(t *testing.T, got any, want any, path string) {
+func assertJSONContains(t *testing.T, got, want any, path string) {
 	t.Helper()
 
 	switch expected := want.(type) {
@@ -201,11 +206,13 @@ func assertJSONContains(t *testing.T, got any, want any, path string) {
 		if !ok {
 			t.Fatalf("%s: got %T, want object", path, got)
 		}
+
 		for key, value := range expected {
 			actualValue, ok := actual[key]
 			if !ok {
 				t.Fatalf("%s.%s missing in %#v", path, key, actual)
 			}
+
 			assertJSONContains(t, actualValue, value, path+"."+key)
 		}
 	case []any:
@@ -213,9 +220,11 @@ func assertJSONContains(t *testing.T, got any, want any, path string) {
 		if !ok {
 			t.Fatalf("%s: got %T, want array", path, got)
 		}
+
 		if len(actual) < len(expected) {
 			t.Fatalf("%s: got %d items, want at least %d", path, len(actual), len(expected))
 		}
+
 		for index, value := range expected {
 			assertJSONContains(t, actual[index], value, fmt.Sprintf("%s[%d]", path, index))
 		}
