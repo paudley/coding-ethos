@@ -3,7 +3,7 @@
     ".bandit.yml": "sha256:c2486cbe79f481a565a10f14a108b4316c1bfc550dbf5c357eea58b44e0a374f",
     ".github/workflows/coding-ethos-sarif.yml": "sha256:8f8cb70cd0454b12eda13e62cc25ef9b50a1418256e50e2d4d0a5140c4dbbb61",
     ".gitlab-ci.yml": "sha256:19c624d5e3e6af811ee3cc848db05b0bce1205efaed092a33012d9c601605c9a",
-    ".golangci.yml": "sha256:9de8c1c9188f2f16b5b1aea8575f01e72d943f64be4f3043aeb2563fbbb5a5da",
+    ".golangci.yml": "sha256:7ea1c71cd9fe5eb77672ac7a8e65e2410d6b908fec2b0af9d6b41961de9e5e23",
     ".pylintrc": "sha256:7d4e8d2f3306a9affd66cab77bc35855fed9c78085d5dc43f087929f8e995bd0",
     ".sqlfluff": "sha256:fa7c9e840abab6f56881439d70cec3463108980c318b4476059f95250f4c60f2",
     ".yamllint.yml": "sha256:d517a00904f566c4adc7f35f39d22e55956a9967def45db18ddf522a609c59f8",
