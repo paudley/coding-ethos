@@ -228,7 +228,10 @@ jobs:
         run: |
           mkdir -p ../coverage-results
           mkdir -p ../coverage-results/e2e-coverdir
-          go test -buildvcs=false -timeout=30s -short ./... \
+          mapfile -t shared_packages < <(
+            go list -buildvcs=false ./... | grep -v '/internal/e2e$'
+          )
+          go test -buildvcs=false -timeout=30s -short "${shared_packages[@]}" \
             -covermode=atomic \
             -coverprofile=../coverage-results/go-shared.out
           go test -c -buildvcs=false \
