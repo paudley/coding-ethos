@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +141,62 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 
 	if len(matches) != 1 {
 		t.Fatalf("metadata matches = %#v", matches)
+	}
+}
+
+func TestRunWithIOPreservesWrappedCommandExitCode(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	bundleRoot := filepath.Join(root, "pre-commit")
+
+	err := os.MkdirAll(bundleRoot, 0o755)
+	if err != nil {
+		t.Fatalf("create bundle root: %v", err)
+	}
+
+	gitPath := filepath.Join(root, "git")
+
+	err = os.WriteFile(gitPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(gitPath, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	commandPath := filepath.Join(root, "hook")
+
+	err = os.WriteFile(commandPath, []byte("#!/usr/bin/env sh\nexit 37\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write hook command: %v", err)
+	}
+
+	err = os.Chmod(commandPath, 0o700)
+	if err != nil {
+		t.Fatalf("chmod hook command: %v", err)
+	}
+
+	err = runWithIO(
+		[]string{
+			"--root", root,
+			"--bundle-root", bundleRoot,
+			"--git", gitPath,
+			commandPath,
+		},
+		strings.NewReader(""),
+		&bytes.Buffer{},
+		&bytes.Buffer{},
+	)
+
+	var exitErr exitCoder
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("runWithIO() error does not expose exit code: %v", err)
+	}
+
+	if exitErr.ExitCode() != 37 {
+		t.Fatalf("exit code = %d, want 37", exitErr.ExitCode())
 	}
 }

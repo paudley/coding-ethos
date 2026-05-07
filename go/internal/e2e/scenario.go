@@ -106,9 +106,12 @@ func RequireRuntime(t *testing.T, ethosRoot string) {
 func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	t.Helper()
 
-	if strings.TrimSpace(os.Getenv("GOCOVERDIR")) == "" {
+	coverDir := strings.TrimSpace(os.Getenv("GOCOVERDIR"))
+	if coverDir == "" {
 		return ethosRoot
 	}
+
+	absoluteCoverageDir(t, coverDir)
 
 	if runtime.GOOS == "windows" {
 		t.Skip("instrumented e2e runtime uses POSIX symlinks")
@@ -123,18 +126,22 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 
 	for _, entry := range []string{
 		"build",
-		"pre-commit",
 		"config.yaml",
 		"coding_ethos.yml",
 		"repo_ethos.yml",
 	} {
-		err := os.Symlink(
+		err = os.Symlink(
 			filepath.Join(ethosRoot, entry),
 			filepath.Join(runtimeRoot, entry),
 		)
 		if err != nil {
 			t.Fatalf("symlink %s into instrumented runtime: %v", entry, err)
 		}
+	}
+
+	err = copyRuntimePreCommit(runtimeRoot, ethosRoot)
+	if err != nil {
+		t.Fatalf("copy pre-commit runtime tree: %v", err)
 	}
 
 	for _, command := range []string{
@@ -147,6 +154,42 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	}
 
 	return runtimeRoot
+}
+
+func absoluteCoverageDir(t *testing.T, coverDir string) string {
+	t.Helper()
+
+	if filepath.IsAbs(coverDir) {
+		return coverDir
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("resolve working directory for GOCOVERDIR: %v", err)
+	}
+
+	absolute := filepath.Clean(filepath.Join(cwd, coverDir))
+
+	err = os.MkdirAll(absolute, e2eDirMode)
+	if err != nil {
+		t.Fatalf("create GOCOVERDIR: %v", err)
+	}
+
+	return absolute
+}
+
+func commandEnvironment(t *testing.T) []string {
+	t.Helper()
+
+	env := os.Environ()
+	for index, entry := range env {
+		value, ok := strings.CutPrefix(entry, "GOCOVERDIR=")
+		if ok && strings.TrimSpace(value) != "" {
+			env[index] = "GOCOVERDIR=" + absoluteCoverageDir(t, value)
+		}
+	}
+
+	return env
 }
 
 // Run executes a real command in the reference repository.
@@ -187,7 +230,7 @@ func Run(t *testing.T, cwd string, args ...string) CommandResult {
 
 	cmd := safeexec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = commandEnvironment(t)
 	configureCommandProcessGroup(cmd)
 
 	var (
@@ -314,6 +357,33 @@ func (repo Repo) Touch(t *testing.T, path, content string) {
 }
 
 func copyTree(destination, source string) error {
+	return copyTreeFiltered(destination, source, nil)
+}
+
+func copyRuntimePreCommit(runtimeRoot, ethosRoot string) error {
+	return copyTreeFiltered(
+		filepath.Join(runtimeRoot, "pre-commit"),
+		filepath.Join(ethosRoot, "pre-commit"),
+		isGeneratedRuntimeState,
+	)
+}
+
+func isGeneratedRuntimeState(rel string) bool {
+	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
+		switch part {
+		case ".venv", ".ruff_cache", "__pycache__":
+			return true
+		}
+	}
+
+	return false
+}
+
+func copyTreeFiltered(
+	destination string,
+	source string,
+	skip func(string) bool,
+) error {
 	sourceRoot, err := os.OpenRoot(source)
 	if err != nil {
 		return fmt.Errorf("open reference fixture source %s: %w", source, err)
@@ -338,38 +408,74 @@ func copyTree(destination, source string) error {
 				return fmt.Errorf("walk reference fixture path %s: %w", path, walkErr)
 			}
 
-			rel, relErr := filepath.Rel(source, path)
-			if relErr != nil {
-				return fmt.Errorf("relativize reference fixture path %s: %w", path, relErr)
-			}
-
-			info, infoErr := entry.Info()
-			if infoErr != nil {
-				return fmt.Errorf("inspect reference fixture path %s: %w", path, infoErr)
-			}
-
-			if entry.IsDir() {
-				return destinationRoot.MkdirAll(rel, info.Mode().Perm())
-			}
-
-			if !info.Mode().IsRegular() {
-				return apperror.Wrapf(
-					apperror.StaticError("unsupported reference entry %s"),
-					"unsupported reference entry %s",
-					path,
-				)
-			}
-
-			content, readErr := sourceRoot.ReadFile(rel)
-			if readErr != nil {
-				return fmt.Errorf("read reference fixture path %s: %w", path, readErr)
-			}
-
-			return destinationRoot.WriteFile(rel, content, info.Mode().Perm())
+			return copyTreeEntry(
+				path,
+				source,
+				sourceRoot,
+				destinationRoot,
+				entry,
+				skip,
+			)
 		},
 	)
 	if err != nil {
 		return fmt.Errorf("copy reference fixture tree from %s: %w", source, err)
+	}
+
+	return nil
+}
+
+func copyTreeEntry(
+	path string,
+	source string,
+	sourceRoot *os.Root,
+	destinationRoot *os.Root,
+	entry fs.DirEntry,
+	skip func(string) bool,
+) error {
+	rel, err := filepath.Rel(source, path)
+	if err != nil {
+		return fmt.Errorf("relativize reference fixture path %s: %w", path, err)
+	}
+
+	if rel != "." && skip != nil && skip(rel) {
+		if entry.IsDir() {
+			return filepath.SkipDir
+		}
+
+		return nil
+	}
+
+	info, err := entry.Info()
+	if err != nil {
+		return fmt.Errorf("inspect reference fixture path %s: %w", path, err)
+	}
+
+	if entry.IsDir() {
+		err = destinationRoot.MkdirAll(rel, info.Mode().Perm())
+		if err != nil {
+			return fmt.Errorf("create reference fixture directory %s: %w", path, err)
+		}
+
+		return nil
+	}
+
+	if !info.Mode().IsRegular() {
+		return apperror.Wrapf(
+			apperror.StaticError("unsupported reference entry %s"),
+			"unsupported reference entry %s",
+			path,
+		)
+	}
+
+	content, err := sourceRoot.ReadFile(rel)
+	if err != nil {
+		return fmt.Errorf("read reference fixture path %s: %w", path, err)
+	}
+
+	err = destinationRoot.WriteFile(rel, content, info.Mode().Perm())
+	if err != nil {
+		return fmt.Errorf("write reference fixture path %s: %w", path, err)
 	}
 
 	return nil

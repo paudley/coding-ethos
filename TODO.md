@@ -126,6 +126,11 @@ running real commands, and inspecting real output and repository state.
   lines such as `ok ...` should not appear in user-facing hook reports, but
   failing package names, test names, file/line locations, panic text, and
   unparseable failure excerpts must remain visible.
+- [ ] Add a shell-parser-backed hook rewrite that detects naked `python` or
+  `python3` invocations and rewrites them to `uv run python` when the target
+  repo is a uv-managed project. The policy must use parsed command structure,
+  preserve arguments and quoting, avoid string matching, and only rewrite when
+  repo evidence shows uv is the active Python environment contract.
 - [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.

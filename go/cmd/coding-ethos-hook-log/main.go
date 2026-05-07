@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,7 +22,8 @@ func main() {
 
 	err := run()
 	if err != nil {
-		if exitErr, ok := err.(exitCoder); ok {
+		var exitErr exitCoder
+		if errors.As(err, &exitErr) {
 			status = exitErr.ExitCode()
 		} else {
 			status = 1
