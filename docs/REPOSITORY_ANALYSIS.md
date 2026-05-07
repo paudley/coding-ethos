@@ -88,13 +88,16 @@ applies the overlay when present, renders all deterministic output, and writes
 files into the target repo. With `--merge-existing`, only `AGENTS.md`,
 `CLAUDE.md`, and `GEMINI.md` are merge-preserved.
 
-For tool-config sync, the CLI loads `config.yaml`, applies an optional
+For tool-config sync, the CLI remains the user-facing entrypoint, but generated
+tool config rendering now runs through the Go implementation under
+`go/internal/toolconfigs`. That code loads `config.yaml`, applies an optional
 consumer repo config, renders the supported tool config files, and either
 writes them or reports drift.
 
-For Gemini prompt-pack sync, the CLI merges ethos context and enforcement
-config, renders every prompt template, attaches check selectors and runtime
-metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
+For Gemini prompt-pack sync, the CLI remains the user-facing entrypoint while
+the Go implementation under `go/internal/geminiprompts` merges ethos context
+and enforcement config, renders every prompt template, attaches check selectors
+and runtime metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
 
 For hooks, the Makefile installs repo-local Git hook entrypoints that resolve
 to the Go helper and compiled policy entrypoints. `cutover` also syncs Claude, Codex, and

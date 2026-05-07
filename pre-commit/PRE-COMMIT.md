@@ -541,12 +541,18 @@ process budget such as `systemd-run --user --scope -p TasksMax=128`.
 
 ## Adding Hooks
 
-Use Go for generic file, shell, text, and commit-message checks that do not
-need Python AST analysis or Python package imports. Keep the command in
-`go/cmd/coding-ethos-hook-runner/main.go` and the tunable policy in the repo-root `config.yaml`.
+Use Go for generic file, shell, text, source-aware, and commit-message checks.
+New hook behavior should land in focused files under
+`go/cmd/coding-ethos-hook-runner/`, with shared policy facts in
+`go/internal/celexpr/`, parser facts in `go/internal/astfacts/` or
+`go/internal/shellparse/`, and tunable policy in `coding_ethos.yml` or
+`config.yaml` as appropriate. Do not add new policy-specific text scanners
+before checking the AST/CEL/SARIF path documented in
+`docs/AST_CEL_SARIF_ARCHITECTURE.md`.
 
-Use Python for checks that need AST parsing, type tooling, Python import
-analysis, or repository-specific policy modules.
+Use Python only when the check genuinely depends on Python package behavior
+that cannot be represented by the shared Go parser/fact/CEL pipeline. The
+default direction for hook runtime and generated enforcement behavior is Go.
 
 For hooks that modify files:
 
