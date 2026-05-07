@@ -190,13 +190,20 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 		expressionSources = append(expressionSources, source)
 	}
 
-	primaryPayload, err = mergeOptionalYAML(
-		primaryPayload,
-		options.RepoEthos,
-		sourceHashes,
-	)
-	if err != nil {
-		return compileInputPayloads{}, err
+	if options.RepoEthos != "" && fileExists(options.RepoEthos) {
+		repoEthosPayload, repoEthosHash, loadErr := loadYAMLFile(options.RepoEthos)
+		if loadErr != nil {
+			return compileInputPayloads{}, loadErr
+		}
+
+		sourceHashes[options.RepoEthos] = repoEthosHash
+		expressionSources = append(
+			expressionSources,
+			expressionPolicySourcesFromRepoEthos(
+				repoEthosPayload,
+				sourceFileName(options.RepoEthos, "repo_ethos.yml"),
+			)...,
+		)
 	}
 
 	expressionSources = append(
@@ -256,25 +263,6 @@ func mergeRepoConfigInput(
 	}
 
 	return repoConfigPayload, nil
-}
-
-func mergeOptionalYAML(
-	base map[string]any,
-	path string,
-	sourceHashes map[string]string,
-) (map[string]any, error) {
-	if path == "" || !fileExists(path) {
-		return base, nil
-	}
-
-	overlay, hash, err := loadYAMLFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	sourceHashes[path] = hash
-
-	return mergeMaps(base, overlay), nil
 }
 
 func loadYAMLFile(path string) (map[string]any, string, error) {

@@ -185,17 +185,53 @@ func genericToolFailureFindingForResult(
 ) hookFinding {
 	if result.TimedOut {
 		return hookFinding{
+			Metadata: externalToolFailureMetadata(result),
 			Tool:     name,
-			Severity: "error",
+			Severity: "fatal",
 			Code:     timeoutCode,
-			Message:  "external tool timed out",
-			Detail:   "timeout exceeded before the tool completed",
+			Message:  name + " timed out before completing.",
+			Detail:   "Timeouts are fatal gate failures because the tool did not complete.",
 		}
 	}
 
 	return hookFinding{
+		Metadata: externalToolFailureMetadata(result),
 		Tool:     name,
-		Severity: "error",
-		Message:  fmt.Sprintf("external tool exited with status %d", result.ExitCode),
+		Severity: "fatal",
+		Code:     "UNPARSEABLE_OUTPUT",
+		Message: fmt.Sprintf(
+			"%s exited with status %d without parseable diagnostics",
+			name,
+			result.ExitCode,
+		),
+		Detail: "stdout/stderr were captured but are not rendered because " +
+			"they were not parsed into diagnostics.",
 	}
+}
+
+func externalToolFailureMetadata(result externalToolResult) map[string]any {
+	metadata := map[string]any{
+		"exit_code": result.ExitCode,
+	}
+	if result.Stdout != "" {
+		metadata["stdout"] = result.Stdout
+	}
+
+	if result.Stderr != "" {
+		metadata["stderr"] = result.Stderr
+	}
+
+	if result.Combined != "" {
+		metadata["output"] = result.Combined
+	}
+
+	if result.RunnerFailure != nil {
+		metadata["runner_failure"] = result.RunnerFailure.Error()
+	}
+
+	if result.TimedOut {
+		metadata["timed_out"] = true
+	}
+
+	return metadata
 }

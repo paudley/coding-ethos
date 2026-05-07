@@ -4,11 +4,16 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestRunnerArgsInferGitHookFromExecutableName(t *testing.T) {
@@ -186,6 +191,202 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
+	t.Parallel()
+
+	inputs := runtimePathInputs{
+		RealGit:       "/usr/bin/git",
+		InvocationCWD: "/repo/pkg",
+		LocalRoot:     "/repo",
+		Root:          "/repo",
+		HooksDir:      "/repo/.git/hooks",
+		BinDir:        "/repo/coding-ethos/bin",
+		RunBinary:     "/repo/coding-ethos/bin/coding-ethos-run",
+		BundleRoot:    "/repo/coding-ethos/pre-commit",
+		EthosRoot:     "/repo/coding-ethos",
+		ToolchainDir:  "/repo/coding-ethos/build/toolchain",
+	}
+
+	paths := runtimePathSet(inputs)
+
+	if paths.PolicyBundle != "/repo/coding-ethos/build/policy/policy-bundle.json" {
+		t.Fatalf("policy bundle = %q", paths.PolicyBundle)
+	}
+
+	if paths.ManagedGoBin != "/repo/coding-ethos/build/toolchain/go-bin" {
+		t.Fatalf("managed go bin = %q", paths.ManagedGoBin)
+	}
+
+	if paths.GitHookRunner != "/repo/coding-ethos/bin/coding-ethos-hook-runner" {
+		t.Fatalf("git hook runner = %q", paths.GitHookRunner)
+	}
+}
+
+func TestRuntimePathResolutionFallbacks(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "/configured/repo")
+
+	root, localRoot := resolveRuntimeRoot("/missing/git", "/cwd/repo")
+	if root != "/configured/repo" || localRoot != "/configured/repo" {
+		t.Fatalf("configured root = (%q, %q)", root, localRoot)
+	}
+
+	hooksDir := resolveRuntimeHooksDir("/missing/git", "/fallback/repo")
+	if hooksDir != "/fallback/repo/.git/hooks" {
+		t.Fatalf("fallback hooks dir = %q", hooksDir)
+	}
+}
+
+func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
+	t.Parallel()
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	hooks := filepath.Join(repo, ".git", "hooks")
+	fakeGit := fakeRuntimeGit(t, repo, hooks)
+
+	root, localRoot := resolveRuntimeRoot(fakeGit, "/cwd/repo")
+	if root != repo || localRoot != repo {
+		t.Fatalf("git root = (%q, %q), want %q", root, localRoot, repo)
+	}
+
+	if got := resolveRuntimeHooksDir(fakeGit, repo); got != hooks {
+		t.Fatalf("git hooks dir = %q, want %q", got, hooks)
+	}
+}
+
+func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"INVOCATION_CWD",
+		"CODE_ETHOS_PRECOMMIT_ROOT",
+		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"GIT_HOOK_SRC_DIR",
+		"TOOLS_SRC_DIR",
+		"POLICY_METADATA",
+		"MANAGED_TOOLCHAIN_MANIFEST",
+		"CODING_ETHOS_REAL_GIT",
+		"PATH",
+	)
+	t.Cleanup(restoreEnv)
+
+	paths := runtimePathSet(runtimePathInputs{
+		RealGit:       "/usr/bin/git",
+		InvocationCWD: "/repo/pkg",
+		LocalRoot:     "/repo",
+		Root:          "/repo",
+		HooksDir:      "/repo/.git/hooks",
+		BinDir:        "/repo/coding-ethos/bin",
+		RunBinary:     "/repo/coding-ethos/bin/coding-ethos-run",
+		BundleRoot:    "/repo/coding-ethos/pre-commit",
+		EthosRoot:     "/repo/coding-ethos",
+		ToolchainDir:  "/repo/coding-ethos/build/toolchain",
+	})
+
+	t.Setenv("PATH", "/usr/bin")
+
+	paths.export()
+
+	if got := os.Getenv("CODE_ETHOS_CONSUMER_ROOT"); got != "/repo" {
+		t.Fatalf("exported consumer root = %q", got)
+	}
+
+	if got := os.Getenv("CODING_ETHOS_REAL_GIT"); got != "/usr/bin/git" {
+		t.Fatalf("exported real git = %q", got)
+	}
+
+	if got := os.Getenv("PATH"); !strings.HasPrefix(
+		got,
+		"/repo/coding-ethos/build/toolchain/go-bin:",
+	) {
+		t.Fatalf("exported PATH = %q", got)
+	}
+}
+
+func captureRuntimeEnvForTest(names ...string) func() {
+	type envValue struct {
+		value string
+		found bool
+	}
+
+	values := map[string]envValue{}
+
+	for _, name := range names {
+		value, found := os.LookupEnv(name)
+		values[name] = envValue{value: value, found: found}
+	}
+
+	return func() {
+		for name, value := range values {
+			if value.found {
+				_ = os.Setenv(name, value.value)
+
+				continue
+			}
+
+			_ = os.Unsetenv(name)
+		}
+	}
+}
+
+func TestRuntimeFailuresUseStructuredExitCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func()
+		name string
+		want int
+	}{
+		{
+			name: "runtime failure",
+			run: func() {
+				runtimeFailure("missing fixture")
+			},
+			want: exitMissing,
+		},
+		{
+			name: "internal tool direct execution",
+			run: func() {
+				requireExternalRuntimeTool("coding-ethos-policy")
+			},
+			want: exitMissing,
+		},
+		{
+			name: "plain error",
+			run: func() {
+				exitErr(apperror.StaticError("plain failure"))
+			},
+			want: 1,
+		},
+		{
+			name: "process exit code",
+			run: func() {
+				err := exec.CommandContext(context.Background(), "sh", "-c", "exit 7").Run()
+				exitErr(err)
+			},
+			want: 7,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := withRuntimeExit(func() int {
+				test.run()
+
+				return 0
+			})
+			if got != test.want {
+				t.Fatalf("runtime exit = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 	t.Parallel()
 
@@ -214,6 +415,27 @@ func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 	requireRuntimeBinary(toolPath, "tool")
 	requirePolicyBundle(paths)
 	runtimeRunTool(paths, "tool")
+}
+
+func fakeRuntimeGit(t *testing.T, repo, hooks string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "git")
+	body := "#!/usr/bin/env sh\n" +
+		"case \"$*\" in\n" +
+		"  \"rev-parse --show-toplevel\") printf '%s\\n' " +
+		shellQuoteForRuntimeTest(repo) + "; exit 0 ;;\n" +
+		"  \"rev-parse --path-format=absolute --git-path hooks\") printf '%s\\n' " +
+		shellQuoteForRuntimeTest(hooks) + "; exit 0 ;;\n" +
+		"esac\n" +
+		"exit 1\n"
+	writeExecutableFixture(t, path, body)
+
+	return path
+}
+
+func shellQuoteForRuntimeTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func writeExecutableFixture(t *testing.T, path, content string) {
@@ -429,6 +651,13 @@ func TestRunCISARIFRequiresProviderAndOutputPath(t *testing.T) {
 
 func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 	t.Parallel()
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODING_ETHOS_GIT_SHIM_DIR",
+	)
+	t.Cleanup(restoreEnv)
 
 	paths := runtimeTestPaths(t)
 

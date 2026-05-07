@@ -556,7 +556,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## Compile the policy bundle into the checkout-local build directory.
 	@$(call print_step,Compiling policy bundle)
 	@mkdir -p "$(POLICY_DIR)"
-	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(POLICY_DIR)"); \
+	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(POLICY_DIR)"); \
 	if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then \
 		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"); \
 	elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then \

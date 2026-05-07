@@ -111,6 +111,16 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 	}
 }
 
+func TestResolveConsumerRootPrefersOwningGitRootOverSuperproject(t *testing.T) {
+	ethosRoot := filepath.Join(t.TempDir(), "coding-ethos")
+	superproject := filepath.Dir(ethosRoot)
+
+	got := resolveConsumerRoot(ethosRoot, "", ethosRoot, superproject)
+	if got != ethosRoot {
+		t.Fatalf("resolveConsumerRoot() = %q, want owning git root %q", got, ethosRoot)
+	}
+}
+
 func TestLoadGeminiPromptPackParsesGeneratedContract(t *testing.T) {
 	t.Parallel()
 
@@ -1088,7 +1098,7 @@ func TestRunHookGroupInProcessAggregatesCommandResults(t *testing.T) {
 }
 
 func TestRunHookGroupsInProcessReturnsFailure(t *testing.T) {
-	t.Parallel()
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
 
 	groups := []hookGroup{
 		{
@@ -1104,8 +1114,21 @@ func TestRunHookGroupsInProcessReturnsFailure(t *testing.T) {
 			},
 		},
 	}
-	if got := runHookGroupsInProcess(Config{}, groups, nil); got != 1 {
-		t.Fatalf("runHookGroupsInProcess = %d, want 1", got)
+
+	output := captureStdout(t, func() {
+		if got := runHookGroupsInProcess(Config{}, groups, nil); got != 1 {
+			t.Fatalf("runHookGroupsInProcess = %d, want 1", got)
+		}
+	})
+
+	for _, want := range []string{
+		"status: FAIL",
+		"failed_checks[1]{name,status}:",
+		"bad,FAIL",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("failure summary missing %q:\n%s", want, output)
+		}
 	}
 }
 

@@ -134,9 +134,12 @@ func runNamedHookGroups(cfg Config, names, files []string) int {
 
 func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int {
 	exit := 0
+	results := make([]hookGroupResult, 0, len(groups))
 
 	for _, group := range groups {
 		result := runHookGroupInProcess(cfg, group, files)
+
+		results = append(results, result)
 		if result.ExitCode != 0 {
 			exit = 1
 		}
@@ -147,6 +150,13 @@ func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int 
 				selectedHookOutputFormat(),
 			))
 		}
+	}
+
+	if exit != 0 && !hookVerboseSuccessOutputEnabled() {
+		writeLine(os.Stdout, formatHookExecutionSummary(
+			results,
+			selectedHookOutputFormat(),
+		))
 	}
 
 	return exit

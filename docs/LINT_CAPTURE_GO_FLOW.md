@@ -43,8 +43,10 @@ using the Ruff parser for diagnostics.
 
 If a tool exits nonzero without parseable diagnostics, coding-ethos reports a
 structured tool failure instead of dumping raw terminal output. The raw streams
-remain in retained traces for debugging, but user-facing output must stay
-bounded, actionable, and policy-addressable.
+remain in retained traces and SARIF properties for audit/debugging, but
+user-facing output must stay bounded, actionable, and policy-addressable. SARIF
+is the superset evidence channel; CEL sees only parsed and normalized facts that
+are understood well enough to drive deterministic policy.
 
 Go test capture uses the same path without compiling during test execution:
 `make build` creates package test binaries and a manifest, then `make go-test`

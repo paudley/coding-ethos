@@ -13,11 +13,24 @@ import (
 )
 
 func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
+	shimDir := t.TempDir()
+	shimPath := filepath.Join(shimDir, "git")
+
+	writeErr := os.WriteFile(
+		shimPath,
+		[]byte("#!/bin/sh\nexec coding-ethos-run policy-git \"$@\"\n"),
+		0o600,
+	)
+	if writeErr != nil {
+		t.Fatalf("write git shim fixture: %v", writeErr)
+	}
+
 	t.Setenv("GIT_DIR", "/tmp/wrong-git-dir")
 	t.Setenv("GIT_INDEX_FILE", "/tmp/wrong-index")
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.email")
 	t.Setenv("GIT_CONFIG_VALUE_0", "test@example.com")
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+"/usr/bin")
 	t.Setenv(consumerRootEnv, "/tmp/repo")
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
@@ -38,6 +51,24 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	if !slices.Contains(env, "GIT_OPTIONAL_LOCKS=0") {
 		t.Fatalf("externalToolEnv did not disable optional git locks: %#v", env)
 	}
+
+	for _, item := range env {
+		if !strings.HasPrefix(item, "PATH=") {
+			continue
+		}
+
+		if strings.Contains(item, shimDir) {
+			t.Fatalf("externalToolEnv leaked coding-ethos git shim PATH: %#v", env)
+		}
+
+		if !strings.Contains(item, "/usr/bin") {
+			t.Fatalf("externalToolEnv dropped non-shim PATH entries: %#v", env)
+		}
+
+		return
+	}
+
+	t.Fatalf("externalToolEnv omitted PATH: %#v", env)
 }
 
 func TestRunExternalToolCapturesStdoutAndStderrSeparately(t *testing.T) {

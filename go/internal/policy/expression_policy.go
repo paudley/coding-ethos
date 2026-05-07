@@ -106,6 +106,64 @@ func expressionPolicySourcesFromPrinciples(
 	return sources
 }
 
+func expressionPolicySourcesFromRepoEthos(
+	ethos map[string]any,
+	file string,
+) []expressionPolicySource {
+	rawOverrides, found := valueAt(ethos, "principles", "overrides")
+	if !found {
+		return nil
+	}
+
+	overrides, found := rawOverrides.(map[string]any)
+	if !found {
+		return []expressionPolicySource{{
+			File:        file,
+			PathPrefix:  "principles.overrides",
+			Expressions: []any{rawOverrides},
+		}}
+	}
+
+	sources := []expressionPolicySource{}
+
+	for principleID, rawOverride := range overrides {
+		override, found := rawOverride.(map[string]any)
+		if !found {
+			continue
+		}
+
+		rawExpressions, found := valueAt(override, "policy", "expressions")
+		if !found {
+			continue
+		}
+
+		expressions, found := rawExpressions.([]any)
+		if !found {
+			sources = append(sources, expressionPolicySource{
+				File: file,
+				PathPrefix: fmt.Sprintf(
+					"principles.overrides[%s].policy.expressions",
+					principleID,
+				),
+				Expressions: []any{rawExpressions},
+			})
+
+			continue
+		}
+
+		sources = append(sources, expressionPolicySource{
+			File: file,
+			PathPrefix: fmt.Sprintf(
+				"principles.overrides[%s].policy.expressions",
+				principleID,
+			),
+			Expressions: principleExpressionDefaults(expressions, principleID),
+		})
+	}
+
+	return sources
+}
+
 func principleExpressionDefaults(expressions []any, principleID string) []any {
 	normalized := make([]any, 0, len(expressions))
 	for _, rawExpression := range expressions {
@@ -485,7 +543,7 @@ func buildExpressionPolicy(parts expressionPolicyParts) Policy {
 		},
 		PrincipleIDs:    parts.principleIDs,
 		DefaultSeverity: parts.severity,
-		SupportedModes:  []string{"block", "record", "advise"},
+		SupportedModes:  []string{"block", "warn", "record", "advise"},
 		Message:         parts.message,
 		Suggestion:      parts.advice,
 		DefenseLayers:   expressionDefenseLayers(parts.policyID),
@@ -875,7 +933,7 @@ func severityRank(severity string) int {
 		return severityRankBlock
 	case "ask", "prepare":
 		return severityRankAsk
-	case "advise", "annotate":
+	case "warn", "advise", "annotate":
 		return severityRankAdvise
 	case "record":
 		return severityRankRecord

@@ -573,7 +573,7 @@ func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.automationDetails.id", "policy/")
 }
 
-func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
+func TestFormatLintResultSARIFIncludesPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -600,15 +600,21 @@ func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 0 {
-		t.Fatalf(
-			"pathless policy SARIF results cannot be uploaded to code scanning: %#v",
-			results,
-		)
+	if len(results) != 1 {
+		t.Fatalf("pathless policy SARIF results = %#v, want one result", results)
+	}
+
+	sarifResult, ok := results[0].(map[string]any)
+	if !ok {
+		t.Fatalf("pathless SARIF result = %#v, want object", results[0])
+	}
+
+	if _, found := sarifResult["locations"]; found {
+		t.Fatalf("pathless SARIF result unexpectedly has locations: %#v", sarifResult)
 	}
 }
 
-func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
+func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -635,12 +641,71 @@ func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 0 {
-		t.Fatalf(
-			"record-only policy context should not emit SARIF results: %#v",
-			results,
-		)
+	if len(results) != 1 {
+		t.Fatalf("record-only policy SARIF results = %#v, want one result", results)
 	}
+}
+
+func TestFormatLintResultSARIFIncludesCapturePayloads(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:go-test",
+		Status: "blocked",
+		Capture: &lint.ToolCapture{
+			Tool:        "go-test",
+			Parser:      "go-test",
+			ParseStatus: "parse_error",
+			Stdout:      "coverage: 79.6% of statements\n",
+			Stderr:      "panic: hidden failure\n",
+			ExitCode:    1,
+		},
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"stdout":    "coverage: 79.6% of statements\n",
+				"stderr":    "panic: hidden failure\n",
+				"exit_code": 1,
+			},
+			CheckID:    "tool.go-test",
+			Message:    "go-test exited with status 1 without parseable diagnostics",
+			Severity:   "fatal",
+			SourceTool: "go-test",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+
+	decodeErr := json.Unmarshal([]byte(output), &payload)
+	if decodeErr != nil {
+		t.Fatalf("decode SARIF: %v\n%s", decodeErr, output)
+	}
+
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.capture.stdout",
+		"coverage: 79.6% of statements\n",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.capture.stderr",
+		"panic: hidden failure\n",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.detail",
+		"exit_code=1; stdout=coverage: 79.6% of statements; "+
+			"stderr=panic: hidden failure",
+	)
 }
 
 func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {

@@ -52,6 +52,7 @@ type captureRequest struct {
 	Skills             map[string]policy.Skill
 	Tool               string
 	Parser             string
+	Category           string
 	ToolPath           string
 	Cwd                string
 	TraceRoot          string
@@ -614,6 +615,10 @@ func capturedOutcomeFindings(
 	}
 
 	if execution.ExitCode == 0 {
+		if request.Category == toolcatalog.CategoryFormat {
+			return nil
+		}
+
 		if outputExcerpt == "" {
 			return nil
 		}
@@ -671,7 +676,7 @@ func capturedUnparseableFailureFinding(
 		},
 		CheckID:    "tool." + request.Tool,
 		Message:    outcome.Message,
-		Severity:   "error",
+		Severity:   "fatal",
 		SourceTool: request.Tool,
 		Status:     capturedFindingStatusFail,
 		Blocking:   true,
@@ -952,8 +957,11 @@ func capturedToolMetadata(
 	return &lint.ToolCapture{
 		Tool:          request.Tool,
 		Parser:        firstCaptureNonEmpty(request.Parser, request.Tool),
+		Category:      request.Category,
 		ParseStatus:   capturedParseStatus(execution.ExitCode, items, outputExcerpt),
 		OutputExcerpt: outputExcerpt,
+		Stdout:        execution.Stdout,
+		Stderr:        execution.Stderr,
 		Args:          append([]string(nil), request.Args...),
 		RunArgs:       append([]string(nil), execution.RunArgs...),
 		Sandbox:       execution.Sandbox,

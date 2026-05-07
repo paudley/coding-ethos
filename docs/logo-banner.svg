@@ -20,7 +20,7 @@
 
   <g transform="translate(120, 80) scale(0.65)">
     <path d="M 0,-100 L 90,-40 L 90,50 C 90,100 45,130 0,160 C -45,130 -90,100 -90,50 L -90,-40 Z" fill="url(#shieldGrad)" filter="url(#shadow)" />
-    
+
     <path d="M -25,-5 L -55,30 L -25,65 M 25,-5 L 55,30 L 25,65 M 15,-20 L -15,80" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
   </g>
 

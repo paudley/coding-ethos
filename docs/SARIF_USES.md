@@ -11,7 +11,17 @@ guidance, and replayable trace context.
 
 ## Design Rules
 
-- Emit SARIF only from normalized, evidence-backed diagnostics.
+- Treat SARIF as the superset evidence artifact. Everything coding-ethos sees
+  and can safely retain belongs in SARIF, including parsed diagnostics,
+  pathless tool-level failures, parser state, exit status, raw stdout/stderr
+  payloads, sandbox evidence, and remediation metadata.
+- Treat CEL evidence as the understood subset of SARIF evidence. Parsed,
+  normalized facts that are stable enough for deterministic decisions should
+  feed CEL; observed-but-not-yet-understood payloads should still be retained in
+  SARIF.
+- Emit locatable SARIF results from normalized, evidence-backed diagnostics
+  whenever locations are available, and retain pathless evidence in SARIF
+  properties rather than dropping it.
 - Keep artifact paths repository-relative and avoid workstation-specific data.
 - Preserve stable `ruleId`, rule metadata, `partialFingerprints`, ETHOS
   principle IDs, policy IDs, and skill IDs so findings can be tracked across

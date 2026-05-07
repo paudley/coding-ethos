@@ -307,7 +307,8 @@ func TestGenericToolFailureFindingReportsTimeout(t *testing.T) {
 	})
 
 	if finding.Code != timeoutCode ||
-		finding.Message != "external tool timed out" ||
+		finding.Severity != "fatal" ||
+		finding.Message != "shellcheck timed out before completing." ||
 		finding.Detail == "" {
 		t.Fatalf("timeout finding mismatch: %#v", finding)
 	}

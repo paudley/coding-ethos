@@ -692,7 +692,7 @@ func validateGitDispatch(
 
 func validMode(mode string) bool {
 	switch mode {
-	case "off", "record", modeAdvise, "prepare", "annotate", "ask", modeBlock:
+	case "off", "record", "warn", modeAdvise, "prepare", "annotate", "ask", modeBlock:
 		return true
 	default:
 		return false

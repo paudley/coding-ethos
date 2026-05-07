@@ -423,7 +423,7 @@ exit 0
 	for _, want := range []string{
 		"format: toon",
 		"tool: ruff",
-		"status: PASS",
+		"status: WARN",
 		strings.Join([]string{
 			"ruff",
 			"pkg/app.py",
@@ -439,6 +439,50 @@ exit 0
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestFormatToolPassingOutputDoesNotRenderToonWarning(t *testing.T) {
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	tool := writeSuccessWithOutputCaptureFixtureTool(
+		t,
+		repo,
+		"fixed pkg/app.py",
+	)
+
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	output := captureStdout(t, func() {
+		exitCode := runCapturedToolWithRequest(captureRequest{
+			Tool:      "ruff-autofix",
+			Parser:    "ruff",
+			Category:  toolcatalog.CategoryFormat,
+			ToolPath:  tool,
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{"check", "pkg/app.py"},
+		}, hookoutput.FormatTOON)
+		if exitCode != 0 {
+			t.Fatalf("exit code = %d, want 0", exitCode)
+		}
+	})
+
+	if strings.TrimSpace(output) != "" {
+		t.Fatalf("formatter success output rendered unexpectedly:\n%s", output)
+	}
+
+	trace := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"tool": "ruff-autofix"`,
+		`"parse_status": "output"`,
+		`"stdout": "fixed pkg/app.py\n"`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("trace missing %q:\n%s", want, trace)
 		}
 	}
 }
@@ -786,6 +830,7 @@ exit 0
 	exitCode := runCapturedToolWithRequest(captureRequest{
 		Tool:           "pyupgrade",
 		Parser:         "fallback",
+		Category:       toolcatalog.CategoryFormat,
 		DiagnosticKind: toolcatalog.DiagnosticKindFormatterChangedFiles,
 		ToolPath:       tool,
 		Cwd:            repo,
@@ -797,16 +842,8 @@ exit 0
 		t.Fatalf("exit code = %d, want 0:\n%s", exitCode, output.String())
 	}
 
-	for _, want := range []string{
-		"tool: pyupgrade",
-		"status: PASS",
-		"pkg/app.py",
-		"formatted",
-		"pyupgrade changed this file.",
-	} {
-		if !strings.Contains(output.String(), want) {
-			t.Fatalf("formatter diagnostic output missing %q:\n%s", want, output.String())
-		}
+	if strings.TrimSpace(output.String()) != "" {
+		t.Fatalf("formatter changed-file output rendered unexpectedly:\n%s", output.String())
 	}
 
 	content := singleTraceContent(t, repo)
@@ -814,7 +851,9 @@ exit 0
 		t.Fatalf("trace did not record changed-file parse status:\n%s", content)
 	}
 
-	if !strings.Contains(content, `"args":`) ||
+	if !strings.Contains(content, `"category": "format"`) ||
+		!strings.Contains(content, `"formatted"`) ||
+		!strings.Contains(content, `"args":`) ||
 		!strings.Contains(content, `"pkg/app.py"`) {
 		t.Fatalf("trace did not record formatter arguments:\n%s", content)
 	}
@@ -1457,7 +1496,7 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 					"advice",
 					"detail}:",
 				}, ","),
-				test.tool + ",,0,0,error,,tool." + test.tool,
+				test.tool + ",,0,0,fatal,,tool." + test.tool,
 				"category=configuration_error; exit_code=2; output=" +
 					test.tool + ": failed to load config from <repo>/tool.conf",
 			} {

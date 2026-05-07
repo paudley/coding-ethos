@@ -10,6 +10,8 @@ import (
 	"testing"
 )
 
+const pythonPassStatement = "pass"
+
 func TestCheckFileDocstringsCommand(t *testing.T) {
 	tempDir := t.TempDir()
 	overridePath := filepath.Join(tempDir, "repo_config.yaml")
@@ -637,8 +639,12 @@ except ValueError:
 		t.Fatalf("len(violations) = %d, want 1 (%#v)", len(violations), violations)
 	}
 
-	if violations[0].HandlerBody != "pass" {
-		t.Fatalf("HandlerBody = %q, want %q", violations[0].HandlerBody, "pass")
+	if violations[0].HandlerBody != pythonPassStatement {
+		t.Fatalf(
+			"HandlerBody = %q, want %q",
+			violations[0].HandlerBody,
+			pythonPassStatement,
+		)
 	}
 }
 

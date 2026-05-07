@@ -12,17 +12,28 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 const (
 	complexityThreshold      = 15
+	coverageCodeFile         = "coverage-file"
+	coverageCodeTotal        = "coverage-total"
+	coverageDecisionBlock    = "block"
+	coverageDecisionWarn     = "warn"
+	goCoverageGoalPolicyID   = "testing.go_coverage_goal"
 	maintainabilityThreshold = 50
 	timeoutCode              = "timeout"
 	vultureMinConfidence     = 80
 	gitShimProbeBytes        = 4096
+	goTestPrebuiltToolName   = "go-test-prebuilt"
+	goTestToolName           = "go-test"
 )
+
+var errPolicyContextUnavailable = apperror.StaticError("policy context unavailable")
 
 func runHadolint(_ Config, paths []string) int {
 	return runCatalogLintTool("hadolint", paths)
@@ -188,7 +199,445 @@ func runGoTests(_ Config, paths []string) int {
 		return 1
 	}
 
-	return runManagedPolicyTool("go-test", []string{worktree})
+	return runManagedPolicyTool(goTestToolName, []string{worktree})
+}
+
+func runGoCoverageThreshold(_ Config, paths []string) int {
+	if len(goFiles(existingFiles(paths))) == 0 {
+		return 0
+	}
+
+	worktree, ok := configuredGoWorktree()
+	if !ok {
+		return 1
+	}
+
+	coverProfile, cleanup, err := goCoverageProfilePath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+
+		return 1
+	}
+	defer cleanup()
+
+	packages, listResult := goCoveragePackages(worktree)
+	if listResult.RunnerFailure != nil || listResult.ExitCode != 0 {
+		return reportGoCoverageToolFailure("go-list", listResult)
+	}
+
+	if len(packages) == 0 {
+		return 0
+	}
+
+	testResult := runExternalTool(externalToolRequest{
+		Name: goTestToolName,
+		Dir:  worktree,
+		Command: append([]string{
+			"go",
+			"test",
+			"-buildvcs=false",
+			"-timeout=30s",
+			"-short",
+			"-covermode=atomic",
+			"-coverprofile=" + coverProfile,
+		}, packages...),
+	})
+	if testResult.RunnerFailure != nil || testResult.ExitCode != 0 {
+		return reportGoCoverageToolFailure(goTestToolName, testResult)
+	}
+
+	coverResult := runExternalTool(externalToolRequest{
+		Name:    goTestToolName,
+		Dir:     worktree,
+		Command: []string{"go", "tool", "cover", "-func=" + coverProfile},
+	})
+	if coverResult.RunnerFailure != nil || coverResult.ExitCode != 0 {
+		return reportGoCoverageToolFailure(goTestToolName, coverResult)
+	}
+
+	return reportGoCoveragePolicy(coverResult.Combined)
+}
+
+func goCoveragePackages(worktree string) ([]string, externalToolResult) {
+	result := runExternalTool(externalToolRequest{
+		Name:    "go-list",
+		Dir:     worktree,
+		Command: []string{"go", "list", "-buildvcs=false", "./..."},
+	})
+	if result.RunnerFailure != nil || result.ExitCode != 0 {
+		return nil, result
+	}
+
+	packages := []string{}
+
+	for line := range strings.Lines(result.Stdout) {
+		packageName := strings.TrimSpace(line)
+		if packageName == "" || strings.HasSuffix(packageName, "/internal/e2e") {
+			continue
+		}
+
+		packages = append(packages, packageName)
+	}
+
+	return packages, externalToolResult{}
+}
+
+func reportGoCoverageToolFailure(tool string, result externalToolResult) int {
+	finding := genericToolFailureFindingForResult(tool, result)
+	if result.RunnerFailure != nil {
+		finding.Message = result.RunnerFailure.Error()
+	}
+
+	findings := []hookFinding{finding}
+
+	if !result.TimedOut && result.RunnerFailure == nil {
+		parsed := diagnosticsToHookFindings(
+			diagnostics.Parse(tool, result.Stdout, result.Stderr),
+			tool,
+		)
+		if len(parsed) > 0 {
+			findings = append(findings[:0], parsed...)
+			findings = append(findings, finding)
+		}
+	}
+
+	emitHookReport(os.Stdout, hookReport{
+		Tool:     goTestToolName,
+		Title:    "GO COVERAGE COMMAND FAILED",
+		Status:   statusFail,
+		Findings: findings,
+		Guidance: []string{"Fix the Go coverage command failure before continuing."},
+	}, selectedHookOutputFormat())
+
+	if result.ExitCode != 0 {
+		return result.ExitCode
+	}
+
+	return 1
+}
+
+func goCoverageProfilePath() (string, func(), error) {
+	file, err := os.CreateTemp("", "coding-ethos-go-coverage-*.out")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create Go coverage profile: %w", err)
+	}
+
+	path := file.Name()
+
+	closeErr := file.Close()
+	if closeErr != nil {
+		_ = os.Remove(path)
+
+		return "", func() {}, fmt.Errorf("close Go coverage profile: %w", closeErr)
+	}
+
+	return path, func() { _ = os.Remove(path) }, nil
+}
+
+func reportGoCoveragePolicy(output string) int {
+	diagnosticItems := diagnostics.Parse(goTestToolName, output, "")
+
+	decisions, err := evaluateGoCoveragePolicies(diagnosticItems)
+	if err != nil {
+		emitHookReport(os.Stdout, hookReport{
+			Tool:  goTestToolName,
+			Title: "GO COVERAGE POLICY FAILED",
+			Findings: []hookFinding{{
+				Tool:     goTestToolName,
+				Severity: "error",
+				Message:  err.Error(),
+			}},
+			Guidance: []string{"Fix Go coverage policy evaluation before continuing."},
+		}, selectedHookOutputFormat())
+
+		return 1
+	}
+
+	if len(decisions) == 0 {
+		return 0
+	}
+
+	status, exitCode := goCoverageReportStatus(decisions)
+	findings := goCoverageFindings(decisions)
+
+	emitHookReport(os.Stdout, hookReport{
+		Tool:            goTestToolName,
+		Title:           "GO COVERAGE POLICY FAILED",
+		Status:          status,
+		Summary:         goCoverageReportSummary(findings),
+		Findings:        findings,
+		DisplayFindings: goCoverageDisplayFindings(findings),
+		Guidance:        []string{"Add meaningful Go tests before committing or pushing."},
+	}, selectedHookOutputFormat())
+
+	return exitCode
+}
+
+func goCoverageReportStatus(decisions []policy.Decision) (string, int) {
+	for _, decision := range decisions {
+		if decision.Decision == coverageDecisionBlock ||
+			decision.Severity == coverageDecisionBlock {
+			return statusFail, 1
+		}
+	}
+
+	return statusWarn, 0
+}
+
+func goCoverageFindings(decisions []policy.Decision) []hookFinding {
+	findings := []hookFinding{}
+
+	for _, decision := range decisions {
+		for _, diagnostic := range decision.Diagnostics {
+			findings = append(findings, hookFinding{
+				Metadata:     diagnostic.Metadata,
+				Tool:         goTestToolName,
+				File:         diagnostic.File,
+				Severity:     decision.Severity,
+				Code:         diagnostic.Code,
+				PolicyID:     decision.PolicyID,
+				SkillID:      "lint-remediation",
+				Message:      decision.Message,
+				Advice:       decision.Suggestion,
+				PrincipleIDs: decision.PrincipleIDs,
+				Line:         diagnostic.Line,
+				Column:       diagnostic.Column,
+			})
+		}
+	}
+
+	return findings
+}
+
+func goCoverageReportSummary(findings []hookFinding) string {
+	total := 0
+	fileWarnings := 0
+	blocking := 0
+
+	for _, finding := range findings {
+		if finding.Code == coverageCodeTotal {
+			total++
+		}
+
+		if finding.Code == coverageCodeFile {
+			fileWarnings++
+		}
+
+		if finding.Severity == coverageDecisionBlock {
+			blocking++
+		}
+	}
+
+	if len(findings) == 0 {
+		return ""
+	}
+
+	parts := []string{
+		fmt.Sprintf("%d coverage policy finding(s)", len(findings)),
+	}
+	if total > 0 {
+		parts = append(parts, fmt.Sprintf("%d total-suite", total))
+	}
+
+	if fileWarnings > 0 {
+		parts = append(parts, fmt.Sprintf("%d file/function detail", fileWarnings))
+	}
+
+	if blocking > 0 {
+		parts = append(parts, fmt.Sprintf("%d blocking", blocking))
+	}
+
+	parts = append(parts, "full detail is retained in SARIF and hook traces")
+
+	return strings.Join(parts, "; ")
+}
+
+func goCoverageDisplayFindings(findings []hookFinding) []hookFinding {
+	const maxCoverageDisplayFindings = 12
+
+	if len(findings) <= maxCoverageDisplayFindings {
+		return findings
+	}
+
+	display := make([]hookFinding, 0, maxCoverageDisplayFindings+1)
+
+	for _, finding := range findings {
+		if finding.Code == coverageCodeTotal {
+			display = append(display, finding)
+		}
+	}
+
+	for _, finding := range findings {
+		if finding.Code != coverageCodeFile {
+			continue
+		}
+
+		display = append(display, finding)
+
+		if len(display) >= maxCoverageDisplayFindings {
+			break
+		}
+	}
+
+	omitted := len(findings) - len(display)
+	if omitted > 0 {
+		display = append(display, hookFinding{
+			Tool:     goTestToolName,
+			Severity: coverageDecisionWarn,
+			Code:     "coverage-summary",
+			PolicyID: goCoverageGoalPolicyID,
+			SkillID:  "lint-remediation",
+			Message: fmt.Sprintf(
+				"%d additional coverage finding(s) omitted from toon output.",
+				omitted,
+			),
+			Advice: "Use the trace_id SARIF or hook trace for complete " +
+				"per-file coverage evidence.",
+		})
+	}
+
+	return display
+}
+
+func evaluateGoCoveragePolicies(
+	diagnosticItems []diagnostics.Diagnostic,
+) ([]policy.Decision, error) {
+	bundleRoot, consumer, _, err := loadBundleConsumerAndConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	policyContext, ok := managedPolicyContext(filepath.Dir(bundleRoot))
+	if !ok {
+		return nil, errPolicyContextUnavailable
+	}
+
+	context := evaluators.Context{
+		Cwd:         consumer,
+		EventName:   "lint-capture",
+		Provider:    "lint",
+		Scope:       "tool:" + goTestToolName,
+		Tool:        goTestToolName,
+		Diagnostics: diagnosticItems,
+	}
+	registry := evaluators.DefaultRegistry()
+	decisions := []policy.Decision{}
+
+	for _, policyDef := range policyContext.Policies {
+		if !goCoveragePolicyApplies(policyDef) {
+			continue
+		}
+
+		evaluated, evalErr := evaluateGoCoveragePolicy(
+			policyDef,
+			context,
+			registry,
+		)
+		if evalErr != nil {
+			return nil, evalErr
+		}
+
+		decisions = append(decisions, evaluated...)
+	}
+
+	return decisions, nil
+}
+
+func evaluateGoCoveragePolicy(
+	policyDef policy.Policy,
+	context evaluators.Context,
+	registry evaluators.Registry,
+) ([]policy.Decision, error) {
+	decisions := []policy.Decision{}
+
+	for _, evaluatorSpec := range policyDef.Evaluators {
+		if evaluatorSpec.Name != "cel.expression" {
+			continue
+		}
+
+		evaluator, found := registry.Lookup(evaluatorSpec.Name)
+		if !found {
+			continue
+		}
+
+		evaluated, err := evaluateGoCoverageDiagnostics(
+			evaluator,
+			policyDef,
+			context,
+			evaluatorSpec.Options,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		decisions = append(decisions, evaluated...)
+	}
+
+	return decisions, nil
+}
+
+func evaluateGoCoverageDiagnostics(
+	evaluator evaluators.Evaluator,
+	policyDef policy.Policy,
+	context evaluators.Context,
+	options map[string]any,
+) ([]policy.Decision, error) {
+	if len(context.Diagnostics) == 0 {
+		return evaluateGoCoverageDiagnostic(evaluator, policyDef, context, options)
+	}
+
+	decisions := []policy.Decision{}
+
+	for _, diagnostic := range context.Diagnostics {
+		item := diagnostic
+		diagnosticContext := context
+		diagnosticContext.Diagnostic = &item
+		diagnosticContext.Diagnostics = nil
+
+		evaluated, err := evaluateGoCoverageDiagnostic(
+			evaluator,
+			policyDef,
+			diagnosticContext,
+			options,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		decisions = append(decisions, evaluated...)
+	}
+
+	return decisions, nil
+}
+
+func evaluateGoCoverageDiagnostic(
+	evaluator evaluators.Evaluator,
+	policyDef policy.Policy,
+	context evaluators.Context,
+	options map[string]any,
+) ([]policy.Decision, error) {
+	context.EvaluatorOptions = options
+
+	evaluated, err := evaluator.Evaluate(policyDef, context)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"evaluate Go coverage policy %s: %w",
+			policyDef.ID,
+			err,
+		)
+	}
+
+	return evaluated, nil
+}
+
+func goCoveragePolicyApplies(policyDef policy.Policy) bool {
+	for _, tool := range policyDef.AppliesTo.Tools {
+		if tool == goTestToolName || tool == goTestPrebuiltToolName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func pathWithoutHookGitShims(rawPath, realGit string) string {

@@ -121,6 +121,7 @@ func managedCaptureRequest(
 	return captureRequest{
 		Tool:           options.Tool,
 		Parser:         firstCaptureNonEmpty(tool.Parser, options.Tool),
+		Category:       tool.Category,
 		ToolPath:       command.Path,
 		ToolPrefix:     command.Prefix,
 		Cwd:            captureCwd,
@@ -281,12 +282,30 @@ func shouldRenderCapturedResult(result lint.Result, outputFormat string) bool {
 		return len(result.Diagnostics) > 0 || len(result.Findings) > 0
 	}
 
+	if capturedFormatToolSucceeded(result) {
+		return false
+	}
+
+	return capturedFindingsNeedRendering(result) ||
+		capturedDiagnosticsNeedRendering(result)
+}
+
+func capturedFormatToolSucceeded(result lint.Result) bool {
+	return result.Capture != nil &&
+		result.Capture.Category == toolcatalog.CategoryFormat
+}
+
+func capturedFindingsNeedRendering(result lint.Result) bool {
 	for _, finding := range result.Findings {
 		if finding.Severity != severityRecord || finding.Status == "warn" {
 			return true
 		}
 	}
 
+	return false
+}
+
+func capturedDiagnosticsNeedRendering(result lint.Result) bool {
 	for _, diagnostic := range result.Diagnostics {
 		if diagnostic.Severity != severityRecord {
 			return true
@@ -437,17 +456,17 @@ func managedPythonToolCommand(
 		return managedToolCommand{}
 	}
 
+	candidate := filepath.Join(ethosRoot, ".venv", "bin", runtime.Command[0])
+	if isExecutable(candidate) {
+		return managedToolCommand{Path: candidate}
+	}
+
 	python := filepath.Join(ethosRoot, ".venv", "bin", "python")
 	if isExecutable(python) {
 		return managedToolCommand{
 			Path:   python,
 			Prefix: []string{"-m", runtime.Command[0]},
 		}
-	}
-
-	candidate := filepath.Join(ethosRoot, ".venv", "bin", runtime.Command[0])
-	if isExecutable(candidate) {
-		return managedToolCommand{Path: candidate}
 	}
 
 	return managedToolCommand{}
@@ -663,11 +682,36 @@ func enforceFirstCommandArgs(
 	command string,
 	enforced []string,
 ) []string {
+	trimmed := stripExactArgs(args, enforced...)
 	if len(args) > 0 && args[0] == command {
-		return append(append([]string{command}, enforced...), args[1:]...)
+		trimmed = stripExactArgs(args[1:], enforced...)
+
+		return append(append([]string{command}, enforced...), trimmed...)
 	}
 
-	return append(append([]string{command}, enforced...), args...)
+	return append(append([]string{command}, enforced...), trimmed...)
+}
+
+func stripExactArgs(args []string, values ...string) []string {
+	if len(values) == 0 {
+		return append([]string(nil), args...)
+	}
+
+	stripped := []string{}
+
+	for _, arg := range args {
+		if stringInCaptureSet(arg, values) {
+			continue
+		}
+
+		stripped = append(stripped, arg)
+	}
+
+	return stripped
+}
+
+func stringInCaptureSet(value string, candidates []string) bool {
+	return slices.Contains(candidates, value)
 }
 
 func enforceSubcommandConfigArgs(

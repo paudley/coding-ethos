@@ -189,6 +189,7 @@ type sarifRunAutomationDetails struct {
 
 type sarifRunProperties struct {
 	Sandbox        *lint.SandboxEvidence `json:"sandbox,omitempty"`
+	Capture        *lint.ToolCapture     `json:"capture,omitempty"`
 	Scope          string                `json:"scope,omitempty"`
 	FindingGroups  []sarifFindingGroup   `json:"finding_groups,omitempty"`
 	PolicyCoverage sarifPolicyCoverage   `json:"policy_coverage,omitzero"`
@@ -419,6 +420,7 @@ func FormatLintResultSARIFWithOptions(
 			},
 			Results: sarifResults(diagnostics, ruleIndexes, findingGroups),
 			Properties: sarifRunProperties{
+				Capture:        sarifCaptureEvidence(result),
 				Scope:          result.Scope,
 				PolicyCoverage: sarifCoverage(result, diagnostics),
 				FindingGroups:  findingGroups.Summaries(),
@@ -433,6 +435,18 @@ func FormatLintResultSARIFWithOptions(
 	}
 
 	return string(payload), nil
+}
+
+func sarifCaptureEvidence(result lint.Result) *lint.ToolCapture {
+	if result.Capture == nil {
+		return nil
+	}
+
+	capture := *result.Capture
+	capture.Args = append([]string(nil), result.Capture.Args...)
+	capture.RunArgs = append([]string(nil), result.Capture.RunArgs...)
+
+	return &capture
 }
 
 func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
@@ -454,27 +468,15 @@ func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
 }
 
 func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
-	var items []diagnostics.Diagnostic
+	items := lint.OutputDiagnostics(result)
 
-	switch {
-	case len(result.Diagnostics) > 0:
-		items = lint.OutputDiagnostics(result)
-	case len(result.Findings) > 0:
-		items = lint.OutputDiagnostics(result)
-	case result.Blocked():
-		items = lint.OutputDiagnostics(result)
+	if len(result.Diagnostics) > 0 && len(result.Findings) > 0 {
+		findingOnly := result
+		findingOnly.Diagnostics = nil
+		items = append(items, lint.OutputDiagnostics(findingOnly)...)
 	}
 
-	locatable := make([]diagnostics.Diagnostic, 0, len(items))
-	for _, item := range items {
-		if sarifArtifactURI(item.File) == "" {
-			continue
-		}
-
-		locatable = append(locatable, item)
-	}
-
-	return locatable
+	return diagnostics.Dedupe(items)
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {

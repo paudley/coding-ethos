@@ -417,22 +417,31 @@ func repoRoot() string {
 }
 
 func consumerRoot(ethosRoot string) string {
-	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+	return resolveConsumerRoot(
+		ethosRoot,
+		os.Getenv(consumerRootEnv),
+		gitOutput("-C", ethosRoot, "rev-parse", "--show-toplevel"),
+		gitOutput("-C", ethosRoot, "rev-parse", "--show-superproject-working-tree"),
+	)
+}
+
+func resolveConsumerRoot(
+	ethosRoot string,
+	explicitRoot string,
+	gitTopLevel string,
+	superprojectRoot string,
+) string {
+	if root := strings.TrimSpace(explicitRoot); root != "" {
 		if explicitConsumerRootApplies(root, ethosRoot) {
 			return root
 		}
 	}
 
-	if root := gitOutput(
-		"-C",
-		ethosRoot,
-		"rev-parse",
-		"--show-superproject-working-tree",
-	); root != "" {
+	if root := strings.TrimSpace(gitTopLevel); root != "" {
 		return root
 	}
 
-	if root := gitOutput("-C", ethosRoot, "rev-parse", "--show-toplevel"); root != "" {
+	if root := strings.TrimSpace(superprojectRoot); root != "" {
 		return root
 	}
 

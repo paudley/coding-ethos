@@ -220,6 +220,121 @@ func TestNormalizeGolangciLintWorktreeRunsInsideModule(t *testing.T) {
 	}
 }
 
+func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGoToolWorktree(
+		consumerRoot,
+		[]string{"test", "-json", "go", "-run", "TestThing"},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{"test", "-json", "./...", "-run", "TestThing"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestManagedCaptureEnforcesToolSpecificArgs(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	venvPython := filepath.Join(consumerRoot, ".venv", "bin", "python")
+	writeManagedCaptureFile(t, venvPython, "#!/bin/sh\nexit 0\n")
+	chmodManagedCaptureExecutable(t, venvPython)
+
+	tests := []struct {
+		tool string
+		args []string
+		want []string
+	}{
+		{
+			tool: "mypy",
+			args: []string{"pkg"},
+			want: []string{
+				"--config-file",
+				filepath.Join(consumerRoot, "mypy.ini"),
+				"--python-executable",
+				venvPython,
+				"pkg",
+			},
+		},
+		{
+			tool: "dotenv-linter",
+			args: []string{"check", ".env"},
+			want: []string{"--plain", "--quiet", "check", ".env"},
+		},
+		{
+			tool: "tombi",
+			args: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
+			want: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
+		},
+		{
+			tool: "yamllint",
+			args: []string{"."},
+			want: []string{
+				"-c",
+				filepath.Join(consumerRoot, ".yamllint.yml"),
+				".",
+				"--strict",
+				"-f",
+				"parsable",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.tool, func(t *testing.T) {
+			t.Parallel()
+
+			tool, found := toolcatalog.HookOwnedTool(test.tool)
+			if !found {
+				t.Fatalf("missing %s tool", test.tool)
+			}
+
+			got := enforceManagedToolArgs(tool, test.args, consumerRoot)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("%s enforced args = %#v, want %#v", test.tool, got, test.want)
+			}
+		})
+	}
+}
+
+func TestFormatterCandidateWalkSkipsCachesAndBuildArtifacts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, path := range []string{
+		"pkg/a.go",
+		"pkg/b.py",
+		".git/ignored.go",
+		".coding-ethos/cache/ignored.go",
+		".ruff_cache/ignored.py",
+		"build/ignored.go",
+		"node_modules/ignored.go",
+	} {
+		writeManagedCaptureFile(t, filepath.Join(root, path), "package example\n")
+	}
+
+	got := walkFormatterCandidateFiles(root, []string{".go"})
+	want := []string{filepath.Join(root, "pkg", "a.go")}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("formatter candidates = %#v, want %#v", got, want)
+	}
+}
+
 func TestCapturedResultBlocksOnParsedErrorDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -337,6 +452,33 @@ func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
 	t.Parallel()
 
 	ethosRoot := t.TempDir()
+	ruffPath := filepath.Join(ethosRoot, ".venv", "bin", "ruff")
+	writeManagedCaptureFile(t, ruffPath, "#!/bin/sh\nexit 0\n")
+	chmodManagedCaptureExecutable(t, ruffPath)
+
+	pythonPath := filepath.Join(ethosRoot, ".venv", "bin", "python")
+	writeManagedCaptureFile(t, pythonPath, "#!/bin/sh\nexit 1\n")
+	chmodManagedCaptureExecutable(t, pythonPath)
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	command := managedToolCommandFor(tool, ethosRoot)
+	if command.Path != ruffPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, ruffPath)
+	}
+
+	if len(command.Prefix) != 0 {
+		t.Fatalf("managed command prefix = %#v, want empty", command.Prefix)
+	}
+}
+
+func TestManagedToolCommandFallsBackToPythonModule(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := t.TempDir()
 	pythonPath := filepath.Join(ethosRoot, ".venv", "bin", "python")
 	writeManagedCaptureFile(t, pythonPath, `#!/bin/sh
 case " $* " in
@@ -390,6 +532,44 @@ func TestManagedActionlintUsesManagedExecutableWhenPresent(t *testing.T) {
 
 	if len(command.Prefix) != 0 {
 		t.Fatalf("managed command prefix = %#v, want empty", command.Prefix)
+	}
+}
+
+func TestManagedGoToolResolutionUsesRuntimeOrFallback(t *testing.T) {
+	t.Parallel()
+
+	goVet, found := toolcatalog.HookOwnedTool("go-vet")
+	if !found {
+		t.Fatal("missing go-vet tool")
+	}
+
+	goCommand := managedGoRuntimeCommand(goVet)
+	if filepath.Base(goCommand.Path) != "go" {
+		t.Fatalf("go-vet command = %#v, want go runtime", goCommand)
+	}
+
+	actionlint, found := toolcatalog.HookOwnedTool("actionlint")
+	if !found {
+		t.Fatal("missing actionlint tool")
+	}
+
+	fallback := managedGoToolFallback(actionlint)
+	if filepath.Base(fallback.Path) != "go" ||
+		!slices.Contains(fallback.Prefix, "run") {
+		t.Fatalf("actionlint fallback = %#v, want go run fallback", fallback)
+	}
+
+	ruff, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	if command := managedGoRuntimeCommand(ruff); command.Path != "" {
+		t.Fatalf("ruff go runtime command = %#v, want empty", command)
+	}
+
+	if command := managedGoToolFallback(ruff); command.Path != "" {
+		t.Fatalf("ruff go fallback command = %#v, want empty", command)
 	}
 }
 

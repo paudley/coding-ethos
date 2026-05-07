@@ -58,6 +58,8 @@ const (
 	DiagnosticKindFormatterChangedFiles = "formatter_changed_files"
 	DiagnosticKindInternalStructured    = "internal_structured"
 	DiagnosticKindGenericFallback       = "generic_fallback"
+
+	CategoryFormat = "format"
 )
 
 func adviceText(parts ...string) string {

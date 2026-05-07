@@ -98,8 +98,11 @@ type ToolCapture struct {
 	Sandbox       *SandboxEvidence `json:"sandbox,omitempty"`
 	Tool          string           `json:"tool"`
 	Parser        string           `json:"parser"`
+	Category      string           `json:"category,omitempty"`
 	ParseStatus   string           `json:"parse_status"`
 	OutputExcerpt string           `json:"output_excerpt,omitempty"`
+	Stdout        string           `json:"stdout,omitempty"`
+	Stderr        string           `json:"stderr,omitempty"`
 	Args          []string         `json:"args,omitempty"`
 	RunArgs       []string         `json:"run_args,omitempty"`
 	ExitCode      int              `json:"exit_code"`

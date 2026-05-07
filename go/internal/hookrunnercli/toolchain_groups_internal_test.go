@@ -5,13 +5,24 @@
 package hookrunnercli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
+)
+
+const (
+	coverageFloorPolicyID = "testing.go_coverage_floor"
+	coverageGoalPolicyID  = "testing.go_coverage_goal"
+	coverageWarnDecision  = "warn"
 )
 
 func TestParseGofmtCheckFindings(t *testing.T) {
@@ -215,6 +226,594 @@ exit 2
 		!strings.Contains(stdout, "go/main.go") {
 		t.Fatalf("gofmt output missing expected finding:\n%s", stdout)
 	}
+}
+
+func TestRunGoCoverageThresholdBlocksBelowFloor(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
+	writeGoCoveragePolicyBundle(t, tempDir)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, "go:\n  worktree: go\n")
+	t.Setenv(configEnv, overridePath)
+
+	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "go"),
+		`#!/usr/bin/env sh
+case "$1 $2" in
+  "list -buildvcs=false")
+    printf 'blackcat.ca/coding-ethos/go/pkg\n'
+    printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
+    exit 0
+    ;;
+  "test -buildvcs=false")
+    exit 0
+    ;;
+  "tool cover")
+    printf 'total:\t(statements)\t79.8%%\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout := captureStdout(t, func() {
+		if got := runGoCoverageThreshold(Config{}, []string{"go/main.go"}); got != 1 {
+			t.Fatalf("runGoCoverageThreshold() = %d, want 1", got)
+		}
+	})
+
+	for _, want := range []string{
+		"tool: go-test",
+		"status: FAIL",
+		"GO COVERAGE POLICY FAILED",
+		coverageFloorPolicyID,
+		"Go test coverage is below the required 80% floor.",
+		"trace_id:",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("coverage output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestRunGoCoverageThresholdWarnsBelowGoal(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
+	writeGoCoveragePolicyBundle(t, tempDir)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, "go:\n  worktree: go\n")
+	t.Setenv(configEnv, overridePath)
+
+	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "go"),
+		`#!/usr/bin/env sh
+case "$1 $2" in
+  "list -buildvcs=false")
+    printf 'blackcat.ca/coding-ethos/go/pkg\n'
+    printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
+    exit 0
+    ;;
+  "test -buildvcs=false")
+    exit 0
+    ;;
+  "tool cover")
+    printf 'pkg/app.go:12:\tApp\t88.5%%\n'
+    printf 'total:\t(statements)\t85.0%%\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout := captureStdout(t, func() {
+		if got := runGoCoverageThreshold(Config{}, []string{"go/main.go"}); got != 0 {
+			t.Fatalf("runGoCoverageThreshold() = %d, want warning-only success", got)
+		}
+	})
+
+	for _, want := range []string{
+		"status: WARN",
+		coverageGoalPolicyID,
+		"Go test coverage is below the 90% project goal.",
+		"pkg/app.go",
+		"trace_id:",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("coverage warning output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestGoCoverageDisplayFindingsSummarizesLargeWarningSets(t *testing.T) {
+	t.Parallel()
+
+	findings := make([]hookFinding, 0, 26)
+
+	findings = append(findings, hookFinding{
+		Tool:     goTestToolName,
+		Severity: coverageWarnDecision,
+		Code:     "coverage-total",
+		PolicyID: coverageGoalPolicyID,
+		Message:  "total coverage below goal",
+	})
+	for index := range 25 {
+		findings = append(findings, hookFinding{
+			Tool:     goTestToolName,
+			File:     fmt.Sprintf("pkg/file_%02d.go", index),
+			Severity: coverageWarnDecision,
+			Code:     "coverage-file",
+			PolicyID: coverageGoalPolicyID,
+			Message:  "file coverage below goal",
+		})
+	}
+
+	display := goCoverageDisplayFindings(findings)
+	if len(display) != 13 {
+		t.Fatalf("display findings = %d, want 13", len(display))
+	}
+
+	if display[0].Code != "coverage-total" {
+		t.Fatalf("first display finding = %#v, want total coverage", display[0])
+	}
+
+	last := display[len(display)-1]
+	if last.Code != "coverage-summary" ||
+		!strings.Contains(last.Message, "additional coverage finding") {
+		t.Fatalf("last display finding = %#v, want coverage summary", last)
+	}
+
+	if summary := goCoverageReportSummary(findings); !strings.Contains(
+		summary,
+		"full detail is retained in SARIF and hook traces",
+	) {
+		t.Fatalf("summary = %q", summary)
+	}
+}
+
+func TestRunGoCoverageThresholdExcludesE2EPackages(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
+	writeGoCoveragePolicyBundle(t, tempDir)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, "go:\n  worktree: go\n")
+	t.Setenv(configEnv, overridePath)
+
+	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	testArgsLog := filepath.Join(tempDir, "go-test-args.log")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "go"),
+		`#!/usr/bin/env sh
+case "$1 $2" in
+  "list -buildvcs=false")
+    printf 'blackcat.ca/coding-ethos/go/pkg\n'
+    printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
+    exit 0
+    ;;
+  "test -buildvcs=false")
+    printf '%s\n' "$*" > `+shellQuoteForTest(testArgsLog)+`
+    case "$*" in
+      *"/internal/e2e"*)
+        printf 'e2e package should not be included in short coverage gate\n' >&2
+        exit 3
+        ;;
+    esac
+    exit 0
+    ;;
+  "tool cover")
+    printf 'total:\t(statements)\t95.0%%\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runGoCoverageThreshold(Config{}, []string{"go/main.go"}); got != 0 {
+		t.Fatalf("runGoCoverageThreshold() = %d, want 0", got)
+	}
+
+	testArgs, err := os.ReadFile(testArgsLog)
+	if err != nil {
+		t.Fatalf("read go test args: %v", err)
+	}
+
+	if strings.Contains(string(testArgs), "/internal/e2e") {
+		t.Fatalf("go coverage included e2e package: %s", testArgs)
+	}
+}
+
+func TestRunGoCoverageThresholdReportsCommandFailure(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
+	writeGoCoveragePolicyBundle(t, tempDir)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(t, overridePath, "go:\n  worktree: go\n")
+	t.Setenv(configEnv, overridePath)
+
+	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "go"),
+		`#!/usr/bin/env sh
+case "$1 $2" in
+  "list -buildvcs=false")
+    printf 'go list failed\n' >&2
+    exit 4
+    ;;
+esac
+printf 'unexpected go invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout := captureStdout(t, func() {
+		if got := runGoCoverageThreshold(Config{}, []string{"go/main.go"}); got != 4 {
+			t.Fatalf("runGoCoverageThreshold() = %d, want 4", got)
+		}
+	})
+
+	for _, want := range []string{
+		"GO COVERAGE COMMAND FAILED",
+		"UNPARSEABLE_OUTPUT",
+		"go-list exited with status 4 without parseable diagnostics",
+		"trace_id:",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("coverage command failure output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestEvaluateGoCoveragePolicyBlocksBelowFloor(t *testing.T) {
+	t.Parallel()
+
+	context := evaluators.Context{
+		Cwd:       "/repo",
+		EventName: "lint-capture",
+		Provider:  "lint",
+		Scope:     "tool:go-test",
+		Tool:      goTestToolName,
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{"coverage_percent": 79.8},
+			Tool:     goTestToolName,
+			Code:     "coverage-total",
+			Severity: "record",
+			Message:  "Go test coverage is 79.80%.",
+		}},
+	}
+
+	decisions, err := evaluateGoCoveragePolicy(
+		testGoCoverageFloorPolicy(),
+		context,
+		evaluators.DefaultRegistry(),
+	)
+	if err != nil {
+		t.Fatalf("evaluateGoCoveragePolicy: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("coverage decisions = %#v, want one block decision", decisions)
+	}
+
+	decision := decisions[0]
+	if decision.PolicyID != coverageFloorPolicyID ||
+		decision.Severity != coverageDecisionBlock ||
+		decision.Message != "Go test coverage is below the required 80% floor." {
+		t.Fatalf("coverage decision = %#v", decision)
+	}
+
+	if len(decision.Diagnostics) != 1 {
+		t.Fatalf("coverage diagnostics = %#v, want one diagnostic", decision.Diagnostics)
+	}
+
+	diagnostic := decision.Diagnostics[0]
+	if diagnostic.Tool != goTestToolName ||
+		diagnostic.PolicyID != coverageFloorPolicyID ||
+		diagnostic.Metadata["implementation"] != "cel" {
+		t.Fatalf("coverage diagnostic = %#v", diagnostic)
+	}
+}
+
+func TestEvaluateGoCoveragePolicyAllowsPassingCoverage(t *testing.T) {
+	t.Parallel()
+
+	context := evaluators.Context{
+		Cwd:       "/repo",
+		EventName: "lint-capture",
+		Provider:  "lint",
+		Scope:     "tool:go-test",
+		Tool:      goTestToolName,
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{"coverage_percent": 80.0},
+			Tool:     goTestToolName,
+			Code:     "coverage-total",
+			Severity: "record",
+			Message:  "Go test coverage is 80.00%.",
+		}},
+	}
+
+	decisions, err := evaluateGoCoveragePolicy(
+		testGoCoverageFloorPolicy(),
+		context,
+		evaluators.DefaultRegistry(),
+	)
+	if err != nil {
+		t.Fatalf("evaluateGoCoveragePolicy: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("coverage decisions = %#v, want none", decisions)
+	}
+}
+
+func TestEvaluateGoCoveragePolicyWarnsBelowGoalForFile(t *testing.T) {
+	t.Parallel()
+
+	context := evaluators.Context{
+		Cwd:       "/repo",
+		EventName: "lint-capture",
+		Provider:  "lint",
+		Scope:     "tool:go-test",
+		Tool:      goTestToolName,
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{
+				"coverage_percent": 88.5,
+				"package":          "blackcat.ca/coding-ethos/go/pkg",
+			},
+			Tool:     goTestToolName,
+			Code:     "coverage-file",
+			File:     "pkg/app.go",
+			Line:     12,
+			Severity: "record",
+			Message:  "Go test coverage for pkg/app.go is 88.50%.",
+		}},
+	}
+
+	decisions, err := evaluateGoCoveragePolicy(
+		testGoCoverageGoalPolicy(),
+		context,
+		evaluators.DefaultRegistry(),
+	)
+	if err != nil {
+		t.Fatalf("evaluateGoCoveragePolicy: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("coverage decisions = %#v, want one warning decision", decisions)
+	}
+
+	decision := decisions[0]
+	if decision.PolicyID != coverageGoalPolicyID ||
+		decision.Severity != coverageWarnDecision ||
+		decision.Decision != coverageWarnDecision {
+		t.Fatalf("coverage warning decision = %#v", decision)
+	}
+
+	diagnostic := decision.Diagnostics[0]
+	if diagnostic.File != "pkg/app.go" ||
+		diagnostic.Line != 12 ||
+		diagnostic.Metadata["coverage_percent"] != 88.5 {
+		t.Fatalf("coverage warning diagnostic = %#v", diagnostic)
+	}
+}
+
+func TestGoCoverageReportStatusWarnsWithoutBlocking(t *testing.T) {
+	t.Parallel()
+
+	status, exitCode := goCoverageReportStatus([]policy.Decision{{
+		Decision: coverageWarnDecision,
+		Severity: coverageWarnDecision,
+	}})
+	if status != statusWarn || exitCode != 0 {
+		t.Fatalf(
+			"goCoverageReportStatus(warning) = %q, %d; want WARN, 0",
+			status,
+			exitCode,
+		)
+	}
+
+	status, exitCode = goCoverageReportStatus([]policy.Decision{{
+		Decision: coverageDecisionBlock,
+		Severity: coverageDecisionBlock,
+	}})
+	if status != statusFail || exitCode != 1 {
+		t.Fatalf(
+			"goCoverageReportStatus(block) = %q, %d; want FAIL, 1",
+			status,
+			exitCode,
+		)
+	}
+}
+
+func TestGoCoverageFindingsPreserveDecisionMetadata(t *testing.T) {
+	t.Parallel()
+
+	findings := goCoverageFindings([]policy.Decision{{
+		Message:      "coverage below floor",
+		PolicyID:     coverageFloorPolicyID,
+		Severity:     coverageDecisionBlock,
+		Suggestion:   "add meaningful tests",
+		PrincipleIDs: []string{"testing-as-specification"},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{"coverage_percent": 79.8},
+			Tool:     "policy",
+			Code:     "coverage-total",
+			Message:  "coverage below floor",
+		}},
+	}})
+
+	if len(findings) != 1 {
+		t.Fatalf("goCoverageFindings() = %#v, want one finding", findings)
+	}
+
+	got := findings[0]
+	if got.Tool != goTestToolName ||
+		got.PolicyID != coverageFloorPolicyID ||
+		got.Severity != coverageDecisionBlock ||
+		got.Code != "coverage-total" ||
+		got.SkillID != "lint-remediation" ||
+		got.Metadata["coverage_percent"] != 79.8 {
+		t.Fatalf("coverage finding = %#v", got)
+	}
+}
+
+func TestGoCoveragePolicyAppliesOnlyToGoTestTools(t *testing.T) {
+	t.Parallel()
+
+	if !goCoveragePolicyApplies(policy.Policy{
+		AppliesTo: policy.AppliesTo{Tools: []string{goTestPrebuiltToolName}},
+	}) {
+		t.Fatal("goCoveragePolicyApplies() rejected go-test-prebuilt")
+	}
+
+	if goCoveragePolicyApplies(policy.Policy{
+		AppliesTo: policy.AppliesTo{Tools: []string{"pytest"}},
+	}) {
+		t.Fatal("goCoveragePolicyApplies() accepted pytest")
+	}
+}
+
+func TestGoCoverageProfilePathCreatesTemporaryFile(t *testing.T) {
+	t.Parallel()
+
+	path, cleanup, err := goCoverageProfilePath()
+	if err != nil {
+		t.Fatalf("goCoverageProfilePath: %v", err)
+	}
+
+	_, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatalf("coverage profile was not created: %v", statErr)
+	}
+
+	cleanup()
+
+	_, statErr = os.Stat(path)
+	if !os.IsNotExist(statErr) {
+		t.Fatalf("coverage profile cleanup error = %v, want removed file", statErr)
+	}
+}
+
+func testGoCoverageFloorPolicy() policy.Policy {
+	return policy.Policy{
+		ID:              coverageFloorPolicyID,
+		DefaultSeverity: coverageDecisionBlock,
+		Message:         "Go test coverage is below the required 80% floor.",
+		Suggestion:      "Add meaningful Go tests before committing.",
+		AppliesTo: policy.AppliesTo{
+			Tools: []string{goTestToolName, goTestPrebuiltToolName},
+		},
+		Evaluators: []policy.Evaluator{{
+			Name: "cel.expression",
+			Options: map[string]any{
+				"skill_id": "lint-remediation",
+				"when": `coverage.exists(item,
+					list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+					item.total &&
+					item.percent < 80.0)`,
+			},
+		}},
+		PrincipleIDs: []string{
+			"testing-as-specification",
+			"functional-testing-is-the-proof",
+		},
+	}
+}
+
+func testGoCoverageGoalPolicy() policy.Policy {
+	return policy.Policy{
+		ID:              coverageGoalPolicyID,
+		DefaultSeverity: coverageWarnDecision,
+		Message:         "Go test coverage is below the 90% project goal.",
+		Suggestion:      "Add meaningful total-suite and per-file Go coverage.",
+		AppliesTo: policy.AppliesTo{
+			Tools: []string{goTestToolName, goTestPrebuiltToolName},
+		},
+		Evaluators: []policy.Evaluator{{
+			Name: "cel.expression",
+			Options: map[string]any{
+				"skill_id": "lint-remediation",
+				"when": `coverage.exists(item,
+					list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+					(item.total || item.code == "coverage-file") &&
+					item.percent < 90.0 &&
+					(item.package == "" ||
+					item.package.startsWith("blackcat.ca/coding-ethos/go")))`,
+			},
+		}},
+		PrincipleIDs: []string{
+			"testing-as-specification",
+			"functional-testing-is-the-proof",
+		},
+	}
+}
+
+func writeGoCoveragePolicyBundle(t *testing.T, root string) {
+	t.Helper()
+
+	payload, err := json.Marshal(policy.Bundle{
+		Version: 1,
+		Policies: map[string]policy.Policy{
+			coverageFloorPolicyID: testGoCoverageFloorPolicy(),
+			coverageGoalPolicyID:  testGoCoverageGoalPolicy(),
+		},
+		Skills: map[string]policy.Skill{},
+	})
+	if err != nil {
+		t.Fatalf("marshal coverage policy bundle: %v", err)
+	}
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),
+		string(payload),
+	)
 }
 
 func assertManagedGolangciInvocation(t *testing.T, managedLintLog string) {

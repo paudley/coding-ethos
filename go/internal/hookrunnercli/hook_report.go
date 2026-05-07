@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,15 +63,16 @@ type hookFinding struct {
 }
 
 type hookReport struct {
-	Format    string        `json:"format"`
-	Tool      string        `json:"tool"`
-	Title     string        `json:"title"`
-	Status    string        `json:"status"`
-	TraceID   string        `json:"trace_id,omitempty"`
-	Summary   string        `json:"summary,omitempty"`
-	RawOutput []string      `json:"raw_output,omitempty"`
-	Guidance  []string      `json:"guidance,omitempty"`
-	Findings  []hookFinding `json:"findings"`
+	Format          string        `json:"format"`
+	Tool            string        `json:"tool"`
+	Title           string        `json:"title"`
+	Status          string        `json:"status"`
+	TraceID         string        `json:"trace_id,omitempty"`
+	Summary         string        `json:"summary,omitempty"`
+	RawOutput       []string      `json:"raw_output,omitempty"`
+	Guidance        []string      `json:"guidance,omitempty"`
+	Findings        []hookFinding `json:"findings"`
+	DisplayFindings []hookFinding `json:"-"`
 }
 
 type hookDiagnosticProducer interface {
@@ -366,11 +368,13 @@ func hookReportLintResult(report hookReport) lint.Result {
 		Scope:       "tool:" + report.Tool,
 		Status:      hookReportLintStatus(report),
 		Diagnostics: hookReportDiagnostics(report),
+		Findings:    hookReportFindings(report),
 	}
 }
 
 func hookReportLintStatus(report hookReport) string {
-	if strings.EqualFold(report.Status, statusPass) {
+	if strings.EqualFold(report.Status, statusPass) ||
+		strings.EqualFold(report.Status, statusWarn) {
 		return "resolved"
 	}
 
@@ -412,6 +416,68 @@ func hookFindingDiagnostic(
 		Line:         finding.Line,
 		Column:       finding.Column,
 	}
+}
+
+func hookReportFindings(report hookReport) []lint.Finding {
+	findings := make([]lint.Finding, 0, len(report.Findings))
+	defaults := hookReportDiagnosticDefaults(report.Tool)
+
+	for _, finding := range report.Findings {
+		findings = append(findings, lint.Finding{
+			RawOutcome: hookFindingRawOutcome(finding),
+			Advice:     finding.Advice,
+			CheckID:    firstNonEmpty(finding.PolicyID, defaults.PolicyID),
+			Code:       firstNonEmpty(finding.Code, defaults.Code),
+			File:       finding.File,
+			Message:    finding.Message,
+			PolicyID:   firstNonEmpty(finding.PolicyID, defaults.PolicyID),
+			Severity:   hookFindingSeverity(finding),
+			SkillID:    firstNonEmpty(finding.SkillID, defaults.SkillID),
+			SourceTool: firstNonEmpty(finding.Tool, report.Tool),
+			Status:     hookReportFindingStatus(finding),
+			EthosIDs:   appendHookReportPrinciples(finding, defaults),
+			Blocking:   hookReportFindingBlocks(finding),
+			Column:     finding.Column,
+			Line:       finding.Line,
+		})
+	}
+
+	return findings
+}
+
+func hookFindingRawOutcome(finding hookFinding) map[string]any {
+	if len(finding.Metadata) == 0 {
+		return nil
+	}
+
+	raw := make(map[string]any, len(finding.Metadata))
+	maps.Copy(raw, finding.Metadata)
+
+	return raw
+}
+
+func hookReportFindingStatus(finding hookFinding) string {
+	if hookReportFindingBlocks(finding) {
+		return "fail"
+	}
+
+	if isHookWarningSeverity(finding.Severity) {
+		return "warn"
+	}
+
+	return "pass"
+}
+
+func hookReportFindingBlocks(finding hookFinding) bool {
+	severity := strings.ToLower(strings.TrimSpace(finding.Severity))
+
+	return severity == "block" || severity == "error" || severity == "fatal"
+}
+
+func isHookWarningSeverity(severity string) bool {
+	severity = strings.ToLower(strings.TrimSpace(severity))
+
+	return severity == "warn" || severity == "warning"
 }
 
 type hookReportDiagnosticDefault struct {
@@ -497,6 +563,7 @@ func hookFindingSeverity(finding hookFinding) string {
 func formatHookReportTOON(report hookReport) string {
 	findingsHeader := "findings[%d]{tool,file,line,column,severity,code," +
 		"policy_id,skill_id,message,advice,detail}:"
+	findings := hookReportDisplayFindings(report)
 
 	lines := []string{
 		"format: " + report.Format,
@@ -513,10 +580,10 @@ func formatHookReportTOON(report hookReport) string {
 		lines,
 		fmt.Sprintf(
 			findingsHeader,
-			len(report.Findings),
+			len(findings),
 		),
 	)
-	for _, finding := range report.Findings {
+	for _, finding := range findings {
 		lines = append(
 			lines,
 			fmt.Sprintf(
@@ -560,6 +627,8 @@ func formatHookReportTOON(report hookReport) string {
 }
 
 func formatHookReportHuman(report hookReport) string {
+	findings := hookReportDisplayFindings(report)
+
 	lines := []string{
 		"",
 		strings.Repeat("=", reportDividerWidth),
@@ -571,9 +640,9 @@ func formatHookReportHuman(report hookReport) string {
 		lines = append(lines, "", report.Summary)
 	}
 
-	if len(report.Findings) > 0 {
+	if len(findings) > 0 {
 		lines = append(lines, "", "Violations found:")
-		for _, finding := range report.Findings {
+		for _, finding := range findings {
 			lines = append(lines, "  "+formatHookFindingHuman(report.Tool, finding))
 		}
 	}
@@ -595,6 +664,14 @@ func formatHookReportHuman(report hookReport) string {
 	lines = append(lines, strings.Repeat("=", reportDividerWidth))
 
 	return strings.Join(lines, "\n")
+}
+
+func hookReportDisplayFindings(report hookReport) []hookFinding {
+	if len(report.DisplayFindings) > 0 {
+		return report.DisplayFindings
+	}
+
+	return report.Findings
 }
 
 func formatHookFindingHuman(tool string, finding hookFinding) string {

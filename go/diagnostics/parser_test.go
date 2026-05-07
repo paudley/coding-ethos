@@ -444,6 +444,48 @@ func TestManagedAliasParsersUseBaseToolParsers(t *testing.T) {
 	}
 }
 
+func TestParserRegistryHelpers(t *testing.T) {
+	t.Parallel()
+
+	if !diagnostics.HasParser("ruff-format") {
+		t.Fatal("expected ruff-format parser alias")
+	}
+
+	if diagnostics.HasParser("missing-tool") {
+		t.Fatal("unexpected parser for missing tool")
+	}
+
+	if got := diagnostics.InferTool(nil); got != "" {
+		t.Fatalf("InferTool(nil) = %q, want empty", got)
+	}
+
+	if got := diagnostics.Parse("ruff", "", ""); got != nil {
+		t.Fatalf("Parse empty streams = %#v, want nil", got)
+	}
+
+	parsed := diagnostics.Parse("missing-tool", "pkg/app.py:7: warning: note", "")
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "missing-tool",
+		File:     "pkg/app.py",
+		Line:     7,
+		Severity: "warning",
+		Message:  "note",
+	})
+
+	gemini := diagnostics.Parse(
+		"gemini",
+		`[{"severity":"info","file":"pkg/app.py","line":2,"message":"consider refactor"}]`,
+		"",
+	)
+	assertDiagnostic(t, gemini, diagnostics.Diagnostic{
+		Tool:     "gemini",
+		File:     "pkg/app.py",
+		Line:     2,
+		Severity: "notice",
+		Message:  "consider refactor",
+	})
+}
+
 func parserFixtureTools() map[string]bool {
 	fixtures := map[string]bool{
 		"mypy":                  true,
@@ -1244,6 +1286,47 @@ func TestDedupeMergesSamePolicyLocation(t *testing.T) {
 
 	if len(deduped[0].PrincipleIDs) != 2 {
 		t.Fatalf("principles = %#v", deduped[0].PrincipleIDs)
+	}
+}
+
+func TestDedupeKeepsUnkeyedDiagnosticsAndFillsScalars(t *testing.T) {
+	t.Parallel()
+
+	deduped := diagnostics.Dedupe([]diagnostics.Diagnostic{
+		{Message: "global warning"},
+		{
+			Tool:    "ruff",
+			File:    "pkg/app.py",
+			Line:    4,
+			Code:    "F401",
+			Message: "unused import",
+		},
+		{
+			Tool:        "ruff",
+			File:        "pkg/app.py",
+			Line:        4,
+			Code:        "F401",
+			Severity:    "error",
+			SkillID:     "lint-remediation",
+			Advice:      "remove the unused import",
+			AdviceSteps: []string{"edit file"},
+			Rerun:       []string{"ruff check"},
+			Tags:        []string{"python"},
+		},
+	})
+
+	if len(deduped) != 2 {
+		t.Fatalf("deduped diagnostics = %#v", deduped)
+	}
+
+	merged := deduped[1]
+	if merged.Code != "F401" ||
+		merged.Severity != "error" ||
+		merged.SkillID != "lint-remediation" ||
+		len(merged.AdviceSteps) != 1 ||
+		len(merged.Rerun) != 1 ||
+		len(merged.Tags) != 1 {
+		t.Fatalf("merged diagnostic = %#v", merged)
 	}
 }
 

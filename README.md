@@ -966,15 +966,20 @@ bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode requ
 bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
-SARIF output is tuned for code-scanning ingestion: repository-relative artifact
-URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
-ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
-security-severity properties for findings that are actually security-relevant.
-Record-only policy context stays in TOON/JSON traces and is not uploaded as
-SARIF results. Pathless policy findings are also omitted from code-scanning
-SARIF because GitHub requires every uploaded result to have at least one
-location; coding-ethos keeps those aggregate findings in TOON/JSON traces
-instead of inventing noisy alerts at `.` line 0.
+SARIF is the superset evidence artifact. Everything coding-ethos can observe
+about a managed run belongs in SARIF: parsed diagnostics, pathless tool-level
+failures, parser state, exit status, stdout/stderr capture, sandbox evidence,
+ETHOS rule metadata, remediation skill IDs, and deterministic fingerprints.
+CEL receives the understood subset: normalized facts and diagnostics that are
+stable enough for deterministic policy decisions. A finding can therefore be
+SARIF-only when it is observed but not yet understood by CEL.
+
+Code-scanning consumers still prefer repository-relative artifact URIs for
+inline annotations. coding-ethos emits locatable findings with exact locations
+when locations exist, and emits pathless/tool-level SARIF results plus run and
+result properties when the evidence is aggregate or execution-level. Audit, MCP
+remediation, and code-intelligence ingestion must not lose what the tool
+actually emitted merely because a finding is not tied to one source line.
 
 Managed capture can request the Bubblewrap sandbox prototype with
 `--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and

@@ -76,7 +76,40 @@ func ResultStatus(result Result) string {
 		return "FAIL"
 	}
 
+	if result.Warned() {
+		return "WARN"
+	}
+
 	return "PASS"
+}
+
+func (result Result) Warned() bool {
+	if strings.EqualFold(result.Status, "warn") ||
+		strings.EqualFold(result.Status, "warning") {
+		return true
+	}
+
+	for _, finding := range result.Findings {
+		if finding.Blocking {
+			continue
+		}
+
+		if strings.EqualFold(finding.Severity, "warn") ||
+			strings.EqualFold(finding.Severity, "warning") ||
+			strings.EqualFold(finding.Status, "warn") ||
+			strings.EqualFold(finding.Status, "warning") {
+			return true
+		}
+	}
+
+	for _, diagnostic := range result.Diagnostics {
+		if strings.EqualFold(diagnostic.Severity, "warn") ||
+			strings.EqualFold(diagnostic.Severity, "warning") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func findingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnostic {
@@ -148,6 +181,10 @@ func findingDetail(finding Finding) string {
 	appendRawOutcomeString("category", "category")
 	appendRawOutcomeString("exit_code", "exit_code")
 	appendRawOutcomeString("output", "output")
+	appendRawOutcomeString("stdout", "stdout")
+	appendRawOutcomeString("stderr", "stderr")
+	appendRawOutcomeString("runner_failure", "runner_failure")
+	appendRawOutcomeString("timed_out", "timed_out")
 
 	return strings.Join(parts, "; ")
 }

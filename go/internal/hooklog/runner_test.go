@@ -5,6 +5,7 @@ package hooklog_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeHookLogIgnore(t, root)
 	git := fakeGit(t)
 
 	var (
@@ -74,6 +76,7 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeHookLogIgnore(t, root)
 	logPath := filepath.Join(t.TempDir(), "git-args.log")
 	git := fakeGitWithLog(t, logPath)
 
@@ -101,6 +104,7 @@ func TestRunInProcessRestoresGlobalStreamsAfterPanic(t *testing.T) {
 	testlock.ProcessState(t, "hooklog-global-streams")
 
 	root := t.TempDir()
+	writeHookLogIgnore(t, root)
 	git := fakeGit(t)
 
 	originalStdout := os.Stdout
@@ -149,6 +153,102 @@ func TestRunInProcessRestoresGlobalStreamsAfterPanic(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidHookLogInputs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		want    string
+		options Options
+	}{
+		{
+			name:    "missing command",
+			options: Options{Root: t.TempDir(), BundleRoot: "pre-commit"},
+			want:    "command is required",
+		},
+		{
+			name: "internal command",
+			options: Options{
+				Root:       t.TempDir(),
+				BundleRoot: "pre-commit",
+				Command:    []string{"coding-ethos-policy"},
+			},
+			want: "hook-log must not execute coding-ethos commands",
+		},
+		{
+			name: "missing root",
+			options: Options{
+				BundleRoot: "pre-commit",
+				Command:    []string{"echo"},
+			},
+			want: "root is required",
+		},
+		{
+			name: "missing bundle root",
+			options: Options{
+				Root:    t.TempDir(),
+				Command: []string{"echo"},
+			},
+			want: "bundle root is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := Run(test.options)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Run() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeFailingGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/") {
+		t.Fatalf("Run() error = %v, want missing ignore", err)
+	}
+}
+
+func TestRunReturnsCommandExitCode(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeHookLogIgnore(t, root)
+
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    []string{os.Args[0], "-test.run=^$", "--", "exit-7"},
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+
+	var exitCoder interface{ ExitCode() int }
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() != 7 {
+		t.Fatalf("Run() error = %v, want command exit code 7", err)
+	}
+}
+
 func fakeGit(t *testing.T) string {
 	t.Helper()
 
@@ -156,6 +256,40 @@ func fakeGit(t *testing.T) string {
 	path := filepath.Join(dir, "git")
 
 	script := "#!/usr/bin/env bash\nexit 0\n"
+
+	err := os.WriteFile(path, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	return path
+}
+
+func writeHookLogIgnore(t *testing.T, root string) {
+	t.Helper()
+
+	err := os.WriteFile(
+		filepath.Join(root, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+}
+
+func fakeFailingGit(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "git")
+
+	script := "#!/usr/bin/env bash\nexit 1\n"
 
 	err := os.WriteFile(path, []byte(script), 0o600)
 	if err != nil {
@@ -217,6 +351,10 @@ func assertFileContains(t *testing.T, path, substring string) {
 
 func TestMain(m *testing.M) {
 	if len(os.Args) < 3 || os.Args[len(os.Args)-1] != "print" {
+		if len(os.Args) >= 3 && os.Args[len(os.Args)-1] == "exit-7" {
+			os.Exit(7)
+		}
+
 		os.Exit(m.Run())
 	}
 

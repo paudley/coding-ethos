@@ -550,6 +550,15 @@ func runTypeChecker(
 	diagnostics = diag.Enrich(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())
+	if toolResult.TimedOut {
+		return typeCheckResult{
+			Name:        checker.Name,
+			ExitCode:    1,
+			Diagnostics: []diag.Diagnostic{timeoutTypeCheckerDiagnostic(checker.Name)},
+			DurationMS:  duration,
+		}
+	}
+
 	if toolResult.RunnerFailure == nil && toolResult.ExitCode == 0 {
 		return typeCheckResult{
 			Name:        checker.Name,
@@ -585,7 +594,7 @@ func runTypeChecker(
 func unparseableTypeCheckerDiagnostic(name string, exitCode int) diag.Diagnostic {
 	return diag.Diagnostic{
 		Tool:     name,
-		Severity: "error",
+		Severity: "fatal",
 		Code:     "UNPARSEABLE_OUTPUT",
 		Message: fmt.Sprintf(
 			"%s exited with status %d without parseable diagnostics.",
@@ -594,6 +603,16 @@ func unparseableTypeCheckerDiagnostic(name string, exitCode int) diag.Diagnostic
 		),
 		Detail: "stdout/stderr were captured but are not rendered because they " +
 			"were not parsed into diagnostics.",
+	}
+}
+
+func timeoutTypeCheckerDiagnostic(name string) diag.Diagnostic {
+	return diag.Diagnostic{
+		Tool:     name,
+		Severity: "fatal",
+		Code:     timeoutCode,
+		Message:  name + " timed out before completing.",
+		Detail:   "Timeouts are fatal gate failures because the tool did not complete.",
 	}
 }
 

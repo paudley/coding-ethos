@@ -5,10 +5,12 @@ package agentproxy_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type trimTransform struct{}
@@ -56,5 +58,37 @@ func TestPipelineRecordsOrderedTokenAndHashEvidence(t *testing.T) {
 		output.Record.OutputTokens != 2 ||
 		output.Record.BytesRemoved != 4 {
 		t.Fatalf("record = %#v", output.Record)
+	}
+}
+
+func TestPipelineClonesMetadataAndRejectsNilTransform(t *testing.T) {
+	t.Parallel()
+
+	metadata := map[string]string{"provider": "codex"}
+
+	output, err := agentproxy.NewPipeline(nil).Apply(
+		context.Background(),
+		agentproxy.TransformInput{
+			Metadata: metadata,
+			Text:     "alpha beta",
+		},
+	)
+	if err != nil {
+		t.Fatalf("apply empty pipeline: %v", err)
+	}
+
+	output.Metadata["provider"] = "mutated"
+
+	if metadata["provider"] != "codex" {
+		t.Fatalf("pipeline leaked metadata mutation: %#v", metadata)
+	}
+
+	_, err = agentproxy.NewPipeline(nil, nil).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: "alpha"},
+	)
+
+	if !errors.Is(err, apperror.StaticError("nil content transform")) {
+		t.Fatalf("nil transform error = %v", err)
 	}
 }

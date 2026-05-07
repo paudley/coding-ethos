@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -19,7 +20,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-var errExternalToolCommandEmpty = apperror.StaticError("external tool command is empty")
+var (
+	errExternalToolCommandEmpty = apperror.StaticError("external tool command is empty")
+	errExternalToolTimedOut     = apperror.StaticError("external tool timed out")
+)
 
 type externalToolRequest struct {
 	Name           string
@@ -88,6 +92,18 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 		DurationMS: float64(time.Since(start).Milliseconds()),
 		TimedOut:   errors.Is(ctx.Err(), context.DeadlineExceeded),
 	}
+	if result.TimedOut {
+		result.ExitCode = 1
+		result.RunnerFailure = fmt.Errorf(
+			"%s: %w after %d seconds",
+			request.Name,
+			errExternalToolTimedOut,
+			timeout,
+		)
+
+		return result
+	}
+
 	if err == nil {
 		return result
 	}
@@ -123,12 +139,45 @@ func externalToolEnv(extra []string) []string {
 			continue
 		}
 
+		name, value, found := strings.Cut(item, "=")
+		if found && name == "PATH" {
+			env = append(env, name+"="+externalToolPathWithoutGitShim(value))
+
+			continue
+		}
+
 		env = append(env, item)
 	}
 
 	env = append(env, "GIT_OPTIONAL_LOCKS=0")
 
 	return append(env, extra...)
+}
+
+func externalToolPathWithoutGitShim(pathValue string) string {
+	kept := []string{}
+
+	for _, entry := range filepath.SplitList(pathValue) {
+		if entry == "" || externalToolPathEntryHasCodingEthosGitShim(entry) {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	return strings.Join(kept, string(os.PathListSeparator))
+}
+
+func externalToolPathEntryHasCodingEthosGitShim(entry string) bool {
+	payload, err := os.ReadFile(filepath.Join(entry, "git"))
+	if err != nil {
+		return false
+	}
+
+	text := string(payload)
+
+	return strings.Contains(text, "coding-ethos-run") &&
+		strings.Contains(text, "policy-git")
 }
 
 func externalToolEnvBlocked(item string) bool {

@@ -20,7 +20,7 @@ gemini:
   repo_name: coding-ethos
   repo_context: shared repository automation and engineering tooling
   max_retries: 3
-  timeout_seconds: 300
+  timeout_seconds: 900
   initial_backoff_seconds: 1.0
   max_concurrent_api_calls: 10
   disable_safety_filters: true
@@ -68,7 +68,7 @@ hooks:
   output_format: auto
   success_output: silent
   parallel_groups: true
-  tool_timeout_seconds: 300
+  tool_timeout_seconds: 900
   agent_env_markers:
     - CODEX_THREAD_ID
     - CODEX_CI

@@ -6,7 +6,7 @@ package hookrunnercli
 const (
 	compactDividerWidth     = 60
 	defaultPythonVersion    = "3.13"
-	defaultToolTimeoutSecs  = 300
+	defaultToolTimeoutSecs  = 900
 	executePermissionMask   = 0o111
 	extBash                 = ".bash"
 	extPy                   = ".py"
