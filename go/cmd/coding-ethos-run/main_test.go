@@ -554,9 +554,7 @@ func TestRunAgentHookMCPAndLFSUseRuntimeOps(t *testing.T) {
 	runAgentHook(paths, []string{"PreToolUse"})
 	runMCP(paths, []string{"--log-level", "debug"})
 
-	paths.RealGit = filepath.Join(paths.Root, "git-lfs")
-
-	writeExecutableFixture(t, paths.RealGit, "#!/usr/bin/env sh\nexit 0\n")
+	paths.RealGit = "/usr/bin/true"
 
 	err := runLFSHook(paths, []string{"post-merge", "arg"})
 	if err != nil {
