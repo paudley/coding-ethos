@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,20 @@ func TestHookFilesForPreCommitDiscoversStagedAndAllFiles(t *testing.T) {
 
 	if !reflect.DeepEqual(allFiles, []string{"staged.py", "tracked.py"}) {
 		t.Fatalf("all files = %#v, want staged.py and tracked.py", allFiles)
+	}
+}
+
+func TestHookGroupChildEnvironmentCarriesBundleRoot(t *testing.T) {
+	t.Setenv(precommitRootEnv, "/repo/coding-ethos/pre-commit")
+
+	env := hookGroupChildEnvironment("/tmp/result.json", "/repo")
+
+	if !slices.Contains(env, precommitRootEnv+"=/repo/coding-ethos/pre-commit") {
+		t.Fatalf("child env missing pre-commit root: %#v", env)
+	}
+
+	if !slices.Contains(env, consumerRootEnv+"=/repo") {
+		t.Fatalf("child env missing consumer root: %#v", env)
 	}
 }
 

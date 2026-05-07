@@ -354,6 +354,10 @@ func hookGroupChildEnvironment(resultPath, childConsumerRoot string) []string {
 		hookGroupResultPathEnv + "=" + resultPath,
 	}
 
+	if root := strings.TrimSpace(os.Getenv(precommitRootEnv)); root != "" {
+		env = append(env, precommitRootEnv+"="+root)
+	}
+
 	if root := strings.TrimSpace(childConsumerRoot); root != "" {
 		env = append(env, consumerRootEnv+"="+root)
 	}
