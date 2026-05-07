@@ -358,6 +358,7 @@ func geminiDurationLiteral(duration time.Duration) string {
 }
 
 func createGeminiExplicitCache(
+	ctx context.Context,
 	client *http.Client,
 	apiKey string,
 	model string,
@@ -375,7 +376,7 @@ func createGeminiExplicitCache(
 		)
 	}
 
-	request, err := newGeminiCachedContentRequest(apiKey, payload)
+	request, err := newGeminiCachedContentRequest(ctx, apiKey, payload)
 	if err != nil {
 		return created, fmt.Errorf(
 			"build Gemini cachedContents.create request: %w",
@@ -439,11 +440,12 @@ func geminiCachedContentPayload(
 }
 
 func newGeminiCachedContentRequest(
+	ctx context.Context,
 	apiKey string,
 	payload []byte,
 ) (*http.Request, error) {
 	request, err := http.NewRequestWithContext(
-		context.Background(),
+		ctx,
 		http.MethodPost,
 		"https://generativelanguage.googleapis.com/v1beta/cachedContents",
 		bytes.NewReader(payload),
@@ -480,6 +482,7 @@ func readGeminiCachedContentResponse(response *http.Response) ([]byte, error) {
 }
 
 func ensureGeminiExplicitCache(
+	ctx context.Context,
 	client *http.Client,
 	apiKey string,
 	seed geminiExplicitCacheSeed,
@@ -495,6 +498,7 @@ func ensureGeminiExplicitCache(
 	}
 
 	created, err := createGeminiExplicitCache(
+		ctx,
 		client,
 		apiKey,
 		seed.Model,
@@ -526,6 +530,7 @@ func ensureGeminiExplicitCache(
 }
 
 func generateGeminiText(
+	ctx context.Context,
 	client *http.Client,
 	settings geminiRequestSettings,
 	apiKey string,
@@ -559,6 +564,7 @@ func generateGeminiText(
 
 	for attempt := 0; attempt <= settings.MaxRetries; attempt++ {
 		text, retryable, requestErr := generateGeminiTextAttempt(
+			ctx,
 			client,
 			apiKey,
 			endpoint,
@@ -579,7 +585,15 @@ func generateGeminiText(
 			break
 		}
 
-		time.Sleep(backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return "", fmt.Errorf("gemini request canceled: %w", ctx.Err())
+		case <-timer.C:
+		}
+
 		backoff *= 2
 	}
 
@@ -616,6 +630,7 @@ func geminiTextRequest(
 }
 
 func generateGeminiTextAttempt(
+	ctx context.Context,
 	client *http.Client,
 	apiKey string,
 	endpoint string,
@@ -624,7 +639,7 @@ func generateGeminiTextAttempt(
 	cacheKey string,
 ) (string, bool, error) {
 	request, err := http.NewRequestWithContext(
-		context.Background(),
+		ctx,
 		http.MethodPost,
 		endpoint,
 		bytes.NewReader(payload),

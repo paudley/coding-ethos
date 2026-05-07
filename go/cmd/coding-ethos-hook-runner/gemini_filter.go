@@ -202,9 +202,9 @@ func collectGeminiChangedLines(
 	return changed
 }
 
-func isGeminiAddedOrUntracked(path string) bool {
+func isGeminiAddedOrUntracked(ctx context.Context, path string) bool {
 	output, err := safeexec.CommandContext(
-		context.Background(),
+		ctx,
 		"git",
 		"status",
 		"--porcelain",
@@ -220,6 +220,7 @@ func isGeminiAddedOrUntracked(path string) bool {
 }
 
 func filterGeminiViolationsByDiff(
+	ctx context.Context,
 	violations []geminiViolation,
 	changedLinesByFile map[string]map[int]struct{},
 ) geminiFilteredViolations {
@@ -237,7 +238,7 @@ func filterGeminiViolationsByDiff(
 
 		changedLines := changedLinesByFile[normalizeGeminiPath(violation.File)]
 		if len(changedLines) == 0 {
-			appendGeminiViolationWithoutChangedLines(&filtered, violation)
+			appendGeminiViolationWithoutChangedLines(ctx, &filtered, violation)
 
 			continue
 		}
@@ -253,6 +254,7 @@ func filterGeminiViolationsByDiff(
 }
 
 func appendGeminiViolationWithoutChangedLines(
+	ctx context.Context,
 	filtered *geminiFilteredViolations,
 	violation geminiViolation,
 ) {
@@ -269,7 +271,7 @@ func appendGeminiViolationWithoutChangedLines(
 		return
 	}
 
-	if isGeminiAddedOrUntracked(violation.File) {
+	if isGeminiAddedOrUntracked(ctx, violation.File) {
 		filtered.InDiff = append(filtered.InDiff, violation)
 	} else {
 		filtered.PreExisting = append(filtered.PreExisting, violation)
@@ -304,6 +306,7 @@ type geminiBatchJobResult struct {
 }
 
 func buildGeminiExplicitCacheBindings(
+	ctx context.Context,
 	client *http.Client,
 	apiKey string,
 	prepared []geminiPreparedCheck,
@@ -339,7 +342,14 @@ func buildGeminiExplicitCacheBindings(
 			continue
 		}
 
-		if cacheName, ok := ensureGeminiExplicitCache(client, apiKey, seeds[key], key); ok {
+		cacheName, cacheCreated := ensureGeminiExplicitCache(
+			ctx,
+			client,
+			apiKey,
+			seeds[key],
+			key,
+		)
+		if cacheCreated {
 			bindings[key] = cacheName
 		}
 	}
@@ -403,6 +413,7 @@ func maxGeminiConcurrency(settings GeminiSettings) int {
 }
 
 func executeGeminiBatchJob(
+	ctx context.Context,
 	client *http.Client,
 	apiKey string,
 	job geminiBatchJob,
@@ -418,6 +429,7 @@ func executeGeminiBatchJob(
 	)
 
 	responseText, err := generateGeminiText(
+		ctx,
 		client,
 		job.Request,
 		apiKey,
@@ -483,11 +495,13 @@ func collectGeminiBatchResults(
 }
 
 func finalizeGeminiOutcomes(
+	ctx context.Context,
 	outcomes []geminiCheckOutcome,
 	changedLinesByFile map[string]map[int]struct{},
 ) {
 	for outcomeIndex := range outcomes {
 		outcomes[outcomeIndex].Filtered = filterGeminiViolationsByDiff(
+			ctx,
 			collectGeminiViolations(outcomes[outcomeIndex].Batches),
 			changedLinesByFile,
 		)

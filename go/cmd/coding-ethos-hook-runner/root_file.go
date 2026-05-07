@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -19,6 +20,27 @@ func readRootedFile(path string) ([]byte, error) {
 	payload, err := root.ReadFile(name)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	return payload, nil
+}
+
+func readRootedFilePrefix(path string, limit int64) ([]byte, error) {
+	root, name, err := openFileRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	payload, err := io.ReadAll(io.LimitReader(file, limit))
+	if err != nil {
+		return nil, fmt.Errorf("read %s prefix: %w", path, err)
 	}
 
 	return payload, nil

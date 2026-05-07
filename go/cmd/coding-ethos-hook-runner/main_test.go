@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,7 +118,7 @@ func TestLoadGeminiPromptPackParsesGeneratedContract(t *testing.T) {
 	}
 
 	bundleRoot := filepath.Clean(
-		filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "pre-commit"),
+		filepath.Join(filepath.Dir(file), "..", "..", "..", "pre-commit"),
 	)
 
 	pack, err := loadGeminiPromptPack(bundleRoot)
@@ -1208,11 +1209,12 @@ exit 2
 		t.Fatalf("collectGeminiChangedLines() = %#v", collected)
 	}
 
-	if !isGeminiAddedOrUntracked("src/app.py") {
+	if !isGeminiAddedOrUntracked(context.Background(), "src/app.py") {
 		t.Fatal("isGeminiAddedOrUntracked() = false, want true")
 	}
 
 	filtered := filterGeminiViolationsByDiff(
+		context.Background(),
 		[]geminiViolation{
 			{File: "src/app.py", Line: 3, Severity: severityCritical},
 			{File: "src/app.py", Line: 9, Severity: severityWarning},
@@ -1670,7 +1672,7 @@ func TestGeminiOutcomeCollectionFilteringAndReports(t *testing.T) {
 	close(results)
 
 	collectGeminiBatchResults(outcomes, results)
-	finalizeGeminiOutcomes(outcomes, map[string]map[int]struct{}{
+	finalizeGeminiOutcomes(context.Background(), outcomes, map[string]map[int]struct{}{
 		"app.py": {2: {}},
 	})
 
@@ -1773,6 +1775,7 @@ func TestExecuteGeminiChecksUsesHTTPClientAndFiltersResults(t *testing.T) {
 	}}
 
 	outcomes := executeGeminiChecksWithClient(
+		context.Background(),
 		GeminiSettings{TimeoutSeconds: 5, MaxConcurrentAPICalls: 2},
 		"test-key",
 		prepared,
@@ -2034,6 +2037,7 @@ func TestCreateAndEnsureGeminiExplicitCacheUseAPIAndPersistResult(t *testing.T) 
 	}
 
 	created, err := createGeminiExplicitCache(
+		context.Background(),
 		client,
 		"test-key",
 		"gemini-test",
@@ -2056,20 +2060,32 @@ func TestCreateAndEnsureGeminiExplicitCacheUseAPIAndPersistResult(t *testing.T) 
 	}
 	key := geminiExplicitContentKey("gemini-test", "source corpus")
 
-	name, ok := ensureGeminiExplicitCache(client, "test-key", geminiExplicitCacheSeed{
-		Cache:   cache,
-		Model:   "gemini-test",
-		Content: "source corpus",
-	}, key)
+	name, ok := ensureGeminiExplicitCache(
+		context.Background(),
+		client,
+		"test-key",
+		geminiExplicitCacheSeed{
+			Cache:   cache,
+			Model:   "gemini-test",
+			Content: "source corpus",
+		},
+		key,
+	)
 	if !ok || name != geminiGeneratedCacheName {
 		t.Fatalf("ensure cache = %q, %v", name, ok)
 	}
 
-	name, ok = ensureGeminiExplicitCache(client, "test-key", geminiExplicitCacheSeed{
-		Cache:   cache,
-		Model:   "gemini-test",
-		Content: "source corpus",
-	}, key)
+	name, ok = ensureGeminiExplicitCache(
+		context.Background(),
+		client,
+		"test-key",
+		geminiExplicitCacheSeed{
+			Cache:   cache,
+			Model:   "gemini-test",
+			Content: "source corpus",
+		},
+		key,
+	)
 	if !ok || name != geminiGeneratedCacheName {
 		t.Fatalf("ensure cached hit = %q, %v", name, ok)
 	}
@@ -2092,6 +2108,7 @@ func TestCreateGeminiExplicitCacheReportsAPIAndShapeErrors(t *testing.T) {
 	}
 
 	_, err := createGeminiExplicitCache(
+		context.Background(),
 		errorClient,
 		"key",
 		"model",
@@ -2113,6 +2130,7 @@ func TestCreateGeminiExplicitCacheReportsAPIAndShapeErrors(t *testing.T) {
 	}
 
 	_, err = createGeminiExplicitCache(
+		context.Background(),
 		noNameClient,
 		"key",
 		"model",
@@ -2158,7 +2176,15 @@ func TestGenerateGeminiTextRetriesAndWritesCache(t *testing.T) {
 		},
 	}
 
-	text, err := generateGeminiText(client, settings, "key", "prompt", "dependency", "")
+	text, err := generateGeminiText(
+		context.Background(),
+		client,
+		settings,
+		"key",
+		"prompt",
+		"dependency",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("generateGeminiText() returned error: %v", err)
 	}
@@ -2167,7 +2193,15 @@ func TestGenerateGeminiTextRetriesAndWritesCache(t *testing.T) {
 		t.Fatalf("text=%q requests=%d", text, requests)
 	}
 
-	text, err = generateGeminiText(client, settings, "key", "prompt", "dependency", "")
+	text, err = generateGeminiText(
+		context.Background(),
+		client,
+		settings,
+		"key",
+		"prompt",
+		"dependency",
+		"",
+	)
 	if err != nil {
 		t.Fatalf("generateGeminiText(cache hit) returned error: %v", err)
 	}
@@ -2752,6 +2786,7 @@ func TestFilterGeminiViolationsByDiff(t *testing.T) {
 	}
 
 	filtered := filterGeminiViolationsByDiff(
+		context.Background(),
 		violations,
 		map[string]map[int]struct{}{
 			"pkg/module.py": {

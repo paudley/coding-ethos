@@ -222,7 +222,7 @@ func startCapturedProcess(
 			Dir:   request.Cwd,
 			Env:   os.Environ(),
 			Files: files,
-			Sys:   cgroup.SysProcAttr(),
+			Sys:   capturedProcessSysProcAttr(cgroup),
 		},
 	)
 
@@ -318,7 +318,7 @@ func waitCapturedProcess(
 	case result := <-done:
 		return result.state, result.err
 	case <-ctx.Done():
-		killErr := process.Kill()
+		killErr := killCapturedProcessGroup(process)
 		result := <-done
 
 		if result.err != nil {
@@ -331,6 +331,31 @@ func waitCapturedProcess(
 
 		return result.state, fmt.Errorf("process context expired: %w", ctx.Err())
 	}
+}
+
+func capturedProcessSysProcAttr(cgroup *sandbox.Cgroup) *syscall.SysProcAttr {
+	attributes := cgroup.SysProcAttr()
+	if attributes == nil {
+		attributes = &syscall.SysProcAttr{}
+	}
+
+	attributes.Setpgid = true
+
+	return attributes
+}
+
+func killCapturedProcessGroup(process *os.Process) error {
+	err := syscall.Kill(-process.Pid, syscall.SIGKILL)
+	if err == nil {
+		return nil
+	}
+
+	killErr := process.Kill()
+	if killErr != nil {
+		return errors.Join(err, killErr)
+	}
+
+	return nil
 }
 
 func capturedProcessExitCode(state *os.ProcessState, err error) int {

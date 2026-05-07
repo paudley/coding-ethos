@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -74,7 +75,13 @@ func runGeminiCheck(_ Config, args []string) int {
 		scope,
 	)
 
-	outcomes := executeGeminiChecks(settings, apiKey, prepared, changedLinesByFile)
+	outcomes := executeGeminiChecks(
+		context.Background(),
+		settings,
+		apiKey,
+		prepared,
+		changedLinesByFile,
+	)
 	if report := formatGeminiReport(
 		scope,
 		outcomes,

@@ -4,12 +4,14 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
 )
 
 func executeGeminiChecks(
+	ctx context.Context,
 	settings GeminiSettings,
 	apiKey string,
 	prepared []geminiPreparedCheck,
@@ -20,6 +22,7 @@ func executeGeminiChecks(
 	}
 
 	return executeGeminiChecksWithClient(
+		ctx,
 		settings,
 		apiKey,
 		prepared,
@@ -29,6 +32,7 @@ func executeGeminiChecks(
 }
 
 func executeGeminiChecksWithClient(
+	ctx context.Context,
 	settings GeminiSettings,
 	apiKey string,
 	prepared []geminiPreparedCheck,
@@ -36,7 +40,12 @@ func executeGeminiChecksWithClient(
 	client *http.Client,
 ) []geminiCheckOutcome {
 	patterns := normalizedGeminiModalAllowlistPatterns(settings)
-	explicitCacheBindings := buildGeminiExplicitCacheBindings(client, apiKey, prepared)
+	explicitCacheBindings := buildGeminiExplicitCacheBindings(
+		ctx,
+		client,
+		apiKey,
+		prepared,
+	)
 
 	outcomes, jobs := initializeGeminiOutcomesAndJobs(prepared)
 	if len(jobs) == 0 {
@@ -64,6 +73,7 @@ func executeGeminiChecksWithClient(
 				CheckIndex: job.CheckIndex,
 				BatchIndex: job.BatchIndex,
 				Outcome: executeGeminiBatchJob(
+					ctx,
 					client,
 					apiKey,
 					job,
@@ -80,7 +90,7 @@ func executeGeminiChecksWithClient(
 	}()
 
 	collectGeminiBatchResults(outcomes, results)
-	finalizeGeminiOutcomes(outcomes, changedLinesByFile)
+	finalizeGeminiOutcomes(ctx, outcomes, changedLinesByFile)
 
 	return outcomes
 }

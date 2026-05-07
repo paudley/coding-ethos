@@ -712,7 +712,7 @@ func existingFiles(paths []string) []string {
 }
 
 func readText(path string) (string, bool, error) {
-	data, err := os.ReadFile(path)
+	data, err := readRootedFile(path)
 	if err != nil {
 		return "", false, fmt.Errorf("read %s: %w", path, err)
 	}

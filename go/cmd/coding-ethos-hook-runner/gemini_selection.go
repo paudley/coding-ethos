@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+const shebangProbeBytes = 4096
 
 type GeminiCLIOptions struct {
 	CheckType string
@@ -468,7 +471,7 @@ func matchesGeminiShebang(
 	path string,
 	selector GeminiFileSelector,
 ) (bool, error) {
-	data, err := readRootedFile(path)
+	data, err := readRootedFilePrefix(path, shebangProbeBytes)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -477,7 +480,9 @@ func matchesGeminiShebang(
 		return false, nil
 	}
 
-	firstLine, _, _ := strings.Cut(string(data), "\n")
+	firstLineBytes, _, _ := bytes.Cut(data, []byte("\n"))
+
+	firstLine := string(firstLineBytes)
 	if !strings.HasPrefix(firstLine, "#!") {
 		return false, nil
 	}

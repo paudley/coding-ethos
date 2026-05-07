@@ -21,6 +21,7 @@ const (
 	timeoutCode              = "timeout"
 	vultureMinConfidence     = 80
 	vultureTimeoutSeconds    = 120
+	gitShimProbeBytes        = 4096
 )
 
 func runHadolint(_ Config, paths []string) int {
@@ -332,7 +333,10 @@ func pathWithoutHookGitShims(rawPath, realGit string) string {
 }
 
 func directoryContainsCodingEthosGitShim(directory string) bool {
-	payload, err := readRootedFile(filepath.Join(directory, "git"))
+	payload, err := readRootedFilePrefix(
+		filepath.Join(directory, "git"),
+		gitShimProbeBytes,
+	)
 	if err != nil {
 		return false
 	}

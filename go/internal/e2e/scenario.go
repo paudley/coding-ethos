@@ -320,6 +320,11 @@ func copyTree(destination, source string) error {
 	}
 	defer sourceRoot.Close()
 
+	err = os.MkdirAll(destination, e2eDirMode)
+	if err != nil {
+		return fmt.Errorf("create reference fixture destination %s: %w", destination, err)
+	}
+
 	destinationRoot, err := os.OpenRoot(destination)
 	if err != nil {
 		return fmt.Errorf("open reference fixture destination %s: %w", destination, err)
