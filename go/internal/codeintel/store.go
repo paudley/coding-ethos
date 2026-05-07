@@ -28,6 +28,9 @@ type Stats struct {
 	HookDecisions       int `json:"hook_decisions"`
 	HookTargets         int `json:"hook_targets"`
 	HookReviews         int `json:"hook_reviews"`
+	ProxySessions       int `json:"proxy_sessions"`
+	ProxyEvents         int `json:"proxy_events"`
+	ProxyTransforms     int `json:"proxy_transforms"`
 	Findings            int `json:"findings"`
 	Files               int `json:"files"`
 	CodeChunks          int `json:"code_chunks"`
@@ -248,6 +251,21 @@ func coreStatCountQueries(stats *Stats) []statCountQuery {
 			name:   "hook_reviews",
 			query:  "SELECT COUNT(*) FROM hook_reviews",
 			target: &stats.HookReviews,
+		},
+		{
+			name:   "proxy_sessions",
+			query:  "SELECT COUNT(*) FROM proxy_sessions",
+			target: &stats.ProxySessions,
+		},
+		{
+			name:   "proxy_events",
+			query:  "SELECT COUNT(*) FROM proxy_events",
+			target: &stats.ProxyEvents,
+		},
+		{
+			name:   "proxy_transforms",
+			query:  "SELECT COUNT(*) FROM proxy_transforms",
+			target: &stats.ProxyTransforms,
 		},
 		{
 			name:   "findings",

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestEvaluateRequiredIgnoresCELAllowsIgnoredPaths(t *testing.T) {
@@ -83,7 +84,9 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 	t.Helper()
 
 	repo := t.TempDir()
-	cmd := exec.CommandContext(context.Background(), "git", "init")
+	gitPath := requiredIgnoreGitPath(t)
+
+	cmd := exec.CommandContext(context.Background(), gitPath, "init")
 
 	cmd.Dir = repo
 
@@ -93,6 +96,17 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 	}
 
 	return repo
+}
+
+func requiredIgnoreGitPath(t *testing.T) string {
+	t.Helper()
+
+	gitPath, err := realgit.Resolve("git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	return gitPath
 }
 
 func writeRequiredIgnoreFile(t *testing.T, repo, content string) {

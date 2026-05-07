@@ -51,6 +51,39 @@ func TestParseRuffTextDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParsePreservesStdoutAndStderrDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"ruff",
+		"pkg/stdout.py:4:8: F401 unused import\n",
+		"pkg/stderr.py:9:2: F821 undefined name\n",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("diagnostics.Parse() = %#v, want two diagnostics", parsed)
+	}
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Tool:     "ruff",
+		File:     "pkg/stdout.py",
+		Line:     4,
+		Column:   8,
+		Severity: "error",
+		Code:     "F401",
+		Message:  "unused import",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Tool:     "ruff",
+		File:     "pkg/stderr.py",
+		Line:     9,
+		Column:   2,
+		Severity: "error",
+		Code:     "F821",
+		Message:  "undefined name",
+	})
+}
+
 func TestParseRuffFormatDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -287,6 +320,56 @@ func TestParseGoTestPackageFailureWithoutTestOutput(t *testing.T) {
 	})
 }
 
+func TestParseGoTestCoverageDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"go-test",
+		`{"Action":"output","Package":"blackcat.ca/coding-ethos/go/pkg",`+
+			`"Output":"coverage: 82.4% of statements\n"}`+"\n"+
+			`{"Action":"output","Package":"blackcat.ca/coding-ethos/go/pkg",`+
+			`"Output":"pkg/app.go:12: App 74.2%\n"}`+"\n"+
+			`{"Action":"output","Output":"total: (statements) 80.1%\n"}`,
+		"",
+	)
+
+	if len(parsed) != 3 {
+		t.Fatalf("go test coverage diagnostics = %#v, want 3", parsed)
+	}
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"coverage_percent": 82.4,
+			"package":          "blackcat.ca/coding-ethos/go/pkg",
+		},
+		Tool:     "go-test",
+		Severity: "record",
+		Code:     "coverage-package",
+		Message:  "Go test coverage for blackcat.ca/coding-ethos/go/pkg is 82.40%.",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"coverage_percent": 74.2,
+			"package":          "blackcat.ca/coding-ethos/go/pkg",
+		},
+		Tool:     "go-test",
+		Severity: "record",
+		Code:     "coverage-file",
+		File:     "pkg/app.go",
+		Line:     12,
+		Message:  "Go test coverage for pkg/app.go is 74.20%.",
+	})
+	assertDiagnosticAt(t, parsed, 2, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"coverage_percent": 80.1,
+		},
+		Tool:     "go-test",
+		Severity: "record",
+		Code:     "coverage-total",
+		Message:  "Go test coverage is 80.10%.",
+	})
+}
+
 func TestParseToolchainDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -303,6 +386,37 @@ func TestParseToolchainDiagnostics(t *testing.T) {
 	}
 }
 
+func TestRegisteredParsersHaveFixtures(t *testing.T) {
+	t.Parallel()
+
+	fixtures := parserFixtureTools()
+	for _, parser := range diagnostics.RegisteredParsers() {
+		if !fixtures[parser] {
+			t.Fatalf("registered parser %q has no parser fixture", parser)
+		}
+	}
+}
+
+func parserFixtureTools() map[string]bool {
+	fixtures := map[string]bool{
+		"mypy":          true,
+		"pylint":        true,
+		"pyright":       true,
+		"ruff":          true,
+		"pytest":        true,
+		"gemini-check":  true,
+		"gofmt-check":   true,
+		"go-test":       true,
+		"golangci-lint": true,
+	}
+
+	for _, test := range toolchainDiagnosticCases() {
+		fixtures[test.tool] = true
+	}
+
+	return fixtures
+}
+
 type toolchainDiagnosticCase struct {
 	name   string
 	tool   string
@@ -311,13 +425,17 @@ type toolchainDiagnosticCase struct {
 }
 
 func toolchainDiagnosticCases() []toolchainDiagnosticCase {
-	tests := baseToolchainDiagnosticCases()
-	tests = append(tests, extraToolchainDiagnosticCases()...)
+	tests := dockerAndShellToolchainDiagnosticCases()
+	tests = append(tests, goToolchainDiagnosticCases()...)
+	tests = append(tests, pythonToolchainDiagnosticCases()...)
+	tests = append(tests, agentToolchainDiagnosticCases()...)
+	tests = append(tests, yamlToolchainDiagnosticCases()...)
+	tests = append(tests, configToolchainDiagnosticCases()...)
 
 	return tests
 }
 
-func baseToolchainDiagnosticCases() []toolchainDiagnosticCase {
+func dockerAndShellToolchainDiagnosticCases() []toolchainDiagnosticCase {
 	return []toolchainDiagnosticCase{
 		{
 			name: "hadolint-json",
@@ -368,24 +486,127 @@ func baseToolchainDiagnosticCases() []toolchainDiagnosticCase {
 			},
 		},
 		{
-			name:   "yamllint-parsable",
-			tool:   "yamllint",
-			output: `config.yaml:2:5: [error] wrong indentation (indentation)`,
+			name: "shfmt-diff",
+			tool: "shfmt",
+			output: "--- scripts/run.sh.orig\n" +
+				"+++ scripts/run.sh\n" +
+				"@@ -8,3 +8,3 @@\n",
 			want: diagnostics.Diagnostic{
-				Tool:     "yamllint",
-				File:     "config.yaml",
-				Line:     2,
-				Column:   5,
+				Tool:     "shfmt",
+				File:     "scripts/run.sh",
+				Line:     8,
+				Column:   1,
 				Severity: "error",
-				Code:     "indentation",
-				Message:  "wrong indentation",
+				Code:     "format",
+				Message:  "Shell file is not shfmt-formatted.",
 			},
 		},
 	}
 }
 
-func extraToolchainDiagnosticCases() []toolchainDiagnosticCase {
+func goToolchainDiagnosticCases() []toolchainDiagnosticCase {
 	return []toolchainDiagnosticCase{
+		{
+			name:   "gofmt-filename-list",
+			tool:   "gofmt",
+			output: "go/pkg/app.go\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "gofmt",
+				File:     "go/pkg/app.go",
+				Line:     1,
+				Severity: "error",
+				Code:     "format",
+				Message:  "Go file is not gofmt-formatted.",
+			},
+		},
+		{
+			name:   "gofmt-check-filename-list",
+			tool:   "gofmt-check",
+			output: "go/pkg/check.go\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "gofmt",
+				File:     "go/pkg/check.go",
+				Line:     1,
+				Severity: "error",
+				Code:     "format",
+				Message:  "Go file is not gofmt-formatted.",
+			},
+		},
+		{
+			name: "go-vet-text",
+			tool: "go-vet",
+			output: "# blackcat.ca/coding-ethos/go/pkg\n" +
+				"pkg/app.go:12:4: fmt.Println call has possible Printf formatting directive %s",
+			want: diagnostics.Diagnostic{
+				Metadata: map[string]any{
+					"package": "blackcat.ca/coding-ethos/go/pkg",
+				},
+				Tool:     "go-vet",
+				File:     "pkg/app.go",
+				Line:     12,
+				Column:   4,
+				Severity: "error",
+				Code:     "vet",
+				Message:  "fmt.Println call has possible Printf formatting directive %s",
+			},
+		},
+	}
+}
+
+func pythonToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
+		{
+			name:   "vulture-text",
+			tool:   "vulture",
+			output: "pkg/app.py:17: unused function 'helper' (60% confidence)",
+			want: diagnostics.Diagnostic{
+				Tool:     "vulture",
+				File:     "pkg/app.py",
+				Line:     17,
+				Severity: "warning",
+				Code:     "unused-code",
+				Message:  "unused function 'helper' (60% confidence)",
+			},
+		},
+		{
+			name: "radon-complexity-json",
+			tool: "radon-complexity",
+			output: `{"pkg/app.py":[{"type":"function","rank":"C",` +
+				`"name":"build_payload","lineno":8,"complexity":19}]}`,
+			want: diagnostics.Diagnostic{
+				Metadata: map[string]any{
+					"rank":       "C",
+					"type":       "function",
+					"complexity": 19,
+					"threshold":  15,
+				},
+				Tool:     "radon-complexity",
+				File:     "pkg/app.py",
+				Line:     8,
+				Severity: "error",
+				Code:     "cyclomatic-complexity",
+				Message:  "build_payload",
+				Detail:   "complexity: 19",
+			},
+		},
+		{
+			name:   "radon-maintainability-json",
+			tool:   "radon-maintainability",
+			output: `{"pkg/app.py":{"mi":42.5,"rank":"C"}}`,
+			want: diagnostics.Diagnostic{
+				Metadata: map[string]any{
+					"rank":      "C",
+					"mi":        42.5,
+					"threshold": 50,
+				},
+				Tool:     "radon-maintainability",
+				File:     "pkg/app.py",
+				Severity: "warning",
+				Code:     "maintainability-index",
+				Message:  "Maintainability index below configured threshold.",
+				Detail:   "MI: 42.50",
+			},
+		},
 		{
 			name: "bandit-json",
 			tool: "bandit",
@@ -401,6 +622,107 @@ func extraToolchainDiagnosticCases() []toolchainDiagnosticCase {
 				Message:  "subprocess call with shell=True",
 			},
 		},
+	}
+}
+
+func agentToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
+		{
+			name:   "pytest-text",
+			tool:   "pytest-gate",
+			output: "tests/test_app.py:42: AssertionError: expected true",
+			want: diagnostics.Diagnostic{
+				Tool:     "pytest",
+				File:     "tests/test_app.py",
+				Line:     42,
+				Severity: "error",
+				Code:     "test-failed",
+				Message:  "AssertionError: expected true",
+			},
+		},
+		{
+			name:   "pytest-alias-text",
+			tool:   "pytest",
+			output: "tests/test_unit.py:11: ValueError: bad fixture",
+			want: diagnostics.Diagnostic{
+				Tool:     "pytest",
+				File:     "tests/test_unit.py",
+				Line:     11,
+				Severity: "error",
+				Code:     "test-failed",
+				Message:  "ValueError: bad fixture",
+			},
+		},
+		{
+			name: "gemini-result-json",
+			tool: "gemini",
+			output: `{"verdict":"fail","violations":[{"severity":"CRITICAL",` +
+				`"file":"pkg/app.py","line":7,"ethos_section":"security",` +
+				`"message":"unsafe action"}]}`,
+			want: diagnostics.Diagnostic{
+				Tool:     "gemini",
+				File:     "pkg/app.py",
+				Line:     7,
+				Severity: "error",
+				Code:     "security",
+				Message:  "unsafe action",
+			},
+		},
+		{
+			name: "gemini-check-array-json",
+			tool: "gemini-check",
+			output: `[{"severity":"MEDIUM","file":"pkg/other.py",` +
+				`"line":3,"ethos_section":"testing","message":"missing test"}]`,
+			want: diagnostics.Diagnostic{
+				Tool:     "gemini",
+				File:     "pkg/other.py",
+				Line:     3,
+				Severity: "warning",
+				Code:     "testing",
+				Message:  "missing test",
+			},
+		},
+	}
+}
+
+func yamlToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
+		{
+			name:   "yamllint-parsable",
+			tool:   "yamllint",
+			output: `config.yaml:2:5: [error] wrong indentation (indentation)`,
+			want: diagnostics.Diagnostic{
+				Tool:     "yamllint",
+				File:     "config.yaml",
+				Line:     2,
+				Column:   5,
+				Severity: "error",
+				Code:     "indentation",
+				Message:  "wrong indentation",
+			},
+		},
+		{
+			name: "yamllint-path-with-colon",
+			tool: "yamllint",
+			output: strings.Join([]string{
+				"configs/app:dev.yaml:9:3:",
+				"[warning] missing document start (document-start)",
+			}, " "),
+			want: diagnostics.Diagnostic{
+				Tool:     "yamllint",
+				File:     "configs/app:dev.yaml",
+				Line:     9,
+				Column:   3,
+				Severity: "warning",
+				Code:     "document-start",
+				Message:  "missing document start",
+			},
+		},
+	}
+}
+
+func configToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
 		{
 			name: "sqlfluff-json",
 			tool: "sqlfluff",
@@ -429,6 +751,21 @@ func extraToolchainDiagnosticCases() []toolchainDiagnosticCase {
 				Column:   4,
 				Severity: "error",
 				Message:  "invalid key",
+			},
+		},
+		{
+			name: "tombi-schema-text-with-help",
+			tool: "tombi",
+			output: "warning: unknown field `jobs`\n" +
+				"  help: expected key from schema\n" +
+				"    at pyproject.toml:12:1\n",
+			want: diagnostics.Diagnostic{
+				Tool:     "tombi",
+				File:     "pyproject.toml",
+				Line:     12,
+				Column:   1,
+				Severity: "warning",
+				Message:  "unknown field `jobs`",
 			},
 		},
 		{
@@ -548,6 +885,156 @@ func TestFallbackParserUsesStderrWhenStdoutEmpty(t *testing.T) {
 		Column:   2,
 		Severity: "warning",
 		Message:  "fix this",
+	})
+}
+
+func TestDotenvLinterParserHandlesRoutineAndMultiFileOutput(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"dotenv-linter",
+		"Checking .env\n"+
+			"No problems found\n"+
+			".env:3 LowercaseKey: The key should be uppercase\n"+
+			".env.example: DuplicateName: The name is duplicated\n"+
+			".env.missing: FileNotFound: The file does not exist\n",
+		"",
+	)
+
+	if len(parsed) != 3 {
+		t.Fatalf("dotenv diagnostics = %#v, want 3", parsed)
+	}
+
+	want := []diagnostics.Diagnostic{
+		{
+			Tool:     "dotenv-linter",
+			File:     ".env",
+			Line:     3,
+			Severity: "warning",
+			Code:     "LowercaseKey",
+			Message:  "The key should be uppercase",
+		},
+		{
+			Tool:     "dotenv-linter",
+			File:     ".env.example",
+			Severity: "warning",
+			Code:     "DuplicateName",
+			Message:  "The name is duplicated",
+		},
+		{
+			Tool:     "dotenv-linter",
+			File:     ".env.missing",
+			Severity: "warning",
+			Code:     "FileNotFound",
+			Message:  "The file does not exist",
+		},
+	}
+
+	for index := range want {
+		assertDiagnostic(t, []diagnostics.Diagnostic{parsed[index]}, want[index])
+	}
+}
+
+func TestYamllintParserHandlesMultipleDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"yamllint",
+		"config.yaml:2:5: [error] wrong indentation (indentation)\n"+
+			"configs/app:dev.yaml:9:3: [warning] missing document start (document-start)\n",
+		"",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("yamllint diagnostics = %#v, want 2", parsed)
+	}
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Tool:     "yamllint",
+		File:     "config.yaml",
+		Line:     2,
+		Column:   5,
+		Severity: "error",
+		Code:     "indentation",
+		Message:  "wrong indentation",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Tool:     "yamllint",
+		File:     "configs/app:dev.yaml",
+		Line:     9,
+		Column:   3,
+		Severity: "warning",
+		Code:     "document-start",
+		Message:  "missing document start",
+	})
+}
+
+func TestPytestParserHandlesSummaryFailures(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"pytest-gate",
+		"FAILED tests/test_app.py::test_saves_record - AssertionError: expected save\n"+
+			"ERROR tests/test_other.py - RuntimeError: fixture setup failed\n",
+		"",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("pytest diagnostics = %#v, want 2", parsed)
+	}
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"test": "test_saves_record",
+		},
+		Tool:     "pytest",
+		File:     "tests/test_app.py",
+		Severity: "error",
+		Code:     "pytest-failed",
+		Message:  "AssertionError: expected save",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Tool:     "pytest",
+		File:     "tests/test_other.py",
+		Severity: "error",
+		Code:     "pytest-error",
+		Message:  "RuntimeError: fixture setup failed",
+	})
+}
+
+func TestPytestParserCapturesCoverageTotal(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"pytest-gate",
+		"Name                Stmts   Miss  Cover\n"+
+			"pkg/app.py             10      3    70%\n"+
+			"TOTAL                 100     21    79.5%\n",
+		"",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("pytest coverage diagnostics = %#v, want 2", parsed)
+	}
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"coverage_percent": 70.0,
+		},
+		Tool:     "pytest",
+		File:     "pkg/app.py",
+		Severity: "record",
+		Code:     "coverage-file",
+		Message:  "Pytest coverage for pkg/app.py is 70.00%.",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Metadata: map[string]any{
+			"coverage_percent": 79.5,
+		},
+		Tool:     "pytest",
+		Severity: "record",
+		Code:     "coverage-total",
+		Message:  "Pytest coverage total is 79.50%.",
 	})
 }
 
@@ -722,6 +1209,23 @@ func assertDiagnostic(
 	got := parsed[0]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("diagnostic = %#v, want %#v", got, want)
+	}
+}
+
+func assertDiagnosticAt(
+	t *testing.T,
+	parsed []diagnostics.Diagnostic,
+	index int,
+	want diagnostics.Diagnostic,
+) {
+	t.Helper()
+
+	if index >= len(parsed) {
+		t.Fatalf("diagnostic index %d missing from %#v", index, parsed)
+	}
+
+	if got := parsed[index]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("diagnostic[%d] = %#v, want %#v", index, got, want)
 	}
 }
 

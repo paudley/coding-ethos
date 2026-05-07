@@ -987,86 +987,38 @@ func containsString(values []string, expected string) bool {
 func fakeAgentHookCommand(t *testing.T) string {
 	t.Helper()
 
-	script := filepath.Join(t.TempDir(), "agent-hook")
-	violationScript := fakeAgentHookScript()
+	ethosRoot := t.TempDir()
+	binDir := filepath.Join(ethosRoot, "bin")
+	bundleDir := filepath.Join(ethosRoot, "build", "policy")
 
-	err := os.WriteFile(
-		script,
-		[]byte(violationScript),
-		0o600,
-	)
+	err := os.MkdirAll(binDir, 0o700)
 	if err != nil {
-		t.Fatalf("write fake agent hook: %v", err)
+		t.Fatalf("create fake bin dir: %v", err)
 	}
 
-	err = os.Chmod(script, 0o700)
+	err = os.MkdirAll(bundleDir, 0o700)
 	if err != nil {
-		t.Fatalf("chmod fake agent hook: %v", err)
+		t.Fatalf("create fake policy dir: %v", err)
 	}
 
-	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "' agent-hook"
-}
+	bundlePath := filepath.Join(bundleDir, "policy-bundle.json")
 
-func fakeAgentHookScript() string {
-	return strings.ReplaceAll(`#!/bin/sh
-violation='@@VIOLATION@@'
-payload="$(cat)"
-case "$payload" in
-  *'coding-ethos-git-hook'*)
-    case "$payload" in
-      *'"provider": "gemini-cli"'*)
-        printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
-        exit 2
-        ;;
-      *'"provider": "codex"'*)
-        printf '{"decision":"block","reason":"%s",' "$violation"
-        printf '"hookSpecificOutput":{"permissionDecisionReason":"%s"}}\n' "$violation"
-        exit 2
-        ;;
-      *)
-        printf '%s\n' '{"decision":"block","systemMessage":"blocked by coding-ethos"}'
-        exit 2
-        ;;
-    esac
-    ;;
-  *'"provider": "claude"'*)
-    printf '%s' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && '
-    printf '%s' '/repo/bin/coding-ethos-run policy-git '\''status'\'' '
-    printf '%s\n' ''\''--short'\'' 2>&1"}}}'
-    ;;
-  *'"provider": "codex"'*'"git status --short"'*)
-    printf '%s\n' '{}'
-    ;;
-  *'"provider": "gemini-cli"'*'"git status --short"'*)
-    printf '%s' '{"decision":"allow","hookSpecificOutput":{"updatedInput":{"command":'
-    printf '%s' '"/repo/bin/coding-ethos-run policy-git '\''status'\'' '
-    printf '%s\n' ''\''--short'\''"}}}'
-    ;;
-  *'"UserPromptSubmit"'*)
-    printf '%s' '{"hookSpecificOutput":{"additionalContext":'
-    printf '%s\n' '"coding-ethos prompt guidance"}}'
-    ;;
-  *'"provider": "codex"'*)
-    printf '{"decision":"block","reason":"%s",' "$violation"
-    printf '"hookSpecificOutput":{"permissionDecisionReason":"%s"}}\n' "$violation"
-    exit 2
-    ;;
-  *'"toolName": "write_file"'*)
-    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
-    exit 2
-    ;;
-  *'"provider": "gemini-cli"'*)
-    printf '%s\n' '{"decision":"deny","systemMessage":"denied by coding-ethos"}'
-    exit 2
-    ;;
-  *)
-    printf '%s\n' '{"decision":"unknown"}'
-    exit 1
-    ;;
-esac
-		`,
-		"@@VIOLATION@@",
-		"!!! CODING-ETHOS EMPLOYMENT VIOLATION: hook tamper blocked; "+
-			"continued attempts may result in termination.",
-	)
+	file, err := os.Create(bundlePath)
+	if err != nil {
+		t.Fatalf("create fake policy bundle: %v", err)
+	}
+
+	err = policy.EncodeBundle(file, policy.ExampleBundle())
+	if err != nil {
+		t.Fatalf("encode fake policy bundle: %v", err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		t.Fatalf("close fake policy bundle: %v", err)
+	}
+
+	runner := filepath.Join(binDir, "coding-ethos-run")
+
+	return "'" + strings.ReplaceAll(runner, "'", "'\\''") + "' agent-hook"
 }

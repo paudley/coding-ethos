@@ -302,14 +302,18 @@ func upsertSARIFResult(
 		ctx,
 		`INSERT OR REPLACE INTO sarif_results(
 			sarif_result_id, sarif_run_id, ordinal, rule_id, level, message,
-			fingerprint, finding_id, remediation_id, policy_id, skill_id,
+			fingerprint, proxy_event_id, proxy_session_id, proxy_event_kind,
+			proxy_direction, proxy_payload_kind, proxy_trace_id,
+			proxy_tracking_id, proxy_transform, finding_id, remediation_id,
+			policy_id, skill_id,
 			principle_ids, path, ast_language, ast_node_kind, ast_symbol_kind,
 			ast_symbol_name, ast_symbol_path, linked_chunk_id,
 			start_line, start_column, evaluator_kind,
 			cel_policy_id, cel_expression, policy_source, search_text, raw_json
 		) VALUES (
 			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?, ?, ?
 		)`,
 		sarifResultSQLArgs(runID, index, result, raw)...,
 	)
@@ -328,7 +332,10 @@ func sarifResultSQLArgs(
 ) []any {
 	return []any{
 		result.ID, runID, index, result.RuleID, result.Level, result.Message,
-		result.Fingerprint, result.FindingID, result.RemediationID,
+		result.Fingerprint, result.ProxyEventID, result.ProxySessionID,
+		result.ProxyEventKind, result.ProxyDirection, result.ProxyPayloadKind,
+		result.ProxyTraceID, result.ProxyTrackingID, result.ProxyTransform,
+		result.FindingID, result.RemediationID,
 		result.PolicyID, result.SkillID, strings.Join(result.PrincipleIDs, ","),
 		result.Path, result.ASTLanguage, result.ASTNodeKind, result.ASTSymbolKind,
 		result.ASTSymbolName, result.ASTSymbolPath, result.LinkedChunkID,

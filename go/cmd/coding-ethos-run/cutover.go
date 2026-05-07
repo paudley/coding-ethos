@@ -68,7 +68,7 @@ func installGitWrapperShim(paths runtimePaths) {
 }
 
 func installLintToolShims(paths runtimePaths) {
-	runtimeRunTool(paths, "coding-ethos-lint",
+	runtimeRunLint(paths,
 		"--install-shims",
 		"--tools-bin-dir", paths.BinDir,
 		"--runner", paths.RunBinary,

@@ -16,6 +16,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_GIT = "/usr/bin/git"
+RUNNER = REPO_ROOT / "bin" / "coding-ethos-run"
+POLICY = REPO_ROOT / "bin" / "coding-ethos-policy"
 
 
 def _clean_subprocess_env(env: dict[str, str] | None) -> dict[str, str]:
@@ -54,38 +56,44 @@ def _run(
 
 
 def _prepare_consumer_repo(tmp_path: Path) -> Path:
+    _assert_managed_runtime_exists()
     consumer = tmp_path / "consumer"
     consumer.mkdir()
     _run(["git", "init"], cwd=consumer)
     (consumer / ".gitignore").write_text(".coding-ethos/\n", encoding="utf-8")
     _run(["git", "add", ".gitignore"], cwd=consumer)
     _sync_consumer_tool_configs(consumer)
-    _run(
-        [
-            "make",
-            "go-tools-install",
-            "policy-bundle-install",
-            f"HOOK_CONSUMER_ROOT={consumer}",
-        ],
-        cwd=REPO_ROOT,
-        timeout=180,
-    )
     return consumer
+
+
+def _assert_managed_runtime_exists() -> None:
+    missing = [
+        str(path)
+        for path in (
+            RUNNER,
+            POLICY,
+            REPO_ROOT / "build" / "policy" / "policy-bundle.json",
+        )
+        if not path.exists()
+    ]
+    if missing:
+        raise AssertionError(
+            "managed runtime is missing; run `make build` before integration tests: "
+            + ", ".join(missing)
+        )
 
 
 def _sync_consumer_tool_configs(consumer: Path) -> None:
     _run(
         [
-            "go",
-            "run",
-            "./cmd/coding-ethos-policy",
+            str(POLICY),
             "sync-tool-configs",
             "--ethos-root",
             str(REPO_ROOT),
             "--repo",
             str(consumer),
         ],
-        cwd=REPO_ROOT / "go",
+        cwd=REPO_ROOT,
         timeout=120,
     )
 
@@ -292,7 +300,7 @@ def test_lint_target_source_roots_come_from_policy_config() -> None:
 
 
 def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
-    shims = (REPO_ROOT / "go" / "cmd" / "coding-ethos-lint" / "shims.go").read_text(
+    shims = (REPO_ROOT / "go" / "internal" / "lintcli" / "shims.go").read_text(
         encoding="utf-8"
     )
 
@@ -399,9 +407,9 @@ def test_runner_fails_hard_when_checkout_local_binary_is_missing(
         policy_tool.chmod(mode)
 
     output = result.stdout + result.stderr
-    assert result.returncode == 127, output
-    assert "missing or non-executable coding-ethos-policy" in output
-    assert "run make build" in output
+    assert result.returncode == 0, output
+    assert "policy bundle valid" in output
+    assert "missing or non-executable coding-ethos-policy" not in output
     assert ".git/coding-ethos-hooks" not in output
 
 
@@ -432,7 +440,7 @@ def test_runner_fails_hard_when_policy_bundle_is_missing(tmp_path: Path) -> None
     assert ".git/coding-ethos-hooks" not in output
 
 
-def test_runner_fails_hard_when_lint_binary_is_missing(tmp_path: Path) -> None:
+def test_policy_lint_runs_without_legacy_lint_binary(tmp_path: Path) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     lint_tool = REPO_ROOT / "bin" / "coding-ethos-lint"
     backup = lint_tool.read_bytes()
@@ -454,9 +462,8 @@ def test_runner_fails_hard_when_lint_binary_is_missing(tmp_path: Path) -> None:
         lint_tool.chmod(mode)
 
     output = result.stdout + result.stderr
-    assert result.returncode == 127, output
-    assert "missing or non-executable coding-ethos-lint" in output
-    assert "run make build" in output
+    assert result.returncode == 0, output
+    assert "missing or non-executable coding-ethos-lint" not in output
     assert ".git/coding-ethos-hooks" not in output
 
 
@@ -482,7 +489,7 @@ def test_lifecycle_policy_lint_does_not_fail_on_policy_mtime_drift(
         os.utime(policy_source, (original_times.st_atime, original_times.st_mtime))
 
     output = result.stdout + result.stderr
-    assert "Usage of coding-ethos-lint" in output
+    assert result.returncode == 0, output
     assert "compiled policy bundle is older" not in output
     assert "hook runtime is not installed or is stale" not in output
 
@@ -497,14 +504,8 @@ def test_validate_uses_policy_source_hashes_not_mtime(tmp_path: Path) -> None:
 
         env = os.environ.copy()
         env["CODE_ETHOS_CONSUMER_ROOT"] = str(consumer)
-        _run(
-            ["make", "policy-bundle-install", "go-hook-runner-install"],
-            cwd=REPO_ROOT,
-            env=env,
-            timeout=180,
-        )
         result = _run(
-            [str(REPO_ROOT / "bin" / "coding-ethos-run"), "git-hook", "validate"],
+            [str(RUNNER), "git-hook", "validate"],
             cwd=REPO_ROOT,
             env=env,
             timeout=180,

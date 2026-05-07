@@ -90,6 +90,40 @@ type EventInput struct {
 	IsGemini         bool     `json:"is_gemini"`
 }
 
+type ProxyInput struct {
+	EventID      string              `json:"event_id"`
+	SessionID    string              `json:"session_id"`
+	Kind         string              `json:"kind"`
+	Provider     string              `json:"provider"`
+	Model        string              `json:"model"`
+	Tool         string              `json:"tool"`
+	Direction    string              `json:"direction"`
+	PayloadKind  string              `json:"payload_kind"`
+	TargetPath   string              `json:"target_path"`
+	TraceID      string              `json:"trace_id"`
+	TrackingID   string              `json:"tracking_id"`
+	PolicyID     string              `json:"policy_id"`
+	Decision     string              `json:"decision"`
+	CacheKey     string              `json:"cache_key"`
+	InputHash    string              `json:"input_hash"`
+	OutputHash   string              `json:"output_hash"`
+	DLPFacts     []ProxyDLPFactInput `json:"dlp_facts"`
+	HasDLPFacts  bool                `json:"has_dlp_facts"`
+	InputTokens  int64               `json:"input_tokens"`
+	OutputTokens int64               `json:"output_tokens"`
+	TotalTokens  int64               `json:"total_tokens"`
+	PayloadBytes int64               `json:"payload_bytes"`
+}
+
+type ProxyDLPFactInput struct {
+	Type       string `json:"type"`
+	Path       string `json:"path"`
+	Reason     string `json:"reason"`
+	Confidence string `json:"confidence"`
+	Line       int64  `json:"line"`
+	Column     int64  `json:"column"`
+}
+
 type PathInput struct {
 	File          string `json:"file"`
 	Dir           string `json:"dir"`
@@ -111,6 +145,15 @@ type DiagnosticInput struct {
 	PolicyID string `json:"policy_id"`
 	Line     int64  `json:"line"`
 	Column   int64  `json:"column"`
+}
+
+type CoverageInput struct {
+	Tool    string  `json:"tool"`
+	File    string  `json:"file"`
+	Package string  `json:"package"`
+	Code    string  `json:"code"`
+	Percent float64 `json:"percent"`
+	Total   bool    `json:"total"`
 }
 
 type RepoInput struct {
@@ -247,8 +290,8 @@ type ActivationInput struct {
 	Provider           string
 	Mode               string
 	SessionID          string
-	ChangedFiles       []string
 	ProtectedBranches  []string
+	Findings           []FindingActivation
 	ToolResponseKeys   []string
 	StagedFiles        []string
 	ConfigCandidates   []string
@@ -258,10 +301,11 @@ type ActivationInput struct {
 	Files              []string
 	Diagnostics        []diagnostics.Diagnostic
 	Argv               []string
-	Findings           []FindingActivation
-	PythonASTFacts     []PythonASTFactInput
+	ChangedFiles       []string
 	ToolInputKeys      []string
+	PythonASTFacts     []PythonASTFactInput
 	Source             SourceActivation
+	Proxy              ProxyInput
 	ReturnCode         int
 	AdminApproved      bool
 	ReadOnlyInspection bool
@@ -443,6 +487,40 @@ func policyContextInputSchema() []string {
 		schemaList("python_ast", pythonASTSchemaFields()...),
 		schemaObject("finding", findingSchemaFields()...),
 		schemaList("findings", findingSchemaFields()...),
+		schemaObject(
+			"proxy",
+			"event_id",
+			"session_id",
+			"kind",
+			"provider",
+			"model",
+			"tool",
+			"direction",
+			"payload_kind",
+			"target_path",
+			"trace_id",
+			"tracking_id",
+			"policy_id",
+			"decision",
+			"cache_key",
+			"input_hash",
+			"output_hash",
+			"input_tokens",
+			"output_tokens",
+			"total_tokens",
+			"payload_bytes",
+			"has_dlp_facts",
+			"dlp_facts",
+		),
+		schemaList(
+			"proxy.dlp_facts[]",
+			"type",
+			"path",
+			"reason",
+			"confidence",
+			"line",
+			"column",
+		),
 		schemaObject(
 			"repo",
 			"root",
@@ -627,6 +705,7 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[ShellCommandInput](),
 			reflect.TypeFor[PathInput](),
 			reflect.TypeFor[DiagnosticInput](),
+			reflect.TypeFor[CoverageInput](),
 			reflect.TypeFor[PythonASTFactInput](),
 			reflect.TypeFor[FindingInput](),
 			reflect.TypeFor[SourceInput](),
@@ -636,6 +715,8 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[GitInput](),
 			reflect.TypeFor[GitCommandInput](),
 			reflect.TypeFor[EventInput](),
+			reflect.TypeFor[ProxyInput](),
+			reflect.TypeFor[ProxyDLPFactInput](),
 			reflect.TypeFor[DiffInput](),
 			reflect.TypeFor[DiffHunkInput](),
 			reflect.TypeFor[DiffLineInput](),
@@ -662,6 +743,7 @@ func scalarVariableOptions() []cel.EnvOption {
 		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
 		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
 		cel.Variable("event", cel.ObjectType("celexpr.EventInput")),
+		cel.Variable("proxy", cel.ObjectType("celexpr.ProxyInput")),
 		cel.Variable("diff", cel.ObjectType("celexpr.DiffInput")),
 		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
 		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
@@ -710,6 +792,10 @@ func collectionVariableOptions() []cel.EnvOption {
 		cel.Variable(
 			"diagnostics",
 			cel.ListType(cel.ObjectType("celexpr.DiagnosticInput")),
+		),
+		cel.Variable(
+			"coverage",
+			cel.ListType(cel.ObjectType("celexpr.CoverageInput")),
 		),
 		cel.Variable(
 			"python_ast",
@@ -792,6 +878,7 @@ func Activation(input ActivationInput) map[string]any {
 		"cwd":             input.Cwd,
 		"diff":            activationDiffInput(context),
 		"event":           activationEventInput(input),
+		"proxy":           proxyInput(input.Proxy),
 		"files":           context.Files,
 		"changed_symbols": context.ChangedSymbols,
 		"file_changes": fileChangeInputs(
@@ -821,6 +908,7 @@ func Activation(input ActivationInput) map[string]any {
 		"paths":       context.Paths,
 		"diagnostic":  diagnosticInput(input.Diagnostic),
 		"diagnostics": diagnosticInputs(input.Diagnostics, input.Diagnostic),
+		"coverage":    coverageInputs(input.Diagnostics, input.Diagnostic),
 		"python_ast":  append([]PythonASTFactInput(nil), input.PythonASTFacts...),
 		"finding":     findingInput(input.Finding),
 		"findings":    findingInputs(input.Findings, input.Finding),
@@ -895,6 +983,14 @@ func primaryActivationPath(
 	}
 
 	return PathInput{}
+}
+
+func proxyInput(input ProxyInput) ProxyInput {
+	output := input
+	output.DLPFacts = append([]ProxyDLPFactInput(nil), input.DLPFacts...)
+	output.HasDLPFacts = len(output.DLPFacts) > 0 || input.HasDLPFacts
+
+	return output
 }
 
 func activationHasChanges(context activationContext) bool {

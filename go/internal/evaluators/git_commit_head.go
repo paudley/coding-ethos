@@ -99,7 +99,7 @@ func verifyCommitHead(
 ) ([]policy.Decision, error) {
 	path, err := commitHeadStatePath(context.Cwd)
 	if err != nil {
-		return nil, err
+		return nil, nil
 	}
 
 	state, ok, err := readCommitHeadStatePath(path)

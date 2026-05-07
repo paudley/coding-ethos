@@ -115,10 +115,11 @@ type sarifRegion struct {
 }
 
 type sarifResultProperties struct {
-	sarifResultEvidenceProperties
 	sarifResultASTProperties
+	sarifResultEvidenceProperties
 	sarifResultPolicyProperties
 	sarifResultRemediationProperties
+	sarifResultProxyProperties
 
 	CodingEthos bool `json:"coding_ethos"`
 }
@@ -155,6 +156,20 @@ type sarifResultPolicyProperties struct {
 	MatchedDiagnosticPolicyID string `json:"matched_diagnostic_policy_id,omitempty"`
 	MatchedDiagnosticSeverity string `json:"matched_diagnostic_severity,omitempty"`
 	InputSchemaVersion        int64  `json:"input_schema_version,omitempty"`
+}
+
+type sarifResultProxyProperties struct {
+	ProxyEventID      string `json:"proxy_event_id,omitempty"`
+	ProxySessionID    string `json:"proxy_session_id,omitempty"`
+	ProxyEventKind    string `json:"proxy_event_kind,omitempty"`
+	ProxyProvider     string `json:"proxy_provider,omitempty"`
+	ProxyDirection    string `json:"proxy_direction,omitempty"`
+	ProxyPayloadKind  string `json:"proxy_payload_kind,omitempty"`
+	ProxyTraceID      string `json:"proxy_trace_id,omitempty"`
+	ProxyTrackingID   string `json:"proxy_tracking_id,omitempty"`
+	ProxyTransform    string `json:"proxy_transform,omitempty"`
+	ProxyTokenTotal   int64  `json:"proxy_token_total,omitempty"`
+	ProxyPayloadBytes int64  `json:"proxy_payload_bytes,omitempty"`
 }
 
 type sarifResultRemediationProperties struct {
@@ -528,6 +543,7 @@ func sarifResults(
 				),
 				sarifResultASTProperties:    sarifResultAST(item),
 				sarifResultPolicyProperties: sarifResultPolicy(item, group),
+				sarifResultProxyProperties:  sarifResultProxy(item),
 				sarifResultRemediationProperties: sarifResultRemediation(
 					item,
 					finding,
@@ -590,6 +606,22 @@ func sarifResultPolicy(
 		PolicyID:     item.PolicyID,
 		PolicySource: sarifStringMetadata(item, "policy_source"),
 		SourceTool:   item.Tool,
+	}
+}
+
+func sarifResultProxy(item diagnostics.Diagnostic) sarifResultProxyProperties {
+	return sarifResultProxyProperties{
+		ProxyDirection:    sarifStringMetadata(item, "proxy_direction"),
+		ProxyEventID:      sarifStringMetadata(item, "proxy_event_id"),
+		ProxyEventKind:    sarifStringMetadata(item, "proxy_event_kind"),
+		ProxyPayloadBytes: sarifIntMetadata(item, "proxy_payload_bytes"),
+		ProxyPayloadKind:  sarifStringMetadata(item, "proxy_payload_kind"),
+		ProxyProvider:     sarifStringMetadata(item, "proxy_provider"),
+		ProxySessionID:    sarifStringMetadata(item, "proxy_session_id"),
+		ProxyTokenTotal:   sarifIntMetadata(item, "proxy_token_total"),
+		ProxyTraceID:      sarifStringMetadata(item, "proxy_trace_id"),
+		ProxyTrackingID:   sarifStringMetadata(item, "proxy_tracking_id"),
+		ProxyTransform:    sarifStringMetadata(item, "proxy_transform"),
 	}
 }
 

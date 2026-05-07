@@ -26,16 +26,26 @@ with a shared structured ethos.
 - `go/internal/geminiprompts`: generated Gemini hook prompt pack.
 - `go/internal/agentskills`: generated provider skill surfaces.
 - `pre-commit/prompts/`: prompt templates for Gemini review checks.
-- `go/cmd/coding-ethos-hook-runner/`: active Git hook runtime and external check
-  orchestration.
-- `go/internal/policy`, `go/internal/hooks`, `go/internal/gitwrap`, and
-  `go/internal/agenthooks`: compiled policy runtime, agent hook adapters, and
-  git wrapper enforcement.
-- `go/cmd/coding-ethos-hook-runner/`: Go-owned policy checks, external analyzer
-  orchestration, and normalized hook feedback.
+- `go/internal/hookrunnercli`: active hook groups, hook reports, Gemini review
+  orchestration, and hook runner CLI behavior.
+- `go/internal/managedcapture`: managed tool execution, stdout/stderr capture,
+  formatter change detection, and trace metadata.
+- `go/diagnostics`: normalized parsers for linter, formatter, type-checker, and
+  test output.
+- `go/internal/policy`, `go/internal/hooks`, `go/internal/gitwrap`,
+  `go/internal/realgit`, and `go/internal/agenthooks`: compiled policy runtime,
+  agent hook adapters, real Git execution, and git wrapper enforcement.
+- `go/internal/codeintel`: repo-local trace, SARIF, AST, vector, and
+  remediation storage/query.
+- `go/internal/agentproxy`: provider-neutral event envelope and transform
+  foundations for future agent proxy work.
+- `go/cmd/*`: thin process entrypoints that delegate to internal packages.
 
 The CLI is intentionally thin. New behavior should usually land in one of the
 narrow modules above, with `cli.py` limited to wiring and exit-code handling.
+The same rule applies to Go command entrypoints: do not put parser,
+formatter, policy, storage, or hook-group behavior directly in `go/cmd/*` when
+an internal package can own and test the behavior.
 
 ## Source-of-truth files
 

@@ -156,6 +156,17 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 				"ast_symbol_path":      "load_config",
 				"input_schema_version": int64(1),
 				"policy_source":        "coding_ethos.yml:principles.4",
+				"proxy_direction":      "outbound",
+				"proxy_event_id":       "proxy-event-1",
+				"proxy_event_kind":     "provider_call",
+				"proxy_payload_bytes":  int64(4096),
+				"proxy_payload_kind":   "prompt",
+				"proxy_provider":       "codex",
+				"proxy_session_id":     "proxy-session-1",
+				"proxy_token_total":    int64(512),
+				"proxy_trace_id":       "trace-1",
+				"proxy_tracking_id":    "track-1",
+				"proxy_transform":      "dlp-inspection",
 				"when":                 "diagnostic.code == 'F401'",
 			},
 			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
@@ -334,6 +345,20 @@ func assertSARIFResultProperties(t *testing.T, payload map[string]any) {
 		payload,
 		"runs.0.results.0.properties.policy_source",
 		"coding_ethos.yml:principles.4",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.proxy_event_id",
+		"proxy-event-1",
+	)
+	assertJSONPath(t, payload, "runs.0.results.0.properties.proxy_direction", "outbound")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.proxy_payload_kind", "prompt")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.proxy_token_total",
+		float64(512),
 	)
 	assertJSONPath(
 		t,

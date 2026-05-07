@@ -222,6 +222,61 @@ Out of scope:
 - locale-sensitive behavior that changes enforcement decisions;
 - committing to a translated UI before there is demonstrated user demand.
 
+### 9. Agent Proxy And Context-Economy Controls
+
+Open issues #52 through #62 define an Agent Proxy direction: move selected
+agent/provider/tool traffic through a policy-aware mediation layer so
+`coding-ethos` can reduce token waste, prevent data leakage, and intervene
+before unsafe tool instructions reach local execution.
+
+This is a major platform extension, not a small hook feature. The proxy must
+reuse the same evidence architecture as the rest of the project:
+
+- Go normalizes facts and provider/tool events;
+- CEL evaluates deterministic policy over those facts;
+- SARIF and traces record decisions, locations, and remediation metadata;
+- code-intel stores session history, AST anatomy, search indexes, and
+  remediation outcomes;
+- MCP explains policies and offers focused follow-up context.
+
+The foundation contract and operator threat model are documented in
+[AGENT_PROXY.md](AGENT_PROXY.md). Future proxy issues should extend that
+contract instead of adding feature-local event models or ledgers.
+
+Planned foundation work:
+
+- define a provider-agnostic proxy event envelope for prompts, responses, tool
+  calls, file reads, directory listings, edits, search requests, and tool
+  outputs (initial contract in place);
+- add a repo-local session ledger for payload hashes, token estimates, file
+  read cache state, policy injections, output transforms, and edit outcomes;
+- add protocol adapters for OpenAI, Anthropic, and Gemini payload schemas
+  behind narrow interfaces;
+- add tokenizer and content-transform interfaces for token budgets, stack
+  trace preservation, semantic pagination, and output compression;
+- add compact code-intel retrieval APIs for AST anatomy maps, repo maps,
+  semantic chunks, symbol summaries, hybrid search, and index freshness;
+- add an exact SEARCH/REPLACE patch engine with content-hash preconditions,
+  rollback, and AST affected-symbol evidence;
+- add transactional lint-shielding workflows that can apply safe autofixes
+  without hiding semantic changes from the user;
+- add proxy-specific DLP facts and CEL scopes for outbound prompts, inbound
+  tool calls, and local tool output (initial CEL object in place);
+- add proxy traces, SARIF properties, and code-intel tables for cache hits,
+  truncation, semantic search results, policy injections, patch outcomes, and
+  network/API denials (initial schema in place);
+- build an Agent Proxy E2E harness with fake provider endpoints and real local
+  files/tools.
+
+Out of scope:
+
+- transparent TLS interception as an invisible default;
+- proxy edits, truncation, policy injection, or output suppression without
+  traceable evidence;
+- provider-specific policy paths that bypass the normalized event envelope;
+- vector/RAG-based enforcement decisions;
+- hiding hook or CI failures behind proxy auto-remediation.
+
 ## Maintenance Rules
 
 - Every roadmap item that lands should update this file or the linked design

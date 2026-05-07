@@ -6,23 +6,22 @@ package agenthooks
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/hookcli"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
 
@@ -31,7 +30,6 @@ const (
 	mcpServerName     = "coding-ethos"
 	settingsDirMode   = 0o755
 	settingsFileMode  = 0o600
-	verifyTimeout     = 30 * time.Second
 
 	eventPreToolUse       = "PreToolUse"
 	eventPostToolUse      = "PostToolUse"
@@ -57,6 +55,9 @@ var (
 	)
 	errSettingsMismatch = apperror.StaticError(
 		"agent hook settings do not contain expected hooks for all providers",
+	)
+	errUnsupportedHookCommand = apperror.StaticError(
+		"unsupported hook command for direct probe",
 	)
 )
 
@@ -1611,38 +1612,27 @@ func runHookProbe(
 	hookCommand string,
 	probe hookProbe,
 ) (hookProbeResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout)
-	defer cancel()
-
-	command := exec.CommandContext(ctx, "sh", "-c", hookCommand)
-	command.Dir = root
-	command.Env = hookProbeEnv(hookCommand)
-	command.Stdin = strings.NewReader(probe.payload)
-
 	var (
 		stdout bytes.Buffer
 		stderr bytes.Buffer
 	)
 
-	command.Stdout = &stdout
-	command.Stderr = &stderr
+	args, err := hookProbeArgs(root, hookCommand)
+	if err != nil {
+		return hookProbeResult{}, err
+	}
 
-	err := command.Run()
+	exitCode := hookcli.Run(
+		args,
+		strings.NewReader(probe.payload),
+		&stdout,
+		&stderr,
+	)
 
 	result := hookProbeResult{
-		exitCode: commandExitCode(err),
+		exitCode: exitCode,
 		stdout:   stdout.String(),
 		stderr:   stderr.String(),
-	}
-	if ctx.Err() != nil {
-		return result, fmt.Errorf("hook probe timed out: %w", ctx.Err())
-	}
-
-	if err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			return result, fmt.Errorf("run hook probe: %w", err)
-		}
 	}
 
 	if result.stdout != "" {
@@ -1657,70 +1647,31 @@ func runHookProbe(
 	return result, nil
 }
 
-func hookProbeEnv(hookCommand string) []string {
-	env := os.Environ()
-
-	runnerDir := hookCommandRunnerDir(hookCommand)
-	if runnerDir == "" {
-		return env
+func hookProbeArgs(root, hookCommand string) ([]string, error) {
+	commands, err := shellparse.Commands(hookCommand)
+	if err != nil {
+		return nil, fmt.Errorf("parse direct probe hook command: %w", err)
 	}
 
-	cleanPath := removePathEntry(os.Getenv("PATH"), runnerDir)
-
-	next := make([]string, 0, len(env))
-	for _, entry := range env {
-		if strings.HasPrefix(entry, "PATH=") {
-			next = append(next, "PATH="+cleanPath)
-
-			continue
-		}
-
-		next = append(next, entry)
+	if len(commands) != 1 || len(commands[0].Argv) < 2 {
+		return nil, fmt.Errorf("%w: %s", errUnsupportedHookCommand, hookCommand)
 	}
 
-	return next
-}
+	argv := commands[0].Argv
 
-func hookCommandRunnerDir(hookCommand string) string {
-	fields := strings.Fields(hookCommand)
-	if len(fields) == 0 {
-		return ""
+	runnerPath := argv[0]
+	if filepath.Base(runnerPath) != "coding-ethos-run" || argv[1] != "agent-hook" {
+		return nil, fmt.Errorf("%w: %s", errUnsupportedHookCommand, hookCommand)
 	}
 
-	command := strings.Trim(fields[0], `"'`)
-	if command == "" || !filepath.IsAbs(command) {
-		return ""
+	if !filepath.IsAbs(runnerPath) {
+		runnerPath = filepath.Join(root, runnerPath)
 	}
 
-	return filepath.Clean(filepath.Dir(command))
-}
+	ethosRoot := filepath.Dir(filepath.Dir(filepath.Clean(runnerPath)))
+	bundlePath := filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json")
 
-func removePathEntry(pathValue, unwanted string) string {
-	cleanUnwanted := filepath.Clean(unwanted)
-	kept := []string{}
-
-	for _, entry := range filepath.SplitList(pathValue) {
-		if entry == "" || filepath.Clean(entry) == cleanUnwanted {
-			continue
-		}
-
-		kept = append(kept, entry)
-	}
-
-	return strings.Join(kept, string(os.PathListSeparator))
-}
-
-func commandExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return []string{"--bundle", bundlePath, "--json"}, nil
 }
 
 func decodeHookProbePayload(output string) (map[string]any, error) {

@@ -83,28 +83,29 @@ type sarifInputRegion struct {
 }
 
 type sarifInputProperties struct {
-	Finding *struct {
-		ID            string   `json:"id,omitempty"`
-		PolicyID      string   `json:"policy_id,omitempty"`
-		SkillID       string   `json:"skill_id,omitempty"`
-		EvaluatorKind string   `json:"evaluator_kind,omitempty"`
-		SearchText    string   `json:"search_text,omitempty"`
-		PrincipleIDs  []string `json:"principle_ids,omitempty"`
-	} `json:"finding,omitempty"`
-	CELExpression    string `json:"cel_expression,omitempty"`
-	Implementation   string `json:"implementation,omitempty"`
-	ASTLanguage      string `json:"ast_language,omitempty"`
-	ASTNodeKind      string `json:"ast_node_kind,omitempty"`
-	ASTSymbolKind    string `json:"ast_symbol_kind,omitempty"`
-	ASTSymbolName    string `json:"ast_symbol_name,omitempty"`
-	Advice           string `json:"advice,omitempty"`
-	SourceTool       string `json:"source_tool,omitempty"`
-	Code             string `json:"code,omitempty"`
-	SkillID          string `json:"skill_id,omitempty"`
-	ASTSymbolPath    string `json:"ast_symbol_path,omitempty"`
-	PolicyID         string `json:"policy_id,omitempty"`
-	PolicySource     string `json:"policy_source,omitempty"`
-	SearchText       string `json:"search_text,omitempty"`
+	Finding          *sarifInputFinding `json:"finding,omitempty"`
+	CELExpression    string             `json:"cel_expression,omitempty"`
+	Implementation   string             `json:"implementation,omitempty"`
+	ProxyEventID     string             `json:"proxy_event_id,omitempty"`
+	ProxySessionID   string             `json:"proxy_session_id,omitempty"`
+	ProxyEventKind   string             `json:"proxy_event_kind,omitempty"`
+	ProxyDirection   string             `json:"proxy_direction,omitempty"`
+	ProxyPayloadKind string             `json:"proxy_payload_kind,omitempty"`
+	ProxyTraceID     string             `json:"proxy_trace_id,omitempty"`
+	ProxyTrackingID  string             `json:"proxy_tracking_id,omitempty"`
+	ProxyTransform   string             `json:"proxy_transform,omitempty"`
+	ASTLanguage      string             `json:"ast_language,omitempty"`
+	ASTNodeKind      string             `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind    string             `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName    string             `json:"ast_symbol_name,omitempty"`
+	Advice           string             `json:"advice,omitempty"`
+	SourceTool       string             `json:"source_tool,omitempty"`
+	Code             string             `json:"code,omitempty"`
+	SkillID          string             `json:"skill_id,omitempty"`
+	ASTSymbolPath    string             `json:"ast_symbol_path,omitempty"`
+	PolicyID         string             `json:"policy_id,omitempty"`
+	PolicySource     string             `json:"policy_source,omitempty"`
+	SearchText       string             `json:"search_text,omitempty"`
 	AgentRemediation []struct {
 		ID       string `json:"id,omitempty"`
 		PolicyID string `json:"policy_id,omitempty"`
@@ -115,6 +116,15 @@ type sarifInputProperties struct {
 		Path     string `json:"path,omitempty"`
 	} `json:"agent_remediation,omitempty"`
 	EthosIDs []string `json:"ethos_ids,omitempty"`
+}
+
+type sarifInputFinding struct {
+	ID            string   `json:"id,omitempty"`
+	PolicyID      string   `json:"policy_id,omitempty"`
+	SkillID       string   `json:"skill_id,omitempty"`
+	EvaluatorKind string   `json:"evaluator_kind,omitempty"`
+	SearchText    string   `json:"search_text,omitempty"`
+	PrincipleIDs  []string `json:"principle_ids,omitempty"`
 }
 
 func (run *sarifInputRun) UnmarshalJSON(payload []byte) error {
@@ -341,7 +351,38 @@ func sarifResultReference(
 		sarifReferenceSearchText(result, properties, location.URI),
 	)
 
-	reference := SARIFResultReference{
+	reference := baseSARIFResultReference(
+		runID,
+		index,
+		result,
+		properties,
+		location,
+		fingerprint,
+		searchText,
+		findingID,
+		remediationID,
+	)
+	if properties.Finding != nil {
+		mergeSARIFResultFinding(&reference, properties.Finding)
+	}
+
+	reference.CELPolicyID = firstNonEmpty(reference.CELPolicyID, reference.PolicyID)
+
+	return reference
+}
+
+func baseSARIFResultReference(
+	runID string,
+	index int,
+	result sarifInputResult,
+	properties sarifInputProperties,
+	location sarifInputLocationValue,
+	fingerprint string,
+	searchText string,
+	findingID string,
+	remediationID string,
+) SARIFResultReference {
+	return SARIFResultReference{
 		ID: stableID(
 			"sarif-result",
 			runID,
@@ -350,51 +391,53 @@ func sarifResultReference(
 			location.URI,
 			strconv.Itoa(index),
 		),
-		RuleID:        strings.TrimSpace(result.RuleID),
-		Level:         strings.TrimSpace(result.Level),
-		Message:       strings.TrimSpace(result.Message.Text),
-		Fingerprint:   fingerprint,
-		FindingID:     findingID,
-		RemediationID: remediationID,
-		PolicyID:      strings.TrimSpace(properties.PolicyID),
-		SkillID:       strings.TrimSpace(properties.SkillID),
-		PrincipleIDs:  compactStrings(properties.EthosIDs),
-		Path:          strings.TrimSpace(location.URI),
-		ASTLanguage:   strings.TrimSpace(properties.ASTLanguage),
-		ASTNodeKind:   strings.TrimSpace(properties.ASTNodeKind),
-		ASTSymbolKind: strings.TrimSpace(properties.ASTSymbolKind),
-		ASTSymbolName: strings.TrimSpace(properties.ASTSymbolName),
-		ASTSymbolPath: strings.TrimSpace(properties.ASTSymbolPath),
-		EvaluatorKind: strings.TrimSpace(properties.Implementation),
-		CELExpression: strings.TrimSpace(properties.CELExpression),
-		PolicySource:  strings.TrimSpace(properties.PolicySource),
-		SearchText:    searchText,
-		StartLine:     location.StartLine,
-		StartColumn:   location.StartColumn,
-		Raw:           result.raw,
+		RuleID:           strings.TrimSpace(result.RuleID),
+		Level:            strings.TrimSpace(result.Level),
+		Message:          strings.TrimSpace(result.Message.Text),
+		Fingerprint:      fingerprint,
+		ProxyEventID:     strings.TrimSpace(properties.ProxyEventID),
+		ProxySessionID:   strings.TrimSpace(properties.ProxySessionID),
+		ProxyEventKind:   strings.TrimSpace(properties.ProxyEventKind),
+		ProxyDirection:   strings.TrimSpace(properties.ProxyDirection),
+		ProxyPayloadKind: strings.TrimSpace(properties.ProxyPayloadKind),
+		ProxyTraceID:     strings.TrimSpace(properties.ProxyTraceID),
+		ProxyTrackingID:  strings.TrimSpace(properties.ProxyTrackingID),
+		ProxyTransform:   strings.TrimSpace(properties.ProxyTransform),
+		FindingID:        findingID,
+		RemediationID:    remediationID,
+		PolicyID:         strings.TrimSpace(properties.PolicyID),
+		SkillID:          strings.TrimSpace(properties.SkillID),
+		PrincipleIDs:     compactStrings(properties.EthosIDs),
+		Path:             strings.TrimSpace(location.URI),
+		ASTLanguage:      strings.TrimSpace(properties.ASTLanguage),
+		ASTNodeKind:      strings.TrimSpace(properties.ASTNodeKind),
+		ASTSymbolKind:    strings.TrimSpace(properties.ASTSymbolKind),
+		ASTSymbolName:    strings.TrimSpace(properties.ASTSymbolName),
+		ASTSymbolPath:    strings.TrimSpace(properties.ASTSymbolPath),
+		EvaluatorKind:    strings.TrimSpace(properties.Implementation),
+		CELExpression:    strings.TrimSpace(properties.CELExpression),
+		PolicySource:     strings.TrimSpace(properties.PolicySource),
+		SearchText:       searchText,
+		StartLine:        location.StartLine,
+		StartColumn:      location.StartColumn,
+		Raw:              result.raw,
 	}
-	if properties.Finding != nil {
-		reference.PolicyID = firstNonEmpty(
-			reference.PolicyID,
-			properties.Finding.PolicyID,
-		)
-		reference.SkillID = firstNonEmpty(reference.SkillID, properties.Finding.SkillID)
-		reference.EvaluatorKind = firstNonEmpty(
-			reference.EvaluatorKind,
-			properties.Finding.EvaluatorKind,
-		)
-		reference.SearchText = firstNonEmpty(
-			reference.SearchText,
-			properties.Finding.SearchText,
-		)
-		reference.PrincipleIDs = compactStrings(
-			append(reference.PrincipleIDs, properties.Finding.PrincipleIDs...),
-		)
-	}
+}
 
-	reference.CELPolicyID = firstNonEmpty(reference.CELPolicyID, reference.PolicyID)
-
-	return reference
+func mergeSARIFResultFinding(
+	reference *SARIFResultReference,
+	finding *sarifInputFinding,
+) {
+	reference.PolicyID = firstNonEmpty(reference.PolicyID, finding.PolicyID)
+	reference.SkillID = firstNonEmpty(reference.SkillID, finding.SkillID)
+	reference.EvaluatorKind = firstNonEmpty(
+		reference.EvaluatorKind,
+		finding.EvaluatorKind,
+	)
+	reference.SearchText = firstNonEmpty(reference.SearchText, finding.SearchText)
+	reference.PrincipleIDs = compactStrings(
+		append(reference.PrincipleIDs, finding.PrincipleIDs...),
+	)
 }
 
 type sarifInputLocationValue struct {
@@ -451,6 +494,20 @@ func mergeSARIFInputProperties(
 	merged.CELExpression = firstNonEmpty(result.CELExpression, merged.CELExpression)
 	merged.Code = firstNonEmpty(result.Code, merged.Code)
 	merged.Implementation = firstNonEmpty(result.Implementation, merged.Implementation)
+	merged.ProxyEventID = firstNonEmpty(result.ProxyEventID, merged.ProxyEventID)
+	merged.ProxySessionID = firstNonEmpty(result.ProxySessionID, merged.ProxySessionID)
+	merged.ProxyEventKind = firstNonEmpty(result.ProxyEventKind, merged.ProxyEventKind)
+	merged.ProxyDirection = firstNonEmpty(result.ProxyDirection, merged.ProxyDirection)
+	merged.ProxyPayloadKind = firstNonEmpty(
+		result.ProxyPayloadKind,
+		merged.ProxyPayloadKind,
+	)
+	merged.ProxyTraceID = firstNonEmpty(result.ProxyTraceID, merged.ProxyTraceID)
+	merged.ProxyTrackingID = firstNonEmpty(
+		result.ProxyTrackingID,
+		merged.ProxyTrackingID,
+	)
+	merged.ProxyTransform = firstNonEmpty(result.ProxyTransform, merged.ProxyTransform)
 	merged.PolicyID = firstNonEmpty(result.PolicyID, merged.PolicyID)
 	merged.PolicySource = firstNonEmpty(result.PolicySource, merged.PolicySource)
 	merged.SearchText = firstNonEmpty(result.SearchText, merged.SearchText)

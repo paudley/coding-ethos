@@ -107,20 +107,32 @@ running real commands, and inspecting real output and repository state.
         Ruff diagnostics, retained lint traces, and SARIF evidence.
   - [x] Treat empty machine-readable success payloads such as `[]` as silent
         clean output instead of user-visible linter warnings.
-  - [ ] Add JSON-output assertions for the same real managed-tool scenarios.
-  - [ ] Add an unparseable real managed-tool failure scenario that proves raw
-        output remains visible and policy/CEL/SARIF evidence is retained.
+  - [x] Add JSON-output assertions for the same real managed-tool scenarios.
+  - [x] Add a real managed-tool failure scenario that proves raw output remains visible and policy/CEL/SARIF evidence is retained.
 - [ ] Route every pre-commit gate through the normalized
   diagnostics/SARIF/CEL path. Gates such as `go-test`, `go-vet`, formatting,
   manifest checks, generated-config checks, and tool bootstrap checks must
   produce structured diagnostics that can become SARIF results and CEL inputs;
   they must not fall back to generic exit-code-only failures except for runner
   failures where no tool output exists.
-- [ ] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
+- [x] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
   output should be captured as structured evidence, flow through normalized
   diagnostics when thresholds fail, be eligible for SARIF output, and expose
   CEL facts so policy can distinguish missing coverage data, below-threshold
   packages, and ordinary test failures.
+  - [x] Parse `go test -json -cover` package coverage output into non-blocking
+    record diagnostics.
+  - [x] Parse `go tool cover -func` file/function rows and totals into
+    coverage diagnostics with file, line, package, and percent metadata.
+  - [x] Expose Go coverage diagnostics through the shared CEL `coverage`
+    collection and verify CEL can promote below-floor coverage into a
+    blocking SARIF finding.
+- [ ] Add policy-yaml coverage threshold bands and enforcement modes. Coverage
+  policy should support high/medium/low thresholds in `coding_ethos.yml`, with
+  configurable floors for project, module/package, and file/function coverage.
+  The default policy should require at least 80% coverage where coverage is
+  enforced, expose warning bands below preferred thresholds, and allow CEL to
+  promote below-threshold coverage records into blocking findings.
 - [ ] Suppress routine pass/noise lines in pre-commit gate output while
   preserving actionable failure context. For example, passing Go package
   lines such as `ok ...` should not appear in user-facing hook reports, but
@@ -334,7 +346,7 @@ before the next broad hook expansion.
   `go/toolcatalog/catalog.go`, `go/internal/hooks/lint_tool_capture.go`,
   `go/cmd/coding-ethos-hook-runner/hook_groups.go`, and
   `go/cmd/coding-ethos-hook-runner/toolchain_groups.go`.
-- [x] Move duplicated evidence-map policy out of the legacy hook path and the
+- [x] Move duplicated evidence-map policy out of hook group execution and the
   compiled policy path into one shared policy source.
 - [x] Split `hooks.RunWithRegistry` so event parsing, policy evaluation,
   tool rewriting, output rendering, and trace logging have narrower ownership.
@@ -376,6 +388,191 @@ Do these before replacing the remaining shell-owned lint capture entrypoint.
 - [x] Document the intended Go lint capture flow: shim -> Go dispatcher ->
   capture request -> managed tool -> normalized lint result.
 
+## Managed Tool Parsing And Capture Unification
+
+Goal: make every managed tool, formatter, test gate, and quality gate flow
+through one catalog-backed diagnostics contract. The tool catalog, parser
+registry, managed-capture allow list, formatter handling, and SARIF/CEL evidence
+must not drift.
+
+- [x] Merge the tool catalog, parser registry, and managed-capture tool list
+  into one source of truth. There should be one catalog, period: each tool entry
+  declares execution, capabilities, parser/producer type, output contract,
+  formatter behavior, SARIF/CEL support, and any explicit exception rationale.
+- [x] Add a catalog invariant test requiring every hook-owned tool to declare
+  one of:
+  - a registered central diagnostics parser;
+  - a first-class formatter changed-file producer;
+  - a first-class internal structured diagnostic producer;
+  - an explicitly justified generic fallback exception.
+- [x] Add real-output parser fixtures for every managed tool. Each fixture must
+  prove parse status is `parsed`, `empty`, or `changed_files`; `parse_error`
+  should only appear for genuine runner/tool failures and must remain visible.
+  - [x] Split diagnostics parser implementations into focused files for core
+    registry/shared parsing, Go tools, Python tools, test-output tools, and
+    static/config tools instead of growing one large parser file.
+- [x] Parse stdout and stderr according to a tool-specific stream policy instead
+  of using the first non-empty stream. Tools that emit actionable diagnostics on
+  both streams must preserve both streams as structured diagnostics or bounded
+  evidence.
+- [x] Replace formatter fallback handling with first-class changed-file
+  diagnostics. Mutating formatters should report which files changed, what tool
+  changed them, and how that maps to SARIF/CEL evidence instead of relying on
+  ad hoc stdout parsing.
+  - [x] Preserve formatter argument context in changed-file diagnostic metadata
+    so traces can explain the rewrite scope.
+- [x] Move `radon-complexity`, `radon-maintainability`, `vulture`,
+  `gofmt-check`, `pytest-gate`, and `gemini-check` into the central
+  diagnostics path or a formal diagnostic-producer interface. Bespoke hookrunner
+  parsing must not remain a parallel reporting path.
+  - [x] Add central `radon-complexity` and `radon-maintainability` parsers.
+  - [x] Add a central `vulture` parser.
+  - [x] Route `gofmt-check` hook findings through the central diagnostics
+    parser.
+  - [x] Add a central `pytest-gate` parser for file/line pytest failures.
+  - [x] Route pytest gate failures through the central diagnostics parser when
+    parseable file/line output is available.
+  - [x] Add a central `gemini` parser for Gemini JSON violations.
+- [x] Add a dedicated `go-vet` parser or diagnostic producer instead of relying
+  on generic fallback parsing.
+- [x] Verify `go-test` command construction and parser alignment end to end:
+  the executed command must emit JSON, the parser must suppress routine passing
+  package noise, and failures must become SARIF/CEL-addressable diagnostics.
+- [x] Normalize internal quality gates that already construct findings directly
+  so they are treated as first-class diagnostic producers with the same trace,
+  SARIF, CEL, policy, skill, and remediation metadata as external tools.
+  - [x] Route Radon complexity and maintainability commands through managed
+    capture instead of bespoke hook-report output.
+  - [x] Route Vulture through managed capture while preserving whitelist,
+    confidence, and exclude arguments.
+  - [x] Add a `hookReport` to `lint.Result` bridge so remaining internal
+    reports can render SARIF from normalized diagnostics instead of bespoke
+    text-only structures.
+  - [x] Add shared trace IDs to `hookReport` output so internal gate denials
+    expose a correlation ID in TOON, JSON, human, and SARIF formats.
+  - [x] Add shared policy/code/skill defaults for `hookReport` diagnostics so
+    older internal gates do not emit anonymous SARIF/CEL findings when callers
+    omit per-finding metadata.
+  - [x] Add a shared `emitHookReport` path that logs normalized internal
+    reports as lint traces before rendering them.
+  - [x] Migrate manifest validation, module documentation, comment suppression,
+    and Python version consistency reports to the trace-logging emitter.
+  - [x] Migrate Python policy, SQL/direct import, pytest-gate, plan-completion,
+    gofmt-check, and external quality reports to the trace-logging emitter.
+  - [x] Migrate runtime ignore checks to the trace-logging emitter with
+    structured policy, skill, file, and remediation metadata.
+  - [x] Add docstring coverage SARIF output backed by normalized hook findings
+    for missing public symbol docstrings.
+- [x] Assess `shfmt` for uplift from medium quality to high quality. Prefer
+  exact changed-file or hunk diagnostics over file-only diff-header parsing.
+  - [x] Parse unified-diff hunk locations so shfmt findings identify the
+    changed region instead of defaulting every file to line 1.
+- [x] Assess `yamllint` for uplift from medium quality to high quality. Confirm
+  parser behavior for paths containing colons and add fixtures for multiline or
+  unusual YAML diagnostics.
+  - [x] Add a parser fixture for YAML file paths containing colons.
+  - [x] Add parser coverage for multiple diagnostics in one parsable output.
+- [x] Assess `tombi` for uplift from medium quality to high quality. Prefer
+  structured output if available; otherwise harden ANSI stripping, multiline
+  locations, and schema-error fixtures.
+  - [x] Add parser coverage for ANSI-colored diagnostics, schema-style warning
+    output, intervening help lines, and delayed `at file:line:column`
+    locations.
+- [x] Assess `dotenv-linter` for uplift from medium quality to high quality.
+  Confirm stable plain output across versions and add fixtures for empty files,
+  missing files, and multi-file output.
+  - [x] Add parser coverage for routine/no-problem lines, multi-file output,
+    diagnostics with and without line numbers, and missing-file diagnostics.
+- [x] Assess `go-vet` for normalization and uplift to high quality. Capture
+  package context, file/line diagnostics, and runner errors without raw-output
+  leakage.
+  - [x] Preserve Go package headers as diagnostic metadata while suppressing
+    them as standalone user-facing noise.
+- [x] Assess `gofmt-check`/`gofmt` for normalization and uplift to high quality.
+  Treat filename-list output and formatter rewrites as structured changed-file
+  diagnostics.
+  - [x] Add a central filename-list parser for `gofmt` and `gofmt-check`.
+  - [x] Use catalog-backed diagnostic contracts for both check and formatter
+    modes so Go formatting results no longer need hookrunner-specific parsing.
+- [x] Assess `python-complexity` for normalization and uplift to high quality.
+  Move Radon JSON parsing into the central diagnostics layer and preserve symbol
+  names, complexity values, thresholds, and AST identity where available.
+  - [x] Add a central Radon complexity JSON parser with complexity metadata.
+  - [x] Route the hook command through managed capture so complexity findings
+    produce trace, SARIF, CEL, skill, and remediation metadata.
+- [x] Assess `python-maintainability` for normalization and uplift to high
+  quality. Remove tool-name drift, preserve maintainability index values, and
+  decide whether advisory results are recorded as SARIF evidence.
+  - [x] Add a central Radon maintainability JSON parser with MI metadata.
+  - [x] Route the hook command through managed capture so advisory MI findings
+    are recorded as normalized diagnostics instead of side-effect-only parsing.
+- [x] Assess `python-vulture` for normalization and uplift to high quality.
+  Preserve confidence, symbol kind, whitelist evidence, and file/line locations
+  in structured diagnostics.
+  - [x] Route the hook command through managed capture so unused-code findings
+    produce trace, SARIF, CEL, skill, and remediation metadata.
+- [x] Assess `gemini-check` for normalization and uplift to high quality.
+  Preserve model/check/batch metadata while routing violations and API/parser
+  failures into the same diagnostics/SARIF/CEL evidence model.
+  - [x] Add a central Gemini JSON violation parser.
+- [x] Assess `pyupgrade` for normalization and uplift to high quality. Treat
+  syntax rewrites as changed-file diagnostics and preserve the configured Python
+  target version as evidence.
+  - [x] Add generic formatter changed-file diagnostics for successful rewrites.
+  - [x] Preserve formatter invocation arguments in trace metadata, including the
+    configured `--pyNN-plus` target flag used by pyupgrade.
+- [x] Assess `ruff-format` for normalization and uplift to high quality. Use
+  Ruff parser support or changed-file diagnostics rather than generic fallback.
+- [x] Assess `golangci-lint-format` for normalization and uplift to high
+  quality. Detect formatter rewrites and route any tool warnings through the
+  central `golangci-lint` parser where possible.
+  - [x] Add generic formatter changed-file diagnostics for successful rewrites.
+  - [x] Preserve formatter invocation arguments in trace metadata.
+- [x] Assess `golines` for normalization and uplift to high quality. Treat line
+  wrapping rewrites as changed-file diagnostics and preserve configured width as
+  evidence.
+  - [x] Add generic formatter changed-file diagnostics for successful rewrites.
+  - [x] Preserve formatter invocation arguments in trace metadata.
+- [x] Assess `pytest-gate` for normalization and uplift to high quality. Prefer
+  machine-readable pytest output where practical, preserve failing tests,
+  file/line context, coverage facts, and traceback excerpts as bounded evidence.
+  - [x] Add a central pytest text parser for file/line failures.
+  - [x] Parse pytest `FAILED ... - ...` and `ERROR ... - ...` summary lines
+    into structured diagnostics with test-name metadata where available.
+  - [x] Parse pytest coverage `TOTAL` rows into diagnostics with coverage
+    percentage metadata.
+  - [x] Add dedicated CEL policy inputs for pytest coverage totals and
+    per-package coverage rows.
+
+Acceptance criteria:
+
+- [x] Adding a managed tool requires changing one catalog entry and fixtures,
+  not parallel parser, capture, hookrunner, and SARIF lists.
+  - [x] Catalog tests now fail when a registered parser lacks a catalog
+    declaration or when a hook-owned tool lacks a diagnostic contract.
+  - [x] Finish removing direct hookrunner quality-gate emitters so no new tool
+    needs a hookrunner-specific reporting branch.
+- [ ] Every non-empty tool output is either parsed, intentionally represented as
+  changed-file evidence, or reported as an unparseable tool failure with bounded
+  evidence.
+  - [x] Managed capture tests cover parsed output, stdout/stderr preservation,
+    formatter changed-file evidence, empty machine-readable success output, and
+    unparseable tool failures.
+- [x] Formatter, linter, test, AI-review, and internal policy outputs all reach
+  SARIF and CEL through the same normalized diagnostics contract.
+  - [x] Formatter changed-file evidence, linter parser diagnostics, Radon,
+    Vulture, go-test, pytest-gate, and Gemini violations now use central
+    diagnostics.
+  - [x] Finish first-class diagnostic producer interfaces for generated-config,
+    manifest, docstring coverage, and other internal policy-only reports.
+  - [x] Add SARIF rendering support for existing `hookReport`-based internal
+    reports while the remaining producers are migrated.
+  - [x] Add SARIF diagnostics for docstring coverage threshold failures.
+- [x] No hook-owned tool can silently bypass parser quality checks because it is
+  absent from a secondary registry or allow list.
+  - [x] `CapturedLintTools()` is derived from catalog metadata, and tests assert
+    parser registry/catalog consistency.
+
 ## Major Strategic Work
 
 These are larger roadmap items for moving `coding-ethos` from a local hook and
@@ -383,6 +580,97 @@ generated-context system into a broader policy platform for AI-assisted
 engineering. The common goal is defense in depth: prevent bad actions early,
 explain violations in agent-native formats, and keep organization-specific
 policy editable without weakening the compiled enforcement core.
+
+### Agent Proxy Foundation
+
+Open issues #52 through #62 describe one coherent Agent Proxy program. The
+feature work should not start as one-off wrappers around individual tools; it
+needs a shared proxy substrate that routes agent/API/tool traffic through the
+same AST/CEL/SARIF, code-intel, sandbox, and remediation architecture already
+used by hooks.
+
+- [x] Define the Agent Proxy threat model and trust boundary for outbound
+  provider API inspection, inbound tool-call inspection, local tool output
+  transforms, and file-edit mediation. Include explicit CA/TLS interception
+  risks, provider-protocol maintenance risks, and operator opt-in requirements.
+  Foundation for #52.
+- [x] Define a provider-agnostic proxy event envelope for outbound prompts,
+  inbound model responses, tool-call requests, tool-call outputs, file reads,
+  directory listings, file edits, search requests, and remediation actions.
+  The envelope must carry provider, model, session ID, tool name, target paths,
+  payload hashes, token estimates, trace IDs, and policy evidence. Foundation
+  for #52-#62.
+- [ ] Add provider protocol adapters for OpenAI, Anthropic, and Gemini payload
+  schemas behind a narrow interface. Adapters should extract messages,
+  attachments, tool calls, tool results, and streaming chunks without exposing
+  raw provider JSON to policy code. Foundation for #52, #56, and #57.
+- [x] Add a proxy session ledger in the repo-local code-intel store for read
+  events, directory-listing events, prompt/tool payload hashes, token counts,
+  cache hits, truncation decisions, policy injections, and edit attempts.
+  Foundation for #53, #55, #56, #57, #58, and #62.
+- [ ] Add tokenizer abstraction and calibrated token-estimate tests. The first
+  implementation may use a conservative local estimator, but the interface
+  must support provider/model-specific tokenizers without making enforcement
+  depend on network access. Foundation for #55, #57, #58, and #59.
+- [ ] Build a content-transform pipeline for proxy outputs with ordered stages:
+  DLP/policy inspection, exact diagnostic extraction, stack-trace preservation,
+  token budgeting, semantic pagination, compression, and final trace/SARIF
+  evidence. Foundation for #55, #57, and #58.
+- [ ] Add code-intel query APIs for compact AST anatomy maps, repo maps,
+  semantic chunk pagination, exported symbol summaries, approximate token
+  sizes, and nearby related symbols. Reuse SQLite/FTS/sqlite-vec storage rather
+  than reparsing in the proxy. Foundation for #54, #58, #59, and #61.
+- [ ] Add semantic-search and grep-augmentation contracts that combine exact
+  search, AST filters, FTS, vector search, path constraints, and result
+  expansion. Results must cite file, symbol, line range, content hash, and
+  index freshness. Foundation for #61.
+- [ ] Add a SEARCH/REPLACE patch engine with exact-one-match validation,
+  content-hash preconditions, AST-aware affected-symbol reporting, rollback on
+  failure, and normalized diagnostics when a search block is missing,
+  non-unique, or stale. Foundation for #62.
+- [ ] Add a transactional edit/remediation workspace for lint shielding:
+  apply proposed edit, run managed autofixers and syntax checks, classify
+  autofix-only changes versus semantic changes, emit a diff, and require policy
+  approval before returning a modified result to the agent. Foundation for #60.
+- [ ] Add just-in-time policy injection selection that maps proxy events to
+  exact ETHOS principles, skills, and MCP policy explanations. Injection must
+  be deterministic and evidence-backed, not generic vector-RAG over policy
+  prose. Foundation for #56.
+- [x] Add DLP facts and CEL scopes for outbound provider payloads and local
+  tool outputs: secret-like values, protected paths, large binary payloads,
+  credential filenames, ignored directories, and policy-sensitive source
+  snippets. Foundation for #52 and #57.
+- [ ] Extend trace, SARIF, and code-intel schemas for proxy denials,
+  transformations, cache hits, token truncation, policy injections, semantic
+  search results, and patch outcomes. Foundation for #52-#62.
+  - [x] Add the first code-intel proxy session/event ledger for provider calls, file reads/listings, payload hashes, token counts, cache hits, injections, truncations, edits, and transform records.
+  - [x] Add proxy event correlation, DLP facts, policy evidence, payload kind,
+    direction, cache key, and transform metadata to the code-intel ledger.
+  - [x] Add proxy result properties and ingestion fields for SARIF.
+  - [ ] Add first-class proxy trace files and trace ingestion for proxy
+    decisions and transformations.
+- [x] Add an Agent Proxy E2E harness with fake provider endpoints and real
+  local tools/files. The harness must test API inspection, file-read caching,
+  anatomy map injection, output compression, token hard stops, semantic
+  pagination, semantic search, search/replace patching, and lint shielding.
+  Fake provider behavior must be documented under the existing E2E mock/fake
+  exception policy. Foundation for #52-#62.
+- [x] Document the Agent Proxy operator model: opt-in installation, CA
+  lifecycle, supported providers, sandbox routing, privacy boundaries,
+  failure modes, and how proxy decisions relate to existing hooks and MCP.
+  Foundation for #52-#62.
+
+Acceptance criteria:
+
+- [ ] Agent Proxy feature work has one event model, one session ledger, one
+  policy-evaluation path, one trace/SARIF evidence path, and one code-intel
+  retrieval path.
+- [ ] Proxy decisions can be explained through the same MCP policy tools and
+  ETHOS/skill mappings as hook decisions.
+- [ ] No proxy feature silently edits, truncates, injects, or suppresses data
+  without a traceable policy decision and replayable evidence.
+- [ ] TLS/API interception remains an explicit, documented operator choice and
+  never becomes an invisible default.
 
 ### Real-Time Context Through MCP
 
