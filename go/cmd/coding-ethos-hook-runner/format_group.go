@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,11 @@ func runFormatGroupCommand(cfg Config, files []string) int {
 }
 
 func runFormatGroup(cfg Config, files []string, restage bool) int {
+	snapshots := map[string]fileSnapshot(nil)
+	if restage {
+		snapshots = fileSnapshots(files)
+	}
+
 	exit := fixText(cfg, files)
 	if runPyupgrade(files) != 0 {
 		exit = 1
@@ -35,11 +41,61 @@ func runFormatGroup(cfg Config, files []string, restage bool) int {
 		exit = 1
 	}
 
-	if restage && exit == 0 && restageFiles(files) != 0 {
-		exit = 1
+	if restage && exit == 0 {
+		changed := changedExistingFiles(files, snapshots)
+		if len(changed) > 0 && restageFiles(changed) != 0 {
+			exit = 1
+		}
 	}
 
 	return exit
+}
+
+type fileSnapshot struct {
+	hash  [sha256.Size]byte
+	found bool
+}
+
+func fileSnapshots(files []string) map[string]fileSnapshot {
+	snapshots := make(map[string]fileSnapshot, len(files))
+	for _, file := range existingFiles(files) {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+
+		snapshots[file] = fileSnapshot{
+			hash:  sha256.Sum256(content),
+			found: true,
+		}
+	}
+
+	return snapshots
+}
+
+func changedExistingFiles(
+	files []string,
+	snapshots map[string]fileSnapshot,
+) []string {
+	changed := []string{}
+
+	for _, file := range existingFiles(files) {
+		before, ok := snapshots[file]
+		if !ok || !before.found {
+			continue
+		}
+
+		content, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+
+		if sha256.Sum256(content) != before.hash {
+			changed = append(changed, file)
+		}
+	}
+
+	return changed
 }
 
 func runPyupgrade(files []string) int {

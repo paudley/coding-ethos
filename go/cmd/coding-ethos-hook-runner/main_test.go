@@ -947,6 +947,62 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	}
 }
 
+func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+
+	mustWriteTestFile(t, "main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(t, filepath.Join(fakeBin, "gofmt"), "#!/usr/bin/env sh\nexit 0\n")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		"#!/usr/bin/env sh\necho unexpected git \"$@\" >&2\nexit 88\n",
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runFormatGroup(Config{}, []string{"main.go"}, true); got != 0 {
+		t.Fatalf("runFormatGroup(unchanged restage) = %d, want 0", got)
+	}
+}
+
+func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+
+	mustWriteTestFile(t, "main.go", "package main\n")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	gitLog := filepath.Join(tempDir, "git.log")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "gofmt"),
+		"#!/usr/bin/env sh\nshift\nfor file in \"$@\"; do printf 'package main\\n\\n' > \"$file\"; done\n",
+	)
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" >> "+shellQuoteForTest(gitLog)+"\nexit 0\n",
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runFormatGroup(Config{}, []string{"main.go"}, true); got != 0 {
+		t.Fatalf("runFormatGroup(changed restage) = %d, want 0", got)
+	}
+
+	content, err := os.ReadFile(gitLog)
+	if err != nil {
+		t.Fatalf("read git log: %v", err)
+	}
+
+	if !strings.Contains(string(content), "add -- main.go") {
+		t.Fatalf("git add was not called for changed file:\n%s", string(content))
+	}
+}
+
 func TestToolchainGroupCommandsWithNoMatchingFilesAreNoops(t *testing.T) {
 	t.Parallel()
 
@@ -2938,6 +2994,10 @@ func mustWriteExecutable(t *testing.T, path, contents string) {
 	if err != nil {
 		t.Fatalf("os.Chmod(%q) failed: %v", path, err)
 	}
+}
+
+func shellQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func captureStderr(t *testing.T, fn func()) string {
