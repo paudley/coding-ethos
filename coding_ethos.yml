@@ -2807,14 +2807,16 @@ principles:
             Do not delete, rebuild, replace, chmod, or write managed hook
             binaries or protected hook paths.
           when: >-
-            any_contains(repo.protected_paths, command_fact.lower) ||
-            paths.exists(path,
-              is_protected_path(path.file, repo.protected_paths) ||
-              is_protected_path(path.symlink_target, repo.protected_paths)
-            ) ||
-            shell_commands.exists(command,
-              command.write_targets.exists(target,
-                is_protected_path(target, repo.protected_paths)
+            !metadata.admin_approved && (
+              any_contains(repo.protected_paths, command_fact.lower) ||
+              paths.exists(path,
+                is_protected_path(path.file, repo.protected_paths) ||
+                is_protected_path(path.symlink_target, repo.protected_paths)
+              ) ||
+              shell_commands.exists(command,
+                command.write_targets.exists(target,
+                  is_protected_path(target, repo.protected_paths)
+                )
               )
             )
         - id: git.hook_bypass
@@ -3165,7 +3167,7 @@ principles:
             coding-ethos hook implementation internals. Use the installed hook
             surfaces and documented commands.
           when: >-
-            (
+            !(metadata.admin_approved && metadata.read_only_inspection) && (
               (
                 event.tool == "Bash" &&
                 any_contains(
@@ -3234,6 +3236,9 @@ principles:
                     "**/*.md",
                     ".code-ethos/**",
                     "coding_ethos.yml",
+                    "go/internal/policy/**",
+                    "go/internal/redteam/**",
+                    "go/scripts/smoke_hook_edges.sh",
                     "**/*_test.go",
                     "**/testdata/**"
                   ],

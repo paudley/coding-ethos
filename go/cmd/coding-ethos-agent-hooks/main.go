@@ -5,20 +5,21 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
 	commandArgsOffset = 2
 )
 
-var errUnknownCommand = errors.New("unknown agent-hooks command")
+var errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
 
 func main() {
 	os.Exit(runCLI(os.Args[1:]))
@@ -27,6 +28,7 @@ func main() {
 func runCLI(args []string) int {
 	if len(args) == 0 {
 		usage()
+
 		return commandArgsOffset
 	}
 
@@ -49,6 +51,7 @@ func runCLI(args []string) int {
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
+
 		return 1
 	}
 
@@ -125,7 +128,8 @@ func verifySettings(args []string) error {
 
 	report, err := agenthooks.VerifySettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
-		if encodeErr := writeJSONReport(os.Stdout, report); encodeErr != nil {
+		encodeErr := writeJSONReport(os.Stdout, report)
+		if encodeErr != nil {
 			return encodeErr
 		}
 
@@ -144,6 +148,7 @@ func defaultHookCommand(hookCommand string) string {
 	if strings.TrimSpace(hookCommand) != "" {
 		return hookCommand
 	}
+
 	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
 	if runner == "" {
 		return ""
@@ -175,8 +180,12 @@ func writeJSONReport(file *os.File, payload any) error {
 }
 
 func usage() {
+	usageTo(os.Stderr)
+}
+
+func usageTo(writer io.Writer) {
 	fmt.Fprintln(
-		os.Stderr,
+		writer,
 		"Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
 	)
 }

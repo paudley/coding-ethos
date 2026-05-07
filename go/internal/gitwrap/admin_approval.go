@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
@@ -20,8 +22,8 @@ const (
 )
 
 var (
-	errMalformedProcStat = errors.New("malformed process stat")
-	errAdminRepoRequired = errors.New(
+	errMalformedProcStat = apperror.StaticError("malformed process stat")
+	errAdminRepoRequired = apperror.StaticError(
 		"--admin-approved is only valid inside the coding-ethos repository",
 	)
 	errAdminPIDRequired = errors.New(
@@ -48,6 +50,11 @@ func VerifyAdminApproved(cwd string) error {
 }
 
 func isCodingEthosRepo(cwd string) bool {
+	return IsCodingEthosRepo(cwd)
+}
+
+// IsCodingEthosRepo reports whether cwd is inside this repository.
+func IsCodingEthosRepo(cwd string) bool {
 	if cwd == "" {
 		return false
 	}
@@ -92,6 +99,11 @@ func codingEthosRepoMarker(path string) bool {
 }
 
 func processAncestryApproved(pid int, path string) (bool, error) {
+	return ProcessAncestryApproved(pid, path)
+}
+
+// ProcessAncestryApproved checks pid and its parents against an admin PID file.
+func ProcessAncestryApproved(pid int, path string) (bool, error) {
 	approvedPIDs, err := readApprovedPIDs(path)
 	if err != nil {
 		return false, err
@@ -118,6 +130,11 @@ func processAncestryApproved(pid int, path string) (bool, error) {
 }
 
 func readApprovedPIDs(path string) (map[int]bool, error) {
+	return ReadApprovedPIDs(path)
+}
+
+// ReadApprovedPIDs loads the approved admin process IDs from path.
+func ReadApprovedPIDs(path string) (map[int]bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open admin pid file: %w", err)

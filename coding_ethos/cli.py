@@ -12,10 +12,6 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-from coding_ethos.gemini_prompt_pack import (
-    check_gemini_prompt_pack,
-    sync_gemini_prompt_pack,
-)
 from coding_ethos.loaders import load_primary_bundle, merge_repo_ethos
 from coding_ethos.markdown_seed import seed_primary_from_markdown
 from coding_ethos.merging import (
@@ -37,12 +33,10 @@ from coding_ethos.renderers import (
     render_principle_detail,
     render_prompt_addon,
     render_shared_ethos_index,
-    render_skill_outputs,
     required_root_imports,
     root_merge_topics,
 )
 from coding_ethos.resources import resource_path
-from coding_ethos.tool_configs import check_tool_configs, sync_tool_configs
 
 MAX_MERGE_TOPICS = 12
 
@@ -90,14 +84,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repo-ethos",
         type=Path,
         help="Optional repo-specific ethos YAML. Defaults to <repo>/repo_ethos.yml.",
-    )
-    parser.add_argument(
-        "--repo-config",
-        type=Path,
-        help=(
-            "Optional repo-specific enforcement config YAML. Defaults to "
-            "<repo>/repo_config.yml or .yaml."
-        ),
     )
     parser.add_argument(
         "--seed-from-markdown",
@@ -157,49 +143,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--codex-model",
         help="Deprecated alias for --merge-model when --merge-engine=codex.",
     )
-    parser.add_argument(
-        "--sync-tool-configs",
-        action="store_true",
-        help=(
-            "Generate pyrightconfig.json, mypy.ini, ruff.toml, and "
-            ".yamllint.yml into --repo."
-        ),
-    )
-    parser.add_argument(
-        "--check-tool-configs",
-        action="store_true",
-        help=(
-            "Fail if generated tool config files in --repo are missing or out of sync."
-        ),
-    )
-    parser.add_argument(
-        "--sync-gemini-prompts",
-        action="store_true",
-        help=(
-            "Generate the grounded Gemini prompt pack into --repo/.code-ethos/gemini/."
-        ),
-    )
-    parser.add_argument(
-        "--sync-agent-skills",
-        action="store_true",
-        help=(
-            "Generate provider skill surfaces into --repo without rewriting root "
-            "agent docs."
-        ),
-    )
-    parser.add_argument(
-        "--check-gemini-prompts",
-        action="store_true",
-        help=(
-            "Fail if the generated Gemini prompt pack in --repo is missing or "
-            "out of sync."
-        ),
-    )
-    parser.add_argument(
-        "--check-agent-skills",
-        action="store_true",
-        help="Fail if provider skill surfaces in --repo are missing or out of sync.",
-    )
     return parser
 
 
@@ -255,7 +198,6 @@ def _render_contents(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
         rendered[f".agent-context/prompt-addons/{agent}.md"] = render_prompt_addon(
             bundle, agent, repo_root
         )
-    rendered.update(render_skill_outputs(bundle, repo_root))
 
     return rendered
 
@@ -357,29 +299,6 @@ def _repo_root_from_args(args: argparse.Namespace) -> Path:
     return Path.cwd().resolve()
 
 
-def _tool_actions_requested(args: argparse.Namespace) -> bool:
-    return bool(
-        args.sync_tool_configs
-        or args.check_tool_configs
-        or args.sync_gemini_prompts
-        or args.check_gemini_prompts
-        or args.sync_agent_skills
-        or args.check_agent_skills
-    )
-
-
-def _require_repo_root(
-    parser: argparse.ArgumentParser, args: argparse.Namespace
-) -> Path:
-    if not _has_repo_root(args):
-        parser.error(
-            "--sync-tool-configs, --check-tool-configs, --sync-gemini-prompts, "
-            "--check-gemini-prompts, --sync-agent-skills, and "
-            "--check-agent-skills require --repo."
-        )
-    return _repo_root_from_args(args)
-
-
 def _require_primary_path(parser: argparse.ArgumentParser, primary_path: Path) -> None:
     if primary_path.exists():
         return
@@ -387,123 +306,6 @@ def _require_primary_path(parser: argparse.ArgumentParser, primary_path: Path) -
         f"Primary YAML not found at {primary_path}. "
         "Use --seed-from-markdown to generate it first."
     )
-
-
-def _run_tool_config_actions(args: argparse.Namespace) -> int:
-    if not args.sync_tool_configs and not args.check_tool_configs:
-        return 0
-    resolved_repo_root = _require_repo_root(_build_parser(), args)
-    resolved_repo_root.mkdir(parents=True, exist_ok=True)
-    if args.sync_tool_configs:
-        _print_written_paths(sync_tool_configs(resolved_repo_root, args.repo_config))
-    if args.check_tool_configs:
-        mismatched = check_tool_configs(resolved_repo_root, args.repo_config)
-        if mismatched:
-            _print_written_paths(mismatched)
-            return 1
-    return 0
-
-
-def _run_gemini_prompt_actions(
-    args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
-) -> int:
-    if not args.sync_gemini_prompts and not args.check_gemini_prompts:
-        return 0
-    resolved_repo_root = _require_repo_root(parser, args)
-    primary_path = _resolve_primary_path(args.primary)
-    _require_primary_path(parser, primary_path)
-    repo_ethos_path = _resolve_repo_ethos(resolved_repo_root, args.repo_ethos)
-    resolved_repo_root.mkdir(parents=True, exist_ok=True)
-    if args.sync_gemini_prompts:
-        written = sync_gemini_prompt_pack(
-            repo_root=resolved_repo_root,
-            primary_path=primary_path,
-            repo_ethos_path=repo_ethos_path,
-            repo_config_path=args.repo_config,
-        )
-        _print_written_paths(written)
-    if args.check_gemini_prompts:
-        mismatched = check_gemini_prompt_pack(
-            repo_root=resolved_repo_root,
-            primary_path=primary_path,
-            repo_ethos_path=repo_ethos_path,
-            repo_config_path=args.repo_config,
-        )
-        if mismatched:
-            _print_written_paths(mismatched)
-            return 1
-    return 0
-
-
-def _sync_agent_skills(
-    *,
-    repo_root: Path,
-    primary_path: Path,
-    repo_ethos_path: Path,
-) -> list[Path]:
-    bundle = _load_bundle(primary_path, repo_ethos_path)
-    rendered = render_skill_outputs(bundle, repo_root)
-    written: list[Path] = []
-    for relative_path, content in rendered.items():
-        absolute_path = repo_root / relative_path
-        _write_file(absolute_path, content)
-        written.append(absolute_path)
-
-    return written
-
-
-def _check_agent_skills(
-    *,
-    repo_root: Path,
-    primary_path: Path,
-    repo_ethos_path: Path,
-) -> list[Path]:
-    bundle = _load_bundle(primary_path, repo_ethos_path)
-    rendered = render_skill_outputs(bundle, repo_root)
-    mismatched: list[Path] = []
-    for relative_path, expected in rendered.items():
-        absolute_path = repo_root / relative_path
-        if (
-            not absolute_path.exists()
-            or absolute_path.read_text(encoding="utf-8") != expected
-        ):
-            mismatched.append(absolute_path)
-
-    return mismatched
-
-
-def _run_agent_skill_actions(
-    args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
-) -> int:
-    if not args.sync_agent_skills and not args.check_agent_skills:
-        return 0
-
-    resolved_repo_root = _require_repo_root(parser, args)
-    primary_path = _resolve_primary_path(args.primary)
-    _require_primary_path(parser, primary_path)
-    repo_ethos_path = _resolve_repo_ethos(resolved_repo_root, args.repo_ethos)
-    resolved_repo_root.mkdir(parents=True, exist_ok=True)
-    if args.sync_agent_skills:
-        _print_written_paths(
-            _sync_agent_skills(
-                repo_root=resolved_repo_root,
-                primary_path=primary_path,
-                repo_ethos_path=repo_ethos_path,
-            )
-        )
-    if args.check_agent_skills:
-        mismatched = _check_agent_skills(
-            repo_root=resolved_repo_root,
-            primary_path=primary_path,
-            repo_ethos_path=repo_ethos_path,
-        )
-        if mismatched:
-            _print_written_paths(mismatched)
-            return 1
-
-    return 0
 
 
 def _maybe_seed_primary(args: argparse.Namespace, primary_path: Path) -> None:
@@ -555,21 +357,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     merge_settings = _resolve_merge_settings(args)
-
-    tool_result = _run_tool_config_actions(args)
-    if tool_result != 0:
-        return tool_result
-
-    gemini_result = _run_gemini_prompt_actions(args, parser)
-    if gemini_result != 0:
-        return gemini_result
-
-    skill_result = _run_agent_skill_actions(args, parser)
-    if skill_result != 0:
-        return skill_result
-
-    if _tool_actions_requested(args):
-        return 0
 
     if not _has_repo_root(args):
         return 0

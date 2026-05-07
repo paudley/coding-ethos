@@ -35,7 +35,7 @@
 - `renderers`: `coding_ethos/renderers.py`
 - `markdown_seed`: `coding_ethos/markdown_seed.py`
 - `merge_logic`: `coding_ethos/merging.py`
-- `gemini_prompt_pack`: `coding_ethos/gemini_prompt_pack.py`
+- `gemini_prompt_pack`: `go/internal/geminiprompts/`
 - `presets`: `coding_ethos/presets.py`
 - `models`: `coding_ethos/models.py`
 - `tests`: `tests/test_cli.py`
@@ -45,7 +45,7 @@
 - `bundle_config`: `config.yaml`
 - `consumer_override_example`: `repo_config.example.yaml`
 - `precommit_bundle`: `pre-commit/`
-- `go_hook_runner`: `pre-commit/hooks/go-hooks/`
+- `go_hook_runner`: `go/cmd/coding-ethos-hook-runner/`
 
 ## Repo Notes
 - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local refinement layer.
@@ -53,7 +53,7 @@
 - The Makefile is the preferred repo-local operator interface for generation, generated repo-root tool configs, the generated Gemini prompt pack, and bundled Go hook workflows.
 - The bundled ETHOS pre-commit enforcement package lives under pre-commit/ and installs direct Go runner shims into `.git/hooks/`.
 - style.python_version is the single Python-version authority across generated tool configs, the pyupgrade autofix pass, and repo-root consistency checks for .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and .golangci.yml's lll line-length setting.
-- Hook runtime, policy enforcement, Python policy checks, and bundled analyzer orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+- Hook runtime, policy enforcement, Python policy checks, and bundled analyzer orchestration now live in go/cmd/coding-ethos-hook-runner/ inside the shared Go module; pre-commit/hooks/ contains hook assets and narrow bootstrap shims.
 - Source-aware enforcement follows the AST/CEL/SARIF architecture documented in docs/AST_CEL_SARIF_ARCHITECTURE.md. Extend shared Go Tree-sitter fact collection first, express configurable decisions in CEL where possible, and let SARIF carry stable AST identity and remediation metadata. Do not add ad hoc text scanners or policy-specific AST walkers before checking this path.
 - If you fix hook, policy, lint-capture, runtime, generated-config, or parent integration behavior, run `make build` before claiming the bug is fixed. Without rebuilding, the parent repo can keep executing stale runtime binaries and configs, which means the fix has not actually landed for agents.
 - Prefer replacing shell and Python implementation glue with Go wherever practical. Every branch should identify at least one related shell or Python path that can move into compiled Go, even if the branch only documents why it is not the right time to migrate it.
@@ -130,25 +130,25 @@ under the rationalization of "pragmatism," "efficiency," or
 "complexity." | The following thought patterns are explicitly banned.
 - `22. Testing as Specification`: Treat tests as executable behavioral contracts and update them with code changes. [tags: testing, quality, specification]
   Quick ref: Treat tests as executable behavioral contracts and update them with code changes. | Tests are not afterthoughts—they are the executable specification of system behavior. | There is no such thing as an "acceptable" test failure or a "known flaky" test.
-- `23. Functional Testing Is the Proof`: Prove critical behavior with real functional workflows before relying on unit tests or mocks. [tags: testing, verification, quality, workflow]
-  Quick ref: Real workflow tests are the primary evidence that core behavior works. | Unit tests are useful but low-value compared with tests that exercise the actual user path. | Mocking distorts reality; use it only as a last resort for narrow, explicitly bounded cases.
-- `24. Exception Hierarchy and Error Messages`: Use precise exception types and actionable, context-rich error messages. [tags: errors, debugging, api]
+- `23. Exception Hierarchy and Error Messages`: Use precise exception types and actionable, context-rich error messages. [tags: errors, debugging, api]
   Quick ref: Use precise exception types and actionable, context-rich error messages. | Exceptions are not just error handling—they are communication. | All application exceptions inherit from a base exception that carries
 structured context:
-- `25. Security by Design`: Design for least privilege, validation, and safe defaults from the start. [tags: security, validation, defaults]
+- `24. Security by Design`: Design for least privilege, validation, and safe defaults from the start. [tags: security, validation, defaults]
   Quick ref: Design for least privilege, validation, and safe defaults from the start. | Security is not a feature to be added later—it is a property of the design. | Secrets, credentials, and API keys must never appear in source code,
 configuration files, or commit history.
-- `26. Sub-Agent Delegation and Context Isolation`: Use specialized agents with scoped context instead of overloading one thread. [tags: delegation, context, workflow]
+- `25. Sub-Agent Delegation and Context Isolation`: Use specialized agents with scoped context instead of overloading one thread. [tags: delegation, context, workflow]
   Quick ref: Use specialized agents with scoped context instead of overloading one thread. | We mandate extensive use of sub-agents, plugins, and skills for
 complex operations—especially git commits and pushes that must pass
 quality gates. | Borrowing from Go's concurrency philosophy: "Share memory by
 communicating, don't communicate by sharing memory." For discrete
 tasks with clear inputs and outputs, spawn a fresh sub-agent with its
 own context and pass only the specific inst
-- `27. Evidence-Based Engineering and Decision Quality`: Understand, plan, execute, and validate with evidence; measure before
+- `26. Evidence-Based Engineering and Decision Quality`: Understand, plan, execute, and validate with evidence; measure before
 optimizing and make trade-offs explicit. [tags: evidence, planning, risk, quality]
   Quick ref: Evidence > assumptions; runnable behavior and measurements outrank speculation. | Understand -> plan -> execute -> validate, using batching and context
 awareness when they reduce waste. | Evaluate decisions across quality, reversibility, risk, and human impact.
+- `28. Functional Testing Is the Proof`: Prove critical behavior with real functional workflows before relying on unit tests or mocks. [tags: testing, verification, quality, workflow]
+  Quick ref: Real workflow tests are the primary evidence that core behavior works. | Unit tests are useful but low-value compared with tests that exercise the actual user path. | Mocking distorts reality; use it only as a last resort for narrow, explicitly bounded cases.
 - `900. Generated Files Are Derived Artifacts`: Edit the source ethos or renderer code first, then regenerate the checked-in agent files. [tags: documentation, workflow, testing]
   Quick ref: Treat coding_ethos.yml and repo_ethos.yml as the source inputs for checked-in agent docs. | Regenerate AGENTS.md, CLAUDE.md, GEMINI.md, ETHOS.md, and supporting docs after changing ethos inputs or renderers. | Review generated diffs instead of hand-editing derived markdown files.
 

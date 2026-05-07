@@ -51,6 +51,10 @@ The normal upgrade path is:
 - [ ] Update `pyproject.toml` version when cutting a release.
 - [ ] Run `make check`.
 - [ ] Run generated config verification for any changed config surfaces.
+- [ ] Verify the release workflow `Dynamic analysis` job passed. This job runs
+      Go fuzzing against the shell parser, SARIF formatter, hook event decoder,
+      and CEL input construction before release artifacts can be built or
+      published.
 - [ ] Verify GitHub Actions and SARIF gates are green on the release PR.
 - [ ] Verify OpenSSF Scorecard has a recent successful run on `main`.
 - [ ] Refresh pinned GitHub Action SHAs after reviewing upstream release notes

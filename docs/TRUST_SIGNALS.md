@@ -25,6 +25,9 @@ adopt.
 - Release workflow with GitHub artifact attestations, SPDX JSON SBOMs,
   SHA-256 checksums, offline `.intoto.jsonl` attestation bundles, and PyPI
   Trusted Publishing.
+- Release workflow dynamic analysis gate that fuzzes the shell parser, SARIF
+  formatter, hook event decoder, and CEL input construction before release
+  artifacts can be built or published.
 - Dependabot configuration for GitHub Actions, Go modules, root uv
   dependencies, and hook uv dependencies, with a seven-day cooldown to avoid
   unreviewed dependency churn.
@@ -75,7 +78,8 @@ Current areas to monitor in the published result:
 - Binary artifact publication and checksum policy.
 - SBOM generation and attestation coverage.
 - Security policy and vulnerability reporting path.
-- Fuzzing coverage beyond the initial Go fuzz smoke workflow.
+- Assertion-enabled dynamic analysis beyond the current release-gated fuzzing
+  workflow.
 
 ## OpenSSF Best Practices Badge
 
@@ -85,38 +89,25 @@ The OpenSSF Best Practices Badge is a separate human-reviewed checklist. The
 project tracks its public badge record at
 `https://www.bestpractices.dev/en/projects/12737`.
 
-The project target is the **Gold** badge. Treat the badge as a project-quality
-checklist, not as badge decoration. Repo-side gaps should be remediated in code,
-docs, CI, or governance before a criterion is left as unmet. Criteria that
-depend on external GitHub organization settings, independent contributors, or
-human review capacity must remain explicit in the gap list until the underlying
-condition is true.
+The project currently holds the **Silver** badge. The target remains **Gold**.
+Treat the badge as a project-quality checklist, not as badge decoration.
+Repo-side gaps should be remediated in code, docs, CI, or governance before a
+criterion is left as unmet. Criteria that depend on external GitHub
+organization settings, independent contributors, or human review capacity must
+remain explicit in the gap list until the underlying condition is true.
 
 The root `.bestpractices.json` file is the durable repo-hosted proposal file
-consumed by the Best Practices site. The checked-in source manifest for the
-URL helper lives at `docs/best_practices_prefill.json`. Generate
-human-reviewed chunked edit URLs and a gap report with:
-
-```bash
-make best-practices-prefill
-```
-
-Prefer the repo-hosted `.bestpractices.json` reanalysis path. Apply the emitted
-URLs only as a fallback, in order, saving the Best Practices project after each
-chunk. The URLs are deliberately bounded because the Best Practices edit
-endpoint can reject a full Gold prefill query as too long.
+consumed by the Best Practices site. Prefer the repo-hosted reanalysis path
+over query-string prefills; the prefill URL path proved too fragile and is not
+part of the supported workflow.
 
 OpenSSF Scorecard's `CII-Best-Practices` check is not controlled by repo-local
 SARIF or workflow output. It calls the Best Practices badge API for the Git
-repository URL and scores the public tier it receives. If the project has been
-advanced to Silver or Gold in the Best Practices UI, verify that project 12737
-uses `https://github.com/paudley/coding-ethos` as its repository URL, wait for
-the public Best Practices badge/API to reflect the new tier, then rerun the
-Scorecard workflow. The latest inspected public Best Practices project JSON
-reported `badge_level: "passing"`, `achieve_silver_status: "Unmet"`, and
-`achieved_gold_at: null`; the latest inspected Scorecard run reported
-`badge detected: Passing`. The remaining remediation is external badge metadata
-completion/propagation rather than a missing repository file.
+repository URL and scores the public tier it receives. After the Best Practices
+UI advances the project to a new tier, verify that project 12737 uses
+`https://github.com/paudley/coding-ethos` as its repository URL, wait for the
+public Best Practices badge/API to reflect the new tier, then rerun the
+Scorecard workflow.
 
 Preparation checklist:
 
@@ -127,7 +118,6 @@ Preparation checklist:
 - [x] Document the project governance, contribution certification, and
   maintainer contact path.
 - [x] Review license, contribution, and issue-template completeness.
-- [x] Add a machine-readable Best Practices prefill manifest and generator.
 - [x] Add root `.bestpractices.json` for repo-hosted Best Practices
       automation proposals.
 - [ ] Resolve remaining Gold gaps from the generated report.

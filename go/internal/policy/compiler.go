@@ -6,27 +6,26 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
 	"go.yaml.in/yaml/v3"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 var (
-	errNoCompiledPrinciples = errors.New("no principles found")
-	errNoCompiledPolicies   = errors.New("no enabled policies found")
+	errNoCompiledPrinciples = apperror.StaticError("no principles found")
+	errNoCompiledPolicies   = apperror.StaticError("no enabled policies found")
 )
 
-const defaultBundleBaseParts = 2
+const (
+	defaultBundleBaseParts = 2
+	maxReminderFrequency   = 100
+)
 
 type CompileOptions struct {
 	GeneratedAt string
@@ -37,15 +36,23 @@ type CompileOptions struct {
 	RepoConfig  string
 }
 
+type compileInputPayloads struct {
+	Primary           map[string]any
+	Config            map[string]any
+	SourceHashes      map[string]string
+	RepoConfig        map[string]any
+	ExpressionSources []expressionPolicySource
+}
+
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
-	primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, err := compileInputs(options)
+	inputs, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
 
-	principles := compilePrinciples(primaryPayload)
+	principles := compilePrinciples(inputs.Primary)
 	if len(principles) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile principles: %w in %s",
@@ -55,16 +62,16 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	}
 
 	policies, err := compilePolicies(
-		primaryPayload,
-		configPayload,
-		repoConfigPayload,
-		expressionSources,
+		inputs.Config,
+		inputs.RepoConfig,
+		inputs.ExpressionSources,
 		principles,
 		sourceRoot(options.Config),
 	)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
+
 	if len(policies) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile policies: %w in %s",
@@ -75,7 +82,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 
 	bundleID := options.BundleID
 	if bundleID == "" {
-		bundleID = defaultBundleID(options.Primary, options.Config, sourceHashes)
+		bundleID = defaultBundleID(options.Primary, options.Config, inputs.SourceHashes)
 	}
 
 	bundle := Bundle{
@@ -92,13 +99,13 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 				Repo:    options.RepoConfig,
 			},
 		},
-		Advice:     compileAdvice(primaryPayload, configPayload, principles),
+		Advice:     compileAdvice(inputs.Primary, inputs.Config, principles),
 		Principles: principles,
 		Policies:   policies,
-		Skills:     compileSkills(primaryPayload, principles, options.Primary),
+		Skills:     compileSkills(inputs.Primary, principles, options.Primary),
 		Dispatch:   compileDispatch(policies),
 		EvidenceMaps: compileEvidenceMaps(
-			configPayload,
+			inputs.Config,
 			principles,
 		),
 	}
@@ -108,7 +115,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		return Bundle{}, Metadata{}, err
 	}
 
-	metadata, err := BuildMetadata(bundle, sourceHashes)
+	metadata, err := BuildMetadata(bundle, inputs.SourceHashes)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
@@ -141,7 +148,7 @@ func sourceRoot(path string) string {
 	return filepath.Dir(absolutePath)
 }
 
-func sourceFileName(path string, fallback string) string {
+func sourceFileName(path, fallback string) string {
 	if path == "" {
 		return fallback
 	}
@@ -154,24 +161,15 @@ func sourceFileName(path string, fallback string) string {
 	return name
 }
 
-func compileInputs(
-	options CompileOptions,
-) (
-	map[string]any,
-	map[string]any,
-	map[string]any,
-	[]expressionPolicySource,
-	map[string]string,
-	error,
-) {
+func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
 	configPayload, configHash, err := loadYAMLFile(options.Config)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
 	sourceHashes := map[string]string{
@@ -179,14 +177,16 @@ func compileInputs(
 		options.Config:  configHash,
 	}
 	expressionSources := []expressionPolicySource{}
-	source, ok, err := expressionPolicySourceFromConfig(
+
+	source, found, err := expressionPolicySourceFromConfig(
 		configPayload,
 		sourceFileName(options.Config, "config.yaml"),
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
-	if ok {
+
+	if found {
 		expressionSources = append(expressionSources, source)
 	}
 
@@ -196,8 +196,9 @@ func compileInputs(
 		sourceHashes,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
+
 	expressionSources = append(
 		expressionSources,
 		expressionPolicySourcesFromPrinciples(
@@ -207,27 +208,54 @@ func compileInputs(
 	)
 
 	var repoConfigPayload map[string]any
+
 	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
-		var repoConfigHash string
-		repoConfigPayload, repoConfigHash, err = loadYAMLFile(options.RepoConfig)
-		if err != nil {
-			return nil, nil, nil, nil, nil, err
-		}
-		sourceHashes[options.RepoConfig] = repoConfigHash
-		source, ok, err = expressionPolicySourceFromConfig(
-			repoConfigPayload,
-			sourceFileName(options.RepoConfig, "repo_config.yaml"),
+		repoConfigPayload, err = mergeRepoConfigInput(
+			options,
+			sourceHashes,
+			&expressionSources,
 		)
 		if err != nil {
-			return nil, nil, nil, nil, nil, err
+			return compileInputPayloads{}, err
 		}
-		if ok {
-			expressionSources = append(expressionSources, source)
-		}
+
 		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
-	return primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, nil
+	return compileInputPayloads{
+		Primary:           primaryPayload,
+		Config:            configPayload,
+		RepoConfig:        repoConfigPayload,
+		ExpressionSources: expressionSources,
+		SourceHashes:      sourceHashes,
+	}, nil
+}
+
+func mergeRepoConfigInput(
+	options CompileOptions,
+	sourceHashes map[string]string,
+	expressionSources *[]expressionPolicySource,
+) (map[string]any, error) {
+	repoConfigPayload, repoConfigHash, err := loadYAMLFile(options.RepoConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceHashes[options.RepoConfig] = repoConfigHash
+
+	source, found, err := expressionPolicySourceFromConfig(
+		repoConfigPayload,
+		sourceFileName(options.RepoConfig, "repo_config.yaml"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
+		*expressionSources = append(*expressionSources, source)
+	}
+
+	return repoConfigPayload, nil
 }
 
 func mergeOptionalYAML(
@@ -270,14 +298,14 @@ func loadYAMLFile(path string) (map[string]any, string, error) {
 func compilePrinciples(payload map[string]any) map[string]Principle {
 	principles := map[string]Principle{}
 
-	rawPrinciples, ok := payload["principles"].([]any)
-	if !ok {
+	rawPrinciples, found := payload["principles"].([]any)
+	if !found {
 		return principles
 	}
 
 	for _, raw := range rawPrinciples {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
@@ -310,15 +338,16 @@ func compileSkills(
 	principles map[string]Principle,
 	sourceFile string,
 ) map[string]Skill {
-	rawSkills, ok := payload["skills"].([]any)
-	if !ok {
+	rawSkills, found := payload["skills"].([]any)
+	if !found {
 		return nil
 	}
 
 	skills := map[string]Skill{}
+
 	for _, raw := range rawSkills {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
@@ -328,12 +357,14 @@ func compileSkills(
 		}
 
 		skill := Skill{
-			ID:               skillID,
-			Title:            stringValue(item["title"]),
-			Description:      stringValue(item["description"]),
-			ShortHint:        stringValue(item["short_hint"]),
-			Focus:            stringValue(item["focus"]),
-			PrincipleIDs:     principleRefs(principles, stringSlice(item["principle_ids"])...),
+			ID:          skillID,
+			Title:       stringValue(item["title"]),
+			Description: stringValue(item["description"]),
+			ShortHint:   stringValue(item["short_hint"]),
+			Focus:       stringValue(item["focus"]),
+			PrincipleIDs: principleRefs(
+				principles,
+				stringSlice(item["principle_ids"])...),
 			TriggerTerms:     stringSlice(item["trigger_terms"]),
 			RemediationSteps: stringSlice(item["remediation_steps"]),
 			Source: SourceRef{
@@ -375,6 +406,7 @@ func compileReminderConfig(
 	if reminders.AmbientFrequencyPercent == 0 {
 		reminders.AmbientFrequencyPercent = defaultReminderAmbientFrequencyPercent
 	}
+
 	if len(reminders.Items) == 0 {
 		reminders = defaultReminderConfig()
 	}
@@ -407,24 +439,27 @@ func deriveReminderConfigFromEthos(
 	ethos map[string]any,
 	principles map[string]Principle,
 ) ReminderConfig {
-	rawPrinciples, ok := ethos["principles"].([]any)
-	if !ok {
+	rawPrinciples, found := ethos["principles"].([]any)
+	if !found {
 		return ReminderConfig{}
 	}
 
 	items := []EthosReminder{}
+
 	for _, raw := range rawPrinciples {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
 		principleID := stringValue(item["id"])
-		if _, ok := principles[principleID]; !ok {
+		if _, found := principles[principleID]; !found {
 			continue
 		}
 
-		items = append(items, ethosAxiomsFromPrincipleItem(item, principles[principleID])...)
+		items = append(
+			items,
+			ethosAxiomsFromPrincipleItem(item, principles[principleID])...)
 	}
 
 	return ReminderConfig{
@@ -438,30 +473,9 @@ func ethosAxiomsFromPrincipleItem(
 	item map[string]any,
 	principle Principle,
 ) []EthosReminder {
-	rawAxioms, ok := item["axioms"].([]any)
-	if ok {
-		reminders := make([]EthosReminder, 0, len(rawAxioms))
-		for _, raw := range rawAxioms {
-			axiom, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			reminder := EthosReminder{
-				PrincipleID: principle.ID,
-				Axiom:       stringValue(axiom["axiom"]),
-				Action:      stringValue(axiom["action"]),
-			}
-			if reminder.Axiom == "" {
-				continue
-			}
-			if reminder.Action == "" {
-				reminder.Action = principleReminderAction(principle)
-			}
-			reminders = append(reminders, reminder)
-		}
-		if len(reminders) > 0 {
-			return reminders
-		}
+	reminders := ethosAxiomsFromExplicitItems(item, principle)
+	if len(reminders) > 0 {
+		return reminders
 	}
 
 	quickRef := principle.QuickRef
@@ -477,12 +491,15 @@ func ethosAxiomsFromPrincipleItem(
 				reminders = append(reminders, reminder)
 			}
 		}
+
 		if len(reminders) > 0 {
 			return reminders
 		}
 	}
 
-	axiom := strings.TrimSpace(firstNonEmpty(principle.Summary, principle.Directive, principle.Title))
+	axiom := strings.TrimSpace(
+		firstNonEmpty(principle.Summary, principle.Directive, principle.Title),
+	)
 	if axiom == "" {
 		return nil
 	}
@@ -492,6 +509,41 @@ func ethosAxiomsFromPrincipleItem(
 		Axiom:       axiom,
 		Action:      principleReminderAction(principle),
 	}}
+}
+
+func ethosAxiomsFromExplicitItems(
+	item map[string]any,
+	principle Principle,
+) []EthosReminder {
+	rawAxioms, found := item["axioms"].([]any)
+	if !found {
+		return nil
+	}
+
+	reminders := make([]EthosReminder, 0, len(rawAxioms))
+	for _, raw := range rawAxioms {
+		axiom, found := raw.(map[string]any)
+		if !found {
+			continue
+		}
+
+		reminder := EthosReminder{
+			PrincipleID: principle.ID,
+			Axiom:       stringValue(axiom["axiom"]),
+			Action:      stringValue(axiom["action"]),
+		}
+		if reminder.Axiom == "" {
+			continue
+		}
+
+		if reminder.Action == "" {
+			reminder.Action = principleReminderAction(principle)
+		}
+
+		reminders = append(reminders, reminder)
+	}
+
+	return reminders
 }
 
 func principleReminderAction(principle Principle) string {
@@ -540,7 +592,7 @@ func defaultReminderConfig() ReminderConfig {
 			},
 			{
 				PrincipleID: "static-analysis-is-the-first-line-of-defense",
-				Axiom:       "Static analysis is a gate, not background noise.",
+				Axiom:       "StaticError analysis is a gate, not background noise.",
 				Action:      "Treat the finding as a structural signal and fix the cause.",
 			},
 			{
@@ -570,8 +622,9 @@ func clampPercent(value int) int {
 	if value < 0 {
 		return 0
 	}
-	if value > 100 {
-		return 100
+
+	if value > maxReminderFrequency {
+		return maxReminderFrequency
 	}
 
 	return value
@@ -582,2362 +635,5 @@ func frequencyToPercent(frequency int) int {
 		return defaultReminderAmbientFrequencyPercent
 	}
 
-	return 100 / frequency
-}
-
-func compilePolicies(
-	ethos map[string]any,
-	config map[string]any,
-	repoConfig map[string]any,
-	expressionSources []expressionPolicySource,
-	principles map[string]Principle,
-	configSourceRoot string,
-) (map[string]Policy, error) {
-	policies := map[string]Policy{}
-	addConfiguredPythonPolicies(policies, config, principles)
-	addGitPolicies(policies, config, principles)
-	addSyntaxPolicies(policies, config, principles)
-	addShellPolicies(policies, config, principles)
-	if err := addFileGuardPolicies(policies, config, repoConfig, principles); err != nil {
-		return nil, err
-	}
-	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
-	if err := addExpressionPolicies(
-		policies,
-		expressionSources,
-		config,
-		principles,
-	); err != nil {
-		return nil, err
-	}
-
-	return policies, nil
-}
-
-func addGitPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-) {
-	for _, policy := range gitPolicies(config, principles) {
-		if policyConfigEnabled(config, policy.ID) {
-			policies[policy.ID] = policy
-		}
-	}
-
-	if policyConfigEnabled(config, "git.wrapper_required") {
-		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
-	}
-
-	if enabledAt(config, []string{"go", "commit_attribution"}) {
-		policies["git.commit_attribution"] = gitCommitAttributionPolicy(config, principles)
-	}
-
-	if enabledAt(config, []string{"go", "commitlint"}) {
-		policies["git.commitlint"] = gitCommitLintPolicy(config, principles)
-	}
-}
-
-func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
-	return []Policy{
-		gitStagedAdminPolicy(config, principles),
-		gitCommitHeadPolicy(principles),
-	}
-}
-
-func gitPolicy(
-	policyID string,
-	sourcePath string,
-	principleIDs []string,
-	message string,
-	suggestion string,
-) Policy {
-	return Policy{
-		ID:              policyID,
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: sourcePath},
-		PrincipleIDs:    principleIDs,
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         message,
-		Suggestion:      suggestion,
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "argv", Name: policyID}},
-	}
-}
-
-func gitStagedAdminPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	return Policy{
-		ID:              "git.staged_admin_files",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "git.staged_admin_files"},
-		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "ask", "record"},
-		Message:         "Administrative staged files require explicit handling.",
-		Suggestion: "Ask an admin to approve this coding-ethos session, then " +
-			"run the protected git command with --admin-approved.",
-		DefenseLayers: GitDefenseLayers(
-			"ask",
-			"wrapper",
-			"block",
-			"pre_commit",
-			"git_state",
-		),
-		AppliesTo: AppliesTo{
-			Commands: []string{"git commit"},
-			Tools:    []string{"Bash"},
-		},
-		Evaluators: []Evaluator{{
-			Kind: "git_state",
-			Name: "git.staged_admin_files",
-			Options: map[string]any{
-				"basenames": stringSliceAt(
-					config,
-					[]string{"git", "staged_admin_files", "basenames"},
-					[]string{
-						".pre-commit-config.yaml",
-						"pre-commit-config.yaml",
-						".importlinter",
-						"importlinter",
-						".pylintrc",
-						"pylintrc",
-						"pyproject.toml",
-					},
-				),
-				"dirs": stringSliceAt(
-					config,
-					[]string{"git", "staged_admin_files", "dirs"},
-					[]string{".pre-commit", "pre-commit"},
-				),
-			},
-		}},
-	}
-}
-
-func gitCommitHeadPolicy(principles map[string]Principle) Policy {
-	return Policy{
-		ID:       "git.commit_head_advanced",
-		Category: "git",
-		Source:   SourceRef{File: "config.yaml", Path: "git.commit_head_advanced"},
-		PrincipleIDs: principleRefs(
-			principles,
-			"evidence-based-engineering-and-decision-quality",
-		),
-		DefaultSeverity: "annotate",
-		SupportedModes:  []string{"annotate", "record", "block"},
-		Message:         "Commit success must be verified by checking that HEAD advanced.",
-		Suggestion:      "Compare pre-commit and post-commit HEAD before reporting success.",
-		DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
-	}
-}
-
-func gitCommitAttributionPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	return Policy{
-		ID:       "git.commit_attribution",
-		Category: "git",
-		Source: SourceRef{
-			File: "config.yaml",
-			Path: "go.commit_attribution.blocked_names",
-		},
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-self-promotion",
-			"one-path-for-critical-operations",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Commit messages must not contain AI attribution.",
-		Suggestion: sentence(
-			"Remove AI co-author, generated-by, assisted-by, or bot",
-			"attribution before committing.",
-		),
-		DefenseLayers: GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
-		AppliesTo:     AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
-		Evaluators: []Evaluator{{
-			Kind: "argv",
-			Name: "git.commit_attribution",
-			Options: map[string]any{
-				"blocked_names": stringSliceAt(
-					config,
-					[]string{"go", "commit_attribution", "blocked_names"},
-					[]string{
-						"claude",
-						"anthropic",
-						"gpt",
-						"chatgpt",
-						"openai",
-						"copilot",
-						"github copilot",
-						"ai assistant",
-						"ai agent",
-						"llm",
-						"large language model",
-						"gemini",
-						"bard",
-						"cursor",
-					},
-				),
-			},
-		}},
-	}
-}
-
-func gitCommitLintPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	return Policy{
-		ID:              "git.commitlint",
-		Category:        "git",
-		Source:          SourceRef{File: "config.yaml", Path: "go.commitlint"},
-		PrincipleIDs:    principleRefs(principles, "one-path-for-critical-operations"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Commit messages must follow the configured conventional format.",
-		Suggestion:      "Use exactly: type(scope): concise subject, then a blank line before the body.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
-		Evaluators: []Evaluator{{
-			Kind: "git_state",
-			Name: "git.commitlint",
-			Options: map[string]any{
-				"allowed_types": stringSliceAt(
-					config,
-					[]string{"go", "commitlint", "allowed_types"},
-					[]string{"chore", "docs", "feat", "fix", "perf", "refactor", "test"},
-				),
-				"ignored_prefixes": stringSliceAt(
-					config,
-					[]string{"go", "commitlint", "ignored_prefixes"},
-					[]string{"Merge ", "Revert ", "fixup! ", "squash! "},
-				),
-				"max_header_length": intAt(
-					config,
-					[]string{"go", "commitlint", "max_header_length"},
-					150,
-				),
-			},
-		}},
-	}
-}
-
-func addFileGuardPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	repoConfig map[string]any,
-	principles map[string]Principle,
-) error {
-	if policyConfigEnabled(config, "security.private_key") {
-		pattern := stringAt(config, "security", "private_key", "pattern")
-		if pattern == "" {
-			pattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
-		}
-
-		policies["security.private_key"] = Policy{
-			ID:              "security.private_key",
-			Category:        "security",
-			Source:          SourceRef{File: "config.yaml", Path: "security.private_key"},
-			PrincipleIDs:    principleRefs(principles, "security-by-design"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Private keys must not be committed.",
-			Suggestion:      "Remove secrets from source and rotate exposed credentials.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind:    "text",
-				Name:    "security.private_key",
-				Options: map[string]any{"pattern": pattern},
-			}},
-		}
-	}
-
-	if policyConfigEnabled(config, "filesystem.shebangs") {
-		policies["filesystem.shebangs"] = Policy{
-			ID:              "filesystem.shebangs",
-			Category:        "filesystem",
-			Source:          SourceRef{File: "config.yaml", Path: "filesystem.shebangs"},
-			PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Executable scripts and shebangs must agree.",
-			Suggestion:      "Add a valid shebang to executable scripts and mark shebang scripts executable.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators:      []Evaluator{{Kind: "text", Name: "filesystem.shebangs"}},
-		}
-	}
-
-	if enabledAt(config, []string{"filesystem", "pii_scrubber"}) {
-		policies["repo.pii_scrubber"] = Policy{
-			ID:              "repo.pii_scrubber",
-			Category:        "repo",
-			Source:          SourceRef{File: "config.yaml", Path: "filesystem.pii_scrubber"},
-			PrincipleIDs:    principleRefs(principles, "security-by-design", "radical-visibility"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Local-machine PII must not be committed.",
-			Suggestion:      "Replace local paths, usernames, hostnames, and worktree names with generic placeholders.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind: "text",
-				Name: "repo.pii_scrubber",
-				Options: map[string]any{
-					"patterns": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "patterns"},
-						[]string{
-							`/(home|Users)/[A-Za-z0-9._-]+/`,
-							`lbox-worktrees/[A-Za-z0-9._-]+`,
-							`/tmp/tmp\.[A-Za-z0-9._-]+`,
-						},
-					),
-					"literals": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "literals"},
-						nil,
-					),
-					"exempt_prefixes": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},
-						[]string{".git/"},
-					),
-				},
-			}},
-		}
-	}
-
-	licensePolicy, err := licenseHeaderPolicy(config, repoConfig, principles)
-	if err != nil {
-		return err
-	}
-	if licensePolicy.ID != "" {
-		policies[licensePolicy.ID] = licensePolicy
-	}
-
-	return nil
-}
-
-func licenseHeaderPolicy(
-	config map[string]any,
-	repoConfig map[string]any,
-	principles map[string]Principle,
-) (Policy, error) {
-	if len(repoConfig) == 0 {
-		if !enabledAt(config, []string{"filesystem", "license_header"}) {
-			return Policy{}, nil
-		}
-
-		return baseLicenseHeaderPolicy(
-			principles,
-			"config.yaml",
-			"filesystem.license_header",
-			map[string]any{
-				"extensions": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "extensions"},
-					[]string{".go", ".py", ".sh"},
-				),
-				"exempt_prefixes": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "exempt_prefixes"},
-					[]string{".git/"},
-				),
-				"exempt_basenames": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "exempt_basenames"},
-					nil,
-				),
-				"required": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "required"},
-					[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
-				),
-				"scan_lines": intAt(config, []string{"filesystem", "license_header", "scan_lines"}, 5),
-			},
-		), nil
-	}
-
-	if !repoLicenseConfigured(repoConfig) {
-		return Policy{}, nil
-	}
-
-	spdxID := repoLicenseString(config, "spdx_identifier", "spdx")
-	copyrightText := repoLicenseString(config, "copyright")
-	licenseFile := repoLicenseString(config, "license_file")
-	if licenseFile == "" {
-		licenseFile = "LICENSE"
-	}
-
-	required := []string{}
-	if spdxID != "" {
-		required = append(required, "SPDX-License-Identifier: "+spdxID)
-	}
-	if copyrightText != "" {
-		required = append(required, "SPDX-FileCopyrightText: "+copyrightText)
-	}
-
-	options := map[string]any{
-		"extensions": stringSliceAt(
-			config,
-			[]string{"repo", "license", "extensions"},
-			[]string{".go", ".py", ".sh"},
-		),
-		"exempt_prefixes": stringSliceAt(
-			config,
-			[]string{"repo", "license", "exempt_prefixes"},
-			[]string{".git/"},
-		),
-		"exempt_basenames": stringSliceAt(
-			config,
-			[]string{"repo", "license", "exempt_basenames"},
-			nil,
-		),
-		"required":     required,
-		"scan_lines":   intAt(config, []string{"repo", "license", "scan_lines"}, 5),
-		"license_file": licenseFile,
-		"spdx_id":      spdxID,
-	}
-
-	if spdxID != "" {
-		licenseText, err := repoLicenseText(config, spdxID, copyrightText)
-		if err != nil {
-			return Policy{}, err
-		}
-		options["expected_license_text"] = licenseText
-	}
-
-	return baseLicenseHeaderPolicy(
-		principles,
-		"repo_config.yaml",
-		"repo.license",
-		options,
-	), nil
-}
-
-func baseLicenseHeaderPolicy(
-	principles map[string]Principle,
-	sourceFile string,
-	sourcePath string,
-	options map[string]any,
-) Policy {
-	return Policy{
-		ID:              "repo.license_header",
-		Category:        "repo",
-		Source:          SourceRef{File: sourceFile, Path: sourcePath},
-		PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "First-party source files must carry the configured SPDX license contract.",
-		Suggestion:      "Add the configured LICENSE file and matching SPDX source headers.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
-		Evaluators: []Evaluator{{
-			Kind:    "text",
-			Name:    "repo.license_header",
-			Options: options,
-		}},
-	}
-}
-
-func repoLicenseConfigured(repoConfig map[string]any) bool {
-	if !enabledAt(repoConfig, []string{"repo", "license"}) {
-		return false
-	}
-
-	return repoLicenseString(repoConfig, "spdx_identifier", "spdx") != "" ||
-		repoLicenseString(repoConfig, "copyright") != ""
-}
-
-func repoLicenseString(config map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value := stringAt(config, "repo", "license", key); value != "" {
-			return value
-		}
-	}
-
-	return ""
-}
-
-func repoLicenseText(
-	config map[string]any,
-	spdxID string,
-	copyrightText string,
-) (string, error) {
-	if text := stringAt(config, "repo", "license", "text"); text != "" {
-		return normalizeLicenseText(fillLicenseTemplate(text, copyrightText)), nil
-	}
-
-	url := stringAt(config, "repo", "license", "url")
-	if url == "" {
-		url = "https://spdx.org/licenses/" + spdxID + ".txt"
-	}
-
-	client := http.Client{Timeout: 10 * time.Second}
-	response, err := client.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("download SPDX license %s: %w", spdxID, err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download SPDX license %s: status %s", spdxID, response.Status)
-	}
-
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return "", fmt.Errorf("read SPDX license %s: %w", spdxID, err)
-	}
-
-	return normalizeLicenseText(fillLicenseTemplate(string(body), copyrightText)), nil
-}
-
-func fillLicenseTemplate(text string, copyrightText string) string {
-	if copyrightText == "" {
-		return text
-	}
-
-	replacer := strings.NewReplacer(
-		"<year> <copyright holders>", copyrightText,
-		"[yyyy] [name of copyright owner]", copyrightText,
-		"[year] [fullname]", copyrightText,
-	)
-
-	return replacer.Replace(text)
-}
-
-func normalizeLicenseText(text string) string {
-	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	return strings.Join(lines, "\n") + "\n"
-}
-
-func addSyntaxPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-) {
-	if policyConfigEnabled(config, "syntax.file_syntax") {
-		extensions := stringSliceAt(
-			config,
-			[]string{"syntax", "file_syntax", "extensions"},
-			[]string{".json", ".toml", ".yaml", ".yml"},
-		)
-
-		policies["syntax.file_syntax"] = Policy{
-			ID:              "syntax.file_syntax",
-			Category:        "syntax",
-			Source:          SourceRef{File: "config.yaml", Path: "syntax.file_syntax"},
-			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Structured data files must parse before they enter the repo.",
-			Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo: AppliesTo{
-				FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
-			},
-			Evaluators: []Evaluator{{
-				Kind:    "config",
-				Name:    "syntax.file_syntax",
-				Options: map[string]any{"extensions": extensions},
-			}},
-		}
-	}
-
-	if policyConfigEnabled(config, "syntax.merge_conflict") {
-		markers := stringSliceAt(
-			config,
-			[]string{"syntax", "merge_conflict", "markers"},
-			[]string{"<<<<<<<", "=======", ">>>>>>>", "|||||||"},
-		)
-
-		policies["syntax.merge_conflict"] = Policy{
-			ID:              "syntax.merge_conflict",
-			Category:        "syntax",
-			Source:          SourceRef{File: "config.yaml", Path: "syntax.merge_conflict"},
-			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Unresolved merge conflict markers are forbidden.",
-			Suggestion:      "Resolve the conflict and remove all conflict markers.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind:    "text",
-				Name:    "syntax.merge_conflict",
-				Options: map[string]any{"markers": markers},
-			}},
-		}
-	}
-}
-
-func addShellPolicies(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-) {
-	for _, policy := range []Policy{
-		shellPolicy(
-			"shell.malformed_command",
-			principleRefs(
-				principles,
-				"validation-at-the-gate",
-				"one-path-for-critical-operations",
-			),
-			"Malformed shell command text is forbidden.",
-			"Rewrite the command as valid shell syntax before continuing.",
-		),
-		shellBestPracticesPolicy(config, principles),
-	} {
-		if policyConfigEnabled(config, policy.ID) {
-			policies[policy.ID] = policy
-		}
-	}
-}
-
-func shellBestPracticesPolicy(
-	config map[string]any,
-	principles map[string]Principle,
-) Policy {
-	requireCommon := stringSliceAt(
-		config,
-		[]string{"shell", "best_practices", "require_common_for_prefixes"},
-		stringSliceAt(
-			config,
-			[]string{"go", "shell", "require_common_for_prefixes"},
-			[]string{"scripts/"},
-		),
-	)
-
-	return Policy{
-		ID:              "shell.best_practices",
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: "shell.best_practices"},
-		PrincipleIDs:    principleRefs(principles, "static-analysis-is-the-first-line-of-defense"),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         "Shell scripts must follow repository shell safety practices.",
-		Suggestion:      "Use a valid shell shebang, strict mode, and required common helpers.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.sh", "**/*.bash"}},
-		Evaluators: []Evaluator{{
-			Kind: "shell",
-			Name: "shell.best_practices",
-			Options: map[string]any{
-				"require_common_for_prefixes": requireCommon,
-			},
-		}},
-	}
-}
-
-func shellPolicy(
-	policyID string,
-	principleIDs []string,
-	message string,
-	suggestion string,
-) Policy {
-	return Policy{
-		ID:              policyID,
-		Category:        "shell",
-		Source:          SourceRef{File: "config.yaml", Path: policyID},
-		PrincipleIDs:    principleIDs,
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message:         message,
-		Suggestion:      suggestion,
-		DefenseLayers:   GitDefenseLayers("block", "", "block", "", ""),
-		AppliesTo:       AppliesTo{Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "shell", Name: policyID}},
-	}
-}
-
-func addGeneratedConfigPolicy(
-	policies map[string]Policy,
-	config map[string]any,
-	principles map[string]Principle,
-	configSourceRoot string,
-) {
-	if !policyConfigEnabled(config, "generated_config.freshness") {
-		return
-	}
-
-	command := stringSliceAt(
-		config,
-		[]string{"generated_config", "freshness", "check_command"},
-		defaultGeneratedConfigCheckCommand(configSourceRoot),
-	)
-
-	policies["generated_config.freshness"] = Policy{
-		ID:       "generated_config.freshness",
-		Category: "config",
-		Source:   SourceRef{File: "config.yaml", Path: "generated_config.freshness"},
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "ask", "advise", "annotate", "record"},
-		Message:         "Generated tool configuration must match source policy.",
-		Suggestion:      "Run the configured tool-config sync/check command.",
-		DefenseLayers:   GeneratedConfigDefenseLayers(),
-		AppliesTo: AppliesTo{
-			Paths: []string{
-				"ruff.toml",
-				"mypy.ini",
-				"pyrightconfig.json",
-				".yamllint.yml",
-				".bandit.yml",
-				".sqlfluff",
-				"tombi.toml",
-			},
-		},
-		Evaluators: []Evaluator{
-			{
-				Kind:    "config",
-				Name:    "generated_config.freshness",
-				Options: map[string]any{"command": command},
-			},
-		},
-	}
-}
-
-func firstPresentValue(values map[string]any, keys ...string) any {
-	for _, key := range keys {
-		if value, ok := values[key]; ok {
-			return value
-		}
-	}
-
-	return nil
-}
-
-func expressionPrincipleIDs(expression map[string]any) []string {
-	return stringSliceValue(expression["principle_ids"], nil)
-}
-
-func defaultExpressionDispatchScopes(scope string) []string {
-	switch scope {
-	case "commit-msg":
-		return []string{"commit-msg"}
-	case "smoke", "full", "cutover":
-		return []string{scope}
-	default:
-		return []string{"files", "staged"}
-	}
-}
-
-func compileEvidenceMaps(
-	config map[string]any,
-	principles map[string]Principle,
-) []diagnostics.EvidenceMap {
-	raw, exists := valueAt(config, "policy", "evidence_maps")
-	if !exists {
-		return defaultEvidenceMaps(principles)
-	}
-
-	rawItems, ok := raw.([]any)
-	if !ok || len(rawItems) == 0 {
-		return defaultEvidenceMaps(principles)
-	}
-
-	maps := make([]diagnostics.EvidenceMap, 0, len(rawItems)+len(defaultEvidenceMaps(principles)))
-	for _, rawItem := range rawItems {
-		item, ok := rawItem.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		maps = append(maps, evidenceMapFromConfig(item))
-	}
-
-	if len(maps) == 0 {
-		return defaultEvidenceMaps(principles)
-	}
-
-	return append(maps, defaultEvidenceMaps(principles)...)
-}
-
-func evidenceMapFromConfig(item map[string]any) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: stringAt(item, "source"),
-		Codes:  stringSliceAt(item, []string{"codes"}, nil),
-		MessageSubstrings: stringSliceAt(
-			item,
-			[]string{"message_substrings"},
-			nil,
-		),
-		PolicyID:     stringAt(item, "policy_id"),
-		SkillID:      stringAt(item, "skill_id"),
-		PrincipleIDs: stringSliceAt(item, []string{"principle_ids"}, nil),
-		Confidence:   stringAt(item, "confidence"),
-		Meaning:      stringAt(item, "meaning"),
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: stringAt(item, "advice", "summary"),
-			Steps:   stringSliceAt(item, []string{"advice", "steps"}, nil),
-			Rerun:   stringSliceAt(item, []string{"advice", "rerun"}, nil),
-		},
-	}
-}
-
-func defaultEvidenceMaps(principles map[string]Principle) []diagnostics.EvidenceMap {
-	return []diagnostics.EvidenceMap{
-		defaultRuffEvidenceMap(principles),
-		defaultRuffImportOrderEvidenceMap(principles),
-		defaultRuffSQLSafetyEvidenceMap(principles),
-		defaultRuffSecurityEvidenceMap(principles),
-		defaultRuffSuppressionEvidenceMap(principles),
-		defaultMypySuppressionEvidenceMap(principles),
-		defaultPyrightSuppressionEvidenceMap(principles),
-		defaultRuffDocstringEvidenceMap(principles),
-		defaultPylintDocstringEvidenceMap(principles),
-		defaultMypyOptionalTypeEvidenceMap(principles),
-		defaultPyrightOptionalTypeEvidenceMap(principles),
-		defaultMypyUnknownTypeEvidenceMap(principles),
-		defaultPyrightUnknownTypeEvidenceMap(principles),
-		defaultPylintInterfaceEvidenceMap(principles),
-		defaultPyrightMissingImportEvidenceMap(principles),
-		defaultMypyImportCycleEvidenceMap(principles),
-		defaultPyrightImportCycleEvidenceMap(principles),
-		defaultPylintImportCycleEvidenceMap(principles),
-		defaultMypyEvidenceMap(principles),
-		defaultShellcheckEvidenceMap(principles),
-		defaultYamllintEvidenceMap(principles),
-		defaultBanditEvidenceMap(principles),
-		defaultSQLFluffEvidenceMap(principles),
-		defaultTombiEvidenceMap(principles),
-		defaultDotenvLinterEvidenceMap(principles),
-		defaultHadolintEvidenceMap(principles),
-		defaultActionlintEvidenceMap(principles),
-		defaultGolangciEvidenceMap(principles),
-	}
-}
-
-func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"PLC" + "0415"},
-		PolicyID: "python.conditional_imports",
-		SkillID:  "conditional-imports",
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-conditional-imports",
-			"fail-fast-fail-hard-overview",
-		),
-		Confidence: "high",
-		Meaning: "Import executes away from module scope, usually inside " +
-			"runtime control flow, hiding a required dependency or masking " +
-			"cyclic design pressure.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Move required imports to module scope. If that exposes " +
-				"a cycle, fix the design instead of hiding the dependency.",
-			Steps: []string{
-				"Declare the dependency as required.",
-				"Import it at module scope.",
-				"Use SOLID boundaries to split responsibilities when modules depend on each other.",
-				"In Python, introduce a Protocol in a neutral module when two concrete implementations would otherwise import each other.",
-				"Replace lazy, conditional, or fallback import paths with explicit startup validation.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultRuffImportOrderEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"E402"},
-		PolicyID: "python.import_order",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-			"linting-as-code-quality-enforcement",
-		),
-		Confidence: "high",
-		Meaning: "Import ordering is hiding setup side effects or runtime " +
-			"dependency flow.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Move imports to the top of the module or split setup into a helper.",
-			Steps: []string{
-				"Put imports before executable statements.",
-				"Move path or environment setup into test fixtures or helper modules.",
-				"Keep dependency loading explicit and reviewable.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultRuffSQLSafetyEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"S608"},
-		PolicyID: "python.sql_safety",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"linting-as-code-quality-enforcement",
-		),
-		Confidence: "high",
-		Meaning: "SQL text is being assembled dynamically and may bypass " +
-			"parameterization.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Use parameterized SQL or a reviewed central SQL helper.",
-			Steps: []string{
-				"Replace string-built SQL with placeholders and bound parameters.",
-				"If dynamic identifiers are required, validate them against an allowlist.",
-				"Keep test-only SQL safety exceptions explicit and narrow.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultRuffSecurityEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"S*"},
-		PolicyID: "python.security_patterns",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "high",
-		Meaning:    "Ruff security rules found code that weakens safe defaults.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix the security finding structurally instead of suppressing it.",
-			Steps: []string{
-				"Prefer validated inputs and least-privilege behavior.",
-				"Replace suspicious APIs or unsafe construction with reviewed helpers.",
-				"Keep security exceptions narrow, documented, and reviewable.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultRuffSuppressionEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"RUF100", "PGH003", "PGH004"},
-		PolicyID: "python.comment_suppressions",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"linting-as-code-quality-enforcement",
-			"universal-responsibility",
-		),
-		Confidence: "high",
-		Meaning: "A lint suppression is stale, broad, or too weakly " +
-			"explained to satisfy the code-quality contract.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Remove the suppression or replace it with the narrowest documented exception.",
-			Steps: []string{
-				"Try the structural fix first.",
-				"Remove stale noqa/type-ignore comments.",
-				"When an exception is genuinely required, make it narrow and document the reason.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultMypySuppressionEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "mypy",
-		Codes:    []string{"unused-ignore", "ignore-without-code"},
-		PolicyID: "python.comment_suppressions",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"linting-as-code-quality-enforcement",
-			"universal-responsibility",
-		),
-		Confidence: "high",
-		Meaning:    "A type-ignore suppression is stale or too broad.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Remove broad type ignores and fix the type boundary directly.",
-			Steps: []string{
-				"Delete stale type-ignore comments.",
-				"Replace broad ignores with precise types, adapters, or Protocol boundaries.",
-				"If an ignore remains necessary, include the exact code and a local reason.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultPyrightSuppressionEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pyright",
-		Codes: []string{
-			"reportUnnecessaryTypeIgnoreComment",
-			"reportIgnoreCommentWithoutRule",
-		},
-		PolicyID: "python.comment_suppressions",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"linting-as-code-quality-enforcement",
-			"universal-responsibility",
-		),
-		Confidence: "high",
-		Meaning:    "A Pyright ignore comment is stale or missing a precise rule.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Remove unnecessary Pyright ignores or make the remaining exception explicit.",
-			Steps: []string{
-				"Delete unnecessary ignore comments.",
-				"Fix the underlying type issue when Pyright still reports one.",
-				"Do not use broad ignore comments as a substitute for correct interfaces.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultRuffDocstringEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "ruff",
-		Codes:    []string{"D*"},
-		PolicyID: "docs.public_contract",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"documentation-as-contract",
-		),
-		Confidence: "medium",
-		Meaning: "A public module, class, or function is missing contract " +
-			"documentation.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Document the public contract instead of leaving behavior implicit.",
-			Steps: []string{
-				"Add a concise docstring that states purpose, arguments, returns, and raised errors where relevant.",
-				"Keep implementation narration out of the docstring.",
-				"Update tests when the documented behavior changes.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultPylintDocstringEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pylint",
-		Codes: []string{
-			"missing-module-docstring",
-			"missing-class-docstring",
-			"missing-function-docstring",
-			"C0114",
-			"C0115",
-			"C0116",
-		},
-		PolicyID: "docs.public_contract",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"documentation-as-contract",
-		),
-		Confidence: "medium",
-		Meaning:    "Pylint found an undocumented public Python contract.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Document the public contract in the code surface that owns it.",
-			Steps: []string{
-				"Add a useful docstring at the reported module, class, or function.",
-				"Explain behavior and constraints, not obvious implementation details.",
-				"Keep generated or private surfaces excluded through policy, not ad hoc suppressions.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultMypyOptionalTypeEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "mypy",
-		Codes: []string{
-			"union-attr",
-			"return-value",
-			"assignment",
-			"arg-type",
-		},
-		PolicyID: "python.optional_required_types",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-optional-types-for-required-dependencies",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "medium",
-		Meaning: "A value used as required is typed as optional or incompatible " +
-			"with the required interface.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make the required contract explicit instead of widening types.",
-			Steps: []string{
-				"Identify whether the value is genuinely optional or required.",
-				"For required dependencies, remove None from the type and validate at construction/startup.",
-				"If variants are legitimate, introduce a Protocol or narrower interface instead of passing concrete optionals around.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultPyrightOptionalTypeEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pyright",
-		Codes: []string{
-			"reportOptionalCall",
-			"reportOptionalIterable",
-			"reportOptionalMemberAccess",
-			"reportOptionalOperand",
-			"reportOptionalSubscript",
-		},
-		PolicyID: "python.optional_required_types",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-optional-types-for-required-dependencies",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "high",
-		Meaning: "Pyright found code using a possibly-None value as if it were " +
-			"required.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Convert required optionals into validated required dependencies.",
-			Steps: []string{
-				"Move absence handling to bootstrap or construction.",
-				"Keep runtime code on the full-strength required path.",
-				"Use Protocols for dependency boundaries when concrete imports create cycles.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultMypyUnknownTypeEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "mypy",
-		Codes: []string{
-			"no-untyped-def",
-			"no-untyped-call",
-			"var-annotated",
-		},
-		PolicyID: "python.unknown_types",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-			"protocol-first-design",
-		),
-		Confidence: "medium",
-		Meaning: "Type information is missing at a boundary where static " +
-			"analysis should verify behavior.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Add precise boundary types instead of letting Any spread.",
-			Steps: []string{
-				"Annotate public functions and important locals.",
-				"Add a typed adapter at untyped third-party boundaries.",
-				"Prefer Protocols for behavior contracts instead of concrete catch-all types.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultPyrightUnknownTypeEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pyright",
-		Codes: []string{
-			"reportUnknownArgumentType",
-			"reportUnknownMemberType",
-			"reportUnknownParameterType",
-			"reportUnknownVariableType",
-		},
-		PolicyID: "python.unknown_types",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-			"protocol-first-design",
-		),
-		Confidence: "medium",
-		Meaning:    "Pyright cannot verify a type boundary because unknowns leaked in.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make the type boundary explicit and locally verifiable.",
-			Steps: []string{
-				"Add annotations where the value enters the module.",
-				"Use typed wrappers around dynamic data.",
-				"Prefer Protocols when the code depends on behavior rather than a concrete class.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultPylintInterfaceEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pylint",
-		Codes: []string{
-			"no-member",
-			"E1101",
-			"undefined-variable",
-			"E0602",
-		},
-		PolicyID: "python.interface_contracts",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"protocol-first-design",
-			"solid-is-law",
-		),
-		Confidence: "medium",
-		Meaning: "The code is relying on attributes or names that are not " +
-			"visible through a stable interface.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Expose the required behavior through a real interface.",
-			Steps: []string{
-				"Verify the referenced member or name exists.",
-				"If the object is dynamic, add a typed adapter or Protocol that states the contract.",
-				"Do not hide the issue with a broad Pylint disable.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultPyrightMissingImportEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "pyright",
-		Codes: []string{
-			"reportMissingImports",
-			"reportMissingModuleSource",
-		},
-		PolicyID: "python.required_imports",
-		SkillID:  "conditional-imports",
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-conditional-imports",
-			"fail-fast-fail-hard-overview",
-		),
-		Confidence: "high",
-		Meaning:    "A required import cannot be resolved by the static analyzer.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make required dependencies importable and validated at the gate.",
-			Steps: []string{
-				"Add the dependency to the environment or generated type-checker config.",
-				"Remove fallback or conditional import paths that hide missing dependencies.",
-				"Fail at startup/bootstrap when a required dependency is absent.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultMypyImportCycleEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return importCycleEvidenceMap(
-		"mypy",
-		nil,
-		[]string{"Cannot resolve import cycle", "import cycle"},
-		principles,
-	)
-}
-
-func defaultPyrightImportCycleEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return importCycleEvidenceMap(
-		"pyright",
-		nil,
-		[]string{"Import cycle detected", "Import cycles detected"},
-		principles,
-	)
-}
-
-func defaultPylintImportCycleEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return importCycleEvidenceMap(
-		"pylint",
-		[]string{"cyclic-import", "R0401"},
-		nil,
-		principles,
-	)
-}
-
-func importCycleEvidenceMap(
-	source string,
-	codes []string,
-	messageSubstrings []string,
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:            source,
-		Codes:             append([]string(nil), codes...),
-		MessageSubstrings: append([]string(nil), messageSubstrings...),
-		PolicyID:          "python.import_cycles",
-		SkillID:           "conditional-imports",
-		PrincipleIDs: principleRefs(
-			principles,
-			"protocol-first-design",
-			"solid-is-law",
-		),
-		Confidence: "medium",
-		Meaning: "Concrete modules depend on each other strongly enough that " +
-			"the type checker or linter sees an import cycle.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Break the concrete dependency cycle with an explicit interface.",
-			Steps: []string{
-				"Identify the two modules that import each other.",
-				"Move the shared contract into a neutral module.",
-				"In Python, model that contract with a Protocol when behavior is required.",
-				"Depend on the Protocol or smaller interface instead of the concrete implementation.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultMypyEvidenceMap(principles map[string]Principle) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "mypy",
-		Codes:    []string{"no-any-return"},
-		PolicyID: "python.optional_returns",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"no-optional-types-for-required-dependencies",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "medium",
-		Meaning:    "A required return path is leaking Any instead of a precise type.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Replace Any return flow with an explicit required type.",
-			Steps: []string{
-				"Identify the source of Any.",
-				"Add the missing annotation or typed adapter at the boundary.",
-				"Keep required dependencies non-optional.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultShellcheckEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "shellcheck",
-		Codes:    []string{"SC*"},
-		PolicyID: "shell.static_analysis",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-			"linting-as-code-quality-enforcement",
-		),
-		Confidence: "medium",
-		Meaning:    "Shellcheck found fragile or ambiguous shell behavior.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix the shell script structure instead of suppressing ShellCheck.",
-			Steps: []string{
-				"Quote expansions and make data flow explicit.",
-				"Prefer arrays and checked commands over stringly shell assembly.",
-				"Keep shell behavior deterministic under strict mode.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultYamllintEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "yamllint",
-		Codes:    []string{"indentation", "truthy"},
-		PolicyID: "yaml.config_clarity",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"validation-at-the-gate",
-			"documentation-as-contract",
-		),
-		Confidence: "medium",
-		Meaning: "YAML structure or scalar spelling is ambiguous for " +
-			"configuration.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make YAML configuration explicit and parser-stable.",
-			Steps: []string{
-				"Fix indentation to match the intended structure.",
-				"Quote ambiguous scalars when the value is meant to be a string.",
-				"Keep configuration readable enough to review in diffs.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultBanditEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "bandit",
-		Codes:    []string{"B*"},
-		PolicyID: "python.security_patterns",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "high",
-		Meaning:    "Bandit found Python code that weakens safe defaults or input trust boundaries.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix the security issue structurally; do not silence Bandit.",
-			Steps: []string{
-				"Replace unsafe APIs with validated, least-privilege alternatives.",
-				"Move risk acceptance into reviewed policy only when the behavior is intentional.",
-				"Keep security-sensitive helpers centralized and covered by tests.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultSQLFluffEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "sqlfluff",
-		Codes:    []string{"*"},
-		PolicyID: "sql.static_analysis",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"validation-at-the-gate",
-			"static-analysis-is-the-first-line-of-defense",
-		),
-		Confidence: "medium",
-		Meaning:    "SQL linting found syntax, layout, or dialect ambiguity before database execution.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make SQL dialect and structure explicit before committing.",
-			Steps: []string{
-				"Fix SQL syntax and layout under the configured dialect.",
-				"Keep dynamic SQL in reviewed central helpers.",
-				"Use parameterized values and validated identifier allowlists.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultTombiEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "tombi",
-		Codes:    []string{"*"},
-		PolicyID: "toml.config_clarity",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"validation-at-the-gate",
-			"documentation-as-contract",
-		),
-		Confidence: "medium",
-		Meaning:    "TOML configuration is invalid or ambiguous for downstream tools.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix TOML configuration before tools consume it.",
-			Steps: []string{
-				"Repair syntax or schema ordering issues in the reported TOML file.",
-				"Keep generated tool configs synchronized from policy sources.",
-				"Prefer explicit config over tool defaults.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultDotenvLinterEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "dotenv-linter",
-		Codes:    []string{"*"},
-		PolicyID: "dotenv.config_clarity",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"validation-at-the-gate",
-		),
-		Confidence: "medium",
-		Meaning:    "Dotenv files encode local runtime contracts and must stay unambiguous.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix dotenv entries so environment contracts are explicit and safe.",
-			Steps: []string{
-				"Use uppercase keys and remove duplicate or malformed entries.",
-				"Keep real secrets out of committed dotenv files.",
-				"Prefer example/template files with safe placeholder values.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultHadolintEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "hadolint",
-		Codes:    []string{"DL*"},
-		PolicyID: "docker.reproducible_builds",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"security-by-design",
-			"evidence-based-engineering-and-decision-quality",
-		),
-		Confidence: "medium",
-		Meaning: "Dockerfile instructions weaken reproducibility or " +
-			"container safety.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Make the container build deterministic and least-privilege.",
-			Steps: []string{
-				"Pin package versions where practical.",
-				"Avoid broad shell pipelines that hide failures.",
-				"Prefer explicit users, trusted sources, and minimal layers.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultActionlintEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source:   "actionlint",
-		Codes:    []string{"*"},
-		PolicyID: "workflow.validation",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"validation-at-the-gate",
-			"testing-as-specification",
-		),
-		Confidence: "high",
-		Meaning: "GitHub Actions workflow syntax or expression behavior " +
-			"is invalid.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix workflow definitions before relying on CI as a quality gate.",
-			Steps: []string{
-				"Validate expressions, job wiring, and event-specific context.",
-				"Keep workflow behavior explicit instead of runtime surprises.",
-				"Re-run the workflow hook locally before pushing.",
-			},
-			Rerun: []string{"make pre-commit"},
-		},
-	}
-}
-
-func defaultGolangciEvidenceMap(
-	principles map[string]Principle,
-) diagnostics.EvidenceMap {
-	return diagnostics.EvidenceMap{
-		Source: "golangci-lint",
-		Codes: []string{
-			"errcheck",
-			"gosec",
-			"staticcheck",
-			"revive",
-		},
-		PolicyID: "go.static_analysis",
-		SkillID:  "lint-remediation",
-		PrincipleIDs: principleRefs(
-			principles,
-			"static-analysis-is-the-first-line-of-defense",
-			"linting-as-code-quality-enforcement",
-		),
-		Confidence: "high",
-		Meaning: "Go static analysis found correctness, security, or " +
-			"maintainability risk.",
-		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Fix the Go issue structurally and keep golangci-lint blocking.",
-			Steps: []string{
-				"Handle errors explicitly.",
-				"Remove suspicious or insecure constructs instead of suppressing them.",
-				"Prefer a small refactor over weakening lint coverage.",
-			},
-			Rerun: []string{"make pre-commit", "make check"},
-		},
-	}
-}
-
-func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
-	return []string{
-		"uv",
-		"run",
-		"--project",
-		configSourceRoot,
-		"python",
-		filepath.Join(configSourceRoot, "main.py"),
-		"--repo",
-		".",
-		"--check-tool-configs",
-	}
-}
-
-func addPolicyIfEnabled(
-	policies map[string]Policy,
-	config map[string]any,
-	_ map[string]Principle,
-	id string,
-	path []string,
-	policy Policy,
-) {
-	if boolAt(config, append(path, "enabled")...) {
-		policies[id] = policy
-	}
-}
-
-func compileDispatch(policies map[string]Policy) Dispatch {
-	hooks := compileHookDispatch(policies)
-
-	return Dispatch{
-		Hooks:  hooks,
-		Linter: compileLinterDispatch(policies),
-		Git:    compileGitDispatch(policies),
-	}
-}
-
-func compileHookDispatch(
-	policies map[string]Policy,
-) map[string]map[string][]HookDispatchEntry {
-	hooks := map[string]map[string][]HookDispatchEntry{}
-	addGitHookBypassDispatch(hooks, policies)
-	addBlockingBashDispatch(hooks, policies)
-	addProtectedPathDispatch(hooks, policies)
-	addProtectedBranchWriteDispatch(hooks, policies)
-	addPythonWriteDispatch(hooks, policies)
-	addCommitHeadDispatch(hooks, policies)
-	addExpressionPoliciesToHookDispatch(hooks, policies)
-
-	return hooks
-}
-
-func addGitHookBypassDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	if _, ok := policies["git.hook_bypass"]; ok {
-		ensureHookTool(hooks, "PreToolUse", "Bash")
-		hooks["PreToolUse"]["Bash"] = append(
-			hooks["PreToolUse"]["Bash"],
-			HookDispatchEntry{
-				PolicyID: "git.hook_bypass",
-				Mode:     "block",
-			},
-		)
-	}
-}
-
-func addBlockingBashDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	for _, policyID := range []string{
-		"git.destructive_command",
-		"git.merge_strategy_shortcut",
-		"git.force_push_protected_branch",
-		"git.checkout_protected_branch",
-		"git.destructive_worktree",
-		"git.protected_submodule_update",
-		"git.change_dir_flag",
-		"git.stash_blocked",
-		"git.commitlint",
-		"git.commit_attribution",
-		"shell.malformed_command",
-		"shell.dangerous_command",
-		"shell.background_git",
-		"shell.github_admin",
-		"shell.forbidden_strings",
-	} {
-		if _, ok := policies[policyID]; ok {
-			ensureHookTool(hooks, "PreToolUse", "Bash")
-			hooks["PreToolUse"]["Bash"] = append(
-				hooks["PreToolUse"]["Bash"],
-				HookDispatchEntry{
-					PolicyID: policyID,
-					Mode:     "block",
-				},
-			)
-		}
-	}
-}
-
-func addProtectedBranchWriteDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	if _, ok := policies["filesystem.protected_branch_write"]; !ok {
-		return
-	}
-
-	for _, tool := range []string{"Bash", "Write", "Edit", "MultiEdit"} {
-		ensureHookTool(hooks, "PreToolUse", tool)
-		hooks["PreToolUse"][tool] = append(
-			hooks["PreToolUse"][tool],
-			HookDispatchEntry{
-				PolicyID: "filesystem.protected_branch_write",
-				Mode:     "block",
-			},
-		)
-	}
-}
-
-func addProtectedPathDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	if _, ok := policies["filesystem.protected_path"]; !ok {
-		return
-	}
-
-	for _, tool := range []string{"Bash", "Write", "Edit", "MultiEdit"} {
-		ensureHookTool(hooks, "PreToolUse", tool)
-		hooks["PreToolUse"][tool] = append(
-			hooks["PreToolUse"][tool],
-			HookDispatchEntry{
-				PolicyID: "filesystem.protected_path",
-				Mode:     "block",
-			},
-		)
-	}
-}
-
-func addPythonWriteDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	for _, policyID := range []string{
-		"python.conditional_imports",
-		"python.functional_idioms",
-		"python.optional_returns",
-		"python.catch_and_silence",
-		"python.structured_logging",
-		"python.direct_imports",
-		"python.bare_except",
-		"python.unexplained_type_ignore",
-	} {
-		if _, exists := policies[policyID]; exists {
-			for _, tool := range []string{"Write", "Edit", "MultiEdit"} {
-				ensureHookTool(hooks, "PreToolUse", tool)
-				hooks["PreToolUse"][tool] = append(
-					hooks["PreToolUse"][tool],
-					HookDispatchEntry{
-						PolicyID:     policyID,
-						Mode:         pythonWriteDispatchMode(policyID),
-						PathPatterns: []string{"**/*.py"},
-					},
-				)
-			}
-		}
-	}
-}
-
-func pythonWriteDispatchMode(policyID string) string {
-	if policyID == "python.conditional_imports" {
-		return "block"
-	}
-
-	return "advise"
-}
-
-func addCommitHeadDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	if _, ok := policies["git.commit_head_advanced"]; ok {
-		ensureHookTool(hooks, "PreToolUse", "Bash")
-		hooks["PreToolUse"]["Bash"] = append(
-			hooks["PreToolUse"]["Bash"],
-			HookDispatchEntry{
-				PolicyID:        "git.commit_head_advanced",
-				Mode:            "record",
-				CommandPatterns: []string{"git commit"},
-			},
-		)
-		ensureHookTool(hooks, "PostToolUse", "Bash")
-		hooks["PostToolUse"]["Bash"] = append(
-			hooks["PostToolUse"]["Bash"],
-			HookDispatchEntry{
-				PolicyID:        "git.commit_head_advanced",
-				Mode:            "block",
-				CommandPatterns: []string{"git commit"},
-			},
-		)
-	}
-}
-
-func addExpressionPoliciesToHookDispatch(
-	hooks map[string]map[string][]HookDispatchEntry,
-	policies map[string]Policy,
-) {
-	for policyID, policyDef := range policies {
-		for _, evaluator := range policyDef.Evaluators {
-			if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
-				continue
-			}
-
-			for _, event := range stringSliceValueAllowEmpty(
-				evaluator.Options["hook_events"],
-				[]string{"PreToolUse"},
-			) {
-				for _, tool := range stringSliceValue(
-					evaluator.Options["tools"],
-					expressionHookTools(
-						stringOptionFromMap(evaluator.Options, "scope", "command"),
-					),
-				) {
-					ensureHookTool(hooks, event, tool)
-					if !hookDispatchContains(hooks[event][tool], policyID) {
-						hooks[event][tool] = append(
-							hooks[event][tool],
-							HookDispatchEntry{
-								PolicyID:        policyID,
-								Mode:            expressionDispatchMode(policyDef, evaluator),
-								CommandPatterns: stringSliceValue(evaluator.Options["command_patterns"], nil),
-								PathPatterns:    stringSliceValue(evaluator.Options["path_patterns"], nil),
-							},
-						)
-					}
-				}
-			}
-		}
-	}
-}
-
-func expressionDispatchMode(policyDef Policy, evaluator Evaluator) string {
-	mode := stringOptionFromMap(evaluator.Options, "mode", "")
-	if mode != "" {
-		return mode
-	}
-
-	return policyDef.DefaultSeverity
-}
-
-func expressionHookTools(scope string) []string {
-	switch scope {
-	case "path", "file", "files":
-		return []string{"Bash", "Write", "Edit", "MultiEdit"}
-	case "diagnostic", "finding", "lint":
-		return []string{"Bash"}
-	default:
-		return []string{"Bash"}
-	}
-}
-
-func hookDispatchContains(entries []HookDispatchEntry, policyID string) bool {
-	for _, entry := range entries {
-		if entry.PolicyID == policyID {
-			return true
-		}
-	}
-
-	return false
-}
-
-func compileLinterDispatch(policies map[string]Policy) map[string][]string {
-	linter := map[string][]string{
-		"files": existingPolicyIDs(
-			policies,
-			"syntax.file_syntax",
-			"syntax.merge_conflict",
-			"security.private_key",
-			"filesystem.shebangs",
-			"filesystem.large_files",
-			"filesystem.line_limits",
-			"repo.pii_scrubber",
-			"repo.license_header",
-			"shell.malformed_command",
-			"shell.best_practices",
-			"shell.forbidden_strings",
-			"python.conditional_imports",
-			"python.functional_idioms",
-			"python.optional_returns",
-			"python.catch_and_silence",
-			"python.structured_logging",
-			"python.direct_imports",
-			"python.pyproject_ignores",
-			"python.uv_exclude_newer",
-		),
-		"staged": existingPolicyIDs(
-			policies,
-			"git.hook_bypass",
-			"git.destructive_command",
-			"git.merge_strategy_shortcut",
-			"git.force_push_protected_branch",
-			"git.checkout_protected_branch",
-			"git.destructive_worktree",
-			"git.protected_submodule_update",
-			"git.change_dir_flag",
-			"git.stash_blocked",
-			"shell.malformed_command",
-			"shell.dangerous_command",
-			"shell.background_git",
-			"shell.github_admin",
-			"shell.forbidden_strings",
-			"shell.best_practices",
-			"git.commit_attribution",
-			"git.staged_admin_files",
-			"filesystem.protected_path",
-			"filesystem.protected_branch_write",
-			"repo.required_ignores",
-			"syntax.file_syntax",
-			"syntax.merge_conflict",
-			"security.private_key",
-			"filesystem.shebangs",
-			"filesystem.large_files",
-			"filesystem.line_limits",
-			"repo.pii_scrubber",
-			"repo.license_header",
-			"python.conditional_imports",
-			"python.functional_idioms",
-			"python.optional_returns",
-			"python.catch_and_silence",
-			"python.structured_logging",
-			"python.direct_imports",
-			"python.bare_except",
-			"python.unexplained_type_ignore",
-			"python.pyproject_ignores",
-			"python.uv_exclude_newer",
-		),
-		"smoke": existingPolicyIDs(
-			policies,
-			"repo.required_ignores",
-			"generated_config.freshness",
-			"pytest.gate",
-		),
-		"full": existingPolicyIDs(
-			policies,
-			"repo.required_ignores",
-			"generated_config.freshness",
-			"pytest.gate",
-		),
-		"cutover": existingPolicyIDs(
-			policies,
-			"repo.required_ignores",
-		),
-		"commit-msg": existingPolicyIDs(
-			policies,
-			"git.commitlint",
-			"git.commit_attribution",
-		),
-	}
-	addExpressionPoliciesToLinterDispatch(linter, policies)
-
-	return linter
-}
-
-func addExpressionPoliciesToLinterDispatch(
-	linter map[string][]string,
-	policies map[string]Policy,
-) {
-	for policyID, policyDef := range policies {
-		for _, evaluator := range policyDef.Evaluators {
-			if evaluator.Name != "cel.expression" {
-				continue
-			}
-			for _, scope := range stringSliceValue(
-				evaluator.Options["dispatch_scopes"],
-				[]string{"files", "staged"},
-			) {
-				if !slices.Contains(linter[scope], policyID) {
-					linter[scope] = append(linter[scope], policyID)
-				}
-			}
-		}
-	}
-}
-
-func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispatch {
-	return map[string]GitOperationDispatch{
-		"*": {
-			Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
-		},
-		"commit": {
-			Pre: existingPolicyIDs(
-				policies,
-				"git.hook_bypass",
-				"git.commitlint",
-				"git.commit_attribution",
-				"git.staged_admin_files",
-			),
-			Post: existingPolicyIDs(policies, "git.commit_head_advanced"),
-		},
-		"push": {
-			Pre: existingPolicyIDs(
-				policies,
-				"git.hook_bypass",
-				"git.force_push_protected_branch",
-			),
-		},
-		"reset":    {Pre: existingPolicyIDs(policies, "git.destructive_command")},
-		"clean":    {Pre: existingPolicyIDs(policies, "git.destructive_command")},
-		"restore":  {Pre: existingPolicyIDs(policies, "git.destructive_command")},
-		"switch":   {Pre: existingPolicyIDs(policies, "git.checkout_protected_branch")},
-		"merge":    {Pre: existingPolicyIDs(policies, "git.merge_strategy_shortcut")},
-		"worktree": {Pre: existingPolicyIDs(policies, "git.destructive_worktree")},
-		"submodule": {
-			Pre: existingPolicyIDs(policies, "git.protected_submodule_update"),
-		},
-		"stash": {Pre: existingPolicyIDs(policies, "git.stash_blocked")},
-		"checkout": {
-			Pre: existingPolicyIDs(
-				policies,
-				"git.destructive_command",
-				"git.checkout_protected_branch",
-			),
-		},
-	}
-}
-
-func ensureHookTool(
-	hooks map[string]map[string][]HookDispatchEntry,
-	event string,
-	tool string,
-) {
-	if _, ok := hooks[event]; !ok {
-		hooks[event] = map[string][]HookDispatchEntry{}
-	}
-
-	if _, ok := hooks[event][tool]; !ok {
-		hooks[event][tool] = []HookDispatchEntry{}
-	}
-}
-
-func existingPolicyIDs(policies map[string]Policy, ids ...string) []string {
-	existing := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := policies[id]; ok {
-			existing = append(existing, id)
-		}
-	}
-
-	return existing
-}
-
-func principleRefs(principles map[string]Principle, ids ...string) []string {
-	refs := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if _, ok := principles[id]; ok {
-			refs = append(refs, id)
-		}
-	}
-
-	return refs
-}
-
-func mergeMaps(base map[string]any, overlay map[string]any) map[string]any {
-	for key, overlayValue := range overlay {
-		baseMap, baseOK := base[key].(map[string]any)
-
-		overlayMap, overlayOK := overlayValue.(map[string]any)
-		if baseOK && overlayOK {
-			base[key] = mergeMaps(baseMap, overlayMap)
-
-			continue
-		}
-
-		base[key] = overlayValue
-	}
-
-	return base
-}
-
-func boolAt(values map[string]any, path ...string) bool {
-	value, exists := valueAt(values, path...)
-	if !exists {
-		return false
-	}
-
-	return boolValue(value)
-}
-
-func boolValue(value any) bool {
-	boolValue, isBool := value.(bool)
-
-	return isBool && boolValue
-}
-
-func boolOptionFromMap(
-	values map[string]any,
-	key string,
-	defaultValue bool,
-) (bool, error) {
-	value, exists := values[key]
-	if !exists {
-		return defaultValue, nil
-	}
-
-	boolValue, isBool := value.(bool)
-	if !isBool {
-		return false, fmt.Errorf("%s must be a boolean", key)
-	}
-
-	return boolValue, nil
-}
-
-func enabledAt(values map[string]any, path []string) bool {
-	value, exists := valueAt(values, append(path, "enabled")...)
-	if !exists {
-		return true
-	}
-
-	boolValue, isBool := value.(bool)
-
-	return !isBool || boolValue
-}
-
-func stringSliceAt(
-	values map[string]any,
-	path []string,
-	defaults []string,
-) []string {
-	value, exists := valueAt(values, path...)
-	if !exists {
-		return append([]string(nil), defaults...)
-	}
-
-	items := stringSlice(value)
-	if len(items) == 0 {
-		return append([]string(nil), defaults...)
-	}
-
-	return items
-}
-
-func intAt(values map[string]any, path []string, defaultValue int) int {
-	value, exists := valueAt(values, path...)
-	if !exists {
-		return defaultValue
-	}
-
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int64:
-		return int(typed)
-	case float64:
-		return int(typed)
-	default:
-		return defaultValue
-	}
-}
-
-func stringAt(values map[string]any, path ...string) string {
-	value, exists := valueAt(values, path...)
-	if !exists {
-		return ""
-	}
-
-	stringValue, ok := value.(string)
-	if !ok {
-		return ""
-	}
-
-	return strings.TrimSpace(stringValue)
-}
-
-func stringOptionFromMap(values map[string]any, key string, defaultValue string) string {
-	value, exists := values[key]
-	if !exists {
-		return defaultValue
-	}
-
-	text := strings.TrimSpace(stringValue(value))
-	if text == "" || text == "<nil>" {
-		return defaultValue
-	}
-
-	return text
-}
-
-func stringSliceValue(value any, defaults []string) []string {
-	items := stringSlice(value)
-	if len(items) == 0 {
-		return append([]string(nil), defaults...)
-	}
-
-	return items
-}
-
-func stringSliceValueAllowEmpty(value any, defaults []string) []string {
-	if value == nil {
-		return append([]string(nil), defaults...)
-	}
-
-	return stringSlice(value)
-}
-
-func policyConfigEnabled(values map[string]any, policyID string) bool {
-	path := append(strings.Split(policyID, "."), "enabled")
-
-	value, exists := valueAt(values, path...)
-	if !exists {
-		return true
-	}
-
-	boolValue, isBool := value.(bool)
-
-	return !isBool || boolValue
-}
-
-func valueAt(values map[string]any, path ...string) (any, bool) {
-	current := any(values)
-	for _, part := range path {
-		currentMap, isMap := current.(map[string]any)
-		if !isMap {
-			return nil, false
-		}
-
-		var exists bool
-
-		current, exists = currentMap[part]
-		if !exists {
-			return nil, false
-		}
-	}
-
-	return current, true
-}
-
-func stringValue(value any) string {
-	if value == nil {
-		return ""
-	}
-
-	return fmt.Sprint(value)
-}
-
-func intValue(value any) int {
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int64:
-		return int(typed)
-	case float64:
-		return int(typed)
-	case string:
-		parsed, err := strconv.Atoi(typed)
-		if err == nil {
-			return parsed
-		}
-	}
-
-	return 0
-}
-
-func stringSlice(value any) []string {
-	if items, ok := value.([]string); ok {
-		return append([]string(nil), items...)
-	}
-
-	rawItems, ok := value.([]any)
-	if !ok {
-		return nil
-	}
-
-	items := make([]string, 0, len(rawItems))
-	for _, raw := range rawItems {
-		items = append(items, stringValue(raw))
-	}
-
-	return items
-}
-
-func stringMap(value any) map[string]string {
-	raw, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	items := map[string]string{}
-	for key, value := range raw {
-		items[key] = stringValue(value)
-	}
-
-	return items
-}
-
-func fileExists(path string) bool {
-	if path == "" {
-		return false
-	}
-
-	_, err := os.Stat(path)
-
-	return err == nil
-}
-
-func defaultBundleID(primary string, config string, hashes map[string]string) string {
-	parts := make([]string, 0, defaultBundleBaseParts+len(hashes))
-	parts = append(parts, primary, config)
-
-	for path, hash := range hashes {
-		parts = append(parts, path+"="+hash)
-	}
-
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
-
-	return "policy-" + hex.EncodeToString(sum[:8])
+	return maxReminderFrequency / frequency
 }

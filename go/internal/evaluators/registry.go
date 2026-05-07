@@ -4,11 +4,12 @@
 package evaluators
 
 import (
-	"errors"
 	"fmt"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-var errEvaluatorNotRegistered = errors.New("evaluator is not registered")
+var errEvaluatorNotRegistered = apperror.StaticError("evaluator is not registered")
 
 type Registry struct {
 	evaluators map[string]Evaluator

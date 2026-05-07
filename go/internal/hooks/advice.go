@@ -12,14 +12,27 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedAdviceHumanLinesPerDecision = 2
-const severeViolationWarning = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the normal approved git workflow, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+const (
+	blockedAdviceHumanLinesPerDecision = 2
+	severeViolationWarning             = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: " +
+		"You attempted to tamper with or bypass the protected hook/git analysis " +
+		"system. This is not a misconfiguration or tool defect. You have done " +
+		"something wrong. Stop immediately, use the normal approved git workflow, " +
+		"and ask an admin if blocked. Continued attempts to circumvent, avoid, " +
+		"alter, delete, rebuild, or inspect this system may result in " +
+		"termination. !!!"
+)
 
-var severeViolationPolicyIDs = map[string]bool{
-	"filesystem.protected_path": true,
-	"git.hook_bypass":           true,
-	"git.wrapper_required":      true,
-	"shell.forbidden_strings":   true,
+func severeViolationPolicy(policyID string) bool {
+	switch policyID {
+	case "filesystem.protected_path",
+		"git.hook_bypass",
+		"git.wrapper_required",
+		"shell.forbidden_strings":
+		return true
+	default:
+		return false
+	}
 }
 
 func BlockedAdvice(result Result) string {
@@ -58,6 +71,7 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 	if hasSevereViolation(decisions) {
 		lines = append(lines, severeViolationWarning, "")
 	}
+
 	if result.TrackingID != "" {
 		lines = append(lines, "trackingID: "+result.TrackingID, "")
 	}
@@ -69,7 +83,13 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 		}
 	}
 
-	if reminders := priorityEthosRemindersFor(result.Advice.Reminders, result, decisions); len(reminders) > 0 {
+	if reminders := priorityEthosRemindersFor(
+		result.Advice.Reminders,
+		result,
+		decisions,
+	); len(
+		reminders,
+	) > 0 {
 		lines = append(lines, "", "Priority ETHOS reminders:")
 		for _, reminder := range reminders {
 			lines = append(
@@ -93,6 +113,7 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 	if result.TrackingID != "" {
 		lines = append(lines, "trackingID: "+toonCell(result.TrackingID))
 	}
+
 	if hasSevereViolation(decisions) {
 		lines = append(lines, "violation_warning: "+toonCell(severeViolationWarning))
 	}
@@ -111,10 +132,18 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 			lines = append(lines, "    suggestion: "+toonCell(decision.Suggestion))
 		}
 	}
-	if remediation := agentmsg.FromDecisions(decisions, result.Tool); len(remediation) > 0 {
+
+	if remediation := agentmsg.FromDecisions(
+		decisions,
+		result.Tool,
+	); len(
+		remediation,
+	) > 0 {
 		lines = append(
 			lines,
-			"agent_remediation["+strconv.Itoa(len(remediation))+"]{policy_id,skill_id,failed_action,next,mcp_tool}:",
+			"agent_remediation["+strconv.Itoa(
+				len(remediation),
+			)+"]{policy_id,skill_id,failed_action,next,mcp_tool}:",
 		)
 		for _, item := range remediation {
 			lines = append(
@@ -147,13 +176,27 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	if result.TrackingID != "" {
 		payload["trackingID"] = result.TrackingID
 	}
-	if remediation := agentmsg.FromDecisions(decisions, result.Tool); len(remediation) > 0 {
+
+	if remediation := agentmsg.FromDecisions(
+		decisions,
+		result.Tool,
+	); len(
+		remediation,
+	) > 0 {
 		payload["agent_remediation"] = remediation
 	}
+
 	if hasSevereViolation(decisions) {
 		payload["violation_warning"] = severeViolationWarning
 	}
-	if reminders := priorityEthosRemindersFor(result.Advice.Reminders, result, decisions); len(reminders) > 0 {
+
+	if reminders := priorityEthosRemindersFor(
+		result.Advice.Reminders,
+		result,
+		decisions,
+	); len(
+		reminders,
+	) > 0 {
 		payload["priority_ethos_reminders"] = reminders
 	}
 
@@ -183,7 +226,7 @@ func agentMCPTool(item agentmsg.Remediation) string {
 
 func hasSevereViolation(decisions []policy.Decision) bool {
 	for _, decision := range decisions {
-		if severeViolationPolicyIDs[decision.PolicyID] {
+		if severeViolationPolicy(decision.PolicyID) {
 			return true
 		}
 	}

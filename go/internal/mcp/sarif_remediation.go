@@ -6,8 +6,21 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
+	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+)
+
+const (
+	riskSummaryTopItemLimit = 10
+	defaultNoisyRules       = 5
+	severityRankError       = 4
+	severityRankWarning     = 3
+	severityRankNote        = 2
+	severityRankDefault     = 1
 )
 
 type sarifLog struct {
@@ -22,27 +35,27 @@ type sarifRun struct {
 	} `json:"tool"`
 	Properties struct {
 		FindingGroups []sarifInputFindingGroup `json:"finding_groups,omitempty"`
-	} `json:"properties,omitempty"`
+	} `json:"properties,omitzero"`
 	Results []sarifResult `json:"results"`
 }
 
 type sarifRule struct {
-	ShortDescription sarifMessage    `json:"shortDescription,omitempty"`
-	FullDescription  sarifMessage    `json:"fullDescription,omitempty"`
-	Help             sarifHelp       `json:"help,omitempty"`
-	Properties       sarifProperties `json:"properties,omitempty"`
+	Help             sarifHelp `json:"help,omitzero"`
+	ShortDescription sarifMessage
+	FullDescription  sarifMessage
 	ID               string          `json:"id"`
 	Name             string          `json:"name,omitempty"`
+	Properties       sarifProperties `json:"properties,omitzero"`
 }
 
 type sarifResult struct {
-	Message             sarifMessage      `json:"message"`
-	Properties          sarifProperties   `json:"properties,omitempty"`
-	PartialFingerprints map[string]string `json:"partialFingerprints,omitempty"`
-	Locations           []sarifLocation   `json:"locations,omitempty"`
-	RuleID              string            `json:"ruleId"`
-	Level               string            `json:"level,omitempty"`
-	RuleIndex           *int              `json:"ruleIndex,omitempty"`
+	PartialFingerprints map[string]string
+	RuleIndex           *int
+	Message             sarifMessage
+	RuleID              string
+	Level               string
+	Locations           []sarifLocation
+	Properties          sarifProperties
 }
 
 type sarifMessage struct {
@@ -55,15 +68,21 @@ type sarifHelp struct {
 }
 
 type sarifLocation struct {
-	PhysicalLocation struct {
-		ArtifactLocation struct {
-			URI string `json:"uri,omitempty"`
-		} `json:"artifactLocation,omitempty"`
-		Region struct {
-			StartLine   int `json:"startLine,omitempty"`
-			StartColumn int `json:"startColumn,omitempty"`
-		} `json:"region,omitempty"`
-	} `json:"physicalLocation,omitempty"`
+	PhysicalLocation sarifPhysicalLocation
+}
+
+type sarifPhysicalLocation struct {
+	ArtifactLocation sarifArtifactLocation
+	Region           sarifRegion
+}
+
+type sarifArtifactLocation struct {
+	URI string `json:"uri,omitempty"`
+}
+
+type sarifRegion struct {
+	StartLine   int
+	StartColumn int
 }
 
 type sarifProperties struct {
@@ -92,10 +111,113 @@ type sarifInputFindingGroup struct {
 	Line        int    `json:"line,omitempty"`
 }
 
+func (rule *sarifRule) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeMCPJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF rule fields: %w", err)
+	}
+
+	return decodeMCPJSONFieldsInto(fields, []mcpJSONFieldTarget{
+		{key: "help", target: &rule.Help},
+		{key: "shortDescription", target: &rule.ShortDescription},
+		{key: "fullDescription", target: &rule.FullDescription},
+		{key: "id", target: &rule.ID},
+		{key: "name", target: &rule.Name},
+		{key: "properties", target: &rule.Properties},
+	})
+}
+
+func (result *sarifResult) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeMCPJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF result fields: %w", err)
+	}
+
+	return decodeMCPJSONFieldsInto(fields, []mcpJSONFieldTarget{
+		{key: "partialFingerprints", target: &result.PartialFingerprints},
+		{key: "ruleIndex", target: &result.RuleIndex},
+		{key: "message", target: &result.Message},
+		{key: "ruleId", target: &result.RuleID},
+		{key: "level", target: &result.Level},
+		{key: "locations", target: &result.Locations},
+		{key: "properties", target: &result.Properties},
+	})
+}
+
+func (location *sarifLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeMCPJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF location fields: %w", err)
+	}
+
+	return decodeMCPJSONFieldsInto(fields, []mcpJSONFieldTarget{
+		{key: "physicalLocation", target: &location.PhysicalLocation},
+	})
+}
+
+func (location *sarifPhysicalLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeMCPJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF physical location fields: %w", err)
+	}
+
+	return decodeMCPJSONFieldsInto(fields, []mcpJSONFieldTarget{
+		{key: "artifactLocation", target: &location.ArtifactLocation},
+		{key: "region", target: &location.Region},
+	})
+}
+
+func (region *sarifRegion) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeMCPJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF region fields: %w", err)
+	}
+
+	return decodeMCPJSONFieldsInto(fields, []mcpJSONFieldTarget{
+		{key: "startLine", target: &region.StartLine},
+		{key: "startColumn", target: &region.StartColumn},
+	})
+}
+
+func decodeMCPJSONFields(payload []byte) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	err := json.Unmarshal(payload, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+
+	return fields, nil
+}
+
+type mcpJSONFieldTarget struct {
+	target any
+	key    string
+}
+
+func decodeMCPJSONFieldsInto(
+	fields map[string]json.RawMessage,
+	targets []mcpJSONFieldTarget,
+) error {
+	for _, target := range targets {
+		raw, ok := fields[target.key]
+		if !ok {
+			continue
+		}
+
+		err := json.Unmarshal(raw, target.target)
+		if err != nil {
+			return fmt.Errorf("decode %q: %w", target.key, err)
+		}
+	}
+
+	return nil
+}
+
 type sarifRemediationFinding struct {
 	Fingerprints       map[string]string
-	PrincipleIDs       []string
-	AdviceText         string
+	Level              string
+	PolicyID           string
 	CELExpression      string
 	Code               string
 	Detail             string
@@ -103,16 +225,16 @@ type sarifRemediationFinding struct {
 	GroupID            string
 	GroupKey           string
 	Implementation     string
-	Level              string
-	Message            string
-	PolicyID           string
 	PolicySource       string
+	AdviceText         string
+	Message            string
+	SourceTool         string
 	RuleHelp           string
 	RuleID             string
 	RuleName           string
 	RuleSummary        string
 	SkillID            string
-	SourceTool         string
+	PrincipleIDs       []string
 	InputSchemaVersion int
 	Column             int
 	Line               int
@@ -196,19 +318,26 @@ func parseSARIFRemediationFinding(
 	resultIndex int,
 ) (sarifRemediationFinding, error) {
 	var log sarifLog
-	if err := json.Unmarshal([]byte(payload), &log); err != nil {
+
+	err := json.Unmarshal([]byte(payload), &log)
+	if err != nil {
 		return sarifRemediationFinding{}, fmt.Errorf("parse SARIF: %w", err)
 	}
+
 	if len(log.Runs) == 0 {
-		return sarifRemediationFinding{}, fmt.Errorf("SARIF run is required")
+		return sarifRemediationFinding{}, apperror.StaticError("SARIF run is required")
 	}
 
 	run := log.Runs[0]
 	if len(run.Results) == 0 {
-		return sarifRemediationFinding{}, fmt.Errorf("SARIF result is required")
+		return sarifRemediationFinding{}, apperror.StaticError(
+			"SARIF result is required",
+		)
 	}
+
 	if resultIndex >= len(run.Results) {
-		return sarifRemediationFinding{}, fmt.Errorf(
+		return sarifRemediationFinding{}, apperror.Wrapf(
+			apperror.StaticError("result_index %d out of range for %d SARIF results"),
 			"result_index %d out of range for %d SARIF results",
 			resultIndex,
 			len(run.Results),
@@ -216,6 +345,7 @@ func parseSARIFRemediationFinding(
 	}
 
 	result := run.Results[resultIndex]
+
 	rule := sarifRule{}
 	if result.RuleIndex != nil &&
 		*result.RuleIndex >= 0 &&
@@ -229,24 +359,27 @@ func parseSARIFRemediationFinding(
 	location := firstSARIFLocation(result.Locations)
 
 	return sarifRemediationFinding{
-		Fingerprints:       result.PartialFingerprints,
-		PrincipleIDs:       append([]string(nil), properties.EthosIDs...),
-		AdviceText:         properties.Advice,
-		CELExpression:      properties.CELExpression,
-		Code:               properties.Code,
-		Detail:             properties.Detail,
-		File:               location.File,
-		GroupID:            properties.GroupID,
-		GroupKey:           properties.GroupKey,
-		Implementation:     properties.Implementation,
-		Level:              result.Level,
-		Message:            result.Message.Text,
-		PolicyID:           properties.PolicyID,
-		PolicySource:       properties.PolicySource,
-		RuleHelp:           firstNonEmpty(rule.Help.Text, rule.Help.Markdown),
-		RuleID:             result.RuleID,
-		RuleName:           rule.Name,
-		RuleSummary:        firstNonEmpty(rule.ShortDescription.Text, rule.FullDescription.Text),
+		Fingerprints:   result.PartialFingerprints,
+		PrincipleIDs:   append([]string(nil), properties.EthosIDs...),
+		AdviceText:     properties.Advice,
+		CELExpression:  properties.CELExpression,
+		Code:           properties.Code,
+		Detail:         properties.Detail,
+		File:           location.File,
+		GroupID:        properties.GroupID,
+		GroupKey:       properties.GroupKey,
+		Implementation: properties.Implementation,
+		Level:          result.Level,
+		Message:        result.Message.Text,
+		PolicyID:       properties.PolicyID,
+		PolicySource:   properties.PolicySource,
+		RuleHelp:       firstNonEmpty(rule.Help.Text, rule.Help.Markdown),
+		RuleID:         result.RuleID,
+		RuleName:       rule.Name,
+		RuleSummary: firstNonEmpty(
+			rule.ShortDescription.Text,
+			rule.FullDescription.Text,
+		),
 		SkillID:            properties.SkillID,
 		SourceTool:         properties.SourceTool,
 		InputSchemaVersion: properties.InputSchemaVersion,
@@ -257,78 +390,35 @@ func parseSARIFRemediationFinding(
 
 func summarizeSARIFRisk(payload string) (sarifRiskSummary, error) {
 	var log sarifLog
-	if err := json.Unmarshal([]byte(payload), &log); err != nil {
+
+	err := json.Unmarshal([]byte(payload), &log)
+	if err != nil {
 		return sarifRiskSummary{}, fmt.Errorf("parse SARIF: %w", err)
 	}
+
 	if len(log.Runs) == 0 {
-		return sarifRiskSummary{}, fmt.Errorf("SARIF run is required")
+		return sarifRiskSummary{}, apperror.StaticError("SARIF run is required")
 	}
 
-	levels := map[string]int{}
-	policies := map[string]int{}
-	skills := map[string]int{}
-	sourceTools := map[string]int{}
-	files := map[string]int{}
-	groups := map[string]sarifRiskGroup{}
-	resultCount := 0
-	blockingCount := 0
-	securityCount := 0
+	accumulator := newSARIFRiskAccumulator()
 
 	for _, run := range log.Runs {
-		for _, inputGroup := range run.Properties.FindingGroups {
-			if strings.TrimSpace(inputGroup.Key) == "" {
-				continue
-			}
-			groups[inputGroup.Key] = sarifRiskGroup{
-				ID:          inputGroup.ID,
-				Key:         inputGroup.Key,
-				PolicyID:    inputGroup.PolicyID,
-				SkillID:     inputGroup.SkillID,
-				File:        inputGroup.File,
-				ResultCount: inputGroup.ResultCount,
-				Line:        inputGroup.Line,
-			}
-		}
-		for _, result := range run.Results {
-			resultCount++
-			level := firstNonEmpty(result.Level, "warning")
-			levels[level]++
-			if level == "error" {
-				blockingCount++
-			}
-			rule := sarifRule{}
-			if result.RuleIndex != nil &&
-				*result.RuleIndex >= 0 &&
-				*result.RuleIndex < len(run.Tool.Driver.Rules) {
-				rule = run.Tool.Driver.Rules[*result.RuleIndex]
-			} else {
-				rule = findSARIFRule(run.Tool.Driver.Rules, result.RuleID)
-			}
-			properties := mergeSARIFProperties(rule.Properties, result.Properties)
-			countRiskValue(policies, firstNonEmpty(properties.PolicyID, result.RuleID))
-			countRiskValue(skills, properties.SkillID)
-			countRiskValue(sourceTools, properties.SourceTool)
-			location := firstSARIFLocation(result.Locations)
-			countRiskValue(files, location.File)
-			if isSARIFSecurityFinding(result, rule, properties) {
-				securityCount++
-			}
-		}
+		accumulator.AddRun(run)
 	}
 
 	return sarifRiskSummary{
 		Counts: map[string]int{
-			"results":          resultCount,
-			"blocking_results": blockingCount,
-			"security_results": securityCount,
-			"finding_groups":   len(groups),
+			"results":          accumulator.ResultCount,
+			"blocking_results": accumulator.BlockingCount,
+			"security_results": accumulator.SecurityCount,
+			"finding_groups":   len(accumulator.Groups),
 		},
-		Levels:        levels,
-		Policies:      topRiskItems(policies, 10),
-		Skills:        topRiskItems(skills, 10),
-		SourceTools:   topRiskItems(sourceTools, 10),
-		Files:         topRiskItems(files, 10),
-		FindingGroups: topRiskGroups(groups, 10),
+		Levels:        accumulator.Levels,
+		Policies:      topRiskItems(accumulator.Policies),
+		Skills:        topRiskItems(accumulator.Skills),
+		SourceTools:   topRiskItems(accumulator.SourceTools),
+		Files:         topRiskItems(accumulator.Files),
+		FindingGroups: topRiskGroups(accumulator.Groups, riskSummaryTopItemLimit),
 		Next: []map[string]any{{
 			"tool": "sarif_remediation_advice",
 			"arguments": map[string]any{
@@ -336,8 +426,83 @@ func summarizeSARIFRisk(payload string) (sarifRiskSummary, error) {
 				"result_index": 0,
 			},
 		}},
-		RiskScore: blockingCount*10 + securityCount*5 + resultCount,
+		RiskScore: accumulator.RiskScore(),
 	}, nil
+}
+
+type sarifRiskAccumulator struct {
+	Levels        map[string]int
+	Policies      map[string]int
+	Skills        map[string]int
+	SourceTools   map[string]int
+	Files         map[string]int
+	Groups        map[string]sarifRiskGroup
+	ResultCount   int
+	BlockingCount int
+	SecurityCount int
+}
+
+func newSARIFRiskAccumulator() sarifRiskAccumulator {
+	return sarifRiskAccumulator{
+		Levels:      map[string]int{},
+		Policies:    map[string]int{},
+		Skills:      map[string]int{},
+		SourceTools: map[string]int{},
+		Files:       map[string]int{},
+		Groups:      map[string]sarifRiskGroup{},
+	}
+}
+
+func (accumulator *sarifRiskAccumulator) AddRun(run sarifRun) {
+	for _, inputGroup := range run.Properties.FindingGroups {
+		if strings.TrimSpace(inputGroup.Key) != "" {
+			accumulator.Groups[inputGroup.Key] = sarifRiskGroup(inputGroup)
+		}
+	}
+
+	for _, result := range run.Results {
+		accumulator.AddResult(run, result)
+	}
+}
+
+func (accumulator *sarifRiskAccumulator) AddResult(run sarifRun, result sarifResult) {
+	accumulator.ResultCount++
+	level := firstNonEmpty(result.Level, "warning")
+
+	accumulator.Levels[level]++
+	if level == "error" {
+		accumulator.BlockingCount++
+	}
+
+	rule := sarifRuleForResult(run.Tool.Driver.Rules, result)
+	properties := mergeSARIFProperties(rule.Properties, result.Properties)
+	countRiskValue(
+		accumulator.Policies,
+		firstNonEmpty(properties.PolicyID, result.RuleID),
+	)
+	countRiskValue(accumulator.Skills, properties.SkillID)
+	countRiskValue(accumulator.SourceTools, properties.SourceTool)
+	countRiskValue(accumulator.Files, firstSARIFLocation(result.Locations).File)
+
+	if isSARIFSecurityFinding(result, rule, properties) {
+		accumulator.SecurityCount++
+	}
+}
+
+func sarifRuleForResult(rules []sarifRule, result sarifResult) sarifRule {
+	if result.RuleIndex != nil &&
+		*result.RuleIndex >= 0 &&
+		*result.RuleIndex < len(rules) {
+		return rules[*result.RuleIndex]
+	}
+
+	return findSARIFRule(rules, result.RuleID)
+}
+
+func (accumulator *sarifRiskAccumulator) RiskScore() int {
+	return accumulator.BlockingCount*10 +
+		accumulator.SecurityCount*5 +
+		accumulator.ResultCount
 }
 
 func analyzeSARIFTrend(
@@ -349,10 +514,12 @@ func analyzeSARIFTrend(
 	if err != nil {
 		return sarifTrendAnalysis{}, fmt.Errorf("parse baseline SARIF: %w", err)
 	}
+
 	current, err := sarifTrendFindings(currentPayload)
 	if err != nil {
 		return sarifTrendAnalysis{}, fmt.Errorf("parse current SARIF: %w", err)
 	}
+
 	history, err := sarifTrendHistoryFindings(historyPayloads)
 	if err != nil {
 		return sarifTrendAnalysis{}, err
@@ -394,7 +561,9 @@ func analyzeSARIFTrend(
 
 func analyzeSARIFPolicyFeedback(payload string) (sarifPolicyFeedback, error) {
 	var log sarifLog
-	if err := json.Unmarshal([]byte(payload), &log); err != nil {
+
+	err := json.Unmarshal([]byte(payload), &log)
+	if err != nil {
 		return sarifPolicyFeedback{}, fmt.Errorf("parse SARIF: %w", err)
 	}
 
@@ -424,19 +593,25 @@ func analyzeSARIFPolicyFeedback(payload string) (sarifPolicyFeedback, error) {
 			} else {
 				rule = findSARIFRule(run.Tool.Driver.Rules, result.RuleID)
 			}
+
 			properties := mergeSARIFProperties(rule.Properties, result.Properties)
 			finding := sarifFeedbackFindingFromResult(result, properties)
 			ruleCounts[result.RuleID]++
 			feedback.Counts["results"]++
 
 			if strings.TrimSpace(properties.PolicyID) == "" {
-				feedback.UnmappedDiagnostics = append(feedback.UnmappedDiagnostics, finding)
+				feedback.UnmappedDiagnostics = append(
+					feedback.UnmappedDiagnostics,
+					finding,
+				)
 				feedback.Counts["unmapped_diagnostics"]++
 			}
+
 			if strings.TrimSpace(properties.SkillID) == "" {
 				feedback.MissingSkillIDs = append(feedback.MissingSkillIDs, finding)
 				feedback.Counts["missing_skill_ids"]++
 			}
+
 			if sarifWeakSeverity(result, rule, properties) {
 				feedback.WeakSeverities = append(feedback.WeakSeverities, finding)
 				feedback.Counts["weak_severities"]++
@@ -444,7 +619,7 @@ func analyzeSARIFPolicyFeedback(payload string) (sarifPolicyFeedback, error) {
 		}
 	}
 
-	feedback.NoisyRules = noisySARIFRules(ruleCounts, 5)
+	feedback.NoisyRules = noisySARIFRules(ruleCounts, defaultNoisyRules)
 	feedback.Counts["noisy_rules"] = len(feedback.NoisyRules)
 
 	return feedback, nil
@@ -454,14 +629,14 @@ func sarifTrendHistoryFindings(
 	payloads []string,
 ) (map[string]sarifTrendFinding, error) {
 	history := map[string]sarifTrendFinding{}
+
 	for index, payload := range payloads {
 		findings, err := sarifTrendFindings(payload)
 		if err != nil {
 			return nil, fmt.Errorf("parse history SARIF %d: %w", index, err)
 		}
-		for key, finding := range findings {
-			history[key] = finding
-		}
+
+		maps.Copy(history, findings)
 	}
 
 	return history, nil
@@ -472,6 +647,7 @@ func sarifFeedbackFindingFromResult(
 	properties sarifProperties,
 ) sarifFeedbackFinding {
 	location := firstSARIFLocation(result.Locations)
+
 	return sarifFeedbackFinding{
 		RuleID:   result.RuleID,
 		File:     location.File,
@@ -490,18 +666,21 @@ func sarifWeakSeverity(
 	properties sarifProperties,
 ) bool {
 	level := strings.ToLower(strings.TrimSpace(result.Level))
+
 	return (level == "" || level == "note" || level == "warning") &&
 		isSARIFSecurityFinding(result, rule, properties)
 }
 
 func noisySARIFRules(ruleCounts map[string]int, threshold int) []sarifFeedbackRule {
 	rules := []sarifFeedbackRule{}
+
 	for ruleID, count := range ruleCounts {
 		if count >= threshold {
 			rules = append(rules, sarifFeedbackRule{RuleID: ruleID, Count: count})
 		}
 	}
-	sort.Slice(rules, func(left int, right int) bool {
+
+	sort.Slice(rules, func(left, right int) bool {
 		if rules[left].Count != rules[right].Count {
 			return rules[left].Count > rules[right].Count
 		}
@@ -514,10 +693,14 @@ func noisySARIFRules(ruleCounts map[string]int, threshold int) []sarifFeedbackRu
 
 func sarifTrendFindings(payload string) (map[string]sarifTrendFinding, error) {
 	var log sarifLog
-	if err := json.Unmarshal([]byte(payload), &log); err != nil {
-		return nil, err
+
+	err := json.Unmarshal([]byte(payload), &log)
+	if err != nil {
+		return nil, fmt.Errorf("parse SARIF trend payload: %w", err)
 	}
+
 	findings := map[string]sarifTrendFinding{}
+
 	for _, run := range log.Runs {
 		for _, result := range run.Results {
 			rule := sarifRule{}
@@ -528,8 +711,10 @@ func sarifTrendFindings(payload string) (map[string]sarifTrendFinding, error) {
 			} else {
 				rule = findSARIFRule(run.Tool.Driver.Rules, result.RuleID)
 			}
+
 			properties := mergeSARIFProperties(rule.Properties, result.Properties)
 			location := firstSARIFLocation(result.Locations)
+
 			key := firstNonEmpty(
 				properties.GroupKey,
 				result.PartialFingerprints["coding-ethos/stable/v1"],
@@ -537,13 +722,14 @@ func sarifTrendFindings(payload string) (map[string]sarifTrendFinding, error) {
 				strings.Join([]string{
 					firstNonEmpty(properties.PolicyID, result.RuleID),
 					location.File,
-					fmt.Sprint(location.Line),
+					strconv.Itoa(location.Line),
 					result.Message.Text,
 				}, "|"),
 			)
 			if key == "" {
 				continue
 			}
+
 			findings[key] = sarifTrendFinding{
 				Key:      key,
 				RuleID:   result.RuleID,
@@ -572,6 +758,7 @@ func trendDifferenceMap(
 	right map[string]sarifTrendFinding,
 ) map[string]sarifTrendFinding {
 	items := map[string]sarifTrendFinding{}
+
 	for key, finding := range left {
 		if _, found := right[key]; !found {
 			items[key] = finding
@@ -593,6 +780,7 @@ func trendIntersectionMap(
 	right map[string]sarifTrendFinding,
 ) map[string]sarifTrendFinding {
 	items := map[string]sarifTrendFinding{}
+
 	for key, finding := range left {
 		if _, found := right[key]; found {
 			items[key] = finding
@@ -605,7 +793,7 @@ func trendIntersectionMap(
 func sortedTrendFindingsFromMap(
 	values map[string]sarifTrendFinding,
 ) []sarifTrendFinding {
-	items := []sarifTrendFinding{}
+	items := make([]sarifTrendFinding, 0, len(values))
 	for _, finding := range values {
 		items = append(items, finding)
 	}
@@ -618,11 +806,13 @@ func trendWorsening(
 	baseline map[string]sarifTrendFinding,
 ) []sarifTrendFinding {
 	items := []sarifTrendFinding{}
+
 	for key, currentFinding := range current {
 		baselineFinding, found := baseline[key]
 		if !found {
 			continue
 		}
+
 		if sarifTrendSeverityRank(currentFinding.Level) >
 			sarifTrendSeverityRank(baselineFinding.Level) {
 			items = append(items, currentFinding)
@@ -635,18 +825,18 @@ func trendWorsening(
 func sarifTrendSeverityRank(level string) int {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "error":
-		return 4
+		return severityRankError
 	case "warning":
-		return 3
+		return severityRankWarning
 	case "note":
-		return 2
+		return severityRankNote
 	default:
-		return 1
+		return severityRankDefault
 	}
 }
 
 func sortedTrendFindings(items []sarifTrendFinding) []sarifTrendFinding {
-	sort.Slice(items, func(left int, right int) bool {
+	sort.Slice(items, func(left, right int) bool {
 		return items[left].Key < items[right].Key
 	})
 
@@ -663,49 +853,42 @@ func findSARIFRule(rules []sarifRule, ruleID string) sarifRule {
 	return sarifRule{ID: ruleID}
 }
 
-func mergeSARIFProperties(rule sarifProperties, result sarifProperties) sarifProperties {
+func mergeSARIFProperties(rule, result sarifProperties) sarifProperties {
 	merged := rule
-	if result.Advice != "" {
-		merged.Advice = result.Advice
-	}
-	if result.CELExpression != "" {
-		merged.CELExpression = result.CELExpression
-	}
-	if result.Code != "" {
-		merged.Code = result.Code
-	}
-	if result.GroupID != "" {
-		merged.GroupID = result.GroupID
-	}
-	if result.GroupKey != "" {
-		merged.GroupKey = result.GroupKey
-	}
-	if result.Detail != "" {
-		merged.Detail = result.Detail
-	}
-	if result.Implementation != "" {
-		merged.Implementation = result.Implementation
-	}
-	if result.PolicyID != "" {
-		merged.PolicyID = result.PolicyID
-	}
-	if result.PolicySource != "" {
-		merged.PolicySource = result.PolicySource
-	}
-	if result.SkillID != "" {
-		merged.SkillID = result.SkillID
-	}
-	if result.SourceTool != "" {
-		merged.SourceTool = result.SourceTool
-	}
+	mergeSARIFPropertyStrings(&merged, result)
+
 	if len(result.EthosIDs) > 0 {
 		merged.EthosIDs = result.EthosIDs
 	}
+
 	if result.InputSchemaVersion != 0 {
 		merged.InputSchemaVersion = result.InputSchemaVersion
 	}
 
 	return merged
+}
+
+func mergeSARIFPropertyStrings(merged *sarifProperties, result sarifProperties) {
+	for _, field := range []struct {
+		target *string
+		value  string
+	}{
+		{target: &merged.Advice, value: result.Advice},
+		{target: &merged.CELExpression, value: result.CELExpression},
+		{target: &merged.Code, value: result.Code},
+		{target: &merged.GroupID, value: result.GroupID},
+		{target: &merged.GroupKey, value: result.GroupKey},
+		{target: &merged.Detail, value: result.Detail},
+		{target: &merged.Implementation, value: result.Implementation},
+		{target: &merged.PolicyID, value: result.PolicyID},
+		{target: &merged.PolicySource, value: result.PolicySource},
+		{target: &merged.SkillID, value: result.SkillID},
+		{target: &merged.SourceTool, value: result.SourceTool},
+	} {
+		if field.value != "" {
+			*field.target = field.value
+		}
+	}
 }
 
 func isSARIFSecurityFinding(
@@ -737,20 +920,22 @@ func countRiskValue(counts map[string]int, value string) {
 	}
 }
 
-func topRiskItems(counts map[string]int, limit int) []sarifRiskItem {
+func topRiskItems(counts map[string]int) []sarifRiskItem {
 	items := make([]sarifRiskItem, 0, len(counts))
 	for value, count := range counts {
 		items = append(items, sarifRiskItem{Value: value, Count: count})
 	}
-	sort.Slice(items, func(left int, right int) bool {
+
+	sort.Slice(items, func(left, right int) bool {
 		if items[left].Count != items[right].Count {
 			return items[left].Count > items[right].Count
 		}
 
 		return items[left].Value < items[right].Value
 	})
-	if len(items) > limit {
-		return items[:limit]
+
+	if len(items) > riskSummaryTopItemLimit {
+		return items[:riskSummaryTopItemLimit]
 	}
 
 	return items
@@ -764,13 +949,15 @@ func topRiskGroups(
 	for _, group := range groups {
 		items = append(items, group)
 	}
-	sort.Slice(items, func(left int, right int) bool {
+
+	sort.Slice(items, func(left, right int) bool {
 		if items[left].ResultCount != items[right].ResultCount {
 			return items[left].ResultCount > items[right].ResultCount
 		}
 
 		return items[left].Key < items[right].Key
 	})
+
 	if len(items) > limit {
 		return items[:limit]
 	}
@@ -790,6 +977,7 @@ func firstSARIFLocation(locations []sarifLocation) sarifFindingLocation {
 	}
 
 	physical := locations[0].PhysicalLocation
+
 	return sarifFindingLocation{
 		File:   physical.ArtifactLocation.URI,
 		Line:   physical.Region.StartLine,
@@ -833,7 +1021,8 @@ func (finding sarifRemediationFinding) advice() map[string]any {
 		"detail": finding.Detail,
 		"steps": []string{
 			"Inspect the cited file and line.",
-			"Apply the policy-preserving structural fix described by the rule, skill, and ETHOS principle.",
+			"Apply the policy-preserving structural fix described by the rule, " +
+				"skill, and ETHOS principle.",
 			"Rerun the managed lint check through MCP before committing.",
 		},
 	}
@@ -846,6 +1035,7 @@ func (finding sarifRemediationFinding) rerun() map[string]any {
 	} else {
 		arguments["scope"] = "files"
 	}
+
 	if strings.TrimSpace(finding.File) != "" {
 		arguments["files"] = []string{finding.File}
 	}

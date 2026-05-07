@@ -50,7 +50,8 @@ func TestEvaluateGeneratedConfigFreshnessBlocksWhenCommandFails(t *testing.T) {
 	}
 
 	decision := decisions[0]
-	if decision.Decision != "block" || decision.PolicyID != "generated_config.freshness" {
+	if decision.Decision != blockDecision ||
+		decision.PolicyID != "generated_config.freshness" {
 		t.Fatalf("unexpected decision: %#v", decision)
 	}
 
@@ -98,9 +99,9 @@ func TestEvaluateExternalCommandAttachesParsedDiagnostics(t *testing.T) {
 func externalPolicy(policyID string) policy.Policy {
 	return policy.Policy{
 		ID:              policyID,
-		DefaultSeverity: "block",
+		DefaultSeverity: blockDecision,
 		Message:         "external command failed",
-		SupportedModes:  []string{"block", "record"},
+		SupportedModes:  []string{blockDecision, "record"},
 		Evaluators:      []policy.Evaluator{{Kind: "external", Name: policyID}},
 	}
 }

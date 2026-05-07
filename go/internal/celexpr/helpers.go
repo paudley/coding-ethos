@@ -16,6 +16,17 @@ import (
 func helperFunctions() []cel.EnvOption {
 	listOfStrings := cel.ListType(cel.StringType)
 
+	options := make([]cel.EnvOption, 0, helperFunctionCapacity)
+	options = append(options, basicStringHelpers()...)
+	options = append(options, pathHelpers(listOfStrings)...)
+	options = append(options, commandHelpers(listOfStrings)...)
+	options = append(options, repoHelpers(listOfStrings)...)
+	options = append(options, listHelpers()...)
+
+	return options
+}
+
+func basicStringHelpers() []cel.EnvOption {
 	return []cel.EnvOption{
 		stringHelper(
 			"has_prefix",
@@ -30,12 +41,22 @@ func helperFunctions() []cel.EnvOption {
 		stringHelper(
 			"glob_match",
 			"glob_match_string_string",
-			func(pattern string, value string) bool {
+			func(pattern, value string) bool {
 				matched, err := doublestar.Match(pattern, value)
 
 				return err == nil && matched
 			},
 		),
+		stringHelper(
+			"lint_code_matches",
+			"lint_code_matches_string_string",
+			lintCodeMatches,
+		),
+	}
+}
+
+func pathHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Function(
 			"is_test_path",
 			cel.Overload(
@@ -43,7 +64,7 @@ func helperFunctions() []cel.EnvOption {
 				[]*cel.Type{cel.StringType},
 				cel.BoolType,
 				cel.UnaryBinding(func(value ref.Val) ref.Val {
-					return types.Bool(isTestPath(string(value.(types.String))))
+					return types.Bool(isTestPath(stringFromValue(value)))
 				}),
 			),
 		),
@@ -54,7 +75,7 @@ func helperFunctions() []cel.EnvOption {
 				[]*cel.Type{cel.StringType},
 				cel.BoolType,
 				cel.UnaryBinding(func(value ref.Val) ref.Val {
-					return types.Bool(isGeneratedPath(string(value.(types.String))))
+					return types.Bool(isGeneratedPath(stringFromValue(value)))
 				}),
 			),
 		),
@@ -64,9 +85,9 @@ func helperFunctions() []cel.EnvOption {
 				"is_protected_path_string_list_string",
 				[]*cel.Type{cel.StringType, listOfStrings},
 				cel.BoolType,
-				cel.BinaryBinding(func(file ref.Val, paths ref.Val) ref.Val {
+				cel.BinaryBinding(func(file, paths ref.Val) ref.Val {
 					return types.Bool(isProtectedPath(
-						string(file.(types.String)),
+						stringFromValue(file),
 						stringsFromValue(paths),
 					))
 				}),
@@ -78,19 +99,19 @@ func helperFunctions() []cel.EnvOption {
 				"in_source_root_string_list_string",
 				[]*cel.Type{cel.StringType, listOfStrings},
 				cel.BoolType,
-				cel.BinaryBinding(func(file ref.Val, roots ref.Val) ref.Val {
+				cel.BinaryBinding(func(file, roots ref.Val) ref.Val {
 					return types.Bool(inSourceRoot(
-						string(file.(types.String)),
+						stringFromValue(file),
 						stringsFromValue(roots),
 					))
 				}),
 			),
 		),
-		stringHelper(
-			"lint_code_matches",
-			"lint_code_matches_string_string",
-			lintCodeMatches,
-		),
+	}
+}
+
+func commandHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		stringHelper(
 			"command_invokes",
 			"command_invokes_string_string",
@@ -102,10 +123,10 @@ func helperFunctions() []cel.EnvOption {
 				"argv_invokes_list_string",
 				[]*cel.Type{listOfStrings, cel.StringType},
 				cel.BoolType,
-				cel.BinaryBinding(func(argv ref.Val, tool ref.Val) ref.Val {
+				cel.BinaryBinding(func(argv, tool ref.Val) ref.Val {
 					return types.Bool(argvInvokes(
 						stringsFromValue(argv),
-						string(tool.(types.String)),
+						stringFromValue(tool),
 					))
 				}),
 			),
@@ -116,10 +137,10 @@ func helperFunctions() []cel.EnvOption {
 				"argv_command_is_list_string",
 				[]*cel.Type{listOfStrings, cel.StringType},
 				cel.BoolType,
-				cel.BinaryBinding(func(argv ref.Val, tool ref.Val) ref.Val {
+				cel.BinaryBinding(func(argv, tool ref.Val) ref.Val {
 					return types.Bool(argvCommandIs(
 						stringsFromValue(argv),
-						string(tool.(types.String)),
+						stringFromValue(tool),
 					))
 				}),
 			),
@@ -129,13 +150,18 @@ func helperFunctions() []cel.EnvOption {
 			"has_inline_env_string_string",
 			commandHasInlineEnv,
 		),
+	}
+}
+
+func repoHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Function(
 			"repo_config_present",
 			cel.Overload(
 				"repo_config_present_list_list",
 				[]*cel.Type{listOfStrings, listOfStrings},
 				cel.BoolType,
-				cel.BinaryBinding(func(files ref.Val, candidates ref.Val) ref.Val {
+				cel.BinaryBinding(func(files, candidates ref.Val) ref.Val {
 					return types.Bool(len(presentRepoConfigs(
 						stringsFromValue(files),
 						stringsFromValue(candidates),
@@ -149,23 +175,28 @@ func helperFunctions() []cel.EnvOption {
 				"is_protected_branch_string_list_string",
 				[]*cel.Type{cel.StringType, listOfStrings},
 				cel.BoolType,
-				cel.BinaryBinding(func(branch ref.Val, branches ref.Val) ref.Val {
+				cel.BinaryBinding(func(branch, branches ref.Val) ref.Val {
 					return types.Bool(isProtectedBranch(
-						string(branch.(types.String)),
+						stringFromValue(branch),
 						stringsFromValue(branches),
 					))
 				}),
 			),
 		),
+	}
+}
+
+func listHelpers() []cel.EnvOption {
+	return []cel.EnvOption{
 		listStringHelper(
 			"list_contains",
 			"list_contains_list_string",
-			func(value string, needle string) bool { return value == needle },
+			func(value, needle string) bool { return value == needle },
 		),
 		listStringHelper(
 			"any_glob_match",
 			"any_glob_match_list_string",
-			func(pattern string, value string) bool {
+			func(pattern, value string) bool {
 				matched, err := doublestar.Match(pattern, value)
 
 				return err == nil && matched
@@ -184,7 +215,7 @@ func helperFunctions() []cel.EnvOption {
 		listStringHelper(
 			"any_contains",
 			"any_contains_list_string",
-			func(value string, needle string) bool {
+			func(value, needle string) bool {
 				return strings.Contains(strings.ToLower(needle), strings.ToLower(value))
 			},
 		),
@@ -202,10 +233,10 @@ func stringHelper(
 			overload,
 			[]*cel.Type{cel.StringType, cel.StringType},
 			cel.BoolType,
-			cel.BinaryBinding(func(lhs ref.Val, rhs ref.Val) ref.Val {
+			cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
 				return types.Bool(matches(
-					string(lhs.(types.String)),
-					string(rhs.(types.String)),
+					stringFromValue(lhs),
+					stringFromValue(rhs),
 				))
 			}),
 		),
@@ -223,9 +254,9 @@ func listStringHelper(
 			overload,
 			[]*cel.Type{cel.ListType(cel.StringType), cel.StringType},
 			cel.BoolType,
-			cel.BinaryBinding(func(values ref.Val, needle ref.Val) ref.Val {
+			cel.BinaryBinding(func(values, needle ref.Val) ref.Val {
 				for _, value := range stringsFromValue(values) {
-					if matches(value, string(needle.(types.String))) {
+					if matches(value, stringFromValue(needle)) {
 						return types.True
 					}
 				}
@@ -237,7 +268,7 @@ func listStringHelper(
 }
 
 func stringsFromValue(value ref.Val) []string {
-	converted, err := value.ConvertToNative(reflect.TypeOf([]string{}))
+	converted, err := value.ConvertToNative(reflect.TypeFor[[]string]())
 	if err != nil {
 		return nil
 	}
@@ -250,17 +281,34 @@ func stringsFromValue(value ref.Val) []string {
 	return items
 }
 
-func lintCodeMatches(code string, pattern string) bool {
+func stringFromValue(value ref.Val) string {
+	converted, err := value.ConvertToNative(reflect.TypeFor[string]())
+	if err != nil {
+		return ""
+	}
+
+	text, ok := converted.(string)
+	if !ok {
+		return ""
+	}
+
+	return text
+}
+
+func lintCodeMatches(code, pattern string) bool {
 	code = strings.TrimSpace(code)
+
 	pattern = strings.TrimSpace(pattern)
 	if code == "" || pattern == "" {
 		return false
 	}
+
 	if code == pattern {
 		return true
 	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(code, strings.TrimSuffix(pattern, "*"))
+
+	if before, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(code, before)
 	}
 
 	matched, err := doublestar.Match(pattern, code)
@@ -268,12 +316,13 @@ func lintCodeMatches(code string, pattern string) bool {
 	return err == nil && matched
 }
 
-func commandInvokes(command string, tool string) bool {
+func commandInvokes(command, tool string) bool {
 	tool = strings.TrimSpace(tool)
 	if tool == "" {
 		return false
 	}
-	for _, field := range strings.Fields(command) {
+
+	for field := range strings.FieldsSeq(command) {
 		if commandTokenMatchesTool(field, tool) {
 			return true
 		}
@@ -287,6 +336,7 @@ func argvInvokes(argv []string, tool string) bool {
 	if tool == "" {
 		return false
 	}
+
 	for _, arg := range argv {
 		if commandTokenMatchesTool(arg, tool) {
 			return true
@@ -301,6 +351,7 @@ func argvCommandIs(argv []string, tool string) bool {
 	if tool == "" {
 		return false
 	}
+
 	stripped := stripLeadingAssignments(argv)
 
 	return len(stripped) > 0 && commandTokenMatchesTool(stripped[0], tool)
@@ -319,6 +370,7 @@ func isShellAssignment(arg string) bool {
 	if !ok || name == "" {
 		return false
 	}
+
 	for _, char := range name {
 		if char != '_' && (char < 'A' || char > 'Z') &&
 			(char < 'a' || char > 'z') &&
@@ -330,7 +382,7 @@ func isShellAssignment(arg string) bool {
 	return true
 }
 
-func commandTokenMatchesTool(token string, tool string) bool {
+func commandTokenMatchesTool(token, tool string) bool {
 	token = strings.Trim(token, `"'`)
 	if token == "" {
 		return false

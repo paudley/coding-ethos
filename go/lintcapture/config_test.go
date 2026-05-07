@@ -4,14 +4,12 @@
 package lintcapture_test
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
-	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 )
 
@@ -46,6 +44,7 @@ python:
 	if err != nil {
 		t.Fatalf("LintSourceRoots(): %v", err)
 	}
+
 	want := []string{"lbox-platform/lib/python", "src", "src/pkg"}
 	if !reflect.DeepEqual(roots, want) {
 		t.Fatalf("LintSourceRoots() = %#v, want %#v", roots, want)
@@ -71,7 +70,9 @@ python:
 	if err != nil {
 		t.Fatalf("LoadRuntimeConfig(): %v", err)
 	}
-	if _, err := config.LintSourceRoots(); err == nil {
+
+	_, err = config.LintSourceRoots()
+	if err == nil {
 		t.Fatal("LintSourceRoots() accepted absolute python.source_paths entry")
 	}
 }
@@ -133,61 +134,127 @@ sandbox:
 }
 
 func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
-	ethos, root := setupToolConfigChecker(t, 1, "ruff.toml\n")
+	t.Parallel()
+
+	ethos, root := setupToolConfigChecker(t)
 
 	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {
 		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
 	}
-	if len(drift) != 1 || drift[0].File != "ruff.toml" {
+
+	got := driftFiles(drift)
+
+	want := []string{
+		".bandit.yml",
+		".code-ethos/tool-config-hashes.json",
+		".golangci.yml",
+		".pylintrc",
+		".sqlfluff",
+		".yamllint.yml",
+		"mypy.ini",
+		"pyrightconfig.json",
+		"ruff.toml",
+		"tombi.toml",
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("drift = %#v", drift)
 	}
 }
 
 func TestCheckGeneratedToolConfigIntegrityDoesNotTrustManifestOnly(t *testing.T) {
-	ethos, root := setupToolConfigChecker(t, 1, filepath.Join(rootPlaceholder, "ruff.toml")+"\n")
-	writeFile(t, filepath.Join(root, lintcapture.ToolConfigHashManifest), `{"configs":{}}
-`)
+	t.Parallel()
+
+	ethos, root := setupToolConfigChecker(t)
+	writeFile(
+		t,
+		filepath.Join(root, lintcapture.ToolConfigHashManifest),
+		`{"configs":{}}
+`,
+	)
 
 	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {
 		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
 	}
-	if len(drift) != 1 || drift[0].File != "ruff.toml" {
+
+	if got := driftFiles(
+		drift,
+	); !slices.Contains(
+		got,
+		lintcapture.ToolConfigHashManifest,
+	) {
 		t.Fatalf("drift = %#v", drift)
 	}
 }
 
 func TestCheckGeneratedToolConfigIntegrityPassesRendererCheck(t *testing.T) {
-	ethos, root := setupToolConfigChecker(t, 0, "")
+	t.Parallel()
+
+	ethos, root := setupToolConfigChecker(t)
+
+	_, err := toolconfigs.Sync(ethos, root, "")
+	if err != nil {
+		t.Fatalf("Sync(): %v", err)
+	}
 
 	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {
 		t.Fatalf("CheckGeneratedToolConfigIntegrity(): %v", err)
 	}
+
 	if len(drift) != 0 {
 		t.Fatalf("drift = %#v, want none", drift)
 	}
 }
 
-const rootPlaceholder = "__ROOT__"
-
-func setupToolConfigChecker(t *testing.T, exitCode int, output string) (string, string) {
+func setupToolConfigChecker(t *testing.T) (string, string) {
 	t.Helper()
 
 	root := t.TempDir()
 	ethos := filepath.Join(root, "coding-ethos")
 	consumer := filepath.Join(root, "consumer")
-	uv := filepath.Join(root, "bin", "uv")
-	scriptOutput := filepath.ToSlash(strings.ReplaceAll(output, rootPlaceholder, consumer))
-	writeFile(t, filepath.Join(ethos, "main.py"), "raise SystemExit(0)\n")
-	writeFile(t, uv, "#!/usr/bin/env sh\nprintf '%s' '"+scriptOutput+"'\nexit "+strconv.Itoa(exitCode)+"\n")
-	if err := os.Chmod(uv, 0o700); err != nil {
-		t.Fatalf("chmod uv fixture: %v", err)
-	}
-	t.Setenv("UV", uv)
+	writeFile(t, filepath.Join(ethos, "config.yaml"), `
+style:
+  python_version: "3.13"
+  line_length: 88
+python:
+  source_paths:
+    - pkg
+  extra_paths:
+    - .
+tooling:
+  ruff:
+    ignore: []
+  mypy:
+    plugins: []
+  pyright: {}
+  pylint: {}
+  yamllint:
+    rules: {}
+  bandit: {}
+  sqlfluff: {}
+  golangci_lint: {}
+generated_config:
+  ci:
+    github_actions:
+      enabled: false
+    gitlab:
+      enabled: false
+`)
 
 	return ethos, consumer
+}
+
+func driftFiles(drift []lintcapture.ConfigDrift) []string {
+	files := make([]string, 0, len(drift))
+	for _, item := range drift {
+		files = append(files, item.File)
+	}
+
+	slices.Sort(files)
+
+	return files
 }
 
 func TestRequestCloneCopiesArgv(t *testing.T) {
@@ -195,6 +262,7 @@ func TestRequestCloneCopiesArgv(t *testing.T) {
 
 	original := lintcapture.Request{OriginalArgv: []string{"check", "pkg"}}
 	clone := original.Clone()
+
 	clone.OriginalArgv[0] = "format"
 	if original.OriginalArgv[0] != "check" {
 		t.Fatalf("Clone() shared OriginalArgv backing array: %#v", original)

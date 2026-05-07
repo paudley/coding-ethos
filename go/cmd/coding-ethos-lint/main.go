@@ -5,14 +5,15 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -20,10 +21,14 @@ import (
 )
 
 var (
-	errBundleRequired       = errors.New("--bundle is required")
-	errInvalidBundle        = errors.New("invalid policy bundle")
-	errOutputFormatConflict = errors.New("--json and --sarif are mutually exclusive")
-	errSARIFUnsupported     = errors.New("--sarif is supported only for lint result output")
+	errBundleRequired       = apperror.StaticError("--bundle is required")
+	errInvalidBundle        = apperror.StaticError("invalid policy bundle")
+	errOutputFormatConflict = apperror.StaticError(
+		"--json and --sarif are mutually exclusive",
+	)
+	errSARIFUnsupported = apperror.StaticError(
+		"--sarif is supported only for lint result output",
+	)
 )
 
 const blockedExitCode = 2
@@ -32,193 +37,370 @@ func main() {
 	os.Exit(runCLI(os.Args[1:]))
 }
 
+type lintCLIConfig struct {
+	stdout             io.Writer
+	forFilesRaw        *string
+	managedCaptureTool *string
+	argvRaw            *string
+	bundlePath         *string
+	captureTool        *string
+	command            *string
+	consumerRoot       *string
+	cwd                *string
+	ethosRoot          *string
+	explain            *bool
+	filesFrom          *string
+	filesRaw           *string
+	forFilesFrom       *string
+	traceRoot          *string
+	analyzeLog         *bool
+	listCapturedTools  *bool
+	installShims       *bool
+	logDir             *string
+	logOutput          *bool
+	invocationCwd      *string
+	replayTrace        *string
+	runner             *string
+	sandboxMode        *string
+	sarifCategory      *string
+	sarifOutput        *bool
+	scope              *scopeFlag
+	toolPath           *string
+	toolsBinDir        *string
+	outputFormat       string
+}
+
 func runCLI(args []string) int {
+	return runCLIWithWriter(args, os.Stdout)
+}
+
+func runCLIWithWriter(args []string, stdout io.Writer) int {
 	flags := flag.NewFlagSet("coding-ethos-lint", flag.ExitOnError)
-	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
-	filesRaw := flags.String("files", "", "Comma-separated files for --scope files")
-	filesFrom := flags.String("files-from", "", "Newline-separated file list for --scope files")
-	forFilesRaw := flags.String(
-		"for-files",
-		"",
-		"Comma-separated files to filter --analyze-log results",
-	)
-	forFilesFrom := flags.String(
-		"for-files-from",
-		"",
-		"Newline-separated file list to filter --analyze-log results",
-	)
-	argvRaw := flags.String(
-		"argv",
-		"",
-		"Command argv to evaluate, separated by NUL when possible or spaces",
-	)
-	command := flags.String("command", "", "Raw shell command to evaluate")
-	captureTool := flags.String("capture-tool", "", "Run and log a managed lint tool")
-	managedCaptureTool := flags.String(
-		"managed-capture-tool",
-		"",
-		"Run captured lint tool with Go-owned managed resolution",
-	)
-	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
-	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
-	invocationCwd := flags.String("invocation-cwd", "", "original command working directory")
-	cwd := flags.String("cwd", "", "Working directory for git-state evaluators")
-	traceRoot := flags.String("trace-root", "", "Root directory for persisted lint traces")
+	config := registerLintFlags(flags)
 	jsonOutput := flags.Bool("json", false, "Emit JSON output")
 	sarifOutput := flags.Bool("sarif", false, "Emit SARIF output")
-	sarifCategory := flags.String(
+	config.sarifCategory = flags.String(
 		"sarif-category",
 		"",
 		"GitHub code-scanning SARIF category",
 	)
-	analyzeLog := flags.Bool(
+	config.analyzeLog = flags.Bool(
 		"analyze-log",
 		false,
 		"Analyze persisted .coding-ethos/lint-runs traces",
 	)
-	explain := flags.Bool("explain", false, "Explain selected lint checks without running them")
-	logDir := flags.String(
+	config.explain = flags.Bool(
+		"explain",
+		false,
+		"Explain selected lint checks without running them",
+	)
+	config.logDir = flags.String(
 		"log-dir",
 		"",
 		"Lint trace directory for --analyze-log",
 	)
-	replayTrace := flags.String(
+	config.replayTrace = flags.String(
 		"replay",
 		"",
 		"Replay a persisted .coding-ethos/lint-runs trace",
 	)
-	logOutput := flags.Bool(
+	config.logOutput = flags.Bool(
 		"log",
 		true,
 		"Persist normalized lint result under .coding-ethos/lint-runs",
 	)
-	listCapturedTools := flags.Bool(
+	config.listCapturedTools = flags.Bool(
 		"list-captured-tools",
 		false,
 		"Print captured lint tool names, one per line",
 	)
-	installShims := flags.Bool(
+	config.installShims = flags.Bool(
 		"install-shims",
 		false,
 		"Install captured lint tool shims into --tools-bin-dir",
 	)
-	toolsBinDir := flags.String("tools-bin-dir", "", "Directory for captured lint tool shims")
-	runner := flags.String("runner", "", "runner path for captured lint shims")
-	toolPath := flags.String("tool-path", "", "Real tool path for --capture-tool")
-	sandboxMode := flags.String(
+	config.toolsBinDir = flags.String(
+		"tools-bin-dir",
+		"",
+		"Directory for captured lint tool shims",
+	)
+	config.runner = flags.String("runner", "", "runner path for captured lint shims")
+	config.toolPath = flags.String("tool-path", "", "Real tool path for --capture-tool")
+	config.sandboxMode = flags.String(
 		"sandbox-mode",
 		"off",
 		"Managed tool sandbox mode: off, auto, or required",
 	)
-	scope := scopeFlagSet(flags)
+	config.scope = scopeFlagSet(flags)
 
 	err := flags.Parse(args)
 	if err != nil {
 		exitErr(err)
 	}
+
 	outputFormat, formatErr := lintOutputFormat(*jsonOutput, *sarifOutput)
 	if formatErr != nil {
 		exitErr(formatErr)
 	}
-	if strings.TrimSpace(*cwd) == "" {
-		workingDir, cwdErr := os.Getwd()
-		if cwdErr != nil {
-			exitErr(cwdErr)
-		}
-		*cwd = workingDir
+
+	config.sarifOutput = sarifOutput
+	config.outputFormat = outputFormat
+	config.stdout = stdout
+
+	return runParsedCLI(config, flags.Args())
+}
+
+func registerLintFlags(flags *flag.FlagSet) lintCLIConfig {
+	return lintCLIConfig{
+		argvRaw: flags.String(
+			"argv",
+			"",
+			"Command argv to evaluate, separated by NUL when possible or spaces",
+		),
+		bundlePath: flags.String("bundle", "", "Path to policy-bundle.json"),
+		captureTool: flags.String(
+			"capture-tool",
+			"",
+			"Run and log a managed lint tool",
+		),
+		command:      flags.String("command", "", "Raw shell command to evaluate"),
+		consumerRoot: flags.String("consumer-root", "", "consumer repository root"),
+		cwd: flags.String(
+			"cwd",
+			"",
+			"Working directory for git-state evaluators",
+		),
+		ethosRoot: flags.String("ethos-root", "", "coding-ethos checkout root"),
+		filesFrom: registerFilesFromFlag(flags),
+		filesRaw: flags.String(
+			"files",
+			"",
+			"Comma-separated files for --scope files",
+		),
+		forFilesFrom:  registerForFilesFromFlag(flags),
+		forFilesRaw:   registerForFilesFlag(flags),
+		invocationCwd: registerInvocationCwdFlag(flags),
+		managedCaptureTool: flags.String(
+			"managed-capture-tool",
+			"",
+			"Run captured lint tool with Go-owned managed resolution",
+		),
+		traceRoot: flags.String(
+			"trace-root",
+			"",
+			"Root directory for persisted lint traces",
+		),
+	}
+}
+
+func registerFilesFromFlag(flags *flag.FlagSet) *string {
+	return flags.String(
+		"files-from",
+		"",
+		"Newline-separated file list for --scope files",
+	)
+}
+
+func registerForFilesFlag(flags *flag.FlagSet) *string {
+	return flags.String(
+		"for-files",
+		"",
+		"Comma-separated files to filter --analyze-log results",
+	)
+}
+
+func registerForFilesFromFlag(flags *flag.FlagSet) *string {
+	return flags.String(
+		"for-files-from",
+		"",
+		"Newline-separated file list to filter --analyze-log results",
+	)
+}
+
+func registerInvocationCwdFlag(flags *flag.FlagSet) *string {
+	return flags.String(
+		"invocation-cwd",
+		"",
+		"original command working directory",
+	)
+}
+
+func runParsedCLI(config lintCLIConfig, args []string) int {
+	ensureLintCWD(config.cwd)
+
+	code, handled := runCaptureMode(config, args)
+	if handled {
+		return code
 	}
 
-	if *captureTool != "" {
+	if runUtilityMode(config) {
+		return 0
+	}
+
+	code, handled = runTraceMode(config)
+	if handled {
+		return code
+	}
+
+	bundle := validatedLintBundle(*config.bundlePath)
+	if *config.explain {
+		return runExplainMode(config, bundle)
+	}
+
+	return runLintMode(config, bundle)
+}
+
+func ensureLintCWD(cwd *string) {
+	if strings.TrimSpace(*cwd) != "" {
+		return
+	}
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		exitErr(err)
+	}
+
+	*cwd = workingDir
+}
+
+func runCaptureMode(config lintCLIConfig, args []string) (int, bool) {
+	if *config.captureTool != "" {
 		return runCapturedTool(
-			*captureTool,
-			*toolPath,
-			*cwd,
-			*traceRoot,
-			flags.Args(),
-			capturePolicyContext(*bundlePath),
-			outputFormat,
-		)
+			*config.captureTool,
+			*config.toolPath,
+			*config.cwd,
+			*config.traceRoot,
+			args,
+			capturePolicyContext(*config.bundlePath),
+			config.outputFormat,
+		), true
 	}
 
-	if *managedCaptureTool != "" {
-		return runManagedCapture(managedCaptureOptions{
-			Tool:          *managedCaptureTool,
-			EthosRoot:     *ethosRoot,
-			ConsumerRoot:  *consumerRoot,
-			InvocationCwd: *invocationCwd,
-			Args:          flags.Args(),
-			SandboxMode:   *sandboxMode,
-			OutputFormat:  outputFormat,
-			PolicyContext: capturePolicyContext(*bundlePath),
-		})
+	if *config.managedCaptureTool == "" {
+		return 0, false
 	}
 
-	if *listCapturedTools {
-		printCapturedTools()
-		return 0
+	return runManagedCapture(managedCaptureOptions{
+		Tool:          *config.managedCaptureTool,
+		EthosRoot:     *config.ethosRoot,
+		ConsumerRoot:  *config.consumerRoot,
+		InvocationCwd: *config.invocationCwd,
+		Args:          args,
+		SandboxMode:   *config.sandboxMode,
+		OutputFormat:  config.outputFormat,
+		PolicyContext: capturePolicyContext(*config.bundlePath),
+	}), true
+}
+
+func runUtilityMode(config lintCLIConfig) bool {
+	if *config.listCapturedTools {
+		printCapturedTools(config.stdout)
+
+		return true
 	}
 
-	if *installShims {
-		if err := installCapturedToolShims(*toolsBinDir, *runner, *ethosRoot); err != nil {
-			exitErr(err)
-		}
-		return 0
+	if !*config.installShims {
+		return false
 	}
 
-	if *analyzeLog {
-		path := *logDir
-		if path == "" {
-			var pathErr error
-			path, pathErr = lint.DefaultTraceDir(*cwd)
-			if pathErr != nil {
-				exitErr(pathErr)
-			}
-		}
-
-		forFiles, filesErr := filesFromInputs(*forFilesRaw, *forFilesFrom)
-		if filesErr != nil {
-			exitErr(filesErr)
-		}
-
-		analysis, analyzeErr := lint.AnalyzeTracesWithOptions(
-			path,
-			lint.AnalysisOptions{Files: forFiles},
-		)
-		if analyzeErr != nil {
-			exitErr(analyzeErr)
-		}
-		if *sarifOutput {
-			exitErr(errSARIFUnsupported)
-		}
-		format := selectedLintOutputFormat(outputFormat)
-		if encodeErr := lint.EncodeAnalysis(os.Stdout, analysis, format); encodeErr != nil {
-			exitErr(encodeErr)
-		}
-
-		return 0
+	err := installCapturedToolShims(
+		*config.toolsBinDir,
+		*config.runner,
+		*config.ethosRoot,
+	)
+	if err != nil {
+		exitErr(err)
 	}
 
-	if *replayTrace != "" {
-		result, replayErr := lint.ReplayTrace(*replayTrace)
-		if replayErr != nil {
-			exitErr(replayErr)
-		}
-		format := selectedLintOutputFormat(outputFormat)
-		if encodeErr := encodeLintResult(os.Stdout, result, format, *sarifCategory); encodeErr != nil {
-			exitErr(encodeErr)
-		}
-		if result.Blocked() {
-			return blockedExitCode
-		}
+	return true
+}
 
-		return 0
+func runTraceMode(config lintCLIConfig) (int, bool) {
+	if *config.analyzeLog {
+		return runAnalyzeLogMode(config), true
 	}
 
-	if *bundlePath == "" {
+	if *config.replayTrace != "" {
+		return runReplayMode(config), true
+	}
+
+	return 0, false
+}
+
+func runAnalyzeLogMode(config lintCLIConfig) int {
+	path := resolvedLogDir(*config.logDir, *config.cwd)
+
+	forFiles, filesErr := filesFromInputs(*config.forFilesRaw, *config.forFilesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
+
+	analysis, analyzeErr := lint.AnalyzeTracesWithOptions(
+		path,
+		lint.AnalysisOptions{Files: forFiles},
+	)
+	if analyzeErr != nil {
+		exitErr(analyzeErr)
+	}
+
+	if *config.sarifOutput {
+		exitErr(errSARIFUnsupported)
+	}
+
+	format := selectedLintOutputFormat(config.outputFormat)
+
+	encodeErr := lint.EncodeAnalysis(config.stdout, analysis, format)
+	if encodeErr != nil {
+		exitErr(encodeErr)
+	}
+
+	return 0
+}
+
+func resolvedLogDir(logDir, cwd string) string {
+	if logDir != "" {
+		return logDir
+	}
+
+	path, err := lint.DefaultTraceDir(cwd)
+	if err != nil {
+		exitErr(err)
+	}
+
+	return path
+}
+
+func runReplayMode(config lintCLIConfig) int {
+	result, replayErr := lint.ReplayTrace(*config.replayTrace)
+	if replayErr != nil {
+		exitErr(replayErr)
+	}
+
+	format := selectedLintOutputFormat(config.outputFormat)
+
+	encodeErr := encodeLintResult(
+		config.stdout,
+		result,
+		format,
+		*config.sarifCategory,
+	)
+	if encodeErr != nil {
+		exitErr(encodeErr)
+	}
+
+	if result.Blocked() {
+		return blockedExitCode
+	}
+
+	return 0
+}
+
+func validatedLintBundle(bundlePath string) policy.Bundle {
+	if bundlePath == "" {
 		exitErr(errBundleRequired)
 	}
 
-	bundle, err := readBundle(*bundlePath)
+	bundle, err := readBundle(bundlePath)
 	if err != nil {
 		exitErr(err)
 	}
@@ -230,49 +412,60 @@ func runCLI(args []string) int {
 		)
 	}
 
-	if *explain {
-		files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
-		if filesErr != nil {
-			exitErr(filesErr)
-		}
+	return bundle
+}
 
-		explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
-			Scope: scope.Value(),
-			Files: files,
-		})
-		if explainErr != nil {
-			exitErr(explainErr)
-		}
-		if *sarifOutput {
-			exitErr(errSARIFUnsupported)
-		}
-		format := selectedLintOutputFormat(outputFormat)
-		if encodeErr := lint.EncodeExplainResult(
-			os.Stdout,
-			explainResult,
-			format,
-		); encodeErr != nil {
-			exitErr(encodeErr)
-		}
-
-		return 0
-	}
-
-	files, filesErr := filesFromInputs(*filesRaw, *filesFrom)
+func runExplainMode(config lintCLIConfig, bundle policy.Bundle) int {
+	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
 	if filesErr != nil {
 		exitErr(filesErr)
 	}
-	if shouldReturnEmptyExplicitFileScope(scope.Value(), files, *filesRaw, *filesFrom) {
+
+	explainResult, explainErr := lint.ExplainWithOptions(bundle, lint.ExplainOptions{
+		Scope: config.scope.Value(),
+		Files: files,
+	})
+	if explainErr != nil {
+		exitErr(explainErr)
+	}
+
+	if *config.sarifOutput {
+		exitErr(errSARIFUnsupported)
+	}
+
+	format := selectedLintOutputFormat(config.outputFormat)
+
+	encodeErr := lint.EncodeExplainResult(config.stdout, explainResult, format)
+	if encodeErr != nil {
+		exitErr(encodeErr)
+	}
+
+	return 0
+}
+
+func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
+	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
+
+	if shouldReturnEmptyExplicitFileScope(
+		config.scope.Value(),
+		files,
+		*config.filesRaw,
+		*config.filesFrom,
+	) {
 		result := lint.Result{
 			Scope:  lint.ScopeFiles,
 			Files:  []string{},
 			Status: "resolved",
 		}
-		err = encodeLintResult(
-			os.Stdout,
+
+		err := encodeLintResult(
+			config.stdout,
 			result,
-			selectedLintOutputFormat(outputFormat),
-			*sarifCategory,
+			selectedLintOutputFormat(config.outputFormat),
+			*config.sarifCategory,
 		)
 		if err != nil {
 			exitErr(err)
@@ -280,38 +473,40 @@ func runCLI(args []string) int {
 
 		return 0
 	}
-	if len(files) == 0 && scope.Value() == lint.ScopeStaged {
-		files, err = stagedFiles(*cwd)
+
+	if len(files) == 0 && config.scope.Value() == lint.ScopeStaged {
+		var err error
+
+		files, err = stagedFiles(*config.cwd)
 		if err != nil {
 			exitErr(err)
 		}
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
-		Scope:   scope.Value(),
+		Scope:   config.scope.Value(),
 		Files:   files,
-		Argv:    parseArgv(*argvRaw),
-		Command: *command,
-		Cwd:     *cwd,
+		Argv:    parseArgv(*config.argvRaw),
+		Command: *config.command,
+		Cwd:     *config.cwd,
 	})
 	if err != nil {
 		exitErr(err)
 	}
+
 	if result.Blocked() {
 		lint.EnsureTraceID(&result)
 	}
 
-	if *logOutput {
-		if _, logErr := lint.LogResult(*cwd, result); logErr != nil {
-			fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
-		}
+	if *config.logOutput {
+		logLintResult(*config.cwd, result)
 	}
 
 	err = encodeLintResult(
-		os.Stdout,
+		config.stdout,
 		result,
-		selectedLintOutputFormat(outputFormat),
-		*sarifCategory,
+		selectedLintOutputFormat(config.outputFormat),
+		*config.sarifCategory,
 	)
 	if err != nil {
 		exitErr(err)
@@ -324,14 +519,26 @@ func runCLI(args []string) int {
 	return 0
 }
 
+func logLintResult(cwd string, result lint.Result) {
+	_, logErr := lint.LogResult(cwd, result)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
+	}
+}
+
 func encodeLintResult(
-	writer *os.File,
+	writer io.Writer,
 	result lint.Result,
 	format string,
 	sarifCategory string,
 ) error {
 	if format != hookoutput.FormatSARIF || strings.TrimSpace(sarifCategory) == "" {
-		return hookoutput.EncodeLintResult(writer, result, format)
+		err := hookoutput.EncodeLintResult(writer, result, format)
+		if err != nil {
+			return fmt.Errorf("encode lint result: %w", err)
+		}
+
+		return nil
 	}
 
 	output, err := hookoutput.FormatLintResultSARIFWithOptions(
@@ -339,27 +546,32 @@ func encodeLintResult(
 		hookoutput.SARIFOptions{Category: sarifCategory},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("format SARIF lint result: %w", err)
 	}
 
 	_, err = fmt.Fprintln(writer, output)
+	if err != nil {
+		return fmt.Errorf("write SARIF lint result: %w", err)
+	}
 
-	return err
+	return nil
 }
 
-func printCapturedTools() {
+func printCapturedTools(writer io.Writer) {
 	for _, tool := range toolcatalog.CapturedLintTools() {
-		fmt.Fprintln(os.Stdout, tool.Name)
+		fmt.Fprintln(writer, tool.Name)
 	}
 }
 
-func lintOutputFormat(jsonOutput bool, sarifOutput bool) (string, error) {
+func lintOutputFormat(jsonOutput, sarifOutput bool) (string, error) {
 	if jsonOutput && sarifOutput {
 		return "", errOutputFormatConflict
 	}
+
 	if jsonOutput {
 		return hookoutput.FormatJSON, nil
 	}
+
 	if sarifOutput {
 		return hookoutput.FormatSARIF, nil
 	}
@@ -387,9 +599,9 @@ func shouldReturnEmptyExplicitFileScope(
 }
 
 type capturePolicyData struct {
+	Skills       map[string]policy.Skill
 	EvidenceMaps []diagnostics.EvidenceMap
 	Policies     []policy.Policy
-	Skills       map[string]policy.Skill
 }
 
 func capturePolicyContext(bundlePath string) capturePolicyData {
@@ -402,7 +614,8 @@ func capturePolicyContext(bundlePath string) capturePolicyData {
 		exitErr(err)
 	}
 
-	if err := bundle.Validate(); err != nil {
+	err = bundle.Validate()
+	if err != nil {
 		exitErr(
 			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
 		)
@@ -421,9 +634,11 @@ func capturePolicies(policies map[string]policy.Policy) []policy.Policy {
 		if len(policyDef.AppliesTo.Tools) == 0 {
 			continue
 		}
+
 		for _, evaluator := range policyDef.Evaluators {
 			if evaluator.Name == "cel.expression" {
 				items = append(items, policyDef)
+
 				break
 			}
 		}
@@ -465,7 +680,7 @@ func parseFiles(raw string) []string {
 	return files
 }
 
-func filesFromInputs(raw string, path string) ([]string, error) {
+func filesFromInputs(raw, path string) ([]string, error) {
 	files := parseFiles(raw)
 	if strings.TrimSpace(path) == "" {
 		return files, nil
@@ -527,7 +742,7 @@ func parseArgv(raw string) []string {
 	return strings.Fields(raw)
 }
 
-func splitNonEmpty(raw string, separator string) []string {
+func splitNonEmpty(raw, separator string) []string {
 	parts := strings.Split(raw, separator)
 
 	items := make([]string, 0, len(parts))

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hooklog
+package hooklog_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "blackcat.ca/coding-ethos/go/internal/hooklog"
 )
 
 func TestRunWritesHookLogsAndMetadata(t *testing.T) {
@@ -17,8 +19,11 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 
 	root := t.TempDir()
 	git := fakeGit(t)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
 
 	err := Run(Options{
 		Stdin:      strings.NewReader(""),
@@ -40,6 +45,7 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read hook runs: %v", err)
 	}
+
 	if len(runDirs) != 1 {
 		t.Fatalf("hook run dirs = %d, want 1", len(runDirs))
 	}
@@ -47,14 +53,46 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	runDir := filepath.Join(root, ".coding-ethos", "hook-runs", runDirs[0].Name())
 	assertFileContains(t, filepath.Join(runDir, "stdout.log"), "hello stdout")
 	assertFileContains(t, filepath.Join(runDir, "stderr.log"), "hello stderr")
-	assertFileContains(t, filepath.Join(runDir, "metadata.env"), "started_at_utc='20260501T123456Z'")
+	assertFileContains(
+		t,
+		filepath.Join(runDir, "metadata.env"),
+		"started_at_utc='20260501T123456Z'",
+	)
 	assertFileContains(t, filepath.Join(runDir, "metadata.env"), "exit_code='0'")
+
 	if !strings.Contains(stdout.String(), "hello stdout") {
 		t.Fatalf("stdout was not mirrored: %q", stdout.String())
 	}
+
 	if !strings.Contains(stderr.String(), "hello stderr") {
 		t.Fatalf("stderr was not mirrored: %q", stderr.String())
 	}
+}
+
+func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	git := fakeGitWithLog(t, logPath)
+
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    git,
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook log: %v", err)
+	}
+
+	assertFileContains(t, logPath, "check-ignore --no-index --quiet")
 }
 
 func fakeGit(t *testing.T) string {
@@ -62,37 +100,72 @@ func fakeGit(t *testing.T) string {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
+
 	script := "#!/usr/bin/env bash\nexit 0\n"
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+
+	err := os.WriteFile(path, []byte(script), 0o600)
+	if err != nil {
 		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
 	}
 
 	return path
 }
 
+func fakeGitWithLog(t *testing.T, logPath string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "git")
+
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " +
+		shellQuoteForTest(logPath) + "\nexit 0\n"
+
+	err := os.WriteFile(path, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	return path
+}
+
+func shellQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func commandThatPrints(t *testing.T) []string {
 	t.Helper()
 
-	return []string{os.Args[0], "-test.run=TestHelperProcess", "--", "print"}
+	return []string{os.Args[0], "-test.run=^$", "--", "print"}
 }
 
-func assertFileContains(t *testing.T, path string, substring string) {
+func assertFileContains(t *testing.T, path, substring string) {
 	t.Helper()
 
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+
 	if !strings.Contains(string(content), substring) {
 		t.Fatalf("%s does not contain %q:\n%s", path, substring, string(content))
 	}
 }
 
-func TestHelperProcess(t *testing.T) {
+func TestMain(m *testing.M) {
 	if len(os.Args) < 3 || os.Args[len(os.Args)-1] != "print" {
-		return
+		os.Exit(m.Run())
 	}
-	t.Log("helper process")
+
 	os.Stdout.WriteString("hello stdout\n")
 	os.Stderr.WriteString("hello stderr\n")
 	os.Exit(0)

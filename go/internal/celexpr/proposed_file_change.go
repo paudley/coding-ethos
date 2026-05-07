@@ -85,8 +85,8 @@ func proposedFileChangeInputs(input ActivationInput) []ProposedFileChangeInput {
 
 	changes := make([]ProposedFileChangeInput, 0, len(files))
 	for _, file := range files {
-		change, ok := proposedFileChangeInput(input, file)
-		if ok {
+		change, found := proposedFileChangeInput(input, file)
+		if found {
 			changes = append(changes, change)
 		}
 	}
@@ -110,8 +110,8 @@ func proposedApplyPatchChangeInputs(input ActivationInput) []ProposedFileChangeI
 
 	changes := make([]ProposedFileChangeInput, 0, len(deltas))
 	for _, delta := range deltas {
-		change, ok := proposedApplyPatchChangeInput(input.Cwd, delta)
-		if ok {
+		change, found := proposedApplyPatchChangeInput(input.Cwd, delta)
+		if found {
 			changes = append(changes, change)
 		}
 	}
@@ -124,70 +124,109 @@ func parseApplyPatchDeltas(command string) []applyPatchFileDelta {
 		return nil
 	}
 
-	deltas := []applyPatchFileDelta{}
-	current := applyPatchFileDelta{}
-	inFile := false
-	for _, rawLine := range strings.Split(command, "\n") {
-		switch {
-		case strings.HasPrefix(rawLine, "*** Add File: "):
-			if inFile {
-				deltas = append(deltas, current)
-			}
-			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Add File: "))}
-			inFile = true
-		case strings.HasPrefix(rawLine, "*** Update File: "):
-			if inFile {
-				deltas = append(deltas, current)
-			}
-			current = applyPatchFileDelta{file: strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Update File: "))}
-			inFile = true
-		case strings.HasPrefix(rawLine, "*** Delete File: "):
-			if inFile {
-				deltas = append(deltas, current)
-			}
-			current = applyPatchFileDelta{
-				file:       strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Delete File: ")),
-				deleteFile: true,
-			}
-			inFile = true
-		case strings.HasPrefix(rawLine, "*** Move to: "):
-			if inFile {
-				current.file = strings.TrimSpace(strings.TrimPrefix(rawLine, "*** Move to: "))
-			}
-		case !inFile:
+	state := applyPatchState{}
+
+	for rawLine := range strings.SplitSeq(command, "\n") {
+		nextState, started := startApplyPatchFileDelta(state, rawLine)
+		if started {
+			state = nextState
+
 			continue
-		case strings.HasPrefix(rawLine, "***"):
-			continue
-		case strings.HasPrefix(rawLine, "@@"):
-			continue
-		case strings.HasPrefix(rawLine, "+"):
-			added := strings.TrimPrefix(rawLine, "+")
-			current.lineDelta++
-			current.sizeDelta += len([]byte(added)) + 1
-			if !isBlankLine(added) {
-				current.nonBlankLineDelta++
-			}
-		case strings.HasPrefix(rawLine, "-"):
-			removed := strings.TrimPrefix(rawLine, "-")
-			current.lineDelta--
-			current.sizeDelta -= len([]byte(removed)) + 1
-			if !isBlankLine(removed) {
-				current.nonBlankLineDelta--
-			}
 		}
-	}
-	if inFile {
-		deltas = append(deltas, current)
+
+		state = updateApplyPatchState(state, rawLine)
 	}
 
-	out := make([]applyPatchFileDelta, 0, len(deltas))
-	for _, delta := range deltas {
+	if state.inFile {
+		state.deltas = append(state.deltas, state.current)
+	}
+
+	out := make([]applyPatchFileDelta, 0, len(state.deltas))
+	for _, delta := range state.deltas {
 		if cleanInputFile(delta.file) != "" {
 			out = append(out, delta)
 		}
 	}
 
 	return out
+}
+
+type applyPatchState struct {
+	deltas  []applyPatchFileDelta
+	current applyPatchFileDelta
+	inFile  bool
+}
+
+func startApplyPatchFileDelta(
+	state applyPatchState,
+	rawLine string,
+) (applyPatchState, bool) {
+	for _, marker := range applyPatchFileMarkers() {
+		if !strings.HasPrefix(rawLine, marker.Prefix) {
+			continue
+		}
+
+		if state.inFile {
+			state.deltas = append(state.deltas, state.current)
+		}
+
+		state.current = applyPatchFileDelta{
+			file:       strings.TrimSpace(strings.TrimPrefix(rawLine, marker.Prefix)),
+			deleteFile: marker.DeleteFile,
+		}
+		state.inFile = true
+
+		return state, true
+	}
+
+	return state, false
+}
+
+func updateApplyPatchState(state applyPatchState, rawLine string) applyPatchState {
+	switch {
+	case strings.HasPrefix(rawLine, "*** Move to: ") && state.inFile:
+		state.current.file = strings.TrimSpace(
+			strings.TrimPrefix(rawLine, "*** Move to: "),
+		)
+	case !state.inFile:
+	case strings.HasPrefix(rawLine, "***"):
+	case strings.HasPrefix(rawLine, "@@"):
+	case strings.HasPrefix(rawLine, "+"):
+		state.current = updateApplyPatchLineDelta(state.current, rawLine, 1)
+	case strings.HasPrefix(rawLine, "-"):
+		state.current = updateApplyPatchLineDelta(state.current, rawLine, -1)
+	}
+
+	return state
+}
+
+type applyPatchFileMarker struct {
+	Prefix     string
+	DeleteFile bool
+}
+
+func applyPatchFileMarkers() []applyPatchFileMarker {
+	return []applyPatchFileMarker{
+		{Prefix: "*** Add File: "},
+		{Prefix: "*** Update File: "},
+		{Prefix: "*** Delete File: ", DeleteFile: true},
+	}
+}
+
+func updateApplyPatchLineDelta(
+	current applyPatchFileDelta,
+	rawLine string,
+	direction int,
+) applyPatchFileDelta {
+	text := rawLine[1:]
+	current.lineDelta += direction
+
+	current.sizeDelta += direction * (len([]byte(text)) + 1)
+	if !isBlankLine(text) {
+		current.nonBlankLineDelta += direction
+	}
+
+	return current
 }
 
 func proposedApplyPatchChangeInput(
@@ -216,18 +255,22 @@ func proposedApplyPatchChangeInput(
 	currentSize := int64(len([]byte(currentContent)))
 	proposedLines := currentLines + delta.lineDelta
 	proposedNonBlankLines := currentNonBlankLines + delta.nonBlankLineDelta
+
 	proposedSize := currentSize + int64(delta.sizeDelta)
 	if delta.deleteFile {
 		proposedLines = 0
 		proposedNonBlankLines = 0
 		proposedSize = 0
 	}
+
 	if proposedLines < 0 {
 		proposedLines = 0
 	}
+
 	if proposedNonBlankLines < 0 {
 		proposedNonBlankLines = 0
 	}
+
 	if proposedSize < 0 {
 		proposedSize = 0
 	}
@@ -267,26 +310,32 @@ func proposedSymbolChangeInputs(input ActivationInput) []ProposedSymbolChangeInp
 	}
 
 	changes := []ProposedSymbolChangeInput{}
+
 	for _, file := range files {
-		change, ok := proposedFileChangeInput(input, file)
-		if !ok || !change.HasProposedContent || change.IsBinary {
+		change, found := proposedFileChangeInput(input, file)
+		if !found || !change.HasProposedContent || change.IsBinary {
 			continue
 		}
+
 		currentContent, _, binary := readTextFile(input.Cwd, change.File)
 		if binary {
 			continue
 		}
-		proposedContent, _, _, ok := proposedContentForTool(
+
+		proposedContent, _, _, found := proposedContentForTool(
 			input.Tool,
 			currentContent,
 			input.OldContent,
 			input.Content,
 			change.Exists,
 		)
-		if !ok {
+		if !found {
 			continue
 		}
-		changes = append(changes, symbolChangesForContent(change.File, currentContent, proposedContent)...)
+
+		changes = append(
+			changes,
+			symbolChangesForContent(change.File, currentContent, proposedContent)...)
 	}
 
 	return changes
@@ -298,19 +347,32 @@ func symbolChangesForContent(
 	proposedContent string,
 ) []ProposedSymbolChangeInput {
 	currentFile, currentOK, currentErr := astfacts.Analyze(file, []byte(currentContent))
-	proposedFile, proposedOK, proposedErr := astfacts.Analyze(file, []byte(proposedContent))
+
+	proposedFile, proposedOK, proposedErr := astfacts.Analyze(
+		file,
+		[]byte(proposedContent),
+	)
 	if currentErr != nil || proposedErr != nil || !currentOK || !proposedOK {
 		return nil
 	}
+
 	current := symbolsByKey(currentFile.Symbols)
 	proposed := symbolsByKey(proposedFile.Symbols)
 	keys := sortedSymbolKeys(current, proposed)
+
 	changes := make([]ProposedSymbolChangeInput, 0, len(keys))
 	for _, key := range keys {
 		currentSymbol, hasCurrent := current[key]
 		proposedSymbol, hasProposed := proposed[key]
-		change := proposedSymbolChange(file, currentSymbol, hasCurrent, proposedSymbol, hasProposed)
-		if change.Action != "unchanged" {
+
+		change := proposedSymbolChange(
+			file,
+			currentSymbol,
+			hasCurrent,
+			proposedSymbol,
+			hasProposed,
+		)
+		if change.Action != changeActionUnchanged {
 			changes = append(changes, change)
 		}
 	}
@@ -327,16 +389,18 @@ func symbolsByKey(symbols []astfacts.Symbol) map[string]astfacts.Symbol {
 	return result
 }
 
-func sortedSymbolKeys(left map[string]astfacts.Symbol, right map[string]astfacts.Symbol) []string {
+func sortedSymbolKeys(left, right map[string]astfacts.Symbol) []string {
 	keys := make([]string, 0, len(left)+len(right))
 	for key := range left {
 		keys = append(keys, key)
 	}
+
 	for key := range right {
-		if _, ok := left[key]; !ok {
+		if _, found := left[key]; !found {
 			keys = append(keys, key)
 		}
 	}
+
 	slices.Sort(keys)
 
 	return keys
@@ -362,26 +426,31 @@ func proposedSymbolChange(
 	if !hasProposed {
 		symbol = current
 	}
+
 	currentLines := 0
 	proposedLines := 0
 	currentNonBlankLines := 0
 	proposedNonBlankLines := 0
+
 	if hasCurrent {
 		currentLines = current.LineCount
 		currentNonBlankLines = countNonBlankLines(current.RawText)
 	}
+
 	if hasProposed {
 		proposedLines = proposed.LineCount
 		proposedNonBlankLines = countNonBlankLines(proposed.RawText)
 	}
-	action := "unchanged"
+
+	action := changeActionUnchanged
+
 	switch {
 	case !hasCurrent && hasProposed:
-		action = "added"
+		action = changeActionAdded
 	case hasCurrent && !hasProposed:
-		action = "deleted"
+		action = changeActionDeleted
 	case current.ContentHash != proposed.ContentHash:
-		action = "modified"
+		action = changeActionModified
 	}
 
 	return ProposedSymbolChangeInput{
@@ -437,14 +506,14 @@ func proposedFileChangeInput(
 		}, true
 	}
 
-	proposedContent, matched, ambiguous, ok := proposedContentForTool(
+	proposedContent, matched, ambiguous, found := proposedContentForTool(
 		input.Tool,
 		currentContent,
 		input.OldContent,
 		input.Content,
 		exists,
 	)
-	if !ok {
+	if !found {
 		return ProposedFileChangeInput{}, false
 	}
 
@@ -498,25 +567,37 @@ func proposedContentForTool(
 		if oldContent == "" {
 			return "", false, false, false
 		}
+
 		count := strings.Count(currentContent, oldContent)
 		if count == 0 {
 			return currentContent, false, false, true
 		}
+
 		if count > 1 {
-			return strings.ReplaceAll(currentContent, oldContent, newContent), true, true, true
+			return strings.ReplaceAll(
+				currentContent,
+				oldContent,
+				newContent,
+			), true, true, true
 		}
 
-		return strings.Replace(currentContent, oldContent, newContent, 1), true, false, true
+		return strings.Replace(
+			currentContent,
+			oldContent,
+			newContent,
+			1,
+		), true, false, true
 	default:
 		return "", false, false, false
 	}
 }
 
-func readTextFile(cwd string, file string) (string, bool, bool) {
+func readTextFile(cwd, file string) (string, bool, bool) {
 	content, err := os.ReadFile(resolveFilePath(cwd, file))
 	if err != nil {
 		return "", false, false
 	}
+
 	if bytes.Contains(content, []byte{0}) {
 		return "", true, true
 	}

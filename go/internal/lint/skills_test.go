@@ -11,6 +11,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const conditionalImportsSkillID = "conditional-imports"
+
 func TestEnrichResultWithSkillsDerivesSkillFromEthosOverlap(t *testing.T) {
 	t.Parallel()
 
@@ -31,8 +33,8 @@ func TestEnrichResultWithSkillsDerivesSkillFromEthosOverlap(t *testing.T) {
 	}
 
 	enriched := EnrichResultWithSkills(result, map[string]policy.Skill{
-		"conditional-imports": {
-			ID:           "conditional-imports",
+		conditionalImportsSkillID: {
+			ID:           conditionalImportsSkillID,
 			Description:  "Fix conditional imports structurally.",
 			ShortHint:    "Use module-scope imports or Protocol boundaries.",
 			PrincipleIDs: []string{"no-conditional-imports", "protocol-first-design"},
@@ -45,11 +47,12 @@ func TestEnrichResultWithSkillsDerivesSkillFromEthosOverlap(t *testing.T) {
 		},
 	})
 
-	if enriched.Findings[0].SkillID != "conditional-imports" {
+	if enriched.Findings[0].SkillID != conditionalImportsSkillID {
 		t.Fatalf("finding skill = %q", enriched.Findings[0].SkillID)
 	}
+
 	if len(enriched.SkillHints) != 1 ||
-		enriched.SkillHints[0].SkillID != "conditional-imports" ||
+		enriched.SkillHints[0].SkillID != conditionalImportsSkillID ||
 		enriched.SkillHints[0].PrincipleID != "no-conditional-imports" {
 		t.Fatalf("skill hints = %#v", enriched.SkillHints)
 	}
@@ -68,8 +71,8 @@ func TestSkillHintsForDiagnosticsDerivesSkillFromTriggerTerms(t *testing.T) {
 			Message:  "Cyclic import detected",
 		}},
 		map[string]policy.Skill{
-			"conditional-imports": {
-				ID:           "conditional-imports",
+			conditionalImportsSkillID: {
+				ID:           conditionalImportsSkillID,
 				Description:  "Fix import structure.",
 				ShortHint:    "Break cycles with Protocol-oriented boundaries.",
 				PrincipleIDs: []string{"protocol-first-design"},
@@ -79,7 +82,7 @@ func TestSkillHintsForDiagnosticsDerivesSkillFromTriggerTerms(t *testing.T) {
 	)
 
 	if len(hints) != 1 ||
-		hints[0].SkillID != "conditional-imports" ||
+		hints[0].SkillID != conditionalImportsSkillID ||
 		hints[0].PrincipleID != "protocol-first-design" {
 		t.Fatalf("skill hints = %#v", hints)
 	}

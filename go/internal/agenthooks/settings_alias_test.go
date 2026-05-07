@@ -15,9 +15,12 @@ func TestSettingsWireKnownNoopToolsToChecker(t *testing.T) {
 	t.Parallel()
 
 	buffer := bytes.Buffer{}
-	if err := agenthooks.WriteSettings(&buffer, testHookCommand); err != nil {
+
+	err := agenthooks.WriteSettings(&buffer, testHookCommand)
+	if err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
+
 	output := buffer.String()
 
 	for _, expected := range []string{

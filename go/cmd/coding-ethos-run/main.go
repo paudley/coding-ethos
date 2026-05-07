@@ -18,6 +18,7 @@ const (
 )
 
 type runtimePaths struct {
+	Executor         runtimeExecutor
 	RealGit          string
 	InvocationCWD    string
 	LocalRoot        string
@@ -37,11 +38,20 @@ type runtimePaths struct {
 	ManagedManifest  string
 }
 
+func (paths runtimePaths) executor() runtimeExecutor {
+	if paths.Executor == nil {
+		return defaultRuntimeExecutor{}
+	}
+
+	return paths.Executor
+}
+
 func main() {
 	paths, err := resolveRuntimePaths()
 	if err != nil {
 		exitErr(err)
 	}
+
 	paths.export()
 
 	args := runnerArgs(os.Args)
@@ -49,7 +59,7 @@ func main() {
 		args[0] != "cutover" &&
 		args[0] != "lfs-hook" &&
 		os.Getenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE") == "" {
-		execTool(paths, "coding-ethos-hook-log", append([]string{
+		runtimeExecTool(paths, "coding-ethos-hook-log", append([]string{
 			"--root", paths.Root,
 			"--bundle-root", paths.BundleRoot,
 			"--git", paths.RealGit,
@@ -57,8 +67,9 @@ func main() {
 		}, args...)...)
 	}
 
-	if err := run(paths, args); err != nil {
-		exitErr(err)
+	inlineErr0 := run(paths, args)
+	if inlineErr0 != nil {
+		exitErr(inlineErr0)
 	}
 }
 
@@ -67,49 +78,73 @@ func resolveRuntimePaths() (runtimePaths, error) {
 	if realGit == "" {
 		realGit = defaultGitPath
 	}
+
 	invocationCWD, err := os.Getwd()
 	if err != nil {
 		return runtimePaths{}, fmt.Errorf("get invocation cwd: %w", err)
 	}
+
 	localRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
 	if err != nil {
 		return runtimePaths{}, err
 	}
+
 	root := strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT"))
 	if root == "" {
 		root = localRoot
 	}
-	hooksDir, err := gitOutput(realGit, root, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
+
+	hooksDir, err := gitOutput(
+		realGit,
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-path",
+		"hooks",
+	)
 	if err != nil {
 		return runtimePaths{}, err
 	}
+
 	runBinary, err := os.Executable()
 	if err != nil {
 		return runtimePaths{}, fmt.Errorf("resolve runner executable: %w", err)
 	}
+
 	runBinary, err = filepath.EvalSymlinks(runBinary)
 	if err != nil {
 		return runtimePaths{}, fmt.Errorf("resolve runner symlinks: %w", err)
 	}
+
 	binDir := filepath.Dir(runBinary)
 	ethosRoot := filepath.Dir(binDir)
 	bundleRoot := filepath.Join(ethosRoot, "pre-commit")
 	toolchainDir := filepath.Join(ethosRoot, "build", "toolchain")
 
 	return runtimePaths{
-		RealGit:          realGit,
-		InvocationCWD:    invocationCWD,
-		LocalRoot:        localRoot,
-		Root:             root,
-		HooksDir:         hooksDir,
-		BinDir:           binDir,
-		RunBinary:        runBinary,
-		BundleRoot:       bundleRoot,
-		EthosRoot:        ethosRoot,
-		GitHookRunner:    filepath.Join(binDir, "coding-ethos-hook-runner"),
-		ToolsSource:      filepath.Join(ethosRoot, "go"),
-		PolicyBundle:     filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),
-		PolicyMetadata:   filepath.Join(ethosRoot, "build", "policy", "policy-metadata.json"),
+		RealGit:       realGit,
+		InvocationCWD: invocationCWD,
+		LocalRoot:     localRoot,
+		Root:          root,
+		HooksDir:      hooksDir,
+		BinDir:        binDir,
+		RunBinary:     runBinary,
+		BundleRoot:    bundleRoot,
+		EthosRoot:     ethosRoot,
+		GitHookRunner: filepath.Join(binDir, "coding-ethos-hook-runner"),
+		ToolsSource:   filepath.Join(ethosRoot, "go"),
+		PolicyBundle: filepath.Join(
+			ethosRoot,
+			"build",
+			"policy",
+			"policy-bundle.json",
+		),
+		PolicyMetadata: filepath.Join(
+			ethosRoot,
+			"build",
+			"policy",
+			"policy-metadata.json",
+		),
 		ManagedGoBin:     filepath.Join(toolchainDir, "go-bin"),
 		ManagedPrefixBin: filepath.Join(toolchainDir, "prefix", "bin"),
 		ManagedGitHubBin: filepath.Join(toolchainDir, "github-bin"),
@@ -126,12 +161,17 @@ func (paths runtimePaths) export() {
 		filepath.Join(paths.Root, ".venv", "bin"),
 		os.Getenv("PATH"),
 	}, string(os.PathListSeparator))
+
 	setenv := map[string]string{
-		"INVOCATION_CWD":             paths.InvocationCWD,
-		"CODE_ETHOS_PRECOMMIT_ROOT":  paths.BundleRoot,
-		"CODE_ETHOS_CONSUMER_ROOT":   paths.Root,
-		"CODING_ETHOS_RUN_GO_HOOK":   paths.RunBinary,
-		"GIT_HOOK_SRC_DIR":           filepath.Join(paths.BundleRoot, "hooks", "go-hooks"),
+		"INVOCATION_CWD":            paths.InvocationCWD,
+		"CODE_ETHOS_PRECOMMIT_ROOT": paths.BundleRoot,
+		"CODE_ETHOS_CONSUMER_ROOT":  paths.Root,
+		"CODING_ETHOS_RUN_GO_HOOK":  paths.RunBinary,
+		"GIT_HOOK_SRC_DIR": filepath.Join(
+			paths.ToolsSource,
+			"cmd",
+			"coding-ethos-hook-runner",
+		),
 		"TOOLS_SRC_DIR":              paths.ToolsSource,
 		"POLICY_METADATA":            paths.PolicyMetadata,
 		"MANAGED_TOOLCHAIN_MANIFEST": paths.ManagedManifest,
@@ -148,6 +188,7 @@ func exitErr(err error) {
 	if errors.As(err, &exitError) {
 		os.Exit(exitError.ExitCode())
 	}
+
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
 }

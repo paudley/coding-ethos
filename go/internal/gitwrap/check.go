@@ -4,9 +4,9 @@
 package gitwrap
 
 import (
-	"errors"
 	"fmt"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -17,8 +17,12 @@ const (
 )
 
 var (
-	errUnknownGitPolicy      = errors.New("git dispatch references unknown policy")
-	errUnregisteredEvaluator = errors.New("policy references unregistered evaluator")
+	errUnknownGitPolicy = apperror.StaticError(
+		"git dispatch references unknown policy",
+	)
+	errUnregisteredEvaluator = apperror.StaticError(
+		"policy references unregistered evaluator",
+	)
 )
 
 type Options struct {

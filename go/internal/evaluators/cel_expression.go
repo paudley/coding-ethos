@@ -8,8 +8,14 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+)
+
+type (
+	proposedSymbolChangeInputs = []celexpr.ProposedSymbolChangeInput
+	proposedFileChangeInputs   = []celexpr.ProposedFileChangeInput
 )
 
 func EvaluateCELExpression(
@@ -18,15 +24,24 @@ func EvaluateCELExpression(
 ) ([]policy.Decision, error) {
 	source := strings.TrimSpace(stringOption(context.EvaluatorOptions, "when", ""))
 	if source == "" {
-		return nil, fmt.Errorf("CEL expression policy %q missing when", policyDef.ID)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("CEL expression policy %q missing when"),
+			"CEL expression policy %q missing when",
+			policyDef.ID,
+		)
 	}
 
 	program, err := celexpr.Program(policyDef.ID, source)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(
+			"compile CEL expression for policy %s: %w",
+			policyDef.ID,
+			err,
+		)
 	}
 
 	activation := celActivation(context, source)
+
 	output, _, err := program.Eval(activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
@@ -41,7 +56,9 @@ func EvaluateCELExpression(
 	if decisionMode == "" {
 		decisionMode = blockDecision
 	}
+
 	decision := policy.NewDecision(decisionMode, policyDef)
+
 	decision.Evidence = map[string]any{
 		"argv":                 append([]string(nil), context.Argv...),
 		"command":              context.Command,
@@ -54,12 +71,15 @@ func EvaluateCELExpression(
 	if context.Tool != "" {
 		decision.Evidence["tool"] = context.Tool
 	}
+
 	if policyDef.Source.File != "" {
 		decision.Evidence["policy_source"] = policySource(policyDef)
 	}
+
 	if skillID := stringOption(context.EvaluatorOptions, "skill_id", ""); skillID != "" {
 		decision.Evidence["skill_id"] = skillID
 	}
+
 	decision.Diagnostics = []diagnostics.Diagnostic{celDiagnostic(
 		context,
 		policyDef,
@@ -105,14 +125,17 @@ func celDiagnostic(
 
 		return diagnostic
 	}
+
 	if len(context.Files) == 1 {
 		diagnostic.File = context.Files[0]
 	}
-	if policyDef.ID == "filesystem.line_limits" {
+
+	if policyDef.ID == filesystemLineLimitsPolicy {
 		applyLineLimitFileDiagnostic(&diagnostic, activation)
 
 		return diagnostic
 	}
+
 	if symbol, ok := firstGrowingProposedSymbol(activation); ok {
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
@@ -150,7 +173,10 @@ func celDiagnostic(
 	return diagnostic
 }
 
-func applyLineLimitFileDiagnostic(diagnostic *diagnostics.Diagnostic, activation map[string]any) {
+func applyLineLimitFileDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	activation map[string]any,
+) {
 	if file, ok := firstLineLimitProposedFile(activation); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "proposed"
@@ -161,6 +187,7 @@ func applyLineLimitFileDiagnostic(diagnostic *diagnostics.Diagnostic, activation
 
 		return
 	}
+
 	if file, ok := firstLineLimitChangedFile(activation); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "staged"
@@ -178,6 +205,7 @@ func firstLineLimitProposedFile(
 	if !ok {
 		return celexpr.ProposedFileChangeInput{}, false
 	}
+
 	for _, file := range files {
 		if proposedFileMatchesLineLimit(file) {
 			return file, true
@@ -191,21 +219,22 @@ func proposedFileMatchesLineLimit(file celexpr.ProposedFileChangeInput) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
 		file.LineCountGrows &&
-		file.NonBlankLineCountGrows &&
-		fileExceedsLineLimit(file.Ext, file.File, file.ProposedLineCount)
+		file.NonBlankLineCountGrows
 }
 
 func firstLineLimitChangedFile(
 	activation map[string]any,
 ) (celexpr.FileChangeInput, bool) {
-	proposedFiles, ok := activation["proposed_file_changes"].([]celexpr.ProposedFileChangeInput)
-	if ok && len(proposedFiles) != 0 {
+	proposedFiles, found := proposedFileChanges(activation)
+	if found && len(proposedFiles) != 0 {
 		return celexpr.FileChangeInput{}, false
 	}
+
 	files, ok := activation["file_changes"].([]celexpr.FileChangeInput)
 	if !ok {
 		return celexpr.FileChangeInput{}, false
 	}
+
 	for _, file := range files {
 		if changedFileMatchesLineLimit(file) {
 			return file, true
@@ -218,31 +247,18 @@ func firstLineLimitChangedFile(
 func changedFileMatchesLineLimit(file celexpr.FileChangeInput) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
-		fileExceedsLineLimit(file.Ext, file.File, file.LineCount) &&
 		(file.OriginalLineCount < 0 || file.LineCount > file.OriginalLineCount) &&
 		(file.OriginalNonBlankLineCount < 0 || file.NonBlankLineCountGrows)
-}
-
-func fileExceedsLineLimit(ext string, file string, lineCount int64) bool {
-	switch {
-	case ext == ".py":
-		return lineCount > 1000
-	case ext == ".go":
-		return lineCount > 2000
-	case ext == ".sh" || ext == ".bash" || strings.HasPrefix(file, "scripts/"):
-		return lineCount > 500
-	default:
-		return false
-	}
 }
 
 func firstGrowingProposedSymbol(
 	activation map[string]any,
 ) (celexpr.ProposedSymbolChangeInput, bool) {
-	symbols, ok := activation["proposed_symbol_changes"].([]celexpr.ProposedSymbolChangeInput)
+	symbols, ok := proposedSymbolChanges(activation)
 	if !ok {
 		return celexpr.ProposedSymbolChangeInput{}, false
 	}
+
 	for _, symbol := range symbols {
 		if symbol.LineCountGrows {
 			return symbol, true
@@ -252,6 +268,22 @@ func firstGrowingProposedSymbol(
 	return celexpr.ProposedSymbolChangeInput{}, false
 }
 
+func proposedFileChanges(
+	activation map[string]any,
+) ([]celexpr.ProposedFileChangeInput, bool) {
+	files, ok := activation["proposed_file_changes"].(proposedFileChangeInputs)
+
+	return files, ok
+}
+
+func proposedSymbolChanges(
+	activation map[string]any,
+) ([]celexpr.ProposedSymbolChangeInput, bool) {
+	symbols, ok := activation["proposed_symbol_changes"].(proposedSymbolChangeInputs)
+
+	return symbols, ok
+}
+
 func firstGrowingChangedSymbol(
 	activation map[string]any,
 ) (celexpr.ChangedSymbolInput, bool) {
@@ -259,6 +291,7 @@ func firstGrowingChangedSymbol(
 	if !ok {
 		return celexpr.ChangedSymbolInput{}, false
 	}
+
 	for _, symbol := range symbols {
 		if symbol.LineCountGrows {
 			return symbol, true
@@ -278,33 +311,34 @@ func policySource(policyDef policy.Policy) string {
 
 func celActivation(context Context, source string) map[string]any {
 	return celexpr.Activation(celexpr.ActivationInput{
-		Argv:             context.Argv,
-		Command:          context.Command,
-		Content:          context.Content,
-		OldContent:       context.OldContent,
-		Cwd:              context.Cwd,
-		EventName:        context.EventName,
-		EventMatcher:     context.EventMatcher,
-		EventSource:      context.EventSource,
-		Files:            context.Files,
-		ChangedFiles:     context.ChangedFiles,
-		StagedFiles:      context.StagedFiles,
-		Provider:         context.Provider,
-		Mode:             stringOption(context.EvaluatorOptions, "mode", ""),
-		Scope:            context.Scope,
-		SessionID:        context.SessionID,
-		Tool:             context.Tool,
-		ToolInputKeys:    context.ToolInputKeys,
-		ToolResponseKeys: context.ToolResponseKeys,
-		TranscriptPath:   context.TranscriptPath,
-		ReturnCode:       context.ReturnCode,
-		HasToolInput:     context.HasToolInput,
-		HasToolResponse:  context.HasToolResponse,
-		AdminApproved:    context.AdminApproved,
-		Diagnostic:       context.Diagnostic,
-		Diagnostics:      context.Diagnostics,
-		Findings:         celFindings(context.Findings),
-		PythonASTFacts:   celPythonASTFacts(context, source),
+		Argv:               context.Argv,
+		Command:            context.Command,
+		Content:            context.Content,
+		OldContent:         context.OldContent,
+		Cwd:                context.Cwd,
+		EventName:          context.EventName,
+		EventMatcher:       context.EventMatcher,
+		EventSource:        context.EventSource,
+		Files:              context.Files,
+		ChangedFiles:       context.ChangedFiles,
+		StagedFiles:        context.StagedFiles,
+		Provider:           context.Provider,
+		Mode:               stringOption(context.EvaluatorOptions, "mode", ""),
+		Scope:              context.Scope,
+		SessionID:          context.SessionID,
+		Tool:               context.Tool,
+		ToolInputKeys:      context.ToolInputKeys,
+		ToolResponseKeys:   context.ToolResponseKeys,
+		TranscriptPath:     context.TranscriptPath,
+		ReturnCode:         context.ReturnCode,
+		HasToolInput:       context.HasToolInput,
+		HasToolResponse:    context.HasToolResponse,
+		AdminApproved:      context.AdminApproved,
+		ReadOnlyInspection: context.ReadOnlyInspection,
+		Diagnostic:         context.Diagnostic,
+		Diagnostics:        context.Diagnostics,
+		Findings:           celFindings(context.Findings),
+		PythonASTFacts:     celPythonASTFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
 			"protected_paths",
@@ -335,12 +369,19 @@ func celCurrentBranch(context Context) string {
 	if branch := strings.TrimSpace(context.CurrentBranch); branch != "" {
 		return branch
 	}
-	if branch := stringOption(context.EvaluatorOptions, "current_branch", ""); branch != "" {
+
+	if branch := stringOption(
+		context.EvaluatorOptions,
+		"current_branch",
+		"",
+	); branch != "" {
 		return branch
 	}
+
 	if context.Cwd == "" {
 		return ""
 	}
+
 	branch, ok := currentBranch(context.Cwd)
 	if !ok {
 		return ""

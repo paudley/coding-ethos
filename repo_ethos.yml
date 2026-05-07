@@ -49,7 +49,7 @@ repo:
     renderers: coding_ethos/renderers.py
     markdown_seed: coding_ethos/markdown_seed.py
     merge_logic: coding_ethos/merging.py
-    gemini_prompt_pack: coding_ethos/gemini_prompt_pack.py
+    gemini_prompt_pack: go/internal/geminiprompts/
     presets: coding_ethos/presets.py
     models: coding_ethos/models.py
     tests: tests/test_cli.py
@@ -59,7 +59,7 @@ repo:
     bundle_config: config.yaml
     consumer_override_example: repo_config.example.yaml
     precommit_bundle: pre-commit/
-    go_hook_runner: pre-commit/hooks/go-hooks/
+    go_hook_runner: go/cmd/coding-ethos-hook-runner/
   notes:
     - coding_ethos.yml is the shared source contract; repo_ethos.yml is the repo-local
       refinement layer.
@@ -75,8 +75,8 @@ repo:
       .python-version, pyproject.toml, mypy.ini, pyrightconfig.json, ruff.toml, and
       .golangci.yml's lll line-length setting.
     - Hook runtime, policy enforcement, Python policy checks, and bundled analyzer
-      orchestration now live in pre-commit/hooks/go-hooks/; the shell scripts under
-      pre-commit/hooks/ are narrow bootstrap shims for Git and agent entrypoints.
+      orchestration now live in go/cmd/coding-ethos-hook-runner/ inside the shared
+      Go module; pre-commit/hooks/ contains hook assets and narrow bootstrap shims.
     - Source-aware enforcement follows the AST/CEL/SARIF architecture documented
       in docs/AST_CEL_SARIF_ARCHITECTURE.md. Extend shared Go Tree-sitter fact
       collection first, express configurable decisions in CEL where possible,

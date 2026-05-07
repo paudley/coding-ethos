@@ -53,6 +53,7 @@ func EvaluateShellBestPractices(
 		if err != nil {
 			return nil, err
 		}
+
 		if binary {
 			continue
 		}
@@ -101,26 +102,34 @@ func shellBestPracticeViolations(
 	requireCommonForPrefixes []string,
 ) []shellViolation {
 	violations := []shellViolation{}
+	violations = append(
+		violations,
+		shellHeaderViolations(path, text, requireCommonForPrefixes)...)
+
+	commands, err := shellparse.Commands(text)
+	if err != nil {
+		return append(violations, shellParseViolation(err))
+	}
+
+	for _, command := range commands {
+		violations = append(violations, shellCommandViolations(command)...)
+	}
+
+	return violations
+}
+
+func shellHeaderViolations(
+	path string,
+	text string,
+	requireCommonForPrefixes []string,
+) []shellViolation {
+	violations := []shellViolation{}
 	if !validShellShebang(text) {
 		violations = append(violations, shellViolation{
 			Message: "missing or invalid shell shebang",
 			Line:    1,
 			Column:  1,
 		})
-	}
-	commands, err := shellparse.Commands(text)
-	if err != nil {
-		violation := shellViolation{
-			Message: "shell script has invalid shell syntax",
-			Line:    1,
-			Column:  1,
-		}
-		var parseErr shellparse.Error
-		if errors.As(err, &parseErr) {
-			violation.Line = parseErr.Line
-			violation.Column = parseErr.Column
-		}
-		violations = append(violations, violation)
 	}
 
 	if !shellStrictModePattern.MatchString(text) {
@@ -139,22 +148,43 @@ func shellBestPracticeViolations(
 			Column:  1,
 		})
 	}
-	for _, command := range commands {
-		if command.Name == "eval" {
-			violations = append(violations, shellViolation{
-				Message: "shell scripts must not use eval",
-				Line:    command.Line,
-				Column:  command.Column,
-			})
-		}
-		if command.IsFunctionDeclaration &&
-			(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
-			violations = append(violations, shellViolation{
-				Message: "shell functions must not mask protected tool names",
-				Line:    command.Line,
-				Column:  command.Column,
-			})
-		}
+
+	return violations
+}
+
+func shellParseViolation(err error) shellViolation {
+	violation := shellViolation{
+		Message: "shell script has invalid shell syntax",
+		Line:    1,
+		Column:  1,
+	}
+
+	var parseErr shellparse.Error
+	if errors.As(err, &parseErr) {
+		violation.Line = parseErr.Line
+		violation.Column = parseErr.Column
+	}
+
+	return violation
+}
+
+func shellCommandViolations(command shellparse.Command) []shellViolation {
+	violations := []shellViolation{}
+	if command.Name == "eval" {
+		violations = append(violations, shellViolation{
+			Message: "shell scripts must not use eval",
+			Line:    command.Line,
+			Column:  command.Column,
+		})
+	}
+
+	if command.IsFunctionDeclaration &&
+		(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
+		violations = append(violations, shellViolation{
+			Message: "shell functions must not mask protected tool names",
+			Line:    command.Line,
+			Column:  command.Column,
+		})
 	}
 
 	return violations
@@ -162,6 +192,7 @@ func shellBestPracticeViolations(
 
 func validShellShebang(text string) bool {
 	reader := strings.NewReader(text)
+
 	line, err := readFirstLine(reader)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false
@@ -175,20 +206,24 @@ func validShellShebang(text string) bool {
 
 func readFirstLine(reader *strings.Reader) (string, error) {
 	var builder strings.Builder
+
 	for {
 		char, _, err := reader.ReadRune()
 		if err != nil {
 			return builder.String(), err
 		}
+
 		if char == '\n' {
 			return builder.String(), nil
 		}
+
 		builder.WriteRune(char)
 	}
 }
 
 func hasConfiguredPrefix(path string, prefixes []string) bool {
 	normalized := filepath.ToSlash(path)
+
 	normalized = strings.TrimPrefix(normalized, "./")
 	for _, prefix := range prefixes {
 		cleaned := strings.TrimPrefix(filepath.ToSlash(prefix), "./")
@@ -207,6 +242,7 @@ func shellBestPracticesDecision(
 ) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
 	diagnosticItems := make([]diagnostics.Diagnostic, 0, len(violations))
+
 	messages := make([]string, 0, len(violations))
 	for _, violation := range violations {
 		messages = append(messages, violation.Message)
@@ -221,6 +257,7 @@ func shellBestPracticesDecision(
 			Advice:   policyDef.Suggestion,
 		})
 	}
+
 	decision.Diagnostics = diagnosticItems
 	decision.Evidence = map[string]any{
 		"file":       file,

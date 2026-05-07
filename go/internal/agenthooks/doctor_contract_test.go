@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package agenthooks
+package agenthooks_test
 
 import (
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/agenthooks"
 )
 
 func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
@@ -13,12 +15,14 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 
 	rewriteProviders := map[string]bool{}
 	blockProviders := map[string]bool{}
-	for _, probe := range hookProbes() {
-		if strings.Contains(probe.payload, "git status --short") {
-			rewriteProviders[probe.provider] = true
+
+	for _, probe := range HookProbeSummaries() {
+		if strings.Contains(probe.Payload, "git status --short") {
+			rewriteProviders[probe.Provider] = true
 		}
-		if strings.Contains(probe.payload, "coding-ethos-"+"hooks") {
-			blockProviders[probe.provider] = true
+
+		if strings.Contains(probe.Payload, "coding-ethos-"+"hooks") {
+			blockProviders[probe.Provider] = true
 		}
 	}
 
@@ -30,6 +34,7 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 		if !rewriteProviders[provider] {
 			t.Fatalf("missing rewrite doctor probe for %s", provider)
 		}
+
 		if !blockProviders[provider] {
 			t.Fatalf("missing block doctor probe for %s", provider)
 		}
@@ -39,25 +44,28 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 func TestClaudeDoctorRewriteRequiresRedirection(t *testing.T) {
 	t.Parallel()
 
-	result := hookProbeResult{
-		exitCode: 0,
-		stdout:   `{"hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git 'status' '--short'"}}}`,
-		payload: map[string]any{
-			"hookSpecificOutput": map[string]any{
-				"updatedInput": map[string]any{
-					"command": "/repo/bin/coding-ethos-run policy-git 'status' '--short'",
-				},
+	stdout := `{"hookSpecificOutput":{"updatedInput":{"command":` +
+		`"/repo/bin/coding-ethos-run policy-git 'status' '--short'"}}}`
+	payload := map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"updatedInput": map[string]any{
+				"command": "/repo/bin/coding-ethos-run policy-git 'status' '--short'",
 			},
 		},
 	}
 
-	if err := validateClaudeRewriteProbe(result); err == nil {
+	err := ValidateClaudeRewritePayload(stdout, payload)
+	if err == nil {
 		t.Fatal("Claude rewrite without redirection passed doctor validation")
 	}
-	if err := validateCodexRewriteProbe(result); err == nil {
+
+	err = ValidateCodexRewritePayload(stdout, payload)
+	if err == nil {
 		t.Fatal("Codex rewrite probe should reject unsupported updatedInput")
 	}
-	if err := validateGeminiRewriteProbe(result); err != nil {
+
+	err = ValidateGeminiRewritePayload(stdout, payload)
+	if err != nil {
 		t.Fatalf("Gemini rewrite should not require Claude redirection: %v", err)
 	}
 }

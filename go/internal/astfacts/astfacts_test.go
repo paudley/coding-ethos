@@ -1,18 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package astfacts
+package astfacts_test
 
 import (
+	"slices"
 	"testing"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	. "blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
 func TestAnalyzeIndexesJSONAndTOMLConfigEntries(t *testing.T) {
 	t.Parallel()
 
-	jsonFile, ok, err := Analyze("config/settings.json", []byte(`{
+	jsonFile, found, err := Analyze("config/settings.json", []byte(`{
   "tools": {
     "ruff": {"enabled": true}
   }
@@ -20,14 +23,16 @@ func TestAnalyzeIndexesJSONAndTOMLConfigEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze json: %v", err)
 	}
-	if !ok || jsonFile.Language != "json" {
-		t.Fatalf("json language = %q, ok=%v", jsonFile.Language, ok)
+
+	if !found || jsonFile.Language != "json" {
+		t.Fatalf("json language = %q, ok=%v", jsonFile.Language, found)
 	}
+
 	if !hasSymbol(jsonFile.Symbols, "tools.ruff", "config_entry") {
 		t.Fatalf("json symbols missing tools.ruff: %#v", jsonFile.Symbols)
 	}
 
-	tomlFile, ok, err := Analyze("pyproject.toml", []byte(`[tool.ruff]
+	tomlFile, found, err := Analyze("pyproject.toml", []byte(`[tool.ruff]
 line-length = 100
 
 [tool.pyright]
@@ -36,12 +41,15 @@ typeCheckingMode = "strict"
 	if err != nil {
 		t.Fatalf("analyze toml: %v", err)
 	}
-	if !ok || tomlFile.Language != "toml" {
-		t.Fatalf("toml language = %q, ok=%v", tomlFile.Language, ok)
+
+	if !found || tomlFile.Language != "toml" {
+		t.Fatalf("toml language = %q, ok=%v", tomlFile.Language, found)
 	}
+
 	if !hasSymbol(tomlFile.Symbols, "tool.ruff.line-length", "config_entry") {
 		t.Fatalf("toml symbols missing tool.ruff.line-length: %#v", tomlFile.Symbols)
 	}
+
 	if !hasSymbol(tomlFile.Symbols, "tool.pyright", "config_section") {
 		t.Fatalf("toml symbols missing tool.pyright section: %#v", tomlFile.Symbols)
 	}
@@ -50,16 +58,18 @@ typeCheckingMode = "strict"
 func TestContextForLineReturnsNearestSymbol(t *testing.T) {
 	t.Parallel()
 
-	context, ok, err := ContextForLine("pkg/app.py", []byte(`class Worker:
+	context, found, err := ContextForLine("pkg/app.py", []byte(`class Worker:
     def run(self):
         return "ok"
 `), 3)
 	if err != nil {
 		t.Fatalf("context: %v", err)
 	}
-	if !ok {
+
+	if !found {
 		t.Fatalf("context not found")
 	}
+
 	if context.SymbolPath != "Worker.run" || context.SymbolKind != "function" {
 		t.Fatalf("context = %#v", context)
 	}
@@ -87,8 +97,9 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 			reference:  "fmt",
 		},
 		{
-			path:       "pkg/app.py",
-			source:     "import pathlib\n\nclass Worker:\n    def run(self):\n        return pathlib.Path('.')\n",
+			path: "pkg/app.py",
+			source: "import pathlib\n\nclass Worker:\n" +
+				"    def run(self):\n        return pathlib.Path('.')\n",
 			language:   "python",
 			symbolPath: "Worker.run",
 			symbolKind: "function",
@@ -110,21 +121,35 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			t.Parallel()
 
-			file, ok, err := Analyze(test.path, []byte(test.source))
+			file, found, err := Analyze(test.path, []byte(test.source))
 			if err != nil {
 				t.Fatalf("analyze: %v", err)
 			}
-			if !ok || file.Language != test.language {
-				t.Fatalf("language = %q ok=%v", file.Language, ok)
+
+			if !found || file.Language != test.language {
+				t.Fatalf("language = %q ok=%v", file.Language, found)
 			}
+
 			if !hasSymbol(file.Symbols, test.symbolPath, test.symbolKind) {
-				t.Fatalf("missing symbol %s/%s: %#v", test.symbolPath, test.symbolKind, file.Symbols)
+				t.Fatalf(
+					"missing symbol %s/%s: %#v",
+					test.symbolPath,
+					test.symbolKind,
+					file.Symbols,
+				)
 			}
+
 			if !hasImport(file.Imports, test.importName) {
 				t.Fatalf("missing import %q: %#v", test.importName, file.Imports)
 			}
+
 			if !symbolReferences(file.Symbols, test.symbolPath, test.reference) {
-				t.Fatalf("symbol %q missing reference %q: %#v", test.symbolPath, test.reference, file.Symbols)
+				t.Fatalf(
+					"symbol %q missing reference %q: %#v",
+					test.symbolPath,
+					test.reference,
+					file.Symbols,
+				)
 			}
 		})
 	}
@@ -133,71 +158,96 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 	t.Parallel()
 
-	shellFile, ok, err := Analyze("scripts/build.sh", []byte("build() {\n  echo ok\n}\n"))
+	shellFile, found, err := Analyze(
+		"scripts/build.sh",
+		[]byte("build() {\n  echo ok\n}\n"),
+	)
 	if err != nil {
 		t.Fatalf("analyze shell: %v", err)
 	}
-	if !ok || !hasSymbol(shellFile.Symbols, "build", "function") {
-		t.Fatalf("shell symbols = %#v ok=%v", shellFile.Symbols, ok)
+
+	if !found || !hasSymbol(shellFile.Symbols, "build", "function") {
+		t.Fatalf("shell symbols = %#v ok=%v", shellFile.Symbols, found)
 	}
 
-	yamlFile, ok, err := Analyze("config.yaml", []byte("tooling:\n  enabled: true\n"))
+	yamlFile, found, err := Analyze(
+		"config.yaml",
+		[]byte("tooling:\n  enabled: true\n"),
+	)
 	if err != nil {
 		t.Fatalf("analyze yaml: %v", err)
 	}
-	if !ok || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
-		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, ok)
+
+	if !found || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
+		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, found)
 	}
 }
 
 func TestUnsupportedPathsAndInvalidLinesReturnNoContext(t *testing.T) {
 	t.Parallel()
 
-	if language, ok := LanguageForPath("README.md"); ok || language != "" {
-		t.Fatalf("markdown language = %q ok=%v", language, ok)
+	if language, found := LanguageForPath("README.md"); found || language != "" {
+		t.Fatalf("markdown language = %q ok=%v", language, found)
 	}
-	if _, ok, err := Analyze("README.md", []byte("# docs\n")); err != nil || ok {
-		t.Fatalf("unsupported analyze ok=%v err=%v", ok, err)
+
+	_, found, inlineErrAutoA := Analyze("README.md", []byte("# docs\n"))
+	if inlineErrAutoA != nil || found {
+		t.Fatalf("unsupported analyze ok=%v err=%v", found, inlineErrAutoA)
 	}
-	if _, ok, err := ContextForLine("pkg/app.py", []byte("def run():\n    pass\n"), 0); err != nil || ok {
-		t.Fatalf("invalid line context ok=%v err=%v", ok, err)
+
+	_, found, inlineErrAutoB := ContextForLine(
+		"pkg/app.py",
+		[]byte("def run():\n    pass\n"),
+		0,
+	)
+	if inlineErrAutoB != nil ||
+		found {
+		t.Fatalf("invalid line context ok=%v err=%v", found, inlineErrAutoB)
 	}
 }
 
 func TestParseAndWalkExposeTreeTraversalHelpers(t *testing.T) {
 	t.Parallel()
 
-	tree, ok, err := Parse("pkg/app.py", []byte("def run():\n    return 1\n"))
+	tree, found, err := Parse("pkg/app.py", []byte("def run():\n    return 1\n"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !ok {
+
+	if !found {
 		t.Fatal("parse should support Python")
 	}
+
 	defer tree.Close()
 
 	visited := 0
+
 	Walk(tree.RootNode(), func(_ *tree_sitter.Node) {
 		visited++
 	})
+
 	if visited == 0 {
 		t.Fatal("walk should visit nodes")
 	}
+
 	deepest := 0
+
 	WalkWithDepth(tree.RootNode(), func(_ *tree_sitter.Node, depth int) {
 		if depth > deepest {
 			deepest = depth
 		}
 	})
+
 	if deepest == 0 {
 		t.Fatal("walk with depth should report nested nodes")
 	}
+
 	if !NodeContainsLine(tree.RootNode(), 1) {
 		t.Fatal("root should contain first line")
 	}
 }
 
-func hasSymbol(symbols []Symbol, path string, kind string) bool {
+func hasSymbol(symbols []Symbol, path, kind string) bool {
 	for _, symbol := range symbols {
 		if symbol.SymbolPath == path && symbol.SymbolKind == kind {
 			return true
@@ -217,15 +267,14 @@ func hasImport(imports []Import, target string) bool {
 	return false
 }
 
-func symbolReferences(symbols []Symbol, path string, reference string) bool {
+func symbolReferences(symbols []Symbol, path, reference string) bool {
 	for _, symbol := range symbols {
 		if symbol.SymbolPath != path {
 			continue
 		}
-		for _, name := range symbol.ReferencedNames {
-			if name == reference {
-				return true
-			}
+
+		if slices.Contains(symbol.ReferencedNames, reference) {
+			return true
 		}
 	}
 

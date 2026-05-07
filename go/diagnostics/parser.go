@@ -29,6 +29,9 @@ var (
 	golangciPattern = regexp.MustCompile(
 		`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\(([^)]+)\))?$`,
 	)
+	goTestFileLinePattern = regexp.MustCompile(
+		`^\s+(.+\.go):(\d+):\s*(.*)$`,
+	)
 	hadolintPattern = regexp.MustCompile(
 		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
 	)
@@ -41,21 +44,29 @@ var (
 	tombiLocationPattern = regexp.MustCompile(
 		`^\s*at\s+(.+?):(\d+):(\d+)\s*$`,
 	)
-	ruffCodePattern     = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
-	ruffFormatPattern   = regexp.MustCompile(`^(Would reformat|would reformat|reformatted):\s+(.+)$`)
-	ruffFormatUnchanged = regexp.MustCompile(`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`)
+	ruffCodePattern   = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
+	ruffFormatPattern = regexp.MustCompile(
+		`^(Would reformat|would reformat|reformatted):\s+(.+)$`,
+	)
+	ruffFormatUnchanged = regexp.MustCompile(
+		`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`,
+	)
 )
 
 const (
 	actionlintTextMatchParts = 6
 	dotenvTextMatchParts     = 5
+	goTestFileLineMatchParts = 4
 	hadolintTextMatchParts   = 6
 	tombiHeaderMatchParts    = 3
 	tombiLocationMatchParts  = 4
 	yamllintParts            = 4
+	ruffFormatMatchParts     = 3
+	severityError            = "error"
+	severityWarning          = "warning"
 )
 
-func Parse(tool string, stdout string, stderr string) []Diagnostic {
+func Parse(tool, stdout, stderr string) []Diagnostic {
 	output := strings.TrimSpace(firstNonEmpty(stdout, stderr))
 	if output == "" {
 		return nil
@@ -85,35 +96,37 @@ func InferTool(command []string) string {
 }
 
 func parserForTool(tool string) (Parser, bool) {
-	switch normalizedToolName(tool) {
-	case "ruff":
-		return parseRuff, true
-	case "pyright":
-		return parsePyright, true
-	case "mypy":
-		return parseMypy, true
-	case "pylint":
-		return parsePylint, true
-	case "golangci-lint":
-		return parseGolangciLint, true
-	case "hadolint":
-		return parseHadolint, true
-	case "actionlint":
-		return parseActionlint, true
-	case "shellcheck":
-		return parseShellcheck, true
-	case "yamllint":
-		return parseYamllint, true
-	case "bandit":
-		return parseBandit, true
-	case "sqlfluff":
-		return parseSQLFluff, true
-	case "tombi":
-		return parseTombi, true
-	case "dotenv-linter":
-		return parseDotenvLinter, true
-	default:
-		return nil, false
+	normalized := normalizedToolName(tool)
+	for _, entry := range parserEntries() {
+		if entry.Name == normalized {
+			return entry.Parser, true
+		}
+	}
+
+	return nil, false
+}
+
+type parserEntry struct {
+	Parser Parser
+	Name   string
+}
+
+func parserEntries() []parserEntry {
+	return []parserEntry{
+		{Name: "actionlint", Parser: parseActionlint},
+		{Name: "bandit", Parser: parseBandit},
+		{Name: "dotenv-linter", Parser: parseDotenvLinter},
+		{Name: "go-test", Parser: parseGoTest},
+		{Name: "golangci-lint", Parser: parseGolangciLint},
+		{Name: "hadolint", Parser: parseHadolint},
+		{Name: "mypy", Parser: parseMypy},
+		{Name: "pylint", Parser: parsePylint},
+		{Name: "pyright", Parser: parsePyright},
+		{Name: "ruff", Parser: parseRuff},
+		{Name: "shellcheck", Parser: parseShellcheck},
+		{Name: "sqlfluff", Parser: parseSQLFluff},
+		{Name: "tombi", Parser: parseTombi},
+		{Name: "yamllint", Parser: parseYamllint},
 	}
 }
 
@@ -122,6 +135,133 @@ func normalizedToolName(tool string) string {
 	name = strings.TrimSuffix(name, ".exe")
 
 	return name
+}
+
+func parseGoTest(output string) []Diagnostic {
+	state := goTestParseState{
+		Outputs: map[string][]string{},
+	}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		event, ok := parseGoTestEventLine(line)
+		if !ok {
+			continue
+		}
+
+		state.Apply(event)
+	}
+
+	return state.Diagnostics
+}
+
+type goTestEvent struct {
+	Package string  `json:"Package"`
+	Test    string  `json:"Test"`
+	Action  string  `json:"Action"`
+	Output  string  `json:"Output"`
+	Elapsed float64 `json:"Elapsed"`
+}
+
+type goTestParseState struct {
+	Outputs     map[string][]string
+	Diagnostics []Diagnostic
+}
+
+func parseGoTestEventLine(line string) (goTestEvent, bool) {
+	var event goTestEvent
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(line)), &event)
+	if err != nil || event.Action == "" {
+		return goTestEvent{}, false
+	}
+
+	return event, true
+}
+
+func (state *goTestParseState) Apply(event goTestEvent) {
+	key := goTestEventKey(event)
+	if event.Action == "output" && event.Output != "" {
+		state.Outputs[key] = append(state.Outputs[key], event.Output)
+
+		return
+	}
+
+	if event.Action != "fail" {
+		return
+	}
+
+	if event.Test != "" {
+		state.Diagnostics = append(
+			state.Diagnostics,
+			goTestDiagnosticsForFailedTest(event, state.Outputs[key])...,
+		)
+
+		return
+	}
+
+	state.Diagnostics = append(state.Diagnostics, Diagnostic{
+		Tool:     "go-test",
+		Severity: severityError,
+		Code:     "package_failed",
+		Message:  "Go test package failed: " + event.Package,
+	})
+}
+
+func goTestEventKey(event goTestEvent) string {
+	return event.Package + "\x00" + event.Test
+}
+
+func goTestDiagnosticsForFailedTest(
+	event goTestEvent,
+	outputs []string,
+) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for _, output := range outputs {
+		diagnostic, ok := parseGoTestFileLine(output, event.Test)
+		if !ok {
+			continue
+		}
+
+		diagnostics = append(diagnostics, diagnostic)
+	}
+
+	if len(diagnostics) > 0 {
+		return diagnostics
+	}
+
+	return []Diagnostic{{
+		Tool:     "go-test",
+		Severity: severityError,
+		Code:     event.Test,
+		Message:  "Go test failed: " + firstNonEmpty(event.Test, event.Package),
+	}}
+}
+
+func parseGoTestFileLine(line, currentTest string) (Diagnostic, bool) {
+	matches := goTestFileLinePattern.FindStringSubmatch(strings.TrimRight(line, "\r\n"))
+	if len(matches) != goTestFileLineMatchParts {
+		return Diagnostic{}, false
+	}
+
+	lineNo, validLine := parseInt(matches[2])
+	if !validLine {
+		return Diagnostic{}, false
+	}
+
+	message := strings.TrimSpace(matches[3])
+	if message == "" && currentTest != "" {
+		message = "Go test failed: " + currentTest
+	}
+
+	return Diagnostic{
+		Tool:     "go-test",
+		File:     strings.TrimSpace(matches[1]),
+		Line:     lineNo,
+		Severity: severityError,
+		Code:     firstNonEmpty(currentTest, "test_failed"),
+		Message:  message,
+	}, true
 }
 
 func parseRuff(output string) []Diagnostic {
@@ -145,7 +285,7 @@ func parseRuff(output string) []Diagnostic {
 		diagnostics = append(diagnostics, Diagnostic{
 			Tool:     "ruff",
 			File:     item.Filename,
-			Severity: "error",
+			Severity: severityError,
 			Code:     item.Code,
 			Message:  item.Message,
 			Line:     item.Location.Row,
@@ -164,11 +304,16 @@ func parseRuffText(output string) []Diagnostic {
 		if text == "" || ruffFormatUnchanged.MatchString(text) {
 			continue
 		}
-		if matches := ruffFormatPattern.FindStringSubmatch(text); len(matches) == 3 {
+
+		if matches := ruffFormatPattern.FindStringSubmatch(
+			text,
+		); len(
+			matches,
+		) == ruffFormatMatchParts {
 			diagnostics = append(diagnostics, Diagnostic{
 				Tool:     "ruff",
 				File:     matches[2],
-				Severity: "error",
+				Severity: severityError,
 				Code:     "format",
 				Message:  "File would be reformatted by ruff format.",
 				Line:     1,
@@ -195,7 +340,7 @@ func parseRuffText(output string) []Diagnostic {
 			File:     matches[1],
 			Line:     lineNo,
 			Column:   column,
-			Severity: firstNonEmpty(matches[4], "error"),
+			Severity: firstNonEmpty(matches[4], severityError),
 			Code:     code,
 			Message:  message,
 		})
@@ -209,6 +354,7 @@ func splitRuffCodeMessage(raw string) (string, string) {
 	if len(fields) == 0 {
 		return "", ""
 	}
+
 	if ruffCodePattern.MatchString(fields[0]) {
 		return fields[0], strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
 	}
@@ -288,12 +434,18 @@ func parseMypyText(output string) []Diagnostic {
 
 func splitTrailingBracketCode(message string) (string, string) {
 	trimmed := strings.TrimSpace(message)
+
 	start := strings.LastIndex(trimmed, "[")
 	if start < 0 || !strings.HasSuffix(trimmed, "]") {
 		return trimmed, ""
 	}
 
-	return strings.TrimSpace(trimmed[:start]), strings.TrimSuffix(trimmed[start+1:], "]")
+	return strings.TrimSpace(
+			trimmed[:start],
+		), strings.TrimSuffix(
+			trimmed[start+1:],
+			"]",
+		)
 }
 
 type mypyItem struct {
@@ -430,7 +582,7 @@ func parseGolangciLint(output string) []Diagnostic {
 			File:     matches[1],
 			Line:     lineNo,
 			Column:   column,
-			Severity: "error",
+			Severity: severityError,
 			Code:     matches[5],
 			Message:  strings.TrimSpace(matches[4]),
 		})
@@ -465,7 +617,7 @@ func parseGolangciLintJSON(output string) []Diagnostic {
 			File:     issue.Pos.Filename,
 			Line:     issue.Pos.Line,
 			Column:   issue.Pos.Column,
-			Severity: firstNonEmpty(issue.Severity, "error"),
+			Severity: firstNonEmpty(issue.Severity, severityError),
 			Code:     issue.FromLinter,
 			Message:  issue.Text,
 		})
@@ -561,7 +713,7 @@ func parseActionlint(output string) []Diagnostic {
 			File:     matches[1],
 			Line:     lineNo,
 			Column:   column,
-			Severity: "error",
+			Severity: severityError,
 			Code:     matches[5],
 			Message:  strings.TrimSpace(matches[4]),
 		})
@@ -600,7 +752,7 @@ func parseActionlintJSON(output string) []Diagnostic {
 			File:     file,
 			Line:     item.Line,
 			Column:   item.Column,
-			Severity: "error",
+			Severity: severityError,
 			Code:     firstNonEmpty(item.Kind, item.Check),
 			Message:  item.Message,
 		})
@@ -663,9 +815,9 @@ func parseYamllint(output string) []Diagnostic {
 
 		switch {
 		case strings.Contains(message, "[error]"):
-			severity = "error"
+			severity = severityError
 		case strings.Contains(message, "[warning]"):
-			severity = "warning"
+			severity = severityWarning
 		}
 
 		code := ""
@@ -728,13 +880,13 @@ func parseBandit(output string) []Diagnostic {
 func banditSeverity(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "high":
-		return "error"
+		return severityError
 	case "medium":
-		return "warning"
+		return severityWarning
 	case "low":
 		return "notice"
 	default:
-		return firstNonEmpty(strings.ToLower(strings.TrimSpace(value)), "warning")
+		return firstNonEmpty(strings.ToLower(strings.TrimSpace(value)), severityWarning)
 	}
 }
 
@@ -744,11 +896,11 @@ func parseSQLFluff(output string) []Diagnostic {
 		Violations []struct {
 			Code         string `json:"code"`
 			Description  string `json:"description"`
+			Name         string `json:"name"`
 			LineNo       int    `json:"line_no"`
 			LinePos      int    `json:"line_pos"`
 			StartLineNo  int    `json:"start_line_no"`
 			StartLinePos int    `json:"start_line_pos"`
-			Name         string `json:"name"`
 			Warning      bool   `json:"warning"`
 		} `json:"violations"`
 	}
@@ -759,20 +911,24 @@ func parseSQLFluff(output string) []Diagnostic {
 	}
 
 	diagnostics := []Diagnostic{}
+
 	for _, item := range items {
 		for _, violation := range item.Violations {
-			severity := "error"
+			severity := severityError
 			if violation.Warning {
-				severity = "warning"
+				severity = severityWarning
 			}
+
 			line := violation.LineNo
 			if line == 0 {
 				line = violation.StartLineNo
 			}
+
 			column := violation.LinePos
 			if column == 0 {
 				column = violation.StartLinePos
 			}
+
 			diagnostics = append(diagnostics, Diagnostic{
 				Tool:     "sqlfluff",
 				File:     item.Filepath,
@@ -790,8 +946,9 @@ func parseSQLFluff(output string) []Diagnostic {
 
 func parseTombi(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
+
 	lines := strings.Split(stripANSI(output), "\n")
-	for index := 0; index < len(lines); index++ {
+	for index := range lines {
 		header := tombiHeaderPattern.FindStringSubmatch(strings.TrimSpace(lines[index]))
 		if len(header) != tombiHeaderMatchParts {
 			continue
@@ -807,16 +964,20 @@ func parseTombi(output string) []Diagnostic {
 			if line == "" {
 				continue
 			}
+
 			if tombiHeaderPattern.MatchString(line) {
 				break
 			}
+
 			location := tombiLocationPattern.FindStringSubmatch(line)
 			if len(location) != tombiLocationMatchParts {
 				continue
 			}
+
 			diagnostic.File = location[1]
 			diagnostic.Line, _ = parseInt(location[2])
 			diagnostic.Column, _ = parseInt(location[3])
+
 			break
 		}
 
@@ -828,10 +989,10 @@ func parseTombi(output string) []Diagnostic {
 
 func normalizedTombiSeverity(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "error":
-		return "error"
-	case "warning", "warn":
-		return "warning"
+	case severityError:
+		return severityError
+	case severityWarning, "warn":
+		return severityWarning
 	default:
 		return "notice"
 	}
@@ -845,6 +1006,7 @@ func stripANSI(value string) string {
 
 func parseDotenvLinter(output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
+
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" ||
@@ -864,7 +1026,7 @@ func parseDotenvLinter(output string) []Diagnostic {
 			Tool:     "dotenv-linter",
 			File:     matches[1],
 			Line:     lineNo,
-			Severity: "warning",
+			Severity: severityWarning,
 			Code:     matches[3],
 			Message:  strings.TrimSpace(matches[4]),
 		})
@@ -873,7 +1035,7 @@ func parseDotenvLinter(output string) []Diagnostic {
 	return diagnostics
 }
 
-func parseFallback(tool string, output string) []Diagnostic {
+func parseFallback(tool, output string) []Diagnostic {
 	diagnostics := []Diagnostic{}
 
 	for line := range strings.SplitSeq(output, "\n") {
@@ -893,7 +1055,7 @@ func parseFallback(tool string, output string) []Diagnostic {
 			File:     matches[1],
 			Line:     lineNo,
 			Column:   column,
-			Severity: firstNonEmpty(matches[4], "error"),
+			Severity: firstNonEmpty(matches[4], severityError),
 			Message:  strings.TrimSpace(matches[5]),
 		})
 	}

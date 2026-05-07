@@ -29,12 +29,13 @@ search engines, and AI-agent policy/security searches.
   the public checklist has an issued project URL.
 - [x] Document progress toward the OpenSSF Best Practices badge.
 - [ ] Use OpenSSF Best Practices Gold as an active project checklist:
-  - [x] Add a checked-in Best Practices prefill manifest.
-  - [x] Add a generator for human-reviewed Best Practices prefill URLs.
+  - [x] Add checked-in `.bestpractices.json` repo-hosted evidence.
   - [ ] Drive all generated `Unmet` and `?` criteria to either repo-side
         remediation or an explicit external blocker.
   - [ ] Raise coverage evidence from the current 80% gate toward Gold-level
         statement and branch coverage expectations.
+  - [ ] Add assertion-enabled dynamic analysis for critical runtime invariants.
+  - [ ] Require assertion mode in release test/fuzz jobs.
   - [ ] Resolve review-capacity criteria such as two-person review and
         unassociated significant contributors when project governance supports
         them honestly.
@@ -88,20 +89,48 @@ Goal: prove the actual coding-ethos workflows users and agents depend on by
 creating real temporary git checkouts, installing the real hook/runtime path,
 running real commands, and inspecting real output and repository state.
 
-- [ ] Build a Go-based end-to-end test harness that creates isolated git
+- [x] Build a Go-based end-to-end test harness that creates isolated git
   checkouts with known sample files, initializes commits, installs
   coding-ethos hook/runtime artifacts, and runs ordinary git commands through
   the same path a user or agent uses.
-- [ ] Add a successful commit regression: stage a compliant file, run real
+- [x] Add a successful commit regression: stage a compliant file, run real
   `git commit`, assert the command succeeds, HEAD advances, hook traces are
   written, and no internal bookkeeping policy is surfaced as a user failure.
-- [ ] Add a failed commit regression: stage a known policy violation, run real
+- [x] Add a failed commit regression: stage a known policy violation, run real
   `git commit`, assert the command fails with the original lint/policy finding,
   and assert `git.commit_head_advanced` does not replace or mask that failure.
-- [ ] Add managed lint capture workflow tests that run real fixture executables
-  for clean output, warning output with exit code 0, parseable diagnostics, and
-  unparseable failures; assert TOON/JSON/SARIF and trace outputs preserve the
-  evidence.
+- [ ] Add managed lint capture workflow tests that run real managed tools
+  against reference-repo source files for clean output, warning output with exit
+  code 0, parseable diagnostics, and unparseable failures; assert
+  TOON/JSON/SARIF and trace outputs preserve the evidence.
+  - [x] Add real Ruff scenarios for clean output with exit code 0, parseable
+        Ruff diagnostics, retained lint traces, and SARIF evidence.
+  - [x] Treat empty machine-readable success payloads such as `[]` as silent
+        clean output instead of user-visible linter warnings.
+  - [ ] Add JSON-output assertions for the same real managed-tool scenarios.
+  - [ ] Add an unparseable real managed-tool failure scenario that proves raw
+        output remains visible and policy/CEL/SARIF evidence is retained.
+- [ ] Route every pre-commit gate through the normalized
+  diagnostics/SARIF/CEL path. Gates such as `go-test`, `go-vet`, formatting,
+  manifest checks, generated-config checks, and tool bootstrap checks must
+  produce structured diagnostics that can become SARIF results and CEL inputs;
+  they must not fall back to generic exit-code-only failures except for runner
+  failures where no tool output exists.
+- [ ] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
+  output should be captured as structured evidence, flow through normalized
+  diagnostics when thresholds fail, be eligible for SARIF output, and expose
+  CEL facts so policy can distinguish missing coverage data, below-threshold
+  packages, and ordinary test failures.
+- [ ] Suppress routine pass/noise lines in pre-commit gate output while
+  preserving actionable failure context. For example, passing Go package
+  lines such as `ok ...` should not appear in user-facing hook reports, but
+  failing package names, test names, file/line locations, panic text, and
+  unparseable failure excerpts must remain visible.
+- [ ] Add a shell-parser-backed hook rewrite that detects naked `python` or
+  `python3` invocations and rewrites them to `uv run python` when the target
+  repo is a uv-managed project. The policy must use parsed command structure,
+  preserve arguments and quoting, avoid string matching, and only rewrite when
+  repo evidence shows uv is the active Python environment contract.
 - [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.
@@ -111,7 +140,7 @@ running real commands, and inspecting real output and repository state.
 - [ ] Add sandbox workflow tests that verify generated tool capabilities,
   filesystem write allowances, blocked capability requests, and trace/SARIF
   evidence using the real sandbox planner and available backend behavior.
-- [ ] Evaluate whether Go's standard `testing` package remains sufficient or
+- [x] Evaluate whether Go's standard `testing` package remains sufficient or
   whether this needs a small internal scenario harness for fixture setup,
   command execution, output assertions, and trace inspection.
 
@@ -121,10 +150,28 @@ Acceptance criteria:
   tests for individual evaluators pass.
 - [ ] The suite distinguishes product failures from internal telemetry; internal
   bookkeeping checks must not become user-facing policy blocks.
-- [ ] The suite runs in CI on pull requests and has clear local invocation
+- [x] The suite runs in CI on pull requests and has clear local invocation
   instructions.
-- [ ] Mocking is limited to dependencies that cannot be exercised safely or
-  practically, with every mock documenting what real behavior it replaces.
+- [x] The Go E2E harness applies per-command timeouts and Unix process-group
+  cleanup so a timed-out scenario does not leave child processes running.
+- [ ] End-to-end tests use real commands, real managed tools, real filesystem
+  state, real Git repositories, real MCP framing, and real trace/SARIF output.
+  AI calls are the default allowed exception because live LLM behavior is
+  nondeterministic and externally controlled.
+- [ ] No pre-commit gate may bypass normalized diagnostics, SARIF evidence, or
+  CEL policy evaluation. A failing gate must be represented as structured,
+  actionable findings first, with bounded raw output only as supporting
+  evidence for genuinely unparseable failures.
+- [x] The end-to-end fake/mock admission policy is documented: every mock, fake
+  executable, fake service, or synthetic fixture requires explicit admin
+  approval before it is added.
+- [x] The end-to-end fake/mock documentation requirement is documented: every
+  approved exception must explain why no real alternative was safe or
+  practical, what exact behavior is being replaced, and what risk remains
+  uncovered.
+- [x] The end-to-end fake/mock defect ledger is documented: every approved
+  exception must be listed in `KNOWN_DEFECTS.md` with an owner, replacement
+  plan, and removal condition.
 
 ## Hook Runtime Bootstrap
 
@@ -285,8 +332,8 @@ before the next broad hook expansion.
 
 - [x] Consolidate tool/runtime policy metadata currently split across
   `go/toolcatalog/catalog.go`, `go/internal/hooks/lint_tool_capture.go`,
-  `pre-commit/hooks/go-hooks/hook_groups.go`, and
-  `pre-commit/hooks/go-hooks/toolchain_groups.go`.
+  `go/cmd/coding-ethos-hook-runner/hook_groups.go`, and
+  `go/cmd/coding-ethos-hook-runner/toolchain_groups.go`.
 - [x] Move duplicated evidence-map policy out of the legacy hook path and the
   compiled policy path into one shared policy source.
 - [x] Split `hooks.RunWithRegistry` so event parsing, policy evaluation,

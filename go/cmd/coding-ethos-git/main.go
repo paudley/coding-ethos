@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -17,9 +18,9 @@ import (
 const blockedExitCode = 2
 
 var (
-	errBundleRequired        = errors.New("--bundle is required")
-	errInvalidBundle         = errors.New("invalid policy bundle")
-	errAdminApprovedRequired = errors.New(
+	errBundleRequired        = apperror.StaticError("--bundle is required")
+	errInvalidBundle         = apperror.StaticError("invalid policy bundle")
+	errAdminApprovedRequired = apperror.StaticError(
 		"admin-start-branch requires --admin-approved",
 	)
 )
@@ -63,18 +64,9 @@ func runWithArgs(args []string) error {
 		return errBundleRequired
 	}
 
-	bundle, err := readBundle(*bundlePath)
+	bundle, err := readValidatedBundle(*bundlePath)
 	if err != nil {
 		return err
-	}
-
-	err = bundle.Validate()
-	if err != nil {
-		return fmt.Errorf(
-			"%w:\n%s",
-			errInvalidBundle,
-			policy.FormatValidationError(err),
-		)
 	}
 
 	argv := flags.Args()
@@ -85,16 +77,7 @@ func runWithArgs(args []string) error {
 	}
 
 	if len(argv) > 0 && argv[0] == "admin-start-branch" {
-		if !*adminApproved {
-			return errAdminApprovedRequired
-		}
-
-		err := gitwrap.VerifyAdminApproved(cwd)
-		if err != nil {
-			return fmt.Errorf("verify admin approval: %w", err)
-		}
-
-		return gitwrap.AdminStartBranch(*realGit, cwd, argv[1:])
+		return startAdminBranch(*realGit, cwd, argv[1:], *adminApproved)
 	}
 
 	options, err := gitOptions(argv, cwd, *adminApproved)
@@ -118,14 +101,59 @@ func runWithArgs(args []string) error {
 	}
 
 	if *checkOnly {
-		if !*jsonOutput {
-			fmt.Fprintln(os.Stdout, "git policy check allowed")
-		}
-
-		return nil
+		return printAllowedCheck(*jsonOutput)
 	}
 
 	return executeGitWithPostChecks(bundle, *realGit, options, *jsonOutput)
+}
+
+func readValidatedBundle(bundlePath string) (policy.Bundle, error) {
+	bundle, err := readBundle(bundlePath)
+	if err != nil {
+		return policy.Bundle{}, err
+	}
+
+	err = bundle.Validate()
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf(
+			"%w:\n%s",
+			errInvalidBundle,
+			policy.FormatValidationError(err),
+		)
+	}
+
+	return bundle, nil
+}
+
+func printAllowedCheck(jsonOutput bool) error {
+	if !jsonOutput {
+		fmt.Fprintln(os.Stdout, "git policy check allowed")
+	}
+
+	return nil
+}
+
+func startAdminBranch(
+	realGit string,
+	cwd string,
+	args []string,
+	adminApproved bool,
+) error {
+	if !adminApproved {
+		return errAdminApprovedRequired
+	}
+
+	err := gitwrap.VerifyAdminApproved(cwd)
+	if err != nil {
+		return fmt.Errorf("verify admin approval: %w", err)
+	}
+
+	err = gitwrap.AdminStartBranch(realGit, cwd, args)
+	if err != nil {
+		return fmt.Errorf("start admin-approved branch: %w", err)
+	}
+
+	return nil
 }
 
 func gitOptions(
@@ -139,6 +167,7 @@ func gitOptions(
 			return gitwrap.Options{}, fmt.Errorf("verify admin approval: %w", err)
 		}
 	}
+
 	stdin, err := stdinForGitArgv(argv)
 	if err != nil {
 		return gitwrap.Options{}, err
@@ -172,11 +201,12 @@ func gitCommitReadsMessageFromStdin(argv []string) bool {
 	}
 
 	args := parsed.Argv
-	for index := 0; index < len(args); index++ {
+	for index := range args {
 		arg := args[index]
 		if arg == "-F" || arg == "--file" {
 			return index+1 < len(args) && args[index+1] == "-"
 		}
+
 		if arg == "-F-" || arg == "--file=-" {
 			return true
 		}

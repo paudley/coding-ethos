@@ -4,13 +4,14 @@
 package policy_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestHashBundleIsStable(t *testing.T) {
@@ -75,9 +76,12 @@ func TestEncodeDecodeMetadataRoundTrips(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
-	if err := EncodeMetadata(&buffer, original); err != nil {
-		t.Fatalf("EncodeMetadata() error = %v", err)
+
+	inlineErr0 := EncodeMetadata(&buffer, original)
+	if inlineErr0 != nil {
+		t.Fatalf("EncodeMetadata() error = %v", inlineErr0)
 	}
+
 	if !strings.Contains(buffer.String(), `"bundle_hash": "sha256:bundle"`) {
 		t.Fatalf("metadata JSON should be indented and stable: %s", buffer.String())
 	}
@@ -86,6 +90,7 @@ func TestEncodeDecodeMetadataRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeMetadata() error = %v", err)
 	}
+
 	if decoded.BundleHash != original.BundleHash ||
 		decoded.GeneratedAt != original.GeneratedAt ||
 		decoded.SourceHashes["coding_ethos.yml"] != "sha256:source" {
@@ -97,7 +102,9 @@ func TestValidateMetadataSourceHashesAcceptsMatchingFiles(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("policy: true\n"), 0o600); err != nil {
+
+	err := os.WriteFile(path, []byte("policy: true\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write policy source: %v", err)
 	}
 
@@ -107,7 +114,8 @@ func TestValidateMetadataSourceHashesAcceptsMatchingFiles(t *testing.T) {
 		},
 	}
 
-	if err := ValidateMetadataSourceHashes(metadata); err != nil {
+	err = ValidateMetadataSourceHashes(metadata)
+	if err != nil {
 		t.Fatalf("validate source hashes: %v", err)
 	}
 }
@@ -127,8 +135,10 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 	dir := t.TempDir()
 	mismatchPath := filepath.Join(dir, "config.yaml")
 	missingPath := filepath.Join(dir, "missing.yaml")
-	if err := os.WriteFile(mismatchPath, []byte("policy: true\n"), 0o600); err != nil {
-		t.Fatalf("write policy source: %v", err)
+
+	inlineErr1 := os.WriteFile(mismatchPath, []byte("policy: true\n"), 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write policy source: %v", inlineErr1)
 	}
 
 	metadata := Metadata{
@@ -142,6 +152,7 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 	if err == nil {
 		t.Fatal("expected source hash validation error")
 	}
+
 	for _, want := range []string{
 		"missing policy source: " + missingPath,
 		"policy source hash mismatch: " + mismatchPath,
@@ -155,7 +166,7 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 func TestFormatValidationErrorSortsMultilineErrors(t *testing.T) {
 	t.Parallel()
 
-	formatted := FormatValidationError(errors.New("z problem\na problem"))
+	formatted := FormatValidationError(apperror.StaticError("z problem\na problem"))
 	if formatted != "a problem\nz problem" {
 		t.Fatalf("validation formatting should sort lines: %q", formatted)
 	}
@@ -171,11 +182,13 @@ func TestFormatValidationErrorSortsMultilineErrors(t *testing.T) {
 	}
 
 	formatted = FormatValidationError(err)
+
 	lines := strings.Split(formatted, "\n")
 	if len(lines) != 2 || !strings.Contains(lines[0], "/tmp/a-missing") ||
 		!strings.Contains(lines[1], "/tmp/z-missing") {
 		t.Fatalf("formatted validation error not sorted: %q", formatted)
 	}
+
 	if FormatValidationError(nil) != "" {
 		t.Fatal("nil validation error should format as an empty string")
 	}

@@ -3,12 +3,28 @@
 
 package codeintel
 
-var schemaStatements = []string{
-	`CREATE TABLE IF NOT EXISTS schema_metadata (
+func schemaStatements() []string {
+	statements := make([]string, 0, schemaStatementCapacity)
+	statements = append(statements, traceSchemaStatements()...)
+	statements = append(statements, hookSchemaStatements()...)
+	statements = append(statements, codeSchemaStatements()...)
+	statements = append(statements, sarifSchemaStatements()...)
+	statements = append(statements, remediationSchemaStatements()...)
+	statements = append(statements, searchSchemaStatements()...)
+	statements = append(statements, indexSchemaStatements()...)
+
+	return statements
+}
+
+const schemaStatementCapacity = 32
+
+func traceSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS schema_metadata (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS traces (
+		`CREATE TABLE IF NOT EXISTS traces (
 		trace_id TEXT PRIMARY KEY,
 		trace_kind TEXT NOT NULL,
 		recorded_at_utc TEXT,
@@ -21,7 +37,7 @@ var schemaStatements = []string{
 		source_path TEXT,
 		raw_json TEXT NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS findings (
+		`CREATE TABLE IF NOT EXISTS findings (
 		finding_id TEXT PRIMARY KEY,
 		rule_id TEXT,
 		tool TEXT,
@@ -41,7 +57,7 @@ var schemaStatements = []string{
 		search_text TEXT,
 		raw_json TEXT NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS finding_occurrences (
+		`CREATE TABLE IF NOT EXISTS finding_occurrences (
 		trace_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
 		finding_id TEXT NOT NULL,
@@ -52,7 +68,12 @@ var schemaStatements = []string{
 		PRIMARY KEY(trace_id, ordinal),
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS hook_events (
+	}
+}
+
+func hookSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS hook_events (
 		trace_id TEXT PRIMARY KEY,
 		tracking_id TEXT,
 		session_id TEXT,
@@ -77,7 +98,7 @@ var schemaStatements = []string{
 		additional_context INTEGER NOT NULL DEFAULT 0,
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS hook_decisions (
+		`CREATE TABLE IF NOT EXISTS hook_decisions (
 		trace_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
 		tracking_id TEXT,
@@ -95,7 +116,7 @@ var schemaStatements = []string{
 		PRIMARY KEY(trace_id, ordinal),
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS hook_targets (
+		`CREATE TABLE IF NOT EXISTS hook_targets (
 		trace_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
 		target_path TEXT NOT NULL,
@@ -103,7 +124,7 @@ var schemaStatements = []string{
 		PRIMARY KEY(trace_id, ordinal),
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS hook_reviews (
+		`CREATE TABLE IF NOT EXISTS hook_reviews (
 		review_id TEXT PRIMARY KEY,
 		trace_id TEXT NOT NULL,
 		tracking_id TEXT,
@@ -112,7 +133,12 @@ var schemaStatements = []string{
 		notes TEXT,
 		recorded_at_utc TEXT
 	)`,
-	`CREATE TABLE IF NOT EXISTS code_files (
+	}
+}
+
+func codeSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS code_files (
 		path TEXT PRIMARY KEY,
 		language TEXT NOT NULL,
 		content_hash TEXT NOT NULL,
@@ -123,7 +149,7 @@ var schemaStatements = []string{
 		indexed_at_utc TEXT NOT NULL,
 		stale_reason TEXT
 	)`,
-	`CREATE TABLE IF NOT EXISTS code_chunks (
+		`CREATE TABLE IF NOT EXISTS code_chunks (
 		chunk_id TEXT PRIMARY KEY,
 		path TEXT NOT NULL,
 		language TEXT NOT NULL,
@@ -142,7 +168,7 @@ var schemaStatements = []string{
 		raw_text TEXT NOT NULL,
 		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS code_edges (
+		`CREATE TABLE IF NOT EXISTS code_edges (
 		edge_id TEXT PRIMARY KEY,
 		edge_kind TEXT NOT NULL,
 		path TEXT NOT NULL,
@@ -156,7 +182,7 @@ var schemaStatements = []string{
 		FOREIGN KEY(source_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE,
 		FOREIGN KEY(target_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS ast_finding_links (
+		`CREATE TABLE IF NOT EXISTS ast_finding_links (
 		link_id TEXT PRIMARY KEY,
 		finding_kind TEXT NOT NULL,
 		finding_id TEXT NOT NULL,
@@ -169,7 +195,12 @@ var schemaStatements = []string{
 		stale INTEGER NOT NULL DEFAULT 0,
 		FOREIGN KEY(chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS sarif_runs (
+	}
+}
+
+func sarifSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS sarif_runs (
 		sarif_run_id TEXT PRIMARY KEY,
 		trace_id TEXT,
 		source_path TEXT,
@@ -182,7 +213,7 @@ var schemaStatements = []string{
 		raw_json TEXT NOT NULL,
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE SET NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS sarif_results (
+		`CREATE TABLE IF NOT EXISTS sarif_results (
 		sarif_result_id TEXT PRIMARY KEY,
 		sarif_run_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
@@ -212,7 +243,12 @@ var schemaStatements = []string{
 		raw_json TEXT NOT NULL,
 		FOREIGN KEY(sarif_run_id) REFERENCES sarif_runs(sarif_run_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS remediations (
+	}
+}
+
+func remediationSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS remediations (
 		remediation_id TEXT PRIMARY KEY,
 		policy_id TEXT,
 		skill_id TEXT,
@@ -223,7 +259,7 @@ var schemaStatements = []string{
 		search_text TEXT,
 		raw_json TEXT NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS remediation_occurrences (
+		`CREATE TABLE IF NOT EXISTS remediation_occurrences (
 		trace_id TEXT NOT NULL,
 		ordinal INTEGER NOT NULL,
 		remediation_id TEXT NOT NULL,
@@ -236,7 +272,7 @@ var schemaStatements = []string{
 		PRIMARY KEY(trace_id, ordinal),
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS remediation_events (
+		`CREATE TABLE IF NOT EXISTS remediation_events (
 		event_id TEXT PRIMARY KEY,
 		trace_id TEXT NOT NULL,
 		remediation_id TEXT,
@@ -248,7 +284,7 @@ var schemaStatements = []string{
 		raw_json TEXT NOT NULL,
 		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
 	)`,
-	`CREATE TABLE IF NOT EXISTS remediation_outcomes (
+		`CREATE TABLE IF NOT EXISTS remediation_outcomes (
 		outcome_id TEXT PRIMARY KEY,
 		remediation_id TEXT,
 		finding_id TEXT,
@@ -268,7 +304,7 @@ var schemaStatements = []string{
 		FOREIGN KEY(source_trace_id) REFERENCES traces(trace_id) ON DELETE SET NULL,
 		FOREIGN KEY(followup_trace_id) REFERENCES traces(trace_id) ON DELETE SET NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS embedding_records (
+		`CREATE TABLE IF NOT EXISTS embedding_records (
 		embedding_id TEXT PRIMARY KEY,
 		backend TEXT NOT NULL,
 		collection TEXT NOT NULL,
@@ -287,7 +323,12 @@ var schemaStatements = []string{
 		created_at_utc TEXT,
 		raw_json TEXT NOT NULL
 	)`,
-	`CREATE VIRTUAL TABLE IF NOT EXISTS code_intel_fts USING fts5(
+	}
+}
+
+func searchSchemaStatements() []string {
+	return []string{
+		`CREATE VIRTUAL TABLE IF NOT EXISTS code_intel_fts USING fts5(
 		kind,
 		policy_id,
 		skill_id,
@@ -297,38 +338,44 @@ var schemaStatements = []string{
 		record_id UNINDEXED,
 		trace_id UNINDEXED
 	)`,
-	`CREATE INDEX IF NOT EXISTS idx_finding_occurrences_policy
+	}
+}
+
+func indexSchemaStatements() []string {
+	return []string{
+		`CREATE INDEX IF NOT EXISTS idx_finding_occurrences_policy
 		ON finding_occurrences(policy_id, skill_id, path)`,
-	`CREATE INDEX IF NOT EXISTS idx_hook_events_usage
+		`CREATE INDEX IF NOT EXISTS idx_hook_events_usage
 		ON hook_events(provider, status, operation_kind, target_kind, risk_category)`,
-	`CREATE INDEX IF NOT EXISTS idx_hook_decisions_policy
+		`CREATE INDEX IF NOT EXISTS idx_hook_decisions_policy
 		ON hook_decisions(policy_id, skill_id, decision, severity)`,
-	`CREATE INDEX IF NOT EXISTS idx_hook_targets_path
+		`CREATE INDEX IF NOT EXISTS idx_hook_targets_path
 		ON hook_targets(target_path, target_kind)`,
-	`CREATE INDEX IF NOT EXISTS idx_hook_reviews_trace
+		`CREATE INDEX IF NOT EXISTS idx_hook_reviews_trace
 		ON hook_reviews(trace_id, tracking_id, disposition)`,
-	`CREATE INDEX IF NOT EXISTS idx_remediation_occurrences_policy
+		`CREATE INDEX IF NOT EXISTS idx_remediation_occurrences_policy
 		ON remediation_occurrences(policy_id, skill_id, file, path)`,
-	`CREATE INDEX IF NOT EXISTS idx_remediation_events_trace
+		`CREATE INDEX IF NOT EXISTS idx_remediation_events_trace
 		ON remediation_events(trace_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_code_chunks_path
+		`CREATE INDEX IF NOT EXISTS idx_code_chunks_path
 		ON code_chunks(path, language, symbol_kind, symbol_name)`,
-	`CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol_path
+		`CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol_path
 		ON code_chunks(path, symbol_path, node_kind)`,
-	`CREATE INDEX IF NOT EXISTS idx_code_chunks_hash
+		`CREATE INDEX IF NOT EXISTS idx_code_chunks_hash
 		ON code_chunks(content_hash)`,
-	`CREATE INDEX IF NOT EXISTS idx_code_edges_path
+		`CREATE INDEX IF NOT EXISTS idx_code_edges_path
 		ON code_edges(path, edge_kind, source_chunk_id, target_chunk_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_ast_finding_links_chunk
+		`CREATE INDEX IF NOT EXISTS idx_ast_finding_links_chunk
 		ON ast_finding_links(chunk_id, policy_id, skill_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_sarif_results_policy
+		`CREATE INDEX IF NOT EXISTS idx_sarif_results_policy
 		ON sarif_results(policy_id, skill_id, path)`,
-	`CREATE INDEX IF NOT EXISTS idx_sarif_results_run
+		`CREATE INDEX IF NOT EXISTS idx_sarif_results_run
 		ON sarif_results(sarif_run_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_remediation_outcomes_policy
+		`CREATE INDEX IF NOT EXISTS idx_remediation_outcomes_policy
 		ON remediation_outcomes(policy_id, skill_id, outcome, path)`,
-	`CREATE INDEX IF NOT EXISTS idx_embedding_records_record
+		`CREATE INDEX IF NOT EXISTS idx_embedding_records_record
 		ON embedding_records(backend, collection, model_id, record_kind, record_id)`,
+	}
 }
 
 type migrationColumn struct {
@@ -336,27 +383,29 @@ type migrationColumn struct {
 	Type string
 }
 
-var migrationColumns = map[string][]migrationColumn{
-	"findings": {
-		{Name: "evaluator_kind", Type: "TEXT"},
-		{Name: "cel_policy_id", Type: "TEXT"},
-		{Name: "cel_expression", Type: "TEXT"},
-		{Name: "policy_source", Type: "TEXT"},
-	},
-	"code_files": {
-		{Name: "parser_name", Type: "TEXT"},
-		{Name: "parser_version", Type: "TEXT"},
-		{Name: "stale_reason", Type: "TEXT"},
-	},
-	"code_chunks": {
-		{Name: "parent_symbol_path", Type: "TEXT"},
-	},
-	"sarif_results": {
-		{Name: "ast_language", Type: "TEXT"},
-		{Name: "ast_node_kind", Type: "TEXT"},
-		{Name: "ast_symbol_kind", Type: "TEXT"},
-		{Name: "ast_symbol_name", Type: "TEXT"},
-		{Name: "ast_symbol_path", Type: "TEXT"},
-		{Name: "linked_chunk_id", Type: "TEXT"},
-	},
+func migrationColumns() map[string][]migrationColumn {
+	return map[string][]migrationColumn{
+		"findings": {
+			{Name: "evaluator_kind", Type: "TEXT"},
+			{Name: "cel_policy_id", Type: "TEXT"},
+			{Name: "cel_expression", Type: "TEXT"},
+			{Name: "policy_source", Type: "TEXT"},
+		},
+		"code_files": {
+			{Name: "parser_name", Type: "TEXT"},
+			{Name: "parser_version", Type: "TEXT"},
+			{Name: "stale_reason", Type: "TEXT"},
+		},
+		"code_chunks": {
+			{Name: "parent_symbol_path", Type: "TEXT"},
+		},
+		"sarif_results": {
+			{Name: "ast_language", Type: "TEXT"},
+			{Name: "ast_node_kind", Type: "TEXT"},
+			{Name: "ast_symbol_kind", Type: "TEXT"},
+			{Name: "ast_symbol_name", Type: "TEXT"},
+			{Name: "ast_symbol_path", Type: "TEXT"},
+			{Name: "linked_chunk_id", Type: "TEXT"},
+		},
+	}
 }

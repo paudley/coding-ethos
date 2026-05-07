@@ -4,6 +4,7 @@
 package evaluators_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,10 +80,10 @@ func TestEvaluateProtectedBranchWriteUsesConfiguredBranches(t *testing.T) {
 
 	repo := initProtectedBranchRepo(t)
 	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+
 	options := map[string]any{}
-	for key, value := range policyDef.Evaluators[0].Options {
-		options[key] = value
-	}
+	maps.Copy(options, policyDef.Evaluators[0].Options)
+
 	options["protected_branches"] = []any{"release"}
 
 	decisions, err := EvaluateCELExpression(policyDef, Context{

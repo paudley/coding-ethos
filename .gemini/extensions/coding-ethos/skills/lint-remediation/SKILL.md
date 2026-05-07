@@ -57,8 +57,7 @@ Quick ref:
 - Make ruff and mypy blocking quality gates rather than advisory tools.
 - We rely on linters (ruff) and type checkers (mypy) to catch errors
 before the code ever runs.
-- Static analysis belongs in enforced local hooks and CI, not in
-optional tribal knowledge.
+- Treat repo hook and CI gates as authoritative, not optional reminders.
 
 #### Overview
 We rely on linters (ruff) and type checkers (mypy) to catch errors
@@ -284,7 +283,7 @@ If you see a problem, you fix it or you file an issue—but you do not
 pretend
 it doesn't exist.
 
-*(See also: Forward Motion Only
+*(See also: [Section 20: Forward Motion Only](#20-forward-motion-only)
 for
 the forward-looking mindset that prevents blame culture.)*
 ### SOLID is Law
@@ -324,7 +323,8 @@ strict rules of engagement for our codebase.
   concretions. The Dependency Injection container (the DI container)
   is the
   heart of the application; manual instantiation of service chains in
-  business logic is forbidden. *(See Protocol-First Design for how we implement this.)*
+  business logic is forbidden. *(See [Section 12: Protocol-First
+  Design](#12-protocol-first-design) for how we implement this.)*
 
 #### Beyond SOLID: Simplicity Precepts
 SOLID governs structure; these principles govern complexity:

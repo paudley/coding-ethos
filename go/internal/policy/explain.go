@@ -4,21 +4,21 @@
 package policy
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 )
 
-var errUnknownPolicy = errors.New("unknown policy")
+var errUnknownPolicy = apperror.StaticError("unknown policy")
 
 const policyExplanationParts = 7
 
 func ExplainPolicy(writer io.Writer, bundle Bundle, policyID string) error {
-	policy, ok := bundle.Policies[policyID]
-	if !ok {
+	policy, found := bundle.Policies[policyID]
+	if !found {
 		return fmt.Errorf("%w %q", errUnknownPolicy, policyID)
 	}
 
@@ -50,8 +50,8 @@ func policyExplanation(bundle Bundle, policy Policy) string {
 }
 
 func expressionExplanation(bundle Bundle, policy Policy) string {
-	evaluator, ok := expressionEvaluator(policy)
-	if !ok {
+	evaluator, found := expressionEvaluator(policy)
+	if !found {
 		return ""
 	}
 
@@ -61,7 +61,10 @@ func expressionExplanation(bundle Bundle, policy Policy) string {
 			"```cel\n%s\n```\n",
 			strings.TrimSpace(explainStringOption(evaluator.Options, "when")),
 		),
-		fmt.Sprintf("\n- Scope: `%s`\n", explainStringOption(evaluator.Options, "scope")),
+		fmt.Sprintf(
+			"\n- Scope: `%s`\n",
+			explainStringOption(evaluator.Options, "scope"),
+		),
 		fmt.Sprintf(
 			"- Dispatch scopes: `%s`\n",
 			strings.Join(
@@ -72,14 +75,17 @@ func expressionExplanation(bundle Bundle, policy Policy) string {
 	}
 	if skillID := explainStringOption(evaluator.Options, "skill_id"); skillID != "" {
 		parts = append(parts, fmt.Sprintf("- Skill: `%s`", skillID))
-		if skill, ok := bundle.Skills[skillID]; ok && skill.ShortHint != "" {
-			parts = append(parts, fmt.Sprintf(" - %s", skill.ShortHint))
+		if skill, found := bundle.Skills[skillID]; found && skill.ShortHint != "" {
+			parts = append(parts, " - "+skill.ShortHint)
 		}
+
 		parts = append(parts, "\n")
 	}
 
 	parts = append(parts, "\nEvidence fields:\n")
-	for _, item := range []string{"argv", "command", "files", "scope", "when", "skill_id"} {
+	for _, item := range []string{
+		"argv", "command", "files", "scope", "when", "skill_id",
+	} {
 		parts = append(parts, fmt.Sprintf("- `%s`\n", item))
 	}
 
@@ -107,8 +113,8 @@ func expressionEvaluator(policy Policy) (Evaluator, bool) {
 }
 
 func explainStringOption(options map[string]any, key string) string {
-	raw, ok := options[key].(string)
-	if !ok {
+	raw, found := options[key].(string)
+	if !found {
 		return ""
 	}
 
@@ -116,20 +122,20 @@ func explainStringOption(options map[string]any, key string) string {
 }
 
 func explainStringSliceOption(options map[string]any, key string) []string {
-	rawStrings, ok := options[key].([]string)
-	if ok {
+	rawStrings, found := options[key].([]string)
+	if found {
 		return append([]string(nil), rawStrings...)
 	}
 
-	rawItems, ok := options[key].([]any)
-	if !ok {
+	rawItems, found := options[key].([]any)
+	if !found {
 		return nil
 	}
 
 	items := make([]string, 0, len(rawItems))
 	for _, rawItem := range rawItems {
-		item, ok := rawItem.(string)
-		if ok && item != "" {
+		item, found := rawItem.(string)
+		if found && item != "" {
 			items = append(items, item)
 		}
 	}

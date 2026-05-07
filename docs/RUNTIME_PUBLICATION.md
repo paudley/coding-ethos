@@ -25,11 +25,10 @@ not silently carry host-specific binaries.
 
 ## Installation Implications
 
-Use PyPI when a repo only needs generation:
+Use PyPI when a repo only needs root agent-document generation:
 
 ```bash
 uvx coding-ethos --repo .
-uvx coding-ethos --repo . --sync-tool-configs
 ```
 
 Use a source checkout or submodule when a repo needs enforcement:

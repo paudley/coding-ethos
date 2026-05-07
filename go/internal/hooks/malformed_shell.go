@@ -12,7 +12,7 @@ import (
 const malformedShellPolicyID = "shell.malformed_command"
 
 func malformedShellRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
 		return InspectionRoute{}
 	}
 
@@ -21,7 +21,8 @@ func malformedShellRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if _, err := shellparse.Commands(command); err == nil {
+	_, inlineErrAutoA := shellparse.Commands(command)
+	if inlineErrAutoA == nil {
 		return InspectionRoute{}
 	}
 

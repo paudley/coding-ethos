@@ -113,6 +113,7 @@ name = "example"
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+
 	if decisions[0].Diagnostics[0].Code != "uv.exclude-newer" {
 		t.Fatalf("unexpected diagnostic: %#v", decisions[0].Diagnostics)
 	}
@@ -151,6 +152,7 @@ exclude-newer = "1 day"
 	if len(decisions) != 2 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+
 	if decisions[0].Diagnostics[0].File != "pyproject.toml" ||
 		decisions[1].Diagnostics[0].File != filepath.Join("subpkg", "pyproject.toml") {
 		t.Fatalf("unexpected diagnostics: %#v", decisions)
@@ -203,13 +205,16 @@ func uvExcludeNewerPolicy() policy.Policy {
 	}
 }
 
-func writeEvaluatorTestFile(t *testing.T, path string, content string) {
+func writeEvaluatorTestFile(t *testing.T, path, content string) {
 	t.Helper()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
+	if err != nil {
 		t.Fatalf("create test directory for %s: %v", path, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write test file %s: %v", path, err)
 	}
 }

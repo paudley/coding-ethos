@@ -121,7 +121,7 @@ Primary files:
   metadata validation, managed GitHub asset installation, cutover reporting,
   and Git hook entrypoint installation/verification are delegated to compiled
   Go helpers
-- `hooks/go-hooks/main.go` - Go-backed hook commands, including the active Gemini AI review runner
+- `go/cmd/coding-ethos-hook-runner/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
 repo-local response caching under `.code-ethos/cache/`,
@@ -505,7 +505,7 @@ Pre-commit includes:
 Pre-push re-runs the higher-signal checks over the pushed diff, including full
 Gemini review when enabled.
 
-Most hook runtime and policy enforcement now lives in `hooks/go-hooks/`. Python
+Most hook runtime and policy enforcement now lives in `go/cmd/coding-ethos-hook-runner/`. Python
 quality checks call Radon and Vulture directly from the Go runner, and shell,
 YAML, Docker, workflow, Go, and AI analyzer output is normalized there as well.
 
@@ -519,22 +519,40 @@ Commit-message hooks enforce:
 To update Go helper behavior:
 
 ```bash
+make autofix
 make go-tidy
 make go-test
+make go-lint
 ```
 
 `make go-fmt` formats every Go source file under
-`pre-commit/hooks/go-hooks/`. Override `GO=/path/to/go` or
-`GOFMT=/path/to/gofmt` when testing with a non-default toolchain.
+`go/cmd/coding-ethos-hook-runner/`. `make go-tools-fmt` runs the managed
+`golangci-lint fmt` formatter set for the shared Go module: `gci`, `gofmt`,
+`gofumpt`, `goimports`, and `golines`. `make go-lint-fix` runs managed
+`golangci-lint run --fix`; remaining diagnostics are structural lint findings
+that must be fixed in code. Override `GO=/path/to/go` or `GOFMT=/path/to/gofmt`
+when testing with a non-default toolchain.
+
+Hook-runner tests install a test-only `go` guard that fails if a test reaches
+the host Go binary accidentally. Tests that intentionally exercise Go hook
+commands must install an explicit fake `go` binary in their fixture `PATH`.
+Run broad hook-runner tests with `GO_TEST_TIMEOUT` and, on Linux, an external
+process budget such as `systemd-run --user --scope -p TasksMax=128`.
 
 ## Adding Hooks
 
-Use Go for generic file, shell, text, and commit-message checks that do not
-need Python AST analysis or Python package imports. Keep the command in
-`hooks/go-hooks/main.go` and the tunable policy in the repo-root `config.yaml`.
+Use Go for generic file, shell, text, source-aware, and commit-message checks.
+New hook behavior should land in focused files under
+`go/cmd/coding-ethos-hook-runner/`, with shared policy facts in
+`go/internal/celexpr/`, parser facts in `go/internal/astfacts/` or
+`go/internal/shellparse/`, and tunable policy in `coding_ethos.yml` or
+`config.yaml` as appropriate. Do not add new policy-specific text scanners
+before checking the AST/CEL/SARIF path documented in
+`docs/AST_CEL_SARIF_ARCHITECTURE.md`.
 
-Use Python for checks that need AST parsing, type tooling, Python import
-analysis, or repository-specific policy modules.
+Use Python only when the check genuinely depends on Python package behavior
+that cannot be represented by the shared Go parser/fact/CEL pipeline. The
+default direction for hook runtime and generated enforcement behavior is Go.
 
 For hooks that modify files:
 

@@ -24,22 +24,12 @@ func TestExplainReportsSelectedScopeChecks(t *testing.T) {
 	if result.Scope != ScopeStaged || result.Selected == 0 {
 		t.Fatalf("explain result = %#v", result)
 	}
+
 	if result.SelectedEvidenceMaps == 0 || len(result.EvidenceMaps) == 0 {
 		t.Fatalf("explain omitted evidence maps: %#v", result)
 	}
 
-	var found bool
-	for _, check := range result.Checks {
-		if check.CheckID == "git.hook_bypass" {
-			found = true
-			if check.Status != "selected" || check.Reason == "" {
-				t.Fatalf("check = %#v", check)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("missing git.hook_bypass in %#v", result.Checks)
-	}
+	assertSelectedExplainCheck(t, result, "git.hook_bypass")
 
 	output := FormatExplainResultHuman(result)
 	if !strings.Contains(output, "lint scope: staged") ||
@@ -48,6 +38,24 @@ func TestExplainReportsSelectedScopeChecks(t *testing.T) {
 		!strings.Contains(output, "evidence maps:") {
 		t.Fatalf("human output missing expected details:\n%s", output)
 	}
+}
+
+func assertSelectedExplainCheck(t *testing.T, result ExplainResult, checkID string) {
+	t.Helper()
+
+	for _, check := range result.Checks {
+		if check.CheckID != checkID {
+			continue
+		}
+
+		if check.Status != "selected" || check.Reason == "" {
+			t.Fatalf("check = %#v", check)
+		}
+
+		return
+	}
+
+	t.Fatalf("missing %s in %#v", checkID, result.Checks)
 }
 
 func TestExplainReportsToolSelectionForFiles(t *testing.T) {
@@ -83,6 +91,7 @@ func TestExplainReportsToolSelectionForFiles(t *testing.T) {
 			t.Fatalf("%s status = %q, tools = %#v", name, selected[name], result.Tools)
 		}
 	}
+
 	if selected["pylint"] != "skipped" {
 		t.Fatalf("pylint should remain disabled by default: %#v", result.Tools)
 	}
@@ -101,6 +110,7 @@ func TestExplainReportsToolSelectionForFiles(t *testing.T) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
 		}
 	}
+
 	conditionalImportEvidence := "ruff,codes=" +
 		"PLC" + "0415,python.conditional_imports,conditional-imports,high"
 	if strings.Count(output, conditionalImportEvidence) != 1 {
@@ -120,17 +130,23 @@ func TestEncodeExplainResultJSONIncludesTools(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
-	if err := EncodeExplainResult(&buffer, result, "json"); err != nil {
-		t.Fatalf("EncodeExplainResult() returned error: %v", err)
+
+	inlineErr0 := EncodeExplainResult(&buffer, result, "json")
+	if inlineErr0 != nil {
+		t.Fatalf("EncodeExplainResult() returned error: %v", inlineErr0)
 	}
 
 	var decoded ExplainResult
-	if err := json.Unmarshal(buffer.Bytes(), &decoded); err != nil {
-		t.Fatalf("decode explain JSON: %v\n%s", err, buffer.String())
+
+	inlineErr1 := json.Unmarshal(buffer.Bytes(), &decoded)
+	if inlineErr1 != nil {
+		t.Fatalf("decode explain JSON: %v\n%s", inlineErr1, buffer.String())
 	}
+
 	if decoded.SelectedTools == 0 || len(decoded.Tools) == 0 {
 		t.Fatalf("JSON explain omitted tools: %#v", decoded)
 	}
+
 	if decoded.SelectedEvidenceMaps == 0 || len(decoded.EvidenceMaps) == 0 {
 		t.Fatalf("JSON explain omitted evidence maps: %#v", decoded)
 	}

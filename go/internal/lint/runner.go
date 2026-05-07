@@ -4,12 +4,12 @@
 package lint
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -17,6 +17,8 @@ import (
 const (
 	decisionBlock  = "block"
 	decisionRecord = "record"
+	severityError  = "error"
+	statusFail     = "fail"
 	statusResolved = "resolved"
 )
 
@@ -31,9 +33,11 @@ const (
 )
 
 var (
-	errUnknownScopePolicy = errors.New("lint scope references unknown policy")
-	errUnsupportedScope   = errors.New("unsupported lint scope")
-	errMissingEvaluator   = errors.New("lint policy has no registered evaluator")
+	errUnknownScopePolicy = apperror.StaticError("lint scope references unknown policy")
+	errUnsupportedScope   = apperror.StaticError("unsupported lint scope")
+	errMissingEvaluator   = apperror.StaticError(
+		"lint policy has no registered evaluator",
+	)
 )
 
 type Options struct {
@@ -181,9 +185,11 @@ func attachPolicySource(
 		if decision.Evidence == nil {
 			decision.Evidence = map[string]any{}
 		}
+
 		if _, exists := decision.Evidence["policy_source"]; !exists {
 			decision.Evidence["policy_source"] = source
 		}
+
 		withSource = append(withSource, decision)
 	}
 
@@ -249,6 +255,7 @@ func findingsFromDecisions(
 	files []string,
 ) []Finding {
 	findings := []Finding{}
+
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) == 0 {
 			findings = append(findings, findingFromDecision(decision, files))
@@ -296,16 +303,22 @@ func findingFromDiagnostic(
 		CheckID:      firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
 		PolicyID:     firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
 		PolicySource: policySourceFromEvidence(decision.Evidence),
-		SourceTool:   firstNonEmpty(diagnostic.Tool, toolFromEvidence(decision.Evidence)),
-		Status:       statusFromDecision(decision),
-		Severity:     firstNonEmpty(diagnostic.Severity, decision.Severity),
-		Code:         diagnostic.Code,
-		File:         diagnostic.File,
-		Line:         diagnostic.Line,
-		Column:       diagnostic.Column,
-		SkillID:      firstNonEmpty(diagnostic.SkillID, stringEvidence(decision.Evidence, "skill_id")),
-		Message:      diagnostic.Message,
-		Advice:       firstNonEmpty(diagnostic.Advice, decision.Suggestion),
+		SourceTool: firstNonEmpty(
+			diagnostic.Tool,
+			toolFromEvidence(decision.Evidence),
+		),
+		Status:   statusFromDecision(decision),
+		Severity: firstNonEmpty(diagnostic.Severity, decision.Severity),
+		Code:     diagnostic.Code,
+		File:     diagnostic.File,
+		Line:     diagnostic.Line,
+		Column:   diagnostic.Column,
+		SkillID: firstNonEmpty(
+			diagnostic.SkillID,
+			stringEvidence(decision.Evidence, "skill_id"),
+		),
+		Message: diagnostic.Message,
+		Advice:  firstNonEmpty(diagnostic.Advice, decision.Suggestion),
 		EthosIDs: firstNonEmptySlice(
 			diagnostic.PrincipleIDs,
 			decision.PrincipleIDs,
@@ -320,6 +333,7 @@ func statusFromDecision(decision policy.Decision) string {
 	if decisionBlocks(decision) {
 		return "fail"
 	}
+
 	if decision.Decision == decisionRecord || decision.Severity == decisionRecord {
 		return "pass"
 	}
@@ -354,6 +368,7 @@ func rawOutcomeFromDecision(decision policy.Decision) map[string]any {
 				continue
 			}
 		}
+
 		raw[key] = value
 	}
 
@@ -380,6 +395,7 @@ func stringEvidence(evidence map[string]any, key string) string {
 	if value, ok := value.(string); ok {
 		return value
 	}
+
 	if value, ok := value.([]string); ok {
 		return strings.Join(value, " ")
 	}
@@ -421,7 +437,11 @@ func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {
 		ScopeCommit,
 	}
 	if !slices.Contains(allowedScopes, scope) {
-		return nil, fmt.Errorf("unsupported lint scope %q: %w", scope, errUnsupportedScope)
+		return nil, fmt.Errorf(
+			"unsupported lint scope %q: %w",
+			scope,
+			errUnsupportedScope,
+		)
 	}
 
 	policyIDs, ok := bundle.Dispatch.Linter[scope]

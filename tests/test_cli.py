@@ -7,21 +7,16 @@ These tests exercise the public command surface rather than private helpers.
 They verify that generated files, tool configs, and merge behavior stay aligned.
 """
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 import yaml
 
 from coding_ethos import (
-    GENERATED_CI_CONFIGS,
-    GENERATED_TOOL_CONFIGS,
     SUPPORTED_MERGE_ENGINES,
-    TOOL_CONFIG_HASH_MANIFEST,
     UnsupportedMergeEngineError,
     load_primary_bundle,
     main,
@@ -34,59 +29,12 @@ from coding_ethos import (
     seed_primary_from_markdown,
 )
 
-_TOOL_CONFIG_OVERRIDE = {
-    "style": {"line_length": 100},
-    "python": {
-        "source_paths": ["lib/python/lbox", "pre-commit/hooks"],
-        "test_paths": ["lib/python/tests", "integration/tests"],
-        "stub_paths": ["lib/python/stubs"],
-        "extra_paths": [
-            "lib/python",
-            "scripts",
-            "pre-commit/hooks",
-        ],
-        "venv_path": "..",
-        "venv": ".venv",
-        "sql_centralization": {
-            "enabled": True,
-            "central_paths": ["lib/python/lbox/sql.py"],
-        },
-    },
-}
-
-_CI_CONFIG_OVERRIDE = {
-    "generated_config": {
-        "ci": {
-            "github_actions": {
-                "enabled": True,
-                "coding_ethos_path": "coding-ethos",
-                "repo_root": ".",
-                "gate_command": "make check",
-            },
-            "gitlab": {
-                "enabled": True,
-                "coding_ethos_path": "coding-ethos",
-                "repo_root": ".",
-                "gate_command": "make check",
-            },
-        }
-    }
-}
-
 
 def _write_yaml_file(path: Path, payload: object) -> None:
     path.write_text(
         yaml.safe_dump(payload, sort_keys=False),
         encoding="utf-8",
     )
-
-
-def _write_repo_tool_config_override(repo_root: Path) -> None:
-    _write_yaml_file(repo_root / "repo_config.yaml", _TOOL_CONFIG_OVERRIDE)
-
-
-def _write_repo_ci_config_override(repo_root: Path) -> None:
-    _write_yaml_file(repo_root / "repo_config.yaml", _CI_CONFIG_OVERRIDE)
 
 
 def test_package_defaults_do_not_require_source_checkout(
@@ -97,14 +45,6 @@ def test_package_defaults_do_not_require_source_checkout(
     generated_repo = tmp_path / "generated"
     assert main(["--repo", str(generated_repo)]) == 0
     assert "SOLID is Law" in (generated_repo / "ETHOS.md").read_text(encoding="utf-8")
-
-    config_repo = tmp_path / "configs"
-    assert main(["--repo", str(config_repo), "--sync-tool-configs"]) == 0
-    assert (config_repo / "pyrightconfig.json").exists()
-
-    prompt_repo = tmp_path / "prompts"
-    assert main(["--repo", str(prompt_repo), "--sync-gemini-prompts"]) == 0
-    assert (prompt_repo / ".code-ethos/gemini/prompt-pack.json").exists()
 
 
 def test_seed_from_markdown_defaults_to_working_directory(
@@ -139,199 +79,6 @@ Do the first thing.
     assert primary_path.exists()
     assert "Seeded Ethos" in primary_path.read_text(encoding="utf-8")
     assert "Seeded Ethos" in (generated_repo / "ETHOS.md").read_text(encoding="utf-8")
-
-
-def _load_generated_tool_configs(
-    repo_root: Path,
-) -> tuple[
-    dict[str, Any], str, str, str, dict[str, Any], dict[str, Any], str, str, str
-]:
-    pyright = cast(
-        dict[str, Any],
-        yaml.safe_load((repo_root / "pyrightconfig.json").read_text(encoding="utf-8")),
-    )
-    mypy_ini = (repo_root / "mypy.ini").read_text(encoding="utf-8")
-    ruff_toml = (repo_root / "ruff.toml").read_text(encoding="utf-8")
-    pylintrc = (repo_root / ".pylintrc").read_text(encoding="utf-8")
-    yamllint = cast(
-        dict[str, Any],
-        yaml.safe_load((repo_root / ".yamllint.yml").read_text(encoding="utf-8")),
-    )
-    bandit = (repo_root / ".bandit.yml").read_text(encoding="utf-8")
-    sqlfluff = (repo_root / ".sqlfluff").read_text(encoding="utf-8")
-    tombi = (repo_root / "tombi.toml").read_text(encoding="utf-8")
-    golangci = cast(
-        dict[str, Any],
-        yaml.safe_load((repo_root / ".golangci.yml").read_text(encoding="utf-8")),
-    )
-    return (
-        pyright,
-        mypy_ini,
-        ruff_toml,
-        pylintrc,
-        yamllint,
-        golangci,
-        bandit,
-        sqlfluff,
-        tombi,
-    )
-
-
-def _assert_generated_tool_configs(repo_root: Path) -> None:
-    assert (repo_root / TOOL_CONFIG_HASH_MANIFEST).exists()
-    for config_path in GENERATED_TOOL_CONFIGS:
-        assert (repo_root / config_path).exists(), config_path
-    (
-        pyright,
-        mypy_ini,
-        ruff_toml,
-        pylintrc,
-        yamllint,
-        golangci,
-        bandit,
-        sqlfluff,
-        tombi,
-    ) = _load_generated_tool_configs(repo_root)
-
-    _assert_pyright_tool_config(pyright)
-    _assert_mypy_tool_config(mypy_ini)
-    _assert_ruff_tool_config(ruff_toml)
-    _assert_pylint_tool_config(pylintrc)
-    _assert_yamllint_tool_config(yamllint)
-    _assert_golangci_tool_config(golangci)
-    _assert_bandit_tool_config(bandit)
-    _assert_sqlfluff_tool_config(sqlfluff)
-    _assert_tombi_tool_config(tombi)
-    _assert_generated_ci_configs(repo_root)
-
-
-def _assert_generated_ci_configs(repo_root: Path) -> None:
-    for config_path in GENERATED_CI_CONFIGS:
-        assert (repo_root / config_path).exists(), config_path
-
-    github_workflow = (
-        repo_root / ".github" / "workflows" / "coding-ethos-sarif.yml"
-    ).read_text(encoding="utf-8")
-    gitlab_ci = (repo_root / ".gitlab-ci.yml").read_text(encoding="utf-8")
-    manifest = json.loads(
-        (repo_root / TOOL_CONFIG_HASH_MANIFEST).read_text(encoding="utf-8")
-    )
-
-    _assert_github_ci_config(github_workflow, manifest)
-    _assert_gitlab_ci_config(gitlab_ci, manifest)
-
-
-def _assert_github_ci_config(github_workflow: str, manifest: dict[str, Any]) -> None:
-    assert "bin/coding-ethos-run" in github_workflow
-    assert (
-        "github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7"
-    ) in github_workflow
-    assert (
-        '"$CODING_ETHOS_PATH/bin/coding-ethos-run" ci-sarif --provider github'
-        in github_workflow
-    )
-    assert "CODING_ETHOS_GITHUB_EVENT_BEFORE" in github_workflow
-    assert "--files-from" not in github_workflow
-    assert 'git ls-files > "$files_path"' not in github_workflow
-    assert ".github/workflows/coding-ethos-sarif.yml" in manifest["configs"]
-
-
-def _assert_gitlab_ci_config(gitlab_ci: str, manifest: dict[str, Any]) -> None:
-    assert "coding_ethos_sarif" in gitlab_ci
-    assert "artifacts:" in gitlab_ci
-    assert 'coding-ethos-run" ci-sarif --provider gitlab' in gitlab_ci
-    assert "--files-from" not in gitlab_ci
-    assert 'git ls-files > "$files_path"' not in gitlab_ci
-    assert ".gitlab-ci.yml" in manifest["configs"]
-
-
-def _assert_pyright_tool_config(pyright: dict[str, Any]) -> None:
-    assert pyright["include"] == ["lib/python/lbox", "pre-commit/hooks"]
-    assert pyright["stubPath"] == "lib/python/stubs"
-    assert pyright["extraPaths"] == [
-        "lib/python",
-        "scripts",
-        "pre-commit/hooks",
-    ]
-    assert pyright["venvPath"] == ".."
-
-
-def _assert_mypy_tool_config(mypy_ini: str) -> None:
-    assert "files = lib/python/lbox, pre-commit/hooks" in mypy_ini
-    assert "mypy_path = lib/python/stubs" in mypy_ini
-
-
-def _assert_ruff_tool_config(ruff_toml: str) -> None:
-    assert "line-length = 100" in ruff_toml
-    assert '"lib/python/tests/**"' in ruff_toml
-    assert '"integration/tests/**"' in ruff_toml
-    assert '"lib/python/lbox/sql.py" = ["S608"]' in ruff_toml
-
-
-def _assert_pylint_tool_config(pylintrc: str) -> None:
-    assert "[MAIN]" in pylintrc
-    assert "jobs = 0" in pylintrc
-    assert "ignore-paths = (^|/)\\.git/" in pylintrc
-    assert "[MESSAGES CONTROL]" in pylintrc
-    assert "missing-function-docstring" in pylintrc
-    assert "max-line-length = 100" in pylintrc
-    assert "max-args = 6" in pylintrc
-
-
-def _assert_yamllint_tool_config(yamllint: dict[str, Any]) -> None:
-    assert yamllint["rules"]["line-length"]["max"] == 100
-
-
-def _assert_bandit_tool_config(bandit: str) -> None:
-    assert "exclude_dirs:" in bandit
-    assert "- tests" in bandit
-
-
-def _assert_sqlfluff_tool_config(sqlfluff: str) -> None:
-    assert "[sqlfluff]" in sqlfluff
-    assert "dialect = ansi" in sqlfluff
-    assert "max_line_length = 100" in sqlfluff
-
-
-def _assert_tombi_tool_config(tombi: str) -> None:
-    assert "Generated by coding-ethos" in tombi
-    assert "[lint]" not in tombi
-
-
-def _assert_golangci_tool_config(golangci: dict[str, Any]) -> None:
-    linters = golangci["linters"]
-    enabled_linters = linters["enable"]
-    settings = linters["settings"]
-
-    assert golangci["version"] == "2"
-    assert settings["lll"]["line-length"] == 100
-    for linter in (
-        "depguard",
-        "dupl",
-        "gochecksumtype",
-        "godoclint",
-        "gomoddirectives",
-        "gosec",
-        "govet",
-        "modernize",
-        "nilnesserr",
-        "paralleltest",
-        "testpackage",
-        "unqueryvet",
-        "usetesting",
-        "wsl_v5",
-    ):
-        assert linter in enabled_linters
-    assert settings["govet"]["enable-all"] is True
-    assert {
-        "pkg": "github.com/pkg/errors",
-        "desc": 'Use standard errors plus fmt.Errorf("%w") wrapping.',
-    } in settings["depguard"]["rules"]["main"]["deny"]
-    assert settings["gomoddirectives"]["replace-allow-list"] == []
-    assert settings["gomoddirectives"]["retract-allow-no-explanation"] is False
-    assert settings["tagliatelle"]["case"]["rules"]["json"] == "snake"
-    assert settings["tagliatelle"]["case"]["rules"]["yaml"] == "snake"
-    assert settings["testifylint"]["enable-all"] is True
 
 
 class MarkdownSeedTests(unittest.TestCase):
@@ -768,7 +515,7 @@ class CliRenderTests(unittest.TestCase):
             assert exit_code == 0
             self._assert_rendered_targets(repo_root)
 
-    def test_cli_renders_ethos_skills_for_supported_agents(self) -> None:
+    def test_cli_does_not_render_go_owned_skill_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             primary_path = tmp_path / "coding_ethos.yml"
@@ -801,90 +548,15 @@ class CliRenderTests(unittest.TestCase):
             exit_code = main(["--repo", str(repo_root), "--primary", str(primary_path)])
 
             assert exit_code == 0
-            skill_paths = [
+            assert (repo_root / "AGENTS.md").exists()
+            for relative_path in [
                 ".agents/skills/lint-remediation/SKILL.md",
                 ".claude/skills/lint-remediation/SKILL.md",
                 ".codex/skills/lint-remediation/SKILL.md",
                 ".gemini/extensions/coding-ethos/skills/lint-remediation/SKILL.md",
-            ]
-            for relative_path in skill_paths:
-                skill_text = (repo_root / relative_path).read_text(encoding="utf-8")
-                assert skill_text.startswith("---\n")
-                assert 'name: "lint-remediation"' in skill_text
-                assert "source: coding_ethos.yml" in skill_text
-                assert "<!-- SPDX-License-Identifier: MIT -->" in skill_text
-                assert "`solid-is-law`: Enforce simple SOLID designs." in skill_text
-                assert "## Remediation Workflow" in skill_text
-                assert "[Section 2: Testing as Specification]" not in skill_text
-                assert (
-                    "[Testing as Specification](#testing-as-specification)"
-                    in skill_text
-                )
-                assert "Section 99: Missing Principle" not in skill_text
-                assert "Missing Principle" in skill_text
-            manifest = (
-                repo_root / ".gemini/extensions/coding-ethos/gemini-extension.json"
-            ).read_text(encoding="utf-8")
-            manifest_payload = json.loads(manifest)
-            assert manifest_payload["name"] == "coding-ethos"
-            assert manifest_payload["description"] == (
-                'ETHOS skills for Widget "Service" \\ Alpha: lint-remediation'
-            )
-
-    def test_cli_sync_agent_skills_does_not_rewrite_root_docs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            primary_path = tmp_path / "coding_ethos.yml"
-            repo_root = tmp_path / "target"
-            payload = self._primary_payload(include_testing_principle=False)
-            payload["skills"] = [
-                {
-                    "id": "managed-toolchain",
-                    "title": "Managed Toolchain",
-                    "description": "Use when generated config or managed tools drift.",
-                    "principle_ids": ["solid-is-law"],
-                    "trigger_terms": ["config drift"],
-                    "short_hint": "Use managed tools.",
-                    "focus": "Use this skill for toolchain failures.",
-                    "remediation_steps": ["Restore generated config."],
-                }
-            ]
-            self._write_yaml(primary_path, payload)
-
-            repo_root.mkdir()
-            exit_code = main(
-                [
-                    "--repo",
-                    str(repo_root),
-                    "--primary",
-                    str(primary_path),
-                    "--sync-agent-skills",
-                ]
-            )
-
-            assert exit_code == 0
-            assert not (repo_root / "AGENTS.md").exists()
-            assert (repo_root / ".agents/skills/managed-toolchain/SKILL.md").exists()
-            assert (repo_root / ".claude/skills/managed-toolchain/SKILL.md").exists()
-            assert (repo_root / ".codex/skills/managed-toolchain/SKILL.md").exists()
-            assert (
-                repo_root
-                / ".gemini/extensions/coding-ethos/skills/managed-toolchain/SKILL.md"
-            ).exists()
-
-            skill_path = repo_root / ".codex/skills/managed-toolchain/SKILL.md"
-            skill_path.write_text("drifted\n", encoding="utf-8")
-
-            drift_exit_code = main(
-                [
-                    "--repo",
-                    str(repo_root),
-                    "--primary",
-                    str(primary_path),
-                    "--check-agent-skills",
-                ]
-            )
-            assert drift_exit_code == 1
+                ".gemini/extensions/coding-ethos/gemini-extension.json",
+            ]:
+                assert not (repo_root / relative_path).exists(), relative_path
 
     def test_cli_merge_existing_injects_managed_blocks_for_root_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1091,47 +763,6 @@ class CliRenderTests(unittest.TestCase):
                 "key paths",
                 "repo operating notes",
             ]
-
-    def test_cli_sync_tool_configs_generates_repo_root_files(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo_root = Path(tmp_dir)
-            _write_repo_tool_config_override(repo_root)
-
-            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
-            assert exit_code == 0
-            _assert_generated_tool_configs(repo_root)
-
-    def test_cli_sync_tool_configs_generates_enabled_ci_configs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo_root = Path(tmp_dir)
-            _write_repo_ci_config_override(repo_root)
-
-            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
-            assert exit_code == 0
-            _assert_generated_ci_configs(repo_root)
-
-    def test_cli_check_tool_configs_detects_out_of_sync_files(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo_root = Path(tmp_dir)
-            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
-            assert exit_code == 0
-
-            (repo_root / ".golangci.yml").write_text('version: "2"\n', encoding="utf-8")
-
-            drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
-            assert drift_exit_code == 1
-
-    def test_cli_check_tool_configs_detects_hash_manifest_drift(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            repo_root = Path(tmp_dir)
-            exit_code = main(["--repo", str(repo_root), "--sync-tool-configs"])
-            assert exit_code == 0
-
-            manifest = repo_root / ".code-ethos" / "tool-config-hashes.json"
-            manifest.write_text('{"version": 1, "configs": {}}\n', encoding="utf-8")
-
-            drift_exit_code = main(["--repo", str(repo_root), "--check-tool-configs"])
-            assert drift_exit_code == 1
 
 
 if __name__ == "__main__":

@@ -167,3 +167,32 @@ linters:
           yaml: snake
     testifylint:
       enable-all: true
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+    - golines
+  exclusions:
+    generated: strict
+    warn-unused: true
+  settings:
+    gci:
+      custom-order: true
+      sections:
+        - standard
+        - default
+        - prefix(blackcat.ca/coding-ethos/go)
+        - localmodule
+    gofmt:
+      simplify: true
+    gofumpt:
+      extra-rules: true
+      module-path: blackcat.ca/coding-ethos/go
+    goimports:
+      local-prefixes:
+        - blackcat.ca/coding-ethos/go
+    golines:
+      max-len: 88
+      tab-len: 1

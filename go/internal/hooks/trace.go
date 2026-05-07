@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
@@ -26,36 +25,35 @@ const (
 	hookTraceFile       = "event.json"
 	hookTraceFileMode   = 0o600
 	commandPreviewLimit = 300
+	traceStaticParts    = 7
 )
 
-var hookTraceFallbackCounter atomic.Uint64
-
 type HookTrace struct {
-	SchemaVersion      int                         `json:"schema_version"`
-	TraceID            string                      `json:"trace_id"`
-	TrackingID         string                      `json:"tracking_id,omitempty"`
+	Command            *HookTraceCommand           `json:"command,omitempty"`
+	Tool               string                      `json:"tool,omitempty"`
+	Matcher            string                      `json:"matcher,omitempty"`
 	RecordedAtUTC      string                      `json:"recorded_at_utc"`
 	Provider           string                      `json:"provider,omitempty"`
 	Event              string                      `json:"event"`
-	Tool               string                      `json:"tool,omitempty"`
+	OperationKind      string                      `json:"operation_kind,omitempty"`
 	SessionID          string                      `json:"session_id,omitempty"`
-	Matcher            string                      `json:"matcher,omitempty"`
+	TargetSetSHA256    string                      `json:"target_set_sha256,omitempty"`
 	Source             string                      `json:"source,omitempty"`
 	TranscriptPath     string                      `json:"transcript_path,omitempty"`
 	Cwd                string                      `json:"cwd,omitempty"`
-	Command            *HookTraceCommand           `json:"command,omitempty"`
-	Files              []string                    `json:"files,omitempty"`
-	OperationKind      string                      `json:"operation_kind,omitempty"`
+	TraceID            string                      `json:"trace_id"`
+	TrackingID         string                      `json:"tracking_id,omitempty"`
 	TargetKind         string                      `json:"target_kind,omitempty"`
-	RiskCategory       string                      `json:"risk_category,omitempty"`
-	TargetSetSHA256    string                      `json:"target_set_sha256,omitempty"`
 	Status             string                      `json:"status"`
-	RuntimeMS          int64                       `json:"runtime_ms,omitempty"`
+	RiskCategory       string                      `json:"risk_category,omitempty"`
+	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
+	Files              []string                    `json:"files,omitempty"`
 	Decisions          []HookTraceDecision         `json:"decisions,omitempty"`
 	Findings           []evidence.Finding          `json:"findings,omitempty"`
-	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
-	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitempty"`
 	RemediationEvents  []evidence.RemediationEvent `json:"remediation_events,omitempty"`
+	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitzero"`
+	RuntimeMS          int64                       `json:"runtime_ms,omitempty"`
+	SchemaVersion      int                         `json:"schema_version"`
 	OutputShape        HookTraceOutputShape        `json:"output_shape"`
 }
 
@@ -74,9 +72,9 @@ type HookTraceDecision struct {
 	Implementation  string   `json:"implementation,omitempty"`
 	Message         string   `json:"message,omitempty"`
 	MessageHash     string   `json:"message_hash,omitempty"`
+	SuggestionHash  string   `json:"suggestion_hash,omitempty"`
 	EvidenceKeys    []string `json:"evidence_keys,omitempty"`
 	PrincipleIDs    []string `json:"principle_ids,omitempty"`
-	SuggestionHash  string   `json:"suggestion_hash,omitempty"`
 	DiagnosticCount int      `json:"diagnostic_count,omitempty"`
 }
 
@@ -143,6 +141,7 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	}
 
 	path := filepath.Join(runDir, hookTraceFile)
+
 	file, err := os.OpenFile(
 		filepath.Clean(path),
 		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
@@ -151,8 +150,10 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	if err != nil {
 		return fmt.Errorf("open hook trace: %w", err)
 	}
+
 	defer func() {
-		if closeErr := file.Close(); err == nil && closeErr != nil {
+		closeErr := file.Close()
+		if err == nil && closeErr != nil {
 			err = fmt.Errorf("close hook trace: %w", closeErr)
 		}
 	}()
@@ -160,8 +161,10 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(trace); err != nil {
-		return fmt.Errorf("encode hook trace: %w", err)
+
+	inlineErr0 := encoder.Encode(trace)
+	if inlineErr0 != nil {
+		return fmt.Errorf("encode hook trace: %w", inlineErr0)
 	}
 
 	return nil
@@ -194,13 +197,13 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 }
 
 func evidenceString(evidence map[string]any, key string) string {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -216,6 +219,7 @@ func sortedEvidenceKeys(evidence map[string]any) []string {
 	for key := range evidence {
 		keys = append(keys, key)
 	}
+
 	slices.Sort(keys)
 
 	return keys
@@ -238,7 +242,10 @@ func traceOutputShape(result Result) HookTraceOutputShape {
 
 func hookTraceID(event Event, result Result) string {
 	runID := randomTraceComponent()
-	parts := []string{
+
+	parts := make([]string, 0, traceStaticParts+3*len(result.Decisions))
+
+	parts = append(parts,
 		runID,
 		event.Provider(),
 		event.HookEventName,
@@ -246,7 +253,7 @@ func hookTraceID(event Event, result Result) string {
 		event.Cwd,
 		event.Command(),
 		result.Status,
-	}
+	)
 	for _, decision := range result.Decisions {
 		parts = append(parts, decision.PolicyID, decision.Decision, decision.Message)
 	}
@@ -256,15 +263,17 @@ func hookTraceID(event Event, result Result) string {
 
 func randomTraceComponent() string {
 	var random [8]byte
-	if _, err := rand.Read(random[:]); err == nil {
+
+	_, inlineErrAutoA := rand.Read(random[:])
+	if inlineErrAutoA == nil {
 		return hex.EncodeToString(random[:])
 	}
 
 	return fmt.Sprintf(
-		"%d-%d-%d",
+		"%d-%d-%s",
 		time.Now().UTC().UnixNano(),
 		os.Getpid(),
-		hookTraceFallbackCounter.Add(1),
+		sha256Hex(fmt.Sprintf("%p", &random))[:8],
 	)
 }
 

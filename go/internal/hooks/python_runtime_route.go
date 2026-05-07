@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-const pythonRuntimePolicyID = "tool.python_runtime_required"
+const uvPythonStaticArgCount = 5
 
 func pythonRuntimeRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
 		return InspectionRoute{}
 	}
 
@@ -25,6 +25,7 @@ func pythonRuntimeRouteFor(event Event) InspectionRoute {
 	if !rewrite {
 		return InspectionRoute{}
 	}
+
 	reason := "Python commands must run through the consumer repo environment: " +
 		"`uv run --project <repo> python ...` when a uv project exists, " +
 		"otherwise `<repo>/.venv/bin/python ...` when a venv exists."
@@ -36,17 +37,19 @@ func pythonRuntimeRouteFor(event Event) InspectionRoute {
 	}
 }
 
-func rewritePythonRuntimeCommandChain(command string, cwd string) (string, bool) {
+func rewritePythonRuntimeCommandChain(command, cwd string) (string, bool) {
 	tokens, parseOK := shellControlFieldsOK(command)
 	if !parseOK {
 		return "", false
 	}
+
 	if len(tokens) == 0 {
 		return "", false
 	}
 
 	rewritten := make([]string, 0, len(tokens))
 	rewrite := false
+
 	for index := 0; index < len(tokens); {
 		if isShellControlToken(tokens[index]) {
 			rewritten = append(rewritten, tokens[index])
@@ -61,6 +64,7 @@ func rewritePythonRuntimeCommandChain(command string, cwd string) (string, bool)
 		}
 
 		segment := tokens[start:index]
+
 		segmentRewrite := rewritePythonRuntimeSegment(segment, cwd)
 		if segmentRewrite != "" {
 			rewritten = append(rewritten, segmentRewrite)
@@ -100,7 +104,9 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 
 func pythonRuntimeCommand(root string, args []string) []string {
 	if pythonRepoUsesUV(root) {
-		parts := []string{"uv", "run", "--project", shellQuote(root), "python"}
+		parts := make([]string, 0, uvPythonStaticArgCount+len(args))
+
+		parts = append(parts, "uv", "run", "--project", shellQuote(root), "python")
 		for _, arg := range args {
 			parts = append(parts, shellQuote(arg))
 		}
@@ -122,33 +128,18 @@ func pythonRuntimeCommand(root string, args []string) []string {
 }
 
 func pythonRuntimeRoot(cwd string) string {
-	if cwd == "" {
-		if root := strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT")); root != "" {
-			cwd = root
-		}
-	}
-	if cwd == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return ""
-		}
-	}
-	if !filepath.IsAbs(cwd) {
-		abs, err := filepath.Abs(cwd)
-		if err == nil {
-			cwd = abs
-		}
-	}
+	cwd = normalizedPythonRuntimeCwd(cwd)
+
 	if root := gitRootFromPath(cwd); root != "" &&
-		(pythonRepoUsesUV(root) || fileExecutable(filepath.Join(root, ".venv", "bin", "python"))) {
+		pythonRuntimeAvailable(root) {
 		return root
 	}
 
 	for current := filepath.Clean(cwd); ; current = filepath.Dir(current) {
-		if pythonRepoUsesUV(current) || fileExecutable(filepath.Join(current, ".venv", "bin", "python")) {
+		if pythonRuntimeAvailable(current) {
 			return current
 		}
+
 		parent := filepath.Dir(current)
 		if parent == current {
 			return ""
@@ -156,11 +147,44 @@ func pythonRuntimeRoot(cwd string) string {
 	}
 }
 
+func normalizedPythonRuntimeCwd(cwd string) string {
+	if cwd == "" {
+		cwd = strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT"))
+	}
+
+	if cwd == "" {
+		current, err := os.Getwd()
+		if err != nil {
+			return ""
+		}
+
+		cwd = current
+	}
+
+	if filepath.IsAbs(cwd) {
+		return cwd
+	}
+
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return cwd
+	}
+
+	return abs
+}
+
+func pythonRuntimeAvailable(root string) bool {
+	return pythonRepoUsesUV(root) ||
+		fileExecutable(filepath.Join(root, ".venv", "bin", "python"))
+}
+
 func gitRootFromPath(path string) string {
 	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-		if fileExists(filepath.Join(current, ".git")) || dirExists(filepath.Join(current, ".git")) {
+		if fileExists(filepath.Join(current, ".git")) ||
+			dirExists(filepath.Join(current, ".git")) {
 			return current
 		}
+
 		parent := filepath.Dir(current)
 		if parent == current {
 			return ""
@@ -169,7 +193,8 @@ func gitRootFromPath(path string) string {
 }
 
 func pythonRepoUsesUV(root string) bool {
-	return fileExists(filepath.Join(root, "uv.lock")) || fileExists(filepath.Join(root, "pyproject.toml"))
+	return fileExists(filepath.Join(root, "uv.lock")) ||
+		fileExists(filepath.Join(root, "pyproject.toml"))
 }
 
 func fileExists(path string) bool {

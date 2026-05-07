@@ -1,16 +1,26 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package celexpr
+package celexpr_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	. "blackcat.ca/coding-ethos/go/internal/celexpr"
+)
+
+const (
+	testLanguagePython     = "python"
+	testSourceAppPath      = "src/app.py"
+	testSymbolKindFunction = "function"
 )
 
 func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
@@ -25,7 +35,9 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		diff.has_changes &&
 		diff.hunks.exists(hunk, hunk.file == "src/app.py") &&
 		diff.added_lines.exists(line, line.text.contains("pass")) &&
-		changed_symbols.exists(symbol, symbol.file == "src/app.py" || symbol.file == "") &&
+		changed_symbols.exists(symbol,
+			symbol.file == "src/app.py" || symbol.file == ""
+		) &&
 		git_command.is_git &&
 		git_command.subcommand == "status" &&
 		paths.exists(path, path.ext == ".py" && path.is_test) &&
@@ -38,7 +50,9 @@ func TestValidateAcceptsPathDiagnosticFindingAndRepoInputs(t *testing.T) {
 		repo.python_version == "3.13" &&
 		repo.required_ignores.all(ignore, ignore.ignored || ignore.check_failed)
 	`
-	if err := Validate("test.path_scope", source); err != nil {
+
+	err := Validate("test.path_scope", source)
+	if err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
 	}
 }
@@ -102,7 +116,9 @@ func TestValidateAcceptsReviewedHelperFunctions(t *testing.T) {
 		any_has_prefix(files, "src/") &&
 		any_has_suffix(files, ".py")
 	`
-	if err := Validate("test.helpers", source); err != nil {
+
+	err := Validate("test.helpers", source)
+	if err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
 	}
 }
@@ -132,13 +148,25 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		repo_config_present(files, config.candidates) &&
 		is_protected_path(path.file, repo.protected_paths) &&
 		is_protected_branch(git.current_branch, repo.protected_branches) &&
-		tool_capabilities.exists(tool, tool.name == "gemini-check" && tool.requires_network && list_contains(tool.tags, "network")) &&
-		tool_capabilities.exists(tool, tool.name == "ruff" && !tool.requires_network && !tool.requires_git && list_contains(tool.tags, "no-network") && list_contains(tool.tags, "no-git")) &&
+		tool_capabilities.exists(tool,
+			tool.name == "gemini-check" &&
+			tool.requires_network &&
+			list_contains(tool.tags, "network")
+		) &&
+		tool_capabilities.exists(tool,
+			tool.name == "ruff" &&
+			!tool.requires_network &&
+			!tool.requires_git &&
+			list_contains(tool.tags, "no-network") &&
+			list_contains(tool.tags, "no-git")
+		) &&
 		any_glob_match(["src/**/*.py"], path.file) &&
 		any_contains(["git status"], command_fact.lower) &&
 		referenced_files.exists(file, file.file == "src/package/module.py")
 	`
-	if err := Validate("test.expanded_helpers", source); err != nil {
+
+	err := Validate("test.expanded_helpers", source)
+	if err != nil {
 		t.Fatalf("validate CEL expression: %v", err)
 	}
 }
@@ -160,7 +188,8 @@ func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("glob helper output = %#v, want true", output.Value())
 	}
 }
@@ -181,7 +210,10 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 			has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 			lint_code_matches(diagnostic.code, "S*") &&
 			repo_config_present(files, config.candidates) &&
-			is_protected_path("coding-ethos-hooks/bin/coding-ethos-policy", repo.protected_paths) &&
+			is_protected_path(
+				"coding-ethos-hooks/bin/coding-ethos-policy",
+				repo.protected_paths
+			) &&
 			is_protected_branch(git.current_branch, repo.protected_branches) &&
 			tool_capabilities.exists(tool,
 				tool.name == "gemini-check" &&
@@ -197,7 +229,13 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	}
 
 	output, _, err := program.Eval(Activation(ActivationInput{
-		Argv:              []string{"git", "worktree", "remove", "-f", "../repo-old"},
+		Argv: []string{
+			"git",
+			"worktree",
+			"remove",
+			"-f",
+			"../repo-old",
+		},
 		Command:           "CODE_ETHOS_CONSUMER_ROOT=/repo git status",
 		Content:           `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
 		ConfigCandidates:  []string{"repo_config.yaml"},
@@ -211,7 +249,8 @@ func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("expanded helper output = %#v, want true", output.Value())
 	}
 }
@@ -243,7 +282,8 @@ func TestProgramEvaluatesNetworkCapabilityPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("network capability output = %#v, want true", output.Value())
 	}
 }
@@ -252,12 +292,15 @@ func TestProgramEvaluatesProtectedSymlinkPath(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	linkPath := filepath.Join(root, "hook-link")
-	if err := os.Symlink(
+
+	inlineErr0 := os.Symlink(
 		".git/coding-ethos-hooks/coding-ethos-git-hook",
 		linkPath,
-	); err != nil {
-		t.Fatalf("create symlink: %v", err)
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("create symlink: %v", inlineErr0)
 	}
 
 	program, err := Program(
@@ -281,7 +324,8 @@ func TestProgramEvaluatesProtectedSymlinkPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("symlink helper output = %#v, want true", output.Value())
 	}
 }
@@ -291,7 +335,8 @@ func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T
 
 	program, err := Program(
 		"test.argv_command_helper_eval",
-		`argv_command_is(argv, "git") && !argv_command_is(["echo", "git"], "git")`,
+		`argv_command_is(argv, "git") &&
+			!argv_command_is(["echo", "git"], "git")`,
 	)
 	if err != nil {
 		t.Fatalf("compile CEL program: %v", err)
@@ -303,7 +348,8 @@ func TestProgramEvaluatesArgvCommandHelperAgainstLeadingAssignments(t *testing.T
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("argv command helper output = %#v, want true", output.Value())
 	}
 }
@@ -325,7 +371,8 @@ func TestProgramEvaluatesArgvCommandHelperAgainstEmptyAssignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate CEL program: %v", err)
 	}
-	if matched, ok := output.Value().(bool); !ok || !matched {
+
+	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("argv command helper output = %#v, want true", output.Value())
 	}
 }
@@ -337,20 +384,23 @@ func TestActivationPopulatesShellCommandInputs(t *testing.T) {
 		Command: "FOO=bar git status -s 2>&1 | grep file && ruff check .",
 	})
 
-	commands, ok := activation["shell_commands"].([]ShellCommandInput)
-	if !ok {
+	commands, found := activation["shell_commands"].([]ShellCommandInput)
+	if !found {
 		t.Fatalf("shell commands input = %#v", activation["shell_commands"])
 	}
+
 	if len(commands) != 3 {
 		t.Fatalf("shell command count = %d, want 3: %#v", len(commands), commands)
 	}
+
 	if commands[0].Name != "git" ||
 		!commands[0].HasInlineEnv ||
 		!commands[0].IsGit ||
-		!listContains(commands[0].Assignments, "FOO=bar") ||
-		!listContains(commands[0].Redirects, "2>&1") {
+		!slices.Contains(commands[0].Assignments, "FOO=bar") ||
+		!slices.Contains(commands[0].Redirects, "2>&1") {
 		t.Fatalf("first shell command = %#v", commands[0])
 	}
+
 	if commands[1].Name != "grep" ||
 		commands[2].Name != "ruff" ||
 		!commands[2].IsLintTool {
@@ -365,18 +415,21 @@ func TestActivationPopulatesRichShellCommandInputs(t *testing.T) {
 		Command: "PATH=/tmp:$PATH bash -c 'git status' && env FOO=bar ruff check .",
 	})
 
-	commands, ok := activation["shell_commands"].([]ShellCommandInput)
-	if !ok {
+	commands, found := activation["shell_commands"].([]ShellCommandInput)
+	if !found {
 		t.Fatalf("shell commands input = %#v", activation["shell_commands"])
 	}
+
 	if len(commands) != 2 {
 		t.Fatalf("shell command count = %d, want 2: %#v", len(commands), commands)
 	}
+
 	if !commands[0].IsShellExec ||
 		!commands[0].UsesPathOverride ||
 		!commands[0].HasDynamicExpansion {
 		t.Fatalf("shell exec facts mismatch: %#v", commands[0])
 	}
+
 	if !commands[1].IsLintTool {
 		t.Fatalf("wrapped lint command mismatch: %#v", commands[1])
 	}
@@ -398,16 +451,17 @@ func TestActivationPopulatesGitCommandInput(t *testing.T) {
 		},
 	})
 
-	gitCommand, ok := activation["git_command"].(GitCommandInput)
-	if !ok {
+	gitCommand, found := activation["git_command"].(GitCommandInput)
+	if !found {
 		t.Fatalf("git command input = %#v", activation["git_command"])
 	}
+
 	if !gitCommand.IsGit ||
 		!gitCommand.HasChangeDir ||
 		gitCommand.Subcommand != "worktree" ||
 		len(gitCommand.Args) != 3 ||
-		!listContains(gitCommand.Flags, "-f") ||
-		!listContains(gitCommand.Flags, "-d") ||
+		!slices.Contains(gitCommand.Flags, "-f") ||
+		!slices.Contains(gitCommand.Flags, "-d") ||
 		len(gitCommand.Targets) != 2 ||
 		gitCommand.Targets[0] != "remove" ||
 		gitCommand.Targets[1] != "../repo-old" {
@@ -419,16 +473,28 @@ func TestActivationPopulatesGitCommandGlobalOptionValues(t *testing.T) {
 	t.Parallel()
 
 	activation := Activation(ActivationInput{
-		Argv: []string{"git", "-C", "/repo", "-c", "core.hooksPath=.git/hooks", "status"},
+		Argv: []string{
+			"git",
+			"-C",
+			"/repo",
+			"-c",
+			"core.hooksPath=.git/hooks",
+			"status",
+		},
 	})
 
-	gitCommand, ok := activation["git_command"].(GitCommandInput)
-	if !ok {
+	gitCommand, found := activation["git_command"].(GitCommandInput)
+	if !found {
 		t.Fatalf("git command input = %#v", activation["git_command"])
 	}
+
 	for _, want := range []string{"-C", "/repo", "-c", "core.hooksPath=.git/hooks"} {
-		if !listContains(gitCommand.GlobalOptions, want) {
-			t.Fatalf("git global options = %#v, missing %q", gitCommand.GlobalOptions, want)
+		if !slices.Contains(gitCommand.GlobalOptions, want) {
+			t.Fatalf(
+				"git global options = %#v, missing %q",
+				gitCommand.GlobalOptions,
+				want,
+			)
 		}
 	}
 }
@@ -440,11 +506,12 @@ func TestActivationStopsGitFlagParsingAtPathspecSeparator(t *testing.T) {
 		Argv: []string{"git", "add", "--", "-not-a-flag"},
 	})
 
-	gitCommand, ok := activation["git_command"].(GitCommandInput)
-	if !ok {
+	gitCommand, found := activation["git_command"].(GitCommandInput)
+	if !found {
 		t.Fatalf("git command input = %#v", activation["git_command"])
 	}
-	if listContains(gitCommand.Flags, "-not-a-flag") {
+
+	if slices.Contains(gitCommand.Flags, "-not-a-flag") {
 		t.Fatalf("git flags include pathspec after --: %#v", gitCommand.Flags)
 	}
 }
@@ -463,12 +530,14 @@ func TestActivationPreservesCheckoutAndSwitchStartPoints(t *testing.T) {
 				Argv:              argv,
 				ProtectedBranches: []string{"main"},
 			})
-			gitCommand, ok := activation["git_command"].(GitCommandInput)
-			if !ok {
+
+			gitCommand, found := activation["git_command"].(GitCommandInput)
+			if !found {
 				t.Fatalf("git command input = %#v", activation["git_command"])
 			}
-			if !listContains(gitCommand.Targets, "feature") ||
-				!listContains(gitCommand.Targets, "main") ||
+
+			if !slices.Contains(gitCommand.Targets, "feature") ||
+				!slices.Contains(gitCommand.Targets, "main") ||
 				!gitCommand.HasCheckoutProtectedBranch {
 				t.Fatalf("git command input = %#v", gitCommand)
 			}
@@ -480,14 +549,22 @@ func TestActivationDoesNotTreatRemoteStartPointAsProtectedCheckout(t *testing.T)
 	t.Parallel()
 
 	activation := Activation(ActivationInput{
-		Argv:              []string{"git", "checkout", "-b", "feature", "origin/main"},
+		Argv: []string{
+			"git",
+			"checkout",
+			"-b",
+			"feature",
+			"origin/main",
+		},
 		ProtectedBranches: []string{"main"},
 	})
-	gitCommand, ok := activation["git_command"].(GitCommandInput)
-	if !ok {
+
+	gitCommand, found := activation["git_command"].(GitCommandInput)
+	if !found {
 		t.Fatalf("git command input = %#v", activation["git_command"])
 	}
-	if !listContains(gitCommand.Targets, "origin/main") ||
+
+	if !slices.Contains(gitCommand.Targets, "origin/main") ||
 		gitCommand.HasCheckoutProtectedBranch {
 		t.Fatalf("git command input = %#v", gitCommand)
 	}
@@ -502,26 +579,32 @@ func TestActivationPopulatesFileChangeInputs(t *testing.T) {
 	runTestGit(t, repo, "config", "user.name", "Test User")
 
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
-	runTestGit(t, repo, "add", "src/app.py")
+
+	runTestGit(t, repo, "add", testSourceAppPath)
 
 	activation := Activation(ActivationInput{
 		Cwd:            repo,
-		Files:          []string{"src/app.py"},
-		ProtectedPaths: []string{"src/app.py"},
+		Files:          []string{testSourceAppPath},
+		ProtectedPaths: []string{testSourceAppPath},
 	})
 
-	fileChanges, ok := activation["file_changes"].([]FileChangeInput)
-	if !ok || len(fileChanges) != 1 {
+	fileChanges, found := activation["file_changes"].([]FileChangeInput)
+	if !found || len(fileChanges) != 1 {
 		t.Fatalf("file_changes input = %#v", activation["file_changes"])
 	}
+
 	fileChange := fileChanges[0]
-	if fileChange.File != "src/app.py" ||
+	if fileChange.File != testSourceAppPath ||
 		fileChange.Status != "A" ||
 		!fileChange.IsAdded ||
 		!fileChange.IsProtected ||
@@ -536,27 +619,36 @@ func TestActivationPopulatesProposedWriteFileChangeInputs(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("one\ntwo\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("one\ntwo\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
 	activation := Activation(ActivationInput{
 		Cwd:     repo,
-		Files:   []string{"src/app.py"},
+		Files:   []string{testSourceAppPath},
 		Tool:    "Write",
 		Content: "one\ntwo\nthree\n",
 	})
 
-	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
-	if !ok || len(changes) != 1 {
-		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	changes, found := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !found || len(changes) != 1 {
+		t.Fatalf(
+			"proposed_file_changes input = %#v",
+			activation["proposed_file_changes"],
+		)
 	}
+
 	change := changes[0]
-	if change.File != "src/app.py" ||
+	if change.File != testSourceAppPath ||
 		change.CurrentLineCount != 2 ||
 		change.ProposedLineCount != 3 ||
 		change.LineDelta != 1 ||
@@ -570,11 +662,16 @@ func TestActivationPopulatesProposedApplyPatchFileChangeInputs(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
-	file := filepath.Join(repo, "pre-commit", "hooks", "go-hooks", "main.go")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	file := filepath.Join(repo, "go", "cmd", "coding-ethos-hook-runner", "main.go")
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
@@ -582,7 +679,7 @@ func TestActivationPopulatesProposedApplyPatchFileChangeInputs(t *testing.T) {
 		Cwd:  repo,
 		Tool: "Edit",
 		Command: `*** Begin Patch
-*** Update File: pre-commit/hooks/go-hooks/main.go
+*** Update File: go/cmd/coding-ethos-hook-runner/main.go
 @@
 -two
 +two
@@ -592,47 +689,50 @@ func TestActivationPopulatesProposedApplyPatchFileChangeInputs(t *testing.T) {
 `,
 	})
 
-	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
-	if !ok || len(changes) != 1 {
-		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	changes, found := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !found || len(changes) != 1 {
+		t.Fatalf(
+			"proposed_file_changes input = %#v",
+			activation["proposed_file_changes"],
+		)
 	}
-	change := changes[0]
-	if change.File != "pre-commit/hooks/go-hooks/main.go" ||
-		change.CurrentLineCount != 3 ||
-		change.ProposedLineCount != 5 ||
-		change.LineDelta != 2 ||
-		change.NonBlankLineDelta != 2 ||
-		!change.LineCountGrows ||
-		!change.NonBlankLineCountGrows ||
-		change.HasProposedContent {
-		t.Fatalf("proposed apply_patch change input = %#v", change)
-	}
+
+	assertApplyPatchFileChange(t, changes[0])
 }
 
 func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
 	activation := Activation(ActivationInput{
 		Cwd:        repo,
-		Files:      []string{"src/app.py"},
+		Files:      []string{testSourceAppPath},
 		Tool:       "Edit",
 		OldContent: "two\nthree\n",
 		Content:    "two\n",
 	})
 
-	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
-	if !ok || len(changes) != 1 {
-		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	changes, found := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !found || len(changes) != 1 {
+		t.Fatalf(
+			"proposed_file_changes input = %#v",
+			activation["proposed_file_changes"],
+		)
 	}
+
 	change := changes[0]
 	if change.ProposedLineCount != 2 ||
 		change.LineDelta != -1 ||
@@ -644,71 +744,141 @@ func TestActivationPopulatesProposedShrinkingEditFileChangeInputs(t *testing.T) 
 	}
 }
 
+func assertApplyPatchFileChange(t *testing.T, change ProposedFileChangeInput) {
+	t.Helper()
+
+	got := []any{
+		change.File,
+		change.CurrentLineCount,
+		change.ProposedLineCount,
+		change.LineDelta,
+		change.NonBlankLineDelta,
+		change.LineCountGrows,
+		change.NonBlankLineCountGrows,
+		change.HasProposedContent,
+	}
+
+	want := []any{
+		"go/cmd/coding-ethos-hook-runner/main.go",
+		int64(3),
+		int64(5),
+		int64(2),
+		int64(2),
+		true,
+		true,
+		false,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("proposed apply_patch change fields = %#v, want %#v", got, want)
+	}
+}
+
+func assertGrowingSymbolChange(t *testing.T, change ProposedSymbolChangeInput) {
+	t.Helper()
+
+	got := []any{
+		change.File,
+		change.Language,
+		change.SymbolKind,
+		change.SymbolName,
+		change.Action,
+		change.CurrentLineCount,
+		change.ProposedLineCount,
+		change.LineDelta,
+		change.LineCountGrows,
+		change.LineCountShrinks,
+	}
+
+	want := []any{
+		testSourceAppPath,
+		testLanguagePython,
+		testSymbolKindFunction,
+		"grow",
+		"modified",
+		int64(2),
+		int64(3),
+		int64(1),
+		true,
+		false,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("symbol change fields = %#v, want %#v", got, want)
+	}
+}
+
 func TestActivationPopulatesProposedSymbolChangeInputs(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
+
 	current := "def keep():\n    return 1\n\n"
+
 	current += "def grow():\n    return 1\n"
-	if err := os.WriteFile(file, []byte(current), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte(current), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
 	activation := Activation(ActivationInput{
 		Cwd:        repo,
-		Files:      []string{"src/app.py"},
+		Files:      []string{testSourceAppPath},
 		Tool:       "Edit",
 		OldContent: "def grow():\n    return 1\n",
 		Content:    "def grow():\n    value = 1\n    return value\n",
 	})
 
-	changes, ok := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
-	if !ok || len(changes) != 1 {
-		t.Fatalf("proposed_symbol_changes input = %#v", activation["proposed_symbol_changes"])
+	changes, found := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
+	if !found || len(changes) != 1 {
+		t.Fatalf(
+			"proposed_symbol_changes input = %#v",
+			activation["proposed_symbol_changes"],
+		)
 	}
-	change := changes[0]
-	if change.File != "src/app.py" ||
-		change.Language != "python" ||
-		change.SymbolKind != "function" ||
-		change.SymbolName != "grow" ||
-		change.Action != "modified" ||
-		change.CurrentLineCount != 2 ||
-		change.ProposedLineCount != 3 ||
-		change.LineDelta != 1 ||
-		!change.LineCountGrows ||
-		change.LineCountShrinks {
-		t.Fatalf("symbol change input = %#v", change)
-	}
+
+	assertGrowingSymbolChange(t, changes[0])
 }
 
 func TestActivationEstimatesAmbiguousEditAcrossAllMatches(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("line\nline\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("line\nline\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
 
 	activation := Activation(ActivationInput{
 		Cwd:        repo,
-		Files:      []string{"src/app.py"},
+		Files:      []string{testSourceAppPath},
 		Tool:       "Edit",
 		OldContent: "line\n",
 		Content:    "line\nextra\n",
 	})
 
-	changes, ok := activation["proposed_file_changes"].([]ProposedFileChangeInput)
-	if !ok || len(changes) != 1 {
-		t.Fatalf("proposed_file_changes input = %#v", activation["proposed_file_changes"])
+	changes, found := activation["proposed_file_changes"].([]ProposedFileChangeInput)
+	if !found || len(changes) != 1 {
+		t.Fatalf(
+			"proposed_file_changes input = %#v",
+			activation["proposed_file_changes"],
+		)
 	}
+
 	change := changes[0]
 	if !change.ReplacementMatched ||
 		!change.ReplacementAmbiguous ||
@@ -728,51 +898,42 @@ func TestActivationPopulatesDiffHunkInputs(t *testing.T) {
 	runTestGit(t, repo, "config", "user.name", "Test User")
 
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("print('one')\nprint('two')\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
-	runTestGit(t, repo, "add", "src/app.py")
+
+	runTestGit(t, repo, "add", testSourceAppPath)
 	runTestGit(t, repo, "commit", "-m", "feat: seed")
 
-	if err := os.WriteFile(
+	err = os.WriteFile(
 		file,
 		[]byte("print('one')\nprint('two changed')\nprint('three')\n"),
 		0o600,
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("rewrite source file: %v", err)
 	}
-	runTestGit(t, repo, "add", "src/app.py")
+
+	runTestGit(t, repo, "add", testSourceAppPath)
 
 	activation := Activation(ActivationInput{
 		Cwd:   repo,
-		Files: []string{"src/app.py"},
+		Files: []string{testSourceAppPath},
 	})
 
-	diff, ok := activation["diff"].(DiffInput)
-	if !ok || len(diff.Hunks) != 1 {
+	diff, found := activation["diff"].(DiffInput)
+	if !found || len(diff.Hunks) != 1 {
 		t.Fatalf("diff input = %#v", activation["diff"])
 	}
-	hunk := diff.Hunks[0]
-	if hunk.File != "src/app.py" ||
-		hunk.OldStart != 2 ||
-		hunk.NewStart != 2 ||
-		len(hunk.AddedLines) != 2 ||
-		len(hunk.RemovedLines) != 1 ||
-		hunk.AddedLines[0].Line != 2 ||
-		hunk.AddedLines[0].Text != "print('two changed')" ||
-		hunk.AddedLines[1].Line != 3 ||
-		hunk.RemovedLines[0].Line != 2 ||
-		hunk.RemovedLines[0].Text != "print('two')" {
-		t.Fatalf("hunk input = %#v", hunk)
-	}
-	if len(diff.AddedLines) != 2 ||
-		len(diff.RemovedLines) != 1 ||
-		diff.AddedLines[1].NewLine != 3 {
-		t.Fatalf("diff line summaries = %#v", diff)
-	}
+
+	assertDiffHunkInput(t, diff)
 }
 
 func TestActivationPopulatesChangedSymbolInputs(t *testing.T) {
@@ -784,49 +945,120 @@ func TestActivationPopulatesChangedSymbolInputs(t *testing.T) {
 	runTestGit(t, repo, "config", "user.name", "Test User")
 
 	file := filepath.Join(repo, "src", "app.py")
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(file), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(file, []byte("def build():\n    return 1\n"), 0o600); err != nil {
+
+	err = os.WriteFile(file, []byte("def build():\n    return 1\n"), 0o600)
+	if err != nil {
 		t.Fatalf("write source file: %v", err)
 	}
-	runTestGit(t, repo, "add", "src/app.py")
+
+	runTestGit(t, repo, "add", testSourceAppPath)
 	runTestGit(t, repo, "commit", "-m", "feat: seed")
 
-	if err := os.WriteFile(
+	err = os.WriteFile(
 		file,
 		[]byte("def build():\n    value = 1\n    return value\n"),
 		0o600,
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("rewrite source file: %v", err)
 	}
-	runTestGit(t, repo, "add", "src/app.py")
+
+	runTestGit(t, repo, "add", testSourceAppPath)
 
 	activation := Activation(ActivationInput{
 		Cwd:   repo,
-		Files: []string{"src/app.py"},
+		Files: []string{testSourceAppPath},
 	})
 
-	symbols, ok := activation["changed_symbols"].([]ChangedSymbolInput)
-	if !ok || len(symbols) != 1 {
+	symbols, found := activation["changed_symbols"].([]ChangedSymbolInput)
+	if !found || len(symbols) != 1 {
 		t.Fatalf("changed_symbols = %#v", activation["changed_symbols"])
 	}
-	symbol := symbols[0]
-	if symbol.File != "src/app.py" ||
-		symbol.Language != "python" ||
-		symbol.SymbolKind != "function" ||
-		symbol.SymbolName != "build" ||
-		symbol.Action != "modified" ||
-		!symbol.LineCountGrows ||
-		symbol.OriginalLineCount != 2 ||
-		symbol.CurrentLineCount != 3 ||
-		symbol.LineDelta != 1 ||
-		len(symbol.ChangedLines) == 0 {
-		t.Fatalf("changed symbol = %#v", symbol)
-	}
-	diff, ok := activation["diff"].(DiffInput)
-	if !ok || len(diff.ChangedSymbols) != 1 || diff.ChangedSymbols[0].SymbolName != "build" {
+
+	assertChangedSymbolInput(t, symbols[0])
+
+	diff, found := activation["diff"].(DiffInput)
+	if !found || len(diff.ChangedSymbols) != 1 ||
+		diff.ChangedSymbols[0].SymbolName != "build" {
 		t.Fatalf("diff changed symbols = %#v", activation["diff"])
+	}
+}
+
+func assertDiffHunkInput(t *testing.T, diff DiffInput) {
+	t.Helper()
+
+	hunk := diff.Hunks[0]
+	got := []any{
+		hunk.File,
+		hunk.OldStart,
+		hunk.NewStart,
+		len(hunk.AddedLines),
+		len(hunk.RemovedLines),
+		hunk.AddedLines[0].Line,
+		hunk.AddedLines[0].Text,
+		hunk.AddedLines[1].Line,
+		hunk.RemovedLines[0].Line,
+		hunk.RemovedLines[0].Text,
+		len(diff.AddedLines),
+		len(diff.RemovedLines),
+		diff.AddedLines[1].NewLine,
+	}
+
+	want := []any{
+		testSourceAppPath,
+		int64(2),
+		int64(2),
+		2,
+		1,
+		int64(2),
+		"print('two changed')",
+		int64(3),
+		int64(2),
+		"print('two')",
+		2,
+		1,
+		int64(3),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("diff hunk fields = %#v, want %#v", got, want)
+	}
+}
+
+func assertChangedSymbolInput(t *testing.T, symbol ChangedSymbolInput) {
+	t.Helper()
+
+	got := []any{
+		symbol.File,
+		symbol.Language,
+		symbol.SymbolKind,
+		symbol.SymbolName,
+		symbol.Action,
+		symbol.LineCountGrows,
+		symbol.OriginalLineCount,
+		symbol.CurrentLineCount,
+		symbol.LineDelta,
+		len(symbol.ChangedLines) > 0,
+	}
+
+	want := []any{
+		testSourceAppPath,
+		testLanguagePython,
+		testSymbolKindFunction,
+		"build",
+		"modified",
+		true,
+		int64(2),
+		int64(3),
+		int64(1),
+		true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("changed symbol fields = %#v, want %#v", got, want)
 	}
 }
 
@@ -841,36 +1073,64 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 		PythonVersion: "3.13",
 	})
 
-	pathInput, ok := activation["path"].(PathInput)
-	if !ok {
+	pathInput, found := activation["path"].(PathInput)
+	if !found {
 		t.Fatalf("path input = %#v", activation["path"])
 	}
-	if pathInput.File != "src/tests/test_policy.py" ||
-		pathInput.Dir != "src/tests" ||
-		pathInput.Base != "test_policy.py" ||
-		pathInput.Ext != ".py" ||
-		!pathInput.IsTest ||
-		!pathInput.InSourceRoot {
-		t.Fatalf("path input = %#v", pathInput)
+
+	assertStablePathInput(t, pathInput)
+	assertStableRepoInputs(t, activation, pathInput)
+}
+
+func assertStablePathInput(t *testing.T, pathInput PathInput) {
+	t.Helper()
+
+	got := []any{
+		pathInput.File,
+		pathInput.Dir,
+		pathInput.Base,
+		pathInput.Ext,
+		pathInput.IsTest,
+		pathInput.InSourceRoot,
 	}
 
-	diagnostic, ok := activation["diagnostic"].(DiagnosticInput)
-	if !ok || diagnostic.Tool != "" || diagnostic.File != "" {
+	want := []any{
+		"src/tests/test_policy.py",
+		"src/tests",
+		"test_policy.py",
+		".py",
+		true,
+		true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("path input fields = %#v, want %#v", got, want)
+	}
+}
+
+func assertStableRepoInputs(
+	t *testing.T,
+	activation map[string]any,
+	pathInput PathInput,
+) {
+	t.Helper()
+
+	diagnostic, found := activation["diagnostic"].(DiagnosticInput)
+	if !found || diagnostic.Tool != "" || diagnostic.File != "" {
 		t.Fatalf("diagnostic input = %#v", activation["diagnostic"])
 	}
 
-	repo, ok := activation["repo"].(RepoInput)
-	if !ok || repo.Root != "/repo" || repo.PythonVersion != "3.13" {
+	repo, found := activation["repo"].(RepoInput)
+	if !found || repo.Root != "/repo" || repo.PythonVersion != "3.13" {
 		t.Fatalf("repo input = %#v", activation["repo"])
 	}
 
-	paths, ok := activation["paths"].([]PathInput)
-	if !ok || len(paths) != 1 || paths[0] != pathInput {
+	paths, found := activation["paths"].([]PathInput)
+	if !found || len(paths) != 1 || paths[0] != pathInput {
 		t.Fatalf("paths input = %#v", activation["paths"])
 	}
 
-	metadata, ok := activation["metadata"].(MetadataInput)
-	if !ok || metadata.SchemaVersion != SchemaVersion {
+	metadata, found := activation["metadata"].(MetadataInput)
+	if !found || metadata.SchemaVersion != SchemaVersion {
 		t.Fatalf("metadata input = %#v", activation["metadata"])
 	}
 }
@@ -878,13 +1138,15 @@ func TestActivationBuildsStablePathAndRepoInputs(t *testing.T) {
 func runTestGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
+
 	cmd.Env = append(
 		os.Environ(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
 	)
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
@@ -918,50 +1180,104 @@ func TestActivationBuildsConfigGitAndCommandFacts(t *testing.T) {
 		HasToolResponse:   true,
 	})
 
-	commandFact, ok := activation["command_fact"].(CommandInput)
-	if !ok || commandFact.Raw == "" || !commandFact.HasInlineEnv {
+	assertCommandFactInput(t, activation)
+	assertConfigInput(t, activation)
+	assertGitAndDiffInputs(t, activation)
+	assertEventInput(t, activation)
+	assertProtectedRepoInput(t, activation)
+}
+
+func assertCommandFactInput(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	commandFact, found := activation["command_fact"].(CommandInput)
+	if !found || commandFact.Raw == "" || !commandFact.HasInlineEnv {
 		t.Fatalf("command_fact input = %#v", activation["command_fact"])
 	}
+}
 
-	config, ok := activation["config"].(ConfigInput)
-	if !ok || len(config.Candidates) != 2 || len(config.Present) != 1 ||
+func assertConfigInput(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	config, found := activation["config"].(ConfigInput)
+	if !found || len(config.Candidates) != 2 || len(config.Present) != 1 ||
 		config.Present[0] != "repo_config.yaml" {
 		t.Fatalf("config input = %#v", activation["config"])
 	}
+}
 
-	git, ok := activation["git"].(GitInput)
-	if !ok || git.CurrentBranch != "main" || !git.OnProtectedBranch {
+func assertGitAndDiffInputs(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	git, found := activation["git"].(GitInput)
+	if !found || git.CurrentBranch != "main" || !git.OnProtectedBranch {
 		t.Fatalf("git input = %#v", activation["git"])
 	}
+
 	if len(git.ChangedFiles) != 1 || len(git.StagedFiles) != 1 {
 		t.Fatalf("git file facts = %#v", git)
 	}
 
-	diff, ok := activation["diff"].(DiffInput)
-	if !ok || !diff.HasChanges || len(diff.ChangedFiles) != 1 || len(diff.StagedFiles) != 1 {
+	diff, found := activation["diff"].(DiffInput)
+	if !found || !diff.HasChanges || len(diff.ChangedFiles) != 1 ||
+		len(diff.StagedFiles) != 1 {
 		t.Fatalf("diff input = %#v", activation["diff"])
 	}
+}
 
-	event, ok := activation["event"].(EventInput)
-	if !ok || event.Name != "PreToolUse" || event.Provider != "codex" ||
-		event.Tool != "Bash" ||
-		event.Matcher != "Bash" ||
-		event.Source != "codex-cli" ||
-		event.SessionID != "session-123" ||
-		event.TranscriptPath != "/tmp/transcript.jsonl" ||
-		event.ReturnCode != 7 ||
-		!event.HasToolInput ||
-		!event.HasToolResponse ||
-		!event.IsCodex ||
-		event.IsClaude ||
-		event.IsGemini ||
-		!listContains(event.ToolInputKeys, "command") ||
-		!listContains(event.ToolResponseKeys, "stdout") {
+func assertEventInput(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	event, found := activation["event"].(EventInput)
+	if !found {
 		t.Fatalf("event input = %#v", activation["event"])
 	}
 
-	repo, ok := activation["repo"].(RepoInput)
-	if !ok || len(repo.ProtectedBranches) != 1 || len(repo.ProtectedPaths) != 1 {
+	got := []any{
+		event.Name,
+		event.Provider,
+		event.Tool,
+		event.Matcher,
+		event.Source,
+		event.SessionID,
+		event.TranscriptPath,
+		event.ReturnCode,
+		event.HasToolInput,
+		event.HasToolResponse,
+		event.IsCodex,
+		event.IsClaude,
+		event.IsGemini,
+		slices.Contains(event.ToolInputKeys, "command"),
+		slices.Contains(event.ToolResponseKeys, "stdout"),
+	}
+
+	want := []any{
+		"PreToolUse",
+		"codex",
+		"Bash",
+		"Bash",
+		"codex-cli",
+		"session-123",
+		"/tmp/transcript.jsonl",
+		int64(7),
+		true,
+		true,
+		true,
+		false,
+		false,
+		true,
+		true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("event fields = %#v, want %#v", got, want)
+	}
+}
+
+func assertProtectedRepoInput(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	repo, found := activation["repo"].(RepoInput)
+	if !found || len(repo.ProtectedBranches) != 1 || len(repo.ProtectedPaths) != 1 {
 		t.Fatalf("repo input = %#v", activation["repo"])
 	}
 }
@@ -970,21 +1286,26 @@ func TestActivationExposesShellWriteTargets(t *testing.T) {
 	t.Parallel()
 
 	activation := Activation(ActivationInput{
-		Command: `FILE=.claude/settings.json cat > ${FILE}; printf ok | tee -a .codex/config.toml; cp source.txt .gemini/settings.json`,
+		Command: `FILE=.claude/settings.json cat > ${FILE}; ` +
+			`printf ok | tee -a .codex/config.toml; ` +
+			`cp source.txt .gemini/settings.json`,
 	})
 
-	commands, ok := activation["shell_commands"].([]ShellCommandInput)
-	if !ok || len(commands) != 4 {
+	commands, found := activation["shell_commands"].([]ShellCommandInput)
+	if !found || len(commands) != 4 {
 		t.Fatalf("shell_commands input = %#v", activation["shell_commands"])
 	}
+
 	if !commands[0].HasWriteTargets ||
-		!listContains(commands[0].WriteTargets, ".claude/settings.json") {
+		!slices.Contains(commands[0].WriteTargets, ".claude/settings.json") {
 		t.Fatalf("redirect write targets = %#v", commands[0])
 	}
-	if !listContains(commands[2].WriteTargets, ".codex/config.toml") {
+
+	if !slices.Contains(commands[2].WriteTargets, ".codex/config.toml") {
 		t.Fatalf("tee write targets = %#v", commands[2])
 	}
-	if !listContains(commands[3].WriteTargets, ".gemini/settings.json") {
+
+	if !slices.Contains(commands[3].WriteTargets, ".gemini/settings.json") {
 		t.Fatalf("copy write targets = %#v", commands[3])
 	}
 }
@@ -1005,24 +1326,45 @@ func TestActivationPopulatesExplicitDiagnosticInput(t *testing.T) {
 		},
 	})
 
-	diagnostic, ok := activation["diagnostic"].(DiagnosticInput)
-	if !ok {
+	diagnostic, found := activation["diagnostic"].(DiagnosticInput)
+	if !found {
 		t.Fatalf("diagnostic input = %#v", activation["diagnostic"])
 	}
-	if diagnostic.Tool != "ruff" ||
-		diagnostic.Code != "F401" ||
-		diagnostic.Message != "unused import" ||
-		diagnostic.File != "src/app.py" ||
-		diagnostic.Line != 7 ||
-		diagnostic.Column != 3 ||
-		diagnostic.Severity != "error" ||
-		diagnostic.PolicyID != "python.direct_imports" {
-		t.Fatalf("diagnostic input = %#v", diagnostic)
+
+	assertExplicitDiagnosticInput(t, diagnostic)
+
+	diagnostics, found := activation["diagnostics"].([]DiagnosticInput)
+	if !found || len(diagnostics) != 1 || diagnostics[0] != diagnostic {
+		t.Fatalf("diagnostics input = %#v", activation["diagnostics"])
+	}
+}
+
+func assertExplicitDiagnosticInput(t *testing.T, diagnostic DiagnosticInput) {
+	t.Helper()
+
+	got := []any{
+		diagnostic.Tool,
+		diagnostic.Code,
+		diagnostic.Message,
+		diagnostic.File,
+		diagnostic.Line,
+		diagnostic.Column,
+		diagnostic.Severity,
+		diagnostic.PolicyID,
 	}
 
-	diagnostics, ok := activation["diagnostics"].([]DiagnosticInput)
-	if !ok || len(diagnostics) != 1 || diagnostics[0] != diagnostic {
-		t.Fatalf("diagnostics input = %#v", activation["diagnostics"])
+	want := []any{
+		"ruff",
+		"F401",
+		"unused import",
+		testSourceAppPath,
+		int64(7),
+		int64(3),
+		"error",
+		"python.direct_imports",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("diagnostic fields = %#v, want %#v", got, want)
 	}
 }
 
@@ -1035,9 +1377,9 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 			Code:         "no-any-return",
 			Message:      "Returning Any",
 			File:         "./src/app.py",
-			Language:     "python",
+			Language:     testLanguagePython,
 			SymbolName:   "build_value",
-			SymbolKind:   "function",
+			SymbolKind:   testSymbolKindFunction,
 			ChunkHash:    "sha256:abc",
 			Line:         12,
 			LineCount:    20,
@@ -1049,42 +1391,93 @@ func TestActivationPopulatesExplicitFindingInput(t *testing.T) {
 		},
 	})
 
-	finding, ok := activation["finding"].(FindingInput)
-	if !ok {
+	finding, found := activation["finding"].(FindingInput)
+	if !found {
 		t.Fatalf("finding input = %#v", activation["finding"])
 	}
-	if finding.Tool != "mypy" ||
-		finding.Code != "no-any-return" ||
-		finding.Message != "Returning Any" ||
-		finding.File != "src/app.py" ||
-		finding.Language != "python" ||
-		finding.SymbolName != "build_value" ||
-		finding.SymbolKind != "function" ||
-		finding.ChunkHash != "sha256:abc" ||
-		finding.Line != 12 ||
-		finding.LineCount != 20 ||
-		finding.ChangedLines != 3 ||
-		finding.Severity != "error" ||
-		finding.PolicyID != "python.typing" ||
-		finding.SkillID != "lint-remediation" ||
-		len(finding.PrincipleIDs) != 1 {
-		t.Fatalf("finding input = %#v", finding)
-	}
 
-	findings, ok := activation["findings"].([]FindingInput)
-	if !ok || len(findings) != 1 || findings[0].Tool != "mypy" {
+	assertExplicitFindingInput(t, finding)
+
+	findings, found := activation["findings"].([]FindingInput)
+	if !found || len(findings) != 1 || findings[0].Tool != "mypy" {
 		t.Fatalf("findings input = %#v", activation["findings"])
 	}
-	source, ok := activation["source"].(SourceInput)
-	if !ok ||
-		source.Path != "src/app.py" ||
-		source.Language != "python" ||
-		source.SymbolName != "build_value" ||
-		source.SymbolKind != "function" ||
-		source.ChunkHash != "sha256:abc" ||
-		source.LineCount != 20 ||
-		source.ChangedLines != 3 {
+
+	assertExplicitSourceInput(t, activation)
+}
+
+func assertExplicitFindingInput(t *testing.T, finding FindingInput) {
+	t.Helper()
+
+	got := []any{
+		finding.Tool,
+		finding.Code,
+		finding.Message,
+		finding.File,
+		finding.Language,
+		finding.SymbolName,
+		finding.SymbolKind,
+		finding.ChunkHash,
+		finding.Line,
+		finding.LineCount,
+		finding.ChangedLines,
+		finding.Severity,
+		finding.PolicyID,
+		finding.SkillID,
+		len(finding.PrincipleIDs),
+	}
+
+	want := []any{
+		"mypy",
+		"no-any-return",
+		"Returning Any",
+		testSourceAppPath,
+		testLanguagePython,
+		"build_value",
+		testSymbolKindFunction,
+		"sha256:abc",
+		int64(12),
+		int64(20),
+		int64(3),
+		"error",
+		"python.typing",
+		"lint-remediation",
+		1,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("finding fields = %#v, want %#v", got, want)
+	}
+}
+
+func assertExplicitSourceInput(t *testing.T, activation map[string]any) {
+	t.Helper()
+
+	source, found := activation["source"].(SourceInput)
+	if !found {
 		t.Fatalf("source input = %#v", activation["source"])
+	}
+
+	got := []any{
+		source.Path,
+		source.Language,
+		source.SymbolName,
+		source.SymbolKind,
+		source.ChunkHash,
+		source.LineCount,
+		source.ChangedLines,
+	}
+
+	want := []any{
+		testSourceAppPath,
+		testLanguagePython,
+		"build_value",
+		testSymbolKindFunction,
+		"sha256:abc",
+		int64(20),
+		int64(3),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("source fields = %#v, want %#v", got, want)
 	}
 }
 
@@ -1095,10 +1488,11 @@ func TestActivationMarksTopLevelGeneratedDirectory(t *testing.T) {
 		Files: []string{"generated/client.py"},
 	})
 
-	pathInput, ok := activation["path"].(PathInput)
-	if !ok {
+	pathInput, found := activation["path"].(PathInput)
+	if !found {
 		t.Fatalf("path input = %#v", activation["path"])
 	}
+
 	if !pathInput.IsGenerated {
 		t.Fatalf("path input = %#v, want generated", pathInput)
 	}
@@ -1108,25 +1502,28 @@ func TestActivationUsesExplicitPathsForMultipleFiles(t *testing.T) {
 	t.Parallel()
 
 	activation := Activation(ActivationInput{
-		Files:       []string{"src/app.py", "tests/test_app.py"},
+		Files:       []string{testSourceAppPath, "tests/test_app.py"},
 		SourceRoots: []string{"src"},
 	})
 
-	pathInput, ok := activation["path"].(PathInput)
-	if !ok {
+	pathInput, found := activation["path"].(PathInput)
+	if !found {
 		t.Fatalf("path input = %#v", activation["path"])
 	}
+
 	if pathInput.File != "" {
 		t.Fatalf("path input = %#v, want empty compatibility path", pathInput)
 	}
 
-	paths, ok := activation["paths"].([]PathInput)
-	if !ok || len(paths) != 2 {
+	paths, found := activation["paths"].([]PathInput)
+	if !found || len(paths) != 2 {
 		t.Fatalf("paths input = %#v", activation["paths"])
 	}
-	if paths[0].File != "src/app.py" || !paths[0].InSourceRoot {
+
+	if paths[0].File != testSourceAppPath || !paths[0].InSourceRoot {
 		t.Fatalf("first path input = %#v", paths[0])
 	}
+
 	if paths[1].File != "tests/test_app.py" || !paths[1].IsTest {
 		t.Fatalf("second path input = %#v", paths[1])
 	}

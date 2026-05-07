@@ -65,7 +65,7 @@ jobs:
             --primary coding_ethos.yml \
             --config config.yaml \
             --out-dir build/policy
-          go test ./go/... ./pre-commit/hooks/go-hooks/...
+          go test -buildvcs=false -timeout=30s ./go/...
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@e46ed2cbd01164d986452f91f178727624ae40d7

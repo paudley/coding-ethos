@@ -5,13 +5,14 @@ package evaluators_test
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
+
+const piiToolName = "pii"
 
 func TestEvaluateFileMergeConflictBlocksMarkers(t *testing.T) {
 	t.Parallel()
@@ -69,7 +70,9 @@ func TestEvaluateFileShebangBlocksExecutableWithoutShebang(t *testing.T) {
 	t.Parallel()
 
 	path := writeGuardTestFile(t, "script.sh", "echo ok\n")
-	if err := os.Chmod(path, 0o700); err != nil {
+
+	err := os.Chmod(path, 0o700)
+	if err != nil {
 		t.Fatalf("chmod script: %v", err)
 	}
 
@@ -112,7 +115,7 @@ func TestEvaluatePIIScrubberBlocksLocalMachineDetails(t *testing.T) {
 		Context{Files: []string{path}},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -131,7 +134,7 @@ func TestEvaluatePIIScrubberBlocksConfiguredLiteral(t *testing.T) {
 		},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -147,14 +150,18 @@ func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
 		"nested/.wolf/hooks/session.json",
 	} {
 		fullPath := filepath.Join(root, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+
+		err := os.MkdirAll(filepath.Dir(fullPath), 0o700)
+		if err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(fullPath), err)
 		}
-		if err := os.WriteFile(
+
+		err = os.WriteFile(
 			fullPath,
 			[]byte("path: /"+"home/example/project\n"),
 			0o600,
-		); err != nil {
+		)
+		if err != nil {
 			t.Fatalf("write %s: %v", fullPath, err)
 		}
 	}
@@ -174,6 +181,7 @@ func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate PII scrubber: %v", err)
 	}
+
 	if len(decisions) != 0 {
 		t.Fatalf("expected hidden directories to be skipped, got %#v", decisions)
 	}
@@ -190,7 +198,7 @@ func TestEvaluatePIIScrubberStillScansDotFiles(t *testing.T) {
 		Context{Files: []string{path}},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -228,6 +236,7 @@ func TestEvaluateLicenseHeaderAllowsSPDX(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate license header: %v", err)
 	}
+
 	if len(decisions) != 0 {
 		t.Fatalf("unexpected decisions: %#v", decisions)
 	}
@@ -237,6 +246,7 @@ func TestEvaluateLicenseHeaderIgnoresYAMLByDefault(t *testing.T) {
 	t.Parallel()
 
 	path := writeGuardTestFile(t, "config.yaml", "name: app\n")
+
 	decisions, err := EvaluateLicenseHeader(
 		fileGuardPolicy("repo.license_header"),
 		Context{Files: []string{path}},
@@ -244,8 +254,12 @@ func TestEvaluateLicenseHeaderIgnoresYAMLByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate license header: %v", err)
 	}
+
 	if len(decisions) != 0 {
-		t.Fatalf("yaml files should not require license or copyright headers: %#v", decisions)
+		t.Fatalf(
+			"yaml files should not require license or copyright headers: %#v",
+			decisions,
+		)
 	}
 }
 
@@ -254,6 +268,7 @@ func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
 
 	repo := t.TempDir()
 	path := filepath.Join(repo, "app.go")
+
 	err := os.WriteFile(
 		path,
 		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
@@ -288,10 +303,12 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("wrong\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write license: %v", err)
 	}
+
 	err = os.WriteFile(
 		filepath.Join(repo, "app.go"),
 		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
@@ -317,7 +334,8 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 		},
 	)
 
-	if decision.Diagnostics[0].Message != "LICENSE does not match the configured SPDX license text" {
+	if decision.Diagnostics[0].Message !=
+		"LICENSE does not match the configured SPDX license text" {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -326,10 +344,12 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
+
 	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("MIT License\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write license: %v", err)
 	}
+
 	err = os.WriteFile(
 		filepath.Join(repo, "app.go"),
 		[]byte(
@@ -361,6 +381,7 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate license header: %v", err)
 	}
+
 	if len(decisions) != 0 {
 		t.Fatalf("unexpected decisions: %#v", decisions)
 	}
@@ -378,6 +399,7 @@ func evaluateFileGuardPolicy(
 	if err != nil {
 		t.Fatalf("evaluate %s: %v", policyID, err)
 	}
+
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
@@ -394,36 +416,15 @@ func fileGuardPolicy(policyID string) policy.Policy {
 	}
 }
 
-func writeGuardTestFile(t *testing.T, name string, content string) string {
+func writeGuardTestFile(t *testing.T, name, content string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 
 	return path
-}
-
-func initGuardRepo(t *testing.T) string {
-	t.Helper()
-
-	repo := t.TempDir()
-	runGuardGit(t, repo, "init")
-	runGuardGit(t, repo, "config", "user.email", "test@example.com")
-	runGuardGit(t, repo, "config", "user.name", "Test User")
-	runGuardGit(t, repo, "config", "commit.gpgsign", "false")
-
-	return repo
-}
-
-func runGuardGit(t *testing.T, repo string, args ...string) {
-	t.Helper()
-
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repo
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v failed: %v\n%s", args, err, output)
-	}
 }

@@ -14,7 +14,8 @@ import (
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	if err := run(context.Background(), []string{"unknown"}); err == nil {
+	err := run(context.Background(), []string{"unknown"})
+	if err == nil {
 		t.Fatalf("expected unknown command error")
 	}
 }
@@ -24,6 +25,7 @@ func TestStatsCreatesStore(t *testing.T) {
 
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+
 	err := run(context.Background(), []string{"stats", "--root", root, "--db", dbPath})
 	if err != nil {
 		t.Fatalf("stats command returned error: %v", err)
@@ -34,6 +36,7 @@ func TestVectorStatsCreatesSQLiteVectorStore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	err := run(context.Background(), []string{"vector-stats", "--root", root})
 	if err != nil {
 		t.Fatalf("vector-stats command returned error: %v", err)
@@ -45,42 +48,57 @@ func TestIndexCodeAndCodeChunksCommands(t *testing.T) {
 
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+
 	sourcePath := filepath.Join(root, "cmd", "app.go")
-	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
 		t.Fatalf("create source dir: %v", err)
 	}
-	if err := os.WriteFile(sourcePath, []byte(`package main
+
+	err = os.WriteFile(sourcePath, []byte(`package main
 
 func main() {
 	println("ok")
 }
-`), 0o600); err != nil {
+`), 0o600)
+	if err != nil {
 		t.Fatalf("write source: %v", err)
 	}
 
 	ctx := context.Background()
-	if err := run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd"}); err != nil {
+
+	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd"})
+	if err != nil {
 		t.Fatalf("index-code command returned error: %v", err)
 	}
-	if err := run(ctx, []string{
+
+	err = run(ctx, []string{
 		"code-chunks", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--symbol-name", "main",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("code-chunks command returned error: %v", err)
 	}
-	if err := run(ctx, []string{
+
+	err = run(ctx, []string{
 		"code-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--symbol-path", "main",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("code-context by symbol returned error: %v", err)
 	}
-	if err := run(ctx, []string{
+
+	err = run(ctx, []string{
 		"code-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--line", "3",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("code-context by line returned error: %v", err)
 	}
-	if err := run(ctx, []string{"code-context", "--root", root, "--db", dbPath}); err == nil ||
+
+	err = run(ctx, []string{"code-context", "--root", root, "--db", dbPath})
+	if err == nil ||
 		!strings.Contains(err.Error(), "--chunk-id") {
 		t.Fatalf("code-context without identifier error = %v", err)
 	}
@@ -94,7 +112,27 @@ func TestRecordAndQueryCommands(t *testing.T) {
 	ctx := context.Background()
 	baseArgs := []string{"--root", root, "--db", dbPath}
 
-	commands := [][]string{
+	runCodeIntelCommands(t, ctx, recordCommandArgs(root, baseArgs))
+	runCodeIntelCommands(t, ctx, queryCommandArgs(root, baseArgs))
+}
+
+func runCodeIntelCommands(
+	t *testing.T,
+	ctx context.Context,
+	commands [][]string,
+) {
+	t.Helper()
+
+	for _, args := range commands {
+		err := run(ctx, args)
+		if err != nil {
+			t.Fatalf("run(%s) returned error: %v", args[0], err)
+		}
+	}
+}
+
+func recordCommandArgs(root string, baseArgs []string) [][]string {
+	return [][]string{
 		append([]string{
 			"record-outcome",
 			"--remediation-id", "rem-1",
@@ -145,28 +183,48 @@ func TestRecordAndQueryCommands(t *testing.T) {
 			"--message", "split large file",
 		}, baseArgs...),
 	}
+}
 
-	for _, args := range commands {
-		if err := run(ctx, args); err != nil {
-			t.Fatalf("run(%s) returned error: %v", args[0], err)
-		}
-	}
-
-	queryCommands := [][]string{
-		append([]string{"remediation-outcomes", "--policy-id", "policy.one"}, baseArgs...),
-		append([]string{"remediation-effectiveness", "--policy-id", "policy.one"}, baseArgs...),
-		append([]string{"embedding-records", "--record-kind", "remediation"}, baseArgs...),
-		append([]string{"embedding-candidates", "--record-kind", "remediation"}, baseArgs...),
+func queryCommandArgs(root string, baseArgs []string) [][]string {
+	return [][]string{
+		append(
+			[]string{"remediation-outcomes", "--policy-id", "policy.one"},
+			baseArgs...),
+		append(
+			[]string{"remediation-effectiveness", "--policy-id", "policy.one"},
+			baseArgs...),
+		append(
+			[]string{"embedding-records", "--record-kind", "remediation"},
+			baseArgs...),
+		append(
+			[]string{"embedding-candidates", "--record-kind", "remediation"},
+			baseArgs...),
 		append([]string{"hook-reviews", "--trace-id", "trace-1"}, baseArgs...),
-		append([]string{"index-status", "--uri", filepath.Join(root, ".coding-ethos", "vectors.db"), "--collection", "remediations", "--model-id", "code-model"}, baseArgs...),
-		append([]string{"hybrid-search", "--uri", filepath.Join(root, ".coding-ethos", "vectors.db"), "--text", "split", "--vector", "0.1,0.2", "--model-id", "code-model"}, baseArgs...),
+		append(
+			[]string{
+				"index-status",
+				"--uri",
+				filepath.Join(root, ".coding-ethos", "vectors.db"),
+				"--collection",
+				"remediations",
+				"--model-id",
+				"code-model",
+			},
+			baseArgs...),
+		append(
+			[]string{
+				"hybrid-search",
+				"--uri",
+				filepath.Join(root, ".coding-ethos", "vectors.db"),
+				"--text",
+				"split",
+				"--vector",
+				"0.1,0.2",
+				"--model-id",
+				"code-model",
+			},
+			baseArgs...),
 		append([]string{"search", "--text", "split"}, baseArgs...),
-	}
-
-	for _, args := range queryCommands {
-		if err := run(ctx, args); err != nil {
-			t.Fatalf("run(%s) returned error: %v", args[0], err)
-		}
 	}
 }
 
@@ -176,6 +234,7 @@ func TestSARIFCommands(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
 	sarifPath := filepath.Join(root, "policy.sarif")
+
 	payload := `{
   "version": "2.1.0",
   "runs": [{
@@ -185,24 +244,49 @@ func TestSARIFCommands(t *testing.T) {
       "ruleId": "policy.one",
       "level": "error",
       "message": {"text": "split large file"},
-      "locations": [{"physicalLocation": {"artifactLocation": {"uri": "pkg/app.py"}, "region": {"startLine": 4}}}],
-      "partialFingerprints": {"findingId": "finding-1", "remediationId": "rem-1", "policyId": "policy.one", "skillId": "skill-one"}
+      "locations": [{
+        "physicalLocation": {
+          "artifactLocation": {"uri": "pkg/app.py"},
+          "region": {"startLine": 4}
+        }
+      }],
+      "partialFingerprints": {
+        "findingId": "finding-1",
+        "remediationId": "rem-1",
+        "policyId": "policy.one",
+        "skillId": "skill-one"
+      }
     }]
   }]
 }`
-	if err := os.WriteFile(sarifPath, []byte(payload), 0o600); err != nil {
+
+	err := os.WriteFile(sarifPath, []byte(payload), 0o600)
+	if err != nil {
 		t.Fatalf("write sarif: %v", err)
 	}
 
 	ctx := context.Background()
+
 	baseArgs := []string{"--root", root, "--db", dbPath}
-	if err := run(ctx, append([]string{"ingest-sarif", "--file", sarifPath}, baseArgs...)); err != nil {
+
+	err = run(ctx, append([]string{"ingest-sarif", "--file", sarifPath}, baseArgs...))
+	if err != nil {
 		t.Fatalf("ingest-sarif returned error: %v", err)
 	}
-	if err := run(ctx, append([]string{"sarif-results", "--policy-id", "policy.one"}, baseArgs...)); err != nil {
+
+	err = run(
+		ctx,
+		append([]string{"sarif-results", "--policy-id", "policy.one"}, baseArgs...),
+	)
+	if err != nil {
 		t.Fatalf("sarif-results returned error: %v", err)
 	}
-	if err := run(ctx, append([]string{"repeated-failures", "--policy-id", "policy.one"}, baseArgs...)); err != nil {
+
+	err = run(
+		ctx,
+		append([]string{"repeated-failures", "--policy-id", "policy.one"}, baseArgs...),
+	)
+	if err != nil {
 		t.Fatalf("repeated-failures returned error: %v", err)
 	}
 }
@@ -212,10 +296,14 @@ func TestIngestTracesAndHookUsageCommands(t *testing.T) {
 
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+
 	traceDir := filepath.Join(root, ".coding-ethos", "hook-runs", "run-a")
-	if err := os.MkdirAll(traceDir, 0o700); err != nil {
+
+	err := os.MkdirAll(traceDir, 0o700)
+	if err != nil {
 		t.Fatalf("create trace dir: %v", err)
 	}
+
 	payload := `{
   "trace_id": "hook-trace-a",
   "tracking_id": "deny-a",
@@ -223,7 +311,11 @@ func TestIngestTracesAndHookUsageCommands(t *testing.T) {
   "event": "PreToolUse",
   "tool": "Bash",
   "cwd": "/repo",
-  "command": {"sha256": "` + strings.Repeat("a", 64) + `", "shape_sha256": "` + strings.Repeat("b", 64) + `", "preview": "git reset --hard"},
+  "command": {
+    "sha256": "` + strings.Repeat("a", 64) + `",
+    "shape_sha256": "` + strings.Repeat("b", 64) + `",
+    "preview": "git reset --hard"
+  },
   "status": "denied",
   "decision": "block",
   "recorded_at_utc": "2026-01-01T00:00:00Z",
@@ -234,16 +326,28 @@ func TestIngestTracesAndHookUsageCommands(t *testing.T) {
     "severity": "block"
   }]
 }`
-	if err := os.WriteFile(filepath.Join(traceDir, "event.json"), []byte(payload), 0o600); err != nil {
+
+	err = os.WriteFile(filepath.Join(traceDir, "event.json"), []byte(payload), 0o600)
+	if err != nil {
 		t.Fatalf("write hook trace: %v", err)
 	}
 
 	ctx := context.Background()
+
 	baseArgs := []string{"--root", root, "--db", dbPath}
-	if err := run(ctx, append([]string{"ingest-traces"}, baseArgs...)); err != nil {
+
+	err = run(ctx, append([]string{"ingest-traces"}, baseArgs...))
+	if err != nil {
 		t.Fatalf("ingest-traces returned error: %v", err)
 	}
-	if err := run(ctx, append([]string{"hook-usage", "--provider", "codex", "--status", "denied"}, baseArgs...)); err != nil {
+
+	err = run(
+		ctx,
+		append(
+			[]string{"hook-usage", "--provider", "codex", "--status", "denied"},
+			baseArgs...),
+	)
+	if err != nil {
 		t.Fatalf("hook-usage returned error: %v", err)
 	}
 }
@@ -255,6 +359,7 @@ func TestParseVectorHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOptionalVector returned error: %v", err)
 	}
+
 	if len(vector) != 3 || vector[0] != 1.5 || vector[2] != 3 {
 		t.Fatalf("vector = %#v", vector)
 	}
@@ -265,7 +370,8 @@ func TestParseVectorHelpers(t *testing.T) {
 	}
 
 	for _, value := range []string{"", " , ", "1, nope"} {
-		if _, err := parseVector(value); err == nil || !strings.Contains(err.Error(), "vector") {
+		_, err := parseVector(value)
+		if err == nil || !strings.Contains(err.Error(), "vector") {
 			t.Fatalf("parseVector(%q) error = %v", value, err)
 		}
 	}

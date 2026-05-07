@@ -21,36 +21,41 @@ const (
 )
 
 type TraceRecord struct {
-	Result             Result                      `json:"result"`
-	SchemaVersion      int                         `json:"schema_version"`
 	TraceID            string                      `json:"trace_id"`
 	RecordedAtUTC      string                      `json:"recorded_at_utc"`
 	RepoRoot           string                      `json:"repo_root"`
+	Result             Result                      `json:"result"`
 	Findings           []evidence.Finding          `json:"findings,omitempty"`
 	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
-	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitempty"`
 	RemediationEvents  []evidence.RemediationEvent `json:"remediation_events,omitempty"`
+	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitzero"`
+	SchemaVersion      int                         `json:"schema_version"`
 }
 
-func LogResult(cwd string, result Result) (tracePath string, err error) {
+func LogResult(cwd string, result Result) (string, error) {
 	root := cwd
 	if root == "" {
-		var err error
-		root, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve lint trace root: %w", err)
+		resolvedRoot, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return "", fmt.Errorf("resolve lint trace root: %w", cwdErr)
 		}
+
+		root = resolvedRoot
 	}
 
 	timestamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+
 	dir := filepath.Join(root, ".coding-ethos", "lint-runs")
-	if err := os.MkdirAll(dir, traceDirMode); err != nil {
-		return "", fmt.Errorf("create lint trace dir: %w", err)
+
+	inlineErr0 := os.MkdirAll(dir, traceDirMode)
+	if inlineErr0 != nil {
+		return "", fmt.Errorf("create lint trace dir: %w", inlineErr0)
 	}
 
 	EnsureTraceID(&result)
 	traceID := result.TraceID
 	path := filepath.Join(dir, traceID)
+
 	file, err := os.OpenFile(
 		filepath.Clean(path),
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
@@ -59,18 +64,14 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 	if err != nil {
 		return "", fmt.Errorf("create lint trace: %w", err)
 	}
-	defer func() {
-		if closeErr := file.Close(); err == nil && closeErr != nil {
-			err = fmt.Errorf("close lint trace: %w", closeErr)
-		}
-	}()
 
 	remediation := agentmsg.FromDiagnostics(OutputDiagnostics(result))
 	findings := evidence.FromDiagnostics(OutputDiagnostics(result))
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(TraceRecord{
+
+	inlineErr1 := encoder.Encode(TraceRecord{
 		SchemaVersion:      evidence.SchemaVersion,
 		TraceID:            traceID,
 		RecordedAtUTC:      timestamp,
@@ -85,8 +86,16 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 			traceID,
 			"suggested",
 		),
-	}); err != nil {
-		return "", fmt.Errorf("write lint trace: %w", err)
+	})
+	if inlineErr1 != nil {
+		_ = file.Close()
+
+		return "", fmt.Errorf("write lint trace: %w", inlineErr1)
+	}
+
+	closeErr := file.Close()
+	if closeErr != nil {
+		return "", fmt.Errorf("close lint trace: %w", closeErr)
 	}
 
 	return path, nil
@@ -96,6 +105,7 @@ func EnsureTraceID(result *Result) {
 	if result == nil || strings.TrimSpace(result.TraceID) != "" {
 		return
 	}
+
 	result.TraceID = NewTraceID(result.Scope)
 }
 
@@ -113,15 +123,21 @@ func safeTraceScope(scope string) string {
 
 	var builder strings.Builder
 	builder.Grow(len(scope))
+
 	lastWasSeparator := false
+
 	for _, char := range scope {
 		if isSafeTraceScopeChar(char) {
 			builder.WriteRune(char)
+
 			lastWasSeparator = false
+
 			continue
 		}
+
 		if !lastWasSeparator {
 			builder.WriteByte('_')
+
 			lastWasSeparator = true
 		}
 	}
@@ -130,6 +146,7 @@ func safeTraceScope(scope string) string {
 	if safe == "" {
 		return "unknown"
 	}
+
 	return safe
 }
 

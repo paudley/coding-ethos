@@ -13,10 +13,13 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-var errExternalCommandEmpty = errors.New("external evaluator command is empty")
+var errExternalCommandEmpty = apperror.StaticError(
+	"external evaluator command is empty",
+)
 
 const defaultExternalCommandTimeout = 10 * time.Minute
 

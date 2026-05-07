@@ -5,11 +5,13 @@ package evaluators
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -21,6 +23,8 @@ const (
 	executePermissionMask    = 0o111
 	kibibyte                 = 1024
 	binaryProbeBytes         = 1024
+	defaultHeaderScanLines   = 5
+	scannerInitialCapacity   = 64
 )
 
 func EvaluateFileMergeConflict(
@@ -35,27 +39,32 @@ func EvaluateFileMergeConflict(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
-		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
-			for _, marker := range markers {
-				if strings.HasPrefix(line, marker) {
-					return []policy.Decision{
-						fileGuardDecision(
-							policyDef,
-							"merge_conflict",
-							file,
-							lineNumber,
-							marker,
-							"unresolved merge conflict marker",
-						),
-					}, true
-				}
-			}
 
-			return nil, false
-		})
+		found, err := scanGuardLines(
+			path,
+			func(lineNumber int, line string) ([]policy.Decision, bool) {
+				for _, marker := range markers {
+					if strings.HasPrefix(line, marker) {
+						return []policy.Decision{
+							fileGuardDecision(
+								policyDef,
+								"merge_conflict",
+								file,
+								lineNumber,
+								marker,
+								"unresolved merge conflict marker",
+							),
+						}, true
+					}
+				}
+
+				return nil, false
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
+
 		if len(found) > 0 {
 			return found, nil
 		}
@@ -73,6 +82,7 @@ func EvaluateFilePrivateKey(
 		"pattern",
 		defaultPrivateKeyPattern,
 	)
+
 	privateKey, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("compile private key pattern: %w", err)
@@ -80,10 +90,12 @@ func EvaluateFilePrivateKey(
 
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+
 		regular, err := isRegularGuardFile(path)
 		if err != nil {
 			return nil, err
 		}
+
 		if !regular {
 			continue
 		}
@@ -120,10 +132,12 @@ func EvaluateFileShebang(
 ) ([]policy.Decision, error) {
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
+
 		regular, err := isRegularGuardFile(path)
 		if err != nil {
 			return nil, err
 		}
+
 		if !regular {
 			continue
 		}
@@ -132,6 +146,7 @@ func EvaluateFileShebang(
 		if err != nil {
 			return nil, err
 		}
+
 		if binary {
 			continue
 		}
@@ -146,6 +161,7 @@ func EvaluateFileShebang(
 		}
 
 		executable := info.Mode()&executePermissionMask != 0
+
 		hasShebang := strings.HasPrefix(text, "#!")
 		switch {
 		case executable && !hasShebang:
@@ -184,7 +200,12 @@ func EvaluatePIIScrubber(
 	if err != nil {
 		return nil, err
 	}
-	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
+
+	exemptPrefixes := stringSliceOption(
+		context.EvaluatorOptions,
+		"exempt_prefixes",
+		nil,
+	)
 
 	for _, file := range context.Files {
 		if hasConfiguredPrefix(file, exemptPrefixes) ||
@@ -193,27 +214,32 @@ func EvaluatePIIScrubber(
 		}
 
 		path := resolveGuardPath(context.Cwd, file)
-		found, err := scanGuardLines(path, func(lineNumber int, line string) ([]policy.Decision, bool) {
-			for _, pattern := range patterns {
-				if pattern.MatchString(line) {
-					return []policy.Decision{
-						fileGuardDecision(
-							policyDef,
-							"pii",
-							file,
-							lineNumber,
-							"",
-							"local machine detail detected",
-						),
-					}, true
-				}
-			}
 
-			return nil, false
-		})
+		found, err := scanGuardLines(
+			path,
+			func(lineNumber int, line string) ([]policy.Decision, bool) {
+				for _, pattern := range patterns {
+					if pattern.MatchString(line) {
+						return []policy.Decision{
+							fileGuardDecision(
+								policyDef,
+								"pii",
+								file,
+								lineNumber,
+								"",
+								"local machine detail detected",
+							),
+						}, true
+					}
+				}
+
+				return nil, false
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
+
 		if len(found) > 0 {
 			return found, nil
 		}
@@ -226,8 +252,13 @@ func EvaluateLicenseHeader(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	if decision, err := evaluateLicenseFile(policyDef, context); decision != nil || err != nil {
-		return decision, err
+	decision, inlineErrAutoA := evaluateLicenseFile(
+		policyDef,
+		context,
+	)
+	if decision != nil ||
+		inlineErrAutoA != nil {
+		return decision, inlineErrAutoA
 	}
 
 	extensions := stringSet(normalizedSuffixes(stringSliceOption(
@@ -235,8 +266,14 @@ func EvaluateLicenseHeader(
 		"extensions",
 		[]string{".go", ".py", ".sh"},
 	)))
-	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
-	exemptBasenames := stringSet(stringSliceOption(context.EvaluatorOptions, "exempt_basenames", nil))
+	exemptPrefixes := stringSliceOption(
+		context.EvaluatorOptions,
+		"exempt_prefixes",
+		nil,
+	)
+	exemptBasenames := stringSet(
+		stringSliceOption(context.EvaluatorOptions, "exempt_basenames", nil),
+	)
 	required := stringSliceOption(context.EvaluatorOptions, "required", []string{
 		"SPDX-FileCopyrightText:",
 		"SPDX-License-Identifier:",
@@ -253,11 +290,15 @@ func EvaluateLicenseHeader(
 		if err != nil {
 			return nil, err
 		}
+
 		if binary {
 			continue
 		}
 
-		header := firstGuardLines(text, intOption(context.EvaluatorOptions, "scan_lines", 5))
+		header := firstGuardLines(
+			text,
+			intOption(context.EvaluatorOptions, "scan_lines", defaultHeaderScanLines),
+		)
 		for _, requiredText := range required {
 			if !strings.Contains(header, requiredText) {
 				return []policy.Decision{
@@ -288,6 +329,7 @@ func evaluateLicenseFile(
 
 	licenseFile := stringOption(context.EvaluatorOptions, "license_file", "LICENSE")
 	path := resolveGuardPath(context.Cwd, licenseFile)
+
 	text, binary, err := readGuardText(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -305,7 +347,9 @@ func evaluateLicenseFile(
 
 		return nil, err
 	}
-	if binary || normalizeGuardLicenseText(text) != normalizeGuardLicenseText(expected) {
+
+	if binary ||
+		normalizeGuardLicenseText(text) != normalizeGuardLicenseText(expected) {
 		return []policy.Decision{
 			fileGuardDecision(
 				policyDef,
@@ -336,12 +380,14 @@ func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
 		`lbox-worktrees/[A-Za-z0-9._-]+`,
 		`/tmp/tmp\.[A-Za-z0-9._-]+`,
 	})
+
 	patterns := make([]*regexp.Regexp, 0, len(rawPatterns))
 	for _, raw := range rawPatterns {
 		pattern, err := regexp.Compile(raw)
 		if err != nil {
 			return nil, fmt.Errorf("compile PII pattern %q: %w", raw, err)
 		}
+
 		patterns = append(patterns, pattern)
 	}
 
@@ -355,11 +401,13 @@ func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
 func hasHiddenDirectoryComponent(path string) bool {
 	normalized := filepath.ToSlash(path)
 	normalized = strings.TrimPrefix(normalized, "./")
+
 	parts := strings.Split(normalized, "/")
 	for index, part := range parts {
 		if index == len(parts)-1 || part == "" || part == "." || part == ".." {
 			continue
 		}
+
 		if strings.HasPrefix(part, ".") {
 			return true
 		}
@@ -368,7 +416,7 @@ func hasHiddenDirectoryComponent(path string) bool {
 	return false
 }
 
-func resolveGuardPath(cwd string, path string) string {
+func resolveGuardPath(cwd, path string) string {
 	if filepath.IsAbs(path) || cwd == "" {
 		return path
 	}
@@ -406,8 +454,9 @@ func readGuardText(path string) (string, bool, error) {
 	defer file.Close()
 
 	probe := make([]byte, binaryProbeBytes)
+
 	read, err := file.Read(probe)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return "", false, fmt.Errorf("read file %s: %w", path, err)
 	}
 
@@ -415,8 +464,9 @@ func readGuardText(path string) (string, bool, error) {
 		return "", true, nil
 	}
 
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return "", false, fmt.Errorf("seek file %s: %w", path, err)
+	_, inlineErrA := file.Seek(0, io.SeekStart)
+	if inlineErrA != nil {
+		return "", false, fmt.Errorf("seek file %s: %w", path, inlineErrA)
 	}
 
 	data, err := io.ReadAll(file)
@@ -432,13 +482,7 @@ func readGuardText(path string) (string, bool, error) {
 }
 
 func isBinaryBytes(data []byte) bool {
-	for _, value := range data {
-		if value == 0 {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(data, 0)
 }
 
 func normalizedSuffixes(suffixes []string) []string {
@@ -448,9 +492,11 @@ func normalizedSuffixes(suffixes []string) []string {
 		if value == "" {
 			continue
 		}
+
 		if !strings.HasPrefix(value, ".") {
 			value = "." + value
 		}
+
 		normalized = append(normalized, value)
 	}
 
@@ -477,11 +523,15 @@ func scanGuardLines(
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*kibibyte), 10*kibibyte*kibibyte)
+	scanner.Buffer(
+		make([]byte, 0, scannerInitialCapacity*kibibyte),
+		10*kibibyte*kibibyte,
+	)
 
 	lineNumber := 0
 	for scanner.Scan() {
 		lineNumber++
+
 		line := scanner.Text()
 		if strings.ContainsRune(line, 0) {
 			return nil, nil
@@ -492,8 +542,9 @@ func scanGuardLines(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan file %s: %w", path, err)
+	inlineErr0 := scanner.Err()
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("scan file %s: %w", path, inlineErr0)
 	}
 
 	return nil, nil
@@ -531,6 +582,7 @@ func fileGuardDecision(
 		Message:  message,
 		Advice:   policyDef.Suggestion,
 	}}
+
 	decision.Evidence = map[string]any{
 		"file": file,
 	}

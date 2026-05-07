@@ -11,11 +11,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
 
-const (
-	canonicalToolBash  = "Bash"
-	canonicalToolWrite = "Write"
-)
-
 func DecodeEvent(reader io.Reader) (Event, error) {
 	payload := map[string]json.RawMessage{}
 
@@ -48,7 +43,12 @@ func EncodeResult(writer io.Writer, result Result) error {
 
 func normalizeEvent(payload map[string]json.RawMessage) Event {
 	event := Event{
-		Cwd:            firstString(payload, "cwd", "working_directory", "workingDirectory"),
+		Cwd: firstString(
+			payload,
+			"cwd",
+			"working_directory",
+			"workingDirectory",
+		),
 		HookEventName:  primaryHookEventName(payload),
 		Matcher:        firstString(payload, "matcher"),
 		ProviderHint:   firstString(payload, "provider", "agent", "runtime"),
@@ -76,7 +76,7 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 func normalizedHookEventName(name string) string {
 	switch name {
 	case "BeforeTool":
-		return "PreToolUse"
+		return eventPreToolUse
 	default:
 		return name
 	}
@@ -86,6 +86,7 @@ func normalizedToolName(name string) string {
 	if canonical, ok := toolaliases.ActiveCanonical(name); ok {
 		return canonical
 	}
+
 	if toolaliases.NoopCanonical(name) {
 		return toolaliases.CanonicalNoop
 	}
@@ -134,15 +135,32 @@ func normalizeNestedTool(payload map[string]json.RawMessage, event Event) Event 
 		}
 
 		if event.ToolName == "" {
-			event.ToolName = firstString(nested, "name", "tool_name", "toolName", "tool")
+			event.ToolName = firstString(
+				nested,
+				"name",
+				"tool_name",
+				"toolName",
+				"tool",
+			)
 		}
 
 		if event.ToolInput == nil {
-			event.ToolInput = firstMap(nested, "input", "arguments", "args", "parameters")
+			event.ToolInput = firstMap(
+				nested,
+				"input",
+				"arguments",
+				"args",
+				"parameters",
+			)
 		}
 
 		if event.ToolResponse == nil {
-			event.ToolResponse = firstResponseMap(nested, "response", "output", "result")
+			event.ToolResponse = firstResponseMap(
+				nested,
+				"response",
+				"output",
+				"result",
+			)
 		}
 	}
 
@@ -157,19 +175,31 @@ func normalizeParallelTool(event Event) Event {
 	toolUses := anySlice(event.ToolInput["tool_uses"])
 	if len(toolUses) > 1 {
 		event.ToolInput[parallelToolBatchMarker] = true
+
 		return event
 	}
 
 	for _, toolUse := range toolUses {
 		nested := mapFromAny(toolUse)
-		toolName := firstStringAny(nested, "recipient_name", "name", "tool_name", "toolName", "tool")
+		toolName := firstStringAny(
+			nested,
+			"recipient_name",
+			"name",
+			"tool_name",
+			"toolName",
+			"tool",
+		)
+
 		canonical, ok := toolaliases.ActiveCanonical(toolName)
 		if !ok {
 			continue
 		}
 
 		event.ToolName = canonical
-		event.ToolInput = normalizeToolInputForAlias(toolName, mapFromAny(nested["parameters"]))
+		event.ToolInput = normalizeToolInputForAlias(
+			toolName,
+			mapFromAny(nested["parameters"]),
+		)
 
 		return event
 	}
@@ -181,12 +211,15 @@ func normalizeToolInputForAlias(toolName string, input map[string]any) map[strin
 	if input == nil {
 		return nil
 	}
+
 	if command, ok := input["cmd"].(string); ok && command != "" {
 		input["command"] = command
 	}
+
 	if command, ok := input["chars"].(string); ok && command != "" {
 		input["command"] = command
 	}
+
 	if _, ok := toolaliases.ActiveCanonical(toolName); ok {
 		return input
 	}
@@ -242,6 +275,7 @@ func mergeTopLevelResponseStatus(
 
 		response[key] = value
 	}
+
 	for _, key := range []string{"status", "state", "outcome"} {
 		value, ok := decodeString(payload[key])
 		if !ok {

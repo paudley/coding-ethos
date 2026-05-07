@@ -9,8 +9,11 @@ func Walk(root *tree_sitter.Node, visit func(*tree_sitter.Node)) {
 	if root == nil {
 		return
 	}
+
 	visit(root)
-	for index := uint(0); index < root.NamedChildCount(); index++ {
+
+	childCount := root.NamedChildCount()
+	for index := range childCount {
 		Walk(root.NamedChild(index), visit)
 	}
 }
@@ -19,12 +22,19 @@ func WalkWithDepth(root *tree_sitter.Node, visit func(*tree_sitter.Node, int)) {
 	walkWithDepth(root, 0, visit)
 }
 
-func walkWithDepth(node *tree_sitter.Node, depth int, visit func(*tree_sitter.Node, int)) {
+func walkWithDepth(
+	node *tree_sitter.Node,
+	depth int,
+	visit func(*tree_sitter.Node, int),
+) {
 	if node == nil {
 		return
 	}
+
 	visit(node, depth)
-	for index := uint(0); index < node.NamedChildCount(); index++ {
+
+	childCount := node.NamedChildCount()
+	for index := range childCount {
 		walkWithDepth(node.NamedChild(index), depth+1, visit)
 	}
 }
@@ -33,6 +43,7 @@ func NodeRowSpan(node *tree_sitter.Node) (int, int, bool) {
 	if node == nil {
 		return 0, 0, false
 	}
+
 	start := boundedUintToInt(node.StartPosition().Row, int(^uint(0)>>1)) + 1
 	end := boundedUintToInt(node.EndPosition().Row, int(^uint(0)>>1)) + 1
 

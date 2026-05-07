@@ -1,0 +1,7 @@
+.coding-ethos/
+.code-ethos/cache/
+.mypy_cache/
+.ruff_cache/
+.uv-cache/
+.venv/
+__pycache__/

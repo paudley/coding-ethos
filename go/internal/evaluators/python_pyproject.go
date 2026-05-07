@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
+
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-
-	"github.com/pelletier/go-toml/v2"
 )
 
 const pyprojectUnknownTarget = "<unknown>"
@@ -48,6 +48,7 @@ func EvaluatePythonPyprojectIgnores(
 		}
 
 		decision := policy.NewDecision(blockDecision, policyDef)
+
 		decision.Diagnostics = make([]diagnostics.Diagnostic, 0, len(findings))
 		for _, finding := range findings {
 			decision.Diagnostics = append(decision.Diagnostics, diagnostics.Diagnostic{
@@ -61,6 +62,7 @@ func EvaluatePythonPyprojectIgnores(
 				Metadata: map[string]any{"detail": finding.Detail},
 			})
 		}
+
 		decision.Evidence = map[string]any{
 			"file":     file,
 			"findings": len(findings),
@@ -79,7 +81,9 @@ func EvaluatePythonUVExcludeNewer(
 	expected := strings.TrimSpace(
 		stringOption(context.EvaluatorOptions, "expected_value", "7 days"),
 	)
+
 	var decisions []policy.Decision
+
 	for _, file := range context.Files {
 		if filepath.Base(file) != "pyproject.toml" {
 			continue
@@ -89,6 +93,7 @@ func EvaluatePythonUVExcludeNewer(
 		if err != nil {
 			return nil, err
 		}
+
 		actual := strings.TrimSpace(pyprojectString(
 			pyprojectMap(config["tool"]),
 			"uv",
@@ -102,6 +107,7 @@ func EvaluatePythonUVExcludeNewer(
 		if actual != "" {
 			message = "pyproject.toml has the wrong [tool.uv].exclude-newer value"
 		}
+
 		decision := policy.NewDecision(blockDecision, policyDef)
 		decision.Diagnostics = []diagnostics.Diagnostic{{
 			Tool:     "uv",
@@ -129,15 +135,17 @@ func loadPyprojectConfig(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return map[string]any{}, nil
 		}
 
 		return nil, fmt.Errorf("read pyproject.toml %s: %w", path, err)
 	}
 
 	config := map[string]any{}
-	if err := toml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("parse pyproject.toml %s: %w", path, err)
+
+	inlineErr0 := toml.Unmarshal(data, &config)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("parse pyproject.toml %s: %w", path, inlineErr0)
 	}
 
 	return config, nil
@@ -155,12 +163,15 @@ func extractPyprojectFindings(
 	for finding := range extractRuffFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractMypyFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractPyrightFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
+
 	for finding := range extractPylintFindings(toolTable) {
 		findings[finding] = struct{}{}
 	}
@@ -170,6 +181,7 @@ func extractPyprojectFindings(
 
 func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	ruff := pyprojectMap(toolTable["ruff"])
 	if ruff == nil {
 		return findings
@@ -187,6 +199,7 @@ func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]st
 				addPyprojectPerFileFindings(findings, "ruff", key, value)
 			}
 		}
+
 		if value, ok := ruff[key]; ok {
 			addPyprojectPerFileFindings(findings, "ruff", key, value)
 		}
@@ -203,6 +216,7 @@ func extractRuffFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]st
 
 func extractMypyFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	mypy := pyprojectMap(toolTable["mypy"])
 	if mypy == nil {
 		return findings
@@ -213,9 +227,11 @@ func extractMypyFindings(toolTable map[string]any) map[pyprojectIgnoreFinding]st
 			addPyprojectPerFileFindings(findings, "mypy", key, value)
 		}
 	}
+
 	if value, ok := mypy["exclude"]; ok {
 		addPyprojectPatternFindings(findings, "mypy", "exclude", value)
 	}
+
 	if overrides, ok := mypy["overrides"].([]any); ok {
 		for _, rawOverride := range overrides {
 			override := pyprojectMap(rawOverride)
@@ -232,6 +248,7 @@ func extractPyrightFindings(
 	toolTable map[string]any,
 ) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	pyright := pyprojectMap(toolTable["pyright"])
 	if pyright == nil {
 		return findings
@@ -250,6 +267,7 @@ func extractPylintFindings(
 	toolTable map[string]any,
 ) map[pyprojectIgnoreFinding]struct{} {
 	findings := map[pyprojectIgnoreFinding]struct{}{}
+
 	pylint := pyprojectMap(toolTable["pylint"])
 	if pylint == nil {
 		return findings
@@ -259,6 +277,7 @@ func extractPylintFindings(
 	if mainSection := pyprojectMap(pylint["main"]); mainSection != nil {
 		sections = append(sections, mainSection)
 	}
+
 	for _, section := range sections {
 		for _, key := range []string{
 			"ignore",
@@ -315,6 +334,7 @@ func addMypyOverrideFindingsForKey(
 			if strings.TrimSpace(code) == "" {
 				continue
 			}
+
 			for _, module := range modules {
 				addPyprojectFinding(findings, "mypy", "override."+key, module, code)
 			}
@@ -329,6 +349,7 @@ func addMypyOverrideFindingsForKey(
 
 			return
 		}
+
 		for _, module := range modules {
 			addPyprojectFinding(
 				findings,
@@ -355,6 +376,7 @@ func addPyprojectPerFileFindings(
 
 				continue
 			}
+
 			for _, code := range codeList {
 				addPyprojectFinding(findings, tool, setting, pattern, code)
 			}
@@ -398,8 +420,12 @@ func filterAllowedPyprojectFindings(
 	findings map[pyprojectIgnoreFinding]struct{},
 	options map[string]any,
 ) []pyprojectIgnoreFinding {
-	allowedIgnore := stringSet(stringSliceOption(options, "allowed_ignore_patterns", nil))
-	allowedExclude := stringSet(stringSliceOption(options, "allowed_exclude_patterns", nil))
+	allowedIgnore := stringSet(
+		stringSliceOption(options, "allowed_ignore_patterns", nil),
+	)
+	allowedExclude := stringSet(
+		stringSliceOption(options, "allowed_exclude_patterns", nil),
+	)
 	allowedMypyMissing := stringSet(
 		stringSliceOption(options, "allowed_mypy_missing_imports", nil),
 	)
@@ -409,9 +435,12 @@ func filterAllowedPyprojectFindings(
 		if allowedIgnore[finding.Target] {
 			continue
 		}
-		if isPyprojectExcludeSetting(finding.Setting) && allowedExclude[finding.Target] {
+
+		if isPyprojectExcludeSetting(finding.Setting) &&
+			allowedExclude[finding.Target] {
 			continue
 		}
+
 		if finding.Tool == "mypy" &&
 			finding.Setting == "override.ignore_missing_imports" &&
 			allowedMypyMissing[finding.Target] {
@@ -421,7 +450,7 @@ func filterAllowedPyprojectFindings(
 		filtered = append(filtered, finding)
 	}
 
-	sort.Slice(filtered, func(left int, right int) bool {
+	sort.Slice(filtered, func(left, right int) bool {
 		return pyprojectFindingSortKey(filtered[left]) <
 			pyprojectFindingSortKey(filtered[right])
 	})
@@ -454,10 +483,12 @@ func pyprojectString(root map[string]any, keys ...string) string {
 		if current == nil {
 			return ""
 		}
+
 		value, ok := current[key]
 		if !ok {
 			return ""
 		}
+
 		if index == len(keys)-1 {
 			text, ok := value.(string)
 			if !ok {
@@ -466,6 +497,7 @@ func pyprojectString(root map[string]any, keys ...string) string {
 
 			return text
 		}
+
 		current = pyprojectMap(value)
 		if current == nil {
 			return ""

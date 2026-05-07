@@ -37,18 +37,6 @@ updates:
       default-days: 7
     open-pull-requests-limit: 10
 
-  - package-ecosystem: "gomod"
-    directory: "/pre-commit/hooks/go-hooks"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "go"
-      - "pre-commit"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

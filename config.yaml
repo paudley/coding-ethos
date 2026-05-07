@@ -571,6 +571,10 @@ shell:
     enabled: true
     exempt_paths:
       - config.yaml
+      - coding_ethos.yml
+      - go/internal/policy/**
+      - go/internal/redteam/**
+      - go/scripts/smoke_hook_edges.sh
     file_strings:
       - PLC0415
     strings:
@@ -1110,6 +1114,35 @@ tooling:
     version: "2"
     run:
       tests: true
+    formatters:
+      enable:
+        - gci
+        - gofmt
+        - gofumpt
+        - goimports
+        - golines
+      exclusions:
+        generated: strict
+        warn-unused: true
+      settings:
+        gci:
+          sections:
+            - standard
+            - default
+            - prefix(blackcat.ca/coding-ethos/go)
+            - localmodule
+          custom-order: true
+        gofmt:
+          simplify: true
+        gofumpt:
+          module-path: blackcat.ca/coding-ethos/go
+          extra-rules: true
+        goimports:
+          local-prefixes:
+            - blackcat.ca/coding-ethos/go
+        golines:
+          max-len: 88
+          tab-len: 1
     issues:
       max-issues-per-linter: 0
       max-same-issues: 0
@@ -1275,7 +1308,7 @@ tooling:
 
 go:
   enabled: false
-  worktree: pre-commit/hooks/go-hooks
+  worktree: go
   commitlint:
     enabled: true
     allowed_types:

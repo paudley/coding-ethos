@@ -6,12 +6,12 @@ package evidence
 import "context"
 
 type CodeFact struct {
-	SourceSpan    SourceSpan `json:"source_span"`
 	ID            string     `json:"id"`
 	RepoID        string     `json:"repo_id,omitempty"`
 	NodeKind      string     `json:"node_kind,omitempty"`
 	Signature     string     `json:"signature,omitempty"`
 	SearchText    string     `json:"search_text,omitempty"`
+	SourceSpan    SourceSpan `json:"source_span"`
 	SchemaVersion int        `json:"schema_version"`
 }
 
@@ -48,24 +48,24 @@ type VectorStats struct {
 }
 
 type FindingStore interface {
-	UpsertFinding(context.Context, Finding) error
-	FindFinding(context.Context, string) (Finding, bool, error)
+	UpsertFinding(ctx context.Context, finding Finding) error
+	FindFinding(ctx context.Context, id string) (Finding, bool, error)
 }
 
 type CodeFactStore interface {
-	UpsertCodeFact(context.Context, CodeFact) error
-	FindCodeFact(context.Context, string) (CodeFact, bool, error)
+	UpsertCodeFact(ctx context.Context, fact CodeFact) error
+	FindCodeFact(ctx context.Context, id string) (CodeFact, bool, error)
 }
 
 type VectorIndex interface {
-	UpsertEmbedding(context.Context, VectorRecord) error
-	DeleteEmbedding(context.Context, string, string) error
-	Search(context.Context, VectorQuery) ([]VectorMatch, error)
-	Stats(context.Context) (VectorStats, error)
-	Rebuild(context.Context, string) error
+	UpsertEmbedding(ctx context.Context, record VectorRecord) error
+	DeleteEmbedding(ctx context.Context, collection, id string) error
+	Search(ctx context.Context, query VectorQuery) ([]VectorMatch, error)
+	Stats(ctx context.Context) (VectorStats, error)
+	Rebuild(ctx context.Context, collection string) error
 }
 
 type TraceIngestor interface {
-	IngestHookTrace(context.Context, []byte) error
-	IngestLintTrace(context.Context, []byte) error
+	IngestHookTrace(ctx context.Context, payload []byte) error
+	IngestLintTrace(ctx context.Context, payload []byte) error
 }

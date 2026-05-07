@@ -5,12 +5,14 @@ package evaluators
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type pythonASTFact struct {
@@ -45,22 +47,49 @@ type pythonASTFact struct {
 }
 
 type pythonASTIssue struct {
-	File             string
-	Line             int
-	Column           int
-	EndLine          int
+	SymbolKind       string
 	Code             string
 	Detail           string
 	Language         string
 	NodeKind         string
 	Snippet          string
-	SymbolKind       string
+	File             string
 	SymbolName       string
 	SymbolPath       string
 	ParentSymbolPath string
+	Line             int
+	Column           int
+	EndLine          int
 }
 
 type pythonASTIssueFunc func([]pythonASTFact) *pythonASTIssue
+
+const (
+	pythonLanguage               = "python"
+	pythonKindAnnotatedAssign    = "annotated_assignment"
+	pythonKindAssign             = "assignment"
+	pythonKindCall               = "call"
+	pythonKindClassDef           = "class_definition"
+	pythonKindExceptClause       = "except_clause"
+	pythonKindFunctionDef        = "function_definition"
+	pythonKindImportFrom         = "import_from_statement"
+	pythonKindImport             = "import_statement"
+	pythonKindLambda             = "lambda"
+	pythonKindModule             = "module"
+	pythonSymbolCall             = "call"
+	pythonSymbolFunction         = "function"
+	pythonSymbolImport           = "import"
+	pythonModuleGetattr          = "__getattr__"
+	pythonImportlibImportModule  = "importlib.import_module"
+	pythonBuiltinImport          = "__import__"
+	pythonTypeCheckingImportCode = "type-checking-import"
+	pythonConditionalImportCode  = "conditional-import"
+	pythonImportFallbackCode     = "import-error-fallback"
+	pythonDynamicGetattrCode     = "dynamic-getattr-import"
+	pythonDynamicImportCallCode  = "dynamic-import-call"
+	pythonAssignedLambdaCode     = "assigned-lambda"
+	pythonClosureFactoryCode     = "closure-factory"
+)
 
 func EvaluatePythonConditionalImports(
 	policyDef policy.Policy,
@@ -91,6 +120,7 @@ func evaluatePythonAST(
 		if err != nil {
 			return nil, err
 		}
+
 		issue := findIssue(facts)
 		if issue != nil {
 			return []policy.Decision{
@@ -104,13 +134,20 @@ func evaluatePythonAST(
 
 func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 	contents := []byte(source.Text)
-	tree, ok, err := astfacts.Parse(source.Path, contents)
+
+	tree, found, err := astfacts.Parse(source.Path, contents)
 	if err != nil {
-		return nil, fmt.Errorf("parse python source %s with tree-sitter: %w", source.Path, err)
+		return nil, fmt.Errorf(
+			"parse python source %s with tree-sitter: %w",
+			source.Path,
+			err,
+		)
 	}
-	if !ok {
+
+	if !found {
 		return pythonSnippetFallbackASTFacts(source), nil
 	}
+
 	defer tree.Close()
 
 	root := tree.RootNode()
@@ -121,11 +158,18 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 	facts := []pythonASTFact{}
 	closureFactories := pythonClosureFactorySymbols(root, contents)
 	astfacts.Walk(root, func(node *tree_sitter.Node) {
-		if fact, ok := pythonASTFactFromNode(source, node, contents, closureFactories); ok {
+		if fact, found := pythonASTFactFromNode(
+			source,
+			node,
+			contents,
+			closureFactories,
+		); found {
 			facts = append(facts, fact)
 		}
 	})
-	if len(facts) == 0 || root.HasError() || pythonSourceNeedsSnippetFallback(source.Text) {
+
+	if len(facts) == 0 || root.HasError() ||
+		pythonSourceNeedsSnippetFallback(source.Text) {
 		facts = append(facts, pythonSnippetFallbackASTFacts(source)...)
 	}
 
@@ -134,12 +178,14 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 	facts := []pythonASTFact{}
+
 	for index, line := range strings.Split(source.Text, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if fact, ok := pythonSnippetFallbackFact(source, line, trimmed, index+1); ok {
+
+		if fact, found := pythonSnippetFallbackFact(source, line, trimmed, index+1); found {
 			facts = append(facts, fact)
 		}
 	}
@@ -148,7 +194,7 @@ func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 }
 
 func pythonSourceNeedsSnippetFallback(source string) bool {
-	for _, line := range strings.Split(source, "\n") {
+	for line := range strings.SplitSeq(source, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -169,9 +215,10 @@ func pythonSnippetFallbackFact(
 	lineNumber int,
 ) (pythonASTFact, bool) {
 	indent := leadingSpaces(line)
+
 	fact := pythonASTFact{
 		File:        source.Path,
-		Language:    "python",
+		Language:    pythonLanguage,
 		Text:        trimmed,
 		Line:        lineNumber,
 		Column:      indent + 1,
@@ -180,8 +227,8 @@ func pythonSnippetFallbackFact(
 	}
 	switch {
 	case strings.HasPrefix(trimmed, "import "):
-		fact.NodeKind = "import_statement"
-		fact.SymbolKind = "import"
+		fact.NodeKind = pythonKindImport
+		fact.SymbolKind = pythonSymbolImport
 		fact.ImportModule = trimmed
 		fact.IsImport = true
 		fact.UnderFunction = indent > 0
@@ -189,8 +236,8 @@ func pythonSnippetFallbackFact(
 
 		return fact, true
 	case strings.HasPrefix(trimmed, "from "):
-		fact.NodeKind = "import_from_statement"
-		fact.SymbolKind = "import"
+		fact.NodeKind = pythonKindImportFrom
+		fact.SymbolKind = pythonSymbolImport
 		fact.ImportModule = trimmed
 		fact.IsImport = true
 		fact.UnderFunction = indent > 0
@@ -200,30 +247,30 @@ func pythonSnippetFallbackFact(
 	case strings.HasPrefix(trimmed, "except ") &&
 		(strings.Contains(trimmed, "ImportError") ||
 			strings.Contains(trimmed, "ModuleNotFoundError")):
-		fact.NodeKind = "except_clause"
+		fact.NodeKind = pythonKindExceptClause
 		fact.SymbolKind = "except"
 		fact.IsImportFallback = true
 
 		return fact, true
 	case strings.Contains(trimmed, "importlib.import_module("):
-		fact.NodeKind = "call"
-		fact.SymbolKind = "call"
-		fact.CallName = "importlib.import_module"
+		fact.NodeKind = pythonKindCall
+		fact.SymbolKind = pythonSymbolCall
+		fact.CallName = pythonImportlibImportModule
 		fact.IsDynamicImport = true
 
 		return fact, true
 	case strings.Contains(trimmed, "__import__("):
-		fact.NodeKind = "call"
-		fact.SymbolKind = "call"
-		fact.CallName = "__import__"
+		fact.NodeKind = pythonKindCall
+		fact.SymbolKind = pythonSymbolCall
+		fact.CallName = pythonBuiltinImport
 		fact.IsDynamicImport = true
 
 		return fact, true
 	case strings.HasPrefix(trimmed, "def __getattr__("):
-		fact.NodeKind = "function_definition"
-		fact.SymbolKind = "function"
-		fact.SymbolName = "__getattr__"
-		fact.SymbolPath = "__getattr__"
+		fact.NodeKind = pythonKindFunctionDef
+		fact.SymbolKind = pythonSymbolFunction
+		fact.SymbolName = pythonModuleGetattr
+		fact.SymbolPath = pythonModuleGetattr
 
 		return fact, true
 	default:
@@ -237,34 +284,52 @@ func firstPythonConditionalImportIssue(facts []pythonASTFact) *pythonASTIssue {
 		case fact.IsImport && fact.UnderTypeChecking:
 			return newPythonASTIssueFromFact(
 				fact,
-				"type-checking-import",
-				"TYPE_CHECKING import branches mask required runtime dependencies and are forbidden by the import policy.",
+				pythonTypeCheckingImportCode,
+				pythonASTIssueText(
+					"TYPE_CHECKING import branches mask required runtime",
+					"dependencies and are forbidden by the import policy.",
+				),
 			)
 		case fact.IsImport && !fact.ModuleLevel:
 			return newPythonASTIssueFromFact(
 				fact,
-				"conditional-import",
-				"Required imports must stay at module scope; runtime, nested, or branch-gated imports hide dependency and design failures.",
+				pythonConditionalImportCode,
+				pythonASTIssueText(
+					"Required imports must stay at module scope; runtime,",
+					"nested, or branch-gated imports hide dependency and",
+					"design failures.",
+				),
 			)
 		case fact.IsImportFallback:
 			return newPythonASTIssueFromFact(
 				fact,
-				"import-error-fallback",
-				"ImportError and ModuleNotFoundError fallback paths create soft dependencies instead of deterministic startup failure.",
+				pythonImportFallbackCode,
+				pythonASTIssueText(
+					"ImportError and ModuleNotFoundError fallback paths",
+					"create soft dependencies instead of deterministic",
+					"startup failure.",
+				),
 			)
-		case fact.NodeKind == "function_definition" &&
+		case fact.NodeKind == pythonKindFunctionDef &&
 			fact.ModuleLevel &&
-			fact.SymbolName == "__getattr__":
+			fact.SymbolName == pythonModuleGetattr:
 			return newPythonASTIssueFromFact(
 				fact,
-				"dynamic-getattr-import",
-				"Module-level __getattr__ hides imports behind dynamic attribute lookup and bypasses deterministic dependency validation.",
+				pythonDynamicGetattrCode,
+				pythonASTIssueText(
+					"Module-level __getattr__ hides imports behind dynamic",
+					"attribute lookup and bypasses deterministic dependency",
+					"validation.",
+				),
 			)
 		case fact.IsDynamicImport:
 			return newPythonASTIssueFromFact(
 				fact,
-				"dynamic-import-call",
-				"Dynamic import calls bypass module-level dependency validation and are forbidden for required dependencies.",
+				pythonDynamicImportCallCode,
+				pythonASTIssueText(
+					"Dynamic import calls bypass module-level dependency",
+					"validation and are forbidden for required dependencies.",
+				),
 			)
 		}
 	}
@@ -277,16 +342,25 @@ func firstPythonFunctionalIdiomIssue(facts []pythonASTFact) *pythonASTIssue {
 		if fact.IsAssignedLambda {
 			return newPythonASTIssueFromFact(
 				fact,
-				"assigned-lambda",
-				"Assigned lambdas obscure reusable behavior; use functools.partial, operator helpers, or a named function.",
+				pythonAssignedLambdaCode,
+				pythonASTIssueText(
+					"Assigned lambdas obscure reusable behavior; use",
+					"functools.partial, operator helpers, or a named",
+					"function.",
+				),
 			)
 		}
+
 		if fact.IsClosureFactory {
 			return newPythonASTIssueFromFact(
 				fact,
-				"closure-factory",
+				pythonClosureFactoryCode,
 				fmt.Sprintf(
-					"Nested function %q is returned or assigned from its container; prefer functools.partial or an explicit helper.",
+					pythonASTIssueText(
+						"Nested function %q is returned or assigned from",
+						"its container; prefer functools.partial or an",
+						"explicit helper.",
+					),
 					fact.SymbolName,
 				),
 			)
@@ -294,6 +368,10 @@ func firstPythonFunctionalIdiomIssue(facts []pythonASTFact) *pythonASTIssue {
 	}
 
 	return nil
+}
+
+func pythonASTIssueText(parts ...string) string {
+	return strings.Join(parts, " ")
 }
 
 func pythonASTFactFromNode(
@@ -306,52 +384,83 @@ func pythonASTFactFromNode(
 	if !pythonASTNodeIsFactCandidate(kind) {
 		return pythonASTFact{}, false
 	}
+
 	line, endLine, _ := astfacts.NodeRowSpan(node)
 	text := strings.TrimSpace(node.Utf8Text(contents))
 	fact := pythonASTFact{
-		File:              source.Path,
-		Language:          "python",
-		NodeKind:          kind,
-		SymbolKind:        pythonSymbolKind(node),
-		SymbolName:        pythonNodeSymbolName(node, contents),
-		Text:              text,
-		Line:              line,
-		Column:            int(node.StartPosition().Column) + 1,
-		EndLine:           endLine,
-		ModuleLevel:       pythonNodeIsModuleLevel(node),
-		UnderClass:        pythonHasAncestorKind(node, "class_definition"),
-		UnderConditional:  pythonHasAncestorKind(node, "if_statement", "for_statement", "while_statement", "match_statement"),
-		UnderFunction:     pythonHasAncestorKind(node, "function_definition"),
-		UnderTry:          pythonHasAncestorKind(node, "try_statement", "except_clause"),
+		File:        source.Path,
+		Language:    pythonLanguage,
+		NodeKind:    kind,
+		SymbolKind:  pythonSymbolKind(node),
+		SymbolName:  pythonNodeSymbolName(node, contents),
+		Text:        text,
+		Line:        line,
+		Column:      pythonNodeColumn(node),
+		EndLine:     endLine,
+		ModuleLevel: pythonNodeIsModuleLevel(node),
+		UnderClass:  pythonHasAncestorKind(node, pythonKindClassDef),
+		UnderConditional: pythonHasAncestorKind(
+			node,
+			"if_statement",
+			"for_statement",
+			"while_statement",
+			"match_statement",
+		),
+		UnderFunction: pythonHasAncestorKind(node, pythonKindFunctionDef),
+		UnderTry: pythonHasAncestorKind(
+			node,
+			"try_statement",
+			pythonKindExceptClause,
+		),
 		UnderTypeChecking: pythonUnderTypeChecking(node, contents),
 	}
 	fact.SymbolPath, fact.ParentSymbolPath = pythonSymbolPaths(node, contents)
+
 	switch kind {
-	case "import_statement", "import_from_statement":
+	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
 		fact.ImportModule = text
-	case "except_clause":
+	case pythonKindExceptClause:
 		fact.IsImportFallback = strings.Contains(text, "ImportError") ||
 			strings.Contains(text, "ModuleNotFoundError")
-	case "call":
+	case pythonKindCall:
 		fact.CallName = pythonCallName(node, contents)
-		fact.IsDynamicImport = fact.CallName == "__import__" ||
-			fact.CallName == "importlib.import_module"
-	case "lambda":
+		fact.IsDynamicImport = fact.CallName == pythonBuiltinImport ||
+			fact.CallName == pythonImportlibImportModule
+	case pythonKindLambda:
 		fact.IsAssignedLambda = pythonLambdaIsAssigned(node)
-	case "function_definition":
-		fact.ParameterCount, fact.HasVarargs, fact.HasKwargs = pythonFunctionParameters(node)
+	case pythonKindFunctionDef:
+		fact.ParameterCount, fact.HasVarargs, fact.HasKwargs = pythonFunctionParameters(
+			node,
+		)
 		fact.IsClosureFactory = closureFactories[pythonNodeKey(node, contents)]
 	}
 
 	return fact, true
 }
 
+func pythonNodeColumn(node *tree_sitter.Node) int {
+	const maxIntValue = int(^uint(0) >> 1)
+
+	column := node.StartPosition().Column
+	if column > uint(maxIntValue) {
+		return maxIntValue
+	}
+
+	return int(column) + 1
+}
+
 func pythonASTNodeIsFactCandidate(kind string) bool {
 	switch kind {
-	case "annotated_assignment", "assignment", "call", "class_definition",
-		"except_clause", "function_definition", "import_from_statement",
-		"import_statement", "lambda":
+	case pythonKindAnnotatedAssign,
+		pythonKindAssign,
+		pythonKindCall,
+		pythonKindClassDef,
+		pythonKindExceptClause,
+		pythonKindFunctionDef,
+		pythonKindImportFrom,
+		pythonKindImport,
+		pythonKindLambda:
 		return true
 	default:
 		return false
@@ -363,13 +472,15 @@ func pythonNodeIsModuleLevel(node *tree_sitter.Node) bool {
 	if parent == nil {
 		return false
 	}
-	if parent.Kind() == "module" {
+
+	if parent.Kind() == pythonKindModule {
 		return true
 	}
+
 	if parent.Kind() == "decorated_definition" {
 		grandparent := parent.Parent()
 
-		return grandparent != nil && grandparent.Kind() == "module"
+		return grandparent != nil && grandparent.Kind() == pythonKindModule
 	}
 
 	return false
@@ -377,10 +488,8 @@ func pythonNodeIsModuleLevel(node *tree_sitter.Node) bool {
 
 func pythonHasAncestorKind(node *tree_sitter.Node, kinds ...string) bool {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
-		for _, kind := range kinds {
-			if ancestor.Kind() == kind {
-				return true
-			}
+		if slices.Contains(kinds, ancestor.Kind()) {
+			return true
 		}
 	}
 
@@ -401,9 +510,9 @@ func pythonUnderTypeChecking(node *tree_sitter.Node, contents []byte) bool {
 func pythonLambdaIsAssigned(node *tree_sitter.Node) bool {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
 		switch ancestor.Kind() {
-		case "assignment", "annotated_assignment":
+		case pythonKindAssign, pythonKindAnnotatedAssign:
 			return true
-		case "module", "function_definition", "class_definition":
+		case pythonKindModule, pythonKindFunctionDef, pythonKindClassDef:
 			return false
 		}
 	}
@@ -411,12 +520,17 @@ func pythonLambdaIsAssigned(node *tree_sitter.Node) bool {
 	return false
 }
 
-func pythonClosureFactorySymbols(root *tree_sitter.Node, contents []byte) map[string]bool {
+func pythonClosureFactorySymbols(
+	root *tree_sitter.Node,
+	contents []byte,
+) map[string]bool {
 	factories := map[string]bool{}
+
 	astfacts.Walk(root, func(node *tree_sitter.Node) {
-		if node.Kind() != "function_definition" {
+		if node.Kind() != pythonKindFunctionDef {
 			return
 		}
+
 		for key := range pythonContainerClosureFactories(node, contents) {
 			factories[key] = true
 		}
@@ -425,33 +539,46 @@ func pythonClosureFactorySymbols(root *tree_sitter.Node, contents []byte) map[st
 	return factories
 }
 
-func pythonContainerClosureFactories(container *tree_sitter.Node, contents []byte) map[string]bool {
+func pythonContainerClosureFactories(
+	container *tree_sitter.Node,
+	contents []byte,
+) map[string]bool {
 	nestedByName := map[string][]string{}
 	referenced := map[string]bool{}
+
 	astfacts.Walk(container, func(child *tree_sitter.Node) {
 		if child.Equals(*container) {
 			return
 		}
+
 		switch child.Kind() {
-		case "function_definition":
-			if ancestor := nearestPythonFunctionAncestor(child); ancestor != nil && ancestor.Equals(*container) {
+		case pythonKindFunctionDef:
+			if ancestor := nearestPythonFunctionAncestor(
+				child,
+			); ancestor != nil &&
+				ancestor.Equals(*container) {
 				name := pythonFunctionName(child, contents)
 				if name != "" {
-					nestedByName[name] = append(nestedByName[name], pythonNodeKey(child, contents))
+					nestedByName[name] = append(
+						nestedByName[name],
+						pythonNodeKey(child, contents),
+					)
 				}
 			}
-		case "return_statement", "assignment", "annotated_assignment":
-			if name, ok := pythonStatementReferencedIdentifier(child, contents); ok {
+		case "return_statement", pythonKindAssign, pythonKindAnnotatedAssign:
+			if name, found := pythonStatementReferencedIdentifier(child, contents); found {
 				referenced[name] = true
 			}
 		}
 	})
 
 	factories := map[string]bool{}
+
 	for name, keys := range nestedByName {
 		if !referenced[name] {
 			continue
 		}
+
 		for _, key := range keys {
 			factories[key] = true
 		}
@@ -462,10 +589,11 @@ func pythonContainerClosureFactories(container *tree_sitter.Node, contents []byt
 
 func nearestPythonFunctionAncestor(node *tree_sitter.Node) *tree_sitter.Node {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
-		if ancestor.Kind() == "function_definition" {
+		if ancestor.Kind() == pythonKindFunctionDef {
 			return ancestor
 		}
-		if ancestor.Kind() == "module" {
+
+		if ancestor.Kind() == pythonKindModule {
 			return nil
 		}
 	}
@@ -475,16 +603,16 @@ func nearestPythonFunctionAncestor(node *tree_sitter.Node) *tree_sitter.Node {
 
 func pythonSymbolKind(node *tree_sitter.Node) string {
 	switch node.Kind() {
-	case "function_definition":
+	case pythonKindFunctionDef:
 		return "function"
-	case "class_definition":
+	case pythonKindClassDef:
 		return "class"
 	case "lambda":
 		return "lambda"
 	case "import_statement", "import_from_statement":
 		return "import"
-	case "call":
-		return "call"
+	case pythonKindCall:
+		return pythonSymbolCall
 	case "except_clause":
 		return "except"
 	default:
@@ -494,9 +622,9 @@ func pythonSymbolKind(node *tree_sitter.Node) string {
 
 func pythonNodeSymbolName(node *tree_sitter.Node, contents []byte) string {
 	switch node.Kind() {
-	case "function_definition", "class_definition":
+	case pythonKindFunctionDef, pythonKindClassDef:
 		return pythonFunctionName(node, contents)
-	case "call":
+	case pythonKindCall:
 		return pythonCallName(node, contents)
 	default:
 		return ""
@@ -505,16 +633,21 @@ func pythonNodeSymbolName(node *tree_sitter.Node, contents []byte) string {
 
 func pythonSymbolPaths(node *tree_sitter.Node, contents []byte) (string, string) {
 	parts := []string{}
+
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
-		if ancestor.Kind() != "function_definition" && ancestor.Kind() != "class_definition" {
+		if ancestor.Kind() != pythonKindFunctionDef &&
+			ancestor.Kind() != pythonKindClassDef {
 			continue
 		}
+
 		name := pythonFunctionName(ancestor, contents)
 		if name != "" {
 			parts = append([]string{name}, parts...)
 		}
 	}
+
 	parent := strings.Join(parts, ".")
+
 	name := pythonNodeSymbolName(node, contents)
 	switch {
 	case name == "":
@@ -549,10 +682,13 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 	if parameters == nil {
 		return 0, false, false
 	}
+
 	count := 0
 	hasVarargs := false
 	hasKwargs := false
-	for index := uint(0); index < parameters.NamedChildCount(); index++ {
+
+	childCount := parameters.NamedChildCount()
+	for index := range childCount {
 		child := parameters.NamedChild(index)
 		switch child.Kind() {
 		case "identifier", "default_parameter", "typed_parameter",
@@ -560,9 +696,11 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 			"dictionary_splat_pattern":
 			count++
 		}
+
 		if child.Kind() == "list_splat_pattern" {
 			hasVarargs = true
 		}
+
 		if child.Kind() == "dictionary_splat_pattern" {
 			hasKwargs = true
 		}
@@ -571,13 +709,20 @@ func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {
 	return count, hasVarargs, hasKwargs
 }
 
-func pythonIfStatementConditionHasTypeChecking(node *tree_sitter.Node, contents []byte) bool {
+func pythonIfStatementConditionHasTypeChecking(
+	node *tree_sitter.Node,
+	contents []byte,
+) bool {
 	condition := node.ChildByFieldName("condition")
 
-	return condition != nil && strings.Contains(condition.Utf8Text(contents), "TYPE_CHECKING")
+	return condition != nil &&
+		strings.Contains(condition.Utf8Text(contents), "TYPE_CHECKING")
 }
 
-func pythonStatementReferencedIdentifier(node *tree_sitter.Node, contents []byte) (string, bool) {
+func pythonStatementReferencedIdentifier(
+	node *tree_sitter.Node,
+	contents []byte,
+) (string, bool) {
 	switch node.Kind() {
 	case "return_statement":
 		if node.NamedChildCount() == 0 {
@@ -585,7 +730,7 @@ func pythonStatementReferencedIdentifier(node *tree_sitter.Node, contents []byte
 		}
 
 		return pythonIdentifierText(node.NamedChild(0), contents)
-	case "assignment", "annotated_assignment":
+	case pythonKindAssign, pythonKindAnnotatedAssign:
 		right := node.ChildByFieldName("right")
 		if right == nil && node.NamedChildCount() > 0 {
 			right = node.NamedChild(node.NamedChildCount() - 1)
@@ -601,6 +746,7 @@ func pythonIdentifierText(node *tree_sitter.Node, contents []byte) (string, bool
 	if node == nil || node.Kind() != "identifier" {
 		return "", false
 	}
+
 	name := strings.TrimSpace(node.Utf8Text(contents))
 
 	return name, name != ""

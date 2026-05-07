@@ -17,9 +17,16 @@ func TestEvaluateShellBestPracticesBlocksMissingStrictMode(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+
 	path := filepath.Join(dir, "script.sh")
-	if err := os.WriteFile(path, []byte("#!/usr/bin/env bash\necho ok\n"), 0o600); err != nil {
-		t.Fatalf("write test file: %v", err)
+
+	inlineErr0 := os.WriteFile(
+		path,
+		[]byte("#!/usr/bin/env bash\necho ok\n"),
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write test file: %v", inlineErr0)
 	}
 
 	decisions, err := EvaluateShellBestPractices(
@@ -33,6 +40,7 @@ func TestEvaluateShellBestPracticesBlocksMissingStrictMode(t *testing.T) {
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+
 	if got := decisions[0].Diagnostics[0].Message; got != "missing 'set -euo pipefail'" {
 		t.Fatalf("diagnostic message = %q", got)
 	}
@@ -43,9 +51,12 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "script.sh")
+
 	content := "#!/usr/bin/env bash\nset -euo pipefail\necho 'unterminated\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write test file: %v", err)
+
+	inlineErr1 := os.WriteFile(path, []byte(content), 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write test file: %v", inlineErr1)
 	}
 
 	decisions, err := EvaluateShellBestPractices(
@@ -59,13 +70,17 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+
 	var syntaxDiagnostic diagnostics.Diagnostic
+
 	for _, diagnostic := range decisions[0].Diagnostics {
 		if diagnostic.Message == "shell script has invalid shell syntax" {
 			syntaxDiagnostic = diagnostic
+
 			break
 		}
 	}
+
 	if syntaxDiagnostic.Message == "" ||
 		syntaxDiagnostic.Line == 0 ||
 		syntaxDiagnostic.Column == 0 {

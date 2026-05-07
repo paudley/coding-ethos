@@ -16,8 +16,17 @@ func TestTargetResolverResolvesPackageRelativeTargets(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	target := filepath.Join(root, "lbox-platform", "lib", "python", "lbox", "corpus", "inline.py")
+	target := filepath.Join(
+		root,
+		"lbox-platform",
+		"lib",
+		"python",
+		"lbox",
+		"corpus",
+		"inline.py",
+	)
 	writeFile(t, target, "import os\n")
+
 	resolver, err := lintcapture.NewTargetResolver(
 		root,
 		root,
@@ -31,6 +40,7 @@ func TestTargetResolverResolvesPackageRelativeTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveArgs(): %v", err)
 	}
+
 	if !reflect.DeepEqual(got, []string{target}) {
 		t.Fatalf("ResolveArgs() = %#v, want %#v", got, []string{target})
 	}
@@ -43,8 +53,10 @@ func TestTargetResolverResolvesGlobsFromPolicyRoots(t *testing.T) {
 	base := filepath.Join(root, "lbox-platform", "lib", "python", "lbox", "corpus")
 	first := filepath.Join(base, "a.py")
 	second := filepath.Join(base, "b.py")
+
 	writeFile(t, first, "import os\n")
 	writeFile(t, second, "import sys\n")
+
 	resolver, err := lintcapture.NewTargetResolver(
 		root,
 		root,
@@ -58,6 +70,7 @@ func TestTargetResolverResolvesGlobsFromPolicyRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveArgs(): %v", err)
 	}
+
 	if !reflect.DeepEqual(got, []string{first, second}) {
 		t.Fatalf("ResolveArgs() = %#v, want sorted glob matches", got)
 	}
@@ -76,12 +89,14 @@ func TestTargetResolverPreservesMissingPackagePathIntent(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	resolver, err := lintcapture.NewTargetResolver(root, root, []string{"src"})
 	if err != nil {
 		t.Fatalf("NewTargetResolver(): %v", err)
 	}
 
 	got := resolver.ResolvePath("pkg/missing.py")
+
 	want := filepath.Join(root, "pkg", "missing.py")
 	if got != want {
 		t.Fatalf("ResolvePath() = %q, want %q", got, want)
@@ -92,6 +107,7 @@ func TestTargetResolverRelativizesResolvedConsumerPaths(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	resolver, err := lintcapture.NewTargetResolver(root, root, nil)
 	if err != nil {
 		t.Fatalf("NewTargetResolver(): %v", err)
@@ -102,6 +118,7 @@ func TestTargetResolverRelativizesResolvedConsumerPaths(t *testing.T) {
 		filepath.Join(root, "lbox-platform", "lib", "python", "tests", "app.py"),
 		"/outside/app.py",
 	})
+
 	want := []string{
 		"--check",
 		"lbox-platform/lib/python/tests/app.py",
@@ -112,13 +129,16 @@ func TestTargetResolverRelativizesResolvedConsumerPaths(t *testing.T) {
 	}
 }
 
-func writeFile(t *testing.T, path string, content string) {
+func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
 }

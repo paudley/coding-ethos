@@ -4,10 +4,11 @@
 package policy_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/policy"
 	"bytes"
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestWriteSummaryIncludesPoliciesAndPrinciples(t *testing.T) {

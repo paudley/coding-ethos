@@ -7,12 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type SARIFRun struct {
-	Raw           json.RawMessage        `json:"raw,omitempty"`
-	Results       []SARIFResultReference `json:"results,omitempty"`
 	ID            string                 `json:"id"`
 	TraceID       string                 `json:"trace_id,omitempty"`
 	SourcePath    string                 `json:"source_path,omitempty"`
@@ -22,11 +23,13 @@ type SARIFRun struct {
 	RunGUID       string                 `json:"run_guid,omitempty"`
 	BaselineGUID  string                 `json:"baseline_guid,omitempty"`
 	ProducedAtUTC string                 `json:"produced_at_utc,omitempty"`
+	Raw           json.RawMessage        `json:"raw,omitempty"`
+	Results       []SARIFResultReference `json:"results,omitempty"`
 }
 
 type SARIFResultReference struct {
-	Raw           json.RawMessage `json:"raw,omitempty"`
-	PrincipleIDs  []string        `json:"principle_ids,omitempty"`
+	ASTLanguage   string          `json:"ast_language,omitempty"`
+	PolicySource  string          `json:"policy_source,omitempty"`
 	ID            string          `json:"id"`
 	RuleID        string          `json:"rule_id,omitempty"`
 	Level         string          `json:"level,omitempty"`
@@ -37,17 +40,17 @@ type SARIFResultReference struct {
 	PolicyID      string          `json:"policy_id,omitempty"`
 	SkillID       string          `json:"skill_id,omitempty"`
 	Path          string          `json:"path,omitempty"`
-	ASTLanguage   string          `json:"ast_language,omitempty"`
-	ASTNodeKind   string          `json:"ast_node_kind,omitempty"`
+	SearchText    string          `json:"search_text,omitempty"`
 	ASTSymbolKind string          `json:"ast_symbol_kind,omitempty"`
+	ASTNodeKind   string          `json:"ast_node_kind,omitempty"`
 	ASTSymbolName string          `json:"ast_symbol_name,omitempty"`
 	ASTSymbolPath string          `json:"ast_symbol_path,omitempty"`
 	LinkedChunkID string          `json:"linked_chunk_id,omitempty"`
 	EvaluatorKind string          `json:"evaluator_kind,omitempty"`
 	CELPolicyID   string          `json:"cel_policy_id,omitempty"`
 	CELExpression string          `json:"cel_expression,omitempty"`
-	PolicySource  string          `json:"policy_source,omitempty"`
-	SearchText    string          `json:"search_text,omitempty"`
+	Raw           json.RawMessage `json:"raw,omitempty"`
+	PrincipleIDs  []string        `json:"principle_ids,omitempty"`
 	StartLine     int             `json:"start_line,omitempty"`
 	StartColumn   int             `json:"start_column,omitempty"`
 }
@@ -131,7 +134,7 @@ type HookUsageQuery struct {
 }
 
 type HookUsageSummary struct {
-	Provider       string  `json:"provider,omitempty"`
+	LastSeenUTC    string  `json:"last_seen_utc,omitempty"`
 	Tool           string  `json:"tool,omitempty"`
 	OperationKind  string  `json:"operation_kind,omitempty"`
 	TargetKind     string  `json:"target_kind,omitempty"`
@@ -139,14 +142,14 @@ type HookUsageSummary struct {
 	Status         string  `json:"status,omitempty"`
 	PolicyID       string  `json:"policy_id,omitempty"`
 	SkillID        string  `json:"skill_id,omitempty"`
-	EventCount     int     `json:"event_count"`
-	DecisionCount  int     `json:"decision_count"`
-	BlockedCount   int     `json:"blocked_count"`
-	RewriteCount   int     `json:"rewrite_count"`
-	AvgRuntimeMS   float64 `json:"avg_runtime_ms,omitempty"`
-	LastSeenUTC    string  `json:"last_seen_utc,omitempty"`
-	LastTraceID    string  `json:"last_trace_id,omitempty"`
+	Provider       string  `json:"provider,omitempty"`
 	LastTrackingID string  `json:"last_tracking_id,omitempty"`
+	LastTraceID    string  `json:"last_trace_id,omitempty"`
+	EventCount     int     `json:"event_count"`
+	AvgRuntimeMS   float64 `json:"avg_runtime_ms,omitempty"`
+	RewriteCount   int     `json:"rewrite_count"`
+	BlockedCount   int     `json:"blocked_count"`
+	DecisionCount  int     `json:"decision_count"`
 }
 
 type HookReview struct {
@@ -228,6 +231,14 @@ type CodeEdge struct {
 	RawText          string `json:"raw_text,omitempty"`
 }
 
+// CodeEdgeQuery filters indexed AST/code relationship edges.
+type CodeEdgeQuery struct {
+	Path       string
+	Kind       string
+	TargetName string
+	Limit      int
+}
+
 type ASTFindingLink struct {
 	ID          string `json:"id"`
 	FindingKind string `json:"finding_kind"`
@@ -250,37 +261,40 @@ type CodeContextQuery struct {
 }
 
 type CodeContext struct {
-	Chunk         CodeChunk        `json:"chunk"`
 	Parent        *CodeChunk       `json:"parent,omitempty"`
 	Children      []CodeChunk      `json:"children,omitempty"`
 	OutgoingEdges []CodeEdge       `json:"outgoing_edges,omitempty"`
 	IncomingEdges []CodeEdge       `json:"incoming_edges,omitempty"`
 	FindingLinks  []ASTFindingLink `json:"finding_links,omitempty"`
+	Chunk         CodeChunk        `json:"chunk"`
 }
 
 type CodeIndexSummary struct {
+	Skipped       []string `json:"skipped,omitempty"`
 	FilesIndexed  int      `json:"files_indexed"`
 	ChunksIndexed int      `json:"chunks_indexed"`
-	Skipped       []string `json:"skipped,omitempty"`
 }
 
 func (store *Store) IngestSARIFRun(ctx context.Context, run SARIFRun) error {
 	run.ID = strings.TrimSpace(run.ID)
 	if run.ID == "" {
-		return fmt.Errorf("SARIF run id is required")
+		return apperror.StaticError("SARIF run id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin SARIF ingest: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertSARIFRun(ctx, tx, run); err != nil {
-		return err
+	inlineErr0 := insertSARIFRun(ctx, transaction, run)
+	if inlineErr0 != nil {
+		return inlineErr0
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit SARIF ingest: %w", err)
+
+	inlineErr1 := transaction.Commit()
+	if inlineErr1 != nil {
+		return fmt.Errorf("commit SARIF ingest: %w", inlineErr1)
 	}
 
 	return nil
@@ -292,23 +306,27 @@ func (store *Store) RecordRemediationOutcome(
 ) error {
 	outcome = normalizeRemediationOutcome(outcome)
 	if outcome.ID == "" {
-		return fmt.Errorf("remediation outcome id is required")
-	}
-	if outcome.Outcome == "" {
-		return fmt.Errorf("remediation outcome is required")
+		return apperror.StaticError("remediation outcome id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	if outcome.Outcome == "" {
+		return apperror.StaticError("remediation outcome is required")
+	}
+
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin remediation outcome write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertRemediationOutcome(ctx, tx, outcome); err != nil {
-		return err
+	inlineErr2 := insertRemediationOutcome(ctx, transaction, outcome)
+	if inlineErr2 != nil {
+		return inlineErr2
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit remediation outcome write: %w", err)
+
+	inlineErr3 := transaction.Commit()
+	if inlineErr3 != nil {
+		return fmt.Errorf("commit remediation outcome write: %w", inlineErr3)
 	}
 
 	return nil
@@ -317,54 +335,69 @@ func (store *Store) RecordRemediationOutcome(
 func (store *Store) RecordHookReview(ctx context.Context, review HookReview) error {
 	review = normalizeHookReview(review)
 	if review.TraceID == "" {
-		return fmt.Errorf("hook review trace id is required")
-	}
-	if review.Disposition == "" {
-		return fmt.Errorf("hook review disposition is required")
+		return apperror.StaticError("hook review trace id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	if review.Disposition == "" {
+		return apperror.StaticError("hook review disposition is required")
+	}
+
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin hook review write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertHookReview(ctx, tx, review); err != nil {
-		return err
+	inlineErr4 := insertHookReview(ctx, transaction, review)
+	if inlineErr4 != nil {
+		return inlineErr4
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit hook review write: %w", err)
+
+	inlineErr5 := transaction.Commit()
+	if inlineErr5 != nil {
+		return fmt.Errorf("commit hook review write: %w", inlineErr5)
 	}
 
 	return nil
 }
 
-func (store *Store) UpsertEmbeddingRecord(ctx context.Context, record EmbeddingRecord) error {
+func (store *Store) UpsertEmbeddingRecord(
+	ctx context.Context,
+	record EmbeddingRecord,
+) error {
 	record = normalizeEmbeddingRecord(record)
 	if record.ID == "" {
-		return fmt.Errorf("embedding id is required")
-	}
-	if record.Backend == "" || record.Collection == "" || record.ModelID == "" {
-		return fmt.Errorf("embedding backend, collection, and model id are required")
-	}
-	if record.RecordKind == "" || record.RecordID == "" {
-		return fmt.Errorf("embedding record kind and record id are required")
-	}
-	if record.Dimension <= 0 {
-		return fmt.Errorf("embedding dimension must be positive")
+		return apperror.StaticError("embedding id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	if record.Backend == "" || record.Collection == "" || record.ModelID == "" {
+		return apperror.StaticError(
+			"embedding backend, collection, and model id are required",
+		)
+	}
+
+	if record.RecordKind == "" || record.RecordID == "" {
+		return apperror.StaticError("embedding record kind and record id are required")
+	}
+
+	if record.Dimension <= 0 {
+		return apperror.StaticError("embedding dimension must be positive")
+	}
+
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin embedding metadata write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertEmbeddingRecord(ctx, tx, record); err != nil {
-		return err
+	inlineErr6 := insertEmbeddingRecord(ctx, transaction, record)
+	if inlineErr6 != nil {
+		return inlineErr6
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit embedding metadata write: %w", err)
+
+	inlineErr7 := transaction.Commit()
+	if inlineErr7 != nil {
+		return fmt.Errorf("commit embedding metadata write: %w", inlineErr7)
 	}
 
 	return nil
@@ -386,22 +419,28 @@ func (store *Store) ReplaceCodeFileIndex(
 ) error {
 	file.Path = strings.TrimSpace(file.Path)
 	file.Language = strings.TrimSpace(file.Language)
+
 	file.ContentHash = strings.TrimSpace(file.ContentHash)
 	if file.Path == "" || file.Language == "" || file.ContentHash == "" {
-		return fmt.Errorf("code file path, language, and content hash are required")
+		return apperror.StaticError(
+			"code file path, language, and content hash are required",
+		)
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin code chunk write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := replaceCodeFileChunks(ctx, tx, file, chunks, edges); err != nil {
-		return err
+	inlineErr8 := replaceCodeFileChunks(ctx, transaction, file, chunks, edges)
+	if inlineErr8 != nil {
+		return inlineErr8
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit code chunk write: %w", err)
+
+	inlineErr9 := transaction.Commit()
+	if inlineErr9 != nil {
+		return fmt.Errorf("commit code chunk write: %w", inlineErr9)
 	}
 
 	return nil
@@ -439,7 +478,10 @@ func normalizeRemediationOutcome(outcome RemediationOutcome) RemediationOutcome 
 	outcome.Tool = strings.TrimSpace(outcome.Tool)
 	outcome.Outcome = strings.TrimSpace(outcome.Outcome)
 	outcome.RecordedAtUTC = strings.TrimSpace(outcome.RecordedAtUTC)
-	outcome.SearchText = firstNonEmpty(outcome.SearchText, remediationOutcomeSearchText(outcome))
+	outcome.SearchText = firstNonEmpty(
+		outcome.SearchText,
+		remediationOutcomeSearchText(outcome),
+	)
 	outcome.ID = firstNonEmpty(outcome.ID, stableID(
 		"remediation-outcome",
 		outcome.RemediationID,
@@ -447,7 +489,7 @@ func normalizeRemediationOutcome(outcome RemediationOutcome) RemediationOutcome 
 		outcome.SourceTraceID,
 		outcome.FollowupTraceID,
 		outcome.Outcome,
-		fmt.Sprintf("%d", outcome.AttemptOrdinal),
+		strconv.Itoa(outcome.AttemptOrdinal),
 	))
 
 	return outcome

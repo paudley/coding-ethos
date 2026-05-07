@@ -7,7 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type sarifLog struct {
@@ -15,51 +18,68 @@ type sarifLog struct {
 }
 
 type sarifInputRun struct {
-	Tool struct {
-		Driver struct {
-			Name  string           `json:"name,omitempty"`
-			Rules []sarifInputRule `json:"rules,omitempty"`
-		} `json:"driver"`
-	} `json:"tool"`
-	AutomationDetails struct {
-		ID   string `json:"id,omitempty"`
-		GUID string `json:"guid,omitempty"`
-	} `json:"automationDetails,omitempty"`
-	Properties struct {
-		Scope string `json:"scope,omitempty"`
-	} `json:"properties,omitempty"`
-	Results      []sarifInputResult `json:"results"`
-	BaselineGUID string             `json:"baselineGuid,omitempty"`
+	AutomationDetails sarifInputAutomationDetails
+	Properties        sarifInputRunProperties
+	BaselineGUID      string
+	Tool              sarifInputTool
+	Results           []sarifInputResult
+	raw               json.RawMessage
+}
+
+type sarifInputAutomationDetails struct {
+	ID   string `json:"id,omitempty"`
+	GUID string `json:"guid,omitempty"`
+}
+
+type sarifInputRunProperties struct {
+	Scope string `json:"scope,omitempty"`
+}
+
+type sarifInputTool struct {
+	Driver sarifInputDriver `json:"driver,omitzero"`
+}
+
+type sarifInputDriver struct {
+	Name  string           `json:"name,omitempty"`
+	Rules []sarifInputRule `json:"rules,omitempty"`
 }
 
 type sarifInputRule struct {
 	ID         string               `json:"id"`
-	Properties sarifInputProperties `json:"properties,omitempty"`
+	Properties sarifInputProperties `json:"properties,omitzero"`
 }
 
 type sarifInputResult struct {
-	Message struct {
-		Text string `json:"text,omitempty"`
-	} `json:"message"`
-	Locations           []sarifInputLocation `json:"locations,omitempty"`
-	PartialFingerprints map[string]string    `json:"partialFingerprints,omitempty"`
-	Properties          sarifInputProperties `json:"properties,omitempty"`
-	RuleID              string               `json:"ruleId"`
-	Level               string               `json:"level,omitempty"`
-	RuleIndex           *int                 `json:"ruleIndex,omitempty"`
+	Message             sarifInputMessage
+	Locations           []sarifInputLocation
+	PartialFingerprints map[string]string
+	Properties          sarifInputProperties
+	RuleID              string
+	Level               string
+	RuleIndex           *int
 	raw                 json.RawMessage
 }
 
+type sarifInputMessage struct {
+	Text string `json:"text,omitempty"`
+}
+
 type sarifInputLocation struct {
-	PhysicalLocation struct {
-		ArtifactLocation struct {
-			URI string `json:"uri,omitempty"`
-		} `json:"artifactLocation,omitempty"`
-		Region struct {
-			StartLine   int `json:"startLine,omitempty"`
-			StartColumn int `json:"startColumn,omitempty"`
-		} `json:"region,omitempty"`
-	} `json:"physicalLocation,omitempty"`
+	PhysicalLocation sarifInputPhysicalLocation
+}
+
+type sarifInputPhysicalLocation struct {
+	ArtifactLocation sarifInputArtifactLocation
+	Region           sarifInputRegion
+}
+
+type sarifInputArtifactLocation struct {
+	URI string `json:"uri,omitempty"`
+}
+
+type sarifInputRegion struct {
+	StartLine   int
+	StartColumn int
 }
 
 type sarifInputProperties struct {
@@ -71,6 +91,20 @@ type sarifInputProperties struct {
 		SearchText    string   `json:"search_text,omitempty"`
 		PrincipleIDs  []string `json:"principle_ids,omitempty"`
 	} `json:"finding,omitempty"`
+	CELExpression    string `json:"cel_expression,omitempty"`
+	Implementation   string `json:"implementation,omitempty"`
+	ASTLanguage      string `json:"ast_language,omitempty"`
+	ASTNodeKind      string `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind    string `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName    string `json:"ast_symbol_name,omitempty"`
+	Advice           string `json:"advice,omitempty"`
+	SourceTool       string `json:"source_tool,omitempty"`
+	Code             string `json:"code,omitempty"`
+	SkillID          string `json:"skill_id,omitempty"`
+	ASTSymbolPath    string `json:"ast_symbol_path,omitempty"`
+	PolicyID         string `json:"policy_id,omitempty"`
+	PolicySource     string `json:"policy_source,omitempty"`
+	SearchText       string `json:"search_text,omitempty"`
 	AgentRemediation []struct {
 		ID       string `json:"id,omitempty"`
 		PolicyID string `json:"policy_id,omitempty"`
@@ -80,30 +114,128 @@ type sarifInputProperties struct {
 		File     string `json:"file,omitempty"`
 		Path     string `json:"path,omitempty"`
 	} `json:"agent_remediation,omitempty"`
-	Advice         string   `json:"advice,omitempty"`
-	ASTLanguage    string   `json:"ast_language,omitempty"`
-	ASTNodeKind    string   `json:"ast_node_kind,omitempty"`
-	ASTSymbolKind  string   `json:"ast_symbol_kind,omitempty"`
-	ASTSymbolName  string   `json:"ast_symbol_name,omitempty"`
-	ASTSymbolPath  string   `json:"ast_symbol_path,omitempty"`
-	CELExpression  string   `json:"cel_expression,omitempty"`
-	Code           string   `json:"code,omitempty"`
-	EthosIDs       []string `json:"ethos_ids,omitempty"`
-	Implementation string   `json:"implementation,omitempty"`
-	PolicyID       string   `json:"policy_id,omitempty"`
-	PolicySource   string   `json:"policy_source,omitempty"`
-	SearchText     string   `json:"search_text,omitempty"`
-	SkillID        string   `json:"skill_id,omitempty"`
-	SourceTool     string   `json:"source_tool,omitempty"`
+	EthosIDs []string `json:"ethos_ids,omitempty"`
 }
 
-func (ingester TraceIngester) IngestSARIF(ctx context.Context, sourcePath string, payload []byte) error {
+func (run *sarifInputRun) UnmarshalJSON(payload []byte) error {
+	run.raw = append(run.raw[:0], payload...)
+
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF run fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "automationDetails", target: &run.AutomationDetails},
+		{key: "properties", target: &run.Properties},
+		{key: "baselineGuid", target: &run.BaselineGUID},
+		{key: "tool", target: &run.Tool},
+		{key: "results", target: &run.Results},
+	})
+}
+
+func (result *sarifInputResult) UnmarshalJSON(payload []byte) error {
+	result.raw = append(result.raw[:0], payload...)
+
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF result fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "message", target: &result.Message},
+		{key: "locations", target: &result.Locations},
+		{key: "partialFingerprints", target: &result.PartialFingerprints},
+		{key: "properties", target: &result.Properties},
+		{key: "ruleId", target: &result.RuleID},
+		{key: "level", target: &result.Level},
+		{key: "ruleIndex", target: &result.RuleIndex},
+	})
+}
+
+func (location *sarifInputLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF location fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "physicalLocation", target: &location.PhysicalLocation},
+	})
+}
+
+func (location *sarifInputPhysicalLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF physical location fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "artifactLocation", target: &location.ArtifactLocation},
+		{key: "region", target: &location.Region},
+	})
+}
+
+func (region *sarifInputRegion) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF region fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "startLine", target: &region.StartLine},
+		{key: "startColumn", target: &region.StartColumn},
+	})
+}
+
+func decodeJSONFields(payload []byte) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	err := json.Unmarshal(payload, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+
+	return fields, nil
+}
+
+type jsonFieldTarget struct {
+	target any
+	key    string
+}
+
+func decodeOptionalJSONFields(
+	fields map[string]json.RawMessage,
+	targets []jsonFieldTarget,
+) error {
+	for _, target := range targets {
+		raw, ok := fields[target.key]
+		if !ok {
+			continue
+		}
+
+		err := json.Unmarshal(raw, target.target)
+		if err != nil {
+			return fmt.Errorf("decode %q: %w", target.key, err)
+		}
+	}
+
+	return nil
+}
+
+func (ingester TraceIngester) IngestSARIF(
+	ctx context.Context,
+	sourcePath string,
+	payload []byte,
+) error {
 	runs, err := DecodeSARIFRuns(sourcePath, payload)
 	if err != nil {
 		return err
 	}
+
 	for _, run := range runs {
-		if err := ingester.store.IngestSARIFRun(ctx, run); err != nil {
+		err := ingester.store.IngestSARIFRun(ctx, run)
+		if err != nil {
 			return err
 		}
 	}
@@ -122,19 +254,23 @@ func DecodeSARIFRun(sourcePath string, payload []byte) (SARIFRun, error) {
 
 func DecodeSARIFRuns(sourcePath string, payload []byte) ([]SARIFRun, error) {
 	var log sarifLog
-	if err := json.Unmarshal(payload, &log); err != nil {
+
+	err := json.Unmarshal(payload, &log)
+	if err != nil {
 		return nil, fmt.Errorf("decode SARIF %q: %w", sourcePath, err)
 	}
+
 	if len(log.Runs) == 0 {
-		return nil, fmt.Errorf("SARIF %q has no runs", sourcePath)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("SARIF %q has no runs"),
+			"SARIF %q has no runs",
+			sourcePath,
+		)
 	}
 
 	runs := make([]SARIFRun, 0, len(log.Runs))
 	for index, input := range log.Runs {
-		run, err := decodeSARIFRun(sourcePath, payload, index, input)
-		if err != nil {
-			return nil, err
-		}
+		run := decodeSARIFRun(sourcePath, payload, index, input)
 		runs = append(runs, run)
 	}
 
@@ -146,19 +282,15 @@ func decodeSARIFRun(
 	payload []byte,
 	runIndex int,
 	input sarifInputRun,
-) (SARIFRun, error) {
-	rawRun, err := json.Marshal(input)
-	if err != nil {
-		return SARIFRun{}, fmt.Errorf("marshal SARIF run %q: %w", sourcePath, err)
-	}
+) SARIFRun {
 	run := SARIFRun{
 		ID: stableID(
 			"sarif-run",
 			sourcePath,
-			fmt.Sprintf("%d", runIndex),
+			strconv.Itoa(runIndex),
 			input.Tool.Driver.Name,
 			input.AutomationDetails.ID,
-			string(rawRun),
+			string(input.raw),
 		),
 		SourcePath:   sourcePath,
 		Category:     input.Properties.Scope,
@@ -168,20 +300,20 @@ func decodeSARIFRun(
 		BaselineGUID: input.BaselineGUID,
 		Raw:          payload,
 	}
+
 	rules := map[string]sarifInputProperties{}
 	for _, rule := range input.Tool.Driver.Rules {
 		rules[rule.ID] = rule.Properties
 	}
+
 	for index, result := range input.Results {
-		rawResult, err := json.Marshal(result)
-		if err != nil {
-			return SARIFRun{}, fmt.Errorf("marshal SARIF result %d: %w", index, err)
-		}
-		result.raw = rawResult
-		run.Results = append(run.Results, sarifResultReference(run.ID, index, result, rules[result.RuleID]))
+		run.Results = append(
+			run.Results,
+			sarifResultReference(run.ID, index, result, rules[result.RuleID]),
+		)
 	}
 
-	return run, nil
+	return run
 }
 
 func sarifResultReference(
@@ -193,20 +325,31 @@ func sarifResultReference(
 	properties := mergeSARIFInputProperties(ruleProperties, result.Properties)
 	location := firstSARIFInputLocation(result.Locations)
 	fingerprint := firstSARIFInputFingerprint(result.PartialFingerprints)
+
 	remediationID := ""
 	if len(properties.AgentRemediation) > 0 {
 		remediationID = strings.TrimSpace(properties.AgentRemediation[0].ID)
 	}
+
 	findingID := ""
 	if properties.Finding != nil {
 		findingID = strings.TrimSpace(properties.Finding.ID)
 	}
+
 	searchText := firstNonEmpty(
 		properties.SearchText,
 		sarifReferenceSearchText(result, properties, location.URI),
 	)
+
 	reference := SARIFResultReference{
-		ID:            stableID("sarif-result", runID, result.RuleID, fingerprint, location.URI, fmt.Sprintf("%d", index)),
+		ID: stableID(
+			"sarif-result",
+			runID,
+			result.RuleID,
+			fingerprint,
+			location.URI,
+			strconv.Itoa(index),
+		),
 		RuleID:        strings.TrimSpace(result.RuleID),
 		Level:         strings.TrimSpace(result.Level),
 		Message:       strings.TrimSpace(result.Message.Text),
@@ -231,12 +374,24 @@ func sarifResultReference(
 		Raw:           result.raw,
 	}
 	if properties.Finding != nil {
-		reference.PolicyID = firstNonEmpty(reference.PolicyID, properties.Finding.PolicyID)
+		reference.PolicyID = firstNonEmpty(
+			reference.PolicyID,
+			properties.Finding.PolicyID,
+		)
 		reference.SkillID = firstNonEmpty(reference.SkillID, properties.Finding.SkillID)
-		reference.EvaluatorKind = firstNonEmpty(reference.EvaluatorKind, properties.Finding.EvaluatorKind)
-		reference.SearchText = firstNonEmpty(reference.SearchText, properties.Finding.SearchText)
-		reference.PrincipleIDs = compactStrings(append(reference.PrincipleIDs, properties.Finding.PrincipleIDs...))
+		reference.EvaluatorKind = firstNonEmpty(
+			reference.EvaluatorKind,
+			properties.Finding.EvaluatorKind,
+		)
+		reference.SearchText = firstNonEmpty(
+			reference.SearchText,
+			properties.Finding.SearchText,
+		)
+		reference.PrincipleIDs = compactStrings(
+			append(reference.PrincipleIDs, properties.Finding.PrincipleIDs...),
+		)
 	}
+
 	reference.CELPolicyID = firstNonEmpty(reference.CELPolicyID, reference.PolicyID)
 
 	return reference
@@ -252,6 +407,7 @@ func firstSARIFInputLocation(locations []sarifInputLocation) sarifInputLocationV
 	if len(locations) == 0 {
 		return sarifInputLocationValue{}
 	}
+
 	location := locations[0].PhysicalLocation
 
 	return sarifInputLocationValue{
@@ -271,6 +427,7 @@ func firstSARIFInputFingerprint(fingerprints map[string]string) string {
 			return value
 		}
 	}
+
 	for _, value := range fingerprints {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
@@ -299,10 +456,12 @@ func mergeSARIFInputProperties(
 	merged.SearchText = firstNonEmpty(result.SearchText, merged.SearchText)
 	merged.SkillID = firstNonEmpty(result.SkillID, merged.SkillID)
 	merged.SourceTool = firstNonEmpty(result.SourceTool, merged.SourceTool)
+
 	merged.EthosIDs = append(append([]string{}, merged.EthosIDs...), result.EthosIDs...)
 	if result.Finding != nil {
 		merged.Finding = result.Finding
 	}
+
 	if len(result.AgentRemediation) > 0 {
 		merged.AgentRemediation = result.AgentRemediation
 	}

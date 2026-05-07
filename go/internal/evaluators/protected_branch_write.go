@@ -9,6 +9,7 @@ import (
 
 func currentBranch(cwd string) (string, bool) {
 	cmd := gitCommand(cwd, "branch", "--show-current")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false

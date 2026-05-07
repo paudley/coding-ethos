@@ -17,6 +17,8 @@ var (
 	shellWhitespacePattern   = regexp.MustCompile(`\s+`)
 )
 
+const shellToolName = "bash"
+
 type hookTraceAnalytics struct {
 	OperationKind     string
 	TargetKind        string
@@ -40,11 +42,12 @@ func traceAnalytics(event Event, result Result) hookTraceAnalytics {
 	}
 }
 
-func operationKind(toolName string, command string) string {
+func operationKind(toolName, command string) string {
 	tool := strings.ToLower(strings.TrimSpace(toolName))
 	commandText := strings.ToLower(strings.TrimSpace(command))
+
 	switch tool {
-	case "bash", "shell":
+	case shellToolName, "shell":
 		return shellOperationKind(commandText)
 	case "write", "edit", "multiedit", "update", "notebookedit":
 		return "file_write"
@@ -85,6 +88,7 @@ func shellOperationKind(command string) string {
 			return candidate.kind
 		}
 	}
+
 	if command == "" {
 		return "shell"
 	}
@@ -104,10 +108,12 @@ func targetKind(targets []string, command string) string {
 			return "generated_config"
 		}
 	}
+
 	if strings.Contains(strings.ToLower(command), " git ") ||
 		strings.HasPrefix(strings.ToLower(strings.TrimSpace(command)), "git ") {
 		return "repo_state"
 	}
+
 	if len(targets) > 0 {
 		return "source_file"
 	}
@@ -123,35 +129,74 @@ func riskCategory(decisions []policy.Decision, status string) string {
 
 		return "allowed"
 	}
+
 	for _, decision := range decisions {
-		policyID := strings.ToLower(decision.PolicyID)
-		message := strings.ToLower(decision.Message + " " + decision.Suggestion)
-		switch {
-		case strings.Contains(policyID, "bypass") ||
-			strings.Contains(policyID, "wrapper") ||
-			strings.Contains(message, "bypass") ||
-			strings.Contains(message, "wrapper"):
-			return "bypass"
-		case strings.Contains(policyID, "forbidden_strings") ||
-			strings.Contains(policyID, "malformed") ||
-			strings.Contains(policyID, "shell"):
-			return "unsafe_shell"
-		case strings.Contains(policyID, "protected_path") ||
-			strings.Contains(policyID, "enforcement"):
-			return "protected_write"
-		case strings.Contains(policyID, "large") ||
-			strings.Contains(policyID, "growth") ||
-			strings.Contains(policyID, "file_size"):
-			return "large_file_growth"
-		case strings.Contains(policyID, "lint") ||
-			strings.Contains(policyID, "capture"):
-			return "lint_capture"
-		case decision.Decision == modeBlock || decision.Severity == modeBlock:
-			return "policy_block"
+		category := riskCategoryForDecision(decision)
+		if category != "" {
+			return category
 		}
 	}
 
 	return "policy_signal"
+}
+
+func riskCategoryForDecision(decision policy.Decision) string {
+	policyID := strings.ToLower(decision.PolicyID)
+	message := strings.ToLower(decision.Message + " " + decision.Suggestion)
+
+	for _, category := range riskCategoryMatchers() {
+		if category.Matches(policyID, message, decision) {
+			return category.Name
+		}
+	}
+
+	return ""
+}
+
+type riskCategoryMatcher struct {
+	Name     string
+	PolicyID []string
+	Message  []string
+	Blocked  bool
+}
+
+func riskCategoryMatchers() []riskCategoryMatcher {
+	return []riskCategoryMatcher{
+		{
+			Name:     "bypass",
+			PolicyID: []string{"bypass", "wrapper"},
+			Message:  []string{"bypass", "wrapper"},
+		},
+		{
+			Name:     "unsafe_shell",
+			PolicyID: []string{"forbidden_strings", "malformed", "shell"},
+		},
+		{Name: "protected_write", PolicyID: []string{"protected_path", "enforcement"}},
+		{Name: "large_file_growth", PolicyID: []string{"large", "growth", "file_size"}},
+		{Name: "lint_capture", PolicyID: []string{"lint", "capture"}},
+		{Name: "policy_block", Blocked: true},
+	}
+}
+
+func (matcher riskCategoryMatcher) Matches(
+	policyID string,
+	message string,
+	decision policy.Decision,
+) bool {
+	return containsAny(policyID, matcher.PolicyID) ||
+		containsAny(message, matcher.Message) ||
+		(matcher.Blocked &&
+			(decision.Decision == modeBlock || decision.Severity == modeBlock))
+}
+
+func containsAny(value string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func commandShapeHash(command string) string {
@@ -159,6 +204,7 @@ func commandShapeHash(command string) string {
 	if shape == "" {
 		return ""
 	}
+
 	shape = shellQuotedStringPattern.ReplaceAllString(shape, "?")
 	shape = shellNumberPattern.ReplaceAllString(shape, "#")
 	shape = shellWhitespacePattern.ReplaceAllString(shape, " ")
@@ -182,6 +228,7 @@ func normalizedTargets(targets []string) []string {
 			normalized = append(normalized, target)
 		}
 	}
+
 	slices.Sort(normalized)
 
 	return dedupeStrings(normalized)
@@ -205,12 +252,11 @@ func isEnforcementPath(path string) bool {
 }
 
 func isAgentStatePath(path string) bool {
-	if !(strings.Contains(path, "/.claude/") ||
-		strings.Contains(path, "/.codex/") ||
-		strings.Contains(path, "/.gemini/") ||
-		strings.HasPrefix(path, ".claude/") ||
-		strings.HasPrefix(path, ".codex/") ||
-		strings.HasPrefix(path, ".gemini/")) {
+	if !strings.Contains(path, "/.claude/") && !strings.Contains(path, "/.codex/") &&
+		!strings.Contains(path, "/.gemini/") &&
+		!strings.HasPrefix(path, ".claude/") &&
+		!strings.HasPrefix(path, ".codex/") &&
+		!strings.HasPrefix(path, ".gemini/") {
 		return false
 	}
 

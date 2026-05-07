@@ -30,6 +30,11 @@ SARIF, runtime sandboxing, and static-analysis guardrails.
 `coding-ethos` turns engineering principles into runnable repository policy for
 human contributors and AI coding agents.
 
+The project currently holds an
+[OpenSSF Best Practices Silver badge](https://www.bestpractices.dev/en/projects/12737)
+and tracks Gold readiness in
+[docs/OPENSSF_GOLD_CHECKLIST.md](docs/OPENSSF_GOLD_CHECKLIST.md).
+
 It keeps agent instructions, generated documentation, static-analysis config,
 Git hooks, agent tool-use guards, MCP tools, CEL custom policies, generated
 skills, and runtime axioms on one source contract. Human contributors and AI
@@ -419,14 +424,11 @@ make generate REPO=/path/to/repo
 ## PyPI Package Usage
 
 The PyPI package installs the Python generator CLI plus the default
-`coding_ethos.yml`, base `config.yaml`, example overlays, and Gemini prompt
-templates. That path is useful for generating docs and config without cloning
-the source checkout:
+`coding_ethos.yml`, base `config.yaml`, and example overlays. That path is
+useful for generating agent docs without cloning the source checkout:
 
 ```bash
 uvx coding-ethos --repo .
-uvx coding-ethos --repo . --sync-tool-configs
-uvx coding-ethos --repo . --sync-gemini-prompts
 ```
 
 The same CLI can be run through `pipx`:
@@ -442,6 +444,10 @@ the source checkout/submodule path with `make build` and
 for the release-asset strategy required before compiled runtimes are published
 outside a source checkout.
 
+In the source checkout, generated tool configs, generated GitHub/GitLab CI,
+Gemini prompt packs, and provider skill surfaces are rendered only by
+`go/cmd/coding-ethos-policy`.
+
 ## Common Workflows
 
 | Goal | Command |
@@ -450,10 +456,13 @@ outside a source checkout.
 | Check required local tools | `make doctor` |
 | Run Python tests | `make test` |
 | Run full local check | `make check` |
+| Apply managed autofixers | `make autofix` |
 | Smoke test the built wheel | `make package-smoke` |
 | Dry-run release package checks | `make release-dry-run` |
 | Validate hook runtime | `make validate` |
 | Run Go tests | `make go-test` |
+| Run full Go lint | `make go-lint` |
+| Apply Go lint autofixes | `make go-lint-fix` |
 | Format Go helper code | `make go-fmt` |
 | Sync generated tool configs | `make sync-tool-configs` |
 | Check generated tool config drift | `make check-tool-configs` |
@@ -500,7 +509,7 @@ uv run coding-ethos \
 Sync generated tool configs:
 
 ```bash
-uv run coding-ethos --repo /path/to/repo --sync-tool-configs
+make sync-tool-configs REPO=/path/to/repo
 ```
 
 By default the same command writes the managed SARIF CI files and includes
@@ -510,12 +519,13 @@ checks, package validation, and attestations without duplicate SARIF uploads.
 Repos with a deliberate exception can set
 `generated_config.ci.github_actions.enabled: false` or
 `generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
-They are checked by `--check-tool-configs`; there is no separate CI sync path.
+They are checked by `make check-tool-configs`; there is no separate CI sync
+path.
 
 Check generated tool config drift:
 
 ```bash
-uv run coding-ethos --repo /path/to/repo --check-tool-configs
+make check-tool-configs REPO=/path/to/repo
 ```
 
 Trace and validate enforcement config:
@@ -527,10 +537,7 @@ bin/coding-ethos-run policy config-trace --json
 Sync the Gemini hook prompt pack:
 
 ```bash
-uv run coding-ethos \
-  --repo /path/to/repo \
-  --primary coding_ethos.yml \
-  --sync-gemini-prompts
+make sync-gemini-prompts REPO=/path/to/repo PRIMARY=coding_ethos.yml
 ```
 
 ## Repository Model
@@ -1084,10 +1091,10 @@ The CLI stays thin. Behavior belongs in focused modules:
 | `coding_ethos/loaders.py` | validate and merge ethos YAML |
 | `coding_ethos/renderers.py` | render deterministic Markdown |
 | `coding_ethos/merging.py` | managed-block injection and external merge orchestration |
-| `coding_ethos/tool_configs.py` | generated repo-root tool config sync and drift checks |
-| `coding_ethos/ci_tool_configs.py` | generated GitHub Actions and GitLab SARIF CI configs |
-| `coding_ethos/gemini_prompt_pack.py` | Gemini prompt packs from templates |
-| `pre-commit/hooks/go-hooks/` | active hook runtime and hook groups |
+| `go/internal/toolconfigs/` | source-checkout generated repo-root tool config and CI sync/check |
+| `go/internal/geminiprompts/` | source-checkout Gemini prompt-pack sync/check |
+| `go/internal/agentskills/` | source-checkout provider skill-surface sync/check |
+| `go/cmd/coding-ethos-hook-runner/` | active hook runtime and hook groups |
 | `go/` | compiled policy, hook, lint, and wrapper tools |
 
 When flags, output layout, merge behavior, overlay semantics, or enforcement

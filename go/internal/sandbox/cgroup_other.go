@@ -5,7 +5,10 @@
 
 package sandbox
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
+)
 
 type Cgroup struct{}
 
@@ -19,6 +22,10 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 }
 
 func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {}
+
+func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
+	return nil
+}
 
 func (cgroup *Cgroup) Close() error {
 	return nil

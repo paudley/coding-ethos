@@ -26,6 +26,7 @@ func ActivationForDiagnostic(
 	if len(input.Files) == 0 && diagnostic.File != "" {
 		input.Files = []string{diagnostic.File}
 	}
+
 	if input.Tool == "" {
 		input.Tool = diagnostic.Tool
 	}
@@ -50,10 +51,12 @@ func ActivationForFinding[T LintFinding](
 		Line:         finding.FindingLine(),
 	}
 	input.Finding = &activation
+
 	input.Findings = append(input.Findings, activation)
 	if len(input.Files) == 0 && input.Finding.File != "" {
 		input.Files = []string{input.Finding.File}
 	}
+
 	if input.Tool == "" {
 		input.Tool = input.Finding.Tool
 	}

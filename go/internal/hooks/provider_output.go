@@ -14,6 +14,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const denialMessagePartCap = 3
+
 type providerHookOutput struct {
 	HookSpecificOutput *HookSpecificOutput    `json:"hookSpecificOutput,omitempty"`
 	Decision           string                 `json:"decision,omitempty"`
@@ -64,7 +66,7 @@ func claudeAllowedOutput(result Result) providerHookOutput {
 	}
 
 	switch output.HookEventName {
-	case "UserPromptSubmit", "PostToolUse", "PostToolBatch":
+	case eventUserPromptSubmit, eventPostToolUse, "PostToolBatch":
 		return providerHookOutput{HookSpecificOutput: output}
 	default:
 		return providerHookOutput{
@@ -91,14 +93,14 @@ func codexAllowedOutput(result Result) providerHookOutput {
 	}
 
 	switch output.HookEventName {
-	case "SessionStart", "UserPromptSubmit", "PostToolUse":
+	case eventSessionStart, eventUserPromptSubmit, eventPostToolUse:
 		return providerHookOutput{
 			HookSpecificOutput: &HookSpecificOutput{
 				HookEventName:     output.HookEventName,
 				AdditionalContext: message,
 			},
 		}
-	case "Stop":
+	case eventStop:
 		return providerHookOutput{SystemMessage: message}
 	default:
 		return providerHookOutput{}
@@ -127,7 +129,11 @@ func geminiAllowedOutput(result Result) providerHookOutput {
 
 func providerBlockedOutput(result Result) providerHookOutput {
 	message := ProviderBlockMessage(result)
-	remediation := agentmsg.FromDecisions(blockingDecisions(result.Decisions), result.Tool)
+
+	remediation := agentmsg.FromDecisions(
+		blockingDecisions(result.Decisions),
+		result.Tool,
+	)
 	switch result.Provider {
 	case "gemini":
 		return providerHookOutput{
@@ -146,13 +152,14 @@ func providerBlockedOutput(result Result) providerHookOutput {
 			TrackingID:       result.TrackingID,
 			AgentRemediation: remediation,
 		}
-		if result.Event == "PreToolUse" {
+		if result.Event == eventPreToolUse {
 			output.HookSpecificOutput = &HookSpecificOutput{
 				HookEventName:            result.Event,
 				PermissionDecision:       "deny",
 				PermissionDecisionReason: message,
 			}
 		}
+
 		return output
 	default:
 		return providerHookOutput{
@@ -207,17 +214,20 @@ func codexBlockMessage(result Result) string {
 		prefix += " (" + strings.Join(policyIDs, ", ") + ")"
 	}
 
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, denialMessagePartCap)
+
 	parts = append(parts, prefix+".")
 	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
 		parts = append(parts, severeViolationWarning)
 	}
 
 	decision := blocking[0]
+
 	reason := decision.Message
 	if decision.Suggestion != "" && !strings.Contains(reason, decision.Suggestion) {
 		reason = sentence(reason, decision.Suggestion)
 	}
+
 	if reason != "" {
 		parts = append(parts, reason)
 	}
@@ -268,25 +278,30 @@ func providerContextSummary(context string) string {
 
 func codexAllowedMessage(output *HookSpecificOutput) string {
 	context := output.AdditionalContext
+
 	normalized := strings.Join(strings.Fields(context), " ")
 	if normalized == "" {
 		return ""
 	}
 
 	switch {
-	case output.HookEventName == "SessionStart":
-		return "coding-ethos: load repository conventions, managed toolchain rules, and generated skills before editing."
-	case output.HookEventName == "UserPromptSubmit":
+	case output.HookEventName == eventSessionStart:
+		return "coding-ethos: load repository conventions, managed toolchain " +
+			"rules, and generated skills before editing."
+	case output.HookEventName == eventUserPromptSubmit:
 		return "coding-ethos: use and maintain a todo list for multi-step work."
-	case output.HookEventName == "Stop":
-		return "coding-ethos: before ending, confirm planned work is complete, summarize changed files and checks, and keep hook or lint failures visible."
+	case output.HookEventName == eventStop:
+		return "coding-ethos: before ending, confirm planned work is complete, " +
+			"summarize changed files and checks, and keep hook or lint failures visible."
 	case strings.Contains(normalized, "tool: Write") ||
 		strings.Contains(normalized, "tool: Edit") ||
 		strings.Contains(normalized, "tool: MultiEdit"):
-		return "coding-ethos: review the edited file; run focused formatting, lint, type, or tests; fix static-analysis findings structurally."
+		return "coding-ethos: review the edited file; run focused formatting, " +
+			"lint, type, or tests; fix static-analysis findings structurally."
 	case strings.Contains(normalized, "event: PostToolUse") &&
 		strings.Contains(normalized, "tool: Bash"):
-		return "coding-ethos: hook output captured; summarize failed hooks, modified files, warnings, and required fixes before continuing."
+		return "coding-ethos: hook output captured; summarize failed hooks, " +
+			"modified files, warnings, and required fixes before continuing."
 	default:
 		return ""
 	}

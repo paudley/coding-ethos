@@ -13,10 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
-	"blackcat.ca/coding-ethos/go/internal/policy"
 	"github.com/pelletier/go-toml/v2"
 	"go.yaml.in/yaml/v3"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func EvaluateFileSyntax(
@@ -51,9 +52,11 @@ func extensionSet(extensions []string) map[string]bool {
 		if extension == "" {
 			continue
 		}
+
 		if !strings.HasPrefix(extension, ".") {
 			extension = "." + extension
 		}
+
 		allowed[extension] = true
 	}
 
@@ -90,17 +93,28 @@ func validateSyntaxFile(path string) error {
 func validateJSONSyntax(data []byte) error {
 	var value any
 
-	return json.Unmarshal(data, &value)
+	err := json.Unmarshal(data, &value)
+	if err != nil {
+		return fmt.Errorf("parse JSON syntax: %w", err)
+	}
+
+	return nil
 }
 
 func validateTOMLSyntax(data []byte) error {
 	var value any
 
-	return toml.Unmarshal(data, &value)
+	err := toml.Unmarshal(data, &value)
+	if err != nil {
+		return fmt.Errorf("parse TOML syntax: %w", err)
+	}
+
+	return nil
 }
 
 func validateYAMLSyntax(data []byte) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
+
 	for {
 		var value any
 
@@ -108,8 +122,9 @@ func validateYAMLSyntax(data []byte) error {
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
+
 		if err != nil {
-			return err
+			return fmt.Errorf("parse YAML syntax: %w", err)
 		}
 	}
 }

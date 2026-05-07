@@ -11,27 +11,23 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
-const shellForbiddenStringsPolicyID = "shell.forbidden_strings"
-
-var adminApprovedForCWD = func(cwd string) bool {
+func defaultAdminApprovedForCWD(cwd string) bool {
 	return gitwrap.VerifyAdminApproved(cwd) == nil
 }
 
-func adminApprovedForEvent(event Event) bool {
-	return adminApprovedForCWD(event.Cwd)
-}
-
 func readOnlyInspectionEvent(event Event, adminApproved bool) bool {
-	if event.HookEventName != "PreToolUse" ||
-		event.ToolName != "Bash" ||
+	if event.HookEventName != eventPreToolUse ||
+		event.ToolName != toolBash ||
 		!adminApproved {
 		return false
 	}
 
-	return isReadOnlyInspectionCommand(event.Command())
+	return ReadOnlyInspectionCommand(event.Command())
 }
 
-func isReadOnlyInspectionCommand(commandText string) bool {
+// ReadOnlyInspectionCommand reports whether commandText contains only read-only
+// inspection steps allowed for admin-approved hook introspection.
+func ReadOnlyInspectionCommand(commandText string) bool {
 	commands, err := shellparse.Commands(commandText)
 	if err != nil || len(commands) == 0 {
 		return false
@@ -94,9 +90,11 @@ func readOnlyInspectionRedirects(redirects []string) bool {
 		if strings.HasPrefix(trimmed, "<") {
 			continue
 		}
+
 		if trimmed == "2>&1" {
 			continue
 		}
+
 		if strings.HasSuffix(trimmed, "/dev/null") {
 			continue
 		}
@@ -135,6 +133,7 @@ func readOnlyGitInspectionArgs(args []string) bool {
 			return false
 		}
 	}
+
 	if index >= len(args) {
 		return false
 	}
@@ -150,7 +149,7 @@ func readOnlyGitInspectionArgs(args []string) bool {
 	}, args[index])
 }
 
-func mutatingInspectionArg(name string, arg string) bool {
+func mutatingInspectionArg(name, arg string) bool {
 	switch name {
 	case "sed":
 		return strings.HasPrefix(arg, "-i") ||

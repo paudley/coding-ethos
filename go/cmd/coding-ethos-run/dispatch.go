@@ -4,51 +4,122 @@
 package main
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 func run(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
 		requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
-		runtimeExecPath(paths.GitHookRunner)
+		runtimeExecPath(paths, paths.GitHookRunner)
 	}
+
 	command := args[0]
 	rest := args[1:]
-	switch command {
-	case "agent-hook":
-		runAgentHook(paths, rest)
-	case "git-hook":
-		return runGitHook(paths, rest)
-	case "lfs-hook":
-		return runLFSHook(paths, rest)
-	case "agent-hooks":
-		runAgentHooksCommand(paths, rest)
-	case "cutover":
-		return runCutover(paths, rest)
-	case "policy-lint":
-		requirePolicyBundle(paths)
-		runtimeExecTool(paths, "coding-ethos-lint", append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
-	case "ci-sarif":
-		requirePolicyBundle(paths)
-		return runCISARIF(paths, rest)
-	case "policy":
-		runtimeExecTool(paths, "coding-ethos-policy", rest...)
-	case "code-intel":
-		runtimeExecTool(paths, "coding-ethos-code-intel", codeIntelArgs(paths.Root, rest)...)
-	case "policy-tool":
-		return runPolicyTool(paths, rest)
-	case "policy-git":
-		requirePolicyBundle(paths)
-		installGitWrapperShim(paths)
-		runtimeExecTool(paths, "coding-ethos-git", append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
-	case "mcp":
-		runMCP(paths, rest)
-	default:
+
+	handler, found := runCommandHandler(command)
+	if !found {
 		requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
-		runtimeExecPath(paths.GitHookRunner, args...)
+		runtimeExecPath(paths, paths.GitHookRunner, args...)
+
+		return nil
 	}
+
+	return handler(paths, rest)
+}
+
+type runHandler func(runtimePaths, []string) error
+
+type runCommandEntry struct {
+	Handler runHandler
+	Command string
+}
+
+func runCommandHandler(command string) (runHandler, bool) {
+	for _, entry := range runCommandEntries() {
+		if entry.Command == command {
+			return entry.Handler, true
+		}
+	}
+
+	return nil, false
+}
+
+func runCommandEntries() []runCommandEntry {
+	return []runCommandEntry{
+		{Command: "agent-hook", Handler: runAgentHookHandler},
+		{Command: "git-hook", Handler: runGitHook},
+		{Command: "lfs-hook", Handler: runLFSHook},
+		{Command: "agent-hooks", Handler: runAgentHooksHandler},
+		{Command: "cutover", Handler: runCutover},
+		{Command: "policy-lint", Handler: runPolicyLintHandler},
+		{Command: "ci-sarif", Handler: runCISARIFHandler},
+		{Command: "policy", Handler: runPolicyHandler},
+		{Command: "code-intel", Handler: runCodeIntelHandler},
+		{Command: "policy-tool", Handler: runPolicyTool},
+		{Command: "policy-git", Handler: runPolicyGitHandler},
+		{Command: "mcp", Handler: runMCPHandler},
+	}
+}
+
+func runAgentHookHandler(paths runtimePaths, rest []string) error {
+	runAgentHook(paths, rest)
+
+	return nil
+}
+
+func runAgentHooksHandler(paths runtimePaths, rest []string) error {
+	runAgentHooksCommand(paths, rest)
+
+	return nil
+}
+
+func runPolicyLintHandler(paths runtimePaths, rest []string) error {
+	requirePolicyBundle(paths)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-lint",
+		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+
+	return nil
+}
+
+func runCISARIFHandler(paths runtimePaths, rest []string) error {
+	requirePolicyBundle(paths)
+
+	return runCISARIF(paths, rest)
+}
+
+func runPolicyHandler(paths runtimePaths, rest []string) error {
+	runtimeExecTool(paths, "coding-ethos-policy", rest...)
+
+	return nil
+}
+
+func runCodeIntelHandler(paths runtimePaths, rest []string) error {
+	runtimeExecTool(
+		paths,
+		"coding-ethos-code-intel",
+		codeIntelArgs(paths.Root, rest)...)
+
+	return nil
+}
+
+func runPolicyGitHandler(paths runtimePaths, rest []string) error {
+	requirePolicyBundle(paths)
+	installGitWrapperShim(paths)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-git",
+		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+
+	return nil
+}
+
+func runMCPHandler(paths runtimePaths, rest []string) error {
+	runMCP(paths, rest)
 
 	return nil
 }
@@ -59,29 +130,42 @@ func runAgentHook(paths runtimePaths, rest []string) {
 	installLintToolShims(paths)
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
-	runtimeExecTool(paths, "coding-ethos-hook", append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-hook",
+		append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
 	installGitWrapperShim(paths)
 	installLintToolShims(paths)
 	_ = os.Setenv("CODE_ETHOS_CONSUMER_ROOT", rootFlagValue(rest, paths.Root))
-	runtimeExecTool(paths, "coding-ethos-agent-hooks", withDefaultHookCommand(paths, rest)...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-agent-hooks",
+		withDefaultHookCommand(paths, rest)...)
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
 	if len(rest) == 0 {
-		return errors.New("policy-tool requires a tool name")
+		return apperror.StaticError("policy-tool requires a tool name")
 	}
+
 	requirePolicyBundle(paths)
-	runtimeExecTool(paths, "coding-ethos-lint", policyToolLintArgs(paths, rest[0], rest[1:])...)
+	runtimeExecTool(
+		paths,
+		"coding-ethos-lint",
+		policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
 }
 
 func runMCP(paths runtimePaths, rest []string) {
 	requirePolicyBundle(paths)
-	requireRuntimeBinary(filepath.Join(paths.BinDir, "coding-ethos-lint"), "coding-ethos-lint")
+	requireRuntimeBinary(
+		filepath.Join(paths.BinDir, "coding-ethos-lint"),
+		"coding-ethos-lint",
+	)
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", paths.PolicyBundle,
 		"--ethos-root", paths.EthosRoot,

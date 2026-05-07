@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package celexpr
+package celexpr_test
 
 import (
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/celexpr"
 )
 
 func FuzzActivationShellAndProposedFileChange(f *testing.F) {
@@ -42,9 +44,11 @@ func FuzzActivationShellAndProposedFileChange(f *testing.F) {
 		if activation["command_fact"] == nil {
 			t.Fatal("activation missing command facts")
 		}
+
 		if activation["shell_commands"] == nil {
 			t.Fatal("activation missing shell command facts")
 		}
+
 		if activation["proposed_file_changes"] == nil {
 			t.Fatal("activation missing proposed file change facts")
 		}

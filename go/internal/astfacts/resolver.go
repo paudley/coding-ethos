@@ -9,6 +9,8 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type Context struct {
@@ -22,31 +24,29 @@ type Context struct {
 }
 
 type Resolver struct {
-	mu      sync.Mutex
 	parsers map[string]*parserEntry
+	mu      sync.Mutex
 }
 
 type parserEntry struct {
-	mu     sync.Mutex
 	parser *tree_sitter.Parser
+	mu     sync.Mutex
 }
-
-var defaultResolver = NewResolver()
 
 func NewResolver() *Resolver {
 	return &Resolver{parsers: map[string]*parserEntry{}}
 }
 
 func Analyze(path string, contents []byte) (File, bool, error) {
-	return defaultResolver.Analyze(path, contents)
+	return NewResolver().Analyze(path, contents)
 }
 
 func ContextForLine(path string, contents []byte, line int) (Context, bool, error) {
-	return defaultResolver.ContextForLine(path, contents, line)
+	return NewResolver().ContextForLine(path, contents, line)
 }
 
 func Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
-	return defaultResolver.Parse(path, contents)
+	return NewResolver().Parse(path, contents)
 }
 
 func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, error) {
@@ -54,6 +54,7 @@ func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, err
 	if !ok {
 		return File{}, false, nil
 	}
+
 	tree, err := resolver.parse(path, language, parserLanguage, contents)
 	if err != nil {
 		return File{}, false, err
@@ -72,14 +73,20 @@ func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, err
 	}, true, nil
 }
 
-func (resolver *Resolver) ContextForLine(path string, contents []byte, line int) (Context, bool, error) {
+func (resolver *Resolver) ContextForLine(
+	path string,
+	contents []byte,
+	line int,
+) (Context, bool, error) {
 	if line <= 0 {
 		return Context{}, false, nil
 	}
+
 	parsed, ok, err := resolver.Analyze(path, contents)
 	if err != nil || !ok {
 		return Context{}, ok, err
 	}
+
 	symbol, found := nearestSymbolForLine(parsed.Symbols, line)
 	if !found {
 		return Context{}, false, nil
@@ -96,11 +103,15 @@ func (resolver *Resolver) ContextForLine(path string, contents []byte, line int)
 	}, true, nil
 }
 
-func (resolver *Resolver) Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
+func (resolver *Resolver) Parse(
+	path string,
+	contents []byte,
+) (*tree_sitter.Tree, bool, error) {
 	language, parserLanguage, ok := languageForPath(path)
 	if !ok {
 		return nil, false, nil
 	}
+
 	tree, err := resolver.parse(path, language, parserLanguage, contents)
 	if err != nil {
 		return nil, true, err
@@ -119,12 +130,17 @@ func (resolver *Resolver) parse(
 	if err != nil {
 		return nil, err
 	}
+
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 
 	tree := entry.parser.Parse(contents, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("parse %q with tree-sitter returned nil tree", path)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("parse %q with tree-sitter returned nil tree"),
+			"parse %q with tree-sitter returned nil tree",
+			path,
+		)
 	}
 
 	return tree, nil
@@ -141,10 +157,14 @@ func (resolver *Resolver) parserEntry(
 	entry := resolver.parsers[language]
 	if entry == nil {
 		parser := tree_sitter.NewParser()
-		if err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage)); err != nil {
+
+		err := parser.SetLanguage(tree_sitter.NewLanguage(parserLanguage))
+		if err != nil {
 			parser.Close()
+
 			return nil, fmt.Errorf("set tree-sitter language for %q: %w", path, err)
 		}
+
 		entry = &parserEntry{parser: parser}
 		resolver.parsers[language] = entry
 	}

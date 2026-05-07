@@ -6,6 +6,7 @@ package hooks
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -24,13 +25,14 @@ const (
 )
 
 func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
-	if event.HookEventName != "PostToolUse" || !isEditTool(event.ToolName) {
+	if event.HookEventName != eventPostToolUse || !isEditTool(event.ToolName) {
 		return nil
 	}
 
 	files := event.Files()
 	lintState := postEditLintState(bundle, event)
 	fastLintState := postEditFastLintState(bundle, event)
+
 	lintHistory := postEditLintHistory(event)
 	if event.Provider() == providerCodex &&
 		!postEditHasActionableSignal(lintState, fastLintState, lintHistory) {
@@ -114,7 +116,8 @@ func buildPostEditContext(
 		"guidance:",
 		"- Review the edited file before claiming completion.",
 		"- Run focused formatting, lint, type, or tests appropriate to the changed file.",
-		"- Fix static-analysis findings structurally; do not weaken policy or add broad suppressions.",
+		"- Fix static-analysis findings structurally; do not weaken policy "+
+			"or add broad suppressions.",
 		"- Keep the todo list current if more work remains.",
 	)
 
@@ -123,60 +126,80 @@ func buildPostEditContext(
 
 func postEditLanguageAdvice(files []string) []string {
 	languages := map[string]bool{}
+
 	for _, file := range files {
-		normalized := filepath.ToSlash(file)
-		switch strings.ToLower(filepath.Ext(normalized)) {
-		case ".py":
-			languages["python"] = true
-		case ".go":
-			languages["go"] = true
-		case ".sh", ".bash":
-			languages["shell"] = true
-		case ".yaml", ".yml":
-			languages["yaml"] = true
-		case ".md":
-			languages["markdown"] = true
-		}
-		if strings.HasPrefix(normalized, ".github/workflows/") {
-			languages["github_actions"] = true
-		}
+		addPostEditFileLanguages(languages, file)
 	}
 
 	advice := []string{}
-	if languages["python"] {
-		advice = append(
-			advice,
-			"- python: run ruff/mypy/pyright or a focused pytest target before claiming the edit is complete.",
-		)
+	advice = appendLanguageAdvice(advice, languages, "python", pythonPostEditAdvice)
+	advice = appendLanguageAdvice(advice, languages, "go", goPostEditAdvice)
+	advice = appendLanguageAdvice(advice, languages, "shell", shellPostEditAdvice)
+	advice = appendWorkflowOrYAMLAdvice(advice, languages)
+	advice = appendLanguageAdvice(advice, languages, "markdown", markdownPostEditAdvice)
+
+	return advice
+}
+
+const (
+	pythonPostEditAdvice = "- python: run ruff/mypy/pyright or a focused " +
+		"pytest target before claiming the edit is complete."
+	goPostEditAdvice = "- go: run gofmt plus focused go test/golangci-lint " +
+		"for the touched package."
+	shellPostEditAdvice = "- shell: run shellcheck and verify quoting/fail-fast " +
+		"behavior."
+	githubActionsPostEditAdvice = "- github-actions: run actionlint " +
+		"for workflow changes."
+	yamlPostEditAdvice     = "- yaml: run yamllint or the repo-specific YAML validator."
+	markdownPostEditAdvice = "- markdown: if the file is generated, update the " +
+		"source config and regenerate instead of hand-editing."
+)
+
+func addPostEditFileLanguages(languages map[string]bool, file string) {
+	normalized := filepath.ToSlash(file)
+	switch strings.ToLower(filepath.Ext(normalized)) {
+	case ".py":
+		languages["python"] = true
+	case ".go":
+		languages["go"] = true
+	case ".sh", ".bash":
+		languages["shell"] = true
+	case ".yaml", ".yml":
+		languages["yaml"] = true
+	case ".md":
+		languages["markdown"] = true
 	}
-	if languages["go"] {
-		advice = append(
-			advice,
-			"- go: run gofmt plus focused go test/golangci-lint for the touched package.",
-		)
+
+	if strings.HasPrefix(normalized, ".github/workflows/") {
+		languages["github_actions"] = true
 	}
-	if languages["shell"] {
-		advice = append(advice, "- shell: run shellcheck and verify quoting/fail-fast behavior.")
-	}
-	if languages["github_actions"] {
-		advice = append(advice, "- github-actions: run actionlint for workflow changes.")
-	} else if languages["yaml"] {
-		advice = append(advice, "- yaml: run yamllint or the repo-specific YAML validator.")
-	}
-	if languages["markdown"] {
-		advice = append(
-			advice,
-			"- markdown: if the file is generated, update the source config and regenerate instead of hand-editing.",
-		)
+}
+
+func appendLanguageAdvice(
+	advice []string,
+	languages map[string]bool,
+	language string,
+	message string,
+) []string {
+	if languages[language] {
+		return append(advice, message)
 	}
 
 	return advice
 }
 
+func appendWorkflowOrYAMLAdvice(advice []string, languages map[string]bool) []string {
+	if languages["github_actions"] {
+		return append(advice, githubActionsPostEditAdvice)
+	}
+
+	return appendLanguageAdvice(advice, languages, "yaml", yamlPostEditAdvice)
+}
+
 type postEditLintResult struct {
-	Diagnostics []diagnostics.Diagnostic
 	Error       string
 	Status      string
+	Diagnostics []diagnostics.Diagnostic
 	Checked     bool
 }
 
@@ -231,16 +254,19 @@ func postEditLintHistory(event Event) postEditLintHistoryResult {
 }
 
 func postEditHistoryFiles(event Event) []string {
-	files := []string{}
+	files := make([]string, 0, len(event.Files()))
+
 	for _, file := range event.Files() {
 		item := file
 		if event.Cwd != "" && filepath.IsAbs(item) {
-			if relative, err := filepath.Rel(event.Cwd, item); err == nil &&
+			relative, inlineErrAutoA := filepath.Rel(event.Cwd, item)
+			if inlineErrAutoA == nil &&
 				relative != ".." &&
 				!strings.HasPrefix(filepath.ToSlash(relative), "../") {
 				item = relative
 			}
 		}
+
 		files = append(files, item)
 	}
 
@@ -248,7 +274,7 @@ func postEditHistoryFiles(event Event) []string {
 }
 
 func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult {
-	files := pythonPostEditFiles(event.Files())
+	files := existingPythonPostEditFiles(event.Cwd, event.Files())
 	if len(files) == 0 {
 		return postEditLintResult{}
 	}
@@ -264,12 +290,19 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 	command.Dir = event.Cwd
 
 	output, err := command.CombinedOutput()
+
 	parsed := diagnostics.Parse("ruff", string(output), "")
 	if len(parsed) > 0 {
 		parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
 		parsed = diagnostics.Dedupe(parsed)
-		return postEditLintResult{Checked: true, Status: statusBlocked, Diagnostics: parsed}
+
+		return postEditLintResult{
+			Checked:     true,
+			Status:      statusBlocked,
+			Diagnostics: parsed,
+		}
 	}
+
 	if err != nil {
 		if ctx.Err() != nil {
 			return postEditLintResult{Checked: true, Error: "ruff timed out"}
@@ -283,6 +316,7 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 
 func pythonPostEditFiles(files []string) []string {
 	pythonFiles := []string{}
+
 	for _, file := range files {
 		if strings.EqualFold(filepath.Ext(file), ".py") {
 			pythonFiles = append(pythonFiles, file)
@@ -290,6 +324,26 @@ func pythonPostEditFiles(files []string) []string {
 	}
 
 	return pythonFiles
+}
+
+func existingPythonPostEditFiles(cwd string, files []string) []string {
+	existing := []string{}
+
+	for _, file := range pythonPostEditFiles(files) {
+		path := file
+		if cwd != "" && !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+
+		existing = append(existing, file)
+	}
+
+	return existing
 }
 
 func appendPostEditLintHistory(
@@ -301,6 +355,7 @@ func appendPostEditLintHistory(
 	}
 
 	analysis := history.Analysis
+
 	lines = append(
 		lines,
 		"",
@@ -308,14 +363,26 @@ func appendPostEditLintHistory(
 		fmt.Sprintf("- findings: %d from prior captured runs", analysis.Findings),
 	)
 	if len(analysis.TopChecks) > 0 {
-		lines = append(lines, "- recurring_checks: "+postEditCountsLine(analysis.TopChecks))
+		lines = append(
+			lines,
+			"- recurring_checks: "+postEditCountsLine(analysis.TopChecks),
+		)
 	}
+
 	if len(analysis.TopCodes) > 0 {
-		lines = append(lines, "- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes))
+		lines = append(
+			lines,
+			"- recurring_tool_codes: "+postEditCountsLine(analysis.TopCodes),
+		)
 	}
+
 	if len(analysis.UnmappedCodes) > 0 {
-		lines = append(lines, "- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes))
+		lines = append(
+			lines,
+			"- unmapped_tool_codes: "+postEditCountsLine(analysis.UnmappedCodes),
+		)
 	}
+
 	if len(analysis.GuidanceCandidates) == 0 {
 		return lines
 	}
@@ -337,6 +404,7 @@ func appendPostEditSkillAdvice(
 	for _, state := range states {
 		diagnostics = append(diagnostics, state.Diagnostics...)
 	}
+
 	hints := lint.SkillHintsForDiagnostics(diagnostics, skills)
 	if len(hints) == 0 {
 		return lines
@@ -367,6 +435,7 @@ func postEditGuidanceCandidateLine(candidate lint.GuidanceCandidate) string {
 	if code == "" {
 		code = candidate.CheckID
 	}
+
 	if code != "" {
 		code = " [" + code + "]"
 	}
@@ -435,7 +504,12 @@ func appendPostEditFastLintState(
 
 	lines = append(lines, "", "fast_lint:")
 	if state.Error != "" {
-		return append(lines, "- status: error", "- tool: ruff", "- detail: "+state.Error)
+		return append(
+			lines,
+			"- status: error",
+			"- tool: ruff",
+			"- detail: "+state.Error,
+		)
 	}
 
 	lines = append(lines, "- tool: ruff", "- status: "+state.Status)
@@ -472,6 +546,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 			location += fmt.Sprintf(":%d", item.Column)
 		}
 	}
+
 	if location == "" {
 		location = "<unknown>"
 	}
@@ -480,6 +555,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 	if code == "" {
 		code = item.PolicyID
 	}
+
 	if code != "" {
 		code = " [" + code + "]"
 	}
@@ -488,6 +564,7 @@ func postEditFindingLine(item diagnostics.Diagnostic) string {
 	if advice != "" {
 		advice = " advice: " + advice
 	}
+
 	skill := item.SkillID
 	if skill != "" {
 		skill = " skill: " + skill

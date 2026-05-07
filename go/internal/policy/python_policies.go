@@ -3,6 +3,12 @@
 
 package policy
 
+const (
+	pythonConditionalImportsPolicy = "python.conditional_imports"
+	pythonPyprojectIgnoresPolicy   = "python.pyproject_ignores"
+	pythonUVExcludeNewerPolicy     = "python.uv_exclude_newer"
+)
+
 func addConfiguredPythonPolicies(
 	policies map[string]Policy,
 	config map[string]any,
@@ -32,7 +38,7 @@ func pythonPolicySpecs(
 ) []compiledPolicySpec {
 	return []compiledPolicySpec{
 		pythonPolicySpec(
-			"python.conditional_imports",
+			pythonConditionalImportsPolicy,
 			[]string{"python", "conditional_imports"},
 			principleRefs(principles, "no-conditional-imports"),
 		),
@@ -126,7 +132,10 @@ func pytestGatePolicySpec(
 		Message:         "The configured pytest gate must pass before claiming readiness.",
 		Suggestion:      "Run the configured pytest gate and address failures.",
 		DefenseLayers:   PytestDefenseLayers(),
-		AppliesTo:       AppliesTo{Commands: []string{"pytest"}, Tools: []string{"Bash"}},
+		AppliesTo: AppliesTo{
+			Commands: []string{"pytest"},
+			Tools:    []string{"Bash"},
+		},
 		Evaluators: []Evaluator{{
 			Kind:    "external",
 			Name:    "pytest.gate",
@@ -143,7 +152,7 @@ func pytestGatePolicySpec(
 
 func pythonPolicyMessage(policyID string) string {
 	switch policyID {
-	case "python.conditional_imports":
+	case pythonConditionalImportsPolicy:
 		return sentence(
 			"Required dependencies should fail immediately;",
 			"conditional, nested, or dynamic imports create soft dependency paths.",
@@ -175,9 +184,9 @@ func pythonPolicyMessage(policyID string) string {
 		)
 	case "python.bare_except":
 		return "Bare except clauses hide exception types and are forbidden."
-	case "python.pyproject_ignores":
+	case pythonPyprojectIgnoresPolicy:
 		return "pyproject.toml contains forbidden linter ignore configuration."
-	case "python.uv_exclude_newer":
+	case pythonUVExcludeNewerPolicy:
 		return "uv dependency resolution must exclude newly uploaded packages."
 	default:
 		return "Unexplained type ignore suppressions are forbidden."
@@ -186,10 +195,12 @@ func pythonPolicyMessage(policyID string) string {
 
 func pythonPolicySuggestion(policyID string) string {
 	switch policyID {
-	case "python.conditional_imports":
-		return "Move required imports to module scope or repair the module boundary that made the import conditional."
+	case pythonConditionalImportsPolicy:
+		return "Move required imports to module scope or repair the module " +
+			"boundary that made the import conditional."
 	case "python.functional_idioms":
-		return "Use functools.partial, operator helpers, itertools utilities, or a named helper instead of ad-hoc closure factories."
+		return "Use functools.partial, operator helpers, itertools utilities, " +
+			"or a named helper instead of ad-hoc closure factories."
 	case "python.optional_returns":
 		return "Use a required return type or configure a narrow exemption."
 	case "python.catch_and_silence":
@@ -200,9 +211,10 @@ func pythonPolicySuggestion(policyID string) string {
 		return "Import through the package public API or configure an exempt path."
 	case "python.bare_except":
 		return "Catch a precise exception type and handle it explicitly."
-	case "python.pyproject_ignores":
-		return "Move file-specific ignores into the target files with documented justification."
-	case "python.uv_exclude_newer":
+	case pythonPyprojectIgnoresPolicy:
+		return "Move file-specific ignores into the target files with documented " +
+			"justification."
+	case pythonUVExcludeNewerPolicy:
 		return "Set [tool.uv].exclude-newer to the configured review window."
 	default:
 		return "Remove the suppression or document the narrow technical reason."

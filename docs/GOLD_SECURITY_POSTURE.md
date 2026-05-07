@@ -30,9 +30,7 @@ disabled.
 
 Repository-owned code that accesses remote HTTPS services must use standard
 TLS certificate verification. It must not disable certificate verification,
-trust arbitrary custom roots, or accept plaintext downgrade paths. The
-Best Practices prefill helper uses `http.client.HTTPSConnection` and restricts
-remote project JSON fetches to `https://www.bestpractices.dev`.
+trust arbitrary custom roots, or accept plaintext downgrade paths.
 
 ## Credential Agility
 

@@ -39,6 +39,7 @@ func EvaluatePythonUnexplainedTypeIgnore(
 
 func pythonContentDecision(policyDef policy.Policy, context Context) policy.Decision {
 	decision := policy.NewDecision(blockDecision, policyDef)
+
 	decision.Diagnostics = []diagnostics.Diagnostic{{
 		Tool:     policyDef.ID,
 		File:     firstFile(context.Files),
@@ -48,7 +49,9 @@ func pythonContentDecision(policyDef policy.Policy, context Context) policy.Deci
 		Advice:   policyDef.Suggestion,
 	}}
 	if len(context.Files) > 0 {
-		decision.Evidence = map[string]any{"files": append([]string(nil), context.Files...)}
+		decision.Evidence = map[string]any{
+			"files": append([]string(nil), context.Files...),
+		}
 	}
 
 	return decision

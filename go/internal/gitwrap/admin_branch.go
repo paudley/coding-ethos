@@ -10,24 +10,32 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 var (
-	errAdminBranchNameRequired = errors.New("admin branch name is required")
-	errAdminBranchArgCount     = errors.New("admin-start-branch accepts exactly one branch name")
-	errAdminBranchDirty        = errors.New("worktree must be clean before admin branch start")
-	errAdminBranchInvalid      = errors.New("invalid admin branch name")
+	errAdminBranchNameRequired = apperror.StaticError("admin branch name is required")
+	errAdminBranchArgCount     = apperror.StaticError(
+		"admin-start-branch accepts exactly one branch name",
+	)
+	errAdminBranchDirty = apperror.StaticError(
+		"worktree must be clean before admin branch start",
+	)
+	errAdminBranchInvalid = apperror.StaticError("invalid admin branch name")
 )
 
-func AdminStartBranch(realGit string, cwd string, args []string) error {
+func AdminStartBranch(realGit, cwd string, args []string) error {
 	if len(args) == 0 {
 		return errAdminBranchNameRequired
 	}
+
 	if len(args) != 1 {
 		return errAdminBranchArgCount
 	}
 
 	branch := strings.TrimSpace(args[0])
+
 	resolvedGit, err := ResolveRealGit(realGit)
 	if err != nil {
 		return err
@@ -56,7 +64,7 @@ func AdminStartBranch(realGit string, cwd string, args []string) error {
 	return nil
 }
 
-func ensureCleanWorktree(realGit string, cwd string) error {
+func ensureCleanWorktree(realGit, cwd string) error {
 	output, err := realGitOutput(
 		realGit,
 		cwd,
@@ -75,7 +83,7 @@ func ensureCleanWorktree(realGit string, cwd string) error {
 	return nil
 }
 
-func validAdminBranchName(realGit string, cwd string, branch string) bool {
+func validAdminBranchName(realGit, cwd, branch string) bool {
 	if branch == "" {
 		return false
 	}
@@ -85,8 +93,9 @@ func validAdminBranchName(realGit string, cwd string, branch string) bool {
 	return err == nil
 }
 
-func realGitOutput(realGit string, cwd string, args ...string) (string, error) {
+func realGitOutput(realGit, cwd string, args ...string) (string, error) {
 	cmd := realGitCommand(realGit, cwd, args...)
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
@@ -95,7 +104,7 @@ func realGitOutput(realGit string, cwd string, args ...string) (string, error) {
 	return string(output), nil
 }
 
-func runRealGit(realGit string, cwd string, args ...string) error {
+func runRealGit(realGit, cwd string, args ...string) error {
 	cmd := realGitCommand(realGit, cwd, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -114,11 +123,12 @@ func runRealGit(realGit string, cwd string, args ...string) error {
 	return nil
 }
 
-func realGitCommand(realGit string, cwd string, args ...string) *exec.Cmd {
+func realGitCommand(realGit, cwd string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(context.Background(), realGit, args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+
 	cmd.Env = gitExecutionEnv(true)
 
 	return cmd

@@ -5,8 +5,9 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"flag"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,12 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
+const (
+	lintTestExecutableMode os.FileMode = 0o755
+	lintTestWriteMode      os.FileMode = 0o600
+	samplePythonFile                   = "pkg/app.py"
+)
+
 func TestStagedFilesListsGitIndexEntries(t *testing.T) {
 	t.Parallel()
 
@@ -27,21 +34,27 @@ func TestStagedFilesListsGitIndexEntries(t *testing.T) {
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
 
-	path := filepath.Join(repo, "pkg", "app.py")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	path := filepath.Join(repo, samplePythonFile)
+
+	err := os.MkdirAll(filepath.Dir(path), lintTestExecutableMode)
+	if err != nil {
 		t.Fatalf("mkdir fixture: %v", err)
 	}
-	if err := os.WriteFile(path, []byte("print('x')\n"), 0o600); err != nil {
+
+	err = os.WriteFile(path, []byte("print('x')\n"), lintTestWriteMode)
+	if err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	runGit(t, repo, "add", "pkg/app.py")
+
+	runGit(t, repo, "add", samplePythonFile)
 
 	files, err := stagedFiles(repo)
 	if err != nil {
 		t.Fatalf("staged files: %v", err)
 	}
-	if len(files) != 1 || files[0] != "pkg/app.py" {
-		t.Fatalf("staged files = %#v, want pkg/app.py", files)
+
+	if len(files) != 1 || files[0] != samplePythonFile {
+		t.Fatalf("staged files = %#v, want %s", files, samplePythonFile)
 	}
 }
 
@@ -49,11 +62,13 @@ func TestFilesFromInputsCombinesFlagAndFileLists(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "files.txt")
-	if err := os.WriteFile(
+
+	err := os.WriteFile(
 		path,
 		[]byte("pkg/app.py\n\npkg/other.py\r\n"),
-		0o600,
-	); err != nil {
+		lintTestWriteMode,
+	)
+	if err != nil {
 		t.Fatalf("write file list: %v", err)
 	}
 
@@ -71,6 +86,7 @@ func TestFilesFromInputsCombinesFlagAndFileLists(t *testing.T) {
 	if len(files) != len(want) {
 		t.Fatalf("files = %#v, want %#v", files, want)
 	}
+
 	for index := range want {
 		if files[index] != want[index] {
 			t.Fatalf("files = %#v, want %#v", files, want)
@@ -84,15 +100,24 @@ func TestShouldReturnEmptyExplicitFileScope(t *testing.T) {
 	if !shouldReturnEmptyExplicitFileScope("files", nil, "", "files.txt") {
 		t.Fatal("empty --files-from selection should return an empty files result")
 	}
+
 	if !shouldReturnEmptyExplicitFileScope("files", nil, "   ", "files.txt") {
 		t.Fatal("--files-from makes an empty selection explicit")
 	}
-	if shouldReturnEmptyExplicitFileScope("files", []string{"pkg/app.py"}, "", "files.txt") {
+
+	if shouldReturnEmptyExplicitFileScope(
+		"files",
+		[]string{samplePythonFile},
+		"",
+		"files.txt",
+	) {
 		t.Fatal("non-empty files must run policy evaluation")
 	}
+
 	if shouldReturnEmptyExplicitFileScope("files", nil, "", "") {
 		t.Fatal("implicit files scope must preserve policy explanation behavior")
 	}
+
 	if shouldReturnEmptyExplicitFileScope("staged", nil, "", "files.txt") {
 		t.Fatal("staged scope resolves files from git index")
 	}
@@ -105,13 +130,17 @@ func TestLintOutputFormatSelectionAndConflicts(t *testing.T) {
 	if err != nil || format != hookoutput.FormatJSON {
 		t.Fatalf("json format = %q, %v", format, err)
 	}
+
 	format, err = lintOutputFormat(false, true)
 	if err != nil || format != hookoutput.FormatSARIF {
 		t.Fatalf("sarif format = %q, %v", format, err)
 	}
-	if _, err := lintOutputFormat(true, true); err != errOutputFormatConflict {
+
+	_, err = lintOutputFormat(true, true)
+	if !errors.Is(err, errOutputFormatConflict) {
 		t.Fatalf("conflict error = %v", err)
 	}
+
 	if selectedLintOutputFormat(hookoutput.FormatJSON) != hookoutput.FormatJSON {
 		t.Fatal("explicit format should be preserved")
 	}
@@ -124,10 +153,12 @@ func TestParseArgvHandlesNULAndSpaceSeparatedForms(t *testing.T) {
 	if strings.Join(nul, "|") != "git|commit|-m|msg" {
 		t.Fatalf("nul argv = %#v", nul)
 	}
+
 	spaced := parseArgv("git commit -m msg")
 	if strings.Join(spaced, "|") != "git|commit|-m|msg" {
 		t.Fatalf("space argv = %#v", spaced)
 	}
+
 	if got := parseArgv(""); len(got) != 0 {
 		t.Fatalf("empty argv = %#v", got)
 	}
@@ -137,10 +168,12 @@ func TestReadBundleAndCapturePolicyContext(t *testing.T) {
 	t.Parallel()
 
 	bundlePath := writeLintTestBundle(t)
+
 	bundle, err := readBundle(bundlePath)
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
+
 	if bundle.BundleID != policy.ExampleBundle().BundleID {
 		t.Fatalf("bundle id = %q", bundle.BundleID)
 	}
@@ -149,6 +182,7 @@ func TestReadBundleAndCapturePolicyContext(t *testing.T) {
 	if len(context.EvidenceMaps) == 0 {
 		t.Fatal("capture policy context should include evidence maps")
 	}
+
 	if len(context.Skills) == 0 {
 		t.Fatal("capture policy context should include skills")
 	}
@@ -158,24 +192,37 @@ func TestEncodeLintResultWritesSARIFCategory(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "result.sarif")
+
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create sarif: %v", err)
 	}
+
 	result := lint.Result{
 		Scope:  lint.ScopeFiles,
 		Status: "resolved",
 	}
-	if err := encodeLintResult(file, result, hookoutput.FormatSARIF, "policy"); err != nil {
+
+	err = encodeLintResult(
+		file,
+		result,
+		hookoutput.FormatSARIF,
+		"policy",
+	)
+	if err != nil {
 		t.Fatalf("encode SARIF: %v", err)
 	}
-	if err := file.Close(); err != nil {
+
+	err = file.Close()
+	if err != nil {
 		t.Fatalf("close SARIF: %v", err)
 	}
+
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read SARIF: %v", err)
 	}
+
 	if !strings.Contains(string(payload), `"automationDetails"`) ||
 		!strings.Contains(string(payload), `"id": "policy/"`) {
 		t.Fatalf("SARIF output missing category:\n%s", payload)
@@ -183,10 +230,15 @@ func TestEncodeLintResultWritesSARIFCategory(t *testing.T) {
 }
 
 func TestPrintCapturedToolsListsManagedTools(t *testing.T) {
-	output := captureLintStdout(t, printCapturedTools)
+	t.Parallel()
+
+	var output bytes.Buffer
+
+	printCapturedTools(&output)
+
 	for _, want := range []string{"ruff", "mypy"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("captured tools missing %q:\n%s", want, output)
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("captured tools missing %q:\n%s", want, output.String())
 		}
 	}
 }
@@ -195,16 +247,23 @@ func TestScopeFlagSetSupportsBooleanAliases(t *testing.T) {
 	t.Parallel()
 
 	flags := flagSetForScopeTest()
+
 	scope := scopeFlagSet(flags)
-	if err := flags.Parse([]string{"--staged"}); err != nil {
+
+	err := flags.Parse([]string{"--staged"})
+	if err != nil {
 		t.Fatalf("parse scope flags: %v", err)
 	}
+
 	if scope.Value() != lint.ScopeStaged {
 		t.Fatalf("scope = %q", scope.Value())
 	}
-	if err := scope.Set(lint.ScopeFull); err != nil {
+
+	err = scope.Set(lint.ScopeFull)
+	if err != nil {
 		t.Fatalf("set scope: %v", err)
 	}
+
 	if scope.String() != lint.ScopeFull {
 		t.Fatalf("scope string = %q", scope.String())
 	}
@@ -214,36 +273,44 @@ func TestManagedToolArgumentEnforcementUsesRepoConfigs(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	venvPython := filepath.Join(root, ".venv", "bin", "python")
-	if err := os.MkdirAll(filepath.Dir(venvPython), 0o755); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(venvPython), lintTestExecutableMode)
+	if err != nil {
 		t.Fatalf("create venv bin: %v", err)
 	}
-	if err := os.WriteFile(venvPython, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write python executable: %v", err)
-	}
 
-	tests := []struct {
-		name string
-		tool string
-		args []string
-		want []string
-	}{
-		{
-			name: "ruff check",
-			tool: "ruff",
-			args: []string{"check", "pkg"},
-			want: []string{"check", "--config", filepath.Join(root, "ruff.toml"), "pkg"},
-		},
-		{
-			name: "mypy",
-			tool: "mypy",
-			args: []string{"pkg"},
-			want: []string{
-				"--config-file", filepath.Join(root, "mypy.ini"),
-				"--python-executable", venvPython,
-				"pkg",
-			},
-		},
+	writeLintTestExecutable(t, venvPython)
+
+	for _, test := range managedToolArgumentCases(root, venvPython) {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			tool, ok := toolcatalog.HookOwnedTool(test.tool)
+			if !ok {
+				t.Fatalf("missing tool catalog entry %q", test.tool)
+			}
+
+			got := enforceManagedToolArgs(tool, test.args, root)
+			if strings.Join(got, "\x00") != strings.Join(test.want, "\x00") {
+				t.Fatalf("enforceManagedToolArgs() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+type managedToolArgumentCase struct {
+	name string
+	tool string
+	args []string
+	want []string
+}
+
+func managedToolArgumentCases(root, venvPython string) []managedToolArgumentCase {
+	return []managedToolArgumentCase{
+		managedToolRuffCase(root),
+		managedToolMypyCase(root, venvPython),
 		{
 			name: "dotenv",
 			tool: "dotenv-linter",
@@ -254,7 +321,12 @@ func TestManagedToolArgumentEnforcementUsesRepoConfigs(t *testing.T) {
 			name: "sqlfluff",
 			tool: "sqlfluff",
 			args: []string{"lint", "queries"},
-			want: []string{"lint", "--config", filepath.Join(root, ".sqlfluff"), "queries"},
+			want: []string{
+				"lint",
+				"--config",
+				filepath.Join(root, ".sqlfluff"),
+				"queries",
+			},
 		},
 		{
 			name: "tombi",
@@ -268,31 +340,43 @@ func TestManagedToolArgumentEnforcementUsesRepoConfigs(t *testing.T) {
 			args: []string{"run"},
 			want: []string{"run", "--config", filepath.Join(root, ".golangci.yml")},
 		},
-		{
-			name: "bandit catalog fallback",
-			tool: "bandit",
-			args: []string{"pkg"},
-			want: []string{
-				"-c", filepath.Join(root, ".bandit.yml"),
-				"pkg",
-				"--severity-level", "medium",
-				"--confidence-level", "medium",
-			},
+		managedToolBanditCase(root),
+	}
+}
+
+func managedToolRuffCase(root string) managedToolArgumentCase {
+	return managedToolArgumentCase{
+		name: "ruff check",
+		tool: "ruff",
+		args: []string{"check", "pkg"},
+		want: []string{"check", "--config", filepath.Join(root, "ruff.toml"), "pkg"},
+	}
+}
+
+func managedToolMypyCase(root, venvPython string) managedToolArgumentCase {
+	return managedToolArgumentCase{
+		name: "mypy",
+		tool: "mypy",
+		args: []string{"pkg"},
+		want: []string{
+			"--config-file", filepath.Join(root, "mypy.ini"),
+			"--python-executable", venvPython,
+			"pkg",
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+}
 
-			tool, ok := toolcatalog.HookOwnedTool(test.tool)
-			if !ok {
-				t.Fatalf("missing tool catalog entry %q", test.tool)
-			}
-			got := enforceManagedToolArgs(tool, test.args, root, "/ethos")
-			if strings.Join(got, "\x00") != strings.Join(test.want, "\x00") {
-				t.Fatalf("enforceManagedToolArgs() = %#v, want %#v", got, test.want)
-			}
-		})
+func managedToolBanditCase(root string) managedToolArgumentCase {
+	return managedToolArgumentCase{
+		name: "bandit catalog fallback",
+		tool: "bandit",
+		args: []string{"pkg"},
+		want: []string{
+			"-c", filepath.Join(root, ".bandit.yml"),
+			"pkg",
+			"--severity-level", "medium",
+			"--confidence-level", "medium",
+		},
 	}
 }
 
@@ -303,22 +387,28 @@ func TestManagedToolArgumentEnforcementLeavesInformationalArgsAlone(t *testing.T
 	if !ok {
 		t.Fatal("missing ruff tool")
 	}
+
 	args := []string{"--version"}
-	got := enforceManagedToolArgs(tool, args, "/repo", "/ethos")
+
+	got := enforceManagedToolArgs(tool, args, "/repo")
 	if strings.Join(got, " ") != "--version" {
 		t.Fatalf("informational args changed: %#v", got)
 	}
 }
 
 func TestRunCLIListCapturedTools(t *testing.T) {
-	stdout := captureLintStdout(t, func() {
-		if code := runCLI([]string{"--list-captured-tools"}); code != 0 {
-			t.Fatalf("runCLI list captured tools exit = %d", code)
-		}
-	})
+	t.Parallel()
+
+	var stdout bytes.Buffer
+
+	code := runCLIWithWriter([]string{"--list-captured-tools"}, &stdout)
+	if code != 0 {
+		t.Fatalf("runCLI list captured tools exit = %d", code)
+	}
+
 	for _, want := range []string{"ruff", "mypy", "golangci-lint"} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("captured tools output missing %q:\n%s", want, stdout)
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("captured tools output missing %q:\n%s", want, stdout.String())
 		}
 	}
 }
@@ -338,45 +428,56 @@ func TestRunCLIInstallShims(t *testing.T) {
 }
 
 func TestRunCLIEmptyExplicitFileScope(t *testing.T) {
+	t.Parallel()
+
 	bundle := writeLintTestBundle(t)
-	stdout := captureLintStdout(t, func() {
-		code := runCLI([]string{
-			"--bundle", bundle,
-			"--scope", "files",
-			"--files", " , ",
-			"--log=false",
-			"--json",
-		})
-		if code != 0 {
-			t.Fatalf("runCLI empty files exit = %d", code)
-		}
-	})
-	if !strings.Contains(stdout, `"status": "resolved"`) {
-		t.Fatalf("empty explicit file scope output = %s", stdout)
+
+	var stdout bytes.Buffer
+
+	code := runCLIWithWriter([]string{
+		"--bundle", bundle,
+		"--scope", "files",
+		"--files", " , ",
+		"--log=false",
+		"--json",
+	}, &stdout)
+	if code != 0 {
+		t.Fatalf("runCLI empty files exit = %d", code)
+	}
+
+	if !strings.Contains(stdout.String(), `"status": "resolved"`) {
+		t.Fatalf("empty explicit file scope output = %s", stdout.String())
 	}
 }
 
 func TestRunCLIExplainMode(t *testing.T) {
+	t.Parallel()
+
 	bundle := writeLintTestBundle(t)
-	stdout := captureLintStdout(t, func() {
-		code := runCLI([]string{
-			"--bundle", bundle,
-			"--explain",
-			"--scope", "files",
-			"--files", "README.md",
-			"--json",
-		})
-		if code != 0 {
-			t.Fatalf("runCLI explain exit = %d", code)
-		}
-	})
-	if !strings.Contains(stdout, `"scope": "files"`) {
-		t.Fatalf("explain output = %s", stdout)
+
+	var stdout bytes.Buffer
+
+	code := runCLIWithWriter([]string{
+		"--bundle", bundle,
+		"--explain",
+		"--scope", "files",
+		"--files", "README.md",
+		"--json",
+	}, &stdout)
+	if code != 0 {
+		t.Fatalf("runCLI explain exit = %d", code)
+	}
+
+	if !strings.Contains(stdout.String(), `"scope": "files"`) {
+		t.Fatalf("explain output = %s", stdout.String())
 	}
 }
 
 func TestRunCLIReplayAndAnalyzePersistedTrace(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
+
 	tracePath, err := lint.LogResult(root, lint.Result{
 		TraceID: "trace-a.json",
 		Scope:   lint.ScopeFiles,
@@ -399,31 +500,33 @@ func TestRunCLIReplayAndAnalyzePersistedTrace(t *testing.T) {
 		t.Fatalf("log lint trace: %v", err)
 	}
 
-	replayOutput := captureLintStdout(t, func() {
-		code := runCLI([]string{"--replay", tracePath, "--json"})
-		if code != blockedExitCode {
-			t.Fatalf("replay exit = %d, want %d", code, blockedExitCode)
-		}
-	})
-	if !strings.Contains(replayOutput, `"trace_id": "trace-a.json"`) ||
-		!strings.Contains(replayOutput, `"status": "blocked"`) {
-		t.Fatalf("replay output = %s", replayOutput)
+	var replayOutput bytes.Buffer
+
+	code := runCLIWithWriter([]string{"--replay", tracePath, "--json"}, &replayOutput)
+	if code != blockedExitCode {
+		t.Fatalf("replay exit = %d, want %d", code, blockedExitCode)
 	}
 
-	analyzeOutput := captureLintStdout(t, func() {
-		code := runCLI([]string{
-			"--analyze-log",
-			"--log-dir", filepath.Dir(tracePath),
-			"--for-files", "pkg/app.py",
-			"--json",
-		})
-		if code != 0 {
-			t.Fatalf("analyze exit = %d", code)
-		}
-	})
-	if !strings.Contains(analyzeOutput, `"runs_analyzed": 1`) ||
-		!strings.Contains(analyzeOutput, `"F401"`) {
-		t.Fatalf("analyze output = %s", analyzeOutput)
+	if !strings.Contains(replayOutput.String(), `"trace_id": "trace-a.json"`) ||
+		!strings.Contains(replayOutput.String(), `"status": "blocked"`) {
+		t.Fatalf("replay output = %s", replayOutput.String())
+	}
+
+	var analyzeOutput bytes.Buffer
+
+	code = runCLIWithWriter([]string{
+		"--analyze-log",
+		"--log-dir", filepath.Dir(tracePath),
+		"--for-files", "pkg/app.py",
+		"--json",
+	}, &analyzeOutput)
+	if code != 0 {
+		t.Fatalf("analyze exit = %d", code)
+	}
+
+	if !strings.Contains(analyzeOutput.String(), `"runs_analyzed": 1`) ||
+		!strings.Contains(analyzeOutput.String(), `"F401"`) {
+		t.Fatalf("analyze output = %s", analyzeOutput.String())
 	}
 }
 
@@ -431,8 +534,11 @@ func TestInstallCapturedToolShimWritesQuotedRunnerAndToolEnv(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	runner := filepath.Join(root, "runner with ' quote")
-	if err := installCapturedToolShim(root, runner, "golangci-lint"); err != nil {
+
+	err := installCapturedToolShim(root, runner, "golangci-lint")
+	if err != nil {
 		t.Fatalf("install shim: %v", err)
 	}
 
@@ -440,6 +546,7 @@ func TestInstallCapturedToolShimWritesQuotedRunnerAndToolEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read shim: %v", err)
 	}
+
 	text := string(payload)
 	for _, want := range []string{
 		"#!/usr/bin/env bash",
@@ -457,10 +564,13 @@ func TestInstallCapturedToolShimWritesQuotedRunnerAndToolEnv(t *testing.T) {
 func TestInstallCapturedToolShimsValidatesRequiredArgs(t *testing.T) {
 	t.Parallel()
 
-	if err := installCapturedToolShims("", "/runner", "/ethos"); err != errToolsBinDirRequired {
+	err := installCapturedToolShims("", "/runner", "/ethos")
+	if !errors.Is(err, errToolsBinDirRequired) {
 		t.Fatalf("missing tools dir error = %v, want %v", err, errToolsBinDirRequired)
 	}
-	if err := installCapturedToolShims(t.TempDir(), "", "/ethos"); err != errRunnerRequired {
+
+	err = installCapturedToolShims(t.TempDir(), "", "/ethos")
+	if !errors.Is(err, errRunnerRequired) {
 		t.Fatalf("missing runner error = %v, want %v", err, errRunnerRequired)
 	}
 }
@@ -469,21 +579,25 @@ func TestManagedToolAvailableUsesManagedExecutablePath(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
 	actionlint, ok := toolcatalog.HookOwnedTool("actionlint")
 	if !ok {
 		t.Fatal("missing actionlint tool")
 	}
+
 	if managedToolAvailable(actionlint, root) {
 		t.Fatal("managed tool should be unavailable before executable exists")
 	}
 
 	executable := actionlint.ManagedExecutablePath(root)
-	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(executable), lintTestExecutableMode)
+	if err != nil {
 		t.Fatalf("create managed dir: %v", err)
 	}
-	if err := os.WriteFile(executable, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write managed executable: %v", err)
-	}
+
+	writeLintTestExecutable(t, executable)
+
 	if !managedToolAvailable(actionlint, root) {
 		t.Fatal("managed tool should be available after executable exists")
 	}
@@ -502,6 +616,7 @@ func TestRealToolEnvVarAndShellQuote(t *testing.T) {
 			t.Fatalf("realToolEnvVar(%q) = %q, want %q", tool, got, want)
 		}
 	}
+
 	if got := shellQuote("a'b"); got != "'a'\\''b'" {
 		t.Fatalf("shellQuote() = %q", got)
 	}
@@ -511,47 +626,23 @@ func writeLintTestBundle(t *testing.T) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "policy-bundle.json")
+
 	file, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create bundle: %v", err)
 	}
-	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
+
+	err = policy.EncodeBundle(file, policy.ExampleBundle())
+	if err != nil {
 		t.Fatalf("encode bundle: %v", err)
 	}
-	if err := file.Close(); err != nil {
+
+	err = file.Close()
+	if err != nil {
 		t.Fatalf("close bundle: %v", err)
 	}
 
 	return path
-}
-
-func captureLintStdout(t *testing.T, run func()) string {
-	t.Helper()
-
-	original := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe stdout: %v", err)
-	}
-	os.Stdout = writer
-	defer func() {
-		os.Stdout = original
-	}()
-
-	run()
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stdout writer: %v", err)
-	}
-	var buffer bytes.Buffer
-	if _, err := io.Copy(&buffer, reader); err != nil {
-		t.Fatalf("read stdout: %v", err)
-	}
-	if err := reader.Close(); err != nil {
-		t.Fatalf("close stdout reader: %v", err)
-	}
-
-	return buffer.String()
 }
 
 func flagSetForScopeTest() *flag.FlagSet {
@@ -561,10 +652,29 @@ func flagSetForScopeTest() *flag.FlagSet {
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	command := exec.Command("git", args...)
+	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = dir
+
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+}
+
+func writeLintTestExecutable(t *testing.T, path string) {
+	t.Helper()
+
+	err := os.WriteFile(
+		path,
+		[]byte("#!/usr/bin/env sh\nexit 0\n"),
+		lintTestWriteMode,
+	)
+	if err != nil {
+		t.Fatalf("write executable fixture: %v", err)
+	}
+
+	err = os.Chmod(path, lintTestExecutableMode)
+	if err != nil {
+		t.Fatalf("chmod executable fixture: %v", err)
 	}
 }

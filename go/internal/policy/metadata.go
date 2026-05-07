@@ -13,6 +13,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type Metadata struct {
@@ -21,7 +23,9 @@ type Metadata struct {
 	GeneratedAt  string            `json:"generated_at"`
 }
 
-var errMetadataSourceHashesRequired = errors.New("metadata does not contain source_hashes")
+var errMetadataSourceHashesRequired = apperror.StaticError(
+	"metadata does not contain source_hashes",
+)
 
 func HashBundle(bundle Bundle) (string, error) {
 	payload, err := json.Marshal(bundle)
@@ -62,7 +66,9 @@ func EncodeMetadata(writer io.Writer, metadata Metadata) error {
 
 func DecodeMetadata(reader io.Reader) (Metadata, error) {
 	var metadata Metadata
-	if err := json.NewDecoder(reader).Decode(&metadata); err != nil {
+
+	err := json.NewDecoder(reader).Decode(&metadata)
+	if err != nil {
 		return Metadata{}, fmt.Errorf("decode policy metadata: %w", err)
 	}
 
@@ -78,27 +84,39 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 	for path := range metadata.SourceHashes {
 		paths = append(paths, path)
 	}
+
 	sort.Strings(paths)
 
 	var failures []string
+
 	for _, path := range paths {
 		actual, err := hashFile(path)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				failures = append(failures, "missing policy source: "+path)
+
 				continue
 			}
 
-			failures = append(failures, fmt.Sprintf("hash policy source %s: %v", path, err))
+			failures = append(
+				failures,
+				fmt.Sprintf("hash policy source %s: %v", path, err),
+			)
+
 			continue
 		}
+
 		if actual != metadata.SourceHashes[path] {
 			failures = append(failures, "policy source hash mismatch: "+path)
 		}
 	}
 
 	if len(failures) > 0 {
-		return errors.New(strings.Join(failures, "\n"))
+		return apperror.Wrapf(
+			apperror.StaticError("policy metadata validation failed"),
+			"%s",
+			strings.Join(failures, "\n"),
+		)
 	}
 
 	return nil
@@ -107,7 +125,7 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 func hashFile(path string) (string, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read policy source %s: %w", path, err)
 	}
 
 	sum := sha256.Sum256(payload)

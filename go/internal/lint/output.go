@@ -17,6 +17,7 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 {
 		return diagnostics.Dedupe(result.Diagnostics)
 	}
+
 	if len(result.Findings) > 0 {
 		return findingDiagnostics(result.Findings, result.Blocked())
 	}
@@ -24,16 +25,20 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	decisions := result.Decisions
 	if result.Blocked() {
 		blocking := []int{}
+
 		for index, decision := range decisions {
-			if decision.Decision == "block" || decision.Severity == "block" {
+			if decision.Decision == decisionBlock ||
+				decision.Severity == decisionBlock {
 				blocking = append(blocking, index)
 			}
 		}
+
 		if len(blocking) > 0 {
 			blockingDecisions := decisions[:0:0]
 			for _, index := range blocking {
 				blockingDecisions = append(blockingDecisions, decisions[index])
 			}
+
 			decisions = blockingDecisions
 		}
 	}
@@ -42,8 +47,10 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
 			findings = append(findings, decision.Diagnostics...)
+
 			continue
 		}
+
 		findings = append(findings, diagnostics.Diagnostic{
 			Tool:     "policy",
 			Severity: decision.Severity,
@@ -91,9 +98,10 @@ func findingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnost
 
 func blockingFindings(findings []Finding) []Finding {
 	blocking := []Finding{}
+
 	for _, finding := range findings {
-		if finding.Blocking || finding.Status == "fail" ||
-			finding.Severity == "block" || finding.Severity == "error" {
+		if finding.Blocking || finding.Status == statusFail ||
+			finding.Severity == decisionBlock || finding.Severity == severityError {
 			blocking = append(blocking, finding)
 		}
 	}
@@ -123,15 +131,17 @@ func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
 
 func findingDetail(finding Finding) string {
 	parts := []string{}
-	appendRawOutcomeString := func(key string, label string) {
+	appendRawOutcomeString := func(key, label string) {
 		value, ok := finding.RawOutcome[key]
 		if !ok || value == nil {
 			return
 		}
+
 		text := strings.TrimSpace(fmt.Sprint(value))
 		if text == "" {
 			return
 		}
+
 		parts = append(parts, label+"="+text)
 	}
 
@@ -148,8 +158,9 @@ func sortDiagnostics(items []diagnostics.Diagnostic) []diagnostics.Diagnostic {
 	return items
 }
 
-func compareDiagnostics(left diagnostics.Diagnostic, right diagnostics.Diagnostic) int {
+func compareDiagnostics(left, right diagnostics.Diagnostic) int {
 	leftBlock := diagnosticBlocks(left)
+
 	rightBlock := diagnosticBlocks(right)
 	if leftBlock != rightBlock {
 		if leftBlock {

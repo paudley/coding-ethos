@@ -4,12 +4,13 @@
 package evaluators_test
 
 import (
-	. "blackcat.ca/coding-ethos/go/internal/evaluators"
-	"blackcat.ca/coding-ethos/go/internal/policy"
-	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"os"
 	"path/filepath"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const decisionBlock = "block"
@@ -55,6 +56,14 @@ func TestGitSafetyEvaluatorsBlockUnsafeCommands(t *testing.T) {
 }
 
 func unsafeGitSafetyCases() []gitSafetyCase {
+	cases := unsafeDestructiveGitCases()
+	cases = append(cases, unsafeProtectedBranchCases()...)
+	cases = append(cases, unsafeSubmoduleAndAttributionCases()...)
+
+	return cases
+}
+
+func unsafeDestructiveGitCases() []gitSafetyCase {
 	return []gitSafetyCase{
 		{
 			name:      "reset hard",
@@ -80,6 +89,23 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "merge", "-X", "theirs", "feature"},
 		},
+		{
+			name:      "worktree prune",
+			policyID:  "git.destructive_worktree",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "worktree", "prune"},
+		},
+		{
+			name:      "worktree force remove",
+			policyID:  "git.destructive_worktree",
+			evaluator: EvaluateCELExpression,
+			argv:      []string{"git", "worktree", "remove", "-f", "../repo-old"},
+		},
+	}
+}
+
+func unsafeProtectedBranchCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "force push main",
 			policyID:  "git.force_push_protected_branch",
@@ -110,18 +136,11 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "switch", "-c", "feature", "main"},
 		},
-		{
-			name:      "worktree prune",
-			policyID:  "git.destructive_worktree",
-			evaluator: EvaluateCELExpression,
-			argv:      []string{"git", "worktree", "prune"},
-		},
-		{
-			name:      "worktree force remove",
-			policyID:  "git.destructive_worktree",
-			evaluator: EvaluateCELExpression,
-			argv:      []string{"git", "worktree", "remove", "-f", "../repo-old"},
-		},
+	}
+}
+
+func unsafeSubmoduleAndAttributionCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "protected submodule init",
 			policyID:  "git.protected_submodule_update",
@@ -156,7 +175,12 @@ func unsafeGitSafetyCases() []gitSafetyCase {
 			name:      "commit attribution message",
 			policyID:  "git.commit_attribution",
 			evaluator: EvaluateGitCommitAttribution,
-			argv:      []string{"git", "commit", "-m", "feat: test\n\nCo-authored-by: Claude"},
+			argv: []string{
+				"git",
+				"commit",
+				"-m",
+				"feat: test\n\nCo-authored-by: Claude",
+			},
 		},
 	}
 }
@@ -189,6 +213,7 @@ func TestGitCommitAttributionBlocksMessageFile(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != decisionBlock {
 		t.Fatalf("expected block decision, got %#v", decisions)
 	}
+
 	if decisions[0].Evidence["example"] == "" {
 		t.Fatalf("missing commitlint example evidence: %#v", decisions[0].Evidence)
 	}
@@ -226,12 +251,32 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 
 	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
 
-	tests := []struct {
-		name    string
-		argv    []string
-		stdin   string
-		blocked bool
-	}{
+	for _, test := range commitMessageSourceCases() {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateGitCommitLint(policyDef, Context{
+				Argv:  test.argv,
+				Stdin: []byte(test.stdin),
+			})
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+
+			assertCommitMessageDecision(t, test.blocked, decisions)
+		})
+	}
+}
+
+type commitMessageSourceCase struct {
+	name    string
+	stdin   string
+	argv    []string
+	blocked bool
+}
+
+func commitMessageSourceCases() []commitMessageSourceCase {
+	return []commitMessageSourceCase{
 		{
 			name: "multiple message flags become one message with blank paragraph separator",
 			argv: []string{
@@ -299,26 +344,21 @@ func TestGitCommitLintMatchesGitMessageSourceSemantics(t *testing.T) {
 			blocked: true,
 		},
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
+func assertCommitMessageDecision(
+	t *testing.T,
+	blocked bool,
+	decisions []policy.Decision,
+) {
+	t.Helper()
 
-			decisions, err := EvaluateGitCommitLint(policyDef, Context{
-				Argv:  test.argv,
-				Stdin: []byte(test.stdin),
-			})
-			if err != nil {
-				t.Fatalf("evaluate: %v", err)
-			}
+	if blocked && len(decisions) != 1 {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
 
-			if test.blocked && len(decisions) != 1 {
-				t.Fatalf("expected block decision, got %#v", decisions)
-			}
-			if !test.blocked && len(decisions) != 0 {
-				t.Fatalf("expected allow decision, got %#v", decisions)
-			}
-		})
+	if !blocked && len(decisions) != 0 {
+		t.Fatalf("expected allow decision, got %#v", decisions)
 	}
 }
 
@@ -338,6 +378,7 @@ func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
 	}
 
 	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+
 	decisions, err := EvaluateGitCommitLint(policyDef, Context{
 		Argv:             argv,
 		EvaluatorOptions: policyDef.Evaluators[0].Options,
@@ -354,7 +395,47 @@ func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	t.Parallel()
 
-	tests := []gitSafetyCase{
+	tests := safeGitSafetyCases()
+	bundle := compiledGitSafetyTestBundle(t)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			policyDef := bundle.Policies[test.policyID]
+
+			decisions, err := test.evaluator(policyDef, Context{
+				Argv:             test.argv,
+				AdminApproved:    test.adminApproved,
+				EvaluatorOptions: policyDef.Evaluators[0].Options,
+			})
+			if err != nil {
+				t.Fatalf("evaluate: %v", err)
+			}
+
+			if len(decisions) != 0 {
+				t.Fatalf("expected no decisions, got %#v", decisions)
+			}
+		})
+	}
+}
+
+func safeGitSafetyCases() []gitSafetyCase {
+	cases := safeBasicGitCases()
+	cases = append(cases, safeCommitGitCases()...)
+
+	return cases
+}
+
+func safeBasicGitCases() []gitSafetyCase {
+	cases := safeBranchGitCases()
+	cases = append(cases, safeWorktreeAndSubmoduleGitCases()...)
+
+	return cases
+}
+
+func safeBranchGitCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "soft reset",
 			policyID:  "git.destructive_command",
@@ -392,6 +473,11 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			evaluator: EvaluateCELExpression,
 			argv:      []string{"git", "switch", "-c", "feature", "origin/main"},
 		},
+	}
+}
+
+func safeWorktreeAndSubmoduleGitCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "worktree list",
 			policyID:  "git.destructive_worktree",
@@ -408,7 +494,13 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			name:      "protected submodule remote upgrade",
 			policyID:  "git.protected_submodule_update",
 			evaluator: EvaluateCELExpression,
-			argv:      []string{"git", "submodule", "update", "--remote", "coding-ethos"},
+			argv: []string{
+				"git",
+				"submodule",
+				"update",
+				"--remote",
+				"coding-ethos",
+			},
 		},
 		{
 			name:      "unprotected submodule recorded sha checkout",
@@ -428,6 +520,11 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			evaluator: EvaluateCELExpression,
 			argv:      []string{"echo", "git", "-C", "/tmp/repo", "status"},
 		},
+	}
+}
+
+func safeCommitGitCases() []gitSafetyCase {
+	return []gitSafetyCase{
 		{
 			name:      "normal commit message",
 			policyID:  "git.commit_attribution",
@@ -468,31 +565,10 @@ func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 			},
 		},
 	}
-
-	bundle := compiledGitSafetyTestBundle(t)
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			policyDef := bundle.Policies[test.policyID]
-
-			decisions, err := test.evaluator(policyDef, Context{
-				Argv:             test.argv,
-				AdminApproved:    test.adminApproved,
-				EvaluatorOptions: policyDef.Evaluators[0].Options,
-			})
-			if err != nil {
-				t.Fatalf("evaluate: %v", err)
-			}
-
-			if len(decisions) != 0 {
-				t.Fatalf("expected no decisions, got %#v", decisions)
-			}
-		})
-	}
 }
 
-func compiledGitSafetyTestBundle(t testing.TB) policy.Bundle {
-	return compiledRepoBundle(t)
+func compiledGitSafetyTestBundle(tb testing.TB) policy.Bundle {
+	tb.Helper()
+
+	return compiledRepoBundle(tb)
 }

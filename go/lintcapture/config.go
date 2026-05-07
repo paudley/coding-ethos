@@ -6,36 +6,73 @@ package lintcapture
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"blackcat.ca/coding-ethos/go/internal/configdata"
 )
 
+const sourceRootCapacityMultiplier = 2
+
 type RuntimeConfig struct {
+	Merged       map[string]any
 	EthosRoot    string
 	ConsumerRoot string
-	Merged       map[string]any
 }
 
-func LoadRuntimeConfig(ethosRoot string, consumerRoot string) (RuntimeConfig, error) {
+func LoadRuntimeConfig(ethosRoot, consumerRoot string) (RuntimeConfig, error) {
+	return LoadRuntimeConfigWithRepoConfig(ethosRoot, consumerRoot, "")
+}
+
+func LoadRuntimeConfigWithRepoConfig(
+	ethosRoot string,
+	consumerRoot string,
+	repoConfig string,
+) (RuntimeConfig, error) {
 	resolvedEthos, err := filepath.Abs(ethosRoot)
 	if err != nil {
 		return RuntimeConfig{}, fmt.Errorf("resolve ethos root: %w", err)
 	}
+
 	resolvedConsumer, err := filepath.Abs(consumerRoot)
 	if err != nil {
 		return RuntimeConfig{}, fmt.Errorf("resolve consumer root: %w", err)
 	}
 
-	base, err := loadYAMLMap(filepath.Join(resolvedEthos, "config.yaml"))
+	resolvedRepoConfig := ""
+	if strings.TrimSpace(repoConfig) != "" {
+		resolvedRepoConfig, err = filepath.Abs(repoConfig)
+		if err != nil {
+			return RuntimeConfig{}, fmt.Errorf("resolve repo config: %w", err)
+		}
+	}
+
+	base, err := configdata.LoadYAMLMap(filepath.Join(resolvedEthos, "config.yaml"))
 	if err != nil {
-		return RuntimeConfig{}, err
+		return RuntimeConfig{}, fmt.Errorf("load base config: %w", err)
+	}
+
+	if resolvedRepoConfig != "" {
+		override, err := configdata.LoadYAMLMap(resolvedRepoConfig)
+		if err != nil {
+			return RuntimeConfig{}, fmt.Errorf(
+				"load repo config %s: %w",
+				resolvedRepoConfig,
+				err,
+			)
+		}
+
+		return RuntimeConfig{
+			EthosRoot:    filepath.Clean(resolvedEthos),
+			ConsumerRoot: filepath.Clean(resolvedConsumer),
+			Merged:       deepMergeMaps(base, override),
+		}, nil
 	}
 
 	for _, name := range repoConfigCandidates(base) {
-		override, err := loadYAMLMap(filepath.Join(resolvedConsumer, name))
+		override, err := configdata.LoadYAMLMap(filepath.Join(resolvedConsumer, name))
 		if err == nil {
 			return RuntimeConfig{
 				EthosRoot:    filepath.Clean(resolvedEthos),
@@ -43,8 +80,13 @@ func LoadRuntimeConfig(ethosRoot string, consumerRoot string) (RuntimeConfig, er
 				Merged:       deepMergeMaps(base, override),
 			}, nil
 		}
+
 		if !errors.Is(err, os.ErrNotExist) {
-			return RuntimeConfig{}, err
+			return RuntimeConfig{}, fmt.Errorf(
+				"load repo config candidate %s: %w",
+				name,
+				err,
+			)
 		}
 	}
 
@@ -72,61 +114,45 @@ func (config RuntimeConfig) SandboxReadWritePaths() []string {
 }
 
 func parentRoots(values []string) []string {
-	roots := make([]string, 0, len(values)*2)
+	roots := make([]string, 0, len(values)*sourceRootCapacityMultiplier)
 	for _, value := range values {
 		text := strings.TrimSpace(value)
 		if text == "" {
 			continue
 		}
+
 		if filepath.IsAbs(filepath.FromSlash(text)) {
 			roots = append(roots, text)
 
 			continue
 		}
+
 		text = strings.Trim(text, "/")
+
 		parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(text)))
 		if parent != "." {
 			roots = append(roots, parent)
 		}
+
 		roots = append(roots, text)
 	}
 
 	return roots
 }
 
-func configValues(config map[string]any, sectionName string, key string) []string {
+func configValues(config map[string]any, sectionName, key string) []string {
 	section, ok := config[sectionName].(map[string]any)
 	if !ok {
 		return nil
 	}
-	rawValues, ok := section[key].([]any)
-	if !ok {
-		return nil
-	}
 
-	values := make([]string, 0, len(rawValues))
-	for _, value := range rawValues {
-		text := strings.TrimSpace(fmt.Sprint(value))
-		if text != "" {
-			values = append(values, text)
-		}
-	}
-
-	return values
+	return configdata.StringList(section[key])
 }
 
 func repoConfigCandidates(config map[string]any) []string {
-	names := []string{}
-	if bundle, ok := config["bundle"].(map[string]any); ok {
-		if raw, ok := bundle["consumer_override_candidates"].([]any); ok {
-			for _, item := range raw {
-				name := strings.TrimSpace(fmt.Sprint(item))
-				if name != "" {
-					names = append(names, name)
-				}
-			}
-		}
-	}
+	names := configdata.StringList(
+		configdata.GetPath(config, "bundle.consumer_override_candidates", []any{}),
+	)
 	if len(names) > 0 {
 		return names
 	}
@@ -144,14 +170,17 @@ func repoConfigCandidates(config map[string]any) []string {
 func uniqueStrings(values []string) []string {
 	seen := map[string]struct{}{}
 	unique := []string{}
+
 	for _, value := range values {
 		text := strings.TrimSpace(value)
 		if text == "" {
 			continue
 		}
+
 		if _, ok := seen[text]; ok {
 			continue
 		}
+
 		seen[text] = struct{}{}
 		unique = append(unique, text)
 	}
@@ -159,47 +188,36 @@ func uniqueStrings(values []string) []string {
 	return unique
 }
 
-func loadYAMLMap(path string) (map[string]any, error) {
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("read yaml %s: %w", path, err)
-	}
-	var decoded map[string]any
-	if err := yaml.Unmarshal(data, &decoded); err != nil {
-		return nil, fmt.Errorf("parse yaml %s: %w", path, err)
-	}
-	if decoded == nil {
-		decoded = map[string]any{}
-	}
-
-	return decoded, nil
-}
-
-func deepMergeMaps(base map[string]any, override map[string]any) map[string]any {
+func deepMergeMaps(base, override map[string]any) map[string]any {
 	return deepMergeMapsAt(base, override, nil)
 }
 
-func deepMergeMapsAt(base map[string]any, override map[string]any, path []string) map[string]any {
+func deepMergeMapsAt(base, override map[string]any, path []string) map[string]any {
 	merged := make(map[string]any, len(base)+len(override))
-	for key, value := range base {
-		merged[key] = value
-	}
+	maps.Copy(merged, base)
+
 	for key, overrideValue := range override {
 		keyPath := append(append([]string(nil), path...), key)
 		if baseMap, ok := merged[key].(map[string]any); ok {
 			if overrideMap, ok := overrideValue.(map[string]any); ok {
 				merged[key] = deepMergeMapsAt(baseMap, overrideMap, keyPath)
+
 				continue
 			}
 		}
+
 		if shouldAppendStringList(keyPath) {
 			if baseValues, ok := merged[key].([]any); ok {
 				if overrideValues, ok := overrideValue.([]any); ok {
-					merged[key] = append(append([]any(nil), baseValues...), overrideValues...)
+					merged[key] = append(
+						append([]any(nil), baseValues...),
+						overrideValues...)
+
 					continue
 				}
 			}
 		}
+
 		merged[key] = overrideValue
 	}
 

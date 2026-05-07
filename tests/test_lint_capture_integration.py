@@ -59,19 +59,7 @@ def _prepare_consumer_repo(tmp_path: Path) -> Path:
     _run(["git", "init"], cwd=consumer)
     (consumer / ".gitignore").write_text(".coding-ethos/\n", encoding="utf-8")
     _run(["git", "add", ".gitignore"], cwd=consumer)
-    _run(
-        [
-            "uv",
-            "run",
-            "python",
-            "main.py",
-            "--repo",
-            str(consumer),
-            "--sync-tool-configs",
-        ],
-        cwd=REPO_ROOT,
-        timeout=120,
-    )
+    _sync_consumer_tool_configs(consumer)
     _run(
         [
             "make",
@@ -83,6 +71,23 @@ def _prepare_consumer_repo(tmp_path: Path) -> Path:
         timeout=180,
     )
     return consumer
+
+
+def _sync_consumer_tool_configs(consumer: Path) -> None:
+    _run(
+        [
+            "go",
+            "run",
+            "./cmd/coding-ethos-policy",
+            "sync-tool-configs",
+            "--ethos-root",
+            str(REPO_ROOT),
+            "--repo",
+            str(consumer),
+        ],
+        cwd=REPO_ROOT / "go",
+        timeout=120,
+    )
 
 
 def _write_poisoned_bin(fake_bin: Path, tool: str) -> None:
@@ -155,19 +160,7 @@ python:
 """.lstrip(),
         encoding="utf-8",
     )
-    _run(
-        [
-            "uv",
-            "run",
-            "python",
-            "main.py",
-            "--repo",
-            str(consumer),
-            "--sync-tool-configs",
-        ],
-        cwd=REPO_ROOT,
-        timeout=120,
-    )
+    _sync_consumer_tool_configs(consumer)
     nested = consumer / "lbox-platform" / "lib" / "python"
     package = nested / "lbox" / "corpus"
     package.mkdir(parents=True)
@@ -213,19 +206,7 @@ python:
 """.lstrip(),
         encoding="utf-8",
     )
-    _run(
-        [
-            "uv",
-            "run",
-            "python",
-            "main.py",
-            "--repo",
-            str(consumer),
-            "--sync-tool-configs",
-        ],
-        cwd=REPO_ROOT,
-        timeout=120,
-    )
+    _sync_consumer_tool_configs(consumer)
     package = consumer / "lbox-platform" / "lib" / "python" / "lbox" / "corpus"
     package.mkdir(parents=True)
     (package / "inline_migration.py").write_text(
@@ -271,19 +252,7 @@ python:
 """.lstrip(),
         encoding="utf-8",
     )
-    _run(
-        [
-            "uv",
-            "run",
-            "python",
-            "main.py",
-            "--repo",
-            str(consumer),
-            "--sync-tool-configs",
-        ],
-        cwd=REPO_ROOT,
-        timeout=120,
-    )
+    _sync_consumer_tool_configs(consumer)
     (consumer / "pkg").mkdir()
     (consumer / "pkg" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
 
@@ -331,37 +300,6 @@ def test_lint_tool_shim_inventory_comes_from_go_catalog() -> None:
     assert "CapturedLintTools()" in shims
     assert "CAPTURED_LINT_TOOLS" not in shims
     assert "CODING_ETHOS_POLICY_TOOL_SHIM=1" in shims
-
-
-def test_lint_source_roots_helper_rejects_repo_escape(tmp_path: Path) -> None:
-    consumer = tmp_path / "consumer"
-    consumer.mkdir()
-    (consumer / "repo_config.yml").write_text(
-        """
-version: 1
-python:
-  extra_paths:
-    - ..
-""".lstrip(),
-        encoding="utf-8",
-    )
-
-    result = _run(
-        [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "coding_ethos.lint_source_roots",
-            str(consumer),
-        ],
-        cwd=REPO_ROOT,
-        check=False,
-    )
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output
-    assert "configured lint source root escapes repo: .." in output
 
 
 def test_policy_tool_blocks_generated_config_drift_before_linter_runs(

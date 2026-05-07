@@ -8,13 +8,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -22,29 +26,52 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
-var errCaptureToolPathRequired = errors.New("--tool-path is required with --capture-tool")
+var errCaptureToolPathRequired = apperror.StaticError(
+	"--tool-path is required with --capture-tool",
+)
+
+const (
+	capturedConfigurationExitCode = 2
+	capturedCommandNotFoundCode   = 127
+	capturedDecisionBlock         = "block"
+	capturedStatusBlocked         = "blocked"
+	capturedStatusResolved        = "resolved"
+)
 
 type captureRequest struct {
+	Skills             map[string]policy.Skill
 	Tool               string
 	ToolPath           string
-	ToolPrefix         []string
 	Cwd                string
 	TraceRoot          string
-	Args               []string
 	SandboxMode        string
 	SandboxBackendPath string
-	Capabilities       sandbox.Capabilities
+	Output             io.Writer
+	ToolPrefix         []string
+	Args               []string
 	EvidenceMaps       []diagnostics.EvidenceMap
 	Policies           []policy.Policy
-	Skills             map[string]policy.Skill
+	Capabilities       sandbox.Capabilities
 }
 
 type captureExecution struct {
+	Sandbox  *lint.SandboxEvidence
 	Stdout   string
 	Stderr   string
 	RunArgs  []string
-	Sandbox  *lint.SandboxEvidence
 	ExitCode int
+}
+
+type captureBuffers struct {
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+}
+
+type processResult struct {
+	err      error
+	stdout   string
+	stderr   string
+	exitCode int
 }
 
 func runCapturedTool(
@@ -76,21 +103,15 @@ func runCapturedTool(
 func executeCapturedTool(request captureRequest) captureExecution {
 	runArgs := capturedToolArgs(request.Tool, request.Args)
 	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
-	plan, planErr := sandbox.BuildPlan(sandbox.Request{
-		Mode:         request.SandboxMode,
-		Tool:         request.Tool,
-		Executable:   request.ToolPath,
-		Cwd:          request.Cwd,
-		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
-		Args:         runArgs,
-		BackendPath:  request.SandboxBackendPath,
-		Capabilities: request.Capabilities,
-	})
+	plan, planErr := buildCapturedSandboxPlan(request, runArgs)
+
 	defer func() {
-		if err := plan.Close(); err != nil {
+		err := plan.Close()
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "WARN: sandbox resources not closed: %v\n", err)
 		}
 	}()
+
 	evidence := lintSandboxEvidence(plan.Evidence)
 	if planErr != nil {
 		diagnostic := sandboxDenialDiagnostic(plan.Evidence)
@@ -103,75 +124,284 @@ func executeCapturedTool(request captureRequest) captureExecution {
 		}
 	}
 
-	commandContext, cancel := sandbox.CommandContext(context.Background(), plan.Evidence.TimeoutSeconds)
-	defer cancel()
-	command := exec.CommandContext(commandContext, plan.Executable, plan.Args...)
-	if request.Cwd != "" {
-		command.Dir = request.Cwd
-	}
-	command.ExtraFiles = plan.ExtraFiles
+	return runCapturedPlan(request, plan, runArgs)
+}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	command.Stdin = os.Stdin
+func buildCapturedSandboxPlan(
+	request captureRequest,
+	runArgs []string,
+) (sandbox.Plan, error) {
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Mode:         request.SandboxMode,
+		Tool:         request.Tool,
+		Executable:   request.ToolPath,
+		Cwd:          request.Cwd,
+		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
+		Args:         runArgs,
+		BackendPath:  request.SandboxBackendPath,
+		Capabilities: request.Capabilities,
+	})
+	if err != nil {
+		return plan, fmt.Errorf("build captured sandbox plan: %w", err)
+	}
+
+	return plan, nil
+}
+
+func runCapturedPlan(
+	request captureRequest,
+	plan sandbox.Plan,
+	runArgs []string,
+) captureExecution {
+	commandContext, cancel := sandbox.CommandContext(
+		context.Background(),
+		plan.Evidence.TimeoutSeconds,
+	)
+	defer cancel()
 
 	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
-	evidence = lintSandboxEvidence(appliedEvidence)
+
+	evidence := lintSandboxEvidence(appliedEvidence)
 	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
 		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
 
 		return captureExecution{
-			Stdout:   stdout.String(),
 			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
 			RunArgs:  runArgs,
 			Sandbox:  evidence,
 			ExitCode: blockedExitCode,
 		}
 	}
+
 	if cgroup != nil {
 		defer func() { _ = cgroup.Close() }()
-		cgroup.ConfigureCommand(command)
 	}
 
-	if err := command.Start(); err != nil {
-		return captureExecution{
-			Stdout:   stdout.String(),
-			Stderr:   capturedExecutionError(stderr.String(), err),
-			RunArgs:  runArgs,
-			Sandbox:  evidence,
-			ExitCode: capturedExitCode(err),
-		}
-	}
-	err := command.Wait()
-	if commandContext.Err() == context.DeadlineExceeded {
+	result := startCapturedProcess(commandContext, request, plan, cgroup)
+
+	if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
 		appliedEvidence.Denied = true
 		appliedEvidence.Reason = "sandboxed tool exceeded timeout"
 		evidence = lintSandboxEvidence(appliedEvidence)
 	}
 
 	return captureExecution{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
+		Stdout:   result.stdout,
+		Stderr:   capturedExecutionError(result.stderr, result.err),
 		RunArgs:  runArgs,
 		Sandbox:  evidence,
-		ExitCode: capturedExitCode(err),
+		ExitCode: result.exitCode,
 	}
 }
 
-func prepareSandboxCgroup(evidence sandbox.Evidence) (*sandbox.Cgroup, sandbox.Evidence, error) {
+func startCapturedProcess(
+	ctx context.Context,
+	request captureRequest,
+	plan sandbox.Plan,
+	cgroup *sandbox.Cgroup,
+) processResult {
+	stdoutReader, stdoutWriter, stdoutErr := os.Pipe()
+	if stdoutErr != nil {
+		return processResult{err: stdoutErr, exitCode: capturedCommandNotFoundCode}
+	}
+	defer stdoutReader.Close()
+
+	stderrReader, stderrWriter, stderrErr := os.Pipe()
+	if stderrErr != nil {
+		_ = stdoutWriter.Close()
+
+		return processResult{err: stderrErr, exitCode: capturedCommandNotFoundCode}
+	}
+	defer stderrReader.Close()
+
+	files := capturedProcessFiles(stdoutWriter, stderrWriter, plan.ExtraFiles)
+	process, startErr := os.StartProcess(
+		plan.Executable,
+		capturedProcessArgv(plan),
+		&os.ProcAttr{
+			Dir:   request.Cwd,
+			Env:   os.Environ(),
+			Files: files,
+			Sys:   capturedProcessSysProcAttr(cgroup),
+		},
+	)
+
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
+
+	var buffers captureBuffers
+
+	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
+	if startErr != nil {
+		copyErr := <-copyDone
+
+		return processResult{
+			err:      errors.Join(startErr, copyErr),
+			exitCode: capturedExitCode(startErr),
+		}
+	}
+
+	state, waitErr := waitCapturedProcess(ctx, process)
+
+	copyErr := <-copyDone
+
+	return processResult{
+		stdout:   buffers.stdout.String(),
+		stderr:   buffers.stderr.String(),
+		err:      errors.Join(waitErr, copyErr),
+		exitCode: capturedProcessExitCode(state, waitErr),
+	}
+}
+
+func capturedProcessFiles(
+	stdout *os.File,
+	stderr *os.File,
+	extraFiles []*os.File,
+) []*os.File {
+	const standardProcessFileCount = 3
+
+	files := make([]*os.File, 0, len(extraFiles)+standardProcessFileCount)
+	files = append(files, os.Stdin, stdout, stderr)
+	files = append(files, extraFiles...)
+
+	return files
+}
+
+func capturedProcessArgv(plan sandbox.Plan) []string {
+	return append([]string{plan.Executable}, plan.Args...)
+}
+
+func copyProcessOutput(
+	buffers *captureBuffers,
+	stdout *os.File,
+	stderr *os.File,
+) <-chan error {
+	done := make(chan error, 1)
+
+	go func() {
+		stdoutErr := copyBuffer(&buffers.stdout, stdout)
+		stderrErr := copyBuffer(&buffers.stderr, stderr)
+
+		done <- errors.Join(stdoutErr, stderrErr)
+	}()
+
+	return done
+}
+
+func copyBuffer(writer io.Writer, reader io.Reader) error {
+	_, err := io.Copy(writer, reader)
+	if err != nil {
+		return fmt.Errorf("copy process output: %w", err)
+	}
+
+	return nil
+}
+
+func waitCapturedProcess(
+	ctx context.Context,
+	process *os.Process,
+) (*os.ProcessState, error) {
+	done := make(chan struct {
+		state *os.ProcessState
+		err   error
+	}, 1)
+
+	go func() {
+		state, err := process.Wait()
+		done <- struct {
+			state *os.ProcessState
+			err   error
+		}{state: state, err: err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.state, result.err
+	case <-ctx.Done():
+		killErr := killCapturedProcessGroup(process)
+		result := <-done
+
+		if result.err != nil {
+			return result.state, result.err
+		}
+
+		if killErr != nil {
+			return result.state, fmt.Errorf("kill timed-out process: %w", killErr)
+		}
+
+		return result.state, fmt.Errorf("process context expired: %w", ctx.Err())
+	}
+}
+
+func capturedProcessSysProcAttr(cgroup *sandbox.Cgroup) *syscall.SysProcAttr {
+	attributes := cgroup.SysProcAttr()
+	if attributes == nil {
+		attributes = &syscall.SysProcAttr{}
+	}
+
+	attributes.Setpgid = true
+
+	return attributes
+}
+
+func killCapturedProcessGroup(process *os.Process) error {
+	err := syscall.Kill(-process.Pid, syscall.SIGKILL)
+	if err == nil {
+		return nil
+	}
+
+	killErr := process.Kill()
+	if killErr != nil {
+		return errors.Join(err, killErr)
+	}
+
+	return nil
+}
+
+func capturedProcessExitCode(state *os.ProcessState, err error) int {
+	if state == nil {
+		return capturedExitCode(err)
+	}
+
+	status, ok := state.Sys().(syscall.WaitStatus)
+	if !ok {
+		return capturedExitCode(err)
+	}
+
+	if status.Exited() {
+		return status.ExitStatus()
+	}
+
+	if err != nil {
+		return capturedExitCode(err)
+	}
+
+	return 1
+}
+
+func prepareSandboxCgroup(
+	evidence sandbox.Evidence,
+) (*sandbox.Cgroup, sandbox.Evidence, error) {
 	if !evidence.Enabled {
 		return nil, evidence, nil
 	}
 
-	return sandbox.PrepareCgroupLimits(evidence)
+	cgroup, appliedEvidence, err := sandbox.PrepareCgroupLimits(evidence)
+	if err != nil {
+		return nil, appliedEvidence, fmt.Errorf(
+			"prepare sandbox cgroup limits: %w",
+			err,
+		)
+	}
+
+	return cgroup, appliedEvidence, nil
 }
 
 func capturedExecutionError(stderr string, err error) string {
 	if err == nil {
 		return stderr
 	}
+
 	if strings.TrimSpace(stderr) != "" {
 		return stderr
 	}
@@ -183,7 +413,8 @@ func logCapturedToolResult(
 	cwd string,
 	result lint.Result,
 ) {
-	if _, err := lint.LogResult(cwd, result); err != nil {
+	_, err := lint.LogResult(cwd, result)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", err)
 	}
 }
@@ -224,51 +455,7 @@ func capturedFindings(
 ) []lint.Finding {
 	outcome := capturedOutcome(request.Tool, execution.ExitCode, items)
 	if len(items) == 0 {
-		if execution.Sandbox != nil && execution.Sandbox.Denied {
-			diagnostic := sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox))
-
-			return []lint.Finding{{
-				RawOutcome: map[string]any{
-					"category": outcome.Category,
-					"args":     append([]string(nil), request.Args...),
-					"sandbox":  execution.Sandbox,
-				},
-				Advice:     diagnostic.Advice,
-				CheckID:    diagnostic.PolicyID,
-				Code:       diagnostic.Code,
-				Message:    diagnostic.Message,
-				PolicyID:   diagnostic.PolicyID,
-				SkillID:    diagnostic.SkillID,
-				Severity:   diagnostic.Severity,
-				SourceTool: diagnostic.Tool,
-				Status:     "blocked",
-				EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
-				Blocking:   true,
-			}}
-		}
-		if execution.ExitCode == 0 {
-			if outputExcerpt == "" {
-				return nil
-			}
-
-			return []lint.Finding{capturedPassingOutputFinding(request, execution, outputExcerpt)}
-		}
-
-		return []lint.Finding{{
-			RawOutcome: map[string]any{
-				"category":  outcome.Category,
-				"args":      append([]string(nil), request.Args...),
-				"exit_code": execution.ExitCode,
-				"run_args":  append([]string(nil), execution.RunArgs...),
-				"output":    outputExcerpt,
-			},
-			CheckID:    "tool." + request.Tool,
-			Message:    outcome.Message,
-			Severity:   "error",
-			SourceTool: request.Tool,
-			Status:     "fail",
-			Blocking:   true,
-		}}
+		return capturedOutcomeFindings(request, execution, outputExcerpt, outcome)
 	}
 
 	findings := make([]lint.Finding, 0, len(items))
@@ -298,6 +485,81 @@ func capturedFindings(
 	}
 
 	return findings
+}
+
+func capturedOutcomeFindings(
+	request captureRequest,
+	execution captureExecution,
+	outputExcerpt string,
+	outcome capturedOutcomeClass,
+) []lint.Finding {
+	if execution.Sandbox != nil && execution.Sandbox.Denied {
+		return []lint.Finding{capturedSandboxFinding(request, execution, outcome)}
+	}
+
+	if execution.ExitCode == 0 {
+		if outputExcerpt == "" {
+			return nil
+		}
+
+		return []lint.Finding{
+			capturedPassingOutputFinding(request, execution, outputExcerpt),
+		}
+	}
+
+	return []lint.Finding{
+		capturedUnparseableFailureFinding(request, execution, outputExcerpt, outcome),
+	}
+}
+
+func capturedSandboxFinding(
+	request captureRequest,
+	execution captureExecution,
+	outcome capturedOutcomeClass,
+) lint.Finding {
+	diagnostic := sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox))
+
+	return lint.Finding{
+		RawOutcome: map[string]any{
+			"category": outcome.Category,
+			"args":     append([]string(nil), request.Args...),
+			"sandbox":  execution.Sandbox,
+		},
+		Advice:     diagnostic.Advice,
+		CheckID:    diagnostic.PolicyID,
+		Code:       diagnostic.Code,
+		Message:    diagnostic.Message,
+		PolicyID:   diagnostic.PolicyID,
+		SkillID:    diagnostic.SkillID,
+		Severity:   diagnostic.Severity,
+		SourceTool: diagnostic.Tool,
+		Status:     capturedStatusBlocked,
+		EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
+		Blocking:   true,
+	}
+}
+
+func capturedUnparseableFailureFinding(
+	request captureRequest,
+	execution captureExecution,
+	outputExcerpt string,
+	outcome capturedOutcomeClass,
+) lint.Finding {
+	return lint.Finding{
+		RawOutcome: map[string]any{
+			"category":  outcome.Category,
+			"args":      append([]string(nil), request.Args...),
+			"exit_code": execution.ExitCode,
+			"run_args":  append([]string(nil), execution.RunArgs...),
+			"output":    outputExcerpt,
+		},
+		CheckID:    "tool." + request.Tool,
+		Message:    outcome.Message,
+		Severity:   "error",
+		SourceTool: request.Tool,
+		Status:     "fail",
+		Blocking:   true,
+	}
 }
 
 func capturedPassingOutputFinding(
@@ -333,6 +595,7 @@ func applyCapturePolicies(request captureRequest, result lint.Result) lint.Resul
 	}
 
 	outputDiagnostics := lint.OutputDiagnostics(result)
+
 	context := evaluators.Context{
 		Cwd:         firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
 		EventName:   "lint-capture",
@@ -349,25 +612,37 @@ func applyCapturePolicies(request captureRequest, result lint.Result) lint.Resul
 	}
 
 	registry := evaluators.DefaultRegistry()
+
 	for _, policyDef := range request.Policies {
 		if !capturePolicyAppliesToTool(policyDef, request.Tool) {
 			continue
 		}
+
 		decisions, err := evaluateCapturePolicy(policyDef, context, registry)
 		if err != nil {
-			result.Status = "blocked"
-			result.Findings = append(result.Findings, capturedPolicyErrorFinding(policyDef, err))
+			result.Status = capturedStatusBlocked
+			result.Findings = append(
+				result.Findings,
+				capturedPolicyErrorFinding(policyDef, err),
+			)
+
 			continue
 		}
+
 		if len(decisions) == 0 {
 			continue
 		}
+
 		result.Decisions = append(result.Decisions, decisions...)
 		for _, decision := range decisions {
 			result.Diagnostics = append(result.Diagnostics, decision.Diagnostics...)
-			result.Findings = append(result.Findings, capturedDecisionFindings(decision, context.Files)...)
-			if decision.Decision == "block" || decision.Severity == "block" {
-				result.Status = "blocked"
+
+			result.Findings = append(
+				result.Findings,
+				capturedDecisionFindings(decision, context.Files)...)
+			if decision.Decision == capturedDecisionBlock ||
+				decision.Severity == capturedDecisionBlock {
+				result.Status = capturedStatusBlocked
 			}
 		}
 	}
@@ -396,19 +671,24 @@ func evaluateCapturePolicy(
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	decisions := []policy.Decision{}
+
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		if evaluatorSpec.Name != "cel.expression" {
 			continue
 		}
+
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
 		if !ok {
 			continue
 		}
+
 		context.EvaluatorOptions = evaluatorSpec.Options
+
 		evaluated, err := evaluator.Evaluate(policyDef, context)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("evaluate capture policy %s: %w", policyDef.ID, err)
 		}
+
 		decisions = append(decisions, evaluated...)
 	}
 
@@ -473,6 +753,7 @@ func capturedDecisionStatus(decision policy.Decision) string {
 	if capturedDecisionBlocks(decision) {
 		return "fail"
 	}
+
 	if decision.Decision == "record" || decision.Severity == "record" {
 		return "pass"
 	}
@@ -481,14 +762,13 @@ func capturedDecisionStatus(decision policy.Decision) string {
 }
 
 func capturedDecisionBlocks(decision policy.Decision) bool {
-	return decision.Decision == "block" || decision.Severity == "block"
+	return decision.Decision == capturedDecisionBlock ||
+		decision.Severity == capturedDecisionBlock
 }
 
 func capturedDecisionRawOutcome(decision policy.Decision) map[string]any {
 	outcome := map[string]any{}
-	for key, value := range decision.Evidence {
-		outcome[key] = value
-	}
+	maps.Copy(outcome, decision.Evidence)
 
 	return outcome
 }
@@ -516,11 +796,13 @@ func capturedFindingActivations(findings []lint.Finding) []evaluators.Finding {
 func capturedDiagnosticFiles(items []diagnostics.Diagnostic) []string {
 	files := []string{}
 	seen := map[string]bool{}
+
 	for _, item := range items {
 		file := strings.TrimSpace(item.File)
 		if file == "" || seen[file] {
 			continue
 		}
+
 		files = append(files, file)
 		seen[file] = true
 	}
@@ -534,9 +816,11 @@ func firstCapturedArgFile(args []string) string {
 		if arg == "" || strings.HasPrefix(arg, "-") {
 			continue
 		}
+
 		if arg == "check" || arg == "run" || arg == "lint" {
 			continue
 		}
+
 		return filepath.ToSlash(arg)
 	}
 
@@ -569,7 +853,8 @@ func sandboxDenialDiagnostic(evidence sandbox.Evidence) diagnostics.Diagnostic {
 
 	return diagnostics.Diagnostic{
 		Metadata: map[string]any{"sandbox": evidence},
-		Advice:   "Use the managed tool path with declared capabilities, or install the required sandbox backend.",
+		Advice: "Use the managed tool path with declared capabilities, " +
+			"or install the required sandbox backend.",
 		Code:     "SANDBOX_DENIED",
 		Detail:   reason,
 		Message:  "Managed tool sandbox execution was denied.",
@@ -586,86 +871,46 @@ func sandboxDenialDiagnostic(evidence sandbox.Evidence) diagnostics.Diagnostic {
 }
 
 func lintSandboxEvidence(evidence sandbox.Evidence) *lint.SandboxEvidence {
-	if evidence.Mode == "" && evidence.Profile == "" && !evidence.Enabled && !evidence.Denied {
+	if evidence.Mode == "" && evidence.Profile == "" && !evidence.Enabled &&
+		!evidence.Denied {
 		return nil
 	}
+
 	if evidence.Mode == sandbox.ModeOff && !evidence.Enabled && !evidence.Denied {
 		return nil
 	}
 
-	return &lint.SandboxEvidence{
-		Mode:                 evidence.Mode,
-		Backend:              evidence.Backend,
-		BackendPath:          evidence.BackendPath,
-		Profile:              evidence.Profile,
-		Tool:                 evidence.Tool,
-		Command:              append([]string(nil), evidence.Command...),
-		Tags:                 append([]string(nil), evidence.Tags...),
-		HiddenCredentialDirs: append([]string(nil), evidence.HiddenCredentialDirs...),
-		ReadPaths:            append([]string(nil), evidence.ReadPaths...),
-		WritePaths:           append([]string(nil), evidence.WritePaths...),
-		TimeoutSeconds:       evidence.TimeoutSeconds,
-		MemoryMB:             evidence.MemoryMB,
-		CPUQuotaPercent:      evidence.CPUQuotaPercent,
-		RequiresNetwork:      evidence.RequiresNetwork,
-		RequiresGit:          evidence.RequiresGit,
-		RequiresEnv:          evidence.RequiresEnv,
-		RequiresProcesses:    evidence.RequiresProcesses,
-		GitReadOnly:          evidence.GitReadOnly,
-		ReadOnlyRoot:         evidence.ReadOnlyRoot,
-		NetworkIsolated:      evidence.NetworkIsolated,
-		ProcessIsolated:      evidence.ProcessIsolated,
-		TimeoutEnforced:      evidence.TimeoutEnforced,
-		CgroupRequested:      evidence.CgroupRequested,
-		CgroupEnabled:        evidence.CgroupEnabled,
-		CgroupPath:           evidence.CgroupPath,
-		SeccompProfile:       evidence.SeccompProfile,
-		SeccompEnabled:       evidence.SeccompEnabled,
-		Enabled:              evidence.Enabled,
-		Denied:               evidence.Denied,
-		Reason:               evidence.Reason,
-	}
+	copied := cloneSandboxEvidence(evidence)
+
+	return &copied
 }
 
 func sandboxEvidenceFromLint(evidence lint.SandboxEvidence) sandbox.Evidence {
-	return sandbox.Evidence{
-		Mode:                 evidence.Mode,
-		Backend:              evidence.Backend,
-		BackendPath:          evidence.BackendPath,
-		Profile:              evidence.Profile,
-		Tool:                 evidence.Tool,
-		Command:              append([]string(nil), evidence.Command...),
-		Tags:                 append([]string(nil), evidence.Tags...),
-		HiddenCredentialDirs: append([]string(nil), evidence.HiddenCredentialDirs...),
-		ReadPaths:            append([]string(nil), evidence.ReadPaths...),
-		WritePaths:           append([]string(nil), evidence.WritePaths...),
-		TimeoutSeconds:       evidence.TimeoutSeconds,
-		MemoryMB:             evidence.MemoryMB,
-		CPUQuotaPercent:      evidence.CPUQuotaPercent,
-		RequiresNetwork:      evidence.RequiresNetwork,
-		RequiresGit:          evidence.RequiresGit,
-		RequiresEnv:          evidence.RequiresEnv,
-		RequiresProcesses:    evidence.RequiresProcesses,
-		GitReadOnly:          evidence.GitReadOnly,
-		ReadOnlyRoot:         evidence.ReadOnlyRoot,
-		NetworkIsolated:      evidence.NetworkIsolated,
-		ProcessIsolated:      evidence.ProcessIsolated,
-		TimeoutEnforced:      evidence.TimeoutEnforced,
-		CgroupRequested:      evidence.CgroupRequested,
-		CgroupEnabled:        evidence.CgroupEnabled,
-		CgroupPath:           evidence.CgroupPath,
-		SeccompProfile:       evidence.SeccompProfile,
-		SeccompEnabled:       evidence.SeccompEnabled,
-		Enabled:              evidence.Enabled,
-		Denied:               evidence.Denied,
-		Reason:               evidence.Reason,
-	}
+	return cloneSandboxEvidence(evidence)
 }
 
-func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic, outputExcerpt string) string {
+func cloneSandboxEvidence(evidence sandbox.Evidence) sandbox.Evidence {
+	evidence.Command = append([]string(nil), evidence.Command...)
+	evidence.Tags = append([]string(nil), evidence.Tags...)
+	evidence.HiddenCredentialDirs = append(
+		[]string(nil),
+		evidence.HiddenCredentialDirs...,
+	)
+	evidence.ReadPaths = append([]string(nil), evidence.ReadPaths...)
+	evidence.WritePaths = append([]string(nil), evidence.WritePaths...)
+
+	return evidence
+}
+
+func capturedParseStatus(
+	exitCode int,
+	items []diagnostics.Diagnostic,
+	outputExcerpt string,
+) string {
 	if len(items) > 0 {
 		return "parsed"
 	}
+
 	if exitCode == 0 {
 		if strings.TrimSpace(outputExcerpt) != "" {
 			return "output"
@@ -673,7 +918,8 @@ func capturedParseStatus(exitCode int, items []diagnostics.Diagnostic, outputExc
 
 		return "empty"
 	}
-	if exitCode == 2 {
+
+	if exitCode == capturedConfigurationExitCode {
 		return "tool_config_error"
 	}
 
@@ -704,7 +950,9 @@ func normalizeCapturedDiagnosticPaths(
 		}
 
 		rel, err := filepath.Rel(absRoot, file)
-		if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		if err != nil || rel == "." || rel == "" ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+			rel == ".." {
 			continue
 		}
 
@@ -717,14 +965,19 @@ func normalizeCapturedDiagnosticPaths(
 	return out
 }
 
-func capturedOutputExcerpt(stdout string, stderr string, repoRoot string, toolRoot string) string {
+func capturedOutputExcerpt(stdout, stderr, repoRoot, toolRoot string) string {
 	output := strings.TrimSpace(firstCaptureNonEmpty(stderr, stdout))
 	if output == "" {
 		return ""
 	}
 
 	output = redactCapturedOutputPaths(output, repoRoot, toolRoot)
+
 	output = strings.Join(strings.Fields(output), " ")
+	if capturedOutputIsEmptyMachinePayload(output) {
+		return ""
+	}
+
 	if len(output) <= maxCapturedOutputExcerpt {
 		return output
 	}
@@ -732,16 +985,30 @@ func capturedOutputExcerpt(stdout string, stderr string, repoRoot string, toolRo
 	return output[:maxCapturedOutputExcerpt] + "..."
 }
 
-func redactCapturedOutputPaths(output string, repoRoot string, toolRoot string) string {
+func capturedOutputIsEmptyMachinePayload(output string) bool {
+	compact := strings.ReplaceAll(strings.TrimSpace(output), " ", "")
+	switch compact {
+	case "[]", "{}", "null":
+		return true
+	default:
+		return false
+	}
+}
+
+func redactCapturedOutputPaths(output, repoRoot, toolRoot string) string {
 	redacted := output
+
 	replacements := map[string]string{}
 	if repoRoot = strings.TrimSpace(repoRoot); repoRoot != "" {
 		replacements[repoRoot] = "<repo>"
 	}
+
 	if toolRoot = strings.TrimSpace(toolRoot); toolRoot != "" && toolRoot != repoRoot {
 		replacements[toolRoot] = "<tool-project>"
 	}
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+
+	home, err := os.UserHomeDir()
+	if err == nil && strings.TrimSpace(home) != "" {
 		replacements[home] = "<home>"
 	}
 
@@ -749,7 +1016,8 @@ func redactCapturedOutputPaths(output string, repoRoot string, toolRoot string) 
 	for path := range replacements {
 		paths = append(paths, path)
 	}
-	sort.Slice(paths, func(i int, j int) bool {
+
+	sort.Slice(paths, func(i, j int) bool {
 		if len(paths[i]) == len(paths[j]) {
 			return paths[i] < paths[j]
 		}
@@ -777,23 +1045,32 @@ func capturedOutcome(
 	if len(items) > 0 {
 		return capturedOutcomeClass{
 			Category: "lint_findings",
-			Message:  fmt.Sprintf("%s reported diagnostics", tool),
+			Message:  tool + " reported diagnostics",
 		}
 	}
+
 	if exitCode == 0 {
 		return capturedOutcomeClass{Category: "success", Message: tool + " passed"}
 	}
 
 	switch exitCode {
-	case 2:
+	case capturedConfigurationExitCode:
 		return capturedOutcomeClass{
 			Category: "configuration_error",
-			Message:  fmt.Sprintf("%s configuration or usage failed with status %d", tool, exitCode),
+			Message: fmt.Sprintf(
+				"%s configuration or usage failed with status %d",
+				tool,
+				exitCode,
+			),
 		}
 	default:
 		return capturedOutcomeClass{
 			Category: "tool_error",
-			Message:  fmt.Sprintf("%s exited with status %d without parseable diagnostics", tool, exitCode),
+			Message: fmt.Sprintf(
+				"%s exited with status %d without parseable diagnostics",
+				tool,
+				exitCode,
+			),
 		}
 	}
 }
@@ -808,15 +1085,15 @@ func capturedExitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 
-	return 127
+	return capturedCommandNotFoundCode
 }
 
 func capturedStatus(exitCode int) string {
 	if exitCode == 0 {
-		return "resolved"
+		return capturedStatusResolved
 	}
 
-	return "blocked"
+	return capturedStatusBlocked
 }
 
 func firstCaptureNonEmpty(values ...string) string {

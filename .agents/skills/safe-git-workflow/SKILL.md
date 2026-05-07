@@ -55,7 +55,7 @@ Quick ref:
 - Keep one explicit, validated path for critical operations.
 - When there are multiple ways to accomplish a critical operation, bugs
 hide in the less-traveled path.
-- We strictly ban boolean parameters that fundamentally change what a function does.
+- Use the repo's canonical validation entrypoint; do not invent partial substitutes.
 
 #### Overview
 When there are multiple ways to accomplish a critical operation, bugs
@@ -460,7 +460,7 @@ git stash pop
    dynamics.
 3. **Responsibility Avoidance:** "Pre-existing" is not a valid excuse
    (see
-   Universal Responsibility).
+   Section 13: Universal Responsibility).
 4. **State Corruption:** Stashing and branch switching risks losing
    work or
    corrupting state.

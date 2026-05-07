@@ -8,8 +8,6 @@ indexes, per-principle detail docs, and prompt addons.
 They are the only place where output shape should change by design.
 """
 
-import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,17 +37,6 @@ class AgentRootSurface:
     render_addendum: Callable[[EthosBundle, Path], str]
     imports: tuple[str, ...] = ()
     merge_topics: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SkillSurface:
-    """One provider path template for generated ETHOS skills."""
-
-    path_template: str
-
-    def path_for(self, entrypoint: str) -> str:
-        """Return the repo-relative skill path for one skill entrypoint."""
-        return self.path_template.format(entrypoint=entrypoint)
 
 
 def _join_lines(lines: list[str]) -> str:
@@ -88,19 +75,6 @@ def _path_lines(bundle: EthosBundle) -> list[str]:
 
 def _format_quick_ref(items: list[str], limit: int = 3) -> str:
     return " | ".join(item.strip() for item in items[:limit])
-
-
-def _principle_map(bundle: EthosBundle) -> dict[str, Principle]:
-    return {principle.id: principle for principle in bundle.principles}
-
-
-def _skill_principles(bundle: EthosBundle, skill: EthosSkill) -> list[Principle]:
-    principles = _principle_map(bundle)
-    return [
-        principles[principle_id]
-        for principle_id in skill.principle_ids
-        if principle_id in principles
-    ]
 
 
 def _skill_entrypoint(skill: EthosSkill) -> str:
@@ -145,52 +119,6 @@ def _agent_operating_discipline_lines(
             "before claiming completion."
         ),
     ]
-
-
-def _yaml_string(value: str) -> str:
-    """Return a double-quoted YAML scalar using JSON-compatible escaping."""
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _markdown_anchor(title: str) -> str:
-    anchor = re.sub(r"[^a-z0-9 -]", "", title.lower())
-    return re.sub(r"\s+", "-", anchor).strip("-")
-
-
-def _normalize_skill_cross_references(text: str, principles: list[Principle]) -> str:
-    """Rewrite full-ETHOS section references for skill-local excerpts."""
-    local_titles = {
-        principle.title: _markdown_anchor(principle.title) for principle in principles
-    }
-    order_titles = {principle.order: principle.title for principle in principles}
-
-    def replace_section_link(match: re.Match[str]) -> str:
-        title = " ".join(match.group("title").split())
-        if title in local_titles:
-            return f"[{title}](#{local_titles[title]})"
-        return title
-
-    text = re.sub(
-        r"\[Section\s+\d+:\s+(?P<title>[^\]]+)\]\(#[^)]+\)",
-        replace_section_link,
-        text,
-    )
-
-    def replace_section_text(match: re.Match[str]) -> str:
-        order = int(match.group("order"))
-        title = match.group("title")
-        title = " ".join(title.split()) if title else order_titles.get(order)
-        if not title:
-            return match.group(0)
-        if title in local_titles:
-            return f"[{title}](#{local_titles[title]})"
-        return title
-
-    return re.sub(
-        r"Section\s+(?P<order>\d+)(?::\s+(?P<title>[A-Z][A-Za-z0-9 \"'/-]+))?",
-        replace_section_text,
-        text,
-    )
 
 
 def _append_repo_context(
@@ -476,153 +404,6 @@ def render_principle_detail(
         lines.extend([f"## {section.title}", section.body, ""])
 
     return _join_lines(_with_markdown_spdx(lines))
-
-
-def _skill_header_lines(skill: EthosSkill, principles: list[Principle]) -> list[str]:
-    return [
-        "---",
-        f"name: {_yaml_string(skill.id)}",
-        f"description: {_yaml_string(skill.description)}",
-        "metadata:",
-        "  source: coding_ethos.yml",
-        "  generated_by: coding-ethos",
-        "  ethos_principles:",
-        *[f"    - {principle.id}" for principle in principles],
-        "---",
-        *MARKDOWN_SPDX_LINES,
-        "",
-        f"# {skill.title}",
-        "",
-        skill.focus
-        or (
-            "Use this skill when a code-quality finding needs "
-            "ETHOS-grounded remediation."
-        ),
-        "",
-        "## ETHOS Grounding",
-    ]
-
-
-def _skill_grounding_lines(principles: list[Principle]) -> list[str]:
-    lines: list[str] = []
-    for principle in principles:
-        lines.extend(
-            [
-                f"- `{principle.id}`: {principle.directive or principle.summary}",
-            ]
-        )
-    return lines
-
-
-def _skill_usage_lines(skill: EthosSkill) -> list[str]:
-    lines: list[str] = []
-    if skill.short_hint:
-        lines.extend(["", "## Short Hint", skill.short_hint])
-    if skill.trigger_terms:
-        lines.extend(
-            ["", "## Use When", *[f"- {term}" for term in skill.trigger_terms]]
-        )
-    if skill.remediation_steps:
-        lines.extend(
-            [
-                "",
-                "## Remediation Workflow",
-                *[
-                    f"{index}. {step}"
-                    for index, step in enumerate(skill.remediation_steps, start=1)
-                ],
-            ]
-        )
-    return lines
-
-
-def _skill_principle_detail_lines(
-    principles: list[Principle],
-) -> list[str]:
-    lines = ["", "## Principle Details"]
-    for principle in principles:
-        lines.extend(
-            [
-                f"### {principle.title}",
-                "",
-                principle.summary,
-                "",
-                f"Directive: {principle.directive}",
-            ]
-        )
-        if principle.quick_ref:
-            lines.extend(
-                ["", "Quick ref:", *[f"- {item}" for item in principle.quick_ref]]
-            )
-        for section in principle.sections:
-            body = _normalize_skill_cross_references(section.body, principles)
-            lines.extend(["", f"#### {section.title}", body])
-    return lines
-
-
-def _skill_output_discipline_lines() -> list[str]:
-    return [
-        "",
-        "## Output Discipline",
-        (
-            "When explaining a fix, name the ETHOS principle, the concrete "
-            "code change, and the verification evidence. Do not recommend "
-            "weakening lint config or adding suppressions unless the ETHOS "
-            "policy explicitly allows it."
-        ),
-    ]
-
-
-def render_skill_markdown(bundle: EthosBundle, skill: EthosSkill) -> str:
-    """Render one portable `SKILL.md` from ETHOS source principles."""
-    principles = _skill_principles(bundle, skill)
-    lines = [
-        *_skill_header_lines(skill, principles),
-        *_skill_grounding_lines(principles),
-        *_skill_usage_lines(skill),
-        *_skill_principle_detail_lines(principles),
-        *_skill_output_discipline_lines(),
-    ]
-    return _join_lines(lines)
-
-
-def render_gemini_extension_manifest(bundle: EthosBundle, repo_root: Path) -> str:
-    """Render the Gemini extension manifest that exposes ETHOS skills."""
-    skill_list = ", ".join(skill.id for skill in bundle.skills) or "none"
-    manifest = {
-        "name": "coding-ethos",
-        "version": "1.0.0",
-        "description": (
-            f"ETHOS skills for {_repo_display_name(bundle, repo_root)}: {skill_list}"
-        ),
-        "contextFileName": "GEMINI.md",
-    }
-
-    return json.dumps(manifest, indent=2) + "\n"
-
-
-_SKILL_SURFACES: tuple[SkillSurface, ...] = (
-    SkillSurface(".agents/skills/{entrypoint}"),
-    SkillSurface(".claude/skills/{entrypoint}"),
-    SkillSurface(".codex/skills/{entrypoint}"),
-    SkillSurface(".gemini/extensions/coding-ethos/skills/{entrypoint}"),
-)
-
-
-def render_skill_outputs(bundle: EthosBundle, repo_root: Path) -> dict[str, str]:
-    """Render portable and provider-native skill files."""
-    rendered: dict[str, str] = {}
-    if not bundle.skills:
-        return rendered
-    for skill in bundle.skills:
-        content = render_skill_markdown(bundle, skill)
-        entrypoint = _skill_entrypoint(skill)
-        for surface in _SKILL_SURFACES:
-            rendered[surface.path_for(entrypoint)] = content
-    rendered[".gemini/extensions/coding-ethos/gemini-extension.json"] = (
-        render_gemini_extension_manifest(bundle, repo_root)
-    )
-    return rendered
 
 
 def _render_claude_root(bundle: EthosBundle, repo_root: Path) -> str:

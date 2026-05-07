@@ -12,15 +12,21 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
+)
+
+const (
+	managedCaptureExecutableMode os.FileMode = 0o700
+	windowsGOOS                              = "windows"
 )
 
 func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 	t.Parallel()
 
-	ethosRoot := filepath.Join("tmp", "coding-ethos")
 	consumerRoot := filepath.Join("tmp", "consumer")
+
 	tool, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
 		t.Fatal("missing ruff tool")
@@ -30,9 +36,9 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 		tool,
 		[]string{"format", "--check", "lib/python/pkg.py"},
 		consumerRoot,
-		ethosRoot,
 	)
 	got := capturedToolArgs("ruff", enforced)
+
 	want := []string{
 		"format",
 		"--config",
@@ -48,7 +54,6 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 func TestManagedSubcommandConfigPlacement(t *testing.T) {
 	t.Parallel()
 
-	ethosRoot := filepath.Join("tmp", "coding-ethos")
 	consumerRoot := filepath.Join("tmp", "consumer")
 	tests := []struct {
 		name string
@@ -69,20 +74,30 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 		},
 		{
 			name: "golangci-lint",
-			args: []string{"run", "./..."},
+			args: []string{"go"},
 			want: []string{
 				"run",
 				"--output.json.path=stdout",
 				"--output.text.path=stderr",
 				"--config",
 				filepath.Join(consumerRoot, ".golangci.yml"),
-				"./...",
+				"go",
+			},
+		},
+		{
+			name: "golangci-lint-autofix",
+			args: []string{"go"},
+			want: []string{
+				"run",
+				"--fix",
+				"--config",
+				filepath.Join(consumerRoot, ".golangci.yml"),
+				"go",
 			},
 		},
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -91,7 +106,8 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 				t.Fatalf("missing %s tool", test.name)
 			}
 
-			enforced := enforceManagedToolArgs(tool, test.args, consumerRoot, ethosRoot)
+			enforced := enforceManagedToolArgs(tool, test.args, consumerRoot)
+
 			got := capturedToolArgs(test.name, enforced)
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("managed %s args = %#v, want %#v", test.name, got, test.want)
@@ -100,8 +116,46 @@ func TestManagedSubcommandConfigPlacement(t *testing.T) {
 	}
 }
 
+func TestNormalizeGolangciLintWorktreeRunsInsideModule(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
+		[]string{
+			"run",
+			"--output.json.path=stdout",
+			"--config",
+			filepath.Join(consumerRoot, ".golangci.yml"),
+			"go",
+		},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{
+		"run",
+		"--output.json.path=stdout",
+		"--config",
+		filepath.Join(consumerRoot, ".golangci.yml"),
+		"./...",
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsGOOS {
 		t.Skip("shell fixture uses POSIX sh")
 	}
 
@@ -109,33 +163,30 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	consumerRoot := filepath.Join(consumerParent, "consumer")
 	ethosRoot := t.TempDir()
 	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
-	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "ruff.toml"), "line-length = 88\n")
-	writeManagedCaptureFile(t, filepath.Join(consumerRoot, ".code-ethos", "tool-config-hashes.json"), "{}\n")
+
+	_, err := toolconfigs.Sync(ethosRoot, consumerRoot, "")
+	if err != nil {
+		t.Fatalf("sync generated tool configs: %v", err)
+	}
+
 	writeManagedCaptureFile(
 		t,
-		filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
+		filepath.Join(
+			consumerRoot,
+			"lbox-platform",
+			"lib",
+			"python",
+			"tests",
+			"app.py",
+		),
 		"import os\n",
 	)
 
 	uvFixture := filepath.Join(t.TempDir(), "uv")
-	writeManagedCaptureFile(t, uvFixture, `#!/usr/bin/env sh
-case " $* " in
-  *" --check-tool-configs"*) exit 0 ;;
-esac
-case "$PWD" in
-  *"/consumer") ;;
-  *) echo "wrong cwd: $PWD" >&2; exit 2 ;;
-esac
-case " $* " in
-  *" lbox-platform/lib/python/tests/app.py "*) ;;
-  *) echo "missing repo-relative target: $*" >&2; exit 2 ;;
-esac
-printf '%s\n' '[{"filename":"lbox-platform/lib/python/tests/app.py","code":"F401","message":"unused import","location":{"row":1,"column":8}}]'
-exit 1
-`)
-	if err := os.Chmod(uvFixture, 0o700); err != nil {
-		t.Fatalf("chmod fixture: %v", err)
-	}
+	writeManagedCaptureFile(t, uvFixture, managedCaptureUVFixture())
+
+	chmodManagedCaptureExecutable(t, uvFixture)
+
 	t.Setenv("UV", uvFixture)
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
@@ -147,7 +198,14 @@ exit 1
 			InvocationCwd: consumerRoot,
 			Args: []string{
 				"check",
-				filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
+				filepath.Join(
+					consumerRoot,
+					"lbox-platform",
+					"lib",
+					"python",
+					"tests",
+					"app.py",
+				),
 			},
 		})
 		if exitCode != 1 {
@@ -159,31 +217,40 @@ exit 1
 	}
 }
 
-func TestLookUsablePathSkipsUnstartableCandidates(t *testing.T) {
-	hostedDir := filepath.Join(t.TempDir(), "hostedtoolcache", "uv", "0.11.8", "x86_64")
-	localDir := filepath.Join(t.TempDir(), ".local", "bin")
-	hostedUV := filepath.Join(hostedDir, "uv")
-	localUV := filepath.Join(localDir, "uv")
-	writeManagedCaptureFile(t, hostedUV, "#!/bin/sh\nexit 126\n")
-	writeManagedCaptureFile(t, localUV, "#!/bin/sh\nexit 0\n")
-	if err := os.Chmod(hostedUV, 0o700); err != nil {
-		t.Fatalf("chmod hosted uv: %v", err)
-	}
-	if err := os.Chmod(localUV, 0o700); err != nil {
-		t.Fatalf("chmod local uv: %v", err)
-	}
-	t.Setenv("PATH", hostedDir+string(os.PathListSeparator)+localDir)
-
-	got, err := lookUsablePath("uv")
-	if err != nil {
-		t.Fatalf("look path: %v", err)
-	}
-	if got != localUV {
-		t.Fatalf("uv path = %q, want %q", got, localUV)
-	}
+func managedCaptureUVFixture() string {
+	return `#!/usr/bin/env sh
+case " $* " in
+  *" --quiet "*) ;;
+  *) echo "missing quiet uv mode: $*" >&2; exit 2 ;;
+esac
+case " $* " in
+  *" --check-tool-configs"*) exit 0 ;;
+esac
+case "$PWD" in
+  *"/consumer") ;;
+  *) echo "wrong cwd: $PWD" >&2; exit 2 ;;
+esac
+case " $* " in
+  *" lbox-platform/lib/python/tests/app.py "*) ;;
+  *) echo "missing repo-relative target: $*" >&2; exit 2 ;;
+esac
+cat <<'JSON'
+[
+  {
+    "filename": "lbox-platform/lib/python/tests/app.py",
+    "code": "F401",
+    "message": "unused import",
+    "location": {"row": 1, "column": 8}
+  }
+]
+JSON
+exit 1
+`
 }
 
 func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {
+	t.Parallel()
+
 	ethosRoot := t.TempDir()
 	pythonPath := filepath.Join(ethosRoot, ".venv", "bin", "python")
 	writeManagedCaptureFile(t, pythonPath, `#!/bin/sh
@@ -192,9 +259,9 @@ case " $* " in
 esac
 exit 1
 `)
-	if err := os.Chmod(pythonPath, 0o700); err != nil {
-		t.Fatalf("chmod python fixture: %v", err)
-	}
+
+	chmodManagedCaptureExecutable(t, pythonPath)
+
 	tool, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
 		t.Fatal("missing ruff tool")
@@ -204,13 +271,16 @@ exit 1
 	if command.Path != pythonPath {
 		t.Fatalf("managed command path = %q, want %q", command.Path, pythonPath)
 	}
+
 	wantPrefix := []string{"-m", "ruff"}
 	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
 		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
 	}
 }
 
-func TestManagedActionlintFallsBackToGoRunWhenBinaryCannotStart(t *testing.T) {
+func TestManagedActionlintUsesManagedExecutableWhenPresent(t *testing.T) {
+	t.Parallel()
+
 	ethosRoot := t.TempDir()
 	actionlintPath := filepath.Join(
 		ethosRoot,
@@ -219,32 +289,22 @@ func TestManagedActionlintFallsBackToGoRunWhenBinaryCannotStart(t *testing.T) {
 		"go-bin",
 		"actionlint",
 	)
-	writeManagedCaptureFile(t, actionlintPath, "#!/bin/sh\nexit 126\n")
-	if err := os.Chmod(actionlintPath, 0o700); err != nil {
-		t.Fatalf("chmod actionlint fixture: %v", err)
-	}
-	goDir := t.TempDir()
-	goPath := filepath.Join(goDir, "go")
-	writeManagedCaptureFile(t, goPath, "#!/bin/sh\nexit 0\n")
-	if err := os.Chmod(goPath, 0o700); err != nil {
-		t.Fatalf("chmod go fixture: %v", err)
-	}
-	t.Setenv("PATH", goDir)
+	writeManagedCaptureFile(t, actionlintPath, "#!/bin/sh\nexit 0\n")
+
+	chmodManagedCaptureExecutable(t, actionlintPath)
+
 	tool, found := toolcatalog.HookOwnedTool("actionlint")
 	if !found {
 		t.Fatal("missing actionlint tool")
 	}
 
 	command := managedToolCommandFor(tool, ethosRoot)
-	if command.Path != goPath {
-		t.Fatalf("managed command path = %q, want %q", command.Path, goPath)
+	if command.Path != actionlintPath {
+		t.Fatalf("managed command path = %q, want %q", command.Path, actionlintPath)
 	}
-	wantPrefix := []string{
-		"run",
-		"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
-	}
-	if !reflect.DeepEqual(command.Prefix, wantPrefix) {
-		t.Fatalf("managed command prefix = %#v, want %#v", command.Prefix, wantPrefix)
+
+	if len(command.Prefix) != 0 {
+		t.Fatalf("managed command prefix = %#v, want empty", command.Prefix)
 	}
 }
 
@@ -255,6 +315,7 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	if !found {
 		t.Fatal("missing ruff tool")
 	}
+
 	config := lintcapture.RuntimeConfig{
 		Merged: map[string]any{
 			"sandbox": map[string]any{
@@ -268,6 +329,7 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	if !slices.Contains(capabilities.Tags, "no-network") {
 		t.Fatalf("sandbox capabilities missing no-network tag: %#v", capabilities)
 	}
+
 	for _, want := range []string{"/opt/foundation", "/opt/src/vllm", "/scratch/lbox"} {
 		if !slices.Contains(capabilities.WritePaths, want) {
 			t.Fatalf("sandbox write paths missing %q: %#v", want, capabilities)
@@ -275,13 +337,25 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	}
 }
 
-func writeManagedCaptureFile(t *testing.T, path string, content string) {
+func writeManagedCaptureFile(t *testing.T, path, content string) {
 	t.Helper()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
 		t.Fatalf("write: %v", err)
+	}
+}
+
+func chmodManagedCaptureExecutable(t *testing.T, path string) {
+	t.Helper()
+
+	err := os.Chmod(path, managedCaptureExecutableMode)
+	if err != nil {
+		t.Fatalf("chmod executable fixture: %v", err)
 	}
 }

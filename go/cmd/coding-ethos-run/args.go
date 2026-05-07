@@ -9,10 +9,13 @@ import (
 	"strings"
 )
 
+const codeIntelInjectedRootArgCount = 2
+
 func runnerArgs(argv []string) []string {
 	if len(argv) != 1 {
 		return argv[1:]
 	}
+
 	hookName := filepath.Base(argv[0])
 	switch {
 	case isGitHookName(hookName):
@@ -29,13 +32,18 @@ func codeIntelArgs(root string, args []string) []string {
 		return args
 	}
 
-	next := []string{args[0], "--root", root}
+	next := make([]string, 0, codeIntelInjectedRootArgCount+len(args))
+	next = append(next, args[0], "--root", root)
 	next = append(next, args[1:]...)
 
 	return next
 }
 
-func policyToolLintArgs(paths runtimePaths, toolName string, toolArgs []string) []string {
+func policyToolLintArgs(
+	paths runtimePaths,
+	toolName string,
+	toolArgs []string,
+) []string {
 	lintArgs := []string{
 		"--bundle", paths.PolicyBundle,
 		"--managed-capture-tool", toolName,
@@ -46,6 +54,7 @@ func policyToolLintArgs(paths runtimePaths, toolName string, toolArgs []string) 
 	if sandboxMode := policyToolSandboxModeFromEnv(); sandboxMode != "" {
 		lintArgs = append(lintArgs, "--sandbox-mode", sandboxMode)
 	}
+
 	lintArgs = append(lintArgs, "--")
 	lintArgs = append(lintArgs, toolArgs...)
 
@@ -86,6 +95,7 @@ func rootFlagValue(args []string, fallback string) string {
 		if arg == "--root" && index+1 < len(args) {
 			return args[index+1]
 		}
+
 		if value, ok := strings.CutPrefix(arg, "--root="); ok {
 			return value
 		}

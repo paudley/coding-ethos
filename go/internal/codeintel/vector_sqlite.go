@@ -7,42 +7,61 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/internal/evidence"
-
 	// Register sqlite-vec functions for SQLiteVectorIndex connections.
 	_ "modernc.org/sqlite/vec"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
 const (
 	sqliteVectorMetaTable = "vector_embeddings"
 	sqliteVectorStoreMode = 0o700
 	vectorBackendName     = "sqlite-vec"
+	filteredSearchFactor  = 20
 )
 
 type SQLiteVectorIndex struct {
-	db *sql.DB
+	database *sql.DB
 }
 
-func NewSQLiteVectorIndex(ctx context.Context, path string) (*SQLiteVectorIndex, error) {
+type existingVectorMetadata struct {
+	Found        bool
+	OldDimension int
+	RowID        int64
+}
+
+func NewSQLiteVectorIndex(
+	ctx context.Context,
+	path string,
+) (*SQLiteVectorIndex, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("SQLite vector path is required")
+		return nil, apperror.StaticError("SQLite vector path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), sqliteVectorStoreMode); err != nil {
-		return nil, fmt.Errorf("create SQLite vector store dir: %w", err)
+
+	inlineErr0 := os.MkdirAll(filepath.Dir(path), sqliteVectorStoreMode)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("create SQLite vector store dir: %w", inlineErr0)
 	}
-	db, err := sql.Open("sqlite", path)
+
+	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite vector store: %w", err)
 	}
-	index := &SQLiteVectorIndex{db: db}
-	if err := index.migrate(ctx); err != nil {
-		_ = db.Close()
-		return nil, err
+
+	index := &SQLiteVectorIndex{database: database}
+
+	inlineErr1 := index.migrate(ctx)
+	if inlineErr1 != nil {
+		_ = database.Close()
+
+		return nil, inlineErr1
 	}
 
 	return index, nil
@@ -53,116 +72,198 @@ func (index *SQLiteVectorIndex) UpsertEmbedding(
 	record evidence.VectorRecord,
 ) error {
 	record = normalizeVectorRecord(record)
-	if err := validateVectorRecord(record); err != nil {
-		return err
+
+	inlineErr2 := validateVectorRecord(record)
+	if inlineErr2 != nil {
+		return inlineErr2
 	}
+
 	metadata, err := json.Marshal(record.Metadata)
 	if err != nil {
 		return fmt.Errorf("marshal vector metadata %q: %w", record.ID, err)
 	}
-	if err := index.ensureDimensionTable(ctx, record.Dimension); err != nil {
-		return err
+
+	inlineErr3 := index.ensureDimensionTable(ctx, record.Dimension)
+	if inlineErr3 != nil {
+		return inlineErr3
 	}
 
-	tx, err := index.db.BeginTx(ctx, nil)
+	transaction, err := index.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("start SQLite vector transaction: %w", err)
 	}
-	defer tx.Rollback()
 
-	rowID, oldDimension, found, err := existingVectorRow(ctx, tx, record.ID, record.ModelID)
+	defer func() {
+		rollbackSQLiteVectorTx(transaction)
+	}()
+
+	rowID, oldDimension, found, err := existingVectorRow(
+		ctx,
+		transaction,
+		record.ID,
+		record.ModelID,
+	)
 	if err != nil {
 		return err
 	}
-	if found {
-		if err := deleteVectorRow(ctx, tx, rowID, oldDimension); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(
-			ctx,
-			`UPDATE vector_embeddings
-			SET collection = ?, input_kind = ?, text = ?, dimension = ?,
-				metadata_json = ?, schema_version = ?
-			WHERE rowid = ?`,
-			record.Collection,
-			record.InputKind,
-			record.Text,
-			record.Dimension,
-			string(metadata),
-			record.SchemaVersion,
-			rowID,
-		); err != nil {
-			return fmt.Errorf("update SQLite vector metadata %q: %w", record.ID, err)
-		}
-	} else {
-		result, err := tx.ExecContext(
-			ctx,
-			`INSERT INTO vector_embeddings(
-				id, collection, model_id, input_kind, text, dimension,
-				metadata_json, schema_version
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			record.ID,
-			record.Collection,
-			record.ModelID,
-			record.InputKind,
-			record.Text,
-			record.Dimension,
-			string(metadata),
-			record.SchemaVersion,
-		)
-		if err != nil {
-			return fmt.Errorf("insert SQLite vector metadata %q: %w", record.ID, err)
-		}
-		rowID, err = result.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("read SQLite vector rowid %q: %w", record.ID, err)
-		}
-	}
-	if err := insertVecRow(ctx, tx, rowID, record.Dimension, record.Vector); err != nil {
+
+	rowID, err = upsertVectorMetadata(
+		ctx,
+		transaction,
+		existingVectorMetadata{
+			Found:        found,
+			OldDimension: oldDimension,
+			RowID:        rowID,
+		},
+		record,
+		string(metadata),
+	)
+	if err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit SQLite vector upsert %q: %w", record.ID, err)
+
+	inlineErr4 := insertVecRow(ctx, transaction, rowID, record.Dimension, record.Vector)
+	if inlineErr4 != nil {
+		return inlineErr4
+	}
+
+	inlineErr5 := transaction.Commit()
+	if inlineErr5 != nil {
+		return fmt.Errorf("commit SQLite vector upsert %q: %w", record.ID, inlineErr5)
 	}
 
 	return nil
 }
 
+func updateVectorMetadata(
+	ctx context.Context,
+	transaction *sql.Tx,
+	rowID int64,
+	oldDimension int,
+	record evidence.VectorRecord,
+	metadata string,
+) error {
+	err := deleteVectorRow(ctx, transaction, rowID, oldDimension)
+	if err != nil {
+		return err
+	}
+
+	_, err = transaction.ExecContext(
+		ctx,
+		`UPDATE vector_embeddings
+			SET collection = ?, input_kind = ?, text = ?, dimension = ?,
+				metadata_json = ?, schema_version = ?
+			WHERE rowid = ?`,
+		record.Collection,
+		record.InputKind,
+		record.Text,
+		record.Dimension,
+		metadata,
+		record.SchemaVersion,
+		rowID,
+	)
+	if err != nil {
+		return fmt.Errorf("update SQLite vector metadata %q: %w", record.ID, err)
+	}
+
+	return nil
+}
+
+func upsertVectorMetadata(
+	ctx context.Context,
+	transaction *sql.Tx,
+	existing existingVectorMetadata,
+	record evidence.VectorRecord,
+	metadata string,
+) (int64, error) {
+	if existing.Found {
+		err := updateVectorMetadata(
+			ctx,
+			transaction,
+			existing.RowID,
+			existing.OldDimension,
+			record,
+			metadata,
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		return existing.RowID, nil
+	}
+
+	result, err := transaction.ExecContext(
+		ctx,
+		`INSERT INTO vector_embeddings(
+			id, collection, model_id, input_kind, text, dimension,
+			metadata_json, schema_version
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		record.ID,
+		record.Collection,
+		record.ModelID,
+		record.InputKind,
+		record.Text,
+		record.Dimension,
+		metadata,
+		record.SchemaVersion,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("insert SQLite vector metadata %q: %w", record.ID, err)
+	}
+
+	rowID, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read SQLite vector rowid %q: %w", record.ID, err)
+	}
+
+	return rowID, nil
+}
+
 func (index *SQLiteVectorIndex) DeleteEmbedding(
 	ctx context.Context,
-	id string,
+	recordID string,
 	modelID string,
 ) error {
-	tx, err := index.db.BeginTx(ctx, nil)
+	transaction, err := index.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("start SQLite vector delete transaction: %w", err)
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		rollbackSQLiteVectorTx(transaction)
+	}()
 
 	rowID, dimension, found, err := existingVectorRow(
 		ctx,
-		tx,
-		strings.TrimSpace(id),
+		transaction,
+		strings.TrimSpace(recordID),
 		strings.TrimSpace(modelID),
 	)
 	if err != nil {
 		return err
 	}
+
 	if !found {
 		return nil
 	}
-	if err := deleteVectorRow(ctx, tx, rowID, dimension); err != nil {
-		return err
+
+	inlineErr6 := deleteVectorRow(ctx, transaction, rowID, dimension)
+	if inlineErr6 != nil {
+		return inlineErr6
 	}
-	if _, err := tx.ExecContext(
+
+	_, inlineErrB := transaction.ExecContext(
 		ctx,
 		"DELETE FROM vector_embeddings WHERE rowid = ?",
 		rowID,
-	); err != nil {
-		return fmt.Errorf("delete SQLite vector metadata %q: %w", id, err)
+	)
+	if inlineErrB != nil {
+		return fmt.Errorf("delete SQLite vector metadata %q: %w", recordID, inlineErrB)
 	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit SQLite vector delete %q: %w", id, err)
+
+	inlineErr7 := transaction.Commit()
+	if inlineErr7 != nil {
+		return fmt.Errorf("commit SQLite vector delete %q: %w", recordID, inlineErr7)
 	}
 
 	return nil
@@ -173,22 +274,29 @@ func (index *SQLiteVectorIndex) Search(
 	query evidence.VectorQuery,
 ) ([]evidence.VectorMatch, error) {
 	query.Collection = strings.TrimSpace(query.Collection)
+
 	query.ModelID = strings.TrimSpace(query.ModelID)
 	if query.Collection == "" || query.ModelID == "" {
-		return nil, fmt.Errorf("vector search requires collection and model id")
+		return nil, apperror.StaticError(
+			"vector search requires collection and model id",
+		)
 	}
+
 	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("vector search requires query vector")
+		return nil, apperror.StaticError("vector search requires query vector")
 	}
-	if err := index.ensureDimensionTable(ctx, len(query.Vector)); err != nil {
-		return nil, err
+
+	inlineErr8 := index.ensureDimensionTable(ctx, len(query.Vector))
+	if inlineErr8 != nil {
+		return nil, inlineErr8
 	}
+
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 10
 	}
 
-	rows, err := index.db.QueryContext(
+	rows, err := index.database.QueryContext(
 		ctx,
 		fmt.Sprintf(
 			`SELECT m.id, m.metadata_json,
@@ -212,27 +320,34 @@ func (index *SQLiteVectorIndex) Search(
 	defer rows.Close()
 
 	matches := []evidence.VectorMatch{}
+
 	for rows.Next() {
 		match, keep, err := scanVecMatch(rows, query.Filters)
 		if err != nil {
 			return nil, err
 		}
+
 		if keep {
 			matches = append(matches, match)
 		}
+
 		if len(matches) == limit {
 			break
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate sqlite-vec vectors: %w", err)
+
+	inlineErr9 := rows.Err()
+	if inlineErr9 != nil {
+		return nil, fmt.Errorf("iterate sqlite-vec vectors: %w", inlineErr9)
 	}
 
 	return matches, nil
 }
 
-func (index *SQLiteVectorIndex) Stats(ctx context.Context) (evidence.VectorStats, error) {
-	rows, err := index.db.QueryContext(
+func (index *SQLiteVectorIndex) Stats(
+	ctx context.Context,
+) (evidence.VectorStats, error) {
+	rows, err := index.database.QueryContext(
 		ctx,
 		`SELECT collection, COUNT(*) FROM vector_embeddings GROUP BY collection`,
 	)
@@ -245,17 +360,28 @@ func (index *SQLiteVectorIndex) Stats(ctx context.Context) (evidence.VectorStats
 		Backend:     vectorBackendName,
 		Collections: map[string]int{},
 	}
+
 	for rows.Next() {
-		var collection string
-		var count int
-		if err := rows.Scan(&collection, &count); err != nil {
+		var (
+			collection string
+			count      int
+		)
+
+		err := rows.Scan(&collection, &count)
+		if err != nil {
 			return evidence.VectorStats{}, fmt.Errorf("scan sqlite-vec stats: %w", err)
 		}
+
 		stats.Collections[collection] = count
 		stats.Rows += count
 	}
-	if err := rows.Err(); err != nil {
-		return evidence.VectorStats{}, fmt.Errorf("iterate sqlite-vec stats: %w", err)
+
+	inlineErr10 := rows.Err()
+	if inlineErr10 != nil {
+		return evidence.VectorStats{}, fmt.Errorf(
+			"iterate sqlite-vec stats: %w",
+			inlineErr10,
+		)
 	}
 
 	return stats, nil
@@ -263,71 +389,142 @@ func (index *SQLiteVectorIndex) Stats(ctx context.Context) (evidence.VectorStats
 
 func (index *SQLiteVectorIndex) Rebuild(ctx context.Context, collection string) error {
 	collection = strings.TrimSpace(collection)
-	tx, err := index.db.BeginTx(ctx, nil)
+
+	transaction, err := index.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("start sqlite-vec rebuild transaction: %w", err)
 	}
-	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(
+	defer func() {
+		rollbackSQLiteVectorTx(transaction)
+	}()
+
+	vectorRows, err := vectorRowsForRebuild(ctx, transaction, collection)
+	if err != nil {
+		return err
+	}
+
+	for _, row := range vectorRows {
+		err = deleteVectorRow(ctx, transaction, row.rowID, row.dimension)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = clearVectorMetadata(ctx, transaction, collection)
+	if err != nil {
+		return err
+	}
+
+	inlineErr13 := transaction.Commit()
+	if inlineErr13 != nil {
+		return fmt.Errorf(
+			"commit sqlite-vec rebuild collection %q: %w",
+			collection,
+			inlineErr13,
+		)
+	}
+
+	return nil
+}
+
+type vectorRow struct {
+	rowID     int64
+	dimension int
+}
+
+func vectorRowsForRebuild(
+	ctx context.Context,
+	transaction *sql.Tx,
+	collection string,
+) ([]vectorRow, error) {
+	rows, err := transaction.QueryContext(
 		ctx,
 		"SELECT rowid, dimension FROM vector_embeddings WHERE ? = '' OR collection = ?",
 		collection,
 		collection,
 	)
 	if err != nil {
-		return fmt.Errorf("query sqlite-vec rebuild rows: %w", err)
-	}
-	type vectorRow struct {
-		rowID     int64
-		dimension int
-	}
-	vectorRows := []vectorRow{}
-	for rows.Next() {
-		var row vectorRow
-		if err := rows.Scan(&row.rowID, &row.dimension); err != nil {
-			_ = rows.Close()
-			return fmt.Errorf("scan sqlite-vec rebuild row: %w", err)
-		}
-		vectorRows = append(vectorRows, row)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close sqlite-vec rebuild rows: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate sqlite-vec rebuild rows: %w", err)
+		return nil, fmt.Errorf("query sqlite-vec rebuild rows: %w", err)
 	}
 
-	for _, row := range vectorRows {
-		if err := deleteVectorRow(ctx, tx, row.rowID, row.dimension); err != nil {
-			return err
+	return scanVectorRowsForRebuild(rows)
+}
+
+func scanVectorRowsForRebuild(rows *sql.Rows) ([]vectorRow, error) {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	vectorRows := []vectorRow{}
+
+	for rows.Next() {
+		var row vectorRow
+
+		err := rows.Scan(&row.rowID, &row.dimension)
+		if err != nil {
+			return nil, fmt.Errorf("scan sqlite-vec rebuild row: %w", err)
 		}
+
+		vectorRows = append(vectorRows, row)
 	}
-	if _, err := tx.ExecContext(
+
+	err := rows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("close sqlite-vec rebuild rows: %w", err)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate sqlite-vec rebuild rows: %w", err)
+	}
+
+	return vectorRows, nil
+}
+
+func clearVectorMetadata(
+	ctx context.Context,
+	transaction *sql.Tx,
+	collection string,
+) error {
+	_, err := transaction.ExecContext(
 		ctx,
 		"DELETE FROM vector_embeddings WHERE ? = '' OR collection = ?",
 		collection,
 		collection,
-	); err != nil {
-		return fmt.Errorf("clear sqlite-vec metadata collection %q: %w", collection, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit sqlite-vec rebuild collection %q: %w", collection, err)
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"clear sqlite-vec metadata collection %q: %w",
+			collection,
+			err,
+		)
 	}
 
 	return nil
 }
 
 func (index *SQLiteVectorIndex) Close() error {
-	return index.db.Close()
+	err := index.database.Close()
+	if err != nil {
+		return fmt.Errorf("close SQLite vector index: %w", err)
+	}
+
+	return nil
 }
 
 func (index *SQLiteVectorIndex) migrate(ctx context.Context) error {
 	var version string
-	if err := index.db.QueryRowContext(ctx, "SELECT vec_version()").Scan(&version); err != nil {
-		return fmt.Errorf("load sqlite-vec extension: %w", err)
+
+	inlineErr14 := index.database.QueryRowContext(ctx, "SELECT vec_version()").
+		Scan(&version)
+	if inlineErr14 != nil {
+		return fmt.Errorf("load sqlite-vec extension: %w", inlineErr14)
 	}
-	_, err := index.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS vector_embeddings (
+
+	_, err := index.database.ExecContext(
+		ctx,
+		`CREATE TABLE IF NOT EXISTS vector_embeddings (
 		id TEXT NOT NULL,
 		collection TEXT NOT NULL,
 		model_id TEXT NOT NULL,
@@ -337,12 +534,17 @@ func (index *SQLiteVectorIndex) migrate(ctx context.Context) error {
 		metadata_json TEXT NOT NULL,
 		schema_version INTEGER NOT NULL,
 		UNIQUE(id, model_id)
-	)`)
+	)`,
+	)
 	if err != nil {
 		return fmt.Errorf("migrate sqlite-vec metadata store: %w", err)
 	}
-	_, err = index.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_vector_embeddings_lookup
-		ON vector_embeddings(collection, model_id, dimension)`)
+
+	_, err = index.database.ExecContext(
+		ctx,
+		`CREATE INDEX IF NOT EXISTS idx_vector_embeddings_lookup
+		ON vector_embeddings(collection, model_id, dimension)`,
+	)
 	if err != nil {
 		return fmt.Errorf("index sqlite-vec metadata store: %w", err)
 	}
@@ -355,9 +557,10 @@ func (index *SQLiteVectorIndex) ensureDimensionTable(
 	dimension int,
 ) error {
 	if dimension <= 0 {
-		return fmt.Errorf("sqlite-vec dimension must be positive")
+		return apperror.StaticError("sqlite-vec dimension must be positive")
 	}
-	_, err := index.db.ExecContext(
+
+	_, err := index.database.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			"CREATE VIRTUAL TABLE IF NOT EXISTS %s USING vec0(embedding float[%d])",
@@ -366,7 +569,11 @@ func (index *SQLiteVectorIndex) ensureDimensionTable(
 		),
 	)
 	if err != nil {
-		return fmt.Errorf("create sqlite-vec table for dimension %d: %w", dimension, err)
+		return fmt.Errorf(
+			"create sqlite-vec table for dimension %d: %w",
+			dimension,
+			err,
+		)
 	}
 
 	return nil
@@ -374,36 +581,40 @@ func (index *SQLiteVectorIndex) ensureDimensionTable(
 
 func existingVectorRow(
 	ctx context.Context,
-	tx *sql.Tx,
-	id string,
+	transaction *sql.Tx,
+	recordID string,
 	modelID string,
 ) (int64, int, bool, error) {
-	var rowID int64
-	var dimension int
-	err := tx.QueryRowContext(
+	var (
+		rowID     int64
+		dimension int
+	)
+
+	err := transaction.QueryRowContext(
 		ctx,
 		"SELECT rowid, dimension FROM vector_embeddings WHERE id = ? AND model_id = ?",
-		id,
+		recordID,
 		modelID,
 	).Scan(&rowID, &dimension)
 	if err == nil {
 		return rowID, dimension, true, nil
 	}
-	if err == sql.ErrNoRows {
+
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, 0, false, nil
 	}
 
-	return 0, 0, false, fmt.Errorf("query SQLite vector metadata %q: %w", id, err)
+	return 0, 0, false, fmt.Errorf("query SQLite vector metadata %q: %w", recordID, err)
 }
 
 func insertVecRow(
 	ctx context.Context,
-	tx *sql.Tx,
+	transaction *sql.Tx,
 	rowID int64,
 	dimension int,
 	vector []float32,
 ) error {
-	_, err := tx.ExecContext(
+	_, err := transaction.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			"INSERT INTO %s(rowid, embedding) VALUES (?, vec_f32(?))",
@@ -421,11 +632,11 @@ func insertVecRow(
 
 func deleteVectorRow(
 	ctx context.Context,
-	tx *sql.Tx,
+	transaction *sql.Tx,
 	rowID int64,
 	dimension int,
 ) error {
-	_, err := tx.ExecContext(
+	_, err := transaction.ExecContext(
 		ctx,
 		fmt.Sprintf("DELETE FROM %s WHERE rowid = ?", vectorTableName(dimension)),
 		rowID,
@@ -442,23 +653,36 @@ func scanVecMatch(
 	filters map[string]string,
 ) (evidence.VectorMatch, bool, error) {
 	var (
-		id       string
+		recordID string
 		metadata string
 		distance float64
 	)
-	if err := rows.Scan(&id, &metadata, &distance); err != nil {
-		return evidence.VectorMatch{}, false, fmt.Errorf("scan sqlite-vec match: %w", err)
+
+	err := rows.Scan(&recordID, &metadata, &distance)
+	if err != nil {
+		return evidence.VectorMatch{}, false, fmt.Errorf(
+			"scan sqlite-vec match: %w",
+			err,
+		)
 	}
+
 	recordMetadata := map[string]string{}
-	if err := json.Unmarshal([]byte(metadata), &recordMetadata); err != nil {
-		return evidence.VectorMatch{}, false, fmt.Errorf("decode sqlite-vec metadata %q: %w", id, err)
+
+	err = json.Unmarshal([]byte(metadata), &recordMetadata)
+	if err != nil {
+		return evidence.VectorMatch{}, false, fmt.Errorf(
+			"decode sqlite-vec metadata %q: %w",
+			recordID,
+			err,
+		)
 	}
+
 	if !metadataMatches(recordMetadata, filters) {
 		return evidence.VectorMatch{}, false, nil
 	}
 
 	return evidence.VectorMatch{
-		ID:       id,
+		ID:       recordID,
 		Score:    1 - distance,
 		Metadata: recordMetadata,
 	}, true, nil
@@ -468,13 +692,16 @@ func normalizeVectorRecord(record evidence.VectorRecord) evidence.VectorRecord {
 	record.ID = strings.TrimSpace(record.ID)
 	record.Collection = strings.TrimSpace(record.Collection)
 	record.ModelID = strings.TrimSpace(record.ModelID)
+
 	record.InputKind = strings.TrimSpace(record.InputKind)
 	if record.Dimension == 0 {
 		record.Dimension = len(record.Vector)
 	}
+
 	if record.SchemaVersion == 0 {
 		record.SchemaVersion = evidence.SchemaVersion
 	}
+
 	if record.Metadata == nil {
 		record.Metadata = map[string]string{}
 	}
@@ -484,13 +711,19 @@ func normalizeVectorRecord(record evidence.VectorRecord) evidence.VectorRecord {
 
 func validateVectorRecord(record evidence.VectorRecord) error {
 	if record.ID == "" || record.Collection == "" || record.ModelID == "" {
-		return fmt.Errorf("vector id, collection, and model id are required")
+		return apperror.StaticError("vector id, collection, and model id are required")
 	}
+
 	if record.Dimension <= 0 {
-		return fmt.Errorf("vector dimension must be positive")
+		return apperror.StaticError("vector dimension must be positive")
 	}
+
 	if len(record.Vector) != record.Dimension {
-		return fmt.Errorf("vector dimension mismatch for %q", record.ID)
+		return apperror.Wrapf(
+			apperror.StaticError("vector dimension mismatch for %q"),
+			"vector dimension mismatch for %q",
+			record.ID,
+		)
 	}
 
 	return nil
@@ -514,20 +747,28 @@ func searchCandidateLimit(limit int, filters map[string]string) int {
 		return limit
 	}
 
-	return limit * 20
+	return limit * filteredSearchFactor
 }
 
-func metadataMatches(metadata map[string]string, filters map[string]string) bool {
+func metadataMatches(metadata, filters map[string]string) bool {
 	for key, value := range filters {
 		if strings.TrimSpace(value) == "" {
 			continue
 		}
+
 		if metadata[key] != value {
 			return false
 		}
 	}
 
 	return true
+}
+
+func rollbackSQLiteVectorTx(transaction *sql.Tx) {
+	err := transaction.Rollback()
+	if err != nil {
+		return
+	}
 }
 
 var _ evidence.VectorIndex = (*SQLiteVectorIndex)(nil)

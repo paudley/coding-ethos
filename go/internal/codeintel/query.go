@@ -129,14 +129,14 @@ type HybridSearchResult struct {
 }
 
 type IndexStatus struct {
+	Backend          string               `json:"backend"`
+	ModelID          string               `json:"model_id,omitempty"`
+	Collection       string               `json:"collection,omitempty"`
 	VectorStats      evidence.VectorStats `json:"vector_stats"`
 	Stats            Stats                `json:"stats"`
 	EmbeddingRecords int                  `json:"embedding_records"`
 	ReadyRecords     int                  `json:"ready_records"`
 	MissingVectors   int                  `json:"missing_vectors"`
-	Backend          string               `json:"backend"`
-	ModelID          string               `json:"model_id,omitempty"`
-	Collection       string               `json:"collection,omitempty"`
 	Fresh            bool                 `json:"fresh"`
 }
 
@@ -160,7 +160,7 @@ func (store *Store) RepeatedFailures(
 		limit = defaultRepeatedFailureLimit
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			COALESCE(policy_id, '') AS policy_id,
@@ -194,13 +194,16 @@ func (store *Store) RepeatedFailures(
 	return scanRepeatedFailures(rows)
 }
 
-func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResult, error) {
+func (store *Store) Search(
+	ctx context.Context,
+	query SearchQuery,
+) ([]SearchResult, error) {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 10
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT kind, record_id, trace_id, policy_id, skill_id, path, message
 		FROM code_intel_fts
@@ -216,9 +219,11 @@ func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResu
 	defer rows.Close()
 
 	results := []SearchResult{}
+
 	for rows.Next() {
 		var result SearchResult
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.Kind,
 			&result.RecordID,
 			&result.TraceID,
@@ -226,13 +231,17 @@ func (store *Store) Search(ctx context.Context, query SearchQuery) ([]SearchResu
 			&result.SkillID,
 			&result.Path,
 			&result.Message,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan search result: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate search results: %w", err)
+
+	inlineErr0 := rows.Err()
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("iterate search results: %w", inlineErr0)
 	}
 
 	return results, nil
@@ -247,7 +256,7 @@ func (store *Store) SARIFResults(
 		limit = 20
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			result.sarif_result_id, result.rule_id, result.level,
@@ -297,7 +306,7 @@ func (store *Store) RemediationOutcomes(
 		limit = 20
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			outcome_id, remediation_id, finding_id,
@@ -335,7 +344,7 @@ func (store *Store) RemediationEffectiveness(
 	ctx context.Context,
 	query RemediationOutcomeQuery,
 ) ([]RemediationEffectiveness, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			COALESCE(policy_id, '') AS policy_id,
@@ -344,7 +353,11 @@ func (store *Store) RemediationEffectiveness(
 			SUM(CASE WHEN outcome = 'repeated' THEN 1 ELSE 0 END) AS repeated,
 			SUM(CASE WHEN outcome = 'attempted' THEN 1 ELSE 0 END) AS attempted,
 			SUM(CASE WHEN outcome = 'superseded' THEN 1 ELSE 0 END) AS superseded,
-			SUM(CASE WHEN outcome NOT IN ('fixed', 'repeated', 'attempted', 'superseded') THEN 1 ELSE 0 END) AS unknown,
+			SUM(CASE
+				WHEN outcome NOT IN ('fixed', 'repeated', 'attempted', 'superseded')
+					THEN 1
+				ELSE 0
+			END) AS unknown,
 			COUNT(*) AS total
 		FROM remediation_outcomes
 		WHERE (? = '' OR policy_id = ?)
@@ -366,9 +379,11 @@ func (store *Store) RemediationEffectiveness(
 	defer rows.Close()
 
 	results := []RemediationEffectiveness{}
+
 	for rows.Next() {
 		var result RemediationEffectiveness
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Fixed,
@@ -377,13 +392,17 @@ func (store *Store) RemediationEffectiveness(
 			&result.Superseded,
 			&result.Unknown,
 			&result.Total,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan remediation effectiveness: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate remediation effectiveness: %w", err)
+
+	inlineErr1 := rows.Err()
+	if inlineErr1 != nil {
+		return nil, fmt.Errorf("iterate remediation effectiveness: %w", inlineErr1)
 	}
 
 	return results, nil
@@ -398,7 +417,7 @@ func (store *Store) EmbeddingRecords(
 		limit = 20
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			embedding_id, backend, collection, model_id, dimension, input_kind,
@@ -429,10 +448,16 @@ func (store *Store) EmbeddingRecords(
 	}
 	defer rows.Close()
 
+	return scanEmbeddingRecords(rows)
+}
+
+func scanEmbeddingRecords(rows *sql.Rows) ([]EmbeddingRecord, error) {
 	results := []EmbeddingRecord{}
+
 	for rows.Next() {
 		var result EmbeddingRecord
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.Backend,
 			&result.Collection,
@@ -449,12 +474,16 @@ func (store *Store) EmbeddingRecords(
 			&result.Provider,
 			&result.BackendRowID,
 			&result.CreatedAtUTC,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan embedding record: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate embedding records: %w", err)
 	}
 
@@ -465,13 +494,63 @@ func (store *Store) EmbeddingCandidates(
 	ctx context.Context,
 	query EmbeddingCandidateQuery,
 ) ([]EmbeddingCandidate, error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = 20
+	rows, err := store.queryEmbeddingCandidateRows(ctx, query)
+	if err != nil {
+		return nil, err
 	}
-	rows, err := store.db.QueryContext(
+	defer rows.Close()
+
+	return scanEmbeddingCandidates(rows)
+}
+
+func (store *Store) queryEmbeddingCandidateRows(
+	ctx context.Context,
+	query EmbeddingCandidateQuery,
+) (*sql.Rows, error) {
+	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT 'remediation' AS record_kind, remediation_id, policy_id, skill_id,
+		embeddingCandidatesSQL,
+		query.RecordKind,
+		query.RecordKind,
+		query.PolicyID,
+		query.PolicyID,
+		query.SkillID,
+		query.SkillID,
+		query.Path,
+		query.Path,
+		query.Path,
+		query.RecordKind,
+		query.RecordKind,
+		query.PolicyID,
+		query.PolicyID,
+		query.SkillID,
+		query.SkillID,
+		query.Path,
+		query.Path,
+		query.Path,
+		query.RecordKind,
+		query.RecordKind,
+		query.Path,
+		query.Path,
+		query.RecordKind,
+		query.RecordKind,
+		query.PolicyID,
+		query.PolicyID,
+		query.SkillID,
+		query.SkillID,
+		query.Path,
+		query.Path,
+		defaultQueryLimit(query.Limit),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query embedding candidates: %w", err)
+	}
+
+	return rows, nil
+}
+
+const embeddingCandidatesSQL = `SELECT 'remediation' AS record_kind,
+			remediation_id, policy_id, skill_id,
 			COALESCE(NULLIF(file, ''), path), search_text
 		FROM remediations
 		WHERE (? = '' OR 'remediation' = ?)
@@ -500,57 +579,26 @@ func (store *Store) EmbeddingCandidates(
 			AND (? = '' OR policy_id = ?)
 			AND (? = '' OR skill_id = ?)
 			AND (? = '' OR path = ?)
-		LIMIT ?`,
-		query.RecordKind,
-		query.RecordKind,
-		query.PolicyID,
-		query.PolicyID,
-		query.SkillID,
-		query.SkillID,
-		query.Path,
-		query.Path,
-		query.Path,
-		query.RecordKind,
-		query.RecordKind,
-		query.PolicyID,
-		query.PolicyID,
-		query.SkillID,
-		query.SkillID,
-		query.Path,
-		query.Path,
-		query.Path,
-		query.RecordKind,
-		query.RecordKind,
-		query.Path,
-		query.Path,
-		query.RecordKind,
-		query.RecordKind,
-		query.PolicyID,
-		query.PolicyID,
-		query.SkillID,
-		query.SkillID,
-		query.Path,
-		query.Path,
-		limit,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query embedding candidates: %w", err)
-	}
-	defer rows.Close()
+		LIMIT ?`
 
+func scanEmbeddingCandidates(rows *sql.Rows) ([]EmbeddingCandidate, error) {
 	results := []EmbeddingCandidate{}
+
 	for rows.Next() {
 		var result EmbeddingCandidate
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.RecordKind,
 			&result.RecordID,
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Path,
 			&result.Text,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan embedding candidate: %w", err)
 		}
+
 		result.Metadata = map[string]string{
 			"record_kind": result.RecordKind,
 			"record_id":   result.RecordID,
@@ -560,8 +608,10 @@ func (store *Store) EmbeddingCandidates(
 		}
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate embedding candidates: %w", err)
+
+	inlineErr2 := rows.Err()
+	if inlineErr2 != nil {
+		return nil, fmt.Errorf("iterate embedding candidates: %w", inlineErr2)
 	}
 
 	return results, nil
@@ -575,11 +625,13 @@ func (store *Store) CodeChunks(
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := store.db.QueryContext(
+
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte, start_line,
+			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id,
+			start_byte, end_byte, start_line,
 			end_line, content_hash, search_text, raw_text
 		FROM code_chunks
 		WHERE (? = '' OR path = ?)
@@ -606,43 +658,16 @@ func (store *Store) CodeChunks(
 	}
 	defer rows.Close()
 
-	results := []CodeChunk{}
-	for rows.Next() {
-		var result CodeChunk
-		if err := rows.Scan(
-			&result.ID,
-			&result.Path,
-			&result.Language,
-			&result.NodeKind,
-			&result.SymbolKind,
-			&result.SymbolName,
-			&result.SymbolPath,
-			&result.ParentSymbolPath,
-			&result.ParentChunkID,
-			&result.StartByte,
-			&result.EndByte,
-			&result.StartLine,
-			&result.EndLine,
-			&result.ContentHash,
-			&result.SearchText,
-			&result.RawText,
-		); err != nil {
-			return nil, fmt.Errorf("scan code chunk: %w", err)
-		}
-		results = append(results, result)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate code chunks: %w", err)
-	}
-
-	return results, nil
+	return scanCodeChunks(rows)
 }
 
 func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 	results := []RepeatedFailure{}
+
 	for rows.Next() {
 		var result RepeatedFailure
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.PolicyID,
 			&result.SkillID,
 			&result.Path,
@@ -650,12 +675,16 @@ func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 			&result.TraceCount,
 			&result.LastSeenUTC,
 			&result.LastTraceID,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan repeated failure: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate repeated failures: %w", err)
 	}
 
@@ -664,10 +693,14 @@ func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {
 
 func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 	results := []SARIFResultReference{}
+
 	for rows.Next() {
-		var result SARIFResultReference
-		var principleIDs string
-		if err := rows.Scan(
+		var (
+			result       SARIFResultReference
+			principleIDs string
+		)
+
+		err := rows.Scan(
 			&result.ID,
 			&result.RuleID,
 			&result.Level,
@@ -692,13 +725,17 @@ func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 			&result.CELExpression,
 			&result.PolicySource,
 			&result.SearchText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan SARIF result: %w", err)
 		}
+
 		result.PrincipleIDs = compactStrings(splitCSV(principleIDs))
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate SARIF results: %w", err)
 	}
 
@@ -707,9 +744,11 @@ func scanSARIFResults(rows *sql.Rows) ([]SARIFResultReference, error) {
 
 func scanRemediationOutcomes(rows *sql.Rows) ([]RemediationOutcome, error) {
 	results := []RemediationOutcome{}
+
 	for rows.Next() {
 		var result RemediationOutcome
-		if err := rows.Scan(
+
+		err := rows.Scan(
 			&result.ID,
 			&result.RemediationID,
 			&result.FindingID,
@@ -725,12 +764,16 @@ func scanRemediationOutcomes(rows *sql.Rows) ([]RemediationOutcome, error) {
 			&result.AttemptOrdinal,
 			&result.RecordedAtUTC,
 			&result.SearchText,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, fmt.Errorf("scan remediation outcome: %w", err)
 		}
+
 		results = append(results, result)
 	}
-	if err := rows.Err(); err != nil {
+
+	err := rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate remediation outcomes: %w", err)
 	}
 

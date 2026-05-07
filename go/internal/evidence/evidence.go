@@ -6,8 +6,8 @@ package evidence
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -32,33 +32,33 @@ type SourceSpan struct {
 }
 
 type Finding struct {
-	SourceSpan         SourceSpan `json:"source_span,omitempty"`
-	ID                 string     `json:"id"`
+	SkillID            string     `json:"skill_id,omitempty"`
+	EvaluatorKind      string     `json:"evaluator_kind,omitempty"`
 	RuleID             string     `json:"rule_id,omitempty"`
 	Tool               string     `json:"tool,omitempty"`
 	Code               string     `json:"code,omitempty"`
 	Message            string     `json:"message,omitempty"`
 	Severity           string     `json:"severity,omitempty"`
 	PolicyID           string     `json:"policy_id,omitempty"`
-	SkillID            string     `json:"skill_id,omitempty"`
-	EvaluatorKind      string     `json:"evaluator_kind,omitempty"`
+	ID                 string     `json:"id"`
 	SearchText         string     `json:"search_text,omitempty"`
+	RemediationContext string     `json:"remediation_context,omitempty"`
 	CodeContext        string     `json:"code_context,omitempty"`
 	PolicyContext      string     `json:"policy_context,omitempty"`
-	RemediationContext string     `json:"remediation_context,omitempty"`
 	EvidenceKeys       []string   `json:"evidence_keys,omitempty"`
 	PrincipleIDs       []string   `json:"principle_ids,omitempty"`
+	SourceSpan         SourceSpan `json:"source_span,omitzero"`
 	SchemaVersion      int        `json:"schema_version"`
 }
 
 type Envelope struct {
-	SourceSpan    SourceSpan `json:"source_span,omitempty"`
-	Finding       Finding    `json:"finding,omitempty"`
 	ID            string     `json:"id"`
 	PolicyID      string     `json:"policy_id,omitempty"`
 	SkillID       string     `json:"skill_id,omitempty"`
 	EvaluatorKind string     `json:"evaluator_kind,omitempty"`
 	EvidenceKeys  []string   `json:"evidence_keys,omitempty"`
+	SourceSpan    SourceSpan `json:"source_span,omitzero"`
+	Finding       Finding    `json:"finding,omitzero"`
 	SchemaVersion int        `json:"schema_version"`
 }
 
@@ -76,16 +76,24 @@ type RemediationEvent struct {
 
 func FromDiagnostic(item diagnostics.Diagnostic) Finding {
 	finding := Finding{
-		SourceSpan:         SourceSpanFromDiagnostic(item),
-		RuleID:             firstNonEmpty(item.PolicyID, joinID(item.Tool, item.Code), item.Code, item.Tool),
-		Tool:               strings.TrimSpace(item.Tool),
-		Code:               strings.TrimSpace(item.Code),
-		Message:            strings.TrimSpace(item.Message),
-		Severity:           strings.TrimSpace(item.Severity),
-		PolicyID:           strings.TrimSpace(item.PolicyID),
-		SkillID:            strings.TrimSpace(item.SkillID),
-		EvaluatorKind:      stringMetadata(item.Metadata, "implementation"),
-		CodeContext:        firstNonEmpty(stringMetadata(item.Metadata, "code_context"), item.Detail),
+		SourceSpan: SourceSpanFromDiagnostic(item),
+		RuleID: firstNonEmpty(
+			item.PolicyID,
+			joinID(item.Tool, item.Code),
+			item.Code,
+			item.Tool,
+		),
+		Tool:          strings.TrimSpace(item.Tool),
+		Code:          strings.TrimSpace(item.Code),
+		Message:       strings.TrimSpace(item.Message),
+		Severity:      strings.TrimSpace(item.Severity),
+		PolicyID:      strings.TrimSpace(item.PolicyID),
+		SkillID:       strings.TrimSpace(item.SkillID),
+		EvaluatorKind: stringMetadata(item.Metadata, "implementation"),
+		CodeContext: firstNonEmpty(
+			stringMetadata(item.Metadata, "code_context"),
+			item.Detail,
+		),
 		PolicyContext:      strings.TrimSpace(item.Meaning),
 		RemediationContext: strings.TrimSpace(item.Advice),
 		PrincipleIDs:       compactStrings(item.PrincipleIDs),
@@ -111,9 +119,11 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Finding {
 	findings := make([]Finding, 0, len(items))
 	for _, item := range items {
 		finding := FromDiagnostic(item)
-		if finding.Message == "" && finding.PolicyID == "" && finding.SourceSpan.Path == "" {
+		if finding.Message == "" && finding.PolicyID == "" &&
+			finding.SourceSpan.Path == "" {
 			continue
 		}
+
 		findings = append(findings, finding)
 	}
 
@@ -155,12 +165,15 @@ func FromDecisions(decisions []policy.Decision) []Finding {
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
 			findings = append(findings, FromDiagnostics(decision.Diagnostics)...)
+
 			continue
 		}
+
 		finding := FromDecision(decision)
 		if finding.Message == "" && finding.PolicyID == "" {
 			continue
 		}
+
 		findings = append(findings, finding)
 	}
 
@@ -192,6 +205,7 @@ func RemediationEvents(
 		if index < len(findings) {
 			findingID = findings[index].ID
 		}
+
 		events = append(events, RemediationEventFromRemediation(
 			remediation,
 			findingID,
@@ -212,6 +226,7 @@ func RemediationEventFromRemediation(
 	if strings.TrimSpace(event) == "" {
 		event = "suggested"
 	}
+
 	result := RemediationEvent{
 		RemediationID: strings.TrimSpace(remediation.ID),
 		FindingID:     strings.TrimSpace(findingID),
@@ -247,9 +262,12 @@ func RemediationEventFromRemediation(
 
 func SourceSpanFromDiagnostic(item diagnostics.Diagnostic) SourceSpan {
 	return SourceSpan{
-		Path:        cleanPath(item.File),
-		Language:    stringMetadata(item.Metadata, "language"),
-		SymbolName:  firstNonEmpty(item.Function, stringMetadata(item.Metadata, "symbol_name")),
+		Path:     cleanPath(item.File),
+		Language: stringMetadata(item.Metadata, "language"),
+		SymbolName: firstNonEmpty(
+			item.Function,
+			stringMetadata(item.Metadata, "symbol_name"),
+		),
 		SymbolKind:  stringMetadata(item.Metadata, "symbol_kind"),
 		ContentHash: stringMetadata(item.Metadata, "content_hash"),
 		StartLine:   item.Line,
@@ -263,7 +281,12 @@ func SourceSpanFromDiagnostic(item diagnostics.Diagnostic) SourceSpan {
 
 func sourceSpanFromEvidence(evidence map[string]any) SourceSpan {
 	return SourceSpan{
-		Path:        cleanPath(firstNonEmpty(stringEvidence(evidence, "file"), stringEvidence(evidence, "path"))),
+		Path: cleanPath(
+			firstNonEmpty(
+				stringEvidence(evidence, "file"),
+				stringEvidence(evidence, "path"),
+			),
+		),
 		Language:    stringEvidence(evidence, "language"),
 		SymbolName:  stringEvidence(evidence, "symbol_name"),
 		SymbolKind:  stringEvidence(evidence, "symbol_kind"),
@@ -285,8 +308,8 @@ func findingID(finding Finding) string {
 		finding.Code,
 		finding.PolicyID,
 		finding.SourceSpan.Path,
-		fmt.Sprint(finding.SourceSpan.StartLine),
-		fmt.Sprint(finding.SourceSpan.StartColumn),
+		strconv.Itoa(finding.SourceSpan.StartLine),
+		strconv.Itoa(finding.SourceSpan.StartColumn),
 		finding.SourceSpan.SymbolName,
 		finding.Message,
 	)
@@ -314,12 +337,13 @@ func cleanPath(path string) string {
 }
 
 func stringMetadata(metadata map[string]any, key string) string {
-	value, ok := metadata[key]
-	if !ok {
+	value, found := metadata[key]
+	if !found {
 		return ""
 	}
-	text, ok := value.(string)
-	if !ok {
+
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -327,8 +351,8 @@ func stringMetadata(metadata map[string]any, key string) string {
 }
 
 func intMetadata(metadata map[string]any, key string) int {
-	value, ok := metadata[key]
-	if !ok {
+	value, found := metadata[key]
+	if !found {
 		return 0
 	}
 
@@ -336,12 +360,13 @@ func intMetadata(metadata map[string]any, key string) int {
 }
 
 func stringEvidence(evidence map[string]any, key string) string {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
-	text, ok := value.(string)
-	if !ok {
+
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -349,8 +374,8 @@ func stringEvidence(evidence map[string]any, key string) string {
 }
 
 func intEvidence(evidence map[string]any, key string) int {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return 0
 	}
 
@@ -374,10 +399,12 @@ func evidenceKeys(evidence map[string]any) []string {
 	if len(evidence) == 0 {
 		return nil
 	}
+
 	keys := make([]string, 0, len(evidence))
 	for key := range evidence {
 		keys = append(keys, key)
 	}
+
 	slices.Sort(keys)
 
 	return keys
@@ -385,11 +412,13 @@ func evidenceKeys(evidence map[string]any) []string {
 
 func compactStrings(values []string) []string {
 	compacted := []string{}
+
 	for _, value := range values {
 		value = strings.TrimSpace(value)
 		if value == "" || slices.Contains(compacted, value) {
 			continue
 		}
+
 		compacted = append(compacted, value)
 	}
 
