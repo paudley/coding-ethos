@@ -26,8 +26,18 @@ func runPolicyToolGroup(paths runtimePaths, rest []string) error {
 
 	requirePolicyBundle(paths)
 
+	exitCode := 0
+
 	for _, entry := range group {
-		runtimeRunLint(paths, policyToolLintArgs(paths, entry.Tool, entry.Args)...)
+		code := runtimeRunLint(paths, policyToolLintArgs(paths, entry.Tool, entry.Args)...)
+
+		if code != 0 && exitCode == 0 {
+			exitCode = code
+		}
+	}
+
+	if exitCode != 0 {
+		requestRuntimeExit(exitCode)
 	}
 
 	return nil

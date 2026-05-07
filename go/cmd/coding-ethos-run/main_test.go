@@ -518,6 +518,30 @@ func TestRunRuntimePropagatesInProcessRuntimeExit(t *testing.T) {
 	}
 }
 
+func TestPolicyToolGroupRunsAllEntriesBeforeFailing(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls, runLintCode: 37}
+
+	code := runRuntime(paths, []string{"policy-tool-group", "formatters"})
+	if code != 37 {
+		t.Fatalf("runRuntime exit = %d, want 37", code)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("policy-tool-group calls = %#v, want both group entries", calls)
+	}
+
+	if !strings.Contains(calls[0], "ruff-format") ||
+		!strings.Contains(calls[1], "golangci-lint-format") {
+		t.Fatalf("policy-tool-group calls = %#v, want formatter group order", calls)
+	}
+}
+
 func TestMakefileRoutesLintTargetsThroughManagedGroups(t *testing.T) {
 	t.Parallel()
 
@@ -740,11 +764,14 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 
 type stubRuntimeOps struct {
 	calls        *[]string
+	runLintCode  int
 	execLintCode int
 }
 
-func (stub stubRuntimeOps) runLint(args ...string) {
+func (stub stubRuntimeOps) runLint(args ...string) int {
 	*stub.calls = append(*stub.calls, "run-lint:"+strings.Join(args, " "))
+
+	return stub.runLintCode
 }
 
 func (stub stubRuntimeOps) execLint(args ...string) {

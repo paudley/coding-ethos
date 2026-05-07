@@ -397,17 +397,69 @@ func TestRegisteredParsersHaveFixtures(t *testing.T) {
 	}
 }
 
+func TestManagedAliasParsersUseBaseToolParsers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tool   string
+		output string
+		want   string
+	}{
+		{
+			tool:   "ruff-format",
+			output: "Would reformat: pkg/example.py",
+			want:   "ruff:pkg/example.py:format",
+		},
+		{
+			tool: "golangci-lint-autofix",
+			output: "go/internal/example.go:12:3: " +
+				"line is 121 characters (lll)",
+			want: "golangci-lint:go/internal/example.go:lll",
+		},
+		{
+			tool: "go-test-prebuilt",
+			output: strings.Join([]string{
+				`{"Action":"output","Package":"pkg","Test":"TestThing",` +
+					`"Output":"    thing_test.go:42: failed\n"}`,
+				`{"Action":"fail","Package":"pkg","Test":"TestThing"}`,
+			}, "\n"),
+			want: "go-test:thing_test.go:TestThing",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.tool, func(t *testing.T) {
+			t.Parallel()
+
+			parsed := diagnostics.Parse(test.tool, test.output, "")
+			if len(parsed) == 0 {
+				t.Fatalf("Parse(%q) returned no diagnostics", test.tool)
+			}
+
+			got := parsed[0].Tool + ":" + parsed[0].File + ":" + parsed[0].Code
+			if got != test.want {
+				t.Fatalf("Parse(%q) = %q, want %q", test.tool, got, test.want)
+			}
+		})
+	}
+}
+
 func parserFixtureTools() map[string]bool {
 	fixtures := map[string]bool{
-		"mypy":          true,
-		"pylint":        true,
-		"pyright":       true,
-		"ruff":          true,
-		"pytest":        true,
-		"gemini-check":  true,
-		"gofmt-check":   true,
-		"go-test":       true,
-		"golangci-lint": true,
+		"mypy":                  true,
+		"pylint":                true,
+		"pyright":               true,
+		"ruff":                  true,
+		"ruff-autofix":          true,
+		"ruff-format":           true,
+		"pytest":                true,
+		"gemini-check":          true,
+		"gofmt-check":           true,
+		"go-test":               true,
+		"go-test-prebuilt":      true,
+		"golangci-lint":         true,
+		"golangci-lint-autofix": true,
+		"golangci-lint-format":  true,
 	}
 
 	for _, test := range toolchainDiagnosticCases() {

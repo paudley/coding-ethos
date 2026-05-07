@@ -68,12 +68,15 @@ func installGitWrapperShim(paths runtimePaths) {
 }
 
 func installLintToolShims(paths runtimePaths) {
-	runtimeRunLint(paths,
+	code := runtimeRunLint(paths,
 		"--install-shims",
 		"--tools-bin-dir", paths.BinDir,
 		"--runner", paths.RunBinary,
 		"--ethos-root", paths.EthosRoot,
 	)
+	if code != 0 {
+		requestRuntimeExit(code)
+	}
 }
 
 func persistAgentEnvironment(paths runtimePaths) {

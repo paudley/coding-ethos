@@ -542,11 +542,12 @@ func hookOwnedToolDefinitions() []Tool {
 
 func ruffTool() Tool {
 	return Tool{
-		Name:         "ruff",
-		Parser:       "ruff",
-		Captured:     true,
-		Category:     "python-static",
-		OutputFormat: "json",
+		Name:          "ruff",
+		Parser:        "ruff",
+		ParserAliases: []string{"ruff-autofix", "ruff-format"},
+		Captured:      true,
+		Category:      "python-static",
+		OutputFormat:  "json",
 		Advice: adviceText(
 			"Fix Ruff diagnostics structurally; do not suppress unless the",
 			"policy requires a documented exception.",
@@ -1046,6 +1047,7 @@ func goTestTool() Tool {
 	return Tool{
 		Name:             "go-test",
 		Parser:           "go-test",
+		ParserAliases:    []string{"go-test-prebuilt"},
 		Category:         "test",
 		OutputFormat:     "json",
 		Advice:           "Fix Go test failures as executable behavioral contract failures.",
@@ -1176,8 +1178,12 @@ func geminiCheckTool() Tool {
 
 func golangciLintTool() Tool {
 	return Tool{
-		Name:         "golangci-lint",
-		Parser:       "golangci-lint",
+		Name:   "golangci-lint",
+		Parser: "golangci-lint",
+		ParserAliases: []string{
+			"golangci-lint-autofix",
+			"golangci-lint-format",
+		},
 		Captured:     true,
 		Category:     "go-static",
 		OutputFormat: "json",

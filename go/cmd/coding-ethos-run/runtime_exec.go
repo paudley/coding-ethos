@@ -24,7 +24,7 @@ import (
 )
 
 type runtimeExecutor interface {
-	runLint(args ...string)
+	runLint(args ...string) int
 	execLint(args ...string)
 	runInternalTool(tool string, args ...string)
 	execInternalTool(tool string, args ...string)
@@ -36,11 +36,8 @@ type runtimeExecutor interface {
 
 type defaultRuntimeExecutor struct{}
 
-func (defaultRuntimeExecutor) runLint(args ...string) {
-	code := lintcli.Run(args)
-	if code != 0 {
-		requestRuntimeExit(code)
-	}
+func (defaultRuntimeExecutor) runLint(args ...string) int {
+	return lintcli.Run(args)
 }
 
 func (defaultRuntimeExecutor) execLint(args ...string) {
@@ -129,8 +126,8 @@ func runtimeExecTool(paths runtimePaths, tool string, args ...string) {
 	paths.executor().execTool(paths, tool, args...)
 }
 
-func runtimeRunLint(paths runtimePaths, args ...string) {
-	paths.executor().runLint(args...)
+func runtimeRunLint(paths runtimePaths, args ...string) int {
+	return paths.executor().runLint(args...)
 }
 
 func runtimeExecLint(paths runtimePaths, args ...string) {

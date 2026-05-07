@@ -12,6 +12,7 @@ import (
 	"time"
 
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestRunWritesHookLogsAndMetadata(t *testing.T) {
@@ -93,6 +94,59 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 	}
 
 	assertFileContains(t, logPath, "check-ignore --no-index --quiet")
+}
+
+func TestRunInProcessRestoresGlobalStreamsAfterPanic(t *testing.T) {
+	t.Parallel()
+	testlock.ProcessState(t, "hooklog-global-streams")
+
+	root := t.TempDir()
+	git := fakeGit(t)
+
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+
+	var recovered any
+
+	func() {
+		defer func() {
+			recovered = recover()
+		}()
+
+		status, err := RunInProcess(Options{
+			Stdin:      strings.NewReader(""),
+			Stdout:     &bytes.Buffer{},
+			Stderr:     &bytes.Buffer{},
+			GitPath:    git,
+			Root:       root,
+			BundleRoot: filepath.Join(root, "pre-commit"),
+			Command:    []string{"in-process"},
+			Now: func() time.Time {
+				return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+			},
+		}, func() int {
+			panic("boom")
+		})
+		if err != nil {
+			t.Fatalf("RunInProcess returned unexpected error: %v", err)
+		}
+
+		if status != 0 {
+			t.Fatalf("RunInProcess status = %d, want 0 before panic", status)
+		}
+	}()
+
+	if recovered == nil {
+		t.Fatal("RunInProcess panic was not propagated")
+	}
+
+	if os.Stdout != originalStdout {
+		t.Fatal("RunInProcess did not restore os.Stdout after panic")
+	}
+
+	if os.Stderr != originalStderr {
+		t.Fatal("RunInProcess did not restore os.Stderr after panic")
+	}
 }
 
 func fakeGit(t *testing.T) string {

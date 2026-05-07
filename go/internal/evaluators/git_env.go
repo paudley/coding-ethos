@@ -109,7 +109,12 @@ func samePath(left, right string) bool {
 }
 
 func realGitCandidates() []string {
-	candidates := []string{"/usr/bin/git", "/bin/git", "/usr/local/bin/git"}
+	candidates := []string{
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	}
 
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" {

@@ -34,6 +34,11 @@ var (
 		"hook-log must not execute coding-ethos commands; " +
 			"call the Go implementation directly",
 	)
+
+	// runLoggedAction replaces process-global os.Stdout/os.Stderr while an
+	// in-process command runs, so concurrent captures must serialize.
+	//nolint:gochecknoglobals // process-global streams require one shared lock.
+	loggedActionStreamMu sync.Mutex
 )
 
 type Options struct {
@@ -143,63 +148,62 @@ func runLoggedPayload(
 	return exitCode(err), err
 }
 
-func runLoggedAction(
-	options Options,
-	logs hookRunLogs,
-	runDir string,
-) (int, error) {
+func runLoggedAction(options Options, logs hookRunLogs, runDir string) (int, error) {
+	loggedActionStreamMu.Lock()
+	defer loggedActionStreamMu.Unlock()
+
 	originalStdout := os.Stdout
 	originalStderr := os.Stderr
-
-	streams, err := openLoggedActionStreams()
-	if err != nil {
-		return 1, err
-	}
-
-	var waitGroup sync.WaitGroup
-	waitGroup.Add(loggedStreamCount)
-
-	go copyLoggedStream(
-		&waitGroup,
-		streams.stdoutReader,
-		io.MultiWriter(options.Stdout, logs.stdout),
-	)
-	go copyLoggedStream(
-		&waitGroup,
-		streams.stderrReader,
-		io.MultiWriter(options.Stderr, logs.stderr),
-	)
-
 	originalLoggingActive, hadLoggingActive := os.LookupEnv(
 		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
 	)
 	originalRunDir, hadRunDir := os.LookupEnv("CODE_ETHOS_HOOK_RUN_DIR")
-	os.Stdout = streams.stdoutWriter
-	os.Stderr = streams.stderrWriter
 
-	setErr := os.Setenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE", "1")
-	if setErr != nil {
-		return restoreLoggedStreams(
-			originalStdout,
-			originalStderr,
-			streams.stdoutWriter,
-			streams.stderrWriter,
-			&waitGroup,
-			1,
-			fmt.Errorf("set hook logging env: %w", setErr),
-		)
+	streams, waitGroup, err := installLoggedActionStreams(
+		options,
+		logs,
+	)
+	if err != nil {
+		return 1, err
 	}
 
-	setErr = os.Setenv("CODE_ETHOS_HOOK_RUN_DIR", runDir)
-	if setErr != nil {
+	restored := false
+
+	defer func() {
+		if restored {
+			return
+		}
+
+		_, restoreErr := restoreLoggedStreams(
+			originalStdout,
+			originalStderr,
+			streams.stdoutWriter,
+			streams.stderrWriter,
+			waitGroup,
+			1,
+			nil,
+		)
+		if restoreErr != nil {
+			_, _ = fmt.Fprintf(
+				originalStderr,
+				"WARN: restore hook log streams: %v\n",
+				restoreErr,
+			)
+		}
+	}()
+
+	err = setLoggedActionEnv(runDir)
+	if err != nil {
+		restored = true
+
 		return restoreLoggedStreams(
 			originalStdout,
 			originalStderr,
 			streams.stdoutWriter,
 			streams.stderrWriter,
-			&waitGroup,
+			waitGroup,
 			1,
-			fmt.Errorf("set hook run dir env: %w", setErr),
+			err,
 		)
 	}
 
@@ -211,15 +215,60 @@ func runLoggedAction(
 		hadRunDir,
 	)
 
+	restored = true
+
 	return restoreLoggedStreams(
 		originalStdout,
 		originalStderr,
 		streams.stdoutWriter,
 		streams.stderrWriter,
-		&waitGroup,
+		waitGroup,
 		status,
 		nil,
 	)
+}
+
+func installLoggedActionStreams(
+	options Options,
+	logs hookRunLogs,
+) (loggedActionStreams, *sync.WaitGroup, error) {
+	streams, err := openLoggedActionStreams()
+	if err != nil {
+		return loggedActionStreams{}, nil, err
+	}
+
+	waitGroup := &sync.WaitGroup{}
+	waitGroup.Add(loggedStreamCount)
+
+	go copyLoggedStream(
+		waitGroup,
+		streams.stdoutReader,
+		io.MultiWriter(options.Stdout, logs.stdout),
+	)
+	go copyLoggedStream(
+		waitGroup,
+		streams.stderrReader,
+		io.MultiWriter(options.Stderr, logs.stderr),
+	)
+
+	os.Stdout = streams.stdoutWriter
+	os.Stderr = streams.stderrWriter
+
+	return streams, waitGroup, nil
+}
+
+func setLoggedActionEnv(runDir string) error {
+	err := os.Setenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE", "1")
+	if err != nil {
+		return fmt.Errorf("set hook logging env: %w", err)
+	}
+
+	err = os.Setenv("CODE_ETHOS_HOOK_RUN_DIR", runDir)
+	if err != nil {
+		return fmt.Errorf("set hook run dir env: %w", err)
+	}
+
+	return nil
 }
 
 func openLoggedActionStreams() (loggedActionStreams, error) {
