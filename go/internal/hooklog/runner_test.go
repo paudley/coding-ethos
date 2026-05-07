@@ -69,6 +69,32 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	git := fakeGitWithLog(t, logPath)
+
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    git,
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook log: %v", err)
+	}
+
+	assertFileContains(t, logPath, "check-ignore --no-index --quiet")
+}
+
 func fakeGit(t *testing.T) string {
 	t.Helper()
 
@@ -88,6 +114,32 @@ func fakeGit(t *testing.T) string {
 	}
 
 	return path
+}
+
+func fakeGitWithLog(t *testing.T, logPath string) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "git")
+
+	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " +
+		shellQuoteForTest(logPath) + "\nexit 0\n"
+
+	err := os.WriteFile(path, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	return path
+}
+
+func shellQuoteForTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func commandThatPrints(t *testing.T) []string {

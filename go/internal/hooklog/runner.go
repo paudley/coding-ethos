@@ -202,6 +202,7 @@ func requireIgnored(options Options, path string) error {
 		"-C",
 		options.Root,
 		"check-ignore",
+		"--no-index",
 		"--quiet",
 		path,
 	)
