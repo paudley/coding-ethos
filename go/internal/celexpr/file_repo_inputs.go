@@ -195,6 +195,7 @@ func gitOutput(cwd string, args ...string) (string, error) {
 	}
 
 	cmd.Env = cleanGitLocalEnv(os.Environ())
+	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
 
 	output, err := cmd.Output()
 	if err != nil {

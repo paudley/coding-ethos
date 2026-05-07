@@ -102,6 +102,8 @@ func externalToolEnv(extra []string) []string {
 		env = append(env, item)
 	}
 
+	env = append(env, "GIT_OPTIONAL_LOCKS=0")
+
 	return append(env, extra...)
 }
 

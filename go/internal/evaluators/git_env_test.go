@@ -4,6 +4,7 @@
 package evaluators_test
 
 import (
+	"slices"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -32,7 +33,11 @@ func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
 
 	got := CleanGitLocalEnv(source)
 
-	if len(got) != 1 || got[0] != "PATH=/usr/bin" {
-		t.Fatalf("CleanGitLocalEnv() = %#v, want only PATH", got)
+	if len(got) != 2 || got[0] != "PATH=/usr/bin" {
+		t.Fatalf("CleanGitLocalEnv() = %#v, want PATH and git lock guard", got)
+	}
+
+	if !slices.Contains(got, "GIT_OPTIONAL_LOCKS=0") {
+		t.Fatalf("CleanGitLocalEnv() missing optional lock guard: %#v", got)
 	}
 }

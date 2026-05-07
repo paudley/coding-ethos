@@ -31,4 +31,8 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	if !slices.Contains(env, "KEEP_EXTRA=1") {
 		t.Fatalf("externalToolEnv dropped explicit extra env: %#v", env)
 	}
+
+	if !slices.Contains(env, "GIT_OPTIONAL_LOCKS=0") {
+		t.Fatalf("externalToolEnv did not disable optional git locks: %#v", env)
+	}
 }
