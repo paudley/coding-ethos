@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package codeintel
+package codeintel_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -13,9 +14,15 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	. "blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+)
+
+const (
+	codeChunkRecordKind = "code_chunk"
+	vectorBackendName   = "sqlite-vec"
 )
 
 func TestStoreIngestsLintTracesAndReportsRepeatedFailures(t *testing.T) {
@@ -27,12 +34,14 @@ func TestStoreIngestsLintTracesAndReportsRepeatedFailures(t *testing.T) {
 	first := lintTracePayload(t, "trace-a.json", "2026-01-01T00:00:00Z")
 	second := lintTracePayload(t, "trace-b.json", "2026-01-01T00:01:00Z")
 
-	if err := ingester.IngestLintTrace(ctx, first); err != nil {
-		t.Fatalf("ingest first trace: %v", err)
+	inlineErr0 := ingester.IngestLintTrace(ctx, first)
+	if inlineErr0 != nil {
+		t.Fatalf("ingest first trace: %v", inlineErr0)
 	}
 
-	if err := ingester.IngestLintTrace(ctx, second); err != nil {
-		t.Fatalf("ingest second trace: %v", err)
+	inlineErr1 := ingester.IngestLintTrace(ctx, second)
+	if inlineErr1 != nil {
+		t.Fatalf("ingest second trace: %v", inlineErr1)
 	}
 
 	repeated, err := store.RepeatedFailures(ctx, RepeatedFailureQuery{
@@ -57,10 +66,13 @@ func TestStoreIngestsLintTracesAndReportsRepeatedFailures(t *testing.T) {
 		t.Fatalf("stats: %v", err)
 	}
 
-	if stats.Traces != 2 || stats.Findings != 1 || stats.Remediations != 1 ||
-		stats.RemediationEvents != 2 || stats.FtsRows != 4 {
-		t.Fatalf("stats = %#v", stats)
-	}
+	assertStats(t, stats, Stats{
+		Traces:            2,
+		Findings:          1,
+		Remediations:      1,
+		RemediationEvents: 2,
+		FtsRows:           4,
+	})
 }
 
 func TestStoreSearchesRemediationText(t *testing.T) {
@@ -70,11 +82,13 @@ func TestStoreSearchesRemediationText(t *testing.T) {
 	store := openTestStore(t, ctx)
 
 	ingester := NewTraceIngester(store)
-	if err := ingester.IngestLintTrace(
+
+	inlineErr2 := ingester.IngestLintTrace(
 		ctx,
 		lintTracePayload(t, "trace-a.json", "2026-01-01T00:00:00Z"),
-	); err != nil {
-		t.Fatalf("ingest trace: %v", err)
+	)
+	if inlineErr2 != nil {
+		t.Fatalf("ingest trace: %v", inlineErr2)
 	}
 
 	results, err := store.Search(ctx, SearchQuery{Text: "unused", Limit: 5})
@@ -170,8 +184,10 @@ func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
 	store := openTestStore(t, ctx)
 
 	ingester := NewTraceIngester(store)
-	if err := ingester.IngestHookTrace(ctx, hookTracePayload(t)); err != nil {
-		t.Fatalf("ingest hook trace: %v", err)
+
+	inlineErr3 := ingester.IngestHookTrace(ctx, hookTracePayload(t))
+	if inlineErr3 != nil {
+		t.Fatalf("ingest hook trace: %v", inlineErr3)
 	}
 
 	usage, err := store.HookUsage(ctx, HookUsageQuery{
@@ -186,23 +202,43 @@ func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
 		t.Fatalf("hook usage = %#v", usage)
 	}
 
-	if usage[0].EventCount != 1 ||
-		usage[0].BlockedCount != 1 ||
-		usage[0].PolicyID != "git.wrapper_required" ||
-		usage[0].OperationKind != "git_status" ||
-		usage[0].TargetKind != "source_file" ||
-		usage[0].LastTrackingID != "deny-hook-a" {
-		t.Fatalf("hook usage summary = %#v", usage[0])
-	}
+	assertHookUsageSummary(t, usage[0])
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
 
-	if stats.HookEvents != 1 || stats.HookDecisions != 1 ||
-		stats.HookTargets != 1 || stats.FtsRows != 3 {
-		t.Fatalf("stats = %#v", stats)
+	assertStats(t, stats, Stats{
+		HookEvents:    1,
+		HookDecisions: 1,
+		HookTargets:   1,
+		FtsRows:       3,
+	})
+}
+
+func assertHookUsageSummary(t *testing.T, usage HookUsageSummary) {
+	t.Helper()
+
+	got := []any{
+		usage.EventCount,
+		usage.BlockedCount,
+		usage.PolicyID,
+		usage.OperationKind,
+		usage.TargetKind,
+		usage.LastTrackingID,
+	}
+
+	want := []any{
+		1,
+		1,
+		"git.wrapper_required",
+		"git_status",
+		"source_file",
+		"deny-hook-a",
+	}
+	if !stringAnySlicesEqual(got, want) {
+		t.Fatalf("hook usage summary = %#v", usage)
 	}
 }
 
@@ -225,12 +261,15 @@ func TestHookUsageLastIDsComeFromLatestEvent(t *testing.T) {
 		"deny-a",
 		"2026-01-01T00:02:00Z",
 	)
-	if err := ingester.IngestHookTrace(ctx, older); err != nil {
-		t.Fatalf("ingest older hook trace: %v", err)
+
+	inlineErr4 := ingester.IngestHookTrace(ctx, older)
+	if inlineErr4 != nil {
+		t.Fatalf("ingest older hook trace: %v", inlineErr4)
 	}
 
-	if err := ingester.IngestHookTrace(ctx, newer); err != nil {
-		t.Fatalf("ingest newer hook trace: %v", err)
+	inlineErr5 := ingester.IngestHookTrace(ctx, newer)
+	if inlineErr5 != nil {
+		t.Fatalf("ingest newer hook trace: %v", inlineErr5)
 	}
 
 	usage, err := store.HookUsage(ctx, HookUsageQuery{
@@ -259,21 +298,24 @@ func TestStoreRecordsHookReviews(t *testing.T) {
 	ctx := context.Background()
 
 	store := openTestStore(t, ctx)
-	if err := NewTraceIngester(
+
+	inlineErr6 := NewTraceIngester(
 		store,
-	).IngestHookTrace(ctx, hookTracePayload(t)); err != nil {
-		t.Fatalf("ingest hook trace: %v", err)
+	).IngestHookTrace(ctx, hookTracePayload(t))
+	if inlineErr6 != nil {
+		t.Fatalf("ingest hook trace: %v", inlineErr6)
 	}
 
-	if err := store.RecordHookReview(ctx, HookReview{
+	inlineErr7 := store.RecordHookReview(ctx, HookReview{
 		TraceID:       "hook-trace-a",
 		TrackingID:    "deny-hook-a",
 		Disposition:   "false_positive",
 		Reviewer:      "admin",
 		Notes:         "memory path should be allowed",
 		RecordedAtUTC: "2026-01-01T00:03:00Z",
-	}); err != nil {
-		t.Fatalf("record hook review: %v", err)
+	})
+	if inlineErr7 != nil {
+		t.Fatalf("record hook review: %v", inlineErr7)
 	}
 
 	reviews, err := store.HookReviews(ctx, HookReviewQuery{
@@ -305,10 +347,12 @@ func TestStoreIngestsSARIFResultsWithCELProvenance(t *testing.T) {
 	store := openTestStore(t, ctx)
 
 	payload := sarifPayload(t)
-	if err := NewTraceIngester(
+
+	inlineErr8 := NewTraceIngester(
 		store,
-	).IngestSARIF(ctx, "policy.sarif", payload); err != nil {
-		t.Fatalf("ingest SARIF: %v", err)
+	).IngestSARIF(ctx, "policy.sarif", payload)
+	if inlineErr8 != nil {
+		t.Fatalf("ingest SARIF: %v", inlineErr8)
 	}
 
 	results, err := store.SARIFResults(ctx, SARIFResultQuery{
@@ -408,58 +452,100 @@ func TestDecodeSARIFRunsMergesRuleResultAndFindingMetadata(t *testing.T) {
 		t.Fatalf("decode SARIF run: %v", err)
 	}
 
-	if run.SourcePath != "policy.sarif" ||
-		run.Category != "staged" ||
-		run.ToolName != "coding-ethos" ||
-		run.AutomationID != "policy" ||
-		run.RunGUID != "run-guid" ||
-		run.BaselineGUID != "base-guid" {
-		t.Fatalf("run metadata = %#v", run)
-	}
+	assertDecodedSARIFRunMetadata(t, run)
 
 	if len(run.Results) != 1 {
 		t.Fatalf("results = %#v", run.Results)
 	}
 
-	result := run.Results[0]
-	if result.FindingID != "finding-1" ||
-		result.RemediationID != "rem-1" ||
-		result.PolicyID != "result.policy" ||
-		result.SkillID != "result-skill" ||
-		result.EvaluatorKind != "cel" ||
-		result.CELExpression != "diagnostic.code == 'PLC0415'" ||
-		result.PolicySource != "coding_ethos.yml:principles.3" ||
-		result.Path != "pkg/app.py" ||
-		result.StartLine != 7 ||
-		result.StartColumn != 3 ||
-		result.Fingerprint != "line-hash" ||
-		result.ASTLanguage != "python" ||
-		result.ASTSymbolPath != "plugin" ||
-		!strings.Contains(result.SearchText, "Move import") ||
-		!strings.Contains(result.SearchText, "Use module scope") {
-		t.Fatalf("result metadata = %#v", result)
+	assertDecodedSARIFResultMetadata(t, run.Results[0])
+}
+
+func assertDecodedSARIFRunMetadata(t *testing.T, run SARIFRun) {
+	t.Helper()
+
+	got := []any{
+		run.SourcePath,
+		run.Category,
+		run.ToolName,
+		run.AutomationID,
+		run.RunGUID,
+		run.BaselineGUID,
 	}
 
-	if !strings.Contains(
-		strings.Join(result.PrincipleIDs, ","),
-		"no-conditional-imports",
-	) ||
-		!strings.Contains(strings.Join(result.PrincipleIDs, ","), "conditional-imports") {
-		t.Fatalf("principle IDs = %#v", result.PrincipleIDs)
+	want := []any{
+		"policy.sarif",
+		"staged",
+		"coding-ethos",
+		"policy",
+		"run-guid",
+		"base-guid",
+	}
+	if !stringAnySlicesEqual(got, want) {
+		t.Fatalf("run metadata = %#v", run)
+	}
+}
+
+func assertDecodedSARIFResultMetadata(t *testing.T, result SARIFResultReference) {
+	t.Helper()
+
+	got := []any{
+		result.FindingID,
+		result.RemediationID,
+		result.PolicyID,
+		result.SkillID,
+		result.EvaluatorKind,
+		result.CELExpression,
+		result.PolicySource,
+		result.Path,
+		result.StartLine,
+		result.StartColumn,
+		result.Fingerprint,
+		result.ASTLanguage,
+		result.ASTSymbolPath,
+		strings.Contains(result.SearchText, "Move import"),
+		strings.Contains(result.SearchText, "Use module scope"),
+		containsJoined(result.PrincipleIDs, "no-conditional-imports"),
+		containsJoined(result.PrincipleIDs, "conditional-imports"),
+	}
+
+	want := []any{
+		"finding-1",
+		"rem-1",
+		"result.policy",
+		"result-skill",
+		"cel",
+		"diagnostic.code == 'PLC0415'",
+		"coding_ethos.yml:principles.3",
+		"pkg/app.py",
+		7,
+		3,
+		"line-hash",
+		"python",
+		"plugin",
+		true,
+		true,
+		true,
+		true,
+	}
+	if !stringAnySlicesEqual(got, want) {
+		t.Fatalf("result metadata = %#v", result)
 	}
 }
 
 func TestDecodeSARIFRunsRejectsMalformedLogs(t *testing.T) {
 	t.Parallel()
 
-	if _, err := DecodeSARIFRuns("bad.sarif", []byte("{")); err == nil {
+	_, inlineErrAutoA := DecodeSARIFRuns("bad.sarif", []byte("{"))
+	if inlineErrAutoA == nil {
 		t.Fatal("expected malformed SARIF decode error")
 	}
 
-	if _, err := DecodeSARIFRuns(
+	_, inlineErrAutoB := DecodeSARIFRuns(
 		"empty.sarif",
 		[]byte(`{"version":"2.1.0","runs":[]}`),
-	); err == nil {
+	)
+	if inlineErrAutoB == nil {
 		t.Fatal("expected no-runs SARIF error")
 	}
 }
@@ -469,17 +555,21 @@ func TestStoreQueriesMigratedSARIFResultsWithNullASTColumns(t *testing.T) {
 
 	ctx := context.Background()
 
-	store := openTestStore(t, ctx)
-	if _, err := store.db.ExecContext(
+	path := filepath.Join(t.TempDir(), "code-intel.db")
+	store := openTestStoreAt(t, ctx, path)
+	rawDatabase := openRawSQLite(t, path)
+
+	_, inlineErrA := rawDatabase.ExecContext(
 		ctx,
 		`INSERT INTO sarif_runs(
 			sarif_run_id, source_path, category, tool_name, raw_json
 		) VALUES ('old-run', 'old.sarif', 'policy', 'coding-ethos', '{}')`,
-	); err != nil {
-		t.Fatalf("insert old SARIF run: %v", err)
+	)
+	if inlineErrA != nil {
+		t.Fatalf("insert old SARIF run: %v", inlineErrA)
 	}
 
-	if _, err := store.db.ExecContext(
+	_, inlineErrB := rawDatabase.ExecContext(
 		ctx,
 		`INSERT INTO sarif_results(
 			sarif_result_id, sarif_run_id, ordinal, rule_id, message,
@@ -492,8 +582,9 @@ func TestStoreQueriesMigratedSARIFResultsWithNullASTColumns(t *testing.T) {
 			'', 'pkg/app.py', 1, 1, '',
 			'', '', '', 'old message', '{}'
 		)`,
-	); err != nil {
-		t.Fatalf("insert old SARIF result: %v", err)
+	)
+	if inlineErrB != nil {
+		t.Fatalf("insert old SARIF result: %v", inlineErrB)
 	}
 
 	results, err := store.SARIFResults(ctx, SARIFResultQuery{RunID: "old-run"})
@@ -513,22 +604,48 @@ func TestStoreRecordsRemediationOutcomesAndEmbeddingMetadata(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t, ctx)
 
+	recordRemediationOutcomeFixture(t, ctx, store)
+	assertRecordedRemediationOutcome(t, ctx, store)
+	assertRecordedEmbeddingMetadata(t, ctx, store)
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+
+	assertStats(t, stats, Stats{
+		RemediationOutcomes: 1,
+		EmbeddingRecords:    1,
+		FtsRows:             6,
+	})
+}
+
+func recordRemediationOutcomeFixture(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) {
+	t.Helper()
+
 	ingester := NewTraceIngester(store)
-	if err := ingester.IngestLintTrace(
+
+	err := ingester.IngestLintTrace(
 		ctx,
 		lintTracePayload(t, "trace-a", "2026-01-01T00:00:00Z"),
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("ingest source trace: %v", err)
 	}
 
-	if err := ingester.IngestLintTrace(
+	err = ingester.IngestLintTrace(
 		ctx,
 		lintTracePayload(t, "trace-b", "2026-01-01T00:01:00Z"),
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("ingest follow-up trace: %v", err)
 	}
 
-	if err := store.RecordRemediationOutcome(ctx, RemediationOutcome{
+	err = store.RecordRemediationOutcome(ctx, RemediationOutcome{
 		RemediationID:   "rem-1",
 		FindingID:       "finding-1",
 		SourceTraceID:   "trace-a",
@@ -540,12 +657,13 @@ func TestStoreRecordsRemediationOutcomesAndEmbeddingMetadata(t *testing.T) {
 		Tool:            "Edit",
 		Outcome:         "fixed",
 		AttemptOrdinal:  1,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("record outcome: %v", err)
 	}
 
-	if err := store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
-		Backend:      "sqlite-vec",
+	err = store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
+		Backend:      vectorBackendName,
 		Collection:   "remediations",
 		ModelID:      "voyage-code-3",
 		RecordKind:   "remediation_outcome",
@@ -555,9 +673,18 @@ func TestStoreRecordsRemediationOutcomesAndEmbeddingMetadata(t *testing.T) {
 		SkillID:      "lint-remediation",
 		Path:         "pkg/app.py",
 		BackendRowID: "sqlite-vec-row-1",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("record embedding: %v", err)
 	}
+}
+
+func assertRecordedRemediationOutcome(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) {
+	t.Helper()
 
 	outcomes, err := store.RemediationOutcomes(ctx, RemediationOutcomeQuery{
 		Outcome: "fixed",
@@ -579,9 +706,17 @@ func TestStoreRecordsRemediationOutcomesAndEmbeddingMetadata(t *testing.T) {
 		effectiveness[0].Total != 1 {
 		t.Fatalf("effectiveness = %#v", effectiveness)
 	}
+}
+
+func assertRecordedEmbeddingMetadata(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) {
+	t.Helper()
 
 	embeddingRecords, err := store.EmbeddingRecords(ctx, EmbeddingRecordQuery{
-		Backend: "sqlite-vec",
+		Backend: vectorBackendName,
 		ModelID: "voyage-code-3",
 	})
 	if err != nil {
@@ -592,16 +727,6 @@ func TestStoreRecordsRemediationOutcomesAndEmbeddingMetadata(t *testing.T) {
 		embeddingRecords[0].BackendRowID != "sqlite-vec-row-1" {
 		t.Fatalf("embedding records = %#v", embeddingRecords)
 	}
-
-	stats, err := store.Stats(ctx)
-	if err != nil {
-		t.Fatalf("stats: %v", err)
-	}
-
-	if stats.RemediationOutcomes != 1 || stats.EmbeddingRecords != 1 ||
-		stats.FtsRows != 6 {
-		t.Fatalf("stats = %#v", stats)
-	}
 }
 
 func TestStoreReturnsEmbeddingCandidates(t *testing.T) {
@@ -610,13 +735,15 @@ func TestStoreReturnsEmbeddingCandidates(t *testing.T) {
 	ctx := context.Background()
 
 	store := openTestStore(t, ctx)
-	if err := NewTraceIngester(
+
+	inlineErr13 := NewTraceIngester(
 		store,
-	).IngestSARIF(ctx, "policy.sarif", sarifPayload(t)); err != nil {
-		t.Fatalf("ingest SARIF: %v", err)
+	).IngestSARIF(ctx, "policy.sarif", sarifPayload(t))
+	if inlineErr13 != nil {
+		t.Fatalf("ingest SARIF: %v", inlineErr13)
 	}
 
-	if err := store.RecordRemediationOutcome(ctx, RemediationOutcome{
+	inlineErr14 := store.RecordRemediationOutcome(ctx, RemediationOutcome{
 		ID:            "rem-1",
 		RemediationID: "rem-1",
 		FindingID:     "finding-1",
@@ -624,8 +751,9 @@ func TestStoreReturnsEmbeddingCandidates(t *testing.T) {
 		SkillID:       "lint-remediation",
 		Path:          "pkg/app.py",
 		Outcome:       "fixed",
-	}); err != nil {
-		t.Fatalf("record outcome: %v", err)
+	})
+	if inlineErr14 != nil {
+		t.Fatalf("record outcome: %v", inlineErr14)
 	}
 
 	candidates, err := store.EmbeddingCandidates(ctx, EmbeddingCandidateQuery{
@@ -654,7 +782,8 @@ func TestStoreQueriesOutcomeWithoutTraceIDs(t *testing.T) {
 	ctx := context.Background()
 
 	store := openTestStore(t, ctx)
-	if err := store.RecordRemediationOutcome(ctx, RemediationOutcome{
+
+	inlineErr15 := store.RecordRemediationOutcome(ctx, RemediationOutcome{
 		ID:            "rem-no-trace",
 		RemediationID: "rem-no-trace",
 		FindingID:     "finding-1",
@@ -662,8 +791,9 @@ func TestStoreQueriesOutcomeWithoutTraceIDs(t *testing.T) {
 		SkillID:       "lint-remediation",
 		Path:          "pkg/app.py",
 		Outcome:       "attempted",
-	}); err != nil {
-		t.Fatalf("record outcome: %v", err)
+	})
+	if inlineErr15 != nil {
+		t.Fatalf("record outcome: %v", inlineErr15)
 	}
 
 	outcomes, err := store.RemediationOutcomes(ctx, RemediationOutcomeQuery{
@@ -689,10 +819,12 @@ func TestStoreIngestsAllSARIFRuns(t *testing.T) {
 	ctx := context.Background()
 
 	store := openTestStore(t, ctx)
-	if err := NewTraceIngester(
+
+	inlineErr16 := NewTraceIngester(
 		store,
-	).IngestSARIF(ctx, "multi.sarif", multiRunSARIFPayload()); err != nil {
-		t.Fatalf("ingest SARIF: %v", err)
+	).IngestSARIF(ctx, "multi.sarif", multiRunSARIFPayload())
+	if inlineErr16 != nil {
+		t.Fatalf("ingest SARIF: %v", inlineErr16)
 	}
 
 	first, err := store.SARIFResults(
@@ -743,16 +875,18 @@ func (worker Worker) Run() string {
 	return BuildMessage("agent")
 }
 `))
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
 
 	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
 	if err != nil {
 		t.Fatalf("index code: %v", err)
 	}
 
-	if summary.FilesIndexed != 1 || summary.ChunksIndexed < 3 {
-		t.Fatalf("summary = %#v", summary)
-	}
+	assertIndexedSummary(t, summary)
 
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
 		Path:       "pkg/app.go",
@@ -763,17 +897,10 @@ func (worker Worker) Run() string {
 		t.Fatalf("query code chunks: %v", err)
 	}
 
-	if len(chunks) != 1 {
-		t.Fatalf("chunks = %#v", chunks)
-	}
-
-	if chunks[0].Language != "go" || chunks[0].SearchText == "" ||
-		!strings.Contains(chunks[0].RawText, "BuildMessage") {
-		t.Fatalf("chunk = %#v", chunks[0])
-	}
+	assertBuildMessageChunk(t, chunks)
 
 	candidates, err := store.EmbeddingCandidates(ctx, EmbeddingCandidateQuery{
-		RecordKind: "code_chunk",
+		RecordKind: codeChunkRecordKind,
 		Path:       "pkg/app.go",
 		Limit:      10,
 	})
@@ -785,7 +912,7 @@ func (worker Worker) Run() string {
 		t.Fatalf("candidates = %#v", candidates)
 	}
 
-	if candidates[0].Metadata["record_kind"] != "code_chunk" {
+	if candidates[0].Metadata["record_kind"] != codeChunkRecordKind {
 		t.Fatalf("candidate = %#v", candidates[0])
 	}
 
@@ -794,7 +921,7 @@ func (worker Worker) Run() string {
 		t.Fatalf("search code chunks: %v", err)
 	}
 
-	if len(searchResults) == 0 || searchResults[0].Kind != "code_chunk" {
+	if len(searchResults) == 0 || searchResults[0].Kind != codeChunkRecordKind {
 		t.Fatalf("search results = %#v", searchResults)
 	}
 
@@ -803,9 +930,11 @@ func (worker Worker) Run() string {
 		t.Fatalf("stats: %v", err)
 	}
 
-	if stats.Files != 1 || stats.CodeChunks < 3 || stats.FtsRows < 3 {
-		t.Fatalf("stats = %#v", stats)
-	}
+	assertMinimumStats(t, stats, Stats{
+		Files:      1,
+		CodeChunks: 3,
+		FtsRows:    3,
+	})
 }
 
 func TestASTIndexerStoresParentEdgesAndContext(t *testing.T) {
@@ -828,16 +957,18 @@ class Worker:
     def run(self):
         return helper()
 `))
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
 
 	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
 	if err != nil {
 		t.Fatalf("index code: %v", err)
 	}
 
-	if summary.FilesIndexed != 1 || summary.ChunksIndexed < 3 {
-		t.Fatalf("summary = %#v", summary)
-	}
+	assertIndexedSummary(t, summary)
 
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
 		Path:       "pkg/worker.py",
@@ -848,10 +979,7 @@ class Worker:
 		t.Fatalf("query run chunk: %v", err)
 	}
 
-	if len(chunks) != 1 || chunks[0].ParentSymbolPath != "Worker" ||
-		chunks[0].ParentChunkID == "" {
-		t.Fatalf("run chunks = %#v", chunks)
-	}
+	assertWorkerRunChunk(t, chunks)
 
 	context, err := store.CodeContext(ctx, CodeContextQuery{
 		Path:       "pkg/worker.py",
@@ -862,20 +990,24 @@ class Worker:
 		t.Fatalf("code context: %v", err)
 	}
 
-	if context.Parent == nil || context.Parent.SymbolPath != "Worker" {
-		t.Fatalf("context parent = %#v", context.Parent)
+	assertWorkerRunContext(t, context)
+	assertWorkerLineAndConfigContext(t, ctx, store)
+	assertWorkerImportEdge(t, ctx, store)
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
 	}
 
-	if len(context.OutgoingEdges) == 0 {
-		t.Fatalf("context outgoing edges = %#v", context.OutgoingEdges)
-	}
+	assertMinimumStats(t, stats, Stats{CodeEdges: 1})
+}
 
-	if !codeEdgesContainTarget(context.OutgoingEdges, "helper") {
-		t.Fatalf(
-			"context outgoing edges missing helper reference: %#v",
-			context.OutgoingEdges,
-		)
-	}
+func assertWorkerLineAndConfigContext(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) {
+	t.Helper()
 
 	lineContext, err := store.CodeContext(ctx, CodeContextQuery{
 		Path:  "pkg/worker.py",
@@ -899,33 +1031,84 @@ class Worker:
 		t.Fatalf("config code context: %v", err)
 	}
 
-	if codeEdgesContainTarget(configContext.OutgoingEdges, "a") {
-		t.Fatalf(
-			"substring reference edge should not be emitted: %#v",
-			configContext.OutgoingEdges,
-		)
-	}
+	assertNoSubstringReferenceEdge(t, configContext)
+}
 
-	var importCount int
-	if err := store.db.QueryRowContext(
-		ctx,
-		`SELECT COUNT(*) FROM code_edges
-		WHERE edge_kind = 'imports' AND path = 'pkg/worker.py' AND target_name = 'os'`,
-	).Scan(&importCount); err != nil {
+func assertWorkerImportEdge(t *testing.T, ctx context.Context, store *Store) {
+	t.Helper()
+
+	edges, err := store.CodeEdges(ctx, CodeEdgeQuery{
+		Path:       "pkg/worker.py",
+		Kind:       "imports",
+		TargetName: "os",
+		Limit:      1,
+	})
+	if err != nil {
 		t.Fatalf("query import edges: %v", err)
 	}
 
-	if importCount != 1 {
-		t.Fatalf("import edge count = %d, want 1", importCount)
+	if len(edges) != 1 {
+		t.Fatalf("import edges = %#v", edges)
+	}
+}
+
+func assertIndexedSummary(t *testing.T, summary CodeIndexSummary) {
+	t.Helper()
+
+	if summary.FilesIndexed != 1 || summary.ChunksIndexed < 3 {
+		t.Fatalf("summary = %#v", summary)
+	}
+}
+
+func assertBuildMessageChunk(t *testing.T, chunks []CodeChunk) {
+	t.Helper()
+
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %#v", chunks)
 	}
 
-	stats, err := store.Stats(ctx)
-	if err != nil {
-		t.Fatalf("stats: %v", err)
+	if chunks[0].Language != "go" || chunks[0].SearchText == "" ||
+		!strings.Contains(chunks[0].RawText, "BuildMessage") {
+		t.Fatalf("chunk = %#v", chunks[0])
+	}
+}
+
+func assertWorkerRunChunk(t *testing.T, chunks []CodeChunk) {
+	t.Helper()
+
+	if len(chunks) != 1 || chunks[0].ParentSymbolPath != "Worker" ||
+		chunks[0].ParentChunkID == "" {
+		t.Fatalf("run chunks = %#v", chunks)
+	}
+}
+
+func assertWorkerRunContext(t *testing.T, context CodeContext) {
+	t.Helper()
+
+	if context.Parent == nil || context.Parent.SymbolPath != "Worker" {
+		t.Fatalf("context parent = %#v", context.Parent)
 	}
 
-	if stats.CodeEdges == 0 {
-		t.Fatalf("stats = %#v", stats)
+	if len(context.OutgoingEdges) == 0 {
+		t.Fatalf("context outgoing edges = %#v", context.OutgoingEdges)
+	}
+
+	if !codeEdgesContainTarget(context.OutgoingEdges, "helper") {
+		t.Fatalf(
+			"context outgoing edges missing helper reference: %#v",
+			context.OutgoingEdges,
+		)
+	}
+}
+
+func assertNoSubstringReferenceEdge(t *testing.T, context CodeContext) {
+	t.Helper()
+
+	if codeEdgesContainTarget(context.OutgoingEdges, "a") {
+		t.Fatalf(
+			"substring reference edge should not be emitted: %#v",
+			context.OutgoingEdges,
+		)
 	}
 }
 
@@ -944,17 +1127,21 @@ func TestStoreQueriesMigratedCodeChunksWithNullParentSymbolPath(t *testing.T) {
 
 	ctx := context.Background()
 
-	store := openTestStore(t, ctx)
-	if _, err := store.db.ExecContext(
+	path := filepath.Join(t.TempDir(), "code-intel.db")
+	store := openTestStoreAt(t, ctx, path)
+	rawDatabase := openRawSQLite(t, path)
+
+	_, inlineErrC := rawDatabase.ExecContext(
 		ctx,
 		`INSERT INTO code_files(
 			path, language, content_hash, size_bytes, line_count, indexed_at_utc
 		) VALUES ('pkg/app.py', 'python', 'hash-file', 10, 1, '2026-01-01T00:00:00Z')`,
-	); err != nil {
-		t.Fatalf("insert old code file: %v", err)
+	)
+	if inlineErrC != nil {
+		t.Fatalf("insert old code file: %v", inlineErrC)
 	}
 
-	if _, err := store.db.ExecContext(
+	_, inlineErrD := rawDatabase.ExecContext(
 		ctx,
 		`INSERT INTO code_chunks(
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
@@ -964,8 +1151,9 @@ func TestStoreQueriesMigratedCodeChunksWithNullParentSymbolPath(t *testing.T) {
 			'chunk-old', 'pkg/app.py', 'python', 'module', 'module', 'app',
 			'app', NULL, '', 0, 10, 1, 1, 'hash-chunk', 'app', 'value = 1'
 		)`,
-	); err != nil {
-		t.Fatalf("insert old code chunk: %v", err)
+	)
+	if inlineErrD != nil {
+		t.Fatalf("insert old code chunk: %v", inlineErrD)
 	}
 
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "pkg/app.py"})
@@ -996,9 +1184,15 @@ func TestSARIFIngestLinksASTBackedResultsToCodeChunks(t *testing.T) {
     return "ok"
 `))
 
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
-	if _, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"}); err != nil {
-		t.Fatalf("index code: %v", err)
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, inlineErrE := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if inlineErrE != nil {
+		t.Fatalf("index code: %v", inlineErrE)
 	}
 
 	err := store.IngestSARIFRun(ctx, SARIFRun{
@@ -1057,13 +1251,35 @@ func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		err := index.Close()
-		if err != nil {
-			t.Fatalf("close vector index: %v", err)
+		closeErr := index.Close()
+		if closeErr != nil {
+			t.Fatalf("close vector index: %v", closeErr)
 		}
 	})
 
-	for _, record := range []evidence.VectorRecord{
+	seedSQLiteVectorIndex(t, ctx, index)
+	assertSQLiteVectorSearch(t, ctx, index)
+	assertSQLiteVectorMutation(t, ctx, index)
+	assertSQLiteVectorValidation(t, ctx, index)
+}
+
+func seedSQLiteVectorIndex(
+	t *testing.T,
+	ctx context.Context,
+	index *SQLiteVectorIndex,
+) {
+	t.Helper()
+
+	for _, record := range sqliteVectorSeedRecords() {
+		err := index.UpsertEmbedding(ctx, record)
+		if err != nil {
+			t.Fatalf("upsert vector %q: %v", record.ID, err)
+		}
+	}
+}
+
+func sqliteVectorSeedRecords() []evidence.VectorRecord {
+	return []evidence.VectorRecord{
 		{
 			ID:         "near",
 			Collection: "remediations",
@@ -1080,12 +1296,15 @@ func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
 			Dimension:  3,
 			Metadata:   map[string]string{"policy_id": "python.unused_imports"},
 		},
-	} {
-		err := index.UpsertEmbedding(ctx, record)
-		if err != nil {
-			t.Fatalf("upsert vector %q: %v", record.ID, err)
-		}
 	}
+}
+
+func assertSQLiteVectorSearch(
+	t *testing.T,
+	ctx context.Context,
+	index *SQLiteVectorIndex,
+) {
+	t.Helper()
 
 	matches, err := index.Search(ctx, evidence.VectorQuery{
 		Collection: "remediations",
@@ -1102,65 +1321,86 @@ func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
 		t.Fatalf("matches = %#v", matches)
 	}
 
-	stats, err := index.Stats(ctx)
-	if err != nil {
-		t.Fatalf("vector stats: %v", err)
-	}
+	assertSQLiteVectorRows(t, ctx, index, 2, "vector stats")
+}
 
-	if stats.Backend != "sqlite-vec" || stats.Rows != 2 {
-		t.Fatalf("stats = %#v", stats)
-	}
+func assertSQLiteVectorMutation(
+	t *testing.T,
+	ctx context.Context,
+	index *SQLiteVectorIndex,
+) {
+	t.Helper()
 
-	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
+	err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
 		ID:         "near",
 		Collection: "remediations",
 		ModelID:    "test-model",
 		Vector:     []float32{0, 0, 1, 0},
 		Dimension:  4,
 		Metadata:   map[string]string{"policy_id": "python.unused_imports"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("replace vector with new dimension: %v", err)
 	}
 
-	if err := index.DeleteEmbedding(ctx, "far", "test-model"); err != nil {
+	err = index.DeleteEmbedding(ctx, "far", "test-model")
+	if err != nil {
 		t.Fatalf("delete vector: %v", err)
 	}
 
-	if err := index.DeleteEmbedding(ctx, "missing", "test-model"); err != nil {
+	err = index.DeleteEmbedding(ctx, "missing", "test-model")
+	if err != nil {
 		t.Fatalf("delete missing vector: %v", err)
 	}
 
-	stats, err = index.Stats(ctx)
+	assertSQLiteVectorRows(t, ctx, index, 1, "vector stats after delete")
+
+	err = index.Rebuild(ctx, "remediations")
 	if err != nil {
-		t.Fatalf("vector stats after delete: %v", err)
-	}
-
-	if stats.Rows != 1 {
-		t.Fatalf("stats after delete = %#v", stats)
-	}
-
-	if err := index.Rebuild(ctx, "remediations"); err != nil {
 		t.Fatalf("rebuild vectors: %v", err)
 	}
 
-	stats, err = index.Stats(ctx)
+	assertSQLiteVectorRows(t, ctx, index, 0, "vector stats after rebuild")
+}
+
+func assertSQLiteVectorRows(
+	t *testing.T,
+	ctx context.Context,
+	index *SQLiteVectorIndex,
+	expected int,
+	label string,
+) {
+	t.Helper()
+
+	stats, err := index.Stats(ctx)
 	if err != nil {
-		t.Fatalf("vector stats after rebuild: %v", err)
+		t.Fatalf("%s: %v", label, err)
 	}
 
-	if stats.Rows != 0 {
-		t.Fatalf("stats after rebuild = %#v", stats)
+	if stats.Backend != vectorBackendName || stats.Rows != expected {
+		t.Fatalf("%s = %#v", label, stats)
 	}
+}
 
-	if _, err := NewSQLiteVectorIndex(ctx, ""); err == nil {
+func assertSQLiteVectorValidation(
+	t *testing.T,
+	ctx context.Context,
+	index *SQLiteVectorIndex,
+) {
+	t.Helper()
+
+	_, err := NewSQLiteVectorIndex(ctx, "")
+	if err == nil {
 		t.Fatal("NewSQLiteVectorIndex(empty) returned nil error")
 	}
 
-	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{}); err == nil {
+	err = index.UpsertEmbedding(ctx, evidence.VectorRecord{})
+	if err == nil {
 		t.Fatal("UpsertEmbedding(empty) returned nil error")
 	}
 
-	if _, err := index.Search(ctx, evidence.VectorQuery{}); err == nil {
+	_, err = index.Search(ctx, evidence.VectorQuery{})
+	if err == nil {
 		t.Fatal("Search(empty) returned nil error")
 	}
 }
@@ -1177,13 +1417,13 @@ func TestHybridSearchCombinesFTSVectorAndOutcomeBoost(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		err := index.Close()
-		if err != nil {
-			t.Fatalf("close vector index: %v", err)
+		closeErr := index.Close()
+		if closeErr != nil {
+			t.Fatalf("close vector index: %v", closeErr)
 		}
 	})
 
-	if err := store.RecordRemediationOutcome(ctx, RemediationOutcome{
+	inlineErr22 := store.RecordRemediationOutcome(ctx, RemediationOutcome{
 		ID:            "rem-1",
 		RemediationID: "rem-1",
 		FindingID:     "finding-1",
@@ -1192,11 +1432,12 @@ func TestHybridSearchCombinesFTSVectorAndOutcomeBoost(t *testing.T) {
 		Path:          "pkg/app.py",
 		Outcome:       "fixed",
 		SearchText:    "Remove unused import and rerun ruff.",
-	}); err != nil {
-		t.Fatalf("record outcome: %v", err)
+	})
+	if inlineErr22 != nil {
+		t.Fatalf("record outcome: %v", inlineErr22)
 	}
 
-	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
+	inlineErr23 := index.UpsertEmbedding(ctx, evidence.VectorRecord{
 		ID:         "rem-1",
 		Collection: "remediations",
 		ModelID:    "test-model",
@@ -1210,8 +1451,9 @@ func TestHybridSearchCombinesFTSVectorAndOutcomeBoost(t *testing.T) {
 			"path":        "pkg/app.py",
 			"outcome":     "fixed",
 		},
-	}); err != nil {
-		t.Fatalf("upsert vector: %v", err)
+	})
+	if inlineErr23 != nil {
+		t.Fatalf("upsert vector: %v", inlineErr23)
 	}
 
 	results, err := store.HybridSearch(ctx, index, HybridSearchQuery{
@@ -1247,9 +1489,15 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
         return "ok"
 `))
 
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
-	if _, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"}); err != nil {
-		t.Fatalf("index code: %v", err)
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, inlineErrF := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if inlineErrF != nil {
+		t.Fatalf("index code: %v", inlineErrF)
 	}
 
 	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
@@ -1271,26 +1519,27 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		err := index.Close()
-		if err != nil {
-			t.Fatalf("close vector index: %v", err)
+		closeErr := index.Close()
+		if closeErr != nil {
+			t.Fatalf("close vector index: %v", closeErr)
 		}
 	})
 
-	if err := index.UpsertEmbedding(ctx, evidence.VectorRecord{
+	inlineErr24 := index.UpsertEmbedding(ctx, evidence.VectorRecord{
 		ID:         chunks[0].ID,
 		Collection: "code_chunks",
 		ModelID:    "test-model",
 		Vector:     []float32{0, 1, 0},
 		Dimension:  3,
 		Metadata: map[string]string{
-			"record_kind": "code_chunk",
+			"record_kind": codeChunkRecordKind,
 			"record_id":   chunks[0].ID,
 			"path":        chunks[0].Path,
 			"message":     chunks[0].SymbolPath,
 		},
-	}); err != nil {
-		t.Fatalf("upsert vector: %v", err)
+	})
+	if inlineErr24 != nil {
+		t.Fatalf("upsert vector: %v", inlineErr24)
 	}
 
 	results, err := store.HybridSearch(ctx, index, HybridSearchQuery{
@@ -1305,7 +1554,7 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
 		t.Fatalf("hybrid search: %v", err)
 	}
 
-	if len(results) == 0 || results[0].Kind != "code_chunk" ||
+	if len(results) == 0 || results[0].Kind != codeChunkRecordKind ||
 		results[0].Source != "fts+vector" {
 		t.Fatalf("hybrid results = %#v", results)
 	}
@@ -1325,7 +1574,11 @@ run_check() {
 	writeFile(t, filepath.Join(root, "config.yml"), []byte(`linters:
   ruff: true
 `))
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
 
 	summary, err := NewASTIndexer(
 		store,
@@ -1372,22 +1625,93 @@ func TestVectorFactoryDefaultPathAndIndexStatus(t *testing.T) {
 	ctx := context.Background()
 
 	root := t.TempDir()
-	if got := DefaultVectorPath(
-		root,
-	); got != filepath.Join(
-		root,
-		".coding-ethos",
-		"code-intel-vectors.db",
-	) {
-		t.Fatalf("DefaultVectorPath() = %q", got)
+	assertDefaultVectorPath(t, root)
+	assertUnsupportedVectorBackendFails(t, ctx, root)
+
+	index := openTestVectorIndex(t, ctx, root)
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	replaceVectorStatusCodeChunk(t, ctx, store)
+
+	stats, err := index.Stats(ctx)
+	if err != nil {
+		t.Fatalf("vector stats: %v", err)
 	}
 
-	if _, err := NewVectorIndex(
+	status, err := store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
+		Backend:    vectorBackendName,
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("index status: %v", err)
+	}
+
+	assertVectorStatusBeforeEmbedding(t, status)
+
+	inlineErr26 := store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
+		Backend:    vectorBackendName,
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+		InputKind:  "text",
+		RecordKind: codeChunkRecordKind,
+		RecordID:   "chunk-1",
+		Dimension:  3,
+		Path:       "pkg/app.py",
+	})
+	if inlineErr26 != nil {
+		t.Fatalf("upsert embedding record: %v", inlineErr26)
+	}
+
+	status, err = store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
+		Backend:    vectorBackendName,
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("index status after embedding: %v", err)
+	}
+
+	assertVectorStatusAfterEmbedding(t, status)
+}
+
+func assertDefaultVectorPath(t *testing.T, root string) {
+	t.Helper()
+
+	got := DefaultVectorPath(root)
+
+	want := filepath.Join(root, ".coding-ethos", "code-intel-vectors.db")
+	if got != want {
+		t.Fatalf("DefaultVectorPath() = %q", got)
+	}
+}
+
+func assertUnsupportedVectorBackendFails(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+) {
+	t.Helper()
+
+	_, err := NewVectorIndex(
 		ctx,
 		VectorBackendConfig{Backend: "unknown", URI: filepath.Join(root, "bad.db")},
-	); err == nil {
+	)
+	if err == nil {
 		t.Fatal("unsupported vector backend should fail")
 	}
+}
+
+func openTestVectorIndex(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+) evidence.VectorIndex {
+	t.Helper()
 
 	index, err := NewVectorIndex(
 		ctx,
@@ -1399,15 +1723,24 @@ func TestVectorFactoryDefaultPathAndIndexStatus(t *testing.T) {
 
 	t.Cleanup(func() {
 		if closer, ok := index.(interface{ Close() error }); ok {
-			err := closer.Close()
-			if err != nil {
-				t.Fatalf("close vector index: %v", err)
+			closeErr := closer.Close()
+			if closeErr != nil {
+				t.Fatalf("close vector index: %v", closeErr)
 			}
 		}
 	})
 
-	store := openTestStoreAt(t, ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
-	if err := store.ReplaceCodeFileChunks(ctx, CodeFile{
+	return index
+}
+
+func replaceVectorStatusCodeChunk(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+) {
+	t.Helper()
+
+	err := store.ReplaceCodeFileChunks(ctx, CodeFile{
 		Path:        "pkg/app.py",
 		Language:    "python",
 		ContentHash: "hash-file",
@@ -1426,53 +1759,95 @@ func TestVectorFactoryDefaultPathAndIndexStatus(t *testing.T) {
 		RawText:     "def run(): pass",
 		StartLine:   1,
 		EndLine:     1,
-	}}); err != nil {
+	}})
+	if err != nil {
 		t.Fatalf("replace chunks: %v", err)
 	}
+}
 
-	stats, err := index.Stats(ctx)
-	if err != nil {
-		t.Fatalf("vector stats: %v", err)
-	}
-
-	status, err := store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
-		Backend:    "sqlite-vec",
-		Collection: "code_chunks",
-		ModelID:    "test-model",
-	})
-	if err != nil {
-		t.Fatalf("index status: %v", err)
-	}
+func assertVectorStatusBeforeEmbedding(t *testing.T, status IndexStatus) {
+	t.Helper()
 
 	if status.ReadyRecords == 0 || status.MissingVectors == 0 || status.Fresh {
 		t.Fatalf("status before embedding = %#v", status)
 	}
+}
 
-	if err := store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
-		Backend:    "sqlite-vec",
-		Collection: "code_chunks",
-		ModelID:    "test-model",
-		InputKind:  "text",
-		RecordKind: "code_chunk",
-		RecordID:   "chunk-1",
-		Dimension:  3,
-		Path:       "pkg/app.py",
-	}); err != nil {
-		t.Fatalf("upsert embedding record: %v", err)
-	}
-
-	status, err = store.IndexStatus(ctx, stats, EmbeddingRecordQuery{
-		Backend:    "sqlite-vec",
-		Collection: "code_chunks",
-		ModelID:    "test-model",
-	})
-	if err != nil {
-		t.Fatalf("index status after embedding: %v", err)
-	}
+func assertVectorStatusAfterEmbedding(t *testing.T, status IndexStatus) {
+	t.Helper()
 
 	if status.EmbeddingRecords != 1 || status.MissingVectors != 0 || !status.Fresh {
 		t.Fatalf("status after embedding = %#v", status)
 	}
+}
+
+func assertStats(t *testing.T, got, want Stats) {
+	t.Helper()
+
+	for _, check := range expectedStatsFields(got, want) {
+		if check.want == 0 {
+			continue
+		}
+
+		if check.got != check.want {
+			t.Fatalf("stats = %#v, want %s=%d", got, check.name, check.want)
+		}
+	}
+}
+
+type statFieldCheck struct {
+	name string
+	got  int
+	want int
+}
+
+func expectedStatsFields(got, want Stats) []statFieldCheck {
+	return []statFieldCheck{
+		{"traces", got.Traces, want.Traces},
+		{"hook_events", got.HookEvents, want.HookEvents},
+		{"hook_decisions", got.HookDecisions, want.HookDecisions},
+		{"hook_targets", got.HookTargets, want.HookTargets},
+		{"findings", got.Findings, want.Findings},
+		{"files", got.Files, want.Files},
+		{"code_chunks", got.CodeChunks, want.CodeChunks},
+		{"code_edges", got.CodeEdges, want.CodeEdges},
+		{"remediations", got.Remediations, want.Remediations},
+		{"remediation_events", got.RemediationEvents, want.RemediationEvents},
+		{"sarif_runs", got.SARIFRuns, want.SARIFRuns},
+		{"sarif_results", got.SARIFResults, want.SARIFResults},
+		{"remediation_outcomes", got.RemediationOutcomes, want.RemediationOutcomes},
+		{"embedding_records", got.EmbeddingRecords, want.EmbeddingRecords},
+		{"fts_rows", got.FtsRows, want.FtsRows},
+	}
+}
+
+func assertMinimumStats(t *testing.T, got, want Stats) {
+	t.Helper()
+
+	if got.Files < want.Files ||
+		got.CodeChunks < want.CodeChunks ||
+		got.CodeEdges < want.CodeEdges ||
+		got.FtsRows < want.FtsRows {
+		t.Fatalf("stats = %#v, want minimum %#v", got, want)
+	}
+}
+
+func containsJoined(items []string, item string) bool {
+	return strings.Contains(strings.Join(items, ","), item)
+}
+
+func stringAnySlicesEqual(got, want []any) bool {
+	if len(got) != len(want) {
+		return false
+	}
+
+	for index := range got {
+		if got[index] != want[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func openTestStore(t *testing.T, ctx context.Context) *Store {
@@ -1497,6 +1872,24 @@ func openTestStoreAt(t *testing.T, ctx context.Context, path string) *Store {
 	})
 
 	return store
+}
+
+func openRawSQLite(t *testing.T, path string) *sql.DB {
+	t.Helper()
+
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open raw sqlite: %v", err)
+	}
+
+	t.Cleanup(func() {
+		closeErr := database.Close()
+		if closeErr != nil {
+			t.Fatalf("close raw sqlite: %v", closeErr)
+		}
+	})
+
+	return database
 }
 
 func lintTracePayload(t *testing.T, traceID, recordedAt string) []byte {
@@ -1640,7 +2033,10 @@ func hookTracePayloadWithIDs(
 		"findings":           []evidence.Finding{finding},
 		"agent_remediation":  []agentmsg.Remediation{remediation},
 		"remediation_events": []evidence.RemediationEvent{event},
-		"output_shape":       map[string]any{"blocked": true, "has_updated_input": true},
+		"output_shape": map[string]any{
+			"blocked":           true,
+			"has_updated_input": true,
+		},
 	})
 }
 
@@ -1657,7 +2053,12 @@ func multiRunSARIFPayload() []byte {
 						"ruleId":"R1",
 						"level":"error",
 						"message":{"text":"first result"},
-						"locations":[{"physicalLocation":{"artifactLocation":{"uri":"pkg/first.py"},"region":{"startLine":2}}}]
+							"locations":[{
+								"physicalLocation":{
+									"artifactLocation":{"uri":"pkg/first.py"},
+									"region":{"startLine":2}
+								}
+							}]
 					}
 				]
 			},
@@ -1670,7 +2071,12 @@ func multiRunSARIFPayload() []byte {
 						"ruleId":"R2",
 						"level":"warning",
 						"message":{"text":"second result"},
-						"locations":[{"physicalLocation":{"artifactLocation":{"uri":"pkg/second.py"},"region":{"startLine":4}}}]
+							"locations":[{
+								"physicalLocation":{
+									"artifactLocation":{"uri":"pkg/second.py"},
+									"region":{"startLine":4}
+								}
+							}]
 					}
 				]
 			}

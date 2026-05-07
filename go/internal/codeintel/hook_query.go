@@ -9,18 +9,52 @@ import (
 	"fmt"
 )
 
+const defaultQueryLimitValue = 20
+
 func (store *Store) HookUsage(
 	ctx context.Context,
 	query HookUsageQuery,
 ) ([]HookUsageSummary, error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = 20
+	rows, err := store.queryHookUsageRows(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanHookUsage(rows)
+}
+
+func (store *Store) queryHookUsageRows(
+	ctx context.Context,
+	query HookUsageQuery,
+) (*sql.Rows, error) {
+	rows, err := store.database.QueryContext(
+		ctx,
+		hookUsageSQL,
+		query.Provider,
+		query.Provider,
+		query.Status,
+		query.Status,
+		query.PolicyID,
+		query.PolicyID,
+		query.SkillID,
+		query.SkillID,
+		query.OperationKind,
+		query.OperationKind,
+		query.TargetKind,
+		query.TargetKind,
+		query.RiskCategory,
+		query.RiskCategory,
+		defaultQueryLimit(query.Limit),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query hook usage: %w", err)
 	}
 
-	rows, err := store.db.QueryContext(
-		ctx,
-		`WITH filtered AS (
+	return rows, nil
+}
+
+const hookUsageSQL = `WITH filtered AS (
 			SELECT
 				event.trace_id,
 				event.tracking_id,
@@ -59,8 +93,12 @@ func (store *Store) HookUsage(
 				COALESCE(skill_id, '') AS skill_id,
 				COUNT(DISTINCT trace_id) AS event_count,
 				COUNT(policy_id) AS decision_count,
-				COUNT(DISTINCT CASE WHEN blocked != 0 THEN trace_id ELSE NULL END) AS blocked_count,
-				COUNT(DISTINCT CASE WHEN rewritten != 0 THEN trace_id ELSE NULL END) AS rewrite_count,
+					COUNT(DISTINCT CASE
+						WHEN blocked != 0 THEN trace_id ELSE NULL
+					END) AS blocked_count,
+					COUNT(DISTINCT CASE
+						WHEN rewritten != 0 THEN trace_id ELSE NULL
+					END) AS rewrite_count,
 				AVG(CASE WHEN runtime_ms > 0 THEN runtime_ms ELSE NULL END) AS avg_runtime_ms,
 				COALESCE(MAX(recorded_at_utc), '') AS last_seen_utc
 			FROM filtered
@@ -98,31 +136,16 @@ func (store *Store) HookUsage(
 		GROUP BY summary.provider, summary.tool, summary.operation_kind,
 			summary.target_kind, summary.risk_category, summary.status,
 			summary.policy_id, summary.skill_id
-		ORDER BY summary.event_count DESC, summary.blocked_count DESC,
-			summary.last_seen_utc DESC
-		LIMIT ?`,
-		query.Provider,
-		query.Provider,
-		query.Status,
-		query.Status,
-		query.PolicyID,
-		query.PolicyID,
-		query.SkillID,
-		query.SkillID,
-		query.OperationKind,
-		query.OperationKind,
-		query.TargetKind,
-		query.TargetKind,
-		query.RiskCategory,
-		query.RiskCategory,
-		limit,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("query hook usage: %w", err)
-	}
-	defer rows.Close()
+			ORDER BY summary.event_count DESC, summary.blocked_count DESC,
+				summary.last_seen_utc DESC
+			LIMIT ?`
 
-	return scanHookUsage(rows)
+func defaultQueryLimit(limit int) int {
+	if limit > 0 {
+		return limit
+	}
+
+	return defaultQueryLimitValue
 }
 
 func (store *Store) HookReviews(
@@ -134,7 +157,7 @@ func (store *Store) HookReviews(
 		limit = 20
 	}
 
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT review_id, trace_id, COALESCE(tracking_id, ''),
 			disposition, COALESCE(reviewer, ''), COALESCE(notes, ''),
@@ -179,8 +202,9 @@ func (store *Store) HookReviews(
 		results = append(results, result)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate hook reviews: %w", err)
+	inlineErr0 := rows.Err()
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("iterate hook reviews: %w", inlineErr0)
 	}
 
 	return results, nil

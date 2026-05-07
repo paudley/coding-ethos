@@ -6,13 +6,13 @@ package hooks
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -29,13 +29,18 @@ const (
 )
 
 var (
-	errUnknownHookPolicy     = errors.New("hook dispatch references unknown policy")
-	errUnregisteredEvaluator = errors.New("policy references unregistered evaluator")
-	errInvalidPathPattern    = errors.New("invalid path pattern")
+	errUnknownHookPolicy = apperror.StaticError(
+		"hook dispatch references unknown policy",
+	)
+	errUnregisteredEvaluator = apperror.StaticError(
+		"policy references unregistered evaluator",
+	)
+	errInvalidPathPattern = apperror.StaticError("invalid path pattern")
 )
 
 type Options struct {
-	Event Event
+	AdminApproved func(string) bool
+	Event         Event
 }
 
 func Run(bundle policy.Bundle, options Options) (Result, error) {
@@ -47,7 +52,7 @@ func RunWithRegistry(
 	options Options,
 	registry evaluators.Registry,
 ) (Result, error) {
-	ctx := collectInspectionContext(options.Event)
+	ctx := collectInspectionContext(options.Event, options.AdminApproved)
 	if ctx.SkipNestedHook || ctx.ReadOnlyInspection {
 		return ctx.allowedResult(), nil
 	}
@@ -151,7 +156,7 @@ func buildResult(
 }
 
 func blockedHookSpecificOutput(result Result) *HookSpecificOutput {
-	if !result.Blocked() || result.Event != "PreToolUse" || result.Provider != "" {
+	if !result.Blocked() || result.Event != eventPreToolUse || result.Provider != "" {
 		return nil
 	}
 
@@ -188,7 +193,7 @@ func hookSpecificOutput(
 		return output
 	}
 
-	if event.HookEventName != "PostToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != eventPostToolUse || event.ToolName != toolBash {
 		return nil
 	}
 
@@ -394,8 +399,8 @@ func buildHookOutputContextJSON(
 ) string {
 	payload := map[string]any{
 		"format":      outputFormatJSON,
-		"event":       "PostToolUse",
-		"tool":        "Bash",
+		"event":       eventPostToolUse,
+		"tool":        toolBash,
 		"operation":   operation,
 		"status":      status,
 		"return_code": returnCode,
@@ -451,12 +456,14 @@ type hookTextReplacement struct {
 func hookOutputNormalizer(cwd string) hookTextNormalizer {
 	roots := []hookTextReplacement{{Old: cwd, New: "<repo>"}}
 	if cwd == "" {
-		if current, err := os.Getwd(); err == nil {
+		current, inlineErrAutoA := os.Getwd()
+		if inlineErrAutoA == nil {
 			roots = append(roots, hookTextReplacement{Old: current, New: "<repo>"})
 		}
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
+	home, inlineErrAutoB := os.UserHomeDir()
+	if inlineErrAutoB == nil {
 		roots = append(roots, hookTextReplacement{Old: home, New: "<home>"})
 	}
 
@@ -465,7 +472,10 @@ func hookOutputNormalizer(cwd string) hookTextNormalizer {
 	replacements := []hookTextReplacement{}
 
 	for _, root := range roots {
-		cleaned := strings.TrimRight(filepath.Clean(root.Old), string(filepath.Separator))
+		cleaned := strings.TrimRight(
+			filepath.Clean(root.Old),
+			string(filepath.Separator),
+		)
 		if cleaned == "." || cleaned == "" {
 			continue
 		}
@@ -579,7 +589,8 @@ func evaluateHookPolicy(
 		}
 	}
 
-	if entry.Mode == modeAdvise || entry.Mode == modeRecord || entry.Mode == modeAnnotate {
+	if entry.Mode == modeAdvise || entry.Mode == modeRecord ||
+		entry.Mode == modeAnnotate {
 		decision := policy.NewDecision(entry.Mode, policyDef)
 		decision.Severity = entry.Mode
 

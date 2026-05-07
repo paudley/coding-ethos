@@ -18,6 +18,7 @@ const (
 )
 
 type runtimePaths struct {
+	Executor         runtimeExecutor
 	RealGit          string
 	InvocationCWD    string
 	LocalRoot        string
@@ -37,6 +38,14 @@ type runtimePaths struct {
 	ManagedManifest  string
 }
 
+func (paths runtimePaths) executor() runtimeExecutor {
+	if paths.Executor == nil {
+		return defaultRuntimeExecutor{}
+	}
+
+	return paths.Executor
+}
+
 func main() {
 	paths, err := resolveRuntimePaths()
 	if err != nil {
@@ -50,7 +59,7 @@ func main() {
 		args[0] != "cutover" &&
 		args[0] != "lfs-hook" &&
 		os.Getenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE") == "" {
-		execTool(paths, "coding-ethos-hook-log", append([]string{
+		runtimeExecTool(paths, "coding-ethos-hook-log", append([]string{
 			"--root", paths.Root,
 			"--bundle-root", paths.BundleRoot,
 			"--git", paths.RealGit,
@@ -58,8 +67,9 @@ func main() {
 		}, args...)...)
 	}
 
-	if err := run(paths, args); err != nil {
-		exitErr(err)
+	inlineErr0 := run(paths, args)
+	if inlineErr0 != nil {
+		exitErr(inlineErr0)
 	}
 }
 
@@ -112,19 +122,29 @@ func resolveRuntimePaths() (runtimePaths, error) {
 	toolchainDir := filepath.Join(ethosRoot, "build", "toolchain")
 
 	return runtimePaths{
-		RealGit:          realGit,
-		InvocationCWD:    invocationCWD,
-		LocalRoot:        localRoot,
-		Root:             root,
-		HooksDir:         hooksDir,
-		BinDir:           binDir,
-		RunBinary:        runBinary,
-		BundleRoot:       bundleRoot,
-		EthosRoot:        ethosRoot,
-		GitHookRunner:    filepath.Join(binDir, "coding-ethos-hook-runner"),
-		ToolsSource:      filepath.Join(ethosRoot, "go"),
-		PolicyBundle:     filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),
-		PolicyMetadata:   filepath.Join(ethosRoot, "build", "policy", "policy-metadata.json"),
+		RealGit:       realGit,
+		InvocationCWD: invocationCWD,
+		LocalRoot:     localRoot,
+		Root:          root,
+		HooksDir:      hooksDir,
+		BinDir:        binDir,
+		RunBinary:     runBinary,
+		BundleRoot:    bundleRoot,
+		EthosRoot:     ethosRoot,
+		GitHookRunner: filepath.Join(binDir, "coding-ethos-hook-runner"),
+		ToolsSource:   filepath.Join(ethosRoot, "go"),
+		PolicyBundle: filepath.Join(
+			ethosRoot,
+			"build",
+			"policy",
+			"policy-bundle.json",
+		),
+		PolicyMetadata: filepath.Join(
+			ethosRoot,
+			"build",
+			"policy",
+			"policy-metadata.json",
+		),
 		ManagedGoBin:     filepath.Join(toolchainDir, "go-bin"),
 		ManagedPrefixBin: filepath.Join(toolchainDir, "prefix", "bin"),
 		ManagedGitHubBin: filepath.Join(toolchainDir, "github-bin"),

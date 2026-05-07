@@ -14,6 +14,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const statusBlocked = "blocked"
+
 func TestRunResolvesFileScopePolicies(t *testing.T) {
 	t.Parallel()
 
@@ -134,7 +136,7 @@ func TestRunUsesRegisteredEvaluator(t *testing.T) {
 		t.Fatalf("missing git.hook_bypass decision: %#v", result.Decisions)
 	}
 
-	if result.Status != "blocked" {
+	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 }
@@ -154,12 +156,15 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 	}
 
 	content := []byte("coding-ethos-hooks/bin/coding-ethos-policy\n")
-	if err := os.WriteFile(sourcePath, content, 0o600); err != nil {
-		t.Fatalf("write source fixture: %v", err)
+
+	inlineErr0 := os.WriteFile(sourcePath, content, 0o600)
+	if inlineErr0 != nil {
+		t.Fatalf("write source fixture: %v", inlineErr0)
 	}
 
-	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
-		t.Fatalf("write script fixture: %v", err)
+	inlineErr1 := os.WriteFile(scriptPath, content, 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write script fixture: %v", inlineErr1)
 	}
 
 	sourceResult, err := Run(policy.ExampleBundle(), Options{
@@ -188,7 +193,7 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 		t.Fatalf("run script lint: %v", err)
 	}
 
-	if scriptResult.Status != "blocked" ||
+	if scriptResult.Status != statusBlocked ||
 		!lintResultHasDecision(scriptResult, "shell.forbidden_strings") {
 		t.Fatalf("expected forbidden-string script block, got %#v", scriptResult)
 	}
@@ -200,8 +205,10 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	repo := t.TempDir()
 
 	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
-	if err := os.WriteFile(messagePath, []byte("bad header\n"), 0o600); err != nil {
-		t.Fatalf("write commit message: %v", err)
+
+	inlineErr2 := os.WriteFile(messagePath, []byte("bad header\n"), 0o600)
+	if inlineErr2 != nil {
+		t.Fatalf("write commit message: %v", inlineErr2)
 	}
 
 	bundle := policy.Bundle{
@@ -232,7 +239,7 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 		t.Fatalf("run lint: %v", err)
 	}
 
-	if result.Status != "blocked" {
+	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 }
@@ -259,7 +266,9 @@ func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {
 				Evaluators:      []policy.Evaluator{{Name: "python.missing_evaluator"}},
 				DefenseLayers:   policy.DefenseLayers{Enforce: "block"},
 				Message:         "missing evaluator",
-				PrincipleIDs:    []string{"static-analysis-is-the-first-line-of-defense"},
+				PrincipleIDs: []string{
+					"static-analysis-is-the-first-line-of-defense",
+				},
 			},
 		},
 		Dispatch: policy.Dispatch{
@@ -332,13 +341,25 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 		t.Fatalf("run lint: %v", err)
 	}
 
-	if result.Status != "blocked" {
+	if result.Status != statusBlocked {
 		t.Fatalf("status = %q, want blocked", result.Status)
 	}
+
+	assertSmokeExternalPolicyEvidence(t, result)
+	assertSmokeExternalPolicyDiagnostics(t, result)
+	assertSmokeExternalPolicyFindings(t, result)
+}
+
+func assertSmokeExternalPolicyEvidence(t *testing.T, result Result) {
+	t.Helper()
 
 	if got := result.Decisions[0].Evidence["exit_code"]; got != 9 {
 		t.Fatalf("exit evidence = %#v, want 9", got)
 	}
+}
+
+func assertSmokeExternalPolicyDiagnostics(t *testing.T, result Result) {
+	t.Helper()
 
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "F401" {
 		t.Fatalf("diagnostics = %#v, want parsed F401", result.Diagnostics)
@@ -351,6 +372,10 @@ func TestRunExecutesSmokeExternalPolicies(t *testing.T) {
 	if result.Diagnostics[0].Advice != "Remove the unused import or use the protocol." {
 		t.Fatalf("diagnostic advice = %q", result.Diagnostics[0].Advice)
 	}
+}
+
+func assertSmokeExternalPolicyFindings(t *testing.T, result Result) {
+	t.Helper()
 
 	if len(result.Findings) != 1 {
 		t.Fatalf("findings = %#v", result.Findings)

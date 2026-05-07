@@ -263,9 +263,12 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 
 	if len(allFindings) > 0 {
 		fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-			Tool:     "plan_completion",
-			Title:    "PLAN COMPLETION FRAUD DETECTED",
-			Summary:  fmt.Sprintf("Cannot mark plan as %q with incomplete items.", status),
+			Tool:  "plan_completion",
+			Title: "PLAN COMPLETION FRAUD DETECTED",
+			Summary: fmt.Sprintf(
+				"Cannot mark plan as %q with incomplete items.",
+				status,
+			),
 			Findings: allFindings,
 			Guidance: []string{
 				"Complete the work and check off items when done.",

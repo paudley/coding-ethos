@@ -90,7 +90,8 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Remediation {
 	remediations := make([]Remediation, 0, len(items))
 	for _, item := range items {
 		remediation := fromDiagnostic(item)
-		if remediation.Message == "" && remediation.PolicyID == "" && remediation.File == "" {
+		if remediation.Message == "" && remediation.PolicyID == "" &&
+			remediation.File == "" {
 			continue
 		}
 
@@ -207,7 +208,10 @@ func remediationSteps(
 	if strings.TrimSpace(policyID) != "" {
 		next = append(
 			next,
-			fmt.Sprintf("Call MCP policy_explain with policy_id=%s before retrying.", policyID),
+			fmt.Sprintf(
+				"Call MCP policy_explain with policy_id=%s before retrying.",
+				policyID,
+			),
 		)
 	}
 
@@ -283,13 +287,13 @@ func evidenceString(evidence map[string]any, key string) string {
 		return ""
 	}
 
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -297,8 +301,8 @@ func evidenceString(evidence map[string]any, key string) string {
 }
 
 func firstFileEvidence(evidence map[string]any) string {
-	value, ok := evidence["files"]
-	if !ok {
+	value, found := evidence["files"]
+	if !found {
 		return ""
 	}
 
@@ -309,7 +313,7 @@ func firstFileEvidence(evidence map[string]any) string {
 		}
 	case []any:
 		if len(files) > 0 {
-			if text, ok := files[0].(string); ok {
+			if text, found := files[0].(string); found {
 				return strings.TrimSpace(text)
 			}
 		}

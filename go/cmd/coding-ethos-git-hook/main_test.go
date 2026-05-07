@@ -19,9 +19,9 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-func TestGitHookHelperProcess(t *testing.T) {
+func TestMain(m *testing.M) {
 	if os.Getenv("CODING_ETHOS_GIT_HOOK_HELPER") != "1" {
-		return
+		os.Exit(m.Run())
 	}
 
 	for index, arg := range os.Args {
@@ -82,10 +82,11 @@ func TestRealGitCommitSucceedsThroughInstalledHooks(t *testing.T) {
 		t.Fatal("HEAD did not advance")
 	}
 
-	if _, err := os.Stat(
+	_, inlineErrA := os.Stat(
 		filepath.Join(repo.root, ".coding-ethos", "lint-runs"),
-	); err != nil {
-		t.Fatalf("missing lint trace directory: %v", err)
+	)
+	if inlineErrA != nil {
+		t.Fatalf("missing lint trace directory: %v", inlineErrA)
 	}
 }
 
@@ -132,8 +133,7 @@ func TestHookFilesSkipsNonPreCommitHooks(t *testing.T) {
 func TestAdminApprovedFallsBackToProcessAncestry(t *testing.T) {
 	t.Setenv(adminApprovedEnv, "")
 
-	original := verifyAdminApproved
-	verifyAdminApproved = func(cwd string) error {
+	verifier := func(cwd string) error {
 		if cwd != "/repo" {
 			t.Fatalf("cwd = %q, want /repo", cwd)
 		}
@@ -141,11 +141,7 @@ func TestAdminApprovedFallsBackToProcessAncestry(t *testing.T) {
 		return nil
 	}
 
-	t.Cleanup(func() {
-		verifyAdminApproved = original
-	})
-
-	if !adminApproved("/repo") {
+	if !adminApprovedWithVerifier("/repo", verifier) {
 		t.Fatal("adminApproved should accept approved process ancestry")
 	}
 }
@@ -153,18 +149,13 @@ func TestAdminApprovedFallsBackToProcessAncestry(t *testing.T) {
 func TestAdminApprovedAcceptsEnvironmentMarker(t *testing.T) {
 	t.Setenv(adminApprovedEnv, "1")
 
-	original := verifyAdminApproved
-	verifyAdminApproved = func(string) error {
+	verifier := func(string) error {
 		t.Fatal("environment marker should avoid process ancestry lookup")
 
 		return nil
 	}
 
-	t.Cleanup(func() {
-		verifyAdminApproved = original
-	})
-
-	if !adminApproved("/repo") {
+	if !adminApprovedWithVerifier("/repo", verifier) {
 		t.Fatal("adminApproved should accept explicit environment marker")
 	}
 }
@@ -248,8 +239,11 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 		"format: toon",
 		"tool: policy-lint",
 		"trace_id: ",
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
-		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
+		"findings[1]{tool,file,line,column,severity,code," +
+			"policy_id,skill_id,message,advice,detail}:",
+		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,," +
+			"local machine detail detected,Replace local paths with generic placeholders.," +
+			"matched /" + "home/example/project",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("encoded output missing %q:\n%s", want, rendered)
@@ -271,12 +265,14 @@ func TestGitHookReadBundleRoundTripsExample(t *testing.T) {
 		t.Fatalf("create bundle: %v", err)
 	}
 
-	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
-		t.Fatalf("encode bundle: %v", err)
+	inlineErr0 := policy.EncodeBundle(file, policy.ExampleBundle())
+	if inlineErr0 != nil {
+		t.Fatalf("encode bundle: %v", inlineErr0)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close bundle: %v", err)
+	inlineErr1 := file.Close()
+	if inlineErr1 != nil {
+		t.Fatalf("close bundle: %v", inlineErr1)
 	}
 
 	bundle, err := readBundle(path)
@@ -290,32 +286,22 @@ func TestGitHookReadBundleRoundTripsExample(t *testing.T) {
 }
 
 func TestRunWithArgsHandlesValidationAndAllowedHooks(t *testing.T) {
+	t.Parallel()
+
 	repo := t.TempDir()
 	runner := filepath.Join(repo, "runner")
 	writeExecutableTestScript(t, runner, "#!/usr/bin/env sh\nexit 0\n")
 
-	bundlePath := filepath.Join(repo, "policy-bundle.json")
-
-	file, err := os.Create(bundlePath)
-	if err != nil {
-		t.Fatalf("create bundle: %v", err)
-	}
-
-	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
-		t.Fatalf("encode bundle: %v", err)
-	}
-
-	if err := file.Close(); err != nil {
-		t.Fatalf("close bundle: %v", err)
-	}
-
+	bundlePath := writeExampleBundleFile(t, repo)
 	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
-	if err := os.WriteFile(
+
+	inlineErr4 := os.WriteFile(
 		messagePath,
 		[]byte("fix(test): valid subject\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write commit message: %v", err)
+	)
+	if inlineErr4 != nil {
+		t.Fatalf("write commit message: %v", inlineErr4)
 	}
 
 	tests := []struct {
@@ -368,11 +354,36 @@ func TestRunWithArgsHandlesValidationAndAllowedHooks(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := runWithArgs(test.args); got != test.want {
 				t.Fatalf("runWithArgs() = %d, want %d", got, test.want)
 			}
 		})
 	}
+}
+
+func writeExampleBundleFile(t *testing.T, repo string) string {
+	t.Helper()
+
+	bundlePath := filepath.Join(repo, "policy-bundle.json")
+
+	file, err := os.Create(bundlePath)
+	if err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+
+	inlineErr := policy.EncodeBundle(file, policy.ExampleBundle())
+	if inlineErr != nil {
+		t.Fatalf("encode bundle: %v", inlineErr)
+	}
+
+	inlineErr = file.Close()
+	if inlineErr != nil {
+		t.Fatalf("close bundle: %v", inlineErr)
+	}
+
+	return bundlePath
 }
 
 func TestRunLegacyRunnerReturnsExitStatus(t *testing.T) {
@@ -426,12 +437,14 @@ func newGitHookE2ERepo(t *testing.T) gitHookE2ERepo {
 		t.Fatalf("create bundle: %v", err)
 	}
 
-	if err := policy.EncodeBundle(file, bundle); err != nil {
-		t.Fatalf("encode bundle: %v", err)
+	inlineErr5 := policy.EncodeBundle(file, bundle)
+	if inlineErr5 != nil {
+		t.Fatalf("encode bundle: %v", inlineErr5)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close bundle: %v", err)
+	inlineErr6 := file.Close()
+	if inlineErr6 != nil {
+		t.Fatalf("close bundle: %v", inlineErr6)
 	}
 
 	writeGitHookHelper(t, repo, "pre-commit", bundlePath)
@@ -459,22 +472,23 @@ func compileRepoPolicyBundle(t *testing.T) policy.Bundle {
 func findRepoRoot(t *testing.T) string {
 	t.Helper()
 
-	wd, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get working directory: %v", err)
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(wd, "coding_ethos.yml")); err == nil {
-			return wd
+		_, inlineErrAutoA := os.Stat(filepath.Join(workingDir, "coding_ethos.yml"))
+		if inlineErrAutoA == nil {
+			return workingDir
 		}
 
-		parent := filepath.Dir(wd)
-		if parent == wd {
+		parent := filepath.Dir(workingDir)
+		if parent == workingDir {
 			t.Fatal("could not locate repository root")
 		}
 
-		wd = parent
+		workingDir = parent
 	}
 }
 
@@ -491,15 +505,22 @@ func writeGitHookHelper(t *testing.T, repo, name, bundlePath string) {
 	script := fmt.Sprintf(
 		"#!/bin/sh\n"+
 			"CODING_ETHOS_GIT_HOOK_HELPER=1 CODE_ETHOS_HOOK_OUTPUT_FORMAT=toon "+
-			"exec %q -test.run '^TestGitHookHelperProcess$' -- "+
+			"exec %q -test.run '^$' -- "+
 			"--bundle %q --runner /bin/true --cwd %q %s \"$@\"\n",
 		executable,
 		bundlePath,
 		repo,
 		name,
 	)
-	if err := os.WriteFile(hookPath, []byte(script), 0o700); err != nil {
-		t.Fatalf("write %s hook: %v", name, err)
+
+	inlineErr7 := os.WriteFile(hookPath, []byte(script), 0o600)
+	if inlineErr7 != nil {
+		t.Fatalf("write %s hook: %v", name, inlineErr7)
+	}
+
+	inlineErr8 := os.Chmod(hookPath, 0o700)
+	if inlineErr8 != nil {
+		t.Fatalf("chmod %s hook: %v", name, inlineErr8)
 	}
 }
 
@@ -527,24 +548,28 @@ func writeExecutableTestScript(t *testing.T, path, content string) {
 		t.Fatalf("create executable script %s: %v", path, err)
 	}
 
-	if _, err := file.WriteString(content); err != nil {
+	_, inlineErrB := file.WriteString(content)
+	if inlineErrB != nil {
 		_ = file.Close()
 
-		t.Fatalf("write executable script %s: %v", path, err)
+		t.Fatalf("write executable script %s: %v", path, inlineErrB)
 	}
 
-	if err := file.Sync(); err != nil {
+	inlineErr8 := file.Sync()
+	if inlineErr8 != nil {
 		_ = file.Close()
 
-		t.Fatalf("sync executable script %s: %v", path, err)
+		t.Fatalf("sync executable script %s: %v", path, inlineErr8)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close executable script %s: %v", path, err)
+	inlineErr9 := file.Close()
+	if inlineErr9 != nil {
+		t.Fatalf("close executable script %s: %v", path, inlineErr9)
 	}
 
-	if err := os.Chmod(path, 0o700); err != nil {
-		t.Fatalf("chmod executable script %s: %v", path, err)
+	inlineErr10 := os.Chmod(path, 0o700)
+	if inlineErr10 != nil {
+		t.Fatalf("chmod executable script %s: %v", path, inlineErr10)
 	}
 }
 

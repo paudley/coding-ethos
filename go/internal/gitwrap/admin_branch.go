@@ -10,17 +10,19 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 var (
-	errAdminBranchNameRequired = errors.New("admin branch name is required")
-	errAdminBranchArgCount     = errors.New(
+	errAdminBranchNameRequired = apperror.StaticError("admin branch name is required")
+	errAdminBranchArgCount     = apperror.StaticError(
 		"admin-start-branch accepts exactly one branch name",
 	)
-	errAdminBranchDirty = errors.New(
+	errAdminBranchDirty = apperror.StaticError(
 		"worktree must be clean before admin branch start",
 	)
-	errAdminBranchInvalid = errors.New("invalid admin branch name")
+	errAdminBranchInvalid = apperror.StaticError("invalid admin branch name")
 )
 
 func AdminStartBranch(realGit, cwd string, args []string) error {

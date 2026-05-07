@@ -9,6 +9,8 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type Context struct {
@@ -31,22 +33,20 @@ type parserEntry struct {
 	mu     sync.Mutex
 }
 
-var defaultResolver = NewResolver()
-
 func NewResolver() *Resolver {
 	return &Resolver{parsers: map[string]*parserEntry{}}
 }
 
 func Analyze(path string, contents []byte) (File, bool, error) {
-	return defaultResolver.Analyze(path, contents)
+	return NewResolver().Analyze(path, contents)
 }
 
 func ContextForLine(path string, contents []byte, line int) (Context, bool, error) {
-	return defaultResolver.ContextForLine(path, contents, line)
+	return NewResolver().ContextForLine(path, contents, line)
 }
 
 func Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
-	return defaultResolver.Parse(path, contents)
+	return NewResolver().Parse(path, contents)
 }
 
 func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, error) {
@@ -136,7 +136,11 @@ func (resolver *Resolver) parse(
 
 	tree := entry.parser.Parse(contents, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("parse %q with tree-sitter returned nil tree", path)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("parse %q with tree-sitter returned nil tree"),
+			"parse %q with tree-sitter returned nil tree",
+			path,
+		)
 	}
 
 	return tree, nil

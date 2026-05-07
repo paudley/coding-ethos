@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hookoutput
+package hookoutput_test
 
 import (
 	"encoding/json"
@@ -9,8 +9,18 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	. "blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+)
+
+const (
+	sha256HexLength    = 64
+	sarifRepoURI       = "."
+	sarifSchema        = "https://json.schemastore.org/sarif-2.1.0.json"
+	sarifVersion       = "2.1.0"
+	toonFindingsHeader = "findings[1]{tool,file,line,column,severity,code," +
+		"policy_id,skill_id,message,advice,detail}:"
 )
 
 func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
@@ -40,8 +50,10 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 		"format: toon",
 		"tool: policy-lint",
 		"scope: staged",
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
-		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,,local machine detail detected,Replace local paths with generic placeholders.,matched /" + "home/example/project",
+		toonFindingsHeader,
+		"pii,.codex/config.toml,8,0,block,,repo.pii_scrubber,," +
+			"local machine detail detected,Replace local paths with generic placeholders.," +
+			"matched /" + "home/example/project",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -75,7 +87,10 @@ func TestFormatLintResultTOONIncludesExistingTraceID(t *testing.T) {
 		t.Fatalf("format lint result: %v", err)
 	}
 
-	if !strings.Contains(output, "trace_id: 20260504T000000.000000000Z-123-staged.json") {
+	if !strings.Contains(
+		output,
+		"trace_id: 20260504T000000.000000000Z-123-staged.json",
+	) {
 		t.Fatalf("TOON output missing trace_id:\n%s", output)
 	}
 }
@@ -154,18 +169,40 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr0 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr0 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr0, output)
 	}
+
+	assertSARIFRunMetadata(t, payload)
+	assertSARIFRuleMetadata(t, payload)
+	assertSARIFResultLocation(t, payload)
+	assertSARIFResultProperties(t, payload)
+	assertSARIFCoverageMetadata(t, payload)
+}
+
+func assertSARIFRunMetadata(t *testing.T, payload map[string]any) {
+	t.Helper()
 
 	assertJSONPath(t, payload, "$schema", sarifSchema)
 	assertJSONPath(t, payload, "version", sarifVersion)
 	assertJSONPath(t, payload, "runs.0.automationDetails.id", "coding-ethos/tool/ruff")
-	assertJSONPath(t, payload, "runs.0.invocations.0.workingDirectory.uri", sarifRepoURI)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.invocations.0.workingDirectory.uri",
+		sarifRepoURI,
+	)
 	assertJSONPath(t, payload, "runs.0.invocations.0.executionSuccessful", false)
 	assertJSONPath(t, payload, "runs.0.tool.driver.name", "coding-ethos")
 	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.id", "python.unused_imports")
-	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.precision", "high")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.tool.driver.rules.0.properties.precision",
+		"high",
+	)
 	assertJSONPath(
 		t,
 		payload,
@@ -178,6 +215,11 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 		"runs.0.tool.driver.rules.0.properties.skill_id",
 		"lint-remediation",
 	)
+}
+
+func assertSARIFRuleMetadata(t *testing.T, payload map[string]any) {
+	t.Helper()
+
 	assertJSONPath(
 		t,
 		payload,
@@ -206,6 +248,11 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.results.0.ruleIndex", float64(0))
 	assertJSONPath(t, payload, "runs.0.results.0.level", "error")
 	assertJSONPath(t, payload, "runs.0.results.0.message.text", "unused import")
+}
+
+func assertSARIFResultLocation(t *testing.T, payload map[string]any) {
+	t.Helper()
+
 	assertJSONPath(
 		t,
 		payload,
@@ -228,21 +275,28 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 		t,
 		payload,
 		"runs.0.results.0.partialFingerprints.coding-ethos/v1",
-		64,
 	)
 	assertJSONPathPrefix(
 		t,
 		payload,
 		"runs.0.results.0.partialFingerprints.coding-ethos/stable/v1",
-		64,
 	)
 	assertJSONPathPrefix(
 		t,
 		payload,
 		"runs.0.results.0.partialFingerprints.coding-ethos/ast/v1",
-		64,
 	)
-	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_change_source", "staged")
+}
+
+func assertSARIFResultProperties(t *testing.T, payload map[string]any) {
+	t.Helper()
+
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.ast_change_source",
+		"staged",
+	)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.ast_language", "python")
 	assertJSONPath(
 		t,
@@ -262,7 +316,12 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 		"runs.0.results.0.properties.policy_id",
 		"python.unused_imports",
 	)
-	assertJSONPath(t, payload, "runs.0.results.0.properties.skill_id", "lint-remediation")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.skill_id",
+		"lint-remediation",
+	)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.implementation", "cel")
 	assertJSONPath(
 		t,
@@ -286,7 +345,6 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 		t,
 		payload,
 		"runs.0.results.0.properties.coding_ethos_group_id",
-		64,
 	)
 	assertJSONPath(
 		t,
@@ -295,7 +353,12 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 		"python.unused_imports|lint-remediation|pkg/app.py|4",
 	)
 	assertJSONPath(t, payload, "runs.0.results.0.properties.coding_ethos", true)
-	assertJSONPathPrefix(t, payload, "runs.0.properties.finding_groups.0.id", 64)
+}
+
+func assertSARIFCoverageMetadata(t *testing.T, payload map[string]any) {
+	t.Helper()
+
+	assertJSONPathPrefix(t, payload, "runs.0.properties.finding_groups.0.id")
 	assertJSONPath(
 		t,
 		payload,
@@ -356,7 +419,23 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 func TestFormatLintResultSARIFGroupsCrossToolFindings(t *testing.T) {
 	t.Parallel()
 
-	result := lint.Result{
+	output, err := FormatLintResult(crossToolFindingResult(), FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+
+	inlineErr1 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr1 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr1, output)
+	}
+
+	assertSARIFCrossToolFindingGroups(t, payload)
+}
+
+func crossToolFindingResult() lint.Result {
+	return lint.Result{
 		Scope:  lint.ScopeFiles,
 		Status: "blocked",
 		Diagnostics: []diagnostics.Diagnostic{
@@ -382,16 +461,10 @@ func TestFormatLintResultSARIFGroupsCrossToolFindings(t *testing.T) {
 			},
 		},
 	}
+}
 
-	output, err := FormatLintResult(result, FormatSARIF)
-	if err != nil {
-		t.Fatalf("format SARIF: %v", err)
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
-	}
+func assertSARIFCrossToolFindingGroups(t *testing.T, payload map[string]any) {
+	t.Helper()
 
 	assertJSONPath(
 		t,
@@ -423,18 +496,21 @@ func TestFormatLintResultSARIFGroupsCrossToolFindings(t *testing.T) {
 		"runs.0.properties.finding_groups.0.source_tools.0",
 		"pyright",
 	)
-	assertJSONPath(t, payload, "runs.0.properties.finding_groups.0.source_tools.1", "ruff")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.finding_groups.0.source_tools.1",
+		"ruff",
+	)
 	assertJSONPathPrefix(
 		t,
 		payload,
 		"runs.0.properties.finding_groups.0.stable_fingerprints.0",
-		64,
 	)
 	assertJSONPathPrefix(
 		t,
 		payload,
 		"runs.0.properties.finding_groups.0.stable_fingerprints.1",
-		64,
 	)
 }
 
@@ -463,8 +539,10 @@ func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr2 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr2 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr2, output)
 	}
 
 	assertJSONPath(t, payload, "runs.0.automationDetails.id", "policy/")
@@ -490,11 +568,13 @@ func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr3 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr3 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr3, output)
 	}
 
-	results := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	results := jsonPathSlice(t, payload, "runs.0.results")
 	if len(results) != 0 {
 		t.Fatalf(
 			"pathless policy SARIF results cannot be uploaded to code scanning: %#v",
@@ -523,13 +603,18 @@ func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr4 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr4 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr4, output)
 	}
 
-	results := payload["runs"].([]any)[0].(map[string]any)["results"].([]any)
+	results := jsonPathSlice(t, payload, "runs.0.results")
 	if len(results) != 0 {
-		t.Fatalf("record-only policy context should not emit SARIF results: %#v", results)
+		t.Fatalf(
+			"record-only policy context should not emit SARIF results: %#v",
+			results,
+		)
 	}
 }
 
@@ -557,8 +642,10 @@ func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr5 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr5 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr5, output)
 	}
 
 	assertJSONPath(
@@ -567,7 +654,12 @@ func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {
 		"runs.0.tool.driver.rules.0.properties.security-severity",
 		"5.0",
 	)
-	assertJSONPath(t, payload, "runs.0.tool.driver.rules.0.properties.tags.1", "security")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.tool.driver.rules.0.properties.tags.1",
+		"security",
+	)
 	assertJSONPath(
 		t,
 		payload,
@@ -619,12 +711,19 @@ func TestFormatLintResultSARIFIncludesSandboxEvidence(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr6 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr6 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr6, output)
 	}
 
 	assertJSONPath(t, payload, "runs.0.properties.sandbox.profile", "lint-offline")
-	assertJSONPath(t, payload, "runs.0.properties.sandbox.timeout_seconds", float64(300))
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.sandbox.timeout_seconds",
+		float64(300),
+	)
 	assertJSONPath(t, payload, "runs.0.properties.sandbox.memory_mb", float64(2048))
 	assertJSONPath(
 		t,
@@ -670,7 +769,7 @@ func TestFormatLintResultTOONDedupesDiagnostics(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		toonFindingsHeader,
 		"also reported by pyright:reportOptionalMemberAccess",
 	} {
 		if !strings.Contains(output, want) {
@@ -709,11 +808,51 @@ func assertJSONPath(t *testing.T, payload map[string]any, path string, want any)
 	}
 }
 
+func jsonPathSlice(t *testing.T, payload map[string]any, path string) []any {
+	t.Helper()
+
+	current := jsonPathValue(t, payload, path)
+
+	values, ok := current.([]any)
+	if !ok {
+		t.Fatalf("JSON path %q = %#v, want array", path, current)
+	}
+
+	return values
+}
+
+func jsonPathValue(t *testing.T, payload map[string]any, path string) any {
+	t.Helper()
+
+	var current any = payload
+	for segment := range strings.SplitSeq(path, ".") {
+		switch value := current.(type) {
+		case map[string]any:
+			var ok bool
+
+			current, ok = value[segment]
+			if !ok {
+				t.Fatalf("JSON path %q missing segment %q in %#v", path, segment, value)
+			}
+		case []any:
+			index := int(segment[0] - '0')
+			if len(segment) != 1 || index < 0 || index >= len(value) {
+				t.Fatalf("JSON path %q invalid index %q in %#v", path, segment, value)
+			}
+
+			current = value[index]
+		default:
+			t.Fatalf("JSON path %q cannot descend into %#v", path, value)
+		}
+	}
+
+	return current
+}
+
 func assertJSONPathPrefix(
 	t *testing.T,
 	payload map[string]any,
 	path string,
-	length int,
 ) {
 	t.Helper()
 
@@ -740,8 +879,13 @@ func assertJSONPathPrefix(
 	}
 
 	text, ok := current.(string)
-	if !ok || len(text) != length {
-		t.Fatalf("JSON path %q = %#v, want string length %d", path, current, length)
+	if !ok || len(text) != sha256HexLength {
+		t.Fatalf(
+			"JSON path %q = %#v, want string length %d",
+			path,
+			current,
+			sha256HexLength,
+		)
 	}
 }
 
@@ -865,8 +1009,10 @@ func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
-		"policy,,0,0,block,,git.staged_admin_files,,Administrative staged files require explicit handling.,Confirm the policy change is intentional.,",
+		toonFindingsHeader,
+		"policy,,0,0,block,,git.staged_admin_files,," +
+			"Administrative staged files require explicit handling.," +
+			"Confirm the policy change is intentional.,",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -905,8 +1051,11 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
-		"mypy,,0,0,error,,tool.mypy,,mypy configuration or usage failed with status 2,,category=configuration_error; exit_code=2; output=mypy: error: cannot read file 'lbox/parsing/analyzer_base.py'",
+		toonFindingsHeader,
+		"mypy,,0,0,error,,tool.mypy,," +
+			"mypy configuration or usage failed with status 2,," +
+			"category=configuration_error; exit_code=2; output=mypy: error: " +
+			"cannot read file 'lbox/parsing/analyzer_base.py'",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -942,7 +1091,8 @@ func TestFormatLintResultHumanIncludesCapturedFailureDetail(t *testing.T) {
 
 	for _, want := range []string{
 		"actionlint exited with status 127 without parseable diagnostics",
-		"detail: category=tool_error; exit_code=127; output=fork/exec actionlint: permission denied",
+		"detail: category=tool_error; exit_code=127; " +
+			"output=fork/exec actionlint: permission denied",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("human output missing %q:\n%s", want, output)
@@ -989,7 +1139,7 @@ func TestFormatLintResultTOONBlockedOutputQuality(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"findings[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+		toonFindingsHeader,
 		"tool.pyright",
 		"pyright configuration or usage failed with status 2",
 		"output=pyright: config failure in <repo>/pyrightconfig.json",
@@ -1031,115 +1181,159 @@ func TestFormatLintResultTOONTruncatesPathologicalFindingCells(t *testing.T) {
 	}
 
 	if len(output) > 900 {
-		t.Fatalf("TOON output too large after truncation: %d bytes\n%s", len(output), output)
+		t.Fatalf(
+			"TOON output too large after truncation: %d bytes\n%s",
+			len(output),
+			output,
+		)
 	}
 }
 
 func TestFormatLintResultCELBackedGoldenSurfaces(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name   string
-		want   string
-		result lint.Result
-	}{
-		{
-			name: "command policy",
-			result: lint.Result{
-				Scope:      "files",
-				Status:     "blocked",
-				SkillHints: celSkillHints(),
-				Decisions: []policy.Decision{celDecision(
-					"custom.no_subprocess_git",
-					"",
-					"Git subprocesses are forbidden.",
-				)},
-			},
-			want: "custom.no_subprocess_git",
-		},
-		{
-			name: "file policy",
-			result: lint.Result{
-				Scope:      "files",
-				Status:     "blocked",
-				SkillHints: celSkillHints(),
-				Decisions: []policy.Decision{celDecision(
-					"custom.generated_python",
-					"generated/model.py",
-					"Generated Python must not be edited directly.",
-				)},
-			},
-			want: "generated/model.py",
-		},
-		{
-			name: "diagnostic policy",
-			result: lint.Result{
-				Scope:      "tool:ruff",
-				Status:     "blocked",
-				SkillHints: celSkillHints(),
-				Diagnostics: []diagnostics.Diagnostic{{
-					Tool:     "policy",
-					File:     "pkg/app.py",
-					Line:     10,
-					Severity: "block",
-					PolicyID: "custom.ruff_policy",
-					SkillID:  "lint-remediation",
-					Message:  "Ruff diagnostic maps to ETHOS policy.",
-					Advice:   "Fix the diagnostic structurally.",
-				}},
-			},
-			want: "custom.ruff_policy",
-		},
-		{
-			name: "lint finding policy",
-			result: lint.Result{
-				Scope:      "tool:mypy",
-				Status:     "blocked",
-				SkillHints: celSkillHints(),
-				Findings: []lint.Finding{{
-					CheckID:    "custom.mypy_policy",
-					PolicyID:   "custom.mypy_policy",
-					SkillID:    "lint-remediation",
-					Message:    "Mypy finding maps to ETHOS policy.",
-					Severity:   "error",
-					SourceTool: "mypy",
-					Status:     "fail",
-					Blocking:   true,
-				}},
-			},
-			want: "custom.mypy_policy",
-		},
-	}
-
-	for _, testCase := range cases {
+	for _, testCase := range celBackedGoldenCases() {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			for _, format := range []string{FormatTOON, FormatJSON, FormatHuman} {
-				output, err := FormatLintResult(testCase.result, format)
-				if err != nil {
-					t.Fatalf("format %s lint result: %v", format, err)
-				}
-
-				for _, want := range []string{
-					testCase.want,
-					"lint-remediation",
-				} {
-					if !strings.Contains(output, want) {
-						t.Fatalf("%s output missing %q:\n%s", format, want, output)
-					}
-				}
-
-				if format != FormatJSON &&
-					!strings.Contains(output, "Fix the reported diagnostics before continuing.") {
-					t.Fatalf("%s output missing guidance:\n%s", format, output)
-				}
-			}
+			assertCELBackedGoldenFormats(t, testCase.result, testCase.want)
 		})
 	}
 }
 
+type celBackedGoldenCase struct {
+	name   string
+	want   string
+	result lint.Result
+}
+
+func celBackedGoldenCases() []celBackedGoldenCase {
+	return []celBackedGoldenCase{
+		celCommandGoldenCase(),
+		celFileGoldenCase(),
+		celDiagnosticGoldenCase(),
+		celFindingGoldenCase(),
+	}
+}
+
+func celCommandGoldenCase() celBackedGoldenCase {
+	return celBackedGoldenCase{
+		name: "command policy",
+		result: lint.Result{
+			Scope:      "files",
+			Status:     "blocked",
+			SkillHints: celSkillHints(),
+			Decisions: []policy.Decision{celDecision(
+				"custom.no_subprocess_git",
+				"",
+				"Git subprocesses are forbidden.",
+			)},
+		},
+		want: "custom.no_subprocess_git",
+	}
+}
+
+func celFileGoldenCase() celBackedGoldenCase {
+	return celBackedGoldenCase{
+		name: "file policy",
+		result: lint.Result{
+			Scope:      "files",
+			Status:     "blocked",
+			SkillHints: celSkillHints(),
+			Decisions: []policy.Decision{celDecision(
+				"custom.generated_python",
+				"generated/model.py",
+				"Generated Python must not be edited directly.",
+			)},
+		},
+		want: "generated/model.py",
+	}
+}
+
+func celDiagnosticGoldenCase() celBackedGoldenCase {
+	return celBackedGoldenCase{
+		name: "diagnostic policy",
+		result: lint.Result{
+			Scope:      "tool:ruff",
+			Status:     "blocked",
+			SkillHints: celSkillHints(),
+			Diagnostics: []diagnostics.Diagnostic{{
+				Tool:     "policy",
+				File:     "pkg/app.py",
+				Line:     10,
+				Severity: "block",
+				PolicyID: "custom.ruff_policy",
+				SkillID:  "lint-remediation",
+				Message:  "Ruff diagnostic maps to ETHOS policy.",
+				Advice:   "Fix the diagnostic structurally.",
+			}},
+		},
+		want: "custom.ruff_policy",
+	}
+}
+
+func celFindingGoldenCase() celBackedGoldenCase {
+	return celBackedGoldenCase{
+		name: "lint finding policy",
+		result: lint.Result{
+			Scope:      "tool:mypy",
+			Status:     "blocked",
+			SkillHints: celSkillHints(),
+			Findings: []lint.Finding{{
+				CheckID:    "custom.mypy_policy",
+				PolicyID:   "custom.mypy_policy",
+				SkillID:    "lint-remediation",
+				Message:    "Mypy finding maps to ETHOS policy.",
+				Severity:   "error",
+				SourceTool: "mypy",
+				Status:     "fail",
+				Blocking:   true,
+			}},
+		},
+		want: "custom.mypy_policy",
+	}
+}
+
+func assertCELBackedGoldenFormats(
+	t *testing.T,
+	result lint.Result,
+	want string,
+) {
+	t.Helper()
+
+	for _, format := range []string{FormatTOON, FormatJSON, FormatHuman} {
+		output, err := FormatLintResult(result, format)
+		if err != nil {
+			t.Fatalf("format %s lint result: %v", format, err)
+		}
+
+		assertCELBackedGoldenOutput(t, format, output, want)
+	}
+}
+
+func assertCELBackedGoldenOutput(
+	t *testing.T,
+	format string,
+	output string,
+	want string,
+) {
+	t.Helper()
+
+	for _, expected := range []string{want, "lint-remediation"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("%s output missing %q:\n%s", format, expected, output)
+		}
+	}
+
+	if format != FormatJSON &&
+		!strings.Contains(output, "Fix the reported diagnostics before continuing.") {
+		t.Fatalf("%s output missing guidance:\n%s", format, output)
+	}
+}
+
 func TestSelectedFormatAutoDetectsAgent(t *testing.T) {
+	t.Parallel()
+
 	getenv := func(name string) string {
 		switch name {
 		case FormatEnv:

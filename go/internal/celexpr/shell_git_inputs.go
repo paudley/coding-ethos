@@ -12,13 +12,22 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
+const (
+	gitCheckoutSubcommand  = "checkout"
+	gitPushSubcommand      = "push"
+	wrappedToolMinimumArgs = 2
+)
+
 func shellCommandInputs(command string) []ShellCommandInput {
 	parsed, err := shellparse.Commands(command)
 	if err != nil {
 		return []ShellCommandInput{}
 	}
 
-	controlFields, _ := shellparse.ControlFields(command)
+	controlFields, err := shellparse.ControlFields(command)
+	if err != nil {
+		controlFields = nil
+	}
 
 	inputs := make([]ShellCommandInput, 0, len(parsed))
 	for _, parsedCommand := range parsed {
@@ -46,10 +55,13 @@ func shellCommandInputs(command string) []ShellCommandInput {
 			IsGitMutation:          shellCommandIsGitMutation(parsedCommand),
 			IsGit:                  shellCommandIsGit(parsedCommand),
 			IsLintTool:             shellCommandIsLintTool(parsedCommand),
-			PipesToShell:           shellCommandPipesToShell(parsedCommand, controlFields),
-			IsShellExec:            shellCommandIsShellExec(parsedCommand),
-			UsesPathOverride:       shellCommandUsesPathOverride(parsedCommand),
-			WrapsGitMutation:       shellCommandWrapsGitMutation(parsedCommand),
+			PipesToShell: shellCommandPipesToShell(
+				parsedCommand,
+				controlFields,
+			),
+			IsShellExec:      shellCommandIsShellExec(parsedCommand),
+			UsesPathOverride: shellCommandUsesPathOverride(parsedCommand),
+			WrapsGitMutation: shellCommandWrapsGitMutation(parsedCommand),
 		})
 	}
 
@@ -256,8 +268,8 @@ func shellCommandName(command shellparse.Command) string {
 }
 
 func shellCommandIsGit(command shellparse.Command) bool {
-	return commandTokenMatchesTool(shellCommandName(command), "git") ||
-		shellCommandWrappedTool(command, "git")
+	return commandTokenMatchesTool(shellCommandName(command), gitCommandName) ||
+		shellCommandWrappedTool(command, gitCommandName)
 }
 
 func shellCommandIsLintTool(command shellparse.Command) bool {
@@ -307,7 +319,7 @@ func shellCommandIsGitMutation(command shellparse.Command) bool {
 	}
 
 	switch command.Argv[1] {
-	case "commit", "push":
+	case "commit", gitPushSubcommand:
 		return true
 	default:
 		return false
@@ -320,12 +332,12 @@ func shellCommandWrapsGitMutation(command shellparse.Command) bool {
 	}
 
 	for index, arg := range command.Argv {
-		if path.Base(arg) != "git" || index+1 >= len(command.Argv) {
+		if path.Base(arg) != gitCommandName || index+1 >= len(command.Argv) {
 			continue
 		}
 
 		switch command.Argv[index+1] {
-		case "commit", "push":
+		case "commit", gitPushSubcommand:
 			return true
 		}
 	}
@@ -375,7 +387,7 @@ func isShellInterpreter(value string) bool {
 }
 
 func shellCommandWrappedTool(command shellparse.Command, tool string) bool {
-	if len(command.Argv) < 2 {
+	if len(command.Argv) < wrappedToolMinimumArgs {
 		return false
 	}
 
@@ -542,7 +554,7 @@ func gitHasForcePush(flags []string) bool {
 
 func gitForcePushProtectedBranch(argv, protectedBranches []string) bool {
 	input := gitCommandInputWithoutDerived(argv)
-	if input.Subcommand != "push" || !gitHasForcePush(input.Flags) {
+	if input.Subcommand != gitPushSubcommand || !gitHasForcePush(input.Flags) {
 		return false
 	}
 
@@ -558,7 +570,7 @@ func gitForcePushProtectedBranch(argv, protectedBranches []string) bool {
 func gitCheckoutProtectedBranch(argv, protectedBranches []string) bool {
 	input := gitCommandInputWithoutDerived(argv)
 	switch input.Subcommand {
-	case "checkout":
+	case gitCheckoutSubcommand:
 		return gitTargetsContainLocalProtected(
 			checkoutBranchTargets(input.Args),
 			protectedBranches,
@@ -597,7 +609,7 @@ func gitLocalProtectedBranchRef(value string, protectedBranches []string) bool {
 
 func gitCommandInputWithoutDerived(argv []string) GitCommandInput {
 	normalized := stripLeadingAssignments(argv)
-	if len(normalized) == 0 || !commandTokenMatchesTool(normalized[0], "git") {
+	if len(normalized) == 0 || !commandTokenMatchesTool(normalized[0], gitCommandName) {
 		return GitCommandInput{}
 	}
 
@@ -619,7 +631,7 @@ func gitCommandInputWithoutDerived(argv []string) GitCommandInput {
 
 func gitCommandTargets(subcommand string, args []string) []string {
 	switch subcommand {
-	case "checkout":
+	case gitCheckoutSubcommand:
 		return checkoutBranchTargets(args)
 	case "switch":
 		return switchBranchTargets(args)

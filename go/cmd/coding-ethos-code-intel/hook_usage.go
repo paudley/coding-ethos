@@ -70,7 +70,11 @@ func printHookUsage(ctx context.Context, args []string) error {
 	provider := flags.String("provider", "", "Filter by agent provider")
 	status := flags.String("status", "", "Filter by hook status")
 	filters := addPolicySkillFlags(flags)
-	operationKind := flags.String("operation-kind", "", "Filter by derived operation kind")
+	operationKind := flags.String(
+		"operation-kind",
+		"",
+		"Filter by derived operation kind",
+	)
 	targetKind := flags.String("target-kind", "", "Filter by derived target kind")
 	riskCategory := flags.String("risk-category", "", "Filter by derived risk category")
 	limit := addResultLimit(flags)

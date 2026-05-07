@@ -141,7 +141,11 @@ func compileDocstringCoverageExcludes(patterns []string) ([]*regexp.Regexp, erro
 	for _, pattern := range patterns {
 		compiled, err := regexp.Compile(pattern)
 		if err != nil {
-			return nil, fmt.Errorf("compile docstring coverage exclude %q: %w", pattern, err)
+			return nil, fmt.Errorf(
+				"compile docstring coverage exclude %q: %w",
+				pattern,
+				err,
+			)
 		}
 
 		excludes = append(excludes, compiled)

@@ -19,14 +19,15 @@ func lifecycleOutput(event Event) *HookSpecificOutput {
 
 func lifecycleContext(event Event) string {
 	switch event.HookEventName {
-	case "SessionStart":
+	case eventSessionStart:
 		return buildGuidanceContext(
 			[]string{
-				"Load repository conventions, managed toolchain rules, and generated skills before editing.",
+				"Load repository conventions, managed toolchain rules, " +
+					"and generated skills before editing.",
 			},
 			"",
 		)
-	case "UserPromptSubmit":
+	case eventUserPromptSubmit:
 		return buildGuidanceContext(
 			[]string{
 				"Use and maintain a todo list for multi-step work.",
@@ -42,7 +43,7 @@ func lifecycleContext(event Event) string {
 			},
 			"",
 		)
-	case "Stop", "SessionEnd":
+	case eventStop, "SessionEnd":
 		return buildChecklistContext(
 			"Before ending:",
 			[]string{
@@ -75,7 +76,9 @@ func lifecycleContext(event Event) string {
 }
 
 func buildChecklistContext(heading string, guidance []string) string {
-	lines := []string{heading}
+	lines := make([]string, 0, 1+len(guidance))
+
+	lines = append(lines, heading)
 	for _, item := range guidance {
 		lines = append(lines, "- "+item)
 	}

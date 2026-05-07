@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hookoutput
+package hookoutput_test
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	. "blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
@@ -37,8 +38,10 @@ func TestFormatLintResultJSONIncludesAgentRemediation(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode JSON: %v\n%s", err, output)
+
+	inlineErr0 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr0 != nil {
+		t.Fatalf("decode JSON: %v\n%s", inlineErr0, output)
 	}
 
 	assertJSONPath(
@@ -88,7 +91,9 @@ func TestFormatLintResultTOONIncludesAgentRemediation(t *testing.T) {
 
 	for _, want := range []string{
 		"agent_remediation[1]{policy_id,skill_id,file,line,next,mcp_tool}:",
-		"python.conditional_imports,conditional-imports,pkg/app.py,12,Call MCP policy_explain with policy_id=python.conditional_imports before retrying.,policy_explain",
+		"python.conditional_imports,conditional-imports,pkg/app.py,12," +
+			"Call MCP policy_explain with policy_id=python.conditional_imports " +
+			"before retrying.,policy_explain",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing %q:\n%s", want, output)
@@ -127,15 +132,23 @@ func TestFormatLintResultSARIFIncludesNormalizedEvidence(t *testing.T) {
 	}
 
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("decode SARIF: %v\n%s", err, output)
+
+	inlineErr1 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr1 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr1, output)
 	}
+
+	assertSARIFNormalizedRemediation(t, payload)
+	assertSARIFNormalizedFinding(t, payload)
+}
+
+func assertSARIFNormalizedRemediation(t *testing.T, payload map[string]any) {
+	t.Helper()
 
 	assertJSONPathPrefix(
 		t,
 		payload,
 		"runs.0.results.0.partialFingerprints.coding-ethos/finding/v1",
-		64,
 	)
 	assertJSONPath(
 		t,
@@ -155,7 +168,12 @@ func TestFormatLintResultSARIFIncludesNormalizedEvidence(t *testing.T) {
 		"runs.0.results.0.properties.agent_remediation.0.mcp.tool",
 		"policy_explain",
 	)
-	assertJSONPathPrefix(t, payload, "runs.0.results.0.properties.finding.id", 64)
+}
+
+func assertSARIFNormalizedFinding(t *testing.T, payload map[string]any) {
+	t.Helper()
+
+	assertJSONPathPrefix(t, payload, "runs.0.results.0.properties.finding.id")
 	assertJSONPath(
 		t,
 		payload,
@@ -184,6 +202,5 @@ func TestFormatLintResultSARIFIncludesNormalizedEvidence(t *testing.T) {
 		t,
 		payload,
 		"runs.0.results.0.properties.remediation_events.0.id",
-		64,
 	)
 }

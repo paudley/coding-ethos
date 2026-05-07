@@ -13,9 +13,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-var errCommandRequired = errors.New("command is required")
+const hookLogDirMode = 0o755
+
+const hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add " +
+	".coding-ethos/ to the repo .gitignore before hook logs are written"
+
+var errCommandRequired = apperror.StaticError("command is required")
 
 type Options struct {
 	Stdin      io.Reader
@@ -29,16 +37,80 @@ type Options struct {
 }
 
 func Run(options Options) error {
+	options, err := normalizedOptions(options)
+	if err != nil {
+		return err
+	}
+
+	err = requireHookLogIgnores(options)
+	if err != nil {
+		return err
+	}
+
+	startedAt := options.Now().UTC()
+	runID := hookRunID(startedAt)
+
+	runDir, err := createHookRunDir(options.Root, runID)
+	if err != nil {
+		return err
+	}
+
+	logs, err := createHookRunLogs(runDir)
+	if err != nil {
+		return err
+	}
+	defer logs.close()
+
+	metadataPath := filepath.Join(runDir, "metadata.env")
+
+	err = writeStartedMetadata(metadataPath, hookRunMetadata{
+		RunID:      runID,
+		StartedAt:  startedAt,
+		RepoRoot:   options.Root,
+		BundleRoot: options.BundleRoot,
+		Command:    options.Command,
+	})
+	if err != nil {
+		return err
+	}
+
+	cmd := safeexec.Command(options.Command[0], options.Command[1:]...)
+
+	cmd.Env = append(os.Environ(),
+		"CODE_ETHOS_HOOK_LOGGING_ACTIVE=1",
+		"CODE_ETHOS_HOOK_RUN_DIR="+runDir,
+	)
+	cmd.Stdin = options.Stdin
+	cmd.Stdout = io.MultiWriter(options.Stdout, logs.stdout)
+	cmd.Stderr = io.MultiWriter(options.Stderr, logs.stderr)
+
+	err = cmd.Run()
+
+	status := exitCode(err)
+
+	metadataErr := appendFinishedMetadata(metadataPath, options.Now().UTC(), status)
+	if metadataErr != nil {
+		return metadataErr
+	}
+
+	if err != nil {
+		return commandError{err: err, code: status}
+	}
+
+	return nil
+}
+
+func normalizedOptions(options Options) (Options, error) {
 	if len(options.Command) == 0 {
-		return errCommandRequired
+		return Options{}, errCommandRequired
 	}
 
 	if strings.TrimSpace(options.Root) == "" {
-		return errors.New("root is required")
+		return Options{}, apperror.StaticError("root is required")
 	}
 
 	if strings.TrimSpace(options.BundleRoot) == "" {
-		return errors.New("bundle root is required")
+		return Options{}, apperror.StaticError("bundle root is required")
 	}
 
 	if options.Stdout == nil {
@@ -61,6 +133,10 @@ func Run(options Options) error {
 		options.Now = func() time.Time { return time.Now().UTC() }
 	}
 
+	return options, nil
+}
+
+func requireHookLogIgnores(options Options) error {
 	for _, requiredIgnore := range []string{
 		".coding-ethos/",
 		".coding-ethos/hook-runs/example/stdout.log",
@@ -71,70 +147,57 @@ func Run(options Options) error {
 		}
 	}
 
-	startedAt := options.Now().UTC()
-	runID := fmt.Sprintf(
+	return nil
+}
+
+func hookRunID(startedAt time.Time) string {
+	return fmt.Sprintf(
 		"%s-%d-%d",
 		startedAt.Format("20060102T150405Z"),
 		os.Getppid(),
 		os.Getpid(),
 	)
+}
 
-	runDir := filepath.Join(options.Root, ".coding-ethos", "hook-runs", runID)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("create hook log directory: %w", err)
+func createHookRunDir(root, runID string) (string, error) {
+	runDir := filepath.Join(root, ".coding-ethos", "hook-runs", runID)
+
+	err := os.MkdirAll(runDir, hookLogDirMode)
+	if err != nil {
+		return "", fmt.Errorf("create hook log directory: %w", err)
 	}
 
+	return runDir, nil
+}
+
+type hookRunLogs struct {
+	stdout *os.File
+	stderr *os.File
+}
+
+func createHookRunLogs(runDir string) (hookRunLogs, error) {
 	stdoutLog, err := os.Create(filepath.Join(runDir, "stdout.log"))
 	if err != nil {
-		return fmt.Errorf("create stdout log: %w", err)
+		return hookRunLogs{}, fmt.Errorf("create stdout log: %w", err)
 	}
-	defer stdoutLog.Close()
 
 	stderrLog, err := os.Create(filepath.Join(runDir, "stderr.log"))
 	if err != nil {
-		return fmt.Errorf("create stderr log: %w", err)
-	}
-	defer stderrLog.Close()
+		_ = stdoutLog.Close()
 
-	metadataPath := filepath.Join(runDir, "metadata.env")
-	if err := writeStartedMetadata(metadataPath, hookRunMetadata{
-		RunID:      runID,
-		StartedAt:  startedAt,
-		RepoRoot:   options.Root,
-		BundleRoot: options.BundleRoot,
-		Command:    options.Command,
-	}); err != nil {
-		return err
+		return hookRunLogs{}, fmt.Errorf("create stderr log: %w", err)
 	}
 
-	cmd := exec.Command(options.Command[0], options.Command[1:]...)
+	return hookRunLogs{stdout: stdoutLog, stderr: stderrLog}, nil
+}
 
-	cmd.Env = append(os.Environ(),
-		"CODE_ETHOS_HOOK_LOGGING_ACTIVE=1",
-		"CODE_ETHOS_HOOK_RUN_DIR="+runDir,
-	)
-	cmd.Stdin = options.Stdin
-	cmd.Stdout = io.MultiWriter(options.Stdout, stdoutLog)
-	cmd.Stderr = io.MultiWriter(options.Stderr, stderrLog)
-
-	err = cmd.Run()
-
-	status := exitCode(err)
-
-	metadataErr := appendFinishedMetadata(metadataPath, options.Now().UTC(), status)
-	if metadataErr != nil {
-		return metadataErr
-	}
-
-	if err != nil {
-		return commandError{err: err, code: status}
-	}
-
-	return nil
+func (logs hookRunLogs) close() {
+	_ = logs.stdout.Close()
+	_ = logs.stderr.Close()
 }
 
 func requireIgnored(options Options, path string) error {
-	cmd := exec.Command(
+	cmd := safeexec.Command(
 		options.GitPath,
 		"-C",
 		options.Root,
@@ -145,8 +208,11 @@ func requireIgnored(options Options, path string) error {
 
 	err := cmd.Run()
 	if err != nil {
-		return fmt.Errorf(
-			"FATAL: %s is not ignored; add .coding-ethos/ to the repo .gitignore before hook logs are written",
+		return apperror.Wrapf(
+			apperror.StaticError(
+				hookLogIgnoreRequiredMessage,
+			),
+			hookLogIgnoreRequiredMessage,
 			path,
 		)
 	}
@@ -175,40 +241,45 @@ func writeStartedMetadata(path string, metadata hookRunMetadata) (err error) {
 		}
 	}()
 
-	if _, err := fmt.Fprintf(file, "run_id=%s\n", shellQuote(metadata.RunID)); err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	_, inlineErrA := fmt.Fprintf(file, "run_id=%s\n", shellQuote(metadata.RunID))
+	if inlineErrA != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrA)
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrB := fmt.Fprintf(
 		file,
 		"started_at_utc=%s\n",
 		shellQuote(metadata.StartedAt.Format("20060102T150405Z")),
-	); err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	)
+	if inlineErrB != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrB)
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrC := fmt.Fprintf(
 		file,
 		"repo_root=%s\n",
 		shellQuote(metadata.RepoRoot),
-	); err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	)
+	if inlineErrC != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrC)
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrD := fmt.Fprintf(
 		file,
 		"bundle_root=%s\n",
 		shellQuote(metadata.BundleRoot),
-	); err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	)
+	if inlineErrD != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrD)
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrE := fmt.Fprintf(
 		file,
 		"command=%s\n",
 		quoteCommand(metadata.Command),
-	); err != nil {
-		return fmt.Errorf("write metadata: %w", err)
+	)
+	if inlineErrE != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrE)
 	}
 
 	return nil
@@ -227,20 +298,22 @@ func appendFinishedMetadata(path string, finishedAt time.Time, status int) (err 
 		}
 	}()
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrF := fmt.Fprintf(
 		file,
 		"finished_at_utc=%s\n",
 		shellQuote(finishedAt.Format("20060102T150405Z")),
-	); err != nil {
-		return fmt.Errorf("write finished metadata: %w", err)
+	)
+	if inlineErrF != nil {
+		return fmt.Errorf("write finished metadata: %w", inlineErrF)
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrG := fmt.Fprintf(
 		file,
 		"exit_code=%s\n",
 		shellQuote(strconv.Itoa(status)),
-	); err != nil {
-		return fmt.Errorf("write finished metadata: %w", err)
+	)
+	if inlineErrG != nil {
+		return fmt.Errorf("write finished metadata: %w", inlineErrG)
 	}
 
 	return nil

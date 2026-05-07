@@ -16,21 +16,26 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 const (
 	protocolVersion         = "2025-06-18"
 	maxSARIFHistoryPayloads = 1000
+	skillSummaryLimit       = 100
 )
 
 var (
-	errManagedLintRuntimeUnavailable = errors.New("managed lint runtime is not configured")
-	errSARIFHistoryTooLarge          = errors.New(
+	errManagedLintRuntimeUnavailable = apperror.StaticError(
+		"managed lint runtime is not configured",
+	)
+	errSARIFHistoryTooLarge = apperror.StaticError(
 		"sarif history exceeds supported MCP payload count",
 	)
 )
@@ -70,7 +75,9 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 		}
 
 		var request requestMessage
-		if err := json.Unmarshal(payload, &request); err != nil {
+
+		inlineErr0 := json.Unmarshal(payload, &request)
+		if inlineErr0 != nil {
 			err := writeResponse(writer, framing, nil, nil, &rpcError{
 				Code:    -32700,
 				Message: "parse error",
@@ -87,14 +94,16 @@ func (server Server) Serve(reader io.Reader, writer io.Writer) error {
 		}
 
 		result, responseErr := server.handle(request)
-		if err := writeResponse(
+
+		inlineErr1 := writeResponse(
 			writer,
 			framing,
 			request.ID,
 			result,
 			responseErr,
-		); err != nil {
-			return err
+		)
+		if inlineErr1 != nil {
+			return inlineErr1
 		}
 	}
 }
@@ -116,60 +125,18 @@ func (server Server) handle(request requestMessage) (any, *rpcError) {
 
 func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 	var call toolCallParams
-	if err := json.Unmarshal(params, &call); err != nil {
+
+	inlineErr2 := json.Unmarshal(params, &call)
+	if inlineErr2 != nil {
 		return nil, &rpcError{Code: -32602, Message: "invalid tool call params"}
 	}
 
-	var (
-		result any
-		err    error
-	)
-
-	switch call.Name {
-	case "policy_check_command":
-		result, err = server.checkCommand(call.Arguments)
-	case "policy_check_edit":
-		result, err = server.checkEdit(call.Arguments)
-	case "lint_check":
-		result, err = server.checkLint(call.Arguments)
-	case "lint_advice":
-		result, err = server.lintAdvice(call.Arguments)
-	case "sarif_remediation_advice":
-		result, err = server.sarifRemediationAdvice(call.Arguments)
-	case "sarif_risk_summary":
-		result, err = server.sarifRiskSummary(call.Arguments)
-	case "sarif_trend_analysis":
-		result, err = server.sarifTrendAnalysis(call.Arguments)
-	case "sarif_policy_feedback":
-		result, err = server.sarifPolicyFeedback(call.Arguments)
-	case "tool_capabilities":
-		result, err = server.toolCapabilities(call.Arguments)
-	case "policy_explain":
-		result, err = server.explainPolicy(call.Arguments)
-	case "skill_lookup":
-		result, err = server.lookupSkill(call.Arguments)
-	case "remediation_explain":
-		result, err = server.explainRemediation(call.Arguments)
-	case "code_intel_search":
-		result, err = server.codeIntelSearch(call.Arguments)
-	case "code_intel_index_status":
-		result, err = server.codeIntelIndexStatus(call.Arguments)
-	case "code_intel_hook_usage":
-		result, err = server.codeIntelHookUsage(call.Arguments)
-	case "code_intel_index_code":
-		result, err = server.codeIntelIndexCode(call.Arguments)
-	case "code_intel_embedding_candidates":
-		result, err = server.codeIntelEmbeddingCandidates(call.Arguments)
-	case "code_intel_code_chunks":
-		result, err = server.codeIntelCodeChunks(call.Arguments)
-	case "code_intel_code_context":
-		result, err = server.codeIntelCodeContext(call.Arguments)
-	case "skill_recommend":
-		result, err = server.recommendSkills(call.Arguments)
-	default:
+	handler, found := server.toolHandler(call.Name)
+	if !found {
 		return nil, &rpcError{Code: -32602, Message: "unknown tool"}
 	}
 
+	result, err := handler(call.Arguments)
 	if err != nil {
 		return nil, &rpcError{Code: -32602, Message: err.Error()}
 	}
@@ -177,7 +144,56 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 	return toolResult(result), nil
 }
 
-func (server Server) toolCapabilities(_ json.RawMessage) (any, error) {
+type toolHandler func(json.RawMessage) (any, error)
+
+func (server Server) toolHandler(name string) (toolHandler, bool) {
+	for _, entry := range server.toolHandlers() {
+		if entry.Name == name {
+			return entry.Handler, true
+		}
+	}
+
+	return nil, false
+}
+
+type toolHandlerEntry struct {
+	Handler toolHandler
+	Name    string
+}
+
+func (server Server) toolHandlers() []toolHandlerEntry {
+	return []toolHandlerEntry{
+		{Name: "policy_check_command", Handler: server.checkCommand},
+		{Name: "policy_check_edit", Handler: server.checkEdit},
+		{Name: "lint_check", Handler: server.checkLint},
+		{Name: "lint_advice", Handler: server.lintAdvice},
+		{Name: "sarif_remediation_advice", Handler: server.sarifRemediationAdvice},
+		{Name: "sarif_risk_summary", Handler: server.sarifRiskSummary},
+		{Name: "sarif_trend_analysis", Handler: server.sarifTrendAnalysis},
+		{Name: "sarif_policy_feedback", Handler: server.sarifPolicyFeedback},
+		{Name: "tool_capabilities", Handler: server.toolCapabilitiesHandler},
+		{Name: "policy_explain", Handler: server.explainPolicy},
+		{Name: "skill_lookup", Handler: server.lookupSkill},
+		{Name: "remediation_explain", Handler: server.explainRemediation},
+		{Name: "code_intel_search", Handler: server.codeIntelSearch},
+		{Name: "code_intel_index_status", Handler: server.codeIntelIndexStatus},
+		{Name: "code_intel_hook_usage", Handler: server.codeIntelHookUsage},
+		{Name: "code_intel_index_code", Handler: server.codeIntelIndexCode},
+		{
+			Name:    "code_intel_embedding_candidates",
+			Handler: server.codeIntelEmbeddingCandidates,
+		},
+		{Name: "code_intel_code_chunks", Handler: server.codeIntelCodeChunks},
+		{Name: "code_intel_code_context", Handler: server.codeIntelCodeContext},
+		{Name: "skill_recommend", Handler: server.recommendSkills},
+	}
+}
+
+func (server Server) toolCapabilitiesHandler(json.RawMessage) (any, error) {
+	return server.toolCapabilities(), nil
+}
+
+func (server Server) toolCapabilities() any {
 	views := toolcatalog.ToolCapabilityViews()
 
 	return map[string]any{
@@ -193,17 +209,19 @@ func (server Server) toolCapabilities(_ json.RawMessage) (any, error) {
 			"no_git_tag":          "no-git",
 			"seccomp_profile_key": "seccomp_profile",
 		},
-	}, nil
+	}
 }
 
 func (server Server) checkCommand(args json.RawMessage) (any, error) {
 	var input commandCheckInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse command check arguments: %w", err)
+
+	inlineErr3 := json.Unmarshal(args, &input)
+	if inlineErr3 != nil {
+		return nil, fmt.Errorf("parse command check arguments: %w", inlineErr3)
 	}
 
 	if strings.TrimSpace(input.Command) == "" {
-		return nil, errors.New("command is required")
+		return nil, apperror.StaticError("command is required")
 	}
 
 	result, err := hooks.Run(server.bundle, hooks.Options{Event: hooks.Event{
@@ -216,7 +234,7 @@ func (server Server) checkCommand(args json.RawMessage) (any, error) {
 		},
 	}})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run command policy check: %w", err)
 	}
 
 	return policyCheckResponse("command", result), nil
@@ -224,16 +242,18 @@ func (server Server) checkCommand(args json.RawMessage) (any, error) {
 
 func (server Server) checkEdit(args json.RawMessage) (any, error) {
 	var input editCheckInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse edit check arguments: %w", err)
+
+	inlineErr4 := json.Unmarshal(args, &input)
+	if inlineErr4 != nil {
+		return nil, fmt.Errorf("parse edit check arguments: %w", inlineErr4)
 	}
 
 	if strings.TrimSpace(input.Path) == "" {
-		return nil, errors.New("path is required")
+		return nil, apperror.StaticError("path is required")
 	}
 
 	if input.After == "" {
-		return nil, errors.New("after is required")
+		return nil, apperror.StaticError("after is required")
 	}
 
 	result, err := hooks.Run(server.bundle, hooks.Options{Event: hooks.Event{
@@ -247,7 +267,7 @@ func (server Server) checkEdit(args json.RawMessage) (any, error) {
 		},
 	}})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run edit policy check: %w", err)
 	}
 
 	response := policyCheckResponse("edit", result)
@@ -259,8 +279,10 @@ func (server Server) checkEdit(args json.RawMessage) (any, error) {
 
 func (server Server) checkLint(args json.RawMessage) (any, error) {
 	var input lintCheckInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse lint check arguments: %w", err)
+
+	inlineErr5 := json.Unmarshal(args, &input)
+	if inlineErr5 != nil {
+		return nil, fmt.Errorf("parse lint check arguments: %w", inlineErr5)
 	}
 
 	if strings.TrimSpace(input.Tool) != "" {
@@ -276,7 +298,7 @@ func (server Server) checkLint(args json.RawMessage) (any, error) {
 		AdminApproved: input.AdminApproved,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run lint policy check: %w", err)
 	}
 
 	return map[string]any{
@@ -294,26 +316,22 @@ func (server Server) checkLint(args json.RawMessage) (any, error) {
 func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 	tool := strings.TrimSpace(input.Tool)
 	if _, found := toolcatalog.HookOwnedTool(tool); !found {
-		return nil, fmt.Errorf("unknown managed lint tool %q", tool)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("unknown managed lint tool %q"),
+			"unknown managed lint tool %q",
+			tool,
+		)
 	}
 
-	if err := server.runtime.validateManagedLint(); err != nil {
-		return nil, err
+	inlineErr6 := server.runtime.validateManagedLint()
+	if inlineErr6 != nil {
+		return nil, inlineErr6
 	}
 
-	args := []string{
-		"--bundle", server.runtime.BundlePath,
-		"--json",
-		"--managed-capture-tool", tool,
-		"--ethos-root", server.runtime.EthosRoot,
-		"--consumer-root", server.runtime.ConsumerRoot,
-		"--invocation-cwd", firstNonEmpty(input.Cwd, server.runtime.InvocationCwd),
-	}
-	args = append(args, "--")
-	args = append(args, input.Argv...)
-	args = append(args, input.Files...)
-
-	command := exec.Command(server.runtime.LintBinary, args...)
+	command := safeexec.Command(
+		server.runtime.LintBinary,
+		managedLintArgs(server.runtime, input, tool)...,
+	)
 	command.Dir = firstNonEmpty(server.runtime.ConsumerRoot, input.Cwd)
 
 	var (
@@ -332,31 +350,67 @@ func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 
 	output := stdout.Bytes()
 	if len(output) == 0 {
-		return map[string]any{
-			"engine":    "managed_lint_capture",
-			"tool":      tool,
-			"exit_code": exitCode,
-			"stderr":    strings.TrimSpace(stderr.String()),
-			"status":    "resolved",
-			"blocked":   false,
-		}, nil
+		return emptyManagedLintOutput(tool, exitCode, stderr.String()), nil
 	}
 
 	var result lint.Result
-	if err := json.Unmarshal(output, &result); err != nil {
+
+	inlineErr7 := json.Unmarshal(output, &result)
+	if inlineErr7 != nil {
 		return nil, fmt.Errorf(
 			"decode managed lint %q JSON: %w; stderr: %s",
 			tool,
-			err,
+			inlineErr7,
 			strings.TrimSpace(stderr.String()),
 		)
 	}
 
+	return managedLintOutput(tool, exitCode, stderr.String(), result), nil
+}
+
+func managedLintArgs(
+	runtime Runtime,
+	input lintCheckInput,
+	tool string,
+) []string {
+	args := make([]string, 0, 12+len(input.Argv)+len(input.Files))
+	args = append(args,
+		"--bundle", runtime.BundlePath,
+		"--json",
+		"--managed-capture-tool", tool,
+		"--ethos-root", runtime.EthosRoot,
+		"--consumer-root", runtime.ConsumerRoot,
+		"--invocation-cwd", firstNonEmpty(input.Cwd, runtime.InvocationCwd),
+	)
+	args = append(args, "--")
+	args = append(args, input.Argv...)
+	args = append(args, input.Files...)
+
+	return args
+}
+
+func emptyManagedLintOutput(tool string, exitCode int, stderr string) map[string]any {
+	return map[string]any{
+		"engine":    "managed_lint_capture",
+		"tool":      tool,
+		"exit_code": exitCode,
+		"stderr":    strings.TrimSpace(stderr),
+		"status":    "resolved",
+		"blocked":   false,
+	}
+}
+
+func managedLintOutput(
+	tool string,
+	exitCode int,
+	stderr string,
+	result lint.Result,
+) map[string]any {
 	return map[string]any{
 		"engine":      "managed_lint_capture",
 		"tool":        tool,
 		"exit_code":   exitCode,
-		"stderr":      strings.TrimSpace(stderr.String()),
+		"stderr":      strings.TrimSpace(stderr),
 		"status":      result.Status,
 		"blocked":     result.Blocked(),
 		"files":       result.Files,
@@ -364,7 +418,7 @@ func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 		"diagnostics": result.Diagnostics,
 		"skill_hints": result.SkillHints,
 		"capture":     result.Capture,
-	}, nil
+	}
 }
 
 func (server Server) lintAdvice(args json.RawMessage) (any, error) {
@@ -376,11 +430,11 @@ func (server Server) lintAdvice(args json.RawMessage) (any, error) {
 	}
 
 	if strings.TrimSpace(input.Tool) == "" {
-		return nil, errors.New("tool is required")
+		return nil, apperror.StaticError("tool is required")
 	}
 
 	if strings.TrimSpace(input.Message) == "" {
-		return nil, errors.New("message is required")
+		return nil, apperror.StaticError("message is required")
 	}
 
 	enriched := lint.EnrichResultWithSkills(
@@ -401,8 +455,10 @@ func (server Server) lintAdvice(args json.RawMessage) (any, error) {
 
 func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
 	var input sarifRemediationInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse SARIF remediation arguments: %w", err)
+
+	inlineErr8 := json.Unmarshal(args, &input)
+	if inlineErr8 != nil {
+		return nil, fmt.Errorf("parse SARIF remediation arguments: %w", inlineErr8)
 	}
 
 	if strings.TrimSpace(input.SARIF) == "" {
@@ -415,7 +471,7 @@ func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
 	}
 
 	if input.ResultIndex < 0 {
-		return nil, errors.New("result_index must be non-negative")
+		return nil, apperror.StaticError("result_index must be non-negative")
 	}
 
 	finding, err := parseSARIFRemediationFinding(input.SARIF, input.ResultIndex)
@@ -427,6 +483,16 @@ func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
 		finding.PolicyID = finding.RuleID
 	}
 
+	finding = server.enrichSARIFRemediationFinding(finding)
+	response := sarifRemediationResponse(finding)
+	server.addSARIFRemediationContext(response, finding)
+
+	return response, nil
+}
+
+func (server Server) enrichSARIFRemediationFinding(
+	finding sarifRemediationFinding,
+) sarifRemediationFinding {
 	if finding.SkillID == "" {
 		finding.SkillID = server.skillIDForDiagnostic(finding.diagnosticInput())
 	}
@@ -435,15 +501,26 @@ func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
 		finding.PrincipleIDs = server.principleIDsForPolicy(finding.PolicyID)
 	}
 
-	response := map[string]any{
+	return finding
+}
+
+func sarifRemediationResponse(finding sarifRemediationFinding) map[string]any {
+	return map[string]any{
 		"finding": finding.summary(),
 		"advice":  finding.advice(),
 		"rerun":   finding.rerun(),
 		"guardrails": []string{
-			"Apply structural fixes; do not weaken coding-ethos policy or generated tool configuration.",
+			"Apply structural fixes; do not weaken coding-ethos policy " +
+				"or generated tool configuration.",
 			"Use the MCP lint_check path or managed project commands to verify the repair.",
 		},
 	}
+}
+
+func (server Server) addSARIFRemediationContext(
+	response map[string]any,
+	finding sarifRemediationFinding,
+) {
 	if finding.PolicyID != "" {
 		response["policy"] = server.policySummary(finding.PolicyID)
 	}
@@ -453,18 +530,18 @@ func (server Server) sarifRemediationAdvice(args json.RawMessage) (any, error) {
 	}
 
 	if finding.SkillID != "" {
-		if skill, ok := server.bundle.Skills[finding.SkillID]; ok {
-			response["skill"] = skillSummary(skill, 100)
+		if skill, found := server.bundle.Skills[finding.SkillID]; found {
+			response["skill"] = skillSummary(skill, skillSummaryLimit)
 		}
 	}
-
-	return response, nil
 }
 
 func (server Server) sarifRiskSummary(args json.RawMessage) (any, error) {
 	var input sarifRiskSummaryInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse SARIF risk summary arguments: %w", err)
+
+	inlineErr9 := json.Unmarshal(args, &input)
+	if inlineErr9 != nil {
+		return nil, fmt.Errorf("parse SARIF risk summary arguments: %w", inlineErr9)
 	}
 
 	if strings.TrimSpace(input.SARIF) == "" {
@@ -486,8 +563,10 @@ func (server Server) sarifRiskSummary(args json.RawMessage) (any, error) {
 
 func (server Server) sarifTrendAnalysis(args json.RawMessage) (any, error) {
 	var input sarifTrendInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse SARIF trend analysis arguments: %w", err)
+
+	inlineErr10 := json.Unmarshal(args, &input)
+	if inlineErr10 != nil {
+		return nil, fmt.Errorf("parse SARIF trend analysis arguments: %w", inlineErr10)
 	}
 
 	baseline, err := server.sarifPayloadFromEither(
@@ -498,12 +577,18 @@ func (server Server) sarifTrendAnalysis(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("baseline: %w", err)
 	}
 
-	current, err := server.sarifPayloadFromEither(input.CurrentSARIF, input.CurrentTraceID)
+	current, err := server.sarifPayloadFromEither(
+		input.CurrentSARIF,
+		input.CurrentTraceID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("current: %w", err)
 	}
 
-	history, err := server.sarifHistoryPayloads(input.HistorySARIF, input.HistoryTraceIDs)
+	history, err := server.sarifHistoryPayloads(
+		input.HistorySARIF,
+		input.HistoryTraceIDs,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("history: %w", err)
 	}
@@ -518,8 +603,10 @@ func (server Server) sarifTrendAnalysis(args json.RawMessage) (any, error) {
 
 func (server Server) sarifPolicyFeedback(args json.RawMessage) (any, error) {
 	var input sarifPolicyFeedbackInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse SARIF policy feedback arguments: %w", err)
+
+	inlineErr11 := json.Unmarshal(args, &input)
+	if inlineErr11 != nil {
+		return nil, fmt.Errorf("parse SARIF policy feedback arguments: %w", inlineErr11)
 	}
 
 	payload, err := server.sarifPayloadFromEither(input.SARIF, input.TraceID)
@@ -538,17 +625,17 @@ func (server Server) sarifPolicyFeedback(args json.RawMessage) (any, error) {
 func (server Server) sarifFromTraceID(traceID string) (string, error) {
 	tracePath, err := server.resolveLintTraceID(traceID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve lint trace id: %w", err)
 	}
 
 	result, err := lint.ReplayTrace(tracePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("replay lint trace: %w", err)
 	}
 
 	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("format lint trace as SARIF: %w", err)
 	}
 
 	return output, nil
@@ -597,14 +684,16 @@ func (server Server) sarifHistoryPayloads(
 func (server Server) resolveLintTraceID(traceID string) (string, error) {
 	traceID = strings.TrimSpace(traceID)
 	if traceID == "" {
-		return "", errors.New("sarif or trace_id is required")
+		return "", apperror.StaticError("sarif or trace_id is required")
 	}
 
 	if strings.ContainsAny(traceID, `/\`) ||
 		traceID == "." ||
 		traceID == ".." ||
 		strings.Contains(traceID, "..") {
-		return "", errors.New("trace_id must be a lint trace file name, not a path")
+		return "", apperror.StaticError(
+			"trace_id must be a lint trace file name, not a path",
+		)
 	}
 
 	if strings.TrimSpace(server.runtime.ConsumerRoot) == "" {
@@ -615,7 +704,12 @@ func (server Server) resolveLintTraceID(traceID string) (string, error) {
 		traceID += ".json"
 	}
 
-	return lint.TracePathForID(server.runtime.ConsumerRoot, traceID)
+	path, err := lint.TracePathForID(server.runtime.ConsumerRoot, traceID)
+	if err != nil {
+		return "", fmt.Errorf("resolve lint trace path: %w", err)
+	}
+
+	return path, nil
 }
 
 func (server Server) explainPolicy(args json.RawMessage) (any, error) {
@@ -627,14 +721,14 @@ func (server Server) explainPolicy(args json.RawMessage) (any, error) {
 	}
 
 	if strings.TrimSpace(input.PolicyID) == "" {
-		return nil, errors.New("policy_id is required")
+		return nil, apperror.StaticError("policy_id is required")
 	}
 
 	var buffer bytes.Buffer
 
 	err = policy.ExplainPolicy(&buffer, server.bundle, input.PolicyID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("explain policy %q: %w", input.PolicyID, err)
 	}
 
 	return map[string]any{
@@ -644,8 +738,8 @@ func (server Server) explainPolicy(args json.RawMessage) (any, error) {
 }
 
 func (server Server) policySummary(policyID string) map[string]any {
-	policyDef, ok := server.bundle.Policies[policyID]
-	if !ok {
+	policyDef, found := server.bundle.Policies[policyID]
+	if !found {
 		return map[string]any{"id": policyID}
 	}
 
@@ -660,8 +754,8 @@ func (server Server) policySummary(policyID string) map[string]any {
 }
 
 func (server Server) principleIDsForPolicy(policyID string) []string {
-	policyDef, ok := server.bundle.Policies[policyID]
-	if !ok {
+	policyDef, found := server.bundle.Policies[policyID]
+	if !found {
 		return nil
 	}
 
@@ -671,8 +765,8 @@ func (server Server) principleIDsForPolicy(policyID string) []string {
 func (server Server) principleSummaries(principleIDs []string) []map[string]any {
 	principles := make([]map[string]any, 0, len(principleIDs))
 	for _, principleID := range principleIDs {
-		principle, ok := server.bundle.Principles[principleID]
-		if !ok {
+		principle, found := server.bundle.Principles[principleID]
+		if !found {
 			principles = append(principles, map[string]any{"id": principleID})
 
 			continue
@@ -698,17 +792,21 @@ func (server Server) lookupSkill(args json.RawMessage) (any, error) {
 	}
 
 	if strings.TrimSpace(input.SkillID) == "" {
-		return nil, errors.New("skill_id is required")
+		return nil, apperror.StaticError("skill_id is required")
 	}
 
-	skill, ok := server.bundle.Skills[input.SkillID]
-	if !ok {
-		return nil, fmt.Errorf("unknown skill %q", input.SkillID)
+	skill, found := server.bundle.Skills[input.SkillID]
+	if !found {
+		return nil, apperror.Wrapf(
+			apperror.StaticError("unknown skill %q"),
+			"unknown skill %q",
+			input.SkillID,
+		)
 	}
 
 	principles := make([]map[string]any, 0, len(skill.PrincipleIDs))
 	for _, principleID := range skill.PrincipleIDs {
-		if principle, ok := server.bundle.Principles[principleID]; ok {
+		if principle, found := server.bundle.Principles[principleID]; found {
 			principles = append(principles, map[string]any{
 				"id":          principle.ID,
 				"title":       principle.Title,
@@ -891,7 +989,12 @@ func scoreSkillByText(skill policy.Skill, text string) int {
 		}
 	}
 
-	for _, signal := range []string{skill.ID, skill.Title, skill.Description, skill.Focus} {
+	for _, signal := range []string{
+		skill.ID,
+		skill.Title,
+		skill.Description,
+		skill.Focus,
+	} {
 		normalized := strings.ToLower(strings.TrimSpace(signal))
 		if normalized != "" && strings.Contains(text, normalized) {
 			score += 3
@@ -938,13 +1041,13 @@ func stringEvidence(evidence map[string]any, key string) string {
 		return ""
 	}
 
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 

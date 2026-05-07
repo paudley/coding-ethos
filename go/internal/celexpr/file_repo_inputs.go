@@ -6,6 +6,7 @@ package celexpr
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -14,7 +15,10 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
+
+const gitStatusFieldCount = 2
 
 func fileChangeInputs(
 	cwd string,
@@ -93,7 +97,7 @@ func gitFileStatuses(cwd string) map[string]gitFileStatus {
 
 	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) < 2 {
+		if len(fields) < gitStatusFieldCount {
 			continue
 		}
 
@@ -185,7 +189,7 @@ func isBlankLine(text string) bool {
 }
 
 func gitOutput(cwd string, args ...string) (string, error) {
-	cmd := exec.Command(gitExecutable(), args...)
+	cmd := safeexec.Command(gitExecutable(), args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
@@ -194,7 +198,7 @@ func gitOutput(cwd string, args ...string) (string, error) {
 
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("list git diff files: %w", err)
 	}
 
 	return string(output), nil
@@ -306,7 +310,7 @@ func gitCheckIgnore(cwd, path string) (bool, error) {
 		return false, nil
 	}
 
-	cmd := exec.Command(gitExecutable(), "check-ignore", "--quiet", "--no-index", path)
+	cmd := safeexec.Command(gitExecutable(), "check-ignore", "--quiet", "--no-index", path)
 	cmd.Dir = cwd
 
 	err := cmd.Run()
@@ -321,7 +325,7 @@ func gitCheckIgnore(cwd, path string) (bool, error) {
 		return false, nil
 	}
 
-	return false, err
+	return false, fmt.Errorf("check git repository state: %w", err)
 }
 
 func pathInputs(cwd string, files, sourceRoots []string) []PathInput {

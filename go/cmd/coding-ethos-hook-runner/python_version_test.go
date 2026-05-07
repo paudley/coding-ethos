@@ -145,45 +145,7 @@ python_version = 3.12
 }
 
 func TestCheckPythonVersionConsistencyCommandUsesConsumerRoot(t *testing.T) {
-	tempDir := t.TempDir()
-	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", "init")
-	cmd.Dir = tempDir
-	cmd.Env = cleanGitTestEnv()
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git init failed: %v\n%s", err, string(output))
-	}
-
-	mustWriteTestFile(
-		t,
-		filepath.Join(tempDir, "code-ethos", "config.yaml"),
-		strings.TrimSpace(`
-style:
-  python_version: "3.13"
-python:
-  version_consistency:
-    enabled: true
-`)+"\n",
-	)
-	mustWriteTestFile(
-		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
-		"#!/bin/sh\n",
-	)
-	mustWriteTestFile(
-		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "pyproject.toml"),
-		"",
-	)
-
-	err = os.MkdirAll(
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks"),
-		0o755,
-	)
-	if err != nil {
-		t.Fatalf("os.MkdirAll() failed: %v", err)
-	}
+	tempDir := pythonVersionConsumerFixture(t)
 
 	mustWriteTestFile(t, filepath.Join(tempDir, ".python-version"), "3.14\n")
 	mustWriteTestFile(
@@ -224,6 +186,43 @@ requires-python = ">=3.13"
 			stderrOutput,
 		)
 	}
+}
+
+func pythonVersionConsumerFixture(t *testing.T) string {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", "init")
+	cmd.Dir = tempDir
+	cmd.Env = cleanGitTestEnv()
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git init failed: %v\n%s", err, string(output))
+	}
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "code-ethos", "config.yaml"),
+		strings.TrimSpace(`
+style:
+  python_version: "3.13"
+python:
+  version_consistency:
+    enabled: true
+`)+"\n")
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
+		"#!/bin/sh\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "pyproject.toml"),
+		"",
+	)
+
+	return tempDir
 }
 
 func TestCollectPythonVersionIssuesReportsMissingValues(t *testing.T) {

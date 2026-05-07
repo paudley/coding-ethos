@@ -18,7 +18,8 @@ func EvaluateShellMalformedCommand(
 		return nil, nil
 	}
 
-	if _, err := shellparse.Commands(context.Command); err == nil {
+	_, inlineErrAutoA := shellparse.Commands(context.Command)
+	if inlineErrAutoA == nil {
 		return nil, nil
 	}
 
@@ -29,7 +30,9 @@ func blockShellDecision(policyDef policy.Policy, command string) []policy.Decisi
 	decision := policy.NewDecision(blockDecision, policyDef)
 
 	decision.Evidence = map[string]any{"command": command}
-	if commands, err := shellparse.Commands(command); err == nil {
+
+	commands, inlineErrAutoB := shellparse.Commands(command)
+	if inlineErrAutoB == nil {
 		decision.Evidence["shell_commands"] = shellDecisionEvidence(commands)
 	}
 

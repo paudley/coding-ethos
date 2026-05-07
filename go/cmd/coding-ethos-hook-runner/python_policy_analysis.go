@@ -61,7 +61,8 @@ func checkUtilCentralizationCommand(_ Config, args []string) int {
 	fmt.Fprintln(os.Stderr, formatDirectImportReport(
 		"util_centralization",
 		"BANNED DIRECT IMPORT DETECTED",
-		"Production code must use configured wrapper modules instead of importing utility libraries directly.",
+		"Production code must use configured wrapper modules instead of "+
+			"importing utility libraries directly.",
 		violations,
 	))
 
@@ -849,7 +850,9 @@ func containsNoneUnion(node *ts.Node) bool {
 		return false
 	}
 
-	if unionChildren := noneUnionChildren(node); len(unionChildren) == minCollectionItems {
+	if unionChildren := noneUnionChildren(node); len(
+		unionChildren,
+	) == minCollectionItems {
 		left := unionChildren[0]
 
 		right := unionChildren[1]
@@ -1111,7 +1114,10 @@ func isGetenvCall(node *ts.Node, source []byte) bool {
 	}
 
 	return attr == "get" && object != nil && object.Kind() == pythonNodeAttribute &&
-		pythonNodeText(object.ChildByFieldName(pythonNodeAttribute), source) == "environ"
+		pythonNodeText(
+			object.ChildByFieldName(pythonNodeAttribute),
+			source,
+		) == "environ"
 }
 
 func getenvDefaultValue(
@@ -1171,7 +1177,10 @@ func isOSEnvironSubscript(node *ts.Node, source []byte) bool {
 	value := node.ChildByFieldName("value")
 
 	return value != nil && value.Kind() == pythonNodeAttribute &&
-		pythonNodeText(value.ChildByFieldName(pythonNodeAttribute), source) == "environ" &&
+		pythonNodeText(
+			value.ChildByFieldName(pythonNodeAttribute),
+			source,
+		) == "environ" &&
 		pythonNodeText(value.ChildByFieldName("object"), source) == "os"
 }
 
@@ -1236,7 +1245,13 @@ func findSecurityViolations(
 		case pythonNodeAssignment:
 			violations = append(
 				violations,
-				securityAssignmentViolations(path, node, settings, source, isTestFile)...,
+				securityAssignmentViolations(
+					path,
+					node,
+					settings,
+					source,
+					isTestFile,
+				)...,
 			)
 		}
 	})
@@ -1302,7 +1317,8 @@ func sqlInterpolationViolation(
 	source []byte,
 ) (securityViolation, bool) {
 	right := node.ChildByFieldName("right")
-	if right == nil || right.Kind() != pythonNodeString || !stringHasInterpolation(right) {
+	if right == nil || right.Kind() != pythonNodeString ||
+		!stringHasInterpolation(right) {
 		return securityViolation{}, false
 	}
 

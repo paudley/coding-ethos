@@ -27,10 +27,16 @@ func pyprojectIgnoresPolicySpec(
 	}
 
 	policy := Policy{
-		ID:              policyID,
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.pyproject_ignores"},
-		PrincipleIDs:    principleRefs(principles, "linting-as-code-quality-enforcement"),
+		ID:       policyID,
+		Category: "python",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "python.pyproject_ignores",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"linting-as-code-quality-enforcement",
+		),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         pythonPolicyMessage(policyID),
@@ -69,9 +75,12 @@ func uvExcludeNewerPolicySpec(
 	}
 
 	policy := Policy{
-		ID:              policyID,
-		Category:        "python",
-		Source:          SourceRef{File: "config.yaml", Path: "python.uv_exclude_newer"},
+		ID:       policyID,
+		Category: "python",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "python.uv_exclude_newer",
+		},
 		PrincipleIDs:    principleRefs(principles, "security-by-design"),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},

@@ -4,7 +4,10 @@
 // Package toolcatalog defines typed external tool metadata.
 package toolcatalog
 
-import "path/filepath"
+import (
+	"path/filepath"
+	"strings"
+)
 
 type Runtime string
 
@@ -13,6 +16,8 @@ const (
 	RuntimeGo     Runtime = "go"
 	RuntimePython Runtime = "python"
 	RuntimeUV     Runtime = "uv"
+
+	geminiCheckToolName = "gemini-check"
 )
 
 type Tool struct {
@@ -38,11 +43,15 @@ type Tool struct {
 	CaptureStripArgs     []string       `json:"capture_strip_args,omitempty"`
 	Languages            []string       `json:"languages,omitempty"`
 	PostConfigArgs       []string       `json:"post_config_args,omitempty"`
-	Capabilities         CapabilitySpec `json:"capabilities,omitempty"`
+	Capabilities         CapabilitySpec `json:"capabilities,omitzero"`
 	PassFilesAsArgs      bool           `json:"pass_files_as_args"`
 	UseHookProject       bool           `json:"use_hook_project"`
 	Fast                 bool           `json:"fast"`
 	EnabledByDefault     bool           `json:"enabled_by_default"`
+}
+
+func adviceText(parts ...string) string {
+	return strings.Join(parts, " ")
 }
 
 type CapturedTool struct {
@@ -188,45 +197,78 @@ func (tool Tool) FileMatchSpec() FileMatchSpec {
 
 func (tool Tool) CapabilitySpec() CapabilitySpec {
 	spec := tool.Capabilities
-	if spec.SandboxProfile == "" && tool.Name != "gemini-check" {
-		spec.SandboxProfile = "lint-offline"
-		spec.ReadPaths = append([]string{"."}, spec.ReadPaths...)
-		spec.WritePaths = append([]string{".coding-ethos/cache"}, spec.WritePaths...)
-	}
-
-	if spec.TimeoutSeconds == 0 && tool.Name != "gemini-check" {
-		spec.TimeoutSeconds = 300
-	}
-
-	if spec.MemoryMB == 0 && tool.Name != "gemini-check" {
-		spec.MemoryMB = 2048
-	}
-
-	if spec.CPUQuotaPercent == 0 && tool.Name != "gemini-check" {
-		spec.CPUQuotaPercent = 100
-	}
-
-	if spec.SeccompProfile == "" && tool.Name != "gemini-check" {
-		spec.SeccompProfile = "deny-privilege"
-	}
-
-	if tool.Name == "gemini-check" {
-		spec.Tags = appendCapabilityTags(spec.Tags, "network")
-	} else {
-		spec.Tags = appendCapabilityTags(spec.Tags, "no-network")
-	}
-
-	if spec.RequiresGit {
-		spec.Tags = appendCapabilityTags(spec.Tags, "git")
-	} else {
-		spec.Tags = appendCapabilityTags(spec.Tags, "no-git")
-	}
+	spec = withDefaultOfflineCapabilities(tool.Name, spec)
+	spec = withCapabilityTags(tool.Name, spec)
 
 	spec.Tags = append([]string(nil), spec.Tags...)
 	spec.ReadPaths = append([]string(nil), spec.ReadPaths...)
 	spec.WritePaths = append([]string(nil), spec.WritePaths...)
 
 	return spec
+}
+
+func withDefaultOfflineCapabilities(
+	toolName string,
+	spec CapabilitySpec,
+) CapabilitySpec {
+	if toolName == geminiCheckToolName {
+		return spec
+	}
+
+	spec.SandboxProfile = defaultString(spec.SandboxProfile, "lint-offline")
+	spec.TimeoutSeconds = defaultInt(spec.TimeoutSeconds, defaultTimeoutSeconds)
+	spec.MemoryMB = defaultInt(spec.MemoryMB, defaultMemoryMB)
+	spec.CPUQuotaPercent = defaultInt(spec.CPUQuotaPercent, defaultCPUQuotaPercent)
+	spec.SeccompProfile = defaultString(spec.SeccompProfile, "deny-privilege")
+	spec.ReadPaths = append([]string{"."}, spec.ReadPaths...)
+	spec.WritePaths = append([]string{".coding-ethos/cache"}, spec.WritePaths...)
+
+	return spec
+}
+
+const (
+	defaultCPUQuotaPercent = 100
+	defaultMemoryMB        = 2048
+	defaultTimeoutSeconds  = 300
+)
+
+func withCapabilityTags(toolName string, spec CapabilitySpec) CapabilitySpec {
+	spec.Tags = appendCapabilityTags(spec.Tags, networkCapabilityTag(toolName))
+	spec.Tags = appendCapabilityTags(spec.Tags, gitCapabilityTag(spec.RequiresGit))
+
+	return spec
+}
+
+func networkCapabilityTag(toolName string) string {
+	if toolName == geminiCheckToolName {
+		return "network"
+	}
+
+	return "no-network"
+}
+
+func gitCapabilityTag(requiresGit bool) string {
+	if requiresGit {
+		return "git"
+	}
+
+	return "no-git"
+}
+
+func defaultString(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+
+	return fallback
+}
+
+func defaultInt(value, fallback int) int {
+	if value != 0 {
+		return value
+	}
+
+	return fallback
 }
 
 func (tool Tool) CapabilityView() CapabilityView {
@@ -300,6 +342,8 @@ func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
 			"github-bin",
 			tool.managedBinaryName(),
 		)
+	case RuntimePython, RuntimeUV:
+		return ""
 	default:
 		return ""
 	}
@@ -394,39 +438,37 @@ func moduleNamesForTool(tool Tool) []string {
 }
 
 func displayNameForTool(name string) string {
-	switch name {
-	case "ruff":
-		return "Ruff"
-	case "mypy":
-		return "mypy"
-	case "pyright":
-		return "Pyright"
-	case "pylint":
-		return "Pylint"
-	case "shellcheck":
-		return "ShellCheck"
-	case "golangci-lint":
-		return "golangci-lint"
-	case "golangci-lint-autofix":
-		return "golangci-lint autofix"
-	case "golines":
-		return "golines"
-	case "actionlint":
-		return "actionlint"
-	case "yamllint":
-		return "yamllint"
-	case "hadolint":
-		return "hadolint"
-	case "bandit":
-		return "Bandit"
-	case "sqlfluff":
-		return "sqlfluff"
-	case "tombi":
-		return "Tombi"
-	case "dotenv-linter":
-		return "dotenv-linter"
-	default:
-		return name
+	for _, entry := range toolDisplayNameEntries() {
+		if entry.Name == name {
+			return entry.DisplayName
+		}
+	}
+
+	return name
+}
+
+type toolDisplayNameEntry struct {
+	Name        string
+	DisplayName string
+}
+
+func toolDisplayNameEntries() []toolDisplayNameEntry {
+	return []toolDisplayNameEntry{
+		{Name: "actionlint", DisplayName: "actionlint"},
+		{Name: "bandit", DisplayName: "Bandit"},
+		{Name: "dotenv-linter", DisplayName: "dotenv-linter"},
+		{Name: "golangci-lint", DisplayName: "golangci-lint"},
+		{Name: "golangci-lint-autofix", DisplayName: "golangci-lint autofix"},
+		{Name: "golines", DisplayName: "golines"},
+		{Name: "hadolint", DisplayName: "hadolint"},
+		{Name: "mypy", DisplayName: "mypy"},
+		{Name: "pylint", DisplayName: "Pylint"},
+		{Name: "pyright", DisplayName: "Pyright"},
+		{Name: "ruff", DisplayName: "Ruff"},
+		{Name: "shellcheck", DisplayName: "ShellCheck"},
+		{Name: "sqlfluff", DisplayName: "sqlfluff"},
+		{Name: "tombi", DisplayName: "Tombi"},
+		{Name: "yamllint", DisplayName: "yamllint"},
 	}
 }
 
@@ -469,8 +511,11 @@ func ruffTool() Tool {
 		Parser:       "ruff",
 		Category:     "python-static",
 		OutputFormat: "json",
-		Advice:       "Fix Ruff diagnostics structurally; do not suppress unless the policy requires a documented exception.",
-		Runtime:      RuntimePython,
+		Advice: adviceText(
+			"Fix Ruff diagnostics structurally; do not suppress unless the",
+			"policy requires a documented exception.",
+		),
+		Runtime: RuntimePython,
 		Command: []string{
 			"ruff",
 			"check",
@@ -496,11 +541,14 @@ func ruffTool() Tool {
 
 func pyrightTool() Tool {
 	return Tool{
-		Name:                 "pyright",
-		Parser:               "pyright",
-		Category:             "python-static",
-		OutputFormat:         "json",
-		Advice:               "Fix Pyright type diagnostics with precise interfaces and validated imports.",
+		Name:         "pyright",
+		Parser:       "pyright",
+		Category:     "python-static",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix Pyright type diagnostics with precise interfaces and",
+			"validated imports.",
+		),
 		Runtime:              RuntimePython,
 		Command:              []string{"pyright", "--outputjson"},
 		CaptureOutputArgs:    []string{"--outputjson"},
@@ -517,11 +565,14 @@ func pyrightTool() Tool {
 
 func mypyTool() Tool {
 	return Tool{
-		Name:                 "mypy",
-		Parser:               "mypy",
-		Category:             "python-static",
-		OutputFormat:         "json",
-		Advice:               "Fix mypy diagnostics with explicit types rather than weakening required behavior.",
+		Name:         "mypy",
+		Parser:       "mypy",
+		Category:     "python-static",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix mypy diagnostics with explicit types rather than weakening",
+			"required behavior.",
+		),
 		Runtime:              RuntimePython,
 		Command:              []string{"mypy", "--output", "json"},
 		CaptureOutputArgs:    []string{"--output=json"},
@@ -538,11 +589,14 @@ func mypyTool() Tool {
 
 func pylintTool() Tool {
 	return Tool{
-		Name:              "pylint",
-		Parser:            "pylint",
-		Category:          "python-static",
-		OutputFormat:      "json",
-		Advice:            "Fix Pylint findings by simplifying structure before considering local disables.",
+		Name:         "pylint",
+		Parser:       "pylint",
+		Category:     "python-static",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix Pylint findings by simplifying structure before",
+			"considering local disables.",
+		),
 		Runtime:           RuntimePython,
 		Command:           []string{"pylint", "--output-format=json"},
 		CaptureOutputArgs: []string{"--output-format=json"},
@@ -558,11 +612,14 @@ func pylintTool() Tool {
 
 func hadolintTool() Tool {
 	return Tool{
-		Name:              "hadolint",
-		Parser:            "hadolint",
-		Category:          "docker",
-		OutputFormat:      "json",
-		Advice:            "Fix Dockerfile findings with explicit, reproducible image and package choices.",
+		Name:         "hadolint",
+		Parser:       "hadolint",
+		Category:     "docker",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix Dockerfile findings with explicit, reproducible image",
+			"and package choices.",
+		),
 		Runtime:           RuntimeBinary,
 		Command:           []string{"hadolint", "--format", "json"},
 		CaptureOutputArgs: []string{"--format", "json"},
@@ -577,11 +634,14 @@ func hadolintTool() Tool {
 
 func actionlintTool() Tool {
 	return Tool{
-		Name:                "actionlint",
-		Parser:              "actionlint",
-		Category:            "workflow",
-		OutputFormat:        "json-lines",
-		Advice:              "Fix workflow syntax and action usage before relying on CI behavior.",
+		Name:         "actionlint",
+		Parser:       "actionlint",
+		Category:     "workflow",
+		OutputFormat: "json-lines",
+		Advice: adviceText(
+			"Fix workflow syntax and action usage before relying on CI",
+			"behavior.",
+		),
 		Runtime:             RuntimeGo,
 		Command:             []string{"actionlint", "-format", "{{json .}}"},
 		CaptureOutputArgs:   []string{"-format", "{{json .}}"},
@@ -602,8 +662,11 @@ func shellcheckTool() Tool {
 		Parser:       "shellcheck",
 		Category:     "shell",
 		OutputFormat: "json",
-		Advice:       "Fix shell diagnostics with quoted variables, explicit error handling, and portable constructs.",
-		Runtime:      RuntimeBinary,
+		Advice: adviceText(
+			"Fix shell diagnostics with quoted variables, explicit error",
+			"handling, and portable constructs.",
+		),
+		Runtime: RuntimeBinary,
 		Command: []string{
 			"shellcheck",
 			"--severity=warning",
@@ -622,11 +685,14 @@ func shellcheckTool() Tool {
 
 func shfmtTool() Tool {
 	return Tool{
-		Name:             "shfmt",
-		Parser:           "shfmt",
-		Category:         "shell",
-		OutputFormat:     "diff",
-		Advice:           "Format shell scripts with shfmt so shell changes stay reviewable and deterministic.",
+		Name:         "shfmt",
+		Parser:       "shfmt",
+		Category:     "shell",
+		OutputFormat: "diff",
+		Advice: adviceText(
+			"Format shell scripts with shfmt so shell changes stay",
+			"reviewable and deterministic.",
+		),
 		Runtime:          RuntimeGo,
 		Command:          []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"},
 		FileExtensions:   []string{".sh", ".bash", ".zsh", ".ksh"},
@@ -639,11 +705,14 @@ func shfmtTool() Tool {
 
 func yamllintTool() Tool {
 	return Tool{
-		Name:              "yamllint",
-		Parser:            "yamllint",
-		Category:          "syntax",
-		OutputFormat:      "parsable",
-		Advice:            "Fix YAML structure, indentation, and style before generated config consumers read it.",
+		Name:         "yamllint",
+		Parser:       "yamllint",
+		Category:     "syntax",
+		OutputFormat: "parsable",
+		Advice: adviceText(
+			"Fix YAML structure, indentation, and style before generated",
+			"config consumers read it.",
+		),
 		Runtime:           RuntimeUV,
 		Command:           []string{"yamllint"},
 		CaptureOutputArgs: []string{"-f", "parsable"},
@@ -662,11 +731,14 @@ func yamllintTool() Tool {
 
 func banditTool() Tool {
 	return Tool{
-		Name:              "bandit",
-		Parser:            "bandit",
-		Category:          "security",
-		OutputFormat:      "json",
-		Advice:            "Fix Python security findings with least-privilege, validated behavior.",
+		Name:         "bandit",
+		Parser:       "bandit",
+		Category:     "security",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix Python security findings with least-privilege,",
+			"validated behavior.",
+		),
 		Runtime:           RuntimeUV,
 		Command:           []string{"bandit", "-q", "-f", "json"},
 		CaptureOutputArgs: []string{"-f", "json"},
@@ -711,11 +783,14 @@ func sqlfluffTool() Tool {
 
 func tombiTool() Tool {
 	return Tool{
-		Name:             "tombi",
-		Parser:           "tombi",
-		Category:         "syntax",
-		OutputFormat:     "text",
-		Advice:           "Fix TOML syntax and schema issues before tools consume configuration.",
+		Name:         "tombi",
+		Parser:       "tombi",
+		Category:     "syntax",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Fix TOML syntax and schema issues before tools consume",
+			"configuration.",
+		),
 		Runtime:          RuntimeUV,
 		Command:          []string{"tombi", "lint", "--quiet", "--error-on-warnings"},
 		CaptureStripArgs: []string{"--format", "-f"},
@@ -730,11 +805,14 @@ func tombiTool() Tool {
 
 func dotenvLinterTool() Tool {
 	return Tool{
-		Name:             "dotenv-linter",
-		Parser:           "dotenv-linter",
-		Category:         "dotenv",
-		OutputFormat:     "text",
-		Advice:           "Fix dotenv files so local environment contracts stay explicit and safe.",
+		Name:         "dotenv-linter",
+		Parser:       "dotenv-linter",
+		Category:     "dotenv",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Fix dotenv files so local environment contracts stay",
+			"explicit and safe.",
+		),
 		Runtime:          RuntimeBinary,
 		Command:          []string{"dotenv-linter", "--plain", "--quiet", "check"},
 		CaptureStripArgs: []string{"--format", "-f"},
@@ -790,8 +868,11 @@ func ruffAutofixTool() Tool {
 		Parser:       "ruff",
 		Category:     "format",
 		OutputFormat: "json",
-		Advice:       "Apply Ruff autofixes, then resolve remaining diagnostics structurally.",
-		Runtime:      RuntimePython,
+		Advice: adviceText(
+			"Apply Ruff autofixes, then resolve remaining diagnostics",
+			"structurally.",
+		),
+		Runtime: RuntimePython,
 		Command: []string{
 			"ruff",
 			"check",
@@ -814,12 +895,15 @@ func ruffAutofixTool() Tool {
 
 func golangciLintAutofixTool() Tool {
 	return Tool{
-		Name:             "golangci-lint-autofix",
-		ManagedBinary:    "golangci-lint",
-		Parser:           "golangci-lint",
-		Category:         "format",
-		OutputFormat:     "json",
-		Advice:           "Apply golangci-lint autofixes, then resolve remaining diagnostics structurally.",
+		Name:          "golangci-lint-autofix",
+		ManagedBinary: "golangci-lint",
+		Parser:        "golangci-lint",
+		Category:      "format",
+		OutputFormat:  "json",
+		Advice: adviceText(
+			"Apply golangci-lint autofixes, then resolve remaining",
+			"diagnostics structurally.",
+		),
 		Runtime:          RuntimeGo,
 		Command:          []string{"golangci-lint", "run", "--fix"},
 		ConfigFlags:      []string{"--config"},
@@ -851,11 +935,14 @@ func gofmtTool() Tool {
 
 func golinesTool() Tool {
 	return Tool{
-		Name:             "golines",
-		Parser:           "fallback",
-		Category:         "format",
-		OutputFormat:     "text",
-		Advice:           "Run golines to keep Go code within the shared line-length policy.",
+		Name:         "golines",
+		Parser:       "fallback",
+		Category:     "format",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Run golines to keep Go code within the shared line-length",
+			"policy.",
+		),
 		Runtime:          RuntimeGo,
 		Command:          []string{"golines", "-w", "-m", "88"},
 		FileExtensions:   []string{".go"},
@@ -900,11 +987,14 @@ func goTestTool() Tool {
 
 func radonComplexityTool() Tool {
 	return Tool{
-		Name:             "python-complexity",
-		Parser:           "radon-complexity",
-		Category:         "python-quality",
-		OutputFormat:     "json",
-		Advice:           "Reduce cyclomatic complexity by splitting responsibilities and control flow.",
+		Name:         "python-complexity",
+		Parser:       "radon-complexity",
+		Category:     "python-quality",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Reduce cyclomatic complexity by splitting responsibilities",
+			"and control flow.",
+		),
 		Runtime:          RuntimePython,
 		Command:          []string{"radon", "cc", "-j"},
 		FileExtensions:   []string{".py"},
@@ -934,11 +1024,14 @@ func radonMaintainabilityTool() Tool {
 
 func vultureTool() Tool {
 	return Tool{
-		Name:             "python-vulture",
-		Parser:           "vulture",
-		Category:         "python-quality",
-		OutputFormat:     "text",
-		Advice:           "Remove genuinely unused code or add a narrow whitelist entry for dynamic entry points.",
+		Name:         "python-vulture",
+		Parser:       "vulture",
+		Category:     "python-quality",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Remove genuinely unused code or add a narrow whitelist entry",
+			"for dynamic entry points.",
+		),
 		Runtime:          RuntimePython,
 		Command:          []string{"vulture", "."},
 		FileExtensions:   []string{".py"},
@@ -951,11 +1044,14 @@ func vultureTool() Tool {
 
 func pytestGateTool() Tool {
 	return Tool{
-		Name:             "pytest-gate",
-		Parser:           "fallback",
-		Category:         "test",
-		OutputFormat:     "text",
-		Advice:           "Fix pytest failures before committing; tests are executable specifications.",
+		Name:         "pytest-gate",
+		Parser:       "fallback",
+		Category:     "test",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Fix pytest failures before committing; tests are executable",
+			"specifications.",
+		),
 		Runtime:          RuntimePython,
 		Command:          []string{"pytest"},
 		FileExtensions:   []string{".py"},
@@ -968,13 +1064,16 @@ func pytestGateTool() Tool {
 
 func geminiCheckTool() Tool {
 	return Tool{
-		Name:         "gemini-check",
+		Name:         geminiCheckToolName,
 		Parser:       "gemini",
 		Category:     "ai",
 		OutputFormat: "json",
-		Advice:       "Resolve Gemini critical findings or parser/API errors before committing.",
-		Runtime:      RuntimeBinary,
-		Command:      []string{"gemini"},
+		Advice: adviceText(
+			"Resolve Gemini critical findings or parser/API errors",
+			"before committing.",
+		),
+		Runtime: RuntimeBinary,
+		Command: []string{"gemini"},
 		Capabilities: CapabilitySpec{
 			RequiresNetwork: true,
 			SandboxProfile:  "agent-network",
@@ -990,9 +1089,12 @@ func golangciLintTool() Tool {
 		Parser:       "golangci-lint",
 		Category:     "go-static",
 		OutputFormat: "json",
-		Advice:       "Fix Go lint findings structurally; do not add exclusions or weaken the shared linter policy.",
-		Runtime:      RuntimeGo,
-		Command:      []string{"golangci-lint", "run"},
+		Advice: adviceText(
+			"Fix Go lint findings structurally; do not add exclusions or",
+			"weaken the shared linter policy.",
+		),
+		Runtime: RuntimeGo,
+		Command: []string{"golangci-lint", "run"},
 		CaptureOutputArgs: []string{
 			"--output.json.path=stdout",
 			"--output.text.path=stderr",

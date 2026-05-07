@@ -23,6 +23,8 @@ const (
 	executePermissionMask    = 0o111
 	kibibyte                 = 1024
 	binaryProbeBytes         = 1024
+	defaultHeaderScanLines   = 5
+	scannerInitialCapacity   = 64
 )
 
 func EvaluateFileMergeConflict(
@@ -199,7 +201,11 @@ func EvaluatePIIScrubber(
 		return nil, err
 	}
 
-	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
+	exemptPrefixes := stringSliceOption(
+		context.EvaluatorOptions,
+		"exempt_prefixes",
+		nil,
+	)
 
 	for _, file := range context.Files {
 		if hasConfiguredPrefix(file, exemptPrefixes) ||
@@ -246,12 +252,13 @@ func EvaluateLicenseHeader(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	if decision, err := evaluateLicenseFile(
+	decision, inlineErrAutoA := evaluateLicenseFile(
 		policyDef,
 		context,
-	); decision != nil ||
-		err != nil {
-		return decision, err
+	)
+	if decision != nil ||
+		inlineErrAutoA != nil {
+		return decision, inlineErrAutoA
 	}
 
 	extensions := stringSet(normalizedSuffixes(stringSliceOption(
@@ -259,7 +266,11 @@ func EvaluateLicenseHeader(
 		"extensions",
 		[]string{".go", ".py", ".sh"},
 	)))
-	exemptPrefixes := stringSliceOption(context.EvaluatorOptions, "exempt_prefixes", nil)
+	exemptPrefixes := stringSliceOption(
+		context.EvaluatorOptions,
+		"exempt_prefixes",
+		nil,
+	)
 	exemptBasenames := stringSet(
 		stringSliceOption(context.EvaluatorOptions, "exempt_basenames", nil),
 	)
@@ -284,7 +295,10 @@ func EvaluateLicenseHeader(
 			continue
 		}
 
-		header := firstGuardLines(text, intOption(context.EvaluatorOptions, "scan_lines", 5))
+		header := firstGuardLines(
+			text,
+			intOption(context.EvaluatorOptions, "scan_lines", defaultHeaderScanLines),
+		)
 		for _, requiredText := range required {
 			if !strings.Contains(header, requiredText) {
 				return []policy.Decision{
@@ -334,7 +348,8 @@ func evaluateLicenseFile(
 		return nil, err
 	}
 
-	if binary || normalizeGuardLicenseText(text) != normalizeGuardLicenseText(expected) {
+	if binary ||
+		normalizeGuardLicenseText(text) != normalizeGuardLicenseText(expected) {
 		return []policy.Decision{
 			fileGuardDecision(
 				policyDef,
@@ -449,8 +464,9 @@ func readGuardText(path string) (string, bool, error) {
 		return "", true, nil
 	}
 
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return "", false, fmt.Errorf("seek file %s: %w", path, err)
+	_, inlineErrA := file.Seek(0, io.SeekStart)
+	if inlineErrA != nil {
+		return "", false, fmt.Errorf("seek file %s: %w", path, inlineErrA)
 	}
 
 	data, err := io.ReadAll(file)
@@ -507,7 +523,10 @@ func scanGuardLines(
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*kibibyte), 10*kibibyte*kibibyte)
+	scanner.Buffer(
+		make([]byte, 0, scannerInitialCapacity*kibibyte),
+		10*kibibyte*kibibyte,
+	)
 
 	lineNumber := 0
 	for scanner.Scan() {
@@ -523,8 +542,9 @@ func scanGuardLines(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan file %s: %w", path, err)
+	inlineErr0 := scanner.Err()
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("scan file %s: %w", path, inlineErr0)
 	}
 
 	return nil, nil

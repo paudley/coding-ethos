@@ -5,10 +5,10 @@ package codeintel
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
@@ -30,7 +30,11 @@ func NewVectorIndex(
 	case "sqlite", "sqlite-vec":
 		return NewSQLiteVectorIndex(ctx, config.URI)
 	default:
-		return nil, fmt.Errorf("unsupported vector backend %q", config.Backend)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("unsupported vector backend %q"),
+			"unsupported vector backend %q",
+			config.Backend,
+		)
 	}
 }
 

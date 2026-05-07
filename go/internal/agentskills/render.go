@@ -45,11 +45,18 @@ func Sync(options Options) ([]string, error) {
 
 	written := make([]string, 0, len(rendered))
 	for relativePath, content := range rendered {
-		absolutePath := filepath.Join(options.RepoRoot, filepath.FromSlash(relativePath))
+		absolutePath := filepath.Join(
+			options.RepoRoot,
+			filepath.FromSlash(relativePath),
+		)
 
 		err := os.MkdirAll(filepath.Dir(absolutePath), generatedDirMode)
 		if err != nil {
-			return nil, fmt.Errorf("create skill dir %s: %w", filepath.Dir(absolutePath), err)
+			return nil, fmt.Errorf(
+				"create skill dir %s: %w",
+				filepath.Dir(absolutePath),
+				err,
+			)
 		}
 
 		err = os.WriteFile(absolutePath, []byte(content), generatedFileMode)
@@ -74,7 +81,10 @@ func Check(options Options) ([]string, error) {
 	mismatched := []string{}
 
 	for relativePath, expected := range rendered {
-		absolutePath := filepath.Join(options.RepoRoot, filepath.FromSlash(relativePath))
+		absolutePath := filepath.Join(
+			options.RepoRoot,
+			filepath.FromSlash(relativePath),
+		)
 
 		current, err := os.ReadFile(filepath.Clean(absolutePath))
 		if err != nil || string(current) != expected {

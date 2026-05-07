@@ -1,19 +1,20 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package agentmsg
+package agentmsg_test
 
 import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestFromDiagnosticsBuildsMCPBackedRemediation(t *testing.T) {
 	t.Parallel()
 
-	items := FromDiagnostics([]diagnostics.Diagnostic{{
+	items := agentmsg.FromDiagnostics([]diagnostics.Diagnostic{{
 		Tool:         "ruff",
 		File:         "pkg/app.py",
 		Line:         12,
@@ -54,11 +55,11 @@ func TestFromDiagnosticsBuildsMCPBackedRemediation(t *testing.T) {
 		t.Fatalf("next steps = %#v", item.NextSteps)
 	}
 
-	if item.NextSteps[1] != "Call MCP policy_explain with policy_id=python.conditional_imports before retrying." {
+	if item.NextSteps[1] != policyExplainStep("python.conditional_imports") {
 		t.Fatalf("missing policy MCP step: %#v", item.NextSteps)
 	}
 
-	if item.NextSteps[2] != "Call MCP skill_lookup with skill_id=conditional-imports for the repair playbook." {
+	if item.NextSteps[2] != skillLookupStep("conditional-imports") {
 		t.Fatalf("missing skill MCP step: %#v", item.NextSteps)
 	}
 }
@@ -66,7 +67,7 @@ func TestFromDiagnosticsBuildsMCPBackedRemediation(t *testing.T) {
 func TestFromDecisionsUsesFailedActionAndFallbackStep(t *testing.T) {
 	t.Parallel()
 
-	items := FromDecisions([]policy.Decision{{
+	items := agentmsg.FromDecisions([]policy.Decision{{
 		Decision: "block",
 		PolicyID: "git.wrapper_required",
 		Severity: "block",
@@ -95,19 +96,27 @@ func TestFromDecisionsUsesFailedActionAndFallbackStep(t *testing.T) {
 		t.Fatalf("skill use = %q", item.SkillUse)
 	}
 
-	if item.NextSteps[0] != "Call MCP policy_explain with policy_id=git.wrapper_required before retrying." {
+	if item.NextSteps[0] != policyExplainStep("git.wrapper_required") {
 		t.Fatalf("next steps = %#v", item.NextSteps)
 	}
 
-	if item.NextSteps[1] != "Call MCP skill_lookup with skill_id=safe-git-workflow for the repair playbook." {
+	if item.NextSteps[1] != skillLookupStep("safe-git-workflow") {
 		t.Fatalf("next steps = %#v", item.NextSteps)
 	}
+}
+
+func policyExplainStep(policyID string) string {
+	return "Call MCP policy_explain with policy_id=" + policyID + " before retrying."
+}
+
+func skillLookupStep(skillID string) string {
+	return "Call MCP skill_lookup with skill_id=" + skillID + " for the repair playbook."
 }
 
 func TestFromDiagnosticsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
 	t.Parallel()
 
-	items := FromDiagnostics([]diagnostics.Diagnostic{{
+	items := agentmsg.FromDiagnostics([]diagnostics.Diagnostic{{
 		PolicyID: "python.unused_imports",
 	}})
 
@@ -123,7 +132,7 @@ func TestFromDiagnosticsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
 func TestFromDecisionsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
 	t.Parallel()
 
-	items := FromDecisions([]policy.Decision{{
+	items := agentmsg.FromDecisions([]policy.Decision{{
 		PolicyID: "git.wrapper_required",
 	}}, "Bash")
 
@@ -139,7 +148,7 @@ func TestFromDecisionsKeepsPolicyOnlyItemsAlignedWithFindings(t *testing.T) {
 func TestFromDecisionsUsesDiagnosticItemsAndFileEvidenceFallbacks(t *testing.T) {
 	t.Parallel()
 
-	items := FromDecisions([]policy.Decision{
+	items := agentmsg.FromDecisions([]policy.Decision{
 		{
 			Diagnostics: []diagnostics.Diagnostic{{
 				Tool:     "policy",
@@ -178,7 +187,7 @@ func TestFromDecisionsUsesDiagnosticItemsAndFileEvidenceFallbacks(t *testing.T) 
 func TestFromDiagnosticsUsesSkillOnlyMCPWhenPolicyMissing(t *testing.T) {
 	t.Parallel()
 
-	items := FromDiagnostics([]diagnostics.Diagnostic{{
+	items := agentmsg.FromDiagnostics([]diagnostics.Diagnostic{{
 		SkillID: "lint-remediation",
 		Message: "Fix the lint finding structurally.",
 	}})
@@ -196,7 +205,7 @@ func TestFromDiagnosticsUsesSkillOnlyMCPWhenPolicyMissing(t *testing.T) {
 func TestSummarizeReportsRepeatedPolicies(t *testing.T) {
 	t.Parallel()
 
-	summary := Summarize([]Remediation{
+	summary := agentmsg.Summarize([]agentmsg.Remediation{
 		{ID: "rem-1", PolicyID: "policy.a", SkillID: "skill-a"},
 		{ID: "rem-2", PolicyID: "policy.a", SkillID: "skill-a"},
 		{ID: "rem-3", PolicyID: "policy.b"},

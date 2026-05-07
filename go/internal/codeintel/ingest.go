@@ -6,11 +6,11 @@ package codeintel
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
@@ -41,46 +41,56 @@ type Trace struct {
 
 func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 	if strings.TrimSpace(trace.ID) == "" {
-		return errors.New("trace id is required")
+		return apperror.StaticError("trace id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin trace ingest: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := deleteTraceRows(ctx, tx, trace.ID); err != nil {
-		return err
+	inlineErr0 := deleteTraceRows(ctx, transaction, trace.ID)
+	if inlineErr0 != nil {
+		return inlineErr0
 	}
 
-	if err := insertTrace(ctx, tx, trace); err != nil {
-		return err
+	inlineErr1 := insertTrace(ctx, transaction, trace)
+	if inlineErr1 != nil {
+		return inlineErr1
 	}
 
-	if err := insertFindings(ctx, tx, trace); err != nil {
-		return err
+	inlineErr2 := insertFindings(ctx, transaction, trace)
+	if inlineErr2 != nil {
+		return inlineErr2
 	}
 
-	if err := insertRemediations(ctx, tx, trace); err != nil {
-		return err
+	inlineErr3 := insertRemediations(ctx, transaction, trace)
+	if inlineErr3 != nil {
+		return inlineErr3
 	}
 
-	if err := insertRemediationEvents(ctx, tx, trace); err != nil {
-		return err
+	inlineErr4 := insertRemediationEvents(ctx, transaction, trace)
+	if inlineErr4 != nil {
+		return inlineErr4
 	}
 
-	if err := insertHookAnalytics(ctx, tx, trace); err != nil {
-		return err
+	inlineErr5 := insertHookAnalytics(ctx, transaction, trace)
+	if inlineErr5 != nil {
+		return inlineErr5
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit trace ingest: %w", err)
+	inlineErr6 := transaction.Commit()
+	if inlineErr6 != nil {
+		return fmt.Errorf("commit trace ingest: %w", inlineErr6)
 	}
 
 	return nil
 }
 
-func rollbackUnlessCommitted(tx *sql.Tx) {
-	_ = tx.Rollback()
+func rollbackUnlessCommitted(transaction *sql.Tx) {
+	err := transaction.Rollback()
+	if err != nil {
+		return
+	}
 }

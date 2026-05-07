@@ -652,7 +652,11 @@ printf '\n'
 exit 1
 `)
 
-	err = os.WriteFile(filepath.Join(execRoot, "pkg", "app.py"), []byte("x = 1\n"), 0o600)
+	err = os.WriteFile(
+		filepath.Join(execRoot, "pkg", "app.py"),
+		[]byte("x = 1\n"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatalf("write package file: %v", err)
 	}
@@ -953,7 +957,12 @@ func unparseableFailureCases() []unparseableFailureCase {
 			required: "--output-format=json",
 		},
 		{name: "mypy", tool: "mypy", args: []string{"pkg"}, required: "--output=json"},
-		{name: "pyright", tool: "pyright", args: []string{"pkg"}, required: "--outputjson"},
+		{
+			name:     "pyright",
+			tool:     "pyright",
+			args:     []string{"pkg"},
+			required: "--outputjson",
+		},
 		{
 			name:     "pylint",
 			tool:     "pylint",
@@ -1051,7 +1060,8 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 				}
 			}
 
-			if strings.Contains(output, "findings[0]") || strings.Contains(output, repo) {
+			if strings.Contains(output, "findings[0]") ||
+				strings.Contains(output, repo) {
 				t.Fatalf("output failed quality checks:\n%s", output)
 			}
 		})

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,15 +22,17 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const statusBlocked = "blocked"
+
 func TestServerListsTools(t *testing.T) {
 	t.Parallel()
 
 	output := runServer(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	response := decodeResponse(t, output)
 
-	result := response["result"].(map[string]any)
+	result := mapValue(t, response["result"])
 
-	tools := result["tools"].([]any)
+	tools := listValue(t, result["tools"])
 	if len(tools) != 20 {
 		t.Fatalf("tool count = %d, want 20: %#v", len(tools), tools)
 	}
@@ -111,9 +115,12 @@ func TestServerNegotiatesClientProtocolVersion(t *testing.T) {
 	}`)
 	response := decodeResponse(t, output)
 
-	result := response["result"].(map[string]any)
+	result := mapValue(t, response["result"])
 	if result["protocolVersion"] != "2024-11-05" {
-		t.Fatalf("protocolVersion = %#v, want client version", result["protocolVersion"])
+		t.Fatalf(
+			"protocolVersion = %#v, want client version",
+			result["protocolVersion"],
+		)
 	}
 }
 
@@ -148,7 +155,7 @@ func TestServerSupportsJSONLineStdioTransport(t *testing.T) {
 		t.Fatalf("decode JSON line response: %v\n%s", err, raw)
 	}
 
-	result := response["result"].(map[string]any)
+	result := mapValue(t, response["result"])
 	if result["protocolVersion"] != "2025-06-18" {
 		t.Fatalf("protocolVersion = %#v", result["protocolVersion"])
 	}
@@ -164,7 +171,7 @@ func TestServerHandlesPing(t *testing.T) {
 		t.Fatalf("ping returned error: %#v", response)
 	}
 
-	result := response["result"].(map[string]any)
+	result := mapValue(t, response["result"])
 	if len(result) != 0 {
 		t.Fatalf("ping result = %#v, want empty object", result)
 	}
@@ -187,8 +194,8 @@ func TestServerPolicyCheckEditUsesCompiledBundle(t *testing.T) {
 	}`))
 	response := decodeResponse(t, output)
 
-	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
-	if content["blocked"] != true || content["status"] != "blocked" {
+	content := structuredContent(t, response)
+	if content["blocked"] != true || content["status"] != statusBlocked {
 		t.Fatalf("content = %#v, want blocked", content)
 	}
 
@@ -214,8 +221,8 @@ func TestServerLintCheckRunsCompiledPolicies(t *testing.T) {
 	}`))
 	response := decodeResponse(t, output)
 
-	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
-	if content["blocked"] != true || content["status"] != "blocked" {
+	content := structuredContent(t, response)
+	if content["blocked"] != true || content["status"] != statusBlocked {
 		t.Fatalf("content = %#v, want blocked", content)
 	}
 
@@ -233,10 +240,7 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 
 	tempDir := t.TempDir()
 	lintBinary := filepath.Join(tempDir, "coding-ethos-lint")
-	writeExecutable(t, lintBinary, `#!/usr/bin/env bash
-printf '%s\n' '{"scope":"managed","status":"blocked","findings":[{"check_id":"ruff:F401","source_tool":"ruff","code":"F401","message":"unused import","severity":"error","status":"fail","blocking":true}],"skill_hints":[{"skill_id":"lint-remediation","message":"fix lint structurally","next":"Load the lint-remediation skill."}],"capture":{"tool":"ruff","parser":"ruff","parse_status":"parsed","exit_code":1}}'
-exit 1
-`)
+	writeExecutable(t, lintBinary, managedLintCaptureScript())
 
 	output := runServerWithRuntime(t, compactJSON(t, `{
 		"jsonrpc":"2.0",
@@ -258,7 +262,7 @@ exit 1
 	})
 	response := decodeResponse(t, output)
 
-	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	content := structuredContent(t, response)
 	if content["engine"] != "managed_lint_capture" ||
 		content["tool"] != "ruff" ||
 		content["blocked"] != true {
@@ -310,7 +314,7 @@ func TestServerExplainsPolicyByID(t *testing.T) {
 	}`))
 	response := decodeResponse(t, output)
 
-	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
+	content := structuredContent(t, response)
 	if content["policy_id"] != "git.hook_bypass" {
 		t.Fatalf("policy_id = %#v", content["policy_id"])
 	}
@@ -342,18 +346,34 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	for index, request := range codeIntelToolRequests() {
+		output := runServerWithRuntime(t, codeIntelToolRequest(t, index, request), runtime)
+		if !strings.Contains(output, request.want) {
+			t.Fatalf("%s output missing %q:\n%s", request.name, request.want, output)
+		}
+	}
+}
+
+func seedCodeIntelToolData(t *testing.T, root string) {
+	t.Helper()
 
 	sourcePath := filepath.Join(root, "pkg", "app.py")
-	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
-		t.Fatalf("create source dir: %v", err)
+
+	inlineErr0 := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if inlineErr0 != nil {
+		t.Fatalf("create source dir: %v", inlineErr0)
 	}
 
-	if err := os.WriteFile(
+	inlineErr1 := os.WriteFile(
 		sourcePath,
 		[]byte("def run():\n    return 'ok'\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write source: %v", err)
+	)
+	if inlineErr1 != nil {
+		t.Fatalf("write source: %v", inlineErr1)
 	}
 
 	ctx := context.Background()
@@ -363,12 +383,13 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 		t.Fatalf("open code-intel store: %v", err)
 	}
 
-	if _, err := codeintel.NewASTIndexer(store).
-		IndexPaths(ctx, root, []string{"pkg"}); err != nil {
-		t.Fatalf("index code: %v", err)
+	_, inlineErrA := codeintel.NewASTIndexer(store).
+		IndexPaths(ctx, root, []string{"pkg"})
+	if inlineErrA != nil {
+		t.Fatalf("index code: %v", inlineErrA)
 	}
 
-	if err := store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
+	inlineErr2 := store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
 		RemediationID: "rem-1",
 		FindingID:     "finding-1",
 		PolicyID:      "python.conditional_imports",
@@ -376,21 +397,25 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 		Path:          "pkg/app.py",
 		Outcome:       "fixed",
 		SearchText:    "Move import to module scope.",
-	}); err != nil {
-		t.Fatalf("record outcome: %v", err)
+	})
+	if inlineErr2 != nil {
+		t.Fatalf("record outcome: %v", inlineErr2)
 	}
 
-	if err := store.Close(); err != nil {
-		t.Fatalf("close store: %v", err)
+	inlineErr3 := store.Close()
+	if inlineErr3 != nil {
+		t.Fatalf("close store: %v", inlineErr3)
 	}
+}
 
-	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+type codeIntelToolRequestCase struct {
+	name string
+	body string
+	want string
+}
 
-	requests := []struct {
-		name string
-		body string
-		want string
-	}{
+func codeIntelToolRequests() []codeIntelToolRequestCase {
+	return []codeIntelToolRequestCase{
 		{
 			name: "search",
 			body: `{"text":"Move import","policy_id":"python.conditional_imports"}`,
@@ -408,7 +433,8 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 		},
 		{
 			name: "embedding candidates",
-			body: `{"record_kind":"remediation_outcome","policy_id":"python.conditional_imports"}`,
+			body: `{"record_kind":"remediation_outcome",` +
+				`"policy_id":"python.conditional_imports"}`,
 			want: "code_intel_embedding_candidates",
 		},
 		{
@@ -417,17 +443,21 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 			want: "ready_records",
 		},
 	}
-	for index, request := range requests {
-		output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+}
+
+func codeIntelToolRequest(
+	t *testing.T,
+	index int,
+	request codeIntelToolRequestCase,
+) string {
+	t.Helper()
+
+	return compactJSON(t, fmt.Sprintf(`{
 			"jsonrpc":"2.0",
 			"id":%d,
 			"method":"tools/call",
 			"params":{"name":"code_intel_%s","arguments":%s}
-		}`, 40+index, strings.ReplaceAll(request.name, " ", "_"), request.body)), runtime)
-		if !strings.Contains(output, request.want) {
-			t.Fatalf("%s output missing %q:\n%s", request.name, request.want, output)
-		}
-	}
+		}`, 40+index, strings.ReplaceAll(request.name, " ", "_"), request.body))
 }
 
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
@@ -577,7 +607,7 @@ func TestServerSARIFRemediationAdviceCanReplayLintTraceID(t *testing.T) {
 
 	tracePath, err := lint.LogResult(repo, lint.Result{
 		Scope:  "tool:ruff",
-		Status: "blocked",
+		Status: statusBlocked,
 		Diagnostics: []diagnostics.Diagnostic{{
 			Tool:     "ruff",
 			File:     "src/app.py",
@@ -623,7 +653,7 @@ func TestServerSARIFRiskSummaryCanReplayLintTraceID(t *testing.T) {
 
 	tracePath, err := lint.LogResult(repo, lint.Result{
 		Scope:  "tool:bandit",
-		Status: "blocked",
+		Status: statusBlocked,
 		Diagnostics: []diagnostics.Diagnostic{{
 			Tool:     "bandit",
 			File:     "src/db.py",
@@ -665,10 +695,33 @@ func TestServerSARIFRiskSummaryCanReplayLintTraceID(t *testing.T) {
 func TestServerSARIFTrendAnalysisComparesRuns(t *testing.T) {
 	t.Parallel()
 
+	baseline, current := sarifTrendComparisonInputs(t)
+	output := runServer(t, sarifTrendRequest(t, 17, map[string]string{
+		"baseline_sarif": baseline,
+		"current_sarif":  current,
+	}))
+
+	assertOutputContains(t, "SARIF trend", output, []string{
+		"introduced",
+		"fixed",
+		"persisting",
+		"python.new",
+		"python.old",
+		"python.persisting",
+		"sarif_remediation_advice",
+	})
+}
+
+func sarifTrendComparisonInputs(t *testing.T) (string, string) {
+	t.Helper()
+
 	baseline := compactJSON(t, `{
 		"version":"2.1.0",
 		"runs":[{
-			"tool":{"driver":{"rules":[{"id":"python.old","properties":{"policy_id":"python.old"}}]}},
+				"tool":{"driver":{"rules":[{
+					"id":"python.old",
+					"properties":{"policy_id":"python.old"}
+				}]}},
 			"results":[{
 				"ruleId":"python.old",
 				"ruleIndex":0,
@@ -698,7 +751,10 @@ func TestServerSARIFTrendAnalysisComparesRuns(t *testing.T) {
 	current := compactJSON(t, `{
 		"version":"2.1.0",
 		"runs":[{
-			"tool":{"driver":{"rules":[{"id":"python.new","properties":{"policy_id":"python.new"}}]}},
+				"tool":{"driver":{"rules":[{
+					"id":"python.new",
+					"properties":{"policy_id":"python.new"}
+				}]}},
 			"results":[{
 				"ruleId":"python.persisting",
 				"level":"error",
@@ -726,36 +782,31 @@ func TestServerSARIFTrendAnalysisComparesRuns(t *testing.T) {
 		}]
 	}`)
 
-	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
-		"jsonrpc":"2.0",
-		"id":17,
-		"method":"tools/call",
-		"params":{
-			"name":"sarif_trend_analysis",
-			"arguments":{
-				"baseline_sarif":%q,
-				"current_sarif":%q
-			}
-		}
-	}`, baseline, current)))
-
-	for _, expected := range []string{
-		"introduced",
-		"fixed",
-		"persisting",
-		"python.new",
-		"python.old",
-		"python.persisting",
-		"sarif_remediation_advice",
-	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("missing %s in SARIF trend output:\n%s", expected, output)
-		}
-	}
+	return baseline, current
 }
 
 func TestServerSARIFTrendAnalysisReportsReopenedAndWorsening(t *testing.T) {
 	t.Parallel()
+
+	history, baseline, current := sarifTrendHistoryInputs(t)
+	output := runServer(t, sarifTrendRequest(t, 19, map[string]string{
+		"history_sarif":  "[" + strconv.Quote(history) + "]",
+		"baseline_sarif": strconv.Quote(baseline),
+		"current_sarif":  strconv.Quote(current),
+	}))
+
+	assertOutputContains(t, "SARIF trend", output, []string{
+		"reopened",
+		"worsening",
+		"python.reopened",
+		"python.worsening",
+		"src/reopened.py",
+		"src/risk.py",
+	})
+}
+
+func sarifTrendHistoryInputs(t *testing.T) (string, string, string) {
+	t.Helper()
 
 	history := compactJSON(t, `{
 		"version":"2.1.0",
@@ -820,36 +871,66 @@ func TestServerSARIFTrendAnalysisReportsReopenedAndWorsening(t *testing.T) {
 		}]
 	}`)
 
-	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+	return history, baseline, current
+}
+
+func sarifTrendRequest(
+	t *testing.T,
+	requestID int,
+	arguments map[string]string,
+) string {
+	t.Helper()
+
+	parts := make([]string, 0, len(arguments))
+	for key, value := range arguments {
+		if !strings.HasPrefix(value, `"`) && !strings.HasPrefix(value, "[") {
+			value = strconv.Quote(value)
+		}
+
+		parts = append(parts, fmt.Sprintf("%q:%s", key, value))
+	}
+
+	sort.Strings(parts)
+
+	return compactJSON(t, fmt.Sprintf(`{
 		"jsonrpc":"2.0",
-		"id":19,
+		"id":%d,
 		"method":"tools/call",
 		"params":{
 			"name":"sarif_trend_analysis",
-			"arguments":{
-				"history_sarif":[%q],
-				"baseline_sarif":%q,
-				"current_sarif":%q
-			}
+			"arguments":{%s}
 		}
-	}`, history, baseline, current)))
-
-	for _, expected := range []string{
-		"reopened",
-		"worsening",
-		"python.reopened",
-		"python.worsening",
-		"src/reopened.py",
-		"src/risk.py",
-	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("missing %s in SARIF trend output:\n%s", expected, output)
-		}
-	}
+	}`, requestID, strings.Join(parts, ",")))
 }
 
 func TestServerSARIFPolicyFeedbackReportsAuthoringGaps(t *testing.T) {
 	t.Parallel()
+
+	sarif := sarifPolicyFeedbackFixture(t)
+	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":18,
+		"method":"tools/call",
+		"params":{
+			"name":"sarif_policy_feedback",
+			"arguments":{"sarif":%q}
+		}
+	}`, sarif)))
+
+	assertOutputContains(t, "SARIF policy feedback", output, []string{
+		"unmapped_diagnostics",
+		"missing_skill_ids",
+		"weak_severities",
+		"noisy_rules",
+		"tool.unmapped",
+		"python.security_note",
+		"python.noisy",
+		"skill_recommend",
+	})
+}
+
+func sarifPolicyFeedbackFixture(t *testing.T) string {
+	t.Helper()
 
 	noisyResults := make([]string, 0, 5)
 	for index := range 5 {
@@ -867,63 +948,57 @@ func TestServerSARIFPolicyFeedbackReportsAuthoringGaps(t *testing.T) {
 		}`, index, index+1))
 	}
 
-	sarif := compactJSON(t, fmt.Sprintf(`{
+	return compactJSON(t, fmt.Sprintf(`{
 		"version":"2.1.0",
 		"runs":[{
 			"tool":{"driver":{"rules":[{"id":"python.noisy"}]}},
-			"results":[{
-				"ruleId":"tool.unmapped",
-				"level":"warning",
-				"message":{"text":"Unmapped linter diagnostic"},
-				"locations":[{
-					"physicalLocation":{
-						"artifactLocation":{"uri":"src/app.py"},
-						"region":{"startLine":4}
-					}
-				}],
-				"properties":{"source_tool":"ruff","code":"X999"}
-			},{
-				"ruleId":"python.security_note",
-				"level":"note",
-				"message":{"text":"Possible SQL injection vector"},
-				"locations":[{
-					"physicalLocation":{
-						"artifactLocation":{"uri":"src/db.py"},
-						"region":{"startLine":9}
-					}
-				}],
-				"properties":{
-					"policy_id":"python.sql_safety",
-					"skill_id":"lint-remediation",
-					"source_tool":"bandit",
-					"code":"S608"
-				}
-			},%s]
+			"results":[%s,%s]
 		}]
-	}`, strings.Join(noisyResults, ",")))
+	}`, sarifPolicyFeedbackBaseFindings(), strings.Join(noisyResults, ",")))
+}
 
-	output := runServer(t, compactJSON(t, fmt.Sprintf(`{
-		"jsonrpc":"2.0",
-		"id":18,
-		"method":"tools/call",
-		"params":{
-			"name":"sarif_policy_feedback",
-			"arguments":{"sarif":%q}
+func sarifPolicyFeedbackBaseFindings() string {
+	return `{
+		"ruleId":"tool.unmapped",
+		"level":"warning",
+		"message":{"text":"Unmapped linter diagnostic"},
+		"locations":[{
+			"physicalLocation":{
+				"artifactLocation":{"uri":"src/app.py"},
+				"region":{"startLine":4}
+			}
+		}],
+		"properties":{"source_tool":"ruff","code":"X999"}
+	},{
+		"ruleId":"python.security_note",
+		"level":"note",
+		"message":{"text":"Possible SQL injection vector"},
+		"locations":[{
+			"physicalLocation":{
+				"artifactLocation":{"uri":"src/db.py"},
+				"region":{"startLine":9}
+			}
+		}],
+		"properties":{
+			"policy_id":"python.sql_safety",
+			"skill_id":"lint-remediation",
+			"source_tool":"bandit",
+			"code":"S608"
 		}
-	}`, sarif)))
+	}`
+}
 
-	for _, expected := range []string{
-		"unmapped_diagnostics",
-		"missing_skill_ids",
-		"weak_severities",
-		"noisy_rules",
-		"tool.unmapped",
-		"python.security_note",
-		"python.noisy",
-		"skill_recommend",
-	} {
-		if !strings.Contains(output, expected) {
-			t.Fatalf("missing %s in SARIF policy feedback output:\n%s", expected, output)
+func assertOutputContains(
+	t *testing.T,
+	label string,
+	output string,
+	expected []string,
+) {
+	t.Helper()
+
+	for _, item := range expected {
+		if !strings.Contains(output, item) {
+			t.Fatalf("missing %s in %s output:\n%s", item, label, output)
 		}
 	}
 }
@@ -961,8 +1036,8 @@ func TestServerPolicyCheckCommandUsesCompiledBundle(t *testing.T) {
 	}`))
 	response := decodeResponse(t, output)
 
-	content := response["result"].(map[string]any)["structuredContent"].(map[string]any)
-	if content["blocked"] != true || content["status"] != "blocked" {
+	content := structuredContent(t, response)
+	if content["blocked"] != true || content["status"] != statusBlocked {
 		t.Fatalf("content = %#v, want blocked", content)
 	}
 
@@ -1099,10 +1174,17 @@ func TestServerReportsCodeIntelHookUsage(t *testing.T) {
 		"target_kind":"repo_state",
 		"risk_category":"bypass",
 		"output_shape":{"blocked":true},
-		"decisions":[{"policy_id":"git.wrapper_required","decision":"block","severity":"block","skill_id":"safe-git-workflow"}]
+			"decisions":[{
+				"policy_id":"git.wrapper_required",
+				"decision":"block",
+				"severity":"block",
+				"skill_id":"safe-git-workflow"
+			}]
 	}`)
-	if err := codeintel.NewTraceIngester(store).IngestHookTrace(ctx, payload); err != nil {
-		t.Fatalf("ingest hook trace: %v", err)
+
+	inlineErr4 := codeintel.NewTraceIngester(store).IngestHookTrace(ctx, payload)
+	if inlineErr4 != nil {
+		t.Fatalf("ingest hook trace: %v", inlineErr4)
 	}
 
 	output := runServerWithRuntime(t, compactJSON(t, `{
@@ -1195,7 +1277,10 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	}`), runtime)
 	if !strings.Contains(lineContextOutput, `"code_intel_code_context"`) ||
 		!strings.Contains(lineContextOutput, `"build_message"`) {
-		t.Fatalf("line code context output missing indexed symbol:\n%s", lineContextOutput)
+		t.Fatalf(
+			"line code context output missing indexed symbol:\n%s",
+			lineContextOutput,
+		)
 	}
 }
 
@@ -1255,6 +1340,34 @@ func decodeResponse(t *testing.T, output string) map[string]any {
 	return response
 }
 
+func structuredContent(t *testing.T, response map[string]any) map[string]any {
+	t.Helper()
+
+	return mapValue(t, mapValue(t, response["result"])["structuredContent"])
+}
+
+func mapValue(t *testing.T, value any) map[string]any {
+	t.Helper()
+
+	result, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("value = %#v, want object", value)
+	}
+
+	return result
+}
+
+func listValue(t *testing.T, value any) []any {
+	t.Helper()
+
+	result, ok := value.([]any)
+	if !ok {
+		t.Fatalf("value = %#v, want list", value)
+	}
+
+	return result
+}
+
 func frameMessage(payload string) string {
 	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload)
 }
@@ -1275,8 +1388,10 @@ func unframeMessage(t *testing.T, output string) string {
 	lengthText := strings.TrimSpace(strings.TrimPrefix(header, prefix))
 
 	var length int
-	if _, err := fmt.Sscanf(lengthText, "%d", &length); err != nil {
-		t.Fatalf("parse Content-Length: %v\n%s", err, output)
+
+	_, inlineErrB := fmt.Sscanf(lengthText, "%d", &length)
+	if inlineErrB != nil {
+		t.Fatalf("parse Content-Length: %v\n%s", inlineErrB, output)
 	}
 
 	if len(body) != length {
@@ -1290,8 +1405,10 @@ func compactJSON(t *testing.T, input string) string {
 	t.Helper()
 
 	var value any
-	if err := json.Unmarshal([]byte(input), &value); err != nil {
-		t.Fatalf("parse test JSON: %v", err)
+
+	inlineErr5 := json.Unmarshal([]byte(input), &value)
+	if inlineErr5 != nil {
+		t.Fatalf("parse test JSON: %v", inlineErr5)
 	}
 
 	payload, err := json.Marshal(value)
@@ -1305,8 +1422,29 @@ func compactJSON(t *testing.T, input string) string {
 func writeExecutable(t *testing.T, path, content string) {
 	t.Helper()
 
-	err := os.WriteFile(path, []byte(content), 0o700)
+	err := os.WriteFile(path, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod executable: %v", err)
+	}
 }
+
+func managedLintCaptureScript() string {
+	return `#!/usr/bin/env bash
+printf '%s\n' '` + compactManagedLintCaptureJSON + `'
+exit 1
+`
+}
+
+const compactManagedLintCaptureJSON = `{"scope":"managed","status":"blocked",` +
+	`"findings":[{"check_id":"ruff:F401","source_tool":"ruff","code":"F401",` +
+	`"message":"unused import","severity":"error","status":"fail",` +
+	`"blocking":true}],"skill_hints":[{"skill_id":"lint-remediation",` +
+	`"message":"fix lint structurally",` +
+	`"next":"Load the lint-remediation skill."}],` +
+	`"capture":{"tool":"ruff","parser":"ruff","parse_status":"parsed",` +
+	`"exit_code":1}}`

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
@@ -26,9 +25,8 @@ const (
 	hookTraceFile       = "event.json"
 	hookTraceFileMode   = 0o600
 	commandPreviewLimit = 300
+	traceStaticParts    = 7
 )
-
-var hookTraceFallbackCounter atomic.Uint64
 
 type HookTrace struct {
 	Command            *HookTraceCommand           `json:"command,omitempty"`
@@ -53,7 +51,7 @@ type HookTrace struct {
 	Decisions          []HookTraceDecision         `json:"decisions,omitempty"`
 	Findings           []evidence.Finding          `json:"findings,omitempty"`
 	RemediationEvents  []evidence.RemediationEvent `json:"remediation_events,omitempty"`
-	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitempty"`
+	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitzero"`
 	RuntimeMS          int64                       `json:"runtime_ms,omitempty"`
 	SchemaVersion      int                         `json:"schema_version"`
 	OutputShape        HookTraceOutputShape        `json:"output_shape"`
@@ -164,8 +162,9 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 
-	if err := encoder.Encode(trace); err != nil {
-		return fmt.Errorf("encode hook trace: %w", err)
+	inlineErr0 := encoder.Encode(trace)
+	if inlineErr0 != nil {
+		return fmt.Errorf("encode hook trace: %w", inlineErr0)
 	}
 
 	return nil
@@ -198,13 +197,13 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 }
 
 func evidenceString(evidence map[string]any, key string) string {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -244,7 +243,9 @@ func traceOutputShape(result Result) HookTraceOutputShape {
 func hookTraceID(event Event, result Result) string {
 	runID := randomTraceComponent()
 
-	parts := []string{
+	parts := make([]string, 0, traceStaticParts+3*len(result.Decisions))
+
+	parts = append(parts,
 		runID,
 		event.Provider(),
 		event.HookEventName,
@@ -252,7 +253,7 @@ func hookTraceID(event Event, result Result) string {
 		event.Cwd,
 		event.Command(),
 		result.Status,
-	}
+	)
 	for _, decision := range result.Decisions {
 		parts = append(parts, decision.PolicyID, decision.Decision, decision.Message)
 	}
@@ -262,15 +263,17 @@ func hookTraceID(event Event, result Result) string {
 
 func randomTraceComponent() string {
 	var random [8]byte
-	if _, err := rand.Read(random[:]); err == nil {
+
+	_, inlineErrAutoA := rand.Read(random[:])
+	if inlineErrAutoA == nil {
 		return hex.EncodeToString(random[:])
 	}
 
 	return fmt.Sprintf(
-		"%d-%d-%d",
+		"%d-%d-%s",
 		time.Now().UTC().UnixNano(),
 		os.Getpid(),
-		hookTraceFallbackCounter.Add(1),
+		sha256Hex(fmt.Sprintf("%p", &random))[:8],
 	)
 }
 

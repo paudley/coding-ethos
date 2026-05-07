@@ -6,7 +6,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,11 +14,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 var (
-	errGitCommandFailed  = errors.New("git command failed")
-	errHookGroupTimedOut = errors.New("hook group timed out")
+	errGitCommandFailed  = apperror.StaticError("git command failed")
+	errHookGroupTimedOut = apperror.StaticError("hook group timed out")
 )
 
 const (
@@ -499,7 +500,11 @@ func gitLines(args ...string) ([]string, error) {
 		Command: append([]string{"git"}, args...),
 	})
 	if result.RunnerFailure != nil {
-		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), result.RunnerFailure)
+		return nil, fmt.Errorf(
+			"git %s: %w",
+			strings.Join(args, " "),
+			result.RunnerFailure,
+		)
 	}
 
 	if result.ExitCode != 0 {
@@ -569,7 +574,11 @@ func validateGoHookRuntime() int {
 
 		for _, command := range group.Commands {
 			if strings.TrimSpace(command.Name) == "" || command.Run == nil {
-				fmt.Fprintf(os.Stderr, "FATAL: invalid hook command in group %q\n", name)
+				fmt.Fprintf(
+					os.Stderr,
+					"FATAL: invalid hook command in group %q\n",
+					name,
+				)
 
 				return 1
 			}

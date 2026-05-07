@@ -6,9 +6,10 @@ package codeintel
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 func (store *Store) CodeContext(
@@ -27,9 +28,9 @@ func (store *Store) CodeContext(
 
 	context := CodeContext{Chunk: chunk}
 	if chunk.ParentChunkID != "" {
-		parent, err := store.codeChunkByID(ctx, chunk.ParentChunkID)
-		if err != nil {
-			return CodeContext{}, err
+		parent, parentErr := store.codeChunkByID(ctx, chunk.ParentChunkID)
+		if parentErr != nil {
+			return CodeContext{}, parentErr
 		}
 
 		context.Parent = &parent
@@ -85,7 +86,7 @@ func (store *Store) findCodeContextChunk(
 		return chunks[0], nil
 	}
 
-	return CodeChunk{}, errors.New("code chunk context not found")
+	return CodeChunk{}, apperror.StaticError("code chunk context not found")
 }
 
 func (store *Store) codeChunkByPathLine(
@@ -93,7 +94,7 @@ func (store *Store) codeChunkByPathLine(
 	path string,
 	line int,
 ) (CodeChunk, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
@@ -120,14 +121,22 @@ func (store *Store) codeChunkByPathLine(
 	}
 
 	if len(chunks) != 1 {
-		return CodeChunk{}, fmt.Errorf("code chunk context not found at %s:%d", path, line)
+		return CodeChunk{}, apperror.Wrapf(
+			apperror.StaticError("code chunk context not found at %s:%d"),
+			"code chunk context not found at %s:%d",
+			path,
+			line,
+		)
 	}
 
 	return chunks[0], nil
 }
 
-func (store *Store) codeChunkByID(ctx context.Context, id string) (CodeChunk, error) {
-	rows, err := store.db.QueryContext(
+func (store *Store) codeChunkByID(
+	ctx context.Context,
+	chunkID string,
+) (CodeChunk, error) {
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
@@ -135,10 +144,10 @@ func (store *Store) codeChunkByID(ctx context.Context, id string) (CodeChunk, er
 			start_line, end_line, content_hash, search_text, raw_text
 		FROM code_chunks
 		WHERE chunk_id = ?`,
-		id,
+		chunkID,
 	)
 	if err != nil {
-		return CodeChunk{}, fmt.Errorf("query code chunk %q: %w", id, err)
+		return CodeChunk{}, fmt.Errorf("query code chunk %q: %w", chunkID, err)
 	}
 	defer rows.Close()
 
@@ -148,7 +157,11 @@ func (store *Store) codeChunkByID(ctx context.Context, id string) (CodeChunk, er
 	}
 
 	if len(chunks) != 1 {
-		return CodeChunk{}, fmt.Errorf("code chunk %q not found", id)
+		return CodeChunk{}, apperror.Wrapf(
+			apperror.StaticError("code chunk %q not found"),
+			"code chunk %q not found",
+			chunkID,
+		)
 	}
 
 	return chunks[0], nil
@@ -159,7 +172,7 @@ func (store *Store) childCodeChunks(
 	parentID string,
 	limit int,
 ) ([]CodeChunk, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
@@ -237,12 +250,49 @@ func (store *Store) codeEdgesForChunk(
 	return outgoing, incoming, nil
 }
 
+// CodeEdges returns indexed AST/code relationship edges that match the query.
+func (store *Store) CodeEdges(
+	ctx context.Context,
+	query CodeEdgeQuery,
+) ([]CodeEdge, error) {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
+			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
+			target_name, raw_text
+		FROM code_edges
+		WHERE (? = '' OR path = ?)
+			AND (? = '' OR edge_kind = ?)
+			AND (? = '' OR target_name = ?)
+		ORDER BY path, edge_kind, target_name
+		LIMIT ?`,
+		query.Path,
+		query.Path,
+		query.Kind,
+		query.Kind,
+		query.TargetName,
+		query.TargetName,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code edges: %w", err)
+	}
+	defer rows.Close()
+
+	return scanCodeEdges(rows)
+}
+
 func (store *Store) outgoingCodeEdges(
 	ctx context.Context,
 	chunkID string,
 	limit int,
 ) ([]CodeEdge, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
 			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
@@ -267,7 +317,7 @@ func (store *Store) incomingCodeEdges(
 	chunkID string,
 	limit int,
 ) ([]CodeEdge, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
 			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
@@ -324,7 +374,7 @@ func (store *Store) astFindingLinksForChunk(
 	chunkID string,
 	limit int,
 ) ([]ASTFindingLink, error) {
-	rows, err := store.db.QueryContext(
+	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT link_id, finding_kind, finding_id, chunk_id, path, policy_id,
 			skill_id, symbol_path, content_hash, stale
@@ -368,8 +418,9 @@ func (store *Store) astFindingLinksForChunk(
 		results = append(results, result)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate AST finding links: %w", err)
+	inlineErr0 := rows.Err()
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("iterate AST finding links: %w", inlineErr0)
 	}
 
 	return results, nil

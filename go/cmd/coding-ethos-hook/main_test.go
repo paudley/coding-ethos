@@ -16,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestHookCLIBlocksBashBypass(t *testing.T) {
@@ -36,13 +37,18 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 	}
 
 	if stderr == "" {
-		t.Fatalf("--json agent hook output must include a compact blocking reason on stderr")
+		t.Fatalf(
+			"--json agent hook output must include a compact blocking reason on stderr",
+		)
 	}
 
 	trimmedStderr := strings.TrimSpace(stderr)
 	if strings.Contains(trimmedStderr, "format: toon") ||
 		strings.Contains(trimmedStderr, "\n") {
-		t.Fatalf("--json agent hook stderr must be compact provider advice:\n%s", stderr)
+		t.Fatalf(
+			"--json agent hook stderr must be compact provider advice:\n%s",
+			stderr,
+		)
 	}
 }
 
@@ -84,6 +90,8 @@ func TestHookCLIAllowsUnknownEventAndTool(t *testing.T) {
 }
 
 func TestReadBundleAndPrintBlockedDirectly(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeCLITestBundle(t)
 
 	bundle, err := readBundle(bundlePath)
@@ -112,6 +120,8 @@ func TestReadBundleAndPrintBlockedDirectly(t *testing.T) {
 }
 
 func TestRunWithIOBlocksBashBypass(t *testing.T) {
+	t.Parallel()
+
 	var (
 		stdout bytes.Buffer
 		stderr bytes.Buffer
@@ -147,6 +157,8 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 }
 
 func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
+	t.Parallel()
+
 	var (
 		stdout bytes.Buffer
 		stderr bytes.Buffer
@@ -200,7 +212,13 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 	}
 
 	bundlePath := writeCLITestBundle(t)
-	cmd := exec.CommandContext(context.Background(), bin, "--bundle", bundlePath, "--json")
+	cmd := exec.CommandContext(
+		context.Background(),
+		bin,
+		"--bundle",
+		bundlePath,
+		"--json",
+	)
 	cmd.Stdin = bytes.NewBufferString(stdin)
 
 	var (
@@ -241,6 +259,7 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 
 func captureHookStderr(t *testing.T, run func()) string {
 	t.Helper()
+	testlock.ProcessState(t, "coding-ethos-hook")
 
 	original := os.Stderr
 
@@ -257,17 +276,21 @@ func captureHookStderr(t *testing.T, run func()) string {
 
 	run()
 
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close writer: %v", err)
+	inlineErr0 := writer.Close()
+	if inlineErr0 != nil {
+		t.Fatalf("close writer: %v", inlineErr0)
 	}
 
 	var buffer bytes.Buffer
-	if _, err := buffer.ReadFrom(reader); err != nil {
-		t.Fatalf("read stderr: %v", err)
+
+	_, inlineErrA := buffer.ReadFrom(reader)
+	if inlineErrA != nil {
+		t.Fatalf("read stderr: %v", inlineErrA)
 	}
 
-	if err := reader.Close(); err != nil {
-		t.Fatalf("close reader: %v", err)
+	inlineErr1 := reader.Close()
+	if inlineErr1 != nil {
+		t.Fatalf("close reader: %v", inlineErr1)
 	}
 
 	return buffer.String()

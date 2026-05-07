@@ -17,6 +17,8 @@ import (
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
+
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 var (
@@ -897,7 +899,7 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 		return result, errPytestGateCommandEmpty
 	}
 
-	cmd := exec.CommandContext(
+	cmd := safeexec.CommandContext(
 		context.Background(),
 		settings.TestCommand[0],
 		settings.TestCommand[1:]...,
@@ -1841,14 +1843,19 @@ func reportPytestGateFailureOutput(result pytestRunResult) {
 func trimmedPytestOutput(result pytestRunResult) string {
 	output := strings.TrimSpace(result.Stdout)
 	if strings.TrimSpace(result.Stderr) != "" {
-		output = strings.TrimSpace(output + "\nStderr:\n" + strings.TrimSpace(result.Stderr))
+		output = strings.TrimSpace(
+			output + "\nStderr:\n" + strings.TrimSpace(result.Stderr),
+		)
 	}
 
 	lines := strings.Split(output, "\n")
 	if len(lines) > pytestGateMaxOutputLines {
 		lines = append(
 			[]string{
-				fmt.Sprintf("... (%d lines truncated)", len(lines)-pytestGateMaxOutputLines),
+				fmt.Sprintf(
+					"... (%d lines truncated)",
+					len(lines)-pytestGateMaxOutputLines,
+				),
 			},
 			lines[len(lines)-pytestGateMaxOutputLines:]...,
 		)

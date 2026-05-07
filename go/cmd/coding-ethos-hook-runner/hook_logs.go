@@ -205,10 +205,13 @@ func analyzeHookLogs(path, format string) (hookLogAnalysis, error) {
 			qualityCounts[hookLogTruncatedOutputIssueKey]++
 			if len(analysis.QualityIssues) < maxHookLogQualityIssueSamples {
 				analysis.QualityIssues = append(analysis.QualityIssues, hookLogIssue{
-					RunID:  runID,
-					Kind:   hookLogTruncatedOutputIssueKey,
-					Line:   0,
-					Sample: fmt.Sprintf("stdout.log exceeded %d bytes", maxHookLogAnalyzeBytesPerRun),
+					RunID: runID,
+					Kind:  hookLogTruncatedOutputIssueKey,
+					Line:  0,
+					Sample: fmt.Sprintf(
+						"stdout.log exceeded %d bytes",
+						maxHookLogAnalyzeBytesPerRun,
+					),
 				})
 			}
 		}
@@ -630,8 +633,12 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 			fmt.Sprintf("findings: %d", analysis.Findings),
 			fmt.Sprintf("quality_issues_total: %d", analysis.QualityTotal),
 		}
-		lines = append(lines, formatHookLogCountTable("top_tools", analysis.TopTools)...)
-		lines = append(lines, formatHookLogCountTable("top_codes", analysis.TopCodes)...)
+		lines = append(
+			lines,
+			formatHookLogCountTable("top_tools", analysis.TopTools)...)
+		lines = append(
+			lines,
+			formatHookLogCountTable("top_codes", analysis.TopCodes)...)
 		lines = append(
 			lines,
 			formatHookLogCountTable("repeated_failures", analysis.Repeated)...,
@@ -716,7 +723,10 @@ func formatHookLogSummary(summary hookLogSummary) string {
 			fmt.Sprintf("total: %d", summary.Total),
 			fmt.Sprintf("passed: %d", summary.Passed),
 			fmt.Sprintf("failed: %d", summary.Failed),
-			fmt.Sprintf("runs[%d]{run_id,started_at_utc,exit_code}:", len(summary.Runs)),
+			fmt.Sprintf(
+				"runs[%d]{run_id,started_at_utc,exit_code}:",
+				len(summary.Runs),
+			),
 		}
 		for _, run := range summary.Runs {
 			lines = append(
@@ -745,7 +755,12 @@ func formatHookLogSummary(summary hookLogSummary) string {
 	for _, run := range summary.Runs {
 		lines = append(
 			lines,
-			fmt.Sprintf("- %s exit=%d started=%s", run.RunID, run.ExitCode, run.StartedAtUTC),
+			fmt.Sprintf(
+				"- %s exit=%d started=%s",
+				run.RunID,
+				run.ExitCode,
+				run.StartedAtUTC,
+			),
 		)
 	}
 

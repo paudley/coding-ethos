@@ -12,9 +12,13 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	execabs "golang.org/x/sys/execabs"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-var errExternalToolCommandEmpty = errors.New("external tool command is empty")
+var errExternalToolCommandEmpty = apperror.StaticError("external tool command is empty")
 
 type externalToolRequest struct {
 	Name           string
@@ -59,7 +63,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, request.Command[0], request.Command[1:]...)
+	cmd := execabs.CommandContext(ctx, request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.Dir
 	cmd.Env = externalToolEnv(request.Env)
 

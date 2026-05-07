@@ -148,7 +148,11 @@ func TestConfiguredTypeCheckersExcludeDisabledPylintByDefault(t *testing.T) {
 
 	for _, name := range []string{"ruff", "mypy", "pyright"} {
 		if !names[name] {
-			t.Fatalf("configuredTypeCheckers() missing enabled checker %q: %#v", name, checkers)
+			t.Fatalf(
+				"configuredTypeCheckers() missing enabled checker %q: %#v",
+				name,
+				checkers,
+			)
 		}
 	}
 }

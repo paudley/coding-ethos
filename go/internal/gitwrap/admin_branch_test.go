@@ -1,15 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package gitwrap
+package gitwrap_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
 )
+
+const gitEnvLogSuffix = "GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT="
 
 func TestAdminStartBranchRunsApprovedBranchSequence(t *testing.T) {
 	repo := t.TempDir()
@@ -29,11 +33,11 @@ func TestAdminStartBranchRunsApprovedBranchSequence(t *testing.T) {
 
 	log := readText(t, logPath)
 	for _, expected := range []string{
-		"check-ref-format --branch hooks_and_crooks_take_7|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
-		"status --porcelain=v1 --untracked-files=all|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
+		"check-ref-format --branch hooks_and_crooks_take_7|" + gitEnvLogSuffix,
+		"status --porcelain=v1 --untracked-files=all|" + gitEnvLogSuffix,
 		"checkout main|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
 		"pull --ff-only|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
-		"checkout -b hooks_and_crooks_take_7|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
+		"checkout -b hooks_and_crooks_take_7|" + gitEnvLogSuffix,
 	} {
 		if !strings.Contains(log, expected) {
 			t.Fatalf("missing %q in fake git log:\n%s", expected, log)
@@ -42,13 +46,15 @@ func TestAdminStartBranchRunsApprovedBranchSequence(t *testing.T) {
 }
 
 func TestAdminStartBranchRequiresCleanWorktree(t *testing.T) {
+	t.Parallel()
+
 	repo := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "git.log")
 	fakeGit := fakeAdminGit(t, logPath, " M file.txt\n")
 
 	err := AdminStartBranch(fakeGit, repo, []string{"hooks_and_crooks_take_7"})
-	if !errors.Is(err, errAdminBranchDirty) {
-		t.Fatalf("AdminStartBranch dirty error = %v, want %v", err, errAdminBranchDirty)
+	if !strings.Contains(err.Error(), "worktree must be clean") {
+		t.Fatalf("AdminStartBranch dirty error = %v", err)
 	}
 
 	log := readText(t, logPath)
@@ -58,8 +64,10 @@ func TestAdminStartBranchRequiresCleanWorktree(t *testing.T) {
 }
 
 func TestAdminStartBranchRejectsInvalidBranchName(t *testing.T) {
+	t.Parallel()
+
 	err := AdminStartBranch("/usr/bin/git", t.TempDir(), []string{"../main"})
-	if !errors.Is(err, errAdminBranchInvalid) {
+	if !strings.Contains(err.Error(), "invalid admin branch name") {
 		t.Fatalf("AdminStartBranch invalid branch error = %v", err)
 	}
 }
@@ -67,21 +75,26 @@ func TestAdminStartBranchRejectsInvalidBranchName(t *testing.T) {
 func fakeAdminGit(t *testing.T, logPath, statusOutput string) string {
 	t.Helper()
 
-	t.Setenv("FAKE_ADMIN_GIT_LOG", logPath)
-	t.Setenv("FAKE_ADMIN_GIT_STATUS", statusOutput)
-
 	scriptPath := filepath.Join(t.TempDir(), "git")
 	script := `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s|GIT_DIR=%s|GIT_INDEX_FILE=%s|GIT_CONFIG_COUNT=%s\n' "$*" "${GIT_DIR:-}" "${GIT_INDEX_FILE:-}" "${GIT_CONFIG_COUNT:-}" >> "$FAKE_ADMIN_GIT_LOG"
+log_path=` + strconv.Quote(logPath) + `
+status_output=` + strconv.Quote(statusOutput) + `
+printf '%s|GIT_DIR=%s|GIT_INDEX_FILE=%s|GIT_CONFIG_COUNT=%s\n' \
+  "$*" "${GIT_DIR:-}" "${GIT_INDEX_FILE:-}" "${GIT_CONFIG_COUNT:-}" >> "$log_path"
 if [[ "${1:-}" == "status" ]]; then
-  printf '%s' "$FAKE_ADMIN_GIT_STATUS"
+  printf '%s' "$status_output"
 fi
 `
 
-	err := os.WriteFile(scriptPath, []byte(script), 0o700)
+	err := os.WriteFile(scriptPath, []byte(script), 0o600)
 	if err != nil {
 		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(scriptPath, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
 	}
 
 	return scriptPath

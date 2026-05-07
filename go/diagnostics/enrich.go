@@ -78,7 +78,8 @@ func evidenceMessagesMatch(patterns []string, message string) bool {
 
 	for _, pattern := range patterns {
 		normalizedPattern := strings.ToLower(strings.TrimSpace(pattern))
-		if normalizedPattern != "" && strings.Contains(normalizedMessage, normalizedPattern) {
+		if normalizedPattern != "" &&
+			strings.Contains(normalizedMessage, normalizedPattern) {
 			return true
 		}
 	}

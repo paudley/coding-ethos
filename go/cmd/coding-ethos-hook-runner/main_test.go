@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-//nolint:paralleltest,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global fixtures.
+// fixtures.
+//
+//nolint:paralleltest,gocyclo,cyclop,funlen,lll,varnamelen // Uses process-global
 package main
 
 import (
@@ -59,11 +61,26 @@ exit 97
 `
 
 	guardPath := filepath.Join(guardDir, "go")
-	if err := os.WriteFile(guardPath, []byte(script), 0o700); err != nil {
-		return fmt.Errorf("write test go guard: %w", err)
+
+	inlineErr0 := os.WriteFile(guardPath, []byte(script), 0o600)
+	if inlineErr0 != nil {
+		return fmt.Errorf("write test go guard: %w", inlineErr0)
 	}
 
-	return os.Setenv("PATH", guardDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	inlineErr0 = os.Chmod(guardPath, 0o700)
+	if inlineErr0 != nil {
+		return fmt.Errorf("chmod test go guard: %w", inlineErr0)
+	}
+
+	inlineErr1 := os.Setenv(
+		"PATH",
+		guardDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	if inlineErr1 != nil {
+		return fmt.Errorf("set PATH for test go guard: %w", inlineErr1)
+	}
+
+	return nil
 }
 
 func TestConsumerRootHonorsExplicitEnvironment(t *testing.T) {
@@ -445,7 +462,10 @@ func TestCheckPlanCompletionErrors(t *testing.T) {
 	}
 
 	if len(findings) != 0 {
-		t.Fatalf("checkPlanCompletionErrors(in_progress) = %#v, want no findings", findings)
+		t.Fatalf(
+			"checkPlanCompletionErrors(in_progress) = %#v, want no findings",
+			findings,
+		)
 	}
 }
 
@@ -868,7 +888,8 @@ func TestHookPlanFormatsAllSupportedOutputs(t *testing.T) {
 
 	for _, format := range []string{hookOutputFormatHuman, hookOutputFormatJSON, hookOutputFormatTOON} {
 		output := formatHookPlan(plan, format)
-		if !strings.Contains(output, "format") && !strings.Contains(output, "HOOK PLAN") {
+		if !strings.Contains(output, "format") &&
+			!strings.Contains(output, "HOOK PLAN") {
 			t.Fatalf("formatHookPlan(%s) = %q", format, output)
 		}
 	}
@@ -908,7 +929,11 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	}
 
 	mustWriteExecutable(t, filepath.Join(fakeBin, "uv"), "#!/usr/bin/env sh\nexit 0\n")
-	mustWriteExecutable(t, filepath.Join(fakeBin, "gofmt"), "#!/usr/bin/env sh\nexit 0\n")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "gofmt"),
+		"#!/usr/bin/env sh\nexit 0\n",
+	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	bundleRoot := writeTestBundleRoot(t, tempDir)
@@ -975,12 +1000,16 @@ func TestRunHookGroupsInProcessReturnsFailure(t *testing.T) {
 
 	groups := []hookGroup{
 		{
-			Name:     "pass",
-			Commands: []hookCommand{{Name: "ok", Run: func(Config, []string) int { return 0 }}},
+			Name: "pass",
+			Commands: []hookCommand{
+				{Name: "ok", Run: func(Config, []string) int { return 0 }},
+			},
 		},
 		{
-			Name:     "fail",
-			Commands: []hookCommand{{Name: "bad", Run: func(Config, []string) int { return 1 }}},
+			Name: "fail",
+			Commands: []hookCommand{
+				{Name: "bad", Run: func(Config, []string) int { return 1 }},
+			},
 		},
 	}
 	if got := runHookGroupsInProcess(Config{}, groups, nil); got != 1 {
@@ -1008,7 +1037,12 @@ func TestFormatRootConfigValue(t *testing.T) {
 		}
 
 		if got != test.want {
-			t.Fatalf("formatRootConfigValue(%#v) = %q, want %q", test.value, got, test.want)
+			t.Fatalf(
+				"formatRootConfigValue(%#v) = %q, want %q",
+				test.value,
+				got,
+				test.want,
+			)
 		}
 	}
 }
@@ -1031,7 +1065,11 @@ func TestManifestValidationHelpers(t *testing.T) {
 		"version": "1",
 		"name":    "demo",
 		"repositories": []any{
-			map[string]any{"name": "repo", "url": "https://example.invalid", "branch": "main"},
+			map[string]any{
+				"name":   "repo",
+				"url":    "https://example.invalid",
+				"branch": "main",
+			},
 		},
 	}
 	if got := validateManifestData(valid, settings); len(got) != 0 {
@@ -1195,8 +1233,11 @@ exit 2
 func TestGeminiOutcomeSummaryAndPreparedCounts(t *testing.T) {
 	prepared := []geminiPreparedCheck{
 		{
-			Plan:    GeminiCheckPlan{IncludedFiles: []string{"a.py", "b.py"}},
-			Batches: []geminiPreparedBatch{{Files: []string{"a.py"}}, {Files: []string{"b.py"}}},
+			Plan: GeminiCheckPlan{IncludedFiles: []string{"a.py", "b.py"}},
+			Batches: []geminiPreparedBatch{
+				{Files: []string{"a.py"}},
+				{Files: []string{"b.py"}},
+			},
 		},
 		{
 			Plan:    GeminiCheckPlan{IncludedFiles: []string{"c.py"}},
@@ -1349,7 +1390,11 @@ func TestValidateManifestCommandPassesAndFails(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	bundleRoot := filepath.Join(root, "pre-commit")
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"), "")
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"),
+		"",
+	)
 	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "pyproject.toml"), "")
 
 	t.Setenv(precommitRootEnv, bundleRoot)
@@ -1540,7 +1585,9 @@ func TestCandidateFilesForGeminiFiltersByAllSelectedChecks(t *testing.T) {
 	}
 
 	files, scope, err := candidateFilesForGemini(
-		GeminiCLIOptions{Files: []string{"pkg/app.py", "scripts/tool", "vendor/skip.py"}},
+		GeminiCLIOptions{
+			Files: []string{"pkg/app.py", "scripts/tool", "vendor/skip.py"},
+		},
 		pack,
 	)
 	if err != nil {
@@ -1643,8 +1690,10 @@ func TestGeminiOutcomeCollectionFilteringAndReports(t *testing.T) {
 	}
 
 	errors := geminiReportBatchErrors([]geminiOutcomeReport{{
-		Name:        "code",
-		BatchErrors: []geminiBatchError{{Batch: 1, Files: []string{"app.py"}, Error: "boom"}},
+		Name: "code",
+		BatchErrors: []geminiBatchError{
+			{Batch: 1, Files: []string{"app.py"}, Error: "boom"},
+		},
 	}})
 	if len(errors) != 1 || errors[0].Check != "code" {
 		t.Fatalf("batch errors = %#v", errors)
@@ -1688,7 +1737,10 @@ func TestExecuteGeminiChecksUsesHTTPClientAndFiltersResults(t *testing.T) {
 		Timeout: time.Second,
 		Transport: fakeRoundTripper(func(request *http.Request) *http.Response {
 			if request.URL.Path != "/v1beta/models/gemini-test:generateContent" {
-				return testHTTPResponse(http.StatusNotFound, `{"error":{"message":"not found"}}`)
+				return testHTTPResponse(
+					http.StatusNotFound,
+					`{"error":{"message":"not found"}}`,
+				)
 			}
 
 			return testHTTPResponse(http.StatusOK, `{
@@ -1784,7 +1836,7 @@ gemini:
 			t.Fatalf("runGeminiCheck(dry-run) = %d, want 0", got)
 		}
 	})
-	if !strings.Contains(output, `"dryRun": true`) ||
+	if !strings.Contains(output, `"dry_run": true`) ||
 		!strings.Contains(output, `"pkg/app.py"`) ||
 		!strings.Contains(output, `"code_ethos"`) {
 		t.Fatalf("dry-run output = %s", output)
@@ -1961,11 +2013,17 @@ func TestCreateAndEnsureGeminiExplicitCacheUseAPIAndPersistResult(t *testing.T) 
 			requests++
 
 			if request.URL.Path != "/v1beta/cachedContents" {
-				return testHTTPResponse(http.StatusNotFound, `{"error":{"message":"not found"}}`)
+				return testHTTPResponse(
+					http.StatusNotFound,
+					`{"error":{"message":"not found"}}`,
+				)
 			}
 
 			if request.Header.Get("X-Goog-Api-Key") != "test-key" {
-				return testHTTPResponse(http.StatusForbidden, `{"error":{"message":"bad key"}}`)
+				return testHTTPResponse(
+					http.StatusForbidden,
+					`{"error":{"message":"bad key"}}`,
+				)
 			}
 
 			return testHTTPResponse(http.StatusOK, `{
@@ -2047,7 +2105,10 @@ func TestCreateGeminiExplicitCacheReportsAPIAndShapeErrors(t *testing.T) {
 
 	noNameClient := &http.Client{
 		Transport: fakeRoundTripper(func(_ *http.Request) *http.Response {
-			return testHTTPResponse(http.StatusOK, `{"expireTime":"2026-01-01T00:00:00Z"}`)
+			return testHTTPResponse(
+				http.StatusOK,
+				`{"expireTime":"2026-01-01T00:00:00Z"}`,
+			)
 		}),
 	}
 
@@ -2548,7 +2609,9 @@ func TestParseShfmtFindings(t *testing.T) {
 func TestParseShfmtFindingsHandlesSyntaxErrors(t *testing.T) {
 	t.Parallel()
 
-	findings := parseShfmtFindings("scripts/run.sh:7:3: reached EOF without closing quote")
+	findings := parseShfmtFindings(
+		"scripts/run.sh:7:3: reached EOF without closing quote",
+	)
 	if len(findings) != 1 {
 		t.Fatalf("parseShfmtFindings() = %#v, want one finding", findings)
 	}
@@ -2978,7 +3041,11 @@ func writeTestBundleRoot(t *testing.T, root string) string {
 }
 `,
 	)
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"), "")
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"),
+		"",
+	)
 	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "pyproject.toml"), "")
 
 	return bundleRoot

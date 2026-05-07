@@ -76,7 +76,11 @@ func runPythonComplexity(_ Config, paths []string) int {
 		Command: command,
 	})
 	if result.RunnerFailure != nil || result.ExitCode != 0 {
-		return reportExternalQualityFailure("complexity", result, parseComplexityFindings)
+		return reportExternalQualityFailure(
+			"complexity",
+			result,
+			parseComplexityFindings,
+		)
 	}
 
 	findings := parseRadonComplexityFindings(result.Combined, complexityThreshold)
@@ -133,7 +137,15 @@ func runPythonVulture(_ Config, paths []string) int {
 	}
 
 	command := append(
-		[]string{"uv", "run", "--quiet", "--project", hooksProjectPath(), "vulture", "."},
+		[]string{
+			"uv",
+			"run",
+			"--quiet",
+			"--project",
+			hooksProjectPath(),
+			"vulture",
+			".",
+		},
 		vultureWhitelistArgs()...,
 	)
 	command = append(
@@ -264,6 +276,7 @@ func runGoTests(_ Config, paths []string) int {
 		Command: []string{
 			"go",
 			"test",
+			"-json",
 			"-buildvcs=false",
 			"-timeout=30s",
 			"-short",
@@ -291,6 +304,7 @@ func hookTestToolEnv() []string {
 
 func pathWithoutHookGitShims(rawPath, realGit string) string {
 	kept := []string{}
+
 	realGitDir := strings.TrimSpace(filepath.Dir(realGit))
 	if realGitDir != "." && realGitDir != "" {
 		kept = append(kept, realGitDir)
@@ -318,7 +332,7 @@ func pathWithoutHookGitShims(rawPath, realGit string) string {
 }
 
 func directoryContainsCodingEthosGitShim(directory string) bool {
-	payload, err := os.ReadFile(filepath.Join(directory, "git"))
+	payload, err := readRootedFile(filepath.Join(directory, "git"))
 	if err != nil {
 		return false
 	}

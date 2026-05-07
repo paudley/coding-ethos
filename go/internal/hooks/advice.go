@@ -14,14 +14,25 @@ import (
 
 const (
 	blockedAdviceHumanLinesPerDecision = 2
-	severeViolationWarning             = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the normal approved git workflow, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+	severeViolationWarning             = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: " +
+		"You attempted to tamper with or bypass the protected hook/git analysis " +
+		"system. This is not a misconfiguration or tool defect. You have done " +
+		"something wrong. Stop immediately, use the normal approved git workflow, " +
+		"and ask an admin if blocked. Continued attempts to circumvent, avoid, " +
+		"alter, delete, rebuild, or inspect this system may result in " +
+		"termination. !!!"
 )
 
-var severeViolationPolicyIDs = map[string]bool{
-	"filesystem.protected_path": true,
-	"git.hook_bypass":           true,
-	"git.wrapper_required":      true,
-	"shell.forbidden_strings":   true,
+func severeViolationPolicy(policyID string) bool {
+	switch policyID {
+	case "filesystem.protected_path",
+		"git.hook_bypass",
+		"git.wrapper_required",
+		"shell.forbidden_strings":
+		return true
+	default:
+		return false
+	}
 }
 
 func BlockedAdvice(result Result) string {
@@ -215,7 +226,7 @@ func agentMCPTool(item agentmsg.Remediation) string {
 
 func hasSevereViolation(decisions []policy.Decision) bool {
 	for _, decision := range decisions {
-		if severeViolationPolicyIDs[decision.PolicyID] {
+		if severeViolationPolicy(decision.PolicyID) {
 			return true
 		}
 	}

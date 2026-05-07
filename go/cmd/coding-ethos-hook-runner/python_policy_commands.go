@@ -127,9 +127,10 @@ func reportConditionalImportViolations(violations []conditionalImportViolation) 
 	}
 
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "conditional_imports",
-		Title:    "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)",
-		Summary:  "Required imports must fail at import time instead of hiding missing dependencies.",
+		Tool:  "conditional_imports",
+		Title: "CONDITIONAL IMPORT CHECK FAILED (ETHOS §3)",
+		Summary: "Required imports must fail at import time instead of " +
+			"hiding missing dependencies.",
 		Findings: findings,
 		Guidance: []string{
 			"Remove the try/except and import directly.",
@@ -234,7 +235,8 @@ func reportCatchSilenceViolations(violations []catchSilenceViolation) {
 		Findings: findings,
 		Guidance: []string{
 			"Handle the exception, transform and re-raise, or log and re-raise.",
-			`Use logger.warning("operation_failed", error=str(exc)) with a raise where recovery is not complete.`,
+			`Use logger.warning("operation_failed", error=str(exc)) with ` +
+				`a raise where recovery is not complete.`,
 		},
 	}, selectedHookOutputFormat()))
 }
@@ -288,7 +290,8 @@ func checkOptionalReturnsCommand(_ Config, args []string) int {
 		Summary:  "All types must be non-optional. Use exceptions, not | None.",
 		Findings: findings,
 		Guidance: []string{
-			"Replace optional return or dependency types with explicit exceptions or required values.",
+			"Replace optional return or dependency types with explicit " +
+				"exceptions or required values.",
 		},
 	}, selectedHookOutputFormat()))
 
@@ -356,9 +359,10 @@ func reportSecurityPatternViolations(violations []securityViolation) {
 	}
 
 	fmt.Fprintln(os.Stderr, formatHookReport(hookReport{
-		Tool:     "security_patterns",
-		Title:    "SECURITY ANTI-PATTERNS DETECTED",
-		Summary:  "Security checks found unsafe defaults, SQL injection risks, or bootstrap bypasses.",
+		Tool:  "security_patterns",
+		Title: "SECURITY ANTI-PATTERNS DETECTED",
+		Summary: "Security checks found unsafe defaults, SQL injection " +
+			"risks, or bootstrap bypasses.",
 		Findings: findings,
 		Guidance: []string{
 			"Use parameterized queries instead of SQL f-strings.",

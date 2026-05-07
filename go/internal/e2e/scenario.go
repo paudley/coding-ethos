@@ -16,9 +16,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-const commandTimeout = 30 * time.Second
+const (
+	commandTimeout = 30 * time.Second
+	e2eDirMode     = 0o700
+	e2eFileMode    = 0o600
+)
 
 // Repo is an isolated checkout copied from a checked-in reference repository.
 type Repo struct {
@@ -42,8 +49,10 @@ func FromReference(t *testing.T, ethosRoot, reference string) Repo {
 	t.Helper()
 
 	source := filepath.Join(ethosRoot, "examples", "reference-repos", reference)
-	if info, err := os.Stat(source); err != nil || !info.IsDir() {
-		t.Fatalf("reference repo %q is unavailable: %v", reference, err)
+
+	info, inlineErrAutoA := os.Stat(source)
+	if inlineErrAutoA != nil || !info.IsDir() {
+		t.Fatalf("reference repo %q is unavailable: %v", reference, inlineErrAutoA)
 	}
 
 	root := filepath.Join(t.TempDir(), reference)
@@ -64,7 +73,7 @@ func FromReference(t *testing.T, ethosRoot, reference string) Repo {
 	return repo
 }
 
-// RequireEnabled skips e2e scenarios unless the caller opted into real
+// RequireRuntime skips e2e scenarios unless the caller opted into real
 // workflow execution. These tests run real managed tools and repository
 // commands, so broad unit-test sweeps should invoke them through make targets
 // that first prepare the runtime.
@@ -107,13 +116,22 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 
 	runtimeRoot := filepath.Join(t.TempDir(), "coding-ethos-runtime")
 
-	err := os.MkdirAll(filepath.Join(runtimeRoot, "bin"), 0o700)
+	err := os.MkdirAll(filepath.Join(runtimeRoot, "bin"), e2eDirMode)
 	if err != nil {
 		t.Fatalf("create instrumented runtime bin: %v", err)
 	}
 
-	for _, entry := range []string{"build", "pre-commit", "config.yaml", "coding_ethos.yml", "repo_ethos.yml"} {
-		err := os.Symlink(filepath.Join(ethosRoot, entry), filepath.Join(runtimeRoot, entry))
+	for _, entry := range []string{
+		"build",
+		"pre-commit",
+		"config.yaml",
+		"coding_ethos.yml",
+		"repo_ethos.yml",
+	} {
+		err := os.Symlink(
+			filepath.Join(ethosRoot, entry),
+			filepath.Join(runtimeRoot, entry),
+		)
 		if err != nil {
 			t.Fatalf("symlink %s into instrumented runtime: %v", entry, err)
 		}
@@ -167,7 +185,7 @@ func Run(t *testing.T, cwd string, args ...string) CommandResult {
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd := safeexec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = os.Environ()
 	configureCommandProcessGroup(cmd)
@@ -185,12 +203,13 @@ func Run(t *testing.T, cwd string, args ...string) CommandResult {
 
 	if err != nil {
 		var exitErr *exec.ExitError
-		if ctx.Err() != nil {
+		switch {
+		case ctx.Err() != nil:
 			terminateCommandProcessGroup(cmd)
 			t.Fatalf("command timed out: %s", strings.Join(args, " "))
-		} else if errors.As(err, &exitErr) {
+		case errors.As(err, &exitErr):
 			code = exitErr.ExitCode()
-		} else {
+		default:
 			t.Fatalf("run command %q: %v", strings.Join(args, " "), err)
 		}
 	}
@@ -283,53 +302,72 @@ func (repo Repo) Touch(t *testing.T, path, content string) {
 
 	fullPath := filepath.Join(repo.Root, filepath.FromSlash(path))
 
-	err := os.MkdirAll(filepath.Dir(fullPath), 0o700)
+	err := os.MkdirAll(filepath.Dir(fullPath), e2eDirMode)
 	if err != nil {
 		t.Fatalf("create parent directory: %v", err)
 	}
 
-	err = os.WriteFile(fullPath, []byte(content), 0o600)
+	err = os.WriteFile(fullPath, []byte(content), e2eFileMode)
 	if err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
 
 func copyTree(destination, source string) error {
-	return filepath.WalkDir(
+	sourceRoot, err := os.OpenRoot(source)
+	if err != nil {
+		return fmt.Errorf("open reference fixture source %s: %w", source, err)
+	}
+	defer sourceRoot.Close()
+
+	destinationRoot, err := os.OpenRoot(destination)
+	if err != nil {
+		return fmt.Errorf("open reference fixture destination %s: %w", destination, err)
+	}
+	defer destinationRoot.Close()
+
+	err = filepath.WalkDir(
 		source,
 		func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				return walkErr
+				return fmt.Errorf("walk reference fixture path %s: %w", path, walkErr)
 			}
 
-			rel, err := filepath.Rel(source, path)
-			if err != nil {
-				return err
+			rel, relErr := filepath.Rel(source, path)
+			if relErr != nil {
+				return fmt.Errorf("relativize reference fixture path %s: %w", path, relErr)
 			}
 
-			target := filepath.Join(destination, rel)
-
-			info, err := entry.Info()
-			if err != nil {
-				return err
+			info, infoErr := entry.Info()
+			if infoErr != nil {
+				return fmt.Errorf("inspect reference fixture path %s: %w", path, infoErr)
 			}
 
 			if entry.IsDir() {
-				return os.MkdirAll(target, info.Mode().Perm())
+				return destinationRoot.MkdirAll(rel, info.Mode().Perm())
 			}
 
 			if !info.Mode().IsRegular() {
-				return fmt.Errorf("unsupported reference entry %s", path)
+				return apperror.Wrapf(
+					apperror.StaticError("unsupported reference entry %s"),
+					"unsupported reference entry %s",
+					path,
+				)
 			}
 
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return err
+			content, readErr := sourceRoot.ReadFile(rel)
+			if readErr != nil {
+				return fmt.Errorf("read reference fixture path %s: %w", path, readErr)
 			}
 
-			return os.WriteFile(target, content, info.Mode().Perm())
+			return destinationRoot.WriteFile(rel, content, info.Mode().Perm())
 		},
 	)
+	if err != nil {
+		return fmt.Errorf("copy reference fixture tree from %s: %w", source, err)
+	}
+
+	return nil
 }
 
 func buildInstrumentedCommand(t *testing.T, ethosRoot, runtimeRoot, command string) {

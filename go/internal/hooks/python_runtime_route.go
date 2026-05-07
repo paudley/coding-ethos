@@ -9,8 +9,10 @@ import (
 	"strings"
 )
 
+const uvPythonStaticArgCount = 5
+
 func pythonRuntimeRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
 		return InspectionRoute{}
 	}
 
@@ -102,7 +104,9 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 
 func pythonRuntimeCommand(root string, args []string) []string {
 	if pythonRepoUsesUV(root) {
-		parts := []string{"uv", "run", "--project", shellQuote(root), "python"}
+		parts := make([]string, 0, uvPythonStaticArgCount+len(args))
+
+		parts = append(parts, "uv", "run", "--project", shellQuote(root), "python")
 		for _, arg := range args {
 			parts = append(parts, shellQuote(arg))
 		}
@@ -124,36 +128,15 @@ func pythonRuntimeCommand(root string, args []string) []string {
 }
 
 func pythonRuntimeRoot(cwd string) string {
-	if cwd == "" {
-		if root := strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT")); root != "" {
-			cwd = root
-		}
-	}
-
-	if cwd == "" {
-		var err error
-
-		cwd, err = os.Getwd()
-		if err != nil {
-			return ""
-		}
-	}
-
-	if !filepath.IsAbs(cwd) {
-		abs, err := filepath.Abs(cwd)
-		if err == nil {
-			cwd = abs
-		}
-	}
+	cwd = normalizedPythonRuntimeCwd(cwd)
 
 	if root := gitRootFromPath(cwd); root != "" &&
-		(pythonRepoUsesUV(root) || fileExecutable(filepath.Join(root, ".venv", "bin", "python"))) {
+		pythonRuntimeAvailable(root) {
 		return root
 	}
 
 	for current := filepath.Clean(cwd); ; current = filepath.Dir(current) {
-		if pythonRepoUsesUV(current) ||
-			fileExecutable(filepath.Join(current, ".venv", "bin", "python")) {
+		if pythonRuntimeAvailable(current) {
 			return current
 		}
 
@@ -162,6 +145,37 @@ func pythonRuntimeRoot(cwd string) string {
 			return ""
 		}
 	}
+}
+
+func normalizedPythonRuntimeCwd(cwd string) string {
+	if cwd == "" {
+		cwd = strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT"))
+	}
+
+	if cwd == "" {
+		current, err := os.Getwd()
+		if err != nil {
+			return ""
+		}
+
+		cwd = current
+	}
+
+	if filepath.IsAbs(cwd) {
+		return cwd
+	}
+
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return cwd
+	}
+
+	return abs
+}
+
+func pythonRuntimeAvailable(root string) bool {
+	return pythonRepoUsesUV(root) ||
+		fileExecutable(filepath.Join(root, ".venv", "bin", "python"))
 }
 
 func gitRootFromPath(path string) string {

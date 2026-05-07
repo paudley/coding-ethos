@@ -278,7 +278,10 @@ func skillMatchesSignals(skill policy.Skill, signals []string) bool {
 		}
 
 		for _, signal := range signals {
-			if strings.Contains(strings.ToLower(strings.TrimSpace(signal)), normalizedTrigger) {
+			if strings.Contains(
+				strings.ToLower(strings.TrimSpace(signal)),
+				normalizedTrigger,
+			) {
 				return true
 			}
 		}

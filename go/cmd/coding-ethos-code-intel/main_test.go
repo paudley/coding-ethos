@@ -187,12 +187,18 @@ func recordCommandArgs(root string, baseArgs []string) [][]string {
 
 func queryCommandArgs(root string, baseArgs []string) [][]string {
 	return [][]string{
-		append([]string{"remediation-outcomes", "--policy-id", "policy.one"}, baseArgs...),
+		append(
+			[]string{"remediation-outcomes", "--policy-id", "policy.one"},
+			baseArgs...),
 		append(
 			[]string{"remediation-effectiveness", "--policy-id", "policy.one"},
 			baseArgs...),
-		append([]string{"embedding-records", "--record-kind", "remediation"}, baseArgs...),
-		append([]string{"embedding-candidates", "--record-kind", "remediation"}, baseArgs...),
+		append(
+			[]string{"embedding-records", "--record-kind", "remediation"},
+			baseArgs...),
+		append(
+			[]string{"embedding-candidates", "--record-kind", "remediation"},
+			baseArgs...),
 		append([]string{"hook-reviews", "--trace-id", "trace-1"}, baseArgs...),
 		append(
 			[]string{

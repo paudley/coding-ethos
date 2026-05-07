@@ -14,9 +14,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-var errDocstringCoverageCommandEmpty = errors.New(
+var errDocstringCoverageCommandEmpty = apperror.StaticError(
 	"docstring coverage command is empty",
 )
 
@@ -257,7 +260,7 @@ func runDocstringCoverage(
 		return 1, "", "", errDocstringCoverageCommandEmpty
 	}
 
-	cmd := exec.CommandContext(context.Background(), command[0], command[1:]...)
+	cmd := safeexec.CommandContext(context.Background(), command[0], command[1:]...)
 	cmd.Dir = settings.ConsumerRoot
 
 	var (

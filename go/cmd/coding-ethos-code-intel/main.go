@@ -6,13 +6,13 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 )
 
@@ -22,13 +22,17 @@ const (
 )
 
 var (
-	errCommandRequired         = errors.New("code intelligence command is required")
-	errCodeContextTarget       = errors.New("code context target is required")
-	errSARIFFileRequired       = errors.New("SARIF file is required")
-	errSearchTargetRequired    = errors.New("search text or vector is required")
-	errSearchTextRequired      = errors.New("search text is required")
-	errVectorValuesRequired    = errors.New("vector must include at least one value")
-	errUnknownCodeIntelCommand = errors.New(
+	errCommandRequired = apperror.StaticError(
+		"code intelligence command is required",
+	)
+	errCodeContextTarget    = apperror.StaticError("code context target is required")
+	errSARIFFileRequired    = apperror.StaticError("SARIF file is required")
+	errSearchTargetRequired = apperror.StaticError("search text or vector is required")
+	errSearchTextRequired   = apperror.StaticError("search text is required")
+	errVectorValuesRequired = apperror.StaticError(
+		"vector must include at least one value",
+	)
+	errUnknownCodeIntelCommand = apperror.StaticError(
 		"unknown code intelligence command",
 	)
 )
@@ -453,11 +457,14 @@ func printRemediationEffectiveness(ctx context.Context, args []string) error {
 		flags,
 		storeFlags,
 		func(store *codeintel.Store) (any, error) {
-			return store.RemediationEffectiveness(ctx, codeintel.RemediationOutcomeQuery{
-				PolicyID: *filters.policyID,
-				SkillID:  *filters.skillID,
-				Path:     *filters.path,
-			})
+			return store.RemediationEffectiveness(
+				ctx,
+				codeintel.RemediationOutcomeQuery{
+					PolicyID: *filters.policyID,
+					SkillID:  *filters.skillID,
+					Path:     *filters.path,
+				},
+			)
 		},
 	)
 }

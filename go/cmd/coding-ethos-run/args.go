@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const codeIntelInjectedRootArgCount = 2
+
 func runnerArgs(argv []string) []string {
 	if len(argv) != 1 {
 		return argv[1:]
@@ -30,7 +32,8 @@ func codeIntelArgs(root string, args []string) []string {
 		return args
 	}
 
-	next := []string{args[0], "--root", root}
+	next := make([]string, 0, codeIntelInjectedRootArgCount+len(args))
+	next = append(next, args[0], "--root", root)
 	next = append(next, args[1:]...)
 
 	return next

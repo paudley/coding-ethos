@@ -8,10 +8,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
@@ -83,39 +85,98 @@ func (ingester TraceIngester) ingestTraceDir(
 	kind string,
 	summary *IngestSummary,
 ) error {
-	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) {
-				return filepath.SkipDir
-			}
-
-			return fmt.Errorf("walk trace dir %q: %w", dir, err)
-		}
-
-		if entry.IsDir() || filepath.Ext(path) != ".json" {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
 			return nil
 		}
 
-		if kind == "hook" && filepath.Base(path) != "event.json" {
-			return nil
+		return fmt.Errorf("open trace dir %q: %w", dir, err)
+	}
+	defer root.Close()
+
+	err = filepath.WalkDir(dir, ingester.traceWalkFunc(ctx, dir, kind, root, summary))
+	if err != nil {
+		return fmt.Errorf("walk trace directory %s: %w", dir, err)
+	}
+
+	return nil
+}
+
+func (ingester TraceIngester) traceWalkFunc(
+	ctx context.Context,
+	dir string,
+	kind string,
+	root *os.Root,
+	summary *IngestSummary,
+) fs.WalkDirFunc {
+	return func(path string, entry os.DirEntry, err error) error {
+		return ingester.ingestTraceEntry(ctx, traceEntryInput{
+			dir:     dir,
+			kind:    kind,
+			root:    root,
+			summary: summary,
+			path:    path,
+			entry:   entry,
+			err:     err,
+		})
+	}
+}
+
+type traceEntryInput struct {
+	root    *os.Root
+	summary *IngestSummary
+	entry   os.DirEntry
+	err     error
+	dir     string
+	kind    string
+	path    string
+}
+
+func (ingester TraceIngester) ingestTraceEntry(
+	ctx context.Context,
+	input traceEntryInput,
+) error {
+	if input.err != nil {
+		if os.IsNotExist(input.err) {
+			return filepath.SkipDir
 		}
 
-		summary.FilesScanned++
+		return fmt.Errorf("walk trace dir %q: %w", input.dir, input.err)
+	}
 
-		payload, readErr := os.ReadFile(filepath.Clean(path))
-		if readErr != nil {
-			return fmt.Errorf("read trace %q: %w", path, readErr)
-		}
-
-		ingestErr := ingester.ingestTracePayload(ctx, kind, path, payload)
-		if ingestErr != nil {
-			return ingestErr
-		}
-
-		summary.FilesIngested++
-
+	if skipTraceEntry(input.kind, input.path, input.entry) {
 		return nil
-	})
+	}
+
+	input.summary.FilesScanned++
+
+	rel, relErr := filepath.Rel(input.dir, input.path)
+	if relErr != nil {
+		return fmt.Errorf("relativize trace %q: %w", input.path, relErr)
+	}
+
+	payload, readErr := input.root.ReadFile(rel)
+	if readErr != nil {
+		return fmt.Errorf("read trace %q: %w", input.path, readErr)
+	}
+
+	ingestErr := ingester.ingestTracePayload(ctx, input.kind, input.path, payload)
+	if ingestErr != nil {
+		return fmt.Errorf("ingest trace %q: %w", input.path, ingestErr)
+	}
+
+	input.summary.FilesIngested++
+
+	return nil
+}
+
+func skipTraceEntry(kind, path string, entry os.DirEntry) bool {
+	if entry.IsDir() || filepath.Ext(path) != ".json" {
+		return true
+	}
+
+	return kind == "hook" && filepath.Base(path) != "event.json"
 }
 
 func (ingester TraceIngester) ingestTracePayload(
@@ -135,7 +196,11 @@ func (ingester TraceIngester) ingestTracePayload(
 	case "hook":
 		trace, err = DecodeHookTrace(path, payload)
 	default:
-		return fmt.Errorf("unsupported trace kind %q", kind)
+		return apperror.Wrapf(
+			apperror.StaticError("unsupported trace kind %q"),
+			"unsupported trace kind %q",
+			kind,
+		)
 	}
 
 	if err != nil {

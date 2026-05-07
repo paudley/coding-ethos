@@ -4,11 +4,11 @@
 package toolconfigs
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 )
 
@@ -16,7 +16,7 @@ type configMap = configdata.Map
 
 const trueString = "true"
 
-var errInvalidConfigChoice = errors.New("invalid configured choice")
+var errInvalidConfigChoice = apperror.StaticError("invalid configured choice")
 
 func getPath(config configMap, path string, fallback any) any {
 	return configdata.GetPath(config, path, fallback)

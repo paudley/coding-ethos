@@ -11,27 +11,23 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
-const shellForbiddenStringsPolicyID = "shell.forbidden_strings"
-
-var adminApprovedForCWD = func(cwd string) bool {
+func defaultAdminApprovedForCWD(cwd string) bool {
 	return gitwrap.VerifyAdminApproved(cwd) == nil
 }
 
-func adminApprovedForEvent(event Event) bool {
-	return adminApprovedForCWD(event.Cwd)
-}
-
 func readOnlyInspectionEvent(event Event, adminApproved bool) bool {
-	if event.HookEventName != "PreToolUse" ||
-		event.ToolName != "Bash" ||
+	if event.HookEventName != eventPreToolUse ||
+		event.ToolName != toolBash ||
 		!adminApproved {
 		return false
 	}
 
-	return isReadOnlyInspectionCommand(event.Command())
+	return ReadOnlyInspectionCommand(event.Command())
 }
 
-func isReadOnlyInspectionCommand(commandText string) bool {
+// ReadOnlyInspectionCommand reports whether commandText contains only read-only
+// inspection steps allowed for admin-approved hook introspection.
+func ReadOnlyInspectionCommand(commandText string) bool {
 	commands, err := shellparse.Commands(commandText)
 	if err != nil || len(commands) == 0 {
 		return false

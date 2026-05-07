@@ -321,7 +321,12 @@ func managedToolArgumentCases(root, venvPython string) []managedToolArgumentCase
 			name: "sqlfluff",
 			tool: "sqlfluff",
 			args: []string{"lint", "queries"},
-			want: []string{"lint", "--config", filepath.Join(root, ".sqlfluff"), "queries"},
+			want: []string{
+				"lint",
+				"--config",
+				filepath.Join(root, ".sqlfluff"),
+				"queries",
+			},
 		},
 		{
 			name: "tombi",

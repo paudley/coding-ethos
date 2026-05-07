@@ -1,19 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hooks
+package hooks_test
 
 import (
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const (
+	hookStatusAllowed = "allowed"
+	hookStatusBlocked = "blocked"
+)
+
 func TestRunAllowsAdminReadOnlyHookImplementationInspection(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
 		Event: Event{
 			Cwd:           "/workspace/coding-ethos",
 			HookEventName: "PreToolUse",
@@ -27,7 +33,7 @@ func TestRunAllowsAdminReadOnlyHookImplementationInspection(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != hookStatusAllowed {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
@@ -37,10 +43,10 @@ func TestRunAllowsAdminReadOnlyHookImplementationInspection(t *testing.T) {
 }
 
 func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
 		Event: Event{
 			Cwd:           "/workspace/coding-ethos",
 			HookEventName: "PreToolUse",
@@ -55,8 +61,12 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
-		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	if result.Status != hookStatusAllowed {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
 	}
 
 	if result.HookSpecificOutput != nil &&
@@ -69,10 +79,10 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 }
 
 func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
 		Event: Event{
 			Cwd:           "/workspace/coding-ethos",
 			HookEventName: "PreToolUse",
@@ -87,8 +97,12 @@ func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
-		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	if result.Status != hookStatusAllowed {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
 	}
 }
 
@@ -102,7 +116,7 @@ func TestRunBlocksMultiActionParallelBatch(t *testing.T) {
 			ProviderHint:  "codex",
 			ToolName:      "multi_tool_use.parallel",
 			ToolInput: map[string]any{
-				parallelToolBatchMarker: true,
+				"__coding_ethos_parallel_batch": true,
 				"tool_uses": []any{
 					map[string]any{"recipient_name": "functions.exec_command"},
 					map[string]any{"recipient_name": "functions.exec_command"},
@@ -114,23 +128,24 @@ func TestRunBlocksMultiActionParallelBatch(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusBlocked ||
-		!hasDecision(result.Decisions, parallelToolBatchPolicyID) {
+	if result.Status != hookStatusBlocked ||
+		!hasAdminDecision(result.Decisions, "hook.parallel_tool_batch_unsupported") {
 		t.Fatalf("expected parallel batch decision, got %#v", result)
 	}
 }
 
 func TestRunBlocksAdminMutatingHookImplementationInspection(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
 		Event: Event{
 			Cwd:           "/workspace/coding-ethos",
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": `sed -i 's/header/footer/' /workspace/coding-ethos/.claude/settings.json`,
+				"command": `sed -i 's/header/footer/' ` +
+					`/workspace/coding-ethos/.claude/settings.json`,
 			},
 		},
 	})
@@ -138,23 +153,24 @@ func TestRunBlocksAdminMutatingHookImplementationInspection(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusBlocked ||
-		!hasDecision(result.Decisions, shellForbiddenStringsPolicyID) {
+	if result.Status != hookStatusBlocked ||
+		!hasAdminDecision(result.Decisions, "shell.forbidden_strings") {
 		t.Fatalf("expected forbidden string decision, got %#v", result)
 	}
 }
 
 func TestRunBlocksAdminSedLongFormInPlaceMutation(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
 		Event: Event{
 			Cwd:           "/workspace/coding-ethos",
 			HookEventName: "PreToolUse",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": `sed --in-place 's/header/footer/' /workspace/coding-ethos/.claude/settings.json`,
+				"command": `sed --in-place 's/header/footer/' ` +
+					`/workspace/coding-ethos/.claude/settings.json`,
 			},
 		},
 	})
@@ -162,8 +178,8 @@ func TestRunBlocksAdminSedLongFormInPlaceMutation(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusBlocked ||
-		!hasDecision(result.Decisions, shellForbiddenStringsPolicyID) {
+	if result.Status != hookStatusBlocked ||
+		!hasAdminDecision(result.Decisions, "shell.forbidden_strings") {
 		t.Fatalf("expected forbidden string decision, got %#v", result)
 	}
 }
@@ -171,23 +187,18 @@ func TestRunBlocksAdminSedLongFormInPlaceMutation(t *testing.T) {
 func TestReadOnlyInspectionRejectsDynamicShell(t *testing.T) {
 	t.Parallel()
 
-	if isReadOnlyInspectionCommand(`rg "$(cat needle)" /workspace/coding-ethos`) {
+	if ReadOnlyInspectionCommand(`rg "$(cat needle)" /workspace/coding-ethos`) {
 		t.Fatal("dynamic inspection command was allowed")
 	}
 }
 
-func stubAdminApprovedForCWD(approved bool) func() {
-	previous := adminApprovedForCWD
-	adminApprovedForCWD = func(string) bool {
+func stubAdminApprovedForCWD(approved bool) func(string) bool {
+	return func(string) bool {
 		return approved
-	}
-
-	return func() {
-		adminApprovedForCWD = previous
 	}
 }
 
-func hasDecision(decisions []policy.Decision, policyID string) bool {
+func hasAdminDecision(decisions []policy.Decision, policyID string) bool {
 	for _, decision := range decisions {
 		if decision.PolicyID == policyID {
 			return true

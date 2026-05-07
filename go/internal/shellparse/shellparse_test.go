@@ -100,7 +100,10 @@ func TestCommandsExposeStructuredFacts(t *testing.T) {
 		t.Fatalf("assignments mismatch: %#v", command.Assignments)
 	}
 
-	if !reflect.DeepEqual(command.Argv, []string{"python", "-m", "ruff", "check", "."}) {
+	if !reflect.DeepEqual(
+		command.Argv,
+		[]string{"python", "-m", "ruff", "check", "."},
+	) {
 		t.Fatalf("argv mismatch: %#v", command.Argv)
 	}
 
@@ -164,7 +167,10 @@ func TestCommandsExposeFunctionsAndNestedStatements(t *testing.T) {
 		t.Fatalf("parse shell subshell block: %v", err)
 	}
 
-	if !reflect.DeepEqual(fields, []string{"git", "status", ";", "ruff", "check", "."}) {
+	if !reflect.DeepEqual(
+		fields,
+		[]string{"git", "status", ";", "ruff", "check", "."},
+	) {
 		t.Fatalf("subshell fields mismatch: %#v", fields)
 	}
 }

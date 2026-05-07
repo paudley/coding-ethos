@@ -1,20 +1,27 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hooks
+package hooks_test
 
 import (
 	"strings"
 	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/hooks"
 )
 
 func FuzzDecodeEvent(f *testing.F) {
 	for _, seed := range []string{
-		`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"/repo","provider":"codex"}`,
-		`{"event":"BeforeTool","tool":{"name":"bash","input":{"command":"FILE=.claude/settings.json cat > ${FILE}"}}}`,
-		`{"hookEventName":"PostToolUse","toolName":"Bash","toolResponse":{"stdout":"ok","exitCode":0}}`,
-		`{"source":"claude","tool_name":"write_file","arguments":{"path":".claude/MEMORY.md","content":"note"}}`,
-		`{"runtime":"gemini","tool_call":{"tool":"run_shell","args":{"command":"ruff check ."}}}`,
+		`{"hook_event_name":"PreToolUse","tool_name":"Bash",` +
+			`"tool_input":{"command":"git status"},"cwd":"/repo","provider":"codex"}`,
+		`{"event":"BeforeTool","tool":{"name":"bash","input":` +
+			`{"command":"FILE=.claude/settings.json cat > ${FILE}"}}}`,
+		`{"hookEventName":"PostToolUse","toolName":"Bash",` +
+			`"toolResponse":{"stdout":"ok","exitCode":0}}`,
+		`{"source":"claude","tool_name":"write_file","arguments":` +
+			`{"path":".claude/MEMORY.md","content":"note"}}`,
+		`{"runtime":"gemini","tool_call":{"tool":"run_shell",` +
+			`"args":{"command":"ruff check ."}}}`,
 		`{`,
 	} {
 		f.Add(seed)
@@ -28,7 +35,7 @@ func FuzzDecodeEvent(f *testing.F) {
 
 		provider := event.Provider()
 		switch provider {
-		case "", providerClaude, providerCodex, providerGemini:
+		case "", "claude", "codex", "gemini":
 		default:
 			t.Fatalf("unexpected provider %q from %#v", provider, event)
 		}

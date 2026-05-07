@@ -12,9 +12,12 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestRunWithIORequiresBundle(t *testing.T) {
+	t.Parallel()
+
 	var stdout bytes.Buffer
 
 	err := runWithIO(nil, strings.NewReader(""), &stdout)
@@ -24,9 +27,14 @@ func TestRunWithIORequiresBundle(t *testing.T) {
 }
 
 func TestRunUsesProcessArgs(t *testing.T) {
+	t.Parallel()
+	testlock.ProcessState(t, "coding-ethos-mcp")
+
 	originalArgs := os.Args
 
-	t.Cleanup(func() { os.Args = originalArgs })
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
 
 	os.Args = []string{"coding-ethos-mcp"}
 
@@ -37,6 +45,8 @@ func TestRunUsesProcessArgs(t *testing.T) {
 }
 
 func TestRunWithIOHandlesInitializeRequest(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeMCPTestBundle(t)
 
 	var stdout bytes.Buffer
@@ -50,7 +60,8 @@ func TestRunWithIOHandlesInitializeRequest(t *testing.T) {
 			"--lint-binary", "/bin/coding-ethos-lint",
 		},
 		strings.NewReader(
-			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`+"\n",
+			`{"jsonrpc":"2.0","id":1,"method":"initialize",`+
+				`"params":{"protocolVersion":"2024-11-05"}}`+"\n",
 		),
 		&stdout,
 	)
@@ -70,6 +81,8 @@ func TestRunWithIOHandlesInitializeRequest(t *testing.T) {
 }
 
 func TestReadBundleRejectsMissingFile(t *testing.T) {
+	t.Parallel()
+
 	_, err := readBundle(filepath.Join(t.TempDir(), "missing.json"))
 	if err == nil || !strings.Contains(err.Error(), "open bundle") {
 		t.Fatalf("readBundle(missing) error = %v", err)
@@ -86,12 +99,14 @@ func writeMCPTestBundle(t *testing.T) string {
 		t.Fatalf("create bundle: %v", err)
 	}
 
-	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
-		t.Fatalf("encode bundle: %v", err)
+	inlineErr0 := policy.EncodeBundle(file, policy.ExampleBundle())
+	if inlineErr0 != nil {
+		t.Fatalf("encode bundle: %v", inlineErr0)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close bundle: %v", err)
+	inlineErr1 := file.Close()
+	if inlineErr1 != nil {
+		t.Fatalf("close bundle: %v", inlineErr1)
 	}
 
 	return path

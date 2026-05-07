@@ -6,10 +6,11 @@ package codeintel
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type SARIFRun struct {
@@ -230,6 +231,14 @@ type CodeEdge struct {
 	RawText          string `json:"raw_text,omitempty"`
 }
 
+// CodeEdgeQuery filters indexed AST/code relationship edges.
+type CodeEdgeQuery struct {
+	Path       string
+	Kind       string
+	TargetName string
+	Limit      int
+}
+
 type ASTFindingLink struct {
 	ID          string `json:"id"`
 	FindingKind string `json:"finding_kind"`
@@ -269,21 +278,23 @@ type CodeIndexSummary struct {
 func (store *Store) IngestSARIFRun(ctx context.Context, run SARIFRun) error {
 	run.ID = strings.TrimSpace(run.ID)
 	if run.ID == "" {
-		return errors.New("SARIF run id is required")
+		return apperror.StaticError("SARIF run id is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin SARIF ingest: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertSARIFRun(ctx, tx, run); err != nil {
-		return err
+	inlineErr0 := insertSARIFRun(ctx, transaction, run)
+	if inlineErr0 != nil {
+		return inlineErr0
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit SARIF ingest: %w", err)
+	inlineErr1 := transaction.Commit()
+	if inlineErr1 != nil {
+		return fmt.Errorf("commit SARIF ingest: %w", inlineErr1)
 	}
 
 	return nil
@@ -295,25 +306,27 @@ func (store *Store) RecordRemediationOutcome(
 ) error {
 	outcome = normalizeRemediationOutcome(outcome)
 	if outcome.ID == "" {
-		return errors.New("remediation outcome id is required")
+		return apperror.StaticError("remediation outcome id is required")
 	}
 
 	if outcome.Outcome == "" {
-		return errors.New("remediation outcome is required")
+		return apperror.StaticError("remediation outcome is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin remediation outcome write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertRemediationOutcome(ctx, tx, outcome); err != nil {
-		return err
+	inlineErr2 := insertRemediationOutcome(ctx, transaction, outcome)
+	if inlineErr2 != nil {
+		return inlineErr2
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit remediation outcome write: %w", err)
+	inlineErr3 := transaction.Commit()
+	if inlineErr3 != nil {
+		return fmt.Errorf("commit remediation outcome write: %w", inlineErr3)
 	}
 
 	return nil
@@ -322,25 +335,27 @@ func (store *Store) RecordRemediationOutcome(
 func (store *Store) RecordHookReview(ctx context.Context, review HookReview) error {
 	review = normalizeHookReview(review)
 	if review.TraceID == "" {
-		return errors.New("hook review trace id is required")
+		return apperror.StaticError("hook review trace id is required")
 	}
 
 	if review.Disposition == "" {
-		return errors.New("hook review disposition is required")
+		return apperror.StaticError("hook review disposition is required")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin hook review write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertHookReview(ctx, tx, review); err != nil {
-		return err
+	inlineErr4 := insertHookReview(ctx, transaction, review)
+	if inlineErr4 != nil {
+		return inlineErr4
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit hook review write: %w", err)
+	inlineErr5 := transaction.Commit()
+	if inlineErr5 != nil {
+		return fmt.Errorf("commit hook review write: %w", inlineErr5)
 	}
 
 	return nil
@@ -352,33 +367,37 @@ func (store *Store) UpsertEmbeddingRecord(
 ) error {
 	record = normalizeEmbeddingRecord(record)
 	if record.ID == "" {
-		return errors.New("embedding id is required")
+		return apperror.StaticError("embedding id is required")
 	}
 
 	if record.Backend == "" || record.Collection == "" || record.ModelID == "" {
-		return errors.New("embedding backend, collection, and model id are required")
+		return apperror.StaticError(
+			"embedding backend, collection, and model id are required",
+		)
 	}
 
 	if record.RecordKind == "" || record.RecordID == "" {
-		return errors.New("embedding record kind and record id are required")
+		return apperror.StaticError("embedding record kind and record id are required")
 	}
 
 	if record.Dimension <= 0 {
-		return errors.New("embedding dimension must be positive")
+		return apperror.StaticError("embedding dimension must be positive")
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin embedding metadata write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := insertEmbeddingRecord(ctx, tx, record); err != nil {
-		return err
+	inlineErr6 := insertEmbeddingRecord(ctx, transaction, record)
+	if inlineErr6 != nil {
+		return inlineErr6
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit embedding metadata write: %w", err)
+	inlineErr7 := transaction.Commit()
+	if inlineErr7 != nil {
+		return fmt.Errorf("commit embedding metadata write: %w", inlineErr7)
 	}
 
 	return nil
@@ -403,21 +422,25 @@ func (store *Store) ReplaceCodeFileIndex(
 
 	file.ContentHash = strings.TrimSpace(file.ContentHash)
 	if file.Path == "" || file.Language == "" || file.ContentHash == "" {
-		return errors.New("code file path, language, and content hash are required")
+		return apperror.StaticError(
+			"code file path, language, and content hash are required",
+		)
 	}
 
-	tx, err := store.db.BeginTx(ctx, nil)
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin code chunk write: %w", err)
 	}
-	defer rollbackUnlessCommitted(tx)
+	defer rollbackUnlessCommitted(transaction)
 
-	if err := replaceCodeFileChunks(ctx, tx, file, chunks, edges); err != nil {
-		return err
+	inlineErr8 := replaceCodeFileChunks(ctx, transaction, file, chunks, edges)
+	if inlineErr8 != nil {
+		return inlineErr8
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit code chunk write: %w", err)
+	inlineErr9 := transaction.Commit()
+	if inlineErr9 != nil {
+		return fmt.Errorf("commit code chunk write: %w", inlineErr9)
 	}
 
 	return nil

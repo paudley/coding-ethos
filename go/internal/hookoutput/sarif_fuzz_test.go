@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hookoutput
+package hookoutput_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	. "blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
@@ -40,7 +41,9 @@ func FuzzFormatLintResultSARIF(f *testing.F) {
 		}
 
 		var payload map[string]any
-		if err := json.Unmarshal([]byte(output), &payload); err != nil {
+
+		err = json.Unmarshal([]byte(output), &payload)
+		if err != nil {
 			t.Fatalf("decode SARIF: %v", err)
 		}
 

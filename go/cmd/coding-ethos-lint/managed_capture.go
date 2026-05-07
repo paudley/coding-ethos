@@ -4,7 +4,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -30,11 +30,11 @@ const (
 )
 
 var (
-	errUnknownCapturedTool        = errors.New("unknown captured lint tool")
-	errManagedCaptureRootRequired = errors.New(
+	errUnknownCapturedTool        = apperror.StaticError("unknown captured lint tool")
+	errManagedCaptureRootRequired = apperror.StaticError(
 		"managed capture requires --ethos-root and --consumer-root",
 	)
-	errManagedRunnerUnconfigured = errors.New(
+	errManagedRunnerUnconfigured = apperror.StaticError(
 		"managed runner is not configured for lint capture",
 	)
 )
@@ -65,7 +65,10 @@ func runManagedCapture(options managedCaptureOptions) int {
 		exitErr(fmt.Errorf("%w: %s", errUnknownCapturedTool, options.Tool))
 	}
 
-	config, err := lintcapture.LoadRuntimeConfig(options.EthosRoot, options.ConsumerRoot)
+	config, err := lintcapture.LoadRuntimeConfig(
+		options.EthosRoot,
+		options.ConsumerRoot,
+	)
 	if err != nil {
 		exitErr(err)
 	}
@@ -423,7 +426,11 @@ func captureArgsInformational(args []string) bool {
 func enforceRuffArgs(args []string, consumerRoot string) []string {
 	configArgs := make([]string, 0, configArgCapacity+len(args))
 
-	configArgs = append(configArgs, "--config", filepath.Join(consumerRoot, "ruff.toml"))
+	configArgs = append(
+		configArgs,
+		"--config",
+		filepath.Join(consumerRoot, "ruff.toml"),
+	)
 	if len(args) > 0 && args[0] == ruffCheckCommand {
 		return append(append([]string{ruffCheckCommand}, configArgs...), args[1:]...)
 	}

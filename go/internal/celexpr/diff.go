@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const hunkHeaderMinimumFields = 3
+
 func diffHunkInputs(cwd string, files []string) []DiffHunkInput {
 	if cwd == "" {
 		return []DiffHunkInput{}
@@ -22,79 +24,110 @@ func diffHunkInputs(cwd string, files []string) []DiffHunkInput {
 }
 
 func parseDiffHunks(diff string, files []string) []DiffHunkInput {
+	return ParseDiffHunks(diff, files)
+}
+
+// ParseDiffHunks parses unified git diff hunks into CEL-ready diff facts.
+func ParseDiffHunks(diff string, files []string) []DiffHunkInput {
 	selected := selectedDiffFiles(files)
 	hunks := []DiffHunkInput{}
-	currentFile := ""
-	oldLine := int64(0)
-	newLine := int64(0)
-	currentHunk := -1
+	state := diffParseState{currentHunk: -1}
 
 	for rawLine := range strings.SplitSeq(diff, "\n") {
 		line := strings.TrimSuffix(rawLine, "\r")
 		if strings.HasPrefix(line, "+++ ") {
-			currentFile = diffPath(line[4:])
-			currentHunk = -1
+			state.currentFile = diffPath(line[4:])
+			state.currentHunk = -1
 
 			continue
 		}
 
 		if strings.HasPrefix(line, "@@ ") {
-			if currentFile == "" || !diffFileSelected(currentFile, selected) {
-				currentHunk = -1
+			nextState, hunk, found := parseDiffHunkHeaderLine(state, selected, line)
+			state = nextState
 
-				continue
+			if found {
+				hunks = append(hunks, hunk)
+				state.currentHunk = len(hunks) - 1
 			}
-
-			hunk, parsedOldLine, parsedNewLine, ok := parseHunkHeader(currentFile, line)
-			if !ok {
-				currentHunk = -1
-
-				continue
-			}
-
-			hunks = append(hunks, hunk)
-			currentHunk = len(hunks) - 1
-			oldLine = parsedOldLine
-			newLine = parsedNewLine
 
 			continue
 		}
 
-		if currentHunk == -1 || line == "" {
-			continue
-		}
-
-		switch {
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
-			added := DiffLineInput{
-				File:    currentFile,
-				Text:    line[1:],
-				Line:    newLine,
-				NewLine: newLine,
-				IsBlank: isBlankLine(line[1:]),
-			}
-			hunks[currentHunk].AddedLines = append(hunks[currentHunk].AddedLines, added)
-			newLine++
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
-			removed := DiffLineInput{
-				File:    currentFile,
-				Text:    line[1:],
-				Line:    oldLine,
-				OldLine: oldLine,
-				IsBlank: isBlankLine(line[1:]),
-			}
-			hunks[currentHunk].RemovedLines = append(
-				hunks[currentHunk].RemovedLines,
-				removed,
-			)
-			oldLine++
-		case strings.HasPrefix(line, " "):
-			oldLine++
-			newLine++
+		if state.currentHunk != -1 && line != "" {
+			state = appendDiffLine(&hunks[state.currentHunk], state, line)
 		}
 	}
 
 	return hunks
+}
+
+type diffParseState struct {
+	currentFile string
+	oldLine     int64
+	newLine     int64
+	currentHunk int
+}
+
+func parseDiffHunkHeaderLine(
+	state diffParseState,
+	selected map[string]bool,
+	line string,
+) (diffParseState, DiffHunkInput, bool) {
+	state.currentHunk = -1
+	if state.currentFile == "" || !diffFileSelected(state.currentFile, selected) {
+		return state, DiffHunkInput{}, false
+	}
+
+	hunk, oldLine, newLine, found := parseHunkHeader(state.currentFile, line)
+	if !found {
+		return state, DiffHunkInput{}, false
+	}
+
+	state.oldLine = oldLine
+	state.newLine = newLine
+
+	return state, hunk, true
+}
+
+func appendDiffLine(
+	hunk *DiffHunkInput,
+	state diffParseState,
+	line string,
+) diffParseState {
+	switch {
+	case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		hunk.AddedLines = append(hunk.AddedLines, addedDiffLine(state, line))
+		state.newLine++
+	case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+		hunk.RemovedLines = append(hunk.RemovedLines, removedDiffLine(state, line))
+		state.oldLine++
+	case strings.HasPrefix(line, " "):
+		state.oldLine++
+		state.newLine++
+	}
+
+	return state
+}
+
+func addedDiffLine(state diffParseState, line string) DiffLineInput {
+	return DiffLineInput{
+		File:    state.currentFile,
+		Text:    line[1:],
+		Line:    state.newLine,
+		NewLine: state.newLine,
+		IsBlank: isBlankLine(line[1:]),
+	}
+}
+
+func removedDiffLine(state diffParseState, line string) DiffLineInput {
+	return DiffLineInput{
+		File:    state.currentFile,
+		Text:    line[1:],
+		Line:    state.oldLine,
+		OldLine: state.oldLine,
+		IsBlank: isBlankLine(line[1:]),
+	}
 }
 
 func selectedDiffFiles(files []string) map[string]bool {
@@ -132,17 +165,17 @@ func parseHunkHeader(
 	header string,
 ) (DiffHunkInput, int64, int64, bool) {
 	fields := strings.Fields(header)
-	if len(fields) < 3 {
+	if len(fields) < hunkHeaderMinimumFields {
 		return DiffHunkInput{}, 0, 0, false
 	}
 
-	oldStart, oldLines, ok := parseDiffRange(strings.TrimPrefix(fields[1], "-"))
-	if !ok {
+	oldStart, oldLines, found := parseDiffRange(strings.TrimPrefix(fields[1], "-"))
+	if !found {
 		return DiffHunkInput{}, 0, 0, false
 	}
 
-	newStart, newLines, ok := parseDiffRange(strings.TrimPrefix(fields[2], "+"))
-	if !ok {
+	newStart, newLines, found := parseDiffRange(strings.TrimPrefix(fields[2], "+"))
+	if !found {
 		return DiffHunkInput{}, 0, 0, false
 	}
 

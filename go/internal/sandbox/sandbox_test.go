@@ -59,7 +59,10 @@ func TestBuildPlanRequiredWithoutBackendDenies(t *testing.T) {
 		Capabilities: sandbox.Capabilities{SandboxProfile: "lint-offline"},
 	})
 	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
-		t.Fatalf("sandbox.BuildPlan() error = %v, want sandbox.ErrBackendUnavailable", err)
+		t.Fatalf(
+			"sandbox.BuildPlan() error = %v, want sandbox.ErrBackendUnavailable",
+			err,
+		)
 	}
 
 	if !plan.Evidence.Denied {
@@ -91,7 +94,10 @@ func TestBuildPlanAutoWithoutBackendFallsBackWithEvidence(t *testing.T) {
 	}
 
 	if plan.Evidence.Enabled || plan.Evidence.Denied {
-		t.Fatalf("auto fallback should not claim enforcement or denial: %#v", plan.Evidence)
+		t.Fatalf(
+			"auto fallback should not claim enforcement or denial: %#v",
+			plan.Evidence,
+		)
 	}
 
 	if plan.Evidence.Reason == "" {

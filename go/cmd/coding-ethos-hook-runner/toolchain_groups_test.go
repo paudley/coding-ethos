@@ -247,7 +247,7 @@ func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
 		filepath.Join(fakeBin, "go"),
 		`#!/usr/bin/env sh
 case "$1 $2" in
-  "vet ./..."|"test -buildvcs=false")
+  "vet ./..."|"test -json")
     exit 0
     ;;
 esac
@@ -291,7 +291,8 @@ func TestPathWithoutHookGitShimsRemovesRuntimeAndLocalShims(t *testing.T) {
 	normalDir := filepath.Join(tempDir, "tools", "bin")
 
 	for _, dir := range []string{realGitDir, runtimeDir, localBinDir, normalDir} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		err := os.MkdirAll(dir, 0o700)
+		if err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
@@ -308,6 +309,7 @@ func TestPathWithoutHookGitShimsRemovesRuntimeAndLocalShims(t *testing.T) {
 	)
 
 	got := pathWithoutHookGitShims(path, filepath.Join(realGitDir, "git"))
+
 	want := strings.Join([]string{realGitDir, normalDir}, string(os.PathListSeparator))
 	if got != want {
 		t.Fatalf("pathWithoutHookGitShims() = %q, want %q", got, want)
@@ -357,7 +359,11 @@ func writeManagedToolchainBundle(t *testing.T, root string) string {
 
 	bundleRoot := filepath.Join(root, "code-ethos", "pre-commit")
 	mustWriteTestFile(t, filepath.Join(root, "code-ethos", "config.yaml"), "{}\n")
-	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"), "")
+	mustWriteTestFile(
+		t,
+		filepath.Join(bundleRoot, "hooks", "managed-toolchain.tsv"),
+		"",
+	)
 	mustWriteTestFile(t, filepath.Join(bundleRoot, "hooks", "pyproject.toml"), "")
 
 	return bundleRoot
@@ -379,7 +385,13 @@ func writeCatalogLintTools(t *testing.T, tempDir string) {
 
 	fakeBin := filepath.Join(tempDir, "bin")
 	goBin := filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin")
-	githubBin := filepath.Join(tempDir, "code-ethos", "build", "toolchain", "github-bin")
+	githubBin := filepath.Join(
+		tempDir,
+		"code-ethos",
+		"build",
+		"toolchain",
+		"github-bin",
+	)
 	mustWriteExecutable(
 		t,
 		filepath.Join(githubBin, "hadolint"),
@@ -442,7 +454,9 @@ func assertCatalogCommand(
 func assertComplexityFinding(t *testing.T) {
 	t.Helper()
 
-	complexity := parseComplexityFindings("  pkg/app.py:42 build_payload (complexity: 19)")
+	complexity := parseComplexityFindings(
+		"  pkg/app.py:42 build_payload (complexity: 19)",
+	)
 	if len(complexity) != 1 || complexity[0].Code != "cyclomatic-complexity" ||
 		complexity[0].Line != 42 {
 		t.Fatalf("parseComplexityFindings() = %#v", complexity)

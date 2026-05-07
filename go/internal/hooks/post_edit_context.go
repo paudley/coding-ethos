@@ -25,7 +25,7 @@ const (
 )
 
 func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
-	if event.HookEventName != "PostToolUse" || !isEditTool(event.ToolName) {
+	if event.HookEventName != eventPostToolUse || !isEditTool(event.ToolName) {
 		return nil
 	}
 
@@ -116,7 +116,8 @@ func buildPostEditContext(
 		"guidance:",
 		"- Review the edited file before claiming completion.",
 		"- Run focused formatting, lint, type, or tests appropriate to the changed file.",
-		"- Fix static-analysis findings structurally; do not weaken policy or add broad suppressions.",
+		"- Fix static-analysis findings structurally; do not weaken policy "+
+			"or add broad suppressions.",
 		"- Keep the todo list current if more work remains.",
 	)
 
@@ -127,61 +128,72 @@ func postEditLanguageAdvice(files []string) []string {
 	languages := map[string]bool{}
 
 	for _, file := range files {
-		normalized := filepath.ToSlash(file)
-		switch strings.ToLower(filepath.Ext(normalized)) {
-		case ".py":
-			languages["python"] = true
-		case ".go":
-			languages["go"] = true
-		case ".sh", ".bash":
-			languages["shell"] = true
-		case ".yaml", ".yml":
-			languages["yaml"] = true
-		case ".md":
-			languages["markdown"] = true
-		}
-
-		if strings.HasPrefix(normalized, ".github/workflows/") {
-			languages["github_actions"] = true
-		}
+		addPostEditFileLanguages(languages, file)
 	}
 
 	advice := []string{}
-	if languages["python"] {
-		advice = append(
-			advice,
-			"- python: run ruff/mypy/pyright or a focused pytest target before claiming the edit is complete.",
-		)
+	advice = appendLanguageAdvice(advice, languages, "python", pythonPostEditAdvice)
+	advice = appendLanguageAdvice(advice, languages, "go", goPostEditAdvice)
+	advice = appendLanguageAdvice(advice, languages, "shell", shellPostEditAdvice)
+	advice = appendWorkflowOrYAMLAdvice(advice, languages)
+	advice = appendLanguageAdvice(advice, languages, "markdown", markdownPostEditAdvice)
+
+	return advice
+}
+
+const (
+	pythonPostEditAdvice = "- python: run ruff/mypy/pyright or a focused " +
+		"pytest target before claiming the edit is complete."
+	goPostEditAdvice = "- go: run gofmt plus focused go test/golangci-lint " +
+		"for the touched package."
+	shellPostEditAdvice = "- shell: run shellcheck and verify quoting/fail-fast " +
+		"behavior."
+	githubActionsPostEditAdvice = "- github-actions: run actionlint " +
+		"for workflow changes."
+	yamlPostEditAdvice     = "- yaml: run yamllint or the repo-specific YAML validator."
+	markdownPostEditAdvice = "- markdown: if the file is generated, update the " +
+		"source config and regenerate instead of hand-editing."
+)
+
+func addPostEditFileLanguages(languages map[string]bool, file string) {
+	normalized := filepath.ToSlash(file)
+	switch strings.ToLower(filepath.Ext(normalized)) {
+	case ".py":
+		languages["python"] = true
+	case ".go":
+		languages["go"] = true
+	case ".sh", ".bash":
+		languages["shell"] = true
+	case ".yaml", ".yml":
+		languages["yaml"] = true
+	case ".md":
+		languages["markdown"] = true
 	}
 
-	if languages["go"] {
-		advice = append(
-			advice,
-			"- go: run gofmt plus focused go test/golangci-lint for the touched package.",
-		)
+	if strings.HasPrefix(normalized, ".github/workflows/") {
+		languages["github_actions"] = true
 	}
+}
 
-	if languages["shell"] {
-		advice = append(
-			advice,
-			"- shell: run shellcheck and verify quoting/fail-fast behavior.",
-		)
-	}
-
-	if languages["github_actions"] {
-		advice = append(advice, "- github-actions: run actionlint for workflow changes.")
-	} else if languages["yaml"] {
-		advice = append(advice, "- yaml: run yamllint or the repo-specific YAML validator.")
-	}
-
-	if languages["markdown"] {
-		advice = append(
-			advice,
-			"- markdown: if the file is generated, update the source config and regenerate instead of hand-editing.",
-		)
+func appendLanguageAdvice(
+	advice []string,
+	languages map[string]bool,
+	language string,
+	message string,
+) []string {
+	if languages[language] {
+		return append(advice, message)
 	}
 
 	return advice
+}
+
+func appendWorkflowOrYAMLAdvice(advice []string, languages map[string]bool) []string {
+	if languages["github_actions"] {
+		return append(advice, githubActionsPostEditAdvice)
+	}
+
+	return appendLanguageAdvice(advice, languages, "yaml", yamlPostEditAdvice)
 }
 
 type postEditLintResult struct {
@@ -242,12 +254,13 @@ func postEditLintHistory(event Event) postEditLintHistoryResult {
 }
 
 func postEditHistoryFiles(event Event) []string {
-	files := []string{}
+	files := make([]string, 0, len(event.Files()))
 
 	for _, file := range event.Files() {
 		item := file
 		if event.Cwd != "" && filepath.IsAbs(item) {
-			if relative, err := filepath.Rel(event.Cwd, item); err == nil &&
+			relative, inlineErrAutoA := filepath.Rel(event.Cwd, item)
+			if inlineErrAutoA == nil &&
 				relative != ".." &&
 				!strings.HasPrefix(filepath.ToSlash(relative), "../") {
 				item = relative
@@ -283,7 +296,11 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 		parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
 		parsed = diagnostics.Dedupe(parsed)
 
-		return postEditLintResult{Checked: true, Status: statusBlocked, Diagnostics: parsed}
+		return postEditLintResult{
+			Checked:     true,
+			Status:      statusBlocked,
+			Diagnostics: parsed,
+		}
 	}
 
 	if err != nil {
@@ -311,6 +328,7 @@ func pythonPostEditFiles(files []string) []string {
 
 func existingPythonPostEditFiles(cwd string, files []string) []string {
 	existing := []string{}
+
 	for _, file := range pythonPostEditFiles(files) {
 		path := file
 		if cwd != "" && !filepath.IsAbs(path) {
@@ -345,7 +363,10 @@ func appendPostEditLintHistory(
 		fmt.Sprintf("- findings: %d from prior captured runs", analysis.Findings),
 	)
 	if len(analysis.TopChecks) > 0 {
-		lines = append(lines, "- recurring_checks: "+postEditCountsLine(analysis.TopChecks))
+		lines = append(
+			lines,
+			"- recurring_checks: "+postEditCountsLine(analysis.TopChecks),
+		)
 	}
 
 	if len(analysis.TopCodes) > 0 {
@@ -483,7 +504,12 @@ func appendPostEditFastLintState(
 
 	lines = append(lines, "", "fast_lint:")
 	if state.Error != "" {
-		return append(lines, "- status: error", "- tool: ruff", "- detail: "+state.Error)
+		return append(
+			lines,
+			"- status: error",
+			"- tool: ruff",
+			"- detail: "+state.Error,
+		)
 	}
 
 	lines = append(lines, "- tool: ruff", "- status: "+state.Status)

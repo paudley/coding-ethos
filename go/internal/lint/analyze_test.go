@@ -84,71 +84,118 @@ func TestAnalyzeTracesRanksFailuresAndGuidanceCandidates(t *testing.T) {
 		t.Fatalf("AnalyzeTraces() returned error: %v", err)
 	}
 
+	assertTraceAnalysisCounts(t, analysis)
+	assertTraceAnalysisTopCounts(t, analysis)
+	assertTraceAnalysisGuidance(t, analysis)
+	assertTraceAnalysisOutput(t, analysis)
+}
+
+func assertTraceAnalysisCounts(t *testing.T, analysis Analysis) {
+	t.Helper()
+
 	if analysis.RunsAnalyzed != 3 || analysis.Findings != 4 {
 		t.Fatalf("analysis counts = %#v", analysis)
 	}
+}
 
-	if analysis.TopChecks[0] != (Count{Key: "python.import_order", Count: 2}) {
-		t.Fatalf("top checks = %#v", analysis.TopChecks)
-	}
+func assertTraceAnalysisTopCounts(t *testing.T, analysis Analysis) {
+	t.Helper()
 
-	if analysis.TopCodes[0] != (Count{Key: "ruff:E402", Count: 2}) {
-		t.Fatalf("top codes = %#v", analysis.TopCodes)
-	}
+	assertCount(
+		t,
+		"top checks",
+		analysis.TopChecks,
+		Count{Key: "python.import_order", Count: 2},
+	)
+	assertCount(t, "top codes", analysis.TopCodes, Count{Key: "ruff:E402", Count: 2})
+	assertCount(
+		t,
+		"patterns",
+		analysis.RepeatedPatterns,
+		Count{Key: "python.import_order|lib/python/...", Count: 2},
+	)
+	assertCount(
+		t,
+		"ethos IDs",
+		analysis.TopEthosIDs,
+		Count{Key: "no-conditional-imports", Count: 2},
+	)
+	assertCount(
+		t,
+		"skill IDs",
+		analysis.TopSkillIDs,
+		Count{Key: "conditional-imports", Count: 2},
+	)
+	assertCount(
+		t,
+		"skill hints",
+		analysis.TopSkillHints,
+		Count{Key: "conditional-imports", Count: 2},
+	)
+	assertCount(
+		t,
+		"unmapped codes",
+		analysis.UnmappedCodes,
+		Count{Key: "pylint:no-member", Count: 1},
+	)
+}
 
-	if analysis.RepeatedPatterns[0] != (Count{Key: "python.import_order|lib/python/...", Count: 2}) {
-		t.Fatalf("patterns = %#v", analysis.RepeatedPatterns)
-	}
+func assertCount(t *testing.T, label string, counts []Count, want Count) {
+	t.Helper()
 
-	if analysis.TopEthosIDs[0] != (Count{Key: "no-conditional-imports", Count: 2}) {
-		t.Fatalf("ethos IDs = %#v", analysis.TopEthosIDs)
+	if len(counts) == 0 || counts[0] != want {
+		t.Fatalf("%s = %#v", label, counts)
 	}
+}
 
-	if analysis.TopSkillIDs[0] != (Count{Key: "conditional-imports", Count: 2}) {
-		t.Fatalf("skill IDs = %#v", analysis.TopSkillIDs)
-	}
-
-	if analysis.TopSkillHints[0] != (Count{Key: "conditional-imports", Count: 2}) {
-		t.Fatalf("skill hints = %#v", analysis.TopSkillHints)
-	}
-
-	if len(analysis.UnmappedCodes) == 0 ||
-		analysis.UnmappedCodes[0] != (Count{Key: "pylint:no-member", Count: 1}) {
-		t.Fatalf("unmapped codes = %#v", analysis.UnmappedCodes)
-	}
+func assertTraceAnalysisGuidance(t *testing.T, analysis Analysis) {
+	t.Helper()
 
 	if len(analysis.GuidanceCandidates) == 0 ||
 		analysis.GuidanceCandidates[0].Advice != "Move imports to module scope." {
 		t.Fatalf("guidance candidates = %#v", analysis.GuidanceCandidates)
 	}
+}
 
-	output := FormatAnalysisHuman(analysis)
-	for _, want := range []string{
+func assertTraceAnalysisOutput(t *testing.T, analysis Analysis) {
+	t.Helper()
+
+	assertAnalysisOutputContains(t, "analysis", FormatAnalysisHuman(analysis), []string{
 		"Top checks: python.import_order=2",
 		"Top tool codes: ruff:E402=2",
 		"Unmapped tool codes: pylint:no-member=1",
 		"Top skill IDs: conditional-imports=2",
 		"Top emitted skill hints: conditional-imports=2",
 		"Guidance candidates:",
-	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("analysis output missing %q:\n%s", want, output)
-		}
-	}
+	})
+	assertAnalysisOutputContains(
+		t,
+		"TOON analysis",
+		FormatAnalysisTOON(analysis),
+		[]string{
+			"format: toon",
+			"operation: analyze-log",
+			"top_codes[",
+			"unmapped_codes[1]{key,count}:",
+			"pylint:no-member,1",
+			"top_skill_ids[1]{key,count}:",
+			"top_skill_hints[1]{key,count}:",
+			"guidance_candidates[",
+		},
+	)
+}
 
-	toonOutput := FormatAnalysisTOON(analysis)
-	for _, want := range []string{
-		"format: toon",
-		"operation: analyze-log",
-		"top_codes[",
-		"unmapped_codes[1]{key,count}:",
-		"pylint:no-member,1",
-		"top_skill_ids[1]{key,count}:",
-		"top_skill_hints[1]{key,count}:",
-		"guidance_candidates[",
-	} {
-		if !strings.Contains(toonOutput, want) {
-			t.Fatalf("TOON analysis output missing %q:\n%s", want, toonOutput)
+func assertAnalysisOutputContains(
+	t *testing.T,
+	label string,
+	output string,
+	expected []string,
+) {
+	t.Helper()
+
+	for _, want := range expected {
+		if !strings.Contains(output, want) {
+			t.Fatalf("%s output missing %q:\n%s", label, want, output)
 		}
 	}
 }

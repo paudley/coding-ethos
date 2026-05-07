@@ -472,7 +472,9 @@ func normalizeTypeCheckFiles(
 			continue
 		}
 
-		_, err = os.Stat(absolutePath) // #nosec G703 -- path is cleaned and scoped above.
+		_, err = os.Stat(
+			absolutePath,
+		) // #nosec G703 -- path is cleaned and scoped above.
 		if err != nil {
 			continue
 		}
@@ -541,7 +543,11 @@ func runTypeChecker(
 		Command: command,
 	})
 	outputText := toolResult.Combined
-	diagnostics := diag.Parse(defaultString(checker.Parser, checker.Name), outputText, "")
+	diagnostics := diag.Parse(
+		defaultString(checker.Parser, checker.Name),
+		outputText,
+		"",
+	)
 	diagnostics = diag.Enrich(diagnostics, settings.EvidenceMaps)
 
 	duration := float64(time.Since(start).Milliseconds())
@@ -958,7 +964,10 @@ func formatTypeCheckResultsHuman(
 	) > 0 {
 		lines = append(lines, "skill advice:")
 		for _, hint := range hints {
-			lines = append(lines, "- "+hint.SkillID+": "+hint.Message+" Next: "+hint.Next)
+			lines = append(
+				lines,
+				"- "+hint.SkillID+": "+hint.Message+" Next: "+hint.Next,
+			)
 		}
 	}
 

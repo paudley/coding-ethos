@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -113,43 +114,33 @@ func verifyCommitHead(
 	defer os.Remove(path)
 
 	if !context.HasToolResponse {
-		decision := policy.NewDecision(recordDecision, policyDef)
-		decision.Severity = recordDecision
-		decision.Evidence = map[string]any{
-			"phase":    "post",
-			"pre_head": state.Head,
-			"advanced": false,
-			"skipped":  "missing tool response",
-		}
-
-		return []policy.Decision{decision}, nil
+		return commitHeadRecordDecision(
+			policyDef,
+			state.Head,
+			"",
+			"missing tool response",
+			0,
+		), nil
 	}
 
 	if !context.HasReturnCode {
-		decision := policy.NewDecision(recordDecision, policyDef)
-		decision.Severity = recordDecision
-		decision.Evidence = map[string]any{
-			"phase":    "post",
-			"pre_head": state.Head,
-			"advanced": false,
-			"skipped":  "missing tool return code",
-		}
-
-		return []policy.Decision{decision}, nil
+		return commitHeadRecordDecision(
+			policyDef,
+			state.Head,
+			"",
+			"missing tool return code",
+			0,
+		), nil
 	}
 
 	if context.ReturnCode != 0 {
-		decision := policy.NewDecision(recordDecision, policyDef)
-		decision.Severity = recordDecision
-		decision.Evidence = map[string]any{
-			"phase":       "post",
-			"pre_head":    state.Head,
-			"return_code": context.ReturnCode,
-			"advanced":    false,
-			"skipped":     "commit command failed",
-		}
-
-		return []policy.Decision{decision}, nil
+		return commitHeadRecordDecision(
+			policyDef,
+			state.Head,
+			"",
+			"commit command failed",
+			context.ReturnCode,
+		), nil
 	}
 
 	head, err := currentHead(context.Cwd)
@@ -158,29 +149,67 @@ func verifyCommitHead(
 	}
 
 	if state.Head != head {
-		decision := policy.NewDecision(recordDecision, policyDef)
-		decision.Severity = recordDecision
-		decision.Evidence = map[string]any{
-			"phase":     "post",
-			"pre_head":  state.Head,
-			"post_head": head,
-			"advanced":  true,
-		}
-
-		return []policy.Decision{decision}, nil
+		return commitHeadAdvancedDecision(policyDef, state.Head, head), nil
 	}
 
+	return commitHeadBlockedDecision(policyDef, state.Head, head), nil
+}
+
+func commitHeadRecordDecision(
+	policyDef policy.Policy,
+	preHead string,
+	postHead string,
+	skipped string,
+	returnCode int,
+) []policy.Decision {
+	decision := policy.NewDecision(recordDecision, policyDef)
+	decision.Severity = recordDecision
+	decision.Evidence = commitHeadEvidence(preHead, postHead, false)
+
+	decision.Evidence["skipped"] = skipped
+	if returnCode != 0 {
+		decision.Evidence["return_code"] = returnCode
+	}
+
+	return []policy.Decision{decision}
+}
+
+func commitHeadAdvancedDecision(
+	policyDef policy.Policy,
+	preHead string,
+	postHead string,
+) []policy.Decision {
+	decision := policy.NewDecision(recordDecision, policyDef)
+	decision.Severity = recordDecision
+	decision.Evidence = commitHeadEvidence(preHead, postHead, true)
+
+	return []policy.Decision{decision}
+}
+
+func commitHeadBlockedDecision(
+	policyDef policy.Policy,
+	preHead string,
+	postHead string,
+) []policy.Decision {
 	decision := policy.NewDecision("block", policyDef)
 	decision.Severity = "block"
-	decision.Evidence = map[string]any{
-		"phase":     "post",
-		"pre_head":  state.Head,
-		"post_head": head,
-		"advanced":  false,
-		"skipped":   "commit head did not advance",
+	decision.Evidence = commitHeadEvidence(preHead, postHead, false)
+	decision.Evidence["skipped"] = "commit head did not advance"
+
+	return []policy.Decision{decision}
+}
+
+func commitHeadEvidence(preHead, postHead string, advanced bool) map[string]any {
+	evidence := map[string]any{
+		"phase":    "post",
+		"pre_head": preHead,
+		"advanced": advanced,
+	}
+	if postHead != "" {
+		evidence["post_head"] = postHead
 	}
 
-	return []policy.Decision{decision}, nil
+	return evidence
 }
 
 func ReadCommitHeadState(cwd string) (bool, error) {
@@ -234,7 +263,7 @@ func gitWorktreeRoot(cwd string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-var errNoHead = errors.New("git repository has no HEAD commit")
+var errNoHead = apperror.StaticError("git repository has no HEAD commit")
 
 func currentHead(cwd string) (string, error) {
 	cmd := gitCommand(cwd, "rev-parse", "--verify", "HEAD")

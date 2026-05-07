@@ -110,6 +110,22 @@ running real commands, and inspecting real output and repository state.
   - [ ] Add JSON-output assertions for the same real managed-tool scenarios.
   - [ ] Add an unparseable real managed-tool failure scenario that proves raw
         output remains visible and policy/CEL/SARIF evidence is retained.
+- [ ] Route every pre-commit gate through the normalized
+  diagnostics/SARIF/CEL path. Gates such as `go-test`, `go-vet`, formatting,
+  manifest checks, generated-config checks, and tool bootstrap checks must
+  produce structured diagnostics that can become SARIF results and CEL inputs;
+  they must not fall back to generic exit-code-only failures except for runner
+  failures where no tool output exists.
+- [ ] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
+  output should be captured as structured evidence, flow through normalized
+  diagnostics when thresholds fail, be eligible for SARIF output, and expose
+  CEL facts so policy can distinguish missing coverage data, below-threshold
+  packages, and ordinary test failures.
+- [ ] Suppress routine pass/noise lines in pre-commit gate output while
+  preserving actionable failure context. For example, passing Go package
+  lines such as `ok ...` should not appear in user-facing hook reports, but
+  failing package names, test names, file/line locations, panic text, and
+  unparseable failure excerpts must remain visible.
 - [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.
@@ -137,6 +153,10 @@ Acceptance criteria:
   state, real Git repositories, real MCP framing, and real trace/SARIF output.
   AI calls are the default allowed exception because live LLM behavior is
   nondeterministic and externally controlled.
+- [ ] No pre-commit gate may bypass normalized diagnostics, SARIF evidence, or
+  CEL policy evaluation. A failing gate must be represented as structured,
+  actionable findings first, with bounded raw output only as supporting
+  evidence for genuinely unparseable failures.
 - [x] The end-to-end fake/mock admission policy is documented: every mock, fake
   executable, fake service, or synthetic fixture requires explicit admin
   approval before it is added.

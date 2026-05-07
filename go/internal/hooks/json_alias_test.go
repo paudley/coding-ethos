@@ -23,7 +23,7 @@ func TestDecodeEventNormalizesNamespacedCodexShellTool(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.ToolName != "Bash" || event.Command() != "git status --short" {
+	if event.ToolName != toolBash || event.Command() != "git status --short" {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 }
@@ -41,7 +41,7 @@ func TestDecodeEventNormalizesCodexWriteStdinAsShellTool(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.ToolName != "Bash" || event.Command() != "git status --short\n" {
+	if event.ToolName != toolBash || event.Command() != "git status --short\n" {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 }
@@ -66,7 +66,7 @@ func TestDecodeEventNormalizesParallelNestedCodexTool(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.ToolName != "Bash" || event.Command() != "git status --short" {
+	if event.ToolName != toolBash || event.Command() != "git status --short" {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 }
@@ -95,9 +95,14 @@ func TestDecodeEventKeepsMultiActionParallelBatchForPolicy(t *testing.T) {
 		t.Fatalf("decode event: %v", err)
 	}
 
-	if event.ToolName != "Bash" ||
+	toolUses, ok := event.ToolInput["tool_uses"].([]any)
+	if !ok {
+		t.Fatalf("tool_uses = %#v, want array", event.ToolInput["tool_uses"])
+	}
+
+	if event.ToolName != toolBash ||
 		event.ToolInput["__coding_ethos_parallel_batch"] != true ||
-		len(event.ToolInput["tool_uses"].([]any)) != 2 {
+		len(toolUses) != 2 {
 		t.Fatalf("event mismatch: %#v", event)
 	}
 }

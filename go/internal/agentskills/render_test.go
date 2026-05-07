@@ -228,7 +228,11 @@ principles:
 	}
 
 	if len(mismatched) != 1 || mismatched[0] != driftPath {
-		t.Fatalf("agentskills.Check() after drift = %#v, want %s", mismatched, driftPath)
+		t.Fatalf(
+			"agentskills.Check() after drift = %#v, want %s",
+			mismatched,
+			driftPath,
+		)
 	}
 }
 

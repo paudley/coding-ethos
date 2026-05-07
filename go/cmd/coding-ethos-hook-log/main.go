@@ -46,14 +46,18 @@ func runWithIO(
 	flags := flag.NewFlagSet("coding-ethos-hook-log", flag.ExitOnError)
 	root := flags.String("root", "", "Repository root for hook logs")
 	bundleRoot := flags.String("bundle-root", "", "coding-ethos pre-commit bundle root")
-	gitPath := flags.String("git", "/usr/bin/git", "Git binary used for ignore validation")
+	gitPath := flags.String(
+		"git",
+		"/usr/bin/git",
+		"Git binary used for ignore validation",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 
-	return hooklog.Run(hooklog.Options{
+	err = hooklog.Run(hooklog.Options{
 		Stdin:      stdin,
 		Stdout:     stdout,
 		Stderr:     stderr,
@@ -62,4 +66,9 @@ func runWithIO(
 		BundleRoot: *bundleRoot,
 		Command:    flags.Args(),
 	})
+	if err != nil {
+		return fmt.Errorf("run hook log command: %w", err)
+	}
+
+	return nil
 }

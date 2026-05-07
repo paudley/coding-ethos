@@ -15,6 +15,15 @@ const (
 	providerGemini = "gemini"
 )
 
+const (
+	eventPreToolUse       = "PreToolUse"
+	eventPostToolUse      = "PostToolUse"
+	eventSessionStart     = "SessionStart"
+	eventUserPromptSubmit = "UserPromptSubmit"
+	eventStop             = "Stop"
+	toolBash              = "Bash"
+)
+
 type Event struct {
 	ProviderHint   string         `json:"provider,omitempty"`
 	ToolInput      map[string]any `json:"tool_input,omitempty"`

@@ -1,19 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hooks
+package hooks_test
 
 import (
 	"testing"
 
+	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func TestCollectInspectionContextAnnotatesAdminReadOnlyOnce(t *testing.T) {
-	restore := stubAdminApprovedForCWD(true)
-	defer restore()
+	t.Parallel()
 
-	ctx := collectInspectionContext(Event{
+	ctx := CollectInspectionContext(Event{
 		Cwd:           "/workspace/coding-ethos",
 		HookEventName: "PreToolUse",
 		ProviderHint:  "codex",
@@ -21,22 +21,21 @@ func TestCollectInspectionContextAnnotatesAdminReadOnlyOnce(t *testing.T) {
 		ToolInput: map[string]any{
 			"command": `git diff --stat -- go/internal/hooks/json.go`,
 		},
-	})
+	}, stubAdminApprovedForCWD(true))
 
 	if !ctx.AdminApproved || !ctx.ReadOnlyInspection {
 		t.Fatalf("inspection context not annotated: %#v", ctx)
 	}
 
-	if ctx.Provider != providerCodex {
-		t.Fatalf("provider = %q, want %q", ctx.Provider, providerCodex)
+	if ctx.Provider != "codex" {
+		t.Fatalf("provider = %q, want %q", ctx.Provider, "codex")
 	}
 }
 
 func TestCollectInspectionContextDoesNotMarkNormalCommandReadOnly(t *testing.T) {
-	restore := stubAdminApprovedForCWD(false)
-	defer restore()
+	t.Parallel()
 
-	ctx := collectInspectionContext(Event{
+	ctx := CollectInspectionContext(Event{
 		Cwd:           "/workspace/coding-ethos",
 		HookEventName: "PreToolUse",
 		ProviderHint:  "codex",
@@ -44,7 +43,7 @@ func TestCollectInspectionContextDoesNotMarkNormalCommandReadOnly(t *testing.T) 
 		ToolInput: map[string]any{
 			"command": `git diff --stat -- go/internal/hooks/json.go`,
 		},
-	})
+	}, stubAdminApprovedForCWD(false))
 
 	if ctx.AdminApproved || ctx.ReadOnlyInspection {
 		t.Fatalf("normal context incorrectly annotated: %#v", ctx)
@@ -52,9 +51,11 @@ func TestCollectInspectionContextDoesNotMarkNormalCommandReadOnly(t *testing.T) 
 }
 
 func TestDecideInspectionClearsRewriteWhenPolicyBlocks(t *testing.T) {
-	decision := decideInspection(
+	t.Parallel()
+
+	decision := DecideInspection(
 		exampleBundleForInspectionTest(),
-		InspectionContext{Provider: providerClaude},
+		InspectionContext{Provider: "claude"},
 		[]policy.Decision{{
 			PolicyID: "git.hook_bypass",
 			Decision: "block",
@@ -68,7 +69,7 @@ func TestDecideInspectionClearsRewriteWhenPolicyBlocks(t *testing.T) {
 		},
 	)
 
-	if decision.Status != statusBlocked {
+	if decision.Status != hookStatusBlocked {
 		t.Fatalf("status = %q, want blocked", decision.Status)
 	}
 
@@ -78,9 +79,11 @@ func TestDecideInspectionClearsRewriteWhenPolicyBlocks(t *testing.T) {
 }
 
 func TestDecideInspectionConvertsRouteBlockToPolicyDecision(t *testing.T) {
-	decision := decideInspection(
+	t.Parallel()
+
+	decision := DecideInspection(
 		exampleBundleForInspectionTest(),
-		InspectionContext{Provider: providerClaude},
+		InspectionContext{Provider: "claude"},
 		nil,
 		InspectionRoute{
 			Block:         true,
@@ -89,7 +92,7 @@ func TestDecideInspectionConvertsRouteBlockToPolicyDecision(t *testing.T) {
 		},
 	)
 
-	if decision.Status != statusBlocked || len(decision.Policies) != 1 {
+	if decision.Status != hookStatusBlocked || len(decision.Policies) != 1 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
 
@@ -99,7 +102,9 @@ func TestDecideInspectionConvertsRouteBlockToPolicyDecision(t *testing.T) {
 }
 
 func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
-	decision := decideInspection(
+	t.Parallel()
+
+	decision := DecideInspection(
 		exampleBundleForInspectionTest(),
 		InspectionContext{},
 		nil,
@@ -110,11 +115,11 @@ func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
 		},
 	)
 
-	if decision.Status != statusBlocked || len(decision.Policies) != 1 {
+	if decision.Status != hookStatusBlocked || len(decision.Policies) != 1 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
 
-	if decision.Policies[0].PolicyID != providerRewritePolicyID {
+	if decision.Policies[0].PolicyID != "hook.provider_required" {
 		t.Fatalf("policy = %#v", decision.Policies[0])
 	}
 
@@ -124,9 +129,11 @@ func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
 }
 
 func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
-	decision := decideInspection(
+	t.Parallel()
+
+	decision := DecideInspection(
 		exampleBundleForInspectionTest(),
-		InspectionContext{Provider: providerCodex},
+		InspectionContext{Provider: "codex"},
 		nil,
 		InspectionRoute{
 			Rewrite:      true,
@@ -135,7 +142,7 @@ func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
 		},
 	)
 
-	if decision.Status != statusAllowed || len(decision.Policies) != 0 {
+	if decision.Status != hookStatusAllowed || len(decision.Policies) != 0 {
 		t.Fatalf("decision mismatch: %#v", decision)
 	}
 

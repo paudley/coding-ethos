@@ -104,7 +104,9 @@ func CatHeredocCommandSubstitution(value string) (string, bool) {
 		return "", false
 	}
 
-	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"))
+	inner := strings.TrimSpace(
+		strings.TrimSuffix(strings.TrimPrefix(trimmed, "$("), ")"),
+	)
 
 	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).
 		Parse(strings.NewReader(inner), "")
@@ -144,7 +146,8 @@ func isBareCatCall(stmt *syntax.Stmt) bool {
 }
 
 func isHeredocRedirect(redir *syntax.Redirect) bool {
-	return redir != nil && redir.Hdoc != nil && strings.Contains(redir.Op.String(), "<<")
+	return redir != nil && redir.Hdoc != nil &&
+		strings.Contains(redir.Op.String(), "<<")
 }
 
 func parse(command string) ([]Command, []string, error) {

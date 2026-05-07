@@ -12,15 +12,17 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const conditionalImportsPolicyID = "python.conditional_imports"
+
 func TestEvaluatePythonConditionalImports(t *testing.T) {
 	t.Parallel()
 
 	decision := evaluatePythonPolicy(
 		t,
-		"python.conditional_imports",
+		conditionalImportsPolicyID,
 		"try:\n    import missing\nexcept ImportError:\n    missing = None\n",
 	)
-	if decision.PolicyID != "python.conditional_imports" {
+	if decision.PolicyID != conditionalImportsPolicyID {
 		t.Fatalf("policy mismatch: %#v", decision)
 	}
 }
@@ -52,8 +54,8 @@ plugin = importlib.import_module("plugin")
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			decision := evaluatePythonPolicy(t, "python.conditional_imports", content)
-			if decision.PolicyID != "python.conditional_imports" {
+			decision := evaluatePythonPolicy(t, conditionalImportsPolicyID, content)
+			if decision.PolicyID != conditionalImportsPolicyID {
 				t.Fatalf("policy mismatch: %#v", decision)
 			}
 
@@ -76,8 +78,8 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			decision := evaluatePythonPolicy(t, "python.conditional_imports", content)
-			if decision.PolicyID != "python.conditional_imports" {
+			decision := evaluatePythonPolicy(t, conditionalImportsPolicyID, content)
+			if decision.PolicyID != conditionalImportsPolicyID {
 				t.Fatalf("policy mismatch: %#v", decision)
 			}
 
@@ -91,7 +93,7 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 func TestEvaluatePythonConditionalImportsAllowsModuleImports(t *testing.T) {
 	t.Parallel()
 
-	policyDef := compiledPythonPolicy(t, "python.conditional_imports")
+	policyDef := compiledPythonPolicy(t, conditionalImportsPolicyID)
 
 	decisions, err := EvaluatePythonConditionalImports(policyDef, Context{
 		Files:   []string{"src/app.py"},
@@ -129,7 +131,10 @@ func TestEvaluatePythonFunctionalIdioms(t *testing.T) {
 			}
 
 			if len(decision.Diagnostics) != 1 || decision.Diagnostics[0].Code == "" {
-				t.Fatalf("expected functional idiom diagnostic code: %#v", decision.Diagnostics)
+				t.Fatalf(
+					"expected functional idiom diagnostic code: %#v",
+					decision.Diagnostics,
+				)
 			}
 		})
 	}
@@ -138,13 +143,13 @@ func TestEvaluatePythonFunctionalIdioms(t *testing.T) {
 func TestEvaluateCELExpressionCanUsePythonASTFacts(t *testing.T) {
 	t.Parallel()
 
-	policyDef := compiledPythonPolicy(t, "python.conditional_imports")
+	policyDef := compiledPythonPolicy(t, conditionalImportsPolicyID)
 	policyDef.ID = "custom.python_ast_dynamic_import"
 	policyDef.Evaluators = []policy.Evaluator{{
 		Kind: "cel",
 		Name: "cel.expression",
 		Options: map[string]any{
-			"when": "python_ast.exists(fact, fact.is_dynamic_import && fact.call_name == 'importlib.import_module')",
+			"when": importlibImportModuleCEL(),
 		},
 	}}
 
@@ -152,7 +157,7 @@ func TestEvaluateCELExpressionCanUsePythonASTFacts(t *testing.T) {
 		Files:   []string{"src/app.py"},
 		Content: "import importlib\nplugin = importlib.import_module('plugin')\n",
 		EvaluatorOptions: map[string]any{
-			"when": "python_ast.exists(fact, fact.is_dynamic_import && fact.call_name == 'importlib.import_module')",
+			"when": importlibImportModuleCEL(),
 		},
 	})
 	if err != nil {
@@ -162,6 +167,11 @@ func TestEvaluateCELExpressionCanUsePythonASTFacts(t *testing.T) {
 	if len(decisions) != 1 {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
+}
+
+func importlibImportModuleCEL() string {
+	return "python_ast.exists(fact, fact.is_dynamic_import && " +
+		"fact.call_name == 'importlib.import_module')"
 }
 
 func TestEvaluatePythonOptionalReturns(t *testing.T) {
@@ -229,20 +239,22 @@ func TestPythonTextEvaluatorsReadOnlyPythonFiles(t *testing.T) {
 	textFile := filepath.Join(dir, "notes.txt")
 	missingFile := filepath.Join(dir, "missing.py")
 
-	if err := os.WriteFile(
+	inlineErr0 := os.WriteFile(
 		pythonFile,
 		[]byte("def dependency() -> Optional[Service]:\n    return None\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write python file: %v", err)
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write python file: %v", inlineErr0)
 	}
 
-	if err := os.WriteFile(
+	inlineErr1 := os.WriteFile(
 		textFile,
 		[]byte("def ignored() -> Optional[str]:\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write text file: %v", err)
+	)
+	if inlineErr1 != nil {
+		t.Fatalf("write text file: %v", inlineErr1)
 	}
 
 	policyDef := compiledPythonPolicy(t, "python.optional_returns")
@@ -268,8 +280,10 @@ func TestPythonSourcesReturnReadErrorsForUnreadablePythonPaths(t *testing.T) {
 	t.Parallel()
 
 	dirPath := filepath.Join(t.TempDir(), "package.py")
-	if err := os.Mkdir(dirPath, 0o700); err != nil {
-		t.Fatalf("create directory with .py suffix: %v", err)
+
+	inlineErr2 := os.Mkdir(dirPath, 0o700)
+	if inlineErr2 != nil {
+		t.Fatalf("create directory with .py suffix: %v", inlineErr2)
 	}
 
 	policyDef := compiledPythonPolicy(t, "python.optional_returns")
@@ -393,7 +407,7 @@ func compiledPythonPolicy(t *testing.T, policyID string) policy.Policy {
 		"python.direct_imports",
 	} {
 		if _, ok := bundle.Policies[policyName]; !ok {
-			base := bundle.Policies["python.conditional_imports"]
+			base := bundle.Policies[conditionalImportsPolicyID]
 			base.ID = policyName
 			base.Evaluators = []policy.Evaluator{{Kind: "ast", Name: policyName}}
 			bundle.Policies[policyName] = base

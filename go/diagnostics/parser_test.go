@@ -156,12 +156,7 @@ func TestParsePylintJSON2Diagnostics(t *testing.T) {
 func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		tool   string
-		output string
-		want   diagnostics.Diagnostic
-	}{
+	tests := []toolchainDiagnosticCase{
 		{
 			name: "pyright optional member",
 			tool: "pyright",
@@ -180,9 +175,10 @@ func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 			},
 		},
 		{
-			name:   "mypy no untyped def",
-			tool:   "mypy",
-			output: `pkg/app.py:12:1: error: Function is missing a type annotation [no-untyped-def]`,
+			name: "mypy no untyped def",
+			tool: "mypy",
+			output: "pkg/app.py:12:1: error: " +
+				"Function is missing a type annotation [no-untyped-def]",
 			want: diagnostics.Diagnostic{
 				Tool:     "mypy",
 				File:     "pkg/app.py",
@@ -215,7 +211,11 @@ func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
+			assertDiagnostic(
+				t,
+				diagnostics.Parse(test.tool, test.output, ""),
+				test.want,
+			)
 		})
 	}
 }
@@ -240,15 +240,85 @@ func TestParseGolangciLintDiagnostics(t *testing.T) {
 	})
 }
 
+func TestParseGoTestDiagnosticsSuppressesPassingPackages(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"go-test",
+		goTestFixture,
+		"",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("diagnostic count = %d, want 2: %#v", len(parsed), parsed)
+	}
+
+	if got := parsed[0]; got.Tool != "go-test" ||
+		got.File != "go/cmd/coding-ethos-policy/main_test.go" ||
+		got.Line != 42 ||
+		got.Code != "TestPolicyUsage" ||
+		got.Message != "expected exit 0, got 1" {
+		t.Fatalf("first diagnostic = %#v", got)
+	}
+
+	if got := parsed[1]; got.Tool != "go-test" ||
+		got.Code != "TestPolicyUsage" ||
+		got.File != "go/cmd/coding-ethos-policy/other_test.go" ||
+		got.Line != 17 ||
+		got.Message != "second failure" {
+		t.Fatalf("second diagnostic = %#v", got)
+	}
+}
+
+func TestParseGoTestPackageFailureWithoutTestOutput(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"go-test",
+		`{"Action":"fail","Package":"blackcat.ca/coding-ethos/go/cmd/tool","Elapsed":0.013}`,
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "go-test",
+		Severity: "error",
+		Code:     "package_failed",
+		Message:  "Go test package failed: blackcat.ca/coding-ethos/go/cmd/tool",
+	})
+}
+
 func TestParseToolchainDiagnostics(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		tool   string
-		output string
-		want   diagnostics.Diagnostic
-	}{
+	for _, test := range toolchainDiagnosticCases() {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			assertDiagnostic(
+				t,
+				diagnostics.Parse(test.tool, test.output, ""),
+				test.want,
+			)
+		})
+	}
+}
+
+type toolchainDiagnosticCase struct {
+	name   string
+	tool   string
+	output string
+	want   diagnostics.Diagnostic
+}
+
+func toolchainDiagnosticCases() []toolchainDiagnosticCase {
+	tests := baseToolchainDiagnosticCases()
+	tests = append(tests, extraToolchainDiagnosticCases()...)
+
+	return tests
+}
+
+func baseToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
 		{
 			name: "hadolint-json",
 			tool: "hadolint",
@@ -311,6 +381,11 @@ func TestParseToolchainDiagnostics(t *testing.T) {
 				Message:  "wrong indentation",
 			},
 		},
+	}
+}
+
+func extraToolchainDiagnosticCases() []toolchainDiagnosticCase {
+	return []toolchainDiagnosticCase{
 		{
 			name: "bandit-json",
 			tool: "bandit",
@@ -370,14 +445,6 @@ func TestParseToolchainDiagnostics(t *testing.T) {
 			},
 		},
 	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
-		})
-	}
 }
 
 func TestParseTextToolDiagnostics(t *testing.T) {
@@ -417,9 +484,10 @@ func TestParseTextToolDiagnostics(t *testing.T) {
 			},
 		},
 		{
-			name:   "actionlint-text",
-			tool:   "actionlint",
-			output: ".github/workflows/ci.yml:12:5: property \"run\" is not defined [syntax-check]\n",
+			name: "actionlint-text",
+			tool: "actionlint",
+			output: ".github/workflows/ci.yml:12:5: " +
+				"property \"run\" is not defined [syntax-check]\n",
 			want: diagnostics.Diagnostic{
 				Tool:     "actionlint",
 				File:     ".github/workflows/ci.yml",
@@ -436,7 +504,11 @@ func TestParseTextToolDiagnostics(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			assertDiagnostic(t, diagnostics.Parse(test.tool, test.output, ""), test.want)
+			assertDiagnostic(
+				t,
+				diagnostics.Parse(test.tool, test.output, ""),
+				test.want,
+			)
 		})
 	}
 }
@@ -688,3 +760,18 @@ const golangciFixture = `level=warning msg="runner warning"
     }
   ]
 }`
+
+const goTestFixture = `{"Action":"run","Package":"blackcat.ca/coding-ethos/` +
+	`go/cmd/coding-ethos-policy","Test":"TestPolicyUsage"}` + "\n" +
+	`{"Action":"output","Package":"blackcat.ca/coding-ethos/` +
+	`go/cmd/coding-ethos-policy","Test":"TestPolicyUsage",` +
+	`"Output":"    go/cmd/coding-ethos-policy/main_test.go:42: ` +
+	`expected exit 0, got 1\n"}` + "\n" +
+	`{"Action":"output","Package":"blackcat.ca/coding-ethos/` +
+	`go/cmd/coding-ethos-policy","Test":"TestPolicyUsage",` +
+	`"Output":"    go/cmd/coding-ethos-policy/other_test.go:17: ` +
+	`second failure\n"}` + "\n" +
+	`{"Action":"fail","Package":"blackcat.ca/coding-ethos/` +
+	`go/cmd/coding-ethos-policy","Test":"TestPolicyUsage","Elapsed":0}` + "\n" +
+	`{"Action":"pass","Package":"blackcat.ca/coding-ethos/go/internal/hooks",` +
+	`"Elapsed":0.187}`

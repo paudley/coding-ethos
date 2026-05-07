@@ -16,6 +16,8 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
+const toolStatusSelected = "selected"
+
 type ExplainResult struct {
 	Scope                string               `json:"scope"`
 	Files                []string             `json:"files,omitempty"`
@@ -115,7 +117,7 @@ func ExplainWithOptions(
 
 		result.Checks = append(result.Checks, ExplainCheck{
 			CheckID:      policyID,
-			Status:       "selected",
+			Status:       toolStatusSelected,
 			Reason:       "selected by lint scope dispatch",
 			Severity:     policyDef.DefaultSeverity,
 			Evaluators:   evaluatorNames(policyDef.Evaluators),
@@ -131,7 +133,7 @@ func ExplainWithOptions(
 
 	result.Tools = explainTools(result.Files)
 	for _, tool := range result.Tools {
-		if tool.Status == "selected" {
+		if tool.Status == toolStatusSelected {
 			result.SelectedTools++
 		}
 	}
@@ -153,15 +155,26 @@ func EncodeExplainResult(
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 
-		return encoder.Encode(result)
+		err := encoder.Encode(result)
+		if err != nil {
+			return fmt.Errorf("encode lint explain JSON: %w", err)
+		}
+
+		return nil
 	case "toon":
 		_, err := fmt.Fprintln(writer, FormatExplainResultTOON(result))
+		if err != nil {
+			return fmt.Errorf("write lint explain TOON: %w", err)
+		}
 
-		return err
+		return nil
 	default:
 		_, err := fmt.Fprintln(writer, FormatExplainResultHuman(result))
+		if err != nil {
+			return fmt.Errorf("write lint explain text: %w", err)
+		}
 
-		return err
+		return nil
 	}
 }
 
@@ -357,7 +370,7 @@ func explainTools(files []string) []ExplainTool {
 
 	sort.Slice(result, func(left, right int) bool {
 		if result[left].Status != result[right].Status {
-			return result[left].Status == "selected"
+			return result[left].Status == toolStatusSelected
 		}
 
 		return result[left].Name < result[right].Name
@@ -377,7 +390,7 @@ func explainEvidenceMaps(
 	selectedTools := map[string]bool{}
 
 	for _, tool := range tools {
-		if tool.Status == "selected" {
+		if tool.Status == toolStatusSelected {
 			selectedTools[strings.ToLower(tool.Name)] = true
 		}
 	}

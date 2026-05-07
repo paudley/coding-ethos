@@ -5,43 +5,52 @@ package mcp
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
 func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 	var input codeIntelSearchInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence search arguments: %w", err)
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence search arguments: %w",
+			inlineErr0,
+		)
 	}
 
 	if strings.TrimSpace(input.Text) == "" && len(input.Vector) == 0 {
-		return nil, errors.New("text or vector is required")
+		return nil, apperror.StaticError("text or vector is required")
 	}
 
 	store, index, closeAll, err := server.openCodeIntel()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
 	}
 	defer closeAll()
 
-	results, err := store.HybridSearch(argsContext(), index, codeintel.HybridSearchQuery{
-		Filters:    input.Filters,
-		Text:       input.Text,
-		Collection: firstNonEmpty(input.Collection, "remediations"),
-		ModelID:    input.ModelID,
-		PolicyID:   input.PolicyID,
-		SkillID:    input.SkillID,
-		Path:       input.Path,
-		Vector:     input.Vector,
-		Limit:      input.Limit,
-	})
+	results, err := store.HybridSearch(
+		argsContext(),
+		index,
+		codeintel.HybridSearchQuery{
+			Filters:    input.Filters,
+			Text:       input.Text,
+			Collection: firstNonEmpty(input.Collection, "remediations"),
+			ModelID:    input.ModelID,
+			PolicyID:   input.PolicyID,
+			SkillID:    input.SkillID,
+			Path:       input.Path,
+			Vector:     input.Vector,
+			Limit:      input.Limit,
+		},
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run code intelligence search: %w", err)
 	}
 
 	return map[string]any{
@@ -53,13 +62,18 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 
 func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	var input codeIntelIndexStatusInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence index-status arguments: %w", err)
+
+	inlineErr1 := json.Unmarshal(args, &input)
+	if inlineErr1 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence index-status arguments: %w",
+			inlineErr1,
+		)
 	}
 
 	store, index, closeAll, err := server.openCodeIntel()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
 	}
 	defer closeAll()
 
@@ -67,7 +81,7 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 
 	vectorStats, err := index.Stats(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read vector index stats: %w", err)
 	}
 
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
@@ -76,7 +90,7 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 		ModelID:    input.ModelID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read code intelligence index status: %w", err)
 	}
 
 	return status, nil
@@ -84,13 +98,18 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 
 func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
 	var input codeIntelHookUsageInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence hook-usage arguments: %w", err)
+
+	inlineErr2 := json.Unmarshal(args, &input)
+	if inlineErr2 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence hook-usage arguments: %w",
+			inlineErr2,
+		)
 	}
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 	defer closeStore()
 
@@ -105,7 +124,7 @@ func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
 		Limit:         input.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query hook usage: %w", err)
 	}
 
 	return map[string]any{
@@ -116,8 +135,13 @@ func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
 
 func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 	var input codeIntelIndexCodeInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence index-code arguments: %w", err)
+
+	inlineErr3 := json.Unmarshal(args, &input)
+	if inlineErr3 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence index-code arguments: %w",
+			inlineErr3,
+		)
 	}
 
 	root := server.codeIntelRoot()
@@ -129,13 +153,13 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 
 	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 	defer store.Close()
 
 	summary, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, root, input.Paths)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("index code intelligence paths: %w", err)
 	}
 
 	return map[string]any{
@@ -146,16 +170,18 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 
 func (server Server) codeIntelEmbeddingCandidates(args json.RawMessage) (any, error) {
 	var input codeIntelEmbeddingCandidatesInput
-	if err := json.Unmarshal(args, &input); err != nil {
+
+	inlineErr4 := json.Unmarshal(args, &input)
+	if inlineErr4 != nil {
 		return nil, fmt.Errorf(
 			"parse code intelligence embedding-candidates arguments: %w",
-			err,
+			inlineErr4,
 		)
 	}
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 	defer closeStore()
 
@@ -170,7 +196,7 @@ func (server Server) codeIntelEmbeddingCandidates(args json.RawMessage) (any, er
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query embedding candidates: %w", err)
 	}
 
 	return map[string]any{
@@ -181,13 +207,18 @@ func (server Server) codeIntelEmbeddingCandidates(args json.RawMessage) (any, er
 
 func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 	var input codeIntelCodeChunksInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence code-chunks arguments: %w", err)
+
+	inlineErr5 := json.Unmarshal(args, &input)
+	if inlineErr5 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence code-chunks arguments: %w",
+			inlineErr5,
+		)
 	}
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 	defer closeStore()
 
@@ -200,7 +231,7 @@ func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 		Limit:      input.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query code chunks: %w", err)
 	}
 
 	return map[string]any{
@@ -211,21 +242,26 @@ func (server Server) codeIntelCodeChunks(args json.RawMessage) (any, error) {
 
 func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	var input codeIntelCodeContextInput
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("parse code intelligence code-context arguments: %w", err)
+
+	inlineErr6 := json.Unmarshal(args, &input)
+	if inlineErr6 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence code-context arguments: %w",
+			inlineErr6,
+		)
 	}
 
 	if strings.TrimSpace(input.ChunkID) == "" &&
 		((strings.TrimSpace(input.Path) == "" || strings.TrimSpace(input.SymbolPath) == "") &&
 			(strings.TrimSpace(input.Path) == "" || input.Line <= 0)) {
-		return nil, errors.New(
+		return nil, apperror.StaticError(
 			"chunk_id, both path and symbol_path, or path and line are required",
 		)
 	}
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 	defer closeStore()
 
@@ -237,7 +273,7 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 		Limit:      input.Limit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query code context: %w", err)
 	}
 
 	return map[string]any{
@@ -246,10 +282,15 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	}, nil
 }
 
-func (server Server) openCodeIntel() (*codeintel.Store, evidence.VectorIndex, func(), error) {
+func (server Server) openCodeIntel() (
+	*codeintel.Store,
+	evidence.VectorIndex,
+	func(),
+	error,
+) {
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 
 	ctx := argsContext()
@@ -261,7 +302,7 @@ func (server Server) openCodeIntel() (*codeintel.Store, evidence.VectorIndex, fu
 	if err != nil {
 		closeStore()
 
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("open vector index: %w", err)
 	}
 
 	closeAll := func() {
@@ -283,7 +324,7 @@ func (server Server) openCodeIntelStore() (*codeintel.Store, func(), error) {
 
 	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(root))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 
 	closeStore := func() {

@@ -9,8 +9,10 @@ import (
 	"strings"
 )
 
+const dedupeMinimumItems = 2
+
 func Dedupe(items []Diagnostic) []Diagnostic {
-	if len(items) < 2 {
+	if len(items) < dedupeMinimumItems {
 		return items
 	}
 
@@ -71,33 +73,7 @@ func dedupeKey(item Diagnostic) string {
 }
 
 func mergeDiagnostic(primary, duplicate Diagnostic) Diagnostic {
-	if primary.PolicyID == "" && duplicate.PolicyID != "" {
-		primary.PolicyID = duplicate.PolicyID
-	}
-
-	if primary.SkillID == "" && duplicate.SkillID != "" {
-		primary.SkillID = duplicate.SkillID
-	}
-
-	if primary.Advice == "" && duplicate.Advice != "" {
-		primary.Advice = duplicate.Advice
-	}
-
-	if primary.Meaning == "" && duplicate.Meaning != "" {
-		primary.Meaning = duplicate.Meaning
-	}
-
-	if primary.Confidence == "" && duplicate.Confidence != "" {
-		primary.Confidence = duplicate.Confidence
-	}
-
-	if primary.Code == "" && duplicate.Code != "" {
-		primary.Code = duplicate.Code
-	}
-
-	if primary.Severity == "" && duplicate.Severity != "" {
-		primary.Severity = duplicate.Severity
-	}
+	mergeDiagnosticScalars(&primary, duplicate)
 
 	primary.PrincipleIDs = appendUnique(primary.PrincipleIDs, duplicate.PrincipleIDs...)
 	primary.AdviceSteps = appendUnique(primary.AdviceSteps, duplicate.AdviceSteps...)
@@ -106,6 +82,22 @@ func mergeDiagnostic(primary, duplicate Diagnostic) Diagnostic {
 	primary.Detail = mergedDiagnosticDetail(primary, duplicate)
 
 	return primary
+}
+
+func mergeDiagnosticScalars(primary *Diagnostic, duplicate Diagnostic) {
+	fillString(&primary.PolicyID, duplicate.PolicyID)
+	fillString(&primary.SkillID, duplicate.SkillID)
+	fillString(&primary.Advice, duplicate.Advice)
+	fillString(&primary.Meaning, duplicate.Meaning)
+	fillString(&primary.Confidence, duplicate.Confidence)
+	fillString(&primary.Code, duplicate.Code)
+	fillString(&primary.Severity, duplicate.Severity)
+}
+
+func fillString(target *string, value string) {
+	if *target == "" && value != "" {
+		*target = value
+	}
 }
 
 func mergedDiagnosticDetail(primary, duplicate Diagnostic) string {

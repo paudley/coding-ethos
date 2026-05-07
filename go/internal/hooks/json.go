@@ -43,7 +43,12 @@ func EncodeResult(writer io.Writer, result Result) error {
 
 func normalizeEvent(payload map[string]json.RawMessage) Event {
 	event := Event{
-		Cwd:            firstString(payload, "cwd", "working_directory", "workingDirectory"),
+		Cwd: firstString(
+			payload,
+			"cwd",
+			"working_directory",
+			"workingDirectory",
+		),
 		HookEventName:  primaryHookEventName(payload),
 		Matcher:        firstString(payload, "matcher"),
 		ProviderHint:   firstString(payload, "provider", "agent", "runtime"),
@@ -71,7 +76,7 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 func normalizedHookEventName(name string) string {
 	switch name {
 	case "BeforeTool":
-		return "PreToolUse"
+		return eventPreToolUse
 	default:
 		return name
 	}
@@ -130,15 +135,32 @@ func normalizeNestedTool(payload map[string]json.RawMessage, event Event) Event 
 		}
 
 		if event.ToolName == "" {
-			event.ToolName = firstString(nested, "name", "tool_name", "toolName", "tool")
+			event.ToolName = firstString(
+				nested,
+				"name",
+				"tool_name",
+				"toolName",
+				"tool",
+			)
 		}
 
 		if event.ToolInput == nil {
-			event.ToolInput = firstMap(nested, "input", "arguments", "args", "parameters")
+			event.ToolInput = firstMap(
+				nested,
+				"input",
+				"arguments",
+				"args",
+				"parameters",
+			)
 		}
 
 		if event.ToolResponse == nil {
-			event.ToolResponse = firstResponseMap(nested, "response", "output", "result")
+			event.ToolResponse = firstResponseMap(
+				nested,
+				"response",
+				"output",
+				"result",
+			)
 		}
 	}
 

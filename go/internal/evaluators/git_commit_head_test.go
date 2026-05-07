@@ -15,6 +15,12 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const (
+	commitHeadBlockDecision = "block"
+	postToolUseScope        = "PostToolUse"
+	recordDecisionValue     = "record"
+)
+
 func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 	t.Parallel()
 
@@ -24,7 +30,8 @@ func TestEvaluateGitCommitHeadAdvancedBlocksUnchangedHead(t *testing.T) {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "block" || decisions[0].Severity != "block" {
+	if decisions[0].Decision != commitHeadBlockDecision ||
+		decisions[0].Severity != commitHeadBlockDecision {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 
@@ -60,7 +67,7 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 	runGit(t, repo, "add", "file.txt")
 	runGit(t, repo, "commit", "-m", "second")
 
-	context.Scope = "PostToolUse"
+	context.Scope = postToolUseScope
 	context.HasToolResponse = true
 	context.HasReturnCode = true
 	context.ReturnCode = 0
@@ -74,7 +81,7 @@ func TestEvaluateGitCommitHeadAdvancedRecordsAdvancedHead(t *testing.T) {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "record" {
+	if decisions[0].Decision != recordDecisionValue {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 
@@ -93,7 +100,8 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockFailedCommit(t *testing.T) {
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+	if decisions[0].Decision != recordDecisionValue ||
+		decisions[0].Severity != recordDecisionValue {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 
@@ -123,7 +131,7 @@ func evaluateRecordedCommitHead(
 		t.Fatalf("record head: %v", err)
 	}
 
-	context.Scope = "PostToolUse"
+	context.Scope = postToolUseScope
 	context.HasToolResponse = true
 	context.HasReturnCode = true
 	context.ReturnCode = returnCode
@@ -154,7 +162,7 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingToolResponse(t *testing
 		t.Fatalf("record head: %v", err)
 	}
 
-	context.Scope = "PostToolUse"
+	context.Scope = postToolUseScope
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
 	if err != nil {
@@ -165,7 +173,8 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingToolResponse(t *testing
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+	if decisions[0].Decision != recordDecisionValue ||
+		decisions[0].Severity != recordDecisionValue {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 
@@ -193,7 +202,7 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingReturnCode(t *testing.T
 		t.Fatalf("record head: %v", err)
 	}
 
-	context.Scope = "PostToolUse"
+	context.Scope = postToolUseScope
 	context.HasToolResponse = true
 
 	decisions, err := EvaluateGitCommitHeadAdvanced(policyDef, context)
@@ -205,7 +214,8 @@ func TestEvaluateGitCommitHeadAdvancedDoesNotBlockMissingReturnCode(t *testing.T
 		t.Fatalf("decision count mismatch: %#v", decisions)
 	}
 
-	if decisions[0].Decision != "record" || decisions[0].Severity != "record" {
+	if decisions[0].Decision != recordDecisionValue ||
+		decisions[0].Severity != recordDecisionValue {
 		t.Fatalf("decision mismatch: %#v", decisions[0])
 	}
 

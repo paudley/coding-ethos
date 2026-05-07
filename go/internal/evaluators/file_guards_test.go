@@ -12,6 +12,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const piiToolName = "pii"
+
 func TestEvaluateFileMergeConflictBlocksMarkers(t *testing.T) {
 	t.Parallel()
 
@@ -113,7 +115,7 @@ func TestEvaluatePIIScrubberBlocksLocalMachineDetails(t *testing.T) {
 		Context{Files: []string{path}},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -132,7 +134,7 @@ func TestEvaluatePIIScrubberBlocksConfiguredLiteral(t *testing.T) {
 		},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -196,7 +198,7 @@ func TestEvaluatePIIScrubberStillScansDotFiles(t *testing.T) {
 		Context{Files: []string{path}},
 	)
 
-	if decision.Diagnostics[0].Tool != "pii" {
+	if decision.Diagnostics[0].Tool != piiToolName {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }
@@ -254,7 +256,10 @@ func TestEvaluateLicenseHeaderIgnoresYAMLByDefault(t *testing.T) {
 	}
 
 	if len(decisions) != 0 {
-		t.Fatalf("yaml files should not require license or copyright headers: %#v", decisions)
+		t.Fatalf(
+			"yaml files should not require license or copyright headers: %#v",
+			decisions,
+		)
 	}
 }
 
@@ -329,7 +334,8 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 		},
 	)
 
-	if decision.Diagnostics[0].Message != "LICENSE does not match the configured SPDX license text" {
+	if decision.Diagnostics[0].Message !=
+		"LICENSE does not match the configured SPDX license text" {
 		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
 	}
 }

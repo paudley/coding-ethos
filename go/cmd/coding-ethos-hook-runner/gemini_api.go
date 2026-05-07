@@ -367,16 +367,7 @@ func createGeminiExplicitCache(
 ) (geminiCachedContentResponse, error) {
 	var created geminiCachedContentResponse
 
-	payload, err := json.Marshal(geminiCachedContentCreateRequest{
-		Model:       geminiModelPath(model),
-		DisplayName: displayName,
-		Contents: []geminiContent{
-			{
-				Parts: []geminiPart{{Text: content}},
-			},
-		},
-		TTL: geminiDurationLiteral(ttl),
-	})
+	payload, err := geminiCachedContentPayload(model, content, ttl, displayName)
 	if err != nil {
 		return created, fmt.Errorf(
 			"encode Gemini cachedContents.create request: %w",
@@ -384,12 +375,7 @@ func createGeminiExplicitCache(
 		)
 	}
 
-	request, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		"https://generativelanguage.googleapis.com/v1beta/cachedContents",
-		bytes.NewReader(payload),
-	)
+	request, err := newGeminiCachedContentRequest(apiKey, payload)
 	if err != nil {
 		return created, fmt.Errorf(
 			"build Gemini cachedContents.create request: %w",
@@ -397,29 +383,14 @@ func createGeminiExplicitCache(
 		)
 	}
 
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Goog-Api-Key", apiKey)
-
 	response, err := client.Do(request)
 	if err != nil {
 		return created, fmt.Errorf("gemini cachedContents.create failed: %w", err)
 	}
 
-	body, readErr := io.ReadAll(response.Body)
-	closeErr := response.Body.Close()
-
-	if readErr != nil {
-		return created, fmt.Errorf(
-			"read Gemini cachedContents.create response: %w",
-			readErr,
-		)
-	}
-
-	if closeErr != nil {
-		return created, fmt.Errorf(
-			"close Gemini cachedContents.create response: %w",
-			closeErr,
-		)
+	body, err := readGeminiCachedContentResponse(response)
+	if err != nil {
+		return created, err
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -444,6 +415,68 @@ func createGeminiExplicitCache(
 	}
 
 	return created, nil
+}
+
+func geminiCachedContentPayload(
+	model string,
+	content string,
+	ttl time.Duration,
+	displayName string,
+) ([]byte, error) {
+	payload, err := json.Marshal(geminiCachedContentCreateRequest{
+		Model:       geminiModelPath(model),
+		DisplayName: displayName,
+		Contents: []geminiContent{{
+			Parts: []geminiPart{{Text: content}},
+		}},
+		TTL: geminiDurationLiteral(ttl),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal Gemini cached content payload: %w", err)
+	}
+
+	return payload, nil
+}
+
+func newGeminiCachedContentRequest(
+	apiKey string,
+	payload []byte,
+) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"https://generativelanguage.googleapis.com/v1beta/cachedContents",
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create Gemini cached content request: %w", err)
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Goog-Api-Key", apiKey)
+
+	return request, nil
+}
+
+func readGeminiCachedContentResponse(response *http.Response) ([]byte, error) {
+	body, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+
+	if readErr != nil {
+		return nil, fmt.Errorf(
+			"read Gemini cachedContents.create response: %w",
+			readErr,
+		)
+	}
+
+	if closeErr != nil {
+		return nil, fmt.Errorf(
+			"close Gemini cachedContents.create response: %w",
+			closeErr,
+		)
+	}
+
+	return body, nil
 }
 
 func ensureGeminiExplicitCache(
@@ -507,26 +540,7 @@ func generateGeminiText(
 		return cachedText, nil
 	}
 
-	requestPayload := geminiRequest{
-		Contents: []geminiContent{
-			{
-				Parts: []geminiPart{{Text: prompt}},
-			},
-		},
-		GenerationConfig: geminiGenerationConfig{
-			ResponseMIMEType: "application/json",
-		},
-		CachedContent:  cachedContent,
-		ServiceTier:    settings.ServiceTier,
-		SafetySettings: geminiSafetySettings(settings.DisableSafetyFilters),
-	}
-	if settings.ThinkingBudget != nil {
-		requestPayload.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{
-			ThinkingBudget: *settings.ThinkingBudget,
-		}
-	}
-
-	payload, err := json.Marshal(requestPayload)
+	payload, err := json.Marshal(geminiTextRequest(settings, prompt, cachedContent))
 	if err != nil {
 		return "", fmt.Errorf("encode Gemini request: %w", err)
 	}
@@ -574,6 +588,31 @@ func generateGeminiText(
 		settings.MaxRetries+1,
 		lastErr,
 	)
+}
+
+func geminiTextRequest(
+	settings geminiRequestSettings,
+	prompt string,
+	cachedContent string,
+) geminiRequest {
+	request := geminiRequest{
+		Contents: []geminiContent{{
+			Parts: []geminiPart{{Text: prompt}},
+		}},
+		GenerationConfig: geminiGenerationConfig{
+			ResponseMIMEType: "application/json",
+		},
+		CachedContent:  cachedContent,
+		ServiceTier:    settings.ServiceTier,
+		SafetySettings: geminiSafetySettings(settings.DisableSafetyFilters),
+	}
+	if settings.ThinkingBudget != nil {
+		request.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{
+			ThinkingBudget: *settings.ThinkingBudget,
+		}
+	}
+
+	return request
 }
 
 func generateGeminiTextAttempt(

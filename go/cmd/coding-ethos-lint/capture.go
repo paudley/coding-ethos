@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -25,7 +26,7 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
-var errCaptureToolPathRequired = errors.New(
+var errCaptureToolPathRequired = apperror.StaticError(
 	"--tool-path is required with --capture-tool",
 )
 
@@ -362,7 +363,10 @@ func prepareSandboxCgroup(
 
 	cgroup, appliedEvidence, err := sandbox.PrepareCgroupLimits(evidence)
 	if err != nil {
-		return nil, appliedEvidence, fmt.Errorf("prepare sandbox cgroup limits: %w", err)
+		return nil, appliedEvidence, fmt.Errorf(
+			"prepare sandbox cgroup limits: %w",
+			err,
+		)
 	}
 
 	return cgroup, appliedEvidence, nil
@@ -592,7 +596,10 @@ func applyCapturePolicies(request captureRequest, result lint.Result) lint.Resul
 		decisions, err := evaluateCapturePolicy(policyDef, context, registry)
 		if err != nil {
 			result.Status = capturedStatusBlocked
-			result.Findings = append(result.Findings, capturedPolicyErrorFinding(policyDef, err))
+			result.Findings = append(
+				result.Findings,
+				capturedPolicyErrorFinding(policyDef, err),
+			)
 
 			continue
 		}

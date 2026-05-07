@@ -15,7 +15,9 @@ func executeGeminiChecks(
 	prepared []geminiPreparedCheck,
 	changedLinesByFile map[string]map[int]struct{},
 ) []geminiCheckOutcome {
-	client := &http.Client{Timeout: time.Duration(settings.TimeoutSeconds) * time.Second}
+	client := &http.Client{
+		Timeout: time.Duration(settings.TimeoutSeconds) * time.Second,
+	}
 
 	return executeGeminiChecksWithClient(
 		settings,

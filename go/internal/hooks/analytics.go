@@ -17,6 +17,8 @@ var (
 	shellWhitespacePattern   = regexp.MustCompile(`\s+`)
 )
 
+const shellToolName = "bash"
+
 type hookTraceAnalytics struct {
 	OperationKind     string
 	TargetKind        string
@@ -45,7 +47,7 @@ func operationKind(toolName, command string) string {
 	commandText := strings.ToLower(strings.TrimSpace(command))
 
 	switch tool {
-	case "bash", "shell":
+	case shellToolName, "shell":
 		return shellOperationKind(commandText)
 	case "write", "edit", "multiedit", "update", "notebookedit":
 		return "file_write"
@@ -129,35 +131,72 @@ func riskCategory(decisions []policy.Decision, status string) string {
 	}
 
 	for _, decision := range decisions {
-		policyID := strings.ToLower(decision.PolicyID)
-
-		message := strings.ToLower(decision.Message + " " + decision.Suggestion)
-		switch {
-		case strings.Contains(policyID, "bypass") ||
-			strings.Contains(policyID, "wrapper") ||
-			strings.Contains(message, "bypass") ||
-			strings.Contains(message, "wrapper"):
-			return "bypass"
-		case strings.Contains(policyID, "forbidden_strings") ||
-			strings.Contains(policyID, "malformed") ||
-			strings.Contains(policyID, "shell"):
-			return "unsafe_shell"
-		case strings.Contains(policyID, "protected_path") ||
-			strings.Contains(policyID, "enforcement"):
-			return "protected_write"
-		case strings.Contains(policyID, "large") ||
-			strings.Contains(policyID, "growth") ||
-			strings.Contains(policyID, "file_size"):
-			return "large_file_growth"
-		case strings.Contains(policyID, "lint") ||
-			strings.Contains(policyID, "capture"):
-			return "lint_capture"
-		case decision.Decision == modeBlock || decision.Severity == modeBlock:
-			return "policy_block"
+		category := riskCategoryForDecision(decision)
+		if category != "" {
+			return category
 		}
 	}
 
 	return "policy_signal"
+}
+
+func riskCategoryForDecision(decision policy.Decision) string {
+	policyID := strings.ToLower(decision.PolicyID)
+	message := strings.ToLower(decision.Message + " " + decision.Suggestion)
+
+	for _, category := range riskCategoryMatchers() {
+		if category.Matches(policyID, message, decision) {
+			return category.Name
+		}
+	}
+
+	return ""
+}
+
+type riskCategoryMatcher struct {
+	Name     string
+	PolicyID []string
+	Message  []string
+	Blocked  bool
+}
+
+func riskCategoryMatchers() []riskCategoryMatcher {
+	return []riskCategoryMatcher{
+		{
+			Name:     "bypass",
+			PolicyID: []string{"bypass", "wrapper"},
+			Message:  []string{"bypass", "wrapper"},
+		},
+		{
+			Name:     "unsafe_shell",
+			PolicyID: []string{"forbidden_strings", "malformed", "shell"},
+		},
+		{Name: "protected_write", PolicyID: []string{"protected_path", "enforcement"}},
+		{Name: "large_file_growth", PolicyID: []string{"large", "growth", "file_size"}},
+		{Name: "lint_capture", PolicyID: []string{"lint", "capture"}},
+		{Name: "policy_block", Blocked: true},
+	}
+}
+
+func (matcher riskCategoryMatcher) Matches(
+	policyID string,
+	message string,
+	decision policy.Decision,
+) bool {
+	return containsAny(policyID, matcher.PolicyID) ||
+		containsAny(message, matcher.Message) ||
+		(matcher.Blocked &&
+			(decision.Decision == modeBlock || decision.Severity == modeBlock))
+}
+
+func containsAny(value string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func commandShapeHash(command string) string {

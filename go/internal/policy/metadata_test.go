@@ -5,12 +5,12 @@ package policy_test
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -76,8 +76,10 @@ func TestEncodeDecodeMetadataRoundTrips(t *testing.T) {
 	}
 
 	var buffer bytes.Buffer
-	if err := EncodeMetadata(&buffer, original); err != nil {
-		t.Fatalf("EncodeMetadata() error = %v", err)
+
+	inlineErr0 := EncodeMetadata(&buffer, original)
+	if inlineErr0 != nil {
+		t.Fatalf("EncodeMetadata() error = %v", inlineErr0)
 	}
 
 	if !strings.Contains(buffer.String(), `"bundle_hash": "sha256:bundle"`) {
@@ -134,8 +136,9 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 	mismatchPath := filepath.Join(dir, "config.yaml")
 	missingPath := filepath.Join(dir, "missing.yaml")
 
-	if err := os.WriteFile(mismatchPath, []byte("policy: true\n"), 0o600); err != nil {
-		t.Fatalf("write policy source: %v", err)
+	inlineErr1 := os.WriteFile(mismatchPath, []byte("policy: true\n"), 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write policy source: %v", inlineErr1)
 	}
 
 	metadata := Metadata{
@@ -163,7 +166,7 @@ func TestValidateMetadataSourceHashesReportsMissingAndMismatchedFiles(t *testing
 func TestFormatValidationErrorSortsMultilineErrors(t *testing.T) {
 	t.Parallel()
 
-	formatted := FormatValidationError(errors.New("z problem\na problem"))
+	formatted := FormatValidationError(apperror.StaticError("z problem\na problem"))
 	if formatted != "a problem\nz problem" {
 		t.Fatalf("validation formatting should sort lines: %q", formatted)
 	}

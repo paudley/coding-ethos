@@ -4,6 +4,7 @@
 package policy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,10 +12,20 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+)
+
+const (
+	defaultCommitHeaderMaxLength = 150
+	defaultLicenseScanLines      = 5
+	defaultLicenseClientTimeout  = 10 * time.Second
+	piiScrubberSuggestion        = "Replace local paths, usernames, " +
+		"hostnames, and worktree names with generic placeholders."
+	shebangSuggestion = "Add a valid shebang to executable scripts and " +
+		"mark shebang scripts executable."
 )
 
 func compilePolicies(
-	ethos map[string]any,
 	config map[string]any,
 	repoConfig map[string]any,
 	expressionSources []expressionPolicySource,
@@ -63,7 +74,10 @@ func addGitPolicies(
 	}
 
 	if enabledAt(config, []string{"go", "commit_attribution"}) {
-		policies["git.commit_attribution"] = gitCommitAttributionPolicy(config, principles)
+		policies["git.commit_attribution"] = gitCommitAttributionPolicy(
+			config,
+			principles,
+		)
 	}
 
 	if enabledAt(config, []string{"go", "commitlint"}) {
@@ -144,8 +158,13 @@ func gitCommitHeadPolicy(principles map[string]Principle) Policy {
 		Message:         "Commit success must be verified by checking that HEAD advanced.",
 		Suggestion:      "Compare pre-commit and post-commit HEAD before reporting success.",
 		DefenseLayers:   GitDefenseLayers("", "wrapper", "record", "", "git_state"),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
-		Evaluators:      []Evaluator{{Kind: "git_state", Name: "git.commit_head_advanced"}},
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit"},
+			Tools:    []string{"Bash"},
+		},
+		Evaluators: []Evaluator{
+			{Kind: "git_state", Name: "git.commit_head_advanced"},
+		},
 	}
 }
 
@@ -173,7 +192,10 @@ func gitCommitAttributionPolicy(
 			"attribution before committing.",
 		),
 		DefenseLayers: GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
-		AppliesTo:     AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit"},
+			Tools:    []string{"Bash"},
+		},
 		Evaluators: []Evaluator{{
 			Kind: "argv",
 			Name: "git.commit_attribution",
@@ -215,9 +237,21 @@ func gitCommitLintPolicy(
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Commit messages must follow the configured conventional format.",
-		Suggestion:      "Use exactly: type(scope): concise subject, then a blank line before the body.",
-		DefenseLayers:   GitDefenseLayers("block", "wrapper", "block", "commit_msg", ""),
-		AppliesTo:       AppliesTo{Commands: []string{"git commit"}, Tools: []string{"Bash"}},
+		Suggestion: sentence(
+			"Use exactly: type(scope): concise subject,",
+			"then a blank line before the body.",
+		),
+		DefenseLayers: GitDefenseLayers(
+			"block",
+			"wrapper",
+			"block",
+			"commit_msg",
+			"",
+		),
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit"},
+			Tools:    []string{"Bash"},
+		},
 		Evaluators: []Evaluator{{
 			Kind: "git_state",
 			Name: "git.commitlint",
@@ -225,7 +259,15 @@ func gitCommitLintPolicy(
 				"allowed_types": stringSliceAt(
 					config,
 					[]string{"go", "commitlint", "allowed_types"},
-					[]string{"chore", "docs", "feat", "fix", "perf", "refactor", "test"},
+					[]string{
+						"chore",
+						"docs",
+						"feat",
+						"fix",
+						"perf",
+						"refactor",
+						"test",
+					},
 				),
 				"ignored_prefixes": stringSliceAt(
 					config,
@@ -235,7 +277,7 @@ func gitCommitLintPolicy(
 				"max_header_length": intAt(
 					config,
 					[]string{"go", "commitlint", "max_header_length"},
-					150,
+					defaultCommitHeaderMaxLength,
 				),
 			},
 		}},
@@ -249,91 +291,15 @@ func addFileGuardPolicies(
 	principles map[string]Principle,
 ) error {
 	if policyConfigEnabled(config, "security.private_key") {
-		pattern := stringAt(config, "security", "private_key", "pattern")
-		if pattern == "" {
-			pattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
-		}
-
-		policies["security.private_key"] = Policy{
-			ID:              "security.private_key",
-			Category:        "security",
-			Source:          SourceRef{File: "config.yaml", Path: "security.private_key"},
-			PrincipleIDs:    principleRefs(principles, "security-by-design"),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Private keys must not be committed.",
-			Suggestion:      "Remove secrets from source and rotate exposed credentials.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind:    "text",
-				Name:    "security.private_key",
-				Options: map[string]any{"pattern": pattern},
-			}},
-		}
+		policies["security.private_key"] = privateKeyPolicy(config, principles)
 	}
 
 	if policyConfigEnabled(config, "filesystem.shebangs") {
-		policies["filesystem.shebangs"] = Policy{
-			ID:       "filesystem.shebangs",
-			Category: "filesystem",
-			Source:   SourceRef{File: "config.yaml", Path: "filesystem.shebangs"},
-			PrincipleIDs: principleRefs(
-				principles,
-				"static-analysis-is-the-first-line-of-defense",
-			),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Executable scripts and shebangs must agree.",
-			Suggestion:      "Add a valid shebang to executable scripts and mark shebang scripts executable.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators:      []Evaluator{{Kind: "text", Name: "filesystem.shebangs"}},
-		}
+		policies["filesystem.shebangs"] = shebangPolicy(principles)
 	}
 
 	if enabledAt(config, []string{"filesystem", "pii_scrubber"}) {
-		policies["repo.pii_scrubber"] = Policy{
-			ID:       "repo.pii_scrubber",
-			Category: "repo",
-			Source:   SourceRef{File: "config.yaml", Path: "filesystem.pii_scrubber"},
-			PrincipleIDs: principleRefs(
-				principles,
-				"security-by-design",
-				"radical-visibility",
-			),
-			DefaultSeverity: "block",
-			SupportedModes:  []string{"block", "record"},
-			Message:         "Local-machine PII must not be committed.",
-			Suggestion:      "Replace local paths, usernames, hostnames, and worktree names with generic placeholders.",
-			DefenseLayers:   CodeDefenseLayers(),
-			AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
-			Evaluators: []Evaluator{{
-				Kind: "text",
-				Name: "repo.pii_scrubber",
-				Options: map[string]any{
-					"patterns": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "patterns"},
-						[]string{
-							`/(home|Users)/[A-Za-z0-9._-]+/`,
-							`lbox-worktrees/[A-Za-z0-9._-]+`,
-							`/tmp/tmp\.[A-Za-z0-9._-]+`,
-						},
-					),
-					"literals": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "literals"},
-						nil,
-					),
-					"exempt_prefixes": stringSliceAt(
-						config,
-						[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},
-						[]string{".git/"},
-					),
-				},
-			}},
-		}
+		policies["repo.pii_scrubber"] = piiScrubberPolicy(config, principles)
 	}
 
 	licensePolicy, err := licenseHeaderPolicy(config, repoConfig, principles)
@@ -346,6 +312,98 @@ func addFileGuardPolicies(
 	}
 
 	return nil
+}
+
+func privateKeyPolicy(config map[string]any, principles map[string]Principle) Policy {
+	pattern := stringAt(config, "security", "private_key", "pattern")
+	if pattern == "" {
+		pattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
+	}
+
+	return Policy{
+		ID:              "security.private_key",
+		Category:        "security",
+		Source:          SourceRef{File: "config.yaml", Path: "security.private_key"},
+		PrincipleIDs:    principleRefs(principles, "security-by-design"),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Private keys must not be committed.",
+		Suggestion:      "Remove secrets from source and rotate exposed credentials.",
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+		Evaluators: []Evaluator{{
+			Kind:    "text",
+			Name:    "security.private_key",
+			Options: map[string]any{"pattern": pattern},
+		}},
+	}
+}
+
+func shebangPolicy(principles map[string]Principle) Policy {
+	return Policy{
+		ID:       "filesystem.shebangs",
+		Category: "filesystem",
+		Source:   SourceRef{File: "config.yaml", Path: "filesystem.shebangs"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Executable scripts and shebangs must agree.",
+		Suggestion:      shebangSuggestion,
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+		Evaluators:      []Evaluator{{Kind: "text", Name: "filesystem.shebangs"}},
+	}
+}
+
+func piiScrubberPolicy(config map[string]any, principles map[string]Principle) Policy {
+	return Policy{
+		ID:       "repo.pii_scrubber",
+		Category: "repo",
+		Source:   SourceRef{File: "config.yaml", Path: "filesystem.pii_scrubber"},
+		PrincipleIDs: principleRefs(
+			principles,
+			"security-by-design",
+			"radical-visibility",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Local-machine PII must not be committed.",
+		Suggestion:      piiScrubberSuggestion,
+		DefenseLayers:   CodeDefenseLayers(),
+		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*"}},
+		Evaluators: []Evaluator{{
+			Kind:    "text",
+			Name:    "repo.pii_scrubber",
+			Options: piiScrubberOptions(config),
+		}},
+	}
+}
+
+func piiScrubberOptions(config map[string]any) map[string]any {
+	return map[string]any{
+		"patterns": stringSliceAt(
+			config,
+			[]string{"filesystem", "pii_scrubber", "patterns"},
+			[]string{
+				`/(home|Users)/[A-Za-z0-9._-]+/`,
+				`lbox-worktrees/[A-Za-z0-9._-]+`,
+				`/tmp/tmp\.[A-Za-z0-9._-]+`,
+			},
+		),
+		"literals": stringSliceAt(
+			config,
+			[]string{"filesystem", "pii_scrubber", "literals"},
+			nil,
+		),
+		"exempt_prefixes": stringSliceAt(
+			config,
+			[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},
+			[]string{".git/"},
+		),
+	}
 }
 
 func licenseHeaderPolicy(
@@ -362,33 +420,7 @@ func licenseHeaderPolicy(
 			principles,
 			"config.yaml",
 			"filesystem.license_header",
-			map[string]any{
-				"extensions": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "extensions"},
-					[]string{".go", ".py", ".sh"},
-				),
-				"exempt_prefixes": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "exempt_prefixes"},
-					[]string{".git/"},
-				),
-				"exempt_basenames": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "exempt_basenames"},
-					nil,
-				),
-				"required": stringSliceAt(
-					config,
-					[]string{"filesystem", "license_header", "required"},
-					[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
-				),
-				"scan_lines": intAt(
-					config,
-					[]string{"filesystem", "license_header", "scan_lines"},
-					5,
-				),
-			},
+			configLicenseHeaderOptions(config),
 		), nil
 	}
 
@@ -404,36 +436,7 @@ func licenseHeaderPolicy(
 		licenseFile = "LICENSE"
 	}
 
-	required := []string{}
-	if spdxID != "" {
-		required = append(required, "SPDX-License-Identifier: "+spdxID)
-	}
-
-	if copyrightText != "" {
-		required = append(required, "SPDX-FileCopyrightText: "+copyrightText)
-	}
-
-	options := map[string]any{
-		"extensions": stringSliceAt(
-			config,
-			[]string{"repo", "license", "extensions"},
-			[]string{".go", ".py", ".sh"},
-		),
-		"exempt_prefixes": stringSliceAt(
-			config,
-			[]string{"repo", "license", "exempt_prefixes"},
-			[]string{".git/"},
-		),
-		"exempt_basenames": stringSliceAt(
-			config,
-			[]string{"repo", "license", "exempt_basenames"},
-			nil,
-		),
-		"required":     required,
-		"scan_lines":   intAt(config, []string{"repo", "license", "scan_lines"}, 5),
-		"license_file": licenseFile,
-		"spdx_id":      spdxID,
-	}
+	options := repoLicenseHeaderOptions(config, spdxID, copyrightText, licenseFile)
 
 	if spdxID != "" {
 		licenseText, err := repoLicenseText(config, spdxID, copyrightText)
@@ -452,6 +455,86 @@ func licenseHeaderPolicy(
 	), nil
 }
 
+func configLicenseHeaderOptions(config map[string]any) map[string]any {
+	return map[string]any{
+		"extensions": stringSliceAt(
+			config,
+			[]string{"filesystem", "license_header", "extensions"},
+			[]string{".go", ".py", ".sh"},
+		),
+		"exempt_prefixes": stringSliceAt(
+			config,
+			[]string{"filesystem", "license_header", "exempt_prefixes"},
+			[]string{".git/"},
+		),
+		"exempt_basenames": stringSliceAt(
+			config,
+			[]string{"filesystem", "license_header", "exempt_basenames"},
+			nil,
+		),
+		"required": stringSliceAt(
+			config,
+			[]string{"filesystem", "license_header", "required"},
+			[]string{"SPDX-FileCopyrightText:", "SPDX-License-Identifier:"},
+		),
+		"scan_lines": intAt(
+			config,
+			[]string{"filesystem", "license_header", "scan_lines"},
+			defaultLicenseScanLines,
+		),
+	}
+}
+
+func repoLicenseHeaderOptions(
+	config map[string]any,
+	spdxID string,
+	copyrightText string,
+	licenseFile string,
+) map[string]any {
+	return map[string]any{
+		"extensions": stringSliceAt(
+			config,
+			[]string{"repo", "license", "extensions"},
+			[]string{".go", ".py", ".sh"},
+		),
+		"exempt_prefixes": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_prefixes"},
+			[]string{".git/"},
+		),
+		"exempt_basenames": stringSliceAt(
+			config,
+			[]string{"repo", "license", "exempt_basenames"},
+			nil,
+		),
+		"required":     repoLicenseRequiredHeaders(spdxID, copyrightText),
+		"scan_lines":   repoLicenseScanLines(config),
+		"license_file": licenseFile,
+		"spdx_id":      spdxID,
+	}
+}
+
+func repoLicenseRequiredHeaders(spdxID, copyrightText string) []string {
+	required := []string{}
+	if spdxID != "" {
+		required = append(required, "SPDX-License-Identifier: "+spdxID)
+	}
+
+	if copyrightText != "" {
+		required = append(required, "SPDX-FileCopyrightText: "+copyrightText)
+	}
+
+	return required
+}
+
+func repoLicenseScanLines(config map[string]any) int {
+	return intAt(
+		config,
+		[]string{"repo", "license", "scan_lines"},
+		defaultLicenseScanLines,
+	)
+}
+
 func baseLicenseHeaderPolicy(
 	principles map[string]Principle,
 	sourceFile string,
@@ -465,10 +548,15 @@ func baseLicenseHeaderPolicy(
 		PrincipleIDs:    principleRefs(principles, "documentation-as-contract"),
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
-		Message:         "First-party source files must carry the configured SPDX license contract.",
-		Suggestion:      "Add the configured LICENSE file and matching SPDX source headers.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"}},
+		Message: sentence(
+			"First-party source files must carry the configured SPDX",
+			"license contract.",
+		),
+		Suggestion:    "Add the configured LICENSE file and matching SPDX source headers.",
+		DefenseLayers: CodeDefenseLayers(),
+		AppliesTo: AppliesTo{
+			FilePatterns: []string{"**/*.go", "**/*.py", "**/*.sh"},
+		},
 		Evaluators: []Evaluator{{
 			Kind:    "text",
 			Name:    "repo.license_header",
@@ -510,16 +598,31 @@ func repoLicenseText(
 		url = "https://spdx.org/licenses/" + spdxID + ".txt"
 	}
 
-	client := http.Client{Timeout: 10 * time.Second}
+	client := http.Client{Timeout: defaultLicenseClientTimeout}
 
-	response, err := client.Get(url)
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		url,
+		nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("create SPDX license request %s: %w", spdxID, err)
+	}
+
+	response, err := client.Do(request)
 	if err != nil {
 		return "", fmt.Errorf("download SPDX license %s: %w", spdxID, err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download SPDX license %s: status %s", spdxID, response.Status)
+		return "", apperror.Wrapf(
+			apperror.StaticError("download SPDX license %s: status %s"),
+			"download SPDX license %s: status %s",
+			spdxID,
+			response.Status,
+		)
 	}
 
 	body, err := io.ReadAll(response.Body)
@@ -576,7 +679,12 @@ func addSyntaxPolicies(
 			Suggestion:      "Fix invalid JSON, TOML, or YAML syntax before committing.",
 			DefenseLayers:   CodeDefenseLayers(),
 			AppliesTo: AppliesTo{
-				FilePatterns: []string{"**/*.json", "**/*.toml", "**/*.yaml", "**/*.yml"},
+				FilePatterns: []string{
+					"**/*.json",
+					"**/*.toml",
+					"**/*.yaml",
+					"**/*.yml",
+				},
 			},
 			Evaluators: []Evaluator{{
 				Kind:    "config",
@@ -594,9 +702,12 @@ func addSyntaxPolicies(
 		)
 
 		policies["syntax.merge_conflict"] = Policy{
-			ID:              "syntax.merge_conflict",
-			Category:        "syntax",
-			Source:          SourceRef{File: "config.yaml", Path: "syntax.merge_conflict"},
+			ID:       "syntax.merge_conflict",
+			Category: "syntax",
+			Source: SourceRef{
+				File: "config.yaml",
+				Path: "syntax.merge_conflict",
+			},
 			PrincipleIDs:    principleRefs(principles, "validation-at-the-gate"),
 			DefaultSeverity: "block",
 			SupportedModes:  []string{"block", "record"},
@@ -662,9 +773,12 @@ func shellBestPracticesPolicy(
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record"},
 		Message:         "Shell scripts must follow repository shell safety practices.",
-		Suggestion:      "Use a valid shell shebang, strict mode, and required common helpers.",
-		DefenseLayers:   CodeDefenseLayers(),
-		AppliesTo:       AppliesTo{FilePatterns: []string{"**/*.sh", "**/*.bash"}},
+		Suggestion: sentence(
+			"Use a valid shell shebang, strict mode, and required common",
+			"helpers.",
+		),
+		DefenseLayers: CodeDefenseLayers(),
+		AppliesTo:     AppliesTo{FilePatterns: []string{"**/*.sh", "**/*.bash"}},
 		Evaluators: []Evaluator{{
 			Kind: "shell",
 			Name: "shell.best_practices",
@@ -882,9 +996,19 @@ func defaultRuffEvidenceMap(principles map[string]Principle) diagnostics.Evidenc
 			Steps: []string{
 				"Declare the dependency as required.",
 				"Import it at module scope.",
-				"Use SOLID boundaries to split responsibilities when modules depend on each other.",
-				"In Python, introduce a Protocol in a neutral module when two concrete implementations would otherwise import each other.",
-				"Replace lazy, conditional, or fallback import paths with explicit startup validation.",
+				sentence(
+					"Use SOLID boundaries to split responsibilities when",
+					"modules depend on each other.",
+				),
+				sentence(
+					"In Python, introduce a Protocol in a neutral module",
+					"when two concrete implementations would otherwise",
+					"import each other.",
+				),
+				sentence(
+					"Replace lazy, conditional, or fallback import paths",
+					"with explicit startup validation.",
+				),
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},
@@ -991,7 +1115,10 @@ func defaultRuffSuppressionEvidenceMap(
 		Meaning: "A lint suppression is stale, broad, or too weakly " +
 			"explained to satisfy the code-quality contract.",
 		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Remove the suppression or replace it with the narrowest documented exception.",
+			Summary: sentence(
+				"Remove the suppression or replace it with the narrowest",
+				"documented exception.",
+			),
 			Steps: []string{
 				"Try the structural fix first.",
 				"Remove stale noqa/type-ignore comments.",
@@ -1048,7 +1175,10 @@ func defaultPyrightSuppressionEvidenceMap(
 		Confidence: "high",
 		Meaning:    "A Pyright ignore comment is stale or missing a precise rule.",
 		Advice: diagnostics.EvidenceAdvice{
-			Summary: "Remove unnecessary Pyright ignores or make the remaining exception explicit.",
+			Summary: sentence(
+				"Remove unnecessary Pyright ignores or make the remaining",
+				"exception explicit.",
+			),
 			Steps: []string{
 				"Delete unnecessary ignore comments.",
 				"Fix the underlying type issue when Pyright still reports one.",
@@ -1077,7 +1207,10 @@ func defaultRuffDocstringEvidenceMap(
 		Advice: diagnostics.EvidenceAdvice{
 			Summary: "Document the public contract instead of leaving behavior implicit.",
 			Steps: []string{
-				"Add a concise docstring that states purpose, arguments, returns, and raised errors where relevant.",
+				sentence(
+					"Add a concise docstring that states purpose,",
+					"arguments, returns, and raised errors where relevant.",
+				),
 				"Keep implementation narration out of the docstring.",
 				"Update tests when the documented behavior changes.",
 			},
@@ -1112,7 +1245,10 @@ func defaultPylintDocstringEvidenceMap(
 			Steps: []string{
 				"Add a useful docstring at the reported module, class, or function.",
 				"Explain behavior and constraints, not obvious implementation details.",
-				"Keep generated or private surfaces excluded through policy, not ad hoc suppressions.",
+				sentence(
+					"Keep generated or private surfaces excluded through",
+					"policy, not ad hoc suppressions.",
+				),
 			},
 			Rerun: []string{"make pre-commit"},
 		},
@@ -1144,8 +1280,15 @@ func defaultMypyOptionalTypeEvidenceMap(
 			Summary: "Make the required contract explicit instead of widening types.",
 			Steps: []string{
 				"Identify whether the value is genuinely optional or required.",
-				"For required dependencies, remove None from the type and validate at construction/startup.",
-				"If variants are legitimate, introduce a Protocol or narrower interface instead of passing concrete optionals around.",
+				sentence(
+					"For required dependencies, remove None from the type",
+					"and validate at construction/startup.",
+				),
+				sentence(
+					"If variants are legitimate, introduce a Protocol or",
+					"narrower interface instead of passing concrete",
+					"optionals around.",
+				),
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},
@@ -1275,7 +1418,10 @@ func defaultPylintInterfaceEvidenceMap(
 			Summary: "Expose the required behavior through a real interface.",
 			Steps: []string{
 				"Verify the referenced member or name exists.",
-				"If the object is dynamic, add a typed adapter or Protocol that states the contract.",
+				sentence(
+					"If the object is dynamic, add a typed adapter or",
+					"Protocol that states the contract.",
+				),
 				"Do not hide the issue with a broad Pylint disable.",
 			},
 			Rerun: []string{"make pre-commit", "make check"},
@@ -1372,7 +1518,10 @@ func importCycleEvidenceMap(
 				"Identify the two modules that import each other.",
 				"Move the shared contract into a neutral module.",
 				"In Python, model that contract with a Protocol when behavior is required.",
-				"Depend on the Protocol or smaller interface instead of the concrete implementation.",
+				sentence(
+					"Depend on the Protocol or smaller interface instead",
+					"of the concrete implementation.",
+				),
 			},
 			Rerun: []string{"make pre-commit", "make check"},
 		},
@@ -1473,7 +1622,10 @@ func defaultBanditEvidenceMap(
 			"static-analysis-is-the-first-line-of-defense",
 		),
 		Confidence: "high",
-		Meaning:    "Bandit found Python code that weakens safe defaults or input trust boundaries.",
+		Meaning: sentence(
+			"Bandit found Python code that weakens safe defaults or input",
+			"trust boundaries.",
+		),
 		Advice: diagnostics.EvidenceAdvice{
 			Summary: "Fix the security issue structurally; do not silence Bandit.",
 			Steps: []string{
@@ -1500,7 +1652,10 @@ func defaultSQLFluffEvidenceMap(
 			"static-analysis-is-the-first-line-of-defense",
 		),
 		Confidence: "medium",
-		Meaning:    "SQL linting found syntax, layout, or dialect ambiguity before database execution.",
+		Meaning: sentence(
+			"SQL linting found syntax, layout, or dialect ambiguity before",
+			"database execution.",
+		),
 		Advice: diagnostics.EvidenceAdvice{
 			Summary: "Make SQL dialect and structure explicit before committing.",
 			Steps: []string{

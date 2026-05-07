@@ -1,20 +1,26 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package evaluators
+package evaluators_test
 
-import "testing"
+import (
+	"testing"
+
+	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+)
 
 func TestGitCommandUsesConfiguredRealGit(t *testing.T) {
-	t.Setenv(realGitEnv, "/opt/system-git")
+	t.Setenv(RealGitEnv, "/opt/system-git")
 
-	cmd := gitCommand("", "status")
+	cmd := GitCommand("", "status")
 	if cmd.Path != "/opt/system-git" {
 		t.Fatalf("gitCommand path = %q, want configured real git", cmd.Path)
 	}
 }
 
 func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
+	t.Parallel()
+
 	source := []string{
 		"GIT_DIR=/tmp/wrong-git-dir",
 		"GIT_INDEX_FILE=/tmp/wrong-index",
@@ -24,9 +30,9 @@ func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
 		"PATH=/usr/bin",
 	}
 
-	got := cleanGitLocalEnv(source)
+	got := CleanGitLocalEnv(source)
 
 	if len(got) != 1 || got[0] != "PATH=/usr/bin" {
-		t.Fatalf("cleanGitLocalEnv() = %#v, want only PATH", got)
+		t.Fatalf("CleanGitLocalEnv() = %#v, want only PATH", got)
 	}
 }

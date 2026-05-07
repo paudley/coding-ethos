@@ -6,13 +6,13 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type messageFraming string
@@ -27,10 +27,6 @@ type requestMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
-}
-
-type initializeParams struct {
-	ProtocolVersion string `json:"protocolVersion,omitempty"`
 }
 
 type responseMessage struct {
@@ -50,59 +46,95 @@ type toolCallParams struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
-	contentLength := -1
+func toolText(parts ...string) string {
+	return strings.Join(parts, " ")
+}
 
+func readMessage(reader *bufio.Reader) ([]byte, messageFraming, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("read MCP message header: %w", err)
 	}
 
 	header := strings.TrimRight(line, "\r\n")
 	if header == "" {
-		return nil, "", errors.New("empty MCP message")
+		return nil, "", apperror.StaticError("empty MCP message")
 	}
 
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(header)), "content-length:") {
+	if !strings.HasPrefix(
+		strings.ToLower(strings.TrimSpace(header)),
+		"content-length:",
+	) {
 		return []byte(header), framingJSONLine, nil
 	}
 
-	for {
-		name, value, found := strings.Cut(header, ":")
-		if !found {
-			return nil, "", fmt.Errorf("invalid MCP header %q", header)
-		}
-
-		if strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
-			parsed, err := strconv.Atoi(strings.TrimSpace(value))
-			if err != nil || parsed < 0 {
-				return nil, "", fmt.Errorf("invalid MCP content length %q", value)
-			}
-
-			contentLength = parsed
-		}
-
-		line, err = reader.ReadString('\n')
-		if err != nil {
-			return nil, "", err
-		}
-
-		header = strings.TrimRight(line, "\r\n")
-		if header == "" {
-			break
-		}
-	}
-
-	if contentLength < 0 {
-		return nil, "", errors.New("missing MCP Content-Length header")
-	}
-
-	payload := make([]byte, contentLength)
-	if _, err := io.ReadFull(reader, payload); err != nil {
+	contentLength, err := readContentLengthHeaders(reader, header)
+	if err != nil {
 		return nil, "", err
 	}
 
+	if contentLength < 0 {
+		return nil, "", apperror.StaticError("missing MCP Content-Length header")
+	}
+
+	payload := make([]byte, contentLength)
+
+	_, inlineErrA := io.ReadFull(reader, payload)
+	if inlineErrA != nil {
+		return nil, "", fmt.Errorf("read MCP message payload: %w", inlineErrA)
+	}
+
 	return payload, framingContentLength, nil
+}
+
+func readContentLengthHeaders(reader *bufio.Reader, header string) (int, error) {
+	contentLength := -1
+
+	for header != "" {
+		nextLength, err := parseContentLengthHeader(header)
+		if err != nil {
+			return -1, err
+		}
+
+		if nextLength >= 0 {
+			contentLength = nextLength
+		}
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return -1, fmt.Errorf("read MCP message header: %w", err)
+		}
+
+		header = strings.TrimRight(line, "\r\n")
+	}
+
+	return contentLength, nil
+}
+
+func parseContentLengthHeader(header string) (int, error) {
+	name, value, found := strings.Cut(header, ":")
+	if !found {
+		return -1, apperror.Wrapf(
+			apperror.StaticError("invalid MCP header %q"),
+			"invalid MCP header %q",
+			header,
+		)
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+		return -1, nil
+	}
+
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed < 0 {
+		return -1, apperror.Wrapf(
+			apperror.StaticError("invalid MCP content length %q"),
+			"invalid MCP content length %q",
+			value,
+		)
+	}
+
+	return parsed, nil
 }
 
 type commandCheckInput struct {
@@ -151,7 +183,7 @@ type skillRecommendInput struct {
 	Command    string          `json:"command,omitempty"`
 	Intent     string          `json:"intent,omitempty"`
 	Path       string          `json:"path,omitempty"`
-	Diagnostic lintAdviceInput `json:"diagnostic,omitempty"`
+	Diagnostic lintAdviceInput `json:"diagnostic,omitzero"`
 	Limit      int             `json:"limit,omitempty"`
 }
 
@@ -167,7 +199,7 @@ type remediationExplainInput struct {
 	Code         string               `json:"code,omitempty"`
 	Severity     string               `json:"severity,omitempty"`
 	Tool         string               `json:"tool,omitempty"`
-	Remediation  agentmsg.Remediation `json:"remediation,omitempty"`
+	Remediation  agentmsg.Remediation `json:"remediation,omitzero"`
 	Column       int                  `json:"column,omitempty"`
 	Line         int                  `json:"line,omitempty"`
 }
@@ -257,13 +289,13 @@ type codeIntelCodeContextInput struct {
 func writeResponse(
 	writer io.Writer,
 	framing messageFraming,
-	id any,
+	requestID any,
 	result any,
 	responseErr *rpcError,
 ) error {
 	response := responseMessage{
 		JSONRPC: "2.0",
-		ID:      id,
+		ID:      requestID,
 		Result:  result,
 		Error:   responseErr,
 	}
@@ -274,23 +306,26 @@ func writeResponse(
 	}
 
 	if framing == framingJSONLine {
-		if _, err := writer.Write(append(payload, '\n')); err != nil {
-			return fmt.Errorf("write MCP response: %w", err)
+		_, inlineErrB := writer.Write(append(payload, '\n'))
+		if inlineErrB != nil {
+			return fmt.Errorf("write MCP response: %w", inlineErrB)
 		}
 
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(
+	_, inlineErrC := fmt.Fprintf(
 		writer,
 		"Content-Length: %d\r\n\r\n",
 		len(payload),
-	); err != nil {
-		return fmt.Errorf("write MCP response header: %w", err)
+	)
+	if inlineErrC != nil {
+		return fmt.Errorf("write MCP response header: %w", inlineErrC)
 	}
 
-	if _, err := writer.Write(payload); err != nil {
-		return fmt.Errorf("write MCP response: %w", err)
+	_, inlineErrD := writer.Write(payload)
+	if inlineErrD != nil {
+		return fmt.Errorf("write MCP response: %w", inlineErrD)
 	}
 
 	return nil
@@ -299,12 +334,11 @@ func writeResponse(
 func initializeResult(params json.RawMessage) map[string]any {
 	version := protocolVersion
 
-	var parsed initializeParams
+	var parsed map[string]string
 
 	err := json.Unmarshal(params, &parsed)
-	if err == nil &&
-		strings.TrimSpace(parsed.ProtocolVersion) != "" {
-		version = strings.TrimSpace(parsed.ProtocolVersion)
+	if err == nil && strings.TrimSpace(parsed["protocolVersion"]) != "" {
+		version = strings.TrimSpace(parsed["protocolVersion"])
 	}
 
 	return map[string]any{
@@ -336,7 +370,23 @@ func toolResult(result any) map[string]any {
 	}
 }
 
+const (
+	toolDefinitionCapacity          = 22
+	codeIntelToolDefinitionCapacity = 8
+)
+
 func toolDefinitions() []map[string]any {
+	definitions := make([]map[string]any, 0, toolDefinitionCapacity)
+	definitions = append(definitions, policyPreflightToolDefinitions()...)
+	definitions = append(definitions, lintToolDefinitions()...)
+	definitions = append(definitions, sarifToolDefinitions()...)
+	definitions = append(definitions, skillToolDefinitions()...)
+	definitions = append(definitions, codeIntelToolDefinitions()...)
+
+	return definitions
+}
+
+func policyPreflightToolDefinitions() []map[string]any {
 	return []map[string]any{
 		toolDefinition(
 			"policy_check_command",
@@ -375,8 +425,31 @@ func toolDefinitions() []map[string]any {
 			},
 		),
 		toolDefinition(
+			"policy_explain",
+			"Explain a compiled policy, including ETHOS grounding and CEL details when present.",
+			map[string]any{
+				"policy_id": map[string]any{"type": "string"},
+			},
+			[]string{"policy_id"},
+			toolMetadata{
+				Advisory:       true,
+				ExecutesTools:  false,
+				ReadsFiles:     false,
+				PreferredUse:   "understand a policy before changing related code",
+				TracePersisted: false,
+			},
+		),
+	}
+}
+
+func lintToolDefinitions() []map[string]any {
+	return []map[string]any{
+		toolDefinition(
 			"lint_check",
-			"Run managed lint capture for a named tool, or compiled coding-ethos policy lint checks when no tool is provided.",
+			toolText(
+				"Run managed lint capture for a named tool, or compiled",
+				"coding-ethos policy lint checks when no tool is provided.",
+			),
 			map[string]any{
 				"scope": map[string]any{"type": "string"},
 				"tool":  map[string]any{"type": "string"},
@@ -394,16 +467,22 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       false,
-				ExecutesTools:  true,
-				ReadsFiles:     true,
-				PreferredUse:   "canonical lint path for agents instead of running linters directly",
+				Advisory:      false,
+				ExecutesTools: true,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"canonical lint path for agents instead of running",
+					"linters directly",
+				),
 				TracePersisted: true,
 			},
 		),
 		toolDefinition(
 			"lint_advice",
-			"Map a linter diagnostic to ETHOS policy, remediation advice, rerun guidance, and skill hints.",
+			toolText(
+				"Map a linter diagnostic to ETHOS policy, remediation advice,",
+				"rerun guidance, and skill hints.",
+			),
 			map[string]any{
 				"tool":     map[string]any{"type": "string"},
 				"code":     map[string]any{"type": "string"},
@@ -422,106 +501,145 @@ func toolDefinitions() []map[string]any {
 				TracePersisted: false,
 			},
 		),
-		toolDefinition(
-			"sarif_remediation_advice",
-			"Turn a SARIF result into ETHOS-grounded repair guidance for an agent.",
-			map[string]any{
-				"sarif":        map[string]any{"type": "string"},
-				"trace_id":     map[string]any{"type": "string"},
-				"result_index": map[string]any{"type": "integer"},
-			},
-			nil,
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "repair a code-scanning or SARIF finding without rerunning lint first",
-				TracePersisted: false,
-			},
+	}
+}
+
+func sarifToolDefinitions() []map[string]any {
+	return []map[string]any{
+		sarifRemediationAdviceToolDefinition(),
+		sarifRiskSummaryToolDefinition(),
+		sarifTrendAnalysisToolDefinition(),
+		sarifPolicyFeedbackToolDefinition(),
+	}
+}
+
+func sarifRemediationAdviceToolDefinition() map[string]any {
+	return toolDefinition(
+		"sarif_remediation_advice",
+		"Turn a SARIF result into ETHOS-grounded repair guidance for an agent.",
+		map[string]any{
+			"sarif":        map[string]any{"type": "string"},
+			"trace_id":     map[string]any{"type": "string"},
+			"result_index": map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"repair a code-scanning or SARIF finding without",
+				"rerunning lint first",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func sarifRiskSummaryToolDefinition() map[string]any {
+	return toolDefinition(
+		"sarif_risk_summary",
+		toolText(
+			"Summarize a SARIF run into compact policy, skill, tool, file,",
+			"and finding-group risk signals.",
 		),
-		toolDefinition(
-			"sarif_risk_summary",
-			"Summarize a SARIF run into compact policy, skill, tool, file, and finding-group risk signals.",
-			map[string]any{
-				"sarif":    map[string]any{"type": "string"},
-				"trace_id": map[string]any{"type": "string"},
-			},
-			nil,
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "triage a SARIF run before choosing remediation order",
-				TracePersisted: false,
-			},
+		map[string]any{
+			"sarif":    map[string]any{"type": "string"},
+			"trace_id": map[string]any{"type": "string"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:       true,
+			ExecutesTools:  false,
+			ReadsFiles:     false,
+			PreferredUse:   "triage a SARIF run before choosing remediation order",
+			TracePersisted: false,
+		},
+	)
+}
+
+func sarifTrendAnalysisToolDefinition() map[string]any {
+	return toolDefinition(
+		"sarif_trend_analysis",
+		toolText(
+			"Compare two SARIF runs and identify introduced, fixed, and",
+			"persisting findings.",
 		),
-		toolDefinition(
-			"sarif_trend_analysis",
-			"Compare two SARIF runs and identify introduced, fixed, and persisting findings.",
-			map[string]any{
-				"baseline_sarif":    map[string]any{"type": "string"},
-				"current_sarif":     map[string]any{"type": "string"},
-				"baseline_trace_id": map[string]any{"type": "string"},
-				"current_trace_id":  map[string]any{"type": "string"},
-				"history_sarif": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "string"},
-				},
-				"history_trace_ids": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "string"},
-				},
-			},
-			nil,
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "prioritize introduced or reopened SARIF findings over historical noise",
-				TracePersisted: false,
-			},
+		sarifTrendAnalysisInputSchema(),
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"prioritize introduced or reopened SARIF findings over",
+				"historical noise",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func sarifTrendAnalysisInputSchema() map[string]any {
+	return map[string]any{
+		"baseline_sarif":    map[string]any{"type": "string"},
+		"current_sarif":     map[string]any{"type": "string"},
+		"baseline_trace_id": map[string]any{"type": "string"},
+		"current_trace_id":  map[string]any{"type": "string"},
+		"history_sarif": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string"},
+		},
+		"history_trace_ids": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string"},
+		},
+	}
+}
+
+func sarifPolicyFeedbackToolDefinition() map[string]any {
+	return toolDefinition(
+		"sarif_policy_feedback",
+		toolText(
+			"Report unmapped, noisy, weakly mapped, or under-advised",
+			"SARIF diagnostics for policy authors.",
 		),
-		toolDefinition(
-			"sarif_policy_feedback",
-			"Report unmapped, noisy, weakly mapped, or under-advised SARIF diagnostics for policy authors.",
-			map[string]any{
-				"sarif":    map[string]any{"type": "string"},
-				"trace_id": map[string]any{"type": "string"},
-			},
-			nil,
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "improve evidence maps, skill linkage, and severity mappings after a SARIF run",
-				TracePersisted: false,
-			},
-		),
+		map[string]any{
+			"sarif":    map[string]any{"type": "string"},
+			"trace_id": map[string]any{"type": "string"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"improve evidence maps, skill linkage, and severity",
+				"mappings after a SARIF run",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func skillToolDefinitions() []map[string]any {
+	return []map[string]any{
 		toolDefinition(
 			"tool_capabilities",
-			"List managed tool sandbox capabilities, tags, resource limits, and network/Git posture.",
+			toolText(
+				"List managed tool sandbox capabilities, tags, resource limits,",
+				"and network/Git posture.",
+			),
 			map[string]any{},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "choose MCP lint_check over direct linter execution and inspect sandbox posture",
-				TracePersisted: false,
-			},
-		),
-		toolDefinition(
-			"policy_explain",
-			"Explain a compiled policy, including ETHOS grounding and CEL details when present.",
-			map[string]any{
-				"policy_id": map[string]any{"type": "string"},
-			},
-			[]string{"policy_id"},
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "understand a policy before changing related code",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    false,
+				PreferredUse: toolText(
+					"choose MCP lint_check over direct linter execution and",
+					"inspect sandbox posture",
+				),
 				TracePersisted: false,
 			},
 		),
@@ -542,7 +660,10 @@ func toolDefinitions() []map[string]any {
 		),
 		toolDefinition(
 			"remediation_explain",
-			"Expand an agent_remediation payload into policy, principle, skill, and retry guidance.",
+			toolText(
+				"Expand an agent_remediation payload into policy, principle,",
+				"skill, and retry guidance.",
+			),
 			map[string]any{
 				"remediation": map[string]any{
 					"type":                 "object",
@@ -564,16 +685,38 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     false,
-				PreferredUse:   "turn an emitted agent_remediation item into grounded next-action guidance",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    false,
+				PreferredUse: toolText(
+					"turn an emitted agent_remediation item into grounded",
+					"next-action guidance",
+				),
 				TracePersisted: false,
 			},
 		),
+	}
+}
+
+func codeIntelToolDefinitions() []map[string]any {
+	definitions := make([]map[string]any, 0, codeIntelToolDefinitionCapacity)
+	definitions = append(definitions, codeIntelSearchToolDefinitions()...)
+	definitions = append(definitions, codeIntelHookToolDefinitions()...)
+	definitions = append(definitions, codeIntelCodeToolDefinitions()...)
+	definitions = append(definitions, codeIntelEmbeddingToolDefinitions()...)
+
+	return definitions
+}
+
+func codeIntelSearchToolDefinitions() []map[string]any {
+	return []map[string]any{
 		toolDefinition(
 			"code_intel_search",
-			"Search stored remediation, SARIF, policy, and embedding evidence with FTS plus sqlite-vec when a query vector is supplied.",
+			toolText(
+				"Search stored remediation, SARIF, policy, and embedding",
+				"evidence with FTS plus sqlite-vec when a query vector is",
+				"supplied.",
+			),
 			map[string]any{
 				"text": map[string]any{"type": "string"},
 				"vector": map[string]any{
@@ -593,32 +736,49 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "retrieve prior fixes, related SARIF findings, and policy evidence before broad file reads",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"retrieve prior fixes, related SARIF findings, and",
+					"policy evidence before broad file reads",
+				),
 				TracePersisted: false,
 			},
 		),
 		toolDefinition(
 			"code_intel_index_status",
-			"Report code-intelligence store freshness, embedding metadata counts, and sqlite-vec row counts.",
+			toolText(
+				"Report code-intelligence store freshness, embedding",
+				"metadata counts, and sqlite-vec row counts.",
+			),
 			map[string]any{
 				"collection": map[string]any{"type": "string"},
 				"model_id":   map[string]any{"type": "string"},
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "check whether remediation and SARIF retrieval has fresh vector coverage",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"check whether remediation and SARIF retrieval has",
+					"fresh vector coverage",
+				),
 				TracePersisted: false,
 			},
 		),
+	}
+}
+
+func codeIntelHookToolDefinitions() []map[string]any {
+	return []map[string]any{
 		toolDefinition(
 			"code_intel_hook_usage",
-			"Summarize normalized hook usage by provider, operation, target, risk, status, policy, and skill.",
+			toolText(
+				"Summarize normalized hook usage by provider, operation,",
+				"target, risk, status, policy, and skill.",
+			),
 			map[string]any{
 				"provider":       map[string]any{"type": "string"},
 				"status":         map[string]any{"type": "string"},
@@ -631,50 +791,51 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "identify recurring hook friction, bypass attempts, rewrites, and remediation opportunities",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"identify recurring hook friction, bypass attempts,",
+					"rewrites, and remediation opportunities",
+				),
 				TracePersisted: false,
 			},
 		),
+	}
+}
+
+func codeIntelCodeToolDefinitions() []map[string]any {
+	return []map[string]any{
 		toolDefinition(
 			"code_intel_index_code",
-			"Parse repository code with Tree-sitter and persist symbol-level code chunks for search and embedding.",
+			toolText(
+				"Parse repository code with Tree-sitter and persist",
+				"symbol-level code chunks for search and embedding.",
+			),
 			map[string]any{
-				"paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"paths": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "refresh symbol-level code context before asking for related code or remediation history",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"refresh symbol-level code context before asking for",
+					"related code or remediation history",
+				),
 				TracePersisted: true,
 			},
 		),
 		toolDefinition(
-			"code_intel_embedding_candidates",
-			"Return compact SARIF and remediation records that are ready to embed and write into sqlite-vec.",
-			map[string]any{
-				"record_kind": map[string]any{"type": "string"},
-				"policy_id":   map[string]any{"type": "string"},
-				"skill_id":    map[string]any{"type": "string"},
-				"path":        map[string]any{"type": "string"},
-				"limit":       map[string]any{"type": "integer"},
-			},
-			nil,
-			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "feed an approved embedding producer with traceable SARIF/remediation text",
-				TracePersisted: false,
-			},
-		),
-		toolDefinition(
 			"code_intel_code_chunks",
-			"Return Tree-sitter code chunks filtered by path, language, symbol kind, or symbol name.",
+			toolText(
+				"Return Tree-sitter code chunks filtered by path, language,",
+				"symbol kind, or symbol name.",
+			),
 			map[string]any{
 				"path":        map[string]any{"type": "string"},
 				"language":    map[string]any{"type": "string"},
@@ -685,16 +846,22 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "retrieve focused symbol-level code context before reading whole files",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"retrieve focused symbol-level code context before",
+					"reading whole files",
+				),
 				TracePersisted: false,
 			},
 		),
 		toolDefinition(
 			"code_intel_code_context",
-			"Expand a Tree-sitter code chunk into parent, children, graph edges, and linked SARIF/CEL findings.",
+			toolText(
+				"Expand a Tree-sitter code chunk into parent, children,",
+				"graph edges, and linked SARIF/CEL findings.",
+			),
 			map[string]any{
 				"chunk_id":    map[string]any{"type": "string"},
 				"path":        map[string]any{"type": "string"},
@@ -704,16 +871,52 @@ func toolDefinitions() []map[string]any {
 			},
 			nil,
 			toolMetadata{
-				Advisory:       true,
-				ExecutesTools:  false,
-				ReadsFiles:     true,
-				PreferredUse:   "expand a known symbol into related context before broad code reads",
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"expand a known symbol into related context before",
+					"broad code reads",
+				),
+				TracePersisted: false,
+			},
+		),
+	}
+}
+
+func codeIntelEmbeddingToolDefinitions() []map[string]any {
+	return []map[string]any{
+		toolDefinition(
+			"code_intel_embedding_candidates",
+			toolText(
+				"Return compact SARIF and remediation records that are",
+				"ready to embed and write into sqlite-vec.",
+			),
+			map[string]any{
+				"record_kind": map[string]any{"type": "string"},
+				"policy_id":   map[string]any{"type": "string"},
+				"skill_id":    map[string]any{"type": "string"},
+				"path":        map[string]any{"type": "string"},
+				"limit":       map[string]any{"type": "integer"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"feed an approved embedding producer with traceable",
+					"SARIF/remediation text",
+				),
 				TracePersisted: false,
 			},
 		),
 		toolDefinition(
 			"skill_recommend",
-			"Recommend ETHOS-derived skills for a task, command, path, or lint diagnostic.",
+			toolText(
+				"Recommend ETHOS-derived skills for a task, command, path,",
+				"or lint diagnostic.",
+			),
 			map[string]any{
 				"intent":  map[string]any{"type": "string"},
 				"command": map[string]any{"type": "string"},

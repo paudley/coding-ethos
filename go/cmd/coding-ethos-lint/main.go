@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -21,10 +21,12 @@ import (
 )
 
 var (
-	errBundleRequired       = errors.New("--bundle is required")
-	errInvalidBundle        = errors.New("invalid policy bundle")
-	errOutputFormatConflict = errors.New("--json and --sarif are mutually exclusive")
-	errSARIFUnsupported     = errors.New(
+	errBundleRequired       = apperror.StaticError("--bundle is required")
+	errInvalidBundle        = apperror.StaticError("invalid policy bundle")
+	errOutputFormatConflict = apperror.StaticError(
+		"--json and --sarif are mutually exclusive",
+	)
+	errSARIFUnsupported = apperror.StaticError(
 		"--sarif is supported only for lint result output",
 	)
 )
@@ -161,12 +163,20 @@ func registerLintFlags(flags *flag.FlagSet) lintCLIConfig {
 			"",
 			"Run and log a managed lint tool",
 		),
-		command:       flags.String("command", "", "Raw shell command to evaluate"),
-		consumerRoot:  flags.String("consumer-root", "", "consumer repository root"),
-		cwd:           flags.String("cwd", "", "Working directory for git-state evaluators"),
-		ethosRoot:     flags.String("ethos-root", "", "coding-ethos checkout root"),
-		filesFrom:     registerFilesFromFlag(flags),
-		filesRaw:      flags.String("files", "", "Comma-separated files for --scope files"),
+		command:      flags.String("command", "", "Raw shell command to evaluate"),
+		consumerRoot: flags.String("consumer-root", "", "consumer repository root"),
+		cwd: flags.String(
+			"cwd",
+			"",
+			"Working directory for git-state evaluators",
+		),
+		ethosRoot: flags.String("ethos-root", "", "coding-ethos checkout root"),
+		filesFrom: registerFilesFromFlag(flags),
+		filesRaw: flags.String(
+			"files",
+			"",
+			"Comma-separated files for --scope files",
+		),
 		forFilesFrom:  registerForFilesFromFlag(flags),
 		forFilesRaw:   registerForFilesFlag(flags),
 		invocationCwd: registerInvocationCwdFlag(flags),

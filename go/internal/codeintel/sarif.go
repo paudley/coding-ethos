@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type sarifLog struct {
@@ -16,51 +18,68 @@ type sarifLog struct {
 }
 
 type sarifInputRun struct {
-	AutomationDetails struct {
-		ID   string `json:"id,omitempty"`
-		GUID string `json:"guid,omitempty"`
-	} `json:"automationDetails,omitempty"`
-	Properties struct {
-		Scope string `json:"scope,omitempty"`
-	} `json:"properties,omitempty"`
-	BaselineGUID string `json:"baselineGuid,omitempty"`
-	Tool         struct {
-		Driver struct {
-			Name  string           `json:"name,omitempty"`
-			Rules []sarifInputRule `json:"rules,omitempty"`
-		} `json:"driver"`
-	} `json:"tool"`
-	Results []sarifInputResult `json:"results"`
+	AutomationDetails sarifInputAutomationDetails
+	Properties        sarifInputRunProperties
+	BaselineGUID      string
+	Tool              sarifInputTool
+	Results           []sarifInputResult
+	raw               json.RawMessage
+}
+
+type sarifInputAutomationDetails struct {
+	ID   string `json:"id,omitempty"`
+	GUID string `json:"guid,omitempty"`
+}
+
+type sarifInputRunProperties struct {
+	Scope string `json:"scope,omitempty"`
+}
+
+type sarifInputTool struct {
+	Driver sarifInputDriver `json:"driver,omitzero"`
+}
+
+type sarifInputDriver struct {
+	Name  string           `json:"name,omitempty"`
+	Rules []sarifInputRule `json:"rules,omitempty"`
 }
 
 type sarifInputRule struct {
 	ID         string               `json:"id"`
-	Properties sarifInputProperties `json:"properties,omitempty"`
+	Properties sarifInputProperties `json:"properties,omitzero"`
 }
 
 type sarifInputResult struct {
-	Message struct {
-		Text string `json:"text,omitempty"`
-	} `json:"message"`
-	Locations           []sarifInputLocation `json:"locations,omitempty"`
-	PartialFingerprints map[string]string    `json:"partialFingerprints,omitempty"`
-	Properties          sarifInputProperties `json:"properties,omitempty"`
-	RuleID              string               `json:"ruleId"`
-	Level               string               `json:"level,omitempty"`
-	RuleIndex           *int                 `json:"ruleIndex,omitempty"`
+	Message             sarifInputMessage
+	Locations           []sarifInputLocation
+	PartialFingerprints map[string]string
+	Properties          sarifInputProperties
+	RuleID              string
+	Level               string
+	RuleIndex           *int
 	raw                 json.RawMessage
 }
 
+type sarifInputMessage struct {
+	Text string `json:"text,omitempty"`
+}
+
 type sarifInputLocation struct {
-	PhysicalLocation struct {
-		ArtifactLocation struct {
-			URI string `json:"uri,omitempty"`
-		} `json:"artifactLocation,omitempty"`
-		Region struct {
-			StartLine   int `json:"startLine,omitempty"`
-			StartColumn int `json:"startColumn,omitempty"`
-		} `json:"region,omitempty"`
-	} `json:"physicalLocation,omitempty"`
+	PhysicalLocation sarifInputPhysicalLocation
+}
+
+type sarifInputPhysicalLocation struct {
+	ArtifactLocation sarifInputArtifactLocation
+	Region           sarifInputRegion
+}
+
+type sarifInputArtifactLocation struct {
+	URI string `json:"uri,omitempty"`
+}
+
+type sarifInputRegion struct {
+	StartLine   int
+	StartColumn int
 }
 
 type sarifInputProperties struct {
@@ -96,6 +115,112 @@ type sarifInputProperties struct {
 		Path     string `json:"path,omitempty"`
 	} `json:"agent_remediation,omitempty"`
 	EthosIDs []string `json:"ethos_ids,omitempty"`
+}
+
+func (run *sarifInputRun) UnmarshalJSON(payload []byte) error {
+	run.raw = append(run.raw[:0], payload...)
+
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF run fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "automationDetails", target: &run.AutomationDetails},
+		{key: "properties", target: &run.Properties},
+		{key: "baselineGuid", target: &run.BaselineGUID},
+		{key: "tool", target: &run.Tool},
+		{key: "results", target: &run.Results},
+	})
+}
+
+func (result *sarifInputResult) UnmarshalJSON(payload []byte) error {
+	result.raw = append(result.raw[:0], payload...)
+
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF result fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "message", target: &result.Message},
+		{key: "locations", target: &result.Locations},
+		{key: "partialFingerprints", target: &result.PartialFingerprints},
+		{key: "properties", target: &result.Properties},
+		{key: "ruleId", target: &result.RuleID},
+		{key: "level", target: &result.Level},
+		{key: "ruleIndex", target: &result.RuleIndex},
+	})
+}
+
+func (location *sarifInputLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF location fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "physicalLocation", target: &location.PhysicalLocation},
+	})
+}
+
+func (location *sarifInputPhysicalLocation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF physical location fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "artifactLocation", target: &location.ArtifactLocation},
+		{key: "region", target: &location.Region},
+	})
+}
+
+func (region *sarifInputRegion) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode SARIF region fields: %w", err)
+	}
+
+	return decodeOptionalJSONFields(fields, []jsonFieldTarget{
+		{key: "startLine", target: &region.StartLine},
+		{key: "startColumn", target: &region.StartColumn},
+	})
+}
+
+func decodeJSONFields(payload []byte) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	err := json.Unmarshal(payload, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+
+	return fields, nil
+}
+
+type jsonFieldTarget struct {
+	target any
+	key    string
+}
+
+func decodeOptionalJSONFields(
+	fields map[string]json.RawMessage,
+	targets []jsonFieldTarget,
+) error {
+	for _, target := range targets {
+		raw, ok := fields[target.key]
+		if !ok {
+			continue
+		}
+
+		err := json.Unmarshal(raw, target.target)
+		if err != nil {
+			return fmt.Errorf("decode %q: %w", target.key, err)
+		}
+	}
+
+	return nil
 }
 
 func (ingester TraceIngester) IngestSARIF(
@@ -136,16 +261,16 @@ func DecodeSARIFRuns(sourcePath string, payload []byte) ([]SARIFRun, error) {
 	}
 
 	if len(log.Runs) == 0 {
-		return nil, fmt.Errorf("SARIF %q has no runs", sourcePath)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("SARIF %q has no runs"),
+			"SARIF %q has no runs",
+			sourcePath,
+		)
 	}
 
 	runs := make([]SARIFRun, 0, len(log.Runs))
 	for index, input := range log.Runs {
-		run, err := decodeSARIFRun(sourcePath, payload, index, input)
-		if err != nil {
-			return nil, err
-		}
-
+		run := decodeSARIFRun(sourcePath, payload, index, input)
 		runs = append(runs, run)
 	}
 
@@ -157,12 +282,7 @@ func decodeSARIFRun(
 	payload []byte,
 	runIndex int,
 	input sarifInputRun,
-) (SARIFRun, error) {
-	rawRun, err := json.Marshal(input)
-	if err != nil {
-		return SARIFRun{}, fmt.Errorf("marshal SARIF run %q: %w", sourcePath, err)
-	}
-
+) SARIFRun {
 	run := SARIFRun{
 		ID: stableID(
 			"sarif-run",
@@ -170,7 +290,7 @@ func decodeSARIFRun(
 			strconv.Itoa(runIndex),
 			input.Tool.Driver.Name,
 			input.AutomationDetails.ID,
-			string(rawRun),
+			string(input.raw),
 		),
 		SourcePath:   sourcePath,
 		Category:     input.Properties.Scope,
@@ -187,19 +307,13 @@ func decodeSARIFRun(
 	}
 
 	for index, result := range input.Results {
-		rawResult, err := json.Marshal(result)
-		if err != nil {
-			return SARIFRun{}, fmt.Errorf("marshal SARIF result %d: %w", index, err)
-		}
-
-		result.raw = rawResult
 		run.Results = append(
 			run.Results,
 			sarifResultReference(run.ID, index, result, rules[result.RuleID]),
 		)
 	}
 
-	return run, nil
+	return run
 }
 
 func sarifResultReference(
@@ -260,7 +374,10 @@ func sarifResultReference(
 		Raw:           result.raw,
 	}
 	if properties.Finding != nil {
-		reference.PolicyID = firstNonEmpty(reference.PolicyID, properties.Finding.PolicyID)
+		reference.PolicyID = firstNonEmpty(
+			reference.PolicyID,
+			properties.Finding.PolicyID,
+		)
 		reference.SkillID = firstNonEmpty(reference.SkillID, properties.Finding.SkillID)
 		reference.EvaluatorKind = firstNonEmpty(
 			reference.EvaluatorKind,

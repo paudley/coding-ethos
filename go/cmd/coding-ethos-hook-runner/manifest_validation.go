@@ -202,7 +202,12 @@ func validateManifestEntryStrings(
 			if required {
 				validationErrors = append(
 					validationErrors,
-					fmt.Sprintf("%s[%d]: Missing '%s' field", sectionName, index, fieldName),
+					fmt.Sprintf(
+						"%s[%d]: Missing '%s' field",
+						sectionName,
+						index,
+						fieldName,
+					),
 				)
 			}
 
@@ -212,7 +217,12 @@ func validateManifestEntryStrings(
 		if _, ok := value.(string); !ok {
 			validationErrors = append(
 				validationErrors,
-				fmt.Sprintf("%s[%d].%s: Expected string", sectionName, index, fieldName),
+				fmt.Sprintf(
+					"%s[%d].%s: Expected string",
+					sectionName,
+					index,
+					fieldName,
+				),
 			)
 		}
 	}
@@ -281,7 +291,9 @@ func validateManifestCommand(_ Config, _ []string) int {
 			Tool:     "manifest_validation",
 			Title:    "MANIFEST VALIDATION FAILED",
 			Findings: findings,
-			Guidance: []string{"Update the manifest to satisfy required fields and sections."},
+			Guidance: []string{
+				"Update the manifest to satisfy required fields and sections.",
+			},
 		}, selectedHookOutputFormat()))
 
 		return 1

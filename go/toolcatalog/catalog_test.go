@@ -15,6 +15,8 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
+const brokenFlag = "--broken"
+
 func TestPythonStaticToolsExposeExpectedTools(t *testing.T) {
 	t.Parallel()
 
@@ -134,39 +136,55 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 
 	tools := mapByName(toolcatalog.ToolchainTools())
 
-	assertToolCommand(t, tools["hadolint"], []string{"hadolint", "--format", "json"})
-	assertToolCommand(
-		t,
-		tools["actionlint"],
-		[]string{"actionlint", "-format", "{{json .}}"},
-	)
-	assertToolCommand(
-		t,
-		tools["shellcheck"],
-		[]string{"shellcheck", "--severity=warning", "-x", "--format=json"},
-	)
-	assertToolCommand(t, tools["shfmt"], []string{"shfmt", "-d", "-i", "2", "-ci", "-sr"})
-	assertToolCommand(t, tools["yamllint"], []string{"yamllint"})
-	assertToolCommand(t, tools["bandit"], []string{"bandit", "-q", "-f", "json"})
-	assertToolCommand(
-		t,
-		tools["sqlfluff"],
-		[]string{"sqlfluff", "lint", "--format", "json"},
-	)
-	assertToolCommand(
-		t,
-		tools["tombi"],
-		[]string{"tombi", "lint", "--quiet", "--error-on-warnings"},
-	)
-	assertToolCommand(
-		t,
-		tools["dotenv-linter"],
-		[]string{"dotenv-linter", "--plain", "--quiet", "check"},
-	)
-	assertToolCommand(t, tools["golangci-lint"], []string{"golangci-lint", "run"})
-	assertToolCommand(t, tools["golines"], []string{"golines", "-w", "-m", "88"})
+	assertToolchainCommands(t, tools)
+	assertToolchainTypedMetadata(t, tools)
+	assertToolchainFileMetadata(t, tools)
+	assertToolchainConfigMetadata(t, tools)
+}
 
-	for name, want := range map[string]string{
+func assertToolchainCommands(
+	t *testing.T,
+	tools map[string]toolcatalog.Tool,
+) {
+	t.Helper()
+
+	for name, want := range toolchainCommandExpectations() {
+		assertToolCommand(t, tools[name], want)
+	}
+}
+
+func toolchainCommandExpectations() map[string][]string {
+	return map[string][]string{
+		"hadolint":      {"hadolint", "--format", "json"},
+		"actionlint":    {"actionlint", "-format", "{{json .}}"},
+		"shellcheck":    {"shellcheck", "--severity=warning", "-x", "--format=json"},
+		"shfmt":         {"shfmt", "-d", "-i", "2", "-ci", "-sr"},
+		"yamllint":      {"yamllint"},
+		"bandit":        {"bandit", "-q", "-f", "json"},
+		"sqlfluff":      {"sqlfluff", "lint", "--format", "json"},
+		"tombi":         {"tombi", "lint", "--quiet", "--error-on-warnings"},
+		"dotenv-linter": {"dotenv-linter", "--plain", "--quiet", "check"},
+		"golangci-lint": {"golangci-lint", "run"},
+		"golines":       {"golines", "-w", "-m", "88"},
+	}
+}
+
+func assertToolchainTypedMetadata(
+	t *testing.T,
+	tools map[string]toolcatalog.Tool,
+) {
+	t.Helper()
+
+	for name, want := range toolchainCategoryExpectations() {
+		tool := tools[name]
+		if tool.Category != want || tool.OutputFormat == "" || tool.Advice == "" {
+			t.Fatalf("%s typed metadata mismatch: %#v", name, tool)
+		}
+	}
+}
+
+func toolchainCategoryExpectations() map[string]string {
+	return map[string]string{
 		"hadolint":      "docker",
 		"actionlint":    "workflow",
 		"shellcheck":    "shell",
@@ -178,42 +196,76 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		"dotenv-linter": "dotenv",
 		"golangci-lint": "go-static",
 		"golines":       "format",
-	} {
-		tool := tools[name]
-		if tool.Category != want || tool.OutputFormat == "" || tool.Advice == "" {
-			t.Fatalf("%s typed metadata mismatch: %#v", name, tool)
-		}
 	}
+}
 
-	assertToolFileMetadata(t, tools["hadolint"], nil, nil, []string{"Dockerfile"})
-	assertToolFileMetadata(
-		t,
-		tools["actionlint"],
-		[]string{".yaml", ".yml"},
-		[]string{".github/workflows/"},
-		nil,
-	)
-	assertToolFileMetadata(
-		t,
-		tools["shellcheck"],
-		[]string{".sh", ".bash", ".zsh", ".ksh"},
-		nil,
-		nil,
-	)
-	assertToolFileMetadata(
-		t,
-		tools["shfmt"],
-		[]string{".sh", ".bash", ".zsh", ".ksh"},
-		nil,
-		nil,
-	)
-	assertToolFileMetadata(t, tools["yamllint"], []string{".yaml", ".yml"}, nil, nil)
-	assertToolFileMetadata(t, tools["bandit"], []string{".py"}, nil, nil)
-	assertToolFileMetadata(t, tools["sqlfluff"], []string{".sql"}, nil, nil)
-	assertToolFileMetadata(t, tools["tombi"], []string{".toml"}, nil, nil)
-	assertToolFileMetadata(t, tools["dotenv-linter"], nil, nil, []string{".env"})
-	assertToolFileMetadata(t, tools["golangci-lint"], []string{".go"}, nil, nil)
-	assertToolFileMetadata(t, tools["golines"], []string{".go"}, nil, nil)
+func assertToolchainFileMetadata(
+	t *testing.T,
+	tools map[string]toolcatalog.Tool,
+) {
+	t.Helper()
+
+	for name, want := range toolchainFileMetadataExpectations() {
+		assertToolFileMetadata(
+			t,
+			tools[name],
+			want.extensions,
+			want.includeDirs,
+			want.basenames,
+		)
+	}
+}
+
+type toolFileMetadataExpectation struct {
+	extensions  []string
+	includeDirs []string
+	basenames   []string
+}
+
+func toolchainFileMetadataExpectations() map[string]toolFileMetadataExpectation {
+	return map[string]toolFileMetadataExpectation{
+		"hadolint": {
+			basenames: []string{"Dockerfile"},
+		},
+		"actionlint": {
+			extensions:  []string{".yaml", ".yml"},
+			includeDirs: []string{".github/workflows/"},
+		},
+		"shellcheck": {
+			extensions: []string{".sh", ".bash", ".zsh", ".ksh"},
+		},
+		"shfmt": {
+			extensions: []string{".sh", ".bash", ".zsh", ".ksh"},
+		},
+		"yamllint": {
+			extensions: []string{".yaml", ".yml"},
+		},
+		"bandit": {
+			extensions: []string{".py"},
+		},
+		"sqlfluff": {
+			extensions: []string{".sql"},
+		},
+		"tombi": {
+			extensions: []string{".toml"},
+		},
+		"dotenv-linter": {
+			basenames: []string{".env"},
+		},
+		"golangci-lint": {
+			extensions: []string{".go"},
+		},
+		"golines": {
+			extensions: []string{".go"},
+		},
+	}
+}
+
+func assertToolchainConfigMetadata(
+	t *testing.T,
+	tools map[string]toolcatalog.Tool,
+) {
+	t.Helper()
 
 	if tools["yamllint"].RepoConfig != ".yamllint.yml" ||
 		tools["yamllint"].ConfigFlags[0] != "-c" {
@@ -227,7 +279,12 @@ func TestToolchainToolsExposeCurrentHookCommands(t *testing.T) {
 		t.Fatalf("yamllint post-config args = %#v", tools["yamllint"].PostConfigArgs)
 	}
 
-	golangci := tools["golangci-lint"]
+	assertGolangCIConfigMetadata(t, tools["golangci-lint"])
+}
+
+func assertGolangCIConfigMetadata(t *testing.T, golangci toolcatalog.Tool) {
+	t.Helper()
+
 	if golangci.RepoConfig != ".golangci.yml" || golangci.ConfigFlags[0] != "--config" {
 		t.Fatalf("golangci-lint config metadata = %#v", golangci)
 	}
@@ -347,7 +404,11 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 		if tool.Runtime == toolcatalog.RuntimePython ||
 			tool.Runtime == toolcatalog.RuntimeUV {
 			if !capture.PythonModule || len(capture.ModuleNames) == 0 {
-				t.Fatalf("%s missing Python module capture metadata: %#v", name, capture)
+				t.Fatalf(
+					"%s missing Python module capture metadata: %#v",
+					name,
+					capture,
+				)
 			}
 		}
 	}
@@ -362,9 +423,9 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 	}
 
 	capture := tool.CaptureSpec()
-	capture.OutputArgs[0] = "--broken"
+	capture.OutputArgs[0] = brokenFlag
 
-	if tool.CaptureOutputArgs[0] == "--broken" {
+	if tool.CaptureOutputArgs[0] == brokenFlag {
 		t.Fatal("CaptureSpec shared backing array with Tool")
 	}
 
@@ -383,10 +444,10 @@ func TestToolCapabilityViewsAreDefensiveCopies(t *testing.T) {
 	}
 
 	config := tool.ConfigSpec()
-	config.Flags = append(config.Flags, "--broken")
+	config.Flags = append(config.Flags, brokenFlag)
 
 	if len(tool.ConfigFlags) > 0 &&
-		tool.ConfigFlags[len(tool.ConfigFlags)-1] == "--broken" {
+		tool.ConfigFlags[len(tool.ConfigFlags)-1] == brokenFlag {
 		t.Fatal("ConfigSpec shared backing array with Tool")
 	}
 
@@ -405,36 +466,55 @@ func TestToolCapabilitiesAreDenyByDefaultForNetwork(t *testing.T) {
 	for _, tool := range toolcatalog.HookOwnedTools() {
 		capabilities := tool.CapabilitySpec()
 		if tool.Name == "gemini-check" {
-			if !capabilities.RequiresNetwork ||
-				capabilities.SandboxProfile != "agent-network" ||
-				!slices.Contains(capabilities.Tags, "network") ||
-				slices.Contains(capabilities.Tags, "no-network") ||
-				!slices.Contains(capabilities.Tags, "no-git") {
-				t.Fatalf("gemini-check capabilities = %#v", capabilities)
-			}
+			assertGeminiNetworkCapabilities(t, capabilities)
 
 			continue
 		}
 
-		if capabilities.RequiresNetwork {
-			t.Fatalf("%s unexpectedly requires network: %#v", tool.Name, capabilities)
-		}
+		assertNoNetworkCapabilities(t, tool.Name, capabilities)
+	}
+}
 
-		if !slices.Contains(capabilities.Tags, "no-network") ||
-			slices.Contains(capabilities.Tags, "network") {
-			t.Fatalf("%s missing no-network tag: %#v", tool.Name, capabilities)
-		}
+func assertGeminiNetworkCapabilities(
+	t *testing.T,
+	capabilities toolcatalog.CapabilitySpec,
+) {
+	t.Helper()
 
-		if !capabilities.RequiresGit && !slices.Contains(capabilities.Tags, "no-git") {
-			t.Fatalf("%s missing no-git tag: %#v", tool.Name, capabilities)
-		}
+	if !capabilities.RequiresNetwork ||
+		capabilities.SandboxProfile != "agent-network" ||
+		!slices.Contains(capabilities.Tags, "network") ||
+		slices.Contains(capabilities.Tags, "no-network") ||
+		!slices.Contains(capabilities.Tags, "no-git") {
+		t.Fatalf("gemini-check capabilities = %#v", capabilities)
+	}
+}
 
-		if capabilities.TimeoutSeconds <= 0 ||
-			capabilities.MemoryMB <= 0 ||
-			capabilities.CPUQuotaPercent <= 0 ||
-			capabilities.SeccompProfile == "" {
-			t.Fatalf("%s missing default sandbox limits: %#v", tool.Name, capabilities)
-		}
+func assertNoNetworkCapabilities(
+	t *testing.T,
+	name string,
+	capabilities toolcatalog.CapabilitySpec,
+) {
+	t.Helper()
+
+	if capabilities.RequiresNetwork {
+		t.Fatalf("%s unexpectedly requires network: %#v", name, capabilities)
+	}
+
+	if !slices.Contains(capabilities.Tags, "no-network") ||
+		slices.Contains(capabilities.Tags, "network") {
+		t.Fatalf("%s missing no-network tag: %#v", name, capabilities)
+	}
+
+	if !capabilities.RequiresGit && !slices.Contains(capabilities.Tags, "no-git") {
+		t.Fatalf("%s missing no-git tag: %#v", name, capabilities)
+	}
+
+	if capabilities.TimeoutSeconds <= 0 ||
+		capabilities.MemoryMB <= 0 ||
+		capabilities.CPUQuotaPercent <= 0 ||
+		capabilities.SeccompProfile == "" {
+		t.Fatalf("%s missing default sandbox limits: %#v", name, capabilities)
 	}
 }
 
@@ -516,7 +596,10 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 	}
 
 	if got := ruff.ManagedExecutablePath(root); got != "" {
-		t.Fatalf("ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools", got)
+		t.Fatalf(
+			"ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools",
+			got,
+		)
 	}
 }
 
@@ -544,11 +627,35 @@ func TestCapturedLintShimSpecsUseCatalogTools(t *testing.T) {
 func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		args []string
-		want []string
-	}{
+	for _, test := range toolCaptureArgsForceCatalogOutputCases() {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			tool, found := toolcatalog.HookOwnedTool(test.name)
+			if !found {
+				t.Fatalf("missing tool %q", test.name)
+			}
+
+			got, ok := tool.CaptureArgs(test.args)
+			if !ok {
+				t.Fatalf("CaptureArgs(%s) did not apply", test.name)
+			}
+
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("CaptureArgs(%s) = %#v, want %#v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+type toolCaptureArgsCase struct {
+	name string
+	args []string
+	want []string
+}
+
+func toolCaptureArgsForceCatalogOutputCases() []toolCaptureArgsCase {
+	return []toolCaptureArgsCase{
 		{
 			name: "ruff",
 			args: []string{"check", "--output-format=github", "pkg"},
@@ -609,26 +716,6 @@ func TestToolCaptureArgsForceCatalogOutput(t *testing.T) {
 				"./...",
 			},
 		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			tool, found := toolcatalog.HookOwnedTool(test.name)
-			if !found {
-				t.Fatalf("missing tool %q", test.name)
-			}
-
-			got, ok := tool.CaptureArgs(test.args)
-			if !ok {
-				t.Fatalf("CaptureArgs(%s) did not apply", test.name)
-			}
-
-			if !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("CaptureArgs(%s) = %#v, want %#v", test.name, got, test.want)
-			}
-		})
 	}
 }
 

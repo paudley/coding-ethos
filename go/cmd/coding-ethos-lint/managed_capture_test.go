@@ -171,12 +171,54 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 
 	writeManagedCaptureFile(
 		t,
-		filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
+		filepath.Join(
+			consumerRoot,
+			"lbox-platform",
+			"lib",
+			"python",
+			"tests",
+			"app.py",
+		),
 		"import os\n",
 	)
 
 	uvFixture := filepath.Join(t.TempDir(), "uv")
-	writeManagedCaptureFile(t, uvFixture, `#!/usr/bin/env sh
+	writeManagedCaptureFile(t, uvFixture, managedCaptureUVFixture())
+
+	chmodManagedCaptureExecutable(t, uvFixture)
+
+	t.Setenv("UV", uvFixture)
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	output := captureStdout(t, func() {
+		exitCode := runManagedCapture(managedCaptureOptions{
+			Tool:          "ruff",
+			EthosRoot:     ethosRoot,
+			ConsumerRoot:  consumerRoot,
+			InvocationCwd: consumerRoot,
+			Args: []string{
+				"check",
+				filepath.Join(
+					consumerRoot,
+					"lbox-platform",
+					"lib",
+					"python",
+					"tests",
+					"app.py",
+				),
+			},
+		})
+		if exitCode != 1 {
+			t.Fatalf("exit code = %d, want 1", exitCode)
+		}
+	})
+	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
+		t.Fatalf("output missing repo-relative file:\n%s", output)
+	}
+}
+
+func managedCaptureUVFixture() string {
+	return `#!/usr/bin/env sh
 case " $* " in
   *" --quiet "*) ;;
   *) echo "missing quiet uv mode: $*" >&2; exit 2 ;;
@@ -203,31 +245,7 @@ cat <<'JSON'
 ]
 JSON
 exit 1
-`)
-
-	chmodManagedCaptureExecutable(t, uvFixture)
-
-	t.Setenv("UV", uvFixture)
-	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
-
-	output := captureStdout(t, func() {
-		exitCode := runManagedCapture(managedCaptureOptions{
-			Tool:          "ruff",
-			EthosRoot:     ethosRoot,
-			ConsumerRoot:  consumerRoot,
-			InvocationCwd: consumerRoot,
-			Args: []string{
-				"check",
-				filepath.Join(consumerRoot, "lbox-platform", "lib", "python", "tests", "app.py"),
-			},
-		})
-		if exitCode != 1 {
-			t.Fatalf("exit code = %d, want 1", exitCode)
-		}
-	})
-	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
-		t.Fatalf("output missing repo-relative file:\n%s", output)
-	}
+`
 }
 
 func TestManagedToolCommandPrefersCheckoutVenvTool(t *testing.T) {

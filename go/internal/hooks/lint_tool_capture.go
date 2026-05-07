@@ -13,10 +13,15 @@ import (
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
-const tokenPolicyTool = "policy-tool"
+const (
+	lintCaptureStaticArgCount = 3
+	tokenPolicyTool           = "policy-tool"
+	envToolCommandOffset      = 2
+	managedLintSegmentSize    = 3
+)
 
 func lintToolRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != "PreToolUse" || event.ToolName != "Bash" {
+	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
 		return InspectionRoute{}
 	}
 
@@ -170,40 +175,85 @@ func unmanagedLintToolArgs(
 		return tool, append([]string(nil), segment[1:]...), true
 	}
 
-	if len(segment) >= 3 && isPythonCommand(segment[0]) && segment[1] == "-m" {
-		if tool, ok := capturedToolForModule(segment[2]); ok && tool.PythonModule {
-			return tool, append([]string(nil), segment[3:]...), true
+	if tool, args, ok := pythonModuleLintToolArgs(segment); ok {
+		return tool, args, true
+	}
+
+	if tool, args, ok := uvLintToolArgs(segment); ok {
+		return tool, args, true
+	}
+
+	if tool, args, ok := commandLintToolArgs(segment); ok {
+		return tool, args, true
+	}
+
+	if tool, args, ok := envLintToolArgs(segment); ok {
+		return tool, args, true
+	}
+
+	return toolcatalog.CapturedTool{}, nil, false
+}
+
+func pythonModuleLintToolArgs(
+	segment []string,
+) (toolcatalog.CapturedTool, []string, bool) {
+	if len(segment) < 3 || !isPythonCommand(segment[0]) || segment[1] != "-m" {
+		return toolcatalog.CapturedTool{}, nil, false
+	}
+
+	tool, ok := capturedToolForModule(segment[2])
+	if !ok || !tool.PythonModule {
+		return toolcatalog.CapturedTool{}, nil, false
+	}
+
+	return tool, append([]string(nil), segment[3:]...), true
+}
+
+func uvLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
+	if filepath.Base(segment[0]) != "uv" {
+		return toolcatalog.CapturedTool{}, nil, false
+	}
+
+	for index, token := range segment {
+		if tool, ok := capturedToolForCommand(token); ok {
+			return tool, append([]string(nil), segment[index+1:]...), true
 		}
 	}
 
-	if filepath.Base(segment[0]) == "uv" {
-		for index, token := range segment {
-			if tool, ok := capturedToolForCommand(token); ok {
-				return tool, append([]string(nil), segment[index+1:]...), true
-			}
-		}
+	return toolcatalog.CapturedTool{}, nil, false
+}
+
+func commandLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
+	if filepath.Base(segment[0]) != "command" || len(segment) <= 1 {
+		return toolcatalog.CapturedTool{}, nil, false
 	}
 
-	if filepath.Base(segment[0]) == "command" && len(segment) > 1 {
-		if tool, ok := capturedToolForCommand(segment[1]); ok {
-			return tool, append([]string(nil), segment[2:]...), true
-		}
+	tool, ok := capturedToolForCommand(segment[1])
+	if !ok {
+		return toolcatalog.CapturedTool{}, nil, false
 	}
 
-	if filepath.Base(segment[0]) == "env" {
-		for index, token := range segment[1:] {
-			if strings.Contains(token, "=") || strings.HasPrefix(token, "-") {
-				continue
-			}
+	return tool, append([]string(nil), segment[2:]...), true
+}
 
-			if tool, ok := capturedToolForCommand(token); ok {
-				start := index + 2
+func envLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
+	if filepath.Base(segment[0]) != "env" {
+		return toolcatalog.CapturedTool{}, nil, false
+	}
 
-				return tool, append([]string(nil), segment[start:]...), true
-			}
+	for index, token := range segment[1:] {
+		if strings.Contains(token, "=") || strings.HasPrefix(token, "-") {
+			continue
+		}
 
+		tool, ok := capturedToolForCommand(token)
+		if !ok {
 			break
 		}
+
+		start := index + envToolCommandOffset
+
+		return tool, append([]string(nil), segment[start:]...), true
 	}
 
 	return toolcatalog.CapturedTool{}, nil, false
@@ -225,7 +275,9 @@ func lintCaptureCommand(toolName string, args []string) string {
 		runner = "bin/coding-ethos-run"
 	}
 
-	parts := []string{shellQuote(runner), tokenPolicyTool, toolName}
+	parts := make([]string, 0, lintCaptureStaticArgCount+len(args))
+
+	parts = append(parts, shellQuote(runner), tokenPolicyTool, toolName)
 	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
 	}
@@ -270,7 +322,7 @@ func firstCaptureNonEmpty(values ...string) string {
 }
 
 func managedLintToolSegment(segment []string) bool {
-	if len(segment) < 3 {
+	if len(segment) < managedLintSegmentSize {
 		return false
 	}
 
@@ -349,36 +401,40 @@ func evasiveLintToolShell(command string) bool {
 		return true
 	}
 
-	for _, parsed := range commands {
-		mentionsLint := shellCommandIsLintTool(parsed)
-		switch shellCommandName(parsed) {
-		case "bash", "sh", "zsh", "dash":
-			if shellExecArgumentMentionsCapturedTool(parsed) {
-				return true
-			}
-		case "eval", "alias", "exec":
-			if shellCommandArgMentionsCapturedTool(parsed) {
-				return true
-			}
-		default:
-			if isPythonCommand(shellCommandName(parsed)) &&
-				(shellCommandArgMentions(parsed, "subprocess") ||
-					shellCommandArgMentionsCapturedTool(parsed)) {
-				return true
-			}
-		}
+	return slices.ContainsFunc(commands, shellCommandIsEvasiveLintTool)
+}
 
-		if mentionsLint &&
-			(parsed.HasCommandSubstitution ||
-				parsed.HasProcessSubstitution ||
-				parsed.HasHeredoc ||
-				parsed.HasSubshell ||
-				shellCommandUsesPathOverride(parsed)) {
-			return true
-		}
+func shellCommandIsEvasiveLintTool(parsed shellparse.Command) bool {
+	if shellCommandUsesLintToolIndirection(parsed) {
+		return true
 	}
 
-	return false
+	return shellCommandIsLintTool(parsed) && shellCommandUsesEvasiveLintFeature(parsed)
+}
+
+func shellCommandUsesLintToolIndirection(parsed shellparse.Command) bool {
+	switch shellCommandName(parsed) {
+	case "bash", "sh", "zsh", "dash":
+		return shellExecArgumentMentionsCapturedTool(parsed)
+	case "eval", "alias", "exec":
+		return shellCommandArgMentionsCapturedTool(parsed)
+	default:
+		return shellPythonCommandMentionsCapturedTool(parsed)
+	}
+}
+
+func shellPythonCommandMentionsCapturedTool(parsed shellparse.Command) bool {
+	return isPythonCommand(shellCommandName(parsed)) &&
+		(shellCommandArgMentions(parsed, "subprocess") ||
+			shellCommandArgMentionsCapturedTool(parsed))
+}
+
+func shellCommandUsesEvasiveLintFeature(parsed shellparse.Command) bool {
+	return parsed.HasCommandSubstitution ||
+		parsed.HasProcessSubstitution ||
+		parsed.HasHeredoc ||
+		parsed.HasSubshell ||
+		shellCommandUsesPathOverride(parsed)
 }
 
 func shellCommandIsLintTool(command shellparse.Command) bool {

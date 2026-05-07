@@ -47,7 +47,11 @@ func (indexer ASTIndexer) IndexPaths(
 
 		info, err := os.Stat(path)
 		if err != nil {
-			return CodeIndexSummary{}, fmt.Errorf("stat index path %q: %w", inputPath, err)
+			return CodeIndexSummary{}, fmt.Errorf(
+				"stat index path %q: %w",
+				inputPath,
+				err,
+			)
 		}
 
 		if info.IsDir() {
@@ -59,8 +63,9 @@ func (indexer ASTIndexer) IndexPaths(
 			continue
 		}
 
-		if err := indexer.indexFile(ctx, root, path, &summary); err != nil {
-			return CodeIndexSummary{}, err
+		inlineErr0 := indexer.indexFile(ctx, root, path, &summary)
+		if inlineErr0 != nil {
+			return CodeIndexSummary{}, inlineErr0
 		}
 	}
 
@@ -73,9 +78,9 @@ func (indexer ASTIndexer) indexDir(
 	dir string,
 	summary *CodeIndexSummary,
 ) error {
-	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("walk code-intel AST source path %s: %w", path, err)
 		}
 
 		if entry.IsDir() {
@@ -88,6 +93,11 @@ func (indexer ASTIndexer) indexDir(
 
 		return indexer.indexFile(ctx, root, path, summary)
 	})
+	if err != nil {
+		return fmt.Errorf("walk code-intel AST directory %s: %w", dir, err)
+	}
+
+	return nil
 }
 
 func (indexer ASTIndexer) indexFile(
@@ -115,7 +125,7 @@ func (indexer ASTIndexer) indexFile(
 
 	parsed, _, err := astfacts.Analyze(relativePath, contents)
 	if err != nil {
-		return err
+		return fmt.Errorf("analyze AST facts for %s: %w", relativePath, err)
 	}
 
 	chunks := codeChunksFromSymbols(parsed.Symbols)
@@ -132,8 +142,10 @@ func (indexer ASTIndexer) indexFile(
 		LineCount:     parsed.LineCount,
 		IndexedAtUTC:  time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges); err != nil {
-		return err
+
+	inlineErr1 := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges)
+	if inlineErr1 != nil {
+		return inlineErr1
 	}
 
 	summary.FilesIndexed++
@@ -288,7 +300,10 @@ func referenceEdges(
 	for _, chunk := range chunks {
 		chunksBySymbolPath[chunk.SymbolPath] = chunk
 		if chunk.SymbolName != "" {
-			targetsByName[chunk.SymbolName] = append(targetsByName[chunk.SymbolName], chunk)
+			targetsByName[chunk.SymbolName] = append(
+				targetsByName[chunk.SymbolName],
+				chunk,
+			)
 		}
 	}
 
@@ -307,7 +322,13 @@ func referenceEdges(
 				}
 
 				edges = append(edges, CodeEdge{
-					ID:               stableID("code-edge", "references", path, source.ID, target.ID),
+					ID: stableID(
+						"code-edge",
+						"references",
+						path,
+						source.ID,
+						target.ID,
+					),
 					Kind:             "references",
 					Path:             path,
 					SourceChunkID:    source.ID,
@@ -345,7 +366,15 @@ func dedupeCodeEdges(edges []CodeEdge) []CodeEdge {
 
 func shouldSkipDir(name string) bool {
 	switch name {
-	case ".git", ".hg", ".svn", ".tox", ".venv", "node_modules", "build", "dist", ".cache":
+	case ".git",
+		".hg",
+		".svn",
+		".tox",
+		".venv",
+		"node_modules",
+		"build",
+		"dist",
+		".cache":
 		return true
 	default:
 		return false

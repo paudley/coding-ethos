@@ -18,6 +18,12 @@ const (
 	ProviderGemini = "gemini"
 )
 
+func IsWriteLike(canonical string) bool {
+	return canonical == CanonicalWrite ||
+		canonical == CanonicalEdit ||
+		canonical == CanonicalMultiEdit
+}
+
 type Alias struct {
 	Provider  string
 	Canonical string
@@ -28,17 +34,59 @@ type Alias struct {
 }
 
 func KnownAliases() []Alias {
+	aliases := make([]Alias, 0, knownAliasCapacity)
+	aliases = append(aliases, claudeAliases()...)
+	aliases = append(aliases, codexAliases()...)
+	aliases = append(aliases, geminiAliases()...)
+
+	return aliases
+}
+
+const knownAliasCapacity = 64
+
+func claudeAliases() []Alias {
+	aliases := make([]Alias, 0, claudeAliasCapacity)
+	aliases = append(aliases, claudeActiveAliases()...)
+	aliases = append(aliases, claudeNoopAliases()...)
+
+	return aliases
+}
+
+const claudeAliasCapacity = 16
+
+func claudeActiveAliases() []Alias {
 	return []Alias{
-		{Provider: ProviderClaude, Canonical: CanonicalShell, Name: "Bash", Active: true},
-		{Provider: ProviderClaude, Canonical: CanonicalWrite, Name: "Write", Active: true},
-		{Provider: ProviderClaude, Canonical: CanonicalEdit, Name: "Edit", Active: true},
+		{
+			Provider:  ProviderClaude,
+			Canonical: CanonicalShell,
+			Name:      "Bash",
+			Active:    true,
+		},
+		{
+			Provider:  ProviderClaude,
+			Canonical: CanonicalWrite,
+			Name:      "Write",
+			Active:    true,
+		},
+		{
+			Provider:  ProviderClaude,
+			Canonical: CanonicalEdit,
+			Name:      "Edit",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderClaude,
 			Canonical: CanonicalMultiEdit,
 			Name:      "MultiEdit",
 			Active:    true,
 		},
-		// Known Claude tools wired to the checker as no-ops; no enforcement dispatch uses them yet.
+	}
+}
+
+func claudeNoopAliases() []Alias {
+	return []Alias{
+		// Known Claude tools wired to the checker as no-ops; no enforcement dispatch
+		// uses them yet.
 		{
 			Provider:  ProviderClaude,
 			Canonical: CanonicalNoop,
@@ -99,9 +147,35 @@ func KnownAliases() []Alias {
 			Name:      "WebSearch",
 			Note:      "not used for enforcement yet",
 		},
+	}
+}
 
-		{Provider: ProviderCodex, Canonical: CanonicalShell, Name: "Bash", Active: true},
-		{Provider: ProviderCodex, Canonical: CanonicalShell, Name: "bash", Active: true},
+func codexAliases() []Alias {
+	aliases := make([]Alias, 0, codexAliasCapacity)
+	aliases = append(aliases, codexShellAliases()...)
+	aliases = append(aliases, codexWriteAliases()...)
+	aliases = append(aliases, codexEditAliases()...)
+	aliases = append(aliases, codexNoopAliases()...)
+
+	return aliases
+}
+
+const codexAliasCapacity = 32
+
+func codexShellAliases() []Alias {
+	return []Alias{
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalShell,
+			Name:      "Bash",
+			Active:    true,
+		},
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalShell,
+			Name:      "bash",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalShell,
@@ -121,14 +195,24 @@ func KnownAliases() []Alias {
 			Name:      "run_command",
 			Active:    true,
 		},
-		{Provider: ProviderCodex, Canonical: CanonicalShell, Name: "run_shell", Active: true},
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalShell,
+			Name:      "run_shell",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalShell,
 			Name:      "run_shell_command",
 			Active:    true,
 		},
-		{Provider: ProviderCodex, Canonical: CanonicalShell, Name: "shell", Active: true},
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalShell,
+			Name:      "shell",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalShell,
@@ -155,7 +239,17 @@ func KnownAliases() []Alias {
 			Active:    true,
 			Regex:     true,
 		},
-		{Provider: ProviderCodex, Canonical: CanonicalWrite, Name: "Write", Active: true},
+	}
+}
+
+func codexWriteAliases() []Alias {
+	return []Alias{
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalWrite,
+			Name:      "Write",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalWrite,
@@ -168,7 +262,17 @@ func KnownAliases() []Alias {
 			Name:      "write_file",
 			Active:    true,
 		},
-		{Provider: ProviderCodex, Canonical: CanonicalEdit, Name: "Edit", Active: true},
+	}
+}
+
+func codexEditAliases() []Alias {
+	return []Alias{
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalEdit,
+			Name:      "Edit",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalEdit,
@@ -182,14 +286,25 @@ func KnownAliases() []Alias {
 			Active:    true,
 			Regex:     true,
 		},
-		{Provider: ProviderCodex, Canonical: CanonicalEdit, Name: "edit_file", Active: true},
+		{
+			Provider:  ProviderCodex,
+			Canonical: CanonicalEdit,
+			Name:      "edit_file",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalMultiEdit,
 			Name:      "MultiEdit",
 			Active:    true,
 		},
-		// Known Codex tools wired to the checker as no-ops; no enforcement dispatch uses them yet.
+	}
+}
+
+func codexNoopAliases() []Alias {
+	return []Alias{
+		// Known Codex tools wired to the checker as no-ops; no enforcement dispatch
+		// uses them yet.
 		{
 			Provider:  ProviderCodex,
 			Canonical: CanonicalNoop,
@@ -250,7 +365,11 @@ func KnownAliases() []Alias {
 			Regex:     true,
 			Note:      "not used for enforcement yet",
 		},
+	}
+}
 
+func geminiAliases() []Alias {
+	return []Alias{
 		{
 			Provider:  ProviderGemini,
 			Canonical: CanonicalShell,
@@ -263,14 +382,20 @@ func KnownAliases() []Alias {
 			Name:      "write_file",
 			Active:    true,
 		},
-		{Provider: ProviderGemini, Canonical: CanonicalEdit, Name: "replace", Active: true},
+		{
+			Provider:  ProviderGemini,
+			Canonical: CanonicalEdit,
+			Name:      "replace",
+			Active:    true,
+		},
 		{
 			Provider:  ProviderGemini,
 			Canonical: CanonicalMultiEdit,
 			Name:      "MultiEdit",
 			Active:    true,
 		},
-		// Known Gemini-style tools wired to the checker as no-ops; no enforcement dispatch uses them yet.
+		// Known Gemini-style tools wired to the checker as no-ops; no enforcement
+		// dispatch uses them yet.
 		{
 			Provider:  ProviderGemini,
 			Canonical: CanonicalNoop,

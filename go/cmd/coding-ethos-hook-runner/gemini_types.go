@@ -52,24 +52,91 @@ type QuietFilterConfig struct {
 }
 
 type GeminiPromptCheckSpec struct {
-	FileScope     string             `json:"fileScope"`
+	FileScope     string
 	Selector      GeminiFileSelector `json:"selector"`
-	BatchSize     int                `json:"batchSize"`
-	MaxFileSizeKB int                `json:"maxFileSizeKb"`
+	BatchSize     int
+	MaxFileSizeKB int
 }
 
 type GeminiFileSelector struct {
-	IncludeExtensions           []string `json:"includeExtensions"`
-	ExcludeSubstrings           []string `json:"excludeSubstrings"`
-	ExcludePrefixes             []string `json:"excludePrefixes"`
-	ShebangMarkers              []string `json:"shebangMarkers"`
-	AllowExtensionlessInScripts bool     `json:"allowExtensionlessInScripts"`
+	IncludeExtensions           []string
+	ExcludeSubstrings           []string
+	ExcludePrefixes             []string
+	ShebangMarkers              []string
+	AllowExtensionlessInScripts bool
 }
 
 type GeminiPromptPack struct {
 	Checks  map[string]GeminiPromptCheckSpec `json:"checks"`
 	Prompts map[string]string                `json:"prompts"`
 	Version int                              `json:"version"`
+}
+
+func (spec *GeminiPromptCheckSpec) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeGeminiJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode Gemini prompt check: %w", err)
+	}
+
+	return decodeGeminiJSONFieldsInto(fields, []geminiJSONFieldTarget{
+		{key: "fileScope", target: &spec.FileScope},
+		{key: "selector", target: &spec.Selector},
+		{key: "batchSize", target: &spec.BatchSize},
+		{key: "maxFileSizeKb", target: &spec.MaxFileSizeKB},
+	})
+}
+
+func (selector *GeminiFileSelector) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeGeminiJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode Gemini file selector: %w", err)
+	}
+
+	return decodeGeminiJSONFieldsInto(fields, []geminiJSONFieldTarget{
+		{key: "includeExtensions", target: &selector.IncludeExtensions},
+		{key: "excludeSubstrings", target: &selector.ExcludeSubstrings},
+		{key: "excludePrefixes", target: &selector.ExcludePrefixes},
+		{key: "shebangMarkers", target: &selector.ShebangMarkers},
+		{
+			key:    "allowExtensionlessInScripts",
+			target: &selector.AllowExtensionlessInScripts,
+		},
+	})
+}
+
+func decodeGeminiJSONFields(payload []byte) (map[string]json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+
+	err := json.Unmarshal(payload, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode Gemini JSON object: %w", err)
+	}
+
+	return fields, nil
+}
+
+type geminiJSONFieldTarget struct {
+	target any
+	key    string
+}
+
+func decodeGeminiJSONFieldsInto(
+	fields map[string]json.RawMessage,
+	targets []geminiJSONFieldTarget,
+) error {
+	for _, target := range targets {
+		raw, ok := fields[target.key]
+		if !ok {
+			continue
+		}
+
+		err := json.Unmarshal(raw, target.target)
+		if err != nil {
+			return fmt.Errorf("decode %q: %w", target.key, err)
+		}
+	}
+
+	return nil
 }
 
 func loadGeminiPromptPack(bundleRoot string) (GeminiPromptPack, error) {

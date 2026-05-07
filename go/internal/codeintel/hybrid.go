@@ -5,10 +5,16 @@ package codeintel
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+)
+
+const (
+	hybridCandidateMultiplier = 2
+	indexStatusRecordLimit    = 100000
 )
 
 func (store *Store) HybridSearch(
@@ -24,7 +30,13 @@ func (store *Store) HybridSearch(
 	resultMap := map[string]HybridSearchResult{}
 
 	if strings.TrimSpace(query.Text) != "" {
-		ftsResults, err := store.Search(ctx, SearchQuery{Text: query.Text, Limit: limit * 2})
+		ftsResults, err := store.Search(
+			ctx,
+			SearchQuery{
+				Text:  query.Text,
+				Limit: limit * hybridCandidateMultiplier,
+			},
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -40,46 +52,9 @@ func (store *Store) HybridSearch(
 	}
 
 	if len(query.Vector) > 0 {
-		vectorResults, err := index.Search(ctx, evidence.VectorQuery{
-			Collection: firstNonEmpty(query.Collection, "remediations"),
-			ModelID:    query.ModelID,
-			Vector:     query.Vector,
-			Filters:    hybridVectorFilters(query),
-			Limit:      limit * 2,
-		})
+		err := store.addHybridVectorMatches(ctx, index, query, limit, resultMap)
 		if err != nil {
 			return nil, err
-		}
-
-		for _, match := range vectorResults {
-			item := hybridFromVector(match)
-			if !hybridMatches(item, query) {
-				continue
-			}
-
-			key := hybridKey(item)
-
-			existing, found := resultMap[key]
-			if found {
-				existing.Source = joinSource(existing.Source, "vector")
-				existing.VectorID = match.ID
-
-				existing.VectorScore = match.Score
-				if existing.Outcome == "" {
-					existing.Outcome = item.Outcome
-				}
-
-				if len(existing.Metadata) == 0 {
-					existing.Metadata = item.Metadata
-				}
-
-				existing.Score += match.Score * 2
-				resultMap[key] = existing
-
-				continue
-			}
-
-			resultMap[key] = item
 		}
 	}
 
@@ -108,6 +83,66 @@ func (store *Store) HybridSearch(
 	return results, nil
 }
 
+func (store *Store) addHybridVectorMatches(
+	ctx context.Context,
+	index evidence.VectorIndex,
+	query HybridSearchQuery,
+	limit int,
+	resultMap map[string]HybridSearchResult,
+) error {
+	vectorResults, err := index.Search(ctx, evidence.VectorQuery{
+		Collection: firstNonEmpty(query.Collection, "remediations"),
+		ModelID:    query.ModelID,
+		Vector:     query.Vector,
+		Filters:    hybridVectorFilters(query),
+		Limit:      limit * hybridCandidateMultiplier,
+	})
+	if err != nil {
+		return fmt.Errorf("search vector index: %w", err)
+	}
+
+	for _, match := range vectorResults {
+		item := hybridFromVector(match)
+		if !hybridMatches(item, query) {
+			continue
+		}
+
+		mergeHybridVectorMatch(resultMap, item, match)
+	}
+
+	return nil
+}
+
+func mergeHybridVectorMatch(
+	resultMap map[string]HybridSearchResult,
+	item HybridSearchResult,
+	match evidence.VectorMatch,
+) {
+	key := hybridKey(item)
+
+	existing, found := resultMap[key]
+	if !found {
+		resultMap[key] = item
+
+		return
+	}
+
+	existing.Source = joinSource(existing.Source, "vector")
+	existing.VectorID = match.ID
+
+	existing.VectorScore = match.Score
+	if existing.Outcome == "" {
+		existing.Outcome = item.Outcome
+	}
+
+	if len(existing.Metadata) == 0 {
+		existing.Metadata = item.Metadata
+	}
+
+	existing.Score += match.Score * hybridCandidateMultiplier
+	resultMap[key] = existing
+}
+
 func (store *Store) IndexStatus(
 	ctx context.Context,
 	vectorStats evidence.VectorStats,
@@ -122,7 +157,7 @@ func (store *Store) IndexStatus(
 		Backend:    query.Backend,
 		Collection: query.Collection,
 		ModelID:    query.ModelID,
-		Limit:      100000,
+		Limit:      indexStatusRecordLimit,
 	})
 	if err != nil {
 		return IndexStatus{}, err
@@ -178,7 +213,7 @@ func hybridFromVector(match evidence.VectorMatch) HybridSearchResult {
 		Source:      "vector",
 		Outcome:     metadata["outcome"],
 		VectorID:    match.ID,
-		Score:       match.Score * 2,
+		Score:       match.Score * hybridCandidateMultiplier,
 		VectorScore: match.Score,
 	}
 }

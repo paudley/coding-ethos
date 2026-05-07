@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package e2e
+package e2e_test
 
 import (
 	"os"
@@ -9,21 +9,59 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/e2e"
 )
 
+const windowsGOOS = "windows"
+
 func TestManagedRuffCaptureRunsRealToolAgainstReferenceRepo(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	clean := repo.CodingEthosRun(t, "policy-tool", "ruff", "check", "pkg/clean.py")
+	clean.RequireExit(t, 0)
+
+	assertCleanRuffOutput(t, clean.Combined)
+
+	if strings.TrimSpace(clean.Combined) != "" {
+		t.Fatalf("clean output should be silent:\n%s", clean.Combined)
+	}
+
+	cleanTrace := repo.SingleTrace(t)
+	assertCleanRuffTrace(t, cleanTrace)
+
+	repo.ResetTraces(t)
+	repo.Touch(t, "pkg/unused_import.py", unusedImportPython())
+	finding := repo.CodingEthosRun(
+		t,
+		"policy-tool",
+		"ruff",
+		"check",
+		"pkg/unused_import.py",
+	)
+	finding.RequireExit(t, 1)
+	assertRuffFindingOutput(t, finding)
+
+	findingTrace := repo.SingleTrace(t)
+	assertRuffFindingTrace(t, findingTrace)
+}
+
+func preparedManagedLintRepo(t *testing.T) e2e.Repo {
+	t.Helper()
+
 	if testing.Short() {
 		t.Skip("real managed tool e2e is skipped in short mode")
 	}
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == windowsGOOS {
 		t.Skip("real managed tool e2e uses POSIX paths")
 	}
 
 	sourceRoot := repoRootFromWorkingDirectory(t)
-	RequireRuntime(t, sourceRoot)
-	runtimeRoot := InstrumentedEthosRoot(t, sourceRoot)
-	repo := FromReference(t, sourceRoot, "policy-lint-basic")
+	e2e.RequireRuntime(t, sourceRoot)
+	runtimeRoot := e2e.InstrumentedEthosRoot(t, sourceRoot)
+	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	repo.EthosRoot = runtimeRoot
 
 	sync := repo.CodingEthosRun(
@@ -37,20 +75,25 @@ func TestManagedRuffCaptureRunsRealToolAgainstReferenceRepo(t *testing.T) {
 	)
 	sync.RequireExit(t, 0)
 
-	clean := repo.CodingEthosRun(t, "policy-tool", "ruff", "check", "pkg/clean.py")
-	clean.RequireExit(t, 0)
+	return repo
+}
 
-	for _, unwanted := range []string{"tool.output_visible", "ruff emitted output while passing"} {
-		if strings.Contains(clean.Combined, unwanted) {
-			t.Fatalf("clean output contained %q:\n%s", unwanted, clean.Combined)
+func assertCleanRuffOutput(t *testing.T, output string) {
+	t.Helper()
+
+	for _, unwanted := range []string{
+		"tool.output_visible",
+		"ruff emitted output while passing",
+	} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("clean output contained %q:\n%s", unwanted, output)
 		}
 	}
+}
 
-	if strings.TrimSpace(clean.Combined) != "" {
-		t.Fatalf("clean output should be silent:\n%s", clean.Combined)
-	}
+func assertCleanRuffTrace(t *testing.T, cleanTrace string) {
+	t.Helper()
 
-	cleanTrace := repo.SingleTrace(t)
 	for _, want := range []string{
 		`"scope": "tool:ruff"`,
 		`"tool": "ruff"`,
@@ -65,19 +108,15 @@ func TestManagedRuffCaptureRunsRealToolAgainstReferenceRepo(t *testing.T) {
 	}
 
 	if strings.Contains(cleanTrace, `"policy_id": "tool.output_visible"`) {
-		t.Fatalf("clean trace should not contain output-visible policy:\n%s", cleanTrace)
+		t.Fatalf(
+			"clean trace should not contain output-visible policy:\n%s",
+			cleanTrace,
+		)
 	}
+}
 
-	repo.ResetTraces(t)
-	repo.Touch(t, "pkg/unused_import.py", unusedImportPython())
-	finding := repo.CodingEthosRun(
-		t,
-		"policy-tool",
-		"ruff",
-		"check",
-		"pkg/unused_import.py",
-	)
-	finding.RequireExit(t, 1)
+func assertRuffFindingOutput(t *testing.T, finding e2e.CommandResult) {
+	t.Helper()
 
 	for _, want := range []string{
 		"format:",
@@ -89,8 +128,11 @@ func TestManagedRuffCaptureRunsRealToolAgainstReferenceRepo(t *testing.T) {
 	} {
 		finding.RequireContains(t, want)
 	}
+}
 
-	findingTrace := repo.SingleTrace(t)
+func assertRuffFindingTrace(t *testing.T, findingTrace string) {
+	t.Helper()
+
 	for _, want := range []string{
 		`"scope": "tool:ruff"`,
 		`"file": "pkg/unused_import.py"`,
@@ -104,31 +146,9 @@ func TestManagedRuffCaptureRunsRealToolAgainstReferenceRepo(t *testing.T) {
 }
 
 func TestManagedRuffCaptureProducesRealSARIF(t *testing.T) {
-	if testing.Short() {
-		t.Skip("real managed tool e2e is skipped in short mode")
-	}
+	t.Parallel()
 
-	if runtime.GOOS == "windows" {
-		t.Skip("real managed tool e2e uses POSIX paths")
-	}
-
-	sourceRoot := repoRootFromWorkingDirectory(t)
-	RequireRuntime(t, sourceRoot)
-	runtimeRoot := InstrumentedEthosRoot(t, sourceRoot)
-	repo := FromReference(t, sourceRoot, "policy-lint-basic")
-	repo.EthosRoot = runtimeRoot
-
-	sync := repo.CodingEthosRun(
-		t,
-		"policy",
-		"sync-tool-configs",
-		"--ethos-root",
-		runtimeRoot,
-		"--repo",
-		repo.Root,
-	)
-	sync.RequireExit(t, 0)
-
+	repo := preparedManagedLintRepo(t)
 	repo.Touch(t, "pkg/unused_import.py", unusedImportPython())
 	result := repo.CodingEthosRun(
 		t,
@@ -137,7 +157,7 @@ func TestManagedRuffCaptureProducesRealSARIF(t *testing.T) {
 		"--managed-capture-tool",
 		"ruff",
 		"--ethos-root",
-		runtimeRoot,
+		repo.EthosRoot,
 		"--consumer-root",
 		repo.Root,
 		"--invocation-cwd",
@@ -147,6 +167,11 @@ func TestManagedRuffCaptureProducesRealSARIF(t *testing.T) {
 		"pkg/unused_import.py",
 	)
 	result.RequireExit(t, 1)
+	assertRuffSARIFOutput(t, result)
+}
+
+func assertRuffSARIFOutput(t *testing.T, result e2e.CommandResult) {
+	t.Helper()
 
 	for _, want := range []string{
 		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
@@ -184,7 +209,8 @@ func repoRootFromWorkingDirectory(t *testing.T) string {
 	}
 
 	for current := workingDirectory; ; current = filepath.Dir(current) {
-		if _, err := os.Stat(filepath.Join(current, "coding_ethos.yml")); err == nil {
+		_, inlineErrAutoA := os.Stat(filepath.Join(current, "coding_ethos.yml"))
+		if inlineErrAutoA == nil {
 			return current
 		}
 

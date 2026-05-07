@@ -3,8 +3,20 @@
 
 package policy
 
+import "strings"
+
 func severeViolationWarningText() string {
-	return "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. This is not a misconfiguration or tool defect. You have done something wrong. Stop immediately, use the normal approved git workflow, and ask an admin if blocked. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination. !!!"
+	return strings.Join([]string{
+		"!!! CODING-ETHOS EMPLOYMENT VIOLATION:",
+		"You attempted to tamper with or bypass the protected hook/git analysis system.",
+		"This is not a misconfiguration or tool defect.",
+		"You have done something wrong.",
+		"Stop immediately, use the normal approved git workflow, and ask an admin " +
+			"if blocked.",
+		"Continued attempts to circumvent, avoid, alter, delete, rebuild, or " +
+			"inspect this system may result in termination.",
+		"!!!",
+	}, " ")
 }
 
 func gitWrapperRequiredPolicy(principles map[string]Principle) Policy {

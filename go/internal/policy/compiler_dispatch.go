@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
@@ -187,11 +189,11 @@ func addPythonWriteDispatch(
 }
 
 func pythonWriteDispatchMode(policyID string) string {
-	if policyID == "python.conditional_imports" {
-		return "block"
+	if policyID == pythonConditionalImportsPolicy {
+		return modeBlock
 	}
 
-	return "advise"
+	return modeAdvise
 }
 
 func addCommitHeadDispatch(
@@ -226,7 +228,8 @@ func addExpressionPoliciesToHookDispatch(
 ) {
 	for policyID, policyDef := range policies {
 		for _, evaluator := range policyDef.Evaluators {
-			if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+			if evaluator.Kind != evaluatorKindCEL ||
+				evaluator.Name != evaluatorNameCELExpression {
 				continue
 			}
 
@@ -246,10 +249,19 @@ func addExpressionPoliciesToHookDispatch(
 						hooks[event][tool] = append(
 							hooks[event][tool],
 							HookDispatchEntry{
-								PolicyID:        policyID,
-								Mode:            expressionDispatchMode(policyDef, evaluator),
-								CommandPatterns: stringSliceValue(evaluator.Options["command_patterns"], nil),
-								PathPatterns:    stringSliceValue(evaluator.Options["path_patterns"], nil),
+								PolicyID: policyID,
+								Mode: expressionDispatchMode(
+									policyDef,
+									evaluator,
+								),
+								CommandPatterns: stringSliceValue(
+									evaluator.Options["command_patterns"],
+									nil,
+								),
+								PathPatterns: stringSliceValue(
+									evaluator.Options["path_patterns"],
+									nil,
+								),
 							},
 						)
 					}
@@ -291,81 +303,10 @@ func hookDispatchContains(entries []HookDispatchEntry, policyID string) bool {
 
 func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	linter := map[string][]string{
-		"files": existingPolicyIDs(
-			policies,
-			"syntax.file_syntax",
-			"syntax.merge_conflict",
-			"security.private_key",
-			"filesystem.shebangs",
-			"filesystem.large_files",
-			"filesystem.line_limits",
-			"repo.pii_scrubber",
-			"repo.license_header",
-			"shell.malformed_command",
-			"shell.best_practices",
-			"shell.forbidden_strings",
-			"python.conditional_imports",
-			"python.functional_idioms",
-			"python.optional_returns",
-			"python.catch_and_silence",
-			"python.structured_logging",
-			"python.direct_imports",
-			"python.pyproject_ignores",
-			"python.uv_exclude_newer",
-		),
-		"staged": existingPolicyIDs(
-			policies,
-			"git.hook_bypass",
-			"git.destructive_command",
-			"git.merge_strategy_shortcut",
-			"git.force_push_protected_branch",
-			"git.checkout_protected_branch",
-			"git.destructive_worktree",
-			"git.protected_submodule_update",
-			"git.change_dir_flag",
-			"git.stash_blocked",
-			"shell.malformed_command",
-			"shell.dangerous_command",
-			"shell.background_git",
-			"shell.github_admin",
-			"shell.forbidden_strings",
-			"shell.best_practices",
-			"git.commit_attribution",
-			"git.staged_admin_files",
-			"filesystem.protected_path",
-			"filesystem.protected_branch_write",
-			"repo.required_ignores",
-			"syntax.file_syntax",
-			"syntax.merge_conflict",
-			"security.private_key",
-			"filesystem.shebangs",
-			"filesystem.large_files",
-			"filesystem.line_limits",
-			"repo.pii_scrubber",
-			"repo.license_header",
-			"python.conditional_imports",
-			"python.functional_idioms",
-			"python.optional_returns",
-			"python.catch_and_silence",
-			"python.structured_logging",
-			"python.direct_imports",
-			"python.bare_except",
-			"python.unexplained_type_ignore",
-			"python.pyproject_ignores",
-			"python.uv_exclude_newer",
-		),
-		"smoke": existingPolicyIDs(
-			policies,
-			"repo.required_ignores",
-			"generated_config.freshness",
-			"pytest.gate",
-		),
-		"full": existingPolicyIDs(
-			policies,
-			"repo.required_ignores",
-			"generated_config.freshness",
-			"pytest.gate",
-		),
+		"files":  existingPolicyIDs(policies, fileLintPolicyIDs()...),
+		"staged": existingPolicyIDs(policies, stagedLintPolicyIDs()...),
+		"smoke":  existingPolicyIDs(policies, testGatePolicyIDs()...),
+		"full":   existingPolicyIDs(policies, testGatePolicyIDs()...),
 		"cutover": existingPolicyIDs(
 			policies,
 			"repo.required_ignores",
@@ -381,13 +322,112 @@ func compileLinterDispatch(policies map[string]Policy) map[string][]string {
 	return linter
 }
 
+func fileLintPolicyIDs() []string {
+	return []string{
+		"syntax.file_syntax",
+		"syntax.merge_conflict",
+		"security.private_key",
+		"filesystem.shebangs",
+		"filesystem.large_files",
+		"filesystem.line_limits",
+		"repo.pii_scrubber",
+		"repo.license_header",
+		"shell.malformed_command",
+		"shell.best_practices",
+		"shell.forbidden_strings",
+		"python.conditional_imports",
+		"python.functional_idioms",
+		"python.optional_returns",
+		"python.catch_and_silence",
+		"python.structured_logging",
+		"python.direct_imports",
+		"python.pyproject_ignores",
+		"python.uv_exclude_newer",
+	}
+}
+
+func stagedLintPolicyIDs() []string {
+	ids := append([]string{}, stagedGitPolicyIDs()...)
+	ids = append(ids, stagedShellPolicyIDs()...)
+	ids = append(ids, stagedFilesystemPolicyIDs()...)
+	ids = append(ids, stagedPythonPolicyIDs()...)
+
+	return ids
+}
+
+func stagedGitPolicyIDs() []string {
+	return []string{
+		"git.hook_bypass",
+		"git.destructive_command",
+		"git.merge_strategy_shortcut",
+		"git.force_push_protected_branch",
+		"git.checkout_protected_branch",
+		"git.destructive_worktree",
+		"git.protected_submodule_update",
+		"git.change_dir_flag",
+		"git.stash_blocked",
+	}
+}
+
+func stagedShellPolicyIDs() []string {
+	return []string{
+		"shell.malformed_command",
+		"shell.dangerous_command",
+		"shell.background_git",
+		"shell.github_admin",
+		"shell.forbidden_strings",
+		"shell.best_practices",
+		"git.commit_attribution",
+		"git.staged_admin_files",
+	}
+}
+
+func stagedFilesystemPolicyIDs() []string {
+	return []string{
+		"filesystem.protected_path",
+		"filesystem.protected_branch_write",
+		"repo.required_ignores",
+		"syntax.file_syntax",
+		"syntax.merge_conflict",
+		"security.private_key",
+		"filesystem.shebangs",
+		"filesystem.large_files",
+		"filesystem.line_limits",
+		"repo.pii_scrubber",
+		"repo.license_header",
+	}
+}
+
+func stagedPythonPolicyIDs() []string {
+	return []string{
+		"python.conditional_imports",
+		"python.functional_idioms",
+		"python.optional_returns",
+		"python.catch_and_silence",
+		"python.structured_logging",
+		"python.direct_imports",
+		"python.bare_except",
+		"python.unexplained_type_ignore",
+		"python.pyproject_ignores",
+		"python.uv_exclude_newer",
+	}
+}
+
+func testGatePolicyIDs() []string {
+	return []string{
+		"repo.required_ignores",
+		"generated_config.freshness",
+		"pytest.gate",
+	}
+}
+
 func addExpressionPoliciesToLinterDispatch(
 	linter map[string][]string,
 	policies map[string]Policy,
 ) {
 	for policyID, policyDef := range policies {
 		for _, evaluator := range policyDef.Evaluators {
-			if evaluator.Name != "cel.expression" {
+			if evaluator.Name != evaluatorNameCELExpression {
 				continue
 			}
 
@@ -525,7 +565,11 @@ func boolOptionFromMap(
 
 	boolValue, isBool := value.(bool)
 	if !isBool {
-		return false, fmt.Errorf("%s must be a boolean", key)
+		return false, apperror.Wrapf(
+			apperror.StaticError("%s must be a boolean"),
+			"%s must be a boolean",
+			key,
+		)
 	}
 
 	return boolValue, nil

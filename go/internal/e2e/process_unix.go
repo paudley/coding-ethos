@@ -6,6 +6,7 @@
 package e2e
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -19,5 +20,8 @@ func terminateCommandProcessGroup(cmd *exec.Cmd) {
 		return
 	}
 
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err != nil && !errors.Is(err, syscall.ESRCH) {
+		return
+	}
 }

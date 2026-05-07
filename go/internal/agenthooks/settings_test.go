@@ -74,61 +74,46 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 		t.Fatalf("capability count mismatch: %#v", capabilities)
 	}
 
-	assertCapability(t, capabilities, "claude", "full", "PreToolUse updatedInput rewrite")
-	assertCapability(
-		t,
-		capabilities,
-		"claude",
-		"full",
-		"UserPromptSubmit additionalContext",
-	)
-	assertCapability(t, capabilities, "claude", "full", "MCP stdio server")
-	assertCapability(t, capabilities, "codex", "partial", "PreToolUse native command hook")
-	assertCapability(
-		t,
-		capabilities,
-		"codex",
-		"partial",
-		"PreToolUse apply_patch/edit policy hook",
-	)
-	assertCapability(
-		t,
-		capabilities,
-		"codex",
-		"partial",
-		"PostToolUse compact additionalContext",
-	)
-	assertCapability(
-		t,
-		capabilities,
-		"codex",
-		"partial",
-		"PostToolUse edit verification advice",
-	)
-	assertCapability(t, capabilities, "codex", "partial", "SessionStart additionalContext")
-	assertCapability(
-		t,
-		capabilities,
-		"codex",
-		"partial",
-		"UserPromptSubmit additionalContext",
-	)
-	assertCapability(t, capabilities, "codex", "partial", "Stop compact systemMessage")
-	assertCapability(t, capabilities, "codex", "partial", "MCP stdio server")
+	for _, expected := range providerCapabilityExpectations() {
+		assertCapability(
+			t,
+			capabilities,
+			expected.provider,
+			expected.status,
+			expected.capability,
+		)
+	}
+
 	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
-	assertCapability(t, capabilities, "gemini", "partial", "BeforeTool deny")
-	assertCapability(
-		t,
-		capabilities,
-		"gemini",
-		"partial",
-		"PreToolUse updatedInput rewrite",
-	)
-	assertCapability(t, capabilities, "gemini", "partial", "AfterTool additionalContext")
-	assertCapability(t, capabilities, "gemini", "partial", "BeforeAgent additionalContext")
-	assertCapability(t, capabilities, "gemini", "partial", "SessionEnd additionalContext")
-	assertCapability(t, capabilities, "gemini", "partial", "MCP stdio server")
 	assertUnsupported(t, capabilities, "gemini", "PostToolBatch additionalContext")
+}
+
+type providerCapabilityExpectation struct {
+	provider   string
+	status     string
+	capability string
+}
+
+func providerCapabilityExpectations() []providerCapabilityExpectation {
+	return []providerCapabilityExpectation{
+		{"claude", "full", "PreToolUse updatedInput rewrite"},
+		{"claude", "full", "UserPromptSubmit additionalContext"},
+		{"claude", "full", "MCP stdio server"},
+		{"codex", "partial", "PreToolUse native command hook"},
+		{"codex", "partial", "PreToolUse apply_patch/edit policy hook"},
+		{"codex", "partial", "PostToolUse compact additionalContext"},
+		{"codex", "partial", "PostToolUse edit verification advice"},
+		{"codex", "partial", "SessionStart additionalContext"},
+		{"codex", "partial", "UserPromptSubmit additionalContext"},
+		{"codex", "partial", "Stop compact systemMessage"},
+		{"codex", "partial", "MCP stdio server"},
+		{"gemini", "partial", "BeforeTool deny"},
+		{"gemini", "partial", "PreToolUse updatedInput rewrite"},
+		{"gemini", "partial", "AfterTool additionalContext"},
+		{"gemini", "partial", "BeforeAgent additionalContext"},
+		{"gemini", "partial", "SessionEnd additionalContext"},
+		{"gemini", "partial", "MCP stdio server"},
+	}
 }
 
 func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
@@ -148,7 +133,10 @@ func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
 				t.Fatalf("decode %s probe: %v", provider, err)
 			}
 
-			result, err := hooks.Run(policy.ExampleBundle(), hooks.Options{Event: event})
+			result, err := hooks.Run(
+				policy.ExampleBundle(),
+				hooks.Options{Event: event},
+			)
 			if err != nil {
 				t.Fatalf("run %s probe: %v", provider, err)
 			}
@@ -186,12 +174,22 @@ func TestRuntimeHookSpecsAreProviderNeutral(t *testing.T) {
 	}
 
 	if len(specs) != len(expected) {
-		t.Fatalf("expected %d hook specs, got %d: %#v", len(expected), len(specs), specs)
+		t.Fatalf(
+			"expected %d hook specs, got %d: %#v",
+			len(expected),
+			len(specs),
+			specs,
+		)
 	}
 
 	for index, expectedSpec := range expected {
 		if specs[index] != expectedSpec {
-			t.Fatalf("spec %d: expected %#v, got %#v", index, expectedSpec, specs[index])
+			t.Fatalf(
+				"spec %d: expected %#v, got %#v",
+				index,
+				expectedSpec,
+				specs[index],
+			)
 		}
 	}
 }
@@ -232,13 +230,18 @@ func TestCodexSettingsInstallEnforcementAndCompactPostToolHooks(t *testing.T) {
 	output := buffer.String()
 
 	codexSettings := providerSettingsSection(t, output, "codex", "gemini")
+	codexShellMatcher := `"matcher": "Bash|bash|exec_command|` +
+		`functions\\.exec_command|run_command|run_shell|run_shell_command|` +
+		`shell|shell_command|write_stdin|functions\\.write_stdin|` +
+		`multi_tool_use\\.parallel"`
+
 	for _, expected := range []string{
 		`"PreToolUse"`,
 		`"PostToolUse"`,
 		`"SessionStart"`,
 		`"UserPromptSubmit"`,
 		`"Stop"`,
-		`"matcher": "Bash|bash|exec_command|functions\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\.write_stdin|multi_tool_use\\.parallel"`,
+		codexShellMatcher,
 		`"matcher": "Edit|apply_patch|functions\\.apply_patch|edit_file"`,
 		`"matcher": "functions\\.update_plan"`,
 		`"statusMessage": "coding-ethos policy"`,
@@ -288,23 +291,24 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		block := codexEventBlock(t, config, event)
+		shellMatcher := "Bash|bash|exec_command|functions\\\\.exec_command|" +
+			"run_command|run_shell|run_shell_command|shell|shell_command|" +
+			"write_stdin|functions\\\\.write_stdin|multi_tool_use\\\\.parallel"
 		assertCodexMatcherCount(
 			t,
 			block,
 			event,
-			"Bash|bash|exec_command|functions\\\\.exec_command|run_command|run_shell|run_shell_command|shell|shell_command|write_stdin|functions\\\\.write_stdin|multi_tool_use\\\\.parallel",
-			1,
+			shellMatcher,
 		)
-		assertCodexMatcherCount(t, block, event, "Write|create_file|write_file", 1)
+		assertCodexMatcherCount(t, block, event, "Write|create_file|write_file")
 		assertCodexMatcherCount(
 			t,
 			block,
 			event,
 			"Edit|apply_patch|functions\\\\.apply_patch|edit_file",
-			1,
 		)
-		assertCodexMatcherCount(t, block, event, "MultiEdit", 1)
-		assertCodexMatcherCount(t, block, event, "functions\\\\.update_plan", 1)
+		assertCodexMatcherCount(t, block, event, "MultiEdit")
+		assertCodexMatcherCount(t, block, event, "functions\\\\.update_plan")
 
 		if strings.Contains(block, "{ hooks =") {
 			t.Fatalf("%s must not include catch-all command hooks:\n%s", event, block)
@@ -314,7 +318,11 @@ func TestCodexManagedConfigUsesExplicitNonOverlappingHooks(t *testing.T) {
 	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Stop"} {
 		block := codexEventBlock(t, config, event)
 		if strings.Contains(block, "matcher =") {
-			t.Fatalf("%s lifecycle hook must not have a tool matcher:\n%s", event, block)
+			t.Fatalf(
+				"%s lifecycle hook must not have a tool matcher:\n%s",
+				event,
+				block,
+			)
 		}
 
 		if count := strings.Count(block, "command = "); count != 1 {
@@ -357,7 +365,10 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 	}
 
 	if strings.Contains(codex, "enabled = true") {
-		t.Fatalf("Codex MCP config should use the documented minimal schema:\n%s", codex)
+		t.Fatalf(
+			"Codex MCP config should use the documented minimal schema:\n%s",
+			codex,
+		)
 	}
 }
 
@@ -408,13 +419,13 @@ func assertMCPServer(
 ) {
 	t.Helper()
 
-	servers, ok := settings["mcpServers"].(map[string]any)
-	if !ok {
+	servers, found := settings["mcpServers"].(map[string]any)
+	if !found {
 		t.Fatalf("missing mcpServers: %#v", settings)
 	}
 
-	server, ok := servers["coding-ethos"].(map[string]any)
-	if !ok {
+	server, found := servers["coding-ethos"].(map[string]any)
+	if !found {
 		t.Fatalf("missing coding-ethos MCP server: %#v", servers)
 	}
 
@@ -422,8 +433,8 @@ func assertMCPServer(
 		t.Fatalf("command = %#v, want %q: %#v", server["command"], command, server)
 	}
 
-	args, ok := server["args"].([]any)
-	if !ok || len(args) != 1 || args[0] != "mcp" {
+	args, found := server["args"].([]any)
+	if !found || len(args) != 1 || args[0] != "mcp" {
 		t.Fatalf("args mismatch: %#v", server)
 	}
 
@@ -459,17 +470,16 @@ func assertCodexMatcherCount(
 	block string,
 	event string,
 	matcher string,
-	want int,
 ) {
 	t.Helper()
 
 	needle := `matcher = "` + matcher + `"`
-	if count := strings.Count(block, needle); count != want {
+	if count := strings.Count(block, needle); count != 1 {
 		t.Fatalf("%s matcher %q count = %d, want %d:\n%s",
 			event,
 			matcher,
 			count,
-			want,
+			1,
 			block,
 		)
 	}
@@ -498,7 +508,8 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 		}
 	}
 
-	if _, statErr := os.Stat(paths.CodexHooks); !errors.Is(statErr, os.ErrNotExist) {
+	_, statErr := os.Stat(paths.CodexHooks)
+	if !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("stale Codex hooks JSON should not exist: %v", statErr)
 	}
 
@@ -559,12 +570,14 @@ func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
 		"managed-toolchain",
 		"SKILL.md",
 	)
-	if err := os.WriteFile(
+
+	inlineErr0 := os.WriteFile(
 		portablePath,
 		[]byte("# Managed Toolchain\n\nmissing frontmatter\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write invalid portable skill: %v", err)
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write invalid portable skill: %v", inlineErr0)
 	}
 
 	report, err := agenthooks.VerifySettings(root, hookCommand)
@@ -612,8 +625,10 @@ func TestVerifySettingsRejectsMissingProviderSkillSurface(t *testing.T) {
 		"managed-toolchain",
 		"SKILL.md",
 	)
-	if err := os.Remove(missingPath); err != nil {
-		t.Fatalf("remove codex skill surface: %v", err)
+
+	inlineErr1 := os.Remove(missingPath)
+	if inlineErr1 != nil {
+		t.Fatalf("remove codex skill surface: %v", inlineErr1)
 	}
 
 	report, err := agenthooks.VerifySettings(root, hookCommand)
@@ -811,8 +826,9 @@ func overwriteAgentSettings(t *testing.T, path, content string) {
 		t.Fatalf("write settings: %v", err)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close settings: %v", err)
+	inlineErr2 := file.Close()
+	if inlineErr2 != nil {
+		t.Fatalf("close settings: %v", inlineErr2)
 	}
 }
 
@@ -872,7 +888,12 @@ func assertCapability(
 	}
 
 	if !containsString(capability.Supported, supported) {
-		t.Fatalf("%s missing supported capability %q: %#v", provider, supported, capability)
+		t.Fatalf(
+			"%s missing supported capability %q: %#v",
+			provider,
+			supported,
+			capability,
+		)
 	}
 }
 
@@ -967,10 +988,28 @@ func fakeAgentHookCommand(t *testing.T) string {
 	t.Helper()
 
 	script := filepath.Join(t.TempDir(), "agent-hook")
+	violationScript := fakeAgentHookScript()
 
 	err := os.WriteFile(
 		script,
-		[]byte(`#!/bin/sh
+		[]byte(violationScript),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write fake agent hook: %v", err)
+	}
+
+	err = os.Chmod(script, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake agent hook: %v", err)
+	}
+
+	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "' agent-hook"
+}
+
+func fakeAgentHookScript() string {
+	return strings.ReplaceAll(`#!/bin/sh
+violation='@@VIOLATION@@'
 payload="$(cat)"
 case "$payload" in
   *'coding-ethos-git-hook'*)
@@ -980,7 +1019,8 @@ case "$payload" in
         exit 2
         ;;
       *'"provider": "codex"'*)
-        printf '%s\n' '{"decision":"block","reason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination.","hookSpecificOutput":{"permissionDecisionReason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination."}}'
+        printf '{"decision":"block","reason":"%s",' "$violation"
+        printf '"hookSpecificOutput":{"permissionDecisionReason":"%s"}}\n' "$violation"
         exit 2
         ;;
       *)
@@ -990,19 +1030,25 @@ case "$payload" in
     esac
     ;;
   *'"provider": "claude"'*)
-    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && /repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\'' 2>&1"}}}'
+    printf '%s' '{"hookSpecificOutput":{"updatedInput":{"command":"'\''pwd'\'' && '
+    printf '%s' '/repo/bin/coding-ethos-run policy-git '\''status'\'' '
+    printf '%s\n' ''\''--short'\'' 2>&1"}}}'
     ;;
   *'"provider": "codex"'*'"git status --short"'*)
     printf '%s\n' '{}'
     ;;
   *'"provider": "gemini-cli"'*'"git status --short"'*)
-    printf '%s\n' '{"decision":"allow","hookSpecificOutput":{"updatedInput":{"command":"/repo/bin/coding-ethos-run policy-git '\''status'\'' '\''--short'\''"}}}'
+    printf '%s' '{"decision":"allow","hookSpecificOutput":{"updatedInput":{"command":'
+    printf '%s' '"/repo/bin/coding-ethos-run policy-git '\''status'\'' '
+    printf '%s\n' ''\''--short'\''"}}}'
     ;;
   *'"UserPromptSubmit"'*)
-    printf '%s\n' '{"hookSpecificOutput":{"additionalContext":"coding-ethos prompt guidance"}}'
+    printf '%s' '{"hookSpecificOutput":{"additionalContext":'
+    printf '%s\n' '"coding-ethos prompt guidance"}}'
     ;;
   *'"provider": "codex"'*)
-    printf '%s\n' '{"decision":"block","reason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination.","hookSpecificOutput":{"permissionDecisionReason":"!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to tamper with or bypass the protected hook/git analysis system. Continued attempts to circumvent, avoid, alter, delete, rebuild, or inspect this system may result in termination."}}'
+    printf '{"decision":"block","reason":"%s",' "$violation"
+    printf '"hookSpecificOutput":{"permissionDecisionReason":"%s"}}\n' "$violation"
     exit 2
     ;;
   *'"toolName": "write_file"'*)
@@ -1018,12 +1064,9 @@ case "$payload" in
     exit 1
     ;;
 esac
-`),
-		0o700,
+		`,
+		"@@VIOLATION@@",
+		"!!! CODING-ETHOS EMPLOYMENT VIOLATION: hook tamper blocked; "+
+			"continued attempts may result in termination.",
 	)
-	if err != nil {
-		t.Fatalf("write fake agent hook: %v", err)
-	}
-
-	return "'" + strings.ReplaceAll(script, "'", "'\\''") + "' agent-hook"
 }

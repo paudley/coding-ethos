@@ -68,7 +68,11 @@ func RenderHashManifest(rendered map[string]string) (string, error) {
 
 func renderers() []Renderer {
 	return []Renderer{
-		{Path: "pyrightconfig.json", Render: renderPyrightConfig, Enabled: alwaysEnabled},
+		{
+			Path:    "pyrightconfig.json",
+			Render:  renderPyrightConfig,
+			Enabled: alwaysEnabled,
+		},
 		{Path: "mypy.ini", Render: renderMypyINI, Enabled: alwaysEnabled},
 		{Path: "ruff.toml", Render: renderRuffTOML, Enabled: alwaysEnabled},
 		{Path: ".pylintrc", Render: renderPylintrc, Enabled: alwaysEnabled},
@@ -82,7 +86,11 @@ func renderers() []Renderer {
 			Render:  renderGitHubSARIFWorkflow,
 			Enabled: githubCIEnabled,
 		},
-		{Path: ".gitlab-ci.yml", Render: renderGitLabSARIFConfig, Enabled: gitlabCIEnabled},
+		{
+			Path:    ".gitlab-ci.yml",
+			Render:  renderGitLabSARIFConfig,
+			Enabled: gitlabCIEnabled,
+		},
 	}
 }
 
@@ -247,7 +255,9 @@ func renderMypyINI(config configMap) (string, error) {
 		values["files"] = strings.Join(files, ", ")
 	}
 
-	plugins := stringList(getPath(config, "tooling.mypy.plugins", []any{"pydantic.mypy"}))
+	plugins := stringList(
+		getPath(config, "tooling.mypy.plugins", []any{"pydantic.mypy"}),
+	)
 	if len(plugins) > 0 {
 		values["plugins"] = strings.Join(plugins, ", ")
 	}
@@ -283,12 +293,15 @@ func renderMypyINI(config configMap) (string, error) {
 }
 
 func mypyExcludeRegex(config configMap) string {
-	return strings.Join(stringList(getPath(config, "tooling.mypy.exclude_patterns", []any{
-		`(^|/)tests/`,
-		`(^|/).*_test\.py$`,
-		`(^|/)test_.*\.py$`,
-		`(^|/)\.venv/`,
-	})), "|")
+	return strings.Join(
+		stringList(getPath(config, "tooling.mypy.exclude_patterns", []any{
+			`(^|/)tests/`,
+			`(^|/).*_test\.py$`,
+			`(^|/)test_.*\.py$`,
+			`(^|/)\.venv/`,
+		})),
+		"|",
+	)
 }
 
 func renderRuffTOML(config configMap) (string, error) {
@@ -311,7 +324,9 @@ func renderRuffTOML(config configMap) (string, error) {
 		"select = "+tomlList(
 			stringList(getPath(config, "tooling.ruff.select", []any{"ALL"})),
 		),
-		"ignore = "+tomlList(stringList(getPath(config, "tooling.ruff.ignore", []any{}))),
+		"ignore = "+tomlList(
+			stringList(getPath(config, "tooling.ruff.ignore", []any{})),
+		),
 		"",
 		"[lint.pylint]",
 		fmt.Sprintf(

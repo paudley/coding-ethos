@@ -5,20 +5,21 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
 	commandArgsOffset = 2
 )
 
-var errUnknownCommand = errors.New("unknown agent-hooks command")
+var errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
 
 func main() {
 	os.Exit(runCLI(os.Args[1:]))
@@ -179,8 +180,12 @@ func writeJSONReport(file *os.File, payload any) error {
 }
 
 func usage() {
+	usageTo(os.Stderr)
+}
+
+func usageTo(writer io.Writer) {
 	fmt.Fprintln(
-		os.Stderr,
+		writer,
 		"Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
 	)
 }

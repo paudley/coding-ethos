@@ -82,7 +82,11 @@ func LoadRuntimeConfigWithRepoConfig(
 		}
 
 		if !errors.Is(err, os.ErrNotExist) {
-			return RuntimeConfig{}, fmt.Errorf("load repo config candidate %s: %w", name, err)
+			return RuntimeConfig{}, fmt.Errorf(
+				"load repo config candidate %s: %w",
+				name,
+				err,
+			)
 		}
 	}
 
@@ -205,7 +209,9 @@ func deepMergeMapsAt(base, override map[string]any, path []string) map[string]an
 		if shouldAppendStringList(keyPath) {
 			if baseValues, ok := merged[key].([]any); ok {
 				if overrideValues, ok := overrideValue.([]any); ok {
-					merged[key] = append(append([]any(nil), baseValues...), overrideValues...)
+					merged[key] = append(
+						append([]any(nil), baseValues...),
+						overrideValues...)
 
 					continue
 				}

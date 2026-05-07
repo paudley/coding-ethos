@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -18,14 +19,18 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestSHA256File(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "asset")
-	if err := os.WriteFile(path, []byte("payload\n"), 0o600); err != nil {
-		t.Fatalf("write asset: %v", err)
+
+	inlineErr0 := os.WriteFile(path, []byte("payload\n"), privateFileMode)
+	if inlineErr0 != nil {
+		t.Fatalf("write asset: %v", inlineErr0)
 	}
 
 	sum, err := sha256File(path)
@@ -48,11 +53,17 @@ func TestReleaseAssetURLSelectsMatchingAsset(t *testing.T) {
 			authHeader = request.Header.Get("Authorization")
 
 			return jsonResponse(`{
-			"assets": [
-				{"name": "tool-darwin-amd64.tar.gz", "browser_download_url": "https://example.invalid/darwin"},
-				{"name": "tool-linux-amd64.tar.gz", "browser_download_url": "https://example.invalid/linux"}
-			]
-		}`)
+				"assets": [
+					{
+						"name": "tool-darwin-amd64.tar.gz",
+						"browser_download_url": "https://example.invalid/darwin"
+					},
+					{
+						"name": "tool-linux-amd64.tar.gz",
+						"browser_download_url": "https://example.invalid/linux"
+					}
+				]
+			}`)
 		}),
 	}
 
@@ -94,10 +105,13 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 		Transport: fakeGitHubTransport(func(request *http.Request) *http.Response {
 			if request.URL.Path == "/repos/owner/repo/releases/tags/v1.2.3" {
 				return jsonResponse(`{
-				"assets": [
-					{"name": "tool-linux-amd64", "browser_download_url": "https://api.github.com/tool-linux-amd64"}
-				]
-			}`)
+					"assets": [
+						{
+							"name": "tool-linux-amd64",
+							"browser_download_url": "https://api.github.com/tool-linux-amd64"
+						}
+					]
+				}`)
 			}
 
 			if request.URL.Path == "/tool-linux-amd64" {
@@ -111,7 +125,8 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 	sum := hex.EncodeToString(sumBytes[:])
 
 	destDir := t.TempDir()
-	if err := installGitHubBinary(
+
+	inlineErr1 := installGitHubBinary(
 		client,
 		"owner/repo",
 		"v1.2.3",
@@ -120,8 +135,9 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 		destDir,
 		sum,
 		"",
-	); err != nil {
-		t.Fatalf("install github binary: %v", err)
+	)
+	if inlineErr1 != nil {
+		t.Fatalf("install github binary: %v", inlineErr1)
 	}
 
 	installed := filepath.Join(destDir, "tool")
@@ -150,16 +166,18 @@ func TestInstallDownloadedAssetExtractsTarGzip(t *testing.T) {
 
 	root := t.TempDir()
 	archivePath := filepath.Join(root, "tool.tar.gz")
-	writeTarGzipFixture(t, archivePath, "nested/tool", "payload\n", 0o755)
+	writeTarGzipFixture(t, archivePath, "nested/tool", "payload\n", executableFileMode)
 
 	destDir := filepath.Join(root, "bin")
-	if err := installDownloadedAsset(
+
+	inlineErr2 := installDownloadedAsset(
 		archivePath,
 		"tool",
 		destDir,
 		filepath.Join(root, "extract"),
-	); err != nil {
-		t.Fatalf("install downloaded asset: %v", err)
+	)
+	if inlineErr2 != nil {
+		t.Fatalf("install downloaded asset: %v", inlineErr2)
 	}
 
 	payload, err := os.ReadFile(filepath.Join(destDir, "tool"))
@@ -176,12 +194,14 @@ func TestInstallGitShimWritesQuotedWrapper(t *testing.T) {
 	t.Parallel()
 
 	destDir := t.TempDir()
-	if err := installGitShim(
+
+	inlineErr3 := installGitShim(
 		destDir,
 		"/opt/git's/bin/git",
 		"/repo/run go hook.sh",
-	); err != nil {
-		t.Fatalf("install git shim: %v", err)
+	)
+	if inlineErr3 != nil {
+		t.Fatalf("install git shim: %v", inlineErr3)
 	}
 
 	shimPath := filepath.Join(destDir, "git")
@@ -213,14 +233,24 @@ func TestInstallGitShimWritesQuotedWrapper(t *testing.T) {
 func TestInstallGitShimCommandValidatesAndInstalls(t *testing.T) {
 	t.Parallel()
 
-	if err := installGitShimCommand(nil); !errors.Is(err, errDestRequired) {
-		t.Fatalf("installGitShimCommand(nil) = %v, want %v", err, errDestRequired)
+	inlineErrAutoA := installGitShimCommand(nil)
+	if !errors.Is(inlineErrAutoA, errDestRequired) {
+		t.Fatalf(
+			"installGitShimCommand(nil) = %v, want %v",
+			inlineErrAutoA,
+			errDestRequired,
+		)
 	}
 
-	if err := installGitShimCommand(
+	inlineErrAutoB := installGitShimCommand(
 		[]string{"--dest-dir", t.TempDir()},
-	); !errors.Is(err, errGitRequired) {
-		t.Fatalf("installGitShimCommand missing git = %v, want %v", err, errGitRequired)
+	)
+	if !errors.Is(inlineErrAutoB, errGitRequired) {
+		t.Fatalf(
+			"installGitShimCommand missing git = %v, want %v",
+			inlineErrAutoB,
+			errGitRequired,
+		)
 	}
 
 	destDir := t.TempDir()
@@ -234,25 +264,32 @@ func TestInstallGitShimCommandValidatesAndInstalls(t *testing.T) {
 		t.Fatalf("installGitShimCommand: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(destDir, "git")); err != nil {
-		t.Fatalf("git shim not installed: %v", err)
+	_, inlineErrA := os.Stat(filepath.Join(destDir, "git"))
+	if inlineErrA != nil {
+		t.Fatalf("git shim not installed: %v", inlineErrA)
 	}
 }
 
 func TestManagedAndGitHubInstallCommandValidation(t *testing.T) {
 	t.Parallel()
 
-	if err := installManagedToolchainCommand(nil); !errors.Is(err, errManifestRequired) {
+	inlineErrAutoC := installManagedToolchainCommand(nil)
+	if !errors.Is(
+		inlineErrAutoC,
+		errManifestRequired,
+	) {
 		t.Fatalf(
 			"installManagedToolchainCommand(nil) = %v, want %v",
-			err,
+			inlineErrAutoC,
 			errManifestRequired,
 		)
 	}
 
 	manifest := filepath.Join(t.TempDir(), "manifest.tsv")
-	if err := os.WriteFile(manifest, []byte(""), 0o600); err != nil {
-		t.Fatalf("write manifest: %v", err)
+
+	inlineErr4 := os.WriteFile(manifest, []byte(""), privateFileMode)
+	if inlineErr4 != nil {
+		t.Fatalf("write manifest: %v", inlineErr4)
 	}
 
 	err := installManagedToolchainCommand([]string{"--manifest-source", manifest})
@@ -260,8 +297,13 @@ func TestManagedAndGitHubInstallCommandValidation(t *testing.T) {
 		t.Fatalf("missing go bin error = %v", err)
 	}
 
-	if err := installGitHubBinaryCommand(nil); !errors.Is(err, errRepoRequired) {
-		t.Fatalf("installGitHubBinaryCommand(nil) = %v, want %v", err, errRepoRequired)
+	inlineErrAutoD := installGitHubBinaryCommand(nil)
+	if !errors.Is(inlineErrAutoD, errRepoRequired) {
+		t.Fatalf(
+			"installGitHubBinaryCommand(nil) = %v, want %v",
+			inlineErrAutoD,
+			errRepoRequired,
+		)
 	}
 }
 
@@ -282,7 +324,7 @@ func TestInstallAndVerifyGitHookShims(t *testing.T) {
 		t.Fatalf("verify git hooks: %v", err)
 	}
 
-	for _, hook := range append(gitHookNames, lfsHookNames...) {
+	for _, hook := range append(gitHookNames(), lfsHookNames()...) {
 		hookPath := filepath.Join(hooksDir, hook)
 
 		info, err := os.Stat(hookPath)
@@ -300,7 +342,7 @@ func TestInstallAndVerifyGitHookShims(t *testing.T) {
 		}
 
 		command := "git-hook"
-		if slices.Contains(lfsHookNames, hook) {
+		if slices.Contains(lfsHookNames(), hook) {
 			command = "lfs-hook"
 		}
 
@@ -341,6 +383,8 @@ func TestGitHookFixItemsReportsMissingAndStaleHooks(t *testing.T) {
 }
 
 func TestGitHookFixItemsCommandPrintsItems(t *testing.T) {
+	t.Parallel()
+
 	hooksDir := t.TempDir()
 	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
 	writeExecutableFixture(t, runner, "runner\n")
@@ -386,12 +430,16 @@ func TestCutoverReportLines(t *testing.T) {
 	t.Parallel()
 
 	fixItemsPath := filepath.Join(t.TempDir(), "fix-items.toon")
-	if err := os.WriteFile(
+
+	inlineErr5 := os.WriteFile(
 		fixItemsPath,
-		[]byte("  git-hooks,/repo/.git/hooks/pre-commit is stale,run cutover install\n\n"),
-		0o600,
-	); err != nil {
-		t.Fatalf("write fix items: %v", err)
+		[]byte(
+			"  git-hooks,/repo/.git/hooks/pre-commit is stale,run cutover install\n\n",
+		),
+		privateFileMode,
+	)
+	if inlineErr5 != nil {
+		t.Fatalf("write fix items: %v", inlineErr5)
 	}
 
 	report, err := newCutoverReport(
@@ -429,12 +477,14 @@ func TestCutoverReportLines(t *testing.T) {
 }
 
 func TestCutoverReportCommandValidatesAndPrintsReport(t *testing.T) {
+	t.Parallel()
+
 	fixItemsPath := filepath.Join(t.TempDir(), "fix-items.toon")
 
 	err := os.WriteFile(
 		fixItemsPath,
 		[]byte("  git-hooks,stale hook,run make build\n"),
-		0o600,
+		privateFileMode,
 	)
 	if err != nil {
 		t.Fatalf("write fix items: %v", err)
@@ -445,7 +495,7 @@ func TestCutoverReportCommandValidatesAndPrintsReport(t *testing.T) {
 		t.Fatalf("missing action error = %v, want %v", err, errActionRequired)
 	}
 
-	if _, err := newCutoverReport(
+	_, inlineErrAutoE := newCutoverReport(
 		"verify",
 		"blocked",
 		"/repo",
@@ -456,8 +506,10 @@ func TestCutoverReportCommandValidatesAndPrintsReport(t *testing.T) {
 			"policy-runtime": "PASS",
 		},
 		filepath.Join(t.TempDir(), "missing"),
-	); err == nil || !strings.Contains(err.Error(), errFixItemsOpen.Error()) {
-		t.Fatalf("missing fix item error = %v", err)
+	)
+	if inlineErrAutoE == nil ||
+		!strings.Contains(inlineErrAutoE.Error(), errFixItemsOpen.Error()) {
+		t.Fatalf("missing fix item error = %v", inlineErrAutoE)
 	}
 
 	stdout := captureToolchainStdout(t, func() {
@@ -497,7 +549,7 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
 		[]byte(".coding-ethos/\n"),
-		0o600,
+		privateFileMode,
 	)
 	if err != nil {
 		t.Fatalf("write gitignore: %v", err)
@@ -542,50 +594,29 @@ func TestInstallManagedToolchainInstallsAndWritesManifest(t *testing.T) {
 	githubBinDir := filepath.Join(root, "github-bin")
 
 	installedManifest := filepath.Join(root, "manifest.tsv")
-	if err := os.WriteFile(
+
+	inlineErr6 := os.WriteFile(
 		manifestSource,
-		[]byte(strings.Join([]string{
-			"# tool\tinstaller\tsource\tversion\tasset_substring\tbinary\tsha256\tdest",
-			"shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\tgo-bin",
-			"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64\tshellcheck\tabc\tgithub-bin",
-			"",
-		}, "\n")),
-		0o600,
-	); err != nil {
-		t.Fatalf("write manifest source: %v", err)
+		[]byte(managedToolchainManifestFixture()),
+		privateFileMode,
+	)
+	if inlineErr6 != nil {
+		t.Fatalf("write manifest source: %v", inlineErr6)
 	}
 
 	var installed []string
 
-	installer := managedToolInstaller{
-		InstallGo: func(module, version, destDir string) error {
-			installed = append(installed, "go:"+module+"@"+version)
+	installer := recordingManagedToolInstaller(t, &installed)
 
-			writeExecutableFixture(t, filepath.Join(destDir, "shfmt"), "shfmt\n")
-
-			return nil
-		},
-		InstallRust: func(crate, version, binary, destDir string) error {
-			t.Fatalf("unexpected rust install %s@%s %s %s", crate, version, binary, destDir)
-
-			return nil
-		},
-		InstallGitHub: func(tool managedTool, destDir string) error {
-			installed = append(installed, "github:"+tool.Source+"@"+tool.Version)
-			writeExecutableFixture(t, filepath.Join(destDir, tool.Binary), tool.Binary+"\n")
-
-			return nil
-		},
-	}
-
-	if err := installManagedToolchain(
+	inlineErr7 := installManagedToolchain(
 		manifestSource,
 		goBinDir,
 		githubBinDir,
 		installedManifest,
 		installer,
-	); err != nil {
-		t.Fatalf("install managed toolchain: %v", err)
+	)
+	if inlineErr7 != nil {
+		t.Fatalf("install managed toolchain: %v", inlineErr7)
 	}
 
 	if strings.Join(
@@ -603,12 +634,64 @@ func TestInstallManagedToolchainInstallsAndWritesManifest(t *testing.T) {
 	manifest := string(payload)
 	for _, want := range []string{
 		"Generated by coding-ethos-toolchain install-managed-toolchain",
-		"shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\t" + filepath.Join(goBinDir, "shfmt"),
-		"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64\tshellcheck\tabc\t" + filepath.Join(githubBinDir, "shellcheck"),
+		"shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\t" +
+			filepath.Join(goBinDir, "shfmt"),
+		"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64" +
+			"\tshellcheck\tabc\t" + filepath.Join(githubBinDir, "shellcheck"),
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("installed manifest missing %q:\n%s", want, manifest)
 		}
+	}
+}
+
+func managedToolchainManifestFixture() string {
+	return strings.Join([]string{
+		strings.Join(
+			[]string{
+				"# tool",
+				"installer",
+				"source",
+				"version",
+				"asset_substring",
+				"binary",
+				"sha256",
+				"dest",
+			},
+			"\t",
+		),
+		"shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\tgo-bin",
+		"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64" +
+			"\tshellcheck\tabc\tgithub-bin",
+		"",
+	}, "\n")
+}
+
+func recordingManagedToolInstaller(
+	t *testing.T,
+	installed *[]string,
+) managedToolInstaller {
+	t.Helper()
+
+	return managedToolInstaller{
+		InstallGo: func(module, version, destDir string) error {
+			*installed = append(*installed, "go:"+module+"@"+version)
+
+			writeExecutableFixture(t, filepath.Join(destDir, "shfmt"), "shfmt\n")
+
+			return nil
+		},
+		InstallRust: func(crate, version, binary, destDir string) error {
+			t.Fatalf("unexpected rust install %s@%s %s %s", crate, version, binary, destDir)
+
+			return nil
+		},
+		InstallGitHub: func(tool managedTool, destDir string) error {
+			*installed = append(*installed, "github:"+tool.Source+"@"+tool.Version)
+			writeExecutableFixture(t, filepath.Join(destDir, tool.Binary), tool.Binary+"\n")
+
+			return nil
+		},
 	}
 }
 
@@ -620,7 +703,7 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 	goBinDir := filepath.Join(root, "go-bin")
 	installedManifest := filepath.Join(root, "manifest.tsv")
 
-	err := os.MkdirAll(goBinDir, 0o755)
+	err := os.MkdirAll(goBinDir, directoryMode)
 	if err != nil {
 		t.Fatalf("create go bin: %v", err)
 	}
@@ -630,7 +713,7 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 	err = os.WriteFile(
 		manifestSource,
 		[]byte("shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\tgo-bin\n"),
-		0o600,
+		privateFileMode,
 	)
 	if err != nil {
 		t.Fatalf("write manifest source: %v", err)
@@ -639,7 +722,7 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 	record := "shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\t" +
 		filepath.Join(goBinDir, "shfmt") + "\n"
 
-	err = os.WriteFile(installedManifest, []byte(record), 0o600)
+	err = os.WriteFile(installedManifest, []byte(record), privateFileMode)
 	if err != nil {
 		t.Fatalf("write installed manifest: %v", err)
 	}
@@ -651,7 +734,13 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 			return nil
 		},
 		InstallRust: func(crate, version, binary, destDir string) error {
-			t.Fatalf("unexpected rust install %s@%s %s %s", crate, version, binary, destDir)
+			t.Fatalf(
+				"unexpected rust install %s@%s %s %s",
+				crate,
+				version,
+				binary,
+				destDir,
+			)
 
 			return nil
 		},
@@ -689,12 +778,13 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		t.Fatalf("items before ignore = %#v", items)
 	}
 
-	if err := os.WriteFile(
+	inlineErr8 := os.WriteFile(
 		filepath.Join(repo, ".gitignore"),
 		[]byte(".coding-ethos/\n"),
-		0o600,
-	); err != nil {
-		t.Fatalf("write gitignore: %v", err)
+		privateFileMode,
+	)
+	if inlineErr8 != nil {
+		t.Fatalf("write gitignore: %v", inlineErr8)
 	}
 
 	items, err = repoIgnoreFixItemLines("git", repo)
@@ -708,6 +798,8 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 }
 
 func TestRepoIgnoreFixItemsCommandPrintsItems(t *testing.T) {
+	t.Parallel()
+
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 
@@ -732,8 +824,10 @@ func TestExtractZipExtractsFilesAndRejectsTraversal(t *testing.T) {
 	})
 
 	destDir := filepath.Join(root, "extract")
-	if err := extractZip(archivePath, destDir); err != nil {
-		t.Fatalf("extract zip: %v", err)
+
+	inlineErr9 := extractZip(archivePath, destDir)
+	if inlineErr9 != nil {
+		t.Fatalf("extract zip: %v", inlineErr9)
 	}
 
 	payload, err := os.ReadFile(filepath.Join(destDir, "nested", "tool"))
@@ -750,7 +844,8 @@ func TestExtractZipExtractsFilesAndRejectsTraversal(t *testing.T) {
 		"../escape": "no\n",
 	})
 
-	if err := extractZip(traversalPath, filepath.Join(root, "bad")); err == nil {
+	inlineErrAutoF := extractZip(traversalPath, filepath.Join(root, "bad"))
+	if inlineErrAutoF == nil {
 		t.Fatal("extractZip should reject traversal member")
 	}
 }
@@ -758,17 +853,23 @@ func TestExtractZipExtractsFilesAndRejectsTraversal(t *testing.T) {
 func TestGithubAssetURLValidatesRequiredFlags(t *testing.T) {
 	t.Parallel()
 
-	if err := githubAssetURL(nil); !errors.Is(err, errRepoRequired) {
-		t.Fatalf("githubAssetURL(nil) = %v, want %v", err, errRepoRequired)
+	inlineErrAutoG := githubAssetURL(nil)
+	if !errors.Is(inlineErrAutoG, errRepoRequired) {
+		t.Fatalf("githubAssetURL(nil) = %v, want %v", inlineErrAutoG, errRepoRequired)
 	}
 
-	if err := githubAssetURL(
+	inlineErrAutoH := githubAssetURL(
 		[]string{"--repo", "owner/repo"},
-	); !errors.Is(
-		err,
+	)
+	if !errors.Is(
+		inlineErrAutoH,
 		errTagRequired,
 	) {
-		t.Fatalf("githubAssetURL missing tag = %v, want %v", err, errTagRequired)
+		t.Fatalf(
+			"githubAssetURL missing tag = %v, want %v",
+			inlineErrAutoH,
+			errTagRequired,
+		)
 	}
 
 	err := githubAssetURL([]string{"--repo", "owner/repo", "--tag", "v1.0.0"})
@@ -781,8 +882,10 @@ func TestRuntimeFixItemsReadsNonEmptyOutput(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "runtime.out")
-	if err := os.WriteFile(path, []byte("failed\n"), 0o600); err != nil {
-		t.Fatalf("write runtime output: %v", err)
+
+	inlineErr10 := os.WriteFile(path, []byte("failed\n"), privateFileMode)
+	if inlineErr10 != nil {
+		t.Fatalf("write runtime output: %v", inlineErr10)
 	}
 
 	info, err := os.Stat(path)
@@ -796,11 +899,13 @@ func TestRuntimeFixItemsReadsNonEmptyOutput(t *testing.T) {
 }
 
 func TestRunCLIDispatchesToolchainCommands(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	shaFile := filepath.Join(root, "payload.txt")
 
-	err := os.WriteFile(shaFile, []byte("payload\n"), 0o600)
+	err := os.WriteFile(shaFile, []byte("payload\n"), privateFileMode)
 	if err != nil {
 		t.Fatalf("write sha file: %v", err)
 	}
@@ -824,74 +929,112 @@ func TestRunCLIDispatchesToolchainCommands(t *testing.T) {
 	err = os.WriteFile(
 		agentOutput,
 		[]byte("Gemini .gemini/settings.json mismatch\n"),
-		0o600,
+		privateFileMode,
 	)
 	if err != nil {
 		t.Fatalf("write agent output: %v", err)
 	}
 
-	err = os.WriteFile(runtimeOutput, []byte("runtime failed\n"), 0o600)
+	err = os.WriteFile(runtimeOutput, []byte("runtime failed\n"), privateFileMode)
 	if err != nil {
 		t.Fatalf("write runtime output: %v", err)
 	}
 
-	tests := []struct {
-		name string
-		want string
-		args []string
-	}{
+	for _, test := range toolchainCLICases(toolchainCLIPaths{
+		shaFile:       shaFile,
+		hooksDir:      hooksDir,
+		runner:        runner,
+		root:          root,
+		repo:          repo,
+		agentOutput:   agentOutput,
+		runtimeOutput: runtimeOutput,
+	}) {
+		stdout := captureToolchainStdout(t, func() {
+			if code := runCLI(test.args); code != 0 {
+				t.Fatalf("%s exit = %d for args %#v", test.name, code, test.args)
+			}
+		})
+		if test.want != "" && !strings.Contains(stdout, test.want) {
+			t.Fatalf("%s stdout missing %q:\n%s", test.name, test.want, stdout)
+		}
+	}
+}
+
+type toolchainCLIPaths struct {
+	shaFile       string
+	hooksDir      string
+	runner        string
+	root          string
+	repo          string
+	agentOutput   string
+	runtimeOutput string
+}
+
+type toolchainCLICase struct {
+	name string
+	want string
+	args []string
+}
+
+func toolchainCLICases(paths toolchainCLIPaths) []toolchainCLICase {
+	return []toolchainCLICase{
 		{
 			name: "sha256",
-			args: []string{"sha256", "--file", shaFile},
+			args: []string{"sha256", "--file", paths.shaFile},
 			want: "d4e4877bac978b7952f0d544fc52ebff5411d351d129f1f056fa43f11da9af2b",
 		},
 		{
 			name: "install hooks",
-			args: []string{"install-git-hooks", "--hooks-dir", hooksDir, "--runner", runner},
+			args: []string{
+				"install-git-hooks", "--hooks-dir", paths.hooksDir, "--runner", paths.runner,
+			},
 		},
 		{
 			name: "verify hooks",
-			args: []string{"verify-git-hooks", "--hooks-dir", hooksDir, "--runner", runner},
-		},
-		{
-			name: "git hook fix items",
 			args: []string{
-				"git-hook-fix-items",
-				"--hooks-dir",
-				filepath.Join(root, "missing-hooks"),
-				"--runner",
-				runner,
+				"verify-git-hooks", "--hooks-dir", paths.hooksDir, "--runner", paths.runner,
 			},
-			want: "pre-commit missing or not executable",
 		},
-		{
-			name: "repo ignore fix items",
-			args: []string{"repo-ignore-fix-items", "--repo-root", repo, "--real-git", "git"},
-			want: ".coding-ethos/ is not ignored",
-		},
+		toolchainGitHookFixItemsCase(paths),
+		toolchainRepoIgnoreFixItemsCase(paths),
 		{
 			name: "agent hook fix items",
-			args: []string{"agent-hook-fix-items", "--input", agentOutput},
+			args: []string{"agent-hook-fix-items", "--input", paths.agentOutput},
 			want: ".gemini/settings.json",
 		},
 		{
 			name: "runtime fix items",
-			args: []string{"runtime-fix-items", "--input", runtimeOutput},
+			args: []string{"runtime-fix-items", "--input", paths.runtimeOutput},
 			want: "git-hook validate failed",
 		},
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			stdout := captureToolchainStdout(t, func() {
-				if code := runCLI(test.args); code != 0 {
-					t.Fatalf("exit = %d for args %#v", code, test.args)
-				}
-			})
-			if test.want != "" && !strings.Contains(stdout, test.want) {
-				t.Fatalf("stdout missing %q:\n%s", test.want, stdout)
-			}
-		})
+func toolchainGitHookFixItemsCase(paths toolchainCLIPaths) toolchainCLICase {
+	return toolchainCLICase{
+		name: "git hook fix items",
+		args: []string{
+			"git-hook-fix-items",
+			"--hooks-dir",
+			filepath.Join(paths.root, "missing-hooks"),
+			"--runner",
+			paths.runner,
+		},
+		want: "pre-commit missing or not executable",
+	}
+}
+
+func toolchainRepoIgnoreFixItemsCase(paths toolchainCLIPaths) toolchainCLICase {
+	return toolchainCLICase{
+		name: "repo ignore fix items",
+		args: []string{
+			"repo-ignore-fix-items",
+			"--repo-root",
+			paths.repo,
+			"--real-git",
+			"git",
+		},
+		want: ".coding-ethos/ is not ignored",
 	}
 }
 
@@ -932,6 +1075,8 @@ func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
 }
 
 func TestFixItemCommandsPrintStructuredRows(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	agentOutput := filepath.Join(root, "agent.out")
 	runtimeOutput := filepath.Join(root, "runtime.out")
@@ -939,13 +1084,13 @@ func TestFixItemCommandsPrintStructuredRows(t *testing.T) {
 	err := os.WriteFile(
 		agentOutput,
 		[]byte("Gemini .gemini/settings.json mismatch\n"),
-		0o600,
+		privateFileMode,
 	)
 	if err != nil {
 		t.Fatalf("write agent output: %v", err)
 	}
 
-	err = os.WriteFile(runtimeOutput, []byte("validate failed\n"), 0o600)
+	err = os.WriteFile(runtimeOutput, []byte("validate failed\n"), privateFileMode)
 	if err != nil {
 		t.Fatalf("write runtime output: %v", err)
 	}
@@ -972,27 +1117,37 @@ func TestFixItemCommandsPrintStructuredRows(t *testing.T) {
 		t.Fatalf("runtime fix items output = %q", runtimeStdout)
 	}
 
-	if _, err := inputFileFlag("test", nil); !errors.Is(err, errInputRequired) {
-		t.Fatalf("inputFileFlag() error = %v, want %v", err, errInputRequired)
+	_, inlineErrAutoI := inputFileFlag("test", nil)
+	if !errors.Is(inlineErrAutoI, errInputRequired) {
+		t.Fatalf(
+			"inputFileFlag() error = %v, want %v",
+			inlineErrAutoI,
+			errInputRequired,
+		)
 	}
 }
 
 func TestFilesEqualAndSHACommand(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	left := filepath.Join(root, "left")
 	right := filepath.Join(root, "right")
 	other := filepath.Join(root, "other")
 
-	if err := os.WriteFile(left, []byte("same\n"), 0o600); err != nil {
-		t.Fatalf("write left: %v", err)
+	inlineErr11 := os.WriteFile(left, []byte("same\n"), privateFileMode)
+	if inlineErr11 != nil {
+		t.Fatalf("write left: %v", inlineErr11)
 	}
 
-	if err := os.WriteFile(right, []byte("same\n"), 0o600); err != nil {
-		t.Fatalf("write right: %v", err)
+	inlineErr12 := os.WriteFile(right, []byte("same\n"), privateFileMode)
+	if inlineErr12 != nil {
+		t.Fatalf("write right: %v", inlineErr12)
 	}
 
-	if err := os.WriteFile(other, []byte("different\n"), 0o600); err != nil {
-		t.Fatalf("write other: %v", err)
+	inlineErr13 := os.WriteFile(other, []byte("different\n"), privateFileMode)
+	if inlineErr13 != nil {
+		t.Fatalf("write other: %v", inlineErr13)
 	}
 
 	equal, err := filesEqual(left, right)
@@ -1015,13 +1170,17 @@ func TestFilesEqualAndSHACommand(t *testing.T) {
 		t.Fatalf("sha stdout = %q", stdout)
 	}
 
-	if err := printSHA256(nil); !errors.Is(err, errFileRequired) {
-		t.Fatalf("printSHA256(nil) = %v, want %v", err, errFileRequired)
+	inlineErrAutoJ := printSHA256(nil)
+	if !errors.Is(inlineErrAutoJ, errFileRequired) {
+		t.Fatalf("printSHA256(nil) = %v, want %v", inlineErrAutoJ, errFileRequired)
 	}
 }
 
 func captureToolchainStdout(t *testing.T, run func()) string {
 	t.Helper()
+
+	release := testlock.ProcessStateScope(t, "coding-ethos-toolchain")
+	defer release()
 
 	original := os.Stdout
 
@@ -1038,17 +1197,21 @@ func captureToolchainStdout(t *testing.T, run func()) string {
 
 	run()
 
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close stdout writer: %v", err)
+	inlineErr14 := writer.Close()
+	if inlineErr14 != nil {
+		t.Fatalf("close stdout writer: %v", inlineErr14)
 	}
 
 	var buffer strings.Builder
-	if _, err := io.Copy(&buffer, reader); err != nil {
-		t.Fatalf("read stdout: %v", err)
+
+	_, inlineErrB := io.Copy(&buffer, reader)
+	if inlineErrB != nil {
+		t.Fatalf("read stdout: %v", inlineErrB)
 	}
 
-	if err := reader.Close(); err != nil {
-		t.Fatalf("close stdout reader: %v", err)
+	inlineErr15 := reader.Close()
+	if inlineErr15 != nil {
+		t.Fatalf("close stdout reader: %v", inlineErr15)
 	}
 
 	return buffer.String()
@@ -1057,9 +1220,14 @@ func captureToolchainStdout(t *testing.T, run func()) string {
 func writeExecutableFixture(t *testing.T, path, payload string) {
 	t.Helper()
 
-	err := os.WriteFile(path, []byte(payload), 0o755)
+	err := os.WriteFile(path, []byte(payload), privateFileMode)
 	if err != nil {
 		t.Fatalf("write executable fixture %s: %v", path, err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod executable fixture %s: %v", path, err)
 	}
 }
 
@@ -1085,24 +1253,30 @@ func writeTarGzipFixture(
 		Mode: mode,
 		Size: int64(len(payload)),
 	}
-	if err := tarWriter.WriteHeader(header); err != nil {
-		t.Fatalf("write tar header: %v", err)
+
+	inlineErr16 := tarWriter.WriteHeader(header)
+	if inlineErr16 != nil {
+		t.Fatalf("write tar header: %v", inlineErr16)
 	}
 
-	if _, err := tarWriter.Write([]byte(payload)); err != nil {
-		t.Fatalf("write tar payload: %v", err)
+	_, inlineErrC := tarWriter.Write([]byte(payload))
+	if inlineErrC != nil {
+		t.Fatalf("write tar payload: %v", inlineErrC)
 	}
 
-	if err := tarWriter.Close(); err != nil {
-		t.Fatalf("close tar writer: %v", err)
+	inlineErr17 := tarWriter.Close()
+	if inlineErr17 != nil {
+		t.Fatalf("close tar writer: %v", inlineErr17)
 	}
 
-	if err := gzipWriter.Close(); err != nil {
-		t.Fatalf("close gzip writer: %v", err)
+	inlineErr18 := gzipWriter.Close()
+	if inlineErr18 != nil {
+		t.Fatalf("close gzip writer: %v", inlineErr18)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close tar.gz fixture: %v", err)
+	inlineErr19 := file.Close()
+	if inlineErr19 != nil {
+		t.Fatalf("close tar.gz fixture: %v", inlineErr19)
 	}
 }
 
@@ -1121,24 +1295,27 @@ func writeZipFixture(t *testing.T, path string, members map[string]string) {
 			t.Fatalf("create zip member %s: %v", name, err)
 		}
 
-		if _, err := member.Write([]byte(payload)); err != nil {
-			t.Fatalf("write zip member %s: %v", name, err)
+		_, inlineErrD := member.Write([]byte(payload))
+		if inlineErrD != nil {
+			t.Fatalf("write zip member %s: %v", name, inlineErrD)
 		}
 	}
 
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close zip writer: %v", err)
+	inlineErr20 := writer.Close()
+	if inlineErr20 != nil {
+		t.Fatalf("close zip writer: %v", inlineErr20)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close zip fixture: %v", err)
+	inlineErr21 := file.Close()
+	if inlineErr21 != nil {
+		t.Fatalf("close zip fixture: %v", inlineErr21)
 	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	command := exec.Command("git", args...)
+	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = dir
 
 	command.Env = append(

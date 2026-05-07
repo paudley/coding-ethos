@@ -4,6 +4,7 @@
 package evaluators_test
 
 import (
+	"context"
 	"maps"
 	"os"
 	"os/exec"
@@ -82,11 +83,13 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 	t.Helper()
 
 	repo := t.TempDir()
-	cmd := exec.Command("git", "init")
+	cmd := exec.CommandContext(context.Background(), "git", "init")
 
 	cmd.Dir = repo
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, output)
+
+	output, inlineErrA := cmd.CombinedOutput()
+	if inlineErrA != nil {
+		t.Fatalf("git init: %v\n%s", inlineErrA, output)
 	}
 
 	return repo
@@ -97,7 +100,7 @@ func writeRequiredIgnoreFile(t *testing.T, repo, content string) {
 
 	path := filepath.Join(repo, ".gitignore")
 
-	err := os.WriteFile(path, []byte(content), 0o644)
+	err := os.WriteFile(path, []byte(content), 0o600)
 	if err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}

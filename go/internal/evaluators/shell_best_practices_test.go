@@ -19,12 +19,14 @@ func TestEvaluateShellBestPracticesBlocksMissingStrictMode(t *testing.T) {
 	dir := t.TempDir()
 
 	path := filepath.Join(dir, "script.sh")
-	if err := os.WriteFile(
+
+	inlineErr0 := os.WriteFile(
 		path,
 		[]byte("#!/usr/bin/env bash\necho ok\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write test file: %v", err)
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write test file: %v", inlineErr0)
 	}
 
 	decisions, err := EvaluateShellBestPractices(
@@ -51,8 +53,10 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 	path := filepath.Join(dir, "script.sh")
 
 	content := "#!/usr/bin/env bash\nset -euo pipefail\necho 'unterminated\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write test file: %v", err)
+
+	inlineErr1 := os.WriteFile(path, []byte(content), 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write test file: %v", inlineErr1)
 	}
 
 	decisions, err := EvaluateShellBestPractices(

@@ -14,6 +14,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestGitCommitReadsMessageFromStdin(t *testing.T) {
@@ -83,6 +84,8 @@ func TestGitOptionsForNonStdinCommand(t *testing.T) {
 }
 
 func TestReadBundleAndMaybePrintJSON(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeGitTestBundle(t)
 
 	bundle, err := readBundle(bundlePath)
@@ -108,6 +111,8 @@ func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 }
 
 func TestRunCheckOnlyAllowedCommand(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -127,6 +132,8 @@ func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 }
 
 func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -148,16 +155,25 @@ func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 }
 
 func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	marker := filepath.Join(root, "git-ran")
 
 	realGit := filepath.Join(root, "git")
-	if err := os.WriteFile(
+
+	inlineErr0 := os.WriteFile(
 		realGit,
 		[]byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+marker+"\n"),
-		0o700,
-	); err != nil {
-		t.Fatalf("write fake git: %v", err)
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write fake git: %v", inlineErr0)
+	}
+
+	inlineErr1 := os.Chmod(realGit, 0o700)
+	if inlineErr1 != nil {
+		t.Fatalf("chmod fake git: %v", inlineErr1)
 	}
 
 	err := executeGitWithPostChecks(
@@ -184,10 +200,16 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 }
 
 func TestRunUsesProcessArgs(t *testing.T) {
+	t.Parallel()
+
 	bundlePath := writeGitTestBundle(t)
+	testlock.ProcessState(t, "coding-ethos-git")
+
 	originalArgs := os.Args
 
-	t.Cleanup(func() { os.Args = originalArgs })
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
 
 	os.Args = []string{
 		"coding-ethos-git",
@@ -197,7 +219,7 @@ func TestRunUsesProcessArgs(t *testing.T) {
 		"--short",
 	}
 
-	output := captureGitStdout(t, func() {
+	output := captureGitStdoutUnlocked(t, func() {
 		err := run()
 		if err != nil {
 			t.Fatalf("run() returned error: %v", err)
@@ -209,6 +231,8 @@ func TestRunUsesProcessArgs(t *testing.T) {
 }
 
 func TestRunRequiresBundleFlag(t *testing.T) {
+	t.Parallel()
+
 	err := runWithArgs([]string{"status"})
 	if !errors.Is(err, errBundleRequired) {
 		t.Fatalf("runWithArgs() error = %v, want %v", err, errBundleRequired)
@@ -216,6 +240,8 @@ func TestRunRequiresBundleFlag(t *testing.T) {
 }
 
 func TestPrintBlockedReportsBlockingDecision(t *testing.T) {
+	t.Parallel()
+
 	result := gitwrap.Result{
 		Decisions: []policy.Decision{{
 			PolicyID:   "git.hook_bypass",
@@ -248,18 +274,27 @@ func writeGitTestBundle(t *testing.T) string {
 		t.Fatalf("create bundle: %v", err)
 	}
 
-	if err := policy.EncodeBundle(file, policy.ExampleBundle()); err != nil {
-		t.Fatalf("encode bundle: %v", err)
+	inlineErr1 := policy.EncodeBundle(file, policy.ExampleBundle())
+	if inlineErr1 != nil {
+		t.Fatalf("encode bundle: %v", inlineErr1)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close bundle: %v", err)
+	inlineErr2 := file.Close()
+	if inlineErr2 != nil {
+		t.Fatalf("close bundle: %v", inlineErr2)
 	}
 
 	return path
 }
 
 func captureGitStdout(t *testing.T, run func()) string {
+	t.Helper()
+	testlock.ProcessState(t, "coding-ethos-git")
+
+	return captureGitStdoutUnlocked(t, run)
+}
+
+func captureGitStdoutUnlocked(t *testing.T, run func()) string {
 	t.Helper()
 
 	original := os.Stdout
@@ -282,6 +317,7 @@ func captureGitStdout(t *testing.T, run func()) string {
 
 func captureGitStderr(t *testing.T, run func()) string {
 	t.Helper()
+	testlock.ProcessState(t, "coding-ethos-git")
 
 	original := os.Stderr
 
@@ -310,8 +346,10 @@ func readGitPipe(t *testing.T, reader, writer *os.File) string {
 	}
 
 	var buffer bytes.Buffer
-	if _, err := io.Copy(&buffer, reader); err != nil {
-		t.Fatalf("read pipe: %v", err)
+
+	_, inlineErrA := io.Copy(&buffer, reader)
+	if inlineErrA != nil {
+		t.Fatalf("read pipe: %v", inlineErrA)
 	}
 
 	err = reader.Close()

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
@@ -24,6 +25,7 @@ const (
 	FormatEnv   = "CODE_ETHOS_HOOK_OUTPUT_FORMAT"
 
 	maxTOONFindingCellRunes = 320
+	toonFindingHeaderLines  = 3
 )
 
 func SelectedFormat() string {
@@ -109,12 +111,15 @@ func FormatLintResult(result lint.Result, format string) (string, error) {
 func EncodeLintResult(writer io.Writer, result lint.Result, format string) error {
 	output, err := FormatLintResult(result, format)
 	if err != nil {
-		return err
+		return fmt.Errorf("format lint result: %w", err)
 	}
 
 	_, err = fmt.Fprintln(writer, output)
+	if err != nil {
+		return fmt.Errorf("write lint result: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func FormatLintResultJSON(result lint.Result) (string, error) {
@@ -136,7 +141,7 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 
 	err := encoder.Encode(payload)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("encode hook output JSON: %w", err)
 	}
 
 	return strings.TrimRight(builder.String(), "\n"), nil
@@ -146,77 +151,16 @@ func FormatLintResultTOON(result lint.Result) string {
 	findings := lint.OutputDiagnostics(result)
 	status := lint.ResultStatus(result)
 
-	lines := []string{
-		"format: toon",
-		"tool: " + TOONCell(lint.ResultTool(result)),
-		"status: " + TOONCell(status),
-	}
+	lines := toonHeaderLines(result, status)
 	if result.TraceID != "" {
 		lines = append(lines, "trace_id: "+TOONCell(result.TraceID))
 	}
 
-	lines = append(
-		lines,
-		"title: "+TOONCell(lintResultTitle(result)),
-		"scope: "+TOONCell(result.Scope),
-		fmt.Sprintf(
-			"findings[%d]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
-			len(findings),
-		),
-	)
-	for _, finding := range findings {
-		lines = append(lines, fmt.Sprintf(
-			"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s,%s",
-			TOONCell(finding.Tool),
-			TOONCell(finding.File),
-			finding.Line,
-			finding.Column,
-			TOONCell(finding.Severity),
-			TOONCell(finding.Code),
-			TOONCell(finding.PolicyID),
-			TOONCell(finding.SkillID),
-			TOONFindingCell(finding.Message),
-			TOONFindingCell(finding.Advice),
-			TOONFindingCell(finding.Detail),
-		))
-	}
-
-	if len(result.SkillHints) > 0 {
-		lines = append(
-			lines,
-			fmt.Sprintf(
-				"advice[%d]{skill_id,message}:",
-				len(result.SkillHints),
-			),
-		)
-		for _, hint := range result.SkillHints {
-			lines = append(lines, fmt.Sprintf(
-				"  %s,%s",
-				TOONCell(hint.SkillID),
-				TOONFindingCell(compactSkillHintMessage(hint.Message)),
-			))
-		}
-	}
+	lines = append(lines, toonFindingLines(result, findings)...)
+	lines = append(lines, toonAdviceLines(result.SkillHints)...)
 
 	if remediation := agentmsg.FromDiagnostics(findings); len(remediation) > 0 {
-		lines = append(
-			lines,
-			fmt.Sprintf(
-				"agent_remediation[%d]{policy_id,skill_id,file,line,next,mcp_tool}:",
-				len(remediation),
-			),
-		)
-		for _, item := range remediation {
-			lines = append(lines, fmt.Sprintf(
-				"  %s,%s,%s,%d,%s,%s",
-				TOONCell(item.PolicyID),
-				TOONCell(item.SkillID),
-				TOONCell(item.File),
-				item.Line,
-				TOONFindingCell(firstRemediationStep(item)),
-				TOONCell(remediationMCPTool(item)),
-			))
-		}
+		lines = append(lines, toonRemediationLines(remediation)...)
 	}
 
 	if result.Blocked() {
@@ -228,6 +172,93 @@ func FormatLintResultTOON(result lint.Result) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func toonHeaderLines(result lint.Result, status string) []string {
+	return []string{
+		"format: toon",
+		"tool: " + TOONCell(lint.ResultTool(result)),
+		"status: " + TOONCell(status),
+	}
+}
+
+func toonFindingLines(result lint.Result, findings []diagnostics.Diagnostic) []string {
+	lines := make([]string, 0, toonFindingHeaderLines+len(findings))
+	lines = append(lines,
+		"title: "+TOONCell(lintResultTitle(result)),
+		"scope: "+TOONCell(result.Scope),
+		fmt.Sprintf(
+			"findings[%d]"+
+				"{tool,file,line,column,severity,code,policy_id,skill_id,message,advice,detail}:",
+			len(findings),
+		),
+	)
+
+	for _, finding := range findings {
+		lines = append(lines, toonFindingLine(finding))
+	}
+
+	return lines
+}
+
+func toonFindingLine(finding diagnostics.Diagnostic) string {
+	return fmt.Sprintf(
+		"  %s,%s,%d,%d,%s,%s,%s,%s,%s,%s,%s",
+		TOONCell(finding.Tool),
+		TOONCell(finding.File),
+		finding.Line,
+		finding.Column,
+		TOONCell(finding.Severity),
+		TOONCell(finding.Code),
+		TOONCell(finding.PolicyID),
+		TOONCell(finding.SkillID),
+		TOONFindingCell(finding.Message),
+		TOONFindingCell(finding.Advice),
+		TOONFindingCell(finding.Detail),
+	)
+}
+
+func toonAdviceLines(hints []lint.SkillHint) []string {
+	if len(hints) == 0 {
+		return nil
+	}
+
+	lines := []string{
+		fmt.Sprintf("advice[%d]{skill_id,message}:", len(hints)),
+	}
+	for _, hint := range hints {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s",
+			TOONCell(hint.SkillID),
+			TOONFindingCell(compactSkillHintMessage(hint.Message)),
+		))
+	}
+
+	return lines
+}
+
+func toonRemediationLines(remediation []agentmsg.Remediation) []string {
+	lines := make([]string, 0, 1+len(remediation))
+
+	lines = append(lines,
+		fmt.Sprintf(
+			"agent_remediation[%d]{policy_id,skill_id,file,line,next,mcp_tool}:",
+			len(remediation),
+		),
+	)
+	for _, item := range remediation {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%s,%s,%d,%s,%s",
+			TOONCell(item.PolicyID),
+			TOONCell(item.SkillID),
+			TOONCell(item.File),
+			item.Line,
+			TOONFindingCell(firstRemediationStep(item)),
+			TOONCell(remediationMCPTool(item)),
+		))
+	}
+
+	return lines
 }
 
 func firstRemediationStep(item agentmsg.Remediation) string {

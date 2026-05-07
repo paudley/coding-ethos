@@ -13,6 +13,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 type Metadata struct {
@@ -21,7 +23,7 @@ type Metadata struct {
 	GeneratedAt  string            `json:"generated_at"`
 }
 
-var errMetadataSourceHashesRequired = errors.New(
+var errMetadataSourceHashesRequired = apperror.StaticError(
 	"metadata does not contain source_hashes",
 )
 
@@ -96,7 +98,10 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 				continue
 			}
 
-			failures = append(failures, fmt.Sprintf("hash policy source %s: %v", path, err))
+			failures = append(
+				failures,
+				fmt.Sprintf("hash policy source %s: %v", path, err),
+			)
 
 			continue
 		}
@@ -107,7 +112,11 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 	}
 
 	if len(failures) > 0 {
-		return errors.New(strings.Join(failures, "\n"))
+		return apperror.Wrapf(
+			apperror.StaticError("policy metadata validation failed"),
+			"%s",
+			strings.Join(failures, "\n"),
+		)
 	}
 
 	return nil
@@ -116,7 +125,7 @@ func ValidateMetadataSourceHashes(metadata Metadata) error {
 func hashFile(path string) (string, error) {
 	payload, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read policy source %s: %w", path, err)
 	}
 
 	sum := sha256.Sum256(payload)

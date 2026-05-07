@@ -166,8 +166,12 @@ func TestCheckGeneratedToolConfigIntegrityDoesNotTrustManifestOnly(t *testing.T)
 	t.Parallel()
 
 	ethos, root := setupToolConfigChecker(t)
-	writeFile(t, filepath.Join(root, lintcapture.ToolConfigHashManifest), `{"configs":{}}
-`)
+	writeFile(
+		t,
+		filepath.Join(root, lintcapture.ToolConfigHashManifest),
+		`{"configs":{}}
+`,
+	)
 
 	drift, err := lintcapture.CheckGeneratedToolConfigIntegrity(ethos, root)
 	if err != nil {

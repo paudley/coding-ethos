@@ -15,6 +15,13 @@ import (
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const (
+	evaluatorKindCEL           = "cel"
+	evaluatorNameCELExpression = "cel.expression"
+	modeAdvise                 = "advise"
+	repoConfigFileName         = "repo_config.yaml"
+)
+
 func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	t.Parallel()
 
@@ -39,58 +46,33 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		t.Fatalf("bundle id mismatch: got %q", bundle.BundleID)
 	}
 
-	if _, ok := bundle.Principles["no-conditional-imports"]; !ok {
+	assertCompiledCorePolicies(t, bundle)
+	assertCompiledSkillAndAdvice(t, bundle)
+	assertCompileMetadata(t, metadata, primaryPath, configPath)
+	assertCompiledEvidenceMaps(t, bundle)
+	assertCompiledProtectedHookRules(t, bundle)
+}
+
+func assertCompiledCorePolicies(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	if _, found := bundle.Principles["no-conditional-imports"]; !found {
 		t.Fatalf("missing compiled principle")
 	}
 
-	if _, ok := bundle.Policies["python.conditional_imports"]; !ok {
+	if _, found := bundle.Policies["python.conditional_imports"]; !found {
 		t.Fatalf("missing compiled conditional import policy")
 	}
 
-	if _, ok := bundle.Policies["pytest.gate"]; !ok {
+	if _, found := bundle.Policies["pytest.gate"]; !found {
 		t.Fatalf("missing compiled pytest gate policy")
 	}
 
-	conditionalImportSkill, ok := bundle.Skills["conditional-imports"]
-	if !ok {
-		t.Fatalf("missing compiled conditional import skill: %#v", bundle.Skills)
-	}
-
-	if conditionalImportSkill.Source.Path != "skills.conditional-imports" ||
-		!slices.Contains(conditionalImportSkill.PrincipleIDs, "no-conditional-imports") ||
-		!strings.Contains(conditionalImportSkill.ShortHint, "Protocol") {
-		t.Fatalf("compiled conditional import skill mismatch: %#v", conditionalImportSkill)
-	}
-
-	if bundle.Advice.Reminders.AmbientFrequencyPercent != 25 ||
-		len(bundle.Advice.Reminders.Items) == 0 {
-		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
-	}
-
-	conditionalImportReminder := reminderByPrincipleID(
-		bundle.Advice.Reminders.Items,
-		"no-conditional-imports",
-	)
-	if conditionalImportReminder == nil {
-		t.Fatalf("missing conditional import reminder: %#v", bundle.Advice.Reminders.Items)
-	}
-
-	if !strings.Contains(
-		conditionalImportReminder.Axiom,
-		"Conditional imports are banned",
-	) ||
-		!strings.Contains(conditionalImportReminder.Action, "module-scope imports") {
-		t.Fatalf(
-			"conditional import reminder missing expected guidance: %#v",
-			conditionalImportReminder,
-		)
-	}
-
-	if _, ok := bundle.Policies["syntax.file_syntax"]; !ok {
+	if _, found := bundle.Policies["syntax.file_syntax"]; !found {
 		t.Fatalf("missing compiled syntax policy")
 	}
 
-	if _, ok := bundle.Policies["shell.best_practices"]; !ok {
+	if _, found := bundle.Policies["shell.best_practices"]; !found {
 		t.Fatalf("missing compiled shell best practices policy")
 	}
 
@@ -105,7 +87,7 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		"git.commitlint",
 		"git.commit_attribution",
 	} {
-		if _, ok := bundle.Policies[policyID]; !ok {
+		if _, found := bundle.Policies[policyID]; !found {
 			t.Fatalf("missing compiled file guard policy %s", policyID)
 		}
 	}
@@ -117,9 +99,66 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		)
 	}
 
-	if _, ok := bundle.Policies["python.structured_logging"]; ok {
+	if _, found := bundle.Policies["python.structured_logging"]; found {
 		t.Fatalf("structured logging policy should be disabled by fixture config")
 	}
+}
+
+func assertCompiledSkillAndAdvice(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	conditionalImportSkill, found := bundle.Skills["conditional-imports"]
+	if !found {
+		t.Fatalf("missing compiled conditional import skill: %#v", bundle.Skills)
+	}
+
+	if conditionalImportSkill.Source.Path != "skills.conditional-imports" ||
+		!slices.Contains(
+			conditionalImportSkill.PrincipleIDs,
+			"no-conditional-imports",
+		) ||
+		!strings.Contains(conditionalImportSkill.ShortHint, "Protocol") {
+		t.Fatalf(
+			"compiled conditional import skill mismatch: %#v",
+			conditionalImportSkill,
+		)
+	}
+
+	if bundle.Advice.Reminders.AmbientFrequencyPercent != 25 ||
+		len(bundle.Advice.Reminders.Items) == 0 {
+		t.Fatalf("missing compiled reminder advice: %#v", bundle.Advice.Reminders)
+	}
+
+	conditionalImportReminder := reminderByPrincipleID(
+		bundle.Advice.Reminders.Items,
+		"no-conditional-imports",
+	)
+	if conditionalImportReminder == nil {
+		t.Fatalf(
+			"missing conditional import reminder: %#v",
+			bundle.Advice.Reminders.Items,
+		)
+	}
+
+	if !strings.Contains(
+		conditionalImportReminder.Axiom,
+		"Conditional imports are banned",
+	) ||
+		!strings.Contains(conditionalImportReminder.Action, "module-scope imports") {
+		t.Fatalf(
+			"conditional import reminder missing expected guidance: %#v",
+			conditionalImportReminder,
+		)
+	}
+}
+
+func assertCompileMetadata(
+	t *testing.T,
+	metadata Metadata,
+	primaryPath string,
+	configPath string,
+) {
+	t.Helper()
 
 	if metadata.BundleHash == "" {
 		t.Fatalf("metadata missing bundle hash")
@@ -129,119 +168,111 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		metadata.SourceHashes[configPath] == "" {
 		t.Fatalf("metadata missing source hashes: %#v", metadata.SourceHashes)
 	}
+}
+
+func assertCompiledEvidenceMaps(t *testing.T, bundle Bundle) {
+	t.Helper()
 
 	if len(bundle.EvidenceMaps) != 28 {
 		t.Fatalf("evidence map count = %d, want 28", len(bundle.EvidenceMaps))
 	}
 
-	conditionalImportEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
+	assertCompiledEvidenceAdvice(t, bundle)
+	assertCompiledEvidenceSummaries(t, bundle)
+}
+
+func assertCompiledEvidenceAdvice(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	assertEvidenceAdviceContains(
+		t,
+		bundle,
 		"python.conditional_imports",
+		[]string{"SOLID", "Protocol", "startup validation"},
 	)
-	if conditionalImportEvidence == nil {
-		t.Fatalf("missing conditional import evidence map")
-	}
-
-	conditionalImportAdvice := strings.Join(
-		append(
-			[]string{
-				conditionalImportEvidence.Meaning,
-				conditionalImportEvidence.Advice.Summary,
-			},
-			conditionalImportEvidence.Advice.Steps...,
-		),
-		"\n",
-	)
-	for _, want := range []string{"SOLID", "Protocol", "startup validation"} {
-		if !strings.Contains(conditionalImportAdvice, want) {
-			t.Fatalf(
-				"conditional import evidence missing %q: %#v",
-				want,
-				conditionalImportEvidence,
-			)
-		}
-	}
-
-	importCycleEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
+	assertEvidenceAdviceContains(
+		t,
+		bundle,
 		"python.import_cycles",
+		[]string{"Protocol", "neutral module", "concrete dependency"},
 	)
-	if importCycleEvidence == nil {
-		t.Fatalf("missing import cycle evidence map")
-	}
+}
 
-	importCycleAdvice := strings.Join(
+func assertCompiledEvidenceSummaries(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	assertEvidenceSummaryContains(
+		t,
+		bundle,
+		"python.comment_suppressions",
+		"suppression",
+	)
+	assertEvidenceSummaryContains(t, bundle, "docs.public_contract", "contract")
+	assertEvidenceSummaryContains(
+		t,
+		bundle,
+		"python.optional_required_types",
+		"required",
+	)
+	assertEvidenceSummaryContains(t, bundle, "python.unknown_types", "Any")
+	assertEvidenceSummaryContains(t, bundle, "python.interface_contracts", "interface")
+}
+
+func assertEvidenceAdviceContains(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	expected []string,
+) {
+	t.Helper()
+
+	evidence := requiredEvidenceMap(t, bundle, policyID)
+
+	advice := strings.Join(
 		append(
-			[]string{
-				importCycleEvidence.Meaning,
-				importCycleEvidence.Advice.Summary,
-			},
-			importCycleEvidence.Advice.Steps...,
+			[]string{evidence.Meaning, evidence.Advice.Summary},
+			evidence.Advice.Steps...,
 		),
 		"\n",
 	)
-	for _, want := range []string{"Protocol", "neutral module", "concrete dependency"} {
-		if !strings.Contains(importCycleAdvice, want) {
-			t.Fatalf("import cycle evidence missing %q: %#v", want, importCycleEvidence)
+	for _, want := range expected {
+		if !strings.Contains(advice, want) {
+			t.Fatalf("%s evidence missing %q: %#v", policyID, want, evidence)
 		}
 	}
+}
 
-	suppressionEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
-		"python.comment_suppressions",
-	)
-	if suppressionEvidence == nil {
-		t.Fatalf("missing suppression evidence map")
+func assertEvidenceSummaryContains(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	want string,
+) {
+	t.Helper()
+
+	evidence := requiredEvidenceMap(t, bundle, policyID)
+	if !strings.Contains(evidence.Advice.Summary, want) {
+		t.Fatalf("%s evidence advice mismatch: %#v", policyID, evidence)
+	}
+}
+
+func requiredEvidenceMap(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+) *diagnostics.EvidenceMap {
+	t.Helper()
+
+	evidence := evidenceMapByPolicyID(bundle.EvidenceMaps, policyID)
+	if evidence == nil {
+		t.Fatalf("missing %s evidence map", policyID)
 	}
 
-	if !strings.Contains(suppressionEvidence.Advice.Summary, "suppression") {
-		t.Fatalf("suppression evidence advice mismatch: %#v", suppressionEvidence)
-	}
+	return evidence
+}
 
-	docEvidence := evidenceMapByPolicyID(bundle.EvidenceMaps, "docs.public_contract")
-	if docEvidence == nil {
-		t.Fatalf("missing docstring evidence map")
-	}
-
-	if !strings.Contains(docEvidence.Advice.Summary, "contract") {
-		t.Fatalf("docstring evidence advice mismatch: %#v", docEvidence)
-	}
-
-	optionalTypeEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
-		"python.optional_required_types",
-	)
-	if optionalTypeEvidence == nil {
-		t.Fatalf("missing optional type evidence map")
-	}
-
-	if !strings.Contains(optionalTypeEvidence.Advice.Summary, "required") {
-		t.Fatalf("optional type advice mismatch: %#v", optionalTypeEvidence)
-	}
-
-	unknownTypeEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
-		"python.unknown_types",
-	)
-	if unknownTypeEvidence == nil {
-		t.Fatalf("missing unknown type evidence map")
-	}
-
-	if !strings.Contains(unknownTypeEvidence.Advice.Summary, "Any") {
-		t.Fatalf("unknown type advice mismatch: %#v", unknownTypeEvidence)
-	}
-
-	interfaceEvidence := evidenceMapByPolicyID(
-		bundle.EvidenceMaps,
-		"python.interface_contracts",
-	)
-	if interfaceEvidence == nil {
-		t.Fatalf("missing interface evidence map")
-	}
-
-	if !strings.Contains(interfaceEvidence.Advice.Summary, "interface") {
-		t.Fatalf("interface advice mismatch: %#v", interfaceEvidence)
-	}
+func assertCompiledProtectedHookRules(t *testing.T, bundle Bundle) {
+	t.Helper()
 
 	forbiddenWhen := stringOptionFromEvaluator(
 		t,
@@ -249,7 +280,10 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 		"when",
 	)
 	if !strings.Contains(forbiddenWhen, "coding-ethos-hooks/coding-ethos-git-hook") {
-		t.Fatalf("default forbidden strings missing hook binary path: %s", forbiddenWhen)
+		t.Fatalf(
+			"default forbidden strings missing hook binary path: %s",
+			forbiddenWhen,
+		)
 	}
 
 	if !strings.Contains(forbiddenWhen, "coding-ethos-hooks/bin/coding-ethos-policy") {
@@ -276,7 +310,10 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	}
 
 	if !slices.Contains(protectedPaths, "coding-ethos-hooks/bin/coding-ethos-git") {
-		t.Fatalf("default protected paths missing shared git wrapper: %#v", protectedPaths)
+		t.Fatalf(
+			"default protected paths missing shared git wrapper: %#v",
+			protectedPaths,
+		)
 	}
 
 	if slices.Contains(protectedPaths, "coding-ethos-hooks/coding-ethos-legacy-hook") {
@@ -304,7 +341,11 @@ policy:
       principle_ids:
         - one-path-for-critical-operations
       skill_id: safe-git-workflow
-      when: shell_commands.exists(cmd, cmd.name in ["python", "python3"] && cmd.argv.exists(arg, arg.contains("subprocess")) && cmd.argv.exists(arg, arg.contains("git")))
+      when: >-
+        shell_commands.exists(cmd,
+          cmd.name in ["python", "python3"] &&
+          cmd.argv.exists(arg, arg.contains("subprocess")) &&
+          cmd.argv.exists(arg, arg.contains("git")))
       message: Git subprocesses are forbidden.
       advice: Run ordinary git commands without bypass flags or shell indirection.
 `)
@@ -317,13 +358,21 @@ policy:
 		t.Fatalf("compile: %v", err)
 	}
 
-	policyDef, ok := bundle.Policies["custom.no_subprocess_git"]
-	if !ok {
+	policyDef, found := bundle.Policies["custom.no_subprocess_git"]
+	if !found {
 		t.Fatalf("missing expression policy: %#v", bundle.Policies)
 	}
 
-	if policyDef.Evaluators[0].Kind != "cel" ||
-		policyDef.Evaluators[0].Name != "cel.expression" ||
+	assertExpressionPolicyDefinition(t, policyDef)
+	assertExpressionPolicyDispatch(t, bundle)
+	assertExpressionPolicyBlocksGitSubprocess(t, bundle)
+}
+
+func assertExpressionPolicyDefinition(t *testing.T, policyDef Policy) {
+	t.Helper()
+
+	if policyDef.Evaluators[0].Kind != evaluatorKindCEL ||
+		policyDef.Evaluators[0].Name != evaluatorNameCELExpression ||
 		policyDef.Evaluators[0].Options["when"] == "" ||
 		policyDef.Evaluators[0].Options["skill_id"] != "safe-git-workflow" {
 		t.Fatalf("expression evaluator mismatch: %#v", policyDef.Evaluators[0])
@@ -335,18 +384,38 @@ policy:
 		"protected_paths",
 		"source_roots",
 	} {
-		if _, ok := policyDef.Evaluators[0].Options[option]; !ok {
-			t.Fatalf("expression evaluator missing %q: %#v", option, policyDef.Evaluators[0])
+		if _, found := policyDef.Evaluators[0].Options[option]; !found {
+			t.Fatalf(
+				"expression evaluator missing %q: %#v",
+				option,
+				policyDef.Evaluators[0],
+			)
 		}
 	}
+}
 
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.no_subprocess_git")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "custom.no_subprocess_git")
+func assertExpressionPolicyDispatch(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["files"],
+		"custom.no_subprocess_git",
+	)
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["staged"],
+		"custom.no_subprocess_git",
+	)
 	assertHookPolicyDispatched(
 		t,
 		bundle.Dispatch.Hooks["PreToolUse"]["Bash"],
 		"custom.no_subprocess_git",
 	)
+}
+
+func assertExpressionPolicyBlocksGitSubprocess(t *testing.T, bundle Bundle) {
+	t.Helper()
 
 	result, err := lint.Run(bundle, lint.Options{
 		Scope:   lint.ScopeFiles,
@@ -393,8 +462,8 @@ git:
 	}
 
 	evaluator := policyDef.Evaluators[0]
-	if evaluator.Kind != "cel" ||
-		evaluator.Name != "cel.expression" ||
+	if evaluator.Kind != evaluatorKindCEL ||
+		evaluator.Name != evaluatorNameCELExpression ||
 		evaluator.Options["when"] != `git_command.is_git && git_command.has_change_dir` {
 		t.Fatalf("git change-dir evaluator mismatch: %#v", evaluator)
 	}
@@ -437,10 +506,22 @@ git:
 	} {
 		policyDef := bundle.Policies[policyID]
 		if len(policyDef.Evaluators) != 1 ||
-			policyDef.Evaluators[0].Kind != "cel" ||
-			policyDef.Evaluators[0].Name != "cel.expression" ||
-			!strings.Contains(policyDef.Evaluators[0].Options["when"].(string), "git_command.") {
+			policyDef.Evaluators[0].Kind != evaluatorKindCEL ||
+			policyDef.Evaluators[0].Name != evaluatorNameCELExpression {
 			t.Fatalf("%s evaluator mismatch: %#v", policyID, policyDef.Evaluators)
+		}
+
+		when, found := policyDef.Evaluators[0].Options["when"].(string)
+		if !found {
+			t.Fatalf(
+				"%s CEL when option = %#v, want string",
+				policyID,
+				policyDef.Evaluators[0].Options["when"],
+			)
+		}
+
+		if !strings.Contains(when, "git_command.") {
+			t.Fatalf("%s CEL when option missing git_command fact: %s", policyID, when)
 		}
 	}
 }
@@ -485,7 +566,11 @@ policy:
 		t.Fatalf("applies_to tools = %#v", policyDef.AppliesTo.Tools)
 	}
 
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "custom.edit_python_only")
+	assertPolicyDispatched(
+		t,
+		bundle.Dispatch.Linter["files"],
+		"custom.edit_python_only",
+	)
 	assertPolicyNotDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
@@ -502,7 +587,7 @@ policy:
 		bundle.Dispatch.Hooks["PreToolUse"]["Edit"],
 		"custom.edit_python_only",
 	)
-	if entry.Mode != "advise" ||
+	if entry.Mode != modeAdvise ||
 		!slices.Equal(entry.CommandPatterns, []string{"python"}) ||
 		!slices.Equal(entry.PathPatterns, []string{"**/*.py"}) {
 		t.Fatalf("hook dispatch entry = %#v", entry)
@@ -534,7 +619,8 @@ policy:
 		Primary: primaryPath,
 		Config:  configPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "conflicts with an existing policy") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "conflicts with an existing policy") {
 		t.Fatalf("compile error = %v, want policy ID collision error", err)
 	}
 }
@@ -563,7 +649,8 @@ policy:
 		Primary: primaryPath,
 		Config:  configPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "cannot override protected policy") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "cannot override protected policy") {
 		t.Fatalf("compile error = %v, want built-in override rejection", err)
 	}
 }
@@ -671,11 +758,39 @@ policy:
 func TestCompileRejectsInvalidExpressionPolicyContracts(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name       string
-		expression string
-		want       string
-	}{
+	for _, testCase := range invalidExpressionPolicyContractCases() {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			primaryPath := filepath.Join(dir, "coding_ethos.yml")
+			configPath := filepath.Join(dir, "config.yaml")
+
+			writeTestFile(t, primaryPath, testEthosYAML)
+			writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+`+testCase.expression)
+
+			_, _, err := Compile(CompileOptions{
+				Primary: primaryPath,
+				Config:  configPath,
+			})
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("compile error = %v, want %q", err, testCase.want)
+			}
+		})
+	}
+}
+
+type invalidExpressionPolicyContractCase struct {
+	name       string
+	expression string
+	want       string
+}
+
+func invalidExpressionPolicyContractCases() []invalidExpressionPolicyContractCase {
+	return []invalidExpressionPolicyContractCase{
 		{
 			name: "unsafe host function",
 			expression: `
@@ -731,30 +846,6 @@ func TestCompileRejectsInvalidExpressionPolicyContracts(t *testing.T) {
 			want: "principle_ids is required",
 		},
 	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			dir := t.TempDir()
-			primaryPath := filepath.Join(dir, "coding_ethos.yml")
-			configPath := filepath.Join(dir, "config.yaml")
-
-			writeTestFile(t, primaryPath, testEthosYAML)
-			writeTestFile(t, configPath, testConfigYAML+`
-policy:
-  expressions:
-`+testCase.expression)
-
-			_, _, err := Compile(CompileOptions{
-				Primary: primaryPath,
-				Config:  configPath,
-			})
-			if err == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("compile error = %v, want %q", err, testCase.want)
-			}
-		})
-	}
 }
 
 func TestCompileRejectsInvalidExpressionOverrideMerge(t *testing.T) {
@@ -778,7 +869,8 @@ policy:
 		Config:     configPath,
 		RepoConfig: repoConfigPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "policy.expressions must be a list") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "policy.expressions must be a list") {
 		t.Fatalf("compile error = %v, want invalid expression overlay error", err)
 	}
 }
@@ -789,7 +881,7 @@ func TestCompileAppendsRepoExpressionPolicies(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML+`
@@ -827,7 +919,7 @@ policy:
 		t.Fatalf("base expression source = %#v", basePolicy.Source)
 	}
 
-	if repoPolicy.Source.File != "repo_config.yaml" {
+	if repoPolicy.Source.File != repoConfigFileName {
 		t.Fatalf("repo expression source = %#v", repoPolicy.Source)
 	}
 }
@@ -838,7 +930,7 @@ func TestCompileRejectsExpressionPolicyShadowing(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML+`
@@ -865,7 +957,8 @@ policy:
 		Config:     configPath,
 		RepoConfig: repoConfigPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "conflicts with an existing policy") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "conflicts with an existing policy") {
 		t.Fatalf("compile error = %v, want duplicate expression rejection", err)
 	}
 }
@@ -876,7 +969,7 @@ func TestCompileAllowsExplicitExpressionOverride(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML+`
@@ -914,8 +1007,8 @@ policy:
 	}
 
 	policyDef := bundle.Policies["custom.overrideable_expression"]
-	if policyDef.Source.File != "repo_config.yaml" ||
-		policyDef.DefaultSeverity != "advise" ||
+	if policyDef.Source.File != repoConfigFileName ||
+		policyDef.DefaultSeverity != modeAdvise ||
 		policyDef.Evaluators[0].Options["override"] != true {
 		t.Fatalf("override policy mismatch: %#v", policyDef)
 	}
@@ -927,7 +1020,7 @@ func TestCompileRejectsExpressionSeverityWeakening(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML+`
@@ -987,7 +1080,8 @@ policy:
 		Primary: primaryPath,
 		Config:  configPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "protected and cannot be disabled") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "protected and cannot be disabled") {
 		t.Fatalf("compile error = %v, want protected-disable rejection", err)
 	}
 }
@@ -1010,60 +1104,77 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 		t.Fatalf("compile: %v", err)
 	}
 
-	for _, policyID := range bundle.Dispatch.Linter["staged"] {
-		if policyID == "pytest.gate" || policyID == "generated_config.freshness" {
-			t.Fatalf("smoke-only policy should not be in staged dispatch: %q", policyID)
-		}
-	}
+	assertExecutableSmokePolicyDispatch(t, bundle)
+}
 
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["smoke"], "pytest.gate")
-	assertPolicyDispatched(
-		t,
-		bundle.Dispatch.Linter["smoke"],
-		"generated_config.freshness",
-	)
-	assertPolicyDispatched(
-		t,
-		bundle.Dispatch.Linter["smoke"],
-		"repo.required_ignores",
-	)
-	assertPolicyDispatched(
-		t,
-		bundle.Dispatch.Linter["cutover"],
-		"repo.required_ignores",
-	)
-	assertPolicyDispatched(
+func assertExecutableSmokePolicyDispatch(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	assertPoliciesNotDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
-		"repo.required_ignores",
+		[]string{"pytest.gate", "generated_config.freshness"},
 	)
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.file_syntax")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.best_practices")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "syntax.merge_conflict")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "security.private_key")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.shebangs")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.large_files")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "filesystem.line_limits")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.pii_scrubber")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "repo.license_header")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "shell.forbidden_strings")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "python.functional_idioms")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.file_syntax")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "shell.best_practices")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "syntax.merge_conflict")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "security.private_key")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.shebangs")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.large_files")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "filesystem.line_limits")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.pii_scrubber")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "repo.license_header")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["staged"], "python.functional_idioms")
-	assertPolicyDispatched(t, bundle.Dispatch.Linter["commit-msg"], "git.commitlint")
-	assertPolicyDispatched(
-		t,
-		bundle.Dispatch.Linter["commit-msg"],
-		"git.commit_attribution",
-	)
+
+	for scope, policyIDs := range executableSmokeExpectedDispatch() {
+		for _, policyID := range policyIDs {
+			assertPolicyDispatched(t, bundle.Dispatch.Linter[scope], policyID)
+		}
+	}
+}
+
+func executableSmokeExpectedDispatch() map[string][]string {
+	return map[string][]string{
+		"smoke": {
+			"pytest.gate",
+			"generated_config.freshness",
+			"repo.required_ignores",
+		},
+		"cutover": {"repo.required_ignores"},
+		"files": {
+			"syntax.file_syntax",
+			"shell.best_practices",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
+			"shell.forbidden_strings",
+			"python.functional_idioms",
+		},
+		"staged": {
+			"repo.required_ignores",
+			"syntax.file_syntax",
+			"shell.best_practices",
+			"syntax.merge_conflict",
+			"security.private_key",
+			"filesystem.shebangs",
+			"filesystem.large_files",
+			"filesystem.line_limits",
+			"repo.pii_scrubber",
+			"repo.license_header",
+			"python.functional_idioms",
+		},
+		"commit-msg": {"git.commitlint", "git.commit_attribution"},
+	}
+}
+
+func assertPoliciesNotDispatched(
+	t *testing.T,
+	dispatched []string,
+	policyIDs []string,
+) {
+	t.Helper()
+
+	for _, blockedID := range policyIDs {
+		for _, policyID := range dispatched {
+			if policyID == blockedID {
+				t.Fatalf("policy should not be dispatched: %q", policyID)
+			}
+		}
+	}
 }
 
 func TestCompileDispatchesConditionalImportsAsBlockingWritePolicy(t *testing.T) {
@@ -1090,7 +1201,10 @@ func TestCompileDispatchesConditionalImportsAsBlockingWritePolicy(t *testing.T) 
 		"python.conditional_imports",
 	)
 	if conditional.Mode != "block" {
-		t.Fatalf("conditional import write dispatch mode = %q, want block", conditional.Mode)
+		t.Fatalf(
+			"conditional import write dispatch mode = %q, want block",
+			conditional.Mode,
+		)
 	}
 
 	functional := assertHookPolicyDispatched(
@@ -1098,8 +1212,11 @@ func TestCompileDispatchesConditionalImportsAsBlockingWritePolicy(t *testing.T) 
 		bundle.Dispatch.Hooks["PreToolUse"]["Write"],
 		"python.functional_idioms",
 	)
-	if functional.Mode != "advise" {
-		t.Fatalf("functional idiom write dispatch mode = %q, want advise", functional.Mode)
+	if functional.Mode != modeAdvise {
+		t.Fatalf(
+			"functional idiom write dispatch mode = %q, want advise",
+			functional.Mode,
+		)
 	}
 }
 
@@ -1109,7 +1226,7 @@ func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML)
@@ -1128,7 +1245,7 @@ python:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if _, ok := bundle.Policies["python.structured_logging"]; !ok {
+	if _, found := bundle.Policies["python.structured_logging"]; !found {
 		t.Fatalf("repo overlay should enable structured logging policy")
 	}
 }
@@ -1139,7 +1256,7 @@ func TestCompileDoesNotInheritLicensePolicyIntoConsumerRepo(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML+`
@@ -1162,7 +1279,7 @@ python:
 		t.Fatalf("compile: %v", err)
 	}
 
-	if _, ok := bundle.Policies["repo.license_header"]; ok {
+	if _, found := bundle.Policies["repo.license_header"]; found {
 		t.Fatalf("consumer repo should not inherit bundle license policy")
 	}
 }
@@ -1173,7 +1290,7 @@ func TestCompileAddsRepoSpecificLicensePolicy(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML)
@@ -1197,12 +1314,12 @@ repo:
 		t.Fatalf("compile: %v", err)
 	}
 
-	policyDef, ok := bundle.Policies["repo.license_header"]
-	if !ok {
+	policyDef, found := bundle.Policies["repo.license_header"]
+	if !found {
 		t.Fatalf("missing repo-specific license policy")
 	}
 
-	if policyDef.Source.File != "repo_config.yaml" ||
+	if policyDef.Source.File != repoConfigFileName ||
 		policyDef.Source.Path != "repo.license" {
 		t.Fatalf("source mismatch: %#v", policyDef.Source)
 	}
@@ -1218,9 +1335,12 @@ repo:
 		t.Fatalf("missing copyright header requirement: %#v", required)
 	}
 
-	expected, ok := options["expected_license_text"].(string)
-	if !ok || !strings.Contains(expected, "Copyright (c) 2026 Example Inc.") {
-		t.Fatalf("expected license text mismatch: %#v", options["expected_license_text"])
+	expected, found := options["expected_license_text"].(string)
+	if !found || !strings.Contains(expected, "Copyright (c) 2026 Example Inc.") {
+		t.Fatalf(
+			"expected license text mismatch: %#v",
+			options["expected_license_text"],
+		)
 	}
 }
 
@@ -1230,15 +1350,16 @@ func TestCompiledRepoLicensePolicyRunsAgainstSampleConsumer(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 	consumerRoot := filepath.Join(dir, "consumer")
 
 	writeTestFile(t, primaryPath, testEthosYAML)
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, sampleLicenseRepoConfigYAML)
 
-	if err := os.MkdirAll(consumerRoot, 0o755); err != nil {
-		t.Fatalf("mkdir consumer: %v", err)
+	inlineErr0 := os.MkdirAll(consumerRoot, 0o755)
+	if inlineErr0 != nil {
+		t.Fatalf("mkdir consumer: %v", inlineErr0)
 	}
 
 	bundle, _, err := Compile(CompileOptions{
@@ -1348,59 +1469,94 @@ security:
 		t.Fatalf("compile: %v", err)
 	}
 
-	protectedPath := optionStrings(
+	assertConfigBackedEvaluatorOptions(t, bundle)
+
+	assertConfigBackedCELOwnership(t, bundle)
+}
+
+func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
+	t.Helper()
+
+	assertFirstOptionString(
 		t,
-		bundle.Policies["filesystem.protected_path"].Evaluators[0],
+		bundle,
+		"filesystem.protected_path",
 		"protected_paths",
+		"/opt/blocked",
 	)
-	if protectedPath[0] != "/opt/blocked" {
-		t.Fatalf("protected path options mismatch: %#v", protectedPath)
-	}
-
-	protectedBranch := optionStrings(
+	assertFirstOptionString(
 		t,
-		bundle.Policies["filesystem.protected_branch_write"].Evaluators[0],
+		bundle,
+		"filesystem.protected_branch_write",
 		"protected_branches",
+		"release",
 	)
-	if protectedBranch[0] != "release" {
-		t.Fatalf("protected branch options mismatch: %#v", protectedBranch)
-	}
-
-	requiredIgnores := optionStrings(
+	assertFirstOptionString(
 		t,
-		bundle.Policies["repo.required_ignores"].Evaluators[0],
+		bundle,
+		"repo.required_ignores",
 		"required_ignore_paths",
+		".runtime/",
 	)
-	if requiredIgnores[0] != ".runtime/" {
-		t.Fatalf("required ignore options mismatch: %#v", requiredIgnores)
-	}
-
-	adminFiles := optionStrings(
+	assertFirstOptionString(
 		t,
-		bundle.Policies["git.staged_admin_files"].Evaluators[0],
+		bundle,
+		"git.staged_admin_files",
 		"basenames",
+		"custom.lock",
 	)
-	if adminFiles[0] != "custom.lock" {
-		t.Fatalf("admin file options mismatch: %#v", adminFiles)
-	}
-
-	pytestCommand := optionStrings(
+	assertFirstOptionString(t, bundle, "pytest.gate", "command", "uv")
+	assertIndexedOptionString(
 		t,
-		bundle.Policies["pytest.gate"].Evaluators[0],
+		bundle,
+		"generated_config.freshness",
 		"command",
+		2,
+		"/tmp/repo",
 	)
-	if pytestCommand[0] != "uv" {
-		t.Fatalf("pytest command options mismatch: %#v", pytestCommand)
-	}
-
-	generatedConfigCommand := optionStrings(
+	assertForbiddenStringsExpression(t, bundle)
+	assertFirstOptionString(
 		t,
-		bundle.Policies["generated_config.freshness"].Evaluators[0],
-		"command",
+		bundle,
+		"shell.best_practices",
+		"require_common_for_prefixes",
+		"bin/",
 	)
-	if generatedConfigCommand[2] != "/tmp/repo" {
-		t.Fatalf("generated config command options mismatch: %#v", generatedConfigCommand)
+	assertFirstOptionString(t, bundle, "syntax.file_syntax", "extensions", ".json")
+	assertFirstOptionString(t, bundle, "syntax.merge_conflict", "markers", "CONFLICT")
+	assertPrivateKeyPattern(t, bundle)
+}
+
+func assertFirstOptionString(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	optionName string,
+	want string,
+) {
+	t.Helper()
+
+	assertIndexedOptionString(t, bundle, policyID, optionName, 0, want)
+}
+
+func assertIndexedOptionString(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	optionName string,
+	index int,
+	want string,
+) {
+	t.Helper()
+
+	values := optionStrings(t, bundle.Policies[policyID].Evaluators[0], optionName)
+	if values[index] != want {
+		t.Fatalf("%s %s option mismatch: %#v", policyID, optionName, values)
 	}
+}
+
+func assertForbiddenStringsExpression(t *testing.T, bundle Bundle) {
+	t.Helper()
 
 	forbiddenWhen := stringOptionFromEvaluator(
 		t,
@@ -1411,33 +1567,10 @@ security:
 		!strings.Contains(forbiddenWhen, "referenced_files.exists") {
 		t.Fatalf("forbidden strings CEL expression mismatch: %s", forbiddenWhen)
 	}
+}
 
-	shellPrefixes := optionStrings(
-		t,
-		bundle.Policies["shell.best_practices"].Evaluators[0],
-		"require_common_for_prefixes",
-	)
-	if shellPrefixes[0] != "bin/" {
-		t.Fatalf("shell best-practices options mismatch: %#v", shellPrefixes)
-	}
-
-	syntaxExtensions := optionStrings(
-		t,
-		bundle.Policies["syntax.file_syntax"].Evaluators[0],
-		"extensions",
-	)
-	if syntaxExtensions[0] != ".json" {
-		t.Fatalf("syntax options mismatch: %#v", syntaxExtensions)
-	}
-
-	mergeMarkers := optionStrings(
-		t,
-		bundle.Policies["syntax.merge_conflict"].Evaluators[0],
-		"markers",
-	)
-	if mergeMarkers[0] != "CONFLICT" {
-		t.Fatalf("merge marker options mismatch: %#v", mergeMarkers)
-	}
+func assertPrivateKeyPattern(t *testing.T, bundle Bundle) {
+	t.Helper()
 
 	privateKeyPattern := optionString(
 		t,
@@ -1447,17 +1580,29 @@ security:
 	if privateKeyPattern != "PRIVATE KEY" {
 		t.Fatalf("private key pattern mismatch: %q", privateKeyPattern)
 	}
+}
 
-	largeFilePolicy := bundle.Policies["filesystem.large_files"]
-	if largeFilePolicy.Source.Path != "principles[security-by-design].policy.expressions[0]" ||
-		largeFilePolicy.Evaluators[0].Kind != "cel" {
-		t.Fatalf("large-file policy should be principle-owned CEL: %#v", largeFilePolicy)
-	}
+func assertConfigBackedCELOwnership(t *testing.T, bundle Bundle) {
+	t.Helper()
 
-	lineLimitPolicy := bundle.Policies["filesystem.line_limits"]
-	if lineLimitPolicy.Source.Path != "principles[solid-is-law].policy.expressions[0]" ||
-		lineLimitPolicy.Evaluators[0].Kind != "cel" {
-		t.Fatalf("line-limit policy should be principle-owned CEL: %#v", lineLimitPolicy)
+	assertPrincipleOwnedCEL(
+		t,
+		bundle.Policies["filesystem.large_files"],
+		"principles[security-by-design].policy.expressions[0]",
+	)
+	assertPrincipleOwnedCEL(
+		t,
+		bundle.Policies["filesystem.line_limits"],
+		"principles[solid-is-law].policy.expressions[0]",
+	)
+}
+
+func assertPrincipleOwnedCEL(t *testing.T, policy Policy, sourcePath string) {
+	t.Helper()
+
+	if policy.Source.Path != sourcePath ||
+		policy.Evaluators[0].Kind != evaluatorKindCEL {
+		t.Fatalf("policy should be principle-owned CEL: %#v", policy)
 	}
 }
 
@@ -1591,7 +1736,7 @@ go:
 		"git.commitlint",
 		"git.commit_attribution",
 	} {
-		if _, ok := bundle.Policies[policyID]; ok {
+		if _, found := bundle.Policies[policyID]; found {
 			t.Fatalf("policy should be disabled: %s", policyID)
 		}
 	}
@@ -1600,8 +1745,8 @@ go:
 func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	t.Helper()
 
-	items, ok := evaluator.Options[key].([]string)
-	if !ok {
+	items, found := evaluator.Options[key].([]string)
+	if !found {
 		t.Fatalf("option %q is not []string: %#v", key, evaluator.Options[key])
 	}
 
@@ -1611,8 +1756,8 @@ func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 func stringOptionFromEvaluator(t *testing.T, evaluator Evaluator, key string) string {
 	t.Helper()
 
-	value, ok := evaluator.Options[key].(string)
-	if !ok {
+	value, found := evaluator.Options[key].(string)
+	if !found {
 		t.Fatalf("option %q is not string: %#v", key, evaluator.Options[key])
 	}
 
@@ -1648,8 +1793,8 @@ func reminderByPrincipleID(
 func optionString(t *testing.T, evaluator Evaluator, key string) string {
 	t.Helper()
 
-	item, ok := evaluator.Options[key].(string)
-	if !ok {
+	item, found := evaluator.Options[key].(string)
+	if !found {
 		t.Fatalf("option %q is not string: %#v", key, evaluator.Options[key])
 	}
 
@@ -1762,7 +1907,10 @@ principles:
           severity: block
           mode: block
           message: Large source files must not keep growing.
-          advice: Do not make cosmetic or documentation-only edits just to satisfy the limit; apply SOLID refactoring and split the file into focused modules before committing.
+          advice: >-
+            Do not make cosmetic or documentation-only edits just to
+            satisfy the limit; apply SOLID refactoring and split the file
+            into focused modules before committing.
           when: "file_changes.exists(file, file.ext == '.py' && file.line_count > 1000)"
   - id: security-by-design
     order: 24
@@ -1805,8 +1953,14 @@ principles:
           mode: block
           tools: [Bash, Write, Edit, MultiEdit]
           message: Protected coding-ethos hook paths must not be modified.
-          advice: Do not delete, rebuild, replace, chmod, or write managed hook binaries.
-          when: "!metadata.admin_approved && (any_contains(repo.protected_paths, command_fact.lower) || paths.exists(path, is_protected_path(path.file, repo.protected_paths)))"
+          advice: >-
+            Do not delete, rebuild, replace, chmod, or write managed hook
+            binaries.
+          when: >-
+            !metadata.admin_approved &&
+            (any_contains(repo.protected_paths, command_fact.lower) ||
+            paths.exists(path,
+              is_protected_path(path.file, repo.protected_paths)))
         - id: shell.forbidden_strings
           scope: command
           severity: block
@@ -1815,7 +1969,33 @@ principles:
           lint_scopes: [files, staged]
           message: Commands must not inspect protected hook-system internals.
           advice: Use documented hook surfaces.
-          when: "!metadata.admin_approved && ((event.tool == 'Bash' && any_contains(['.claude/settings.json', 'header must match', 'coding-ethos-hooks/coding-ethos-git-hook', 'coding-ethos-hooks/bin/coding-ethos-policy'], command_fact.lower)) || (list_contains(['Write', 'Edit', 'MultiEdit'], event.tool) && !paths.exists(path, any_glob_match(['**/.claude/**', '**/.codex/**', '**/.gemini/**'], path.file)) && any_contains(['header must match', 'coding-ethos-hooks/coding-ethos-git-hook'], content.lower)) || referenced_files.exists(file, file.is_regular && !file.in_agent_workspace && any_contains(['header must match', 'coding-ethos-hooks/coding-ethos-git-hook'], file.lower)))"
+          when: >-
+            !metadata.admin_approved &&
+            ((event.tool == 'Bash' &&
+              any_contains([
+                '.claude/settings.json',
+                'header must match',
+                'coding-ethos-hooks/coding-ethos-git-hook',
+                'coding-ethos-hooks/bin/coding-ethos-policy'
+              ], command_fact.lower)) ||
+            (list_contains(['Write', 'Edit', 'MultiEdit'], event.tool) &&
+              !paths.exists(path,
+                any_glob_match([
+                  '**/.claude/**',
+                  '**/.codex/**',
+                  '**/.gemini/**'
+                ], path.file)) &&
+              any_contains([
+                'header must match',
+                'coding-ethos-hooks/coding-ethos-git-hook'
+              ], content.lower)) ||
+            referenced_files.exists(file,
+              file.is_regular &&
+              !file.in_agent_workspace &&
+              any_contains([
+                'header must match',
+                'coding-ethos-hooks/coding-ethos-git-hook'
+              ], file.lower)))
         - id: git.hook_bypass
           scope: command
           severity: block
@@ -1824,16 +2004,26 @@ principles:
           lint_scopes: [staged]
           message: Hook bypass is forbidden.
           advice: Run the configured gate and fix the underlying failure.
-          when: "git_command.is_git && git_command.subcommand == 'commit' && list_contains(git_command.flags, '--no-verify')"
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == 'commit' &&
+            list_contains(git_command.flags, '--no-verify')
         - id: git.protected_submodule_update
           scope: command
           severity: block
           mode: block
           tools: [Bash]
           lint_scopes: [staged]
-          message: Protected submodules cannot be initialized or checked out to a recorded SHA.
+          message: >-
+            Protected submodules cannot be initialized or checked out to a
+            recorded SHA.
           advice: Use git submodule update --remote for upgrades.
-          when: "git_command.is_git && git_command.subcommand == 'submodule' && git_command.args.size() > 0 && git_command.args[0] == 'update' && !list_contains(git_command.flags, '--remote')"
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == 'submodule' &&
+            git_command.args.size() > 0 &&
+            git_command.args[0] == 'update' &&
+            !list_contains(git_command.flags, '--remote')
         - id: git.change_dir_flag
           scope: command
           severity: block
@@ -1860,7 +2050,10 @@ principles:
           lint_scopes: [staged]
           message: Destructive git worktree operations are forbidden.
           advice: Inspect worktree state before changing worktrees.
-          when: "git_command.is_git && git_command.subcommand == 'worktree' && git_command.args.exists(arg, arg == 'prune')"
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == 'worktree' &&
+            git_command.args.exists(arg, arg == 'prune')
         - id: git.destructive_command
           scope: command
           severity: block
@@ -1869,7 +2062,12 @@ principles:
           lint_scopes: [staged]
           message: Destructive git commands are forbidden.
           advice: Preserve work and resolve state explicitly.
-          when: "git_command.is_git && (git_command.has_hard_reset || git_command.has_clean_force_delete || git_command.has_theirs_ours_checkout || git_command.has_restore_pathspec)"
+          when: >-
+            git_command.is_git &&
+            (git_command.has_hard_reset ||
+            git_command.has_clean_force_delete ||
+            git_command.has_theirs_ours_checkout ||
+            git_command.has_restore_pathspec)
         - id: git.merge_strategy_shortcut
           scope: command
           severity: block
@@ -1878,7 +2076,10 @@ principles:
           lint_scopes: [staged]
           message: Blanket merge strategies are forbidden.
           advice: Resolve conflicts explicitly.
-          when: "git_command.is_git && git_command.subcommand == 'merge' && git_command.has_merge_strategy_shortcut"
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == 'merge' &&
+            git_command.has_merge_strategy_shortcut
         - id: git.force_push_protected_branch
           scope: command
           severity: block
@@ -1887,7 +2088,10 @@ principles:
           lint_scopes: [staged]
           message: Force push to protected branches is forbidden.
           advice: Use the normal review path.
-          when: "git_command.is_git && git_command.subcommand == 'push' && git_command.has_force_push_protected"
+          when: >-
+            git_command.is_git &&
+            git_command.subcommand == 'push' &&
+            git_command.has_force_push_protected
         - id: git.checkout_protected_branch
           scope: command
           severity: block
@@ -1896,7 +2100,12 @@ principles:
           lint_scopes: [staged]
           message: Switching to protected branches is forbidden.
           advice: Inspect history without switching.
-          when: "git_command.is_git && (git_command.subcommand == 'checkout' || git_command.subcommand == 'switch') && git_command.has_checkout_protected_branch && !metadata.admin_approved"
+          when: >-
+            git_command.is_git &&
+            (git_command.subcommand == 'checkout' ||
+            git_command.subcommand == 'switch') &&
+            git_command.has_checkout_protected_branch &&
+            !metadata.admin_approved
         - id: filesystem.protected_branch_write
           scope: file
           severity: block
@@ -1905,7 +2114,9 @@ principles:
           lint_scopes: [staged]
           message: Protected branch writes are forbidden.
           advice: Create or use a worktree before modifying files.
-          when: "git.on_protected_branch && paths.exists(path, path.file != 'docs/plans/next.md')"
+          when: >-
+            git.on_protected_branch &&
+            paths.exists(path, path.file != 'docs/plans/next.md')
         - id: shell.inline_env
           scope: command
           severity: block
@@ -1914,7 +2125,9 @@ principles:
           lint_scopes: [staged]
           message: Inline command environment variables are forbidden.
           advice: Route configuration through validated bootstrap files.
-          when: "command_fact.has_inline_env || shell_commands.exists(command, command.has_inline_env)"
+          when: >-
+            command_fact.has_inline_env ||
+            shell_commands.exists(command, command.has_inline_env)
         - id: shell.path_override
           scope: command
           severity: block
@@ -1932,16 +2145,24 @@ principles:
           lint_scopes: [staged]
           message: Dangerous shell commands are forbidden.
           advice: Use reviewed commands.
-          when: "shell_commands.exists(command, command.name == 'rm' && list_contains(command.argv, '-rf'))"
+          when: >-
+            shell_commands.exists(command,
+              command.name == 'rm' &&
+              list_contains(command.argv, '-rf'))
         - id: shell.background_git
           scope: command
           severity: block
           mode: block
           tools: [Bash]
           lint_scopes: [staged]
-          message: git commit and git push must not run in the background or under timeout.
+          message: >-
+            git commit and git push must not run in the background or
+            under timeout.
           advice: Run git commit or git push in the foreground.
-          when: "shell_commands.exists(command, (command.is_git_mutation && command.background) || command.wraps_git_mutation)"
+          when: >-
+            shell_commands.exists(command,
+              (command.is_git_mutation && command.background) ||
+              command.wraps_git_mutation)
         - id: shell.github_admin
           scope: command
           severity: block
@@ -1950,7 +2171,10 @@ principles:
           lint_scopes: [staged]
           message: GitHub admin CLI operations are forbidden in agent hooks.
           advice: Use the reviewed administrative path instead of gh --admin.
-          when: "shell_commands.exists(command, command.name == 'gh' && list_contains(command.argv, '--admin'))"
+          when: >-
+            shell_commands.exists(command,
+              command.name == 'gh' &&
+              list_contains(command.argv, '--admin'))
   - id: linting-as-code-quality-enforcement
     order: 14
     title: Linting as Code Quality Enforcement
@@ -1985,7 +2209,9 @@ principles:
           lint_scopes: [staged, smoke, full, cutover]
           message: Repository runtime output paths must be ignored.
           advice: Add coding-ethos runtime paths to .gitignore.
-          when: "repo.required_ignores.exists(ignore, ignore.check_failed || !ignore.ignored)"
+          when: >-
+            repo.required_ignores.exists(ignore,
+              ignore.check_failed || !ignore.ignored)
   - id: validation-at-the-gate
     order: 8
     title: Validation at the Gate
@@ -1994,7 +2220,9 @@ principles:
 skills:
   - id: conditional-imports
     title: Conditional Imports
-    description: Replace conditional imports with explicit dependencies or protocol boundaries.
+    description: >-
+      Replace conditional imports with explicit dependencies or protocol
+      boundaries.
     principle_ids: [no-conditional-imports]
     trigger_terms: [ruff local import, import cycle]
     short_hint: Use Protocol boundaries when module-scope imports expose cycles.

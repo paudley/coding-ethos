@@ -19,7 +19,11 @@ const principleQuickRefLimit = 3
 func loadInputs(primaryPath, repoEthosPath string) ([]principle, repoData, error) {
 	primary, err := configdata.LoadYAMLMap(primaryPath)
 	if err != nil {
-		return nil, repoData{}, fmt.Errorf("load primary ethos %s: %w", primaryPath, err)
+		return nil, repoData{}, fmt.Errorf(
+			"load primary ethos %s: %w",
+			primaryPath,
+			err,
+		)
 	}
 
 	overlay, found, err := loadRepoEthosOverlay(repoEthosPath)

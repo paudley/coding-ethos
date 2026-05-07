@@ -110,8 +110,12 @@ func canonicalHookGroupsFromCommands(
 			"check-security-patterns",
 			"policy-bandit",
 		}),
-		"sql":      groupFromCommandNames(commands, "sql", []string{"policy-sqlfluff"}),
-		"shell":    groupFromCommandNames(commands, "shell", []string{"shfmt", "shellcheck"}),
+		"sql": groupFromCommandNames(commands, "sql", []string{"policy-sqlfluff"}),
+		"shell": groupFromCommandNames(
+			commands,
+			"shell",
+			[]string{"shfmt", "shellcheck"},
+		),
 		"docker":   groupFromCommandNames(commands, "docker", []string{"hadolint"}),
 		"workflow": groupFromCommandNames(commands, "workflow", []string{"actionlint"}),
 		"python-quality": groupFromCommandNames(commands, "python-quality", []string{

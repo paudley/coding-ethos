@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	maxPriorityEthosReminders = 3
-	staticAnalysisPrincipleID = "static-analysis-is-the-first-line-of-defense"
-	lintQualityPrincipleID    = "linting-as-code-quality-enforcement"
+	decisionReminderStaticParts = 4
+	maxPriorityEthosReminders   = 3
+	percentScale                = 100
+	staticAnalysisPrincipleID   = "static-analysis-is-the-first-line-of-defense"
+	lintQualityPrincipleID      = "linting-as-code-quality-enforcement"
 )
 
 type reminderKind string
@@ -92,7 +94,7 @@ func postToolEthosRemindersFor(
 	config policy.ReminderConfig,
 	event Event,
 ) []renderedEthosReminder {
-	if event.HookEventName != "PostToolUse" {
+	if event.HookEventName != eventPostToolUse {
 		return nil
 	}
 
@@ -118,6 +120,14 @@ func ambientPostToolReminder(
 	config policy.ReminderConfig,
 	event Event,
 ) (policy.EthosReminder, bool) {
+	return AmbientPostToolReminder(config, event)
+}
+
+// AmbientPostToolReminder selects the ambient post-tool reminder for an event.
+func AmbientPostToolReminder(
+	config policy.ReminderConfig,
+	event Event,
+) (policy.EthosReminder, bool) {
 	if len(config.Items) == 0 {
 		return policy.EthosReminder{}, false
 	}
@@ -128,23 +138,23 @@ func ambientPostToolReminder(
 
 	percent := config.AmbientFrequencyPercent
 	if percent == 0 && config.QuietFrequency > 0 {
-		percent = 100 / config.QuietFrequency
+		percent = percentScale / config.QuietFrequency
 	}
 
 	if percent <= 0 {
 		percent = policy.DefaultReminderAmbientFrequencyPercent()
 	}
 
-	if percent > 100 {
-		percent = 100
+	if percent > percentScale {
+		percent = percentScale
 	}
 
-	index := stablePostToolReminderIndex(event, len(config.Items)*100)
-	if index%100 >= percent {
+	index := stablePostToolReminderIndex(event, len(config.Items)*percentScale)
+	if index%percentScale >= percent {
 		return policy.EthosReminder{}, false
 	}
 
-	return config.Items[(index/100)%len(config.Items)], true
+	return config.Items[(index/percentScale)%len(config.Items)], true
 }
 
 func postToolPriorityReminders(
@@ -157,7 +167,10 @@ func postToolPriorityReminders(
 
 	reminders := []renderedEthosReminder{}
 
-	for _, principleID := range []string{staticAnalysisPrincipleID, lintQualityPrincipleID} {
+	for _, principleID := range []string{
+		staticAnalysisPrincipleID,
+		lintQualityPrincipleID,
+	} {
 		principleReminders := ethosRemindersForPrinciple(config, principleID)
 		if len(principleReminders) == 0 {
 			continue
@@ -168,7 +181,10 @@ func postToolPriorityReminders(
 			principleID,
 			len(principleReminders),
 		)]
-		reminders = append(reminders, renderPrincipleReminder(selected, reminderKindPriority))
+		reminders = append(
+			reminders,
+			renderPrincipleReminder(selected, reminderKindPriority),
+		)
 	}
 
 	return reminders
@@ -185,7 +201,8 @@ func appendRenderedReminders(
 	header := "ethos_reminder:"
 	if reminders[0].Kind == reminderKindPriority {
 		header = fmt.Sprintf(
-			"priority_ethos_reminders[%d]{policy_id,principle_id,axiom,action,mcp_tool,mcp_arguments}:",
+			"priority_ethos_reminders[%d]"+
+				"{policy_id,principle_id,axiom,action,mcp_tool,mcp_arguments}:",
 			len(reminders),
 		)
 	}
@@ -291,7 +308,8 @@ func stableDecisionReminderIndex(
 	decision policy.Decision,
 	candidateCount int,
 ) int {
-	parts := []string{result.Event, result.Tool, result.Status, decision.PolicyID}
+	parts := make([]string, 0, decisionReminderStaticParts+len(decision.PrincipleIDs))
+	parts = append(parts, result.Event, result.Tool, result.Status, decision.PolicyID)
 	parts = append(parts, decision.PrincipleIDs...)
 
 	return stableStringIndex(parts, candidateCount)
@@ -359,6 +377,21 @@ func renderPrincipleReminder(
 	reminder policy.EthosReminder,
 	kind reminderKind,
 ) renderedEthosReminder {
+	return renderPrincipleReminderWithKind(reminder, kind)
+}
+
+// RenderAmbientPrincipleReminder renders an ambient principle reminder for
+// provider-facing hook output.
+func RenderAmbientPrincipleReminder(
+	reminder policy.EthosReminder,
+) renderedEthosReminder {
+	return renderPrincipleReminderWithKind(reminder, reminderKindAmbient)
+}
+
+func renderPrincipleReminderWithKind(
+	reminder policy.EthosReminder,
+	kind reminderKind,
+) renderedEthosReminder {
 	return renderedEthosReminder{
 		PrincipleID: reminder.PrincipleID,
 		Axiom:       reminder.Axiom,
@@ -391,6 +424,12 @@ func isLintCommand(command string) bool {
 }
 
 func commandMentionsToken(command, token string) bool {
+	return CommandMentionsToken(command, token)
+}
+
+// CommandMentionsToken reports whether a shell command text references a tool
+// token as a standalone command or absolute path basename.
+func CommandMentionsToken(command, token string) bool {
 	return strings.Contains(" "+command+" ", " "+token+" ") ||
 		strings.Contains(command, "/"+token+" ") ||
 		strings.Contains(command, "/"+token+"\n") ||

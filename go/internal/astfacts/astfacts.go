@@ -12,6 +12,11 @@ import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
+const (
+	symbolKindConfigEntry = "config_entry"
+	symbolKindFunction    = "function"
+)
+
 type File struct {
 	ContentHash string
 	Language    string
@@ -60,7 +65,10 @@ func CollectSymbols(
 
 		if symbolKind, ok := SymbolKindForNode(language, node.Kind()); ok {
 			name := SymbolName(node, contents)
-			symbolPath := strings.Join(append(append([]string{}, parents...), name), ".")
+			symbolPath := strings.Join(
+				append(append([]string{}, parents...), name),
+				".",
+			)
 
 			symbols = append(
 				symbols,
@@ -181,11 +189,11 @@ func CollectImports(language string, contents []byte, root *tree_sitter.Node) []
 
 func importNodeKind(language, nodeKind string) bool {
 	switch language {
-	case "go":
+	case LanguageGo:
 		return nodeKind == "import_spec"
-	case "python":
+	case LanguagePython:
 		return nodeKind == "import_statement" || nodeKind == "import_from_statement"
-	case "javascript":
+	case LanguageJavaScript:
 		return nodeKind == "import_statement"
 	default:
 		return false
@@ -194,9 +202,11 @@ func importNodeKind(language, nodeKind string) bool {
 
 func ImportTarget(language string, contents []byte, node *tree_sitter.Node) string {
 	switch language {
-	case "go", "javascript":
-		return cleanImportTarget(firstDescendantText(contents, node, stringLikeNodeKind))
-	case "python":
+	case LanguageGo, LanguageJavaScript:
+		return cleanImportTarget(
+			firstDescendantText(contents, node, stringLikeNodeKind),
+		)
+	case LanguagePython:
 		if module := node.ChildByFieldName("module_name"); module != nil {
 			return cleanImportTarget(module.Utf8Text(contents))
 		}
@@ -279,9 +289,9 @@ func pythonImportNameNodeKind(nodeKind string) bool {
 
 func referenceIdentifierKind(language, nodeKind string) bool {
 	switch language {
-	case "go", "python", "javascript":
+	case LanguageGo, LanguagePython, LanguageJavaScript:
 		return nodeKind == "identifier"
-	case "shell":
+	case LanguageShell:
 		return nodeKind == "word" || nodeKind == "command_name"
 	default:
 		return false
@@ -289,50 +299,79 @@ func referenceIdentifierKind(language, nodeKind string) bool {
 }
 
 func SymbolKindForNode(language, nodeKind string) (string, bool) {
-	switch language {
-	case "go":
-		switch nodeKind {
-		case "function_declaration", "method_declaration":
-			return "function", true
-		case "type_declaration":
-			return "type", true
-		}
-	case "python":
-		switch nodeKind {
-		case "function_definition":
-			return "function", true
-		case "class_definition":
-			return "class", true
-		}
-	case "javascript":
-		switch nodeKind {
-		case "function_declaration", "method_definition", "generator_function_declaration":
-			return "function", true
-		case "class_declaration":
-			return "class", true
-		}
-	case "shell":
-		if nodeKind == "function_definition" {
-			return "function", true
-		}
-	case "json":
-		if nodeKind == "pair" {
-			return "config_entry", true
-		}
-	case "toml":
-		switch nodeKind {
-		case "pair":
-			return "config_entry", true
-		case "table", "table_array_element":
-			return "config_section", true
-		}
-	case "yaml":
-		if nodeKind == "block_mapping_pair" {
-			return "config_entry", true
+	for _, entry := range nodeSymbolKindEntries() {
+		if entry.Language == language && entry.NodeKind == nodeKind {
+			return entry.SymbolKind, true
 		}
 	}
 
 	return "", false
+}
+
+type nodeSymbolKindEntry struct {
+	Language   string
+	NodeKind   string
+	SymbolKind string
+}
+
+func nodeSymbolKindEntries() []nodeSymbolKindEntry {
+	return []nodeSymbolKindEntry{
+		{
+			Language:   LanguageGo,
+			NodeKind:   "function_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageGo,
+			NodeKind:   "method_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{Language: LanguageGo, NodeKind: "type_declaration", SymbolKind: "type"},
+		{
+			Language:   LanguageJavaScript,
+			NodeKind:   "class_declaration",
+			SymbolKind: "class",
+		},
+		{
+			Language:   LanguageJavaScript,
+			NodeKind:   "function_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageJavaScript,
+			NodeKind:   "generator_function_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageJavaScript,
+			NodeKind:   "method_definition",
+			SymbolKind: symbolKindFunction,
+		},
+		{Language: LanguageJSON, NodeKind: "pair", SymbolKind: symbolKindConfigEntry},
+		{Language: LanguagePython, NodeKind: "class_definition", SymbolKind: "class"},
+		{
+			Language:   LanguagePython,
+			NodeKind:   "function_definition",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageShell,
+			NodeKind:   "function_definition",
+			SymbolKind: symbolKindFunction,
+		},
+		{Language: LanguageTOML, NodeKind: "pair", SymbolKind: symbolKindConfigEntry},
+		{Language: LanguageTOML, NodeKind: "table", SymbolKind: "config_section"},
+		{
+			Language:   LanguageTOML,
+			NodeKind:   "table_array_element",
+			SymbolKind: "config_section",
+		},
+		{
+			Language:   "yaml",
+			NodeKind:   "block_mapping_pair",
+			SymbolKind: symbolKindConfigEntry,
+		},
+	}
 }
 
 func SymbolName(node *tree_sitter.Node, contents []byte) string {
@@ -413,9 +452,16 @@ func LineCount(contents []byte) int {
 }
 
 func boundedUintToInt(value uint, maxValue int) int {
-	if value > uint(maxValue) {
+	const maxIntValue = int(^uint(0) >> 1)
+
+	if value > uint(maxIntValue) {
 		return maxValue
 	}
 
-	return int(value)
+	converted := int(value)
+	if converted > maxValue {
+		return maxValue
+	}
+
+	return converted
 }

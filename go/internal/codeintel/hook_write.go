@@ -10,31 +10,31 @@ import (
 	"strings"
 )
 
-func insertHookAnalytics(ctx context.Context, tx *sql.Tx, trace Trace) error {
+func insertHookAnalytics(ctx context.Context, transaction *sql.Tx, trace Trace) error {
 	if trace.HookEvent == nil {
 		return nil
 	}
 
-	err := insertHookEvent(ctx, tx, *trace.HookEvent)
+	err := insertHookEvent(ctx, transaction, *trace.HookEvent)
 	if err != nil {
 		return err
 	}
 
 	for _, decision := range trace.HookDecisions {
-		err := insertHookDecision(ctx, tx, decision)
+		err := insertHookDecision(ctx, transaction, decision)
 		if err != nil {
 			return err
 		}
 	}
 
 	for _, target := range trace.HookTargets {
-		err := insertHookTarget(ctx, tx, target)
+		err := insertHookTarget(ctx, transaction, target)
 		if err != nil {
 			return err
 		}
 	}
 
-	return insertFTS(ctx, tx, ftsRow{
+	return insertFTS(ctx, transaction, ftsRow{
 		Kind:     "hook_event",
 		RecordID: trace.HookEvent.TraceID,
 		TraceID:  trace.HookEvent.TraceID,
@@ -50,8 +50,12 @@ func insertHookAnalytics(ctx context.Context, tx *sql.Tx, trace Trace) error {
 	})
 }
 
-func insertHookEvent(ctx context.Context, tx *sql.Tx, event HookEventAnalytics) error {
-	_, err := tx.ExecContext(
+func insertHookEvent(
+	ctx context.Context,
+	transaction *sql.Tx,
+	event HookEventAnalytics,
+) error {
+	_, err := transaction.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_events(
 			trace_id, tracking_id, session_id, provider, event, tool, status,
@@ -92,10 +96,10 @@ func insertHookEvent(ctx context.Context, tx *sql.Tx, event HookEventAnalytics) 
 
 func insertHookDecision(
 	ctx context.Context,
-	tx *sql.Tx,
+	transaction *sql.Tx,
 	decision HookDecisionAnalytics,
 ) error {
-	_, err := tx.ExecContext(
+	_, err := transaction.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_decisions(
 			trace_id, ordinal, tracking_id, policy_id, decision, severity,
@@ -131,10 +135,10 @@ func insertHookDecision(
 
 func insertHookTarget(
 	ctx context.Context,
-	tx *sql.Tx,
+	transaction *sql.Tx,
 	target HookTargetAnalytics,
 ) error {
-	_, err := tx.ExecContext(
+	_, err := transaction.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_targets(
 			trace_id, ordinal, target_path, target_kind
@@ -156,8 +160,12 @@ func insertHookTarget(
 	return nil
 }
 
-func insertHookReview(ctx context.Context, tx *sql.Tx, review HookReview) error {
-	_, err := tx.ExecContext(
+func insertHookReview(
+	ctx context.Context,
+	transaction *sql.Tx,
+	review HookReview,
+) error {
+	_, err := transaction.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO hook_reviews(
 			review_id, trace_id, tracking_id, disposition, reviewer, notes,
@@ -175,7 +183,7 @@ func insertHookReview(ctx context.Context, tx *sql.Tx, review HookReview) error 
 		return fmt.Errorf("insert hook review %q: %w", review.ID, err)
 	}
 
-	return insertFTS(ctx, tx, ftsRow{
+	return insertFTS(ctx, transaction, ftsRow{
 		Kind:     "hook_review",
 		RecordID: review.ID,
 		TraceID:  review.TraceID,
@@ -192,7 +200,9 @@ func hookEventSearchText(
 	decisions []HookDecisionAnalytics,
 	targets []HookTargetAnalytics,
 ) string {
-	values := []string{
+	values := make([]string, 0, 8+8*len(decisions)+2*len(targets))
+
+	values = append(values,
 		event.Provider,
 		event.Event,
 		event.Tool,
@@ -201,7 +211,7 @@ func hookEventSearchText(
 		event.TargetKind,
 		event.RiskCategory,
 		event.TrackingID,
-	}
+	)
 	for _, decision := range decisions {
 		values = append(
 			values,

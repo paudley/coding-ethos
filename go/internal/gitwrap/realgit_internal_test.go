@@ -13,31 +13,9 @@ import (
 
 func TestRealGitResolutionHelpers(t *testing.T) {
 	root := t.TempDir()
-	selfDir := filepath.Join(root, "shim")
-	gitDir := filepath.Join(root, "bin")
-
-	err := os.MkdirAll(selfDir, 0o755)
-	if err != nil {
-		t.Fatalf("create self dir: %v", err)
-	}
-
-	err = os.MkdirAll(gitDir, 0o755)
-	if err != nil {
-		t.Fatalf("create git dir: %v", err)
-	}
-
-	self := filepath.Join(selfDir, "git")
-	git := filepath.Join(gitDir, "git")
-
-	err = os.WriteFile(self, []byte("#!/usr/bin/env sh\n"), 0o755)
-	if err != nil {
-		t.Fatalf("write self: %v", err)
-	}
-
-	err = os.WriteFile(git, []byte("#!/usr/bin/env sh\n"), 0o755)
-	if err != nil {
-		t.Fatalf("write git: %v", err)
-	}
+	selfDir, gitDir := createGitResolutionDirs(t, root)
+	self := createExecutableGit(t, selfDir)
+	git := createExecutableGit(t, gitDir)
 
 	t.Setenv("PATH", gitDir+string(os.PathListSeparator)+selfDir)
 
@@ -58,6 +36,40 @@ func TestRealGitResolutionHelpers(t *testing.T) {
 	if sameExecutable(self, git) {
 		t.Fatal("different executables should not compare equal")
 	}
+}
+
+func createGitResolutionDirs(t *testing.T, root string) (string, string) {
+	t.Helper()
+
+	selfDir := filepath.Join(root, "shim")
+	gitDir := filepath.Join(root, "bin")
+
+	for _, dir := range []string{selfDir, gitDir} {
+		err := os.MkdirAll(dir, 0o755)
+		if err != nil {
+			t.Fatalf("create git resolution dir: %v", err)
+		}
+	}
+
+	return selfDir, gitDir
+}
+
+func createExecutableGit(t *testing.T, dir string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "git")
+
+	err := os.WriteFile(path, []byte("#!/usr/bin/env sh\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write git executable: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod git executable: %v", err)
+	}
+
+	return path
 }
 
 func TestResultJSONAndExitCodeError(t *testing.T) {

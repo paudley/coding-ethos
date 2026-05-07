@@ -18,7 +18,10 @@ func renderBanditConfig(config configMap) (string, error) {
 				[]string{"tests", ".venv", "build", "dist", "node_modules"},
 			),
 		},
-		{Key: "skips", Value: stringList(getPath(config, "tooling.bandit.skips", []any{}))},
+		{
+			Key:   "skips",
+			Value: stringList(getPath(config, "tooling.bandit.skips", []any{})),
+		},
 	}
 
 	return spdxHeader + renderYAML(payload), nil
@@ -29,7 +32,11 @@ func renderSQLFluffConfig(config configMap) (string, error) {
 		"dialect":   configuredString(config, "tooling.sqlfluff.dialect", "ansi"),
 		"templater": configuredString(config, "tooling.sqlfluff.templater", "raw"),
 		"max_line_length": strconv.Itoa(
-			configuredInt(config, "tooling.sqlfluff.max_line_length", lineLength(config)),
+			configuredInt(
+				config,
+				"tooling.sqlfluff.max_line_length",
+				lineLength(config),
+			),
 		),
 	}
 	if rules := stringList(

@@ -115,7 +115,11 @@ func applyCgroupLimitFiles(path string, evidence Evidence) error {
 	if evidence.MemoryMB > 0 {
 		limit := strconv.FormatInt(int64(evidence.MemoryMB)*bytesPerMegabyte, 10)
 
-		err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(limit), cgroupFileMode)
+		err := os.WriteFile(
+			filepath.Join(path, "memory.max"),
+			[]byte(limit),
+			cgroupFileMode,
+		)
 		if err != nil {
 			return fmt.Errorf("cgroup memory limit could not be applied: %w", err)
 		}

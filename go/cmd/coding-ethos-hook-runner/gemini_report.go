@@ -116,8 +116,10 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 		"tool: gemini",
 		"scope: " + toonCell(summary.Scope),
 		"status: " + summary.Status,
-		fmt.Sprintf("outcomes[%d]{name,status,model,service_tier,included_files,batches}:",
-			len(summary.Outcomes)),
+		fmt.Sprintf(
+			"outcomes[%d]{name,status,model,service_tier,included_files,batches}:",
+			len(summary.Outcomes),
+		),
 	}
 	for _, outcome := range summary.Outcomes {
 		lines = append(
@@ -170,9 +172,9 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 				fmt.Sprintf(
 					"  %s,%d,%s,%s",
 					toonCell(item.Check),
-					item.Batch,
-					toonCell(strings.Join(item.Files, " ")),
-					toonCell(item.Error),
+					item.Error.Batch,
+					toonCell(strings.Join(item.Error.Files, " ")),
+					toonCell(item.Error.Error),
 				),
 			)
 		}
@@ -192,7 +194,7 @@ type geminiScopedViolation struct {
 
 type geminiScopedBatchError struct {
 	Check string
-	geminiBatchError
+	Error geminiBatchError
 }
 
 func geminiReportSummaryForOutcomes(
@@ -314,8 +316,8 @@ func geminiReportBatchErrors(
 	for _, outcome := range outcomes {
 		for _, batchError := range outcome.BatchErrors {
 			errors = append(errors, geminiScopedBatchError{
-				Check:            outcome.Name,
-				geminiBatchError: batchError,
+				Error: batchError,
+				Check: outcome.Name,
 			})
 		}
 	}
@@ -399,7 +401,10 @@ func appendGeminiViolationSection(
 	for _, violation := range violations {
 		lines = append(lines, geminiViolationLine(violation))
 		if violation.EthosSection != "" {
-			lines = append(lines, fmt.Sprintf("     (ETHOS %s)", violation.EthosSection))
+			lines = append(
+				lines,
+				fmt.Sprintf("     (ETHOS %s)", violation.EthosSection),
+			)
 		}
 	}
 

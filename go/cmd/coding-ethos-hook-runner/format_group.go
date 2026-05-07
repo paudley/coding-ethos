@@ -149,7 +149,9 @@ func runHookToolWithParser(
 	command []string,
 	parseFindings func(string) []hookFinding,
 ) int {
-	result := runExternalTool(externalToolRequest{Name: name, Dir: dir, Command: command})
+	result := runExternalTool(
+		externalToolRequest{Name: name, Dir: dir, Command: command},
+	)
 
 	return reportSharedToolResult(
 		name,

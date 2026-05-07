@@ -5,11 +5,11 @@ package mcp
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 func (server Server) explainRemediation(args json.RawMessage) (any, error) {
@@ -24,7 +24,9 @@ func (server Server) explainRemediation(args json.RawMessage) (any, error) {
 	if strings.TrimSpace(remediation.Message) == "" &&
 		strings.TrimSpace(remediation.PolicyID) == "" &&
 		strings.TrimSpace(remediation.SkillID) == "" {
-		return nil, errors.New("remediation payload, policy_id, or skill_id is required")
+		return nil, apperror.StaticError(
+			"remediation payload, policy_id, or skill_id is required",
+		)
 	}
 
 	response := map[string]any{
@@ -65,7 +67,10 @@ func normalizeRemediationInput(input remediationExplainInput) agentmsg.Remediati
 	remediation.ID = firstNonEmpty(remediation.ID, input.ID)
 	remediation.Code = firstNonEmpty(remediation.Code, input.Code)
 	remediation.Command = firstNonEmpty(remediation.Command, input.Command)
-	remediation.FailedAction = firstNonEmpty(remediation.FailedAction, input.FailedAction)
+	remediation.FailedAction = firstNonEmpty(
+		remediation.FailedAction,
+		input.FailedAction,
+	)
 	remediation.File = firstNonEmpty(remediation.File, input.File)
 	remediation.Message = firstNonEmpty(remediation.Message, input.Message)
 	remediation.Path = firstNonEmpty(remediation.Path, input.Path)
@@ -87,7 +92,10 @@ func normalizeRemediationInput(input remediationExplainInput) agentmsg.Remediati
 	}
 
 	if len(remediation.NextSteps) == 0 {
-		remediation.NextSteps = remediationSteps(remediation.PolicyID, remediation.SkillID)
+		remediation.NextSteps = remediationSteps(
+			remediation.PolicyID,
+			remediation.SkillID,
+		)
 	}
 
 	if remediation.SkillUse == "" && remediation.SkillID != "" {
@@ -144,7 +152,10 @@ func remediationSteps(policyID, skillID string) []string {
 	if strings.TrimSpace(policyID) != "" {
 		steps = append(
 			steps,
-			fmt.Sprintf("Call MCP policy_explain with policy_id=%s before retrying.", policyID),
+			fmt.Sprintf(
+				"Call MCP policy_explain with policy_id=%s before retrying.",
+				policyID,
+			),
 		)
 	}
 

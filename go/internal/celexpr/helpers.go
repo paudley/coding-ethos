@@ -16,6 +16,17 @@ import (
 func helperFunctions() []cel.EnvOption {
 	listOfStrings := cel.ListType(cel.StringType)
 
+	options := make([]cel.EnvOption, 0, helperFunctionCapacity)
+	options = append(options, basicStringHelpers()...)
+	options = append(options, pathHelpers(listOfStrings)...)
+	options = append(options, commandHelpers(listOfStrings)...)
+	options = append(options, repoHelpers(listOfStrings)...)
+	options = append(options, listHelpers()...)
+
+	return options
+}
+
+func basicStringHelpers() []cel.EnvOption {
 	return []cel.EnvOption{
 		stringHelper(
 			"has_prefix",
@@ -36,6 +47,16 @@ func helperFunctions() []cel.EnvOption {
 				return err == nil && matched
 			},
 		),
+		stringHelper(
+			"lint_code_matches",
+			"lint_code_matches_string_string",
+			lintCodeMatches,
+		),
+	}
+}
+
+func pathHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Function(
 			"is_test_path",
 			cel.Overload(
@@ -43,7 +64,7 @@ func helperFunctions() []cel.EnvOption {
 				[]*cel.Type{cel.StringType},
 				cel.BoolType,
 				cel.UnaryBinding(func(value ref.Val) ref.Val {
-					return types.Bool(isTestPath(string(value.(types.String))))
+					return types.Bool(isTestPath(stringFromValue(value)))
 				}),
 			),
 		),
@@ -54,7 +75,7 @@ func helperFunctions() []cel.EnvOption {
 				[]*cel.Type{cel.StringType},
 				cel.BoolType,
 				cel.UnaryBinding(func(value ref.Val) ref.Val {
-					return types.Bool(isGeneratedPath(string(value.(types.String))))
+					return types.Bool(isGeneratedPath(stringFromValue(value)))
 				}),
 			),
 		),
@@ -66,7 +87,7 @@ func helperFunctions() []cel.EnvOption {
 				cel.BoolType,
 				cel.BinaryBinding(func(file, paths ref.Val) ref.Val {
 					return types.Bool(isProtectedPath(
-						string(file.(types.String)),
+						stringFromValue(file),
 						stringsFromValue(paths),
 					))
 				}),
@@ -80,17 +101,17 @@ func helperFunctions() []cel.EnvOption {
 				cel.BoolType,
 				cel.BinaryBinding(func(file, roots ref.Val) ref.Val {
 					return types.Bool(inSourceRoot(
-						string(file.(types.String)),
+						stringFromValue(file),
 						stringsFromValue(roots),
 					))
 				}),
 			),
 		),
-		stringHelper(
-			"lint_code_matches",
-			"lint_code_matches_string_string",
-			lintCodeMatches,
-		),
+	}
+}
+
+func commandHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		stringHelper(
 			"command_invokes",
 			"command_invokes_string_string",
@@ -105,7 +126,7 @@ func helperFunctions() []cel.EnvOption {
 				cel.BinaryBinding(func(argv, tool ref.Val) ref.Val {
 					return types.Bool(argvInvokes(
 						stringsFromValue(argv),
-						string(tool.(types.String)),
+						stringFromValue(tool),
 					))
 				}),
 			),
@@ -119,7 +140,7 @@ func helperFunctions() []cel.EnvOption {
 				cel.BinaryBinding(func(argv, tool ref.Val) ref.Val {
 					return types.Bool(argvCommandIs(
 						stringsFromValue(argv),
-						string(tool.(types.String)),
+						stringFromValue(tool),
 					))
 				}),
 			),
@@ -129,6 +150,11 @@ func helperFunctions() []cel.EnvOption {
 			"has_inline_env_string_string",
 			commandHasInlineEnv,
 		),
+	}
+}
+
+func repoHelpers(listOfStrings *cel.Type) []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Function(
 			"repo_config_present",
 			cel.Overload(
@@ -151,12 +177,17 @@ func helperFunctions() []cel.EnvOption {
 				cel.BoolType,
 				cel.BinaryBinding(func(branch, branches ref.Val) ref.Val {
 					return types.Bool(isProtectedBranch(
-						string(branch.(types.String)),
+						stringFromValue(branch),
 						stringsFromValue(branches),
 					))
 				}),
 			),
 		),
+	}
+}
+
+func listHelpers() []cel.EnvOption {
+	return []cel.EnvOption{
 		listStringHelper(
 			"list_contains",
 			"list_contains_list_string",
@@ -204,8 +235,8 @@ func stringHelper(
 			cel.BoolType,
 			cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
 				return types.Bool(matches(
-					string(lhs.(types.String)),
-					string(rhs.(types.String)),
+					stringFromValue(lhs),
+					stringFromValue(rhs),
 				))
 			}),
 		),
@@ -225,7 +256,7 @@ func listStringHelper(
 			cel.BoolType,
 			cel.BinaryBinding(func(values, needle ref.Val) ref.Val {
 				for _, value := range stringsFromValue(values) {
-					if matches(value, string(needle.(types.String))) {
+					if matches(value, stringFromValue(needle)) {
 						return types.True
 					}
 				}
@@ -248,6 +279,20 @@ func stringsFromValue(value ref.Val) []string {
 	}
 
 	return items
+}
+
+func stringFromValue(value ref.Val) string {
+	converted, err := value.ConvertToNative(reflect.TypeFor[string]())
+	if err != nil {
+		return ""
+	}
+
+	text, ok := converted.(string)
+	if !ok {
+		return ""
+	}
+
+	return text
 }
 
 func lintCodeMatches(code, pattern string) bool {

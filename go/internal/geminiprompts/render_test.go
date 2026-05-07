@@ -46,7 +46,8 @@ func TestRenderPromptPackGroundsRepoIdentityAndConfig(t *testing.T) {
 	}
 
 	project := jsonObject(t, payload["project"])
-	if project["name"] != "Widget Service" || project["context"] != "Processes widgets." {
+	if project["name"] != "Widget Service" ||
+		project["context"] != "Processes widgets." {
 		t.Fatalf("project grounding = %#v", project)
 	}
 
@@ -90,7 +91,11 @@ func TestRenderPromptPackGroundsRepoIdentityAndConfig(t *testing.T) {
 	prompts := jsonObject(t, payload["prompts"])
 	codeEthos := jsonString(t, prompts["code_ethos"])
 	assertStringContains(t, codeEthos, "Widget Service")
-	assertStringContains(t, codeEthos, "01. SOLID is Law: Enforce simple SOLID designs.")
+	assertStringContains(
+		t,
+		codeEthos,
+		"01. SOLID is Law: Enforce simple SOLID designs.",
+	)
 	assertStringContains(t, codeEthos, "{code_content}")
 }
 
@@ -114,7 +119,10 @@ func TestSyncAndCheckPromptPack(t *testing.T) {
 		t.Fatalf("Sync(): %v", err)
 	}
 
-	promptPackPath := filepath.Join(repo, filepath.FromSlash(geminiprompts.PromptPackPath))
+	promptPackPath := filepath.Join(
+		repo,
+		filepath.FromSlash(geminiprompts.PromptPackPath),
+	)
 	if len(written) != 1 || written[0] != promptPackPath {
 		t.Fatalf("written = %#v, want %s", written, promptPackPath)
 	}

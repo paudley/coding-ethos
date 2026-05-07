@@ -4,15 +4,16 @@
 package main
 
 import (
-	"errors"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const persistExtraRecordsTestPath = "lib/python/tests/parsing/" +
 	"test_persist_extra_records_integration.py"
 
-var errTestRunnerFailure = errors.New("test runner failure")
+var errTestRunnerFailure = apperror.StaticError("test runner failure")
 
 func TestParseRuffAutofixFindingsUsesStructuredDiagnostics(t *testing.T) {
 	t.Parallel()
@@ -74,7 +75,11 @@ func TestRuffAutofixTOONOmitsRawRenderedDetail(t *testing.T) {
 		"|",
 	} {
 		if strings.Contains(report, unwanted) {
-			t.Fatalf("TOON report contains raw rendered detail %q:\n%s", unwanted, report)
+			t.Fatalf(
+				"TOON report contains raw rendered detail %q:\n%s",
+				unwanted,
+				report,
+			)
 		}
 	}
 }
@@ -227,44 +232,40 @@ func TestParseGenericHookFindingsUsesFallbackDiagnostics(t *testing.T) {
 	}
 }
 
-func TestHookReportTOONKeepsRawOutputOutsideFindingsTable(t *testing.T) {
+func TestParseGenericHookFindingsParsesGoTestWithoutPassingNoise(t *testing.T) {
 	t.Parallel()
 
+	findings := parseGenericHookFindings(
+		"go-test",
+		`{"Action":"pass","Package":"blackcat.ca/coding-ethos/go/cmd/`+
+			`coding-ethos-hook","Elapsed":0.905}`+"\n"+
+			`{"Action":"run","Package":"pkg/app","Test":"TestExample"}`+"\n"+
+			`{"Action":"output","Package":"pkg/app","Test":"TestExample",`+
+			`"Output":"    app_test.go:12: wanted true\n"}`+"\n"+
+			`{"Action":"fail","Package":"pkg/app","Test":"TestExample",`+
+			`"Elapsed":0.013}`+"\n",
+	)
+
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v", findings)
+	}
+
+	if findings[0].File != "app_test.go" ||
+		findings[0].Line != 12 ||
+		findings[0].Code != "TestExample" ||
+		findings[0].Message != "wanted true" {
+		t.Fatalf("first finding = %#v", findings[0])
+	}
+
 	report := formatHookReport(hookReport{
-		Tool:  "go-test",
-		Title: "GO-TEST FAILED",
-		Findings: []hookFinding{genericToolFailureFinding(
-			"go-test",
-			1,
-		)},
-		RawOutput: boundedRawOutputLines(
-			"--- FAIL: TestExample (0.00s)\n" +
-				"    app_test.go:12: wanted true\nFAIL\npkg/app 0.013s",
-		),
+		Tool:     "go-test",
+		Title:    "GO-TEST FAILED",
+		Findings: findings,
 		Guidance: []string{"Fix the reported diagnostics before committing."},
 	}, hookOutputFormatTOON)
-
-	if !strings.Contains(report, "raw_output[4]{line}:") ||
-		!strings.Contains(report, "external tool exited with status 1") {
-		t.Fatalf("TOON report missing expected failure shape:\n%s", report)
-	}
-
-	findingsLine := ""
-
-	for line := range strings.SplitSeq(report, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "go-test,,0,0,error") {
-			findingsLine = line
-		}
-	}
-
-	if findingsLine == "" {
-		t.Fatalf("TOON report missing generic finding:\n%s", report)
-	}
-
-	for _, unwanted := range []string{"--- FAIL", "app_test.go:12", "FAIL pkg/app"} {
-		if strings.Contains(findingsLine, unwanted) {
-			t.Fatalf("finding row contains raw output %q:\n%s", unwanted, report)
-		}
+	if strings.Contains(report, "raw_output") ||
+		strings.Contains(report, "coding-ethos-hook") {
+		t.Fatalf("go-test report kept passing noise:\n%s", report)
 	}
 }
 

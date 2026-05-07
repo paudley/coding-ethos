@@ -87,7 +87,10 @@ func formatHookReport(report hookReport, format string) string {
 func normalizeHookReportPaths(report hookReport) hookReport {
 	root := repoRoot()
 	for i := range report.Findings {
-		report.Findings[i].File = normalizeHookFindingPath(root, report.Findings[i].File)
+		report.Findings[i].File = normalizeHookFindingPath(
+			root,
+			report.Findings[i].File,
+		)
 	}
 
 	return report

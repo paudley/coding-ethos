@@ -80,13 +80,20 @@ func TestEncodeProviderResultDoesNotEmitCodexUpdatedInput(t *testing.T) {
 		t.Fatalf("decode output: %v", err)
 	}
 
-	hookOutput, _ := decoded["hookSpecificOutput"].(map[string]any)
-	if _, ok := hookOutput["updatedInput"]; ok {
-		t.Fatalf("Codex output must not include unsupported updatedInput field: %s", output)
+	if hookOutput, found := decoded["hookSpecificOutput"].(map[string]any); found {
+		if _, ok := hookOutput["updatedInput"]; ok {
+			t.Fatalf(
+				"Codex output must not include unsupported updatedInput field: %s",
+				output,
+			)
+		}
 	}
 
 	if strings.TrimSpace(output) != "{}" {
-		t.Fatalf("Codex allowed rewrite fallback should emit empty output, got: %s", output)
+		t.Fatalf(
+			"Codex allowed rewrite fallback should emit empty output, got: %s",
+			output,
+		)
 	}
 }
 
@@ -116,8 +123,8 @@ func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	advice := BlockedAdvice(Result{
-		Event:      "PreToolUse",
-		Tool:       "Bash",
+		Event:      eventPreToolUse,
+		Tool:       toolBash,
 		Status:     statusBlocked,
 		TrackingID: "hook-test123",
 		Decisions: []policy.Decision{{
@@ -169,8 +176,10 @@ func encodedProviderOutput(t *testing.T, payload string) string {
 	}
 
 	buffer := strings.Builder{}
-	if err := EncodeResult(&buffer, result); err != nil {
-		t.Fatalf("encode result: %v", err)
+
+	inlineErr0 := EncodeResult(&buffer, result)
+	if inlineErr0 != nil {
+		t.Fatalf("encode result: %v", inlineErr0)
 	}
 
 	return buffer.String()
@@ -180,8 +189,10 @@ func assertJSONMatchesFixture(t *testing.T, output, fixturePath string) {
 	t.Helper()
 
 	var got any
-	if err := json.Unmarshal([]byte(output), &got); err != nil {
-		t.Fatalf("decode provider output: %v\n%s", err, output)
+
+	inlineErr1 := json.Unmarshal([]byte(output), &got)
+	if inlineErr1 != nil {
+		t.Fatalf("decode provider output: %v\n%s", inlineErr1, output)
 	}
 
 	fixture, err := os.ReadFile(fixturePath)
@@ -190,8 +201,10 @@ func assertJSONMatchesFixture(t *testing.T, output, fixturePath string) {
 	}
 
 	var want any
-	if err := json.Unmarshal(fixture, &want); err != nil {
-		t.Fatalf("decode fixture %s: %v", fixturePath, err)
+
+	inlineErr2 := json.Unmarshal(fixture, &want)
+	if inlineErr2 != nil {
+		t.Fatalf("decode fixture %s: %v", fixturePath, inlineErr2)
 	}
 
 	assertJSONContains(t, got, want, fixturePath)

@@ -8,30 +8,43 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-const realGitEnv = "CODING_ETHOS_REAL_GIT"
+const (
+	gitBinaryName = "git"
+
+	// RealGitEnv names the validated environment setting for the real git binary.
+	RealGitEnv = "CODING_ETHOS_REAL_GIT"
+)
 
 func gitCommand(cwd string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(context.Background(), gitExecutable(), args...)
+	return GitCommand(cwd, args...)
+}
+
+// GitCommand builds a git command with hook-local git environment removed.
+func GitCommand(cwd string, args ...string) *exec.Cmd {
+	cmd := safeexec.CommandContext(context.Background(), gitExecutable(), args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
 
-	cmd.Env = cleanGitLocalEnv(os.Environ())
+	cmd.Env = CleanGitLocalEnv(os.Environ())
 
 	return cmd
 }
 
 func gitExecutable() string {
-	if value := strings.TrimSpace(os.Getenv(realGitEnv)); value != "" {
+	if value := strings.TrimSpace(os.Getenv(RealGitEnv)); value != "" {
 		return value
 	}
 
-	return "git"
+	return gitBinaryName
 }
 
-func cleanGitLocalEnv(source []string) []string {
+// CleanGitLocalEnv removes git-local environment variables from command env.
+func CleanGitLocalEnv(source []string) []string {
 	env := make([]string, 0, len(source))
 	for _, item := range source {
 		name, _, found := strings.Cut(item, "=")

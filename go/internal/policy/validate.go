@@ -10,16 +10,25 @@ import (
 	"sort"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 )
 
 var (
-	errInvalidBundleVersion     = errors.New("version must be greater than zero")
-	errBundleIDRequired         = errors.New("bundle_id is required")
-	errEthosPrimaryRequired     = errors.New("sources.ethos.primary is required")
-	errEnforcementPrimaryNeeded = errors.New("sources.enforcement.primary is required")
-	errValidationFailed         = errors.New("policy bundle validation failed")
-	errEmptyHookEvent           = errors.New("dispatch.hooks contains empty event name")
+	errInvalidBundleVersion = apperror.StaticError(
+		"version must be greater than zero",
+	)
+	errBundleIDRequired     = apperror.StaticError("bundle_id is required")
+	errEthosPrimaryRequired = apperror.StaticError(
+		"sources.ethos.primary is required",
+	)
+	errEnforcementPrimaryNeeded = apperror.StaticError(
+		"sources.enforcement.primary is required",
+	)
+	errValidationFailed = apperror.StaticError("policy bundle validation failed")
+	errEmptyHookEvent   = apperror.StaticError(
+		"dispatch.hooks contains empty event name",
+	)
 )
 
 const (
@@ -29,8 +38,13 @@ const (
 	policyValidationCapacity     = 5
 	policyIdentityCapacity       = 3
 	modeValidationBaseCapacity   = 3
+	modeAdvise                   = "advise"
+	modeBlock                    = "block"
 	policyBodyValidationCapacity = 2
 	evaluatorValidationFactor    = 2
+	evaluatorKindCEL             = "cel"
+	evaluatorNameCELExpression   = "cel.expression"
+	fmtNilValue                  = "<nil>"
 	dispatchEntryCapacity        = 2
 	gitDispatchValidationFactor  = 2
 )
@@ -348,14 +362,15 @@ func validatePolicyEvaluators(policyID string, policy Policy) []error {
 }
 
 func validateExpressionEvaluator(policyID string, evaluator Evaluator) []error {
-	if evaluator.Kind != "cel" || evaluator.Name != "cel.expression" {
+	if evaluator.Kind != evaluatorKindCEL ||
+		evaluator.Name != evaluatorNameCELExpression {
 		return nil
 	}
 
 	errs := []error{}
 
 	source := strings.TrimSpace(fmt.Sprint(evaluator.Options["when"]))
-	if source == "" || source == "<nil>" {
+	if source == "" || source == fmtNilValue {
 		errs = append(errs, fmt.Errorf(
 			"%w: policy %q CEL evaluator missing when expression",
 			errValidationFailed,
@@ -363,7 +378,7 @@ func validateExpressionEvaluator(policyID string, evaluator Evaluator) []error {
 		))
 	}
 
-	if source != "" && source != "<nil>" {
+	if source != "" && source != fmtNilValue {
 		err := celexpr.Validate(policyID, source)
 		if err != nil {
 			errs = append(errs, fmt.Errorf(
@@ -465,7 +480,7 @@ func stringValues(value any) []string {
 		values := make([]string, 0, len(typed))
 		for _, item := range typed {
 			text := strings.TrimSpace(fmt.Sprint(item))
-			if text != "" && text != "<nil>" {
+			if text != "" && text != fmtNilValue {
 				values = append(values, text)
 			}
 		}
@@ -677,7 +692,7 @@ func validateGitDispatch(
 
 func validMode(mode string) bool {
 	switch mode {
-	case "off", "record", "advise", "prepare", "annotate", "ask", "block":
+	case "off", "record", modeAdvise, "prepare", "annotate", "ask", modeBlock:
 		return true
 	default:
 		return false
@@ -695,7 +710,7 @@ func validEvaluatorKind(kind string) bool {
 		"config",
 		"git_state",
 		"external",
-		"cel":
+		evaluatorKindCEL:
 		return true
 	default:
 		return false

@@ -4,15 +4,16 @@
 package lintcapture
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-var errLintSourceRootEscapesRepo = errors.New(
+var errLintSourceRootEscapesRepo = apperror.StaticError(
 	"configured lint source root escapes repo",
 )
 
@@ -52,7 +53,11 @@ func NewTargetResolver(
 		return TargetResolver{}, err
 	}
 
-	return TargetResolver{InvocationCwd: cwd, ConsumerRoot: root, SourceRoots: roots}, nil
+	return TargetResolver{
+		InvocationCwd: cwd,
+		ConsumerRoot:  root,
+		SourceRoots:   roots,
+	}, nil
 }
 
 func (resolver TargetResolver) ResolveArgs(args []string) ([]string, error) {

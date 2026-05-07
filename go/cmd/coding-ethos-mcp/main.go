@@ -4,17 +4,17 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-var errBundleRequired = errors.New("--bundle is required")
+var errBundleRequired = apperror.StaticError("--bundle is required")
 
 func main() {
 	err := run()
@@ -40,8 +40,9 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	)
 	lintBinary := flags.String("lint-binary", "", "Path to coding-ethos-lint")
 
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parse flags: %w", err)
+	inlineErr0 := flags.Parse(args)
+	if inlineErr0 != nil {
+		return fmt.Errorf("parse flags: %w", inlineErr0)
 	}
 
 	if *bundlePath == "" {
@@ -53,17 +54,27 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 
-	if err := bundle.Validate(); err != nil {
-		return fmt.Errorf("invalid policy bundle:\n%s", policy.FormatValidationError(err))
+	inlineErr1 := bundle.Validate()
+	if inlineErr1 != nil {
+		return apperror.Wrapf(
+			apperror.StaticError("invalid policy bundle:\n%s"),
+			"invalid policy bundle:\n%s",
+			policy.FormatValidationError(inlineErr1),
+		)
 	}
 
-	return mcp.NewServerWithRuntime(bundle, mcp.Runtime{
+	err = mcp.NewServerWithRuntime(bundle, mcp.Runtime{
 		BundlePath:    *bundlePath,
 		EthosRoot:     *ethosRoot,
 		ConsumerRoot:  *consumerRoot,
 		InvocationCwd: *invocationCwd,
 		LintBinary:    *lintBinary,
 	}).Serve(stdin, stdout)
+	if err != nil {
+		return fmt.Errorf("serve MCP protocol: %w", err)
+	}
+
+	return nil
 }
 
 func readBundle(path string) (policy.Bundle, error) {
@@ -75,7 +86,7 @@ func readBundle(path string) (policy.Bundle, error) {
 
 	bundle, err := policy.DecodeBundle(file)
 	if err != nil {
-		return policy.Bundle{}, err
+		return policy.Bundle{}, fmt.Errorf("decode policy bundle: %w", err)
 	}
 
 	return bundle, nil

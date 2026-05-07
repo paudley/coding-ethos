@@ -4,12 +4,12 @@
 package lint
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -17,6 +17,8 @@ import (
 const (
 	decisionBlock  = "block"
 	decisionRecord = "record"
+	severityError  = "error"
+	statusFail     = "fail"
 	statusResolved = "resolved"
 )
 
@@ -31,9 +33,11 @@ const (
 )
 
 var (
-	errUnknownScopePolicy = errors.New("lint scope references unknown policy")
-	errUnsupportedScope   = errors.New("unsupported lint scope")
-	errMissingEvaluator   = errors.New("lint policy has no registered evaluator")
+	errUnknownScopePolicy = apperror.StaticError("lint scope references unknown policy")
+	errUnsupportedScope   = apperror.StaticError("unsupported lint scope")
+	errMissingEvaluator   = apperror.StaticError(
+		"lint policy has no registered evaluator",
+	)
 )
 
 type Options struct {
@@ -299,13 +303,16 @@ func findingFromDiagnostic(
 		CheckID:      firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
 		PolicyID:     firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
 		PolicySource: policySourceFromEvidence(decision.Evidence),
-		SourceTool:   firstNonEmpty(diagnostic.Tool, toolFromEvidence(decision.Evidence)),
-		Status:       statusFromDecision(decision),
-		Severity:     firstNonEmpty(diagnostic.Severity, decision.Severity),
-		Code:         diagnostic.Code,
-		File:         diagnostic.File,
-		Line:         diagnostic.Line,
-		Column:       diagnostic.Column,
+		SourceTool: firstNonEmpty(
+			diagnostic.Tool,
+			toolFromEvidence(decision.Evidence),
+		),
+		Status:   statusFromDecision(decision),
+		Severity: firstNonEmpty(diagnostic.Severity, decision.Severity),
+		Code:     diagnostic.Code,
+		File:     diagnostic.File,
+		Line:     diagnostic.Line,
+		Column:   diagnostic.Column,
 		SkillID: firstNonEmpty(
 			diagnostic.SkillID,
 			stringEvidence(decision.Evidence, "skill_id"),
@@ -430,7 +437,11 @@ func policyIDsForScope(bundle policy.Bundle, scope string) ([]string, error) {
 		ScopeCommit,
 	}
 	if !slices.Contains(allowedScopes, scope) {
-		return nil, fmt.Errorf("unsupported lint scope %q: %w", scope, errUnsupportedScope)
+		return nil, fmt.Errorf(
+			"unsupported lint scope %q: %w",
+			scope,
+			errUnsupportedScope,
+		)
 	}
 
 	policyIDs, ok := bundle.Dispatch.Linter[scope]

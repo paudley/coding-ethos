@@ -1,19 +1,21 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package astfacts
+package astfacts_test
 
 import (
 	"slices"
 	"testing"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	. "blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
 func TestAnalyzeIndexesJSONAndTOMLConfigEntries(t *testing.T) {
 	t.Parallel()
 
-	jsonFile, ok, err := Analyze("config/settings.json", []byte(`{
+	jsonFile, found, err := Analyze("config/settings.json", []byte(`{
   "tools": {
     "ruff": {"enabled": true}
   }
@@ -22,15 +24,15 @@ func TestAnalyzeIndexesJSONAndTOMLConfigEntries(t *testing.T) {
 		t.Fatalf("analyze json: %v", err)
 	}
 
-	if !ok || jsonFile.Language != "json" {
-		t.Fatalf("json language = %q, ok=%v", jsonFile.Language, ok)
+	if !found || jsonFile.Language != "json" {
+		t.Fatalf("json language = %q, ok=%v", jsonFile.Language, found)
 	}
 
 	if !hasSymbol(jsonFile.Symbols, "tools.ruff", "config_entry") {
 		t.Fatalf("json symbols missing tools.ruff: %#v", jsonFile.Symbols)
 	}
 
-	tomlFile, ok, err := Analyze("pyproject.toml", []byte(`[tool.ruff]
+	tomlFile, found, err := Analyze("pyproject.toml", []byte(`[tool.ruff]
 line-length = 100
 
 [tool.pyright]
@@ -40,8 +42,8 @@ typeCheckingMode = "strict"
 		t.Fatalf("analyze toml: %v", err)
 	}
 
-	if !ok || tomlFile.Language != "toml" {
-		t.Fatalf("toml language = %q, ok=%v", tomlFile.Language, ok)
+	if !found || tomlFile.Language != "toml" {
+		t.Fatalf("toml language = %q, ok=%v", tomlFile.Language, found)
 	}
 
 	if !hasSymbol(tomlFile.Symbols, "tool.ruff.line-length", "config_entry") {
@@ -56,7 +58,7 @@ typeCheckingMode = "strict"
 func TestContextForLineReturnsNearestSymbol(t *testing.T) {
 	t.Parallel()
 
-	context, ok, err := ContextForLine("pkg/app.py", []byte(`class Worker:
+	context, found, err := ContextForLine("pkg/app.py", []byte(`class Worker:
     def run(self):
         return "ok"
 `), 3)
@@ -64,7 +66,7 @@ func TestContextForLineReturnsNearestSymbol(t *testing.T) {
 		t.Fatalf("context: %v", err)
 	}
 
-	if !ok {
+	if !found {
 		t.Fatalf("context not found")
 	}
 
@@ -95,8 +97,9 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 			reference:  "fmt",
 		},
 		{
-			path:       "pkg/app.py",
-			source:     "import pathlib\n\nclass Worker:\n    def run(self):\n        return pathlib.Path('.')\n",
+			path: "pkg/app.py",
+			source: "import pathlib\n\nclass Worker:\n" +
+				"    def run(self):\n        return pathlib.Path('.')\n",
 			language:   "python",
 			symbolPath: "Worker.run",
 			symbolKind: "function",
@@ -118,13 +121,13 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			t.Parallel()
 
-			file, ok, err := Analyze(test.path, []byte(test.source))
+			file, found, err := Analyze(test.path, []byte(test.source))
 			if err != nil {
 				t.Fatalf("analyze: %v", err)
 			}
 
-			if !ok || file.Language != test.language {
-				t.Fatalf("language = %q ok=%v", file.Language, ok)
+			if !found || file.Language != test.language {
+				t.Fatalf("language = %q ok=%v", file.Language, found)
 			}
 
 			if !hasSymbol(file.Symbols, test.symbolPath, test.symbolKind) {
@@ -155,55 +158,63 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 	t.Parallel()
 
-	shellFile, ok, err := Analyze("scripts/build.sh", []byte("build() {\n  echo ok\n}\n"))
+	shellFile, found, err := Analyze(
+		"scripts/build.sh",
+		[]byte("build() {\n  echo ok\n}\n"),
+	)
 	if err != nil {
 		t.Fatalf("analyze shell: %v", err)
 	}
 
-	if !ok || !hasSymbol(shellFile.Symbols, "build", "function") {
-		t.Fatalf("shell symbols = %#v ok=%v", shellFile.Symbols, ok)
+	if !found || !hasSymbol(shellFile.Symbols, "build", "function") {
+		t.Fatalf("shell symbols = %#v ok=%v", shellFile.Symbols, found)
 	}
 
-	yamlFile, ok, err := Analyze("config.yaml", []byte("tooling:\n  enabled: true\n"))
+	yamlFile, found, err := Analyze(
+		"config.yaml",
+		[]byte("tooling:\n  enabled: true\n"),
+	)
 	if err != nil {
 		t.Fatalf("analyze yaml: %v", err)
 	}
 
-	if !ok || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
-		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, ok)
+	if !found || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
+		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, found)
 	}
 }
 
 func TestUnsupportedPathsAndInvalidLinesReturnNoContext(t *testing.T) {
 	t.Parallel()
 
-	if language, ok := LanguageForPath("README.md"); ok || language != "" {
-		t.Fatalf("markdown language = %q ok=%v", language, ok)
+	if language, found := LanguageForPath("README.md"); found || language != "" {
+		t.Fatalf("markdown language = %q ok=%v", language, found)
 	}
 
-	if _, ok, err := Analyze("README.md", []byte("# docs\n")); err != nil || ok {
-		t.Fatalf("unsupported analyze ok=%v err=%v", ok, err)
+	_, found, inlineErrAutoA := Analyze("README.md", []byte("# docs\n"))
+	if inlineErrAutoA != nil || found {
+		t.Fatalf("unsupported analyze ok=%v err=%v", found, inlineErrAutoA)
 	}
 
-	if _, ok, err := ContextForLine(
+	_, found, inlineErrAutoB := ContextForLine(
 		"pkg/app.py",
 		[]byte("def run():\n    pass\n"),
 		0,
-	); err != nil ||
-		ok {
-		t.Fatalf("invalid line context ok=%v err=%v", ok, err)
+	)
+	if inlineErrAutoB != nil ||
+		found {
+		t.Fatalf("invalid line context ok=%v err=%v", found, inlineErrAutoB)
 	}
 }
 
 func TestParseAndWalkExposeTreeTraversalHelpers(t *testing.T) {
 	t.Parallel()
 
-	tree, ok, err := Parse("pkg/app.py", []byte("def run():\n    return 1\n"))
+	tree, found, err := Parse("pkg/app.py", []byte("def run():\n    return 1\n"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 
-	if !ok {
+	if !found {
 		t.Fatal("parse should support Python")
 	}
 

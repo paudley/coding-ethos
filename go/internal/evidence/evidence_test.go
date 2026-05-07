@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package evidence
+package evidence_test
 
 import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	. "blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -181,10 +182,20 @@ func TestRemediationEventsLinkRemediationToFinding(t *testing.T) {
 func TestStableIDPreservesEmptyFieldPositions(t *testing.T) {
 	t.Parallel()
 
-	left := stableID("finding", "rule", "", "code")
-	right := stableID("finding", "rule", "code", "")
+	left := FromDiagnostic(diagnostics.Diagnostic{
+		Tool:    "ruff",
+		Code:    "",
+		File:    "pkg/app.py",
+		Message: "F401",
+	})
+	right := FromDiagnostic(diagnostics.Diagnostic{
+		Tool:    "ruff",
+		Code:    "F401",
+		File:    "pkg/app.py",
+		Message: "",
+	})
 
-	if left == right {
-		t.Fatalf("stable IDs collided when empty fields moved: %q", left)
+	if left.ID == right.ID {
+		t.Fatalf("stable IDs collided when empty fields moved: %q", left.ID)
 	}
 }

@@ -102,29 +102,34 @@ func shellBestPracticeViolations(
 	requireCommonForPrefixes []string,
 ) []shellViolation {
 	violations := []shellViolation{}
+	violations = append(
+		violations,
+		shellHeaderViolations(path, text, requireCommonForPrefixes)...)
+
+	commands, err := shellparse.Commands(text)
+	if err != nil {
+		return append(violations, shellParseViolation(err))
+	}
+
+	for _, command := range commands {
+		violations = append(violations, shellCommandViolations(command)...)
+	}
+
+	return violations
+}
+
+func shellHeaderViolations(
+	path string,
+	text string,
+	requireCommonForPrefixes []string,
+) []shellViolation {
+	violations := []shellViolation{}
 	if !validShellShebang(text) {
 		violations = append(violations, shellViolation{
 			Message: "missing or invalid shell shebang",
 			Line:    1,
 			Column:  1,
 		})
-	}
-
-	commands, err := shellparse.Commands(text)
-	if err != nil {
-		violation := shellViolation{
-			Message: "shell script has invalid shell syntax",
-			Line:    1,
-			Column:  1,
-		}
-
-		var parseErr shellparse.Error
-		if errors.As(err, &parseErr) {
-			violation.Line = parseErr.Line
-			violation.Column = parseErr.Column
-		}
-
-		violations = append(violations, violation)
 	}
 
 	if !shellStrictModePattern.MatchString(text) {
@@ -144,23 +149,42 @@ func shellBestPracticeViolations(
 		})
 	}
 
-	for _, command := range commands {
-		if command.Name == "eval" {
-			violations = append(violations, shellViolation{
-				Message: "shell scripts must not use eval",
-				Line:    command.Line,
-				Column:  command.Column,
-			})
-		}
+	return violations
+}
 
-		if command.IsFunctionDeclaration &&
-			(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
-			violations = append(violations, shellViolation{
-				Message: "shell functions must not mask protected tool names",
-				Line:    command.Line,
-				Column:  command.Column,
-			})
-		}
+func shellParseViolation(err error) shellViolation {
+	violation := shellViolation{
+		Message: "shell script has invalid shell syntax",
+		Line:    1,
+		Column:  1,
+	}
+
+	var parseErr shellparse.Error
+	if errors.As(err, &parseErr) {
+		violation.Line = parseErr.Line
+		violation.Column = parseErr.Column
+	}
+
+	return violation
+}
+
+func shellCommandViolations(command shellparse.Command) []shellViolation {
+	violations := []shellViolation{}
+	if command.Name == "eval" {
+		violations = append(violations, shellViolation{
+			Message: "shell scripts must not use eval",
+			Line:    command.Line,
+			Column:  command.Column,
+		})
+	}
+
+	if command.IsFunctionDeclaration &&
+		(command.Name == "git" || command.Name == "ruff" || command.Name == "mypy") {
+		violations = append(violations, shellViolation{
+			Message: "shell functions must not mask protected tool names",
+			Line:    command.Line,
+			Column:  command.Column,
+		})
 	}
 
 	return violations

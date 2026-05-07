@@ -142,8 +142,10 @@ func loadPyprojectConfig(path string) (map[string]any, error) {
 	}
 
 	config := map[string]any{}
-	if err := toml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("parse pyproject.toml %s: %w", path, err)
+
+	inlineErr0 := toml.Unmarshal(data, &config)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("parse pyproject.toml %s: %w", path, inlineErr0)
 	}
 
 	return config, nil
@@ -418,7 +420,9 @@ func filterAllowedPyprojectFindings(
 	findings map[pyprojectIgnoreFinding]struct{},
 	options map[string]any,
 ) []pyprojectIgnoreFinding {
-	allowedIgnore := stringSet(stringSliceOption(options, "allowed_ignore_patterns", nil))
+	allowedIgnore := stringSet(
+		stringSliceOption(options, "allowed_ignore_patterns", nil),
+	)
 	allowedExclude := stringSet(
 		stringSliceOption(options, "allowed_exclude_patterns", nil),
 	)
@@ -432,7 +436,8 @@ func filterAllowedPyprojectFindings(
 			continue
 		}
 
-		if isPyprojectExcludeSetting(finding.Setting) && allowedExclude[finding.Target] {
+		if isPyprojectExcludeSetting(finding.Setting) &&
+			allowedExclude[finding.Target] {
 			continue
 		}
 

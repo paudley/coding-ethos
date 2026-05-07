@@ -4,19 +4,23 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 var (
-	errToolsBinDirRequired = errors.New("--tools-bin-dir is required with --install-shims")
-	errRunnerRequired      = errors.New("--runner is required with --install-shims")
+	errToolsBinDirRequired = apperror.StaticError(
+		"--tools-bin-dir is required with --install-shims",
+	)
+	errRunnerRequired = apperror.StaticError(
+		"--runner is required with --install-shims",
+	)
 )
 
 const (
@@ -108,7 +112,11 @@ func realToolEnvVar(tool string) string {
 	case "golangci-lint":
 		return "CODING_ETHOS_REAL_GOLANGCI_LINT"
 	default:
-		return "CODING_ETHOS_REAL_" + strings.ReplaceAll(strings.ToUpper(tool), "-", "_")
+		return "CODING_ETHOS_REAL_" + strings.ReplaceAll(
+			strings.ToUpper(tool),
+			"-",
+			"_",
+		)
 	}
 }
 

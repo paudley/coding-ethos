@@ -5,7 +5,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
@@ -28,16 +28,28 @@ const (
 )
 
 var (
-	errCompileOutDirRequired      = errors.New("compile requires --out-dir")
-	errWriteExampleOutDirRequired = errors.New("write-example requires --out-dir")
-	errValidateBundleRequired     = errors.New("validate requires --bundle")
-	errValidateMetadataRequired   = errors.New("validate-metadata requires --metadata")
-	errExplainBundleRequired      = errors.New("explain requires --bundle")
-	errExplainPolicyIDRequired    = errors.New("explain requires exactly one policy ID")
-	errToolConfigRepoRequired     = errors.New("tool config command requires --repo")
-	errGeminiPromptRepoRequired   = errors.New("gemini prompt command requires --repo")
-	errAgentSkillRepoRequired     = errors.New("agent skill command requires --repo")
-	errInvalidBundle              = errors.New("invalid policy bundle")
+	errCompileOutDirRequired      = apperror.StaticError("compile requires --out-dir")
+	errWriteExampleOutDirRequired = apperror.StaticError(
+		"write-example requires --out-dir",
+	)
+	errValidateBundleRequired   = apperror.StaticError("validate requires --bundle")
+	errValidateMetadataRequired = apperror.StaticError(
+		"validate-metadata requires --metadata",
+	)
+	errExplainBundleRequired   = apperror.StaticError("explain requires --bundle")
+	errExplainPolicyIDRequired = apperror.StaticError(
+		"explain requires exactly one policy ID",
+	)
+	errToolConfigRepoRequired = apperror.StaticError(
+		"tool config command requires --repo",
+	)
+	errGeminiPromptRepoRequired = apperror.StaticError(
+		"gemini prompt command requires --repo",
+	)
+	errAgentSkillRepoRequired = apperror.StaticError(
+		"agent skill command requires --repo",
+	)
+	errInvalidBundle = apperror.StaticError("invalid policy bundle")
 )
 
 type configTraceReport struct {
@@ -62,41 +74,14 @@ func runCLI(args []string) int {
 		return commandArgsOffset
 	}
 
-	var err error
-
-	switch args[0] {
-	case "compile":
-		err = compile(args[1:])
-	case "dump-example":
-		err = dumpExample(args[1:])
-	case "write-example":
-		err = writeExample(args[1:])
-	case "validate":
-		err = validate(args[1:])
-	case "validate-metadata":
-		err = validateMetadata(args[1:])
-	case "explain":
-		err = explain(args[1:])
-	case "config-trace":
-		err = configTrace(args[1:])
-	case "sync-tool-configs":
-		err = syncToolConfigs(args[1:])
-	case "check-tool-configs":
-		err = checkToolConfigs(args[1:])
-	case "sync-gemini-prompts":
-		err = syncGeminiPrompts(args[1:])
-	case "check-gemini-prompts":
-		err = checkGeminiPrompts(args[1:])
-	case "sync-agent-skills":
-		err = syncAgentSkills(args[1:])
-	case "check-agent-skills":
-		err = checkAgentSkills(args[1:])
-	default:
+	handler, ok := policyCommandHandlers()[args[0]]
+	if !ok {
 		usage()
 
 		return commandArgsOffset
 	}
 
+	err := handler(args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 
@@ -106,15 +91,39 @@ func runCLI(args []string) int {
 	return 0
 }
 
+type policyCommandHandler func([]string) error
+
+func policyCommandHandlers() map[string]policyCommandHandler {
+	return map[string]policyCommandHandler{
+		"compile":              compile,
+		"dump-example":         dumpExample,
+		"write-example":        writeExample,
+		"validate":             validate,
+		"validate-metadata":    validateMetadata,
+		"explain":              explain,
+		"config-trace":         configTrace,
+		"sync-tool-configs":    syncToolConfigs,
+		"check-tool-configs":   checkToolConfigs,
+		"sync-gemini-prompts":  syncGeminiPrompts,
+		"check-gemini-prompts": checkGeminiPrompts,
+		"sync-agent-skills":    syncAgentSkills,
+		"check-agent-skills":   checkAgentSkills,
+	}
+}
+
 func syncToolConfigs(args []string) error {
 	options, err := parseToolConfigFlags("sync-tool-configs", args)
 	if err != nil {
 		return err
 	}
 
-	written, err := toolconfigs.Sync(options.ethosRoot, options.repo, options.repoConfig)
+	written, err := toolconfigs.Sync(
+		options.ethosRoot,
+		options.repo,
+		options.repoConfig,
+	)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync generated tool configs: %w", err)
 	}
 
 	for _, path := range written {
@@ -127,7 +136,7 @@ func syncToolConfigs(args []string) error {
 func checkToolConfigs(args []string) error {
 	options, err := parseToolConfigFlags("check-tool-configs", args)
 	if err != nil {
-		return err
+		return fmt.Errorf("check generated tool configs: %w", err)
 	}
 
 	mismatched, err := toolconfigs.Check(
@@ -136,7 +145,7 @@ func checkToolConfigs(args []string) error {
 		options.repoConfig,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("check generated tool configs: %w", err)
 	}
 
 	for _, path := range mismatched {
@@ -144,7 +153,7 @@ func checkToolConfigs(args []string) error {
 	}
 
 	if len(mismatched) > 0 {
-		return errors.New("generated tool configs out of sync")
+		return apperror.StaticError("generated tool configs out of sync")
 	}
 
 	return nil
@@ -186,7 +195,7 @@ func syncGeminiPrompts(args []string) error {
 
 	written, err := geminiprompts.Sync(options)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync Gemini prompt pack: %w", err)
 	}
 
 	for _, path := range written {
@@ -204,7 +213,7 @@ func checkGeminiPrompts(args []string) error {
 
 	mismatched, err := geminiprompts.Check(options)
 	if err != nil {
-		return err
+		return fmt.Errorf("check Gemini prompt pack: %w", err)
 	}
 
 	for _, path := range mismatched {
@@ -212,7 +221,7 @@ func checkGeminiPrompts(args []string) error {
 	}
 
 	if len(mismatched) > 0 {
-		return errors.New("generated Gemini prompt pack out of sync")
+		return apperror.StaticError("generated Gemini prompt pack out of sync")
 	}
 
 	return nil
@@ -226,7 +235,7 @@ func syncAgentSkills(args []string) error {
 
 	written, err := agentskills.Sync(options)
 	if err != nil {
-		return err
+		return fmt.Errorf("sync agent skills: %w", err)
 	}
 
 	for _, path := range written {
@@ -244,7 +253,7 @@ func checkAgentSkills(args []string) error {
 
 	mismatched, err := agentskills.Check(options)
 	if err != nil {
-		return err
+		return fmt.Errorf("check agent skills: %w", err)
 	}
 
 	for _, path := range mismatched {
@@ -252,7 +261,7 @@ func checkAgentSkills(args []string) error {
 	}
 
 	if len(mismatched) > 0 {
-		return errors.New("generated agent skill surfaces out of sync")
+		return apperror.StaticError("generated agent skill surfaces out of sync")
 	}
 
 	return nil
@@ -332,14 +341,15 @@ func validateMetadata(args []string) error {
 
 	metadata, err := policy.DecodeMetadata(file)
 	if err != nil {
-		return err
+		return fmt.Errorf("decode metadata %s: %w", *metadataPath, err)
 	}
 
-	if err := policy.ValidateMetadataSourceHashes(metadata); err != nil {
+	inlineErr0 := policy.ValidateMetadataSourceHashes(metadata)
+	if inlineErr0 != nil {
 		return fmt.Errorf(
 			"compiled policy bundle does not match its source hash manifest %s: %w",
 			*metadataPath,
-			err,
+			inlineErr0,
 		)
 	}
 
@@ -347,6 +357,34 @@ func validateMetadata(args []string) error {
 }
 
 func configTrace(args []string) error {
+	options, err := parseConfigTraceFlags(args)
+	if err != nil {
+		return err
+	}
+
+	report, err := buildConfigTraceReport(options)
+	if err != nil {
+		return err
+	}
+
+	if options.jsonOutput {
+		return writeConfigTraceJSON(report)
+	}
+
+	writeConfigTraceText(report)
+
+	return nil
+}
+
+type configTraceOptions struct {
+	primary    string
+	config     string
+	repoEthos  string
+	repoConfig string
+	jsonOutput bool
+}
+
+func parseConfigTraceFlags(args []string) (configTraceOptions, error) {
 	flags := flag.NewFlagSet("config-trace", flag.ExitOnError)
 	primary := flags.String("primary", "coding_ethos.yml", "Path to coding_ethos.yml")
 	config := flags.String("config", "config.yaml", "Path to config.yaml")
@@ -356,58 +394,96 @@ func configTrace(args []string) error {
 
 	err := flags.Parse(args)
 	if err != nil {
-		return fmt.Errorf("parse config-trace flags: %w", err)
+		return configTraceOptions{}, fmt.Errorf("parse config-trace flags: %w", err)
 	}
 
-	configShape, configSections, err := validatedConfigSections(*config, nil)
+	return configTraceOptions{
+		primary:    *primary,
+		config:     *config,
+		repoEthos:  *repoEthos,
+		repoConfig: *repoConfig,
+		jsonOutput: *jsonOutput,
+	}, nil
+}
+
+func buildConfigTraceReport(options configTraceOptions) (configTraceReport, error) {
+	configShape, configSections, err := validatedConfigSections(options.config, nil)
 	if err != nil {
-		return err
+		return configTraceReport{}, err
 	}
 
-	repoConfigSections := []string{}
-	if strings.TrimSpace(*repoConfig) != "" {
-		repoConfigSections, err = validateRepoConfigSections(*repoConfig, configShape)
-		if err != nil {
-			return err
-		}
-	}
-
-	bundle, _, err := policy.Compile(policy.CompileOptions{
-		Primary:    *primary,
-		RepoEthos:  *repoEthos,
-		Config:     *config,
-		RepoConfig: *repoConfig,
-	})
+	repoConfigSections, err := configTraceRepoConfigSections(
+		options.repoConfig,
+		configShape,
+	)
 	if err != nil {
-		return fmt.Errorf("compile policy bundle: %w", err)
+		return configTraceReport{}, err
 	}
 
-	if err := bundle.Validate(); err != nil {
-		return fmt.Errorf(
-			"%w:\n%s",
-			errInvalidBundle,
-			policy.FormatValidationError(err),
-		)
+	bundle, err := compileValidConfigTraceBundle(options)
+	if err != nil {
+		return configTraceReport{}, err
 	}
 
-	report := configTraceReport{
-		Config:             *config,
-		RepoConfig:         *repoConfig,
+	return configTraceReport{
+		Config:             options.config,
+		RepoConfig:         options.repoConfig,
 		ConfigSections:     configSections,
 		RepoConfigSections: repoConfigSections,
 		Status:             "valid",
 		Policies:           len(bundle.Policies),
 		EvidenceMaps:       len(bundle.EvidenceMaps),
 		DispatchScopes:     dispatchScopeCount(bundle),
+	}, nil
+}
+
+func configTraceRepoConfigSections(
+	repoConfig string,
+	configShape map[string]any,
+) ([]string, error) {
+	if strings.TrimSpace(repoConfig) == "" {
+		return []string{}, nil
 	}
 
-	if *jsonOutput {
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
+	return validateRepoConfigSections(repoConfig, configShape)
+}
 
-		return encoder.Encode(report)
+func compileValidConfigTraceBundle(options configTraceOptions) (policy.Bundle, error) {
+	bundle, _, err := policy.Compile(policy.CompileOptions{
+		Primary:    options.primary,
+		RepoEthos:  options.repoEthos,
+		Config:     options.config,
+		RepoConfig: options.repoConfig,
+	})
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf("compile policy bundle: %w", err)
 	}
 
+	err = bundle.Validate()
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf(
+			"%w:\n%s",
+			errInvalidBundle,
+			policy.FormatValidationError(err),
+		)
+	}
+
+	return bundle, nil
+}
+
+func writeConfigTraceJSON(report configTraceReport) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+
+	err := encoder.Encode(report)
+	if err != nil {
+		return fmt.Errorf("encode policy validation report: %w", err)
+	}
+
+	return nil
+}
+
+func writeConfigTraceText(report configTraceReport) {
 	fmt.Fprintf(os.Stdout, "status: %s\n", report.Status)
 	fmt.Fprintf(os.Stdout, "config: %s\n", report.Config)
 	fmt.Fprintf(
@@ -428,8 +504,6 @@ func configTrace(args []string) error {
 	fmt.Fprintf(os.Stdout, "policies: %d\n", report.Policies)
 	fmt.Fprintf(os.Stdout, "evidence_maps: %d\n", report.EvidenceMaps)
 	fmt.Fprintf(os.Stdout, "dispatch_scopes: %d\n", report.DispatchScopes)
-
-	return nil
 }
 
 func validatedConfigSections(
@@ -441,8 +515,9 @@ func validatedConfigSections(
 		return nil, nil, err
 	}
 
-	if err := validateConfigPathKeys(path, decoded, reference, nil); err != nil {
-		return nil, nil, err
+	inlineErr2 := validateConfigPathKeys(path, decoded, reference, nil)
+	if inlineErr2 != nil {
+		return nil, nil, inlineErr2
 	}
 
 	sections := sortedMapKeys(decoded)
@@ -469,8 +544,10 @@ func readConfigMap(path string) (map[string]any, error) {
 	}
 
 	decoded := map[string]any{}
-	if err := yaml.Unmarshal(payload, &decoded); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+
+	inlineErr3 := yaml.Unmarshal(payload, &decoded)
+	if inlineErr3 != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, inlineErr3)
 	}
 
 	return decoded, nil
@@ -486,7 +563,8 @@ func validateConfigPathKeys(
 		nextPath := append(append([]string(nil), path...), key)
 		if len(path) == 0 {
 			if !knownConfigSection(key) {
-				return fmt.Errorf(
+				return apperror.Wrapf(
+					apperror.StaticError("unknown top-level config section %q in %s"),
 					"unknown top-level config section %q in %s",
 					key,
 					file,
@@ -494,7 +572,8 @@ func validateConfigPathKeys(
 			}
 		} else if reference != nil {
 			if _, ok := reference[key]; !ok {
-				return fmt.Errorf(
+				return apperror.Wrapf(
+					apperror.StaticError("unknown config path %q in %s"),
 					"unknown config path %q in %s",
 					strings.Join(nextPath, "."),
 					file,
@@ -502,7 +581,12 @@ func validateConfigPathKeys(
 			}
 		}
 
-		err := validateConfigChildKeys(file, value, referenceValue(reference, key), nextPath)
+		err := validateConfigChildKeys(
+			file,
+			value,
+			referenceValue(reference, key),
+			nextPath,
+		)
 		if err != nil {
 			return err
 		}
@@ -519,7 +603,10 @@ func validateConfigChildKeys(
 ) error {
 	valueMap, isMap := value.(map[string]any)
 	if isMap {
-		referenceMap, _ := reference.(map[string]any)
+		referenceMap, ok := reference.(map[string]any)
+		if !ok {
+			referenceMap = nil
+		}
 
 		return validateConfigPathKeys(file, valueMap, referenceMap, path)
 	}
@@ -529,7 +616,10 @@ func validateConfigChildKeys(
 		return nil
 	}
 
-	referenceItems, _ := reference.([]any)
+	referenceItems, ok := reference.([]any)
+	if !ok {
+		referenceItems = nil
+	}
 
 	referenceItem := firstMapItem(referenceItems)
 	if referenceItem == nil {

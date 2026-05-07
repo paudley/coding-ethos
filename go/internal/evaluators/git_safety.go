@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	blockDecision     = "block"
-	gitSubcommandArgc = 2
+	blockDecision                = "block"
+	defaultCommitHeaderMaxLength = 150
+	filesystemLineLimitsPolicy   = "filesystem.line_limits"
+	gitSubcommandArgc            = 2
 )
 
 func EvaluateGitCommitAttribution(
@@ -149,7 +151,11 @@ func validateCommitMessageText(message string, options map[string]any) []string 
 	}
 
 	header := lines[0]
-	for _, prefix := range stringSliceOption(options, "ignored_prefixes", defaultIgnoredCommitPrefixes()) {
+	for _, prefix := range stringSliceOption(
+		options,
+		"ignored_prefixes",
+		defaultIgnoredCommitPrefixes(),
+	) {
 		if strings.HasPrefix(header, prefix) {
 			return nil
 		}
@@ -157,9 +163,16 @@ func validateCommitMessageText(message string, options map[string]any) []string 
 
 	errs := []string{}
 
-	maxHeaderLength := intOption(options, "max_header_length", 150)
+	maxHeaderLength := intOption(
+		options,
+		"max_header_length",
+		defaultCommitHeaderMaxLength,
+	)
 	if len(header) > maxHeaderLength {
-		errs = append(errs, fmt.Sprintf("header must be <= %d characters", maxHeaderLength))
+		errs = append(
+			errs,
+			fmt.Sprintf("header must be <= %d characters", maxHeaderLength),
+		)
 	}
 
 	match := regexp.MustCompile(`^([a-z]+)\(([A-Za-z0-9_.-]+)\)!?: (.+)$`).
@@ -237,7 +250,9 @@ func commitMessageArg(
 	}
 
 	if strings.HasPrefix(arg, "-m") && arg != "-m" {
-		return idx, normalizeCommitMessageValue(strings.TrimPrefix(arg, "-m")), true, nil
+		return idx, normalizeCommitMessageValue(
+			strings.TrimPrefix(arg, "-m"),
+		), true, nil
 	}
 
 	if value, found := strings.CutPrefix(arg, "--message="); found {

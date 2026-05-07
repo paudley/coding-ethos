@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -480,12 +481,12 @@ func consumerRuntimeCacheDir(root string) string {
 }
 
 func isBundleRoot(path string) bool {
-	info, err := os.Stat(filepath.Join(path, "hooks", "managed-toolchain.tsv"))
+	info, err := statRootedFile(filepath.Join(path, "hooks", "managed-toolchain.tsv"))
 	if err != nil || info.IsDir() {
 		return false
 	}
 
-	hookProject, err := os.Stat(filepath.Join(path, "hooks", "pyproject.toml"))
+	hookProject, err := statRootedFile(filepath.Join(path, "hooks", "pyproject.toml"))
 
 	return err == nil && !hookProject.IsDir()
 }
@@ -546,7 +547,7 @@ func overrideCandidates(root string, rootConfig map[string]any) []string {
 func loadYAMLMap(path string) (map[string]any, error) {
 	var cfg map[string]any
 
-	data, err := os.ReadFile(path)
+	data, err := readRootedFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -565,9 +566,7 @@ func loadYAMLMap(path string) (map[string]any, error) {
 
 func deepMerge(base, override map[string]any) map[string]any {
 	merged := make(map[string]any, len(base))
-	for key, value := range base {
-		merged[key] = value
-	}
+	maps.Copy(merged, base)
 
 	for key, value := range override {
 		baseMap, baseOK := merged[key].(map[string]any)
@@ -588,7 +587,7 @@ func deepMerge(base, override map[string]any) map[string]any {
 func rootConfigValue(root map[string]any, path string) (any, bool) {
 	current := any(root)
 
-	for _, part := range strings.Split(strings.TrimSpace(path), ".") {
+	for part := range strings.SplitSeq(strings.TrimSpace(path), ".") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			return nil, false
@@ -702,7 +701,7 @@ func existingFiles(paths []string) []string {
 			continue
 		}
 
-		info, err := os.Stat(path)
+		info, err := statRootedFile(path)
 		if err == nil && !info.IsDir() {
 			seen[path] = struct{}{}
 			files = append(files, path)
@@ -756,7 +755,7 @@ func fixText(_ Config, paths []string) int {
 		}
 
 		if fixed != string(data) {
-			err := os.WriteFile(path, []byte(fixed), hookRewriteFilePerm)
+			err := writeRootedFile(path, []byte(fixed), hookRewriteFilePerm)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
 

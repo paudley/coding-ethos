@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/ext"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
+
+const gitCommandName = "git"
 
 type MetadataInput struct {
 	Tool               string `json:"tool"`
@@ -269,51 +271,307 @@ type ActivationInput struct {
 
 const SchemaVersion int64 = 1
 
-var (
-	environmentOnce sync.Once
-	environment     *cel.Env
-	environmentErr  error
-	programCache    sync.Map
+const (
+	environmentOptionCapacity = 64
+	helperFunctionCapacity    = 20
+	inputSchemaCapacity       = 32
 )
 
-type programCacheKey struct {
-	PolicyID string
-	Source   string
-}
-
 func InputSchema() []string {
-	return []string{
+	schema := make([]string, 0, inputSchemaCapacity)
+	schema = append(schema,
 		"argv: list(string)",
 		"command: string",
-		"command_fact: {raw, lower, tool, argv, has_inline_env}",
-		"content: {raw, lower, has_git_token, has_absolute_git_path, has_path_override, has_python_subprocess, has_shell_exec}",
-		"shell_commands: list({command, name, argv, assignments, redirects, write_targets, line, column, background, has_inline_env, has_redirects, has_write_targets, has_heredoc, has_command_substitution, has_process_substitution, has_dynamic_expansion, has_subshell, is_function_declaration, is_git, is_lint_tool, is_shell_exec, uses_path_override})",
-		"config: {candidates, present}",
+		schemaObject("command_fact", "raw", "lower", "tool", "argv", "has_inline_env"),
+		schemaObject(
+			"content",
+			"raw",
+			"lower",
+			"has_git_token",
+			"has_absolute_git_path",
+			"has_path_override",
+			"has_python_subprocess",
+			"has_shell_exec",
+		),
+		schemaList(
+			"shell_commands",
+			"command",
+			"name",
+			"argv",
+			"assignments",
+			"redirects",
+			"write_targets",
+			"line",
+			"column",
+			"background",
+			"has_inline_env",
+			"has_redirects",
+			"has_write_targets",
+			"has_heredoc",
+			"has_command_substitution",
+			"has_process_substitution",
+			"has_dynamic_expansion",
+			"has_subshell",
+			"is_function_declaration",
+			"is_git",
+			"is_lint_tool",
+			"is_shell_exec",
+			"uses_path_override",
+		),
+		schemaObject("config", "candidates", "present"),
 		"cwd: string",
-		"diff: {files, changed_files, staged_files, has_changes, hunks, added_lines, removed_lines, changed_symbols}",
-		"diff.hunks[]: {file, old_start, old_lines, new_start, new_lines, header, added_lines, removed_lines}",
-		"diff.added_lines[]/removed_lines[]: {file, line, old_line, new_line, text, is_blank}",
-		"changed_symbols: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, changed_lines, is_generated, is_test, original_line_count, current_line_count, line_delta, original_nonblank_line_count, current_nonblank_line_count, nonblank_line_delta, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, original_start_line, original_end_line, current_start_line, current_end_line, original_content_hash, current_content_hash})",
-		"event: {name, provider, tool, scope, mode, source, matcher, session_id, transcript_path, tool_input_keys, tool_response_keys, return_code, has_tool_input, has_tool_response, is_claude, is_codex, is_gemini}",
+	)
+	schema = append(schema, diffInputSchema()...)
+	schema = append(schema, eventInputSchema()...)
+	schema = append(schema, fileInputSchema()...)
+	schema = append(schema, gitInputSchema()...)
+	schema = append(schema, policyContextInputSchema()...)
+
+	return schema
+}
+
+func diffInputSchema() []string {
+	return []string{
+		schemaObject(
+			"diff",
+			"files",
+			"changed_files",
+			"staged_files",
+			"has_changes",
+			"hunks",
+			"added_lines",
+			"removed_lines",
+			"changed_symbols",
+		),
+		schemaObject(
+			"diff.hunks[]",
+			"file",
+			"old_start",
+			"old_lines",
+			"new_start",
+			"new_lines",
+			"header",
+			"added_lines",
+			"removed_lines",
+		),
+		schemaObject(
+			"diff.added_lines[]/removed_lines[]",
+			"file",
+			"line",
+			"old_line",
+			"new_line",
+			"text",
+			"is_blank",
+		),
+		schemaList("changed_symbols", changedSymbolSchemaFields()...),
+	}
+}
+
+func eventInputSchema() []string {
+	return []string{
+		schemaObject(
+			"event",
+			"name",
+			"provider",
+			"tool",
+			"scope",
+			"mode",
+			"source",
+			"matcher",
+			"session_id",
+			"transcript_path",
+			"tool_input_keys",
+			"tool_response_keys",
+			"return_code",
+			"has_tool_input",
+			"has_tool_response",
+			"is_claude",
+			"is_codex",
+			"is_gemini",
+		),
+	}
+}
+
+func fileInputSchema() []string {
+	return []string{
 		"files: list(string)",
-		"file_changes: list({file, old_file, status, dir, base, ext, is_added, is_modified, is_deleted, is_renamed, is_generated, is_test, is_protected, is_binary, size_bytes, line_count, original_line_count, nonblank_line_count, original_nonblank_line_count, nonblank_line_delta, nonblank_line_count_grows, nonblank_line_count_shrinks})",
-		"proposed_file_changes: list({file, dir, base, ext, exists, has_proposed_content, is_binary, is_generated, is_test, current_size_bytes, proposed_size_bytes, size_delta, current_line_count, proposed_line_count, line_delta, current_nonblank_line_count, proposed_nonblank_line_count, nonblank_line_delta, size_grows, size_shrinks, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, replacement_matched, replacement_ambiguous})",
-		"proposed_symbol_changes: list({file, dir, base, ext, language, node_kind, symbol_kind, symbol_name, symbol_path, action, is_generated, is_test, current_line_count, proposed_line_count, line_delta, current_nonblank_line_count, proposed_nonblank_line_count, nonblank_line_delta, line_count_grows, line_count_shrinks, nonblank_line_count_grows, nonblank_line_count_shrinks, current_start_line, current_end_line, proposed_start_line, proposed_end_line, current_content_hash, proposed_content_hash})",
-		"git: {current_branch, on_protected_branch, protected_branches, protected_path_files, staged_files, changed_files}",
-		"git_command: {is_git, subcommand, args, flags, targets, global_options, has_change_dir}",
+		schemaList("file_changes", fileChangeSchemaFields()...),
+		schemaList("proposed_file_changes", proposedFileChangeSchemaFields()...),
+		schemaList("proposed_symbol_changes", proposedSymbolChangeSchemaFields()...),
+	}
+}
+
+func gitInputSchema() []string {
+	return []string{
+		schemaObject(
+			"git",
+			"current_branch",
+			"on_protected_branch",
+			"protected_branches",
+			"protected_path_files",
+			"staged_files",
+			"changed_files",
+		),
+		schemaObject(
+			"git_command",
+			"is_git",
+			"subcommand",
+			"args",
+			"flags",
+			"targets",
+			"global_options",
+			"has_change_dir",
+		),
+	}
+}
+
+func policyContextInputSchema() []string {
+	return []string{
 		"scope: string",
-		"source: {path, language, symbol_name, symbol_kind, chunk_hash, line_count, changed_lines, prior_failures, recent_remediations}",
-		"metadata: {admin_approved, read_only_inspection, schema_version, tool}",
-		"path: {file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root}",
-		"paths: list({file, dir, base, ext, symlink_target, is_symlink, is_test, is_generated, in_source_root})",
-		"diagnostic: {tool, code, message, file, line, column, severity, policy_id}",
-		"diagnostics: list({tool, code, message, file, line, column, severity, policy_id})",
-		"python_ast: list({file, language, node_kind, symbol_kind, symbol_name, symbol_path, parent_symbol_path, text, import_module, call_name, annotation_role, line, column, end_line, parameter_count, has_varargs, has_kwargs, module_level, under_class, under_conditional, under_function, under_try, under_type_checking, is_import, is_import_fallback, is_dynamic_import, is_assigned_lambda, is_closure_factory})",
-		"finding: {tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids}",
-		"findings: list({tool, code, message, file, language, symbol_name, symbol_kind, chunk_hash, line, line_count, changed_lines, severity, policy_id, skill_id, principle_ids})",
-		"repo: {root, source_roots, python_version, config_candidates, protected_paths, protected_branches}",
-		"referenced_files: list({file, dir, base, lower, exists, is_regular, in_agent_workspace, size_bytes})",
-		"tool_capabilities: list({name, command, tags, read_paths, write_paths, sandbox_profile, timeout_seconds, memory_mb, cpu_quota_percent, requires_network, requires_git, requires_env, requires_processes, seccomp_profile})",
+		schemaObject("source", sourceSchemaFields()...),
+		schemaObject(
+			"metadata",
+			"admin_approved",
+			"read_only_inspection",
+			"schema_version",
+			"tool",
+		),
+		schemaObject("path", pathSchemaFields()...),
+		schemaList("paths", pathSchemaFields()...),
+		schemaObject("diagnostic", diagnosticSchemaFields()...),
+		schemaList("diagnostics", diagnosticSchemaFields()...),
+		schemaList("python_ast", pythonASTSchemaFields()...),
+		schemaObject("finding", findingSchemaFields()...),
+		schemaList("findings", findingSchemaFields()...),
+		schemaObject(
+			"repo",
+			"root",
+			"source_roots",
+			"python_version",
+			"config_candidates",
+			"protected_paths",
+			"protected_branches",
+		),
+		schemaList(
+			"referenced_files",
+			"file",
+			"dir",
+			"base",
+			"lower",
+			"exists",
+			"is_regular",
+			"in_agent_workspace",
+			"size_bytes",
+		),
+		schemaList("tool_capabilities", toolCapabilitySchemaFields()...),
+	}
+}
+
+func schemaObject(name string, fields ...string) string {
+	return name + ": {" + strings.Join(fields, ", ") + "}"
+}
+
+func schemaList(name string, fields ...string) string {
+	return name + ": list({" + strings.Join(fields, ", ") + "})"
+}
+
+func changedSymbolSchemaFields() []string {
+	return []string{
+		"file", "dir", "base", "ext", "language", "node_kind", "symbol_kind",
+		"symbol_name", "symbol_path", "action", "changed_lines", "is_generated",
+		"is_test", "original_line_count", "current_line_count", "line_delta",
+		"original_nonblank_line_count", "current_nonblank_line_count",
+		"nonblank_line_delta", "line_count_grows", "line_count_shrinks",
+		"nonblank_line_count_grows", "nonblank_line_count_shrinks",
+		"original_start_line", "original_end_line", "current_start_line",
+		"current_end_line", "original_content_hash", "current_content_hash",
+	}
+}
+
+func fileChangeSchemaFields() []string {
+	return []string{
+		"file", "old_file", "status", "dir", "base", "ext", "is_added",
+		"is_modified", "is_deleted", "is_renamed", "is_generated", "is_test",
+		"is_protected", "is_binary", "size_bytes", "line_count",
+		"original_line_count", "nonblank_line_count",
+		"original_nonblank_line_count", "nonblank_line_delta",
+		"nonblank_line_count_grows", "nonblank_line_count_shrinks",
+	}
+}
+
+func proposedFileChangeSchemaFields() []string {
+	return []string{
+		"file", "dir", "base", "ext", "exists", "has_proposed_content",
+		"is_binary", "is_generated", "is_test", "current_size_bytes",
+		"proposed_size_bytes", "size_delta", "current_line_count",
+		"proposed_line_count", "line_delta", "current_nonblank_line_count",
+		"proposed_nonblank_line_count", "nonblank_line_delta", "size_grows",
+		"size_shrinks", "line_count_grows", "line_count_shrinks",
+		"nonblank_line_count_grows", "nonblank_line_count_shrinks",
+		"replacement_matched", "replacement_ambiguous",
+	}
+}
+
+func proposedSymbolChangeSchemaFields() []string {
+	return append(
+		changedSymbolSchemaFields()[:10:10],
+		"is_generated", "is_test", "current_line_count", "proposed_line_count",
+		"line_delta", "current_nonblank_line_count",
+		"proposed_nonblank_line_count", "nonblank_line_delta",
+		"line_count_grows", "line_count_shrinks", "nonblank_line_count_grows",
+		"nonblank_line_count_shrinks", "current_start_line", "current_end_line",
+		"proposed_start_line", "proposed_end_line", "current_content_hash",
+		"proposed_content_hash",
+	)
+}
+
+func sourceSchemaFields() []string {
+	return []string{
+		"path", "language", "symbol_name", "symbol_kind", "chunk_hash",
+		"line_count", "changed_lines", "prior_failures", "recent_remediations",
+	}
+}
+
+func pathSchemaFields() []string {
+	return []string{
+		"file", "dir", "base", "ext", "symlink_target", "is_symlink",
+		"is_test", "is_generated", "in_source_root",
+	}
+}
+
+func diagnosticSchemaFields() []string {
+	return []string{
+		"tool", "code", "message", "file", "line", "column", "severity",
+		"policy_id",
+	}
+}
+
+func pythonASTSchemaFields() []string {
+	return []string{
+		"file", "language", "node_kind", "symbol_kind", "symbol_name",
+		"symbol_path", "parent_symbol_path", "text", "import_module",
+		"call_name", "annotation_role", "line", "column", "end_line",
+		"parameter_count", "has_varargs", "has_kwargs", "module_level",
+		"under_class", "under_conditional", "under_function", "under_try",
+		"under_type_checking", "is_import", "is_import_fallback",
+		"is_dynamic_import", "is_assigned_lambda", "is_closure_factory",
+	}
+}
+
+func findingSchemaFields() []string {
+	return []string{
+		"tool", "code", "message", "file", "language", "symbol_name",
+		"symbol_kind", "chunk_hash", "line", "line_count", "changed_lines",
+		"severity", "policy_id", "skill_id", "principle_ids",
+	}
+}
+
+func toolCapabilitySchemaFields() []string {
+	return []string{
+		"name", "command", "tags", "read_paths", "write_paths",
+		"sandbox_profile", "timeout_seconds", "memory_mb", "cpu_quota_percent",
+		"requires_network", "requires_git", "requires_env", "requires_processes",
+		"seccomp_profile",
 	}
 }
 
@@ -342,15 +600,26 @@ func HelperSchema() []string {
 }
 
 func Environment() (*cel.Env, error) {
-	environmentOnce.Do(func() {
-		environment, environmentErr = newEnvironment()
-	})
-
-	return environment, environmentErr
+	return newEnvironment()
 }
 
 func newEnvironment() (*cel.Env, error) {
-	options := []cel.EnvOption{
+	options := make([]cel.EnvOption, 0, environmentOptionCapacity)
+	options = append(options, nativeTypeOptions()...)
+	options = append(options, scalarVariableOptions()...)
+	options = append(options, collectionVariableOptions()...)
+	options = append(options, helperFunctions()...)
+
+	env, err := cel.NewEnv(options...)
+	if err != nil {
+		return nil, fmt.Errorf("create CEL expression environment: %w", err)
+	}
+
+	return env, nil
+}
+
+func nativeTypeOptions() []cel.EnvOption {
+	return []cel.EnvOption{
 		ext.NativeTypes(
 			reflect.TypeFor[MetadataInput](),
 			reflect.TypeFor[CommandInput](),
@@ -378,11 +647,34 @@ func newEnvironment() (*cel.Env, error) {
 			reflect.TypeFor[ToolCapabilityInput](),
 			ext.ParseStructTag("json"),
 		),
+	}
+}
+
+func scalarVariableOptions() []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Variable("argv", cel.ListType(cel.StringType)),
 		cel.Variable("command", cel.StringType),
 		cel.Variable("content", cel.ObjectType("celexpr.ContentInput")),
 		cel.Variable("cwd", cel.StringType),
 		cel.Variable("files", cel.ListType(cel.StringType)),
+		cel.Variable("scope", cel.StringType),
+		cel.Variable("source", cel.ObjectType("celexpr.SourceInput")),
+		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
+		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
+		cel.Variable("event", cel.ObjectType("celexpr.EventInput")),
+		cel.Variable("diff", cel.ObjectType("celexpr.DiffInput")),
+		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
+		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
+		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
+		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
+		cel.Variable("config", cel.ObjectType("celexpr.ConfigInput")),
+		cel.Variable("git", cel.ObjectType("celexpr.GitInput")),
+		cel.Variable("git_command", cel.ObjectType("celexpr.GitCommandInput")),
+	}
+}
+
+func collectionVariableOptions() []cel.EnvOption {
+	return []cel.EnvOption{
 		cel.Variable(
 			"changed_symbols",
 			cel.ListType(cel.ObjectType("celexpr.ChangedSymbolInput")),
@@ -407,22 +699,14 @@ func newEnvironment() (*cel.Env, error) {
 			"tool_capabilities",
 			cel.ListType(cel.ObjectType("celexpr.ToolCapabilityInput")),
 		),
-		cel.Variable("scope", cel.StringType),
-		cel.Variable("source", cel.ObjectType("celexpr.SourceInput")),
-		cel.Variable("metadata", cel.ObjectType("celexpr.MetadataInput")),
-		cel.Variable("command_fact", cel.ObjectType("celexpr.CommandInput")),
 		cel.Variable(
 			"shell_commands",
 			cel.ListType(cel.ObjectType("celexpr.ShellCommandInput")),
 		),
-		cel.Variable("event", cel.ObjectType("celexpr.EventInput")),
-		cel.Variable("diff", cel.ObjectType("celexpr.DiffInput")),
-		cel.Variable("path", cel.ObjectType("celexpr.PathInput")),
 		cel.Variable(
 			"paths",
 			cel.ListType(cel.ObjectType("celexpr.PathInput")),
 		),
-		cel.Variable("diagnostic", cel.ObjectType("celexpr.DiagnosticInput")),
 		cel.Variable(
 			"diagnostics",
 			cel.ListType(cel.ObjectType("celexpr.DiagnosticInput")),
@@ -431,19 +715,11 @@ func newEnvironment() (*cel.Env, error) {
 			"python_ast",
 			cel.ListType(cel.ObjectType("celexpr.PythonASTFactInput")),
 		),
-		cel.Variable("finding", cel.ObjectType("celexpr.FindingInput")),
 		cel.Variable(
 			"findings",
 			cel.ListType(cel.ObjectType("celexpr.FindingInput")),
 		),
-		cel.Variable("repo", cel.ObjectType("celexpr.RepoInput")),
-		cel.Variable("config", cel.ObjectType("celexpr.ConfigInput")),
-		cel.Variable("git", cel.ObjectType("celexpr.GitInput")),
-		cel.Variable("git_command", cel.ObjectType("celexpr.GitCommandInput")),
 	}
-	options = append(options, helperFunctions()...)
-
-	return cel.NewEnv(options...)
 }
 
 func Validate(policyID, source string) error {
@@ -453,27 +729,16 @@ func Validate(policyID, source string) error {
 }
 
 func Program(policyID, source string) (cel.Program, error) {
-	key := programCacheKey{
-		PolicyID: policyID,
-		Source:   strings.TrimSpace(source),
-	}
-	if cached, ok := programCache.Load(key); ok {
-		return cached.(cel.Program), nil
-	}
-
-	program, err := compileProgram(key.PolicyID, key.Source)
-	if err != nil {
-		return nil, err
-	}
-
-	cached, _ := programCache.LoadOrStore(key, program)
-
-	return cached.(cel.Program), nil
+	return compileProgram(policyID, strings.TrimSpace(source))
 }
 
 func compileProgram(policyID, source string) (cel.Program, error) {
 	if source == "" {
-		return nil, fmt.Errorf("CEL expression policy %q missing when", policyID)
+		return nil, apperror.Wrapf(
+			apperror.StaticError("CEL expression policy %q missing when"),
+			"CEL expression policy %q missing when",
+			policyID,
+		)
 	}
 
 	env, err := Environment()
@@ -487,7 +752,10 @@ func compileProgram(policyID, source string) (cel.Program, error) {
 	}
 
 	if !ast.OutputType().IsExactType(cel.BoolType) {
-		return nil, fmt.Errorf(
+		return nil, apperror.Wrapf(
+			apperror.StaticError(
+				"compile CEL policy %q: when expression must return bool, got %s",
+			),
 			"compile CEL policy %q: when expression must return bool, got %s",
 			policyID,
 			ast.OutputType(),
@@ -503,31 +771,7 @@ func compileProgram(policyID, source string) (cel.Program, error) {
 }
 
 func Activation(input ActivationInput) map[string]any {
-	sourceRoots := cleanSourceRoots(input.SourceRoots)
-	paths := pathInputs(input.Cwd, input.Files, sourceRoots)
-	files := cleanStringSlice(input.Files)
-	changedFiles := cleanStringSlice(input.ChangedFiles)
-	stagedFiles := cleanStringSlice(input.StagedFiles)
-	protectedPaths := cleanStringSlice(input.ProtectedPaths)
-	protectedBranches := cleanStringSlice(input.ProtectedBranches)
-	configCandidates := cleanStringSlice(input.ConfigCandidates)
-	presentConfigs := presentRepoConfigs(files, configCandidates)
-
-	primaryPath := PathInput{}
-	if len(paths) == 1 {
-		primaryPath = paths[0]
-	} else if len(input.Files) == 1 {
-		primaryPath = newPathInput(input.Cwd, input.Files[0], sourceRoots)
-	}
-
-	diffHunks := diffHunkInputs(input.Cwd, files)
-	addedLines, removedLines := diffLines(diffHunks)
-	changedSymbols := changedSymbolInputs(input.Cwd, files, diffHunks)
-	hasChanges := len(files) > 0 ||
-		len(changedFiles) > 0 ||
-		len(stagedFiles) > 0 ||
-		len(diffHunks) > 0
-	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	context := newActivationContext(input)
 
 	return map[string]any{
 		"argv":    append([]string(nil), input.Argv...),
@@ -542,59 +786,29 @@ func Activation(input ActivationInput) map[string]any {
 		"content":        contentInput(input.Content),
 		"shell_commands": shellCommandInputs(input.Command),
 		"config": ConfigInput{
-			Candidates: configCandidates,
-			Present:    presentConfigs,
+			Candidates: context.ConfigCandidates,
+			Present:    context.PresentConfigs,
 		},
-		"cwd": input.Cwd,
-		"diff": DiffInput{
-			ChangedFiles:   changedFiles,
-			Files:          files,
-			Hunks:          diffHunks,
-			AddedLines:     addedLines,
-			RemovedLines:   removedLines,
-			ChangedSymbols: changedSymbols,
-			HasChanges:     hasChanges,
-			StagedFiles:    stagedFiles,
-		},
-		"event": EventInput{
-			Name:             input.EventName,
-			Matcher:          input.EventMatcher,
-			Mode:             input.Mode,
-			Provider:         input.Provider,
-			Scope:            input.Scope,
-			SessionID:        input.SessionID,
-			Source:           input.EventSource,
-			Tool:             input.Tool,
-			ToolInputKeys:    cleanStringValues(input.ToolInputKeys),
-			ToolResponseKeys: cleanStringValues(input.ToolResponseKeys),
-			TranscriptPath:   input.TranscriptPath,
-			ReturnCode:       int64(input.ReturnCode),
-			HasToolInput:     input.HasToolInput,
-			HasToolResponse:  input.HasToolResponse,
-			IsClaude:         provider == "claude",
-			IsCodex:          provider == "codex",
-			IsGemini:         provider == "gemini",
-		},
-		"files":           files,
-		"changed_symbols": changedSymbols,
+		"cwd":             input.Cwd,
+		"diff":            activationDiffInput(context),
+		"event":           activationEventInput(input),
+		"files":           context.Files,
+		"changed_symbols": context.ChangedSymbols,
 		"file_changes": fileChangeInputs(
 			input.Cwd,
-			files,
-			protectedPaths,
+			context.Files,
+			context.ProtectedPaths,
 		),
 		"proposed_file_changes":   proposedFileChangeInputs(input),
 		"proposed_symbol_changes": proposedSymbolChangeInputs(input),
-		"referenced_files":        referencedFileInputs(input.Cwd, files, input.Argv),
-		"tool_capabilities":       toolCapabilityInputs(),
-		"git": GitInput{
-			CurrentBranch:      input.CurrentBranch,
-			OnProtectedBranch:  isProtectedBranch(input.CurrentBranch, protectedBranches),
-			ChangedFiles:       changedFiles,
-			ProtectedBranches:  protectedBranches,
-			ProtectedPathFiles: protectedPathFiles(files, protectedPaths),
-			StagedFiles:        stagedFiles,
-		},
-		"git_command": gitCommandInput(input.Argv, protectedBranches),
+		"referenced_files": referencedFileInputs(
+			input.Cwd,
+			context.Files,
+			input.Argv,
+		),
+		"tool_capabilities": toolCapabilityInputs(),
+		"git":               activationGitInput(input, context),
+		"git_command":       gitCommandInput(input.Argv, context.ProtectedBranches),
 		"metadata": MetadataInput{
 			AdminApproved:      input.AdminApproved,
 			ReadOnlyInspection: input.ReadOnlyInspection,
@@ -602,23 +816,142 @@ func Activation(input ActivationInput) map[string]any {
 			Tool:               input.Tool,
 		},
 		"scope":       input.Scope,
-		"source":      sourceInput(input.Source, input.Finding, primaryPath),
-		"path":        primaryPath,
-		"paths":       paths,
+		"source":      sourceInput(input.Source, input.Finding, context.PrimaryPath),
+		"path":        context.PrimaryPath,
+		"paths":       context.Paths,
 		"diagnostic":  diagnosticInput(input.Diagnostic),
 		"diagnostics": diagnosticInputs(input.Diagnostics, input.Diagnostic),
 		"python_ast":  append([]PythonASTFactInput(nil), input.PythonASTFacts...),
 		"finding":     findingInput(input.Finding),
 		"findings":    findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{
-			ConfigCandidates:  configCandidates,
-			ProtectedBranches: protectedBranches,
-			ProtectedPaths:    protectedPaths,
+			ConfigCandidates:  context.ConfigCandidates,
+			ProtectedBranches: context.ProtectedBranches,
+			ProtectedPaths:    context.ProtectedPaths,
 			PythonVersion:     input.PythonVersion,
 			RequiredIgnores:   requiredIgnoreInputs(input.Cwd, input.RequiredIgnores),
 			Root:              input.Cwd,
-			SourceRoots:       sourceRoots,
+			SourceRoots:       context.SourceRoots,
 		},
+	}
+}
+
+type activationContext struct {
+	PrimaryPath       PathInput
+	AddedLines        []DiffLineInput
+	ChangedFiles      []string
+	ChangedSymbols    []ChangedSymbolInput
+	ConfigCandidates  []string
+	DiffHunks         []DiffHunkInput
+	Files             []string
+	Paths             []PathInput
+	ProtectedBranches []string
+	ProtectedPaths    []string
+	RemovedLines      []DiffLineInput
+	SourceRoots       []string
+	StagedFiles       []string
+	PresentConfigs    []string
+}
+
+func newActivationContext(input ActivationInput) activationContext {
+	sourceRoots := cleanSourceRoots(input.SourceRoots)
+	files := cleanStringSlice(input.Files)
+	diffHunks := diffHunkInputs(input.Cwd, files)
+	addedLines, removedLines := diffLines(diffHunks)
+	changedFiles := cleanStringSlice(input.ChangedFiles)
+	stagedFiles := cleanStringSlice(input.StagedFiles)
+	configCandidates := cleanStringSlice(input.ConfigCandidates)
+
+	context := activationContext{
+		AddedLines:        addedLines,
+		ChangedFiles:      changedFiles,
+		ChangedSymbols:    changedSymbolInputs(input.Cwd, files, diffHunks),
+		ConfigCandidates:  configCandidates,
+		DiffHunks:         diffHunks,
+		Files:             files,
+		Paths:             pathInputs(input.Cwd, input.Files, sourceRoots),
+		ProtectedBranches: cleanStringSlice(input.ProtectedBranches),
+		ProtectedPaths:    cleanStringSlice(input.ProtectedPaths),
+		RemovedLines:      removedLines,
+		SourceRoots:       sourceRoots,
+		StagedFiles:       stagedFiles,
+		PresentConfigs:    presentRepoConfigs(files, configCandidates),
+	}
+	context.PrimaryPath = primaryActivationPath(input, context)
+
+	return context
+}
+
+func primaryActivationPath(
+	input ActivationInput,
+	context activationContext,
+) PathInput {
+	if len(context.Paths) == 1 {
+		return context.Paths[0]
+	}
+
+	if len(input.Files) == 1 {
+		return newPathInput(input.Cwd, input.Files[0], context.SourceRoots)
+	}
+
+	return PathInput{}
+}
+
+func activationHasChanges(context activationContext) bool {
+	return len(context.Files) > 0 ||
+		len(context.ChangedFiles) > 0 ||
+		len(context.StagedFiles) > 0 ||
+		len(context.DiffHunks) > 0
+}
+
+func activationDiffInput(context activationContext) DiffInput {
+	return DiffInput{
+		AddedLines:     context.AddedLines,
+		ChangedFiles:   context.ChangedFiles,
+		ChangedSymbols: context.ChangedSymbols,
+		Files:          context.Files,
+		HasChanges:     activationHasChanges(context),
+		Hunks:          context.DiffHunks,
+		RemovedLines:   context.RemovedLines,
+		StagedFiles:    context.StagedFiles,
+	}
+}
+
+func activationEventInput(input ActivationInput) EventInput {
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+
+	return EventInput{
+		HasToolInput:     input.HasToolInput,
+		HasToolResponse:  input.HasToolResponse,
+		IsClaude:         provider == "claude",
+		IsCodex:          provider == "codex",
+		IsGemini:         provider == "gemini",
+		Matcher:          input.EventMatcher,
+		Mode:             input.Mode,
+		Name:             input.EventName,
+		Provider:         input.Provider,
+		ReturnCode:       int64(input.ReturnCode),
+		Scope:            input.Scope,
+		SessionID:        input.SessionID,
+		Source:           input.EventSource,
+		Tool:             input.Tool,
+		ToolInputKeys:    cleanStringValues(input.ToolInputKeys),
+		ToolResponseKeys: cleanStringValues(input.ToolResponseKeys),
+		TranscriptPath:   input.TranscriptPath,
+	}
+}
+
+func activationGitInput(input ActivationInput, context activationContext) GitInput {
+	return GitInput{
+		ChangedFiles:  context.ChangedFiles,
+		CurrentBranch: input.CurrentBranch,
+		OnProtectedBranch: isProtectedBranch(
+			input.CurrentBranch,
+			context.ProtectedBranches,
+		),
+		ProtectedBranches:  context.ProtectedBranches,
+		ProtectedPathFiles: protectedPathFiles(context.Files, context.ProtectedPaths),
+		StagedFiles:        context.StagedFiles,
 	}
 }
 
@@ -672,13 +1005,16 @@ func gitCommandInput(argv, protectedBranches []string) GitCommandInput {
 	flags := gitFlags(args)
 
 	return GitCommandInput{
-		Args:                       args,
-		Flags:                      flags,
-		GlobalOptions:              gitGlobalOptions(normalized[1:subcommandIndex]),
-		HasChangeDir:               listContains(normalized[1:subcommandIndex], "-C"),
-		HasCheckoutProtectedBranch: gitCheckoutProtectedBranch(normalized, protectedBranches),
-		HasCleanForceDelete:        gitCleanForceDelete(flags),
-		HasForcePush:               gitHasForcePush(flags),
+		Args:          args,
+		Flags:         flags,
+		GlobalOptions: gitGlobalOptions(normalized[1:subcommandIndex]),
+		HasChangeDir:  listContains(normalized[1:subcommandIndex], "-C"),
+		HasCheckoutProtectedBranch: gitCheckoutProtectedBranch(
+			normalized,
+			protectedBranches,
+		),
+		HasCleanForceDelete: gitCleanForceDelete(flags),
+		HasForcePush:        gitHasForcePush(flags),
 		HasForcePushProtected: gitForcePushProtectedBranch(
 			normalized,
 			protectedBranches,
@@ -688,7 +1024,7 @@ func gitCommandInput(argv, protectedBranches []string) GitCommandInput {
 		HasMergeStrategyShortcut: gitMergeStrategyShortcut(args),
 		HasRestorePathspec: normalized[subcommandIndex] == "restore" &&
 			listContains(args, "--"),
-		HasTheirsOursCheckout: normalized[subcommandIndex] == "checkout" &&
+		HasTheirsOursCheckout: normalized[subcommandIndex] == gitCheckoutSubcommand &&
 			(listContains(flags, "--theirs") || listContains(flags, "--ours")),
 		IsGit:      true,
 		Subcommand: normalized[subcommandIndex],

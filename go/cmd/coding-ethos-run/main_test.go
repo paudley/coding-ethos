@@ -157,7 +157,10 @@ func TestPolicyToolLintArgsIgnoreAmbientSandboxModeOutsideShim(t *testing.T) {
 	args := policyToolLintArgs(runtimePaths{}, "ruff", []string{"check"})
 
 	if slices.Contains(args, "--sandbox-mode") {
-		t.Fatalf("ambient sandbox mode should not affect direct policy-tool calls: %#v", args)
+		t.Fatalf(
+			"ambient sandbox mode should not affect direct policy-tool calls: %#v",
+			args,
+		)
 	}
 }
 
@@ -184,6 +187,8 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 }
 
 func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	binDir := filepath.Join(root, "bin")
@@ -202,29 +207,37 @@ func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 
 	toolPath := filepath.Join(binDir, "tool")
 
-	err = os.WriteFile(toolPath, []byte("#!/usr/bin/env sh\nprintf 'ok\\n'\n"), 0o755)
-	if err != nil {
-		t.Fatalf("write tool: %v", err)
-	}
+	writeExecutableFixture(t, toolPath, "#!/usr/bin/env sh\nprintf 'ok\\n'\n")
 
 	paths := runtimePaths{BinDir: binDir, PolicyBundle: filePath}
 	requireRuntimeFile(filePath, "policy bundle")
 	requireRuntimeBinary(toolPath, "tool")
 	requirePolicyBundle(paths)
-	runTool(paths, "tool")
+	runtimeRunTool(paths, "tool")
+}
+
+func writeExecutableFixture(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write executable fixture %s: %v", path, err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod executable fixture %s: %v", path, err)
+	}
 }
 
 func TestGitOutputRunsRealGitPath(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	gitPath := filepath.Join(root, "git")
-	if err := os.WriteFile(
-		gitPath,
-		[]byte("#!/usr/bin/env sh\nprintf 'main\\n'\n"),
-		0o755,
-	); err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
+
+	writeExecutableFixture(t, gitPath, "#!/usr/bin/env sh\nprintf 'main\\n'\n")
 
 	output, err := gitOutput(gitPath, root, "branch", "--show-current")
 	if err != nil {
@@ -238,12 +251,15 @@ func TestGitOutputRunsRealGitPath(t *testing.T) {
 
 func TestCIChangedFilesUsesExplicitFileListAndProviderDiffs(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "a.py"), []byte("a\n"), 0o600); err != nil {
-		t.Fatalf("write a.py: %v", err)
+
+	inlineErr1 := os.WriteFile(filepath.Join(repo, "a.py"), []byte("a\n"), 0o600)
+	if inlineErr1 != nil {
+		t.Fatalf("write a.py: %v", inlineErr1)
 	}
 
-	if err := os.WriteFile(filepath.Join(repo, "b.go"), []byte("b\n"), 0o600); err != nil {
-		t.Fatalf("write b.go: %v", err)
+	inlineErr2 := os.WriteFile(filepath.Join(repo, "b.go"), []byte("b\n"), 0o600)
+	if inlineErr2 != nil {
+		t.Fatalf("write b.go: %v", inlineErr2)
 	}
 
 	t.Setenv("CODING_ETHOS_FILES", "a.py, missing.py\nb.go")
@@ -270,7 +286,8 @@ func TestCIChangedFilesUsesExplicitFileListAndProviderDiffs(t *testing.T) {
 		t.Fatalf("github files = %#v", files)
 	}
 
-	if _, err := ciChangedFiles(fakeGit, repo, "unknown"); err == nil {
+	_, inlineErrAutoA := ciChangedFiles(fakeGit, repo, "unknown")
+	if inlineErrAutoA == nil {
 		t.Fatal("unknown provider should fail")
 	}
 }
@@ -295,8 +312,10 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 	repo := t.TempDir()
 
 	binDir := filepath.Join(repo, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("create bin dir: %v", err)
+
+	inlineErr3 := os.MkdirAll(binDir, 0o755)
+	if inlineErr3 != nil {
+		t.Fatalf("create bin dir: %v", inlineErr3)
 	}
 
 	for _, name := range []string{"a.py", "b.go"} {
@@ -309,15 +328,14 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 	argsPath := filepath.Join(repo, "lint-args.txt")
 
 	lintPath := filepath.Join(binDir, "coding-ethos-lint")
-	if err := os.WriteFile(
+
+	writeExecutableFixture(
+		t,
 		lintPath,
-		[]byte(
-			"#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > \"$LINT_ARGS_PATH\"\nprintf '{\"version\":\"2.1.0\",\"runs\":[]}'\n",
-		),
-		0o755,
-	); err != nil {
-		t.Fatalf("write fake lint: %v", err)
-	}
+		"#!/usr/bin/env sh\n"+
+			"printf '%s\\n' \"$@\" > \"$LINT_ARGS_PATH\"\n"+
+			"printf '{\"version\":\"2.1.0\",\"runs\":[]}'\n",
+	)
 
 	sarifPath := filepath.Join(repo, "reports", "coding-ethos.sarif")
 
@@ -353,7 +371,19 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 	}
 
 	argsText := string(argsPayload)
-	for _, want := range []string{
+	for _, want := range ciSARIFExpectedLintArgs(repo) {
+		if !strings.Contains(argsText, want) {
+			t.Fatalf("lint args missing %q:\n%s", want, argsText)
+		}
+	}
+
+	if strings.Count(argsText, "--sarif\n") != 1 {
+		t.Fatalf("expected one terminal --sarif flag:\n%s", argsText)
+	}
+}
+
+func ciSARIFExpectedLintArgs(repo string) []string {
+	return []string{
 		"--bundle",
 		filepath.Join(repo, "policy-bundle.json"),
 		"--cwd",
@@ -366,14 +396,6 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 		"--sarif-category",
 		"policy",
 		"--sarif",
-	} {
-		if !strings.Contains(argsText, want) {
-			t.Fatalf("lint args missing %q:\n%s", want, argsText)
-		}
-	}
-
-	if strings.Count(argsText, "--sarif\n") != 1 {
-		t.Fatalf("expected one terminal --sarif flag:\n%s", argsText)
 	}
 }
 
@@ -394,12 +416,13 @@ func TestRunCISARIFRequiresProviderAndOutputPath(t *testing.T) {
 }
 
 func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
+	t.Parallel()
+
 	paths := runtimeTestPaths(t)
 
 	var calls []string
 
-	restore := stubRuntimeOps(t, &calls)
-	defer restore()
+	paths.Executor = stubRuntimeOps{calls: &calls}
 
 	cases := []struct {
 		name string
@@ -436,7 +459,8 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 				" --real-git " + paths.RealGit + " --runner " + paths.RunBinary + "\n" +
 				"run:coding-ethos-lint --install-shims --tools-bin-dir " + paths.BinDir +
 				" --runner " + paths.RunBinary + " --ethos-root " + paths.EthosRoot + "\n" +
-				"exec:coding-ethos-agent-hooks sync --hook-command " + paths.RunBinary + " agent-hook",
+				"exec:coding-ethos-agent-hooks sync --hook-command " +
+				paths.RunBinary + " agent-hook",
 		},
 	}
 	for _, test := range cases {
@@ -462,25 +486,25 @@ func fakeCIGit(t *testing.T, diffOutput string) string {
 	payload := "#!/usr/bin/env sh\n" +
 		"case \"$*\" in\n" +
 		"  *rev-parse*) exit 0 ;;\n" +
-		"  *diff*) printf '%s' '" + strings.ReplaceAll(diffOutput, "'", "'\\''") + "' ; exit 0 ;;\n" +
+		"  *diff*) printf '%s' '" +
+		strings.ReplaceAll(diffOutput, "'", "'\\''") +
+		"' ; exit 0 ;;\n" +
 		"esac\n" +
 		"exit 1\n"
 
-	err := os.WriteFile(path, []byte(payload), 0o755)
-	if err != nil {
-		t.Fatalf("write fake CI git: %v", err)
-	}
+	writeExecutableFixture(t, path, payload)
 
 	return path
 }
 
 func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
+	t.Parallel()
+
 	paths := runtimeTestPaths(t)
 
 	var calls []string
 
-	restore := stubRuntimeOps(t, &calls)
-	defer restore()
+	paths.Executor = stubRuntimeOps{calls: &calls}
 
 	err := runGitHook(paths, []string{"validate"})
 	if err != nil {
@@ -519,24 +543,22 @@ func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
 }
 
 func TestRunAgentHookMCPAndLFSUseRuntimeOps(t *testing.T) {
+	t.Parallel()
+
 	paths := runtimeTestPaths(t)
 
 	var calls []string
 
-	restore := stubRuntimeOps(t, &calls)
-	defer restore()
+	paths.Executor = stubRuntimeOps{calls: &calls}
 
 	runAgentHook(paths, []string{"PreToolUse"})
 	runMCP(paths, []string{"--log-level", "debug"})
 
 	paths.RealGit = filepath.Join(paths.Root, "git-lfs")
 
-	err := os.WriteFile(paths.RealGit, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o755)
-	if err != nil {
-		t.Fatalf("write fake git-lfs: %v", err)
-	}
+	writeExecutableFixture(t, paths.RealGit, "#!/usr/bin/env sh\nexit 0\n")
 
-	err = runLFSHook(paths, []string{"post-merge", "arg"})
+	err := runLFSHook(paths, []string{"post-merge", "arg"})
 	if err != nil {
 		t.Fatalf("runLFSHook: %v", err)
 	}
@@ -554,6 +576,8 @@ func TestRunAgentHookMCPAndLFSUseRuntimeOps(t *testing.T) {
 }
 
 func TestRunReportsInvalidCommandsBeforeExec(t *testing.T) {
+	t.Parallel()
+
 	paths := runtimeTestPaths(t)
 
 	err := runPolicyTool(paths, nil)
@@ -615,39 +639,28 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 			t.Fatalf("create parent for %s: %v", file, err)
 		}
 
-		err = os.WriteFile(file, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o755)
-		if err != nil {
-			t.Fatalf("write runtime fixture %s: %v", file, err)
-		}
+		writeExecutableFixture(t, file, "#!/usr/bin/env sh\nexit 0\n")
 	}
 
 	return paths
 }
 
-func stubRuntimeOps(t *testing.T, calls *[]string) func() {
-	t.Helper()
+type stubRuntimeOps struct {
+	calls *[]string
+}
 
-	originalRunTool := runtimeRunTool
-	originalExecTool := runtimeExecTool
-	originalExecPath := runtimeExecPath
-	originalExecExternal := runtimeExecExternal
-	runtimeRunTool = func(_ runtimePaths, tool string, args ...string) {
-		*calls = append(*calls, "run:"+tool+" "+strings.Join(args, " "))
-	}
-	runtimeExecTool = func(_ runtimePaths, tool string, args ...string) {
-		*calls = append(*calls, "exec:"+tool+" "+strings.Join(args, " "))
-	}
-	runtimeExecPath = func(path string, args ...string) {
-		*calls = append(*calls, "execpath:"+path+" "+strings.Join(args, " "))
-	}
-	runtimeExecExternal = func(path string, args ...string) {
-		*calls = append(*calls, "external:"+path+" "+strings.Join(args, " "))
-	}
+func (stub stubRuntimeOps) runTool(_ runtimePaths, tool string, args ...string) {
+	*stub.calls = append(*stub.calls, "run:"+tool+" "+strings.Join(args, " "))
+}
 
-	return func() {
-		runtimeRunTool = originalRunTool
-		runtimeExecTool = originalExecTool
-		runtimeExecPath = originalExecPath
-		runtimeExecExternal = originalExecExternal
-	}
+func (stub stubRuntimeOps) execTool(_ runtimePaths, tool string, args ...string) {
+	*stub.calls = append(*stub.calls, "exec:"+tool+" "+strings.Join(args, " "))
+}
+
+func (stub stubRuntimeOps) execPath(path string, args ...string) {
+	*stub.calls = append(*stub.calls, "execpath:"+path+" "+strings.Join(args, " "))
+}
+
+func (stub stubRuntimeOps) execExternal(path string, args ...string) {
+	*stub.calls = append(*stub.calls, "external:"+path+" "+strings.Join(args, " "))
 }

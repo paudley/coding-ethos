@@ -93,13 +93,23 @@ func validateSyntaxFile(path string) error {
 func validateJSONSyntax(data []byte) error {
 	var value any
 
-	return json.Unmarshal(data, &value)
+	err := json.Unmarshal(data, &value)
+	if err != nil {
+		return fmt.Errorf("parse JSON syntax: %w", err)
+	}
+
+	return nil
 }
 
 func validateTOMLSyntax(data []byte) error {
 	var value any
 
-	return toml.Unmarshal(data, &value)
+	err := toml.Unmarshal(data, &value)
+	if err != nil {
+		return fmt.Errorf("parse TOML syntax: %w", err)
+	}
+
+	return nil
 }
 
 func validateYAMLSyntax(data []byte) error {
@@ -114,7 +124,7 @@ func validateYAMLSyntax(data []byte) error {
 		}
 
 		if err != nil {
-			return err
+			return fmt.Errorf("parse YAML syntax: %w", err)
 		}
 	}
 }

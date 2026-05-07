@@ -28,26 +28,28 @@ type TraceRecord struct {
 	Findings           []evidence.Finding          `json:"findings,omitempty"`
 	AgentRemediation   []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
 	RemediationEvents  []evidence.RemediationEvent `json:"remediation_events,omitempty"`
-	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitempty"`
+	RemediationSummary agentmsg.Summary            `json:"remediation_summary,omitzero"`
 	SchemaVersion      int                         `json:"schema_version"`
 }
 
-func LogResult(cwd string, result Result) (tracePath string, err error) {
+func LogResult(cwd string, result Result) (string, error) {
 	root := cwd
 	if root == "" {
-		var err error
-
-		root, err = os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve lint trace root: %w", err)
+		resolvedRoot, cwdErr := os.Getwd()
+		if cwdErr != nil {
+			return "", fmt.Errorf("resolve lint trace root: %w", cwdErr)
 		}
+
+		root = resolvedRoot
 	}
 
 	timestamp := time.Now().UTC().Format("20060102T150405.000000000Z")
 
 	dir := filepath.Join(root, ".coding-ethos", "lint-runs")
-	if err := os.MkdirAll(dir, traceDirMode); err != nil {
-		return "", fmt.Errorf("create lint trace dir: %w", err)
+
+	inlineErr0 := os.MkdirAll(dir, traceDirMode)
+	if inlineErr0 != nil {
+		return "", fmt.Errorf("create lint trace dir: %w", inlineErr0)
 	}
 
 	EnsureTraceID(&result)
@@ -63,20 +65,13 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 		return "", fmt.Errorf("create lint trace: %w", err)
 	}
 
-	defer func() {
-		closeErr := file.Close()
-		if err == nil && closeErr != nil {
-			err = fmt.Errorf("close lint trace: %w", closeErr)
-		}
-	}()
-
 	remediation := agentmsg.FromDiagnostics(OutputDiagnostics(result))
 	findings := evidence.FromDiagnostics(OutputDiagnostics(result))
 	encoder := json.NewEncoder(file)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 
-	if err := encoder.Encode(TraceRecord{
+	inlineErr1 := encoder.Encode(TraceRecord{
 		SchemaVersion:      evidence.SchemaVersion,
 		TraceID:            traceID,
 		RecordedAtUTC:      timestamp,
@@ -91,8 +86,16 @@ func LogResult(cwd string, result Result) (tracePath string, err error) {
 			traceID,
 			"suggested",
 		),
-	}); err != nil {
-		return "", fmt.Errorf("write lint trace: %w", err)
+	})
+	if inlineErr1 != nil {
+		_ = file.Close()
+
+		return "", fmt.Errorf("write lint trace: %w", inlineErr1)
+	}
+
+	closeErr := file.Close()
+	if closeErr != nil {
+		return "", fmt.Errorf("close lint trace: %w", closeErr)
 	}
 
 	return path, nil

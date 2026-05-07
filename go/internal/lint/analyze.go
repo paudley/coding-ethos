@@ -11,12 +11,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
 	maxTraceAnalyzeRuns      = 250
 	maxTraceTopCounts        = 10
 	maxGuidanceCandidateRows = 10
+	compactPathMinimumParts  = 2
 )
 
 type Analysis struct {
@@ -81,7 +84,11 @@ func TracePathForID(cwd, traceID string) (string, error) {
 
 	name := filepath.Base(strings.TrimSpace(traceID))
 	if name == "" || name == "." || name == ".." || name != strings.TrimSpace(traceID) {
-		return "", fmt.Errorf("invalid lint trace id %q", traceID)
+		return "", apperror.Wrapf(
+			apperror.StaticError("invalid lint trace id %q"),
+			"invalid lint trace id %q",
+			traceID,
+		)
 	}
 
 	return filepath.Join(dir, name), nil
@@ -117,14 +124,7 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 		return entries[left].Name() > entries[right].Name()
 	})
 
-	checkCounts := map[string]int{}
-	codeCounts := map[string]int{}
-	unmappedCodeCounts := map[string]int{}
-	patternCounts := map[string]int{}
-	ethosCounts := map[string]int{}
-	skillCounts := map[string]int{}
-	skillHintCounts := map[string]int{}
-	candidates := map[string]GuidanceCandidate{}
+	counts := newAnalysisCounts()
 
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -152,45 +152,86 @@ func AnalyzeTracesWithOptions(path string, options AnalysisOptions) (Analysis, e
 				continue
 			}
 
-			if finding.SkillID != "" {
-				relevantSkillIDs[finding.SkillID] = true
-			}
-
 			analysis.Findings++
 
-			incrementFindingCounts(
-				finding,
-				checkCounts,
-				codeCounts,
-				unmappedCodeCounts,
-				patternCounts,
-				ethosCounts,
-				skillCounts,
-				candidates,
-			)
+			counts.incrementFinding(finding, relevantSkillIDs)
 		}
 
-		incrementSkillHintCounts(
-			record.Result.SkillHints,
-			skillHintCounts,
-			relevantSkillIDs,
-			files,
-		)
+		counts.incrementSkillHints(record.Result.SkillHints, relevantSkillIDs, files)
 	}
 
-	analysis.TopChecks = topCountsLimit(checkCounts, options.MaxCounts)
-	analysis.TopCodes = topCountsLimit(codeCounts, options.MaxCounts)
-	analysis.UnmappedCodes = topCountsLimit(unmappedCodeCounts, options.MaxCounts)
-	analysis.RepeatedPatterns = topCountsLimit(patternCounts, options.MaxCounts)
-	analysis.TopEthosIDs = topCountsLimit(ethosCounts, options.MaxCounts)
-	analysis.TopSkillIDs = topCountsLimit(skillCounts, options.MaxCounts)
-	analysis.TopSkillHints = topCountsLimit(skillHintCounts, options.MaxCounts)
-	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
-		candidates,
-		options.MaxGuidanceCandidates,
-	)
+	counts.applyToAnalysis(&analysis, options)
 
 	return analysis, nil
+}
+
+type analysisCounts struct {
+	checks     map[string]int
+	codes      map[string]int
+	unmapped   map[string]int
+	patterns   map[string]int
+	ethos      map[string]int
+	skills     map[string]int
+	skillHints map[string]int
+	candidates map[string]GuidanceCandidate
+}
+
+func newAnalysisCounts() analysisCounts {
+	return analysisCounts{
+		checks:     map[string]int{},
+		codes:      map[string]int{},
+		unmapped:   map[string]int{},
+		patterns:   map[string]int{},
+		ethos:      map[string]int{},
+		skills:     map[string]int{},
+		skillHints: map[string]int{},
+		candidates: map[string]GuidanceCandidate{},
+	}
+}
+
+func (counts analysisCounts) incrementFinding(
+	finding Finding,
+	relevantSkillIDs map[string]bool,
+) {
+	if finding.SkillID != "" {
+		relevantSkillIDs[finding.SkillID] = true
+	}
+
+	incrementFindingCounts(
+		finding,
+		counts.checks,
+		counts.codes,
+		counts.unmapped,
+		counts.patterns,
+		counts.ethos,
+		counts.skills,
+		counts.candidates,
+	)
+}
+
+func (counts analysisCounts) incrementSkillHints(
+	hints []SkillHint,
+	relevantSkillIDs map[string]bool,
+	files []string,
+) {
+	incrementSkillHintCounts(hints, counts.skillHints, relevantSkillIDs, files)
+}
+
+func (counts analysisCounts) applyToAnalysis(
+	analysis *Analysis,
+	options AnalysisOptions,
+) {
+	analysis.TopChecks = topCountsLimit(counts.checks, options.MaxCounts)
+	analysis.TopCodes = topCountsLimit(counts.codes, options.MaxCounts)
+	analysis.UnmappedCodes = topCountsLimit(counts.unmapped, options.MaxCounts)
+	analysis.RepeatedPatterns = topCountsLimit(counts.patterns, options.MaxCounts)
+	analysis.TopEthosIDs = topCountsLimit(counts.ethos, options.MaxCounts)
+	analysis.TopSkillIDs = topCountsLimit(counts.skills, options.MaxCounts)
+	analysis.TopSkillHints = topCountsLimit(counts.skillHints, options.MaxCounts)
+	analysis.GuidanceCandidates = topGuidanceCandidatesLimit(
+		counts.candidates,
+		options.MaxGuidanceCandidates,
+	)
 }
 
 func loadTraceRecord(path string) (TraceRecord, error) {
@@ -201,8 +242,10 @@ func loadTraceRecord(path string) (TraceRecord, error) {
 	defer file.Close()
 
 	var record TraceRecord
-	if err := json.NewDecoder(file).Decode(&record); err != nil {
-		return TraceRecord{}, fmt.Errorf("decode lint trace %q: %w", path, err)
+
+	inlineErr0 := json.NewDecoder(file).Decode(&record)
+	if inlineErr0 != nil {
+		return TraceRecord{}, fmt.Errorf("decode lint trace %q: %w", path, inlineErr0)
 	}
 
 	return record, nil
@@ -404,7 +447,7 @@ func normalizedFilePattern(path string) string {
 	normalized := filepath.ToSlash(path)
 
 	parts := strings.Split(normalized, "/")
-	if len(parts) <= 2 {
+	if len(parts) <= compactPathMinimumParts {
 		return normalized
 	}
 
@@ -481,22 +524,37 @@ func EncodeAnalysis(writer io.Writer, analysis Analysis, format string) error {
 		encoder.SetEscapeHTML(false)
 		encoder.SetIndent("", "  ")
 
-		return encoder.Encode(analysis)
+		err := encoder.Encode(analysis)
+		if err != nil {
+			return fmt.Errorf("encode lint analysis JSON: %w", err)
+		}
+
+		return nil
 	case "toon":
 		_, err := fmt.Fprintln(writer, FormatAnalysisTOON(analysis))
+		if err != nil {
+			return fmt.Errorf("write lint analysis TOON: %w", err)
+		}
 
-		return err
+		return nil
 	default:
 		_, err := fmt.Fprintln(writer, FormatAnalysisHuman(analysis))
+		if err != nil {
+			return fmt.Errorf("write lint analysis text: %w", err)
+		}
 
-		return err
+		return nil
 	}
 }
 
 func FormatAnalysisHuman(analysis Analysis) string {
 	lines := []string{
 		"Lint trace analysis: " + analysis.Path,
-		fmt.Sprintf("Runs analyzed: %d of %d", analysis.RunsAnalyzed, analysis.RunsAvailable),
+		fmt.Sprintf(
+			"Runs analyzed: %d of %d",
+			analysis.RunsAnalyzed,
+			analysis.RunsAvailable,
+		),
 		fmt.Sprintf("Findings: %d", analysis.Findings),
 		"Top checks: " + countsHuman(analysis.TopChecks),
 		"Top tool codes: " + countsHuman(analysis.TopCodes),
@@ -564,7 +622,11 @@ func FormatAnalysisTOON(analysis Analysis) string {
 	lines = appendAnalysisCountsTOON(lines, "top_checks", analysis.TopChecks)
 	lines = appendAnalysisCountsTOON(lines, "top_codes", analysis.TopCodes)
 	lines = appendAnalysisCountsTOON(lines, "unmapped_codes", analysis.UnmappedCodes)
-	lines = appendAnalysisCountsTOON(lines, "repeated_patterns", analysis.RepeatedPatterns)
+	lines = appendAnalysisCountsTOON(
+		lines,
+		"repeated_patterns",
+		analysis.RepeatedPatterns,
+	)
 	lines = appendAnalysisCountsTOON(lines, "top_ethos_ids", analysis.TopEthosIDs)
 	lines = appendAnalysisCountsTOON(lines, "top_skill_ids", analysis.TopSkillIDs)
 	lines = appendAnalysisCountsTOON(lines, "top_skill_hints", analysis.TopSkillHints)
@@ -572,7 +634,8 @@ func FormatAnalysisTOON(analysis Analysis) string {
 	lines = append(
 		lines,
 		fmt.Sprintf(
-			"guidance_candidates[%d]{check_id,code,ethos_id,skill_id,count,blocking,message,advice}:",
+			"guidance_candidates[%d]"+
+				"{check_id,code,ethos_id,skill_id,count,blocking,message,advice}:",
 			len(analysis.GuidanceCandidates),
 		),
 	)

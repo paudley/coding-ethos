@@ -6,7 +6,6 @@ package policy
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,14 +13,19 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 var (
-	errNoCompiledPrinciples = errors.New("no principles found")
-	errNoCompiledPolicies   = errors.New("no enabled policies found")
+	errNoCompiledPrinciples = apperror.StaticError("no principles found")
+	errNoCompiledPolicies   = apperror.StaticError("no enabled policies found")
 )
 
-const defaultBundleBaseParts = 2
+const (
+	defaultBundleBaseParts = 2
+	maxReminderFrequency   = 100
+)
 
 type CompileOptions struct {
 	GeneratedAt string
@@ -32,17 +36,23 @@ type CompileOptions struct {
 	RepoConfig  string
 }
 
+type compileInputPayloads struct {
+	Primary           map[string]any
+	Config            map[string]any
+	SourceHashes      map[string]string
+	RepoConfig        map[string]any
+	ExpressionSources []expressionPolicySource
+}
+
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
-	primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, err := compileInputs(
-		options,
-	)
+	inputs, err := compileInputs(options)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
 
-	principles := compilePrinciples(primaryPayload)
+	principles := compilePrinciples(inputs.Primary)
 	if len(principles) == 0 {
 		return Bundle{}, Metadata{}, fmt.Errorf(
 			"compile principles: %w in %s",
@@ -52,10 +62,9 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	}
 
 	policies, err := compilePolicies(
-		primaryPayload,
-		configPayload,
-		repoConfigPayload,
-		expressionSources,
+		inputs.Config,
+		inputs.RepoConfig,
+		inputs.ExpressionSources,
 		principles,
 		sourceRoot(options.Config),
 	)
@@ -73,7 +82,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 
 	bundleID := options.BundleID
 	if bundleID == "" {
-		bundleID = defaultBundleID(options.Primary, options.Config, sourceHashes)
+		bundleID = defaultBundleID(options.Primary, options.Config, inputs.SourceHashes)
 	}
 
 	bundle := Bundle{
@@ -90,13 +99,13 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 				Repo:    options.RepoConfig,
 			},
 		},
-		Advice:     compileAdvice(primaryPayload, configPayload, principles),
+		Advice:     compileAdvice(inputs.Primary, inputs.Config, principles),
 		Principles: principles,
 		Policies:   policies,
-		Skills:     compileSkills(primaryPayload, principles, options.Primary),
+		Skills:     compileSkills(inputs.Primary, principles, options.Primary),
 		Dispatch:   compileDispatch(policies),
 		EvidenceMaps: compileEvidenceMaps(
-			configPayload,
+			inputs.Config,
 			principles,
 		),
 	}
@@ -106,7 +115,7 @@ func Compile(options CompileOptions) (Bundle, Metadata, error) {
 		return Bundle{}, Metadata{}, err
 	}
 
-	metadata, err := BuildMetadata(bundle, sourceHashes)
+	metadata, err := BuildMetadata(bundle, inputs.SourceHashes)
 	if err != nil {
 		return Bundle{}, Metadata{}, err
 	}
@@ -152,24 +161,15 @@ func sourceFileName(path, fallback string) string {
 	return name
 }
 
-func compileInputs(
-	options CompileOptions,
-) (
-	map[string]any,
-	map[string]any,
-	map[string]any,
-	[]expressionPolicySource,
-	map[string]string,
-	error,
-) {
+func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
 	configPayload, configHash, err := loadYAMLFile(options.Config)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
 	sourceHashes := map[string]string{
@@ -178,15 +178,15 @@ func compileInputs(
 	}
 	expressionSources := []expressionPolicySource{}
 
-	source, ok, err := expressionPolicySourceFromConfig(
+	source, found, err := expressionPolicySourceFromConfig(
 		configPayload,
 		sourceFileName(options.Config, "config.yaml"),
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
-	if ok {
+	if found {
 		expressionSources = append(expressionSources, source)
 	}
 
@@ -196,7 +196,7 @@ func compileInputs(
 		sourceHashes,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return compileInputPayloads{}, err
 	}
 
 	expressionSources = append(
@@ -210,31 +210,52 @@ func compileInputs(
 	var repoConfigPayload map[string]any
 
 	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
-		var repoConfigHash string
-
-		repoConfigPayload, repoConfigHash, err = loadYAMLFile(options.RepoConfig)
-		if err != nil {
-			return nil, nil, nil, nil, nil, err
-		}
-
-		sourceHashes[options.RepoConfig] = repoConfigHash
-
-		source, ok, err = expressionPolicySourceFromConfig(
-			repoConfigPayload,
-			sourceFileName(options.RepoConfig, "repo_config.yaml"),
+		repoConfigPayload, err = mergeRepoConfigInput(
+			options,
+			sourceHashes,
+			&expressionSources,
 		)
 		if err != nil {
-			return nil, nil, nil, nil, nil, err
-		}
-
-		if ok {
-			expressionSources = append(expressionSources, source)
+			return compileInputPayloads{}, err
 		}
 
 		configPayload = mergeMaps(configPayload, repoConfigPayload)
 	}
 
-	return primaryPayload, configPayload, repoConfigPayload, expressionSources, sourceHashes, nil
+	return compileInputPayloads{
+		Primary:           primaryPayload,
+		Config:            configPayload,
+		RepoConfig:        repoConfigPayload,
+		ExpressionSources: expressionSources,
+		SourceHashes:      sourceHashes,
+	}, nil
+}
+
+func mergeRepoConfigInput(
+	options CompileOptions,
+	sourceHashes map[string]string,
+	expressionSources *[]expressionPolicySource,
+) (map[string]any, error) {
+	repoConfigPayload, repoConfigHash, err := loadYAMLFile(options.RepoConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceHashes[options.RepoConfig] = repoConfigHash
+
+	source, found, err := expressionPolicySourceFromConfig(
+		repoConfigPayload,
+		sourceFileName(options.RepoConfig, "repo_config.yaml"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if found {
+		*expressionSources = append(*expressionSources, source)
+	}
+
+	return repoConfigPayload, nil
 }
 
 func mergeOptionalYAML(
@@ -277,14 +298,14 @@ func loadYAMLFile(path string) (map[string]any, string, error) {
 func compilePrinciples(payload map[string]any) map[string]Principle {
 	principles := map[string]Principle{}
 
-	rawPrinciples, ok := payload["principles"].([]any)
-	if !ok {
+	rawPrinciples, found := payload["principles"].([]any)
+	if !found {
 		return principles
 	}
 
 	for _, raw := range rawPrinciples {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
@@ -317,16 +338,16 @@ func compileSkills(
 	principles map[string]Principle,
 	sourceFile string,
 ) map[string]Skill {
-	rawSkills, ok := payload["skills"].([]any)
-	if !ok {
+	rawSkills, found := payload["skills"].([]any)
+	if !found {
 		return nil
 	}
 
 	skills := map[string]Skill{}
 
 	for _, raw := range rawSkills {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
@@ -336,12 +357,14 @@ func compileSkills(
 		}
 
 		skill := Skill{
-			ID:               skillID,
-			Title:            stringValue(item["title"]),
-			Description:      stringValue(item["description"]),
-			ShortHint:        stringValue(item["short_hint"]),
-			Focus:            stringValue(item["focus"]),
-			PrincipleIDs:     principleRefs(principles, stringSlice(item["principle_ids"])...),
+			ID:          skillID,
+			Title:       stringValue(item["title"]),
+			Description: stringValue(item["description"]),
+			ShortHint:   stringValue(item["short_hint"]),
+			Focus:       stringValue(item["focus"]),
+			PrincipleIDs: principleRefs(
+				principles,
+				stringSlice(item["principle_ids"])...),
 			TriggerTerms:     stringSlice(item["trigger_terms"]),
 			RemediationSteps: stringSlice(item["remediation_steps"]),
 			Source: SourceRef{
@@ -416,25 +439,27 @@ func deriveReminderConfigFromEthos(
 	ethos map[string]any,
 	principles map[string]Principle,
 ) ReminderConfig {
-	rawPrinciples, ok := ethos["principles"].([]any)
-	if !ok {
+	rawPrinciples, found := ethos["principles"].([]any)
+	if !found {
 		return ReminderConfig{}
 	}
 
 	items := []EthosReminder{}
 
 	for _, raw := range rawPrinciples {
-		item, ok := raw.(map[string]any)
-		if !ok {
+		item, found := raw.(map[string]any)
+		if !found {
 			continue
 		}
 
 		principleID := stringValue(item["id"])
-		if _, ok := principles[principleID]; !ok {
+		if _, found := principles[principleID]; !found {
 			continue
 		}
 
-		items = append(items, ethosAxiomsFromPrincipleItem(item, principles[principleID])...)
+		items = append(
+			items,
+			ethosAxiomsFromPrincipleItem(item, principles[principleID])...)
 	}
 
 	return ReminderConfig{
@@ -448,34 +473,9 @@ func ethosAxiomsFromPrincipleItem(
 	item map[string]any,
 	principle Principle,
 ) []EthosReminder {
-	rawAxioms, ok := item["axioms"].([]any)
-	if ok {
-		reminders := make([]EthosReminder, 0, len(rawAxioms))
-		for _, raw := range rawAxioms {
-			axiom, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-
-			reminder := EthosReminder{
-				PrincipleID: principle.ID,
-				Axiom:       stringValue(axiom["axiom"]),
-				Action:      stringValue(axiom["action"]),
-			}
-			if reminder.Axiom == "" {
-				continue
-			}
-
-			if reminder.Action == "" {
-				reminder.Action = principleReminderAction(principle)
-			}
-
-			reminders = append(reminders, reminder)
-		}
-
-		if len(reminders) > 0 {
-			return reminders
-		}
+	reminders := ethosAxiomsFromExplicitItems(item, principle)
+	if len(reminders) > 0 {
+		return reminders
 	}
 
 	quickRef := principle.QuickRef
@@ -509,6 +509,41 @@ func ethosAxiomsFromPrincipleItem(
 		Axiom:       axiom,
 		Action:      principleReminderAction(principle),
 	}}
+}
+
+func ethosAxiomsFromExplicitItems(
+	item map[string]any,
+	principle Principle,
+) []EthosReminder {
+	rawAxioms, found := item["axioms"].([]any)
+	if !found {
+		return nil
+	}
+
+	reminders := make([]EthosReminder, 0, len(rawAxioms))
+	for _, raw := range rawAxioms {
+		axiom, found := raw.(map[string]any)
+		if !found {
+			continue
+		}
+
+		reminder := EthosReminder{
+			PrincipleID: principle.ID,
+			Axiom:       stringValue(axiom["axiom"]),
+			Action:      stringValue(axiom["action"]),
+		}
+		if reminder.Axiom == "" {
+			continue
+		}
+
+		if reminder.Action == "" {
+			reminder.Action = principleReminderAction(principle)
+		}
+
+		reminders = append(reminders, reminder)
+	}
+
+	return reminders
 }
 
 func principleReminderAction(principle Principle) string {
@@ -557,7 +592,7 @@ func defaultReminderConfig() ReminderConfig {
 			},
 			{
 				PrincipleID: "static-analysis-is-the-first-line-of-defense",
-				Axiom:       "Static analysis is a gate, not background noise.",
+				Axiom:       "StaticError analysis is a gate, not background noise.",
 				Action:      "Treat the finding as a structural signal and fix the cause.",
 			},
 			{
@@ -588,8 +623,8 @@ func clampPercent(value int) int {
 		return 0
 	}
 
-	if value > 100 {
-		return 100
+	if value > maxReminderFrequency {
+		return maxReminderFrequency
 	}
 
 	return value
@@ -600,5 +635,5 @@ func frequencyToPercent(frequency int) int {
 		return defaultReminderAmbientFrequencyPercent
 	}
 
-	return 100 / frequency
+	return maxReminderFrequency / frequency
 }

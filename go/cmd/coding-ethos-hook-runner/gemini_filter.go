@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 func normalizeGeminiModalAllowlistPattern(pattern string) string {
@@ -157,7 +159,7 @@ func changedLinesForGeminiFile(path, scope string) map[int]struct{} {
 
 	switch scope {
 	case "branch":
-		cmd = exec.CommandContext(
+		cmd = safeexec.CommandContext(
 			context.Background(),
 			"git",
 			"diff",
@@ -168,7 +170,7 @@ func changedLinesForGeminiFile(path, scope string) map[int]struct{} {
 			path,
 		)
 	default:
-		cmd = exec.CommandContext(
+		cmd = safeexec.CommandContext(
 			context.Background(),
 			"git",
 			"diff",
@@ -201,7 +203,7 @@ func collectGeminiChangedLines(
 }
 
 func isGeminiAddedOrUntracked(path string) bool {
-	output, err := exec.CommandContext(
+	output, err := safeexec.CommandContext(
 		context.Background(),
 		"git",
 		"status",

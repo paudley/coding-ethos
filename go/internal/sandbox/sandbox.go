@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
@@ -37,13 +39,13 @@ const (
 )
 
 var (
-	ErrBackendUnavailable = errors.New("sandbox backend unavailable")
-	errBubblewrapNotFound = errors.New("bubblewrap executable not found")
-	errBubblewrapPlatform = errors.New(
+	ErrBackendUnavailable = apperror.StaticError("sandbox backend unavailable")
+	errBubblewrapNotFound = apperror.StaticError("bubblewrap executable not found")
+	errBubblewrapPlatform = apperror.StaticError(
 		"bubblewrap sandbox requires Linux namespace support",
 	)
-	errEmptySandboxPath  = errors.New("empty path")
-	errSandboxExecutable = errors.New("sandbox executable is required")
+	errEmptySandboxPath  = apperror.StaticError("empty path")
+	errSandboxExecutable = apperror.StaticError("sandbox executable is required")
 )
 
 func supportsBubblewrap() bool {
@@ -68,7 +70,10 @@ func cgroupRootCandidates() []string {
 		for line := range strings.SplitSeq(string(data), "\n") {
 			parts := strings.SplitN(line, ":", cgroupLineParts)
 			if len(parts) == cgroupLineParts && parts[0] == "0" {
-				candidates = append(candidates, filepath.Join("/sys/fs/cgroup", parts[2]))
+				candidates = append(
+					candidates,
+					filepath.Join("/sys/fs/cgroup", parts[2]),
+				)
 			}
 		}
 	}
@@ -252,7 +257,13 @@ func fallbackPlanForBackendError(
 
 	evidence.Reason = backendEvidenceReason(cause)
 	if mode == ModeRequired {
-		return Plan{Evidence: evidence}, fmt.Errorf("%w: %w", ErrBackendUnavailable, cause)
+		return Plan{
+				Evidence: evidence,
+			}, fmt.Errorf(
+				"%w: %w",
+				ErrBackendUnavailable,
+				cause,
+			)
 	}
 
 	return unsandboxedPlan(request, evidence), nil
@@ -276,7 +287,13 @@ func fallbackPlanForSeccompError(
 
 	evidence.Reason = "seccomp profile could not be opened"
 	if mode == ModeRequired {
-		return Plan{Evidence: evidence}, fmt.Errorf("%w: %w", ErrBackendUnavailable, cause)
+		return Plan{
+				Evidence: evidence,
+			}, fmt.Errorf(
+				"%w: %w",
+				ErrBackendUnavailable,
+				cause,
+			)
 	}
 
 	return unsandboxedPlan(request, evidence), nil
@@ -363,7 +380,9 @@ func bubblewrapArgs(request Request) []string {
 	args := baseBubblewrapArgs(request.Capabilities.RequiresNetwork)
 	args = append(args, sandboxParentDirArgs(repoRoot)...)
 	args = append(args, sandboxRepoArgs(repoRoot, gitDir)...)
-	args = append(args, sandboxReadBindArgs(repoRoot, request.Capabilities.ReadPaths)...)
+	args = append(
+		args,
+		sandboxReadBindArgs(repoRoot, request.Capabilities.ReadPaths)...)
 	args = append(
 		args,
 		sandboxWriteBindArgs(repoRoot, gitDir, request.Capabilities.WritePaths)...,
@@ -554,7 +573,9 @@ func normalizedBindPath(repoRoot, path string) string {
 }
 
 func normalizeSandboxRequest(request Request) (Request, error) {
-	repoRoot, err := absoluteSandboxPath(firstNonEmpty(request.RepoRoot, request.Cwd, "."))
+	repoRoot, err := absoluteSandboxPath(
+		firstNonEmpty(request.RepoRoot, request.Cwd, "."),
+	)
 	if err != nil {
 		return request, fmt.Errorf(
 			"sandbox repo root must resolve to an absolute path: %w",

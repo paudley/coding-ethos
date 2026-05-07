@@ -9,9 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestRunWithIORequiresCommandRootAndBundleRoot(t *testing.T) {
+	t.Parallel()
+
 	var (
 		stdout bytes.Buffer
 		stderr bytes.Buffer
@@ -39,9 +43,14 @@ func TestRunWithIORequiresCommandRootAndBundleRoot(t *testing.T) {
 }
 
 func TestRunUsesProcessArgs(t *testing.T) {
+	t.Parallel()
+	testlock.ProcessState(t, "coding-ethos-hook-log")
+
 	originalArgs := os.Args
 
-	t.Cleanup(func() { os.Args = originalArgs })
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
 
 	os.Args = []string{"coding-ethos-hook-log"}
 
@@ -52,29 +61,49 @@ func TestRunUsesProcessArgs(t *testing.T) {
 }
 
 func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 
 	bundleRoot := filepath.Join(root, "pre-commit")
-	if err := os.MkdirAll(bundleRoot, 0o755); err != nil {
-		t.Fatalf("create bundle root: %v", err)
+
+	inlineErr0 := os.MkdirAll(bundleRoot, 0o755)
+	if inlineErr0 != nil {
+		t.Fatalf("create bundle root: %v", inlineErr0)
 	}
 
 	gitPath := filepath.Join(root, "git")
-	if err := os.WriteFile(
+
+	inlineErr1 := os.WriteFile(
 		gitPath,
 		[]byte("#!/usr/bin/env sh\nexit 0\n"),
-		0o755,
-	); err != nil {
-		t.Fatalf("write fake git: %v", err)
+		0o600,
+	)
+	if inlineErr1 != nil {
+		t.Fatalf("write fake git: %v", inlineErr1)
+	}
+
+	inlineErr1 = os.Chmod(gitPath, 0o700)
+	if inlineErr1 != nil {
+		t.Fatalf("chmod fake git: %v", inlineErr1)
 	}
 
 	commandPath := filepath.Join(root, "hook")
-	if err := os.WriteFile(
+
+	inlineErr2 := os.WriteFile(
 		commandPath,
-		[]byte("#!/usr/bin/env sh\nprintf 'stdout text\\n'\nprintf 'stderr text\\n' >&2\n"),
-		0o755,
-	); err != nil {
-		t.Fatalf("write hook command: %v", err)
+		[]byte(
+			"#!/usr/bin/env sh\nprintf 'stdout text\\n'\nprintf 'stderr text\\n' >&2\n",
+		),
+		0o600,
+	)
+	if inlineErr2 != nil {
+		t.Fatalf("write hook command: %v", inlineErr2)
+	}
+
+	inlineErr2 = os.Chmod(commandPath, 0o700)
+	if inlineErr2 != nil {
+		t.Fatalf("chmod hook command: %v", inlineErr2)
 	}
 
 	var (

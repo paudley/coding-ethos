@@ -30,7 +30,11 @@ func Sync(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 
 		err = os.MkdirAll(filepath.Dir(absolutePath), generatedConfigDirMode)
 		if err != nil {
-			return nil, fmt.Errorf("create config dir %s: %w", filepath.Dir(absolutePath), err)
+			return nil, fmt.Errorf(
+				"create config dir %s: %w",
+				filepath.Dir(absolutePath),
+				err,
+			)
 		}
 
 		err = os.WriteFile(absolutePath, []byte(content), generatedConfigFileMode)

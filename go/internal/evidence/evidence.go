@@ -47,7 +47,7 @@ type Finding struct {
 	PolicyContext      string     `json:"policy_context,omitempty"`
 	EvidenceKeys       []string   `json:"evidence_keys,omitempty"`
 	PrincipleIDs       []string   `json:"principle_ids,omitempty"`
-	SourceSpan         SourceSpan `json:"source_span,omitempty"`
+	SourceSpan         SourceSpan `json:"source_span,omitzero"`
 	SchemaVersion      int        `json:"schema_version"`
 }
 
@@ -57,8 +57,8 @@ type Envelope struct {
 	SkillID       string     `json:"skill_id,omitempty"`
 	EvaluatorKind string     `json:"evaluator_kind,omitempty"`
 	EvidenceKeys  []string   `json:"evidence_keys,omitempty"`
-	SourceSpan    SourceSpan `json:"source_span,omitempty"`
-	Finding       Finding    `json:"finding,omitempty"`
+	SourceSpan    SourceSpan `json:"source_span,omitzero"`
+	Finding       Finding    `json:"finding,omitzero"`
 	SchemaVersion int        `json:"schema_version"`
 }
 
@@ -119,7 +119,8 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Finding {
 	findings := make([]Finding, 0, len(items))
 	for _, item := range items {
 		finding := FromDiagnostic(item)
-		if finding.Message == "" && finding.PolicyID == "" && finding.SourceSpan.Path == "" {
+		if finding.Message == "" && finding.PolicyID == "" &&
+			finding.SourceSpan.Path == "" {
 			continue
 		}
 
@@ -281,7 +282,10 @@ func SourceSpanFromDiagnostic(item diagnostics.Diagnostic) SourceSpan {
 func sourceSpanFromEvidence(evidence map[string]any) SourceSpan {
 	return SourceSpan{
 		Path: cleanPath(
-			firstNonEmpty(stringEvidence(evidence, "file"), stringEvidence(evidence, "path")),
+			firstNonEmpty(
+				stringEvidence(evidence, "file"),
+				stringEvidence(evidence, "path"),
+			),
 		),
 		Language:    stringEvidence(evidence, "language"),
 		SymbolName:  stringEvidence(evidence, "symbol_name"),
@@ -333,13 +337,13 @@ func cleanPath(path string) string {
 }
 
 func stringMetadata(metadata map[string]any, key string) string {
-	value, ok := metadata[key]
-	if !ok {
+	value, found := metadata[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -347,8 +351,8 @@ func stringMetadata(metadata map[string]any, key string) string {
 }
 
 func intMetadata(metadata map[string]any, key string) int {
-	value, ok := metadata[key]
-	if !ok {
+	value, found := metadata[key]
+	if !found {
 		return 0
 	}
 
@@ -356,13 +360,13 @@ func intMetadata(metadata map[string]any, key string) int {
 }
 
 func stringEvidence(evidence map[string]any, key string) string {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return ""
 	}
 
-	text, ok := value.(string)
-	if !ok {
+	text, found := value.(string)
+	if !found {
 		return ""
 	}
 
@@ -370,8 +374,8 @@ func stringEvidence(evidence map[string]any, key string) string {
 }
 
 func intEvidence(evidence map[string]any, key string) int {
-	value, ok := evidence[key]
-	if !ok {
+	value, found := evidence[key]
+	if !found {
 		return 0
 	}
 

@@ -113,7 +113,8 @@ func changedSymbolsForFile(
 			addedLines,
 			removedLines,
 		)
-		if change.Action != "unchanged" && symbolTouched(change, addedLines, removedLines) {
+		if change.Action != changeActionUnchanged &&
+			symbolTouched(change, addedLines, removedLines) {
 			changes = append(changes, change)
 		}
 	}
@@ -200,15 +201,15 @@ func changedSymbolInput(
 		currentNonBlankLines = countNonBlankLines(current.RawText)
 	}
 
-	action := "unchanged"
+	action := changeActionUnchanged
 
 	switch {
 	case !hasOriginal && hasCurrent:
-		action = "added"
+		action = changeActionAdded
 	case hasOriginal && !hasCurrent:
-		action = "deleted"
+		action = changeActionDeleted
 	case original.ContentHash != current.ContentHash:
-		action = "modified"
+		action = changeActionModified
 	}
 
 	return ChangedSymbolInput{
@@ -260,11 +261,15 @@ func symbolTouched(
 		return true
 	}
 
-	if change.Action == "added" {
-		return spanIntersectsLines(change.CurrentStartLine, change.CurrentEndLine, addedLines)
+	if change.Action == changeActionAdded {
+		return spanIntersectsLines(
+			change.CurrentStartLine,
+			change.CurrentEndLine,
+			addedLines,
+		)
 	}
 
-	if change.Action == "deleted" {
+	if change.Action == changeActionDeleted {
 		return spanIntersectsLines(
 			change.OriginalStartLine,
 			change.OriginalEndLine,
@@ -285,7 +290,9 @@ func changedSymbolLines(
 ) []int64 {
 	lines := []int64{}
 	if hasCurrent {
-		lines = append(lines, linesInSpan(current.StartLine, current.EndLine, addedLines)...)
+		lines = append(
+			lines,
+			linesInSpan(current.StartLine, current.EndLine, addedLines)...)
 	}
 
 	if hasOriginal {

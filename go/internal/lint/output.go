@@ -27,7 +27,8 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 		blocking := []int{}
 
 		for index, decision := range decisions {
-			if decision.Decision == "block" || decision.Severity == "block" {
+			if decision.Decision == decisionBlock ||
+				decision.Severity == decisionBlock {
 				blocking = append(blocking, index)
 			}
 		}
@@ -99,8 +100,8 @@ func blockingFindings(findings []Finding) []Finding {
 	blocking := []Finding{}
 
 	for _, finding := range findings {
-		if finding.Blocking || finding.Status == "fail" ||
-			finding.Severity == "block" || finding.Severity == "error" {
+		if finding.Blocking || finding.Status == statusFail ||
+			finding.Severity == decisionBlock || finding.Severity == severityError {
 			blocking = append(blocking, finding)
 		}
 	}

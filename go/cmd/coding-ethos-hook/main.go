@@ -4,13 +4,13 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -18,8 +18,8 @@ import (
 const blockedExitCode = 2
 
 var (
-	errBundleRequired = errors.New("--bundle is required")
-	errInvalidBundle  = errors.New("invalid policy bundle")
+	errBundleRequired = apperror.StaticError("--bundle is required")
+	errInvalidBundle  = apperror.StaticError("invalid policy bundle")
 )
 
 func main() {
@@ -79,8 +79,9 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	result.RuntimeMS = time.Since(startedAt).Milliseconds()
 
-	if err := hooks.WriteAgentHookTraceFromEnv(event, result); err != nil {
-		printErr(stderr, err)
+	inlineErr0 := hooks.WriteAgentHookTraceFromEnv(event, result)
+	if inlineErr0 != nil {
+		printErr(stderr, inlineErr0)
 
 		return 1
 	}

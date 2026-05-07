@@ -14,7 +14,7 @@ type Result struct {
 	TrackingID         string              `json:"trackingID,omitempty"`
 	Tool               string              `json:"tool,omitempty"`
 	Decisions          []policy.Decision   `json:"decisions,omitempty"`
-	Advice             policy.Advice       `json:"advice,omitempty"`
+	Advice             policy.Advice       `json:"advice,omitzero"`
 	RuntimeMS          int64               `json:"runtime_ms,omitempty"`
 }
 

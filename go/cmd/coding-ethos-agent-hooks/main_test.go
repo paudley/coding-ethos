@@ -48,12 +48,14 @@ func TestWriteJSONReportFormatsPayload(t *testing.T) {
 		t.Fatalf("create report: %v", err)
 	}
 
-	if err := writeJSONReport(file, map[string]string{"status": "valid"}); err != nil {
-		t.Fatalf("writeJSONReport returned error: %v", err)
+	inlineErr0 := writeJSONReport(file, map[string]string{"status": "valid"})
+	if inlineErr0 != nil {
+		t.Fatalf("writeJSONReport returned error: %v", inlineErr0)
 	}
 
-	if err := file.Close(); err != nil {
-		t.Fatalf("close report: %v", err)
+	inlineErr1 := file.Close()
+	if inlineErr1 != nil {
+		t.Fatalf("close report: %v", inlineErr1)
 	}
 
 	data, err := os.ReadFile(path)
@@ -67,6 +69,8 @@ func TestWriteJSONReportFormatsPayload(t *testing.T) {
 }
 
 func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
 
@@ -93,6 +97,8 @@ func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
 }
 
 func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
 
@@ -116,6 +122,8 @@ func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 }
 
 func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
+	t.Parallel()
+
 	if code := runCLI(nil); code != commandArgsOffset {
 		t.Fatalf("empty args exit code = %d, want %d", code, commandArgsOffset)
 	}
@@ -130,32 +138,12 @@ func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
 }
 
 func TestUsageWritesCommandSummary(t *testing.T) {
-	readFile, writeFile, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
+	t.Parallel()
 
-	original := os.Stderr
-	os.Stderr = writeFile
+	var output bytes.Buffer
+	usageTo(&output)
 
-	defer func() {
-		os.Stderr = original
-	}()
-
-	usage()
-
-	if err := writeFile.Close(); err != nil {
-		t.Fatalf("close pipe writer: %v", err)
-	}
-
-	buffer := make([]byte, 256)
-
-	n, readErr := readFile.Read(buffer)
-	if readErr != nil {
-		t.Fatalf("read usage pipe: %v", readErr)
-	}
-
-	if !strings.Contains(string(buffer[:n]), "coding-ethos-agent-hooks") {
-		t.Fatalf("usage output = %q", string(buffer[:n]))
+	if !strings.Contains(output.String(), "coding-ethos-agent-hooks") {
+		t.Fatalf("usage output = %q", output.String())
 	}
 }

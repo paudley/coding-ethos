@@ -19,7 +19,7 @@ const (
 )
 
 type Store struct {
-	db *sql.DB
+	database *sql.DB
 }
 
 type Stats struct {
@@ -48,66 +48,77 @@ func DefaultDBPath(root string) string {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
-		return nil, fmt.Errorf("create code intelligence store dir: %w", err)
+	inlineErr0 := os.MkdirAll(filepath.Dir(path), storeDirMode)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("create code intelligence store dir: %w", inlineErr0)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	database, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
 
-	store := &Store{db: db}
-	if err := store.configure(ctx); err != nil {
-		_ = db.Close()
+	store := &Store{database: database}
 
-		return nil, err
+	inlineErr1 := configureStore(ctx, database)
+	if inlineErr1 != nil {
+		_ = database.Close()
+
+		return nil, inlineErr1
 	}
 
-	if err := store.migrate(ctx); err != nil {
-		_ = db.Close()
+	inlineErr2 := migrateStore(ctx, database)
+	if inlineErr2 != nil {
+		_ = database.Close()
 
-		return nil, err
+		return nil, inlineErr2
 	}
 
 	return store, nil
 }
 
 func (store *Store) Close() error {
-	return store.db.Close()
+	err := store.database.Close()
+	if err != nil {
+		return fmt.Errorf("close code-intel store: %w", err)
+	}
+
+	return nil
 }
 
-func (store *Store) configure(ctx context.Context) error {
+func configureStore(ctx context.Context, database *sql.DB) error {
 	for _, statement := range []string{
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
 	} {
-		if _, err := store.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("configure code intelligence store: %w", err)
+		_, inlineErrA := database.ExecContext(ctx, statement)
+		if inlineErrA != nil {
+			return fmt.Errorf("configure code intelligence store: %w", inlineErrA)
 		}
 	}
 
 	return nil
 }
 
-func (store *Store) migrate(ctx context.Context) error {
-	for _, statement := range schemaStatements {
-		if _, err := store.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("migrate code intelligence store: %w", err)
+func migrateStore(ctx context.Context, database *sql.DB) error {
+	for _, statement := range schemaStatements() {
+		_, inlineErrB := database.ExecContext(ctx, statement)
+		if inlineErrB != nil {
+			return fmt.Errorf("migrate code intelligence store: %w", inlineErrB)
 		}
 	}
 
-	for table, columns := range migrationColumns {
+	for table, columns := range migrationColumns() {
 		for _, column := range columns {
-			err := store.ensureColumn(ctx, table, column)
+			err := ensureColumn(ctx, database, table, column)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	_, err := store.db.ExecContext(
+	_, err := database.ExecContext(
 		ctx,
 		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
 		schemaVersion,
@@ -119,12 +130,13 @@ func (store *Store) migrate(ctx context.Context) error {
 	return nil
 }
 
-func (store *Store) ensureColumn(
+func ensureColumn(
 	ctx context.Context,
+	database *sql.DB,
 	table string,
 	column migrationColumn,
 ) error {
-	exists, err := store.columnExists(ctx, table, column.Name)
+	exists, err := columnExists(ctx, database, table, column.Name)
 	if err != nil {
 		return err
 	}
@@ -133,21 +145,26 @@ func (store *Store) ensureColumn(
 		return nil
 	}
 
-	if _, err := store.db.ExecContext(
+	_, inlineErrC := database.ExecContext(
 		ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column.Name, column.Type),
-	); err != nil {
-		return fmt.Errorf("add %s.%s column: %w", table, column.Name, err)
+	)
+	if inlineErrC != nil {
+		return fmt.Errorf("add %s.%s column: %w", table, column.Name, inlineErrC)
 	}
 
 	return nil
 }
 
-func (store *Store) columnExists(
+func columnExists(
 	ctx context.Context,
+	database *sql.DB,
 	table, name string,
 ) (bool, error) {
-	rows, err := store.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	rows, err := database.QueryContext(
+		ctx,
+		fmt.Sprintf("PRAGMA table_info(%s)", table),
+	)
 	if err != nil {
 		return false, fmt.Errorf("inspect %s columns: %w", table, err)
 	}
@@ -173,8 +190,9 @@ func (store *Store) columnExists(
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("iterate %s column info: %w", table, err)
+	inlineErr3 := rows.Err()
+	if inlineErr3 != nil {
+		return false, fmt.Errorf("iterate %s column info: %w", table, inlineErr3)
 	}
 
 	return false, nil
@@ -183,33 +201,118 @@ func (store *Store) columnExists(
 func (store *Store) Stats(ctx context.Context) (Stats, error) {
 	stats := Stats{SchemaVersion: schemaVersion}
 
-	counts := map[string]*int{
-		"traces":               &stats.Traces,
-		"hook_events":          &stats.HookEvents,
-		"hook_decisions":       &stats.HookDecisions,
-		"hook_targets":         &stats.HookTargets,
-		"hook_reviews":         &stats.HookReviews,
-		"findings":             &stats.Findings,
-		"code_files":           &stats.Files,
-		"code_chunks":          &stats.CodeChunks,
-		"code_edges":           &stats.CodeEdges,
-		"ast_finding_links":    &stats.ASTFindingLinks,
-		"remediations":         &stats.Remediations,
-		"remediation_events":   &stats.RemediationEvents,
-		"sarif_runs":           &stats.SARIFRuns,
-		"sarif_results":        &stats.SARIFResults,
-		"remediation_outcomes": &stats.RemediationOutcomes,
-		"embedding_records":    &stats.EmbeddingRecords,
-		"code_intel_fts":       &stats.FtsRows,
-	}
-	for table, target := range counts {
-		row := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table)
+	for _, count := range statCountQueries(&stats) {
+		row := store.database.QueryRowContext(ctx, count.query)
 
-		err := row.Scan(target)
+		err := row.Scan(count.target)
 		if err != nil {
-			return Stats{}, fmt.Errorf("count %s: %w", table, err)
+			return Stats{}, fmt.Errorf("count %s: %w", count.name, err)
 		}
 	}
 
 	return stats, nil
+}
+
+type statCountQuery struct {
+	target *int
+	name   string
+	query  string
+}
+
+func statCountQueries(stats *Stats) []statCountQuery {
+	return append(
+		coreStatCountQueries(stats),
+		derivedStatCountQueries(stats)...,
+	)
+}
+
+func coreStatCountQueries(stats *Stats) []statCountQuery {
+	return []statCountQuery{
+		{name: "traces", query: "SELECT COUNT(*) FROM traces", target: &stats.Traces},
+		{
+			name:   "hook_events",
+			query:  "SELECT COUNT(*) FROM hook_events",
+			target: &stats.HookEvents,
+		},
+		{
+			name:   "hook_decisions",
+			query:  "SELECT COUNT(*) FROM hook_decisions",
+			target: &stats.HookDecisions,
+		},
+		{
+			name:   "hook_targets",
+			query:  "SELECT COUNT(*) FROM hook_targets",
+			target: &stats.HookTargets,
+		},
+		{
+			name:   "hook_reviews",
+			query:  "SELECT COUNT(*) FROM hook_reviews",
+			target: &stats.HookReviews,
+		},
+		{
+			name:   "findings",
+			query:  "SELECT COUNT(*) FROM findings",
+			target: &stats.Findings,
+		},
+		{
+			name:   "code_files",
+			query:  "SELECT COUNT(*) FROM code_files",
+			target: &stats.Files,
+		},
+		{
+			name:   "code_chunks",
+			query:  "SELECT COUNT(*) FROM code_chunks",
+			target: &stats.CodeChunks,
+		},
+	}
+}
+
+func derivedStatCountQueries(stats *Stats) []statCountQuery {
+	return []statCountQuery{
+		{
+			name:   "code_edges",
+			query:  "SELECT COUNT(*) FROM code_edges",
+			target: &stats.CodeEdges,
+		},
+		{
+			name:   "ast_finding_links",
+			query:  "SELECT COUNT(*) FROM ast_finding_links",
+			target: &stats.ASTFindingLinks,
+		},
+		{
+			name:   "remediations",
+			query:  "SELECT COUNT(*) FROM remediations",
+			target: &stats.Remediations,
+		},
+		{
+			name:   "remediation_events",
+			query:  "SELECT COUNT(*) FROM remediation_events",
+			target: &stats.RemediationEvents,
+		},
+		{
+			name:   "sarif_runs",
+			query:  "SELECT COUNT(*) FROM sarif_runs",
+			target: &stats.SARIFRuns,
+		},
+		{
+			name:   "sarif_results",
+			query:  "SELECT COUNT(*) FROM sarif_results",
+			target: &stats.SARIFResults,
+		},
+		{
+			name:   "remediation_outcomes",
+			query:  "SELECT COUNT(*) FROM remediation_outcomes",
+			target: &stats.RemediationOutcomes,
+		},
+		{
+			name:   "embedding_records",
+			query:  "SELECT COUNT(*) FROM embedding_records",
+			target: &stats.EmbeddingRecords,
+		},
+		{
+			name:   "code_intel_fts",
+			query:  "SELECT COUNT(*) FROM code_intel_fts",
+			target: &stats.FtsRows,
+		},
+	}
 }

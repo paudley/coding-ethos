@@ -5,8 +5,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -27,24 +27,24 @@ type GeminiBatchPlan struct {
 }
 
 type GeminiCheckPlan struct {
-	ThinkingBudget    *int              `json:"thinkingBudget,omitempty"`
+	ThinkingBudget    *int              `json:"thinking_budget,omitempty"`
 	Name              string            `json:"name"`
-	FileScope         string            `json:"fileScope"`
+	FileScope         string            `json:"file_scope"`
 	Model             string            `json:"model"`
-	ServiceTier       string            `json:"serviceTier"`
-	SelectedFiles     []string          `json:"selectedFiles"`
-	IncludedFiles     []string          `json:"includedFiles"`
-	SkippedLargeFiles []string          `json:"skippedLargeFiles"`
+	ServiceTier       string            `json:"service_tier"`
+	SelectedFiles     []string          `json:"selected_files"`
+	IncludedFiles     []string          `json:"included_files"`
+	SkippedLargeFiles []string          `json:"skipped_large_files"`
 	Batches           []GeminiBatchPlan `json:"batches"`
-	BatchSize         int               `json:"batchSize"`
-	MaxFileSizeKB     int               `json:"maxFileSizeKb"`
-	CacheEnabled      bool              `json:"cacheEnabled"`
+	BatchSize         int               `json:"batch_size"`
+	MaxFileSizeKB     int               `json:"max_file_size_kb"`
+	CacheEnabled      bool              `json:"cache_enabled"`
 }
 
 type GeminiExecutionPlan struct {
 	Scope  string            `json:"scope"`
 	Checks []GeminiCheckPlan `json:"checks"`
-	DryRun bool              `json:"dryRun"`
+	DryRun bool              `json:"dry_run"`
 }
 
 type geminiPreparedBatch struct {
@@ -63,11 +63,11 @@ type geminiPreparedCheck struct {
 }
 
 type geminiRequest struct {
-	GenerationConfig geminiGenerationConfig `json:"generationConfig,omitempty"`
-	CachedContent    string                 `json:"cachedContent,omitempty"`
-	ServiceTier      string                 `json:"serviceTier,omitempty"`
-	Contents         []geminiContent        `json:"contents"`
-	SafetySettings   []geminiSafetySetting  `json:"safetySettings,omitempty"`
+	GenerationConfig geminiGenerationConfig
+	CachedContent    string
+	ServiceTier      string
+	Contents         []geminiContent
+	SafetySettings   []geminiSafetySetting
 }
 
 type geminiContent struct {
@@ -80,12 +80,12 @@ type geminiPart struct {
 }
 
 type geminiGenerationConfig struct {
-	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
-	ResponseMIMEType string                `json:"responseMimeType,omitempty"`
+	ThinkingConfig   *geminiThinkingConfig
+	ResponseMIMEType string
 }
 
 type geminiThinkingConfig struct {
-	ThinkingBudget int `json:"thinkingBudget"`
+	ThinkingBudget int
 }
 
 type geminiSafetySetting struct {
@@ -94,26 +94,28 @@ type geminiSafetySetting struct {
 }
 
 type geminiGenerateResponse struct {
-	PromptFeedback map[string]any `json:"promptFeedback"`
-	Candidates     []struct {
-		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"content"`
-	} `json:"candidates"`
+	PromptFeedback map[string]any
+	Candidates     []geminiCandidate `json:"candidates"`
+}
+
+type geminiCandidate struct {
+	Content geminiCandidateContent `json:"content"`
+}
+
+type geminiCandidateContent struct {
+	Parts []geminiPart `json:"parts"`
 }
 
 type geminiCachedContentCreateRequest struct {
-	Model       string          `json:"model"`
-	DisplayName string          `json:"displayName,omitempty"`
-	TTL         string          `json:"ttl,omitempty"`
-	Contents    []geminiContent `json:"contents,omitempty"`
+	Model       string
+	DisplayName string
+	TTL         string
+	Contents    []geminiContent
 }
 
 type geminiCachedContentResponse struct {
-	Name       string `json:"name"`
-	ExpireTime string `json:"expireTime"`
+	Name       string
+	ExpireTime string
 }
 
 type geminiAPIErrorResponse struct {
@@ -132,7 +134,7 @@ type geminiViolation struct {
 	Severity     string `json:"severity"`
 	File         string `json:"file"`
 	Message      string `json:"message"`
-	EthosSection string `json:"ethosSection"`
+	EthosSection string `json:"ethos_section"`
 	Line         int    `json:"line"`
 }
 
@@ -143,16 +145,16 @@ type geminiBatchOutcome struct {
 }
 
 type geminiFilteredViolations struct {
-	InDiff      []geminiViolation `json:"inDiff"`
-	PreExisting []geminiViolation `json:"preExisting"`
+	InDiff      []geminiViolation `json:"in_diff"`
+	PreExisting []geminiViolation `json:"pre_existing"`
 }
 
 type geminiCheckOutcome struct {
 	Filtered         geminiFilteredViolations `json:"filtered"`
 	Batches          []geminiBatchOutcome     `json:"batches"`
 	Plan             GeminiCheckPlan          `json:"plan"`
-	BatchErrors      int                      `json:"batchErrors"`
-	BatchesCompleted int                      `json:"batchesCompleted"`
+	BatchErrors      int                      `json:"batch_errors"`
+	BatchesCompleted int                      `json:"batches_completed"`
 }
 
 type geminiReportSummary struct {
@@ -207,19 +209,138 @@ type geminiResponseCache struct {
 }
 
 type geminiCacheEntry struct {
-	CreatedAt string `json:"createdAt"`
+	CreatedAt string `json:"created_at"`
 	Text      string `json:"text"`
 }
 
 type geminiExplicitCacheEntry struct {
 	Name       string `json:"name"`
-	ExpireTime string `json:"expireTime"`
+	ExpireTime string `json:"expire_time"`
 }
 
 type geminiExplicitCacheSeed struct {
 	Model   string
 	Content string
 	Cache   geminiResponseCache
+}
+
+func (request geminiRequest) MarshalJSON() ([]byte, error) {
+	fields := map[string]any{
+		"contents": request.Contents,
+	}
+	if request.CachedContent != "" {
+		fields["cachedContent"] = request.CachedContent
+	}
+
+	if request.ServiceTier != "" {
+		fields["serviceTier"] = request.ServiceTier
+	}
+
+	if request.GenerationConfig.ResponseMIMEType != "" ||
+		request.GenerationConfig.ThinkingConfig != nil {
+		fields["generationConfig"] = request.GenerationConfig
+	}
+
+	if len(request.SafetySettings) > 0 {
+		fields["safetySettings"] = request.SafetySettings
+	}
+
+	return marshalGeminiJSONFields("request", fields)
+}
+
+func (config geminiGenerationConfig) MarshalJSON() ([]byte, error) {
+	fields := map[string]any{}
+	if config.ThinkingConfig != nil {
+		fields["thinkingConfig"] = config.ThinkingConfig
+	}
+
+	if config.ResponseMIMEType != "" {
+		fields["responseMimeType"] = config.ResponseMIMEType
+	}
+
+	return marshalGeminiJSONFields("generation config", fields)
+}
+
+func (config geminiThinkingConfig) MarshalJSON() ([]byte, error) {
+	return marshalGeminiJSONFields("thinking config", map[string]any{
+		"thinkingBudget": config.ThinkingBudget,
+	})
+}
+
+func (request geminiCachedContentCreateRequest) MarshalJSON() ([]byte, error) {
+	fields := map[string]any{"model": request.Model}
+	if request.DisplayName != "" {
+		fields["displayName"] = request.DisplayName
+	}
+
+	if request.TTL != "" {
+		fields["ttl"] = request.TTL
+	}
+
+	if len(request.Contents) > 0 {
+		fields["contents"] = request.Contents
+	}
+
+	return marshalGeminiJSONFields("cached content request", fields)
+}
+
+func (response *geminiGenerateResponse) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeGeminiJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode Gemini response: %w", err)
+	}
+
+	err = decodeGeminiJSONFieldsInto(fields, []geminiJSONFieldTarget{
+		{key: "promptFeedback", target: &response.PromptFeedback},
+		{key: "candidates", target: &response.Candidates},
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (response *geminiCachedContentResponse) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeGeminiJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode Gemini cached content response: %w", err)
+	}
+
+	return decodeGeminiJSONFieldsInto(fields, []geminiJSONFieldTarget{
+		{key: "name", target: &response.Name},
+		{key: "expireTime", target: &response.ExpireTime},
+	})
+}
+
+func (violation *geminiViolation) UnmarshalJSON(payload []byte) error {
+	fields, err := decodeGeminiJSONFields(payload)
+	if err != nil {
+		return fmt.Errorf("decode Gemini violation: %w", err)
+	}
+
+	err = decodeGeminiJSONFieldsInto(fields, []geminiJSONFieldTarget{
+		{key: "severity", target: &violation.Severity},
+		{key: "file", target: &violation.File},
+		{key: "message", target: &violation.Message},
+		{key: "ethosSection", target: &violation.EthosSection},
+		{key: "ethos_section", target: &violation.EthosSection},
+		{key: "line", target: &violation.Line},
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func marshalGeminiJSONFields(kind string, fields map[string]any) ([]byte, error) {
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Gemini %s: %w", kind, err)
+	}
+
+	return payload, nil
 }
 
 func parseGeminiCLIOptions(args []string) (GeminiCLIOptions, error) {
@@ -233,16 +354,16 @@ func parseGeminiCLIOptions(args []string) (GeminiCLIOptions, error) {
 		case arg == "--full-check":
 			options.FullCheck = true
 		case arg == "--check-type":
-			if argIndex+1 >= len(args) {
+			value, nextIndex, err := nextGeminiCLIArg(args, argIndex)
+			if err != nil {
 				return options, errCheckTypeValue
 			}
 
-			argIndex++
-			options.CheckType = strings.TrimSpace(args[argIndex])
+			options.CheckType = strings.TrimSpace(value)
+			argIndex = nextIndex
 		case strings.HasPrefix(arg, "--check-type="):
-			options.CheckType = strings.TrimSpace(
-				strings.SplitN(arg, "=", splitNParts)[1],
-			)
+			_, value, _ := strings.Cut(arg, "=")
+			options.CheckType = strings.TrimSpace(value)
 		case strings.HasPrefix(arg, "--"):
 			return options, fmt.Errorf("%w: %s", errUnknownFlag, arg)
 		default:
@@ -251,6 +372,15 @@ func parseGeminiCLIOptions(args []string) (GeminiCLIOptions, error) {
 	}
 
 	return options, nil
+}
+
+func nextGeminiCLIArg(args []string, argIndex int) (string, int, error) {
+	nextIndex := argIndex + 1
+	if nextIndex >= len(args) {
+		return "", 0, errCheckTypeValue
+	}
+
+	return args[nextIndex], nextIndex, nil
 }
 
 func checkNamesFromPromptPack(
@@ -338,7 +468,7 @@ func matchesGeminiShebang(
 	path string,
 	selector GeminiFileSelector,
 ) (bool, error) {
-	data, err := os.ReadFile(path)
+	data, err := readRootedFile(path)
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -417,7 +547,7 @@ func changedFilesForGeminiFullCheck() ([]string, error) {
 
 	var files []string
 
-	for _, item := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for item := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
 		item = strings.TrimSpace(item)
 		if item != "" {
 			files = append(files, item)
@@ -623,7 +753,7 @@ func geminiCheckFileStatus(
 		return geminiCheckFileSelection{}, nil
 	}
 
-	info, err := os.Stat(path)
+	info, err := statRootedFile(path)
 	if err != nil {
 		return geminiCheckFileSelection{}, fmt.Errorf("stat %s: %w", path, err)
 	}
@@ -656,12 +786,11 @@ func buildGeminiCheckBatches(
 ) ([]geminiPreparedBatch, []GeminiBatchPlan) {
 	batchPlans := make([]GeminiBatchPlan, 0)
 	batches := make([]geminiPreparedBatch, 0)
+	size := batchSize(spec)
 
-	for batchStart := 0; batchStart < len(formattedContents); batchStart += spec.BatchSize {
+	for batchStart := 0; batchStart < len(formattedContents); batchStart += size {
 		end := batchStart + spec.BatchSize
-		if end > len(formattedContents) {
-			end = len(formattedContents)
-		}
+		end = min(end, len(formattedContents))
 
 		batchFiles := append([]string{}, included[batchStart:end]...)
 		batchContent := strings.Join(formattedContents[batchStart:end], "\n")
@@ -680,4 +809,8 @@ func buildGeminiCheckBatches(
 	}
 
 	return batches, batchPlans
+}
+
+func batchSize(spec GeminiPromptCheckSpec) int {
+	return spec.BatchSize
 }

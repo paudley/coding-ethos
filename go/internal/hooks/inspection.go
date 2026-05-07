@@ -23,8 +23,24 @@ type InspectionRoute struct {
 	Rewrite       bool
 }
 
-func collectInspectionContext(event Event) InspectionContext {
-	adminApproved := adminApprovedForEvent(event)
+func collectInspectionContext(
+	event Event,
+	adminApprovedForCWD func(string) bool,
+) InspectionContext {
+	return CollectInspectionContext(event, adminApprovedForCWD)
+}
+
+// CollectInspectionContext annotates a hook event with provider, admin, and
+// routing context before policy evaluation.
+func CollectInspectionContext(
+	event Event,
+	adminApprovedForCWD func(string) bool,
+) InspectionContext {
+	if adminApprovedForCWD == nil {
+		adminApprovedForCWD = defaultAdminApprovedForCWD
+	}
+
+	adminApproved := adminApprovedForCWD(event.Cwd)
 
 	return InspectionContext{
 		Event:              event,
@@ -47,12 +63,24 @@ func decideInspection(
 	policyDecisions []policy.Decision,
 	route InspectionRoute,
 ) InspectionDecision {
+	return DecideInspection(bundle, ctx, policyDecisions, route)
+}
+
+// DecideInspection merges policy decisions and routing decisions into one hook
+// decision, clearing rewrites when a block or unsupported provider applies.
+func DecideInspection(
+	bundle policy.Bundle,
+	ctx InspectionContext,
+	policyDecisions []policy.Decision,
+	route InspectionRoute,
+) InspectionDecision {
 	decisions := append([]policy.Decision(nil), policyDecisions...)
 	if route.Rewrite && ctx.Provider == "" && resultStatus(decisions) != statusBlocked {
 		decisions = append(decisions, routeBlockDecision(
 			bundle,
 			providerRewritePolicyID,
-			"Hook rewrites require a known agent provider so the updated input can be emitted with the correct provider schema.",
+			"Hook rewrites require a known agent provider so the updated input "+
+				"can be emitted with the correct provider schema.",
 		))
 	}
 

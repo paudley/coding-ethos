@@ -18,8 +18,10 @@ func TestEvaluateFileSyntaxBlocksInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 
 	path := filepath.Join(dir, "bad.yaml")
-	if err := os.WriteFile(path, []byte("key: [unterminated\n"), 0o600); err != nil {
-		t.Fatalf("write test file: %v", err)
+
+	inlineErr0 := os.WriteFile(path, []byte("key: [unterminated\n"), 0o600)
+	if inlineErr0 != nil {
+		t.Fatalf("write test file: %v", inlineErr0)
 	}
 
 	decisions, err := EvaluateFileSyntax(syntaxPolicy(), Context{Files: []string{path}})

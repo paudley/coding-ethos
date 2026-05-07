@@ -63,14 +63,14 @@ func providerGitPayload(provider, cwd, command string) string {
 			"tool_name": "Bash",
 			"tool_input": {"command": %q}
 		}`, cwd, command)
-	case "codex":
+	case providerCodex:
 		return fmt.Sprintf(`{
-			"provider": "codex",
+			"provider": %q,
 			"event": "PreToolUse",
 			"cwd": %q,
 			"tool": "exec_command",
 			"input": {"command": %q}
-		}`, cwd, command)
+		}`, providerCodex, cwd, command)
 	case "gemini-cli":
 		return fmt.Sprintf(`{
 			"provider": "gemini-cli",

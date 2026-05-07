@@ -19,12 +19,14 @@ func TestGitSafetyInternalParsesCommitMessagesAndGlobalArgs(t *testing.T) {
 	repo := t.TempDir()
 
 	messageFile := filepath.Join(repo, "message.txt")
-	if err := os.WriteFile(
+
+	inlineErr0 := os.WriteFile(
 		messageFile,
 		[]byte("fix(core): from file\n\nbody\n"),
 		0o600,
-	); err != nil {
-		t.Fatalf("write message file: %v", err)
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write message file: %v", inlineErr0)
 	}
 
 	messages, err := commitMessagesFromArgv(
@@ -101,7 +103,9 @@ func TestGitSafetyInternalBranchAndFlagHelpers(t *testing.T) {
 		t.Fatal("merge shortcut helper misclassified strategy")
 	}
 
-	checkoutTargets := protectedCheckoutTargets([]string{"git", "checkout", "origin/main"})
+	checkoutTargets := protectedCheckoutTargets(
+		[]string{"git", "checkout", "origin/main"},
+	)
 	if !slices.Contains(checkoutTargets, "origin/main") {
 		t.Fatalf("checkout targets = %#v", checkoutTargets)
 	}
@@ -113,49 +117,6 @@ func TestGitSafetyInternalBranchAndFlagHelpers(t *testing.T) {
 
 	if protectedCheckoutTargets([]string{"git", "status"}) != nil {
 		t.Fatal("non-checkout command should not have protected checkout targets")
-	}
-}
-
-func TestLineLimitHelpersApplyOnlyToCodeGrowthPolicies(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		ext   string
-		file  string
-		lines int64
-		want  bool
-	}{
-		{name: "python over limit", ext: ".py", file: "pkg/app.py", lines: 1001, want: true},
-		{name: "python at limit", ext: ".py", file: "pkg/app.py", lines: 1000},
-		{name: "go over limit", ext: ".go", file: "pkg/app.go", lines: 2001, want: true},
-		{name: "shell over limit", ext: ".sh", file: "tools/hook.sh", lines: 501, want: true},
-		{
-			name:  "scripts path over limit",
-			ext:   ".txt",
-			file:  "scripts/generated",
-			lines: 501,
-			want:  true,
-		},
-		{name: "yaml excluded", ext: ".yml", file: ".github/workflows/ci.yml", lines: 5000},
-		{name: "sql excluded", ext: ".sql", file: "queries/report.sql", lines: 5000},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := fileExceedsLineLimit(test.ext, test.file, test.lines); got != test.want {
-				t.Fatalf(
-					"fileExceedsLineLimit(%q, %q, %d) = %v, want %v",
-					test.ext,
-					test.file,
-					test.lines,
-					got,
-					test.want,
-				)
-			}
-		})
 	}
 }
 
@@ -187,7 +148,10 @@ func TestShellMalformedAndEvidenceHelpers(t *testing.T) {
 
 	policyDef := policy.Policy{ID: "shell.malformed", DefaultSeverity: "block"}
 
-	decisions, err := EvaluateShellMalformedCommand(policyDef, Context{Command: "if then"})
+	decisions, err := EvaluateShellMalformedCommand(
+		policyDef,
+		Context{Command: "if then"},
+	)
 	if err != nil {
 		t.Fatalf("malformed command evaluation: %v", err)
 	}
@@ -234,12 +198,16 @@ func TestRegistryRequireReportsMissingEvaluator(t *testing.T) {
 	t.Parallel()
 
 	registry := NewRegistry()
-	if _, err := registry.Require("missing.evaluator"); err == nil {
+
+	_, inlineErrAutoA := registry.Require("missing.evaluator")
+	if inlineErrAutoA == nil {
 		t.Fatal("missing evaluator should return an error")
 	}
 
 	registry = DefaultRegistry()
-	if _, err := registry.Require("cel.expression"); err != nil {
-		t.Fatalf("registered evaluator should resolve: %v", err)
+
+	_, inlineErrA := registry.Require("cel.expression")
+	if inlineErrA != nil {
+		t.Fatalf("registered evaluator should resolve: %v", inlineErrA)
 	}
 }

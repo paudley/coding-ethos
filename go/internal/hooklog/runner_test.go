@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: MIT
 
-package hooklog
+package hooklog_test
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	. "blackcat.ca/coding-ethos/go/internal/hooklog"
 )
 
 func TestRunWritesHookLogsAndMetadata(t *testing.T) {
@@ -75,9 +77,14 @@ func fakeGit(t *testing.T) string {
 
 	script := "#!/usr/bin/env bash\nexit 0\n"
 
-	err := os.WriteFile(path, []byte(script), 0o755)
+	err := os.WriteFile(path, []byte(script), 0o600)
 	if err != nil {
 		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
 	}
 
 	return path
@@ -86,7 +93,7 @@ func fakeGit(t *testing.T) string {
 func commandThatPrints(t *testing.T) []string {
 	t.Helper()
 
-	return []string{os.Args[0], "-test.run=TestHelperProcess", "--", "print"}
+	return []string{os.Args[0], "-test.run=^$", "--", "print"}
 }
 
 func assertFileContains(t *testing.T, path, substring string) {
@@ -102,12 +109,11 @@ func assertFileContains(t *testing.T, path, substring string) {
 	}
 }
 
-func TestHelperProcess(t *testing.T) {
+func TestMain(m *testing.M) {
 	if len(os.Args) < 3 || os.Args[len(os.Args)-1] != "print" {
-		return
+		os.Exit(m.Run())
 	}
 
-	t.Log("helper process")
 	os.Stdout.WriteString("hello stdout\n")
 	os.Stderr.WriteString("hello stderr\n")
 	os.Exit(0)

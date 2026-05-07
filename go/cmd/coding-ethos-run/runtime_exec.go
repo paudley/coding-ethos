@@ -4,36 +4,59 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-var (
-	runtimeRunTool      = runTool
-	runtimeExecTool     = execTool
-	runtimeExecPath     = execPath
-	runtimeExecExternal = execExternal
-)
+type runtimeExecutor interface {
+	runTool(paths runtimePaths, tool string, args ...string)
+	execTool(paths runtimePaths, tool string, args ...string)
+	execPath(path string, args ...string)
+	execExternal(path string, args ...string)
+}
+
+type defaultRuntimeExecutor struct{}
 
 func requirePolicyBundle(paths runtimePaths) {
 	requireRuntimeFile(paths.PolicyBundle, "compiled policy bundle")
 }
 
 func requireRuntimeFile(path, description string) {
-	info, err := os.Stat(path)
+	info, err := statPathWithRoot(path)
 	if err != nil || info.IsDir() {
 		runtimeFailure(fmt.Sprintf("missing %s: %s", description, path))
 	}
 }
 
 func requireRuntimeBinary(path, description string) {
-	info, err := os.Stat(path)
+	info, err := statPathWithRoot(path)
 	if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-		runtimeFailure(fmt.Sprintf("missing or non-executable %s: %s", description, path))
+		runtimeFailure(
+			fmt.Sprintf("missing or non-executable %s: %s", description, path),
+		)
 	}
+}
+
+func statPathWithRoot(path string) (os.FileInfo, error) {
+	rootPath := filepath.Dir(path)
+
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", rootPath, err)
+	}
+	defer root.Close()
+
+	info, err := root.Stat(filepath.Base(path))
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	return info, nil
 }
 
 func runtimeFailure(problem string) {
@@ -48,7 +71,7 @@ func runtimeFailure(problem string) {
 }
 
 func gitOutput(realGit, dir string, args ...string) (string, error) {
-	command := exec.Command(realGit, args...)
+	command := safeexec.CommandContext(context.Background(), realGit, args...)
 	if dir != "" {
 		command.Dir = dir
 	}
@@ -61,10 +84,26 @@ func gitOutput(realGit, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func runTool(paths runtimePaths, tool string, args ...string) {
+func runtimeRunTool(paths runtimePaths, tool string, args ...string) {
+	paths.executor().runTool(paths, tool, args...)
+}
+
+func runtimeExecTool(paths runtimePaths, tool string, args ...string) {
+	paths.executor().execTool(paths, tool, args...)
+}
+
+func runtimeExecPath(paths runtimePaths, path string, args ...string) {
+	paths.executor().execPath(path, args...)
+}
+
+func runtimeExecExternal(paths runtimePaths, path string, args ...string) {
+	paths.executor().execExternal(path, args...)
+}
+
+func (defaultRuntimeExecutor) runTool(paths runtimePaths, tool string, args ...string) {
 	toolPath := filepath.Join(paths.BinDir, tool)
 	requireRuntimeBinary(toolPath, tool)
-	command := exec.Command(toolPath, args...)
+	command := safeexec.CommandContext(context.Background(), toolPath, args...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 
@@ -76,18 +115,22 @@ func runTool(paths runtimePaths, tool string, args ...string) {
 	}
 }
 
-func execTool(paths runtimePaths, tool string, args ...string) {
+func (executor defaultRuntimeExecutor) execTool(
+	paths runtimePaths,
+	tool string,
+	args ...string,
+) {
 	toolPath := filepath.Join(paths.BinDir, tool)
 	requireRuntimeBinary(toolPath, tool)
-	execPath(toolPath, args...)
+	executor.execPath(toolPath, args...)
 }
 
-func execPath(path string, args ...string) {
-	execExternal(path, args...)
+func (executor defaultRuntimeExecutor) execPath(path string, args ...string) {
+	executor.execExternal(path, args...)
 }
 
-func execExternal(path string, args ...string) {
-	command := exec.Command(path, args...)
+func (defaultRuntimeExecutor) execExternal(path string, args ...string) {
+	command := safeexec.CommandContext(context.Background(), path, args...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 
