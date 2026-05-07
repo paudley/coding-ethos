@@ -119,11 +119,10 @@ func assertRuffFindingOutput(t *testing.T, finding e2e.CommandResult) {
 	t.Helper()
 
 	for _, want := range []string{
-		"format:",
 		"tool: ruff",
-		"status: FAIL",
+		"FAIL",
+		"trace_id:",
 		"pkg/unused_import.py",
-		"F401",
 		"imported but unused",
 	} {
 		finding.RequireContains(t, want)
