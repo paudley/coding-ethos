@@ -144,7 +144,7 @@ running real commands, and inspecting real output and repository state.
   - [x] Convert tool bootstrap and managed-toolchain manifest failures into
         structured diagnostics with manifest paths, tool names, and repair
         commands.
-  - [ ] Verify `go-vet` failures produce parser-backed diagnostics in
+  - [x] Verify `go-vet` failures produce parser-backed diagnostics in
         TOON/JSON/SARIF and retain bounded raw output only as supporting
         evidence.
   - [ ] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
