@@ -148,7 +148,7 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 }
 
 func FormatLintResultTOON(result lint.Result) string {
-	findings := lint.OutputDiagnostics(result)
+	findings := userFacingDiagnostics(result)
 	status := lint.ResultStatus(result)
 
 	lines := toonHeaderLines(result, status)
@@ -291,7 +291,7 @@ func compactSkillHintMessage(message string) string {
 }
 
 func FormatLintResultHuman(result lint.Result) string {
-	findings := lint.OutputDiagnostics(result)
+	findings := userFacingDiagnostics(result)
 
 	lines := []string{
 		"coding-ethos lint result: " + lint.ResultStatus(result),
@@ -338,6 +338,50 @@ func FormatLintResultHuman(result lint.Result) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func userFacingDiagnostics(result lint.Result) []diagnostics.Diagnostic {
+	diagnostics := lint.OutputDiagnostics(result)
+	actionable := actionableDiagnostics(diagnostics)
+
+	if len(actionable) > 0 {
+		return actionable
+	}
+
+	if len(result.Diagnostics) > 0 && diagnosticsAreRecords(result.Diagnostics) &&
+		len(result.Findings) > 0 {
+		findings := lint.FindingDiagnostics(result.Findings, result.Blocked())
+		if len(findings) > 0 {
+			return findings
+		}
+	}
+
+	return diagnostics
+}
+
+func actionableDiagnostics(
+	items []diagnostics.Diagnostic,
+) []diagnostics.Diagnostic {
+	actionable := make([]diagnostics.Diagnostic, 0, len(items))
+	for _, item := range items {
+		if item.Severity == "record" {
+			continue
+		}
+
+		actionable = append(actionable, item)
+	}
+
+	return actionable
+}
+
+func diagnosticsAreRecords(items []diagnostics.Diagnostic) bool {
+	for _, item := range items {
+		if item.Severity != "record" {
+			return false
+		}
+	}
+
+	return len(items) > 0
 }
 
 func lintResultTitle(result lint.Result) string {

@@ -173,7 +173,7 @@ running real commands, and inspecting real output and repository state.
   The default policy should require at least 80% coverage where coverage is
   enforced, expose warning bands below preferred thresholds, and allow CEL to
   promote below-threshold coverage records into blocking findings.
-- [ ] Suppress routine pass/noise lines in pre-commit gate output while
+- [x] Suppress routine pass/noise lines in pre-commit gate output while
   preserving actionable failure context. For example, passing Go package
   lines such as `ok ...` should not appear in user-facing hook reports, but
   failing package names, test names, file/line locations, panic text, and
