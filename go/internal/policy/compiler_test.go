@@ -1492,7 +1492,7 @@ filesystem:
     paths: [.runtime/]
 generated_config:
   freshness:
-    check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
+    repo_config: /tmp/repo/coding-ethos.repo.yaml
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1555,13 +1555,12 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"custom.lock",
 	)
 	assertFirstOptionString(t, bundle, "pytest.gate", "command", "uv")
-	assertIndexedOptionString(
+	assertOptionString(
 		t,
 		bundle,
 		"generated_config.freshness",
-		"command",
-		2,
-		"/tmp/repo",
+		"repo_config",
+		"/tmp/repo/coding-ethos.repo.yaml",
 	)
 	assertForbiddenStringsExpression(t, bundle)
 	assertFirstOptionString(
@@ -1586,6 +1585,21 @@ func assertFirstOptionString(
 	t.Helper()
 
 	assertIndexedOptionString(t, bundle, policyID, optionName, 0, want)
+}
+
+func assertOptionString(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	optionName string,
+	want string,
+) {
+	t.Helper()
+
+	value := optionString(t, bundle.Policies[policyID].Evaluators[0], optionName)
+	if value != want {
+		t.Fatalf("%s %s option = %q, want %q", policyID, optionName, value, want)
+	}
 }
 
 func assertIndexedOptionString(

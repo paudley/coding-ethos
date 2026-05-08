@@ -19,6 +19,14 @@ type (
 	proposedFileChangeInputs   = []celexpr.ProposedFileChangeInput
 )
 
+const (
+	bashExtension   = ".bash"
+	goExtension     = ".go"
+	pythonExtension = ".py"
+	shellExtension  = ".sh"
+	scriptsPrefix   = "scripts/"
+)
+
 func EvaluateCELExpression(
 	policyDef policy.Policy,
 	context Context,
@@ -229,7 +237,16 @@ func proposedFileMatchesLineLimit(file celexpr.ProposedFileChangeInput) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
 		file.LineCountGrows &&
-		file.NonBlankLineCountGrows
+		file.NonBlankLineCountGrows &&
+		proposedFileExceedsLineLimit(file)
+}
+
+func proposedFileExceedsLineLimit(file celexpr.ProposedFileChangeInput) bool {
+	return (file.Ext == pythonExtension && file.ProposedLineCount > 1000) ||
+		(file.Ext == goExtension && file.ProposedLineCount > 2000) ||
+		((file.Ext == shellExtension || file.Ext == bashExtension ||
+			strings.HasPrefix(file.File, scriptsPrefix)) &&
+			file.ProposedLineCount > 500)
 }
 
 func firstLineLimitChangedFile(
@@ -257,8 +274,17 @@ func firstLineLimitChangedFile(
 func changedFileMatchesLineLimit(file celexpr.FileChangeInput) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
+		changedFileExceedsLineLimit(file) &&
 		(file.OriginalLineCount < 0 || file.LineCount > file.OriginalLineCount) &&
 		(file.OriginalNonBlankLineCount < 0 || file.NonBlankLineCountGrows)
+}
+
+func changedFileExceedsLineLimit(file celexpr.FileChangeInput) bool {
+	return (file.Ext == pythonExtension && file.LineCount > 1000) ||
+		(file.Ext == goExtension && file.LineCount > 2000) ||
+		((file.Ext == shellExtension || file.Ext == bashExtension ||
+			strings.HasPrefix(file.File, scriptsPrefix)) &&
+			file.LineCount > 500)
 }
 
 func firstGrowingProposedSymbol(

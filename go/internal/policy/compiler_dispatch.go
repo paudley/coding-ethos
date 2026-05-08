@@ -8,27 +8,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
-
-func defaultGeneratedConfigCheckCommand(configSourceRoot string) []string {
-	return []string{
-		"uv",
-		"run",
-		"--project",
-		configSourceRoot,
-		"python",
-		filepath.Join(configSourceRoot, "main.py"),
-		"--repo",
-		".",
-		"--check-tool-configs",
-	}
-}
 
 func addPolicyIfEnabled(
 	policies map[string]Policy,

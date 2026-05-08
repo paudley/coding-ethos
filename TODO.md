@@ -115,6 +115,26 @@ running real commands, and inspecting real output and repository state.
   produce structured diagnostics that can become SARIF results and CEL inputs;
   they must not fall back to generic exit-code-only failures except for runner
   failures where no tool output exists.
+  - [x] Emit file-specific diagnostics for generated-config freshness drift so
+        stale repo-root tool configs appear as SARIF/CEL-addressable findings
+        instead of pathless external-command failures.
+  - [ ] Emit file-specific diagnostics for generated Gemini prompt pack drift.
+  - [ ] Emit provider/skill-path diagnostics for generated agent skill surface
+        drift.
+  - [ ] Convert tool bootstrap and managed-toolchain manifest failures into
+        structured diagnostics with manifest paths, tool names, and repair
+        commands.
+  - [ ] Verify `go-vet` failures produce parser-backed diagnostics in
+        TOON/JSON/SARIF and retain bounded raw output only as supporting
+        evidence.
+  - [ ] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
+        changed files as structured diagnostics rather than generic group
+        failures.
+  - [x] Add an end-to-end scenario that runs the real generated-config drift
+        path and asserts trace plus SARIF evidence contains each stale file.
+  - [ ] Restore or replace the temporary GitHub ruleset drift from PR #64:
+        code-owner review, Copilot review, and Scorecard code-scanning
+        requirements need durable policy decisions before the next release.
 - [x] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
   output should be captured as structured evidence, flow through normalized
   diagnostics when thresholds fail, be eligible for SARIF output, and expose

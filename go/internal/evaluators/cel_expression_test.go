@@ -609,6 +609,77 @@ func TestEvaluateRepoLineLimitDiagnosticNamesOffendingFileInMultiFileRun(t *test
 	}
 }
 
+func TestEvaluateRepoLineLimitDoesNotReportGrowingMarkdownDoc(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+
+	docsDir := filepath.Join(repo, "docs")
+
+	inlineErr11 := os.MkdirAll(docsDir, 0o700)
+	if inlineErr11 != nil {
+		t.Fatalf("create docs dir: %v", inlineErr11)
+	}
+
+	docFile := filepath.Join(docsDir, "SOURCE_DOCS.md")
+	largeFile := filepath.Join(repo, "large.py")
+	initialLarge := pythonFileWithLines(1001)
+
+	inlineErr12 := os.WriteFile(docFile, []byte("# Source Docs\n"), 0o600)
+	if inlineErr12 != nil {
+		t.Fatalf("write docs source: %v", inlineErr12)
+	}
+
+	inlineErr13 := os.WriteFile(largeFile, []byte(initialLarge), 0o600)
+	if inlineErr13 != nil {
+		t.Fatalf("write large source: %v", inlineErr13)
+	}
+
+	runCELGit(t, repo, "add", "docs/SOURCE_DOCS.md", "large.py")
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	inlineErr14 := os.WriteFile(
+		docFile,
+		[]byte("# Source Docs\n\n- Added docs entry.\n"),
+		0o600,
+	)
+	if inlineErr14 != nil {
+		t.Fatalf("rewrite docs source: %v", inlineErr14)
+	}
+
+	inlineErr15 := os.WriteFile(
+		largeFile,
+		[]byte(initialLarge+"value_1001 = 1001\n"),
+		0o600,
+	)
+	if inlineErr15 != nil {
+		t.Fatalf("rewrite large source: %v", inlineErr15)
+	}
+
+	runCELGit(t, repo, "add", "docs/SOURCE_DOCS.md", "large.py")
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"docs/SOURCE_DOCS.md", "large.py"},
+		Scope:            "staged",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != lineLimitPolicy ||
+		decisions[0].Diagnostics[0].File != "large.py" {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
 func TestEvaluateRepoLineLimitDoesNotApplyToSQLFiles(t *testing.T) {
 	t.Parallel()
 
@@ -620,17 +691,17 @@ func TestEvaluateRepoLineLimitDoesNotApplyToSQLFiles(t *testing.T) {
 
 	initial := strings.Repeat("SELECT 1;\n", 1200)
 
-	inlineErr11 := os.WriteFile(sourceFile, []byte(initial), 0o600)
-	if inlineErr11 != nil {
-		t.Fatalf("write initial source: %v", inlineErr11)
+	inlineErr16 := os.WriteFile(sourceFile, []byte(initial), 0o600)
+	if inlineErr16 != nil {
+		t.Fatalf("write initial source: %v", inlineErr16)
 	}
 
 	runCELGit(t, repo, "add", "query.sql")
 	runCELGit(t, repo, "commit", "-m", "initial")
 
-	inlineErr12 := os.WriteFile(sourceFile, []byte(initial+"SELECT 2;\n"), 0o600)
-	if inlineErr12 != nil {
-		t.Fatalf("rewrite source: %v", inlineErr12)
+	inlineErr17 := os.WriteFile(sourceFile, []byte(initial+"SELECT 2;\n"), 0o600)
+	if inlineErr17 != nil {
+		t.Fatalf("rewrite source: %v", inlineErr17)
 	}
 
 	runCELGit(t, repo, "add", "query.sql")

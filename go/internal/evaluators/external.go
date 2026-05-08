@@ -9,16 +9,22 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 var errExternalCommandEmpty = apperror.StaticError(
 	"external evaluator command is empty",
+)
+
+var errGeneratedConfigEthosRootRequired = apperror.StaticError(
+	"evaluate generated config freshness: ethos_root option is required",
 )
 
 const defaultExternalCommandTimeout = 10 * time.Minute
@@ -94,12 +100,46 @@ func EvaluateGeneratedConfigFreshness(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	decisions, err := EvaluateExternalCommand(policyDef, context)
-	if err != nil {
-		return nil, fmt.Errorf("evaluate generated config freshness: %w", err)
+	ethosRoot := stringOption(context.EvaluatorOptions, "ethos_root", "")
+	if ethosRoot == "" {
+		return nil, errGeneratedConfigEthosRootRequired
 	}
 
-	return decisions, nil
+	repoRoot := context.Cwd
+	if repoRoot == "" {
+		repoRoot = stringOption(context.EvaluatorOptions, "repo", ".")
+	}
+
+	repoConfig := stringOption(context.EvaluatorOptions, "repo_config", "")
+
+	mismatched, err := toolconfigs.Check(ethosRoot, repoRoot, repoConfig)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"evaluate generated config freshness: check generated tool configs: %w",
+			err,
+		)
+	}
+
+	if len(mismatched) == 0 {
+		return nil, nil
+	}
+
+	decision := policy.NewDecision("block", policyDef)
+	decision.Evidence = map[string]any{
+		"ethos_root":       ethosRoot,
+		"repo":             repoRoot,
+		"repo_config":      repoConfig,
+		"mismatched_paths": append([]string(nil), mismatched...),
+		"tool":             "generated-config",
+	}
+	decision.Diagnostics = generatedConfigFreshnessDiagnostics(
+		policyDef,
+		decision,
+		repoRoot,
+		mismatched,
+	)
+
+	return []policy.Decision{decision}, nil
 }
 
 func EvaluatePytestGate(
@@ -112,4 +152,56 @@ func EvaluatePytestGate(
 	}
 
 	return decisions, nil
+}
+
+func generatedConfigFreshnessDiagnostics(
+	policyDef policy.Policy,
+	decision policy.Decision,
+	repoRoot string,
+	paths []string,
+) []diagnostics.Diagnostic {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(paths))
+	for _, path := range paths {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:         "generated-config",
+			File:         externalRepoRelativePath(repoRoot, path),
+			Severity:     decision.Severity,
+			Code:         "generated-config-drift",
+			PolicyID:     decision.PolicyID,
+			Message:      "Generated tool config is out of sync.",
+			Advice:       policyDef.Suggestion,
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+			Metadata: map[string]any{
+				"generated_config_path": path,
+			},
+		})
+	}
+
+	return diagnostics.Dedupe(items)
+}
+
+func externalRepoRelativePath(cwd, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	if cwd != "" {
+		relative, err := filepath.Rel(cwd, path)
+		if err == nil && relative != "." &&
+			relative != ".." &&
+			!strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return filepath.ToSlash(relative)
+		}
+	}
+
+	return filepath.ToSlash(filepath.Clean(path))
 }

@@ -203,6 +203,84 @@ func TestManagedRuffCaptureProducesJSONDiagnostics(t *testing.T) {
 	}
 }
 
+func TestGeneratedConfigDriftProducesTraceAndSARIF(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	bundlePath := generatedConfigDriftBundle(t, repo)
+	repo.ResetTraces(t)
+	repo.Touch(t, "ruff.toml", "# intentionally stale generated config\n")
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--bundle",
+		bundlePath,
+		"--sarif",
+		"--scope",
+		"smoke",
+		"--cwd",
+		repo.Root,
+	)
+	result.RequireExit(t, 2)
+
+	for _, want := range []string{
+		`"ruleId": "generated_config.freshness"`,
+		`"uri": "ruff.toml"`,
+		`"code": "generated-config-drift"`,
+		`"source_tool": "generated-config"`,
+	} {
+		result.RequireContains(t, want)
+	}
+
+	trace := repo.SingleTrace(t)
+	for _, want := range []string{
+		`"scope": "smoke"`,
+		`"policy_id": "generated_config.freshness"`,
+		`"tool": "generated-config"`,
+		`"file": "ruff.toml"`,
+		`"code": "generated-config-drift"`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("generated config trace missing %q:\n%s", want, trace)
+		}
+	}
+}
+
+func generatedConfigDriftBundle(t *testing.T, repo e2e.Repo) string {
+	t.Helper()
+
+	repoConfigPath := filepath.Join(t.TempDir(), "repo_config.yaml")
+
+	err := os.WriteFile(
+		repoConfigPath,
+		[]byte("python:\n  pytest_gate:\n    enabled: false\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write generated-config e2e repo config: %v", err)
+	}
+
+	outDir := filepath.Join(t.TempDir(), "policy")
+	compile := repo.CodingEthosRun(
+		t,
+		"policy",
+		"compile",
+		"--out-dir",
+		outDir,
+		"--primary",
+		filepath.Join(repo.EthosRoot, "coding_ethos.yml"),
+		"--repo-ethos",
+		filepath.Join(repo.EthosRoot, "repo_ethos.yml"),
+		"--config",
+		filepath.Join(repo.EthosRoot, "config.yaml"),
+		"--repo-config",
+		repoConfigPath,
+	)
+	compile.RequireExit(t, 0)
+
+	return filepath.Join(outDir, "policy-bundle.json")
+}
+
 func TestManagedRuffCaptureKeepsRealToolFailureEvidence(t *testing.T) {
 	t.Parallel()
 

@@ -820,12 +820,6 @@ func addGeneratedConfigPolicy(
 		return
 	}
 
-	command := stringSliceAt(
-		config,
-		[]string{"generated_config", "freshness", "check_command"},
-		defaultGeneratedConfigCheckCommand(configSourceRoot),
-	)
-
 	policies["generated_config.freshness"] = Policy{
 		ID:       "generated_config.freshness",
 		Category: "config",
@@ -854,10 +848,32 @@ func addGeneratedConfigPolicy(
 			{
 				Kind:    "config",
 				Name:    "generated_config.freshness",
-				Options: map[string]any{"command": command},
+				Options: generatedConfigFreshnessOptions(config, configSourceRoot),
 			},
 		},
 	}
+}
+
+func generatedConfigFreshnessOptions(
+	config map[string]any,
+	configSourceRoot string,
+) map[string]any {
+	options := map[string]any{
+		"ethos_root": configSourceRoot,
+		"repo":       ".",
+	}
+
+	repoConfig := stringAt(
+		config,
+		"generated_config",
+		"freshness",
+		"repo_config",
+	)
+	if repoConfig != "" {
+		options["repo_config"] = repoConfig
+	}
+
+	return options
 }
 
 func firstPresentValue(values map[string]any, keys ...string) any {
