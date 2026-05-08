@@ -924,6 +924,55 @@ policy:
 	}
 }
 
+func TestCompileAppendsRepoEthosPrincipleExpressionPolicies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoEthosPath := filepath.Join(dir, "repo_ethos.yml")
+
+	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoEthosPath, `
+principles:
+  overrides:
+    testing-as-specification:
+      policy:
+        expressions:
+          - id: testing.repo_ethos_expression
+            scope: lint
+            severity: block
+            mode: block
+            tools: [go-test]
+            lint_scopes: [staged, files]
+            when: coverage.exists(item, item.tool == "go-test" && item.percent < 80.0)
+            message: Go coverage is below the repo floor.
+            advice: Add meaningful tests before committing.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:   primaryPath,
+		RepoEthos: repoEthosPath,
+		Config:    configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef := bundle.Policies["testing.repo_ethos_expression"]
+	if policyDef.Source.File != "repo_ethos.yml" ||
+		policyDef.Source.Path !=
+			"principles.overrides[testing-as-specification].policy.expressions[0]" {
+		t.Fatalf("repo ethos expression source = %#v", policyDef.Source)
+	}
+
+	if len(policyDef.PrincipleIDs) != 1 ||
+		policyDef.PrincipleIDs[0] != "testing-as-specification" {
+		t.Fatalf("repo ethos expression principles = %#v", policyDef.PrincipleIDs)
+	}
+}
+
 func TestCompileRejectsExpressionPolicyShadowing(t *testing.T) {
 	t.Parallel()
 

@@ -43,9 +43,23 @@ func gitLocalEnvName(name string) bool {
 }
 
 func gitExecutionEnv(adminApproved bool) []string {
-	env := cleanGitLocalEnv(os.Environ())
+	env := cleanCodingEthosExecutionEnv(cleanGitLocalEnv(os.Environ()))
 	if adminApproved {
 		env = append(env, adminApprovedEnv+"=1")
+	}
+
+	return env
+}
+
+func cleanCodingEthosExecutionEnv(source []string) []string {
+	env := make([]string, 0, len(source))
+	for _, item := range source {
+		name, _, found := strings.Cut(item, "=")
+		if found && name == "CODING_ETHOS_EXEC_STACK" {
+			continue
+		}
+
+		env = append(env, item)
 	}
 
 	return env

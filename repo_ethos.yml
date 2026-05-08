@@ -199,6 +199,71 @@ principles:
         Extend the tests whenever output structure, merge semantics, or CLI
         flow
         changes.
+      policy:
+        expressions:
+          - id: testing.go_coverage_floor
+            description: >-
+              Block coding-ethos commits and pushes when managed go-test
+              total suite coverage drops below the project floor.
+            scope: lint
+            severity: block
+            mode: block
+            protected: true
+            allow_override: false
+            allow_severity_weaken: false
+            tools:
+              - go-test
+            lint_scopes:
+              - files
+              - staged
+            principle_ids:
+              - testing-as-specification
+              - functional-testing-is-the-proof
+            skill_id: lint-remediation
+            when: >-
+              coverage.exists(item,
+                item.tool == "go-test" &&
+                item.total &&
+                item.percent < 80.0 &&
+                (item.package == "" ||
+                item.package.startsWith("blackcat.ca/coding-ethos/go"))
+              )
+            message: Go test coverage is below the required 80% floor.
+            advice: >-
+              Add meaningful tests or refactor under-tested code before
+              committing or pushing; do not weaken the coverage gate.
+          - id: testing.go_coverage_goal
+            description: >-
+              Warn when managed go-test total suite or per-file coverage is
+              below the coding-ethos 90% quality goal.
+            scope: lint
+            severity: warn
+            mode: warn
+            protected: true
+            allow_override: false
+            allow_severity_weaken: false
+            tools:
+              - go-test
+            lint_scopes:
+              - files
+              - staged
+            principle_ids:
+              - testing-as-specification
+              - functional-testing-is-the-proof
+            skill_id: lint-remediation
+            when: >-
+              coverage.exists(item,
+                item.tool == "go-test" &&
+                (item.total || item.code == "coverage-file") &&
+                item.percent < 90.0 &&
+                (item.package == "" ||
+                item.package.startsWith("blackcat.ca/coding-ethos/go"))
+              )
+            message: Go test coverage is below the 90% project goal.
+            advice: >-
+              Add meaningful total-suite and per-file Go coverage; warnings
+              are visible review feedback even when the 80% blocking floor
+              still passes.
   additional:
     - id: generated-files-are-derived-artifacts
       order: 900

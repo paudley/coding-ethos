@@ -11,10 +11,13 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/lintcli"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 const ciArtifactDirMode = 0o755
+
+var errCISARIFLintFailed = apperror.StaticError("ci-sarif lint failed")
 
 func runCISARIF(paths runtimePaths, args []string) error {
 	provider, err := parseCISARIFProvider(args)
@@ -52,14 +55,7 @@ func runCISARIF(paths runtimePaths, args []string) error {
 	}
 	defer output.close()
 
-	command := safeexec.Command(
-		filepath.Join(paths.BinDir, "coding-ethos-lint"),
-		ciSARIFLintArgs(paths, repoRoot, filesPath)...,
-	)
-	command.Stdout = output.file
-	command.Stderr = os.Stderr
-	command.Stdin = os.Stdin
-	runErr := command.Run()
+	code := lintcli.RunWithWriter(ciSARIFLintArgs(paths, repoRoot, filesPath), output.file)
 
 	closeErr := output.file.Close()
 	if closeErr != nil {
@@ -73,8 +69,8 @@ func runCISARIF(paths runtimePaths, args []string) error {
 		return err
 	}
 
-	if runErr != nil {
-		return fmt.Errorf("run ci-sarif hook: %w", runErr)
+	if code != 0 {
+		return fmt.Errorf("%w: status %d", errCISARIFLintFailed, code)
 	}
 
 	return nil

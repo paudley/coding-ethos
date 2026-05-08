@@ -20,6 +20,20 @@ def _build_target_line(makefile: str) -> str:
     return next(line for line in makefile.splitlines() if line.startswith("build:"))
 
 
+def _target_block(makefile: str, target: str) -> str:
+    lines = makefile.splitlines()
+    start = next(
+        index for index, line in enumerate(lines) if line.startswith(f"{target}:")
+    )
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line and not line.startswith(("\t", " ", "#")) and ":" in line:
+            end = index
+            break
+    return "\n".join(lines[start:end])
+
+
 def _assert_build_target_order(build_line: str) -> None:
     prerequisites = (
         "sync-consumer-tool-configs",
@@ -56,6 +70,10 @@ def test_build_syncs_consumer_generated_outputs_before_runtime_install() -> None
     assert "_sync-consumer-agent-skills" in build_line
     assert "_sync-git-hooks" in build_line
     assert "_sync-parent-hook-runtime" in build_line
+    assert "go-test-binaries-install" not in build_line
+    assert "go-e2e-test-binary-install" not in build_line
+    assert "GO_TEST_BIN" not in makefile
+    assert "GO_E2E_TEST_BINARY" not in makefile
     _assert_build_target_order(build_line)
 
 
@@ -66,10 +84,10 @@ def test_tool_config_sync_uses_go_policy_command() -> None:
         "sync-tool-configs",
         "sync-consumer-tool-configs",
         "fix-configs",
-        "check-tool-configs",
     ):
         assert f"{target}: ensure-go" in makefile
         assert f"{target}: ensure-uv" not in lines
+    assert "check-tool-configs: ensure-hook-runtime" in makefile
 
     tool_config_block = makefile.split("sync-gemini-prompts:", maxsplit=1)[0].split(
         "sync-tool-configs:",
@@ -78,13 +96,18 @@ def test_tool_config_sync_uses_go_policy_command() -> None:
     assert '"$(GO)" run ./cmd/coding-ethos-policy' in tool_config_block
     assert "--sync-tool-configs" not in tool_config_block
     assert "--check-tool-configs" not in tool_config_block
+    check_tool_config_block = makefile.split("sync-gemini-prompts:", maxsplit=1)[
+        0
+    ].split("check-tool-configs:", maxsplit=1)[1]
+    assert '"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy"' in check_tool_config_block
+    assert '"$(GO)" run ./cmd/coding-ethos-policy' not in check_tool_config_block
 
 
 def test_gemini_prompt_sync_uses_go_policy_command() -> None:
     makefile, lines = _makefile_lines()
 
     assert "sync-gemini-prompts: ensure-go" in makefile
-    assert "check-gemini-prompts: ensure-go" in makefile
+    assert "check-gemini-prompts: ensure-hook-runtime" in makefile
     assert "sync-gemini-prompts: ensure-uv" not in lines
     assert "check-gemini-prompts: ensure-uv" not in lines
 
@@ -95,6 +118,12 @@ def test_gemini_prompt_sync_uses_go_policy_command() -> None:
     assert '"$(GO)" run ./cmd/coding-ethos-policy' in gemini_block
     assert "--sync-gemini-prompts" not in gemini_block
     assert "--check-gemini-prompts" not in gemini_block
+    check_gemini_block = makefile.split("_sync-agent-skills:", maxsplit=1)[0].split(
+        "check-gemini-prompts:",
+        maxsplit=1,
+    )[1]
+    assert '"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy"' in check_gemini_block
+    assert '"$(GO)" run ./cmd/coding-ethos-policy' not in check_gemini_block
 
 
 def test_agent_skill_sync_is_not_user_facing() -> None:
@@ -128,7 +157,7 @@ def test_agent_skill_sync_uses_go_policy_command() -> None:
     makefile, lines = _makefile_lines()
 
     assert "_sync-agent-skills: ensure-go" in makefile
-    assert "check-agent-skills: ensure-go" in makefile
+    assert "check-agent-skills: ensure-hook-runtime" in makefile
     assert "_sync-agent-skills: ensure-uv" not in lines
     assert "check-agent-skills: ensure-uv" not in lines
 
@@ -139,3 +168,58 @@ def test_agent_skill_sync_uses_go_policy_command() -> None:
     assert '"$(GO)" run ./cmd/coding-ethos-policy' in skill_block
     assert "--sync-agent-skills" not in skill_block
     assert "--check-agent-skills" not in skill_block
+    check_skill_block = makefile.split("build:", maxsplit=1)[0].split(
+        "check-agent-skills:",
+        maxsplit=1,
+    )[1]
+    assert '"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy"' in check_skill_block
+    assert '"$(GO)" run ./cmd/coding-ethos-policy' not in check_skill_block
+
+
+def test_tests_and_diagnostics_do_not_build_or_install_runtime() -> None:
+    makefile, _lines = _makefile_lines()
+
+    forbidden_prerequisites = (
+        "build",
+        "go-tools-install",
+        "managed-toolchain-install",
+        "go-hook-runner-install",
+        "policy-bundle-install",
+        "_sync-git-hooks",
+        "_sync-parent-hook-runtime",
+        "sync-consumer-tool-configs",
+    )
+    for target in (
+        "check",
+        "check-tool-configs",
+        "check-gemini-prompts",
+        "check-agent-skills",
+        "go-test",
+        "lint",
+        "fix",
+        "format",
+        "go-e2e-test",
+        "go-tools-coverage",
+    ):
+        target_line = next(
+            line for line in makefile.splitlines() if line.startswith(f"{target}:")
+        )
+        for prerequisite in forbidden_prerequisites:
+            assert prerequisite not in target_line
+        target_body = _target_block(makefile, target)
+        for command in (
+            '"$(GO)" run',
+            '"$(GO)" build',
+            "$(GO) run",
+            "$(GO) build",
+            "install-git-hooks",
+            "install-managed-toolchain",
+            "sync-tool-configs",
+            "sync-agent-skills",
+            "cp ",
+        ):
+            assert command not in target_body
+
+    assert "go-tools-smoke" not in next(
+        line for line in makefile.splitlines() if line.startswith("check:")
+    )

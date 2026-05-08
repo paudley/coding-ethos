@@ -1,0 +1,145 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: MIT
+
+package codeintel_test
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	. "blackcat.ca/coding-ethos/go/internal/codeintel"
+)
+
+func TestRecordProxyEventMaintainsSessionLedger(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	event := agentproxy.ProviderEvent{
+		ID:            "event-1",
+		SessionID:     "session-1",
+		Kind:          agentproxy.EventFileRead,
+		Provider:      "codex",
+		Model:         "gpt-test",
+		RecordedAtUTC: time.Date(2026, 5, 6, 1, 2, 3, 0, time.UTC),
+		RepoRoot:      "/repo",
+		TargetPath:    "pkg/app.py",
+		TraceID:       "trace-1",
+		TrackingID:    "track-1",
+		Direction:     agentproxy.DirectionLocal,
+		PayloadKind:   agentproxy.PayloadFileContent,
+		CacheKey:      "file:pkg/app.py",
+		InputHash:     "input-hash",
+		OutputHash:    "output-hash",
+		PolicyID:      "proxy.read",
+		Decision:      "allow",
+		Policy: agentproxy.PolicyEvidence{
+			PolicyID:     "proxy.read",
+			SkillID:      "agent-operating-discipline",
+			Decision:     "allow",
+			EvidenceID:   "evidence-1",
+			MCPTool:      "policy_explain",
+			PrincipleIDs: []string{"security-by-design"},
+		},
+		DLPFacts: []agentproxy.DLPFact{{
+			Type:       "credential_filename",
+			Path:       ".env",
+			Confidence: "high",
+		}},
+		TokenUsage: agentproxy.TokenUsage{
+			InputTokens:  4,
+			OutputTokens: 6,
+			TotalTokens:  10,
+		},
+		Payload: agentproxy.PayloadMeasurement{Bytes: 42, Lines: 2},
+		Transforms: []agentproxy.TransformRecord{{
+			Name:         "token-budget",
+			Reason:       "trim context",
+			InputHash:    "before",
+			OutputHash:   "after",
+			PolicyID:     "proxy.token_budget",
+			Decision:     "allow",
+			InputTokens:  20,
+			OutputTokens: 12,
+			BytesRemoved: 128,
+		}},
+		Metadata: map[string]string{"source": "e2e"},
+	}
+
+	err = store.RecordProxyEvent(ctx, event)
+	if err != nil {
+		t.Fatalf("record proxy event: %v", err)
+	}
+
+	sessions, err := store.ProxySessions(ctx, ProxySessionQuery{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("query proxy sessions: %v", err)
+	}
+
+	assertProxySessionLedger(t, sessions)
+
+	events, err := store.ProxyEvents(ctx, ProxyEventQuery{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("query proxy events: %v", err)
+	}
+
+	assertProxyEventLedger(t, events)
+}
+
+func assertProxySessionLedger(t *testing.T, sessions []ProxySession) {
+	t.Helper()
+
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+
+	session := sessions[0]
+	if session.ID != "session-1" ||
+		session.FileReadCount != 1 ||
+		session.TotalTokens != 10 {
+		t.Fatalf("session = %#v", session)
+	}
+}
+
+func assertProxyEventLedger(t *testing.T, events []ProxyEvent) {
+	t.Helper()
+
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+
+	event := events[0]
+	assertProxyEventCore(t, event)
+
+	if len(event.Transforms) != 1 ||
+		event.Transforms[0].BytesRemoved != 128 ||
+		event.Transforms[0].PolicyID != "proxy.token_budget" {
+		t.Fatalf("event transforms = %#v", event.Transforms)
+	}
+}
+
+func assertProxyEventCore(t *testing.T, event ProxyEvent) {
+	t.Helper()
+
+	if event.ID != "event-1" ||
+		event.TargetPath != "pkg/app.py" ||
+		event.TraceID != "trace-1" ||
+		event.Direction != "local" ||
+		event.PayloadKind != "file_content" ||
+		event.CacheKey != "file:pkg/app.py" ||
+		event.PayloadBytes != 42 ||
+		event.Policy.EvidenceID != "evidence-1" ||
+		len(event.DLPFacts) != 1 ||
+		event.Metadata["source"] != "e2e" {
+		t.Fatalf("event = %#v", event)
+	}
+}

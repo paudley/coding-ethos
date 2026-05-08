@@ -7,13 +7,16 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 const (
 	gitBinaryName = "git"
+	gitShimDirEnv = "CODING_ETHOS_GIT_SHIM_DIR"
 
 	// RealGitEnv names the validated environment setting for the real git binary.
 	RealGitEnv = "CODING_ETHOS_REAL_GIT"
@@ -36,11 +39,92 @@ func GitCommand(cwd string, args ...string) *exec.Cmd {
 }
 
 func gitExecutable() string {
-	if value := strings.TrimSpace(os.Getenv(RealGitEnv)); value != "" {
-		return value
+	resolved, err := realgit.Resolve(gitBinaryName)
+	if err == nil && strings.TrimSpace(resolved) != "" {
+		return resolved
+	}
+
+	for _, candidate := range realGitCandidates() {
+		resolved, ok := realGitCandidate(candidate)
+		if ok {
+			return resolved
+		}
 	}
 
 	return gitBinaryName
+}
+
+func realGitCandidate(candidate string) (string, bool) {
+	path, err := exec.LookPath(candidate)
+	if err != nil || pathInGitShimDir(path) || sameExecutableAsSelf(path) {
+		return "", false
+	}
+
+	return path, true
+}
+
+func pathInGitShimDir(path string) bool {
+	shimDir := strings.TrimSpace(os.Getenv(gitShimDirEnv))
+	if shimDir == "" {
+		return false
+	}
+
+	return samePath(filepath.Dir(path), shimDir)
+}
+
+func sameExecutableAsSelf(path string) bool {
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+
+	selfInfo, selfErr := os.Stat(resolveSymlink(self))
+	pathInfo, pathErr := os.Stat(resolveSymlink(path))
+
+	if selfErr == nil && pathErr == nil {
+		return os.SameFile(selfInfo, pathInfo)
+	}
+
+	return samePath(self, path)
+}
+
+func resolveSymlink(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+
+	return resolved
+}
+
+func samePath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+
+	if leftErr != nil || rightErr != nil {
+		return left == right
+	}
+
+	return leftAbs == rightAbs
+}
+
+func realGitCandidates() []string {
+	candidates := []string{
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	}
+
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+
+		candidates = append(candidates, filepath.Join(dir, gitBinaryName))
+	}
+
+	return candidates
 }
 
 // CleanGitLocalEnv removes git-local environment variables from command env.

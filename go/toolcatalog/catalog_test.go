@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -312,6 +313,7 @@ func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
 		"pyupgrade",
 		"ruff-format",
 		"ruff-autofix",
+		"golangci-lint-format",
 		"golangci-lint-autofix",
 		"gofmt",
 		"go-vet",
@@ -410,6 +412,50 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 					capture,
 				)
 			}
+		}
+	}
+}
+
+func TestHookOwnedToolsDeclareDiagnosticContract(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range toolcatalog.HookOwnedTools() {
+		if tool.Parser == "" {
+			t.Fatalf("%s missing parser declaration", tool.Name)
+		}
+
+		if diagnostics.HasParser(tool.Parser) {
+			continue
+		}
+
+		switch tool.DiagnosticKind {
+		case toolcatalog.DiagnosticKindFormatterChangedFiles,
+			toolcatalog.DiagnosticKindInternalStructured,
+			toolcatalog.DiagnosticKindGenericFallback:
+			continue
+		default:
+		}
+
+		t.Fatalf(
+			"%s parser %q is not centrally registered and has no explicit diagnostic kind: %#v",
+			tool.Name,
+			tool.Parser,
+			tool,
+		)
+	}
+}
+
+func TestRegisteredParsersAreCatalogDeclared(t *testing.T) {
+	t.Parallel()
+
+	declared := map[string]bool{}
+	for _, parser := range toolcatalog.DiagnosticParserNames() {
+		declared[parser] = true
+	}
+
+	for _, parser := range diagnostics.RegisteredParsers() {
+		if !declared[parser] {
+			t.Fatalf("registered parser %q is not declared by the tool catalog", parser)
 		}
 	}
 }
@@ -539,56 +585,30 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 
 	root := filepath.Join(string(filepath.Separator), "repo", "coding-ethos")
 
-	shellcheck, found := toolcatalog.HookOwnedTool("shellcheck")
-	if !found {
-		t.Fatal("missing shellcheck")
-	}
-
-	if got := shellcheck.ManagedExecutablePath(
+	assertManagedExecutablePath(
+		t,
 		root,
-	); got != filepath.Join(
-		root,
-		"build",
-		"toolchain",
-		"github-bin",
 		"shellcheck",
-	) {
-		t.Fatalf("ManagedExecutablePath(shellcheck) = %q", got)
-	}
-
-	actionlint, found := toolcatalog.HookOwnedTool("actionlint")
-	if !found {
-		t.Fatal("missing actionlint")
-	}
-
-	if got := actionlint.ManagedExecutablePath(
+		filepath.Join(root, "build", "toolchain", "github-bin", "shellcheck"),
+	)
+	assertManagedExecutablePath(
+		t,
 		root,
-	); got != filepath.Join(
-		root,
-		"build",
-		"toolchain",
-		"go-bin",
 		"actionlint",
-	) {
-		t.Fatalf("ManagedExecutablePath(actionlint) = %q", got)
-	}
-
-	golangciAutofix, found := toolcatalog.HookOwnedTool("golangci-lint-autofix")
-	if !found {
-		t.Fatal("missing golangci-lint-autofix")
-	}
-
-	if got := golangciAutofix.ManagedExecutablePath(
+		filepath.Join(root, "build", "toolchain", "go-bin", "actionlint"),
+	)
+	assertManagedExecutablePath(
+		t,
 		root,
-	); got != filepath.Join(
+		"golangci-lint-autofix",
+		filepath.Join(root, "build", "toolchain", "go-bin", "golangci-lint"),
+	)
+	assertManagedExecutablePath(
+		t,
 		root,
-		"build",
-		"toolchain",
-		"go-bin",
-		"golangci-lint",
-	) {
-		t.Fatalf("ManagedExecutablePath(golangci-lint-autofix) = %q", got)
-	}
+		"golangci-lint-format",
+		filepath.Join(root, "build", "toolchain", "go-bin", "golangci-lint"),
+	)
 
 	ruff, found := toolcatalog.HookOwnedTool("ruff")
 	if !found {
@@ -600,6 +620,24 @@ func TestManagedExecutablePathUsesCheckoutToolchain(t *testing.T) {
 			"ManagedExecutablePath(ruff) = %q, want empty for Python wrapper tools",
 			got,
 		)
+	}
+}
+
+func assertManagedExecutablePath(
+	t *testing.T,
+	root string,
+	toolName string,
+	want string,
+) {
+	t.Helper()
+
+	tool, found := toolcatalog.HookOwnedTool(toolName)
+	if !found {
+		t.Fatalf("missing %s", toolName)
+	}
+
+	if got := tool.ManagedExecutablePath(root); got != want {
+		t.Fatalf("ManagedExecutablePath(%s) = %q, want %q", toolName, got, want)
 	}
 }
 

@@ -108,7 +108,15 @@ auditable.
 
 ### SARIF Reporting
 
-SARIF owns durable machine-readable output. AST-backed findings must preserve:
+SARIF owns durable machine-readable output and is the superset of CEL evidence.
+Everything coding-ethos observes and can safely retain belongs in SARIF:
+normalized diagnostics, pathless tool-level failures, parser state, raw
+stdout/stderr payloads, exit status, sandbox evidence, remediation metadata,
+and source identity. CEL receives only the understood subset: stable facts and
+diagnostics that can support deterministic policy decisions. Do not discard
+observed evidence merely because it is not yet expressible in CEL.
+
+AST-backed findings must preserve:
 
 - `ruleId` from the policy ID.
 - Exact artifact location and region.

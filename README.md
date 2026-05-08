@@ -362,10 +362,14 @@ SQLite code-intelligence store for repeated-failure and remediation search:
 bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel compact-context --path pkg/app.py
+bin/coding-ethos-run code-intel proxy-sessions --provider codex
 ```
 
 The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
-from retained traces, not a replacement for hooks or CEL policy evaluation.
+from retained traces, SARIF, AST chunks, proxy session events, remediation
+records, and vector metadata. It is not a replacement for hooks or CEL policy
+evaluation.
 
 Current built-in skills:
 
@@ -446,7 +450,37 @@ outside a source checkout.
 
 In the source checkout, generated tool configs, generated GitHub/GitLab CI,
 Gemini prompt packs, and provider skill surfaces are rendered only by
-`go/cmd/coding-ethos-policy`.
+the compiled policy runtime exposed through `bin/coding-ethos-policy` and
+`bin/coding-ethos-run policy`.
+
+## Managed Runtime Architecture
+
+The Go command binaries are intentionally thin. Product behavior lives in
+focused internal packages, while `go/cmd/*` packages parse process entrypoint
+arguments and delegate to those packages. This keeps hook execution, managed
+capture, policy evaluation, code intelligence, MCP, and Git wrapping testable
+without making Go code shell out to other coding-ethos Go binaries.
+
+Current runtime ownership:
+
+| Surface | Owning package |
+| --- | --- |
+| Hook groups and hook reports | `go/internal/hookrunnercli` |
+| Git hook preflight and lifecycle hooks | `go/internal/githookcli` |
+| Managed lint/test capture | `go/internal/managedcapture` plus `go/diagnostics` |
+| Lint CLI orchestration | `go/internal/lintcli` |
+| Policy bundle, config sync, and CI config sync | `go/internal/policycli`, `go/internal/toolconfigs` |
+| Agent hook settings and checks | `go/internal/agenthookscli`, `go/internal/agenthooks` |
+| MCP server and CLI | `go/internal/mcp`, `go/internal/mcpcli` |
+| Code-intelligence ingestion/query | `go/internal/codeintel`, `go/internal/codeintelcli` |
+| Git wrapper behavior | `go/internal/policygitcli`, `go/internal/realgit`, `go/internal/gitwrap` |
+| Managed toolchain install and verification | `go/internal/toolchaincli` |
+
+All managed tool output is expected to pass through the same evidence path:
+catalog-backed execution, stream capture, parser normalization, diagnostics,
+CEL policy promotion, trace retention, and SARIF formatting. Hook runner code
+does not own parsing or formatting; it runs hook groups and reports normalized
+results from the packages that own those concerns.
 
 ## Common Workflows
 
@@ -454,16 +488,17 @@ Gemini prompt packs, and provider skill surfaces are rendered only by
 | --- | --- |
 | Show resolved paths and config | `make status` |
 | Check required local tools | `make doctor` |
+| Refresh generated configs, managed tools, hook entrypoints, and parent runtime | `make build` |
 | Run Python tests | `make test` |
 | Run full local check | `make check` |
-| Apply managed autofixers | `make autofix` |
+| Run all configured linters | `make lint` |
+| Run all configured formatters | `make format` |
+| Apply managed autofixers | `make fix` |
+| Format, then apply autofixers | `make lint-fix` |
 | Smoke test the built wheel | `make package-smoke` |
 | Dry-run release package checks | `make release-dry-run` |
 | Validate hook runtime | `make validate` |
 | Run Go tests | `make go-test` |
-| Run full Go lint | `make go-lint` |
-| Apply Go lint autofixes | `make go-lint-fix` |
-| Format Go helper code | `make go-fmt` |
 | Sync generated tool configs | `make sync-tool-configs` |
 | Check generated tool config drift | `make check-tool-configs` |
 | Sync Gemini prompt pack | `make sync-gemini-prompts` |
@@ -885,6 +920,8 @@ Captured tool execution is controlled by coding-ethos, not by the target repo:
 the target repo is treated as an untrusted file tree and trace destination.
 Wrappers must not trust target-repo `PATH`, absolute binaries, `uv run`
 settings, `pyproject.toml`, shell state, aliases, or local tool installs.
+Captured stdout and stderr are drained concurrently so high-volume stderr from a
+managed tool cannot deadlock a run while stdout remains open.
 Python linters are run from the coding-ethos hook project with coding-ethos
 versions and explicit coding-ethos generated config flags (`ruff.toml`,
 `mypy.ini`, `pyrightconfig.json`, `.pylintrc`, `.yamllint.yml`,
@@ -904,6 +941,14 @@ toolchain. The source manifest lives at
 `build/toolchain/manifest.tsv`. Hook execution treats missing managed binaries
 as runtime artifact failures instead of falling back to host tools.
 
+The repo Makefile exposes only unified managed tool groups for ordinary source
+quality work: `make lint` runs the `linters` group, `make format` runs the
+`formatters` group, `make fix` runs the `autofixers` group, and `make lint-fix`
+runs `format` followed by `fix`. These targets call `coding-ethos-run
+policy-tool-group ...`; they must not invoke individual linters or formatters
+directly, because direct tool output bypasses normalized diagnostics, trace
+storage, CEL evaluation, and SARIF generation.
+
 Analyze captured lint history:
 
 ```bash
@@ -921,15 +966,20 @@ bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode requ
 bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
-SARIF output is tuned for code-scanning ingestion: repository-relative artifact
-URIs, stable rule IDs, run automation IDs, deterministic partial fingerprints,
-ETHOS rule metadata, remediation skill IDs, and GitHub-compatible precision and
-security-severity properties for findings that are actually security-relevant.
-Record-only policy context stays in TOON/JSON traces and is not uploaded as
-SARIF results. Pathless policy findings are also omitted from code-scanning
-SARIF because GitHub requires every uploaded result to have at least one
-location; coding-ethos keeps those aggregate findings in TOON/JSON traces
-instead of inventing noisy alerts at `.` line 0.
+SARIF is the superset evidence artifact. Everything coding-ethos can observe
+about a managed run belongs in SARIF: parsed diagnostics, pathless tool-level
+failures, parser state, exit status, stdout/stderr capture, sandbox evidence,
+ETHOS rule metadata, remediation skill IDs, and deterministic fingerprints.
+CEL receives the understood subset: normalized facts and diagnostics that are
+stable enough for deterministic policy decisions. A finding can therefore be
+SARIF-only when it is observed but not yet understood by CEL.
+
+Code-scanning consumers still prefer repository-relative artifact URIs for
+inline annotations. coding-ethos emits locatable findings with exact locations
+when locations exist, and emits pathless/tool-level SARIF results plus run and
+result properties when the evidence is aggregate or execution-level. Audit, MCP
+remediation, and code-intelligence ingestion must not lose what the tool
+actually emitted merely because a finding is not tied to one source line.
 
 Managed capture can request the Bubblewrap sandbox prototype with
 `--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and
@@ -1013,7 +1063,8 @@ IDs, status, and output shape without dumping raw provider input.
 
 ### Cutover
 
-Use cutover commands when preparing a repo to replace old hook surfaces:
+Use cutover commands when preparing a repo to install the active generated hook
+surfaces:
 
 ```bash
 bin/coding-ethos-run cutover install
@@ -1094,8 +1145,12 @@ The CLI stays thin. Behavior belongs in focused modules:
 | `go/internal/toolconfigs/` | source-checkout generated repo-root tool config and CI sync/check |
 | `go/internal/geminiprompts/` | source-checkout Gemini prompt-pack sync/check |
 | `go/internal/agentskills/` | source-checkout provider skill-surface sync/check |
-| `go/cmd/coding-ethos-hook-runner/` | active hook runtime and hook groups |
-| `go/` | compiled policy, hook, lint, and wrapper tools |
+| `go/internal/hookrunnercli/` | active hook runtime, hook groups, and hook reports |
+| `go/internal/managedcapture/` | managed linter/test execution capture |
+| `go/diagnostics/` | parser normalization for lint, formatter, type-check, and test output |
+| `go/internal/codeintel/` | repo-local trace, SARIF, AST, vector, and remediation storage |
+| `go/internal/agentproxy/` | provider-neutral agent event envelope and transform foundations |
+| `go/cmd/` | thin process entrypoints for compiled policy, hook, lint, MCP, code-intel, and wrapper tools |
 
 When flags, output layout, merge behavior, overlay semantics, or enforcement
 config behavior change, update this README, the relevant example YAML, and the
@@ -1106,8 +1161,22 @@ tests in the same change.
 Canonical local verification:
 
 ```bash
+make build
 make check
 ```
+
+`make build` is the explicit environment mutation target. It refreshes generated
+configs, managed tools, hook entrypoints, provider settings, policy bundles,
+and the parent hook runtime when this checkout is installed as a submodule.
+
+Test and diagnostic targets do not run `build` implicitly; if the managed
+runtime is missing, they fail fast and tell the operator to run `make build`
+deliberately. Go tests follow the normal Go workflow through managed capture:
+`make go-test` runs `go test`, `make go-e2e-test` runs the e2e package with
+`go test`, and `make check` uses those test targets without a separate
+compile-and-run test path. Tests must not install tools, regenerate configs, refresh hooks,
+sync parent artifacts, or otherwise mutate the operator environment as hidden
+setup.
 
 Broader verification for hook work:
 

@@ -115,10 +115,11 @@ type sarifRegion struct {
 }
 
 type sarifResultProperties struct {
-	sarifResultEvidenceProperties
 	sarifResultASTProperties
+	sarifResultEvidenceProperties
 	sarifResultPolicyProperties
 	sarifResultRemediationProperties
+	sarifResultProxyProperties
 
 	CodingEthos bool `json:"coding_ethos"`
 }
@@ -157,6 +158,20 @@ type sarifResultPolicyProperties struct {
 	InputSchemaVersion        int64  `json:"input_schema_version,omitempty"`
 }
 
+type sarifResultProxyProperties struct {
+	ProxyEventID      string `json:"proxy_event_id,omitempty"`
+	ProxySessionID    string `json:"proxy_session_id,omitempty"`
+	ProxyEventKind    string `json:"proxy_event_kind,omitempty"`
+	ProxyProvider     string `json:"proxy_provider,omitempty"`
+	ProxyDirection    string `json:"proxy_direction,omitempty"`
+	ProxyPayloadKind  string `json:"proxy_payload_kind,omitempty"`
+	ProxyTraceID      string `json:"proxy_trace_id,omitempty"`
+	ProxyTrackingID   string `json:"proxy_tracking_id,omitempty"`
+	ProxyTransform    string `json:"proxy_transform,omitempty"`
+	ProxyTokenTotal   int64  `json:"proxy_token_total,omitempty"`
+	ProxyPayloadBytes int64  `json:"proxy_payload_bytes,omitempty"`
+}
+
 type sarifResultRemediationProperties struct {
 	RemediationEvents []evidence.RemediationEvent `json:"remediation_events,omitempty"`
 	AgentRemediation  []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
@@ -174,6 +189,7 @@ type sarifRunAutomationDetails struct {
 
 type sarifRunProperties struct {
 	Sandbox        *lint.SandboxEvidence `json:"sandbox,omitempty"`
+	Capture        *lint.ToolCapture     `json:"capture,omitempty"`
 	Scope          string                `json:"scope,omitempty"`
 	FindingGroups  []sarifFindingGroup   `json:"finding_groups,omitempty"`
 	PolicyCoverage sarifPolicyCoverage   `json:"policy_coverage,omitzero"`
@@ -404,6 +420,7 @@ func FormatLintResultSARIFWithOptions(
 			},
 			Results: sarifResults(diagnostics, ruleIndexes, findingGroups),
 			Properties: sarifRunProperties{
+				Capture:        sarifCaptureEvidence(result),
 				Scope:          result.Scope,
 				PolicyCoverage: sarifCoverage(result, diagnostics),
 				FindingGroups:  findingGroups.Summaries(),
@@ -418,6 +435,18 @@ func FormatLintResultSARIFWithOptions(
 	}
 
 	return string(payload), nil
+}
+
+func sarifCaptureEvidence(result lint.Result) *lint.ToolCapture {
+	if result.Capture == nil {
+		return nil
+	}
+
+	capture := *result.Capture
+	capture.Args = append([]string(nil), result.Capture.Args...)
+	capture.RunArgs = append([]string(nil), result.Capture.RunArgs...)
+
+	return &capture
 }
 
 func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
@@ -439,27 +468,15 @@ func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
 }
 
 func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
-	var items []diagnostics.Diagnostic
+	items := lint.OutputDiagnostics(result)
 
-	switch {
-	case len(result.Diagnostics) > 0:
-		items = lint.OutputDiagnostics(result)
-	case len(result.Findings) > 0:
-		items = lint.OutputDiagnostics(result)
-	case result.Blocked():
-		items = lint.OutputDiagnostics(result)
+	if len(result.Diagnostics) > 0 && len(result.Findings) > 0 {
+		findingOnly := result
+		findingOnly.Diagnostics = nil
+		items = append(items, lint.OutputDiagnostics(findingOnly)...)
 	}
 
-	locatable := make([]diagnostics.Diagnostic, 0, len(items))
-	for _, item := range items {
-		if sarifArtifactURI(item.File) == "" {
-			continue
-		}
-
-		locatable = append(locatable, item)
-	}
-
-	return locatable
+	return diagnostics.Dedupe(items)
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
@@ -528,6 +545,7 @@ func sarifResults(
 				),
 				sarifResultASTProperties:    sarifResultAST(item),
 				sarifResultPolicyProperties: sarifResultPolicy(item, group),
+				sarifResultProxyProperties:  sarifResultProxy(item),
 				sarifResultRemediationProperties: sarifResultRemediation(
 					item,
 					finding,
@@ -590,6 +608,22 @@ func sarifResultPolicy(
 		PolicyID:     item.PolicyID,
 		PolicySource: sarifStringMetadata(item, "policy_source"),
 		SourceTool:   item.Tool,
+	}
+}
+
+func sarifResultProxy(item diagnostics.Diagnostic) sarifResultProxyProperties {
+	return sarifResultProxyProperties{
+		ProxyDirection:    sarifStringMetadata(item, "proxy_direction"),
+		ProxyEventID:      sarifStringMetadata(item, "proxy_event_id"),
+		ProxyEventKind:    sarifStringMetadata(item, "proxy_event_kind"),
+		ProxyPayloadBytes: sarifIntMetadata(item, "proxy_payload_bytes"),
+		ProxyPayloadKind:  sarifStringMetadata(item, "proxy_payload_kind"),
+		ProxyProvider:     sarifStringMetadata(item, "proxy_provider"),
+		ProxySessionID:    sarifStringMetadata(item, "proxy_session_id"),
+		ProxyTokenTotal:   sarifIntMetadata(item, "proxy_token_total"),
+		ProxyTraceID:      sarifStringMetadata(item, "proxy_trace_id"),
+		ProxyTrackingID:   sarifStringMetadata(item, "proxy_tracking_id"),
+		ProxyTransform:    sarifStringMetadata(item, "proxy_transform"),
 	}
 }
 
@@ -727,7 +761,7 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	file := sarifArtifactURI(item.File)
 	if file == "" {
-		return nil
+		file = sarifRepoURI
 	}
 
 	location := sarifLocation{

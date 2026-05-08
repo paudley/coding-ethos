@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -42,7 +44,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
 
@@ -64,8 +66,8 @@ jobs:
       contents: read
       security-events: write
 
-  go-lint:
-    name: Go golangci-lint
+  lint:
+    name: Unified lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -87,7 +89,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
 
@@ -96,12 +98,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: make build
 
-      - name: Run full-module golangci-lint
-        run: >-
-          ../build/toolchain/go-bin/golangci-lint run
-          --config ../.golangci.yml
-          ./...
-        working-directory: go
+      - name: Run unified lint
+        run: make lint
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -117,19 +115,32 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
 
       - name: Sync dependencies
         run: uv sync --frozen --group dev --all-packages
+
+      - name: Build managed runtime
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: make build
 
       - name: Run test suite with coverage
         env:
@@ -215,7 +226,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
 
@@ -227,20 +238,13 @@ jobs:
       - name: Run shared Go coverage
         run: |
           mkdir -p ../coverage-results
-          mkdir -p ../coverage-results/e2e-coverdir
           mapfile -t shared_packages < <(
             go list -buildvcs=false ./... | grep -v '/internal/e2e$'
           )
           go test -buildvcs=false -timeout=30s -short "${shared_packages[@]}" \
             -covermode=atomic \
             -coverprofile=../coverage-results/go-shared.out
-          go test -c -buildvcs=false \
-            -cover \
-            -coverpkg=./... \
-            -o ../coverage-results/coding-ethos-e2e.test \
-            ./internal/e2e
-          export GOCOVERDIR="../coverage-results/e2e-coverdir"
-          ../coverage-results/coding-ethos-e2e.test -test.timeout=30s -test.v
+          go test -buildvcs=false -timeout=30s ./internal/e2e
           go tool cover \
             -func=../coverage-results/go-shared.out \
             > ../coverage-results/go-shared.txt
@@ -254,33 +258,22 @@ jobs:
             }
           ' \
             ../coverage-results/go-shared.txt
-          if find ../coverage-results/e2e-coverdir \
-            -type f \
-            -name 'covmeta.*' \
-            -print \
-            -quit \
-            | grep -q .; then
-            go tool covdata textfmt \
-              -i=../coverage-results/e2e-coverdir \
-              -o=../coverage-results/go-e2e-subprocess.out
-            go tool cover \
-              -func=../coverage-results/go-e2e-subprocess.out \
-              > ../coverage-results/go-e2e-subprocess.txt
-          fi
         working-directory: go
 
-      - name: Run hook runner Go coverage
+      - name: Run hook runtime Go coverage
         run: |
           go run ./cmd/coding-ethos-policy compile \
             --primary ../coding_ethos.yml \
             --config ../config.yaml \
             --out-dir ../build/policy
-          go test -buildvcs=false -timeout=30s ./cmd/coding-ethos-hook-runner \
+          go test -buildvcs=false -timeout=30s \
+            ./internal/hookrunnercli \
+            ./internal/hooks \
             -covermode=atomic \
-            -coverprofile=../coverage-results/hook-runner.out
+            -coverprofile=../coverage-results/go-hooks.out
           go tool cover \
-            -func=../coverage-results/hook-runner.out \
-            > ../coverage-results/hook-runner.txt
+            -func=../coverage-results/go-hooks.out \
+            > ../coverage-results/go-hooks.txt
           awk '
             /^total:/ {
               gsub("%", "", $3);
@@ -290,7 +283,7 @@ jobs:
               }
             }
           ' \
-            ../coverage-results/hook-runner.txt
+            ../coverage-results/go-hooks.txt
         working-directory: go
 
       - name: Summarize Go coverage
@@ -324,6 +317,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -331,7 +326,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
 

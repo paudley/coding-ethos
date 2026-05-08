@@ -28,31 +28,39 @@ type SARIFRun struct {
 }
 
 type SARIFResultReference struct {
-	ASTLanguage   string          `json:"ast_language,omitempty"`
-	PolicySource  string          `json:"policy_source,omitempty"`
-	ID            string          `json:"id"`
-	RuleID        string          `json:"rule_id,omitempty"`
-	Level         string          `json:"level,omitempty"`
-	Message       string          `json:"message,omitempty"`
-	Fingerprint   string          `json:"fingerprint,omitempty"`
-	FindingID     string          `json:"finding_id,omitempty"`
-	RemediationID string          `json:"remediation_id,omitempty"`
-	PolicyID      string          `json:"policy_id,omitempty"`
-	SkillID       string          `json:"skill_id,omitempty"`
-	Path          string          `json:"path,omitempty"`
-	SearchText    string          `json:"search_text,omitempty"`
-	ASTSymbolKind string          `json:"ast_symbol_kind,omitempty"`
-	ASTNodeKind   string          `json:"ast_node_kind,omitempty"`
-	ASTSymbolName string          `json:"ast_symbol_name,omitempty"`
-	ASTSymbolPath string          `json:"ast_symbol_path,omitempty"`
-	LinkedChunkID string          `json:"linked_chunk_id,omitempty"`
-	EvaluatorKind string          `json:"evaluator_kind,omitempty"`
-	CELPolicyID   string          `json:"cel_policy_id,omitempty"`
-	CELExpression string          `json:"cel_expression,omitempty"`
-	Raw           json.RawMessage `json:"raw,omitempty"`
-	PrincipleIDs  []string        `json:"principle_ids,omitempty"`
-	StartLine     int             `json:"start_line,omitempty"`
-	StartColumn   int             `json:"start_column,omitempty"`
+	ASTLanguage      string          `json:"ast_language,omitempty"`
+	PolicySource     string          `json:"policy_source,omitempty"`
+	ID               string          `json:"id"`
+	RuleID           string          `json:"rule_id,omitempty"`
+	Level            string          `json:"level,omitempty"`
+	Message          string          `json:"message,omitempty"`
+	Fingerprint      string          `json:"fingerprint,omitempty"`
+	ProxyEventID     string          `json:"proxy_event_id,omitempty"`
+	ProxySessionID   string          `json:"proxy_session_id,omitempty"`
+	ProxyEventKind   string          `json:"proxy_event_kind,omitempty"`
+	ProxyDirection   string          `json:"proxy_direction,omitempty"`
+	ProxyPayloadKind string          `json:"proxy_payload_kind,omitempty"`
+	ProxyTraceID     string          `json:"proxy_trace_id,omitempty"`
+	ProxyTrackingID  string          `json:"proxy_tracking_id,omitempty"`
+	ProxyTransform   string          `json:"proxy_transform,omitempty"`
+	FindingID        string          `json:"finding_id,omitempty"`
+	RemediationID    string          `json:"remediation_id,omitempty"`
+	PolicyID         string          `json:"policy_id,omitempty"`
+	SkillID          string          `json:"skill_id,omitempty"`
+	Path             string          `json:"path,omitempty"`
+	SearchText       string          `json:"search_text,omitempty"`
+	ASTSymbolKind    string          `json:"ast_symbol_kind,omitempty"`
+	ASTNodeKind      string          `json:"ast_node_kind,omitempty"`
+	ASTSymbolName    string          `json:"ast_symbol_name,omitempty"`
+	ASTSymbolPath    string          `json:"ast_symbol_path,omitempty"`
+	LinkedChunkID    string          `json:"linked_chunk_id,omitempty"`
+	EvaluatorKind    string          `json:"evaluator_kind,omitempty"`
+	CELPolicyID      string          `json:"cel_policy_id,omitempty"`
+	CELExpression    string          `json:"cel_expression,omitempty"`
+	Raw              json.RawMessage `json:"raw,omitempty"`
+	PrincipleIDs     []string        `json:"principle_ids,omitempty"`
+	StartLine        int             `json:"start_line,omitempty"`
+	StartColumn      int             `json:"start_column,omitempty"`
 }
 
 type RemediationOutcome struct {
@@ -169,6 +177,105 @@ type HookReviewQuery struct {
 	Limit       int
 }
 
+type ProxySession struct {
+	ID               string `json:"id"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	RepoRoot         string `json:"repo_root,omitempty"`
+	StartedAtUTC     string `json:"started_at_utc,omitempty"`
+	LastSeenUTC      string `json:"last_seen_utc,omitempty"`
+	RequestCount     int    `json:"request_count"`
+	ToolCallCount    int    `json:"tool_call_count"`
+	FileReadCount    int    `json:"file_read_count"`
+	FileListingCount int    `json:"file_listing_count"`
+	EditCount        int    `json:"edit_count"`
+	CacheHitCount    int    `json:"cache_hit_count"`
+	InjectionCount   int    `json:"injection_count"`
+	TruncationCount  int    `json:"truncation_count"`
+	DenialCount      int    `json:"denial_count"`
+	TransformCount   int    `json:"transform_count"`
+	InputTokens      int    `json:"input_tokens"`
+	OutputTokens     int    `json:"output_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+}
+
+type ProxyEvent struct {
+	ID            string              `json:"id"`
+	SessionID     string              `json:"session_id"`
+	Kind          string              `json:"kind"`
+	Provider      string              `json:"provider,omitempty"`
+	Tool          string              `json:"tool,omitempty"`
+	Model         string              `json:"model,omitempty"`
+	RecordedAtUTC string              `json:"recorded_at_utc,omitempty"`
+	TraceID       string              `json:"trace_id,omitempty"`
+	TrackingID    string              `json:"tracking_id,omitempty"`
+	RepoRoot      string              `json:"repo_root,omitempty"`
+	Cwd           string              `json:"cwd,omitempty"`
+	TargetPath    string              `json:"target_path,omitempty"`
+	Direction     string              `json:"direction,omitempty"`
+	PayloadKind   string              `json:"payload_kind,omitempty"`
+	CacheKey      string              `json:"cache_key,omitempty"`
+	InputHash     string              `json:"input_hash,omitempty"`
+	OutputHash    string              `json:"output_hash,omitempty"`
+	PolicyID      string              `json:"policy_id,omitempty"`
+	Decision      string              `json:"decision,omitempty"`
+	Policy        ProxyPolicyEvidence `json:"policy,omitzero"`
+	DLPFacts      []ProxyDLPFact      `json:"dlp_facts,omitempty"`
+	Metadata      map[string]string   `json:"metadata,omitempty"`
+	Transforms    []ProxyTransform    `json:"transforms,omitempty"`
+	InputTokens   int                 `json:"input_tokens"`
+	OutputTokens  int                 `json:"output_tokens"`
+	TotalTokens   int                 `json:"total_tokens"`
+	PayloadBytes  int                 `json:"payload_bytes"`
+}
+
+type ProxyPolicyEvidence struct {
+	PolicyID     string   `json:"policy_id,omitempty"`
+	SkillID      string   `json:"skill_id,omitempty"`
+	Decision     string   `json:"decision,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	EvidenceID   string   `json:"evidence_id,omitempty"`
+	MCPTool      string   `json:"mcp_tool,omitempty"`
+	PrincipleIDs []string `json:"principle_ids,omitempty"`
+}
+
+type ProxyDLPFact struct {
+	Type       string `json:"type"`
+	Path       string `json:"path,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	Column     int    `json:"column,omitempty"`
+}
+
+type ProxyTransform struct {
+	Name          string `json:"name"`
+	Reason        string `json:"reason,omitempty"`
+	InputHash     string `json:"input_hash,omitempty"`
+	OutputHash    string `json:"output_hash,omitempty"`
+	PolicyID      string `json:"policy_id,omitempty"`
+	Decision      string `json:"decision,omitempty"`
+	InputTokens   int    `json:"input_tokens,omitempty"`
+	OutputTokens  int    `json:"output_tokens,omitempty"`
+	BytesRemoved  int    `json:"bytes_removed,omitempty"`
+	FindingsCount int    `json:"findings_count,omitempty"`
+}
+
+type ProxySessionQuery struct {
+	Provider string
+	Limit    int
+}
+
+type ProxyEventQuery struct {
+	SessionID  string
+	Kind       string
+	Provider   string
+	PolicyID   string
+	Decision   string
+	TargetPath string
+	Limit      int
+}
+
 type EmbeddingRecord struct {
 	ID           string `json:"id"`
 	Backend      string `json:"backend"`
@@ -267,6 +374,41 @@ type CodeContext struct {
 	IncomingEdges []CodeEdge       `json:"incoming_edges,omitempty"`
 	FindingLinks  []ASTFindingLink `json:"finding_links,omitempty"`
 	Chunk         CodeChunk        `json:"chunk"`
+}
+
+type RepoMapEntry struct {
+	Path        string `json:"path"`
+	Language    string `json:"language"`
+	StaleReason string `json:"stale_reason,omitempty"`
+	Symbols     int    `json:"symbols"`
+	Chunks      int    `json:"chunks"`
+	LineCount   int    `json:"line_count"`
+}
+
+type SymbolSummary struct {
+	Path        string `json:"path"`
+	Language    string `json:"language"`
+	SymbolKind  string `json:"symbol_kind,omitempty"`
+	SymbolName  string `json:"symbol_name,omitempty"`
+	SymbolPath  string `json:"symbol_path,omitempty"`
+	NodeKind    string `json:"node_kind"`
+	ContentHash string `json:"content_hash"`
+	StartLine   int    `json:"start_line"`
+	EndLine     int    `json:"end_line"`
+	TokenSize   int    `json:"token_size"`
+}
+
+type CompactCodeContext struct {
+	RepoMap    []RepoMapEntry  `json:"repo_map,omitempty"`
+	Symbols    []SymbolSummary `json:"symbols,omitempty"`
+	Chunks     []CodeChunk     `json:"chunks,omitempty"`
+	IndexFresh bool            `json:"index_fresh"`
+}
+
+type CompactCodeContextQuery struct {
+	Path     string
+	Language string
+	Limit    int
 }
 
 type CodeIndexSummary struct {

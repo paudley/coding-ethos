@@ -17,8 +17,8 @@ Its job is limited to:
 - dispatch to the built hook binary
 
 Policy evaluation, policy freshness, generated prompt packs, runtime command
-selection, and hook behavior belong to the `coding-ethos` checkout. The shim is
-only a bootstrap and dispatch layer.
+selection, managed capture, diagnostics parsing, and hook behavior belong to
+the `coding-ethos` checkout. The shim is only a bootstrap and dispatch layer.
 
 ## Rationale
 
@@ -112,6 +112,25 @@ Direct host installs such as `go install ...` into `$HOME/go/bin` are not a
 runtime contract. They may unblock a local shell, but hooks must only rely on
 artifacts under the `coding-ethos` checkout.
 
+## Build Versus Test Boundary
+
+`make build` is the explicit environment mutation target. It may regenerate
+configs, install managed tools, refresh provider settings, install hook
+entrypoints, compile policy bundles, compile Go runtime binaries, and sync
+parent hook runtime artifacts.
+
+Test and diagnostic targets must not do those things implicitly. They consume
+the artifacts produced by `make build` and fail fast when required artifacts are
+missing. This prevents ordinary verification commands from rewriting a parent
+worktree, reinstalling hooks, changing generated config, or performing hidden
+build setup.
+
+Go tests use the normal Go workflow. `make go-test` runs `go test` through
+managed capture, and `make go-e2e-test` runs the e2e package with `go test`.
+That preserves normalized diagnostics, CEL promotion, trace retention, and
+SARIF-compatible output without introducing a separate compile-and-run test
+path.
+
 ## Hook Entrypoint Contract
 
 The installed consumer repository hook entrypoint should be a small executable
@@ -189,7 +208,6 @@ Bootstrap needs a few guardrails:
 
 ## Migration Direction
 
-The current `.git/coding-ethos-hooks` runtime cache should be treated as a
-legacy implementation detail. New work should move toward a single source of
-truth: runtime artifacts built and executed from the checked-out
-`coding-ethos` repository.
+Runtime artifacts are built and executed from the checked-out `coding-ethos`
+repository. New hook behavior must use that single source of truth instead of
+adding cache-local compatibility paths.

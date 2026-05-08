@@ -217,6 +217,38 @@ func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
 	})
 }
 
+func TestStoreIngestsHookUsageAcrossAgentProviders(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	ingester := NewTraceIngester(store)
+
+	for _, provider := range []string{"codex", "claude", "gemini"} {
+		err := ingester.IngestHookTrace(ctx, hookTracePayloadForProvider(t, provider))
+		if err != nil {
+			t.Fatalf("ingest %s hook trace: %v", provider, err)
+		}
+
+		usage, queryErr := store.HookUsage(ctx, HookUsageQuery{
+			Provider: provider,
+			Status:   "blocked",
+			Limit:    10,
+		})
+		if queryErr != nil {
+			t.Fatalf("query %s hook usage: %v", provider, queryErr)
+		}
+
+		if len(usage) != 1 ||
+			usage[0].Provider != provider ||
+			usage[0].BlockedCount != 1 ||
+			usage[0].LastTraceID == "" ||
+			usage[0].LastTrackingID == "" {
+			t.Fatalf("%s usage = %#v", provider, usage)
+		}
+	}
+}
+
 func assertHookUsageSummary(t *testing.T, usage HookUsageSummary) {
 	t.Helper()
 
@@ -387,10 +419,25 @@ func TestStoreIngestsSARIFResultsWithCELProvenance(t *testing.T) {
 func TestDecodeSARIFRunsMergesRuleResultAndFindingMetadata(t *testing.T) {
 	t.Parallel()
 
-	payload := []byte(`{
-		"version":"2.1.0",
-		"runs":[{
-			"automationDetails":{"id":"policy","guid":"run-guid"},
+	run, err := DecodeSARIFRun("policy.sarif", mergedMetadataSARIFPayload())
+	if err != nil {
+		t.Fatalf("decode SARIF run: %v", err)
+	}
+
+	assertDecodedSARIFRunMetadata(t, run)
+
+	if len(run.Results) != 1 {
+		t.Fatalf("results = %#v", run.Results)
+	}
+
+	assertDecodedSARIFResultMetadata(t, run.Results[0])
+}
+
+func mergedMetadataSARIFPayload() []byte {
+	return []byte(`{
+			"version":"2.1.0",
+			"runs":[{
+				"automationDetails":{"id":"policy","guid":"run-guid"},
 			"baselineGuid":"base-guid",
 			"properties":{"scope":"staged"},
 			"tool":{"driver":{"name":"coding-ethos","rules":[{
@@ -441,24 +488,19 @@ func TestDecodeSARIFRunsMergesRuleResultAndFindingMetadata(t *testing.T) {
 					"ast_symbol_kind":"import",
 					"ast_symbol_name":"plugin",
 					"ast_symbol_path":"plugin",
+					"proxy_event_id":"proxy-event-1",
+					"proxy_session_id":"proxy-session-1",
+					"proxy_event_kind":"provider_call",
+					"proxy_direction":"outbound",
+					"proxy_payload_kind":"prompt",
+					"proxy_trace_id":"trace-1",
+					"proxy_tracking_id":"track-1",
+					"proxy_transform":"dlp-inspection",
 					"ethos_ids":["conditional-imports"]
 				}
+				}]
 			}]
-		}]
-	}`)
-
-	run, err := DecodeSARIFRun("policy.sarif", payload)
-	if err != nil {
-		t.Fatalf("decode SARIF run: %v", err)
-	}
-
-	assertDecodedSARIFRunMetadata(t, run)
-
-	if len(run.Results) != 1 {
-		t.Fatalf("results = %#v", run.Results)
-	}
-
-	assertDecodedSARIFResultMetadata(t, run.Results[0])
+		}`)
 }
 
 func assertDecodedSARIFRunMetadata(t *testing.T, run SARIFRun) {
@@ -503,6 +545,13 @@ func assertDecodedSARIFResultMetadata(t *testing.T, result SARIFResultReference)
 		result.Fingerprint,
 		result.ASTLanguage,
 		result.ASTSymbolPath,
+		result.ProxyEventID,
+		result.ProxySessionID,
+		result.ProxyDirection,
+		result.ProxyPayloadKind,
+		result.ProxyTraceID,
+		result.ProxyTrackingID,
+		result.ProxyTransform,
 		strings.Contains(result.SearchText, "Move import"),
 		strings.Contains(result.SearchText, "Use module scope"),
 		containsJoined(result.PrincipleIDs, "no-conditional-imports"),
@@ -523,6 +572,13 @@ func assertDecodedSARIFResultMetadata(t *testing.T, result SARIFResultReference)
 		"line-hash",
 		"python",
 		"plugin",
+		"proxy-event-1",
+		"proxy-session-1",
+		"outbound",
+		"prompt",
+		"trace-1",
+		"track-1",
+		"dlp-inspection",
 		true,
 		true,
 		true,
@@ -1000,6 +1056,46 @@ class Worker:
 	}
 
 	assertMinimumStats(t, stats, Stats{CodeEdges: 1})
+}
+
+func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(
+		"def helper():\n"+
+			"    return \"ok\"\n\n"+
+			"class Worker:\n"+
+			"    def run(self):\n"+
+			"        return helper()\n",
+	))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	context, err := store.CompactCodeContext(ctx, CompactCodeContextQuery{
+		Path:  "pkg/worker.py",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("compact context: %v", err)
+	}
+
+	if !context.IndexFresh ||
+		len(context.RepoMap) != 1 ||
+		len(context.Symbols) == 0 ||
+		len(context.Chunks) == 0 ||
+		context.Symbols[0].TokenSize == 0 {
+		t.Fatalf("compact context = %#v", context)
+	}
 }
 
 func assertWorkerLineAndConfigContext(
@@ -1968,6 +2064,29 @@ func hookTracePayload(t *testing.T) []byte {
 		"deny-hook-a",
 		"2026-01-01T00:02:00Z",
 	)
+}
+
+func hookTracePayloadForProvider(t *testing.T, provider string) []byte {
+	t.Helper()
+
+	payload := map[string]any{}
+
+	err := json.Unmarshal(
+		hookTracePayloadWithIDs(
+			t,
+			"hook-trace-"+provider,
+			"deny-hook-"+provider,
+			"2026-01-01T00:02:00Z",
+		),
+		&payload,
+	)
+	if err != nil {
+		t.Fatalf("decode hook payload: %v", err)
+	}
+
+	payload["provider"] = provider
+
+	return mustJSON(t, payload)
 }
 
 func hookTracePayloadWithIDs(

@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 const statusBlocked = "blocked"
@@ -239,8 +240,7 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
-	lintBinary := filepath.Join(tempDir, "coding-ethos-lint")
-	writeExecutable(t, lintBinary, managedLintCaptureScript())
+	writeManagedLintRuntimeFixture(t, tempDir)
 
 	output := runServerWithRuntime(t, compactJSON(t, `{
 		"jsonrpc":"2.0",
@@ -258,7 +258,6 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 		EthosRoot:     tempDir,
 		ConsumerRoot:  tempDir,
 		InvocationCwd: tempDir,
-		LintBinary:    lintBinary,
 	})
 	response := decodeResponse(t, output)
 
@@ -269,9 +268,52 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 		t.Fatalf("content = %#v, want managed ruff block", content)
 	}
 
-	if !strings.Contains(output, "lint-remediation") {
-		t.Fatalf("missing managed lint skill hint:\n%s", output)
+	for _, want := range []string{
+		`"engine":"managed_lint_capture"`,
+		`"tool":"ruff"`,
+		`"code":"F401"`,
+		`"file":"src/app.py"`,
+		`"check_id":"tool.ruff"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing managed lint output %q:\n%s", want, output)
+		}
 	}
+}
+
+func writeManagedLintRuntimeFixture(t *testing.T, root string) {
+	t.Helper()
+
+	err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte("version: 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+
+	_, err = toolconfigs.Sync(root, root, "")
+	if err != nil {
+		t.Fatalf("sync tool configs: %v", err)
+	}
+
+	ruffPath := filepath.Join(root, ".venv", "bin", "ruff")
+
+	err = os.MkdirAll(filepath.Dir(ruffPath), 0o700)
+	if err != nil {
+		t.Fatalf("create ruff fixture dir: %v", err)
+	}
+
+	writeExecutable(t, ruffPath, `#!/usr/bin/env sh
+cat <<'JSON'
+[
+  {
+    "filename": "src/app.py",
+    "code": "F401",
+    "message": "unused import",
+    "location": {"row": 1, "column": 1}
+  }
+]
+JSON
+exit 1
+`)
 }
 
 func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
@@ -1432,19 +1474,3 @@ func writeExecutable(t *testing.T, path, content string) {
 		t.Fatalf("chmod executable: %v", err)
 	}
 }
-
-func managedLintCaptureScript() string {
-	return `#!/usr/bin/env bash
-printf '%s\n' '` + compactManagedLintCaptureJSON + `'
-exit 1
-`
-}
-
-const compactManagedLintCaptureJSON = `{"scope":"managed","status":"blocked",` +
-	`"findings":[{"check_id":"ruff:F401","source_tool":"ruff","code":"F401",` +
-	`"message":"unused import","severity":"error","status":"fail",` +
-	`"blocking":true}],"skill_hints":[{"skill_id":"lint-remediation",` +
-	`"message":"fix lint structurally",` +
-	`"next":"Load the lint-remediation skill."}],` +
-	`"capture":{"tool":"ruff","parser":"ruff","parse_status":"parsed",` +
-	`"exit_code":1}}`

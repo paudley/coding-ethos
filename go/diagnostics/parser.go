@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Package diagnostics normalizes external tool findings into one schema.
-//
-//nolint:tagliatelle // External tool schemas use their own JSON field names.
+
 package diagnostics
 
 import (
@@ -22,6 +21,8 @@ var fallbackPattern = regexp.MustCompile(
 
 const fallbackMatchParts = 6
 
+const severityNotice = "notice"
+
 var (
 	actionlintPattern = regexp.MustCompile(
 		`^(.+?):(\d+):(\d+):\s*(.+?)(?:\s+\[([^\]]+)])?$`,
@@ -32,11 +33,21 @@ var (
 	goTestFileLinePattern = regexp.MustCompile(
 		`^\s+(.+\.go):(\d+):\s*(.*)$`,
 	)
+	goTestCoveragePattern = regexp.MustCompile(
+		`coverage:\s+(\d+(?:\.\d+)?)%\s+of\s+statements`,
+	)
+	goCoverTotalPattern = regexp.MustCompile(
+		`^total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%$`,
+	)
+	goCoverFilePattern = regexp.MustCompile(
+		`^(.+?\.go):(\d+):\s+\S+\s+(\d+(?:\.\d+)?)%$`,
+	)
 	hadolintPattern = regexp.MustCompile(
 		`^(.+?):(\d+)\s+([A-Z]+\d+)\s+([^:]+):\s*(.+)$`,
 	)
-	dotenvPattern = regexp.MustCompile(
-		`^(.+?):(?:(\d+)\s+)?([^:\s]+):\s*(.+)$`,
+	yamllintPattern = regexp.MustCompile(`^(.+):(\d+):(\d+):\s*(.+)$`)
+	dotenvPattern   = regexp.MustCompile(
+		`^(.+?):\s*(?:(\d+)\s+)?([^:\s]+):\s*(.+)$`,
 	)
 	tombiHeaderPattern = regexp.MustCompile(
 		`(?i)^\s*(error|warning|warn|info|hint)\s*:\s*(.+)$`,
@@ -51,33 +62,76 @@ var (
 	ruffFormatUnchanged = regexp.MustCompile(
 		`^\d+\s+files?\s+would\s+be\s+left\s+unchanged$`,
 	)
+	shfmtDiffHeaderPattern = regexp.MustCompile(`^\+\+\+\s+(\S+)`)
+	shfmtHunkPattern       = regexp.MustCompile(
+		`^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@`,
+	)
+	pytestFileLinePattern = regexp.MustCompile(`^(.+?\.py):(\d+):\s*(.+)$`)
+	pytestSummaryPattern  = regexp.MustCompile(
+		`^(FAILED|ERROR)\s+(.+?\.py)(?:::([^\s]+))?\s+-\s+(.+)$`,
+	)
+	pytestCoverageTotalPattern = regexp.MustCompile(
+		`^TOTAL\s+\d+\s+\d+\s+(\d+(?:\.\d+)?)%$`,
+	)
+	pytestCoverageFilePattern = regexp.MustCompile(
+		`^(\S+\.(?:py|pyi))\s+\d+\s+\d+\s+(\d+(?:\.\d+)?)%$`,
+	)
+	vultureLinePattern = regexp.MustCompile(`^(.+?):(\d+):\s*(.+)$`)
 )
 
 const (
-	actionlintTextMatchParts = 6
-	dotenvTextMatchParts     = 5
-	goTestFileLineMatchParts = 4
-	hadolintTextMatchParts   = 6
-	tombiHeaderMatchParts    = 3
-	tombiLocationMatchParts  = 4
-	yamllintParts            = 4
-	ruffFormatMatchParts     = 3
-	severityError            = "error"
-	severityWarning          = "warning"
+	actionlintTextMatchParts  = 6
+	dotenvTextMatchParts      = 5
+	goCoverFileMatchParts     = 4
+	goCoverageMatchParts      = 2
+	goTestFileLineMatchParts  = 4
+	hadolintTextMatchParts    = 6
+	shfmtDiffHeaderParts      = 2
+	shfmtHunkMatchParts       = 2
+	tombiHeaderMatchParts     = 3
+	tombiLocationMatchParts   = 4
+	ruffFormatMatchParts      = 3
+	yamllintMatchParts        = 5
+	pytestFileLineMatchParts  = 4
+	pytestSummaryMatchParts   = 5
+	pytestCoverageMatchParts  = 2
+	pytestCoverageFileParts   = 3
+	vultureLineMatchParts     = 4
+	defaultComplexityLimit    = 15
+	defaultMaintainabilityMin = 50
+	severityError             = "error"
+	severityWarning           = "warning"
 )
 
 func Parse(tool, stdout, stderr string) []Diagnostic {
-	output := strings.TrimSpace(firstNonEmpty(stdout, stderr))
-	if output == "" {
+	stdout = strings.TrimSpace(stdout)
+
+	stderr = strings.TrimSpace(stderr)
+	if stdout == "" && stderr == "" {
 		return nil
 	}
 
 	parser, ok := parserForTool(tool)
 	if ok {
-		return parser(output)
+		return parseStreams(parser, stdout, stderr)
 	}
 
-	return parseFallback(tool, output)
+	return parseStreams(func(output string) []Diagnostic {
+		return parseFallback(tool, output)
+	}, stdout, stderr)
+}
+
+func parseStreams(parser Parser, stdout, stderr string) []Diagnostic {
+	items := []Diagnostic{}
+	if stdout != "" {
+		items = append(items, parser(stdout)...)
+	}
+
+	if stderr != "" && stderr != stdout {
+		items = append(items, parser(stderr)...)
+	}
+
+	return Dedupe(items)
 }
 
 func InferTool(command []string) string {
@@ -93,6 +147,23 @@ func InferTool(command []string) string {
 	}
 
 	return filepath.Base(command[0])
+}
+
+func HasParser(tool string) bool {
+	_, ok := parserForTool(tool)
+
+	return ok
+}
+
+func RegisteredParsers() []string {
+	entries := parserEntries()
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+
+	return names
 }
 
 func parserForTool(tool string) (Parser, bool) {
@@ -116,16 +187,31 @@ func parserEntries() []parserEntry {
 		{Name: "actionlint", Parser: parseActionlint},
 		{Name: "bandit", Parser: parseBandit},
 		{Name: "dotenv-linter", Parser: parseDotenvLinter},
+		{Name: "gofmt", Parser: parseGofmt},
+		{Name: "gofmt-check", Parser: parseGofmt},
 		{Name: "go-test", Parser: parseGoTest},
+		{Name: "go-vet", Parser: parseGoVet},
 		{Name: "golangci-lint", Parser: parseGolangciLint},
+		{Name: "golangci-lint-autofix", Parser: parseGolangciLint},
+		{Name: "golangci-lint-format", Parser: parseGolangciLint},
+		{Name: "gemini", Parser: parseGemini},
+		{Name: "gemini-check", Parser: parseGemini},
 		{Name: "hadolint", Parser: parseHadolint},
 		{Name: "mypy", Parser: parseMypy},
 		{Name: "pylint", Parser: parsePylint},
 		{Name: "pyright", Parser: parsePyright},
+		{Name: "pytest", Parser: parsePytest},
+		{Name: "pytest-gate", Parser: parsePytest},
+		{Name: "radon-complexity", Parser: parseRadonComplexity},
+		{Name: "radon-maintainability", Parser: parseRadonMaintainability},
 		{Name: "ruff", Parser: parseRuff},
+		{Name: "ruff-autofix", Parser: parseRuff},
+		{Name: "ruff-format", Parser: parseRuff},
+		{Name: "shfmt", Parser: parseShfmt},
 		{Name: "shellcheck", Parser: parseShellcheck},
 		{Name: "sqlfluff", Parser: parseSQLFluff},
 		{Name: "tombi", Parser: parseTombi},
+		{Name: "vulture", Parser: parseVulture},
 		{Name: "yamllint", Parser: parseYamllint},
 	}
 }
@@ -137,211 +223,40 @@ func normalizedToolName(tool string) string {
 	return name
 }
 
-func parseGoTest(output string) []Diagnostic {
-	state := goTestParseState{
-		Outputs: map[string][]string{},
+type geminiResultPayload struct {
+	Verdict    string                   `json:"verdict"`
+	Violations []geminiViolationPayload `json:"violations"`
+}
+
+type geminiViolationPayload struct {
+	Severity     string `json:"severity"`
+	File         string `json:"file"`
+	Message      string `json:"message"`
+	EthosSection string `json:"ethos_section"`
+	Line         int    `json:"line"`
+}
+
+func parseGemini(output string) []Diagnostic {
+	cleaned := stripJSONCodeFence(output)
+
+	violations, ok := parseGeminiViolations(cleaned)
+	if !ok {
+		return nil
 	}
 
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		event, ok := parseGoTestEventLine(line)
-		if !ok {
+	diagnostics := make([]Diagnostic, 0, len(violations))
+	for _, violation := range violations {
+		message := strings.TrimSpace(violation.Message)
+		if message == "" {
 			continue
 		}
 
-		state.Apply(event)
-	}
-
-	return state.Diagnostics
-}
-
-type goTestEvent struct {
-	Package string  `json:"Package"`
-	Test    string  `json:"Test"`
-	Action  string  `json:"Action"`
-	Output  string  `json:"Output"`
-	Elapsed float64 `json:"Elapsed"`
-}
-
-type goTestParseState struct {
-	Outputs     map[string][]string
-	Diagnostics []Diagnostic
-}
-
-func parseGoTestEventLine(line string) (goTestEvent, bool) {
-	var event goTestEvent
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(line)), &event)
-	if err != nil || event.Action == "" {
-		return goTestEvent{}, false
-	}
-
-	return event, true
-}
-
-func (state *goTestParseState) Apply(event goTestEvent) {
-	key := goTestEventKey(event)
-	if event.Action == "output" && event.Output != "" {
-		state.Outputs[key] = append(state.Outputs[key], event.Output)
-
-		return
-	}
-
-	if event.Action != "fail" {
-		return
-	}
-
-	if event.Test != "" {
-		state.Diagnostics = append(
-			state.Diagnostics,
-			goTestDiagnosticsForFailedTest(event, state.Outputs[key])...,
-		)
-
-		return
-	}
-
-	state.Diagnostics = append(state.Diagnostics, Diagnostic{
-		Tool:     "go-test",
-		Severity: severityError,
-		Code:     "package_failed",
-		Message:  "Go test package failed: " + event.Package,
-	})
-}
-
-func goTestEventKey(event goTestEvent) string {
-	return event.Package + "\x00" + event.Test
-}
-
-func goTestDiagnosticsForFailedTest(
-	event goTestEvent,
-	outputs []string,
-) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	for _, output := range outputs {
-		diagnostic, ok := parseGoTestFileLine(output, event.Test)
-		if !ok {
-			continue
-		}
-
-		diagnostics = append(diagnostics, diagnostic)
-	}
-
-	if len(diagnostics) > 0 {
-		return diagnostics
-	}
-
-	return []Diagnostic{{
-		Tool:     "go-test",
-		Severity: severityError,
-		Code:     event.Test,
-		Message:  "Go test failed: " + firstNonEmpty(event.Test, event.Package),
-	}}
-}
-
-func parseGoTestFileLine(line, currentTest string) (Diagnostic, bool) {
-	matches := goTestFileLinePattern.FindStringSubmatch(strings.TrimRight(line, "\r\n"))
-	if len(matches) != goTestFileLineMatchParts {
-		return Diagnostic{}, false
-	}
-
-	lineNo, validLine := parseInt(matches[2])
-	if !validLine {
-		return Diagnostic{}, false
-	}
-
-	message := strings.TrimSpace(matches[3])
-	if message == "" && currentTest != "" {
-		message = "Go test failed: " + currentTest
-	}
-
-	return Diagnostic{
-		Tool:     "go-test",
-		File:     strings.TrimSpace(matches[1]),
-		Line:     lineNo,
-		Severity: severityError,
-		Code:     firstNonEmpty(currentTest, "test_failed"),
-		Message:  message,
-	}, true
-}
-
-func parseRuff(output string) []Diagnostic {
-	var items []struct {
-		Filename string `json:"filename"`
-		Code     string `json:"code"`
-		Message  string `json:"message"`
-		Location struct {
-			Row    int `json:"row"`
-			Column int `json:"column"`
-		} `json:"location"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return parseRuffText(output)
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(items))
-	for _, item := range items {
 		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "ruff",
-			File:     item.Filename,
-			Severity: severityError,
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Location.Row,
-			Column:   item.Location.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseRuffText(output string) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		text := strings.TrimSpace(line)
-		if text == "" || ruffFormatUnchanged.MatchString(text) {
-			continue
-		}
-
-		if matches := ruffFormatPattern.FindStringSubmatch(
-			text,
-		); len(
-			matches,
-		) == ruffFormatMatchParts {
-			diagnostics = append(diagnostics, Diagnostic{
-				Tool:     "ruff",
-				File:     matches[2],
-				Severity: severityError,
-				Code:     "format",
-				Message:  "File would be reformatted by ruff format.",
-				Line:     1,
-				Column:   1,
-			})
-
-			continue
-		}
-
-		matches := fallbackPattern.FindStringSubmatch(text)
-		if len(matches) != fallbackMatchParts {
-			continue
-		}
-
-		lineNo, validLine := parseInt(matches[2])
-		if !validLine {
-			continue
-		}
-
-		column, _ := parseInt(matches[3])
-		code, message := splitRuffCodeMessage(matches[5])
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "ruff",
-			File:     matches[1],
-			Line:     lineNo,
-			Column:   column,
-			Severity: firstNonEmpty(matches[4], severityError),
-			Code:     code,
+			Tool:     "gemini",
+			File:     strings.TrimSpace(violation.File),
+			Line:     violation.Line,
+			Severity: geminiSeverity(violation.Severity),
+			Code:     strings.TrimSpace(violation.EthosSection),
 			Message:  message,
 		})
 	}
@@ -349,690 +264,41 @@ func parseRuffText(output string) []Diagnostic {
 	return diagnostics
 }
 
-func splitRuffCodeMessage(raw string) (string, string) {
-	fields := strings.Fields(strings.TrimSpace(raw))
-	if len(fields) == 0 {
-		return "", ""
+func parseGeminiViolations(output string) ([]geminiViolationPayload, bool) {
+	if strings.HasPrefix(strings.TrimSpace(output), "[") {
+		var violations []geminiViolationPayload
+
+		err := json.Unmarshal([]byte(output), &violations)
+
+		return violations, err == nil
 	}
 
-	if ruffCodePattern.MatchString(fields[0]) {
-		return fields[0], strings.TrimSpace(strings.TrimPrefix(raw, fields[0]))
-	}
+	var result geminiResultPayload
 
-	return "", strings.TrimSpace(raw)
+	err := json.Unmarshal([]byte(output), &result)
+
+	return result.Violations, err == nil
 }
 
-func parsePyright(output string) []Diagnostic {
-	var payload struct {
-		GeneralDiagnostics []struct {
-			File     string `json:"file"`
-			Severity string `json:"severity"`
-			Message  string `json:"message"`
-			Rule     string `json:"rule"`
-			Range    struct {
-				Start struct {
-					Line      int `json:"line"`
-					Character int `json:"character"`
-				} `json:"start"`
-			} `json:"range"`
-		} `json:"generalDiagnostics"`
-	}
+func stripJSONCodeFence(output string) string {
+	trimmed := strings.TrimSpace(output)
+	trimmed = strings.TrimPrefix(trimmed, "```json")
+	trimmed = strings.TrimPrefix(trimmed, "```JSON")
+	trimmed = strings.TrimPrefix(trimmed, "```")
+	trimmed = strings.TrimSuffix(trimmed, "```")
 
-	err := json.Unmarshal([]byte(output), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(payload.GeneralDiagnostics))
-	for _, item := range payload.GeneralDiagnostics {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "pyright",
-			File:     item.File,
-			Severity: item.Severity,
-			Code:     item.Rule,
-			Message:  item.Message,
-			Line:     item.Range.Start.Line + 1,
-			Column:   item.Range.Start.Character + 1,
-		})
-	}
-
-	return diagnostics
+	return strings.TrimSpace(trimmed)
 }
 
-func parseMypy(output string) []Diagnostic {
-	items := parseMypyItems(output)
-	if len(items) == 0 {
-		return parseMypyText(output)
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(items))
-	for _, item := range items {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "mypy",
-			File:     firstNonEmpty(item.File, item.Path),
-			Severity: item.Severity,
-			Code:     item.Code,
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseMypyText(output string) []Diagnostic {
-	items := parseFallback("mypy", output)
-	for index, item := range items {
-		message, code := splitTrailingBracketCode(item.Message)
-		items[index].Message = message
-		items[index].Code = code
-	}
-
-	return items
-}
-
-func splitTrailingBracketCode(message string) (string, string) {
-	trimmed := strings.TrimSpace(message)
-
-	start := strings.LastIndex(trimmed, "[")
-	if start < 0 || !strings.HasSuffix(trimmed, "]") {
-		return trimmed, ""
-	}
-
-	return strings.TrimSpace(
-			trimmed[:start],
-		), strings.TrimSuffix(
-			trimmed[start+1:],
-			"]",
-		)
-}
-
-type mypyItem struct {
-	File     string `json:"file"`
-	Path     string `json:"path"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
-	Code     string `json:"code"`
-	Line     int    `json:"line"`
-	Column   int    `json:"column"`
-}
-
-func parseMypyItems(output string) []mypyItem {
-	trimmedOutput := strings.TrimSpace(output)
-	if strings.HasPrefix(trimmedOutput, "[") {
-		var items []mypyItem
-		if json.Unmarshal([]byte(trimmedOutput), &items) != nil {
-			return nil
-		}
-
-		return items
-	}
-
-	items := []mypyItem{}
-
-	for line := range strings.SplitSeq(trimmedOutput, "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		var item mypyItem
-		if json.Unmarshal([]byte(line), &item) != nil {
-			return nil
-		}
-
-		items = append(items, item)
-	}
-
-	return items
-}
-
-func parsePylint(output string) []Diagnostic {
-	if diagnostics := parsePylintJSON2(output); len(diagnostics) > 0 {
-		return diagnostics
-	}
-
-	var items []struct {
-		Path      string `json:"path"`
-		Type      string `json:"type"`
-		Symbol    string `json:"symbol"`
-		MessageID string `json:"message-id"`
-		Message   string `json:"message"`
-		Line      int    `json:"line"`
-		Column    int    `json:"column"`
-	}
-
-	err := json.Unmarshal([]byte(output), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(items))
-	for _, item := range items {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "pylint",
-			File:     item.Path,
-			Severity: item.Type,
-			Code:     firstNonEmpty(item.Symbol, item.MessageID),
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func parsePylintJSON2(output string) []Diagnostic {
-	var payload struct {
-		Messages []struct {
-			Path      string `json:"path"`
-			Type      string `json:"type"`
-			Symbol    string `json:"symbol"`
-			MessageID string `json:"messageId"`
-			Message   string `json:"message"`
-			Line      int    `json:"line"`
-			Column    int    `json:"column"`
-		} `json:"messages"`
-	}
-
-	err := json.Unmarshal([]byte(output), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(payload.Messages))
-	for _, item := range payload.Messages {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "pylint",
-			File:     item.Path,
-			Severity: item.Type,
-			Code:     firstNonEmpty(item.Symbol, item.MessageID),
-			Message:  item.Message,
-			Line:     item.Line,
-			Column:   item.Column + 1,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseGolangciLint(output string) []Diagnostic {
-	if diagnostics := parseGolangciLintJSON(output); len(diagnostics) > 0 {
-		return diagnostics
-	}
-
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		matches := golangciPattern.FindStringSubmatch(strings.TrimSpace(line))
-		if len(matches) != actionlintTextMatchParts {
-			continue
-		}
-
-		lineNo, validLine := parseInt(matches[2])
-		column, validColumn := parseInt(matches[3])
-
-		if !validLine || !validColumn {
-			continue
-		}
-
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "golangci-lint",
-			File:     matches[1],
-			Line:     lineNo,
-			Column:   column,
-			Severity: severityError,
-			Code:     matches[5],
-			Message:  strings.TrimSpace(matches[4]),
-		})
-	}
-
-	return diagnostics
-}
-
-func parseGolangciLintJSON(output string) []Diagnostic {
-	var payload struct {
-		Issues []struct {
-			FromLinter string `json:"FromLinter"`
-			Text       string `json:"Text"`
-			Severity   string `json:"Severity"`
-			Pos        struct {
-				Filename string `json:"Filename"`
-				Line     int    `json:"Line"`
-				Column   int    `json:"Column"`
-			} `json:"Pos"`
-		} `json:"Issues"`
-	}
-
-	err := json.Unmarshal([]byte(extractJSONObject(output)), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(payload.Issues))
-	for _, issue := range payload.Issues {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "golangci-lint",
-			File:     issue.Pos.Filename,
-			Line:     issue.Pos.Line,
-			Column:   issue.Pos.Column,
-			Severity: firstNonEmpty(issue.Severity, severityError),
-			Code:     issue.FromLinter,
-			Message:  issue.Text,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseHadolint(output string) []Diagnostic {
-	if diagnostics := parseHadolintJSON(output); len(diagnostics) > 0 {
-		return diagnostics
-	}
-
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		matches := hadolintPattern.FindStringSubmatch(strings.TrimSpace(line))
-		if len(matches) != hadolintTextMatchParts {
-			continue
-		}
-
-		lineNo, ok := parseInt(matches[2])
-		if !ok {
-			continue
-		}
-
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "hadolint",
-			File:     matches[1],
-			Line:     lineNo,
-			Severity: strings.TrimSpace(matches[4]),
-			Code:     matches[3],
-			Message:  strings.TrimSpace(matches[5]),
-		})
-	}
-
-	return diagnostics
-}
-
-func parseHadolintJSON(output string) []Diagnostic {
-	var items []struct {
-		Code    string `json:"code"`
-		File    string `json:"file"`
-		Level   string `json:"level"`
-		Message string `json:"message"`
-		Line    int    `json:"line"`
-		Column  int    `json:"column"`
-	}
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(items))
-	for _, item := range items {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "hadolint",
-			File:     item.File,
-			Line:     item.Line,
-			Column:   item.Column,
-			Severity: item.Level,
-			Code:     item.Code,
-			Message:  item.Message,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseActionlint(output string) []Diagnostic {
-	if diagnostics := parseActionlintJSON(output); len(diagnostics) > 0 {
-		return diagnostics
-	}
-
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		matches := actionlintPattern.FindStringSubmatch(strings.TrimSpace(line))
-		if len(matches) != actionlintTextMatchParts {
-			continue
-		}
-
-		lineNo, validLine := parseInt(matches[2])
-		column, validColumn := parseInt(matches[3])
-
-		if !validLine || !validColumn {
-			continue
-		}
-
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "actionlint",
-			File:     matches[1],
-			Line:     lineNo,
-			Column:   column,
-			Severity: severityError,
-			Code:     matches[5],
-			Message:  strings.TrimSpace(matches[4]),
-		})
-	}
-
-	return diagnostics
-}
-
-func parseActionlintJSON(output string) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		var item struct {
-			FilePath string `json:"filepath"`
-			File     string `json:"file"`
-			Path     string `json:"path"`
-			Message  string `json:"message"`
-			Kind     string `json:"kind"`
-			Check    string `json:"check"`
-			Line     int    `json:"line"`
-			Column   int    `json:"column"`
-		}
-
-		err := json.Unmarshal([]byte(strings.TrimSpace(line)), &item)
-		if err != nil {
-			continue
-		}
-
-		file := firstNonEmpty(item.FilePath, item.File, item.Path)
-		if file == "" && item.Message == "" {
-			continue
-		}
-
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "actionlint",
-			File:     file,
-			Line:     item.Line,
-			Column:   item.Column,
-			Severity: severityError,
-			Code:     firstNonEmpty(item.Kind, item.Check),
-			Message:  item.Message,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseShellcheck(output string) []Diagnostic {
-	var payload struct {
-		Comments []struct {
-			File    string `json:"file"`
-			Level   string `json:"level"`
-			Message string `json:"message"`
-			Line    int    `json:"line"`
-			Column  int    `json:"column"`
-			Code    int    `json:"code"`
-		} `json:"comments"`
-	}
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
-	if err != nil {
-		return nil
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(payload.Comments))
-	for _, comment := range payload.Comments {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "shellcheck",
-			File:     comment.File,
-			Line:     comment.Line,
-			Column:   comment.Column,
-			Severity: comment.Level,
-			Code:     "SC" + strconv.Itoa(comment.Code),
-			Message:  comment.Message,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseYamllint(output string) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		parts := strings.SplitN(line, ":", yamllintParts)
-		if len(parts) < yamllintParts {
-			continue
-		}
-
-		lineNo, validLine := parseInt(parts[1])
-		column, validColumn := parseInt(parts[2])
-
-		if !validLine || !validColumn {
-			continue
-		}
-
-		message := strings.TrimSpace(parts[3])
-		severity := ""
-
-		switch {
-		case strings.Contains(message, "[error]"):
-			severity = severityError
-		case strings.Contains(message, "[warning]"):
-			severity = severityWarning
-		}
-
-		code := ""
-		if start := strings.LastIndex(message, "("); start >= 0 &&
-			strings.HasSuffix(message, ")") {
-			code = strings.TrimSuffix(message[start+1:], ")")
-			message = strings.TrimSpace(message[:start])
-		}
-
-		message = strings.TrimPrefix(message, "[error]")
-		message = strings.TrimPrefix(message, "[warning]")
-		message = strings.TrimSpace(message)
-
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "yamllint",
-			File:     strings.TrimSpace(parts[0]),
-			Line:     lineNo,
-			Column:   column,
-			Severity: severity,
-			Code:     code,
-			Message:  message,
-		})
-	}
-
-	return diagnostics
-}
-
-func parseBandit(output string) []Diagnostic {
-	var payload struct {
-		Results []struct {
-			Filename        string `json:"filename"`
-			IssueSeverity   string `json:"issue_severity"`
-			IssueConfidence string `json:"issue_confidence"`
-			IssueText       string `json:"issue_text"`
-			TestID          string `json:"test_id"`
-			LineNumber      int    `json:"line_number"`
-		} `json:"results"`
-	}
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
-	if err != nil {
-		return parseFallback("bandit", output)
-	}
-
-	diagnostics := make([]Diagnostic, 0, len(payload.Results))
-	for _, item := range payload.Results {
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "bandit",
-			File:     item.Filename,
-			Line:     item.LineNumber,
-			Severity: banditSeverity(item.IssueSeverity),
-			Code:     item.TestID,
-			Message:  item.IssueText,
-		})
-	}
-
-	return diagnostics
-}
-
-func banditSeverity(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "high":
+func geminiSeverity(severity string) string {
+	switch strings.ToUpper(strings.TrimSpace(severity)) {
+	case "CRITICAL", "HIGH", "ERROR", "BLOCK":
 		return severityError
-	case "medium":
-		return severityWarning
-	case "low":
-		return "notice"
-	default:
-		return firstNonEmpty(strings.ToLower(strings.TrimSpace(value)), severityWarning)
-	}
-}
-
-func parseSQLFluff(output string) []Diagnostic {
-	var items []struct {
-		Filepath   string `json:"filepath"`
-		Violations []struct {
-			Code         string `json:"code"`
-			Description  string `json:"description"`
-			Name         string `json:"name"`
-			LineNo       int    `json:"line_no"`
-			LinePos      int    `json:"line_pos"`
-			StartLineNo  int    `json:"start_line_no"`
-			StartLinePos int    `json:"start_line_pos"`
-			Warning      bool   `json:"warning"`
-		} `json:"violations"`
-	}
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &items)
-	if err != nil {
-		return parseFallback("sqlfluff", output)
-	}
-
-	diagnostics := []Diagnostic{}
-
-	for _, item := range items {
-		for _, violation := range item.Violations {
-			severity := severityError
-			if violation.Warning {
-				severity = severityWarning
-			}
-
-			line := violation.LineNo
-			if line == 0 {
-				line = violation.StartLineNo
-			}
-
-			column := violation.LinePos
-			if column == 0 {
-				column = violation.StartLinePos
-			}
-
-			diagnostics = append(diagnostics, Diagnostic{
-				Tool:     "sqlfluff",
-				File:     item.Filepath,
-				Line:     line,
-				Column:   column,
-				Severity: severity,
-				Code:     violation.Code,
-				Message:  firstNonEmpty(violation.Description, violation.Name),
-			})
-		}
-	}
-
-	return diagnostics
-}
-
-func parseTombi(output string) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	lines := strings.Split(stripANSI(output), "\n")
-	for index := range lines {
-		header := tombiHeaderPattern.FindStringSubmatch(strings.TrimSpace(lines[index]))
-		if len(header) != tombiHeaderMatchParts {
-			continue
-		}
-
-		diagnostic := Diagnostic{
-			Tool:     "tombi",
-			Severity: normalizedTombiSeverity(header[1]),
-			Message:  strings.TrimSpace(header[2]),
-		}
-		for lookahead := index + 1; lookahead < len(lines); lookahead++ {
-			line := strings.TrimSpace(lines[lookahead])
-			if line == "" {
-				continue
-			}
-
-			if tombiHeaderPattern.MatchString(line) {
-				break
-			}
-
-			location := tombiLocationPattern.FindStringSubmatch(line)
-			if len(location) != tombiLocationMatchParts {
-				continue
-			}
-
-			diagnostic.File = location[1]
-			diagnostic.Line, _ = parseInt(location[2])
-			diagnostic.Column, _ = parseInt(location[3])
-
-			break
-		}
-
-		diagnostics = append(diagnostics, diagnostic)
-	}
-
-	return diagnostics
-}
-
-func normalizedTombiSeverity(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case severityError:
-		return severityError
-	case severityWarning, "warn":
+	case "MEDIUM", "WARNING", "WARN":
 		return severityWarning
 	default:
-		return "notice"
+		return severityNotice
 	}
-}
-
-func stripANSI(value string) string {
-	ansiPattern := regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-	return ansiPattern.ReplaceAllString(value, "")
-}
-
-func parseDotenvLinter(output string) []Diagnostic {
-	diagnostics := []Diagnostic{}
-
-	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" ||
-			strings.HasPrefix(trimmed, "Checking") ||
-			strings.HasPrefix(trimmed, "Nothing to check") ||
-			strings.HasPrefix(trimmed, "No problems found") {
-			continue
-		}
-
-		matches := dotenvPattern.FindStringSubmatch(trimmed)
-		if len(matches) != dotenvTextMatchParts {
-			continue
-		}
-
-		lineNo, _ := parseInt(matches[2])
-		diagnostics = append(diagnostics, Diagnostic{
-			Tool:     "dotenv-linter",
-			File:     matches[1],
-			Line:     lineNo,
-			Severity: severityWarning,
-			Code:     matches[3],
-			Message:  strings.TrimSpace(matches[4]),
-		})
-	}
-
-	return diagnostics
 }
 
 func parseFallback(tool, output string) []Diagnostic {

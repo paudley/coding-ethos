@@ -5,6 +5,7 @@ package celexpr_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	. "blackcat.ca/coding-ethos/go/internal/celexpr"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -65,6 +67,7 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 		"argv: list(string)",
 		"shell_commands: list(",
 		"proposed_file_changes: list(",
+		"proxy: {",
 		"python_ast: list(",
 		"tool_capabilities: list(",
 	} {
@@ -83,6 +86,52 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 		if !strings.Contains(helperSchema, want) {
 			t.Fatalf("helper schema missing %q:\n%s", want, helperSchema)
 		}
+	}
+}
+
+func TestProxyInputExposesPolicyAndDLPFacts(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.proxy_dlp",
+		`proxy.kind == "provider_call" &&
+		 proxy.direction == "outbound" &&
+		 proxy.payload_kind == "prompt" &&
+		 proxy.total_tokens > 100 &&
+		 proxy.has_dlp_facts &&
+		 proxy.dlp_facts.exists(fact, fact.type == "credential_filename")`,
+	)
+	if err != nil {
+		t.Fatalf("compile proxy CEL expression: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Proxy: ProxyInput{
+			EventID:      "evt-1",
+			SessionID:    "sess-1",
+			Kind:         "provider_call",
+			Direction:    "outbound",
+			PayloadKind:  "prompt",
+			TotalTokens:  128,
+			PayloadBytes: 4096,
+			DLPFacts: []ProxyDLPFactInput{{
+				Type:       "credential_filename",
+				Path:       ".env",
+				Confidence: "high",
+			}},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate proxy CEL expression: %v", err)
+	}
+
+	matched, ok := output.Value().(bool)
+	if !ok {
+		t.Fatalf("proxy CEL expression returned %T", output.Value())
+	}
+
+	if !matched {
+		t.Fatalf("proxy CEL expression did not match")
 	}
 }
 
@@ -1138,7 +1187,12 @@ func assertStableRepoInputs(
 func runTestGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	gitPath, err := realgit.Resolve("git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = dir
 
 	cmd.Env = append(
@@ -1336,6 +1390,99 @@ func TestActivationPopulatesExplicitDiagnosticInput(t *testing.T) {
 	diagnostics, found := activation["diagnostics"].([]DiagnosticInput)
 	if !found || len(diagnostics) != 1 || diagnostics[0] != diagnostic {
 		t.Fatalf("diagnostics input = %#v", activation["diagnostics"])
+	}
+}
+
+func TestActivationPopulatesCoverageInputsFromDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Diagnostics: []diagnostics.Diagnostic{
+			{
+				Metadata: map[string]any{
+					"coverage_percent": 79.5,
+				},
+				Tool: "pytest",
+				Code: "coverage-total",
+			},
+			{
+				Metadata: map[string]any{
+					"coverage_percent": json.Number("88.25"),
+				},
+				Tool: "pytest",
+				File: "./pkg/app.py",
+				Code: "coverage-file",
+			},
+			{
+				Metadata: map[string]any{
+					"coverage_percent": 82.4,
+					"package":          "blackcat.ca/coding-ethos/go/pkg",
+				},
+				Tool: "go-test",
+				Code: "coverage-package",
+			},
+		},
+	})
+
+	coverage, found := activation["coverage"].([]CoverageInput)
+	if !found || len(coverage) != 3 {
+		t.Fatalf("coverage input = %#v", activation["coverage"])
+	}
+
+	assertCoverageInput(t, coverage[0], CoverageInput{
+		Tool:    "pytest",
+		Code:    "coverage-total",
+		Total:   true,
+		Percent: 79.5,
+	})
+	assertCoverageInput(t, coverage[1], CoverageInput{
+		Tool:    "pytest",
+		File:    "pkg/app.py",
+		Code:    "coverage-file",
+		Percent: 88.25,
+	})
+	assertCoverageInput(t, coverage[2], CoverageInput{
+		Tool:    "go-test",
+		Code:    "coverage-package",
+		Package: "blackcat.ca/coding-ethos/go/pkg",
+		Percent: 82.4,
+	})
+}
+
+func assertCoverageInput(t *testing.T, got, want CoverageInput) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("coverage input = %#v, want %#v", got, want)
+	}
+}
+
+func TestProgramCanEvaluateCoverageInputs(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"testing.coverage_floor",
+		"coverage.exists(item, item.tool == 'pytest' && item.total && item.percent < 80.0)",
+	)
+	if err != nil {
+		t.Fatalf("Program() error = %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{
+				"coverage_percent": 79.5,
+			},
+			Tool: "pytest",
+			Code: "coverage-total",
+		}},
+	}))
+	if err != nil {
+		t.Fatalf("Eval() error = %v", err)
+	}
+
+	if output.Value() != true {
+		t.Fatalf("coverage policy result = %v, want true", output.Value())
 	}
 }
 

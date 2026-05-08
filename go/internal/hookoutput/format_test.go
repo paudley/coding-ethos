@@ -156,6 +156,17 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 				"ast_symbol_path":      "load_config",
 				"input_schema_version": int64(1),
 				"policy_source":        "coding_ethos.yml:principles.4",
+				"proxy_direction":      "outbound",
+				"proxy_event_id":       "proxy-event-1",
+				"proxy_event_kind":     "provider_call",
+				"proxy_payload_bytes":  int64(4096),
+				"proxy_payload_kind":   "prompt",
+				"proxy_provider":       "codex",
+				"proxy_session_id":     "proxy-session-1",
+				"proxy_token_total":    int64(512),
+				"proxy_trace_id":       "trace-1",
+				"proxy_tracking_id":    "track-1",
+				"proxy_transform":      "dlp-inspection",
 				"when":                 "diagnostic.code == 'F401'",
 			},
 			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
@@ -334,6 +345,20 @@ func assertSARIFResultProperties(t *testing.T, payload map[string]any) {
 		payload,
 		"runs.0.results.0.properties.policy_source",
 		"coding_ethos.yml:principles.4",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.proxy_event_id",
+		"proxy-event-1",
+	)
+	assertJSONPath(t, payload, "runs.0.results.0.properties.proxy_direction", "outbound")
+	assertJSONPath(t, payload, "runs.0.results.0.properties.proxy_payload_kind", "prompt")
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.proxy_token_total",
+		float64(512),
 	)
 	assertJSONPath(
 		t,
@@ -548,7 +573,7 @@ func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.automationDetails.id", "policy/")
 }
 
-func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
+func TestFormatLintResultSARIFIncludesPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -575,15 +600,24 @@ func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 0 {
-		t.Fatalf(
-			"pathless policy SARIF results cannot be uploaded to code scanning: %#v",
-			results,
-		)
+	if len(results) != 1 {
+		t.Fatalf("pathless policy SARIF results = %#v, want one result", results)
 	}
+
+	sarifResult, ok := results[0].(map[string]any)
+	if !ok {
+		t.Fatalf("pathless SARIF result = %#v, want object", results[0])
+	}
+
+	assertJSONPath(
+		t,
+		sarifResult,
+		"locations.0.physicalLocation.artifactLocation.uri",
+		sarifRepoURI,
+	)
 }
 
-func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
+func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -610,12 +644,71 @@ func TestFormatLintResultSARIFOmitRecordOnlyPolicyContext(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 0 {
-		t.Fatalf(
-			"record-only policy context should not emit SARIF results: %#v",
-			results,
-		)
+	if len(results) != 1 {
+		t.Fatalf("record-only policy SARIF results = %#v, want one result", results)
 	}
+}
+
+func TestFormatLintResultSARIFIncludesCapturePayloads(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:go-test",
+		Status: "blocked",
+		Capture: &lint.ToolCapture{
+			Tool:        "go-test",
+			Parser:      "go-test",
+			ParseStatus: "parse_error",
+			Stdout:      "coverage: 79.6% of statements\n",
+			Stderr:      "panic: hidden failure\n",
+			ExitCode:    1,
+		},
+		Findings: []lint.Finding{{
+			RawOutcome: map[string]any{
+				"stdout":    "coverage: 79.6% of statements\n",
+				"stderr":    "panic: hidden failure\n",
+				"exit_code": 1,
+			},
+			CheckID:    "tool.go-test",
+			Message:    "go-test exited with status 1 without parseable diagnostics",
+			Severity:   "fatal",
+			SourceTool: "go-test",
+			Status:     "fail",
+			Blocking:   true,
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+
+	decodeErr := json.Unmarshal([]byte(output), &payload)
+	if decodeErr != nil {
+		t.Fatalf("decode SARIF: %v\n%s", decodeErr, output)
+	}
+
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.capture.stdout",
+		"coverage: 79.6% of statements\n",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.capture.stderr",
+		"panic: hidden failure\n",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.detail",
+		"exit_code=1; stdout=coverage: 79.6% of statements; "+
+			"stderr=panic: hidden failure",
+	)
 }
 
 func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {

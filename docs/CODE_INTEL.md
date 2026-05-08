@@ -153,6 +153,17 @@ which targets are frequently involved without reparsing raw provider payloads.
 Operator review rows can label a hook event as a correct block, false positive,
 unclear message, over-broad policy, or missing allow-list case.
 
+Agent Proxy foundation data uses the same store. Proxy events are
+provider-neutral records for outbound provider calls, tool calls, file reads,
+file listings, payload injections, payload truncations, cache hits, and edit
+proposals. The session ledger stores request counts, file-read/listing counts,
+edit counts, cache hits, injection/truncation/denial counts, payload hashes,
+cache keys, trace/tracking IDs, direction, payload kind, DLP facts, policy
+evidence, token usage, payload byte counts, and ordered transform records. This
+is the storage substrate for future context-economy controls; it is not a
+separate shadow database. The trust boundary and event contract are documented
+in [AGENT_PROXY.md](AGENT_PROXY.md).
+
 ## Canonical SQLite Store
 
 The first implementation should create `.coding-ethos/code-intel.db` with
@@ -174,6 +185,9 @@ tables for:
   paths
 - hook review metadata for false positives, unclear messages, over-broad
   policies, missing allow-list cases, and confirmed correct blocks
+- proxy session/event metadata for provider calls, tool calls, file reads,
+  listings, payload hashes, token counts, cache hits, injections, truncations,
+  edits, and ordered transforms
 - remediation attempts and outcomes keyed by stable remediation ID
 - embedding metadata: model, provider, dimension, input kind, chunk hash, and
   vector backend row ID
@@ -192,8 +206,13 @@ bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel index-code pkg scripts config.yml
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
+bin/coding-ethos-run code-intel repo-map --path pkg/app.go
+bin/coding-ethos-run code-intel compact-context --path pkg/app.go
 bin/coding-ethos-run code-intel ingest-sarif --file policy.sarif
 bin/coding-ethos-run code-intel sarif-results --policy-id python.unused_imports
+bin/coding-ethos-run code-intel record-proxy-event --event-id evt-1 --session-id sess-1 --kind file_read --provider codex --target-path pkg/app.go
+bin/coding-ethos-run code-intel proxy-sessions --provider codex
+bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
@@ -233,6 +252,9 @@ SQLite remains canonical and should gain:
 - Embedding candidate rows for SARIF results, emitted remediation packets, and
   remediation outcomes so an approved embedding producer can write vectors back
   without reading raw trace JSON.
+- Proxy session and event rows that summarize context access, transformations,
+  payload hashes, cache behavior, token pressure, and edit attempts without
+  requiring raw provider transcripts for routine analysis.
 
 The first query/CLI surface should answer:
 
@@ -243,6 +265,10 @@ The first query/CLI surface should answer:
   already exist.
 - which prior fixes are most relevant through hybrid FTS + sqlite-vec search,
   with fixed outcomes boosted and repeated/superseded outcomes downranked.
+- which source files and symbols should be injected into compact agent context
+  through `repo-map`, `code-chunks`, and `compact-context` without reparsing.
+- which proxy sessions repeatedly read the same files, exceed token budgets,
+  trigger payload truncation, or receive policy injections.
 
 Vector work uses always-built sqlite-vec tables. Metadata stays in normal
 SQLite tables for auditability and filtering, while vectors live in

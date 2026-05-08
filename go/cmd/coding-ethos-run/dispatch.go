@@ -5,15 +5,13 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 func run(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
-		requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
-		runtimeExecPath(paths, paths.GitHookRunner)
+		return apperror.StaticError("coding-ethos-run requires a command")
 	}
 
 	command := args[0]
@@ -21,10 +19,11 @@ func run(paths runtimePaths, args []string) error {
 
 	handler, found := runCommandHandler(command)
 	if !found {
-		requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
-		runtimeExecPath(paths, paths.GitHookRunner, args...)
-
-		return nil
+		return apperror.Wrapf(
+			apperror.StaticError("unknown coding-ethos-run command"),
+			"unknown coding-ethos-run command %q",
+			command,
+		)
 	}
 
 	return handler(paths, rest)
@@ -59,6 +58,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy", Handler: runPolicyHandler},
 		{Command: "code-intel", Handler: runCodeIntelHandler},
 		{Command: "policy-tool", Handler: runPolicyTool},
+		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
 		{Command: "mcp", Handler: runMCPHandler},
 	}
@@ -78,10 +78,7 @@ func runAgentHooksHandler(paths runtimePaths, rest []string) error {
 
 func runPolicyLintHandler(paths runtimePaths, rest []string) error {
 	requirePolicyBundle(paths)
-	runtimeExecTool(
-		paths,
-		"coding-ethos-lint",
-		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+	runtimeExecLint(paths, append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
 
 	return nil
 }
@@ -152,25 +149,17 @@ func runPolicyTool(paths runtimePaths, rest []string) error {
 	}
 
 	requirePolicyBundle(paths)
-	runtimeExecTool(
-		paths,
-		"coding-ethos-lint",
-		policyToolLintArgs(paths, rest[0], rest[1:])...)
+	runtimeExecLint(paths, policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
 }
 
 func runMCP(paths runtimePaths, rest []string) {
 	requirePolicyBundle(paths)
-	requireRuntimeBinary(
-		filepath.Join(paths.BinDir, "coding-ethos-lint"),
-		"coding-ethos-lint",
-	)
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", paths.PolicyBundle,
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,
-		"--lint-binary", filepath.Join(paths.BinDir, "coding-ethos-lint"),
 	}, rest...)...)
 }

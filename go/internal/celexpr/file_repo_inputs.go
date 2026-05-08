@@ -5,6 +5,7 @@ package celexpr
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -206,10 +208,9 @@ func gitOutput(cwd string, args ...string) (string, error) {
 }
 
 func gitExecutable() string {
-	if configured := strings.TrimSpace(
-		os.Getenv("CODING_ETHOS_REAL_GIT"),
-	); configured != "" {
-		return configured
+	resolved, err := realgit.Resolve("git")
+	if err == nil && strings.TrimSpace(resolved) != "" {
+		return resolved
 	}
 
 	return "git"
@@ -427,6 +428,86 @@ func diagnosticInput(diagnostic *diagnostics.Diagnostic) DiagnosticInput {
 		Column:   int64(diagnostic.Column),
 		Severity: diagnostic.Severity,
 		PolicyID: diagnostic.PolicyID,
+	}
+}
+
+func coverageInputs(
+	diagnosticList []diagnostics.Diagnostic,
+	primary *diagnostics.Diagnostic,
+) []CoverageInput {
+	diagnostics := append([]diagnostics.Diagnostic(nil), diagnosticList...)
+	if primary != nil {
+		diagnostics = append(diagnostics, *primary)
+	}
+
+	inputs := make([]CoverageInput, 0, len(diagnostics))
+	seen := map[string]bool{}
+
+	for _, diagnostic := range diagnostics {
+		input, ok := coverageInput(diagnostic)
+		if !ok {
+			continue
+		}
+
+		key := input.Tool + "\x00" + input.File + "\x00" + input.Code
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+
+		inputs = append(inputs, input)
+	}
+
+	return inputs
+}
+
+func coverageInput(diagnostic diagnostics.Diagnostic) (CoverageInput, bool) {
+	value, found := diagnostic.Metadata["coverage_percent"]
+	if !found {
+		return CoverageInput{}, false
+	}
+
+	percent, parsed := coveragePercent(value)
+	if !parsed {
+		return CoverageInput{}, false
+	}
+
+	return CoverageInput{
+		Tool:    diagnostic.Tool,
+		File:    cleanInputFile(diagnostic.File),
+		Package: coveragePackage(diagnostic),
+		Code:    diagnostic.Code,
+		Percent: percent,
+		Total:   diagnostic.Code == "coverage-total",
+	}, true
+}
+
+func coveragePackage(diagnostic diagnostics.Diagnostic) string {
+	value, ok := diagnostic.Metadata["package"].(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
+}
+
+func coveragePercent(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case json.Number:
+		parsed, err := typed.Float64()
+
+		return parsed, err == nil
+	default:
+		return 0, false
 	}
 }
 

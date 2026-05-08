@@ -16,6 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -872,7 +873,12 @@ func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 func runCELGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	gitPath, err := realgit.Resolve("git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = dir
 
 	cmd.Env = append(

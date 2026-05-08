@@ -7,6 +7,7 @@ func schemaStatements() []string {
 	statements := make([]string, 0, schemaStatementCapacity)
 	statements = append(statements, traceSchemaStatements()...)
 	statements = append(statements, hookSchemaStatements()...)
+	statements = append(statements, proxySchemaStatements()...)
 	statements = append(statements, codeSchemaStatements()...)
 	statements = append(statements, sarifSchemaStatements()...)
 	statements = append(statements, remediationSchemaStatements()...)
@@ -16,7 +17,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 32
+const schemaStatementCapacity = 40
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -136,6 +137,79 @@ func hookSchemaStatements() []string {
 	}
 }
 
+func proxySchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS proxy_sessions (
+		session_id TEXT PRIMARY KEY,
+		provider TEXT,
+		model TEXT,
+		repo_root TEXT,
+		started_at_utc TEXT,
+		last_seen_utc TEXT,
+		request_count INTEGER NOT NULL DEFAULT 0,
+		tool_call_count INTEGER NOT NULL DEFAULT 0,
+		file_read_count INTEGER NOT NULL DEFAULT 0,
+		file_listing_count INTEGER NOT NULL DEFAULT 0,
+		edit_count INTEGER NOT NULL DEFAULT 0,
+		cache_hit_count INTEGER NOT NULL DEFAULT 0,
+		injection_count INTEGER NOT NULL DEFAULT 0,
+		truncation_count INTEGER NOT NULL DEFAULT 0,
+		denial_count INTEGER NOT NULL DEFAULT 0,
+		transform_count INTEGER NOT NULL DEFAULT 0,
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		total_tokens INTEGER NOT NULL DEFAULT 0,
+		raw_json TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS proxy_events (
+		event_id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		event_kind TEXT NOT NULL,
+		provider TEXT,
+		tool TEXT,
+		model TEXT,
+		recorded_at_utc TEXT,
+		trace_id TEXT,
+		tracking_id TEXT,
+		repo_root TEXT,
+		cwd TEXT,
+		target_path TEXT,
+		direction TEXT,
+		payload_kind TEXT,
+		cache_key TEXT,
+		input_hash TEXT,
+		output_hash TEXT,
+		payload_bytes INTEGER NOT NULL DEFAULT 0,
+		policy_id TEXT,
+		decision TEXT,
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		total_tokens INTEGER NOT NULL DEFAULT 0,
+		policy_evidence_json TEXT NOT NULL DEFAULT '{}',
+		dlp_json TEXT NOT NULL DEFAULT '[]',
+		metadata_json TEXT NOT NULL,
+		raw_json TEXT NOT NULL,
+		FOREIGN KEY(session_id) REFERENCES proxy_sessions(session_id) ON DELETE CASCADE
+	)`,
+		`CREATE TABLE IF NOT EXISTS proxy_transforms (
+		event_id TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		reason TEXT,
+		input_hash TEXT,
+		output_hash TEXT,
+		policy_id TEXT,
+		decision TEXT,
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		bytes_removed INTEGER NOT NULL DEFAULT 0,
+		findings_count INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY(event_id, ordinal),
+		FOREIGN KEY(event_id) REFERENCES proxy_events(event_id) ON DELETE CASCADE
+	)`,
+	}
+}
+
 func codeSchemaStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS code_files (
@@ -221,6 +295,14 @@ func sarifSchemaStatements() []string {
 		level TEXT,
 		message TEXT,
 		fingerprint TEXT,
+		proxy_event_id TEXT,
+		proxy_session_id TEXT,
+		proxy_event_kind TEXT,
+		proxy_direction TEXT,
+		proxy_payload_kind TEXT,
+		proxy_trace_id TEXT,
+		proxy_tracking_id TEXT,
+		proxy_transform TEXT,
 		finding_id TEXT,
 		remediation_id TEXT,
 		policy_id TEXT,
@@ -353,6 +435,10 @@ func indexSchemaStatements() []string {
 		ON hook_targets(target_path, target_kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_hook_reviews_trace
 		ON hook_reviews(trace_id, tracking_id, disposition)`,
+		`CREATE INDEX IF NOT EXISTS idx_proxy_events_session
+		ON proxy_events(session_id, event_kind, recorded_at_utc)`,
+		`CREATE INDEX IF NOT EXISTS idx_proxy_events_path
+		ON proxy_events(target_path, policy_id, decision)`,
 		`CREATE INDEX IF NOT EXISTS idx_remediation_occurrences_policy
 		ON remediation_occurrences(policy_id, skill_id, file, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_remediation_events_trace
@@ -391,6 +477,24 @@ func migrationColumns() map[string][]migrationColumn {
 			{Name: "cel_expression", Type: "TEXT"},
 			{Name: "policy_source", Type: "TEXT"},
 		},
+		"proxy_sessions": {
+			{Name: "denial_count", Type: "INTEGER NOT NULL DEFAULT 0"},
+			{Name: "transform_count", Type: "INTEGER NOT NULL DEFAULT 0"},
+		},
+		"proxy_events": {
+			{Name: "trace_id", Type: "TEXT"},
+			{Name: "tracking_id", Type: "TEXT"},
+			{Name: "direction", Type: "TEXT"},
+			{Name: "payload_kind", Type: "TEXT"},
+			{Name: "cache_key", Type: "TEXT"},
+			{Name: "payload_bytes", Type: "INTEGER NOT NULL DEFAULT 0"},
+			{Name: "policy_evidence_json", Type: "TEXT NOT NULL DEFAULT '{}'"},
+			{Name: "dlp_json", Type: "TEXT NOT NULL DEFAULT '[]'"},
+		},
+		"proxy_transforms": {
+			{Name: "policy_id", Type: "TEXT"},
+			{Name: "decision", Type: "TEXT"},
+		},
 		"code_files": {
 			{Name: "parser_name", Type: "TEXT"},
 			{Name: "parser_version", Type: "TEXT"},
@@ -400,6 +504,14 @@ func migrationColumns() map[string][]migrationColumn {
 			{Name: "parent_symbol_path", Type: "TEXT"},
 		},
 		"sarif_results": {
+			{Name: "proxy_event_id", Type: "TEXT"},
+			{Name: "proxy_session_id", Type: "TEXT"},
+			{Name: "proxy_event_kind", Type: "TEXT"},
+			{Name: "proxy_direction", Type: "TEXT"},
+			{Name: "proxy_payload_kind", Type: "TEXT"},
+			{Name: "proxy_trace_id", Type: "TEXT"},
+			{Name: "proxy_tracking_id", Type: "TEXT"},
+			{Name: "proxy_transform", Type: "TEXT"},
 			{Name: "ast_language", Type: "TEXT"},
 			{Name: "ast_node_kind", Type: "TEXT"},
 			{Name: "ast_symbol_kind", Type: "TEXT"},

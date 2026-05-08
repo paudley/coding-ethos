@@ -25,6 +25,9 @@ gaps are tracked in the [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md).
   stable SARIF, and code-intelligence storage.
 - [Code intelligence](CODE_INTEL.md): local SQLite, sqlite-vec, Tree-sitter
   chunks, SARIF/remediation evidence, and MCP retrieval surfaces.
+- [Agent proxy foundation](AGENT_PROXY.md): opt-in proxy trust boundary,
+  provider-neutral event envelope, code-intel ledger, CEL facts, SARIF
+  properties, and operator model.
 - [Trust signals](TRUST_SIGNALS.md): OpenSSF Scorecard, Best Practices badge,
   security posture, and publication checklist.
 - [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md): `.bestpractices.json`

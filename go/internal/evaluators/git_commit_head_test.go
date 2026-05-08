@@ -13,6 +13,7 @@ import (
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -246,7 +247,12 @@ func initCommitHeadRepo(t *testing.T) string {
 func runGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	gitPath, err := realgit.Resolve("git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = repo
 	cmd.Env = cleanGitTestEnv()
 

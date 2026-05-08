@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"slices"
 	"strings"
 
@@ -20,8 +19,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -50,7 +49,6 @@ type Runtime struct {
 	EthosRoot     string
 	ConsumerRoot  string
 	InvocationCwd string
-	LintBinary    string
 }
 
 func NewServer(bundle policy.Bundle) Server {
@@ -328,89 +326,70 @@ func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 		return nil, inlineErr6
 	}
 
-	command := safeexec.Command(
-		server.runtime.LintBinary,
-		managedLintArgs(server.runtime, input, tool)...,
-	)
-	command.Dir = firstNonEmpty(server.runtime.ConsumerRoot, input.Cwd)
+	var stdout bytes.Buffer
 
-	var (
-		stdout bytes.Buffer
-		stderr bytes.Buffer
-	)
-
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	err := command.Run()
-
-	exitCode := commandExitCode(err)
-	if err != nil && exitCode == 0 {
-		return nil, fmt.Errorf("run managed lint %q: %w", tool, err)
-	}
+	exitCode := managedcapture.Run(managedcapture.Options{
+		PolicyContext: managedLintPolicyContext(server.bundle),
+		Tool:          tool,
+		EthosRoot:     server.runtime.EthosRoot,
+		ConsumerRoot:  server.runtime.ConsumerRoot,
+		InvocationCwd: firstNonEmpty(input.Cwd, server.runtime.InvocationCwd),
+		OutputFormat:  hookoutput.FormatJSON,
+		Output:        &stdout,
+		Args:          managedLintToolArgs(input),
+	})
 
 	output := stdout.Bytes()
-	if len(output) == 0 {
-		return emptyManagedLintOutput(tool, exitCode, stderr.String()), nil
-	}
 
 	var result lint.Result
 
 	inlineErr7 := json.Unmarshal(output, &result)
 	if inlineErr7 != nil {
 		return nil, fmt.Errorf(
-			"decode managed lint %q JSON: %w; stderr: %s",
+			"decode managed lint %q JSON: %w; output: %s",
 			tool,
 			inlineErr7,
-			strings.TrimSpace(stderr.String()),
+			strings.TrimSpace(stdout.String()),
 		)
 	}
 
-	return managedLintOutput(tool, exitCode, stderr.String(), result), nil
+	return managedLintOutput(tool, exitCode, result), nil
 }
 
-func managedLintArgs(
-	runtime Runtime,
-	input lintCheckInput,
-	tool string,
-) []string {
-	args := make([]string, 0, 12+len(input.Argv)+len(input.Files))
-	args = append(args,
-		"--bundle", runtime.BundlePath,
-		"--json",
-		"--managed-capture-tool", tool,
-		"--ethos-root", runtime.EthosRoot,
-		"--consumer-root", runtime.ConsumerRoot,
-		"--invocation-cwd", firstNonEmpty(input.Cwd, runtime.InvocationCwd),
-	)
-	args = append(args, "--")
+func managedLintToolArgs(input lintCheckInput) []string {
+	args := make([]string, 0, len(input.Argv)+len(input.Files))
 	args = append(args, input.Argv...)
 	args = append(args, input.Files...)
 
 	return args
 }
 
-func emptyManagedLintOutput(tool string, exitCode int, stderr string) map[string]any {
-	return map[string]any{
-		"engine":    "managed_lint_capture",
-		"tool":      tool,
-		"exit_code": exitCode,
-		"stderr":    strings.TrimSpace(stderr),
-		"status":    "resolved",
-		"blocked":   false,
+func managedLintPolicyContext(bundle policy.Bundle) managedcapture.PolicyContext {
+	return managedcapture.PolicyContext{
+		Skills:       bundle.Skills,
+		EvidenceMaps: bundle.EvidenceMaps,
+		Policies:     managedLintPolicies(bundle.Policies),
 	}
+}
+
+func managedLintPolicies(policies map[string]policy.Policy) []policy.Policy {
+	items := make([]policy.Policy, 0, len(policies))
+	for _, item := range policies {
+		items = append(items, item)
+	}
+
+	return items
 }
 
 func managedLintOutput(
 	tool string,
 	exitCode int,
-	stderr string,
 	result lint.Result,
 ) map[string]any {
 	return map[string]any{
 		"engine":      "managed_lint_capture",
 		"tool":        tool,
 		"exit_code":   exitCode,
-		"stderr":      strings.TrimSpace(stderr),
 		"status":      result.Status,
 		"blocked":     result.Blocked(),
 		"files":       result.Files,
@@ -885,25 +864,11 @@ func providerOrDefault(provider string) string {
 func (runtime Runtime) validateManagedLint() error {
 	if strings.TrimSpace(runtime.BundlePath) == "" ||
 		strings.TrimSpace(runtime.EthosRoot) == "" ||
-		strings.TrimSpace(runtime.ConsumerRoot) == "" ||
-		strings.TrimSpace(runtime.LintBinary) == "" {
+		strings.TrimSpace(runtime.ConsumerRoot) == "" {
 		return errManagedLintRuntimeUnavailable
 	}
 
 	return nil
-}
-
-func commandExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 0
 }
 
 func firstNonEmpty(values ...string) string {

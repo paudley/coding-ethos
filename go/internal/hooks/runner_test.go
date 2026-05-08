@@ -17,6 +17,7 @@ import (
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -3693,7 +3694,12 @@ func initHookRepo(t *testing.T) string {
 func runHookGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "git", args...)
+	gitPath, err := realgit.Resolve("git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = repo
 	cmd.Env = cleanGitTestEnv()
 

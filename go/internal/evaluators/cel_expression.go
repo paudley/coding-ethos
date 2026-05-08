@@ -5,6 +5,7 @@ package evaluators
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -114,14 +115,7 @@ func celDiagnostic(
 		},
 	}
 	if context.Diagnostic != nil {
-		diagnostic.Tool = context.Diagnostic.Tool
-		diagnostic.Code = context.Diagnostic.Code
-		diagnostic.Detail = context.Diagnostic.Detail
-		diagnostic.File = context.Diagnostic.File
-		diagnostic.Line = context.Diagnostic.Line
-		diagnostic.Column = context.Diagnostic.Column
-		diagnostic.Metadata["matched_diagnostic_policy_id"] = context.Diagnostic.PolicyID
-		diagnostic.Metadata["matched_diagnostic_severity"] = context.Diagnostic.Severity
+		applyMatchedDiagnostic(&diagnostic, context.Diagnostic)
 
 		return diagnostic
 	}
@@ -171,6 +165,22 @@ func celDiagnostic(
 	}
 
 	return diagnostic
+}
+
+func applyMatchedDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	matched *diagnostics.Diagnostic,
+) {
+	diagnostic.Tool = matched.Tool
+	diagnostic.Code = matched.Code
+	diagnostic.Detail = matched.Detail
+	diagnostic.File = matched.File
+	diagnostic.Line = matched.Line
+	diagnostic.Column = matched.Column
+	maps.Copy(diagnostic.Metadata, matched.Metadata)
+
+	diagnostic.Metadata["matched_diagnostic_policy_id"] = matched.PolicyID
+	diagnostic.Metadata["matched_diagnostic_severity"] = matched.Severity
 }
 
 func applyLineLimitFileDiagnostic(

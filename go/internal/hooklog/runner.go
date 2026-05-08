@@ -12,39 +12,75 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
-const hookLogDirMode = 0o755
+const (
+	hookLogDirMode    = 0o755
+	loggedStreamCount = 2
+)
 
 const hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add " +
 	".coding-ethos/ to the repo .gitignore before hook logs are written"
 
-var errCommandRequired = apperror.StaticError("command is required")
+var (
+	errCommandRequired               = apperror.StaticError("command is required")
+	errCodingEthosCommandUnsupported = apperror.StaticError(
+		"hook-log must not execute coding-ethos commands; " +
+			"call the Go implementation directly",
+	)
+
+	// runLoggedAction replaces process-global os.Stdout/os.Stderr while an
+	// in-process command runs, so concurrent captures must serialize.
+	//nolint:gochecknoglobals // process-global streams require one shared lock.
+	loggedActionStreamMu sync.Mutex
+)
 
 type Options struct {
 	Stdin      io.Reader
 	Stdout     io.Writer
 	Stderr     io.Writer
 	Now        func() time.Time
+	Action     func() int
 	GitPath    string
 	Root       string
 	BundleRoot string
 	Command    []string
 }
 
+type loggedActionStreams struct {
+	stdoutReader *os.File
+	stdoutWriter *os.File
+	stderrReader *os.File
+	stderrWriter *os.File
+}
+
 func Run(options Options) error {
+	_, err := runWithStatus(options)
+
+	return err
+}
+
+func RunInProcess(options Options, action func() int) (int, error) {
+	options.Action = action
+
+	return runWithStatus(options)
+}
+
+func runWithStatus(options Options) (int, error) {
 	options, err := normalizedOptions(options)
 	if err != nil {
-		return err
+		return 1, err
 	}
 
 	err = requireHookLogIgnores(options)
 	if err != nil {
-		return err
+		return 1, err
 	}
 
 	startedAt := options.Now().UTC()
@@ -52,12 +88,12 @@ func Run(options Options) error {
 
 	runDir, err := createHookRunDir(options.Root, runID)
 	if err != nil {
-		return err
+		return 1, err
 	}
 
 	logs, err := createHookRunLogs(runDir)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	defer logs.close()
 
@@ -71,7 +107,30 @@ func Run(options Options) error {
 		Command:    options.Command,
 	})
 	if err != nil {
-		return err
+		return 1, err
+	}
+
+	status, err := runLoggedPayload(options, logs, runDir)
+
+	metadataErr := appendFinishedMetadata(metadataPath, options.Now().UTC(), status)
+	if metadataErr != nil {
+		return 1, metadataErr
+	}
+
+	if err != nil {
+		return status, commandError{err: err, code: status}
+	}
+
+	return status, nil
+}
+
+func runLoggedPayload(
+	options Options,
+	logs hookRunLogs,
+	runDir string,
+) (int, error) {
+	if options.Action != nil {
+		return runLoggedAction(options, logs, runDir)
 	}
 
 	cmd := safeexec.Command(options.Command[0], options.Command[1:]...)
@@ -84,25 +143,247 @@ func Run(options Options) error {
 	cmd.Stdout = io.MultiWriter(options.Stdout, logs.stdout)
 	cmd.Stderr = io.MultiWriter(options.Stderr, logs.stderr)
 
-	err = cmd.Run()
+	err := cmd.Run()
 
-	status := exitCode(err)
+	return exitCode(err), err
+}
 
-	metadataErr := appendFinishedMetadata(metadataPath, options.Now().UTC(), status)
-	if metadataErr != nil {
-		return metadataErr
+func runLoggedAction(options Options, logs hookRunLogs, runDir string) (int, error) {
+	loggedActionStreamMu.Lock()
+	defer loggedActionStreamMu.Unlock()
+
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	originalLoggingActive, hadLoggingActive := os.LookupEnv(
+		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
+	)
+	originalRunDir, hadRunDir := os.LookupEnv("CODE_ETHOS_HOOK_RUN_DIR")
+
+	streams, waitGroup, err := installLoggedActionStreams(
+		options,
+		logs,
+	)
+	if err != nil {
+		return 1, err
 	}
 
+	restored := false
+
+	defer func() {
+		if restored {
+			return
+		}
+
+		_, restoreErr := restoreLoggedStreams(
+			originalStdout,
+			originalStderr,
+			streams.stdoutWriter,
+			streams.stderrWriter,
+			waitGroup,
+			1,
+			nil,
+		)
+		if restoreErr != nil {
+			_, _ = fmt.Fprintf(
+				originalStderr,
+				"WARN: restore hook log streams: %v\n",
+				restoreErr,
+			)
+		}
+	}()
+
+	err = setLoggedActionEnv(runDir)
 	if err != nil {
-		return commandError{err: err, code: status}
+		restored = true
+
+		return restoreLoggedStreams(
+			originalStdout,
+			originalStderr,
+			streams.stdoutWriter,
+			streams.stderrWriter,
+			waitGroup,
+			1,
+			err,
+		)
+	}
+
+	status := runActionAndRestoreHookLogEnv(
+		options.Action,
+		originalLoggingActive,
+		hadLoggingActive,
+		originalRunDir,
+		hadRunDir,
+	)
+
+	restored = true
+
+	return restoreLoggedStreams(
+		originalStdout,
+		originalStderr,
+		streams.stdoutWriter,
+		streams.stderrWriter,
+		waitGroup,
+		status,
+		nil,
+	)
+}
+
+func installLoggedActionStreams(
+	options Options,
+	logs hookRunLogs,
+) (loggedActionStreams, *sync.WaitGroup, error) {
+	streams, err := openLoggedActionStreams()
+	if err != nil {
+		return loggedActionStreams{}, nil, err
+	}
+
+	waitGroup := &sync.WaitGroup{}
+	waitGroup.Add(loggedStreamCount)
+
+	go copyLoggedStream(
+		waitGroup,
+		streams.stdoutReader,
+		io.MultiWriter(options.Stdout, logs.stdout),
+	)
+	go copyLoggedStream(
+		waitGroup,
+		streams.stderrReader,
+		io.MultiWriter(options.Stderr, logs.stderr),
+	)
+
+	os.Stdout = streams.stdoutWriter
+	os.Stderr = streams.stderrWriter
+
+	return streams, waitGroup, nil
+}
+
+func setLoggedActionEnv(runDir string) error {
+	err := os.Setenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE", "1")
+	if err != nil {
+		return fmt.Errorf("set hook logging env: %w", err)
+	}
+
+	err = os.Setenv("CODE_ETHOS_HOOK_RUN_DIR", runDir)
+	if err != nil {
+		return fmt.Errorf("set hook run dir env: %w", err)
 	}
 
 	return nil
 }
 
+func openLoggedActionStreams() (loggedActionStreams, error) {
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		return loggedActionStreams{}, fmt.Errorf("create stdout pipe: %w", err)
+	}
+
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+
+		return loggedActionStreams{}, fmt.Errorf("create stderr pipe: %w", err)
+	}
+
+	return loggedActionStreams{
+		stdoutReader: stdoutReader,
+		stdoutWriter: stdoutWriter,
+		stderrReader: stderrReader,
+		stderrWriter: stderrWriter,
+	}, nil
+}
+
+func runActionAndRestoreHookLogEnv(
+	action func() int,
+	originalLoggingActive string,
+	hadLoggingActive bool,
+	originalRunDir string,
+	hadRunDir bool,
+) int {
+	defer restoreHookLogEnv(
+		originalLoggingActive,
+		hadLoggingActive,
+		originalRunDir,
+		hadRunDir,
+	)
+
+	return action()
+}
+
+func restoreHookLogEnv(
+	originalLoggingActive string,
+	hadLoggingActive bool,
+	originalRunDir string,
+	hadRunDir bool,
+) {
+	restoreEnv("CODE_ETHOS_HOOK_LOGGING_ACTIVE", originalLoggingActive, hadLoggingActive)
+	restoreEnv("CODE_ETHOS_HOOK_RUN_DIR", originalRunDir, hadRunDir)
+}
+
+func restoreEnv(name, value string, hadValue bool) {
+	if hadValue {
+		_ = os.Setenv(name, value)
+
+		return
+	}
+
+	_ = os.Unsetenv(name)
+}
+
+func restoreLoggedStreams(
+	originalStdout *os.File,
+	originalStderr *os.File,
+	stdoutWriter *os.File,
+	stderrWriter *os.File,
+	waitGroup *sync.WaitGroup,
+	status int,
+	err error,
+) (int, error) {
+	os.Stdout = originalStdout
+	os.Stderr = originalStderr
+
+	stdoutErr := stdoutWriter.Close()
+	stderrErr := stderrWriter.Close()
+
+	waitGroup.Wait()
+
+	if err != nil {
+		return status, err
+	}
+
+	if stdoutErr != nil {
+		return 1, fmt.Errorf("close stdout hook log pipe: %w", stdoutErr)
+	}
+
+	if stderrErr != nil {
+		return 1, fmt.Errorf("close stderr hook log pipe: %w", stderrErr)
+	}
+
+	return status, nil
+}
+
+func copyLoggedStream(
+	waitGroup *sync.WaitGroup,
+	reader *os.File,
+	writer io.Writer,
+) {
+	defer waitGroup.Done()
+	defer reader.Close()
+
+	_, err := io.Copy(writer, reader)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: failed to copy hook log stream: %v\n", err)
+	}
+}
+
 func normalizedOptions(options Options) (Options, error) {
 	if len(options.Command) == 0 {
 		return Options{}, errCommandRequired
+	}
+
+	if options.Action == nil &&
+		strings.HasPrefix(filepath.Base(options.Command[0]), "coding-ethos-") {
+		return Options{}, errCodingEthosCommandUnsupported
 	}
 
 	if strings.TrimSpace(options.Root) == "" {
@@ -206,9 +487,10 @@ func requireIgnored(options Options, path string) error {
 		"--quiet",
 		path,
 	)
+	cmd.Env = evaluators.CleanGitLocalEnv(os.Environ())
 
 	err := cmd.Run()
-	if err != nil {
+	if err != nil && !gitignoreContains(options.Root, path) {
 		return apperror.Wrapf(
 			apperror.StaticError(
 				hookLogIgnoreRequiredMessage,
@@ -219,6 +501,27 @@ func requireIgnored(options Options, path string) error {
 	}
 
 	return nil
+}
+
+func gitignoreContains(root, path string) bool {
+	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return false
+	}
+
+	normalized := strings.Trim(path, "/")
+	for line := range strings.SplitSeq(string(payload), "\n") {
+		entry := strings.Trim(strings.TrimSpace(line), "/")
+		if entry == "" || strings.HasPrefix(entry, "#") {
+			continue
+		}
+
+		if entry == normalized || strings.HasPrefix(normalized+"/", entry+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 type hookRunMetadata struct {

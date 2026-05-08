@@ -4,11 +4,16 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestRunnerArgsInferGitHookFromExecutableName(t *testing.T) {
@@ -186,6 +191,202 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
+	t.Parallel()
+
+	inputs := runtimePathInputs{
+		RealGit:       "/usr/bin/git",
+		InvocationCWD: "/repo/pkg",
+		LocalRoot:     "/repo",
+		Root:          "/repo",
+		HooksDir:      "/repo/.git/hooks",
+		BinDir:        "/repo/coding-ethos/bin",
+		RunBinary:     "/repo/coding-ethos/bin/coding-ethos-run",
+		BundleRoot:    "/repo/coding-ethos/pre-commit",
+		EthosRoot:     "/repo/coding-ethos",
+		ToolchainDir:  "/repo/coding-ethos/build/toolchain",
+	}
+
+	paths := runtimePathSet(inputs)
+
+	if paths.PolicyBundle != "/repo/coding-ethos/build/policy/policy-bundle.json" {
+		t.Fatalf("policy bundle = %q", paths.PolicyBundle)
+	}
+
+	if paths.ManagedGoBin != "/repo/coding-ethos/build/toolchain/go-bin" {
+		t.Fatalf("managed go bin = %q", paths.ManagedGoBin)
+	}
+
+	if paths.GitHookRunner != "/repo/coding-ethos/bin/coding-ethos-hook-runner" {
+		t.Fatalf("git hook runner = %q", paths.GitHookRunner)
+	}
+}
+
+func TestRuntimePathResolutionFallbacks(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "/configured/repo")
+
+	root, localRoot := resolveRuntimeRoot("/missing/git", "/cwd/repo")
+	if root != "/configured/repo" || localRoot != "/configured/repo" {
+		t.Fatalf("configured root = (%q, %q)", root, localRoot)
+	}
+
+	hooksDir := resolveRuntimeHooksDir("/missing/git", "/fallback/repo")
+	if hooksDir != "/fallback/repo/.git/hooks" {
+		t.Fatalf("fallback hooks dir = %q", hooksDir)
+	}
+}
+
+//nolint:paralleltest // Serializes process-global runtime environment state.
+func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	hooks := filepath.Join(repo, ".git", "hooks")
+	fakeGit := fakeRuntimeGit(t, repo, hooks)
+
+	root, localRoot := resolveRuntimeRoot(fakeGit, "/cwd/repo")
+	if root != repo || localRoot != repo {
+		t.Fatalf("git root = (%q, %q), want %q", root, localRoot, repo)
+	}
+
+	if got := resolveRuntimeHooksDir(fakeGit, repo); got != hooks {
+		t.Fatalf("git hooks dir = %q, want %q", got, hooks)
+	}
+}
+
+func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"INVOCATION_CWD",
+		"CODE_ETHOS_PRECOMMIT_ROOT",
+		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"GIT_HOOK_SRC_DIR",
+		"TOOLS_SRC_DIR",
+		"POLICY_METADATA",
+		"MANAGED_TOOLCHAIN_MANIFEST",
+		"CODING_ETHOS_REAL_GIT",
+		"PATH",
+	)
+	t.Cleanup(restoreEnv)
+
+	paths := runtimePathSet(runtimePathInputs{
+		RealGit:       "/usr/bin/git",
+		InvocationCWD: "/repo/pkg",
+		LocalRoot:     "/repo",
+		Root:          "/repo",
+		HooksDir:      "/repo/.git/hooks",
+		BinDir:        "/repo/coding-ethos/bin",
+		RunBinary:     "/repo/coding-ethos/bin/coding-ethos-run",
+		BundleRoot:    "/repo/coding-ethos/pre-commit",
+		EthosRoot:     "/repo/coding-ethos",
+		ToolchainDir:  "/repo/coding-ethos/build/toolchain",
+	})
+
+	t.Setenv("PATH", "/usr/bin")
+
+	paths.export()
+
+	if got := os.Getenv("CODE_ETHOS_CONSUMER_ROOT"); got != "/repo" {
+		t.Fatalf("exported consumer root = %q", got)
+	}
+
+	if got := os.Getenv("CODING_ETHOS_REAL_GIT"); got != "/usr/bin/git" {
+		t.Fatalf("exported real git = %q", got)
+	}
+
+	if got := os.Getenv("PATH"); !strings.HasPrefix(
+		got,
+		"/repo/coding-ethos/build/toolchain/go-bin:",
+	) {
+		t.Fatalf("exported PATH = %q", got)
+	}
+}
+
+func captureRuntimeEnvForTest(names ...string) func() {
+	type envValue struct {
+		value string
+		found bool
+	}
+
+	values := map[string]envValue{}
+
+	for _, name := range names {
+		value, found := os.LookupEnv(name)
+		values[name] = envValue{value: value, found: found}
+	}
+
+	return func() {
+		for name, value := range values {
+			if value.found {
+				_ = os.Setenv(name, value.value)
+
+				continue
+			}
+
+			_ = os.Unsetenv(name)
+		}
+	}
+}
+
+func TestRuntimeFailuresUseStructuredExitCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func()
+		name string
+		want int
+	}{
+		{
+			name: "runtime failure",
+			run: func() {
+				runtimeFailure("missing fixture")
+			},
+			want: exitMissing,
+		},
+		{
+			name: "internal tool direct execution",
+			run: func() {
+				requireExternalRuntimeTool("coding-ethos-policy")
+			},
+			want: exitMissing,
+		},
+		{
+			name: "plain error",
+			run: func() {
+				exitErr(apperror.StaticError("plain failure"))
+			},
+			want: 1,
+		},
+		{
+			name: "process exit code",
+			run: func() {
+				err := exec.CommandContext(context.Background(), "sh", "-c", "exit 7").Run()
+				exitErr(err)
+			},
+			want: 7,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := withRuntimeExit(func() int {
+				test.run()
+
+				return 0
+			})
+			if got != test.want {
+				t.Fatalf("runtime exit = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 	t.Parallel()
 
@@ -216,6 +417,27 @@ func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 	runtimeRunTool(paths, "tool")
 }
 
+func fakeRuntimeGit(t *testing.T, repo, hooks string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "git")
+	body := "#!/usr/bin/env sh\n" +
+		"case \"$*\" in\n" +
+		"  \"rev-parse --show-toplevel\") printf '%s\\n' " +
+		shellQuoteForRuntimeTest(repo) + "; exit 0 ;;\n" +
+		"  \"rev-parse --path-format=absolute --git-path hooks\") printf '%s\\n' " +
+		shellQuoteForRuntimeTest(hooks) + "; exit 0 ;;\n" +
+		"esac\n" +
+		"exit 1\n"
+	writeExecutableFixture(t, path, body)
+
+	return path
+}
+
+func shellQuoteForRuntimeTest(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func writeExecutableFixture(t *testing.T, path, content string) {
 	t.Helper()
 
@@ -233,18 +455,17 @@ func writeExecutableFixture(t *testing.T, path, content string) {
 func TestGitOutputRunsRealGitPath(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	gitPath, err := resolveRuntimeGit()
+	if err != nil {
+		t.Fatalf("resolve runtime git: %v", err)
+	}
 
-	gitPath := filepath.Join(root, "git")
-
-	writeExecutableFixture(t, gitPath, "#!/usr/bin/env sh\nprintf 'main\\n'\n")
-
-	output, err := gitOutput(gitPath, root, "branch", "--show-current")
+	output, err := gitOutput(gitPath, "", "--version")
 	if err != nil {
 		t.Fatalf("gitOutput() returned error: %v", err)
 	}
 
-	if output != "main" {
+	if !strings.HasPrefix(output, "git version ") {
 		t.Fatalf("gitOutput() = %q", output)
 	}
 }
@@ -308,7 +529,7 @@ func TestCISARIFHelpers(t *testing.T) {
 	}
 }
 
-func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
+func TestRunCISARIFWritesSARIFThroughDirectLintCLI(t *testing.T) {
 	repo := t.TempDir()
 
 	binDir := filepath.Join(repo, "bin")
@@ -325,17 +546,27 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 		}
 	}
 
-	argsPath := filepath.Join(repo, "lint-args.txt")
+	policyBundle := filepath.Join(repo, "policy-bundle.json")
 
-	lintPath := filepath.Join(binDir, "coding-ethos-lint")
-
-	writeExecutableFixture(
-		t,
-		lintPath,
-		"#!/usr/bin/env sh\n"+
-			"printf '%s\\n' \"$@\" > \"$LINT_ARGS_PATH\"\n"+
-			"printf '{\"version\":\"2.1.0\",\"runs\":[]}'\n",
+	err := os.WriteFile(
+		policyBundle,
+		[]byte(`{
+  "version": 1,
+  "bundle_id": "test",
+  "sources": {
+    "ethos": {"primary": "coding_ethos.yml"},
+    "enforcement": {"primary": "config.yaml"}
+  },
+  "policies": {},
+  "principles": {},
+  "skills": {},
+  "evidence_maps": []
+}`),
+		0o600,
 	)
+	if err != nil {
+		t.Fatalf("write policy bundle: %v", err)
+	}
 
 	sarifPath := filepath.Join(repo, "reports", "coding-ethos.sarif")
 
@@ -344,11 +575,10 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 	t.Setenv("CODING_ETHOS_SARIF_PATH", sarifPath)
 	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
 	t.Setenv("CODING_ETHOS_SARIF_CATEGORY", "policy")
-	t.Setenv("LINT_ARGS_PATH", argsPath)
 
-	err := runCISARIF(runtimePaths{
+	err = runCISARIF(runtimePaths{
 		BinDir:       binDir,
-		PolicyBundle: filepath.Join(repo, "policy-bundle.json"),
+		PolicyBundle: policyBundle,
 		RealGit:      "/usr/bin/git",
 		Root:         filepath.Join(repo, "fallback-root"),
 	}, []string{"--provider", "github"})
@@ -361,23 +591,27 @@ func TestRunCISARIFWritesSARIFAndPassesManagedFlags(t *testing.T) {
 		t.Fatalf("read SARIF: %v", err)
 	}
 
-	if !strings.Contains(string(payload), `"version":"2.1.0"`) {
+	if !strings.Contains(string(payload), `"version": "2.1.0"`) {
 		t.Fatalf("SARIF payload = %q", payload)
 	}
+}
 
-	argsPayload, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("read lint args: %v", err)
-	}
+func TestCISARIFLintArgsPassManagedFlags(t *testing.T) {
+	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
+	t.Setenv("CODING_ETHOS_SARIF_CATEGORY", "policy")
 
-	argsText := string(argsPayload)
+	repo := t.TempDir()
+	paths := runtimePaths{PolicyBundle: filepath.Join(repo, "policy-bundle.json")}
+	args := ciSARIFLintArgs(paths, repo, filepath.Join(repo, "files.txt"))
+
+	argsText := strings.Join(args, "\n")
 	for _, want := range ciSARIFExpectedLintArgs(repo) {
 		if !strings.Contains(argsText, want) {
 			t.Fatalf("lint args missing %q:\n%s", want, argsText)
 		}
 	}
 
-	if strings.Count(argsText, "--sarif\n") != 1 {
+	if strings.Count(argsText+"\n", "--sarif\n") != 1 {
 		t.Fatalf("expected one terminal --sarif flag:\n%s", argsText)
 	}
 }
@@ -417,6 +651,13 @@ func TestRunCISARIFRequiresProviderAndOutputPath(t *testing.T) {
 
 func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 	t.Parallel()
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODING_ETHOS_GIT_SHIM_DIR",
+	)
+	t.Cleanup(restoreEnv)
 
 	paths := runtimeTestPaths(t)
 
@@ -432,34 +673,47 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		{
 			name: "policy lint",
 			args: []string{"policy-lint", "--scope", "staged"},
-			want: "exec:coding-ethos-lint --bundle " + paths.PolicyBundle + " --scope staged",
+			want: "exec-lint:--bundle " + paths.PolicyBundle + " --scope staged",
 		},
 		{
 			name: "policy command",
 			args: []string{"policy", "validate"},
-			want: "exec:coding-ethos-policy validate",
+			want: "direct-exec:coding-ethos-policy validate",
 		},
 		{
 			name: "code intel",
 			args: []string{"code-intel", "stats"},
-			want: "exec:coding-ethos-code-intel stats --root " + paths.Root,
+			want: "direct-exec:coding-ethos-code-intel stats --root " + paths.Root,
 		},
 		{
 			name: "policy tool",
 			args: []string{"policy-tool", "ruff", "check"},
-			want: "exec:coding-ethos-lint --bundle " + paths.PolicyBundle +
+			want: "exec-lint:--bundle " + paths.PolicyBundle +
 				" --managed-capture-tool ruff --ethos-root " + paths.EthosRoot +
 				" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
 				" -- check",
 		},
 		{
+			name: "policy formatter group",
+			args: []string{"policy-tool-group", "formatters"},
+			want: "run-lint:--bundle " + paths.PolicyBundle +
+				" --managed-capture-tool ruff-format --ethos-root " + paths.EthosRoot +
+				" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
+				" -- format coding_ethos tests\n" +
+				"run-lint:--bundle " + paths.PolicyBundle +
+				" --managed-capture-tool golangci-lint-format --ethos-root " +
+				paths.EthosRoot + " --consumer-root " + paths.Root +
+				" --invocation-cwd " + paths.InvocationCWD + " --",
+		},
+		{
 			name: "agent hooks",
 			args: []string{"agent-hooks", "sync"},
-			want: "run:coding-ethos-toolchain install-git-shim --dest-dir " + paths.BinDir +
+			want: "direct-run:coding-ethos-toolchain install-git-shim " +
+				"--dest-dir " + paths.BinDir +
 				" --real-git " + paths.RealGit + " --runner " + paths.RunBinary + "\n" +
-				"run:coding-ethos-lint --install-shims --tools-bin-dir " + paths.BinDir +
+				"run-lint:--install-shims --tools-bin-dir " + paths.BinDir +
 				" --runner " + paths.RunBinary + " --ethos-root " + paths.EthosRoot + "\n" +
-				"exec:coding-ethos-agent-hooks sync --hook-command " +
+				"direct-exec:coding-ethos-agent-hooks sync --hook-command " +
 				paths.RunBinary + " agent-hook",
 		},
 	}
@@ -474,6 +728,108 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		got := strings.Join(calls, "\n")
 		if got != test.want {
 			t.Fatalf("%s calls = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
+func TestPolicyLinterGroupLetsGolangciChooseNestedGoModule(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	code := runRuntime(paths, []string{"policy-tool-group", "linters"})
+	if code != 0 {
+		t.Fatalf("runRuntime exit = %d, want 0", code)
+	}
+
+	want := "run-lint:--bundle " + paths.PolicyBundle +
+		" --managed-capture-tool ruff --ethos-root " + paths.EthosRoot +
+		" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
+		" -- check coding_ethos tests\n" +
+		"run-lint:--bundle " + paths.PolicyBundle +
+		" --managed-capture-tool golangci-lint --ethos-root " +
+		paths.EthosRoot + " --consumer-root " + paths.Root +
+		" --invocation-cwd " + paths.InvocationCWD + " --"
+
+	got := strings.Join(calls, "\n")
+	if got != want {
+		t.Fatalf("policy-tool-group linters calls = %q, want %q", got, want)
+	}
+}
+
+func TestRunRuntimePropagatesInProcessRuntimeExit(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls, execLintCode: 37}
+
+	code := runRuntime(paths, []string{"policy-tool", "ruff", "check"})
+	if code != 37 {
+		t.Fatalf("runRuntime exit = %d, want 37", code)
+	}
+}
+
+func TestPolicyToolGroupRunsAllEntriesBeforeFailing(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls, runLintCode: 37}
+
+	code := runRuntime(paths, []string{"policy-tool-group", "formatters"})
+	if code != 37 {
+		t.Fatalf("runRuntime exit = %d, want 37", code)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("policy-tool-group calls = %#v, want both group entries", calls)
+	}
+
+	if !strings.Contains(calls[0], "ruff-format") ||
+		!strings.Contains(calls[1], "golangci-lint-format") {
+		t.Fatalf("policy-tool-group calls = %#v, want formatter group order", calls)
+	}
+}
+
+func TestMakefileRoutesLintTargetsThroughManagedGroups(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "Makefile"))
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	makefile := string(payload)
+	for _, forbidden := range []string{
+		"GOLANGCI_LINT",
+		"GOLINES",
+		"golangci-lint run",
+		"golangci-lint fmt",
+		"ruff check coding_ethos",
+		"ruff format",
+	} {
+		if strings.Contains(makefile, forbidden) {
+			t.Fatalf("Makefile contains unmanaged tool invocation %q", forbidden)
+		}
+	}
+
+	for _, want := range []string{
+		`"$(GO_HOOK)" policy-tool-group linters`,
+		`"$(GO_HOOK)" policy-tool-group formatters`,
+		`"$(GO_HOOK)" policy-tool-group autofixers`,
+		"lint-fix: format fix",
+	} {
+		if !strings.Contains(makefile, want) {
+			t.Fatalf("Makefile missing managed group route %q", want)
 		}
 	}
 }
@@ -512,10 +868,10 @@ func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"run:coding-ethos-policy validate-metadata --metadata " + paths.PolicyMetadata,
-		"run:coding-ethos-lint --install-shims --tools-bin-dir " + paths.BinDir +
+		"direct-run:coding-ethos-policy validate-metadata --metadata " + paths.PolicyMetadata,
+		"run-lint:--install-shims --tools-bin-dir " + paths.BinDir +
 			" --runner " + paths.RunBinary + " --ethos-root " + paths.EthosRoot,
-		"exec:coding-ethos-git-hook --bundle " + paths.PolicyBundle + " --runner " +
+		"direct-exec:coding-ethos-git-hook --bundle " + paths.PolicyBundle + " --runner " +
 			paths.GitHookRunner + " --cwd " + paths.Root + " validate",
 	} {
 		if !slices.Contains(calls, want) {
@@ -531,10 +887,12 @@ func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"run:coding-ethos-toolchain install-git-hooks --hooks-dir " + paths.HooksDir +
+		"direct-run:coding-ethos-toolchain install-git-hooks " +
+			"--hooks-dir " + paths.HooksDir +
 			" --runner " + paths.RunBinary,
-		"run:coding-ethos-agent-hooks sync --root " + paths.Root,
-		"exec:coding-ethos-toolchain cutover-verify --action install --root " + paths.Root,
+		"direct-run:coding-ethos-agent-hooks sync --root " + paths.Root,
+		"direct-exec:coding-ethos-toolchain cutover-verify --action install " +
+			"--root " + paths.Root,
 	} {
 		if !strings.Contains(strings.Join(calls, "\n"), want) {
 			t.Fatalf("cutover calls missing %q: %#v", want, calls)
@@ -563,8 +921,8 @@ func TestRunAgentHookMCPAndLFSUseRuntimeOps(t *testing.T) {
 
 	joined := strings.Join(calls, "\n")
 	for _, want := range []string{
-		"exec:coding-ethos-hook --bundle " + paths.PolicyBundle + " --json",
-		"exec:coding-ethos-mcp --bundle " + paths.PolicyBundle,
+		"direct-exec:coding-ethos-hook --bundle " + paths.PolicyBundle + " --json",
+		"direct-exec:coding-ethos-mcp --bundle " + paths.PolicyBundle,
 		"external:" + paths.RealGit + " lfs post-merge arg",
 	} {
 		if !strings.Contains(joined, want) {
@@ -578,24 +936,43 @@ func TestRunReportsInvalidCommandsBeforeExec(t *testing.T) {
 
 	paths := runtimeTestPaths(t)
 
-	err := runPolicyTool(paths, nil)
-	if err == nil || !strings.Contains(err.Error(), "requires a tool name") {
-		t.Fatalf("runPolicyTool(nil) error = %v", err)
-	}
+	assertInvalidRunCommand(t, "policy-tool missing tool", func() error {
+		return runPolicyTool(paths, nil)
+	}, "requires a tool name")
+	assertInvalidRunCommand(t, "git-hook missing hook", func() error {
+		return runGitHook(paths, nil)
+	}, "requires a hook name")
+	assertInvalidRunCommand(t, "git-hook unknown hook", func() error {
+		return runGitHook(paths, []string{"post-merge"})
+	}, "unknown git hook")
+	assertInvalidRunCommand(t, "cutover unknown action", func() error {
+		return runCutover(paths, []string{"explode"})
+	}, "unknown cutover action")
+	assertInvalidRunCommand(t, "policy-tool-group missing group", func() error {
+		return runPolicyToolGroup(paths, nil)
+	}, "requires a group name")
+	assertInvalidRunCommand(t, "policy-tool-group unknown group", func() error {
+		return runPolicyToolGroup(paths, []string{"explode"})
+	}, "unknown policy-tool group")
+	assertInvalidRunCommand(t, "runner missing command", func() error {
+		return run(paths, nil)
+	}, "requires a command")
+	assertInvalidRunCommand(t, "runner unknown command", func() error {
+		return run(paths, []string{"explode"})
+	}, "unknown coding-ethos-run command")
+}
 
-	err = runGitHook(paths, nil)
-	if err == nil || !strings.Contains(err.Error(), "requires a hook name") {
-		t.Fatalf("runGitHook(nil) error = %v", err)
-	}
+func assertInvalidRunCommand(
+	t *testing.T,
+	name string,
+	run func() error,
+	want string,
+) {
+	t.Helper()
 
-	err = runGitHook(paths, []string{"post-merge"})
-	if err == nil || !strings.Contains(err.Error(), "unknown git hook") {
-		t.Fatalf("runGitHook unknown error = %v", err)
-	}
-
-	err = runCutover(paths, []string{"explode"})
-	if err == nil || !strings.Contains(err.Error(), "unknown cutover action") {
-		t.Fatalf("runCutover unknown error = %v", err)
+	err := run()
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("%s error = %v, want %q", name, err, want)
 	}
 }
 
@@ -644,7 +1021,30 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 }
 
 type stubRuntimeOps struct {
-	calls *[]string
+	calls        *[]string
+	runLintCode  int
+	execLintCode int
+}
+
+func (stub stubRuntimeOps) runLint(args ...string) int {
+	*stub.calls = append(*stub.calls, "run-lint:"+strings.Join(args, " "))
+
+	return stub.runLintCode
+}
+
+func (stub stubRuntimeOps) execLint(args ...string) {
+	*stub.calls = append(*stub.calls, "exec-lint:"+strings.Join(args, " "))
+	if stub.execLintCode != 0 {
+		requestRuntimeExit(stub.execLintCode)
+	}
+}
+
+func (stub stubRuntimeOps) runInternalTool(tool string, args ...string) {
+	*stub.calls = append(*stub.calls, "direct-run:"+tool+" "+strings.Join(args, " "))
+}
+
+func (stub stubRuntimeOps) execInternalTool(tool string, args ...string) {
+	*stub.calls = append(*stub.calls, "direct-exec:"+tool+" "+strings.Join(args, " "))
 }
 
 func (stub stubRuntimeOps) runTool(_ runtimePaths, tool string, args ...string) {

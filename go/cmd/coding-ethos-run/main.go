@@ -10,11 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
+	"blackcat.ca/coding-ethos/go/internal/hooklog"
 )
 
 const (
-	defaultGitPath = "/usr/bin/git"
-	exitMissing    = 127
+	exitMissing = 127
 )
 
 type runtimePaths struct {
@@ -47,36 +50,74 @@ func (paths runtimePaths) executor() runtimeExecutor {
 }
 
 func main() {
-	paths, err := resolveRuntimePaths()
-	if err != nil {
-		exitErr(err)
-	}
+	execguard.Enter("coding-ethos-run")
 
-	paths.export()
+	os.Exit(mainExitCode())
+}
 
-	args := runnerArgs(os.Args)
-	if len(args) > 0 &&
-		args[0] != "cutover" &&
-		args[0] != "lfs-hook" &&
-		os.Getenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE") == "" {
-		runtimeExecTool(paths, "coding-ethos-hook-log", append([]string{
-			"--root", paths.Root,
-			"--bundle-root", paths.BundleRoot,
-			"--git", paths.RealGit,
-			"--", paths.RunBinary,
-		}, args...)...)
-	}
+func mainExitCode() int {
+	return withRuntimeExit(func() int {
+		paths, err := resolveRuntimePaths()
+		if err != nil {
+			exitErr(err)
+		}
 
-	inlineErr0 := run(paths, args)
-	if inlineErr0 != nil {
-		exitErr(inlineErr0)
-	}
+		paths.export()
+
+		args := runnerArgs(os.Args)
+		if len(args) > 0 &&
+			args[0] != "cutover" &&
+			args[0] != "lfs-hook" &&
+			os.Getenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE") == "" {
+			loggedCode, logErr := hooklog.RunInProcess(hooklog.Options{
+				Stdin:      os.Stdin,
+				Stdout:     os.Stdout,
+				Stderr:     os.Stderr,
+				GitPath:    paths.RealGit,
+				Root:       paths.Root,
+				BundleRoot: paths.BundleRoot,
+				Command:    append([]string{paths.RunBinary}, args...),
+			}, func() int {
+				return runRuntime(paths, args)
+			})
+			if logErr != nil {
+				exitErr(logErr)
+			}
+
+			return loggedCode
+		}
+
+		return runRuntime(paths, args)
+	})
+}
+
+func runRuntime(paths runtimePaths, args []string) int {
+	return withRuntimeExit(func() int {
+		inlineErr0 := run(paths, args)
+		if inlineErr0 != nil {
+			exitErr(inlineErr0)
+		}
+
+		return 0
+	})
+}
+
+func withRuntimeExit(action func() int) int {
+	code := 0
+
+	func() {
+		defer captureRuntimeExit(&code)
+
+		code = action()
+	}()
+
+	return code
 }
 
 func resolveRuntimePaths() (runtimePaths, error) {
-	realGit := strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
-	if realGit == "" {
-		realGit = defaultGitPath
+	realGit, err := resolveRuntimeGit()
+	if err != nil {
+		return runtimePaths{}, err
 	}
 
 	invocationCWD, err := os.Getwd()
@@ -84,27 +125,8 @@ func resolveRuntimePaths() (runtimePaths, error) {
 		return runtimePaths{}, fmt.Errorf("get invocation cwd: %w", err)
 	}
 
-	localRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
-	if err != nil {
-		return runtimePaths{}, err
-	}
-
-	root := strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT"))
-	if root == "" {
-		root = localRoot
-	}
-
-	hooksDir, err := gitOutput(
-		realGit,
-		root,
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-path",
-		"hooks",
-	)
-	if err != nil {
-		return runtimePaths{}, err
-	}
+	root, localRoot := resolveRuntimeRoot(realGit, invocationCWD)
+	hooksDir := resolveRuntimeHooksDir(realGit, root)
 
 	runBinary, err := os.Executable()
 	if err != nil {
@@ -121,35 +143,116 @@ func resolveRuntimePaths() (runtimePaths, error) {
 	bundleRoot := filepath.Join(ethosRoot, "pre-commit")
 	toolchainDir := filepath.Join(ethosRoot, "build", "toolchain")
 
+	return runtimePathSet(
+		runtimePathInputs{
+			RealGit:       realGit,
+			InvocationCWD: invocationCWD,
+			LocalRoot:     localRoot,
+			Root:          root,
+			HooksDir:      hooksDir,
+			BinDir:        binDir,
+			RunBinary:     runBinary,
+			BundleRoot:    bundleRoot,
+			EthosRoot:     ethosRoot,
+			ToolchainDir:  toolchainDir,
+		},
+	), nil
+}
+
+type runtimePathInputs struct {
+	RealGit       string
+	InvocationCWD string
+	LocalRoot     string
+	Root          string
+	HooksDir      string
+	BinDir        string
+	RunBinary     string
+	BundleRoot    string
+	EthosRoot     string
+	ToolchainDir  string
+}
+
+func resolveRuntimeRoot(realGit, invocationCWD string) (string, string) {
+	root := strings.TrimSpace(os.Getenv("CODE_ETHOS_CONSUMER_ROOT"))
+	if root != "" {
+		return root, root
+	}
+
+	localRoot := invocationCWD
+
+	resolvedRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
+	if err == nil {
+		localRoot = resolvedRoot
+	}
+
+	return localRoot, localRoot
+}
+
+func resolveRuntimeHooksDir(realGit, root string) string {
+	hooksDir, err := gitOutput(
+		realGit,
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-path",
+		"hooks",
+	)
+	if err == nil {
+		return hooksDir
+	}
+
+	return filepath.Join(root, ".git", "hooks")
+}
+
+func runtimePathSet(inputs runtimePathInputs) runtimePaths {
 	return runtimePaths{
-		RealGit:       realGit,
-		InvocationCWD: invocationCWD,
-		LocalRoot:     localRoot,
-		Root:          root,
-		HooksDir:      hooksDir,
-		BinDir:        binDir,
-		RunBinary:     runBinary,
-		BundleRoot:    bundleRoot,
-		EthosRoot:     ethosRoot,
-		GitHookRunner: filepath.Join(binDir, "coding-ethos-hook-runner"),
-		ToolsSource:   filepath.Join(ethosRoot, "go"),
+		RealGit:       inputs.RealGit,
+		InvocationCWD: inputs.InvocationCWD,
+		LocalRoot:     inputs.LocalRoot,
+		Root:          inputs.Root,
+		HooksDir:      inputs.HooksDir,
+		BinDir:        inputs.BinDir,
+		RunBinary:     inputs.RunBinary,
+		BundleRoot:    inputs.BundleRoot,
+		EthosRoot:     inputs.EthosRoot,
+		GitHookRunner: filepath.Join(inputs.BinDir, "coding-ethos-hook-runner"),
+		ToolsSource:   filepath.Join(inputs.EthosRoot, "go"),
 		PolicyBundle: filepath.Join(
-			ethosRoot,
+			inputs.EthosRoot,
 			"build",
 			"policy",
 			"policy-bundle.json",
 		),
 		PolicyMetadata: filepath.Join(
-			ethosRoot,
+			inputs.EthosRoot,
 			"build",
 			"policy",
 			"policy-metadata.json",
 		),
-		ManagedGoBin:     filepath.Join(toolchainDir, "go-bin"),
-		ManagedPrefixBin: filepath.Join(toolchainDir, "prefix", "bin"),
-		ManagedGitHubBin: filepath.Join(toolchainDir, "github-bin"),
-		ManagedManifest:  filepath.Join(toolchainDir, "manifest.tsv"),
-	}, nil
+		ManagedGoBin: filepath.Join(
+			inputs.ToolchainDir,
+			"go-bin",
+		),
+		ManagedPrefixBin: filepath.Join(
+			inputs.ToolchainDir,
+			"prefix",
+			"bin",
+		),
+		ManagedGitHubBin: filepath.Join(
+			inputs.ToolchainDir,
+			"github-bin",
+		),
+		ManagedManifest: filepath.Join(inputs.ToolchainDir, "manifest.tsv"),
+	}
+}
+
+func resolveRuntimeGit() (string, error) {
+	resolvedGit, err := gitwrap.ResolveRealGit("git")
+	if err != nil {
+		return "", fmt.Errorf("resolve runtime git: %w", err)
+	}
+
+	return resolvedGit, nil
 }
 
 func (paths runtimePaths) export() {
@@ -184,11 +287,12 @@ func (paths runtimePaths) export() {
 }
 
 func exitErr(err error) {
+	fmt.Fprintln(os.Stderr, err)
+
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
-		os.Exit(exitError.ExitCode())
+		requestRuntimeExit(exitError.ExitCode())
 	}
 
-	fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
+	requestRuntimeExit(1)
 }

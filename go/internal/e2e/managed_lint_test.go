@@ -169,6 +169,73 @@ func TestManagedRuffCaptureProducesRealSARIF(t *testing.T) {
 	assertRuffSARIFOutput(t, result)
 }
 
+func TestManagedRuffCaptureProducesJSONDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	repo.Touch(t, "pkg/unused_import.py", unusedImportPython())
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--json",
+		"--managed-capture-tool",
+		"ruff",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+		"check",
+		"pkg/unused_import.py",
+	)
+	result.RequireExit(t, 1)
+
+	for _, want := range []string{
+		`"tool": "ruff"`,
+		`"trace_id": "`,
+		`"code": "F401"`,
+		`"file": "pkg/unused_import.py"`,
+		`"parse_status": "parsed"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
+func TestManagedRuffCaptureKeepsRealToolFailureEvidence(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--json",
+		"--managed-capture-tool",
+		"ruff",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+		"check",
+		"--definitely-not-a-ruff-flag",
+	)
+	result.RequireExit(t, 2)
+
+	for _, want := range []string{
+		`"tool": "ruff"`,
+		`"policy_id": "tool.ruff"`,
+		`"parse_status": "tool_config_error"`,
+		`"category": "configuration_error"`,
+		`"--definitely-not-a-ruff-flag"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
 func assertRuffSARIFOutput(t *testing.T, result e2e.CommandResult) {
 	t.Helper()
 

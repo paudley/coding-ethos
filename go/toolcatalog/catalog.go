@@ -25,6 +25,7 @@ type Tool struct {
 	Name                 string         `json:"name"`
 	ManagedBinary        string         `json:"managed_binary,omitempty"`
 	Parser               string         `json:"parser"`
+	DiagnosticKind       string         `json:"diagnostic_kind,omitempty"`
 	Category             string         `json:"category"`
 	OutputFormat         string         `json:"output_format"`
 	Advice               string         `json:"advice,omitempty"`
@@ -41,14 +42,25 @@ type Tool struct {
 	FileExtensions       []string       `json:"file_extensions,omitempty"`
 	CaptureStripFlags    []string       `json:"capture_strip_flags,omitempty"`
 	CaptureStripArgs     []string       `json:"capture_strip_args,omitempty"`
+	ParserAliases        []string       `json:"parser_aliases,omitempty"`
 	Languages            []string       `json:"languages,omitempty"`
 	PostConfigArgs       []string       `json:"post_config_args,omitempty"`
 	Capabilities         CapabilitySpec `json:"capabilities,omitzero"`
 	PassFilesAsArgs      bool           `json:"pass_files_as_args"`
 	UseHookProject       bool           `json:"use_hook_project"`
 	Fast                 bool           `json:"fast"`
+	Captured             bool           `json:"captured"`
 	EnabledByDefault     bool           `json:"enabled_by_default"`
 }
+
+const (
+	DiagnosticKindParser                = "parser"
+	DiagnosticKindFormatterChangedFiles = "formatter_changed_files"
+	DiagnosticKindInternalStructured    = "internal_structured"
+	DiagnosticKindGenericFallback       = "generic_fallback"
+
+	CategoryFormat = "format"
+)
 
 func adviceText(parts ...string) string {
 	return strings.Join(parts, " ")
@@ -324,6 +336,31 @@ func ToolCapabilityViews() []CapabilityView {
 	return views
 }
 
+func DiagnosticParserNames() []string {
+	seen := map[string]bool{}
+	names := []string{}
+
+	for _, tool := range HookOwnedTools() {
+		addDiagnosticParserName(&names, seen, tool.Parser)
+
+		for _, alias := range tool.ParserAliases {
+			addDiagnosticParserName(&names, seen, alias)
+		}
+	}
+
+	return names
+}
+
+func addDiagnosticParserName(names *[]string, seen map[string]bool, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" || seen[name] {
+		return
+	}
+
+	seen[name] = true
+	*names = append(*names, name)
+}
+
 func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
 	switch tool.Runtime {
 	case RuntimeGo:
@@ -358,25 +395,22 @@ func (tool Tool) managedBinaryName() string {
 }
 
 func CapturedLintTools() []CapturedTool {
-	tools := []Tool{
-		ruffTool(),
-		mypyTool(),
-		pyrightTool(),
-		pylintTool(),
-		banditTool(),
-		sqlfluffTool(),
-		tombiTool(),
-		shellcheckTool(),
-		golangciLintTool(),
-		actionlintTool(),
-		yamllintTool(),
-		hadolintTool(),
-		dotenvLinterTool(),
-	}
+	tools := capturedTools(HookOwnedTools())
 
 	captured := make([]CapturedTool, 0, len(tools))
 	for _, tool := range tools {
 		captured = append(captured, capturedToolFromTool(tool))
+	}
+
+	return captured
+}
+
+func capturedTools(tools []Tool) []Tool {
+	captured := make([]Tool, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Captured {
+			captured = append(captured, tool)
+		}
 	}
 
 	return captured
@@ -459,6 +493,7 @@ func toolDisplayNameEntries() []toolDisplayNameEntry {
 		{Name: "dotenv-linter", DisplayName: "dotenv-linter"},
 		{Name: "golangci-lint", DisplayName: "golangci-lint"},
 		{Name: "golangci-lint-autofix", DisplayName: "golangci-lint autofix"},
+		{Name: "golangci-lint-format", DisplayName: "golangci-lint format"},
 		{Name: "golines", DisplayName: "golines"},
 		{Name: "hadolint", DisplayName: "hadolint"},
 		{Name: "mypy", DisplayName: "mypy"},
@@ -493,6 +528,7 @@ func hookOwnedToolDefinitions() []Tool {
 		pyupgradeTool(),
 		ruffFormatTool(),
 		ruffAutofixTool(),
+		golangciLintFormatTool(),
 		golangciLintAutofixTool(),
 		gofmtTool(),
 		goVetTool(),
@@ -507,10 +543,12 @@ func hookOwnedToolDefinitions() []Tool {
 
 func ruffTool() Tool {
 	return Tool{
-		Name:         "ruff",
-		Parser:       "ruff",
-		Category:     "python-static",
-		OutputFormat: "json",
+		Name:          "ruff",
+		Parser:        "ruff",
+		ParserAliases: []string{"ruff-autofix", "ruff-format"},
+		Captured:      true,
+		Category:      "python-static",
+		OutputFormat:  "json",
 		Advice: adviceText(
 			"Fix Ruff diagnostics structurally; do not suppress unless the",
 			"policy requires a documented exception.",
@@ -543,6 +581,7 @@ func pyrightTool() Tool {
 	return Tool{
 		Name:         "pyright",
 		Parser:       "pyright",
+		Captured:     true,
 		Category:     "python-static",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -567,6 +606,7 @@ func mypyTool() Tool {
 	return Tool{
 		Name:         "mypy",
 		Parser:       "mypy",
+		Captured:     true,
 		Category:     "python-static",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -591,6 +631,7 @@ func pylintTool() Tool {
 	return Tool{
 		Name:         "pylint",
 		Parser:       "pylint",
+		Captured:     true,
 		Category:     "python-static",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -614,6 +655,7 @@ func hadolintTool() Tool {
 	return Tool{
 		Name:         "hadolint",
 		Parser:       "hadolint",
+		Captured:     true,
 		Category:     "docker",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -636,6 +678,7 @@ func actionlintTool() Tool {
 	return Tool{
 		Name:         "actionlint",
 		Parser:       "actionlint",
+		Captured:     true,
 		Category:     "workflow",
 		OutputFormat: "json-lines",
 		Advice: adviceText(
@@ -660,6 +703,7 @@ func shellcheckTool() Tool {
 	return Tool{
 		Name:         "shellcheck",
 		Parser:       "shellcheck",
+		Captured:     true,
 		Category:     "shell",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -707,6 +751,7 @@ func yamllintTool() Tool {
 	return Tool{
 		Name:         "yamllint",
 		Parser:       "yamllint",
+		Captured:     true,
 		Category:     "syntax",
 		OutputFormat: "parsable",
 		Advice: adviceText(
@@ -733,6 +778,7 @@ func banditTool() Tool {
 	return Tool{
 		Name:         "bandit",
 		Parser:       "bandit",
+		Captured:     true,
 		Category:     "security",
 		OutputFormat: "json",
 		Advice: adviceText(
@@ -763,6 +809,7 @@ func sqlfluffTool() Tool {
 	return Tool{
 		Name:              "sqlfluff",
 		Parser:            "sqlfluff",
+		Captured:          true,
 		Category:          "sql",
 		OutputFormat:      "json",
 		Advice:            "Fix SQL syntax and style with explicit dialect-aware queries.",
@@ -785,6 +832,7 @@ func tombiTool() Tool {
 	return Tool{
 		Name:         "tombi",
 		Parser:       "tombi",
+		Captured:     true,
 		Category:     "syntax",
 		OutputFormat: "text",
 		Advice: adviceText(
@@ -807,6 +855,7 @@ func dotenvLinterTool() Tool {
 	return Tool{
 		Name:         "dotenv-linter",
 		Parser:       "dotenv-linter",
+		Captured:     true,
 		Category:     "dotenv",
 		OutputFormat: "text",
 		Advice: adviceText(
@@ -828,6 +877,7 @@ func pyupgradeTool() Tool {
 	return Tool{
 		Name:             "pyupgrade",
 		Parser:           "fallback",
+		DiagnosticKind:   DiagnosticKindFormatterChangedFiles,
 		Category:         "format",
 		OutputFormat:     "text",
 		Advice:           "Apply syntax upgrades for the configured Python version.",
@@ -845,7 +895,7 @@ func pyupgradeTool() Tool {
 func ruffFormatTool() Tool {
 	return Tool{
 		Name:             "ruff-format",
-		Parser:           "fallback",
+		Parser:           "ruff",
 		Category:         "format",
 		OutputFormat:     "text",
 		Advice:           "Run Ruff format before reviewing Python diffs.",
@@ -916,10 +966,34 @@ func golangciLintAutofixTool() Tool {
 	}
 }
 
+func golangciLintFormatTool() Tool {
+	return Tool{
+		Name:           "golangci-lint-format",
+		ManagedBinary:  "golangci-lint",
+		Parser:         "fallback",
+		DiagnosticKind: DiagnosticKindFormatterChangedFiles,
+		Category:       "format",
+		OutputFormat:   "text",
+		Advice:         "Run golangci-lint fmt before reviewing Go diffs.",
+		Runtime:        RuntimeGo,
+		Command:        []string{"golangci-lint", "fmt"},
+		ConfigFlags:    []string{"--config"},
+		FileExtensions: []string{
+			".go",
+		},
+		Languages:        []string{"go"},
+		RepoConfig:       ".golangci.yml",
+		PassFilesAsArgs:  false,
+		Fast:             true,
+		EnabledByDefault: true,
+	}
+}
+
 func gofmtTool() Tool {
 	return Tool{
 		Name:             "gofmt",
-		Parser:           "fallback",
+		Parser:           "gofmt",
+		ParserAliases:    []string{"gofmt-check"},
 		Category:         "go",
 		OutputFormat:     "text",
 		Advice:           "Run gofmt before reviewing Go diffs.",
@@ -935,10 +1009,11 @@ func gofmtTool() Tool {
 
 func golinesTool() Tool {
 	return Tool{
-		Name:         "golines",
-		Parser:       "fallback",
-		Category:     "format",
-		OutputFormat: "text",
+		Name:           "golines",
+		Parser:         "fallback",
+		DiagnosticKind: DiagnosticKindFormatterChangedFiles,
+		Category:       "format",
+		OutputFormat:   "text",
 		Advice: adviceText(
 			"Run golines to keep Go code within the shared line-length",
 			"policy.",
@@ -956,7 +1031,7 @@ func golinesTool() Tool {
 func goVetTool() Tool {
 	return Tool{
 		Name:             "go-vet",
-		Parser:           "fallback",
+		Parser:           "go-vet",
 		Category:         "go",
 		OutputFormat:     "text",
 		Advice:           "Fix go vet findings before relying on runtime behavior.",
@@ -972,9 +1047,9 @@ func goVetTool() Tool {
 func goTestTool() Tool {
 	return Tool{
 		Name:             "go-test",
-		Parser:           "fallback",
+		Parser:           "go-test",
 		Category:         "test",
-		OutputFormat:     "text",
+		OutputFormat:     "json",
 		Advice:           "Fix Go test failures as executable behavioral contract failures.",
 		Runtime:          RuntimeGo,
 		Command:          []string{"go", "test", "./..."},
@@ -996,7 +1071,7 @@ func radonComplexityTool() Tool {
 			"and control flow.",
 		),
 		Runtime:          RuntimePython,
-		Command:          []string{"radon", "cc", "-j"},
+		Command:          []string{"radon", "cc", "-j", "-e", ".venv/*,node_modules/*"},
 		FileExtensions:   []string{".py"},
 		Languages:        []string{"python"},
 		PassFilesAsArgs:  true,
@@ -1013,10 +1088,10 @@ func radonMaintainabilityTool() Tool {
 		OutputFormat:     "json",
 		Advice:           "Improve maintainability by simplifying dense modules.",
 		Runtime:          RuntimePython,
-		Command:          []string{"radon", "mi", "-j"},
+		Command:          []string{"radon", "mi", ".", "-j", "-e", ".venv/*,node_modules/*"},
 		FileExtensions:   []string{".py"},
 		Languages:        []string{"python"},
-		PassFilesAsArgs:  true,
+		PassFilesAsArgs:  false,
 		UseHookProject:   true,
 		EnabledByDefault: true,
 	}
@@ -1044,10 +1119,11 @@ func vultureTool() Tool {
 
 func pytestGateTool() Tool {
 	return Tool{
-		Name:         "pytest-gate",
-		Parser:       "fallback",
-		Category:     "test",
-		OutputFormat: "text",
+		Name:          "pytest-gate",
+		Parser:        "pytest-gate",
+		ParserAliases: []string{"pytest"},
+		Category:      "test",
+		OutputFormat:  "text",
 		Advice: adviceText(
 			"Fix pytest failures before committing; tests are executable",
 			"specifications.",
@@ -1064,10 +1140,11 @@ func pytestGateTool() Tool {
 
 func geminiCheckTool() Tool {
 	return Tool{
-		Name:         geminiCheckToolName,
-		Parser:       "gemini",
-		Category:     "ai",
-		OutputFormat: "json",
+		Name:          geminiCheckToolName,
+		Parser:        "gemini",
+		ParserAliases: []string{"gemini-check"},
+		Category:      "ai",
+		OutputFormat:  "json",
 		Advice: adviceText(
 			"Resolve Gemini critical findings or parser/API errors",
 			"before committing.",
@@ -1085,8 +1162,13 @@ func geminiCheckTool() Tool {
 
 func golangciLintTool() Tool {
 	return Tool{
-		Name:         "golangci-lint",
-		Parser:       "golangci-lint",
+		Name:   "golangci-lint",
+		Parser: "golangci-lint",
+		ParserAliases: []string{
+			"golangci-lint-autofix",
+			"golangci-lint-format",
+		},
+		Captured:     true,
 		Category:     "go-static",
 		OutputFormat: "json",
 		Advice: adviceText(

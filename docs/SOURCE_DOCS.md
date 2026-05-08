@@ -45,6 +45,9 @@
 - `docs/CODE_INTEL.md`: Tree-sitter AST code intelligence plan and current
   implementation, SQLite canonical storage, sqlite-vec vector search, hybrid
   retrieval, and MCP search tools.
+- `docs/AGENT_PROXY.md`: Agent Proxy trust boundary, operator model,
+  provider-neutral event envelope, code-intel ledger, CEL facts, SARIF
+  properties, and feature-work rules for issues #52 through #62.
 - `docs/AST_CEL_SARIF_ARCHITECTURE.md`: preferred architecture for collecting
   parsed source facts, evaluating principle-owned CEL policies, emitting
   stable SARIF, and storing code-intelligence evidence.

@@ -4,9 +4,7 @@
 package evaluators
 
 import (
-	"context"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -78,20 +76,15 @@ func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {
 }
 
 func stagedFiles(cwd string) ([]string, error) {
-	cmd := exec.CommandContext(
-		context.Background(),
-		"git",
-		"diff",
-		"--cached",
-		"--name-only",
-	)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
+	cmd := GitCommand(cwd, "diff", "--cached", "--name-only")
 
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("list staged files: %w", err)
+		return nil, fmt.Errorf(
+			"list staged files: %w: %s",
+			err,
+			strings.TrimSpace(string(output)),
+		)
 	}
 
 	trimmed := strings.TrimSpace(string(output))

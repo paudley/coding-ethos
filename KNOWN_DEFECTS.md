@@ -28,4 +28,21 @@ the end-to-end suite unless all of the following are true:
 
 ### Current Entries
 
-No approved end-to-end fakes or mocks.
+#### Agent Proxy Fixture Provider
+
+- Scope: `go/internal/e2e/proxy_harness.go`
+- Owner: Blackcat Informatics maintainers
+- Rationale: Live AI provider calls are nondeterministic, externally billed, and
+  cannot be made reliable enough for a blocking end-to-end test. The fixture
+  provider replaces only the remote model endpoint; the scenario still uses a
+  real temporary Git repository, real local files, real HTTP framing, real
+  provider-envelope structs, and the real code-intel SQLite ledger.
+- Real behavior replaced: remote provider request/response behavior for a
+  single deterministic assistant response.
+- Remaining risk: provider-specific authentication, streaming semantics, rate
+  limits, and vendor error bodies are not exercised by this fixture.
+- Replacement plan: add provider-specific contract tests when the Agent Proxy
+  supports opt-in live-provider validation with explicit credentials and
+  operator approval.
+- Removal condition: remove the fixture once live-provider contract tests can
+  run deterministically without external cost or credential exposure.
