@@ -2304,6 +2304,22 @@ principles:
               (self_promotion_branding(line.text, "codex") ||
               self_promotion_branding(line.text, "claude") ||
               self_promotion_branding(line.text, "gemini")))
+        - id: agent.self_promotion_commit_msg
+          principle_ids:
+            - no-self-promotion
+          scope: commit-msg
+          severity: block
+          mode: block
+          lint_scopes:
+            - commit-msg
+          message: Agent-branded commit messages are forbidden.
+          advice: >-
+            Keep commit subjects and bodies unbranded; describe the repository
+            change instead of the tool that produced it.
+          when: >-
+            self_promotion_branding(content.raw, "codex") ||
+            self_promotion_branding(content.raw, "claude") ||
+            self_promotion_branding(content.raw, "gemini")
     sections:
       - id: overview
         kind: overview

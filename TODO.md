@@ -100,7 +100,7 @@ running real commands, and inspecting real output and repository state.
         PR creation, when title/body arguments contain prefixes or attribution
         such as `[codex]`, `codex/`, `Generated with`, `Co-authored-by:
         Codex`, or equivalent tool branding.
-  - [ ] Gate `commit-msg` and staged-file scopes for self-promotion text in
+  - [x] Gate `commit-msg` and staged-file scopes for self-promotion text in
         commit subjects, generated markdown, release notes, PR templates, and
         agent-authored docs while allowing legitimate references to product
         paths such as `.codex/` configuration files.

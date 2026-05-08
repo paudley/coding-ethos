@@ -214,6 +214,50 @@ func TestEvaluateCELExpressionBlocksAgentBrandingInStagedMarkdown(t *testing.T) 
 	}
 }
 
+func TestEvaluateCELExpressionBlocksAgentBrandingInCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_commit_msg")
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Content:          "fix(policy): Generated with Codex\n",
+			Scope:            "commit-msg",
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsProductPathInCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_commit_msg")
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Content:          "docs(config): document .codex/config.toml\n",
+			Scope:            "commit-msg",
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want no block", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionUsesPolicyDefaultSeverity(t *testing.T) {
 	t.Parallel()
 
