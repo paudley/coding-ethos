@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
@@ -33,6 +34,23 @@ type managedToolInstaller struct {
 	InstallGo     func(module, version, destDir string) error
 	InstallRust   func(crate, version, binary, destDir string) error
 	InstallGitHub func(tool managedTool, destDir string) error
+}
+
+type managedToolchainDiagnosticError struct {
+	cause      error
+	diagnostic diagnostics.Diagnostic
+}
+
+func (err managedToolchainDiagnosticError) Error() string {
+	return err.cause.Error()
+}
+
+func (err managedToolchainDiagnosticError) Unwrap() error {
+	return err.cause
+}
+
+func (err managedToolchainDiagnosticError) Diagnostics() []diagnostics.Diagnostic {
+	return []diagnostics.Diagnostic{err.diagnostic}
 }
 
 func installManagedToolchainCommand(args []string) error {
@@ -124,7 +142,13 @@ func installManagedToolchain(
 	for _, tool := range tools {
 		destDir, err := managedToolDestDir(tool.Dest, goBinDir, githubBinDir)
 		if err != nil {
-			return err
+			return managedToolchainManifestDiagnostic(
+				err,
+				manifestSource,
+				tool,
+				"invalid-destination",
+				"Managed tool destination is invalid.",
+			)
 		}
 
 		installedPath := filepath.Join(destDir, tool.Binary)
@@ -133,13 +157,25 @@ func installManagedToolchain(
 		if !managedToolAlreadyInstalled(installedManifest, installedPath, record) {
 			err := installManagedTool(tool, destDir, installer)
 			if err != nil {
-				return err
+				return managedToolchainManifestDiagnostic(
+					err,
+					manifestSource,
+					tool,
+					"install-failed",
+					"Managed tool installation failed.",
+				)
 			}
 		}
 
 		inlineErr2 := requireExecutableManagedTool(tool.Tool, installedPath)
 		if inlineErr2 != nil {
-			return inlineErr2
+			return managedToolchainExecutableDiagnostic(
+				inlineErr2,
+				manifestSource,
+				installedManifest,
+				tool,
+				installedPath,
+			)
 		}
 
 		records = append(records, record)
@@ -151,7 +187,12 @@ func installManagedToolchain(
 func readManagedToolManifest(path string) ([]managedTool, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("managed toolchain manifest not found %s: %w", path, err)
+		return nil, managedToolchainFileDiagnostic(
+			fmt.Errorf("managed toolchain manifest not found %s: %w", path, err),
+			path,
+			"manifest-not-found",
+			"Managed toolchain source manifest is missing.",
+		)
 	}
 	defer file.Close()
 
@@ -168,12 +209,18 @@ func readManagedToolManifest(path string) ([]managedTool, error) {
 
 		fields := strings.Split(line, "\t")
 		if len(fields) != toolManifestFields {
-			return nil, apperror.Wrapf(
-				apperror.StaticError(
+			return nil, managedToolchainLineDiagnostic(
+				apperror.Wrapf(
+					apperror.StaticError(
+						"invalid managed toolchain manifest line %d: expected 8 tab-separated fields",
+					),
 					"invalid managed toolchain manifest line %d: expected 8 tab-separated fields",
+					lineNumber,
 				),
-				"invalid managed toolchain manifest line %d: expected 8 tab-separated fields",
+				path,
 				lineNumber,
+				"invalid-field-count",
+				"Managed toolchain manifest row has the wrong field count.",
 			)
 		}
 
@@ -190,7 +237,13 @@ func readManagedToolManifest(path string) ([]managedTool, error) {
 
 		err := validateManagedTool(tool, lineNumber)
 		if err != nil {
-			return nil, err
+			return nil, managedToolchainManifestDiagnostic(
+				err,
+				path,
+				tool,
+				"missing-required-field",
+				"Managed toolchain manifest row is missing a required field.",
+			)
 		}
 
 		tools = append(tools, tool)
@@ -198,14 +251,169 @@ func readManagedToolManifest(path string) ([]managedTool, error) {
 
 	inlineErr3 := scanner.Err()
 	if inlineErr3 != nil {
-		return nil, fmt.Errorf(
-			"read managed toolchain manifest %s: %w",
+		return nil, managedToolchainFileDiagnostic(
+			fmt.Errorf(
+				"read managed toolchain manifest %s: %w",
+				path,
+				inlineErr3,
+			),
 			path,
-			inlineErr3,
+			"manifest-read-failed",
+			"Managed toolchain source manifest could not be read.",
 		)
 	}
 
 	return tools, nil
+}
+
+func managedToolchainFileDiagnostic(
+	err error,
+	path string,
+	code string,
+	message string,
+) error {
+	return managedToolchainDiagnosticError{
+		cause: err,
+		diagnostic: managedToolchainDiagnostic(
+			path,
+			0,
+			"",
+			code,
+			message,
+			map[string]any{"manifest_source": path},
+		),
+	}
+}
+
+func managedToolchainLineDiagnostic(
+	err error,
+	path string,
+	line int,
+	code string,
+	message string,
+) error {
+	return managedToolchainDiagnosticError{
+		cause: err,
+		diagnostic: managedToolchainDiagnostic(
+			path,
+			line,
+			"",
+			code,
+			message,
+			map[string]any{"manifest_source": path},
+		),
+	}
+}
+
+func managedToolchainManifestDiagnostic(
+	err error,
+	manifestSource string,
+	tool managedTool,
+	code string,
+	message string,
+) error {
+	metadata := managedToolchainToolMetadata(manifestSource, tool)
+
+	return managedToolchainDiagnosticError{
+		cause: err,
+		diagnostic: managedToolchainDiagnostic(
+			manifestSource,
+			0,
+			tool.Tool,
+			code,
+			message,
+			metadata,
+		),
+	}
+}
+
+func managedToolchainExecutableDiagnostic(
+	err error,
+	manifestSource string,
+	installedManifest string,
+	tool managedTool,
+	installedPath string,
+) error {
+	metadata := managedToolchainToolMetadata(manifestSource, tool)
+	metadata["installed_manifest"] = installedManifest
+	metadata["installed_path"] = installedPath
+
+	return managedToolchainDiagnosticError{
+		cause: err,
+		diagnostic: managedToolchainDiagnostic(
+			installedPath,
+			0,
+			tool.Tool,
+			"managed-tool-not-executable",
+			"Managed tool binary is missing or not executable.",
+			metadata,
+		),
+	}
+}
+
+func managedToolchainToolMetadata(
+	manifestSource string,
+	tool managedTool,
+) map[string]any {
+	return map[string]any{
+		"asset_substring": tool.AssetSubstring,
+		"binary":          tool.Binary,
+		"dest":            tool.Dest,
+		"installer":       tool.Installer,
+		"manifest_source": manifestSource,
+		"source":          tool.Source,
+		"tool":            tool.Tool,
+		"version":         tool.Version,
+	}
+}
+
+func managedToolchainDiagnostic(
+	file string,
+	line int,
+	toolName string,
+	code string,
+	message string,
+	metadata map[string]any,
+) diagnostics.Diagnostic {
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+
+	metadata["repair_command"] = "make build"
+
+	return diagnostics.Diagnostic{
+		Tool:     "managed-toolchain",
+		File:     file,
+		Line:     line,
+		Severity: "error",
+		Code:     code,
+		PolicyID: "toolchain.managed_manifest",
+		SkillID:  "managed-toolchain",
+		Message:  message,
+		Advice: "Repair the managed toolchain through the canonical build path " +
+			"instead of installing host-global tools.",
+		AdviceSteps: []string{
+			"Run make build from the coding-ethos checkout.",
+			"Keep pre-commit/hooks/managed-toolchain.tsv tab-separated with 8 fields.",
+			"Do not edit build/toolchain/manifest.tsv by hand.",
+		},
+		Rerun: []string{"make build"},
+		PrincipleIDs: []string{
+			"static-analysis-is-the-first-line-of-defense",
+			"validation-at-the-gate",
+			"one-path-for-critical-operations",
+		},
+		Metadata: metadata,
+		Detail:   managedToolchainDiagnosticDetail(toolName),
+	}
+}
+
+func managedToolchainDiagnosticDetail(toolName string) string {
+	if strings.TrimSpace(toolName) == "" {
+		return "Managed toolchain manifest validation failed before tool install."
+	}
+
+	return "Managed toolchain validation failed for tool " + toolName + "."
 }
 
 func validateManagedTool(tool managedTool, lineNumber int) error {

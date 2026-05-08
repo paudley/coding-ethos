@@ -141,7 +141,7 @@ running real commands, and inspecting real output and repository state.
   - [x] Emit file-specific diagnostics for generated Gemini prompt pack drift.
   - [x] Emit provider/skill-path diagnostics for generated agent skill surface
         drift.
-  - [ ] Convert tool bootstrap and managed-toolchain manifest failures into
+  - [x] Convert tool bootstrap and managed-toolchain manifest failures into
         structured diagnostics with manifest paths, tool names, and repair
         commands.
   - [ ] Verify `go-vet` failures produce parser-backed diagnostics in

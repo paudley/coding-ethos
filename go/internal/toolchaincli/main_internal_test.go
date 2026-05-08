@@ -764,6 +764,93 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 	}
 }
 
+func TestInstallManagedToolchainReportsManifestDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manifestSource := filepath.Join(root, "managed.tsv")
+
+	err := os.WriteFile(
+		manifestSource,
+		[]byte("shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\n"),
+		privateFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write manifest source: %v", err)
+	}
+
+	err = installManagedToolchain(
+		manifestSource,
+		filepath.Join(root, "go-bin"),
+		filepath.Join(root, "github-bin"),
+		filepath.Join(root, "manifest.tsv"),
+		recordingManagedToolInstaller(t, &[]string{}),
+	)
+
+	var diagnosticErr managedToolchainDiagnosticError
+	if !errors.As(err, &diagnosticErr) {
+		t.Fatalf("install error = %T %v, want diagnostic error", err, err)
+	}
+
+	diagnostics := diagnosticErr.Diagnostics()
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v, want one", diagnostics)
+	}
+
+	diagnostic := diagnostics[0]
+	if diagnostic.Tool != "managed-toolchain" ||
+		diagnostic.File != manifestSource ||
+		diagnostic.Line != 1 ||
+		diagnostic.Code != "invalid-field-count" ||
+		diagnostic.SkillID != "managed-toolchain" ||
+		diagnostic.Metadata["repair_command"] != "make build" {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+}
+
+func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manifestSource := filepath.Join(root, "managed.tsv")
+
+	err := os.WriteFile(
+		manifestSource,
+		[]byte("broken\n"),
+		privateFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write manifest source: %v", err)
+	}
+
+	stderr := captureToolchainStderr(t, func() {
+		code := runCLI([]string{
+			"install-managed-toolchain",
+			"--manifest-source", manifestSource,
+			"--go-bin-dir", filepath.Join(root, "go-bin"),
+			"--github-bin-dir", filepath.Join(root, "github-bin"),
+			"--installed-manifest", filepath.Join(root, "manifest.tsv"),
+		})
+		if code != 1 {
+			t.Fatalf("runCLI exit = %d, want 1", code)
+		}
+	})
+
+	for _, want := range []string{
+		"tool: policy-lint",
+		"managed-toolchain,",
+		"policy_id",
+		"toolchain.managed_manifest",
+		"invalid-field-count",
+		"make build",
+		manifestSource,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
 func TestRepoIgnoreFixItemLines(t *testing.T) {
 	t.Parallel()
 
@@ -1213,6 +1300,47 @@ func captureToolchainStdout(t *testing.T, run func()) string {
 	inlineErr15 := reader.Close()
 	if inlineErr15 != nil {
 		t.Fatalf("close stdout reader: %v", inlineErr15)
+	}
+
+	return buffer.String()
+}
+
+func captureToolchainStderr(t *testing.T, run func()) string {
+	t.Helper()
+
+	release := testlock.ProcessStateScope(t, "coding-ethos-toolchain")
+	defer release()
+
+	original := os.Stderr
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+
+	os.Stderr = writer
+
+	defer func() {
+		os.Stderr = original
+	}()
+
+	run()
+
+	inlineErr14 := writer.Close()
+	if inlineErr14 != nil {
+		t.Fatalf("close stderr writer: %v", inlineErr14)
+	}
+
+	var buffer strings.Builder
+
+	_, inlineErrB := io.Copy(&buffer, reader)
+	if inlineErrB != nil {
+		t.Fatalf("read stderr: %v", inlineErrB)
+	}
+
+	inlineErr15 := reader.Close()
+	if inlineErr15 != nil {
+		t.Fatalf("close stderr reader: %v", inlineErr15)
 	}
 
 	return buffer.String()

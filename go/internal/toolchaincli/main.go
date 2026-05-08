@@ -4,11 +4,15 @@
 package toolchaincli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
 const (
@@ -101,12 +105,42 @@ func runCLI(args []string) int {
 
 	err := handler(args[1:])
 	if err != nil {
+		var diagnosticErr interface {
+			Diagnostics() []diagnostics.Diagnostic
+		}
+		if errors.As(err, &diagnosticErr) {
+			printToolchainDiagnostics(diagnosticErr.Diagnostics())
+
+			return 1
+		}
+
 		fmt.Fprintln(os.Stderr, err)
 
 		return 1
 	}
 
 	return 0
+}
+
+func printToolchainDiagnostics(items []diagnostics.Diagnostic) {
+	if len(items) == 0 {
+		return
+	}
+
+	output, err := hookoutput.FormatLintResult(lint.Result{
+		Scope:       "toolchain",
+		Status:      "blocked",
+		Diagnostics: items,
+	}, hookoutput.FormatTOON)
+	if err != nil {
+		for _, item := range items {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", item.Tool, item.Message)
+		}
+
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, output)
 }
 
 type toolchainCommandHandler func([]string) error
