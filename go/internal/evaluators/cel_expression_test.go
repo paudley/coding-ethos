@@ -139,28 +139,58 @@ func TestEvaluateCELExpressionChecksAllAgentBranding(t *testing.T) {
 	}
 }
 
-func TestEvaluateCELExpressionAllowsCodexConfigPathReference(t *testing.T) {
+func TestEvaluateCELExpressionAllowsAgentConfigPathReferences(t *testing.T) {
 	t.Parallel()
 
-	decisions, err := EvaluateCELExpression(
-		celExpressionPolicy(),
-		Context{
-			Command:   `gh pr edit 66 --body "Update .codex/config.toml docs"`,
-			Provider:  "codex",
-			Tool:      "Bash",
-			EventName: "PreToolUse",
-			Scope:     "PreToolUse",
-			EvaluatorOptions: map[string]any{
-				"when": selfPromotionPRMutationCEL(),
-			},
+	testCases := []struct {
+		name     string
+		command  string
+		provider string
+	}{
+		{
+			name:     "codex",
+			command:  `gh pr edit 66 --body "Update .codex/config.toml docs"`,
+			provider: "codex",
 		},
-	)
-	if err != nil {
-		t.Fatalf("evaluate CEL expression: %v", err)
+		{
+			name: "claude",
+			command: `gh pr edit 66 --body ` +
+				`"Update .claude/skills/lint-remediation/SKILL.md"`,
+			provider: "claude",
+		},
+		{
+			name: "gemini",
+			command: `gh pr edit 66 --body ` +
+				`"Update .gemini/extensions/coding-ethos/gemini-extension.json"`,
+			provider: "gemini",
+		},
 	}
 
-	if len(decisions) != 0 {
-		t.Fatalf("decisions = %#v, want no block", decisions)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateCELExpression(
+				celExpressionPolicy(),
+				Context{
+					Command:   testCase.command,
+					Provider:  testCase.provider,
+					Tool:      "Bash",
+					EventName: "PreToolUse",
+					Scope:     "PreToolUse",
+					EvaluatorOptions: map[string]any{
+						"when": selfPromotionPRMutationCEL(),
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("evaluate CEL expression: %v", err)
+			}
+
+			if len(decisions) != 0 {
+				t.Fatalf("decisions = %#v, want no block", decisions)
+			}
+		})
 	}
 }
 
@@ -236,25 +266,51 @@ func TestEvaluateCELExpressionBlocksAgentBrandingInCommitMessage(t *testing.T) {
 	}
 }
 
-func TestEvaluateCELExpressionAllowsProductPathInCommitMessage(t *testing.T) {
+func TestEvaluateCELExpressionAllowsAgentProductPathInCommitMessage(t *testing.T) {
 	t.Parallel()
 
 	policyDef := compiledRepoPolicy(t, "agent.self_promotion_commit_msg")
 
-	decisions, err := EvaluateCELExpression(
-		policyDef,
-		Context{
-			Content:          "docs(config): document .codex/config.toml\n",
-			Scope:            "commit-msg",
-			EvaluatorOptions: policyDef.Evaluators[0].Options,
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "codex",
+			content: "docs(config): document .codex/config.toml\n",
 		},
-	)
-	if err != nil {
-		t.Fatalf("evaluate CEL expression: %v", err)
+		{
+			name: "claude",
+			content: "docs(skills): document " +
+				".claude/skills/lint-remediation/SKILL.md\n",
+		},
+		{
+			name: "gemini",
+			content: "docs(gemini): document " +
+				".gemini/extensions/coding-ethos/gemini-extension.json\n",
+		},
 	}
 
-	if len(decisions) != 0 {
-		t.Fatalf("decisions = %#v, want no block", decisions)
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateCELExpression(
+				policyDef,
+				Context{
+					Content:          testCase.content,
+					Scope:            "commit-msg",
+					EvaluatorOptions: policyDef.Evaluators[0].Options,
+				},
+			)
+			if err != nil {
+				t.Fatalf("evaluate CEL expression: %v", err)
+			}
+
+			if len(decisions) != 0 {
+				t.Fatalf("decisions = %#v, want no block", decisions)
+			}
+		})
 	}
 }
 

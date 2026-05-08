@@ -339,8 +339,10 @@ func selfPromotionBranding(text, provider string) bool {
 
 func normalizedSelfPromotionText(text string) string {
 	lower := strings.ToLower(text)
-	lower = strings.ReplaceAll(lower, ".codex/", "")
-	lower = strings.ReplaceAll(lower, ".codex\\", "")
+	for _, directory := range []string{".codex", ".claude", ".gemini"} {
+		lower = strings.ReplaceAll(lower, directory+"/", "")
+		lower = strings.ReplaceAll(lower, directory+"\\", "")
+	}
 
 	return lower
 }

@@ -27,16 +27,19 @@ type agentHookFixtureCase struct {
 func TestAgentHookProviderPayloadFixtures(t *testing.T) {
 	t.Parallel()
 
-	repo := preparedAgentHookRepo(t)
-
 	for _, testCase := range agentHookFixtureCases() {
-		payload := loadAgentHookPayload(t, repo, testCase.fixture)
-		prepareAgentHookFixtureState(t, repo, payload)
-		result := repo.CodingEthosRunWithInput(t, payload, "agent-hook")
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		result.RequireExit(t, testCase.wantExit)
-		requireStdout(t, result, testCase)
-		requireStderr(t, result, testCase)
+			repo := preparedAgentHookRepo(t)
+			payload := loadAgentHookPayload(t, repo, testCase.fixture)
+			prepareAgentHookFixtureState(t, repo, payload)
+			result := repo.CodingEthosRunWithInput(t, payload, "agent-hook")
+
+			result.RequireExit(t, testCase.wantExit)
+			requireStdout(t, result, testCase)
+			requireStderr(t, result, testCase)
+		})
 	}
 }
 
