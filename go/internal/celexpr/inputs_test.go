@@ -243,6 +243,77 @@ func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
 	}
 }
 
+func TestProgramEvaluatesSourceASTHelpers(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.source_ast_helper_eval",
+		`source.has_nearby_test() && source.has_doc_chunk()`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Source: SourceActivation{
+			HasNearbyTest: true,
+			HasDocChunk:   true,
+		},
+	})
+
+	output, _, evalErr := program.Eval(activation)
+	if evalErr != nil {
+		t.Fatalf("evaluate CEL program: %v", evalErr)
+	}
+
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("Source AST helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesASTHelpers(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.ast_helper_eval",
+		`
+			proposed_symbol_changes.all(s,
+				s.kind_is("function") &&
+				s.name_matches("run*")
+			)
+		`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "app.py")
+	content := "def run_tool():\n    pass\n"
+
+	err = os.WriteFile(file, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"app.py"},
+		Tool:       "Edit",
+		OldContent: "def old():",
+		Content:    "def run_tool():",
+	})
+
+	output, _, err := program.Eval(activation)
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("AST helper output = %#v, want true", output.Value())
+	}
+}
+
 func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	t.Parallel()
 

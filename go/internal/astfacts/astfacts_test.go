@@ -186,11 +186,11 @@ func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 func TestUnsupportedPathsAndInvalidLinesReturnNoContext(t *testing.T) {
 	t.Parallel()
 
-	if language, found := LanguageForPath("README.md"); found || language != "" {
-		t.Fatalf("markdown language = %q ok=%v", language, found)
+	if language, found := LanguageForPath("README.txt"); found || language != "" {
+		t.Fatalf("unsupported language = %q ok=%v", language, found)
 	}
 
-	_, found, inlineErrAutoA := Analyze("README.md", []byte("# docs\n"))
+	_, found, inlineErrAutoA := Analyze("README.txt", []byte("# docs\n"))
 	if inlineErrAutoA != nil || found {
 		t.Fatalf("unsupported analyze ok=%v err=%v", found, inlineErrAutoA)
 	}

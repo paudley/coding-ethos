@@ -6,6 +6,7 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -667,6 +668,45 @@ func (store *Store) CodeChunks(
 	defer rows.Close()
 
 	return scanCodeChunks(rows)
+}
+
+func (store *Store) GetCodeFile(
+	ctx context.Context,
+	path string,
+) (CodeFile, bool, error) {
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT path, language, content_hash, COALESCE(parser_name, ''),
+			COALESCE(parser_version, ''), indexed_at_utc,
+			COALESCE(stale_reason, ''), size_bytes, line_count
+		FROM code_files
+		WHERE path = ?`,
+		path,
+	)
+
+	var file CodeFile
+
+	err := row.Scan(
+		&file.Path,
+		&file.Language,
+		&file.ContentHash,
+		&file.ParserName,
+		&file.ParserVersion,
+		&file.IndexedAtUTC,
+		&file.StaleReason,
+		&file.SizeBytes,
+		&file.LineCount,
+	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return CodeFile{}, false, nil
+	}
+
+	if err != nil {
+		return CodeFile{}, false, fmt.Errorf("scan code file %q: %w", path, err)
+	}
+
+	return file, true, nil
 }
 
 func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {

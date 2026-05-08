@@ -123,6 +123,15 @@ func (indexer ASTIndexer) indexFile(
 
 	relativePath = filepath.ToSlash(relativePath)
 
+	hash := astfacts.ContentHash(contents)
+	existing, found, err := indexer.store.GetCodeFile(ctx, relativePath)
+
+	if err == nil && found && existing.ContentHash == hash {
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
 	parsed, _, err := astfacts.Analyze(relativePath, contents)
 	if err != nil {
 		return fmt.Errorf("analyze AST facts for %s: %w", relativePath, err)

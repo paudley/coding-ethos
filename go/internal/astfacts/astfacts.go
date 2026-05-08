@@ -6,10 +6,14 @@ package astfacts
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 const (
@@ -381,6 +385,15 @@ func SymbolName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	if name == nil {
+		kind := node.Kind()
+		if kind == "atx_heading" || kind == "setext_heading" {
+			return cleanMarkdownHeading(node.Utf8Text(contents))
+		}
+
+		if kind == "fenced_code_block" || kind == "indented_code_block" {
+			return fmt.Sprintf("block_%d", node.StartPosition().Row+1)
+		}
+
 		nameText := firstDescendantText(contents, node, keyNodeKind)
 		if nameText == "" {
 			return ""
@@ -390,6 +403,123 @@ func SymbolName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	return cleanSymbolName(name.Utf8Text(contents))
+}
+
+func cleanMarkdownHeading(text string) string {
+	text = strings.TrimSpace(text)
+	text = strings.TrimLeft(text, "#")
+	text = strings.TrimSpace(text)
+
+	if lines := strings.Split(text, "\n"); len(lines) > 0 {
+		text = lines[0]
+	}
+
+	return cleanSymbolName(text)
+}
+
+func AnalyzeMarkdown(contents []byte) File {
+	md := goldmark.New()
+	reader := text.NewReader(contents)
+	doc := md.Parser().Parse(reader)
+
+	lineCount := LineCount(contents)
+	symbols := []Symbol{}
+
+	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		symbol, ok := symbolFromMarkdownNode(node, contents)
+		if ok {
+			symbols = append(symbols, symbol)
+		}
+
+		return ast.WalkContinue, nil
+	})
+	if err != nil {
+		// Log or handle error if needed, but for now we just return what we have
+		_ = err
+	}
+
+	return File{
+		Symbols:     symbols,
+		ContentHash: ContentHash(contents),
+		Language:    LanguageMarkdown,
+		LineCount:   lineCount,
+	}
+}
+
+func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
+	kind := node.Kind()
+
+	var symbolKind string
+
+	var name string
+
+	switch kind {
+	case ast.KindHeading:
+		symbolKind = "heading"
+
+		heading, ok := node.(*ast.Heading)
+		if !ok {
+			return Symbol{}, false
+		}
+
+		var builder strings.Builder
+
+		for i := range heading.Lines().Len() {
+			line := heading.Lines().At(i)
+			_, _ = builder.Write(line.Value(contents))
+		}
+
+		name = cleanMarkdownHeading(builder.String())
+	case ast.KindCodeBlock, ast.KindFencedCodeBlock:
+		symbolKind = "code_block"
+		// Generate a block name based on the line number
+		lines := node.Lines()
+		if lines.Len() > 0 {
+			startByte := lines.At(0).Start
+			startLine := lineForByte(contents, startByte)
+			name = fmt.Sprintf("block_%d", startLine)
+		} else {
+			name = "block_unknown"
+		}
+	default:
+		return Symbol{}, false
+	}
+
+	lines := node.Lines()
+	if lines.Len() == 0 {
+		return Symbol{}, false
+	}
+
+	startByte := lines.At(0).Start
+	endByte := lines.At(lines.Len() - 1).Stop
+
+	return Symbol{
+		Language:   LanguageMarkdown,
+		NodeKind:   kind.String(),
+		SymbolKind: symbolKind,
+		SymbolName: name,
+		SymbolPath: name,
+		StartByte:  startByte,
+		EndByte:    endByte,
+		StartLine:  lineForByte(contents, startByte),
+		EndLine:    lineForByte(contents, endByte),
+	}, true
+}
+
+func lineForByte(contents []byte, offset int) int {
+	line := 1
+
+	for i := 0; i < offset && i < len(contents); i++ {
+		if contents[i] == '\n' {
+			line++
+		}
+	}
+
+	return line
 }
 
 func keyNodeKind(nodeKind string) bool {

@@ -8,6 +8,7 @@ require github.com/pelletier/go-toml/v2 v2.3.1
 
 require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0
 	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.2
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -16,6 +17,8 @@ require (
 	github.com/tree-sitter/tree-sitter-javascript v0.25.0
 	github.com/tree-sitter/tree-sitter-json v0.24.8
 	github.com/tree-sitter/tree-sitter-python v0.25.0
+	github.com/yuin/goldmark v1.8.2
+	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.50.0
 	mvdan.cc/sh/v3 v3.13.1
 )
@@ -27,7 +30,6 @@ require (
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

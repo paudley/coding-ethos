@@ -22,6 +22,7 @@ const (
 	LanguagePython     = "python"
 	LanguageJavaScript = "javascript"
 	LanguageJSON       = "json"
+	LanguageMarkdown   = "markdown"
 	LanguageShell      = "shell"
 	LanguageTOML       = "toml"
 	LanguageYAML       = "yaml"
@@ -43,6 +44,8 @@ func languageForPath(path string) (string, unsafe.Pointer, bool) {
 		return LanguageJavaScript, tree_sitter_javascript.Language(), true
 	case ".json", ".jsonc":
 		return LanguageJSON, tree_sitter_json.Language(), true
+	case ".md":
+		return LanguageMarkdown, nil, true
 	case ".sh", ".bash", ".zsh":
 		return LanguageShell, tree_sitter_bash.Language(), true
 	case ".toml":
