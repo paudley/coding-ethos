@@ -694,7 +694,7 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 				" -- check",
 		},
 		{
-			name: "policy tool group",
+			name: "policy formatter group",
 			args: []string{"policy-tool-group", "formatters"},
 			want: "run-lint:--bundle " + paths.PolicyBundle +
 				" --managed-capture-tool ruff-format --ethos-root " + paths.EthosRoot +
@@ -703,7 +703,7 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 				"run-lint:--bundle " + paths.PolicyBundle +
 				" --managed-capture-tool golangci-lint-format --ethos-root " +
 				paths.EthosRoot + " --consumer-root " + paths.Root +
-				" --invocation-cwd " + paths.InvocationCWD + " -- go",
+				" --invocation-cwd " + paths.InvocationCWD + " --",
 		},
 		{
 			name: "agent hooks",
@@ -729,6 +729,35 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		if got != test.want {
 			t.Fatalf("%s calls = %q, want %q", test.name, got, test.want)
 		}
+	}
+}
+
+func TestPolicyLinterGroupLetsGolangciChooseNestedGoModule(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	code := runRuntime(paths, []string{"policy-tool-group", "linters"})
+	if code != 0 {
+		t.Fatalf("runRuntime exit = %d, want 0", code)
+	}
+
+	want := "run-lint:--bundle " + paths.PolicyBundle +
+		" --managed-capture-tool ruff --ethos-root " + paths.EthosRoot +
+		" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
+		" -- check coding_ethos tests\n" +
+		"run-lint:--bundle " + paths.PolicyBundle +
+		" --managed-capture-tool golangci-lint --ethos-root " +
+		paths.EthosRoot + " --consumer-root " + paths.Root +
+		" --invocation-cwd " + paths.InvocationCWD + " --"
+
+	got := strings.Join(calls, "\n")
+	if got != want {
+		t.Fatalf("policy-tool-group linters calls = %q, want %q", got, want)
 	}
 }
 

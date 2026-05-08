@@ -48,12 +48,12 @@ func policyToolGroup(name string) ([]policyToolGroupEntry, bool) {
 	case "linters":
 		return []policyToolGroupEntry{
 			{Tool: "ruff", Args: []string{"check", "coding_ethos", "tests"}},
-			{Tool: "golangci-lint", Args: []string{"go"}},
+			{Tool: "golangci-lint"},
 		}, true
 	case "formatters":
 		return []policyToolGroupEntry{
 			{Tool: "ruff-format", Args: []string{"format", "coding_ethos", "tests"}},
-			{Tool: "golangci-lint-format", Args: []string{"go"}},
+			{Tool: "golangci-lint-format"},
 		}, true
 	case "autofixers":
 		return []policyToolGroupEntry{
@@ -70,7 +70,7 @@ func policyToolGroup(name string) ([]policyToolGroupEntry, bool) {
 					"tests",
 				},
 			},
-			{Tool: "golangci-lint-autofix", Args: []string{"go"}},
+			{Tool: "golangci-lint-autofix"},
 		}, true
 	default:
 		return nil, false
