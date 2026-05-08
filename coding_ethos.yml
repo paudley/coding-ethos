@@ -2226,6 +2226,84 @@ principles:
       claude: Reference this rule explicitly when reviewing or merging repo guidance.
       gemini: Use this rule to keep high-level guidance concise, concrete, and
         enforceable.
+    policy:
+      expressions:
+        - id: agent.self_promotion_pr_mutation
+          principle_ids:
+            - no-self-promotion
+          scope: command
+          severity: block
+          mode: block
+          hook_events:
+            - PreToolUse
+          tools:
+            - Bash
+            - bash
+            - exec_command
+          command_patterns:
+            - gh
+          message: Agent-branded pull request mutations are forbidden.
+          advice: >-
+            Remove agent branding such as [codex], generated-with footers, or
+            tool attribution from pull request titles and bodies before calling
+            GitHub.
+          when: >-
+            event.name == "PreToolUse" &&
+            self_promotion_branding(command, event.provider) &&
+            shell_commands.exists(cmd, cmd.name == "gh" &&
+              ((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&
+              list_contains(["create", "edit"], cmd.argv[2])) ||
+              (cmd.argv.size() >= 2 && cmd.argv[1] == "api" &&
+              command_fact.lower.contains("pulls"))))
+        - id: agent.self_promotion_payload
+          principle_ids:
+            - no-self-promotion
+          scope: command
+          severity: block
+          mode: block
+          hook_events:
+            - PreToolUse
+          tools:
+            - Bash
+            - bash
+            - exec_command
+            - create_pull_request
+            - update_pull_request
+            - github.create_pull_request
+            - github.update_pull_request
+          message: Agent-branded tool payloads are forbidden.
+          advice: >-
+            Keep pull request titles, pull request bodies, generated documents,
+            and release text unbranded; describe the work instead of the tool
+            that produced it.
+          when: >-
+            event.name == "PreToolUse" &&
+            self_promotion_branding(content.raw, event.provider)
+        - id: agent.self_promotion_staged_text
+          principle_ids:
+            - no-self-promotion
+          scope: file
+          severity: block
+          mode: block
+          lint_scopes:
+            - staged
+            - files
+          path_patterns:
+            - "*.md"
+            - "docs/**/*.md"
+            - ".github/**/*.md"
+          message: Agent-branded staged text is forbidden.
+          advice: >-
+            Remove agent branding and attribution from generated markdown,
+            release notes, pull request templates, and agent-authored docs.
+          when: >-
+            diff.added_lines.exists(line,
+              (has_suffix(line.file, ".md") ||
+              has_suffix(line.file, ".markdown") ||
+              has_suffix(line.file, ".md.j2")) &&
+              (self_promotion_branding(line.text, "codex") ||
+              self_promotion_branding(line.text, "claude") ||
+              self_promotion_branding(line.text, "gemini")))
     sections:
       - id: overview
         kind: overview

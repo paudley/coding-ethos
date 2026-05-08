@@ -675,6 +675,7 @@ func HelperSchema() []string {
 		"argv_invokes(argv, tool)",
 		"argv_command_is(argv, tool)",
 		"has_inline_env(command, name)",
+		"self_promotion_branding(text, provider)",
 		"repo_config_present(files, candidates)",
 		"is_protected_branch(branch, protected_branches)",
 		"list_contains(values, value)",
