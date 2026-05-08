@@ -296,13 +296,25 @@ func TestProgramEvaluatesASTHelpers(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
+	// OldContent must match file content so the edit produces proposed_symbol_changes.
+	// Previously OldContent="def old():" didn't exist in the file, so the edit was a
+	// no-op and proposed_symbol_changes was empty, making .all(...) vacuously true.
 	activation := Activation(ActivationInput{
 		Cwd:        repo,
 		Files:      []string{"app.py"},
 		Tool:       "Edit",
-		OldContent: "def old():",
-		Content:    "def run_tool():",
+		OldContent: "def run_tool():",
+		Content:    "def run_task():",
 	})
+
+	// Verify proposed_symbol_changes is non-empty before evaluating the helpers.
+	changes, found := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
+	if !found || len(changes) == 0 {
+		t.Fatalf(
+			"proposed_symbol_changes is empty; test cannot exercise symbol helpers. activation=%#v",
+			activation["proposed_symbol_changes"],
+		)
+	}
 
 	output, _, err := program.Eval(activation)
 	if err != nil {
