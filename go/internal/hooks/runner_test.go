@@ -1341,6 +1341,60 @@ func TestRunAllowsUnbrandedPRCreateTitle(t *testing.T) {
 	}
 }
 
+func TestRunBlocksAgentBrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "create_pull_request",
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"title": "[codex] Harden policy checks",
+				"body":  "Block branded pull request metadata.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_payload") {
+		t.Fatalf("missing payload decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsUnbrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "github.update_pull_request",
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"title": "Harden policy checks",
+				"body":  "Block branded pull request metadata.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunBlocksRawGitEvenWhenCommandMentionsManagedWrapper(t *testing.T) {
 	t.Parallel()
 
@@ -2388,7 +2442,29 @@ func addLegacyPolicy(
 
 func bundleWithSelfPromotionPRPolicy() policy.Bundle {
 	bundle := policy.ExampleBundle()
-	bundle.Policies["agent.self_promotion_pr_mutation"] = policy.Policy{
+
+	bundle.Policies["agent.self_promotion_pr_mutation"] = selfPromotionPRMutationPolicy()
+	bundle.Policies["agent.self_promotion_payload"] = selfPromotionPayloadPolicy()
+
+	if bundle.Dispatch.Hooks[eventPreToolUse] == nil {
+		bundle.Dispatch.Hooks[eventPreToolUse] = map[string][]policy.HookDispatchEntry{}
+	}
+
+	bundle.Dispatch.Hooks[eventPreToolUse][toolBash] = append(
+		bundle.Dispatch.Hooks[eventPreToolUse][toolBash],
+		policy.HookDispatchEntry{
+			PolicyID:        "agent.self_promotion_pr_mutation",
+			Mode:            "block",
+			CommandPatterns: []string{"gh"},
+		},
+	)
+	addSelfPromotionPayloadDispatch(&bundle)
+
+	return bundle
+}
+
+func selfPromotionPRMutationPolicy() policy.Policy {
+	return policy.Policy{
 		ID:              "agent.self_promotion_pr_mutation",
 		Category:        "expression",
 		DefaultSeverity: "block",
@@ -2418,21 +2494,51 @@ func bundleWithSelfPromotionPRPolicy() policy.Bundle {
 			},
 		}},
 	}
+}
 
-	if bundle.Dispatch.Hooks[eventPreToolUse] == nil {
-		bundle.Dispatch.Hooks[eventPreToolUse] = map[string][]policy.HookDispatchEntry{}
-	}
-
-	bundle.Dispatch.Hooks[eventPreToolUse][toolBash] = append(
-		bundle.Dispatch.Hooks[eventPreToolUse][toolBash],
-		policy.HookDispatchEntry{
-			PolicyID:        "agent.self_promotion_pr_mutation",
-			Mode:            "block",
-			CommandPatterns: []string{"gh"},
+func selfPromotionPayloadPolicy() policy.Policy {
+	return policy.Policy{
+		ID:              "agent.self_promotion_payload",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source: policy.SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-self-promotion.policy.expressions[1]",
 		},
-	)
+		Message:        "Agent-branded tool payloads are forbidden.",
+		Suggestion:     "Keep pull request titles and bodies unbranded.",
+		DefenseLayers:  policy.CodeDefenseLayers(),
+		SupportedModes: []string{"block", "record", "advise"},
+		PrincipleIDs:   []string{"no-self-promotion"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope": "command",
+				"when": strings.Join([]string{
+					`event.name == "PreToolUse" &&`,
+					`self_promotion_branding(content.raw, event.provider)`,
+				}, " "),
+			},
+		}},
+	}
+}
 
-	return bundle
+func addSelfPromotionPayloadDispatch(bundle *policy.Bundle) {
+	for _, tool := range []string{
+		"create_pull_request",
+		"update_pull_request",
+		"github.create_pull_request",
+		"github.update_pull_request",
+	} {
+		bundle.Dispatch.Hooks[eventPreToolUse][tool] = append(
+			bundle.Dispatch.Hooks[eventPreToolUse][tool],
+			policy.HookDispatchEntry{
+				PolicyID: "agent.self_promotion_payload",
+				Mode:     "block",
+			},
+		)
+	}
 }
 
 func TestRunSkipsPathScopedPolicyWhenPathDoesNotMatch(t *testing.T) {
