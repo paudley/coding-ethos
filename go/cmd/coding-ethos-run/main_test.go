@@ -238,8 +238,8 @@ func TestRuntimePathResolutionFallbacks(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Serializes process-global runtime environment state.
 func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
-	t.Parallel()
 	testlock.ProcessState(t, "coding-ethos-run-env")
 
 	repo := filepath.Join(t.TempDir(), "repo")
