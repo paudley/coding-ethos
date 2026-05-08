@@ -280,18 +280,20 @@ jobs:
           fi
         working-directory: go
 
-      - name: Run hook runner Go coverage
+      - name: Run hook runtime Go coverage
         run: |
           go run ./cmd/coding-ethos-policy compile \
             --primary ../coding_ethos.yml \
             --config ../config.yaml \
             --out-dir ../build/policy
-          go test -buildvcs=false -timeout=30s ./cmd/coding-ethos-hook-runner \
+          go test -buildvcs=false -timeout=30s \
+            ./internal/hookrunnercli \
+            ./internal/hooks \
             -covermode=atomic \
-            -coverprofile=../coverage-results/hook-runner.out
+            -coverprofile=../coverage-results/go-hooks.out
           go tool cover \
-            -func=../coverage-results/hook-runner.out \
-            > ../coverage-results/hook-runner.txt
+            -func=../coverage-results/go-hooks.out \
+            > ../coverage-results/go-hooks.txt
           awk '
             /^total:/ {
               gsub("%", "", $3);
@@ -301,7 +303,7 @@ jobs:
               }
             }
           ' \
-            ../coverage-results/hook-runner.txt
+            ../coverage-results/go-hooks.txt
         working-directory: go
 
       - name: Summarize Go coverage

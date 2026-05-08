@@ -653,10 +653,10 @@ go-tools-coverage: ensure-go ensure-hook-runtime ## Run shared Go tool tests wit
 	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-shared.out" > "$(GO_COVERAGE_DIR)/go-shared.txt"
 	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "shared Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-shared.txt"
 
-go-hooks-coverage: ensure-go ## Run bundled Go hook tests with coverage enforcement.
-	@$(call print_step,Running bundled Go hook coverage)
+go-hooks-coverage: ensure-go ## Run bundled Go hook runtime tests with coverage enforcement.
+	@$(call print_step,Running bundled Go hook runtime coverage)
 	@mkdir -p "$(GO_COVERAGE_DIR)"
-	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -buildvcs=false -timeout="$(GO_TEST_TIMEOUT)" ./cmd/coding-ethos-hook-runner -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-hooks.out"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -buildvcs=false -timeout="$(GO_TEST_TIMEOUT)" ./internal/hookrunnercli ./internal/hooks -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-hooks.out"
 	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-hooks.out" > "$(GO_COVERAGE_DIR)/go-hooks.txt"
 	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "hook Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-hooks.txt"
 
