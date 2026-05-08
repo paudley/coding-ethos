@@ -156,15 +156,31 @@ type CoverageInput struct {
 	Total   bool    `json:"total"`
 }
 
+type CoverageThresholdsInput struct {
+	Project  CoverageThresholdBandInput `json:"project"`
+	Package  CoverageThresholdBandInput `json:"package"`
+	File     CoverageThresholdBandInput `json:"file"`
+	Function CoverageThresholdBandInput `json:"function"`
+}
+
+type CoverageThresholdBandInput struct {
+	Floor  float64 `json:"floor"`
+	Goal   float64 `json:"goal"`
+	High   float64 `json:"high"`
+	Medium float64 `json:"medium"`
+	Low    float64 `json:"low"`
+}
+
 type RepoInput struct {
-	ConfigCandidates  []string       `json:"config_candidates"`
-	ProtectedBranches []string       `json:"protected_branches"`
-	ProtectedPaths    []string       `json:"protected_paths"`
-	PythonVersion     string         `json:"python_version"`
-	RequiredIgnores   []IgnoreInput  `json:"required_ignores"`
-	Root              string         `json:"root"`
-	SourceRoots       []string       `json:"source_roots"`
-	LineLimits        LineLimitInput `json:"line_limits"`
+	ConfigCandidates   []string                `json:"config_candidates"`
+	ProtectedBranches  []string                `json:"protected_branches"`
+	ProtectedPaths     []string                `json:"protected_paths"`
+	PythonVersion      string                  `json:"python_version"`
+	RequiredIgnores    []IgnoreInput           `json:"required_ignores"`
+	Root               string                  `json:"root"`
+	SourceRoots        []string                `json:"source_roots"`
+	LineLimits         LineLimitInput          `json:"line_limits"`
+	CoverageThresholds CoverageThresholdsInput `json:"coverage_thresholds"`
 }
 
 type LineLimitInput struct {
@@ -319,6 +335,7 @@ type ActivationInput struct {
 	HasToolResponse    bool
 	HasToolInput       bool
 	LineLimits         LineLimitInput
+	CoverageThresholds CoverageThresholdsInput
 }
 
 const SchemaVersion int64 = 1
@@ -492,6 +509,8 @@ func policyContextInputSchema() []string {
 		schemaList("paths", pathSchemaFields()...),
 		schemaObject("diagnostic", diagnosticSchemaFields()...),
 		schemaList("diagnostics", diagnosticSchemaFields()...),
+		schemaList("coverage", coverageSchemaFields()...),
+		schemaObject("coverage_thresholds", coverageThresholdSchemaFields()...),
 		schemaList("python_ast", pythonASTSchemaFields()...),
 		schemaObject("finding", findingSchemaFields()...),
 		schemaList("findings", findingSchemaFields()...),
@@ -537,6 +556,7 @@ func policyContextInputSchema() []string {
 			"config_candidates",
 			"protected_paths",
 			"protected_branches",
+			"coverage_thresholds",
 		),
 		schemaList(
 			"referenced_files",
@@ -559,6 +579,25 @@ func schemaObject(name string, fields ...string) string {
 
 func schemaList(name string, fields ...string) string {
 	return name + ": list({" + strings.Join(fields, ", ") + "})"
+}
+
+func coverageSchemaFields() []string {
+	return []string{
+		"tool", "file", "package", "code", "percent", "total",
+	}
+}
+
+func coverageThresholdSchemaFields() []string {
+	return []string{
+		"project", "package", "file", "function",
+		"project.floor", "project.goal", "project.high", "project.medium",
+		"project.low",
+		"package.floor", "package.goal", "package.high", "package.medium",
+		"package.low",
+		"file.floor", "file.goal", "file.high", "file.medium", "file.low",
+		"function.floor", "function.goal", "function.high",
+		"function.medium", "function.low",
+	}
 }
 
 func changedSymbolSchemaFields() []string {
@@ -715,6 +754,8 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[PathInput](),
 			reflect.TypeFor[DiagnosticInput](),
 			reflect.TypeFor[CoverageInput](),
+			reflect.TypeFor[CoverageThresholdsInput](),
+			reflect.TypeFor[CoverageThresholdBandInput](),
 			reflect.TypeFor[PythonASTFactInput](),
 			reflect.TypeFor[FindingInput](),
 			reflect.TypeFor[SourceInput](),
@@ -805,6 +846,10 @@ func collectionVariableOptions() []cel.EnvOption {
 		cel.Variable(
 			"coverage",
 			cel.ListType(cel.ObjectType("celexpr.CoverageInput")),
+		),
+		cel.Variable(
+			"coverage_thresholds",
+			cel.ObjectType("celexpr.CoverageThresholdsInput"),
 		),
 		cel.Variable(
 			"python_ast",
@@ -911,25 +956,27 @@ func Activation(input ActivationInput) map[string]any {
 			SchemaVersion:      SchemaVersion,
 			Tool:               input.Tool,
 		},
-		"scope":       input.Scope,
-		"source":      sourceInput(input.Source, input.Finding, context.PrimaryPath),
-		"path":        context.PrimaryPath,
-		"paths":       context.Paths,
-		"diagnostic":  diagnosticInput(input.Diagnostic),
-		"diagnostics": diagnosticInputs(input.Diagnostics, input.Diagnostic),
-		"coverage":    coverageInputs(input.Diagnostics, input.Diagnostic),
-		"python_ast":  append([]PythonASTFactInput(nil), input.PythonASTFacts...),
-		"finding":     findingInput(input.Finding),
-		"findings":    findingInputs(input.Findings, input.Finding),
+		"scope":               input.Scope,
+		"source":              sourceInput(input.Source, input.Finding, context.PrimaryPath),
+		"path":                context.PrimaryPath,
+		"paths":               context.Paths,
+		"diagnostic":          diagnosticInput(input.Diagnostic),
+		"diagnostics":         diagnosticInputs(input.Diagnostics, input.Diagnostic),
+		"coverage":            coverageInputs(input.Diagnostics, input.Diagnostic),
+		"coverage_thresholds": input.CoverageThresholds,
+		"python_ast":          append([]PythonASTFactInput(nil), input.PythonASTFacts...),
+		"finding":             findingInput(input.Finding),
+		"findings":            findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{
-			ConfigCandidates:  context.ConfigCandidates,
-			LineLimits:        input.LineLimits,
-			ProtectedBranches: context.ProtectedBranches,
-			ProtectedPaths:    context.ProtectedPaths,
-			PythonVersion:     input.PythonVersion,
-			RequiredIgnores:   requiredIgnoreInputs(input.Cwd, input.RequiredIgnores),
-			Root:              input.Cwd,
-			SourceRoots:       context.SourceRoots,
+			ConfigCandidates:   context.ConfigCandidates,
+			LineLimits:         input.LineLimits,
+			CoverageThresholds: input.CoverageThresholds,
+			ProtectedBranches:  context.ProtectedBranches,
+			ProtectedPaths:     context.ProtectedPaths,
+			PythonVersion:      input.PythonVersion,
+			RequiredIgnores:    requiredIgnoreInputs(input.Cwd, input.RequiredIgnores),
+			Root:               input.Cwd,
+			SourceRoots:        context.SourceRoots,
 		},
 	}
 }

@@ -6,6 +6,7 @@ package evaluators
 import (
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -24,6 +25,9 @@ const (
 	defaultGoHardLineLimit     = 2000
 	defaultPythonHardLineLimit = 1000
 	defaultShellHardLineLimit  = 500
+	defaultCoverageFloor       = 80.0
+	defaultCoverageGoal        = 90.0
+	coverageThresholdsOption   = "coverage_thresholds"
 	goExtension                = ".go"
 	lineLimitThresholdsOption  = "line_limit_thresholds"
 	pythonExtension            = ".py"
@@ -386,6 +390,72 @@ func intValueFromMap(values map[string]any, key string, defaultValue int) int {
 	}
 }
 
+func celCoverageThresholds(
+	options map[string]any,
+) celexpr.CoverageThresholdsInput {
+	raw := map[string]any(nil)
+	if typed, found := options[coverageThresholdsOption].(map[string]any); found {
+		raw = typed
+	}
+
+	return celexpr.CoverageThresholdsInput{
+		Project:  coverageThresholdBand(raw, "project"),
+		Package:  coverageThresholdBand(raw, "package"),
+		File:     coverageThresholdBand(raw, "file"),
+		Function: coverageThresholdBand(raw, "function"),
+	}
+}
+
+func coverageThresholdBand(
+	thresholds map[string]any,
+	key string,
+) celexpr.CoverageThresholdBandInput {
+	raw := map[string]any(nil)
+	if typed, found := thresholds[key].(map[string]any); found {
+		raw = typed
+	}
+
+	floor := floatValueFromMap(raw, "floor", defaultCoverageFloor)
+	goal := floatValueFromMap(raw, "goal", defaultCoverageGoal)
+
+	return celexpr.CoverageThresholdBandInput{
+		Floor:  floor,
+		Goal:   goal,
+		High:   floatValueFromMap(raw, "high", goal),
+		Medium: floatValueFromMap(raw, "medium", floor),
+		Low:    floatValueFromMap(raw, "low", 0),
+	}
+}
+
+func floatValueFromMap(
+	values map[string]any,
+	key string,
+	defaultValue float64,
+) float64 {
+	value, ok := values[key]
+	if !ok {
+		return defaultValue
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return parsed
+		}
+	}
+
+	return defaultValue
+}
+
 func firstGrowingProposedSymbol(
 	activation map[string]any,
 ) (celexpr.ProposedSymbolChangeInput, bool) {
@@ -474,6 +544,7 @@ func celActivation(context Context, source string) map[string]any {
 		Diagnostics:        context.Diagnostics,
 		Findings:           celFindings(context.Findings),
 		LineLimits:         celLineLimitThresholds(context.EvaluatorOptions),
+		CoverageThresholds: celCoverageThresholds(context.EvaluatorOptions),
 		PythonASTFacts:     celPythonASTFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,

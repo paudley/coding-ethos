@@ -637,6 +637,52 @@ func TestEvaluateRepoLineLimitAllowsUnderThresholdPythonFileGrowth(t *testing.T)
 	}
 }
 
+func TestEvaluateCoveragePolicyUsesPolicyYamlThresholds(t *testing.T) {
+	t.Parallel()
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "testing.go_coverage_floor"
+	policyDef.DefaultSeverity = blockDecision
+	policyDef.Message = "Go test coverage is below the configured floor."
+	policyDef.AppliesTo = policy.AppliesTo{Tools: []string{"go-test"}}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Tool: "go-test",
+			Diagnostic: &diagnostics.Diagnostic{
+				Metadata: map[string]any{
+					"coverage_percent": 84.5,
+				},
+				Tool: "go-test",
+				Code: "coverage-total",
+			},
+			EvaluatorOptions: map[string]any{
+				"coverage_thresholds": map[string]any{
+					"project": map[string]any{
+						"floor": 85.0,
+						"goal":  92.0,
+					},
+				},
+				"when": `coverage.exists(item,
+					item.tool == "go-test" &&
+					item.total &&
+					item.percent < coverage_thresholds.project.floor
+				)`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "testing.go_coverage_floor" ||
+		decisions[0].Diagnostics[0].Metadata["coverage_percent"] != 84.5 {
+		t.Fatalf("coverage threshold decisions = %#v", decisions)
+	}
+}
+
 func TestEvaluateRepoLineLimitAllowsBlankOnlyGrowthInOverThresholdPythonFile(
 	t *testing.T,
 ) {

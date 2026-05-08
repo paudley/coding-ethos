@@ -167,7 +167,7 @@ running real commands, and inspecting real output and repository state.
   - [x] Expose Go coverage diagnostics through the shared CEL `coverage`
     collection and verify CEL can promote below-floor coverage into a
     blocking SARIF finding.
-- [ ] Add policy-yaml coverage threshold bands and enforcement modes. Coverage
+- [x] Add policy-yaml coverage threshold bands and enforcement modes. Coverage
   policy should support high/medium/low thresholds in `coding_ethos.yml`, with
   configurable floors for project, module/package, and file/function coverage.
   The default policy should require at least 80% coverage where coverage is

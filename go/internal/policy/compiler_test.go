@@ -934,22 +934,32 @@ func TestCompileAppendsRepoEthosPrincipleExpressionPolicies(t *testing.T) {
 
 	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
-	writeTestFile(t, repoEthosPath, `
-principles:
-  overrides:
-    testing-as-specification:
-      policy:
-        expressions:
-          - id: testing.repo_ethos_expression
-            scope: lint
-            severity: block
-            mode: block
-            tools: [go-test]
-            lint_scopes: [staged, files]
-            when: coverage.exists(item, item.tool == "go-test" && item.percent < 80.0)
-            message: Go coverage is below the repo floor.
-            advice: Add meaningful tests before committing.
-`)
+	writeTestFile(t, repoEthosPath, strings.Join([]string{
+		"principles:",
+		"  overrides:",
+		"    testing-as-specification:",
+		"      policy:",
+		"        expressions:",
+		"          - id: testing.repo_ethos_expression",
+		"            scope: lint",
+		"            severity: block",
+		"            mode: block",
+		"            tools: [go-test]",
+		"            lint_scopes: [staged, files]",
+		"            coverage_thresholds:",
+		"              project:",
+		"                floor: 82.5",
+		"                goal: 91.0",
+		"                high: 91.0",
+		"                medium: 82.5",
+		"                low: 60.0",
+		"            when: coverage.exists(item,",
+		"              item.tool == \"go-test\" &&",
+		"              item.percent < coverage_thresholds.project.floor)",
+		"            message: Go coverage is below the repo floor.",
+		"            advice: Add meaningful tests before committing.",
+		"",
+	}, "\n"))
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary:   primaryPath,
@@ -970,6 +980,17 @@ principles:
 	if len(policyDef.PrincipleIDs) != 1 ||
 		policyDef.PrincipleIDs[0] != "testing-as-specification" {
 		t.Fatalf("repo ethos expression principles = %#v", policyDef.PrincipleIDs)
+	}
+
+	thresholds, found := policyDef.Evaluators[0].
+		Options["coverage_thresholds"].(map[string]any)
+	if !found {
+		t.Fatalf("coverage thresholds option missing: %#v", policyDef.Evaluators[0])
+	}
+
+	project, found := thresholds["project"].(map[string]any)
+	if !found || project["floor"] != 82.5 || project["goal"] != 91.0 {
+		t.Fatalf("project coverage thresholds = %#v", thresholds["project"])
 	}
 }
 
