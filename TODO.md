@@ -119,7 +119,7 @@ running real commands, and inspecting real output and repository state.
 - [x] Add a failed commit regression: stage a known policy violation, run real
   `git commit`, assert the command fails with the original lint/policy finding,
   and assert `git.commit_head_advanced` does not replace or mask that failure.
-- [ ] Add managed lint capture workflow tests that run real managed tools
+- [x] Add managed lint capture workflow tests that run real managed tools
   against reference-repo source files for clean output, warning output with exit
   code 0, parseable diagnostics, and unparseable failures; assert
   TOON/JSON/SARIF and trace outputs preserve the evidence.
@@ -129,7 +129,7 @@ running real commands, and inspecting real output and repository state.
         clean output instead of user-visible linter warnings.
   - [x] Add JSON-output assertions for the same real managed-tool scenarios.
   - [x] Add a real managed-tool failure scenario that proves raw output remains visible and policy/CEL/SARIF evidence is retained.
-- [ ] Route every pre-commit gate through the normalized
+- [x] Route every pre-commit gate through the normalized
   diagnostics/SARIF/CEL path. Gates such as `go-test`, `go-vet`, formatting,
   manifest checks, generated-config checks, and tool bootstrap checks must
   produce structured diagnostics that can become SARIF results and CEL inputs;
