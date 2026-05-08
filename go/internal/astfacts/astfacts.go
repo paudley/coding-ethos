@@ -87,6 +87,7 @@ func CollectSymbols(
 					lineCount,
 				),
 			)
+
 			if name != "" {
 				parents = append(parents, name)
 			}
@@ -385,15 +386,6 @@ func SymbolName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	if name == nil {
-		kind := node.Kind()
-		if kind == "atx_heading" || kind == "setext_heading" {
-			return cleanMarkdownHeading(node.Utf8Text(contents))
-		}
-
-		if kind == "fenced_code_block" || kind == "indented_code_block" {
-			return fmt.Sprintf("block_%d", node.StartPosition().Row+1)
-		}
-
 		nameText := firstDescendantText(contents, node, keyNodeKind)
 		if nameText == "" {
 			return ""
@@ -424,22 +416,27 @@ func AnalyzeMarkdown(contents []byte) File {
 
 	lineCount := LineCount(contents)
 	symbols := []Symbol{}
+	lineIndexer := newLineMap(contents)
 
 	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
 
-		symbol, ok := symbolFromMarkdownNode(node, contents)
-		if ok {
+		symbol, analyzedOK := symbolFromMarkdownNode(node, contents, lineIndexer)
+		if analyzedOK {
 			symbols = append(symbols, symbol)
 		}
 
 		return ast.WalkContinue, nil
 	})
+
 	if err != nil {
-		// Log or handle error if needed, but for now we just return what we have
-		_ = err
+		return File{
+			ContentHash: ContentHash(contents),
+			Language:    LanguageMarkdown,
+			LineCount:   lineCount,
+		}
 	}
 
 	return File{
@@ -450,7 +447,11 @@ func AnalyzeMarkdown(contents []byte) File {
 	}
 }
 
-func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
+func symbolFromMarkdownNode(
+	node ast.Node,
+	contents []byte,
+	lineIndexer lineMap,
+) (Symbol, bool) {
 	kind := node.Kind()
 
 	var symbolKind string
@@ -463,8 +464,8 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 	case ast.KindHeading:
 		symbolKind = "heading"
 
-		heading, ok := node.(*ast.Heading)
-		if !ok {
+		heading, analyzedOK := node.(*ast.Heading)
+		if !analyzedOK {
 			return Symbol{}, false
 		}
 
@@ -484,7 +485,7 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 		lines := node.Lines()
 		if lines.Len() > 0 {
 			startByte := lines.At(0).Start
-			startLine := lineForByte(contents, startByte)
+			startLine := lineIndexer.lineForByte(startByte)
 			name = fmt.Sprintf("block_%d", startLine)
 		} else {
 			name = "block_unknown"
@@ -500,7 +501,7 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 
 	startByte := lines.At(0).Start
 	endByte := lines.At(lines.Len() - 1).Stop
-	startLine := lineForByte(contents, startByte)
+	startLine := lineIndexer.lineForByte(startByte)
 
 	// Build a unique SymbolPath for headings by incorporating heading level and
 	// start line. Duplicate headings (valid Markdown) share the same name but
@@ -519,20 +520,34 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 		StartByte:  startByte,
 		EndByte:    endByte,
 		StartLine:  startLine,
-		EndLine:    lineForByte(contents, endByte),
+		EndLine:    lineIndexer.lineForByte(endByte),
 	}, true
 }
 
-func lineForByte(contents []byte, offset int) int {
-	line := 1
+type lineMap struct {
+	offsets []int
+}
 
-	for i := 0; i < offset && i < len(contents); i++ {
-		if contents[i] == '\n' {
-			line++
+func newLineMap(contents []byte) lineMap {
+	offsets := []int{0}
+
+	for i, b := range contents {
+		if b == '\n' {
+			offsets = append(offsets, i+1)
 		}
 	}
 
-	return line
+	return lineMap{offsets: offsets}
+}
+
+func (lm lineMap) lineForByte(offset int) int {
+	index, found := slices.BinarySearch(lm.offsets, offset)
+
+	if found {
+		return index + 1
+	}
+
+	return index
 }
 
 func keyNodeKind(nodeKind string) bool {
