@@ -284,10 +284,10 @@ func agentHookFixItemLines(output string) []string {
 
 	items := make([]string, 0, agentHookFixHintCap)
 	if strings.Contains(output, "Codex hooks feature") ||
-		strings.Contains(output, "codex_hooks") {
+		strings.Contains(output, "hooks = true") {
 		items = append(
 			items,
-			"  agent-hooks,.codex/config.toml missing codex_hooks=true,run cutover install",
+			"  agent-hooks,.codex/config.toml missing hooks=true,run cutover install",
 		)
 	}
 

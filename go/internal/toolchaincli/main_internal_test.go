@@ -418,7 +418,7 @@ func TestAgentHookFixItemLines(t *testing.T) {
 
 	joined := strings.Join(providerItems, "\n")
 	for _, want := range []string{
-		".codex/config.toml missing codex_hooks=true",
+		".codex/config.toml missing hooks=true",
 		".gemini/settings.json missing expected hook",
 	} {
 		if !strings.Contains(joined, want) {

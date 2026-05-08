@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -37,6 +38,27 @@ func TestVerifyPostBlocksFalseSuccessfulCommit(t *testing.T) {
 
 	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+}
+
+func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "git-env.log")
+	fakeGit := fakeEnvGit(t, logPath)
+
+	t.Setenv("CODING_ETHOS_EXEC_STACK", "coding-ethos-run")
+
+	err := Execute(fakeGit, Options{Argv: []string{"status"}, AdminApproved: true})
+	if err != nil {
+		t.Fatalf("execute fake git: %v", err)
+	}
+
+	log := readText(t, logPath)
+	if strings.Contains(log, "CODING_ETHOS_EXEC_STACK=coding-ethos-run") {
+		t.Fatalf("runner stack leaked into real git env:\n%s", log)
+	}
+
+	if !strings.Contains(log, "CODE_ETHOS_ADMIN_APPROVED=1") {
+		t.Fatalf("admin approval env missing from real git env:\n%s", log)
 	}
 }
 
@@ -74,6 +96,30 @@ func runGitwrapGit(t *testing.T, repo string, args ...string) {
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
+}
+
+func fakeEnvGit(t *testing.T, logPath string) string {
+	t.Helper()
+
+	scriptPath := filepath.Join(t.TempDir(), "git")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+log_path=` + strconv.Quote(logPath) + `
+printf 'CODING_ETHOS_EXEC_STACK=%s\n' "${CODING_ETHOS_EXEC_STACK:-}" >> "$log_path"
+printf 'CODE_ETHOS_ADMIN_APPROVED=%s\n' "${CODE_ETHOS_ADMIN_APPROVED:-}" >> "$log_path"
+`
+
+	err := os.WriteFile(scriptPath, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(scriptPath, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	return scriptPath
 }
 
 func cleanGitTestEnv() []string {

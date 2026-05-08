@@ -168,7 +168,7 @@ surface.
 There is no single-agent generation path because partial protection is not a
 valid install state. Claude output uses Claude Code's native `hooks` map.
 Claude MCP output writes project `.mcp.json` with a `coding-ethos` stdio server.
-Codex output enables `[features].codex_hooks` in `.codex/config.toml`, writes
+Codex output enables `[features].hooks` in `.codex/config.toml`, writes
 managed native `[hooks]` entries and `[mcp_servers.coding-ethos]` in that same
 TOML file, and removes stale `.codex/hooks.json`. Gemini output writes native
 `.gemini/settings.json` hooks with `hooksConfig.enabled = true` and

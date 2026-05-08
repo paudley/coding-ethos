@@ -734,8 +734,8 @@ func TestDoctorSettingsRejectsDisabledCodexHooksFeature(t *testing.T) {
 
 	mutated := strings.Replace(
 		string(payload),
-		`codex_hooks = true`,
-		`codex_hooks = false`,
+		`hooks = true`,
+		`hooks = false`,
 		1,
 	)
 

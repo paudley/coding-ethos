@@ -636,11 +636,14 @@ func enteringNewSection(line string) bool {
 }
 
 func isCodexHookFlag(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), "codex_hooks")
+	trimmed := strings.TrimSpace(line)
+	key, _, _ := strings.Cut(trimmed, "=")
+
+	return strings.TrimSpace(key) == "hooks" || strings.TrimSpace(key) == "codex_hooks"
 }
 
 func codexHookFeatureLine() string {
-	return "codex_hooks = true"
+	return "hooks = true"
 }
 
 func existingSettingsPayload(path string) (map[string]any, error) {
@@ -1387,7 +1390,7 @@ func codexHookFeatureEnabled(content string) bool {
 			continue
 		}
 
-		if inFeatures && strings.HasPrefix(trimmed, "codex_hooks") {
+		if inFeatures && isCodexHookFlag(trimmed) {
 			return strings.Contains(trimmed, "true")
 		}
 	}

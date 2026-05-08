@@ -87,7 +87,7 @@ bin/coding-ethos-run cutover verify
 ```
 
 Claude output uses Claude Code's native `hooks` map. Codex output enables
-`[features].codex_hooks` in `.codex/config.toml`, writes managed native
+`[features].hooks` in `.codex/config.toml`, writes managed native
 `[hooks]` entries in that same TOML file, and removes stale `.codex/hooks.json`.
 It also writes each provider's native MCP surface: Claude project `.mcp.json`,
 Codex `[mcp_servers.coding-ethos]`, and Gemini `mcpServers.coding-ethos`.

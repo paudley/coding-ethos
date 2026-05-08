@@ -339,7 +339,7 @@ if ! grep -q '"status": "valid"' /tmp/coding-ethos-agent-doctor.out ||
   cat /tmp/coding-ethos-agent-doctor.out >&2
   exit 1
 fi
-if ! grep -q 'codex_hooks = true' "$agent_settings_root/.codex/config.toml" ||
+if ! grep -q 'hooks = true' "$agent_settings_root/.codex/config.toml" ||
   ! grep -q 'PreToolUse = \[' "$agent_settings_root/.codex/config.toml" ||
   ! grep -q 'statusMessage = "coding-ethos policy"' \
     "$agent_settings_root/.codex/config.toml"; then
