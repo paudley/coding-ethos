@@ -761,7 +761,7 @@ func sarifHelpMarkdown(item diagnostics.Diagnostic) string {
 func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	file := sarifArtifactURI(item.File)
 	if file == "" {
-		return nil
+		file = sarifRepoURI
 	}
 
 	location := sarifLocation{

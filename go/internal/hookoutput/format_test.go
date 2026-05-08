@@ -609,9 +609,12 @@ func TestFormatLintResultSARIFIncludesPathlessPolicyFindings(t *testing.T) {
 		t.Fatalf("pathless SARIF result = %#v, want object", results[0])
 	}
 
-	if _, found := sarifResult["locations"]; found {
-		t.Fatalf("pathless SARIF result unexpectedly has locations: %#v", sarifResult)
-	}
+	assertJSONPath(
+		t,
+		sarifResult,
+		"locations.0.physicalLocation.artifactLocation.uri",
+		sarifRepoURI,
+	)
 }
 
 func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {
