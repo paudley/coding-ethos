@@ -1166,6 +1166,7 @@ func assertExecutableSmokePolicyDispatch(t *testing.T, bundle Bundle) {
 			"pytest.gate",
 			"generated_config.freshness",
 			"generated_gemini_prompts.freshness",
+			"generated_agent_skills.freshness",
 		},
 	)
 
@@ -1182,6 +1183,7 @@ func executableSmokeExpectedDispatch() map[string][]string {
 			"pytest.gate",
 			"generated_config.freshness",
 			"generated_gemini_prompts.freshness",
+			"generated_agent_skills.freshness",
 			"repo.required_ignores",
 		},
 		"cutover": {"repo.required_ignores"},
@@ -1495,14 +1497,6 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
-generated_config:
-  freshness:
-    repo_config: /tmp/repo/coding-ethos.repo.yaml
-generated_gemini_prompts:
-  freshness:
-    primary: /tmp/coding-ethos/coding_ethos.yml
-    repo_ethos: /tmp/repo/repo_ethos.yml
-    repo_config: /tmp/repo/gemini.repo.yaml
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1565,34 +1559,6 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"custom.lock",
 	)
 	assertFirstOptionString(t, bundle, "pytest.gate", "command", "uv")
-	assertOptionString(
-		t,
-		bundle,
-		"generated_config.freshness",
-		"repo_config",
-		"/tmp/repo/coding-ethos.repo.yaml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"primary",
-		"/tmp/coding-ethos/coding_ethos.yml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"repo_ethos",
-		"/tmp/repo/repo_ethos.yml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"repo_config",
-		"/tmp/repo/gemini.repo.yaml",
-	)
 	assertForbiddenStringsExpression(t, bundle)
 	assertFirstOptionString(
 		t,
@@ -1616,21 +1582,6 @@ func assertFirstOptionString(
 	t.Helper()
 
 	assertIndexedOptionString(t, bundle, policyID, optionName, 0, want)
-}
-
-func assertOptionString(
-	t *testing.T,
-	bundle Bundle,
-	policyID string,
-	optionName string,
-	want string,
-) {
-	t.Helper()
-
-	value := optionString(t, bundle.Policies[policyID].Evaluators[0], optionName)
-	if value != want {
-		t.Fatalf("%s %s option = %q, want %q", policyID, optionName, value, want)
-	}
 }
 
 func assertIndexedOptionString(

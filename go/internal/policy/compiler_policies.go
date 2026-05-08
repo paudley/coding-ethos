@@ -45,6 +45,7 @@ func compilePolicies(
 
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
 	addGeneratedGeminiPromptsPolicy(policies, config, principles, configSourceRoot)
+	addGeneratedAgentSkillsPolicy(policies, config, principles, configSourceRoot)
 
 	err = addExpressionPolicies(
 		policies,
@@ -817,10 +818,6 @@ func addGeneratedConfigPolicy(
 	principles map[string]Principle,
 	configSourceRoot string,
 ) {
-	if !policyConfigEnabled(config, "generated_config.freshness") {
-		return
-	}
-
 	policies["generated_config.freshness"] = Policy{
 		ID:       "generated_config.freshness",
 		Category: "config",
@@ -856,25 +853,13 @@ func addGeneratedConfigPolicy(
 }
 
 func generatedConfigFreshnessOptions(
-	config map[string]any,
+	_ map[string]any,
 	configSourceRoot string,
 ) map[string]any {
-	options := map[string]any{
+	return map[string]any{
 		"ethos_root": configSourceRoot,
 		"repo":       ".",
 	}
-
-	repoConfig := stringAt(
-		config,
-		"generated_config",
-		"freshness",
-		"repo_config",
-	)
-	if repoConfig != "" {
-		options["repo_config"] = repoConfig
-	}
-
-	return options
 }
 
 func addGeneratedGeminiPromptsPolicy(
@@ -883,10 +868,6 @@ func addGeneratedGeminiPromptsPolicy(
 	principles map[string]Principle,
 	configSourceRoot string,
 ) {
-	if !policyConfigEnabled(config, "generated_gemini_prompts.freshness") {
-		return
-	}
-
 	policies["generated_gemini_prompts.freshness"] = Policy{
 		ID:       "generated_gemini_prompts.freshness",
 		Category: "config",
@@ -920,22 +901,68 @@ func addGeneratedGeminiPromptsPolicy(
 }
 
 func generatedGeminiPromptsFreshnessOptions(
-	config map[string]any,
+	_ map[string]any,
 	configSourceRoot string,
 ) map[string]any {
-	options := map[string]any{
+	return map[string]any{
 		"ethos_root": configSourceRoot,
 		"repo":       ".",
 	}
+}
 
-	for _, option := range []string{"primary", "repo_ethos", "repo_config"} {
-		value := stringAt(config, "generated_gemini_prompts", "freshness", option)
-		if value != "" {
-			options[option] = value
-		}
+func addGeneratedAgentSkillsPolicy(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+	configSourceRoot string,
+) {
+	policies["generated_agent_skills.freshness"] = Policy{
+		ID:       "generated_agent_skills.freshness",
+		Category: "config",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "generated_agent_skills.freshness",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+			"generated-files-are-derived-artifacts",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "ask", "advise", "annotate", "record"},
+		Message:         "Generated agent skill surfaces must match source policy.",
+		Suggestion:      "Run the configured agent skill sync/check command.",
+		DefenseLayers:   GeneratedConfigDefenseLayers(),
+		AppliesTo: AppliesTo{
+			Paths: []string{
+				".agents/skills",
+				".claude/skills",
+				".codex/skills",
+				".gemini/extensions/coding-ethos/skills",
+				".gemini/extensions/coding-ethos/gemini-extension.json",
+			},
+		},
+		Evaluators: []Evaluator{
+			{
+				Kind: "config",
+				Name: "generated_agent_skills.freshness",
+				Options: generatedAgentSkillsFreshnessOptions(
+					config,
+					configSourceRoot,
+				),
+			},
+		},
 	}
+}
 
-	return options
+func generatedAgentSkillsFreshnessOptions(
+	_ map[string]any,
+	configSourceRoot string,
+) map[string]any {
+	return map[string]any{
+		"ethos_root": configSourceRoot,
+		"repo":       ".",
+	}
 }
 
 func firstPresentValue(values map[string]any, keys ...string) any {

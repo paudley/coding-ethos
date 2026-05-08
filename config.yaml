@@ -102,8 +102,6 @@ hooks:
     - warn
 
 generated_config:
-  freshness:
-    enabled: true
   ci:
     github_actions:
       enabled: true
@@ -121,10 +119,6 @@ generated_config:
       test_command: uv run pytest
       build_command: uv build
       package_check_command: uvx twine check dist/*
-
-generated_gemini_prompts:
-  freshness:
-    enabled: true
 
 syntax:
   file_syntax:

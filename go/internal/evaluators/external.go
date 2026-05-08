@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -30,6 +31,10 @@ var errGeneratedConfigEthosRootRequired = apperror.StaticError(
 
 var errGeneratedGeminiPromptsEthosRootRequired = apperror.StaticError(
 	"evaluate generated Gemini prompt freshness: ethos_root option is required",
+)
+
+var errGeneratedAgentSkillsEthosRootRequired = apperror.StaticError(
+	"evaluate generated agent skill freshness: ethos_root option is required",
 )
 
 const defaultExternalCommandTimeout = 10 * time.Minute
@@ -180,6 +185,39 @@ func EvaluateGeneratedGeminiPromptsFreshness(
 	return []policy.Decision{decision}, nil
 }
 
+func EvaluateGeneratedAgentSkillsFreshness(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	options, err := generatedAgentSkillsOptions(context)
+	if err != nil {
+		return nil, err
+	}
+
+	mismatched, err := agentskills.Check(options)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"evaluate generated agent skill freshness: check skill surfaces: %w",
+			err,
+		)
+	}
+
+	if len(mismatched) == 0 {
+		return nil, nil
+	}
+
+	decision := policy.NewDecision("block", policyDef)
+	decision.Evidence = generatedAgentSkillsEvidence(options, mismatched)
+	decision.Diagnostics = generatedAgentSkillsFreshnessDiagnostics(
+		policyDef,
+		decision,
+		options.RepoRoot,
+		mismatched,
+	)
+
+	return []policy.Decision{decision}, nil
+}
+
 func EvaluatePytestGate(
 	policyDef policy.Policy,
 	context Context,
@@ -259,6 +297,41 @@ func generatedGeminiPromptsEvidence(
 	}
 }
 
+func generatedAgentSkillsOptions(
+	context Context,
+) (agentskills.Options, error) {
+	ethosRoot := stringOption(context.EvaluatorOptions, "ethos_root", "")
+	if ethosRoot == "" {
+		return agentskills.Options{}, errGeneratedAgentSkillsEthosRootRequired
+	}
+
+	repoRoot := context.Cwd
+	if repoRoot == "" {
+		repoRoot = stringOption(context.EvaluatorOptions, "repo", ".")
+	}
+
+	return agentskills.Options{
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
+		Primary:   stringOption(context.EvaluatorOptions, "primary", ""),
+		RepoEthos: stringOption(context.EvaluatorOptions, "repo_ethos", ""),
+	}, nil
+}
+
+func generatedAgentSkillsEvidence(
+	options agentskills.Options,
+	mismatched []string,
+) map[string]any {
+	return map[string]any{
+		"ethos_root":       options.EthosRoot,
+		"repo":             options.RepoRoot,
+		"primary":          options.Primary,
+		"repo_ethos":       options.RepoEthos,
+		"mismatched_paths": append([]string(nil), mismatched...),
+		"tool":             "generated-agent-skills",
+	}
+}
+
 func generatedGeminiPromptsFreshnessDiagnostics(
 	policyDef policy.Policy,
 	decision policy.Decision,
@@ -282,6 +355,36 @@ func generatedGeminiPromptsFreshnessDiagnostics(
 			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
 			Metadata: map[string]any{
 				"generated_gemini_prompt_pack_path": path,
+			},
+		})
+	}
+
+	return diagnostics.Dedupe(items)
+}
+
+func generatedAgentSkillsFreshnessDiagnostics(
+	policyDef policy.Policy,
+	decision policy.Decision,
+	repoRoot string,
+	paths []string,
+) []diagnostics.Diagnostic {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(paths))
+	for _, path := range paths {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:         "generated-agent-skills",
+			File:         externalRepoRelativePath(repoRoot, path),
+			Severity:     decision.Severity,
+			Code:         "generated-agent-skill-drift",
+			PolicyID:     decision.PolicyID,
+			Message:      "Generated agent skill surface is out of sync.",
+			Advice:       policyDef.Suggestion,
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+			Metadata: map[string]any{
+				"generated_agent_skill_path": path,
 			},
 		})
 	}
