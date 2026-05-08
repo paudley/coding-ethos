@@ -116,24 +116,20 @@ artifacts under the `coding-ethos` checkout.
 
 `make build` is the explicit environment mutation target. It may regenerate
 configs, install managed tools, refresh provider settings, install hook
-entrypoints, compile policy bundles, compile Go runtime binaries, produce Go
-test binaries, and sync parent hook runtime artifacts.
+entrypoints, compile policy bundles, compile Go runtime binaries, and sync
+parent hook runtime artifacts.
 
 Test and diagnostic targets must not do those things implicitly. They consume
 the artifacts produced by `make build` and fail fast when required artifacts are
 missing. This prevents ordinary verification commands from rewriting a parent
-worktree, reinstalling hooks, changing generated config, or compiling binaries
-as hidden setup.
+worktree, reinstalling hooks, changing generated config, or performing hidden
+build setup.
 
-Go tests use prebuilt binaries for the same reason:
-
-- `make build` compiles package test binaries and the e2e test binary.
-- `make go-test` executes package test binaries through managed capture using
-  `go tool test2json` as `go-test-prebuilt`.
-- `make go-e2e-test` executes the prebuilt e2e binary.
-
+Go tests use the normal Go workflow. `make go-test` runs `go test` through
+managed capture, and `make go-e2e-test` runs the e2e package with `go test`.
 That preserves normalized diagnostics, CEL promotion, trace retention, and
-SARIF-compatible output without turning test targets into build targets.
+SARIF-compatible output without introducing a separate compile-and-run test
+path.
 
 ## Hook Entrypoint Contract
 

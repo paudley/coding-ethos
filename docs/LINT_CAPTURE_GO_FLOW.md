@@ -48,16 +48,11 @@ user-facing output must stay bounded, actionable, and policy-addressable. SARIF
 is the superset evidence channel; CEL sees only parsed and normalized facts that
 are understood well enough to drive deterministic policy.
 
-Go test capture uses the same path without compiling during test execution:
-`make build` creates package test binaries and a manifest, then `make go-test`
-runs those binaries through `go tool test2json` as `go-test-prebuilt`. That
-keeps Go test output in the normal parser, CEL promotion, trace logging, and
-SARIF formatting path without letting the test target compile code as a hidden
-side effect.
-
-The same rule applies to end-to-end tests. `make build` creates the e2e test
-binary, and `make go-e2e-test` executes that prebuilt binary. Test targets are
-not build targets.
+Go test capture uses the same path through the normal Go workflow. `make
+go-test` runs managed `go test` capture, and `make go-e2e-test` runs the e2e
+package with `go test`. That keeps Go test output in the normal parser, CEL
+promotion, trace logging, and SARIF formatting path without creating a separate
+compile-and-run test path. Test targets are not build targets.
 
 Shell now only does stable process handoff. It does not own lint tool lists,
 target resolution, config integrity, managed executable selection,

@@ -1167,17 +1167,16 @@ make check
 
 `make build` is the explicit environment mutation target. It refreshes generated
 configs, managed tools, hook entrypoints, provider settings, policy bundles,
-package test binaries, the e2e test binary, and the parent hook runtime when
-this checkout is installed as a submodule.
+and the parent hook runtime when this checkout is installed as a submodule.
 
 Test and diagnostic targets do not run `build` implicitly; if the managed
-runtime or prebuilt test artifacts are missing, they fail fast and tell the
-operator to run `make build` deliberately. Go tests follow the same boundary:
-`make build` compiles the package and e2e test binaries, while `make go-test`,
-`make go-e2e-test`, and `make check` only execute those prebuilt binaries
-through the managed diagnostics path. Tests must not install tools, regenerate
-configs, refresh hooks, sync parent artifacts, compile binaries, or otherwise
-mutate the operator environment as hidden setup.
+runtime is missing, they fail fast and tell the operator to run `make build`
+deliberately. Go tests follow the normal Go workflow through managed capture:
+`make go-test` runs `go test`, `make go-e2e-test` runs the e2e package with
+`go test`, and `make check` uses those test targets without a separate
+compile-and-run test path. Tests must not install tools, regenerate configs, refresh hooks,
+sync parent artifacts, or otherwise mutate the operator environment as hidden
+setup.
 
 Broader verification for hook work:
 
