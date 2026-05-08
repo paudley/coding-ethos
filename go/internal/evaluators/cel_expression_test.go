@@ -5,6 +5,7 @@ package evaluators_test
 
 import (
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -464,18 +465,34 @@ func evaluateRepoLineLimitAfterRewrite(
 ) []policy.Decision {
 	t.Helper()
 
+	return evaluateRepoLineLimitFileAfterRewrite(t, lineLimitFile, initial, rewrite)
+}
+
+func evaluateRepoLineLimitFileAfterRewrite(
+	t *testing.T,
+	fileName string,
+	initial string,
+	rewrite func(initial string) string,
+) []policy.Decision {
+	t.Helper()
+
 	repo := t.TempDir()
 	runCELGit(t, repo, "init")
 	runCELGit(t, repo, "config", "user.email", "test@example.com")
 	runCELGit(t, repo, "config", "user.name", "Test User")
-	sourceFile := filepath.Join(repo, lineLimitFile)
+	sourceFile := filepath.Join(repo, filepath.FromSlash(fileName))
+
+	inlineErr0 := os.MkdirAll(filepath.Dir(sourceFile), 0o700)
+	if inlineErr0 != nil {
+		t.Fatalf("create source dir: %v", inlineErr0)
+	}
 
 	inlineErr3 := os.WriteFile(sourceFile, []byte(initial), 0o600)
 	if inlineErr3 != nil {
 		t.Fatalf("write initial source: %v", inlineErr3)
 	}
 
-	runCELGit(t, repo, "add", lineLimitFile)
+	runCELGit(t, repo, "add", fileName)
 	runCELGit(t, repo, "commit", "-m", "initial")
 
 	inlineErr4 := os.WriteFile(sourceFile, []byte(rewrite(initial)), 0o600)
@@ -483,13 +500,13 @@ func evaluateRepoLineLimitAfterRewrite(
 		t.Fatalf("rewrite source: %v", inlineErr4)
 	}
 
-	runCELGit(t, repo, "add", lineLimitFile)
+	runCELGit(t, repo, "add", fileName)
 
 	policyDef := compiledRepoLineLimitPolicy(t)
 
 	decisions, err := EvaluateCELExpression(policyDef, Context{
 		Cwd:              repo,
-		Files:            []string{lineLimitFile},
+		Files:            []string{fileName},
 		Scope:            "staged",
 		EvaluatorOptions: policyDef.Evaluators[0].Options,
 	})
@@ -498,6 +515,91 @@ func evaluateRepoLineLimitAfterRewrite(
 	}
 
 	return decisions
+}
+
+func TestEvaluateRepoLineLimitUsesConfiguredThresholds(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+	sourceFile := filepath.Join(repo, lineLimitFile)
+
+	inlineErr5 := os.WriteFile(sourceFile, []byte(pythonFileWithLines(3)), 0o600)
+	if inlineErr5 != nil {
+		t.Fatalf("write initial source: %v", inlineErr5)
+	}
+
+	runCELGit(t, repo, "add", lineLimitFile)
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	inlineErr6 := os.WriteFile(
+		sourceFile,
+		[]byte(pythonFileWithLines(3)+"value_3 = 3\n"),
+		0o600,
+	)
+	if inlineErr6 != nil {
+		t.Fatalf("rewrite source: %v", inlineErr6)
+	}
+
+	runCELGit(t, repo, "add", lineLimitFile)
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+	options := map[string]any{}
+
+	maps.Copy(options, policyDef.Evaluators[0].Options)
+
+	options["line_limit_thresholds"] = map[string]any{
+		"go_hard":     2000,
+		"python_hard": 2,
+		"shell_hard":  500,
+	}
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{lineLimitFile},
+		Scope:            "staged",
+		EvaluatorOptions: options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].Diagnostics[0].File != lineLimitFile {
+		t.Fatalf("custom threshold decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateRepoLineLimitDoesNotApplyShellLimitToScriptsPython(t *testing.T) {
+	t.Parallel()
+
+	decisions := evaluateRepoLineLimitFileAfterRewrite(
+		t,
+		"scripts/tool.py",
+		pythonFileWithLines(510),
+		func(initial string) string { return initial + "value_510 = 510\n" },
+	)
+
+	if len(decisions) != 0 {
+		t.Fatalf("scripts Python file should use Python threshold: %#v", decisions)
+	}
+}
+
+func TestEvaluateRepoLineLimitDoesNotApplyShellLimitToScriptsMarkdown(t *testing.T) {
+	t.Parallel()
+
+	decisions := evaluateRepoLineLimitFileAfterRewrite(
+		t,
+		"scripts/README.md",
+		strings.Repeat("line\n", 510),
+		func(initial string) string { return initial + "line\n" },
+	)
+
+	if len(decisions) != 0 {
+		t.Fatalf("scripts Markdown file should not use shell threshold: %#v", decisions)
+	}
 }
 
 func TestEvaluateRepoLineLimitBlocksOverThresholdPythonFileGrowth(t *testing.T) {

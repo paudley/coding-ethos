@@ -300,21 +300,30 @@ principles:
             Do not make cosmetic or documentation-only edits just to satisfy the
             limit; apply SOLID refactoring and split the file into focused
             modules before committing.
+          line_limit_thresholds:
+            go_hard: 2000
+            python_hard: 1000
+            shell_hard: 500
           when: >-
             proposed_file_changes.exists(file, !file.is_binary &&
               !file.is_test && file.line_count_grows &&
               file.nonblank_line_count_grows &&
-              ((file.ext == ".py" && file.proposed_line_count > 1000) ||
-              (file.ext == ".go" && file.proposed_line_count > 2000) ||
+              ((file.ext == ".py" &&
+              file.proposed_line_count > repo.line_limits.python_hard) ||
+              (file.ext == ".go" &&
+              file.proposed_line_count > repo.line_limits.go_hard) ||
               ((list_contains([".sh", ".bash"], file.ext) ||
-              has_prefix(file.file, "scripts/")) &&
-              file.proposed_line_count > 500))) ||
+              (file.ext == "" && has_prefix(file.file, "scripts/"))) &&
+              file.proposed_line_count > repo.line_limits.shell_hard))) ||
             (proposed_file_changes.size() == 0 &&
               file_changes.exists(file, !file.is_binary && !file.is_test &&
-              ((file.ext == ".py" && file.line_count > 1000) ||
-              (file.ext == ".go" && file.line_count > 2000) ||
+              ((file.ext == ".py" &&
+              file.line_count > repo.line_limits.python_hard) ||
+              (file.ext == ".go" &&
+              file.line_count > repo.line_limits.go_hard) ||
               ((list_contains([".sh", ".bash"], file.ext) ||
-              has_prefix(file.file, "scripts/")) && file.line_count > 500)) &&
+              (file.ext == "" && has_prefix(file.file, "scripts/"))) &&
+              file.line_count > repo.line_limits.shell_hard)) &&
               (file.original_line_count < 0 ||
               file.line_count > file.original_line_count) &&
               (file.original_nonblank_line_count < 0 ||
