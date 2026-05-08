@@ -4,10 +4,17 @@
 package evaluators_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 func TestEvaluatePytestGatePassesWhenCommandPasses(t *testing.T) {
@@ -30,14 +37,17 @@ func TestEvaluatePytestGatePassesWhenCommandPasses(t *testing.T) {
 	}
 }
 
-func TestEvaluateGeneratedConfigFreshnessBlocksWhenCommandFails(t *testing.T) {
+func TestEvaluateGeneratedConfigFreshnessPassesWhenGeneratedConfigsMatch(t *testing.T) {
 	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedConfigRepo(t)
 
 	decisions, err := evaluators.EvaluateGeneratedConfigFreshness(
 		externalPolicy("generated_config.freshness"),
 		evaluators.Context{
+			Cwd: repoRoot,
 			EvaluatorOptions: map[string]any{
-				"command": []string{"sh", "-c", "echo stale config >&2; exit 7"},
+				"ethos_root": ethosRoot,
 			},
 		},
 	)
@@ -45,18 +55,281 @@ func TestEvaluateGeneratedConfigFreshnessBlocksWhenCommandFails(t *testing.T) {
 		t.Fatalf("evaluate generated config freshness: %v", err)
 	}
 
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want none", decisions)
+	}
+}
+
+func TestEvaluateGeneratedConfigFreshnessEmitsFileDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedConfigRepo(t)
+	corruptGeneratedConfig(t, repoRoot)
+
+	decisions := evaluateGeneratedConfigFreshness(t, ethosRoot, repoRoot)
+	assertGeneratedConfigDiagnostics(t, decisions)
+	assertGeneratedConfigSARIF(t, decisions)
+}
+
+func TestEvaluateGeneratedGeminiPromptsFreshnessPassesWhenPromptPackMatches(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedGeminiPromptsRepo(t)
+
+	decisions, err := evaluators.EvaluateGeneratedGeminiPromptsFreshness(
+		externalPolicy("generated_gemini_prompts.freshness"),
+		generatedGeminiPromptsContext(ethosRoot, repoRoot),
+	)
+	if err != nil {
+		t.Fatalf("evaluate generated Gemini prompt freshness: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want none", decisions)
+	}
+}
+
+func TestEvaluateGeneratedGeminiPromptsFreshnessEmitsFileDiagnostics(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedGeminiPromptsRepo(t)
+	corruptGeneratedGeminiPromptPack(t, repoRoot)
+
+	decisions := evaluateGeneratedGeminiPromptsFreshness(t, ethosRoot, repoRoot)
+	assertGeneratedGeminiPromptsDiagnostics(t, decisions)
+	assertGeneratedGeminiPromptsSARIF(t, decisions)
+}
+
+func evaluateGeneratedConfigFreshness(
+	t *testing.T,
+	ethosRoot string,
+	repoRoot string,
+) []policy.Decision {
+	t.Helper()
+
+	decisions, err := evaluators.EvaluateGeneratedConfigFreshness(
+		externalPolicy("generated_config.freshness"),
+		evaluators.Context{
+			Cwd: repoRoot,
+			EvaluatorOptions: map[string]any{
+				"ethos_root": ethosRoot,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate generated config freshness: %v", err)
+	}
+
+	return decisions
+}
+
+func evaluateGeneratedGeminiPromptsFreshness(
+	t *testing.T,
+	ethosRoot string,
+	repoRoot string,
+) []policy.Decision {
+	t.Helper()
+
+	decisions, err := evaluators.EvaluateGeneratedGeminiPromptsFreshness(
+		externalPolicy("generated_gemini_prompts.freshness"),
+		generatedGeminiPromptsContext(ethosRoot, repoRoot),
+	)
+	if err != nil {
+		t.Fatalf("evaluate generated Gemini prompt freshness: %v", err)
+	}
+
+	return decisions
+}
+
+func assertGeneratedConfigDiagnostics(
+	t *testing.T,
+	decisions []policy.Decision,
+) {
+	t.Helper()
+
 	if len(decisions) != 1 {
 		t.Fatalf("decision count = %d, want 1", len(decisions))
 	}
 
-	decision := decisions[0]
-	if decision.Decision != blockDecision ||
-		decision.PolicyID != "generated_config.freshness" {
-		t.Fatalf("unexpected decision: %#v", decision)
+	diagnostics := decisions[0].Diagnostics
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostic count = %d, want 2: %#v", len(diagnostics), diagnostics)
 	}
 
-	if decision.Evidence["exit_code"] != 7 {
-		t.Fatalf("expected non-zero exit evidence: %#v", decision.Evidence)
+	if diagnostics[0].Tool != "generated-config" ||
+		diagnostics[0].File != "ruff.toml" ||
+		diagnostics[0].Code != "generated-config-drift" ||
+		diagnostics[0].PolicyID != "generated_config.freshness" {
+		t.Fatalf("unexpected generated config diagnostic: %#v", diagnostics[0])
+	}
+
+	if diagnostics[1].File != ".code-ethos/tool-config-hashes.json" {
+		t.Fatalf("unexpected manifest diagnostic: %#v", diagnostics[1])
+	}
+}
+
+func assertGeneratedGeminiPromptsDiagnostics(
+	t *testing.T,
+	decisions []policy.Decision,
+) {
+	t.Helper()
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count = %d, want 1", len(decisions))
+	}
+
+	diagnostics := decisions[0].Diagnostics
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostic count = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+
+	if diagnostics[0].Tool != "generated-gemini-prompts" ||
+		diagnostics[0].File != geminiprompts.PromptPackPath ||
+		diagnostics[0].Code != "generated-gemini-prompt-pack-drift" ||
+		diagnostics[0].PolicyID != "generated_gemini_prompts.freshness" {
+		t.Fatalf("unexpected generated Gemini prompt diagnostic: %#v", diagnostics[0])
+	}
+}
+
+func assertGeneratedConfigSARIF(t *testing.T, decisions []policy.Decision) {
+	t.Helper()
+
+	result := lint.Result{
+		Scope:     lint.ScopeSmoke,
+		Status:    "blocked",
+		Decisions: decisions,
+	}
+
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		t.Fatalf("format generated config SARIF: %v", err)
+	}
+
+	for _, want := range []string{
+		`"ruleId": "generated_config.freshness"`,
+		`"uri": "ruff.toml"`,
+		`"uri": ".code-ethos/tool-config-hashes.json"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated config SARIF missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func assertGeneratedGeminiPromptsSARIF(t *testing.T, decisions []policy.Decision) {
+	t.Helper()
+
+	result := lint.Result{
+		Scope:     lint.ScopeSmoke,
+		Status:    "blocked",
+		Decisions: decisions,
+	}
+
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		t.Fatalf("format generated Gemini prompt SARIF: %v", err)
+	}
+
+	for _, want := range []string{
+		`"ruleId": "generated_gemini_prompts.freshness"`,
+		`"uri": ".code-ethos/gemini/prompt-pack.json"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated Gemini prompt SARIF missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func syncedGeneratedConfigRepo(t *testing.T) (string, string) {
+	t.Helper()
+
+	ethosRoot := repoRoot(t)
+	repoRoot := t.TempDir()
+
+	_, err := toolconfigs.Sync(ethosRoot, repoRoot, "")
+	if err != nil {
+		t.Fatalf("sync generated config: %v", err)
+	}
+
+	return ethosRoot, repoRoot
+}
+
+func syncedGeneratedGeminiPromptsRepo(t *testing.T) (string, string) {
+	t.Helper()
+
+	ethosRoot := repoRoot(t)
+	repoRoot := t.TempDir()
+
+	_, err := geminiprompts.Sync(generatedGeminiPromptsOptions(
+		ethosRoot,
+		repoRoot,
+	))
+	if err != nil {
+		t.Fatalf("sync generated Gemini prompt pack: %v", err)
+	}
+
+	return ethosRoot, repoRoot
+}
+
+func generatedGeminiPromptsContext(
+	ethosRoot string,
+	repoRoot string,
+) evaluators.Context {
+	return evaluators.Context{
+		Cwd: repoRoot,
+		EvaluatorOptions: map[string]any{
+			"ethos_root": ethosRoot,
+			"primary":    filepath.Join(ethosRoot, "coding_ethos.yml"),
+			"repo_ethos": filepath.Join(ethosRoot, "repo_ethos.yml"),
+		},
+	}
+}
+
+func generatedGeminiPromptsOptions(
+	ethosRoot string,
+	repoRoot string,
+) geminiprompts.Options {
+	return geminiprompts.Options{
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
+		Primary:   filepath.Join(ethosRoot, "coding_ethos.yml"),
+		RepoEthos: filepath.Join(ethosRoot, "repo_ethos.yml"),
+	}
+}
+
+func corruptGeneratedConfig(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	staleConfig := filepath.Join(repoRoot, "ruff.toml")
+
+	err := os.WriteFile(staleConfig, []byte("# stale\n"), 0o600)
+	if err != nil {
+		t.Fatalf("corrupt generated config: %v", err)
+	}
+
+	staleManifest := filepath.Join(
+		repoRoot,
+		filepath.FromSlash(toolconfigs.HashManifestPath),
+	)
+
+	err = os.WriteFile(staleManifest, []byte("{}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("corrupt generated manifest: %v", err)
+	}
+}
+
+func corruptGeneratedGeminiPromptPack(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	path := filepath.Join(repoRoot, filepath.FromSlash(geminiprompts.PromptPackPath))
+
+	err := os.WriteFile(path, []byte("{\"stale\": true}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("corrupt generated Gemini prompt pack: %v", err)
 	}
 }
 

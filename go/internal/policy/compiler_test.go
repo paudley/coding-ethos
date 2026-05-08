@@ -29,7 +29,7 @@ func TestCompileBuildsBundleFromYAML(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, metadata, err := Compile(CompileOptions{
@@ -331,7 +331,7 @@ func TestCompileExpressionPolicy(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -437,7 +437,7 @@ func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 git:
   change_dir_flag:
@@ -483,7 +483,7 @@ func TestCompileBuildsSmallGitPoliciesAsCELPolicies(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 git:
   destructive_worktree:
@@ -533,7 +533,7 @@ func TestCompileExpressionPolicyUsesExplicitDispatch(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -601,7 +601,7 @@ func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -632,7 +632,7 @@ func TestCompileRejectsExpressionOverrideOfBuiltinPolicy(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -709,7 +709,7 @@ func TestCompileRejectsInvalidExpressionDispatch(t *testing.T) {
 			primaryPath := filepath.Join(dir, "coding_ethos.yml")
 			configPath := filepath.Join(dir, "config.yaml")
 
-			writeTestFile(t, primaryPath, testEthosYAML)
+			writeTestFile(t, primaryPath, testEthosYAML(t))
 			writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -733,7 +733,7 @@ func TestCompileRejectsInvalidExpressionPolicy(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -766,7 +766,7 @@ func TestCompileRejectsInvalidExpressionPolicyContracts(t *testing.T) {
 			primaryPath := filepath.Join(dir, "coding_ethos.yml")
 			configPath := filepath.Join(dir, "config.yaml")
 
-			writeTestFile(t, primaryPath, testEthosYAML)
+			writeTestFile(t, primaryPath, testEthosYAML(t))
 			writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -856,7 +856,7 @@ func TestCompileRejectsInvalidExpressionOverrideMerge(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, "repo_config.yml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, `
 policy:
@@ -883,7 +883,7 @@ func TestCompileAppendsRepoExpressionPolicies(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -932,7 +932,7 @@ func TestCompileAppendsRepoEthosPrincipleExpressionPolicies(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoEthosPath := filepath.Join(dir, "repo_ethos.yml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoEthosPath, `
 principles:
@@ -981,7 +981,7 @@ func TestCompileRejectsExpressionPolicyShadowing(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -1020,7 +1020,7 @@ func TestCompileAllowsExplicitExpressionOverride(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -1071,7 +1071,7 @@ func TestCompileRejectsExpressionSeverityWeakening(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -1113,7 +1113,7 @@ func TestCompileRejectsDisabledProtectedExpression(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   expressions:
@@ -1142,7 +1142,7 @@ func TestCompileDispatchesExecutableSmokePoliciesOutsideStagedScope(t *testing.T
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -1162,7 +1162,11 @@ func assertExecutableSmokePolicyDispatch(t *testing.T, bundle Bundle) {
 	assertPoliciesNotDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
-		[]string{"pytest.gate", "generated_config.freshness"},
+		[]string{
+			"pytest.gate",
+			"generated_config.freshness",
+			"generated_gemini_prompts.freshness",
+		},
 	)
 
 	for scope, policyIDs := range executableSmokeExpectedDispatch() {
@@ -1177,6 +1181,7 @@ func executableSmokeExpectedDispatch() map[string][]string {
 		"smoke": {
 			"pytest.gate",
 			"generated_config.freshness",
+			"generated_gemini_prompts.freshness",
 			"repo.required_ignores",
 		},
 		"cutover": {"repo.required_ignores"},
@@ -1233,7 +1238,7 @@ func TestCompileDispatchesConditionalImportsAsBlockingWritePolicy(t *testing.T) 
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -1277,7 +1282,7 @@ func TestCompileHonorsRepoConfigOverlay(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, `
 python:
@@ -1307,7 +1312,7 @@ func TestCompileDoesNotInheritLicensePolicyIntoConsumerRepo(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 filesystem:
   license_header:
@@ -1341,7 +1346,7 @@ func TestCompileAddsRepoSpecificLicensePolicy(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, `
 repo:
@@ -1402,7 +1407,7 @@ func TestCompiledRepoLicensePolicyRunsAgainstSampleConsumer(t *testing.T) {
 	repoConfigPath := filepath.Join(dir, repoConfigFileName)
 	consumerRoot := filepath.Join(dir, "consumer")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, sampleLicenseRepoConfigYAML)
 
@@ -1476,7 +1481,7 @@ func TestCompileAddsEvaluatorOptionsFromConfig(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 git:
   staged_admin_files:
@@ -1492,7 +1497,12 @@ filesystem:
     paths: [.runtime/]
 generated_config:
   freshness:
-    check_command: [coding-ethos, --repo, /tmp/repo, --check-tool-configs]
+    repo_config: /tmp/repo/coding-ethos.repo.yaml
+generated_gemini_prompts:
+  freshness:
+    primary: /tmp/coding-ethos/coding_ethos.yml
+    repo_ethos: /tmp/repo/repo_ethos.yml
+    repo_config: /tmp/repo/gemini.repo.yaml
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1555,13 +1565,33 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"custom.lock",
 	)
 	assertFirstOptionString(t, bundle, "pytest.gate", "command", "uv")
-	assertIndexedOptionString(
+	assertOptionString(
 		t,
 		bundle,
 		"generated_config.freshness",
-		"command",
-		2,
-		"/tmp/repo",
+		"repo_config",
+		"/tmp/repo/coding-ethos.repo.yaml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"primary",
+		"/tmp/coding-ethos/coding_ethos.yml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"repo_ethos",
+		"/tmp/repo/repo_ethos.yml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"repo_config",
+		"/tmp/repo/gemini.repo.yaml",
 	)
 	assertForbiddenStringsExpression(t, bundle)
 	assertFirstOptionString(
@@ -1586,6 +1616,21 @@ func assertFirstOptionString(
 	t.Helper()
 
 	assertIndexedOptionString(t, bundle, policyID, optionName, 0, want)
+}
+
+func assertOptionString(
+	t *testing.T,
+	bundle Bundle,
+	policyID string,
+	optionName string,
+	want string,
+) {
+	t.Helper()
+
+	value := optionString(t, bundle.Policies[policyID].Evaluators[0], optionName)
+	if value != want {
+		t.Fatalf("%s %s option = %q, want %q", policyID, optionName, value, want)
+	}
 }
 
 func assertIndexedOptionString(
@@ -1644,6 +1689,7 @@ func assertConfigBackedCELOwnership(t *testing.T, bundle Bundle) {
 		bundle.Policies["filesystem.line_limits"],
 		"principles[solid-is-law].policy.expressions[0]",
 	)
+	assertLineLimitThresholdOptions(t, bundle.Policies["filesystem.line_limits"])
 }
 
 func assertPrincipleOwnedCEL(t *testing.T, policy Policy, sourcePath string) {
@@ -1655,6 +1701,26 @@ func assertPrincipleOwnedCEL(t *testing.T, policy Policy, sourcePath string) {
 	}
 }
 
+func assertLineLimitThresholdOptions(t *testing.T, policy Policy) {
+	t.Helper()
+
+	thresholds, found := policy.Evaluators[0].
+		Options["line_limit_thresholds"].(map[string]any)
+	if !found {
+		t.Fatalf("line-limit thresholds option missing: %#v", policy.Evaluators[0])
+	}
+
+	for key, want := range map[string]int{
+		"go_hard":     2000,
+		"python_hard": 1000,
+		"shell_hard":  500,
+	} {
+		if got, found := thresholds[key].(int); !found || got != want {
+			t.Fatalf("line-limit threshold %s = %#v, want %d", key, thresholds[key], want)
+		}
+	}
+}
+
 func TestCompileHonorsConfiguredEvidenceMaps(t *testing.T) {
 	t.Parallel()
 
@@ -1662,7 +1728,7 @@ func TestCompileHonorsConfiguredEvidenceMaps(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 policy:
   evidence_maps:
@@ -1712,7 +1778,7 @@ func TestCompileDerivesReminderAdviceFromEthosPrinciples(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -1744,7 +1810,7 @@ func TestCompileHonorsPolicyEnabledFlags(t *testing.T) {
 	primaryPath := filepath.Join(dir, "coding_ethos.yml")
 	configPath := filepath.Join(dir, "config.yaml")
 
-	writeTestFile(t, primaryPath, testEthosYAML)
+	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
 git:
   hook_bypass:
@@ -1941,7 +2007,24 @@ func writeTestFile(t *testing.T, path, content string) {
 	}
 }
 
-const testEthosYAML = `
+func testEthosYAML(t *testing.T) string {
+	t.Helper()
+
+	return strings.Replace(
+		testEthosYAMLTemplate,
+		"          when:",
+		strings.Join([]string{
+			"          line_limit_thresholds:",
+			"            go_hard: 2000",
+			"            python_hard: 1000",
+			"            shell_hard: 500",
+			"          when:",
+		}, "\n"),
+		1,
+	)
+}
+
+const testEthosYAMLTemplate = `
 version: 2
 principles:
   - id: solid-is-law

@@ -559,7 +559,7 @@ func buildExpressionPolicy(parts expressionPolicyParts) Policy {
 }
 
 func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
-	return map[string]any{
+	options := map[string]any{
 		"command_patterns": parts.commandPatterns,
 		"dispatch_scopes":  parts.dispatchScopes,
 		"hook_events":      parts.hookEvents,
@@ -595,6 +595,13 @@ func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
 		"allow_override":        parts.governance.AllowOverride,
 		"allow_severity_weaken": parts.governance.AllowSeverityWeaken,
 	}
+
+	lineLimitThresholds, ok := parts.expression["line_limit_thresholds"].(map[string]any)
+	if ok {
+		options["line_limit_thresholds"] = maps.Clone(lineLimitThresholds)
+	}
+
+	return options
 }
 
 func expressionProtectedPaths(config map[string]any) []string {

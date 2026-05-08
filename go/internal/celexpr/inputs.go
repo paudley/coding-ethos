@@ -157,13 +157,20 @@ type CoverageInput struct {
 }
 
 type RepoInput struct {
-	ConfigCandidates  []string      `json:"config_candidates"`
-	ProtectedBranches []string      `json:"protected_branches"`
-	ProtectedPaths    []string      `json:"protected_paths"`
-	PythonVersion     string        `json:"python_version"`
-	RequiredIgnores   []IgnoreInput `json:"required_ignores"`
-	Root              string        `json:"root"`
-	SourceRoots       []string      `json:"source_roots"`
+	ConfigCandidates  []string       `json:"config_candidates"`
+	ProtectedBranches []string       `json:"protected_branches"`
+	ProtectedPaths    []string       `json:"protected_paths"`
+	PythonVersion     string         `json:"python_version"`
+	RequiredIgnores   []IgnoreInput  `json:"required_ignores"`
+	Root              string         `json:"root"`
+	SourceRoots       []string       `json:"source_roots"`
+	LineLimits        LineLimitInput `json:"line_limits"`
+}
+
+type LineLimitInput struct {
+	GoHard     int64 `json:"go_hard"`
+	PythonHard int64 `json:"python_hard"`
+	ShellHard  int64 `json:"shell_hard"`
 }
 
 type IgnoreInput struct {
@@ -311,6 +318,7 @@ type ActivationInput struct {
 	ReadOnlyInspection bool
 	HasToolResponse    bool
 	HasToolInput       bool
+	LineLimits         LineLimitInput
 }
 
 const SchemaVersion int64 = 1
@@ -914,6 +922,7 @@ func Activation(input ActivationInput) map[string]any {
 		"findings":    findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{
 			ConfigCandidates:  context.ConfigCandidates,
+			LineLimits:        input.LineLimits,
 			ProtectedBranches: context.ProtectedBranches,
 			ProtectedPaths:    context.ProtectedPaths,
 			PythonVersion:     input.PythonVersion,

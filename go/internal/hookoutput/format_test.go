@@ -573,7 +573,7 @@ func TestFormatLintResultSARIFUsesExplicitCategory(t *testing.T) {
 	assertJSONPath(t, payload, "runs.0.automationDetails.id", "policy/")
 }
 
-func TestFormatLintResultSARIFIncludesPathlessPolicyFindings(t *testing.T) {
+func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	t.Parallel()
 
 	result := lint.Result{
@@ -600,21 +600,9 @@ func TestFormatLintResultSARIFIncludesPathlessPolicyFindings(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 1 {
-		t.Fatalf("pathless policy SARIF results = %#v, want one result", results)
+	if len(results) != 0 {
+		t.Fatalf("pathless policy SARIF results = %#v, want none", results)
 	}
-
-	sarifResult, ok := results[0].(map[string]any)
-	if !ok {
-		t.Fatalf("pathless SARIF result = %#v, want object", results[0])
-	}
-
-	assertJSONPath(
-		t,
-		sarifResult,
-		"locations.0.physicalLocation.artifactLocation.uri",
-		sarifRepoURI,
-	)
 }
 
 func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {
@@ -644,9 +632,16 @@ func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {
 	}
 
 	results := jsonPathSlice(t, payload, "runs.0.results")
-	if len(results) != 1 {
-		t.Fatalf("record-only policy SARIF results = %#v, want one result", results)
+	if len(results) != 0 {
+		t.Fatalf("record-only policy SARIF results = %#v, want none", results)
 	}
+
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.properties.policy_coverage.policies.0",
+		"repo.pii_scrubber",
+	)
 }
 
 func TestFormatLintResultSARIFIncludesCapturePayloads(t *testing.T) {
@@ -702,13 +697,11 @@ func TestFormatLintResultSARIFIncludesCapturePayloads(t *testing.T) {
 		"runs.0.properties.capture.stderr",
 		"panic: hidden failure\n",
 	)
-	assertJSONPath(
-		t,
-		payload,
-		"runs.0.results.0.properties.detail",
-		"exit_code=1; stdout=coverage: 79.6% of statements; "+
-			"stderr=panic: hidden failure",
-	)
+
+	results := jsonPathSlice(t, payload, "runs.0.results")
+	if len(results) != 0 {
+		t.Fatalf("pathless capture SARIF results = %#v, want none", results)
+	}
 }
 
 func TestFormatLintResultSARIFMarksSecurityRulesForCodeScanning(t *testing.T) {

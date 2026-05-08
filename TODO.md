@@ -89,6 +89,26 @@ Goal: prove the actual coding-ethos workflows users and agents depend on by
 creating real temporary git checkouts, installing the real hook/runtime path,
 running real commands, and inspecting real output and repository state.
 
+- [ ] Priority: enforce the `No Self-Promotion` branding ban in hooks and CI
+  instead of relying on agent memory or plugin templates.
+  - [ ] Add CEL-backed policy expressions to the `no-self-promotion` principle
+        in `coding_ethos.yml` so the source ethos explicitly rejects agent/tool
+        branding in commits, pull request titles/bodies, documentation, and
+        generated artifacts.
+  - [ ] Gate agent `PreToolUse` command payloads that create or edit pull
+        requests, including `gh pr create`, `gh pr edit`, and connector-backed
+        PR creation, when title/body arguments contain prefixes or attribution
+        such as `[codex]`, `codex/`, `Generated with`, `Co-authored-by:
+        Codex`, or equivalent tool branding.
+  - [ ] Gate `commit-msg` and staged-file scopes for self-promotion text in
+        commit subjects, generated markdown, release notes, PR templates, and
+        agent-authored docs while allowing legitimate references to product
+        paths such as `.codex/` configuration files.
+  - [ ] Add real hook workflow regressions proving the plugin-suggested
+        `[codex]` PR title is blocked before GitHub mutation and that a
+        repo-native unbranded title is allowed.
+  - [ ] Regenerate `AGENTS.md`, `ETHOS.md`, provider skills, and prompt packs
+        from the source ethos after adding the CEL policy.
 - [x] Build a Go-based end-to-end test harness that creates isolated git
   checkouts with known sample files, initializes commits, installs
   coding-ethos hook/runtime artifacts, and runs ordinary git commands through
@@ -115,6 +135,26 @@ running real commands, and inspecting real output and repository state.
   produce structured diagnostics that can become SARIF results and CEL inputs;
   they must not fall back to generic exit-code-only failures except for runner
   failures where no tool output exists.
+  - [x] Emit file-specific diagnostics for generated-config freshness drift so
+        stale repo-root tool configs appear as SARIF/CEL-addressable findings
+        instead of pathless external-command failures.
+  - [x] Emit file-specific diagnostics for generated Gemini prompt pack drift.
+  - [ ] Emit provider/skill-path diagnostics for generated agent skill surface
+        drift.
+  - [ ] Convert tool bootstrap and managed-toolchain manifest failures into
+        structured diagnostics with manifest paths, tool names, and repair
+        commands.
+  - [ ] Verify `go-vet` failures produce parser-backed diagnostics in
+        TOON/JSON/SARIF and retain bounded raw output only as supporting
+        evidence.
+  - [ ] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
+        changed files as structured diagnostics rather than generic group
+        failures.
+  - [x] Add an end-to-end scenario that runs the real generated-config drift
+        path and asserts trace plus SARIF evidence contains each stale file.
+  - [ ] Restore or replace the temporary GitHub ruleset drift from PR #64:
+        code-owner review, Copilot review, and Scorecard code-scanning
+        requirements need durable policy decisions before the next release.
 - [x] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
   output should be captured as structured evidence, flow through normalized
   diagnostics when thresholds fail, be eligible for SARIF output, and expose

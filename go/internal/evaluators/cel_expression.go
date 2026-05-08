@@ -19,6 +19,24 @@ type (
 	proposedFileChangeInputs   = []celexpr.ProposedFileChangeInput
 )
 
+const (
+	bashExtension              = ".bash"
+	defaultGoHardLineLimit     = 2000
+	defaultPythonHardLineLimit = 1000
+	defaultShellHardLineLimit  = 500
+	goExtension                = ".go"
+	lineLimitThresholdsOption  = "line_limit_thresholds"
+	pythonExtension            = ".py"
+	shellExtension             = ".sh"
+	scriptsPrefix              = "scripts/"
+)
+
+type lineLimitThresholds struct {
+	goHard     int64
+	pythonHard int64
+	shellHard  int64
+}
+
 func EvaluateCELExpression(
 	policyDef policy.Policy,
 	context Context,
@@ -125,7 +143,11 @@ func celDiagnostic(
 	}
 
 	if policyDef.ID == filesystemLineLimitsPolicy {
-		applyLineLimitFileDiagnostic(&diagnostic, activation)
+		applyLineLimitFileDiagnostic(
+			&diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
 
 		return diagnostic
 	}
@@ -186,8 +208,11 @@ func applyMatchedDiagnostic(
 func applyLineLimitFileDiagnostic(
 	diagnostic *diagnostics.Diagnostic,
 	activation map[string]any,
+	options map[string]any,
 ) {
-	if file, ok := firstLineLimitProposedFile(activation); ok {
+	thresholds := lineLimitThresholdsFromOptions(options)
+
+	if file, ok := firstLineLimitProposedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "proposed"
 		diagnostic.Metadata["current_line_count"] = file.CurrentLineCount
@@ -198,7 +223,7 @@ func applyLineLimitFileDiagnostic(
 		return
 	}
 
-	if file, ok := firstLineLimitChangedFile(activation); ok {
+	if file, ok := firstLineLimitChangedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
 		diagnostic.Metadata["line_limit_change_source"] = "staged"
 		diagnostic.Metadata["current_line_count"] = file.LineCount
@@ -210,6 +235,7 @@ func applyLineLimitFileDiagnostic(
 
 func firstLineLimitProposedFile(
 	activation map[string]any,
+	thresholds lineLimitThresholds,
 ) (celexpr.ProposedFileChangeInput, bool) {
 	files, ok := activation["proposed_file_changes"].([]celexpr.ProposedFileChangeInput)
 	if !ok {
@@ -217,7 +243,7 @@ func firstLineLimitProposedFile(
 	}
 
 	for _, file := range files {
-		if proposedFileMatchesLineLimit(file) {
+		if proposedFileMatchesLineLimit(file, thresholds) {
 			return file, true
 		}
 	}
@@ -225,15 +251,32 @@ func firstLineLimitProposedFile(
 	return celexpr.ProposedFileChangeInput{}, false
 }
 
-func proposedFileMatchesLineLimit(file celexpr.ProposedFileChangeInput) bool {
+func proposedFileMatchesLineLimit(
+	file celexpr.ProposedFileChangeInput,
+	thresholds lineLimitThresholds,
+) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
 		file.LineCountGrows &&
-		file.NonBlankLineCountGrows
+		file.NonBlankLineCountGrows &&
+		proposedFileExceedsLineLimit(file, thresholds)
+}
+
+func proposedFileExceedsLineLimit(
+	file celexpr.ProposedFileChangeInput,
+	thresholds lineLimitThresholds,
+) bool {
+	return fileExceedsLineLimit(
+		file.File,
+		file.Ext,
+		file.ProposedLineCount,
+		thresholds,
+	)
 }
 
 func firstLineLimitChangedFile(
 	activation map[string]any,
+	thresholds lineLimitThresholds,
 ) (celexpr.FileChangeInput, bool) {
 	proposedFiles, found := proposedFileChanges(activation)
 	if found && len(proposedFiles) != 0 {
@@ -246,7 +289,7 @@ func firstLineLimitChangedFile(
 	}
 
 	for _, file := range files {
-		if changedFileMatchesLineLimit(file) {
+		if changedFileMatchesLineLimit(file, thresholds) {
 			return file, true
 		}
 	}
@@ -254,11 +297,93 @@ func firstLineLimitChangedFile(
 	return celexpr.FileChangeInput{}, false
 }
 
-func changedFileMatchesLineLimit(file celexpr.FileChangeInput) bool {
+func changedFileMatchesLineLimit(
+	file celexpr.FileChangeInput,
+	thresholds lineLimitThresholds,
+) bool {
 	return !file.IsBinary &&
 		!file.IsTest &&
+		changedFileExceedsLineLimit(file, thresholds) &&
 		(file.OriginalLineCount < 0 || file.LineCount > file.OriginalLineCount) &&
 		(file.OriginalNonBlankLineCount < 0 || file.NonBlankLineCountGrows)
+}
+
+func changedFileExceedsLineLimit(
+	file celexpr.FileChangeInput,
+	thresholds lineLimitThresholds,
+) bool {
+	return fileExceedsLineLimit(file.File, file.Ext, file.LineCount, thresholds)
+}
+
+func fileExceedsLineLimit(
+	file string,
+	extension string,
+	lineCount int64,
+	thresholds lineLimitThresholds,
+) bool {
+	exceedsPythonLimit := extension == pythonExtension &&
+		lineCount > thresholds.pythonHard
+	exceedsGoLimit := extension == goExtension &&
+		lineCount > thresholds.goHard
+	exceedsShellLimit := isScriptLineLimitCandidate(file, extension) &&
+		lineCount > thresholds.shellHard
+
+	return exceedsPythonLimit || exceedsGoLimit || exceedsShellLimit
+}
+
+func isScriptLineLimitCandidate(file, extension string) bool {
+	return extension == shellExtension ||
+		extension == bashExtension ||
+		(extension == "" && strings.HasPrefix(file, scriptsPrefix))
+}
+
+func lineLimitThresholdsFromOptions(options map[string]any) lineLimitThresholds {
+	thresholds := lineLimitThresholds{
+		goHard:     defaultGoHardLineLimit,
+		pythonHard: defaultPythonHardLineLimit,
+		shellHard:  defaultShellHardLineLimit,
+	}
+
+	raw, ok := options[lineLimitThresholdsOption].(map[string]any)
+	if !ok {
+		return thresholds
+	}
+
+	thresholds.goHard = int64(intValueFromMap(
+		raw,
+		"go_hard",
+		int(thresholds.goHard),
+	))
+	thresholds.pythonHard = int64(intValueFromMap(
+		raw,
+		"python_hard",
+		int(thresholds.pythonHard),
+	))
+	thresholds.shellHard = int64(intValueFromMap(
+		raw,
+		"shell_hard",
+		int(thresholds.shellHard),
+	))
+
+	return thresholds
+}
+
+func intValueFromMap(values map[string]any, key string, defaultValue int) int {
+	value, ok := values[key]
+	if !ok {
+		return defaultValue
+	}
+
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return defaultValue
+	}
 }
 
 func firstGrowingProposedSymbol(
@@ -348,6 +473,7 @@ func celActivation(context Context, source string) map[string]any {
 		Diagnostic:         context.Diagnostic,
 		Diagnostics:        context.Diagnostics,
 		Findings:           celFindings(context.Findings),
+		LineLimits:         celLineLimitThresholds(context.EvaluatorOptions),
 		PythonASTFacts:     celPythonASTFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
@@ -373,6 +499,16 @@ func celActivation(context Context, source string) map[string]any {
 		SourceRoots:   stringSliceOption(context.EvaluatorOptions, "source_roots", nil),
 		PythonVersion: stringOption(context.EvaluatorOptions, "python_version", ""),
 	})
+}
+
+func celLineLimitThresholds(options map[string]any) celexpr.LineLimitInput {
+	thresholds := lineLimitThresholdsFromOptions(options)
+
+	return celexpr.LineLimitInput{
+		GoHard:     thresholds.goHard,
+		PythonHard: thresholds.pythonHard,
+		ShellHard:  thresholds.shellHard,
+	}
 }
 
 func celCurrentBranch(context Context) string {
