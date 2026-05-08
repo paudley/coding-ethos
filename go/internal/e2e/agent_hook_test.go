@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,6 +31,7 @@ func TestAgentHookProviderPayloadFixtures(t *testing.T) {
 
 	for _, testCase := range agentHookFixtureCases() {
 		payload := loadAgentHookPayload(t, repo, testCase.fixture)
+		prepareAgentHookFixtureState(t, repo, payload)
 		result := repo.CodingEthosRunWithInput(t, payload, "agent-hook")
 
 		result.RequireExit(t, testCase.wantExit)
@@ -93,12 +95,13 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			},
 		},
 		{
-			name:            "codex posttool write file quiet path",
-			fixture:         "codex-posttool-write-file.json",
-			wantStdoutExact: "{}",
-			wantStdoutMissing: []string{
+			name:    "codex posttool write file compact context",
+			fixture: "codex-posttool-write-file.json",
+			wantStdout: []string{
+				`"hookSpecificOutput"`,
 				`"additionalContext"`,
-				`python: run ruff/mypy/pyright`,
+				`coding-ethos: review the edited file; run focused formatting, ` +
+					`lint, type, or tests; fix static-analysis findings structurally.`,
 			},
 		},
 		{
@@ -145,6 +148,66 @@ func loadAgentHookPayload(t *testing.T, repo e2e.Repo, fixture string) string {
 	}
 
 	return strings.ReplaceAll(string(content), "${REPO_ROOT}", repo.Root)
+}
+
+func prepareAgentHookFixtureState(t *testing.T, repo e2e.Repo, payload string) {
+	t.Helper()
+
+	var event map[string]any
+
+	err := json.Unmarshal([]byte(payload), &event)
+	if err != nil {
+		t.Fatalf("decode agent hook fixture state: %v", err)
+	}
+
+	if hookEventName(event) != "PostToolUse" || toolName(event) != "write_file" {
+		return
+	}
+
+	input, ok := eventInput(event)
+	if !ok {
+		return
+	}
+
+	filePath, fileOK := input["file_path"].(string)
+	content, contentOK := input["content"].(string)
+
+	if !fileOK || !contentOK {
+		return
+	}
+
+	repo.Touch(t, filePath, content)
+}
+
+func hookEventName(event map[string]any) string {
+	for _, key := range []string{"hook_event_name", "hookEventName", "event"} {
+		if value, ok := event[key].(string); ok {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func toolName(event map[string]any) string {
+	for _, key := range []string{"tool_name", "toolName", "tool"} {
+		if value, ok := event[key].(string); ok {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func eventInput(event map[string]any) (map[string]any, bool) {
+	for _, key := range []string{"tool_input", "toolInput", "input"} {
+		value, ok := event[key].(map[string]any)
+		if ok {
+			return value, true
+		}
+	}
+
+	return nil, false
 }
 
 func requireStdout(
