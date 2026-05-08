@@ -178,7 +178,7 @@ running real commands, and inspecting real output and repository state.
   lines such as `ok ...` should not appear in user-facing hook reports, but
   failing package names, test names, file/line locations, panic text, and
   unparseable failure excerpts must remain visible.
-- [ ] Add a shell-parser-backed hook rewrite that detects naked `python` or
+- [x] Add a shell-parser-backed hook rewrite that detects naked `python` or
   `python3` invocations and rewrites them to `uv run python` when the target
   repo is a uv-managed project. The policy must use parsed command structure,
   preserve arguments and quoting, avoid string matching, and only rewrite when

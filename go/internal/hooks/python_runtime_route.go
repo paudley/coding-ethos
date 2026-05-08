@@ -27,8 +27,7 @@ func pythonRuntimeRouteFor(event Event) InspectionRoute {
 	}
 
 	reason := "Python commands must run through the consumer repo environment: " +
-		"`uv run --project <repo> python ...` when a uv project exists, " +
-		"otherwise `<repo>/.venv/bin/python ...` when a venv exists."
+		"`uv run --project <repo> python ...` when uv project evidence exists."
 
 	return InspectionRoute{
 		UpdatedInput: updatedBashInput(event.ToolInput, rewritten),
@@ -80,12 +79,18 @@ func rewritePythonRuntimeCommandChain(command, cwd string) (string, bool) {
 }
 
 func rewritePythonRuntimeSegment(segment []string, cwd string) string {
-	if len(segment) == 0 || !isPythonCommand(segment[0]) {
+	if len(segment) == 0 {
+		return ""
+	}
+
+	if !isPythonCommand(segment[0]) && !shellAssignmentForCommand(segment[0]) {
 		return ""
 	}
 
 	args, redirections := splitShellRedirections(segment)
-	if len(args) == 0 || !isPythonCommand(args[0]) {
+	assignments, argv := splitShellAssignments(args)
+
+	if len(argv) == 0 || !isPythonCommand(argv[0]) {
 		return ""
 	}
 
@@ -94,7 +99,12 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 		return ""
 	}
 
-	parts := pythonRuntimeCommand(root, args[1:])
+	parts := make([]string, 0, len(assignments)+uvPythonStaticArgCount+len(argv))
+	for _, assignment := range assignments {
+		parts = append(parts, shellQuoteAssignment(assignment))
+	}
+
+	parts = append(parts, pythonRuntimeCommand(root, argv[1:])...)
 	if len(redirections) > 0 {
 		parts = append(parts, redirections...)
 	}
@@ -103,28 +113,14 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 }
 
 func pythonRuntimeCommand(root string, args []string) []string {
-	if pythonRepoUsesUV(root) {
-		parts := make([]string, 0, uvPythonStaticArgCount+len(args))
+	parts := make([]string, 0, uvPythonStaticArgCount+len(args))
 
-		parts = append(parts, "uv", "run", "--project", shellQuote(root), "python")
-		for _, arg := range args {
-			parts = append(parts, shellQuote(arg))
-		}
-
-		return parts
+	parts = append(parts, "uv", "run", "--project", shellQuote(root), "python")
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
 	}
 
-	pythonPath := filepath.Join(root, ".venv", "bin", "python")
-	if fileExecutable(pythonPath) {
-		parts := []string{shellQuote(pythonPath)}
-		for _, arg := range args {
-			parts = append(parts, shellQuote(arg))
-		}
-
-		return parts
-	}
-
-	return nil
+	return parts
 }
 
 func pythonRuntimeRoot(cwd string) string {
@@ -174,8 +170,7 @@ func normalizedPythonRuntimeCwd(cwd string) string {
 }
 
 func pythonRuntimeAvailable(root string) bool {
-	return pythonRepoUsesUV(root) ||
-		fileExecutable(filepath.Join(root, ".venv", "bin", "python"))
+	return pythonRepoUsesUV(root)
 }
 
 func gitRootFromPath(path string) string {
@@ -194,7 +189,7 @@ func gitRootFromPath(path string) string {
 
 func pythonRepoUsesUV(root string) bool {
 	return fileExists(filepath.Join(root, "uv.lock")) ||
-		fileExists(filepath.Join(root, "pyproject.toml"))
+		fileExists(filepath.Join(root, "uv.toml"))
 }
 
 func fileExists(path string) bool {
@@ -209,8 +204,49 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-func fileExecutable(path string) bool {
-	info, err := os.Stat(path)
+func splitShellAssignments(tokens []string) ([]string, []string) {
+	assignments := []string{}
 
-	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
+	index := 0
+	for index < len(tokens) && shellAssignmentForCommand(tokens[index]) {
+		assignments = append(assignments, tokens[index])
+		index++
+	}
+
+	return assignments, tokens[index:]
+}
+
+func shellAssignmentForCommand(token string) bool {
+	name, _, found := strings.Cut(token, "=")
+	if !found || name == "" {
+		return false
+	}
+
+	return shellAssignmentName(name)
+}
+
+func shellAssignmentName(name string) bool {
+	for index, char := range name {
+		if !shellAssignmentNameChar(index, char) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func shellAssignmentNameChar(index int, char rune) bool {
+	if char == '_' ||
+		(char >= 'A' && char <= 'Z') ||
+		(char >= 'a' && char <= 'z') {
+		return true
+	}
+
+	return index > 0 && char >= '0' && char <= '9'
+}
+
+func shellQuoteAssignment(token string) string {
+	name, value, _ := strings.Cut(token, "=")
+
+	return name + "=" + shellQuote(value)
 }

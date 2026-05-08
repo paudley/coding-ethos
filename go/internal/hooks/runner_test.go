@@ -707,13 +707,9 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 
 	root := t.TempDir()
 
-	inlineErr2 := os.WriteFile(
-		filepath.Join(root, "pyproject.toml"),
-		[]byte("[project]\nname = \"demo\"\n"),
-		0o600,
-	)
+	inlineErr2 := os.WriteFile(filepath.Join(root, "uv.lock"), nil, 0o600)
 	if inlineErr2 != nil {
-		t.Fatalf("write pyproject: %v", inlineErr2)
+		t.Fatalf("write uv lock: %v", inlineErr2)
 	}
 
 	inlineErr3 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
@@ -770,7 +766,7 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 	}
 }
 
-func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
+func TestRunDoesNotRewritePythonForPlainVenvWithoutUV(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -818,8 +814,86 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesPythonAssignmentsAndRedirectionThroughUV(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(filepath.Join(root, "uv.toml"), nil, 0o600)
+	if inlineErr10 != nil {
+		t.Fatalf("write uv config: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "PYTHONPATH=src python script.py > out.txt",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "'"+pythonPath+"' 'script.py'") {
+	if !ok ||
+		!strings.Contains(
+			rewritten,
+			"PYTHONPATH='src' uv run --project '"+root+"' python 'script.py' >out.txt",
+		) {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunDoesNotRewritePythonForPyprojectWithoutUVEvidence(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(
+		filepath.Join(root, "pyproject.toml"),
+		[]byte("[project]\nname = \"demo\"\n"),
+		0o600,
+	)
+	if inlineErr10 != nil {
+		t.Fatalf("write pyproject: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
