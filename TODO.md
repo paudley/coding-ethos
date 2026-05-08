@@ -147,7 +147,7 @@ running real commands, and inspecting real output and repository state.
   - [x] Verify `go-vet` failures produce parser-backed diagnostics in
         TOON/JSON/SARIF and retain bounded raw output only as supporting
         evidence.
-  - [ ] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
+  - [x] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
         changed files as structured diagnostics rather than generic group
         failures.
   - [x] Add an end-to-end scenario that runs the real generated-config drift
