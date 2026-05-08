@@ -19,7 +19,7 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	}
 
 	if len(result.Findings) > 0 {
-		return findingDiagnostics(result.Findings, result.Blocked())
+		return FindingDiagnostics(result.Findings, result.Blocked())
 	}
 
 	decisions := result.Decisions
@@ -112,7 +112,8 @@ func (result Result) Warned() bool {
 	return false
 }
 
-func findingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnostic {
+// FindingDiagnostics converts lint findings into normalized diagnostics.
+func FindingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnostic {
 	selected := findings
 	if blocked {
 		blocking := blockingFindings(findings)

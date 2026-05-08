@@ -468,15 +468,33 @@ func sarifSandboxEvidence(result lint.Result) *lint.SandboxEvidence {
 }
 
 func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
-	items := lint.OutputDiagnostics(result)
-
-	if len(result.Diagnostics) > 0 && len(result.Findings) > 0 {
-		findingOnly := result
-		findingOnly.Diagnostics = nil
-		items = append(items, lint.OutputDiagnostics(findingOnly)...)
+	items := make([]diagnostics.Diagnostic, 0, len(result.Diagnostics))
+	if len(result.Diagnostics) > 0 {
+		items = append(items, result.Diagnostics...)
 	}
 
-	return diagnostics.Dedupe(items)
+	if len(result.Findings) > 0 {
+		items = append(items, lint.FindingDiagnostics(result.Findings, result.Blocked())...)
+	}
+
+	for _, decision := range result.Decisions {
+		items = append(items, decision.Diagnostics...)
+	}
+
+	return diagnostics.Dedupe(sarifFileDiagnostics(items))
+}
+
+func sarifFileDiagnostics(
+	items []diagnostics.Diagnostic,
+) []diagnostics.Diagnostic {
+	fileItems := make([]diagnostics.Diagnostic, 0, len(items))
+	for _, item := range items {
+		if sarifArtifactURI(item.File) != "" {
+			fileItems = append(fileItems, item)
+		}
+	}
+
+	return fileItems
 }
 
 func sarifRules(items []diagnostics.Diagnostic) []sarifRule {
