@@ -402,6 +402,7 @@ func testGatePolicyIDs() []string {
 	return []string{
 		"repo.required_ignores",
 		"generated_config.freshness",
+		"generated_gemini_prompts.freshness",
 		"pytest.gate",
 	}
 }

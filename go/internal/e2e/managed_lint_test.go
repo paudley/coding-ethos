@@ -75,6 +75,21 @@ func preparedManagedLintRepo(t *testing.T) e2e.Repo {
 	)
 	sync.RequireExit(t, 0)
 
+	syncGemini := repo.CodingEthosRun(
+		t,
+		"policy",
+		"sync-gemini-prompts",
+		"--ethos-root",
+		runtimeRoot,
+		"--repo",
+		repo.Root,
+		"--primary",
+		filepath.Join(runtimeRoot, "coding_ethos.yml"),
+		"--repo-ethos",
+		filepath.Join(runtimeRoot, "repo_ethos.yml"),
+	)
+	syncGemini.RequireExit(t, 0)
+
 	return repo
 }
 
@@ -242,6 +257,53 @@ func TestGeneratedConfigDriftProducesTraceAndSARIF(t *testing.T) {
 	} {
 		if !strings.Contains(trace, want) {
 			t.Fatalf("generated config trace missing %q:\n%s", want, trace)
+		}
+	}
+}
+
+func TestGeneratedGeminiPromptDriftProducesTraceAndSARIF(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	bundlePath := generatedConfigDriftBundle(t, repo)
+	repo.ResetTraces(t)
+	repo.Touch(
+		t,
+		".code-ethos/gemini/prompt-pack.json",
+		"{\"intentionally\":\"stale\"}\n",
+	)
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--bundle",
+		bundlePath,
+		"--sarif",
+		"--scope",
+		"smoke",
+		"--cwd",
+		repo.Root,
+	)
+	result.RequireExit(t, 2)
+
+	for _, want := range []string{
+		`"ruleId": "generated_gemini_prompts.freshness"`,
+		`"uri": ".code-ethos/gemini/prompt-pack.json"`,
+		`"code": "generated-gemini-prompt-pack-drift"`,
+		`"source_tool": "generated-gemini-prompts"`,
+	} {
+		result.RequireContains(t, want)
+	}
+
+	trace := repo.SingleTrace(t)
+	for _, want := range []string{
+		`"scope": "smoke"`,
+		`"policy_id": "generated_gemini_prompts.freshness"`,
+		`"tool": "generated-gemini-prompts"`,
+		`"file": ".code-ethos/gemini/prompt-pack.json"`,
+		`"code": "generated-gemini-prompt-pack-drift"`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("generated Gemini prompt trace missing %q:\n%s", want, trace)
 		}
 	}
 }

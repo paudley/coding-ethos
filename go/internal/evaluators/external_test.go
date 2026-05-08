@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -70,6 +71,39 @@ func TestEvaluateGeneratedConfigFreshnessEmitsFileDiagnostics(t *testing.T) {
 	assertGeneratedConfigSARIF(t, decisions)
 }
 
+func TestEvaluateGeneratedGeminiPromptsFreshnessPassesWhenPromptPackMatches(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedGeminiPromptsRepo(t)
+
+	decisions, err := evaluators.EvaluateGeneratedGeminiPromptsFreshness(
+		externalPolicy("generated_gemini_prompts.freshness"),
+		generatedGeminiPromptsContext(ethosRoot, repoRoot),
+	)
+	if err != nil {
+		t.Fatalf("evaluate generated Gemini prompt freshness: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want none", decisions)
+	}
+}
+
+func TestEvaluateGeneratedGeminiPromptsFreshnessEmitsFileDiagnostics(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ethosRoot, repoRoot := syncedGeneratedGeminiPromptsRepo(t)
+	corruptGeneratedGeminiPromptPack(t, repoRoot)
+
+	decisions := evaluateGeneratedGeminiPromptsFreshness(t, ethosRoot, repoRoot)
+	assertGeneratedGeminiPromptsDiagnostics(t, decisions)
+	assertGeneratedGeminiPromptsSARIF(t, decisions)
+}
+
 func evaluateGeneratedConfigFreshness(
 	t *testing.T,
 	ethosRoot string,
@@ -88,6 +122,24 @@ func evaluateGeneratedConfigFreshness(
 	)
 	if err != nil {
 		t.Fatalf("evaluate generated config freshness: %v", err)
+	}
+
+	return decisions
+}
+
+func evaluateGeneratedGeminiPromptsFreshness(
+	t *testing.T,
+	ethosRoot string,
+	repoRoot string,
+) []policy.Decision {
+	t.Helper()
+
+	decisions, err := evaluators.EvaluateGeneratedGeminiPromptsFreshness(
+		externalPolicy("generated_gemini_prompts.freshness"),
+		generatedGeminiPromptsContext(ethosRoot, repoRoot),
+	)
+	if err != nil {
+		t.Fatalf("evaluate generated Gemini prompt freshness: %v", err)
 	}
 
 	return decisions
@@ -120,6 +172,29 @@ func assertGeneratedConfigDiagnostics(
 	}
 }
 
+func assertGeneratedGeminiPromptsDiagnostics(
+	t *testing.T,
+	decisions []policy.Decision,
+) {
+	t.Helper()
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count = %d, want 1", len(decisions))
+	}
+
+	diagnostics := decisions[0].Diagnostics
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostic count = %d, want 1: %#v", len(diagnostics), diagnostics)
+	}
+
+	if diagnostics[0].Tool != "generated-gemini-prompts" ||
+		diagnostics[0].File != geminiprompts.PromptPackPath ||
+		diagnostics[0].Code != "generated-gemini-prompt-pack-drift" ||
+		diagnostics[0].PolicyID != "generated_gemini_prompts.freshness" {
+		t.Fatalf("unexpected generated Gemini prompt diagnostic: %#v", diagnostics[0])
+	}
+}
+
 func assertGeneratedConfigSARIF(t *testing.T, decisions []policy.Decision) {
 	t.Helper()
 
@@ -145,6 +220,30 @@ func assertGeneratedConfigSARIF(t *testing.T, decisions []policy.Decision) {
 	}
 }
 
+func assertGeneratedGeminiPromptsSARIF(t *testing.T, decisions []policy.Decision) {
+	t.Helper()
+
+	result := lint.Result{
+		Scope:     lint.ScopeSmoke,
+		Status:    "blocked",
+		Decisions: decisions,
+	}
+
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		t.Fatalf("format generated Gemini prompt SARIF: %v", err)
+	}
+
+	for _, want := range []string{
+		`"ruleId": "generated_gemini_prompts.freshness"`,
+		`"uri": ".code-ethos/gemini/prompt-pack.json"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated Gemini prompt SARIF missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func syncedGeneratedConfigRepo(t *testing.T) (string, string) {
 	t.Helper()
 
@@ -157,6 +256,49 @@ func syncedGeneratedConfigRepo(t *testing.T) (string, string) {
 	}
 
 	return ethosRoot, repoRoot
+}
+
+func syncedGeneratedGeminiPromptsRepo(t *testing.T) (string, string) {
+	t.Helper()
+
+	ethosRoot := repoRoot(t)
+	repoRoot := t.TempDir()
+
+	_, err := geminiprompts.Sync(generatedGeminiPromptsOptions(
+		ethosRoot,
+		repoRoot,
+	))
+	if err != nil {
+		t.Fatalf("sync generated Gemini prompt pack: %v", err)
+	}
+
+	return ethosRoot, repoRoot
+}
+
+func generatedGeminiPromptsContext(
+	ethosRoot string,
+	repoRoot string,
+) evaluators.Context {
+	return evaluators.Context{
+		Cwd: repoRoot,
+		EvaluatorOptions: map[string]any{
+			"ethos_root": ethosRoot,
+			"primary":    filepath.Join(ethosRoot, "coding_ethos.yml"),
+			"repo_ethos": filepath.Join(ethosRoot, "repo_ethos.yml"),
+		},
+	}
+}
+
+func generatedGeminiPromptsOptions(
+	ethosRoot string,
+	repoRoot string,
+) geminiprompts.Options {
+	return geminiprompts.Options{
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
+		Primary:   filepath.Join(ethosRoot, "coding_ethos.yml"),
+		RepoEthos: filepath.Join(ethosRoot, "repo_ethos.yml"),
+	}
 }
 
 func corruptGeneratedConfig(t *testing.T, repoRoot string) {
@@ -177,6 +319,17 @@ func corruptGeneratedConfig(t *testing.T, repoRoot string) {
 	err = os.WriteFile(staleManifest, []byte("{}\n"), 0o600)
 	if err != nil {
 		t.Fatalf("corrupt generated manifest: %v", err)
+	}
+}
+
+func corruptGeneratedGeminiPromptPack(t *testing.T, repoRoot string) {
+	t.Helper()
+
+	path := filepath.Join(repoRoot, filepath.FromSlash(geminiprompts.PromptPackPath))
+
+	err := os.WriteFile(path, []byte("{\"stale\": true}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("corrupt generated Gemini prompt pack: %v", err)
 	}
 }
 

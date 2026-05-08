@@ -44,6 +44,7 @@ func compilePolicies(
 	}
 
 	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
+	addGeneratedGeminiPromptsPolicy(policies, config, principles, configSourceRoot)
 
 	err = addExpressionPolicies(
 		policies,
@@ -871,6 +872,67 @@ func generatedConfigFreshnessOptions(
 	)
 	if repoConfig != "" {
 		options["repo_config"] = repoConfig
+	}
+
+	return options
+}
+
+func addGeneratedGeminiPromptsPolicy(
+	policies map[string]Policy,
+	config map[string]any,
+	principles map[string]Principle,
+	configSourceRoot string,
+) {
+	if !policyConfigEnabled(config, "generated_gemini_prompts.freshness") {
+		return
+	}
+
+	policies["generated_gemini_prompts.freshness"] = Policy{
+		ID:       "generated_gemini_prompts.freshness",
+		Category: "config",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "generated_gemini_prompts.freshness",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"static-analysis-is-the-first-line-of-defense",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "ask", "advise", "annotate", "record"},
+		Message:         "Generated Gemini prompt pack must match source policy.",
+		Suggestion:      "Run the configured Gemini prompt sync/check command.",
+		DefenseLayers:   GeneratedConfigDefenseLayers(),
+		AppliesTo: AppliesTo{
+			Paths: []string{".code-ethos/gemini/prompt-pack.json"},
+		},
+		Evaluators: []Evaluator{
+			{
+				Kind: "config",
+				Name: "generated_gemini_prompts.freshness",
+				Options: generatedGeminiPromptsFreshnessOptions(
+					config,
+					configSourceRoot,
+				),
+			},
+		},
+	}
+}
+
+func generatedGeminiPromptsFreshnessOptions(
+	config map[string]any,
+	configSourceRoot string,
+) map[string]any {
+	options := map[string]any{
+		"ethos_root": configSourceRoot,
+		"repo":       ".",
+	}
+
+	for _, option := range []string{"primary", "repo_ethos", "repo_config"} {
+		value := stringAt(config, "generated_gemini_prompts", "freshness", option)
+		if value != "" {
+			options[option] = value
+		}
 	}
 
 	return options

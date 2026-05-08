@@ -118,7 +118,7 @@ running real commands, and inspecting real output and repository state.
   - [x] Emit file-specific diagnostics for generated-config freshness drift so
         stale repo-root tool configs appear as SARIF/CEL-addressable findings
         instead of pathless external-command failures.
-  - [ ] Emit file-specific diagnostics for generated Gemini prompt pack drift.
+  - [x] Emit file-specific diagnostics for generated Gemini prompt pack drift.
   - [ ] Emit provider/skill-path diagnostics for generated agent skill surface
         drift.
   - [ ] Convert tool bootstrap and managed-toolchain manifest failures into

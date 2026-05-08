@@ -122,6 +122,10 @@ generated_config:
       build_command: uv build
       package_check_command: uvx twine check dist/*
 
+generated_gemini_prompts:
+  freshness:
+    enabled: true
+
 syntax:
   file_syntax:
     enabled: true

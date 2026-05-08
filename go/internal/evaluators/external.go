@@ -15,6 +15,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
@@ -25,6 +26,10 @@ var errExternalCommandEmpty = apperror.StaticError(
 
 var errGeneratedConfigEthosRootRequired = apperror.StaticError(
 	"evaluate generated config freshness: ethos_root option is required",
+)
+
+var errGeneratedGeminiPromptsEthosRootRequired = apperror.StaticError(
+	"evaluate generated Gemini prompt freshness: ethos_root option is required",
 )
 
 const defaultExternalCommandTimeout = 10 * time.Minute
@@ -142,6 +147,39 @@ func EvaluateGeneratedConfigFreshness(
 	return []policy.Decision{decision}, nil
 }
 
+func EvaluateGeneratedGeminiPromptsFreshness(
+	policyDef policy.Policy,
+	context Context,
+) ([]policy.Decision, error) {
+	options, err := generatedGeminiPromptsOptions(context)
+	if err != nil {
+		return nil, err
+	}
+
+	mismatched, err := geminiprompts.Check(options)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"evaluate generated Gemini prompt freshness: check prompt pack: %w",
+			err,
+		)
+	}
+
+	if len(mismatched) == 0 {
+		return nil, nil
+	}
+
+	decision := policy.NewDecision("block", policyDef)
+	decision.Evidence = generatedGeminiPromptsEvidence(options, mismatched)
+	decision.Diagnostics = generatedGeminiPromptsFreshnessDiagnostics(
+		policyDef,
+		decision,
+		options.RepoRoot,
+		mismatched,
+	)
+
+	return []policy.Decision{decision}, nil
+}
+
 func EvaluatePytestGate(
 	policyDef policy.Policy,
 	context Context,
@@ -177,6 +215,73 @@ func generatedConfigFreshnessDiagnostics(
 			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
 			Metadata: map[string]any{
 				"generated_config_path": path,
+			},
+		})
+	}
+
+	return diagnostics.Dedupe(items)
+}
+
+func generatedGeminiPromptsOptions(
+	context Context,
+) (geminiprompts.Options, error) {
+	ethosRoot := stringOption(context.EvaluatorOptions, "ethos_root", "")
+	if ethosRoot == "" {
+		return geminiprompts.Options{}, errGeneratedGeminiPromptsEthosRootRequired
+	}
+
+	repoRoot := context.Cwd
+	if repoRoot == "" {
+		repoRoot = stringOption(context.EvaluatorOptions, "repo", ".")
+	}
+
+	return geminiprompts.Options{
+		EthosRoot:  ethosRoot,
+		RepoRoot:   repoRoot,
+		Primary:    stringOption(context.EvaluatorOptions, "primary", ""),
+		RepoEthos:  stringOption(context.EvaluatorOptions, "repo_ethos", ""),
+		RepoConfig: stringOption(context.EvaluatorOptions, "repo_config", ""),
+	}, nil
+}
+
+func generatedGeminiPromptsEvidence(
+	options geminiprompts.Options,
+	mismatched []string,
+) map[string]any {
+	return map[string]any{
+		"ethos_root":       options.EthosRoot,
+		"repo":             options.RepoRoot,
+		"primary":          options.Primary,
+		"repo_ethos":       options.RepoEthos,
+		"repo_config":      options.RepoConfig,
+		"mismatched_paths": append([]string(nil), mismatched...),
+		"tool":             "generated-gemini-prompts",
+	}
+}
+
+func generatedGeminiPromptsFreshnessDiagnostics(
+	policyDef policy.Policy,
+	decision policy.Decision,
+	repoRoot string,
+	paths []string,
+) []diagnostics.Diagnostic {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(paths))
+	for _, path := range paths {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:         "generated-gemini-prompts",
+			File:         externalRepoRelativePath(repoRoot, path),
+			Severity:     decision.Severity,
+			Code:         "generated-gemini-prompt-pack-drift",
+			PolicyID:     decision.PolicyID,
+			Message:      "Generated Gemini prompt pack is out of sync.",
+			Advice:       policyDef.Suggestion,
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+			Metadata: map[string]any{
+				"generated_gemini_prompt_pack_path": path,
 			},
 		})
 	}

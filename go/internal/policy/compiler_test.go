@@ -1162,7 +1162,11 @@ func assertExecutableSmokePolicyDispatch(t *testing.T, bundle Bundle) {
 	assertPoliciesNotDispatched(
 		t,
 		bundle.Dispatch.Linter["staged"],
-		[]string{"pytest.gate", "generated_config.freshness"},
+		[]string{
+			"pytest.gate",
+			"generated_config.freshness",
+			"generated_gemini_prompts.freshness",
+		},
 	)
 
 	for scope, policyIDs := range executableSmokeExpectedDispatch() {
@@ -1177,6 +1181,7 @@ func executableSmokeExpectedDispatch() map[string][]string {
 		"smoke": {
 			"pytest.gate",
 			"generated_config.freshness",
+			"generated_gemini_prompts.freshness",
 			"repo.required_ignores",
 		},
 		"cutover": {"repo.required_ignores"},
@@ -1493,6 +1498,11 @@ filesystem:
 generated_config:
   freshness:
     repo_config: /tmp/repo/coding-ethos.repo.yaml
+generated_gemini_prompts:
+  freshness:
+    primary: /tmp/coding-ethos/coding_ethos.yml
+    repo_ethos: /tmp/repo/repo_ethos.yml
+    repo_config: /tmp/repo/gemini.repo.yaml
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1561,6 +1571,27 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"generated_config.freshness",
 		"repo_config",
 		"/tmp/repo/coding-ethos.repo.yaml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"primary",
+		"/tmp/coding-ethos/coding_ethos.yml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"repo_ethos",
+		"/tmp/repo/repo_ethos.yml",
+	)
+	assertOptionString(
+		t,
+		bundle,
+		"generated_gemini_prompts.freshness",
+		"repo_config",
+		"/tmp/repo/gemini.repo.yaml",
 	)
 	assertForbiddenStringsExpression(t, bundle)
 	assertFirstOptionString(

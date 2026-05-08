@@ -120,6 +120,10 @@ func registerExternalEvaluators(registry Registry) {
 		"generated_config.freshness",
 		EvaluatorFunc(EvaluateGeneratedConfigFreshness),
 	)
+	registry.Register(
+		"generated_gemini_prompts.freshness",
+		EvaluatorFunc(EvaluateGeneratedGeminiPromptsFreshness),
+	)
 	registry.Register("pytest.gate", EvaluatorFunc(EvaluatePytestGate))
 }
 
