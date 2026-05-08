@@ -190,7 +190,6 @@ func parserEntries() []parserEntry {
 		{Name: "gofmt", Parser: parseGofmt},
 		{Name: "gofmt-check", Parser: parseGofmt},
 		{Name: "go-test", Parser: parseGoTest},
-		{Name: "go-test-prebuilt", Parser: parseGoTest},
 		{Name: "go-vet", Parser: parseGoVet},
 		{Name: "golangci-lint", Parser: parseGolangciLint},
 		{Name: "golangci-lint-autofix", Parser: parseGolangciLint},

@@ -88,10 +88,6 @@ GO_COVERAGE_MIN ?= 80.0
 PYTHON_COVERAGE_MIN ?= 80
 GO_TEST_TIMEOUT ?= 30s
 GO_COVERAGE_DIR ?= $(LOCAL_BUILD_DIR)/coverage
-GO_E2E_COVERDIR ?= $(GO_COVERAGE_DIR)/e2e-coverdir
-GO_E2E_TEST_BINARY ?= $(GO_COVERAGE_DIR)/coding-ethos-e2e.test
-GO_TEST_BIN_DIR ?= $(GO_COVERAGE_DIR)/go-test-bins
-GO_TEST_BIN_MANIFEST ?= $(GO_TEST_BIN_DIR)/manifest.tsv
 REPO ?= $(LOCAL_REPO_ROOT)
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
 REPO_ETHOS ?=
@@ -211,8 +207,6 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
-	go-test-binaries-install \
-	go-e2e-test-binary-install \
 	managed-toolchain-install \
 	managed-go-tools-install \
 	go-hook-runner-install \
@@ -239,8 +233,6 @@ endef
 	ensure-go \
 	ensure-gofmt \
 	ensure-hook-runtime \
-	ensure-go-test-binaries \
-	ensure-go-e2e-test-binary \
 	guard-%
 
 ##@ Help
@@ -346,35 +338,6 @@ ensure-hook-runtime: ## Verify managed hook runtime artifacts already exist with
 		printf '$(COLOR_WARN)Run `make build` explicitly before tests or diagnostics.$(COLOR_RESET)\n' >&2; \
 		exit 2; \
 	}
-
-ensure-go-e2e-test-binary: ## Verify the Go e2e test binary already exists without compiling it.
-	@test -x "$(GO_E2E_TEST_BINARY)" || { \
-		printf '$(COLOR_WARN)Go e2e test binary is missing: $(GO_E2E_TEST_BINARY).$(COLOR_RESET)\n' >&2; \
-		printf '$(COLOR_WARN)Run `make build` explicitly before e2e tests.$(COLOR_RESET)\n' >&2; \
-		exit 2; \
-	}
-
-ensure-go-test-binaries: ## Verify Go test binaries already exist without compiling them.
-	@test -s "$(GO_TEST_BIN_MANIFEST)" || { \
-		printf '$(COLOR_WARN)Go test binary manifest is missing: $(GO_TEST_BIN_MANIFEST).$(COLOR_RESET)\n' >&2; \
-		printf '$(COLOR_WARN)Run `make build` explicitly before Go tests.$(COLOR_RESET)\n' >&2; \
-		exit 2; \
-	}
-	@while IFS=$$'\t' read -r package package_dir binary; do \
-		if [ -z "$$package" ] || [ -z "$$package_dir" ] || [ -z "$$binary" ]; then \
-			printf '$(COLOR_WARN)Malformed Go test binary manifest row: %s %s %s$(COLOR_RESET)\n' "$$package" "$$package_dir" "$$binary" >&2; \
-			exit 2; \
-		fi; \
-		if [ ! -d "$$package_dir" ]; then \
-			printf '$(COLOR_WARN)Go test package directory is missing: %s$(COLOR_RESET)\n' "$$package_dir" >&2; \
-			exit 2; \
-		fi; \
-		if [ ! -x "$$binary" ]; then \
-			printf '$(COLOR_WARN)Go test binary is missing or not executable: %s$(COLOR_RESET)\n' "$$binary" >&2; \
-			printf '$(COLOR_WARN)Run `make build` explicitly before Go tests.$(COLOR_RESET)\n' >&2; \
-			exit 2; \
-		fi; \
-	done < "$(GO_TEST_BIN_MANIFEST)"
 
 install: ensure-uv ## Sync the repo's development dependencies.
 	@$(call print_step,Syncing development dependencies)
@@ -514,7 +477,7 @@ check-agent-skills: ensure-hook-runtime ## Fail if provider skill surfaces are o
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" \
 		check-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" $(AGENT_SKILL_FLAGS)
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install go-test-binaries-install go-e2e-test-binary-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
 managed-toolchain-install: ensure-go go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)
@@ -607,13 +570,9 @@ validate: build ## Validate the bundled hook runtime.
 	@$(call print_step,Validating bundled hook runtime)
 	@"$(GO_HOOK)" git-hook validate
 
-go-test: ensure-go ensure-hook-runtime ensure-go-test-binaries ## Run Go tests through managed diagnostics.
+go-test: ensure-go ensure-hook-runtime ## Run Go tests through managed diagnostics.
 	@$(call print_step,Running Go tests through managed diagnostics)
-	@while IFS=$$'\t' read -r package package_dir binary; do \
-		cd "$$package_dir" && \
-			"$(GO_HOOK)" policy-tool go-test-prebuilt \
-				tool test2json -t -p "$$package" "$$binary" -test.v; \
-	done < "$(GO_TEST_BIN_MANIFEST)"
+	@"$(GO_HOOK)" policy-tool go-test go
 
 lint: ensure-hook-runtime ## Run all configured linters.
 	@$(call print_step,Running configured linters)
@@ -629,27 +588,18 @@ format: ensure-hook-runtime ## Run all configured formatters.
 	@$(call print_step,Running configured formatters)
 	@"$(GO_HOOK)" policy-tool-group formatters
 
-go-e2e-test: ensure-go-e2e-test-binary ## Run real workflow Go end-to-end tests.
+go-e2e-test: ensure-go ## Run real workflow Go end-to-end tests.
 	@$(call print_step,Running Go end-to-end workflow tests)
-	@"$(GO_E2E_TEST_BINARY)" -test.timeout="$(GO_TEST_TIMEOUT)"
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -buildvcs=false -timeout="$(GO_TEST_TIMEOUT)" ./internal/e2e
 
 go-coverage: go-tools-coverage go-hooks-coverage ## Run all Go tests with coverage enforcement.
 
 go-tools-coverage: ensure-go ensure-hook-runtime ## Run shared Go tool tests with coverage enforcement.
 	@$(call print_step,Running shared Go coverage)
 	@mkdir -p "$(GO_COVERAGE_DIR)"
-	@rm -rf "$(GO_E2E_COVERDIR)"
-	@mkdir -p "$(GO_E2E_COVERDIR)"
 	@cd "$(GO_TOOLS_DIR)" && mapfile -t packages < <("$(GO)" list -buildvcs=false ./... | grep -v '/internal/e2e$$') && \
 		"$(GO)" test -buildvcs=false -short "$${packages[@]}" -covermode=atomic -coverprofile="$(GO_COVERAGE_DIR)/go-shared.out"
-	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -c -buildvcs=false -cover -coverpkg=./... -o "$(GO_E2E_TEST_BINARY)" ./internal/e2e
-	@cd "$(GO_TOOLS_DIR)" && \
-		export GOCOVERDIR="$(GO_E2E_COVERDIR)" && \
-		"$(GO_E2E_TEST_BINARY)" -test.timeout="$(GO_TEST_TIMEOUT)" -test.v
-	@if find "$(GO_E2E_COVERDIR)" -type f -name 'covmeta.*' -print -quit | grep -q .; then \
-		"$(GO)" tool covdata textfmt -i="$(GO_E2E_COVERDIR)" -o="$(GO_COVERAGE_DIR)/go-e2e-subprocess.out"; \
-		"$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-e2e-subprocess.out" > "$(GO_COVERAGE_DIR)/go-e2e-subprocess.txt"; \
-	fi
+	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -buildvcs=false -timeout="$(GO_TEST_TIMEOUT)" ./internal/e2e
 	@cd "$(GO_TOOLS_DIR)" && "$(GO)" tool cover -func="$(GO_COVERAGE_DIR)/go-shared.out" > "$(GO_COVERAGE_DIR)/go-shared.txt"
 	@awk -v min="$(GO_COVERAGE_MIN)" '/^total:/ { gsub("%", "", $$3); if ($$3 + 0 < min) { printf "shared Go coverage %.1f%% is below %.1f%%\n", $$3, min; exit 1 } }' "$(GO_COVERAGE_DIR)/go-shared.txt"
 
@@ -685,29 +635,6 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 		"$(GO)" build $(GO_BUILD_FLAGS) -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
-
-go-test-binaries-install: ensure-go ## Build Go package test binaries for later non-compiling execution.
-	@$(call print_step,Installing Go test binaries)
-	@rm -rf "$(GO_TEST_BIN_DIR)"
-	@mkdir -p "$(GO_TEST_BIN_DIR)"
-	@: > "$(GO_TEST_BIN_MANIFEST)"
-	@cd "$(GO_TOOLS_DIR)" && \
-		"$(GO)" list -buildvcs=false -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}	{{.Dir}}{{end}}' ./... | \
-		while IFS=$$'\t' read -r package package_dir; do \
-			[ -n "$$package" ] || continue; \
-			[ -n "$$package_dir" ] || exit 2; \
-			name="$$(printf '%s' "$$package" | sed 's#[^A-Za-z0-9_.-]#_#g')"; \
-			binary="$(GO_TEST_BIN_DIR)/$$name.test"; \
-			"$(GO)" test -c -buildvcs=false -o "$$binary" "$$package"; \
-			printf '%s\t%s\t%s\n' "$$package" "$$package_dir" "$$binary" >> "$(GO_TEST_BIN_MANIFEST)"; \
-		done
-	@$(call print_info,manifest: $(GO_TEST_BIN_MANIFEST))
-
-go-e2e-test-binary-install: ensure-go ## Build the Go e2e test binary for later non-compiling execution.
-	@$(call print_step,Installing Go e2e test binary)
-	@mkdir -p "$(GO_COVERAGE_DIR)"
-	@cd "$(GO_TOOLS_DIR)" && "$(GO)" test -c -buildvcs=false -o "$(GO_E2E_TEST_BINARY)" ./internal/e2e
-	@$(call print_info,installed: $(GO_E2E_TEST_BINARY))
 
 go-tools-smoke: export CODE_ETHOS_HOOK_OUTPUT_FORMAT := toon
 go-tools-smoke: go-tools-install ## Smoke test shared Go tools using only temporary runtime state.

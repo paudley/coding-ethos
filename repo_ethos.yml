@@ -213,7 +213,6 @@ principles:
             allow_severity_weaken: false
             tools:
               - go-test
-              - go-test-prebuilt
             lint_scopes:
               - files
               - staged
@@ -223,7 +222,7 @@ principles:
             skill_id: lint-remediation
             when: >-
               coverage.exists(item,
-                list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+                item.tool == "go-test" &&
                 item.total &&
                 item.percent < 80.0 &&
                 (item.package == "" ||
@@ -245,7 +244,6 @@ principles:
             allow_severity_weaken: false
             tools:
               - go-test
-              - go-test-prebuilt
             lint_scopes:
               - files
               - staged
@@ -255,7 +253,7 @@ principles:
             skill_id: lint-remediation
             when: >-
               coverage.exists(item,
-                list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+                item.tool == "go-test" &&
                 (item.total || item.code == "coverage-file") &&
                 item.percent < 90.0 &&
                 (item.package == "" ||

@@ -533,7 +533,6 @@ func hookOwnedToolDefinitions() []Tool {
 		gofmtTool(),
 		goVetTool(),
 		goTestTool(),
-		goTestPrebuiltTool(),
 		radonComplexityTool(),
 		radonMaintainabilityTool(),
 		vultureTool(),
@@ -1049,28 +1048,11 @@ func goTestTool() Tool {
 	return Tool{
 		Name:             "go-test",
 		Parser:           "go-test",
-		ParserAliases:    []string{"go-test-prebuilt"},
 		Category:         "test",
 		OutputFormat:     "json",
 		Advice:           "Fix Go test failures as executable behavioral contract failures.",
 		Runtime:          RuntimeGo,
 		Command:          []string{"go", "test", "./..."},
-		FileExtensions:   []string{".go"},
-		Languages:        []string{"go"},
-		PassFilesAsArgs:  false,
-		EnabledByDefault: true,
-	}
-}
-
-func goTestPrebuiltTool() Tool {
-	return Tool{
-		Name:             "go-test-prebuilt",
-		Parser:           "go-test",
-		Category:         "test",
-		OutputFormat:     "json",
-		Advice:           "Fix Go test failures as executable behavioral contract failures.",
-		Runtime:          RuntimeGo,
-		Command:          []string{"go", "tool", "test2json"},
 		FileExtensions:   []string{".go"},
 		Languages:        []string{"go"},
 		PassFilesAsArgs:  false,

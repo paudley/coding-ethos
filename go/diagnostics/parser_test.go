@@ -416,15 +416,6 @@ func TestManagedAliasParsersUseBaseToolParsers(t *testing.T) {
 				"line is 121 characters (lll)",
 			want: "golangci-lint:go/internal/example.go:lll",
 		},
-		{
-			tool: "go-test-prebuilt",
-			output: strings.Join([]string{
-				`{"Action":"output","Package":"pkg","Test":"TestThing",` +
-					`"Output":"    thing_test.go:42: failed\n"}`,
-				`{"Action":"fail","Package":"pkg","Test":"TestThing"}`,
-			}, "\n"),
-			want: "go-test:thing_test.go:TestThing",
-		},
 	}
 
 	for _, test := range tests {
@@ -498,7 +489,6 @@ func parserFixtureTools() map[string]bool {
 		"gemini-check":          true,
 		"gofmt-check":           true,
 		"go-test":               true,
-		"go-test-prebuilt":      true,
 		"golangci-lint":         true,
 		"golangci-lint-autofix": true,
 		"golangci-lint-format":  true,

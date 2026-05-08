@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,7 +30,6 @@ const (
 	timeoutCode              = "timeout"
 	vultureMinConfidence     = 80
 	gitShimProbeBytes        = 4096
-	goTestPrebuiltToolName   = "go-test-prebuilt"
 	goTestToolName           = "go-test"
 )
 
@@ -631,13 +631,7 @@ func evaluateGoCoverageDiagnostic(
 }
 
 func goCoveragePolicyApplies(policyDef policy.Policy) bool {
-	for _, tool := range policyDef.AppliesTo.Tools {
-		if tool == goTestToolName || tool == goTestPrebuiltToolName {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(policyDef.AppliesTo.Tools, goTestToolName)
 }
 
 func pathWithoutHookGitShims(rawPath, realGit string) string {

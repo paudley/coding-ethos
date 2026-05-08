@@ -318,7 +318,6 @@ func TestHookOwnedToolsExposeSpecialHookCommands(t *testing.T) {
 		"gofmt",
 		"go-vet",
 		"go-test",
-		"go-test-prebuilt",
 		"python-complexity",
 		"python-maintainability",
 		"python-vulture",

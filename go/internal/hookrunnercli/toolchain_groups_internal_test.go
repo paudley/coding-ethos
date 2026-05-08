@@ -707,9 +707,9 @@ func TestGoCoveragePolicyAppliesOnlyToGoTestTools(t *testing.T) {
 	t.Parallel()
 
 	if !goCoveragePolicyApplies(policy.Policy{
-		AppliesTo: policy.AppliesTo{Tools: []string{goTestPrebuiltToolName}},
+		AppliesTo: policy.AppliesTo{Tools: []string{goTestToolName}},
 	}) {
-		t.Fatal("goCoveragePolicyApplies() rejected go-test-prebuilt")
+		t.Fatal("goCoveragePolicyApplies() rejected go-test")
 	}
 
 	if goCoveragePolicyApplies(policy.Policy{
@@ -747,14 +747,14 @@ func testGoCoverageFloorPolicy() policy.Policy {
 		Message:         "Go test coverage is below the required 80% floor.",
 		Suggestion:      "Add meaningful Go tests before committing.",
 		AppliesTo: policy.AppliesTo{
-			Tools: []string{goTestToolName, goTestPrebuiltToolName},
+			Tools: []string{goTestToolName},
 		},
 		Evaluators: []policy.Evaluator{{
 			Name: "cel.expression",
 			Options: map[string]any{
 				"skill_id": "lint-remediation",
 				"when": `coverage.exists(item,
-					list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+					item.tool == "go-test" &&
 					item.total &&
 					item.percent < 80.0)`,
 			},
@@ -773,14 +773,14 @@ func testGoCoverageGoalPolicy() policy.Policy {
 		Message:         "Go test coverage is below the 90% project goal.",
 		Suggestion:      "Add meaningful total-suite and per-file Go coverage.",
 		AppliesTo: policy.AppliesTo{
-			Tools: []string{goTestToolName, goTestPrebuiltToolName},
+			Tools: []string{goTestToolName},
 		},
 		Evaluators: []policy.Evaluator{{
 			Name: "cel.expression",
 			Options: map[string]any{
 				"skill_id": "lint-remediation",
 				"when": `coverage.exists(item,
-					list_contains(["go-test", "go-test-prebuilt"], item.tool) &&
+					item.tool == "go-test" &&
 					(item.total || item.code == "coverage-file") &&
 					item.percent < 90.0 &&
 					(item.package == "" ||

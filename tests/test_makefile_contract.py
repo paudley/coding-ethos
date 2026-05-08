@@ -70,6 +70,10 @@ def test_build_syncs_consumer_generated_outputs_before_runtime_install() -> None
     assert "_sync-consumer-agent-skills" in build_line
     assert "_sync-git-hooks" in build_line
     assert "_sync-parent-hook-runtime" in build_line
+    assert "go-test-binaries-install" not in build_line
+    assert "go-e2e-test-binary-install" not in build_line
+    assert "GO_TEST_BIN" not in makefile
+    assert "GO_E2E_TEST_BINARY" not in makefile
     _assert_build_target_order(build_line)
 
 

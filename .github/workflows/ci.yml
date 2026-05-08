@@ -238,20 +238,13 @@ jobs:
       - name: Run shared Go coverage
         run: |
           mkdir -p ../coverage-results
-          mkdir -p ../coverage-results/e2e-coverdir
           mapfile -t shared_packages < <(
             go list -buildvcs=false ./... | grep -v '/internal/e2e$'
           )
           go test -buildvcs=false -timeout=30s -short "${shared_packages[@]}" \
             -covermode=atomic \
             -coverprofile=../coverage-results/go-shared.out
-          go test -c -buildvcs=false \
-            -cover \
-            -coverpkg=./... \
-            -o ../coverage-results/coding-ethos-e2e.test \
-            ./internal/e2e
-          export GOCOVERDIR="../coverage-results/e2e-coverdir"
-          ../coverage-results/coding-ethos-e2e.test -test.timeout=30s -test.v
+          go test -buildvcs=false -timeout=30s ./internal/e2e
           go tool cover \
             -func=../coverage-results/go-shared.out \
             > ../coverage-results/go-shared.txt
@@ -265,19 +258,6 @@ jobs:
             }
           ' \
             ../coverage-results/go-shared.txt
-          if find ../coverage-results/e2e-coverdir \
-            -type f \
-            -name 'covmeta.*' \
-            -print \
-            -quit \
-            | grep -q .; then
-            go tool covdata textfmt \
-              -i=../coverage-results/e2e-coverdir \
-              -o=../coverage-results/go-e2e-subprocess.out
-            go tool cover \
-              -func=../coverage-results/go-e2e-subprocess.out \
-              > ../coverage-results/go-e2e-subprocess.txt
-          fi
         working-directory: go
 
       - name: Run hook runtime Go coverage

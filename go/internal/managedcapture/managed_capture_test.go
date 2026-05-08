@@ -91,7 +91,6 @@ func managedSubcommandConfigPlacementCases(
 		golangciLintManagedArgsCase(consumerRoot),
 		golangciLintAutofixManagedArgsCase(consumerRoot),
 		goTestManagedArgsCase(),
-		goTestPrebuiltManagedArgsCase(),
 	}
 }
 
@@ -159,29 +158,6 @@ func goTestManagedArgsCase() managedSubcommandConfigPlacementCase {
 	}
 }
 
-func goTestPrebuiltManagedArgsCase() managedSubcommandConfigPlacementCase {
-	return managedSubcommandConfigPlacementCase{
-		name: "go-test-prebuilt",
-		args: []string{
-			"tool",
-			"test2json",
-			"-p",
-			"blackcat.ca/coding-ethos/go/example",
-			"/tmp/example.test",
-			"-test.v",
-		},
-		want: []string{
-			"tool",
-			"test2json",
-			"-t",
-			"-p",
-			"blackcat.ca/coding-ethos/go/example",
-			"/tmp/example.test",
-			"-test.v",
-		},
-	}
-}
-
 func TestNormalizeGolangciLintWorktreeRunsInsideModule(t *testing.T) {
 	t.Parallel()
 
@@ -194,6 +170,7 @@ func TestNormalizeGolangciLintWorktreeRunsInsideModule(t *testing.T) {
 	)
 
 	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
 		consumerRoot,
 		[]string{
 			"run",
@@ -220,6 +197,83 @@ func TestNormalizeGolangciLintWorktreeRunsInsideModule(t *testing.T) {
 	}
 }
 
+func TestNormalizeGolangciLintWorktreeDefaultsToNestedModule(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{
+			"run",
+			"--output.json.path=stdout",
+			"--config",
+			filepath.Join(consumerRoot, ".golangci.yml"),
+		},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{
+		"run",
+		"--output.json.path=stdout",
+		"--config",
+		filepath.Join(consumerRoot, ".golangci.yml"),
+		"./...",
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestNormalizeGolangciLintWorktreeDefaultsToInvocationNestedModule(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	invocationCwd := filepath.Join(consumerRoot, "coding-ethos")
+	goRoot := filepath.Join(invocationCwd, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
+		invocationCwd,
+		[]string{
+			"fmt",
+			"--config",
+			filepath.Join(consumerRoot, ".golangci.yml"),
+		},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{
+		"fmt",
+		"--config",
+		filepath.Join(consumerRoot, ".golangci.yml"),
+		"./...",
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
 	t.Parallel()
 
@@ -233,6 +287,7 @@ func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
 
 	cwd, args := normalizeGoToolWorktree(
 		consumerRoot,
+		consumerRoot,
 		[]string{"test", "-json", "go", "-run", "TestThing"},
 	)
 
@@ -241,6 +296,61 @@ func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
 	}
 
 	wantArgs := []string{"test", "-json", "./...", "-run", "TestThing"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestNormalizeGoToolWorktreeDefaultsToNestedModule(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGoToolWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{"vet"},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{"vet", "./..."}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestNormalizeGoToolWorktreeDefaultsToInvocationNestedModule(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	invocationCwd := filepath.Join(consumerRoot, "coding-ethos")
+	goRoot := filepath.Join(invocationCwd, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGoToolWorktree(
+		consumerRoot,
+		invocationCwd,
+		[]string{"vet"},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{"vet", "./..."}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
 	}

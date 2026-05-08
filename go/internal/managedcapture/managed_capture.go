@@ -146,13 +146,6 @@ func managedCaptureExecutionContext(
 	config lintcapture.RuntimeConfig,
 	options Options,
 ) (string, []string, int, error) {
-	if tool.Name == "go-test-prebuilt" {
-		return options.InvocationCwd,
-			enforceManagedToolArgs(tool, options.Args, options.ConsumerRoot),
-			0,
-			nil
-	}
-
 	sourceRoots, err := config.LintSourceRoots()
 	if err != nil {
 		return "", nil, BlockedExitCode, fmt.Errorf("resolve lint source roots: %w", err)
@@ -178,7 +171,12 @@ func managedCaptureExecutionContext(
 		options.ConsumerRoot,
 	)
 
-	cwd, args := normalizedManagedCaptureContext(tool, options.ConsumerRoot, enforcedArgs)
+	cwd, args := normalizedManagedCaptureContext(
+		tool,
+		options.ConsumerRoot,
+		options.InvocationCwd,
+		enforcedArgs,
+	)
 
 	return cwd, args, 0, nil
 }
@@ -192,14 +190,19 @@ func printManagedCaptureError(err error, exitCode int) int {
 func normalizedManagedCaptureContext(
 	tool toolcatalog.Tool,
 	consumerRoot string,
+	invocationCwd string,
 	args []string,
 ) (string, []string) {
 	if isGolangciLintTool(tool.Name) {
-		return normalizeGolangciLintWorktree(consumerRoot, args)
+		return normalizeGolangciLintWorktree(
+			consumerRoot,
+			invocationCwd,
+			args,
+		)
 	}
 
 	if isGoTool(tool.Name) {
-		return normalizeGoToolWorktree(consumerRoot, args)
+		return normalizeGoToolWorktree(consumerRoot, invocationCwd, args)
 	}
 
 	return consumerRoot, args
@@ -540,26 +543,9 @@ func enforceManagedToolArgs(
 			"test",
 			[]string{"-json", "-cover", "-buildvcs=false", "-timeout=30s", "-short"},
 		)
-	case "go-test-prebuilt":
-		return enforceGoTestPrebuiltArgs(args)
 	default:
 		return enforceCatalogConfigArgs(tool, args, consumerRoot)
 	}
-}
-
-func enforceGoTestPrebuiltArgs(args []string) []string {
-	enforcedPrefix := []string{"tool", "test2json", "-t"}
-
-	if len(args) >= 2 && args[0] == "tool" && args[1] == "test2json" {
-		trimmed := args[2:]
-		if len(trimmed) > 0 && trimmed[0] == "-t" {
-			return append(enforcedPrefix, trimmed[1:]...)
-		}
-
-		return append(enforcedPrefix, trimmed...)
-	}
-
-	return append(enforcedPrefix, args...)
 }
 
 func enforceSQLFluffArgs(
@@ -730,6 +716,7 @@ func enforceSubcommandConfigArgs(
 
 func normalizeGolangciLintWorktree(
 	consumerRoot string,
+	invocationCwd string,
 	args []string,
 ) (string, []string) {
 	if len(args) == 0 ||
@@ -740,6 +727,14 @@ func normalizeGolangciLintWorktree(
 
 	moduleIndex, moduleDir := firstGoModuleArgument(consumerRoot, args[1:])
 	if moduleIndex < 0 {
+		defaultModuleDir := defaultNestedGoModuleDir(
+			consumerRoot,
+			invocationCwd,
+		)
+		if defaultModuleDir != "" {
+			return defaultModuleDir, append(append([]string(nil), args...), "./...")
+		}
+
 		return consumerRoot, args
 	}
 
@@ -752,6 +747,7 @@ func normalizeGolangciLintWorktree(
 
 func normalizeGoToolWorktree(
 	consumerRoot string,
+	invocationCwd string,
 	args []string,
 ) (string, []string) {
 	if len(args) == 0 || (args[0] != "vet" && args[0] != "test") {
@@ -760,6 +756,14 @@ func normalizeGoToolWorktree(
 
 	moduleIndex, moduleDir := firstGoModuleArgument(consumerRoot, args[1:])
 	if moduleIndex < 0 {
+		defaultModuleDir := defaultNestedGoModuleDir(
+			consumerRoot,
+			invocationCwd,
+		)
+		if defaultModuleDir != "" {
+			return defaultModuleDir, append(append([]string(nil), args...), "./...")
+		}
+
 		return consumerRoot, args
 	}
 
@@ -783,6 +787,21 @@ func firstGoModuleArgument(consumerRoot string, args []string) (int, string) {
 	}
 
 	return -1, ""
+}
+
+func defaultNestedGoModuleDir(roots ...string) string {
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+
+		candidate := filepath.Join(root, "go")
+		if regularFileExists(filepath.Join(candidate, "go.mod")) {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func regularFileExists(path string) bool {
