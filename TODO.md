@@ -89,7 +89,7 @@ Goal: prove the actual coding-ethos workflows users and agents depend on by
 creating real temporary git checkouts, installing the real hook/runtime path,
 running real commands, and inspecting real output and repository state.
 
-- [ ] Priority: enforce the `No Self-Promotion` branding ban in hooks and CI
+- [x] Priority: enforce the `No Self-Promotion` branding ban in hooks and CI
   instead of relying on agent memory or plugin templates.
   - [x] Add CEL-backed policy expressions to the `no-self-promotion` principle
         in `coding_ethos.yml` so the source ethos explicitly rejects agent/tool
