@@ -457,6 +457,8 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 
 	var name string
 
+	headingLevel := 0
+
 	switch kind {
 	case ast.KindHeading:
 		symbolKind = "heading"
@@ -465,6 +467,8 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 		if !ok {
 			return Symbol{}, false
 		}
+
+		headingLevel = heading.Level
 
 		var builder strings.Builder
 
@@ -496,16 +500,25 @@ func symbolFromMarkdownNode(node ast.Node, contents []byte) (Symbol, bool) {
 
 	startByte := lines.At(0).Start
 	endByte := lines.At(lines.Len() - 1).Stop
+	startLine := lineForByte(contents, startByte)
+
+	// Build a unique SymbolPath for headings by incorporating heading level and
+	// start line. Duplicate headings (valid Markdown) share the same name but
+	// differ in level or position, so a plain name would collide in stableID.
+	symbolPath := name
+	if headingLevel > 0 {
+		symbolPath = fmt.Sprintf("h%d:%d:%s", headingLevel, startLine, name)
+	}
 
 	return Symbol{
 		Language:   LanguageMarkdown,
 		NodeKind:   kind.String(),
 		SymbolKind: symbolKind,
 		SymbolName: name,
-		SymbolPath: name,
+		SymbolPath: symbolPath,
 		StartByte:  startByte,
 		EndByte:    endByte,
-		StartLine:  lineForByte(contents, startByte),
+		StartLine:  startLine,
 		EndLine:    lineForByte(contents, endByte),
 	}, true
 }
