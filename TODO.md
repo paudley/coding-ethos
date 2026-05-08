@@ -152,7 +152,7 @@ running real commands, and inspecting real output and repository state.
         failures.
   - [x] Add an end-to-end scenario that runs the real generated-config drift
         path and asserts trace plus SARIF evidence contains each stale file.
-  - [ ] Restore or replace the temporary GitHub ruleset drift from PR #64:
+  - [x] Restore or replace the temporary GitHub ruleset drift from PR #64:
         code-owner review, Copilot review, and Scorecard code-scanning
         requirements need durable policy decisions before the next release.
 - [x] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
