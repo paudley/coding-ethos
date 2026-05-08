@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const uvPythonStaticArgCount = 5
@@ -94,8 +96,8 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 		return ""
 	}
 
-	root := pythonRuntimeRoot(cwd)
-	if root == "" {
+	runtimeCommand, ok := pythonRuntimeCommand(cwd, argv[1:])
+	if !ok {
 		return ""
 	}
 
@@ -104,7 +106,7 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 		parts = append(parts, shellQuoteAssignment(assignment))
 	}
 
-	parts = append(parts, pythonRuntimeCommand(root, argv[1:])...)
+	parts = append(parts, runtimeCommand...)
 	if len(redirections) > 0 {
 		parts = append(parts, redirections...)
 	}
@@ -112,7 +114,12 @@ func rewritePythonRuntimeSegment(segment []string, cwd string) string {
 	return strings.Join(parts, " ")
 }
 
-func pythonRuntimeCommand(root string, args []string) []string {
+func pythonRuntimeCommand(cwd string, args []string) ([]string, bool) {
+	root := pythonRuntimeRoot(cwd)
+	if root == "" {
+		return nil, false
+	}
+
 	parts := make([]string, 0, uvPythonStaticArgCount+len(args))
 
 	parts = append(parts, "uv", "run", "--project", shellQuote(root), "python")
@@ -120,15 +127,18 @@ func pythonRuntimeCommand(root string, args []string) []string {
 		parts = append(parts, shellQuote(arg))
 	}
 
-	return parts
+	return parts, true
 }
 
 func pythonRuntimeRoot(cwd string) string {
 	cwd = normalizedPythonRuntimeCwd(cwd)
 
-	if root := gitRootFromPath(cwd); root != "" &&
-		pythonRuntimeAvailable(root) {
-		return root
+	if root := gitRootFromPath(cwd); root != "" {
+		if pythonRuntimeAvailable(root) {
+			return root
+		}
+
+		return ""
 	}
 
 	for current := filepath.Clean(cwd); ; current = filepath.Dir(current) {
@@ -189,7 +199,28 @@ func gitRootFromPath(path string) string {
 
 func pythonRepoUsesUV(root string) bool {
 	return fileExists(filepath.Join(root, "uv.lock")) ||
-		fileExists(filepath.Join(root, "uv.toml"))
+		fileExists(filepath.Join(root, "uv.toml")) ||
+		pyprojectDeclaresUV(root)
+}
+
+func pyprojectDeclaresUV(root string) bool {
+	content, err := os.ReadFile(filepath.Join(root, "pyproject.toml"))
+	if err != nil {
+		return false
+	}
+
+	var config struct {
+		Tool map[string]any `toml:"tool"`
+	}
+
+	err = toml.Unmarshal(content, &config)
+	if err != nil {
+		return false
+	}
+
+	_, ok := config.Tool["uv"]
+
+	return ok
 }
 
 func fileExists(path string) bool {

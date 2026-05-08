@@ -898,6 +898,89 @@ func TestRunDoesNotRewritePythonForPyprojectWithoutUVEvidence(t *testing.T) {
 	}
 }
 
+func TestRunRewritesPythonForPyprojectUVEvidence(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(
+		filepath.Join(root, "pyproject.toml"),
+		[]byte("[project]\nname = \"demo\"\n\n[tool.uv]\npackage = true\n"),
+		0o600,
+	)
+	if inlineErr10 != nil {
+		t.Fatalf("write pyproject: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "uv run --project '"+root+"' python 'script.py'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunDoesNotRewritePythonThroughNestedUVProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
+	if inlineErr10 != nil {
+		t.Fatalf("mkdir .git: %v", inlineErr10)
+	}
+
+	nested := filepath.Join(root, "pkg")
+
+	inlineErr11 := os.MkdirAll(nested, 0o755)
+	if inlineErr11 != nil {
+		t.Fatalf("mkdir nested: %v", inlineErr11)
+	}
+
+	inlineErr12 := os.WriteFile(filepath.Join(nested, "uv.lock"), nil, 0o600)
+	if inlineErr12 != nil {
+		t.Fatalf("write nested uv.lock: %v", inlineErr12)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           nested,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
 func TestRunAllowsCodexPythonRuntimeWithoutUnsupportedRewrite(t *testing.T) {
 	t.Parallel()
 
