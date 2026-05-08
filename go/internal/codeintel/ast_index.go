@@ -122,11 +122,20 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
-
 	hash := astfacts.ContentHash(contents)
-	existing, found, err := indexer.store.GetCodeFile(ctx, relativePath)
 
-	if err == nil && found && existing.ContentHash == hash {
+	existing, found, err := indexer.store.GetCodeFile(ctx, relativePath)
+	if err != nil {
+		return fmt.Errorf("lookup existing code file %q: %w", relativePath, err)
+	}
+
+	parserName, parserVersion := astfacts.ParserMetadata()
+
+	if found &&
+		existing.ContentHash == hash &&
+		existing.ParserName == parserName &&
+		existing.ParserVersion == parserVersion &&
+		existing.StaleReason == "" {
 		summary.Skipped = append(summary.Skipped, relativePath)
 
 		return nil
@@ -145,8 +154,8 @@ func (indexer ASTIndexer) indexFile(
 		Path:          relativePath,
 		Language:      language,
 		ContentHash:   parsed.ContentHash,
-		ParserName:    "tree-sitter",
-		ParserVersion: "go-tree-sitter",
+		ParserName:    parserName,
+		ParserVersion: parserVersion,
 		SizeBytes:     len(contents),
 		LineCount:     parsed.LineCount,
 		IndexedAtUTC:  time.Now().UTC().Format(time.RFC3339),

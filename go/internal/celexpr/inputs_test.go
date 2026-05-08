@@ -311,7 +311,8 @@ func TestProgramEvaluatesASTHelpers(t *testing.T) {
 	changes, found := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
 	if !found || len(changes) == 0 {
 		t.Fatalf(
-			"proposed_symbol_changes is empty; test cannot exercise symbol helpers. activation=%#v",
+			"proposed_symbol_changes is empty; test cannot exercise symbol helpers. "+
+				"activation=%#v",
 			activation["proposed_symbol_changes"],
 		)
 	}

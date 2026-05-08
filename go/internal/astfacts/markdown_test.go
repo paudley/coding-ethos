@@ -54,6 +54,45 @@ Check out the CLI.
 	}
 }
 
+func TestAnalyzePopulatesMarkdownSymbolMetadata(t *testing.T) {
+	t.Parallel()
+
+	content := []byte(`# Title
+
+` + "```go" + `
+package main
+` + "```" + `
+`)
+
+	parsedFile, analyzedOK, err := Analyze("README.md", content)
+	if err != nil {
+		t.Fatalf("analyze markdown: %v", err)
+	}
+
+	if !analyzedOK {
+		t.Fatalf("analyze returned ok=false")
+	}
+
+	// Verify all symbols have the correct path and valid content metadata.
+	for _, sym := range parsedFile.Symbols {
+		if sym.Path != "README.md" {
+			t.Errorf("Symbol %q has wrong path: %q", sym.SymbolPath, sym.Path)
+		}
+
+		if sym.RawText == "" {
+			t.Errorf("Symbol %q has empty RawText", sym.SymbolPath)
+		}
+
+		if sym.ContentHash == "" {
+			t.Errorf("Symbol %q has empty ContentHash", sym.SymbolPath)
+		}
+
+		if sym.LineCount <= 0 {
+			t.Errorf("Symbol %q has invalid LineCount: %d", sym.SymbolPath, sym.LineCount)
+		}
+	}
+}
+
 func TestDuplicateMarkdownHeadingsProduceUniqueSymbolPaths(t *testing.T) {
 	t.Parallel()
 
@@ -78,6 +117,7 @@ A second overview section.
 	}
 
 	seen := make(map[string]int)
+
 	for _, sym := range parsedFile.Symbols {
 		if sym.SymbolKind == "heading" {
 			seen[sym.SymbolPath]++
@@ -86,7 +126,11 @@ A second overview section.
 
 	for path, count := range seen {
 		if count > 1 {
-			t.Errorf("duplicate SymbolPath %q appears %d times; paths must be unique", path, count)
+			t.Errorf(
+				"duplicate SymbolPath %q appears %d times; paths must be unique",
+				path,
+				count,
+			)
 		}
 	}
 

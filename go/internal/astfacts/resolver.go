@@ -56,7 +56,7 @@ func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, err
 	}
 
 	if language == LanguageMarkdown {
-		return resolver.analyzeMarkdown(contents), true, nil
+		return resolver.analyzeMarkdown(path, contents), true, nil
 	}
 
 	tree, err := resolver.parse(path, language, parserLanguage, contents)
@@ -112,7 +112,7 @@ func (resolver *Resolver) Parse(
 	contents []byte,
 ) (*tree_sitter.Tree, bool, error) {
 	language, parserLanguage, ok := languageForPath(path)
-	if !ok {
+	if !ok || language == LanguageMarkdown {
 		return nil, false, nil
 	}
 
@@ -124,8 +124,8 @@ func (resolver *Resolver) Parse(
 	return tree, true, nil
 }
 
-func (resolver *Resolver) analyzeMarkdown(contents []byte) File {
-	return AnalyzeMarkdown(contents)
+func (resolver *Resolver) analyzeMarkdown(path string, contents []byte) File {
+	return AnalyzeMarkdown(path, contents)
 }
 
 func (resolver *Resolver) parse(

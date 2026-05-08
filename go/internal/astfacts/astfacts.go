@@ -409,7 +409,11 @@ func cleanMarkdownHeading(text string) string {
 	return cleanSymbolName(text)
 }
 
-func AnalyzeMarkdown(contents []byte) File {
+func ParserMetadata() (string, string) {
+	return "goldmark", "v1.8.2"
+}
+
+func AnalyzeMarkdown(path string, contents []byte) File {
 	md := goldmark.New()
 	reader := text.NewReader(contents)
 	doc := md.Parser().Parse(reader)
@@ -423,14 +427,13 @@ func AnalyzeMarkdown(contents []byte) File {
 			return ast.WalkContinue, nil
 		}
 
-		symbol, analyzedOK := symbolFromMarkdownNode(node, contents, lineIndexer)
+		symbol, analyzedOK := symbolFromMarkdownNode(path, node, contents, lineIndexer)
 		if analyzedOK {
 			symbols = append(symbols, symbol)
 		}
 
 		return ast.WalkContinue, nil
 	})
-
 	if err != nil {
 		return File{
 			ContentHash: ContentHash(contents),
@@ -448,6 +451,7 @@ func AnalyzeMarkdown(contents []byte) File {
 }
 
 func symbolFromMarkdownNode(
+	path string,
 	node ast.Node,
 	contents []byte,
 	lineIndexer lineMap,
@@ -502,6 +506,7 @@ func symbolFromMarkdownNode(
 	startByte := lines.At(0).Start
 	endByte := lines.At(lines.Len() - 1).Stop
 	startLine := lineIndexer.lineForByte(startByte)
+	raw := string(contents[startByte:endByte])
 
 	// Build a unique SymbolPath for headings by incorporating heading level and
 	// start line. Duplicate headings (valid Markdown) share the same name but
@@ -512,15 +517,19 @@ func symbolFromMarkdownNode(
 	}
 
 	return Symbol{
-		Language:   LanguageMarkdown,
-		NodeKind:   kind.String(),
-		SymbolKind: symbolKind,
-		SymbolName: name,
-		SymbolPath: symbolPath,
-		StartByte:  startByte,
-		EndByte:    endByte,
-		StartLine:  startLine,
-		EndLine:    lineIndexer.lineForByte(endByte),
+		Language:    LanguageMarkdown,
+		NodeKind:    kind.String(),
+		SymbolKind:  symbolKind,
+		SymbolName:  name,
+		SymbolPath:  symbolPath,
+		Path:        path,
+		RawText:     raw,
+		ContentHash: ContentHash([]byte(raw)),
+		StartByte:   startByte,
+		EndByte:     endByte,
+		StartLine:   startLine,
+		EndLine:     lineIndexer.lineForByte(endByte),
+		LineCount:   max(lineIndexer.lineForByte(endByte)-startLine+1, 0),
 	}, true
 }
 
