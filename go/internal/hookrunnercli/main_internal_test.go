@@ -2606,6 +2606,7 @@ func TestShellAndYamlCommandsExecuteExternalToolsAndReportFindings(t *testing.T)
 	bundleRoot := writeTestBundleRoot(t, tempDir)
 
 	t.Setenv(precommitRootEnv, bundleRoot)
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
 	mustWriteTestFile(t, "scripts/run.sh", "#!/usr/bin/env sh\necho $NAME\n")
 	mustWriteTestFile(t, "config.yaml", "bad: [\n")
 
@@ -2663,6 +2664,7 @@ exit 2
 		"tool: shellcheck",
 		"tool: shfmt",
 		"tool: yamllint",
+		"shfmt,scripts/run.sh,1,1,error,format",
 		"scripts/run.sh",
 		"config.yaml",
 	} {

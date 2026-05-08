@@ -5,6 +5,8 @@ package lint
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -135,6 +137,11 @@ func evaluatePolicy(
 		Command:       options.Command,
 		Cwd:           options.Cwd,
 	}
+
+	if scope == ScopeCommit {
+		context.Content = commitMessageContent(options.Cwd, options.Files)
+	}
+
 	switch scope {
 	case ScopeChanged:
 		context.ChangedFiles = append([]string(nil), options.Files...)
@@ -169,6 +176,23 @@ func evaluatePolicy(
 	}
 
 	return []policy.Decision{recordDecision(policyDef, scope, options)}, nil
+}
+
+func commitMessageContent(cwd string, files []string) string {
+	messages := make([]string, 0, len(files))
+	for _, file := range files {
+		path := file
+		if !filepath.IsAbs(path) && cwd != "" {
+			path = filepath.Join(cwd, path)
+		}
+
+		content, err := os.ReadFile(path)
+		if err == nil && strings.TrimSpace(string(content)) != "" {
+			messages = append(messages, string(content))
+		}
+	}
+
+	return strings.Join(messages, "\n")
 }
 
 func attachPolicySource(

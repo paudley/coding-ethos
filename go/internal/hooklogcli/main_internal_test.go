@@ -66,6 +66,8 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 
 	root := t.TempDir()
 
+	writeHookLogGitignore(t, root)
+
 	bundleRoot := filepath.Join(root, "pre-commit")
 
 	inlineErr0 := os.MkdirAll(bundleRoot, 0o755)
@@ -73,39 +75,13 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 		t.Fatalf("create bundle root: %v", inlineErr0)
 	}
 
-	gitPath := filepath.Join(root, "git")
-
-	inlineErr1 := os.WriteFile(
-		gitPath,
-		[]byte("#!/usr/bin/env sh\nexit 0\n"),
-		0o600,
+	gitPath := writeHookLogScript(t, root, "git", "#!/usr/bin/env sh\nexit 0\n")
+	commandPath := writeHookLogScript(
+		t,
+		root,
+		"hook",
+		"#!/usr/bin/env sh\nprintf 'stdout text\\n'\nprintf 'stderr text\\n' >&2\n",
 	)
-	if inlineErr1 != nil {
-		t.Fatalf("write fake git: %v", inlineErr1)
-	}
-
-	inlineErr1 = os.Chmod(gitPath, 0o700)
-	if inlineErr1 != nil {
-		t.Fatalf("chmod fake git: %v", inlineErr1)
-	}
-
-	commandPath := filepath.Join(root, "hook")
-
-	inlineErr2 := os.WriteFile(
-		commandPath,
-		[]byte(
-			"#!/usr/bin/env sh\nprintf 'stdout text\\n'\nprintf 'stderr text\\n' >&2\n",
-		),
-		0o600,
-	)
-	if inlineErr2 != nil {
-		t.Fatalf("write hook command: %v", inlineErr2)
-	}
-
-	inlineErr2 = os.Chmod(commandPath, 0o700)
-	if inlineErr2 != nil {
-		t.Fatalf("chmod hook command: %v", inlineErr2)
-	}
 
 	var (
 		stdout bytes.Buffer
@@ -148,6 +124,9 @@ func TestRunWithIOPreservesWrappedCommandExitCode(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
+	writeHookLogGitignore(t, root)
+
 	bundleRoot := filepath.Join(root, "pre-commit")
 
 	err := os.MkdirAll(bundleRoot, 0o755)
@@ -199,4 +178,35 @@ func TestRunWithIOPreservesWrappedCommandExitCode(t *testing.T) {
 	if exitErr.ExitCode() != 37 {
 		t.Fatalf("exit code = %d, want 37", exitErr.ExitCode())
 	}
+}
+
+func writeHookLogGitignore(t *testing.T, root string) {
+	t.Helper()
+
+	err := os.WriteFile(
+		filepath.Join(root, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write hook log gitignore: %v", err)
+	}
+}
+
+func writeHookLogScript(t *testing.T, root, name, content string) string {
+	t.Helper()
+
+	path := filepath.Join(root, name)
+
+	err := os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write hook log script %s: %v", name, err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod hook log script %s: %v", name, err)
+	}
+
+	return path
 }

@@ -127,9 +127,7 @@ func runAgentHook(paths runtimePaths, rest []string) {
 	installLintToolShims(paths)
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
-	runtimeExecTool(
-		paths,
-		"coding-ethos-hook",
+	paths.executor().execAgentHook(
 		append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
 }
 

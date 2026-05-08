@@ -3,6 +3,16 @@
 
 # TODO
 
+## High Priority Runtime Self-Delegation
+
+- [x] Remove the internal `coding-ethos-run agent-hook -> coding-ethos-hook`
+  runtime self-delegation path. `coding-ethos-run agent-hook` invokes the hook
+  CLI path in-process with the same compiled bundle and provider output
+  contract, without spawning the separate `coding-ethos-hook` binary. This ban
+  applies to Go runtime paths delegating back out to another generated Go
+  executable; user-facing entrypoint shims such as `git` and managed-tool
+  wrappers remain intentional integration surfaces.
+
 ## Project Discoverability
 
 Goal: make `coding-ethos` easy to find, understand, trust, and try from GitHub,
@@ -89,25 +99,25 @@ Goal: prove the actual coding-ethos workflows users and agents depend on by
 creating real temporary git checkouts, installing the real hook/runtime path,
 running real commands, and inspecting real output and repository state.
 
-- [ ] Priority: enforce the `No Self-Promotion` branding ban in hooks and CI
+- [x] Priority: enforce the `No Self-Promotion` branding ban in hooks and CI
   instead of relying on agent memory or plugin templates.
-  - [ ] Add CEL-backed policy expressions to the `no-self-promotion` principle
+  - [x] Add CEL-backed policy expressions to the `no-self-promotion` principle
         in `coding_ethos.yml` so the source ethos explicitly rejects agent/tool
         branding in commits, pull request titles/bodies, documentation, and
         generated artifacts.
-  - [ ] Gate agent `PreToolUse` command payloads that create or edit pull
+  - [x] Gate agent `PreToolUse` command payloads that create or edit pull
         requests, including `gh pr create`, `gh pr edit`, and connector-backed
         PR creation, when title/body arguments contain prefixes or attribution
         such as `[codex]`, `codex/`, `Generated with`, `Co-authored-by:
         Codex`, or equivalent tool branding.
-  - [ ] Gate `commit-msg` and staged-file scopes for self-promotion text in
+  - [x] Gate `commit-msg` and staged-file scopes for self-promotion text in
         commit subjects, generated markdown, release notes, PR templates, and
         agent-authored docs while allowing legitimate references to product
         paths such as `.codex/` configuration files.
-  - [ ] Add real hook workflow regressions proving the plugin-suggested
+  - [x] Add real hook workflow regressions proving the plugin-suggested
         `[codex]` PR title is blocked before GitHub mutation and that a
         repo-native unbranded title is allowed.
-  - [ ] Regenerate `AGENTS.md`, `ETHOS.md`, provider skills, and prompt packs
+  - [x] Regenerate `AGENTS.md`, `ETHOS.md`, provider skills, and prompt packs
         from the source ethos after adding the CEL policy.
 - [x] Build a Go-based end-to-end test harness that creates isolated git
   checkouts with known sample files, initializes commits, installs
@@ -119,7 +129,7 @@ running real commands, and inspecting real output and repository state.
 - [x] Add a failed commit regression: stage a known policy violation, run real
   `git commit`, assert the command fails with the original lint/policy finding,
   and assert `git.commit_head_advanced` does not replace or mask that failure.
-- [ ] Add managed lint capture workflow tests that run real managed tools
+- [x] Add managed lint capture workflow tests that run real managed tools
   against reference-repo source files for clean output, warning output with exit
   code 0, parseable diagnostics, and unparseable failures; assert
   TOON/JSON/SARIF and trace outputs preserve the evidence.
@@ -129,7 +139,7 @@ running real commands, and inspecting real output and repository state.
         clean output instead of user-visible linter warnings.
   - [x] Add JSON-output assertions for the same real managed-tool scenarios.
   - [x] Add a real managed-tool failure scenario that proves raw output remains visible and policy/CEL/SARIF evidence is retained.
-- [ ] Route every pre-commit gate through the normalized
+- [x] Route every pre-commit gate through the normalized
   diagnostics/SARIF/CEL path. Gates such as `go-test`, `go-vet`, formatting,
   manifest checks, generated-config checks, and tool bootstrap checks must
   produce structured diagnostics that can become SARIF results and CEL inputs;
@@ -139,20 +149,20 @@ running real commands, and inspecting real output and repository state.
         stale repo-root tool configs appear as SARIF/CEL-addressable findings
         instead of pathless external-command failures.
   - [x] Emit file-specific diagnostics for generated Gemini prompt pack drift.
-  - [ ] Emit provider/skill-path diagnostics for generated agent skill surface
+  - [x] Emit provider/skill-path diagnostics for generated agent skill surface
         drift.
-  - [ ] Convert tool bootstrap and managed-toolchain manifest failures into
+  - [x] Convert tool bootstrap and managed-toolchain manifest failures into
         structured diagnostics with manifest paths, tool names, and repair
         commands.
-  - [ ] Verify `go-vet` failures produce parser-backed diagnostics in
+  - [x] Verify `go-vet` failures produce parser-backed diagnostics in
         TOON/JSON/SARIF and retain bounded raw output only as supporting
         evidence.
-  - [ ] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
+  - [x] Verify formatter/checker gates (`go-format`, `format`, `shfmt`) report
         changed files as structured diagnostics rather than generic group
         failures.
   - [x] Add an end-to-end scenario that runs the real generated-config drift
         path and asserts trace plus SARIF evidence contains each stale file.
-  - [ ] Restore or replace the temporary GitHub ruleset drift from PR #64:
+  - [x] Restore or replace the temporary GitHub ruleset drift from PR #64:
         code-owner review, Copilot review, and Scorecard code-scanning
         requirements need durable policy decisions before the next release.
 - [x] Add Go test coverage tracking to the full diagnostics pipeline. Coverage
@@ -167,23 +177,23 @@ running real commands, and inspecting real output and repository state.
   - [x] Expose Go coverage diagnostics through the shared CEL `coverage`
     collection and verify CEL can promote below-floor coverage into a
     blocking SARIF finding.
-- [ ] Add policy-yaml coverage threshold bands and enforcement modes. Coverage
+- [x] Add policy-yaml coverage threshold bands and enforcement modes. Coverage
   policy should support high/medium/low thresholds in `coding_ethos.yml`, with
   configurable floors for project, module/package, and file/function coverage.
   The default policy should require at least 80% coverage where coverage is
   enforced, expose warning bands below preferred thresholds, and allow CEL to
   promote below-threshold coverage records into blocking findings.
-- [ ] Suppress routine pass/noise lines in pre-commit gate output while
+- [x] Suppress routine pass/noise lines in pre-commit gate output while
   preserving actionable failure context. For example, passing Go package
   lines such as `ok ...` should not appear in user-facing hook reports, but
   failing package names, test names, file/line locations, panic text, and
   unparseable failure excerpts must remain visible.
-- [ ] Add a shell-parser-backed hook rewrite that detects naked `python` or
+- [x] Add a shell-parser-backed hook rewrite that detects naked `python` or
   `python3` invocations and rewrites them to `uv run python` when the target
   repo is a uv-managed project. The policy must use parsed command structure,
   preserve arguments and quoting, avoid string matching, and only rewrite when
   repo evidence shows uv is the active Python environment contract.
-- [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
+- [x] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.
 - [ ] Add MCP workflow tests that exercise the real stdio framing and request

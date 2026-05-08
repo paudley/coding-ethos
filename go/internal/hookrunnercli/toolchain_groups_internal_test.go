@@ -202,6 +202,7 @@ exit 2
 		"#!/usr/bin/env sh\nprintf 'go/main.go\\n'\nexit 0\n",
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
 
 	if got := runGoVet(Config{}, []string{"go/main.go"}); got != 0 {
 		t.Fatalf("runGoVet() = %d, want 0", got)
@@ -223,7 +224,8 @@ exit 2
 		}
 	})
 	if !strings.Contains(stdout, "GOFMT CHECK FAILED") ||
-		!strings.Contains(stdout, "go/main.go") {
+		!strings.Contains(stdout, "go/main.go") ||
+		!strings.Contains(stdout, "gofmt-check,go/main.go,1,0,error,format") {
 		t.Fatalf("gofmt output missing expected finding:\n%s", stdout)
 	}
 }

@@ -220,11 +220,42 @@ principles:
               - testing-as-specification
               - functional-testing-is-the-proof
             skill_id: lint-remediation
+            coverage_thresholds:
+              project:
+                high: 90.0
+                medium: 80.0
+                low: 0.0
+                floor: 80.0
+                goal: 90.0
+              package:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
+              file:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
+              function:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
             when: >-
               coverage.exists(item,
                 item.tool == "go-test" &&
-                item.total &&
-                item.percent < 80.0 &&
+                ((item.total &&
+                item.percent < coverage_thresholds.project.floor) ||
+                (item.code == "coverage-package" &&
+                coverage_thresholds.package.floor > 0.0 &&
+                item.percent < coverage_thresholds.package.floor) ||
+                (item.code == "coverage-file" &&
+                coverage_thresholds.file.floor > 0.0 &&
+                item.percent < coverage_thresholds.file.floor)) &&
                 (item.package == "" ||
                 item.package.startsWith("blackcat.ca/coding-ethos/go"))
               )
@@ -251,11 +282,40 @@ principles:
               - testing-as-specification
               - functional-testing-is-the-proof
             skill_id: lint-remediation
+            coverage_thresholds:
+              project:
+                high: 90.0
+                medium: 80.0
+                low: 0.0
+                floor: 80.0
+                goal: 90.0
+              package:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
+              file:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
+              function:
+                high: 90.0
+                medium: 0.0
+                low: 0.0
+                floor: 0.0
+                goal: 90.0
             when: >-
               coverage.exists(item,
                 item.tool == "go-test" &&
-                (item.total || item.code == "coverage-file") &&
-                item.percent < 90.0 &&
+                ((item.total &&
+                item.percent < coverage_thresholds.project.goal) ||
+                (item.code == "coverage-package" &&
+                item.percent < coverage_thresholds.package.goal) ||
+                (item.code == "coverage-file" &&
+                item.percent < coverage_thresholds.file.goal)) &&
                 (item.package == "" ||
                 item.package.startsWith("blackcat.ca/coding-ethos/go"))
               )

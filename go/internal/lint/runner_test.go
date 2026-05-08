@@ -244,6 +244,36 @@ func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	}
 }
 
+func TestRunBlocksSelfPromotionalCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
+
+	err := os.WriteFile(
+		messagePath,
+		[]byte("fix(policy): Generated with Codex\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	result, err := Run(compiledRepoLintBundle(t), Options{
+		Scope: ScopeCommit,
+		Cwd:   repo,
+		Files: []string{"COMMIT_EDITMSG"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!lintResultHasDecision(result, "agent.self_promotion_commit_msg") {
+		t.Fatalf("expected self-promotion commit block, got %#v", result)
+	}
+}
+
 func lintResultHasDecision(result Result, policyID string) bool {
 	for _, decision := range result.Decisions {
 		if decision.PolicyID == policyID {
@@ -252,6 +282,51 @@ func lintResultHasDecision(result Result, policyID string) bool {
 	}
 
 	return false
+}
+
+func compiledRepoLintBundle(tb testing.TB) policy.Bundle {
+	tb.Helper()
+
+	root := repoRootForLintTest(tb)
+
+	bundle, _, err := policy.Compile(policy.CompileOptions{
+		Primary: filepath.Join(root, "coding_ethos.yml"),
+		Config:  filepath.Join(root, "config.yaml"),
+	})
+	if err != nil {
+		tb.Fatalf("compile repo policy bundle: %v", err)
+	}
+
+	return bundle
+}
+
+func repoRootForLintTest(tb testing.TB) string {
+	tb.Helper()
+
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		tb.Fatalf("resolve cwd: %v", err)
+	}
+
+	for {
+		if fileExistsForLintTest(filepath.Join(dir, "coding_ethos.yml")) &&
+			fileExistsForLintTest(filepath.Join(dir, "config.yaml")) {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			tb.Fatalf("repository root not found from %s", dir)
+		}
+
+		dir = parent
+	}
+}
+
+func fileExistsForLintTest(path string) bool {
+	_, err := os.Stat(path)
+
+	return err == nil
 }
 
 func TestRunRejectsPolicyWithNoRegisteredEvaluator(t *testing.T) {

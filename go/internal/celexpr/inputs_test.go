@@ -1486,6 +1486,42 @@ func TestProgramCanEvaluateCoverageInputs(t *testing.T) {
 	}
 }
 
+func TestProgramCanEvaluateCoverageThresholdInputs(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"testing.coverage_thresholds",
+		`coverage.exists(item,
+			item.tool == "go-test" &&
+			item.total &&
+			item.percent < coverage_thresholds.project.floor
+		)`,
+	)
+	if err != nil {
+		t.Fatalf("Program() error = %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		CoverageThresholds: CoverageThresholdsInput{
+			Project: CoverageThresholdBandInput{Floor: 85.0},
+		},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Metadata: map[string]any{
+				"coverage_percent": 84.5,
+			},
+			Tool: "go-test",
+			Code: "coverage-total",
+		}},
+	}))
+	if err != nil {
+		t.Fatalf("Eval() error = %v", err)
+	}
+
+	if output.Value() != true {
+		t.Fatalf("coverage threshold policy result = %v, want true", output.Value())
+	}
+}
+
 func assertExplicitDiagnosticInput(t *testing.T, diagnostic DiagnosticInput) {
 	t.Helper()
 

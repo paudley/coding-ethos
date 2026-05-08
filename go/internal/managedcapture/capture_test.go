@@ -627,6 +627,128 @@ func TestRunCapturedToolBlocksParsedErrorWhenToolExitsZero(t *testing.T) {
 	}
 }
 
+func TestRunCapturedGoVetFailureFormatsParsedDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	for _, format := range []string{
+		hookoutput.FormatTOON,
+		hookoutput.FormatJSON,
+		hookoutput.FormatSARIF,
+	} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+
+			output, trace := runCapturedGoVetFailureForTest(t, format)
+			assertGoVetParsedDiagnosticOutput(t, format, output)
+			assertGoVetParsedDiagnosticTrace(t, trace)
+		})
+	}
+}
+
+func runCapturedGoVetFailureForTest(t *testing.T, format string) (string, string) {
+	t.Helper()
+
+	const vetOutput = "# blackcat.ca/coding-ethos/go/pkg\n" +
+		"pkg/app.go:12:4: fmt.Println call has possible Printf formatting directive %s"
+
+	repo := t.TempDir()
+	tool := writeCaptureFixtureTool(t, repo, "vet", vetOutput)
+
+	var output bytes.Buffer
+
+	exitCode := runCapturedToolForTest(
+		"go-vet",
+		tool,
+		repo,
+		[]string{"vet", "./..."},
+		PolicyContext{},
+		format,
+		&output,
+	)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1; output:\n%s", exitCode, output.String())
+	}
+
+	return output.String(), singleTraceContent(t, repo)
+}
+
+func assertGoVetParsedDiagnosticOutput(
+	t *testing.T,
+	format string,
+	content string,
+) {
+	t.Helper()
+
+	for _, want := range goVetParsedDiagnosticOutput(format) {
+		if !strings.Contains(content, want) {
+			t.Fatalf("%s output missing %q:\n%s", format, want, content)
+		}
+	}
+
+	for _, unwanted := range []string{
+		"without parseable diagnostics",
+		"external command failed",
+	} {
+		if strings.Contains(content, unwanted) {
+			t.Fatalf("%s output used generic failure %q:\n%s", format, unwanted, content)
+		}
+	}
+}
+
+func assertGoVetParsedDiagnosticTrace(t *testing.T, trace string) {
+	t.Helper()
+
+	for _, want := range []string{
+		`"tool": "go-vet"`,
+		`"parse_status": "parsed"`,
+		`"output_excerpt": "# blackcat.ca/coding-ethos/go/pkg pkg/app.go:12:4`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("trace missing %q:\n%s", want, trace)
+		}
+	}
+}
+
+func goVetParsedDiagnosticOutput(format string) []string {
+	switch format {
+	case hookoutput.FormatTOON:
+		return []string{
+			"format: toon",
+			"tool: go-vet",
+			"findings[1]",
+			"go-vet,pkg/app.go,12,4,error,vet",
+			"fmt.Println call has possible Printf formatting directive %s",
+		}
+	case hookoutput.FormatJSON:
+		return []string{
+			`"scope": "tool:go-vet"`,
+			`"status": "blocked"`,
+			`"parse_status": "parsed"`,
+			`"diagnostics": [`,
+			`"tool": "go-vet"`,
+			`"file": "pkg/app.go"`,
+			`"line": 12`,
+			`"column": 4`,
+			`"code": "vet"`,
+		}
+	case hookoutput.FormatSARIF:
+		return []string{
+			`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+			`"ruleId": "go-vet:vet"`,
+			`"uri": "pkg/app.go"`,
+			`"startLine": 12`,
+			`"startColumn": 4`,
+			`"source_tool": "go-vet"`,
+		}
+	default:
+		return nil
+	}
+}
+
 func TestRunCapturedGoTestCoverageCanBePromotedByCEL(t *testing.T) {
 	t.Parallel()
 
@@ -856,6 +978,104 @@ exit 0
 		!strings.Contains(content, `"args":`) ||
 		!strings.Contains(content, `"pkg/app.py"`) {
 		t.Fatalf("trace did not record formatter arguments:\n%s", content)
+	}
+}
+
+func TestFormatterChangedFilesRenderStructuredDiagnosticsForMachineFormats(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	for _, format := range []string{hookoutput.FormatJSON, hookoutput.FormatSARIF} {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+
+			output := runFormatterChangedFileForTest(t, format)
+			for _, want := range formatterChangedFileOutput(format) {
+				if !strings.Contains(output, want) {
+					t.Fatalf("%s output missing %q:\n%s", format, want, output)
+				}
+			}
+
+			for _, unwanted := range []string{
+				"external command failed",
+				"without parseable diagnostics",
+			} {
+				if strings.Contains(output, unwanted) {
+					t.Fatalf("%s output used generic failure %q:\n%s", format, unwanted, output)
+				}
+			}
+		})
+	}
+}
+
+func runFormatterChangedFileForTest(t *testing.T, format string) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	source := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(source), 0o755)
+	if err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+
+	err = os.WriteFile(source, []byte("print(1)\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write fixture source: %v", err)
+	}
+
+	tool := filepath.Join(repo, "formatter-fixture")
+	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+printf 'print(2)\n' > "$1"
+exit 0
+`)
+
+	var output bytes.Buffer
+
+	exitCode := runCapturedToolWithRequest(captureRequest{
+		Tool:           "pyupgrade",
+		Parser:         "fallback",
+		Category:       toolcatalog.CategoryFormat,
+		DiagnosticKind: toolcatalog.DiagnosticKindFormatterChangedFiles,
+		ToolPath:       tool,
+		Cwd:            repo,
+		TraceRoot:      repo,
+		Args:           []string{"pkg/app.py"},
+		Output:         &output,
+	}, format)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0:\n%s", exitCode, output.String())
+	}
+
+	return output.String()
+}
+
+func formatterChangedFileOutput(format string) []string {
+	switch format {
+	case hookoutput.FormatJSON:
+		return []string{
+			`"scope": "tool:pyupgrade"`,
+			`"status": "resolved"`,
+			`"diagnostics": [`,
+			`"tool": "pyupgrade"`,
+			`"file": "pkg/app.py"`,
+			`"code": "formatted"`,
+			`"category": "formatter_changed_file"`,
+		}
+	case hookoutput.FormatSARIF:
+		return []string{
+			`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+			`"ruleId": "pyupgrade:formatted"`,
+			`"uri": "pkg/app.py"`,
+			`"source_tool": "pyupgrade"`,
+		}
+	default:
+		return nil
 	}
 }
 

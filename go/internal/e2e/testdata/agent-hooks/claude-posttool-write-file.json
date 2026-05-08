@@ -1,0 +1,10 @@
+{
+  "provider": "claude",
+  "hook_event_name": "PostToolUse",
+  "cwd": "${REPO_ROOT}",
+  "tool_name": "write_file",
+  "tool_input": {
+    "file_path": "src/app.py",
+    "content": "print(1)\n"
+  }
+}

@@ -596,12 +596,34 @@ func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
 		"allow_severity_weaken": parts.governance.AllowSeverityWeaken,
 	}
 
-	lineLimitThresholds, ok := parts.expression["line_limit_thresholds"].(map[string]any)
-	if ok {
+	const lineLimitThresholdsOption = "line_limit_thresholds"
+
+	if lineLimitThresholds, found := expressionMapOption(
+		parts.expression,
+		lineLimitThresholdsOption,
+	); found {
 		options["line_limit_thresholds"] = maps.Clone(lineLimitThresholds)
 	}
 
+	const coverageThresholdsOption = "coverage_thresholds"
+
+	if coverageThresholds, found := expressionMapOption(
+		parts.expression,
+		coverageThresholdsOption,
+	); found {
+		options["coverage_thresholds"] = maps.Clone(coverageThresholds)
+	}
+
 	return options
+}
+
+func expressionMapOption(
+	expression map[string]any,
+	key string,
+) (map[string]any, bool) {
+	value, found := expression[key].(map[string]any)
+
+	return value, found
 }
 
 func expressionProtectedPaths(config map[string]any) []string {

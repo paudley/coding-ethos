@@ -164,7 +164,8 @@ func expectedFindingsInputSchema() string {
 
 func expectedRepoInputSchema() string {
 	return "`repo: {root, source_roots, python_version, " +
-		"config_candidates, protected_paths, protected_branches}`"
+		"config_candidates, protected_paths, protected_branches, " +
+		"coverage_thresholds}`"
 }
 
 func expectedReferencedFilesInputSchema() string {

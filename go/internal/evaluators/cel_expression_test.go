@@ -63,6 +63,257 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksAgentBrandedPRTitle(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Command:   `gh pr create --title "[codex] Harden policy checks"`,
+			Provider:  "codex",
+			Tool:      "Bash",
+			EventName: "PreToolUse",
+			Scope:     "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": selfPromotionPRMutationCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionBlocksAgentBrandedGitHubAPIPRTitle(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Command: `gh api repos/paudley/coding-ethos/pulls/66 ` +
+				`--method PATCH -f title="[codex] Harden policy checks"`,
+			Provider:  "codex",
+			Tool:      "Bash",
+			EventName: "PreToolUse",
+			Scope:     "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": selfPromotionPRMutationCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionChecksAllAgentBranding(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		celExpressionPolicy(),
+		Context{
+			Command:   `gh pr create --title "[claude] Harden policy checks"`,
+			Provider:  "codex",
+			Tool:      "Bash",
+			EventName: "PreToolUse",
+			Scope:     "PreToolUse",
+			EvaluatorOptions: map[string]any{
+				"when": selfPromotionPRMutationCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsAgentConfigPathReferences(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		command  string
+		provider string
+	}{
+		{
+			name:     "codex",
+			command:  `gh pr edit 66 --body "Update .codex/config.toml docs"`,
+			provider: "codex",
+		},
+		{
+			name: "claude",
+			command: `gh pr edit 66 --body ` +
+				`"Update .claude/skills/lint-remediation/SKILL.md"`,
+			provider: "claude",
+		},
+		{
+			name: "gemini",
+			command: `gh pr edit 66 --body ` +
+				`"Update .gemini/extensions/coding-ethos/gemini-extension.json"`,
+			provider: "gemini",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateCELExpression(
+				celExpressionPolicy(),
+				Context{
+					Command:   testCase.command,
+					Provider:  testCase.provider,
+					Tool:      "Bash",
+					EventName: "PreToolUse",
+					Scope:     "PreToolUse",
+					EvaluatorOptions: map[string]any{
+						"when": selfPromotionPRMutationCEL(),
+					},
+				},
+			)
+			if err != nil {
+				t.Fatalf("evaluate CEL expression: %v", err)
+			}
+
+			if len(decisions) != 0 {
+				t.Fatalf("decisions = %#v, want no block", decisions)
+			}
+		})
+	}
+}
+
+func TestEvaluateCELExpressionBlocksAgentBrandingInStagedMarkdown(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+
+	readme := filepath.Join(repo, "README.md")
+
+	err := os.WriteFile(readme, []byte("# Project\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+
+	runCELGit(t, repo, "add", "README.md")
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	err = os.WriteFile(
+		readme,
+		[]byte("# Project\n\nGenerated with Codex\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("rewrite readme: %v", err)
+	}
+
+	runCELGit(t, repo, "add", "README.md")
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_staged_text")
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:              repo,
+			Files:            []string{"README.md"},
+			StagedFiles:      []string{"README.md"},
+			Scope:            "staged",
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionBlocksAgentBrandingInCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_commit_msg")
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Content:          "fix(policy): Generated with Codex\n",
+			Scope:            "commit-msg",
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsAgentProductPathInCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_commit_msg")
+
+	testCases := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "codex",
+			content: "docs(config): document .codex/config.toml\n",
+		},
+		{
+			name: "claude",
+			content: "docs(skills): document " +
+				".claude/skills/lint-remediation/SKILL.md\n",
+		},
+		{
+			name: "gemini",
+			content: "docs(gemini): document " +
+				".gemini/extensions/coding-ethos/gemini-extension.json\n",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			decisions, err := EvaluateCELExpression(
+				policyDef,
+				Context{
+					Content:          testCase.content,
+					Scope:            "commit-msg",
+					EvaluatorOptions: policyDef.Evaluators[0].Options,
+				},
+			)
+			if err != nil {
+				t.Fatalf("evaluate CEL expression: %v", err)
+			}
+
+			if len(decisions) != 0 {
+				t.Fatalf("decisions = %#v, want no block", decisions)
+			}
+		})
+	}
+}
+
 func TestEvaluateCELExpressionUsesPolicyDefaultSeverity(t *testing.T) {
 	t.Parallel()
 
@@ -439,6 +690,52 @@ func TestEvaluateRepoLineLimitAllowsUnderThresholdPythonFileGrowth(t *testing.T)
 
 	if len(decisions) != 0 {
 		t.Fatalf("under-threshold Python file growth should be allowed: %#v", decisions)
+	}
+}
+
+func TestEvaluateCoveragePolicyUsesPolicyYamlThresholds(t *testing.T) {
+	t.Parallel()
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "testing.go_coverage_floor"
+	policyDef.DefaultSeverity = blockDecision
+	policyDef.Message = "Go test coverage is below the configured floor."
+	policyDef.AppliesTo = policy.AppliesTo{Tools: []string{"go-test"}}
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Tool: "go-test",
+			Diagnostic: &diagnostics.Diagnostic{
+				Metadata: map[string]any{
+					"coverage_percent": 84.5,
+				},
+				Tool: "go-test",
+				Code: "coverage-total",
+			},
+			EvaluatorOptions: map[string]any{
+				"coverage_thresholds": map[string]any{
+					"project": map[string]any{
+						"floor": 85.0,
+						"goal":  92.0,
+					},
+				},
+				"when": `coverage.exists(item,
+					item.tool == "go-test" &&
+					item.total &&
+					item.percent < coverage_thresholds.project.floor
+				)`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "testing.go_coverage_floor" ||
+		decisions[0].Diagnostics[0].Metadata["coverage_percent"] != 84.5 {
+		t.Fatalf("coverage threshold decisions = %#v", decisions)
 	}
 }
 
@@ -1090,6 +1387,12 @@ func celExpressionPolicy() policy.Policy {
 func compiledRepoLineLimitPolicy(tb testing.TB) policy.Policy {
 	tb.Helper()
 
+	return compiledRepoPolicy(tb, lineLimitPolicy)
+}
+
+func compiledRepoPolicy(tb testing.TB, policyID string) policy.Policy {
+	tb.Helper()
+
 	root := repoRootForCELTest(tb)
 
 	bundle, _, err := policy.Compile(policy.CompileOptions{
@@ -1100,7 +1403,12 @@ func compiledRepoLineLimitPolicy(tb testing.TB) policy.Policy {
 		tb.Fatalf("compile repo policy bundle: %v", err)
 	}
 
-	return bundle.Policies[lineLimitPolicy]
+	policyDef, found := bundle.Policies[policyID]
+	if !found {
+		tb.Fatalf("compiled repo policy %q not found", policyID)
+	}
+
+	return policyDef
 }
 
 func repoRootForCELTest(tb testing.TB) string {
@@ -1138,6 +1446,20 @@ func pythonSubprocessGitCEL() string {
 		cmd.argv.exists(arg, arg.contains("subprocess")) &&
 		cmd.argv.exists(arg, arg.contains("git"))
 	)`
+}
+
+func selfPromotionPRMutationCEL() string {
+	return `
+		event.name == "PreToolUse" &&
+		(self_promotion_branding(command, "codex") ||
+		 self_promotion_branding(command, "claude") ||
+		 self_promotion_branding(command, "gemini")) &&
+		shell_commands.exists(cmd, cmd.name == "gh" &&
+			((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&
+				list_contains(["create", "edit"], cmd.argv[2])) ||
+				(cmd.argv.size() >= 2 && cmd.argv[1] == "api" &&
+					command_fact.lower.contains("pulls"))))
+	`
 }
 
 func pythonFileWithLines(lines int) string {

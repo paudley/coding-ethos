@@ -81,6 +81,21 @@ Current areas to monitor in the published result:
 - Assertion-enabled dynamic analysis beyond the current release-gated fuzzing
   workflow.
 
+## Repository Rulesets
+
+The GitHub `Main branch protection` ruleset is the durable merge gate for
+`refs/heads/main`. It requires linear signed history, blocks deletion and
+non-fast-forward updates, requires the Python 3.11 test, Python 3.13 test,
+distribution build, and OpenSSF Scorecard status checks, and requires code
+scanning results from CodeQL, Scorecard, coding-ethos, OSV-Scanner, and Zizmor.
+Pull requests to `main` require one approving review, code-owner review,
+last-push approval, resolved review threads, Copilot review on push, and squash
+merge.
+
+The GitHub `Release branch approvals` ruleset applies the same review and code
+scanning posture to `refs/heads/release/*`, with release branches retaining
+merge commits for release integration history.
+
 ## OpenSSF Best Practices Badge
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12737/badge)](https://www.bestpractices.dev/en/projects/12737)

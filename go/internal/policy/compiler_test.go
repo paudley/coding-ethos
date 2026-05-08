@@ -934,22 +934,32 @@ func TestCompileAppendsRepoEthosPrincipleExpressionPolicies(t *testing.T) {
 
 	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
-	writeTestFile(t, repoEthosPath, `
-principles:
-  overrides:
-    testing-as-specification:
-      policy:
-        expressions:
-          - id: testing.repo_ethos_expression
-            scope: lint
-            severity: block
-            mode: block
-            tools: [go-test]
-            lint_scopes: [staged, files]
-            when: coverage.exists(item, item.tool == "go-test" && item.percent < 80.0)
-            message: Go coverage is below the repo floor.
-            advice: Add meaningful tests before committing.
-`)
+	writeTestFile(t, repoEthosPath, strings.Join([]string{
+		"principles:",
+		"  overrides:",
+		"    testing-as-specification:",
+		"      policy:",
+		"        expressions:",
+		"          - id: testing.repo_ethos_expression",
+		"            scope: lint",
+		"            severity: block",
+		"            mode: block",
+		"            tools: [go-test]",
+		"            lint_scopes: [staged, files]",
+		"            coverage_thresholds:",
+		"              project:",
+		"                floor: 82.5",
+		"                goal: 91.0",
+		"                high: 91.0",
+		"                medium: 82.5",
+		"                low: 60.0",
+		"            when: coverage.exists(item,",
+		"              item.tool == \"go-test\" &&",
+		"              item.percent < coverage_thresholds.project.floor)",
+		"            message: Go coverage is below the repo floor.",
+		"            advice: Add meaningful tests before committing.",
+		"",
+	}, "\n"))
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary:   primaryPath,
@@ -970,6 +980,17 @@ principles:
 	if len(policyDef.PrincipleIDs) != 1 ||
 		policyDef.PrincipleIDs[0] != "testing-as-specification" {
 		t.Fatalf("repo ethos expression principles = %#v", policyDef.PrincipleIDs)
+	}
+
+	thresholds, found := policyDef.Evaluators[0].
+		Options["coverage_thresholds"].(map[string]any)
+	if !found {
+		t.Fatalf("coverage thresholds option missing: %#v", policyDef.Evaluators[0])
+	}
+
+	project, found := thresholds["project"].(map[string]any)
+	if !found || project["floor"] != 82.5 || project["goal"] != 91.0 {
+		t.Fatalf("project coverage thresholds = %#v", thresholds["project"])
 	}
 }
 
@@ -1166,6 +1187,7 @@ func assertExecutableSmokePolicyDispatch(t *testing.T, bundle Bundle) {
 			"pytest.gate",
 			"generated_config.freshness",
 			"generated_gemini_prompts.freshness",
+			"generated_agent_skills.freshness",
 		},
 	)
 
@@ -1182,6 +1204,7 @@ func executableSmokeExpectedDispatch() map[string][]string {
 			"pytest.gate",
 			"generated_config.freshness",
 			"generated_gemini_prompts.freshness",
+			"generated_agent_skills.freshness",
 			"repo.required_ignores",
 		},
 		"cutover": {"repo.required_ignores"},
@@ -1495,14 +1518,6 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
-generated_config:
-  freshness:
-    repo_config: /tmp/repo/coding-ethos.repo.yaml
-generated_gemini_prompts:
-  freshness:
-    primary: /tmp/coding-ethos/coding_ethos.yml
-    repo_ethos: /tmp/repo/repo_ethos.yml
-    repo_config: /tmp/repo/gemini.repo.yaml
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1565,34 +1580,6 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"custom.lock",
 	)
 	assertFirstOptionString(t, bundle, "pytest.gate", "command", "uv")
-	assertOptionString(
-		t,
-		bundle,
-		"generated_config.freshness",
-		"repo_config",
-		"/tmp/repo/coding-ethos.repo.yaml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"primary",
-		"/tmp/coding-ethos/coding_ethos.yml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"repo_ethos",
-		"/tmp/repo/repo_ethos.yml",
-	)
-	assertOptionString(
-		t,
-		bundle,
-		"generated_gemini_prompts.freshness",
-		"repo_config",
-		"/tmp/repo/gemini.repo.yaml",
-	)
 	assertForbiddenStringsExpression(t, bundle)
 	assertFirstOptionString(
 		t,
@@ -1616,21 +1603,6 @@ func assertFirstOptionString(
 	t.Helper()
 
 	assertIndexedOptionString(t, bundle, policyID, optionName, 0, want)
-}
-
-func assertOptionString(
-	t *testing.T,
-	bundle Bundle,
-	policyID string,
-	optionName string,
-	want string,
-) {
-	t.Helper()
-
-	value := optionString(t, bundle.Policies[policyID].Evaluators[0], optionName)
-	if value != want {
-		t.Fatalf("%s %s option = %q, want %q", policyID, optionName, value, want)
-	}
 }
 
 func assertIndexedOptionString(

@@ -707,13 +707,9 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 
 	root := t.TempDir()
 
-	inlineErr2 := os.WriteFile(
-		filepath.Join(root, "pyproject.toml"),
-		[]byte("[project]\nname = \"demo\"\n"),
-		0o600,
-	)
+	inlineErr2 := os.WriteFile(filepath.Join(root, "uv.lock"), nil, 0o600)
 	if inlineErr2 != nil {
-		t.Fatalf("write pyproject: %v", inlineErr2)
+		t.Fatalf("write uv lock: %v", inlineErr2)
 	}
 
 	inlineErr3 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
@@ -770,7 +766,7 @@ func TestRunRewritesPythonThroughConsumerUVProject(t *testing.T) {
 	}
 }
 
-func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
+func TestRunDoesNotRewritePythonForPlainVenvWithoutUV(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -818,8 +814,169 @@ func TestRunRewritesPythonThroughConsumerVenvFallback(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesPythonAssignmentsAndRedirectionThroughUV(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(filepath.Join(root, "uv.toml"), nil, 0o600)
+	if inlineErr10 != nil {
+		t.Fatalf("write uv config: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "PYTHONPATH=src python script.py > out.txt",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "'"+pythonPath+"' 'script.py'") {
+	if !ok ||
+		!strings.Contains(
+			rewritten,
+			"PYTHONPATH='src' uv run --project '"+root+"' python 'script.py' >out.txt",
+		) {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunDoesNotRewritePythonForPyprojectWithoutUVEvidence(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(
+		filepath.Join(root, "pyproject.toml"),
+		[]byte("[project]\nname = \"demo\"\n"),
+		0o600,
+	)
+	if inlineErr10 != nil {
+		t.Fatalf("write pyproject: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunRewritesPythonForPyprojectUVEvidence(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.WriteFile(
+		filepath.Join(root, "pyproject.toml"),
+		[]byte("[project]\nname = \"demo\"\n\n[tool.uv]\npackage = true\n"),
+		0o600,
+	)
+	if inlineErr10 != nil {
+		t.Fatalf("write pyproject: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok ||
+		!strings.Contains(rewritten, "uv run --project '"+root+"' python 'script.py'") {
+		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	}
+}
+
+func TestRunDoesNotRewritePythonThroughNestedUVProject(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
+	if inlineErr10 != nil {
+		t.Fatalf("mkdir .git: %v", inlineErr10)
+	}
+
+	nested := filepath.Join(root, "pkg")
+
+	inlineErr11 := os.MkdirAll(nested, 0o755)
+	if inlineErr11 != nil {
+		t.Fatalf("mkdir nested: %v", inlineErr11)
+	}
+
+	inlineErr12 := os.WriteFile(filepath.Join(nested, "uv.lock"), nil, 0o600)
+	if inlineErr12 != nil {
+		t.Fatalf("write nested uv.lock: %v", inlineErr12)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           nested,
+			Source:        "claude",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
@@ -1286,6 +1443,169 @@ func TestRunAllowsGitHubAPIHeredocWithoutGitCommand(t *testing.T) {
 			"unexpected rewrite for non-git command: %#v",
 			result.HookSpecificOutput,
 		)
+	}
+}
+
+func TestRunBlocksAgentBrandedPRCreateTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"command": `gh pr create --title "[codex] Harden policy checks"`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_pr_mutation") {
+		t.Fatalf("missing self-promotion decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCrossAgentBrandedPRCreateTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "claude",
+			ToolInput: map[string]any{
+				"command": `gh pr create --title "[codex] Harden policy checks"`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_pr_mutation") {
+		t.Fatalf("missing self-promotion decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsUnbrandedPRCreateTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"command": `gh pr create --title "Harden policy checks"`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestRunBlocksAgentBrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "create_pull_request",
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"title": "[codex] Harden policy checks",
+				"body":  "Block branded pull request metadata.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_payload") {
+		t.Fatalf("missing payload decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCrossAgentBrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "create_pull_request",
+			ProviderHint:  "gemini-cli",
+			ToolInput: map[string]any{
+				"title": "[codex] Harden policy checks",
+				"body":  "Generated with Codex.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_payload") {
+		t.Fatalf("missing payload decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsUnbrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "github.update_pull_request",
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"title": "Harden policy checks",
+				"body":  "Block branded pull request metadata.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
 	}
 }
 
@@ -2332,6 +2652,111 @@ func addLegacyPolicy(
 		bundle.Dispatch.Hooks[eventPreToolUse][tool],
 		policy.HookDispatchEntry{PolicyID: policyID, Mode: "block"},
 	)
+}
+
+func bundleWithSelfPromotionPRPolicy() policy.Bundle {
+	bundle := policy.ExampleBundle()
+
+	bundle.Policies["agent.self_promotion_pr_mutation"] = selfPromotionPRMutationPolicy()
+	bundle.Policies["agent.self_promotion_payload"] = selfPromotionPayloadPolicy()
+
+	if bundle.Dispatch.Hooks[eventPreToolUse] == nil {
+		bundle.Dispatch.Hooks[eventPreToolUse] = map[string][]policy.HookDispatchEntry{}
+	}
+
+	bundle.Dispatch.Hooks[eventPreToolUse][toolBash] = append(
+		bundle.Dispatch.Hooks[eventPreToolUse][toolBash],
+		policy.HookDispatchEntry{
+			PolicyID:        "agent.self_promotion_pr_mutation",
+			Mode:            "block",
+			CommandPatterns: []string{"gh"},
+		},
+	)
+	addSelfPromotionPayloadDispatch(&bundle)
+
+	return bundle
+}
+
+func selfPromotionPRMutationPolicy() policy.Policy {
+	return policy.Policy{
+		ID:              "agent.self_promotion_pr_mutation",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source: policy.SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-self-promotion.policy.expressions[0]",
+		},
+		Message:        "Agent-branded pull request mutations are forbidden.",
+		Suggestion:     "Remove agent branding from pull request titles and bodies.",
+		DefenseLayers:  policy.CodeDefenseLayers(),
+		SupportedModes: []string{"block", "record", "advise"},
+		PrincipleIDs:   []string{"no-self-promotion"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope": "command",
+				"when": strings.Join([]string{
+					`event.name == "PreToolUse" &&`,
+					`(self_promotion_branding(command, "codex") ||`,
+					`self_promotion_branding(command, "claude") ||`,
+					`self_promotion_branding(command, "gemini")) &&`,
+					`shell_commands.exists(cmd, cmd.name == "gh" &&`,
+					`((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&`,
+					`list_contains(["create", "edit"], cmd.argv[2])) ||`,
+					`(cmd.argv.size() >= 2 && cmd.argv[1] == "api" &&`,
+					`command_fact.lower.contains("pulls"))))`,
+				}, " "),
+			},
+		}},
+	}
+}
+
+func selfPromotionPayloadPolicy() policy.Policy {
+	return policy.Policy{
+		ID:              "agent.self_promotion_payload",
+		Category:        "expression",
+		DefaultSeverity: "block",
+		Source: policy.SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-self-promotion.policy.expressions[1]",
+		},
+		Message:        "Agent-branded tool payloads are forbidden.",
+		Suggestion:     "Keep pull request titles and bodies unbranded.",
+		DefenseLayers:  policy.CodeDefenseLayers(),
+		SupportedModes: []string{"block", "record", "advise"},
+		PrincipleIDs:   []string{"no-self-promotion"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope": "command",
+				"when": strings.Join([]string{
+					`event.name == "PreToolUse" &&`,
+					`(self_promotion_branding(content.raw, "codex") ||`,
+					`self_promotion_branding(content.raw, "claude") ||`,
+					`self_promotion_branding(content.raw, "gemini"))`,
+				}, " "),
+			},
+		}},
+	}
+}
+
+func addSelfPromotionPayloadDispatch(bundle *policy.Bundle) {
+	for _, tool := range []string{
+		"create_pull_request",
+		"update_pull_request",
+		"github.create_pull_request",
+		"github.update_pull_request",
+	} {
+		bundle.Dispatch.Hooks[eventPreToolUse][tool] = append(
+			bundle.Dispatch.Hooks[eventPreToolUse][tool],
+			policy.HookDispatchEntry{
+				PolicyID: "agent.self_promotion_payload",
+				Mode:     "block",
+			},
+		)
+	}
 }
 
 func TestRunSkipsPathScopedPolicyWhenPathDoesNotMatch(t *testing.T) {

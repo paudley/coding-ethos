@@ -115,13 +115,23 @@ func (event Event) Content() string {
 		return ""
 	}
 
-	for _, key := range []string{"content", "new_string", "prompt", "text"} {
+	contents := []string{}
+
+	for _, key := range []string{
+		"content",
+		"new_string",
+		"prompt",
+		"text",
+		"title",
+		"body",
+		"description",
+	} {
 		if content, ok := event.ToolInput[key].(string); ok {
-			return content
+			contents = append(contents, content)
 		}
 	}
 
-	return ""
+	return strings.Join(contents, "\n")
 }
 
 func (event Event) OldContent() string {

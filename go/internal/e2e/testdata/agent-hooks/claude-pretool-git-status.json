@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "hook_event_name": "PreToolUse",
+  "cwd": "${REPO_ROOT}",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git status --short"
+  }
+}

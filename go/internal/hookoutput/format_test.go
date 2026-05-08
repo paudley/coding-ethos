@@ -1149,6 +1149,104 @@ func TestFormatLintResultTOONUsesCapturedFindings(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONPrefersWarningFindingsOverRecordDiagnostics(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:go-test",
+		Status: "warning",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "go-test",
+			Severity: "record",
+			Code:     "coverage-package",
+			Message:  "Go test coverage for pkg/noisy is 65.10%.",
+		}},
+		Findings: []lint.Finding{{
+			Advice:     "Add meaningful tests before committing.",
+			CheckID:    "testing.go_coverage_goal",
+			Message:    "Go test coverage is below the 90% project goal.",
+			PolicyID:   "testing.go_coverage_goal",
+			Severity:   "warn",
+			SkillID:    "lint-remediation",
+			SourceTool: "go-test",
+			Status:     "warn",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"status: WARN",
+		toonFindingsHeader,
+		"go-test,,0,0,warn,,testing.go_coverage_goal,lint-remediation," +
+			"Go test coverage is below the 90% project goal.," +
+			"Add meaningful tests before committing.,",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "coverage-package") ||
+		strings.Contains(output, "pkg/noisy") {
+		t.Fatalf("TOON output included record-only coverage noise:\n%s", output)
+	}
+}
+
+func TestFormatLintResultTOONSuppressesRecordDiagnosticsWhenActionableExists(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:go-test",
+		Status: "warning",
+		Diagnostics: []diagnostics.Diagnostic{
+			{
+				Tool:     "go-test",
+				Severity: "record",
+				Code:     "coverage-package",
+				Message:  "Go test coverage for pkg/noisy is 65.10%.",
+			},
+			{
+				Tool:     "policy",
+				Severity: "warn",
+				PolicyID: "testing.go_coverage_goal",
+				SkillID:  "lint-remediation",
+				Message:  "Go test coverage is below the 90% project goal.",
+				Advice:   "Add meaningful tests before committing.",
+			},
+		},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"findings[1]{tool,file,line,column,severity,code," +
+			"policy_id,skill_id,message,advice,detail}:",
+		"policy,,0,0,warn,,testing.go_coverage_goal,lint-remediation," +
+			"Go test coverage is below the 90% project goal.," +
+			"Add meaningful tests before committing.,",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "coverage-package") ||
+		strings.Contains(output, "pkg/noisy") {
+		t.Fatalf("TOON output included record-only coverage noise:\n%s", output)
+	}
+}
+
 func TestFormatLintResultHumanIncludesCapturedFailureDetail(t *testing.T) {
 	t.Parallel()
 

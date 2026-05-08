@@ -363,7 +363,7 @@ python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
 	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
 	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
 
-check: test check-tool-configs check-gemini-prompts go-test go-e2e-test ## Run the repo's current verification gate.
+check: test check-tool-configs check-gemini-prompts check-agent-skills go-test go-e2e-test ## Run the repo's current verification gate.
 
 package-smoke: ## Build, install, and smoke test the wheel outside the source checkout.
 	@$(call print_step,Smoke testing built Python package)
