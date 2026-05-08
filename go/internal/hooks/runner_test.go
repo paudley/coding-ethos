@@ -1391,6 +1391,34 @@ func TestRunBlocksAgentBrandedPRCreateTitle(t *testing.T) {
 	}
 }
 
+func TestRunBlocksCrossAgentBrandedPRCreateTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "claude",
+			ToolInput: map[string]any{
+				"command": `gh pr create --title "[codex] Harden policy checks"`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_pr_mutation") {
+		t.Fatalf("missing self-promotion decision: %#v", result.Decisions)
+	}
+}
+
 func TestRunAllowsUnbrandedPRCreateTitle(t *testing.T) {
 	t.Parallel()
 
@@ -1428,6 +1456,35 @@ func TestRunBlocksAgentBrandedConnectorPRTitle(t *testing.T) {
 			ToolInput: map[string]any{
 				"title": "[codex] Harden policy checks",
 				"body":  "Block branded pull request metadata.",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_payload") {
+		t.Fatalf("missing payload decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCrossAgentBrandedConnectorPRTitle(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "create_pull_request",
+			ProviderHint:  "gemini-cli",
+			ToolInput: map[string]any{
+				"title": "[codex] Harden policy checks",
+				"body":  "Generated with Codex.",
 			},
 		},
 	})
@@ -2558,7 +2615,9 @@ func selfPromotionPRMutationPolicy() policy.Policy {
 				"scope": "command",
 				"when": strings.Join([]string{
 					`event.name == "PreToolUse" &&`,
-					`self_promotion_branding(command, event.provider) &&`,
+					`(self_promotion_branding(command, "codex") ||`,
+					`self_promotion_branding(command, "claude") ||`,
+					`self_promotion_branding(command, "gemini")) &&`,
 					`shell_commands.exists(cmd, cmd.name == "gh" &&`,
 					`((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&`,
 					`list_contains(["create", "edit"], cmd.argv[2])) ||`,
@@ -2591,7 +2650,9 @@ func selfPromotionPayloadPolicy() policy.Policy {
 				"scope": "command",
 				"when": strings.Join([]string{
 					`event.name == "PreToolUse" &&`,
-					`self_promotion_branding(content.raw, event.provider)`,
+					`(self_promotion_branding(content.raw, "codex") ||`,
+					`self_promotion_branding(content.raw, "claude") ||`,
+					`self_promotion_branding(content.raw, "gemini"))`,
 				}, " "),
 			},
 		}},

@@ -43,9 +43,9 @@ func compilePolicies(
 		return nil, err
 	}
 
-	addGeneratedConfigPolicy(policies, config, principles, configSourceRoot)
-	addGeneratedGeminiPromptsPolicy(policies, config, principles, configSourceRoot)
-	addGeneratedAgentSkillsPolicy(policies, config, principles, configSourceRoot)
+	addGeneratedConfigPolicy(policies, principles, configSourceRoot)
+	addGeneratedGeminiPromptsPolicy(policies, principles, configSourceRoot)
+	addGeneratedAgentSkillsPolicy(policies, principles, configSourceRoot)
 
 	err = addExpressionPolicies(
 		policies,
@@ -814,7 +814,6 @@ func shellPolicy(
 
 func addGeneratedConfigPolicy(
 	policies map[string]Policy,
-	config map[string]any,
 	principles map[string]Principle,
 	configSourceRoot string,
 ) {
@@ -846,14 +845,13 @@ func addGeneratedConfigPolicy(
 			{
 				Kind:    "config",
 				Name:    "generated_config.freshness",
-				Options: generatedConfigFreshnessOptions(config, configSourceRoot),
+				Options: generatedConfigFreshnessOptions(configSourceRoot),
 			},
 		},
 	}
 }
 
 func generatedConfigFreshnessOptions(
-	_ map[string]any,
 	configSourceRoot string,
 ) map[string]any {
 	return map[string]any{
@@ -864,7 +862,6 @@ func generatedConfigFreshnessOptions(
 
 func addGeneratedGeminiPromptsPolicy(
 	policies map[string]Policy,
-	config map[string]any,
 	principles map[string]Principle,
 	configSourceRoot string,
 ) {
@@ -889,19 +886,15 @@ func addGeneratedGeminiPromptsPolicy(
 		},
 		Evaluators: []Evaluator{
 			{
-				Kind: "config",
-				Name: "generated_gemini_prompts.freshness",
-				Options: generatedGeminiPromptsFreshnessOptions(
-					config,
-					configSourceRoot,
-				),
+				Kind:    "config",
+				Name:    "generated_gemini_prompts.freshness",
+				Options: generatedGeminiPromptsFreshnessOptions(configSourceRoot),
 			},
 		},
 	}
 }
 
 func generatedGeminiPromptsFreshnessOptions(
-	_ map[string]any,
 	configSourceRoot string,
 ) map[string]any {
 	return map[string]any{
@@ -912,7 +905,6 @@ func generatedGeminiPromptsFreshnessOptions(
 
 func addGeneratedAgentSkillsPolicy(
 	policies map[string]Policy,
-	config map[string]any,
 	principles map[string]Principle,
 	configSourceRoot string,
 ) {
@@ -944,19 +936,15 @@ func addGeneratedAgentSkillsPolicy(
 		},
 		Evaluators: []Evaluator{
 			{
-				Kind: "config",
-				Name: "generated_agent_skills.freshness",
-				Options: generatedAgentSkillsFreshnessOptions(
-					config,
-					configSourceRoot,
-				),
+				Kind:    "config",
+				Name:    "generated_agent_skills.freshness",
+				Options: generatedAgentSkillsFreshnessOptions(configSourceRoot),
 			},
 		},
 	}
 }
 
 func generatedAgentSkillsFreshnessOptions(
-	_ map[string]any,
 	configSourceRoot string,
 ) map[string]any {
 	return map[string]any{

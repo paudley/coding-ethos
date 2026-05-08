@@ -3,6 +3,16 @@
 
 # TODO
 
+## High Priority Runtime Self-Delegation
+
+- [x] Remove the internal `coding-ethos-run agent-hook -> coding-ethos-hook`
+  runtime self-delegation path. `coding-ethos-run agent-hook` invokes the hook
+  CLI path in-process with the same compiled bundle and provider output
+  contract, without spawning the separate `coding-ethos-hook` binary. This ban
+  applies to Go runtime paths delegating back out to another generated Go
+  executable; user-facing entrypoint shims such as `git` and managed-tool
+  wrappers remain intentional integration surfaces.
+
 ## Project Discoverability
 
 Goal: make `coding-ethos` easy to find, understand, trust, and try from GitHub,
@@ -183,7 +193,7 @@ running real commands, and inspecting real output and repository state.
   repo is a uv-managed project. The policy must use parsed command structure,
   preserve arguments and quoting, avoid string matching, and only rewrite when
   repo evidence shows uv is the active Python environment contract.
-- [ ] Add hook workflow tests for PreToolUse and PostToolUse payloads from
+- [x] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.
 - [ ] Add MCP workflow tests that exercise the real stdio framing and request

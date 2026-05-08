@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "cwd": "${REPO_ROOT}",
+  "tool": "functions.apply_patch",
+  "input": {
+    "file_path": "src/app.py",
+    "content": "*** Begin Patch\n*** Update File: src/app.py\n@@\n-print(1)\n+print(2)\n*** End Patch\n"
+  }
+}

@@ -2249,7 +2249,9 @@ principles:
             GitHub.
           when: >-
             event.name == "PreToolUse" &&
-            self_promotion_branding(command, event.provider) &&
+            (self_promotion_branding(command, "codex") ||
+            self_promotion_branding(command, "claude") ||
+            self_promotion_branding(command, "gemini")) &&
             shell_commands.exists(cmd, cmd.name == "gh" &&
               ((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&
               list_contains(["create", "edit"], cmd.argv[2])) ||
@@ -2278,7 +2280,9 @@ principles:
             that produced it.
           when: >-
             event.name == "PreToolUse" &&
-            self_promotion_branding(content.raw, event.provider)
+            (self_promotion_branding(content.raw, "codex") ||
+            self_promotion_branding(content.raw, "claude") ||
+            self_promotion_branding(content.raw, "gemini"))
         - id: agent.self_promotion_staged_text
           principle_ids:
             - no-self-promotion

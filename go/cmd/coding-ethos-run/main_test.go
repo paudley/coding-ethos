@@ -921,7 +921,7 @@ func TestRunAgentHookMCPAndLFSUseRuntimeOps(t *testing.T) {
 
 	joined := strings.Join(calls, "\n")
 	for _, want := range []string{
-		"direct-exec:coding-ethos-hook --bundle " + paths.PolicyBundle + " --json",
+		"agent-hook:--bundle " + paths.PolicyBundle + " --json",
 		"direct-exec:coding-ethos-mcp --bundle " + paths.PolicyBundle,
 		"external:" + paths.RealGit + " lfs post-merge arg",
 	} {
@@ -1037,6 +1037,10 @@ func (stub stubRuntimeOps) execLint(args ...string) {
 	if stub.execLintCode != 0 {
 		requestRuntimeExit(stub.execLintCode)
 	}
+}
+
+func (stub stubRuntimeOps) execAgentHook(args ...string) {
+	*stub.calls = append(*stub.calls, "agent-hook:"+strings.Join(args, " "))
 }
 
 func (stub stubRuntimeOps) runInternalTool(tool string, args ...string) {

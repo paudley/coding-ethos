@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "event": "PostToolUse",
+  "cwd": "${REPO_ROOT}",
+  "tool": "write_file",
+  "input": {
+    "file_path": "src/app.py",
+    "content": "print(1)\n"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "event": "PreToolUse",
+  "cwd": "${REPO_ROOT}",
+  "tool": "functions.exec_command",
+  "input": {
+    "command": "git commit --no-verify -m test"
+  }
+}

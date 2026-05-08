@@ -26,6 +26,7 @@ import (
 type runtimeExecutor interface {
 	runLint(args ...string) int
 	execLint(args ...string)
+	execAgentHook(args ...string)
 	runInternalTool(tool string, args ...string)
 	execInternalTool(tool string, args ...string)
 	runTool(paths runtimePaths, tool string, args ...string)
@@ -42,6 +43,10 @@ func (defaultRuntimeExecutor) runLint(args ...string) int {
 
 func (defaultRuntimeExecutor) execLint(args ...string) {
 	requestRuntimeExit(lintcli.Run(args))
+}
+
+func (defaultRuntimeExecutor) execAgentHook(args ...string) {
+	requestRuntimeExit(hookcli.Run(args, os.Stdin, os.Stdout, os.Stderr))
 }
 
 func requirePolicyBundle(paths runtimePaths) {

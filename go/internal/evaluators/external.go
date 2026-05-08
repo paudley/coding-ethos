@@ -120,9 +120,7 @@ func EvaluateGeneratedConfigFreshness(
 		repoRoot = stringOption(context.EvaluatorOptions, "repo", ".")
 	}
 
-	repoConfig := stringOption(context.EvaluatorOptions, "repo_config", "")
-
-	mismatched, err := toolconfigs.Check(ethosRoot, repoRoot, repoConfig)
+	mismatched, err := toolconfigs.Check(ethosRoot, repoRoot, "")
 	if err != nil {
 		return nil, fmt.Errorf(
 			"evaluate generated config freshness: check generated tool configs: %w",
@@ -138,7 +136,6 @@ func EvaluateGeneratedConfigFreshness(
 	decision.Evidence = map[string]any{
 		"ethos_root":       ethosRoot,
 		"repo":             repoRoot,
-		"repo_config":      repoConfig,
 		"mismatched_paths": append([]string(nil), mismatched...),
 		"tool":             "generated-config",
 	}
@@ -274,11 +271,8 @@ func generatedGeminiPromptsOptions(
 	}
 
 	return geminiprompts.Options{
-		EthosRoot:  ethosRoot,
-		RepoRoot:   repoRoot,
-		Primary:    stringOption(context.EvaluatorOptions, "primary", ""),
-		RepoEthos:  stringOption(context.EvaluatorOptions, "repo_ethos", ""),
-		RepoConfig: stringOption(context.EvaluatorOptions, "repo_config", ""),
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
 	}, nil
 }
 
@@ -289,9 +283,6 @@ func generatedGeminiPromptsEvidence(
 	return map[string]any{
 		"ethos_root":       options.EthosRoot,
 		"repo":             options.RepoRoot,
-		"primary":          options.Primary,
-		"repo_ethos":       options.RepoEthos,
-		"repo_config":      options.RepoConfig,
 		"mismatched_paths": append([]string(nil), mismatched...),
 		"tool":             "generated-gemini-prompts",
 	}
@@ -313,8 +304,6 @@ func generatedAgentSkillsOptions(
 	return agentskills.Options{
 		EthosRoot: ethosRoot,
 		RepoRoot:  repoRoot,
-		Primary:   stringOption(context.EvaluatorOptions, "primary", ""),
-		RepoEthos: stringOption(context.EvaluatorOptions, "repo_ethos", ""),
 	}, nil
 }
 
@@ -325,8 +314,6 @@ func generatedAgentSkillsEvidence(
 	return map[string]any{
 		"ethos_root":       options.EthosRoot,
 		"repo":             options.RepoRoot,
-		"primary":          options.Primary,
-		"repo_ethos":       options.RepoEthos,
 		"mismatched_paths": append([]string(nil), mismatched...),
 		"tool":             "generated-agent-skills",
 	}

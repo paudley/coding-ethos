@@ -363,10 +363,10 @@ func syncedGeneratedGeminiPromptsRepo(t *testing.T) (string, string) {
 	ethosRoot := repoRoot(t)
 	repoRoot := t.TempDir()
 
-	_, err := geminiprompts.Sync(generatedGeminiPromptsOptions(
-		ethosRoot,
-		repoRoot,
-	))
+	_, err := geminiprompts.Sync(geminiprompts.Options{
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
+	})
 	if err != nil {
 		t.Fatalf("sync generated Gemini prompt pack: %v", err)
 	}
@@ -380,7 +380,10 @@ func syncedGeneratedAgentSkillsRepo(t *testing.T) (string, string) {
 	ethosRoot := repoRoot(t)
 	repoRoot := t.TempDir()
 
-	_, err := agentskills.Sync(generatedAgentSkillsOptions(ethosRoot, repoRoot))
+	_, err := agentskills.Sync(agentskills.Options{
+		EthosRoot: ethosRoot,
+		RepoRoot:  repoRoot,
+	})
 	if err != nil {
 		t.Fatalf("sync generated agent skills: %v", err)
 	}
@@ -396,8 +399,6 @@ func generatedGeminiPromptsContext(
 		Cwd: repoRoot,
 		EvaluatorOptions: map[string]any{
 			"ethos_root": ethosRoot,
-			"primary":    filepath.Join(ethosRoot, "coding_ethos.yml"),
-			"repo_ethos": filepath.Join(ethosRoot, "repo_ethos.yml"),
 		},
 	}
 }
@@ -410,33 +411,7 @@ func generatedAgentSkillsContext(
 		Cwd: repoRoot,
 		EvaluatorOptions: map[string]any{
 			"ethos_root": ethosRoot,
-			"primary":    filepath.Join(ethosRoot, "coding_ethos.yml"),
-			"repo_ethos": filepath.Join(ethosRoot, "repo_ethos.yml"),
 		},
-	}
-}
-
-func generatedGeminiPromptsOptions(
-	ethosRoot string,
-	repoRoot string,
-) geminiprompts.Options {
-	return geminiprompts.Options{
-		EthosRoot: ethosRoot,
-		RepoRoot:  repoRoot,
-		Primary:   filepath.Join(ethosRoot, "coding_ethos.yml"),
-		RepoEthos: filepath.Join(ethosRoot, "repo_ethos.yml"),
-	}
-}
-
-func generatedAgentSkillsOptions(
-	ethosRoot string,
-	repoRoot string,
-) agentskills.Options {
-	return agentskills.Options{
-		EthosRoot: ethosRoot,
-		RepoRoot:  repoRoot,
-		Primary:   filepath.Join(ethosRoot, "coding_ethos.yml"),
-		RepoEthos: filepath.Join(ethosRoot, "repo_ethos.yml"),
 	}
 }
 

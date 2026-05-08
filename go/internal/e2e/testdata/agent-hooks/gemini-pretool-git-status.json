@@ -1,0 +1,9 @@
+{
+  "provider": "gemini-cli",
+  "hookEventName": "BeforeTool",
+  "cwd": "${REPO_ROOT}",
+  "toolName": "run_shell_command",
+  "toolInput": {
+    "command": "git status --short"
+  }
+}

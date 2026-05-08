@@ -199,6 +199,17 @@ func (repo Repo) Run(t *testing.T, args ...string) CommandResult {
 	return Run(t, repo.Root, args...)
 }
 
+// RunWithInput executes a real command in the reference repository with stdin.
+func (repo Repo) RunWithInput(
+	t *testing.T,
+	input string,
+	args ...string,
+) CommandResult {
+	t.Helper()
+
+	return RunWithInput(t, repo.Root, input, args...)
+}
+
 // Git executes /usr/bin/git in the reference repository.
 func (repo Repo) Git(t *testing.T, args ...string) CommandResult {
 	t.Helper()
@@ -217,8 +228,35 @@ func (repo Repo) CodingEthosRun(t *testing.T, args ...string) CommandResult {
 	return result
 }
 
+// CodingEthosRunWithInput executes the dispatcher with provider payload stdin.
+func (repo Repo) CodingEthosRunWithInput(
+	t *testing.T,
+	input string,
+	args ...string,
+) CommandResult {
+	t.Helper()
+
+	binary := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-run")
+	command := append([]string{binary}, args...)
+	result := repo.RunWithInput(t, input, command...)
+
+	return result
+}
+
 // Run executes a real command with a bounded timeout.
 func Run(t *testing.T, cwd string, args ...string) CommandResult {
+	t.Helper()
+
+	return RunWithInput(t, cwd, "", args...)
+}
+
+// RunWithInput executes a real command with a bounded timeout and stdin.
+func RunWithInput(
+	t *testing.T,
+	cwd string,
+	input string,
+	args ...string,
+) CommandResult {
 	t.Helper()
 
 	if len(args) == 0 {
@@ -231,6 +269,7 @@ func Run(t *testing.T, cwd string, args ...string) CommandResult {
 	cmd := safeexec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = commandEnvironment(t)
+	cmd.Stdin = strings.NewReader(input)
 	configureCommandProcessGroup(cmd)
 
 	var (

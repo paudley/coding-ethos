@@ -114,7 +114,7 @@ func TestEvaluateCELExpressionBlocksAgentBrandedGitHubAPIPRTitle(t *testing.T) {
 	}
 }
 
-func TestEvaluateCELExpressionChecksOnlyCurrentAgentBranding(t *testing.T) {
+func TestEvaluateCELExpressionChecksAllAgentBranding(t *testing.T) {
 	t.Parallel()
 
 	decisions, err := EvaluateCELExpression(
@@ -134,8 +134,8 @@ func TestEvaluateCELExpressionChecksOnlyCurrentAgentBranding(t *testing.T) {
 		t.Fatalf("evaluate CEL expression: %v", err)
 	}
 
-	if len(decisions) != 0 {
-		t.Fatalf("decisions = %#v, want no block", decisions)
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
 	}
 }
 
@@ -1395,7 +1395,9 @@ func pythonSubprocessGitCEL() string {
 func selfPromotionPRMutationCEL() string {
 	return `
 		event.name == "PreToolUse" &&
-		self_promotion_branding(command, event.provider) &&
+		(self_promotion_branding(command, "codex") ||
+		 self_promotion_branding(command, "claude") ||
+		 self_promotion_branding(command, "gemini")) &&
 		shell_commands.exists(cmd, cmd.name == "gh" &&
 			((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&
 				list_contains(["create", "edit"], cmd.argv[2])) ||
