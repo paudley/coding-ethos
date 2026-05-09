@@ -31,6 +31,8 @@ type SourceInput struct {
 	ChangedLines       int64  `json:"changed_lines"`
 	PriorFailures      int64  `json:"prior_failures"`
 	RecentRemediations int64  `json:"recent_remediations"`
+	HasNearbyTest      bool   `json:"has_nearby_test"`
+	HasDocChunk        bool   `json:"has_doc_chunk"`
 }
 
 type FindingActivation struct {
@@ -62,6 +64,8 @@ type SourceActivation struct {
 	ChangedLines       int
 	PriorFailures      int
 	RecentRemediations int
+	HasNearbyTest      bool
+	HasDocChunk        bool
 }
 
 func findingInput(finding *FindingActivation) FindingInput {
@@ -103,6 +107,8 @@ func sourceInput(
 		ChangedLines:       int64(source.ChangedLines),
 		PriorFailures:      int64(source.PriorFailures),
 		RecentRemediations: int64(source.RecentRemediations),
+		HasNearbyTest:      source.HasNearbyTest,
+		HasDocChunk:        source.HasDocChunk,
 	}
 	if result.Path == "" {
 		result.Path = primaryPath.File

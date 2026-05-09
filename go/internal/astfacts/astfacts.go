@@ -6,10 +6,14 @@ package astfacts
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 const (
@@ -83,6 +87,7 @@ func CollectSymbols(
 					lineCount,
 				),
 			)
+
 			if name != "" {
 				parents = append(parents, name)
 			}
@@ -390,6 +395,172 @@ func SymbolName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	return cleanSymbolName(name.Utf8Text(contents))
+}
+
+func cleanMarkdownHeading(text string) string {
+	text = strings.TrimSpace(text)
+	text = strings.TrimLeft(text, "#")
+	text = strings.TrimSpace(text)
+
+	if lines := strings.Split(text, "\n"); len(lines) > 0 {
+		text = lines[0]
+	}
+
+	return cleanSymbolName(text)
+}
+
+func ParserMetadataForLanguage(language string) (string, string) {
+	if language == LanguageMarkdown {
+		return "goldmark", "v1.8.2"
+	}
+
+	return "tree-sitter", "go-tree-sitter"
+}
+
+func AnalyzeMarkdown(path string, contents []byte) File {
+	md := goldmark.New()
+	reader := text.NewReader(contents)
+	doc := md.Parser().Parse(reader)
+
+	lineCount := LineCount(contents)
+	symbols := []Symbol{}
+	lineIndexer := newLineMap(contents)
+
+	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		symbol, analyzedOK := symbolFromMarkdownNode(path, node, contents, lineIndexer)
+		if analyzedOK {
+			symbols = append(symbols, symbol)
+		}
+
+		return ast.WalkContinue, nil
+	})
+	if err != nil {
+		return File{
+			ContentHash: ContentHash(contents),
+			Language:    LanguageMarkdown,
+			LineCount:   lineCount,
+		}
+	}
+
+	return File{
+		Symbols:     symbols,
+		ContentHash: ContentHash(contents),
+		Language:    LanguageMarkdown,
+		LineCount:   lineCount,
+	}
+}
+
+func symbolFromMarkdownNode(
+	path string,
+	node ast.Node,
+	contents []byte,
+	lineIndexer lineMap,
+) (Symbol, bool) {
+	kind := node.Kind()
+
+	var symbolKind string
+
+	var name string
+
+	headingLevel := 0
+
+	switch kind {
+	case ast.KindHeading:
+		symbolKind = "heading"
+
+		heading, analyzedOK := node.(*ast.Heading)
+		if !analyzedOK {
+			return Symbol{}, false
+		}
+
+		headingLevel = heading.Level
+
+		var builder strings.Builder
+
+		for i := range heading.Lines().Len() {
+			line := heading.Lines().At(i)
+			_, _ = builder.Write(line.Value(contents))
+		}
+
+		name = cleanMarkdownHeading(builder.String())
+	case ast.KindCodeBlock, ast.KindFencedCodeBlock:
+		symbolKind = "code_block"
+		// Generate a block name based on the line number
+		lines := node.Lines()
+		if lines.Len() > 0 {
+			startByte := lines.At(0).Start
+			startLine := lineIndexer.lineForByte(startByte)
+			name = fmt.Sprintf("block_%d", startLine)
+		} else {
+			name = "block_unknown"
+		}
+	default:
+		return Symbol{}, false
+	}
+
+	lines := node.Lines()
+	if lines.Len() == 0 {
+		return Symbol{}, false
+	}
+
+	startByte := lines.At(0).Start
+	endByte := lines.At(lines.Len() - 1).Stop
+	startLine := lineIndexer.lineForByte(startByte)
+	raw := string(contents[startByte:endByte])
+
+	// Build a unique SymbolPath for headings by incorporating heading level and
+	// start line. Duplicate headings (valid Markdown) share the same name but
+	// differ in level or position, so a plain name would collide in stableID.
+	symbolPath := name
+	if headingLevel > 0 {
+		symbolPath = fmt.Sprintf("h%d:%d:%s", headingLevel, startLine, name)
+	}
+
+	return Symbol{
+		Language:    LanguageMarkdown,
+		NodeKind:    kind.String(),
+		SymbolKind:  symbolKind,
+		SymbolName:  name,
+		SymbolPath:  symbolPath,
+		Path:        path,
+		RawText:     raw,
+		ContentHash: ContentHash([]byte(raw)),
+		StartByte:   startByte,
+		EndByte:     endByte,
+		StartLine:   startLine,
+		EndLine:     lineIndexer.lineForByte(endByte),
+		LineCount:   max(lineIndexer.lineForByte(endByte)-startLine+1, 0),
+	}, true
+}
+
+type lineMap struct {
+	offsets []int
+}
+
+func newLineMap(contents []byte) lineMap {
+	offsets := []int{0}
+
+	for i, b := range contents {
+		if b == '\n' {
+			offsets = append(offsets, i+1)
+		}
+	}
+
+	return lineMap{offsets: offsets}
+}
+
+func (lm lineMap) lineForByte(offset int) int {
+	index, found := slices.BinarySearch(lm.offsets, offset)
+
+	if found {
+		return index + 1
+	}
+
+	return index
 }
 
 func keyNodeKind(nodeKind string) bool {

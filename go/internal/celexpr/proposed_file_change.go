@@ -352,28 +352,105 @@ func symbolChangesForContent(
 		file,
 		[]byte(proposedContent),
 	)
+
 	if currentErr != nil || proposedErr != nil || !currentOK || !proposedOK {
 		return nil
 	}
 
 	current := symbolsByKey(currentFile.Symbols)
 	proposed := symbolsByKey(proposedFile.Symbols)
-	keys := sortedSymbolKeys(current, proposed)
 
-	changes := make([]ProposedSymbolChangeInput, 0, len(keys))
-	for _, key := range keys {
-		currentSymbol, hasCurrent := current[key]
-		proposedSymbol, hasProposed := proposed[key]
+	// Track deletions and additions for rename matching
+	deletions := make(map[string]astfacts.Symbol)
+	additions := make(map[string]astfacts.Symbol)
+	changes := []ProposedSymbolChangeInput{}
 
-		change := proposedSymbolChange(
-			file,
-			currentSymbol,
-			hasCurrent,
-			proposedSymbol,
-			hasProposed,
+	// First pass: identify direct matches (unchanged/modified) and separate others
+	for key, currentSymbol := range current {
+		if proposedSymbol, found := proposed[key]; found {
+			change := proposedSymbolChange(file, currentSymbol, true, proposedSymbol, true)
+			if change.Action != changeActionUnchanged {
+				changes = append(changes, change)
+			}
+		} else {
+			deletions[key] = currentSymbol
+		}
+	}
+
+	for key, proposedSymbol := range proposed {
+		if _, found := current[key]; !found {
+			additions[key] = proposedSymbol
+		}
+	}
+
+	// Second pass: match renames
+	changes = append(changes, matchSymbolRenames(file, deletions, additions)...)
+
+	// Third pass: add remaining deletions and additions
+	for _, s := range deletions {
+		changes = append(
+			changes,
+			proposedSymbolChange(file, s, true, astfacts.Symbol{}, false),
 		)
-		if change.Action != changeActionUnchanged {
+	}
+
+	for _, s := range additions {
+		changes = append(
+			changes,
+			proposedSymbolChange(file, astfacts.Symbol{}, false, s, true),
+		)
+	}
+
+	// Sort changes by SymbolPath for deterministic output
+	slices.SortFunc(changes, func(a, b ProposedSymbolChangeInput) int {
+		return strings.Compare(a.SymbolPath, b.SymbolPath)
+	})
+
+	return changes
+}
+
+func matchSymbolRenames(
+	file string,
+	deletions map[string]astfacts.Symbol,
+	additions map[string]astfacts.Symbol,
+) []ProposedSymbolChangeInput {
+	changes := []ProposedSymbolChangeInput{}
+
+	// Group by (NodeKind, SymbolKind, ParentSymbolPath)
+	type groupKey struct {
+		NodeKind   string
+		SymbolKind string
+		Parent     string
+	}
+
+	deletedGroups := make(map[groupKey][]string)
+
+	for key, s := range deletions {
+		gk := groupKey{s.NodeKind, s.SymbolKind, parentSymbolPath(s.SymbolPath)}
+		deletedGroups[gk] = append(deletedGroups[gk], key)
+	}
+
+	addedGroups := make(map[groupKey][]string)
+
+	for key, s := range additions {
+		gk := groupKey{s.NodeKind, s.SymbolKind, parentSymbolPath(s.SymbolPath)}
+		addedGroups[gk] = append(addedGroups[gk], key)
+	}
+
+	for gk, dKeys := range deletedGroups {
+		aKeys, found := addedGroups[gk]
+
+		if found && len(dKeys) == 1 && len(aKeys) == 1 {
+			// Found a 1-to-1 match for a potential rename in the same scope
+			d := deletions[dKeys[0]]
+			a := additions[aKeys[0]]
+
+			change := proposedSymbolChange(file, d, true, a, true)
+			change.Action = changeActionRenamed
 			changes = append(changes, change)
+
+			delete(deletions, dKeys[0])
+			delete(additions, aKeys[0])
 		}
 	}
 
@@ -413,6 +490,15 @@ func symbolKey(symbol astfacts.Symbol) string {
 		symbol.SymbolKind,
 		symbol.SymbolPath,
 	}, "\x00")
+}
+
+func parentSymbolPath(symbolPath string) string {
+	index := strings.LastIndex(symbolPath, ".")
+	if index == -1 {
+		return ""
+	}
+
+	return symbolPath[:index]
 }
 
 func proposedSymbolChange(

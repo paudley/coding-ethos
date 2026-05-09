@@ -243,6 +243,90 @@ func TestProgramEvaluatesRecursiveGlobHelper(t *testing.T) {
 	}
 }
 
+func TestProgramEvaluatesSourceASTHelpers(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.source_ast_helper_eval",
+		`source.has_nearby_test() && source.has_doc_chunk()`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	activation := Activation(ActivationInput{
+		Source: SourceActivation{
+			HasNearbyTest: true,
+			HasDocChunk:   true,
+		},
+	})
+
+	output, _, evalErr := program.Eval(activation)
+	if evalErr != nil {
+		t.Fatalf("evaluate CEL program: %v", evalErr)
+	}
+
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("Source AST helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesASTHelpers(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.ast_helper_eval",
+		`
+			proposed_symbol_changes.all(s,
+				s.kind_is("function") &&
+				s.name_matches("run*")
+			)
+		`,
+	)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	repo := t.TempDir()
+	file := filepath.Join(repo, "app.py")
+	content := "def run_tool():\n    pass\n"
+
+	err = os.WriteFile(file, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	// OldContent must match file content so the edit produces proposed_symbol_changes.
+	// Previously OldContent="def old():" didn't exist in the file, so the edit was a
+	// no-op and proposed_symbol_changes was empty, making .all(...) vacuously true.
+	activation := Activation(ActivationInput{
+		Cwd:        repo,
+		Files:      []string{"app.py"},
+		Tool:       "Edit",
+		OldContent: "def run_tool():",
+		Content:    "def run_task():",
+	})
+
+	// Verify proposed_symbol_changes is non-empty before evaluating the helpers.
+	changes, found := activation["proposed_symbol_changes"].([]ProposedSymbolChangeInput)
+	if !found || len(changes) == 0 {
+		t.Fatalf(
+			"proposed_symbol_changes is empty; test cannot exercise symbol helpers. "+
+				"activation=%#v",
+			activation["proposed_symbol_changes"],
+		)
+	}
+
+	output, _, err := program.Eval(activation)
+	if err != nil {
+		t.Fatalf("evaluate CEL program: %v", err)
+	}
+
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("AST helper output = %#v, want true", output.Value())
+	}
+}
+
 func TestProgramEvaluatesExpandedHelpers(t *testing.T) {
 	t.Parallel()
 

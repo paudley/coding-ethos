@@ -22,8 +22,117 @@ func helperFunctions() []cel.EnvOption {
 	options = append(options, commandHelpers(listOfStrings)...)
 	options = append(options, repoHelpers(listOfStrings)...)
 	options = append(options, listHelpers()...)
+	options = append(options, symbolHelpers()...)
+	options = append(options, sourceHelpers()...)
 
 	return options
+}
+
+func symbolHelpers() []cel.EnvOption {
+	symbolType := cel.ObjectType(reflect.TypeFor[ProposedSymbolChangeInput]().String())
+
+	return []cel.EnvOption{
+		cel.Function(
+			"kind_is",
+			cel.MemberOverload(
+				"symbol_kind_is_string",
+				[]*cel.Type{symbolType, cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
+					var symbol *ProposedSymbolChangeInput
+
+					switch v := lhs.Value().(type) {
+					case *ProposedSymbolChangeInput:
+						symbol = v
+					case ProposedSymbolChangeInput:
+						symbol = &v
+					default:
+						return types.Bool(false)
+					}
+
+					return types.Bool(symbol.SymbolKind == stringFromValue(rhs))
+				}),
+			),
+		),
+		cel.Function(
+			"name_matches",
+			cel.MemberOverload(
+				"symbol_name_matches_string",
+				[]*cel.Type{symbolType, cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
+					var symbol *ProposedSymbolChangeInput
+
+					switch v := lhs.Value().(type) {
+					case *ProposedSymbolChangeInput:
+						symbol = v
+					case ProposedSymbolChangeInput:
+						symbol = &v
+					default:
+						return types.Bool(false)
+					}
+
+					matched, err := doublestar.Match(
+						stringFromValue(rhs),
+						symbol.SymbolName,
+					)
+
+					return types.Bool(err == nil && matched)
+				}),
+			),
+		),
+	}
+}
+
+func sourceHelpers() []cel.EnvOption {
+	sourceType := cel.ObjectType(reflect.TypeFor[SourceInput]().String())
+
+	return []cel.EnvOption{
+		cel.Function(
+			"has_nearby_test",
+			cel.MemberOverload(
+				"source_has_nearby_test",
+				[]*cel.Type{sourceType},
+				cel.BoolType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					var source *SourceInput
+
+					switch v := val.Value().(type) {
+					case *SourceInput:
+						source = v
+					case SourceInput:
+						source = &v
+					default:
+						return types.Bool(false)
+					}
+
+					return types.Bool(source.HasNearbyTest)
+				}),
+			),
+		),
+		cel.Function(
+			"has_doc_chunk",
+			cel.MemberOverload(
+				"source_has_doc_chunk",
+				[]*cel.Type{sourceType},
+				cel.BoolType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					var source *SourceInput
+
+					switch v := val.Value().(type) {
+					case *SourceInput:
+						source = v
+					case SourceInput:
+						source = &v
+					default:
+						return types.Bool(false)
+					}
+
+					return types.Bool(source.HasDocChunk)
+				}),
+			),
+		),
+	}
 }
 
 func basicStringHelpers() []cel.EnvOption {

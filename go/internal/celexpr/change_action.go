@@ -7,5 +7,6 @@ const (
 	changeActionAdded     = "added"
 	changeActionDeleted   = "deleted"
 	changeActionModified  = "modified"
+	changeActionRenamed   = "renamed"
 	changeActionUnchanged = "unchanged"
 )
