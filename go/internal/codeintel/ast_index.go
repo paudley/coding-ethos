@@ -277,6 +277,10 @@ func codeEdgesFromParsedFile(
 
 	edges = append(edges, importEdges(path, parsed.Imports)...)
 	edges = append(edges, referenceEdges(path, parsed.Symbols, chunks)...)
+	edges = append(edges, callEdges(path, parsed.Symbols, chunks)...)
+	edges = append(edges, inheritanceEdges(path, parsed.Symbols, chunks)...)
+	edges = append(edges, testEdges(path, parsed.Symbols, chunks)...)
+	edges = append(edges, documentationEdges(path, parsed.Symbols, chunks)...)
 
 	return dedupeCodeEdges(edges)
 }
@@ -301,6 +305,250 @@ func importEdges(path string, imports []astfacts.Import) []CodeEdge {
 			TargetPath: imported.Target,
 			TargetName: imported.Target,
 			RawText:    imported.RawText,
+		})
+	}
+
+	return edges
+}
+
+func callEdges(
+	path string,
+	symbols []astfacts.Symbol,
+	chunks []CodeChunk,
+) []CodeEdge {
+	chunksBySymbolPath := map[string]CodeChunk{}
+	targetsByName := map[string][]CodeChunk{}
+
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+		if chunk.SymbolName != "" {
+			targetsByName[chunk.SymbolName] = append(
+				targetsByName[chunk.SymbolName],
+				chunk,
+			)
+		}
+	}
+
+	edges := []CodeEdge{}
+
+	for _, symbol := range symbols {
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+
+		for _, name := range symbol.CallNames {
+			// Intra-file calls
+			for _, target := range targetsByName[name] {
+				if source.ID == target.ID {
+					continue
+				}
+
+				edges = append(edges, CodeEdge{
+					ID: stableID(
+						"code-edge",
+						"calls",
+						path,
+						source.ID,
+						target.ID,
+					),
+					Kind:             "calls",
+					Path:             path,
+					SourceChunkID:    source.ID,
+					TargetPath:       path,
+					TargetChunkID:    target.ID,
+					TargetSymbolPath: target.SymbolPath,
+					TargetName:       target.SymbolName,
+				})
+			}
+
+			// Cross-file call intent (symbolic)
+			// If no local target, we still record the call name
+			if len(targetsByName[name]) == 0 {
+				edges = append(edges, CodeEdge{
+					ID: stableID(
+						"code-edge",
+						"calls-symbolic",
+						path,
+						source.ID,
+						name,
+					),
+					Kind:          "calls",
+					Path:          path,
+					SourceChunkID: source.ID,
+					TargetName:    name,
+				})
+			}
+		}
+	}
+
+	return edges
+}
+
+func inheritanceEdges(
+	path string,
+	symbols []astfacts.Symbol,
+	chunks []CodeChunk,
+) []CodeEdge {
+	chunksBySymbolPath := map[string]CodeChunk{}
+	targetsByName := map[string][]CodeChunk{}
+
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+		if chunk.SymbolName != "" {
+			targetsByName[chunk.SymbolName] = append(
+				targetsByName[chunk.SymbolName],
+				chunk,
+			)
+		}
+	}
+
+	edges := []CodeEdge{}
+
+	for _, symbol := range symbols {
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+
+		for _, name := range symbol.BaseNames {
+			// Intra-file inheritance
+			for _, target := range targetsByName[name] {
+				edges = append(edges, CodeEdge{
+					ID: stableID(
+						"code-edge",
+						"inherits",
+						path,
+						source.ID,
+						target.ID,
+					),
+					Kind:             "inherits",
+					Path:             path,
+					SourceChunkID:    source.ID,
+					TargetPath:       path,
+					TargetChunkID:    target.ID,
+					TargetSymbolPath: target.SymbolPath,
+					TargetName:       target.SymbolName,
+				})
+			}
+
+			// Cross-file inheritance intent
+			if len(targetsByName[name]) == 0 {
+				edges = append(edges, CodeEdge{
+					ID: stableID(
+						"code-edge",
+						"inherits-symbolic",
+						path,
+						source.ID,
+						name,
+					),
+					Kind:          "inherits",
+					Path:          path,
+					SourceChunkID: source.ID,
+					TargetName:    name,
+				})
+			}
+		}
+	}
+
+	return edges
+}
+
+func testEdges(
+	path string,
+	symbols []astfacts.Symbol,
+	chunks []CodeChunk,
+) []CodeEdge {
+	isTestFile := strings.HasSuffix(path, "_test.go") ||
+		strings.HasSuffix(path, "_test.py") ||
+		strings.HasPrefix(filepath.Base(path), "test_")
+
+	if !isTestFile {
+		return nil
+	}
+
+	chunksBySymbolPath := map[string]CodeChunk{}
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+	}
+
+	edges := []CodeEdge{}
+
+	for _, symbol := range symbols {
+		if !strings.HasPrefix(symbol.SymbolName, "Test") {
+			continue
+		}
+
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+
+		// Heuristic: TestFoo verifies Foo
+		targetName := strings.TrimPrefix(symbol.SymbolName, "Test")
+		if targetName == "" {
+			continue
+		}
+
+		// Also record the verifying intent
+		edges = append(edges, CodeEdge{
+			ID: stableID(
+				"code-edge",
+				"verifies",
+				path,
+				source.ID,
+				targetName,
+			),
+			Kind:          "verifies",
+			Path:          path,
+			SourceChunkID: source.ID,
+			TargetName:    targetName,
+		})
+	}
+
+	return edges
+}
+
+func documentationEdges(
+	path string,
+	symbols []astfacts.Symbol,
+	chunks []CodeChunk,
+) []CodeEdge {
+	if !strings.HasSuffix(path, ".md") {
+		return nil
+	}
+
+	chunksBySymbolPath := map[string]CodeChunk{}
+	for _, chunk := range chunks {
+		chunksBySymbolPath[chunk.SymbolPath] = chunk
+	}
+
+	edges := []CodeEdge{}
+
+	for _, symbol := range symbols {
+		if symbol.SymbolKind != "heading" {
+			continue
+		}
+
+		source, ok := chunksBySymbolPath[symbol.SymbolPath]
+		if !ok {
+			continue
+		}
+
+		// Heuristic: Link headings to mentioned identifiers in the heading text
+		// (Assuming the heading text itself might name a symbol)
+		edges = append(edges, CodeEdge{
+			ID: stableID(
+				"code-edge",
+				"documents",
+				path,
+				source.ID,
+				symbol.SymbolName,
+			),
+			Kind:          "documents",
+			Path:          path,
+			SourceChunkID: source.ID,
+			TargetName:    symbol.SymbolName,
 		})
 	}
 

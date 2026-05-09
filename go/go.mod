@@ -8,6 +8,7 @@ require github.com/pelletier/go-toml/v2 v2.3.1
 
 require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0
 	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.2
 	github.com/tree-sitter/go-tree-sitter v0.25.0

@@ -88,6 +88,7 @@ func RequireRuntime(t *testing.T, ethosRoot string) {
 		filepath.Join(ethosRoot, "bin", "coding-ethos-run"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-lint"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-policy"),
+		filepath.Join(ethosRoot, "bin", "coding-ethos-mcp"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-hook-log"),
 		filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),
 	}

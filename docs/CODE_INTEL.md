@@ -446,12 +446,12 @@ Acceptance criteria:
   links in SQLite.
 - [x] Expose focused code context with parent, children, graph edges, and
   linked findings through CLI and MCP.
-- [ ] Add Markdown once the parser binding strategy is explicit.
-- [ ] Add incremental reindex by file hash and chunk hash.
+- [x] Add Markdown support using Goldmark for robust documentation chunking.
+- [x] Add incremental reindex by file hash and chunk-level invalidation.
 
 Acceptance criteria:
 
-- [ ] Editing one function reindexes only that file and re-embeds only changed
+- [x] Editing one function reindexes only that file and re-embeds only changed
   chunks.
 - [x] Search results include stable file/line spans and symbol identity.
 

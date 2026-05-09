@@ -280,3 +280,74 @@ func symbolReferences(symbols []Symbol, path, reference string) bool {
 
 	return false
 }
+
+func hasCall(symbols []Symbol, path, call string) bool {
+	for _, symbol := range symbols {
+		if symbol.SymbolPath != path {
+			continue
+		}
+
+		if slices.Contains(symbol.CallNames, call) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasBase(symbols []Symbol, path, base string) bool {
+	for _, symbol := range symbols {
+		if symbol.SymbolPath != path {
+			continue
+		}
+
+		if slices.Contains(symbol.BaseNames, base) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func TestAnalyzeExtractsCallsAndBases(t *testing.T) {
+	t.Parallel()
+
+	// Python
+	pyFile, found, err := Analyze("app.py", []byte(`
+class Base:
+    pass
+
+class Sub(Base):
+    def run(self):
+        other()
+`))
+
+	if err != nil || !found {
+		t.Fatalf("analyze python: %v %v", err, found)
+	}
+
+	if !hasBase(pyFile.Symbols, "Sub", "Base") {
+		t.Errorf("Sub missing base Base: %#v", pyFile.Symbols)
+	}
+
+	if !hasCall(pyFile.Symbols, "Sub.run", "other") {
+		t.Errorf("Sub.run missing call other: %#v", pyFile.Symbols)
+	}
+
+	// Go
+	goFile, found, err := Analyze("app.go", []byte(`
+package main
+
+func main() {
+    execute()
+}
+`))
+
+	if err != nil || !found {
+		t.Fatalf("analyze go: %v %v", err, found)
+	}
+
+	if !hasCall(goFile.Symbols, "main", "execute") {
+		t.Errorf("main missing call execute: %#v", goFile.Symbols)
+	}
+}
