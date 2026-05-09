@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sergi/go-diff/diffmatchpatch"
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 const hunkHeaderMinimumFields = 3
@@ -17,17 +17,20 @@ func contentDiffHunkInputs(path, before, after string) []DiffHunkInput {
 		return []DiffHunkInput{}
 	}
 
-	dmp := diffmatchpatch.New()
-	diffs := dmp.DiffMain(before, after, false)
-	patch := dmp.PatchMake(before, diffs)
+	diff := difflib.UnifiedDiff{
+		A:        difflib.SplitLines(before),
+		B:        difflib.SplitLines(after),
+		FromFile: "a/" + path,
+		ToFile:   "b/" + path,
+		Context:  0,
+	}
 
-	// Convert patch into a simplified unified
-	// diff that ParseDiffHunks can understand. ParseDiffHunks expects +++ and @@ headers.
-	var sb strings.Builder
-	sb.WriteString("+++ " + path + "\n")
-	sb.WriteString(dmp.PatchToText(patch))
+	text, err := difflib.GetUnifiedDiffString(diff)
+	if err != nil {
+		return []DiffHunkInput{}
+	}
 
-	return ParseDiffHunks(sb.String(), []string{path})
+	return ParseDiffHunks(text, []string{path})
 }
 
 func diffHunkInputs(cwd string, files []string) []DiffHunkInput {
