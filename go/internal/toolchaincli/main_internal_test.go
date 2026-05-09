@@ -1444,7 +1444,7 @@ func writeZipFixture(t *testing.T, path string, members map[string]string) {
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	gitPath, err := realgit.Resolve("git")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}

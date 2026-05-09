@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func cutoverReport(args []string) error {
@@ -389,9 +390,10 @@ func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
 }
 
 func gitCheckIgnore(realGit, repoRoot, path string) (bool, error) {
-	command := exec.CommandContext(
+	command := realgit.CommandFor(
 		context.Background(),
 		realGit,
+		false,
 		"-C",
 		repoRoot,
 		"check-ignore",

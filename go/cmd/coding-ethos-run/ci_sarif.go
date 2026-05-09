@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -12,7 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/lintcli"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const ciArtifactDirMode = 0o755
@@ -360,7 +361,16 @@ func writeCIFileList(repoRoot string, files []string) (string, error) {
 }
 
 func gitRefExists(realGit, repoRoot, ref string) bool {
-	command := safeexec.Command(realGit, "-C", repoRoot, "rev-parse", "--verify", ref)
+	command := realgit.CommandFor(
+		context.Background(),
+		realGit,
+		false,
+		"-C",
+		repoRoot,
+		"rev-parse",
+		"--verify",
+		ref,
+	)
 
 	return command.Run() == nil
 }

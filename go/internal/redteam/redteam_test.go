@@ -6,11 +6,11 @@ package redteam_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/redteam"
 )
 
@@ -19,22 +19,14 @@ func TestDefaultScenariosBlockKnownBypassClasses(t *testing.T) {
 
 	repoRoot := t.TempDir()
 
-	output, inlineErrA := exec.CommandContext(
-		context.Background(),
-		"git",
-		"-C",
-		repoRoot,
-		"init",
-	).
-		CombinedOutput()
+	initCmd := realgit.Command(context.Background(), false, "-C", repoRoot, "init")
+
+	output, inlineErrA := initCmd.CombinedOutput()
 	if inlineErrA != nil {
 		t.Fatalf("init isolated git repo: %v\n%s", inlineErrA, output)
 	}
 
-	realGit, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatalf("resolve git executable: %v", err)
-	}
+	realGit := realgit.Executable(context.Background(), false)
 
 	bundle := compileRepoBundle(t)
 

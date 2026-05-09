@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestGitCommandUsesConfiguredRealGit(t *testing.T) {
@@ -72,7 +73,7 @@ func TestCleanGitLocalEnvRemovesHookScopedGitVariables(t *testing.T) {
 		"PATH=/usr/bin",
 	}
 
-	got := CleanGitLocalEnv(source)
+	got := realgit.CleanGitLocalEnv(source)
 
 	if len(got) != 2 || got[0] != "PATH=/usr/bin" {
 		t.Fatalf("CleanGitLocalEnv() = %#v, want PATH and git lock guard", got)

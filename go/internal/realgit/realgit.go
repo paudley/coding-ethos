@@ -30,7 +30,7 @@ var errUnresolved = apperror.StaticError(
 )
 
 // Resolve returns a host git executable path for internal coding-ethos use.
-func Resolve(requested string) (string, error) {
+func Resolve(ctx context.Context, requested string) (string, error) {
 	if requested != "" && requested != executableName {
 		return requested, nil
 	}
@@ -47,7 +47,7 @@ func Resolve(requested string) (string, error) {
 
 	if envValue := strings.TrimSpace(os.Getenv(Env)); envValue != "" &&
 		UsableCandidate(resolvedSelf, envValue) &&
-		reportsGitVersion(envValue) {
+		reportsGitVersion(ctx, envValue) {
 		return envValue, nil
 	}
 
@@ -127,13 +127,30 @@ func LooksLikeCodingEthosShim(path, self string) bool {
 		return true
 	}
 
-	return SamePath(filepath.Dir(path), filepath.Dir(self))
+	if SamePath(filepath.Dir(path), filepath.Dir(self)) {
+		return true
+	}
+
+	return dirContainsCodingEthosRuntime(filepath.Dir(path))
 }
 
-func reportsGitVersion(path string) bool {
+func dirContainsCodingEthosRuntime(dir string) bool {
+	cleaned := filepath.Clean(dir)
+	target := filepath.Join(cleaned, "coding-ethos-run")
+
+	if filepath.Dir(target) != cleaned {
+		return false
+	}
+
+	info, err := os.Stat(target)
+
+	return err == nil && !info.IsDir()
+}
+
+func reportsGitVersion(ctx context.Context, path string) bool {
 	const versionTimeout = time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
+	ctx, cancel := context.WithTimeout(ctx, versionTimeout)
 	defer cancel()
 
 	output, err := safeexec.CommandContext(ctx, path, "--version").Output()
@@ -142,6 +159,91 @@ func reportsGitVersion(path string) bool {
 	}
 
 	return strings.HasPrefix(strings.TrimSpace(string(output)), "git version ")
+}
+
+// Executable returns the git binary path. When wantsShim is false, Resolve
+// is used to find the real host git, skipping coding-ethos shims. When
+// wantsShim is true, the bare name "git" is returned for standard PATH
+// resolution (which may find a shim).
+func Executable(ctx context.Context, wantsShim bool) string {
+	if wantsShim {
+		return executableName
+	}
+
+	resolved, err := Resolve(ctx, executableName)
+	if err != nil {
+		return executableName
+	}
+
+	return resolved
+}
+
+// Command builds an *exec.Cmd for a git operation. When wantsShim is false,
+// the real host git is resolved and shims are skipped. When wantsShim is
+// true, standard PATH resolution is used.
+func Command(ctx context.Context, wantsShim bool, args ...string) *exec.Cmd {
+	return CommandFor(ctx, executableName, wantsShim, args...)
+}
+
+// CommandFor builds an *exec.Cmd resolving the specified git binary. If
+// requested is a specific path (not "git" or ""), it is used directly.
+// Otherwise, standard resolution applies with the wantsShim flag.
+func CommandFor(
+	ctx context.Context,
+	requested string,
+	wantsShim bool,
+	args ...string,
+) *exec.Cmd {
+	if wantsShim {
+		return safeexec.CommandContext(ctx, executableName, args...)
+	}
+
+	resolved, err := Resolve(ctx, requested)
+	if err != nil {
+		return safeexec.CommandContext(ctx, executableName, args...)
+	}
+
+	return safeexec.CommandContext(ctx, resolved, args...)
+}
+
+// CleanGitLocalEnv removes git hook-local environment variables from a
+// command environment slice so that child git processes do not inherit the
+// caller's hook context.
+func CleanGitLocalEnv(source []string) []string {
+	env := make([]string, 0, len(source))
+
+	for _, item := range source {
+		name, _, found := strings.Cut(item, "=")
+		if found && gitLocalEnvName(name) {
+			continue
+		}
+
+		env = append(env, item)
+	}
+
+	env = append(env, "GIT_OPTIONAL_LOCKS=0")
+
+	return env
+}
+
+func gitLocalEnvName(name string) bool {
+	switch name {
+	case "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_COMMON_DIR",
+		"GIT_CONFIG_COUNT",
+		"GIT_CONFIG_PARAMETERS",
+		"GIT_DIR",
+		"GIT_INDEX_FILE",
+		"GIT_NAMESPACE",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_PREFIX",
+		"GIT_QUARANTINE_PATH",
+		"GIT_WORK_TREE":
+		return true
+	default:
+		return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+	}
 }
 
 // ExecutableFiles filters paths to executable files.

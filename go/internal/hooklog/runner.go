@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -487,7 +487,7 @@ func requireIgnored(options Options, path string) error {
 		"--quiet",
 		path,
 	)
-	cmd.Env = evaluators.CleanGitLocalEnv(os.Environ())
+	cmd.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	err := cmd.Run()
 	if err != nil && !gitignoreContains(options.Root, path) {

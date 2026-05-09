@@ -418,6 +418,7 @@ exit 2
 `,
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 
 	got := stagedFiles()
 
@@ -905,6 +906,7 @@ exit 2
 `,
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 
 	if got := checkRuntimeIgnoresCommand(Config{}, nil); got != 0 {
 		t.Fatalf("checkRuntimeIgnoresCommand() = %d, want 0", got)
@@ -987,6 +989,7 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 	t.Setenv(consumerRootEnv, tempDir)
 	t.Setenv(precommitRootEnv, writeTestBundleRoot(t, tempDir))
 
@@ -1014,6 +1017,7 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 	t.Setenv(consumerRootEnv, tempDir)
 	t.Setenv(precommitRootEnv, writeTestBundleRoot(t, tempDir))
 
@@ -1263,6 +1267,8 @@ func TestFormatHookReportJSONIncludesNormalizedPayload(t *testing.T) {
 
 func TestGeminiGitDiffHelpersClassifyChangedAndAddedFiles(t *testing.T) {
 	tempDir := t.TempDir()
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+
 	sourcePath := filepath.Join(tempDir, "src", "app.py")
 	mustWriteTestFile(t, sourcePath, "print('ok')\n")
 

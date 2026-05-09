@@ -668,7 +668,7 @@ func runTestGitOutputOK(t *testing.T, repo string, args ...string) string {
 func runTestGitOutput(t *testing.T, repo string, args ...string) (string, error) {
 	t.Helper()
 
-	gitPath, err := realgit.Resolve("git")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}

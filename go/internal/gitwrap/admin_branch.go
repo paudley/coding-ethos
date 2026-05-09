@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 var (
@@ -36,16 +37,11 @@ func AdminStartBranch(realGit, cwd string, args []string) error {
 
 	branch := strings.TrimSpace(args[0])
 
-	resolvedGit, err := ResolveRealGit(realGit)
-	if err != nil {
-		return err
-	}
-
-	if !validAdminBranchName(resolvedGit, cwd, branch) {
+	if !validAdminBranchName(realGit, cwd, branch) {
 		return fmt.Errorf("%w: %q", errAdminBranchInvalid, args[0])
 	}
 
-	err = ensureCleanWorktree(resolvedGit, cwd)
+	err := ensureCleanWorktree(realGit, cwd)
 	if err != nil {
 		return err
 	}
@@ -55,7 +51,7 @@ func AdminStartBranch(realGit, cwd string, args []string) error {
 		{"pull", "--ff-only"},
 		{"checkout", "-b", branch},
 	} {
-		err = runRealGit(resolvedGit, cwd, command...)
+		err = runRealGit(realGit, cwd, command...)
 		if err != nil {
 			return err
 		}
@@ -124,7 +120,7 @@ func runRealGit(realGit, cwd string, args ...string) error {
 }
 
 func realGitCommand(realGit, cwd string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(context.Background(), realGit, args...)
+	cmd := realgit.CommandFor(context.Background(), realGit, false, args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}

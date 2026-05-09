@@ -1343,7 +1343,7 @@ func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 func runCELGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	gitPath, err := realgit.Resolve("git")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}

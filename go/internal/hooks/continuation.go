@@ -9,10 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -205,9 +206,9 @@ func gitCommonDir(cwd string) (string, error) {
 		cwd = "."
 	}
 
-	command := exec.CommandContext(
+	command := realgit.Command(
 		context.Background(),
-		"git",
+		false,
 		"rev-parse",
 		"--path-format=absolute",
 		"--git-common-dir",

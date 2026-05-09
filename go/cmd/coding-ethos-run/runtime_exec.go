@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/mcpcli"
 	"blackcat.ca/coding-ethos/go/internal/policycli"
 	"blackcat.ca/coding-ethos/go/internal/policygitcli"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
 )
@@ -98,7 +99,7 @@ func runtimeFailure(problem string) {
 }
 
 func gitOutput(realGit, dir string, args ...string) (string, error) {
-	command := safeexec.CommandContext(context.Background(), realGit, args...)
+	command := realgit.CommandFor(context.Background(), realGit, false, args...)
 	if dir != "" {
 		command.Dir = dir
 	}
