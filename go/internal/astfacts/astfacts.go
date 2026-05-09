@@ -209,23 +209,34 @@ func isCallNode(language, nodeKind string) bool {
 }
 
 func callFunctionName(language string, contents []byte, node *tree_sitter.Node) string {
-	var functionNode *tree_sitter.Node
-
-	switch language {
-	case LanguageGo:
-		functionNode = node.ChildByFieldName("function")
-	case LanguagePython:
-		functionNode = node.ChildByFieldName("function")
-	case LanguageJavaScript:
-		functionNode = node.ChildByFieldName("function")
-	}
+	functionNode := node.ChildByFieldName("function")
 
 	if functionNode == nil {
 		return ""
 	}
 
-	// For simple calls, we just want the identifier.
-	// For member calls (e.g. obj.method()), we might want the method name.
+	// For member calls (e.g. obj.method()), we want the method name.
+	switch language {
+	case LanguageGo:
+		if functionNode.Kind() == "selector_expression" {
+			if field := functionNode.ChildByFieldName("field"); field != nil {
+				return cleanSymbolName(field.Utf8Text(contents))
+			}
+		}
+	case LanguagePython:
+		if functionNode.Kind() == "attribute" {
+			if attr := functionNode.ChildByFieldName("attribute"); attr != nil {
+				return cleanSymbolName(attr.Utf8Text(contents))
+			}
+		}
+	case LanguageJavaScript:
+		if functionNode.Kind() == "member_expression" {
+			if property := functionNode.ChildByFieldName("property"); property != nil {
+				return cleanSymbolName(property.Utf8Text(contents))
+			}
+		}
+	}
+
 	return cleanSymbolName(functionNode.Utf8Text(contents))
 }
 

@@ -593,11 +593,11 @@ func reconcileCodeChunks(
 	for _, chunk := range newChunks {
 		newChunkIDs[chunk.ID] = true
 
-		if !existingChunkIDs[chunk.ID] {
-			err := insertCodeChunk(ctx, transaction, chunk)
-			if err != nil {
-				return err
-			}
+		// Always upsert to update start_line/end_line if a chunk moved but content
+		// stayed same.
+		err := insertCodeChunk(ctx, transaction, chunk)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -619,6 +619,15 @@ func reconcileCodeChunks(
 			)
 			if err != nil {
 				return fmt.Errorf("delete obsolete chunk FTS %q: %w", chunkID, err)
+			}
+
+			_, err = transaction.ExecContext(
+				ctx,
+				"DELETE FROM ast_finding_links WHERE chunk_id = ?",
+				chunkID,
+			)
+			if err != nil {
+				return fmt.Errorf("delete obsolete chunk links %q: %w", chunkID, err)
 			}
 		}
 	}
