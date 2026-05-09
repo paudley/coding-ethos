@@ -182,14 +182,21 @@ func CallNames(
 		}
 
 		if isCallNode(language, candidate.Kind()) {
-			if name := callFunctionName(language, contents, candidate); name != "" {
-				names[name] = true
-			}
+			processCall(language, contents, candidate, names)
 		}
 
 		childCount := candidate.NamedChildCount()
+
 		for index := range childCount {
-			visit(candidate.NamedChild(index))
+			child := candidate.NamedChild(index)
+
+			// Stop traversal if the child is itself a symbol-worthy node
+			// (e.g. don't collect calls from nested functions/methods).
+			if _, ok := SymbolKindForNode(language, child.Kind()); ok {
+				continue
+			}
+
+			visit(child)
 		}
 	}
 	visit(node)
@@ -197,11 +204,37 @@ func CallNames(
 	return sortedMapKeys(names)
 }
 
+func processCall(
+	language string,
+	contents []byte,
+	node *tree_sitter.Node,
+	names map[string]bool,
+) {
+	name := callFunctionName(language, contents, node)
+	if name == "" {
+		return
+	}
+
+	names[name] = true
+
+	// To support intra-file call matching for methods (e.g., obj.Method()),
+	// we also extract the base name of the function being called.
+	index := strings.LastIndex(name, ".")
+	if index == -1 {
+		return
+	}
+
+	base := name[index+1:]
+	if base != "" {
+		names[base] = true
+	}
+}
+
 func isCallNode(language, nodeKind string) bool {
 	switch language {
-	case LanguageGo:
+	case LanguageGo, LanguageJavaScript:
 		return nodeKind == "call_expression"
-	case LanguagePython, LanguageJavaScript:
+	case LanguagePython:
 		return nodeKind == "call"
 	default:
 		return false

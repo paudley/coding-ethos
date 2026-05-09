@@ -601,34 +601,39 @@ func reconcileCodeChunks(
 		}
 	}
 
+	var obsoleteChunkIDs []any
+
 	for chunkID := range existingChunkIDs {
 		if !newChunkIDs[chunkID] {
-			_, err := transaction.ExecContext(
-				ctx,
-				"DELETE FROM code_chunks WHERE chunk_id = ?",
-				chunkID,
-			)
-			if err != nil {
-				return fmt.Errorf("delete obsolete chunk %q: %w", chunkID, err)
-			}
+			obsoleteChunkIDs = append(obsoleteChunkIDs, chunkID)
+		}
+	}
 
-			_, err = transaction.ExecContext(
-				ctx,
-				"DELETE FROM code_intel_fts WHERE kind = 'code_chunk' AND record_id = ?",
-				chunkID,
-			)
-			if err != nil {
-				return fmt.Errorf("delete obsolete chunk FTS %q: %w", chunkID, err)
-			}
+	if len(obsoleteChunkIDs) > 0 {
+		err := batchDeleteEntities(
+			ctx, transaction, "code_chunks", "chunk_id", obsoleteChunkIDs,
+		)
+		if err != nil {
+			return err
+		}
 
-			_, err = transaction.ExecContext(
-				ctx,
-				"DELETE FROM ast_finding_links WHERE chunk_id = ?",
-				chunkID,
-			)
-			if err != nil {
-				return fmt.Errorf("delete obsolete chunk links %q: %w", chunkID, err)
-			}
+		err = batchDeleteEntities(
+			ctx,
+			transaction,
+			"code_intel_fts",
+			"record_id",
+			obsoleteChunkIDs,
+			"kind = 'code_chunk'",
+		)
+		if err != nil {
+			return err
+		}
+
+		err = batchDeleteEntities(
+			ctx, transaction, "ast_finding_links", "chunk_id", obsoleteChunkIDs,
+		)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -646,24 +651,62 @@ func reconcileCodeEdges(
 	for _, edge := range newEdges {
 		newEdgeIDs[edge.ID] = true
 
-		if !existingEdgeIDs[edge.ID] {
-			err := insertCodeEdge(ctx, transaction, edge)
-			if err != nil {
-				return err
-			}
+		// Always upsert to refresh metadata (target path/name, raw text)
+		// even if the ID is stable.
+		err := insertCodeEdge(ctx, transaction, edge)
+		if err != nil {
+			return err
 		}
 	}
 
+	var obsoleteEdgeIDs []any
+
 	for edgeID := range existingEdgeIDs {
 		if !newEdgeIDs[edgeID] {
-			_, err := transaction.ExecContext(
-				ctx,
-				"DELETE FROM code_edges WHERE edge_id = ?",
-				edgeID,
-			)
-			if err != nil {
-				return fmt.Errorf("delete obsolete edge %q: %w", edgeID, err)
-			}
+			obsoleteEdgeIDs = append(obsoleteEdgeIDs, edgeID)
+		}
+	}
+
+	if len(obsoleteEdgeIDs) > 0 {
+		return batchDeleteEntities(
+			ctx, transaction, "code_edges", "edge_id", obsoleteEdgeIDs,
+		)
+	}
+
+	return nil
+}
+
+func batchDeleteEntities(
+	ctx context.Context,
+	transaction *sql.Tx,
+	table string,
+	column string,
+	ids []any,
+	extraWhere ...string,
+) error {
+	// SQLite has a limit of 999 parameters.
+	const batchSize = 900
+
+	for offset := 0; offset < len(ids); offset += batchSize {
+		end := min(offset+batchSize, len(ids))
+		batch := ids[offset:end]
+
+		placeholders := make([]string, len(batch))
+		for j := range placeholders {
+			placeholders[j] = "?"
+		}
+
+		where := fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholders, ","))
+		if len(extraWhere) > 0 {
+			where = fmt.Sprintf("%s AND %s", strings.Join(extraWhere, " AND "), where)
+		}
+
+		// #nosec G201 -- table and column names are internal literals.
+		query := fmt.Sprintf("DELETE FROM %s WHERE %s", table, where)
+
+		_, err := transaction.ExecContext(ctx, query, batch...)
+		if err != nil {
+			return fmt.Errorf("batch delete from %s: %w", table, err)
 		}
 	}
 
