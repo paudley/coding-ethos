@@ -409,8 +409,12 @@ func cleanMarkdownHeading(text string) string {
 	return cleanSymbolName(text)
 }
 
-func ParserMetadata() (string, string) {
-	return "goldmark", "v1.8.2"
+func ParserMetadataForLanguage(language string) (string, string) {
+	if language == LanguageMarkdown {
+		return "goldmark", "v1.8.2"
+	}
+
+	return "tree-sitter", "go-tree-sitter"
 }
 
 func AnalyzeMarkdown(path string, contents []byte) File {

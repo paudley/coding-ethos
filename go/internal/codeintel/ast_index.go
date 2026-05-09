@@ -129,7 +129,7 @@ func (indexer ASTIndexer) indexFile(
 		return fmt.Errorf("lookup existing code file %q: %w", relativePath, err)
 	}
 
-	parserName, parserVersion := astfacts.ParserMetadata()
+	parserName, parserVersion := astfacts.ParserMetadataForLanguage(language)
 
 	if found &&
 		existing.ContentHash == hash &&
