@@ -44,6 +44,8 @@ type Symbol struct {
 	RawText         string
 	ContentHash     string
 	ReferencedNames []string
+	CallNames       []string
+	BaseNames       []string
 	StartByte       int
 	EndLine         int
 	LineCount       int
@@ -152,6 +154,8 @@ func SymbolFromNode(
 		NodeKind:        node.Kind(),
 		Path:            path,
 		ReferencedNames: ReferencedNames(language, contents, node),
+		CallNames:       CallNames(language, contents, node),
+		BaseNames:       BaseNames(language, contents, node),
 		SymbolKind:      symbolKind,
 		SymbolName:      name,
 		SymbolPath:      symbolPath,
@@ -161,6 +165,95 @@ func SymbolFromNode(
 		EndLine:         endLine,
 		LineCount:       max(endLine-startLine+1, 0),
 	}
+}
+
+func CallNames(
+	language string,
+	contents []byte,
+	node *tree_sitter.Node,
+) []string {
+	names := map[string]bool{}
+
+	var visit func(candidate *tree_sitter.Node)
+
+	visit = func(candidate *tree_sitter.Node) {
+		if candidate == nil {
+			return
+		}
+
+		if isCallNode(language, candidate.Kind()) {
+			if name := callFunctionName(language, contents, candidate); name != "" {
+				names[name] = true
+			}
+		}
+
+		childCount := candidate.NamedChildCount()
+		for index := range childCount {
+			visit(candidate.NamedChild(index))
+		}
+	}
+	visit(node)
+
+	return sortedMapKeys(names)
+}
+
+func isCallNode(language, nodeKind string) bool {
+	switch language {
+	case LanguageGo:
+		return nodeKind == "call_expression"
+	case LanguagePython, LanguageJavaScript:
+		return nodeKind == "call"
+	default:
+		return false
+	}
+}
+
+func callFunctionName(language string, contents []byte, node *tree_sitter.Node) string {
+	var functionNode *tree_sitter.Node
+
+	switch language {
+	case LanguageGo:
+		functionNode = node.ChildByFieldName("function")
+	case LanguagePython:
+		functionNode = node.ChildByFieldName("function")
+	case LanguageJavaScript:
+		functionNode = node.ChildByFieldName("function")
+	}
+
+	if functionNode == nil {
+		return ""
+	}
+
+	// For simple calls, we just want the identifier.
+	// For member calls (e.g. obj.method()), we might want the method name.
+	return cleanSymbolName(functionNode.Utf8Text(contents))
+}
+
+func BaseNames(
+	language string,
+	contents []byte,
+	node *tree_sitter.Node,
+) []string {
+	switch language {
+	case LanguagePython:
+		if node.Kind() == "class_definition" {
+			if args := node.ChildByFieldName("superclasses"); args != nil {
+				names := map[string]bool{}
+
+				childCount := args.NamedChildCount()
+				for index := range childCount {
+					child := args.NamedChild(index)
+					names[cleanSymbolName(child.Utf8Text(contents))] = true
+				}
+
+				return sortedMapKeys(names)
+			}
+		}
+	case LanguageGo:
+		// In Go, "bases" could be embedded types in a struct.
+	}
+
+	return nil
 }
 
 func CollectImports(language string, contents []byte, root *tree_sitter.Node) []Import {
@@ -245,6 +338,7 @@ func ReferencedNames(
 		}
 
 		childCount := candidate.NamedChildCount()
+
 		for index := range childCount {
 			visit(candidate.NamedChild(index))
 		}

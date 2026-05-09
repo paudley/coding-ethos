@@ -492,58 +492,169 @@ func replaceCodeFileChunks(
 	chunks []CodeChunk,
 	edges []CodeEdge,
 ) error {
-	err := deleteCodeFileIndexRows(ctx, transaction, file.Path)
+	existingChunks, existingEdges, err := existingEntitiesForPath(
+		ctx,
+		transaction,
+		file.Path,
+	)
 	if err != nil {
 		return err
 	}
 
+	// 2. Update file metadata (must happen before inserting chunks/edges for FKs)
 	err = upsertCodeFile(ctx, transaction, file)
 	if err != nil {
 		return err
 	}
 
-	for _, chunk := range chunks {
-		err = insertCodeChunk(ctx, transaction, chunk)
+	// 3. Reconcile chunks
+	err = reconcileCodeChunks(ctx, transaction, chunks, existingChunks)
+	if err != nil {
+		return err
+	}
+
+	// 4. Reconcile edges
+	return reconcileCodeEdges(ctx, transaction, edges, existingEdges)
+}
+
+func existingEntitiesForPath(
+	ctx context.Context,
+	transaction *sql.Tx,
+	path string,
+) (map[string]bool, map[string]bool, error) {
+	existingChunkIDs := make(map[string]bool)
+	existingEdgeIDs := make(map[string]bool)
+
+	rows, err := transaction.QueryContext(
+		ctx,
+		"SELECT chunk_id FROM code_chunks WHERE path = ?",
+		path,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query existing chunk IDs: %w", err)
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var chunkID string
+
+		err = rows.Scan(&chunkID)
 		if err != nil {
-			return err
+			return nil, nil, fmt.Errorf("scan existing chunk ID: %w", err)
+		}
+
+		existingChunkIDs[chunkID] = true
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, nil, fmt.Errorf("iterate existing chunk IDs: %w", err)
+	}
+
+	edgeRows, err := transaction.QueryContext(
+		ctx,
+		"SELECT edge_id FROM code_edges WHERE path = ?",
+		path,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query existing edge IDs: %w", err)
+	}
+
+	defer edgeRows.Close()
+
+	for edgeRows.Next() {
+		var edgeID string
+
+		err = edgeRows.Scan(&edgeID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("scan existing edge ID: %w", err)
+		}
+
+		existingEdgeIDs[edgeID] = true
+	}
+
+	err = edgeRows.Err()
+	if err != nil {
+		return nil, nil, fmt.Errorf("iterate existing edge IDs: %w", err)
+	}
+
+	return existingChunkIDs, existingEdgeIDs, nil
+}
+
+func reconcileCodeChunks(
+	ctx context.Context,
+	transaction *sql.Tx,
+	newChunks []CodeChunk,
+	existingChunkIDs map[string]bool,
+) error {
+	newChunkIDs := make(map[string]bool)
+
+	for _, chunk := range newChunks {
+		newChunkIDs[chunk.ID] = true
+
+		if !existingChunkIDs[chunk.ID] {
+			err := insertCodeChunk(ctx, transaction, chunk)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	for _, edge := range edges {
-		err = insertCodeEdge(ctx, transaction, edge)
-		if err != nil {
-			return err
+	for chunkID := range existingChunkIDs {
+		if !newChunkIDs[chunkID] {
+			_, err := transaction.ExecContext(
+				ctx,
+				"DELETE FROM code_chunks WHERE chunk_id = ?",
+				chunkID,
+			)
+			if err != nil {
+				return fmt.Errorf("delete obsolete chunk %q: %w", chunkID, err)
+			}
+
+			_, err = transaction.ExecContext(
+				ctx,
+				"DELETE FROM code_intel_fts WHERE kind = 'code_chunk' AND record_id = ?",
+				chunkID,
+			)
+			if err != nil {
+				return fmt.Errorf("delete obsolete chunk FTS %q: %w", chunkID, err)
+			}
 		}
 	}
 
 	return nil
 }
 
-func deleteCodeFileIndexRows(
+func reconcileCodeEdges(
 	ctx context.Context,
 	transaction *sql.Tx,
-	path string,
+	newEdges []CodeEdge,
+	existingEdgeIDs map[string]bool,
 ) error {
-	statements := []struct {
-		sql     string
-		message string
-	}{
-		{
-			sql:     "DELETE FROM code_intel_fts WHERE kind = 'code_chunk' AND path = ?",
-			message: "delete code chunk FTS rows",
-		},
-		{sql: "DELETE FROM code_edges WHERE path = ?", message: "delete code edges"},
-		{
-			sql:     "DELETE FROM ast_finding_links WHERE path = ?",
-			message: "delete stale AST finding links",
-		},
-		{sql: "DELETE FROM code_chunks WHERE path = ?", message: "delete code chunks"},
+	newEdgeIDs := make(map[string]bool)
+
+	for _, edge := range newEdges {
+		newEdgeIDs[edge.ID] = true
+
+		if !existingEdgeIDs[edge.ID] {
+			err := insertCodeEdge(ctx, transaction, edge)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	for _, statement := range statements {
-		_, err := transaction.ExecContext(ctx, statement.sql, path)
-		if err != nil {
-			return fmt.Errorf("%s for %q: %w", statement.message, path, err)
+	for edgeID := range existingEdgeIDs {
+		if !newEdgeIDs[edgeID] {
+			_, err := transaction.ExecContext(
+				ctx,
+				"DELETE FROM code_edges WHERE edge_id = ?",
+				edgeID,
+			)
+			if err != nil {
+				return fmt.Errorf("delete obsolete edge %q: %w", edgeID, err)
+			}
 		}
 	}
 
