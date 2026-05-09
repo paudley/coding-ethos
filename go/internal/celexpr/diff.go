@@ -6,9 +6,29 @@ package celexpr
 import (
 	"strconv"
 	"strings"
+
+	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 const hunkHeaderMinimumFields = 3
+
+func contentDiffHunkInputs(path, before, after string) []DiffHunkInput {
+	if path == "" {
+		return []DiffHunkInput{}
+	}
+
+	dmp := diffmatchpatch.New()
+	diffs := dmp.DiffMain(before, after, false)
+	patch := dmp.PatchMake(before, diffs)
+
+	// Convert patch into a simplified unified
+	// diff that ParseDiffHunks can understand. ParseDiffHunks expects +++ and @@ headers.
+	var sb strings.Builder
+	sb.WriteString("+++ " + path + "\n")
+	sb.WriteString(dmp.PatchToText(patch))
+
+	return ParseDiffHunks(sb.String(), []string{path})
+}
 
 func diffHunkInputs(cwd string, files []string) []DiffHunkInput {
 	if cwd == "" {

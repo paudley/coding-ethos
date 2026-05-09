@@ -261,6 +261,7 @@ func (server Server) checkEdit(args json.RawMessage) (any, error) {
 		Cwd:           input.Cwd,
 		ToolInput: map[string]any{
 			"file_path": input.Path,
+			"before":    input.Before,
 			"content":   input.After,
 		},
 	}})

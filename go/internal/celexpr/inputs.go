@@ -1001,7 +1001,14 @@ type activationContext struct {
 func newActivationContext(input ActivationInput) activationContext {
 	sourceRoots := cleanSourceRoots(input.SourceRoots)
 	files := cleanStringSlice(input.Files)
-	diffHunks := diffHunkInputs(input.Cwd, files)
+
+	var diffHunks []DiffHunkInput
+	if len(files) == 1 && (input.OldContent != "" || input.Content != "") {
+		diffHunks = contentDiffHunkInputs(files[0], input.OldContent, input.Content)
+	} else {
+		diffHunks = diffHunkInputs(input.Cwd, files)
+	}
+
 	addedLines, removedLines := diffLines(diffHunks)
 	changedFiles := cleanStringSlice(input.ChangedFiles)
 	stagedFiles := cleanStringSlice(input.StagedFiles)
