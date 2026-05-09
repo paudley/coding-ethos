@@ -222,6 +222,7 @@ func TestRunGitHookCommandRejectsUnsupportedEntrypoints(t *testing.T) {
 func TestPreCommitAndPrePushHooksRouteThroughConfiguredGroups(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 	t.Setenv(consumerRootEnv, tempDir)
 	bundleRoot := writeTestBundleRoot(t, tempDir)
 	t.Setenv(precommitRootEnv, bundleRoot)

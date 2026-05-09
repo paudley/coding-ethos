@@ -4119,7 +4119,7 @@ func initHookRepo(t *testing.T) string {
 func runHookGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
-	gitPath, err := realgit.Resolve("git")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}

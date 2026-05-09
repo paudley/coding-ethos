@@ -101,7 +101,7 @@ func newRequiredIgnoreRepo(t *testing.T) string {
 func requiredIgnoreGitPath(t *testing.T) string {
 	t.Helper()
 
-	gitPath, err := realgit.Resolve("git")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}

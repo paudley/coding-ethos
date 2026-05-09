@@ -13,19 +13,15 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
 
 func Execute(realGit string, options Options) error {
-	resolvedGit, err := ResolveRealGit(realGit)
-	if err != nil {
-		return err
-	}
-
 	normalized := normalizeArgv(options.Argv)
 
-	cmd := exec.CommandContext(context.Background(), resolvedGit, normalized[1:]...)
+	cmd := realgit.CommandFor(context.Background(), realGit, false, normalized[1:]...)
 	if options.Cwd != "" {
 		cmd.Dir = options.Cwd
 	}
@@ -41,7 +37,7 @@ func Execute(realGit string, options Options) error {
 	cmd.Stderr = os.Stderr
 	cmd.Env = gitExecutionEnv(options.AdminApproved)
 
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {

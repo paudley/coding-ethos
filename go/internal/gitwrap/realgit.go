@@ -4,6 +4,7 @@
 package gitwrap
 
 import (
+	"context"
 	"fmt"
 
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -15,7 +16,7 @@ const (
 )
 
 func ResolveRealGit(requested string) (string, error) {
-	resolved, err := realgit.Resolve(requested)
+	resolved, err := realgit.Resolve(context.Background(), requested)
 	if err != nil {
 		return "", fmt.Errorf("resolve host git executable: %w", err)
 	}

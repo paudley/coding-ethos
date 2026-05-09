@@ -4,10 +4,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func isGitHookName(name string) bool {
@@ -80,7 +81,10 @@ func runLFSHook(paths runtimePaths, args []string) error {
 		)
 	}
 
-	err := safeexec.Command(paths.RealGit, "lfs", "version").Run()
+	ctx := context.Background()
+
+	err := realgit.CommandFor(ctx, paths.RealGit, false, "lfs", "version").
+		Run()
 	if err != nil {
 		return fmt.Errorf("git-lfs is required for lfs-hook: %w", err)
 	}

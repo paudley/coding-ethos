@@ -5,6 +5,7 @@ package celexpr
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 const gitStatusFieldCount = 2
@@ -191,12 +191,12 @@ func isBlankLine(text string) bool {
 }
 
 func gitOutput(cwd string, args ...string) (string, error) {
-	cmd := safeexec.Command(gitExecutable(), args...)
+	cmd := realgit.Command(context.Background(), false, args...)
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
 
-	cmd.Env = cleanGitLocalEnv(os.Environ())
+	cmd.Env = realgit.CleanGitLocalEnv(os.Environ())
 	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0")
 
 	output, err := cmd.Output()
@@ -205,37 +205,6 @@ func gitOutput(cwd string, args ...string) (string, error) {
 	}
 
 	return string(output), nil
-}
-
-func gitExecutable() string {
-	resolved, err := realgit.Resolve("git")
-	if err == nil && strings.TrimSpace(resolved) != "" {
-		return resolved
-	}
-
-	return "git"
-}
-
-func cleanGitLocalEnv(source []string) []string {
-	cleaned := make([]string, 0, len(source))
-	for _, entry := range source {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok && gitLocalEnvName(name) {
-			continue
-		}
-
-		cleaned = append(cleaned, entry)
-	}
-
-	return cleaned
-}
-
-func gitLocalEnvName(name string) bool {
-	return name == "GIT_DIR" ||
-		name == "GIT_WORK_TREE" ||
-		name == "GIT_INDEX_FILE" ||
-		name == "GIT_OBJECT_DIRECTORY" ||
-		strings.HasPrefix(name, "GIT_ALTERNATE_OBJECT_DIRECTORIES")
 }
 
 func resolveFilePath(cwd, file string) string {
@@ -312,7 +281,14 @@ func gitCheckIgnore(cwd, path string) (bool, error) {
 		return false, nil
 	}
 
-	cmd := safeexec.Command(gitExecutable(), "check-ignore", "--quiet", "--no-index", path)
+	cmd := realgit.Command(
+		context.Background(),
+		false,
+		"check-ignore",
+		"--quiet",
+		"--no-index",
+		path,
+	)
 	cmd.Dir = cwd
 
 	err := cmd.Run()
