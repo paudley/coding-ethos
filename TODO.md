@@ -412,6 +412,11 @@ before the next broad hook expansion.
 - [x] Replace the remaining shell-owned lint capture entrypoint with Go so
   capture, target resolution, config enforcement, and output normalization all
   live in compiled hook code instead of shell glue.
+- [x] Parallelize hook execution: inter-group concurrency for analysis groups,
+  intra-group concurrency via `ParallelAfter` for the `go` group, per-language
+  parallel formatter lanes, AI groups gated on prior success.
+- [x] Add incremental linting: `golangci-lint --new-from-rev=HEAD` for
+  pre-commit, full lint for pre-push.
 
 ## Go Lint Capture Replacement Prep
 

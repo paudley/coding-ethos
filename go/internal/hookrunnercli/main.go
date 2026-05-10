@@ -25,18 +25,20 @@ import (
 )
 
 const (
-	configEnv         = "CODE_ETHOS_PRECOMMIT_CONFIG"
-	precommitRootEnv  = "CODE_ETHOS_PRECOMMIT_ROOT"
-	consumerRootEnv   = "CODE_ETHOS_CONSUMER_ROOT"
-	privateKeyPattern = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
-	textChunkSize     = 8192
-	severityCritical  = "CRITICAL"
-	severityInfo      = "INFO"
-	severityWarning   = "WARNING"
+	configEnv          = "CODE_ETHOS_PRECOMMIT_CONFIG"
+	precommitRootEnv   = "CODE_ETHOS_PRECOMMIT_ROOT"
+	consumerRootEnv    = "CODE_ETHOS_CONSUMER_ROOT"
+	privateKeyPattern  = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
+	textChunkSize      = 8192
+	severityCritical   = "CRITICAL"
+	severityInfo       = "INFO"
+	severityWarning    = "WARNING"
+	hookStagePreCommit = "pre-commit"
 )
 
 type Config struct {
 	QuietFilter       QuietFilterConfig
+	HookStage         string
 	CommitAttribution struct{ BlockedNames []string }
 	Shell             struct{ RequireCommonForPrefixes []string }
 	Text              struct {

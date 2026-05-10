@@ -82,13 +82,22 @@ type sarifHelp struct {
 }
 
 type sarifResult struct {
-	RuleID              string
-	RuleIndex           *int
-	Level               string
-	Message             sarifMessage
-	Locations           []sarifLocation
 	PartialFingerprints map[string]string
-	Properties          sarifResultProperties
+	RuleIndex           *int
+	Message             sarifMessage
+	RuleID              string
+	Level               string
+	Locations           []sarifLocation
+	//nolint:tagliatelle // SARIF standard requires camelCase
+	RelatedLocations []sarifRelatedLocation `json:"relatedLocations,omitempty"`
+	Properties       sarifResultProperties
+}
+
+type sarifRelatedLocation struct {
+	Message sarifMessage `json:"message"`
+	//nolint:tagliatelle // SARIF standard requires camelCase
+	PhysicalLocation sarifPhysicalLocation `json:"physicalLocation"`
+	ID               int                   `json:"id"`
 }
 
 type sarifMessage struct {
@@ -317,6 +326,10 @@ func (result sarifResult) MarshalJSON() ([]byte, error) {
 
 	if len(result.PartialFingerprints) > 0 {
 		fields["partialFingerprints"] = result.PartialFingerprints
+	}
+
+	if len(result.RelatedLocations) > 0 {
+		fields["relatedLocations"] = result.RelatedLocations
 	}
 
 	return marshalSARIFFields("result", fields)
@@ -555,6 +568,7 @@ func sarifResults(
 			Level:               sarifLevel(item.Severity),
 			Message:             sarifMessage{Text: item.Message},
 			Locations:           sarifLocations(item),
+			RelatedLocations:    sarifRelatedLocations(item),
 			PartialFingerprints: sarifPartialFingerprints(item),
 			Properties: sarifResultProperties{
 				sarifResultEvidenceProperties: sarifResultEvidence(
@@ -802,6 +816,37 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 	}
 
 	return []sarifLocation{location}
+}
+
+func sarifRelatedLocations(item diagnostics.Diagnostic) []sarifRelatedLocation {
+	if len(item.RelatedLocations) == 0 {
+		return nil
+	}
+
+	related := make([]sarifRelatedLocation, 0, len(item.RelatedLocations))
+
+	for idx, loc := range item.RelatedLocations {
+		uri := sarifArtifactURI(loc.File)
+		if uri == "" {
+			continue
+		}
+
+		entry := sarifRelatedLocation{
+			ID: idx,
+			PhysicalLocation: sarifPhysicalLocation{
+				ArtifactLocation: sarifArtifactLocation{URI: uri},
+			},
+			Message: sarifMessage{Text: loc.Message},
+		}
+
+		if loc.Line > 0 {
+			entry.PhysicalLocation.Region.StartLine = loc.Line
+		}
+
+		related = append(related, entry)
+	}
+
+	return related
 }
 
 func sarifArtifactURI(file string) string {

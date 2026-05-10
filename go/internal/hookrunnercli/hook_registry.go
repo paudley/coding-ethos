@@ -3,6 +3,10 @@
 
 package hookrunnercli
 
+// goGroupSequentialPrefix is the number of commands in the "go" hook group
+// that run sequentially before the remainder execute in parallel.
+const goGroupSequentialPrefix = 2
+
 type hookCommandRegistry struct {
 	Commands map[string]CommandFunc
 	Groups   map[string]hookGroup
@@ -124,13 +128,13 @@ func canonicalHookGroupsFromCommands(
 			"python-maintainability",
 			"python-vulture",
 		}),
-		"go": groupFromCommandNames(commands, "go", []string{
+		"go": groupWithParallelAfter(commands, "go", []string{
 			"go-format",
 			"go-vet",
 			"go-test",
 			"go-coverage",
 			"policy-golangci-lint",
-		}),
+		}, goGroupSequentialPrefix),
 		"ai": groupFromCommandNames(commands, "ai", []string{"gemini-check"}),
 	}
 }
@@ -150,6 +154,18 @@ func groupFromCommandNames(
 			Run:  commands[name],
 		})
 	}
+
+	return group
+}
+
+func groupWithParallelAfter(
+	commands map[string]CommandFunc,
+	groupName string,
+	commandNames []string,
+	parallelAfter int,
+) hookGroup {
+	group := groupFromCommandNames(commands, groupName, commandNames)
+	group.ParallelAfter = parallelAfter
 
 	return group
 }

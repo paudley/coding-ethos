@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -37,7 +38,7 @@ func runGitHookCommand(cfg Config, args []string) int {
 	}
 
 	switch args[0] {
-	case "pre-commit":
+	case hookStagePreCommit:
 		return runPreCommitHook(cfg, args[1:])
 	case "pre-push":
 		return runPrePushHook(cfg, os.Stdin)
@@ -58,6 +59,7 @@ func runGitHookCommand(cfg Config, args []string) int {
 }
 
 func runPreCommitHook(cfg Config, args []string) int {
+	cfg.HookStage = hookStagePreCommit
 	allFiles := slices.Contains(args, "--all-files")
 
 	files, err := hookFilesForPreCommit(allFiles)
@@ -71,7 +73,7 @@ func runPreCommitHook(cfg Config, args []string) int {
 		return 1
 	}
 
-	return runNamedHookGroups(cfg, []string{
+	exit := runNamedHookGroups(cfg, []string{
 		"syntax",
 		"docker",
 		"workflow",
@@ -82,11 +84,18 @@ func runPreCommitHook(cfg Config, args []string) int {
 		"docs",
 		"security",
 		"go",
-		"ai",
 	}, files)
+
+	if exit != 0 {
+		return exit
+	}
+
+	return runNamedHookGroups(cfg, []string{"ai"}, files)
 }
 
 func runPrePushHook(cfg Config, input io.Reader) int {
+	cfg.HookStage = "pre-push"
+
 	files, err := pushedFiles(input)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -105,12 +114,17 @@ func runPrePushHook(cfg Config, input io.Reader) int {
 		"workflow",
 		"go",
 	}, files)
-	if slices.Contains(enabledHookGroupNames([]string{"ai"}), "ai") &&
-		runGeminiCheck(cfg, []string{"--full-check"}) != 0 {
-		exit = 1
+
+	if exit != 0 {
+		return exit
 	}
 
-	return exit
+	if slices.Contains(enabledHookGroupNames([]string{"ai"}), "ai") &&
+		runGeminiCheck(cfg, []string{"--full-check"}) != 0 {
+		return 1
+	}
+
+	return 0
 }
 
 func runNamedHookGroups(cfg Config, names, files []string) int {
@@ -133,13 +147,25 @@ func runNamedHookGroups(cfg Config, names, files []string) int {
 }
 
 func runHookGroupsInProcess(cfg Config, groups []hookGroup, files []string) int {
+	results := make([]hookGroupResult, len(groups))
+
+	var groupWait sync.WaitGroup
+
+	for idx, group := range groups {
+		groupWait.Add(1)
+
+		go func(pos int, grp hookGroup) {
+			defer groupWait.Done()
+
+			results[pos] = runHookGroupInProcess(cfg, grp, files)
+		}(idx, group)
+	}
+
+	groupWait.Wait()
+
 	exit := 0
-	results := make([]hookGroupResult, 0, len(groups))
 
-	for _, group := range groups {
-		result := runHookGroupInProcess(cfg, group, files)
-
-		results = append(results, result)
+	for _, result := range results {
 		if result.ExitCode != 0 {
 			exit = 1
 		}
@@ -171,7 +197,12 @@ func runHookGroupInProcess(
 	exit := 0
 	commandResults := make([]hookCommandResult, 0, len(group.Commands))
 
-	for _, command := range group.Commands {
+	seqEnd := group.ParallelAfter
+	if seqEnd > len(group.Commands) || seqEnd <= 0 {
+		seqEnd = len(group.Commands)
+	}
+
+	for _, command := range group.Commands[:seqEnd] {
 		commandStart := time.Now()
 
 		commandExit := command.Run(cfg, files)
@@ -185,6 +216,49 @@ func runHookGroupInProcess(
 			ExitCode:   commandExit,
 			DurationMS: durationMilliseconds(commandStart),
 		})
+	}
+
+	if exit != 0 || seqEnd >= len(group.Commands) {
+		return hookGroupResult{
+			Name:       group.Name,
+			Status:     hookStatusForExitCode(exit),
+			ExitCode:   exit,
+			DurationMS: durationMilliseconds(start),
+			Commands:   commandResults,
+		}
+	}
+
+	parallelCommands := group.Commands[seqEnd:]
+	parallelResults := make([]hookCommandResult, len(parallelCommands))
+
+	var parallelWait sync.WaitGroup
+
+	for idx, command := range parallelCommands {
+		parallelWait.Add(1)
+
+		go func(pos int, cmd hookCommand) {
+			defer parallelWait.Done()
+
+			cmdStart := time.Now()
+			cmdExit := cmd.Run(cfg, files)
+
+			parallelResults[pos] = hookCommandResult{
+				Name:       cmd.Name,
+				Status:     hookStatusForExitCode(cmdExit),
+				ExitCode:   cmdExit,
+				DurationMS: durationMilliseconds(cmdStart),
+			}
+		}(idx, command)
+	}
+
+	parallelWait.Wait()
+
+	for _, result := range parallelResults {
+		commandResults = append(commandResults, result)
+
+		if result.ExitCode != 0 {
+			exit = 1
+		}
 	}
 
 	return hookGroupResult{

@@ -327,6 +327,7 @@ type ActivationInput struct {
 	ChangedFiles       []string
 	ToolInputKeys      []string
 	PythonASTFacts     []PythonASTFactInput
+	SimilarityFacts    []SimilarityFactInput
 	Source             SourceActivation
 	Proxy              ProxyInput
 	ReturnCode         int
@@ -512,6 +513,7 @@ func policyContextInputSchema() []string {
 		schemaList("coverage", coverageSchemaFields()...),
 		schemaObject("coverage_thresholds", coverageThresholdSchemaFields()...),
 		schemaList("python_ast", pythonASTSchemaFields()...),
+		schemaList("similarity_facts", similaritySchemaFields()...),
 		schemaObject("finding", findingSchemaFields()...),
 		schemaList("findings", findingSchemaFields()...),
 		schemaObject(
@@ -683,6 +685,14 @@ func pythonASTSchemaFields() []string {
 	}
 }
 
+func similaritySchemaFields() []string {
+	return []string{
+		"file", "symbol_name", "symbol_kind", "symbol_path", "language",
+		"match_path", "match_symbol_name", "match_symbol_kind",
+		"match_start_line", "similarity", "exact_normalized",
+	}
+}
+
 func findingSchemaFields() []string {
 	return []string{
 		"tool", "code", "message", "file", "language", "symbol_name",
@@ -775,6 +785,7 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[ProposedFileChangeInput](),
 			reflect.TypeFor[ProposedSymbolChangeInput](),
 			reflect.TypeFor[ReferencedFileInput](),
+			reflect.TypeFor[SimilarityFactInput](),
 			reflect.TypeFor[ToolCapabilityInput](),
 			ext.ParseStructTag("json"),
 		),
@@ -854,6 +865,10 @@ func collectionVariableOptions() []cel.EnvOption {
 		cel.Variable(
 			"python_ast",
 			cel.ListType(cel.ObjectType("celexpr.PythonASTFactInput")),
+		),
+		cel.Variable(
+			"similarity_facts",
+			cel.ListType(cel.ObjectType("celexpr.SimilarityFactInput")),
 		),
 		cel.Variable(
 			"findings",
@@ -965,6 +980,7 @@ func Activation(input ActivationInput) map[string]any {
 		"coverage":            coverageInputs(input.Diagnostics, input.Diagnostic),
 		"coverage_thresholds": input.CoverageThresholds,
 		"python_ast":          append([]PythonASTFactInput(nil), input.PythonASTFacts...),
+		"similarity_facts":    append([]SimilarityFactInput(nil), input.SimilarityFacts...),
 		"finding":             findingInput(input.Finding),
 		"findings":            findingInputs(input.Findings, input.Finding),
 		"repo": RepoInput{

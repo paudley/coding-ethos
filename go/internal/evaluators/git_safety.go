@@ -20,6 +20,7 @@ const (
 	blockDecision                = "block"
 	defaultCommitHeaderMaxLength = 150
 	filesystemLineLimitsPolicy   = "filesystem.line_limits"
+	similarCodeDetectedPolicy    = "code.similar_code_detected"
 	gitSubcommandArgc            = 2
 )
 

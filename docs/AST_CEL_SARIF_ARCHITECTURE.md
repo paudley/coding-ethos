@@ -30,6 +30,7 @@ Go parser and context collectors
 |    shell_commands
 |    proposed_symbol_changes
 |    changed_symbols
+|    similarity_facts
 |    tool_capabilities
 |
 +--> CEL policy decisions
@@ -176,6 +177,47 @@ The current Python AST policies already use this path for:
 - Functional idiom guidance:
   - assigned lambdas
   - returned or assigned nested closure factories
+
+## Code Similarity Facts
+
+The `similarity_facts` CEL variable exposes MinHash LSH-based code clone
+detection results. The pipeline:
+
+1. **Token normalization**: Tree-sitter chunks are normalized (identifiers →
+   `$ID`, literals → `$STR`/`$NUM`) and hashed for Type-2 clone detection.
+2. **MinHash signatures**: each chunk gets a 128-value MinHash signature stored
+   in `code_chunks.minhash_sig`.
+3. **LSH band storage**: signatures are split into 16 bands × 8 rows and stored
+   in the `lsh_bands` table for sub-linear candidate retrieval.
+4. **Exact match**: `normalized_hash` equality finds structurally identical chunks
+   across files (Type-2 clones at 100% similarity).
+5. **LSH candidate retrieval + Jaccard refinement**: band hash collisions produce
+   candidates; full Jaccard estimation filters below 0.7 threshold.
+
+CEL receives `similarity_facts` as a list of match records, each carrying:
+
+- `file`, `symbol_name`, `symbol_kind`, `symbol_path`, `language` (source chunk)
+- `match_path`, `match_symbol_name`, `match_symbol_kind`, `match_start_line` (target)
+- `similarity` (float64, 0.0–1.0)
+- `exact_normalized` (bool, true when normalized_hash matches exactly)
+
+The default policy expression:
+
+```cel
+similarity_facts.exists(fact, fact.similarity >= 0.8)
+```
+
+When the policy fires, `applySimilarityDiagnostic` enriches the diagnostic with:
+
+- A human-readable message listing each match with path, line, and similarity
+  percentage.
+- SARIF `relatedLocations` entries pointing at each matching symbol so IDE
+  integrations can navigate directly to the existing code.
+
+The similarity threshold of 0.7 for LSH candidate retrieval and 0.8 for policy
+activation keeps false positives low while catching meaningful structural clones.
+
+## Current Python Fact Uses
 
 Future ports from `pyqa_lint` should add facts or CEL predicates for strict
 typing, signature width, docstring sections, value-type dunder inference,

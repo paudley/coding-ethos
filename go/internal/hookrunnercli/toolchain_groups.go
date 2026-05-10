@@ -678,7 +678,7 @@ func directoryContainsCodingEthosGitShim(directory string) bool {
 		strings.Contains(text, "policy-git")
 }
 
-func runGolangciLint(_ Config, paths []string) int {
+func runGolangciLint(cfg Config, paths []string) int {
 	if len(toolchainFiles("golangci-lint", existingFiles(paths))) == 0 {
 		return 0
 	}
@@ -688,7 +688,12 @@ func runGolangciLint(_ Config, paths []string) int {
 		return 1
 	}
 
-	return runManagedPolicyTool("golangci-lint", []string{worktree})
+	args := []string{worktree}
+	if cfg.HookStage == hookStagePreCommit {
+		args = append(args, "--new-from-rev=HEAD")
+	}
+
+	return runManagedPolicyTool("golangci-lint", args)
 }
 
 func managedPolicyToolArgsForFiles(name string, files []string) []string {

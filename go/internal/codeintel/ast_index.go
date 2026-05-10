@@ -215,6 +215,8 @@ func codeChunkFromSymbol(symbol astfacts.Symbol) CodeChunk {
 		StartLine:        symbol.StartLine,
 		EndLine:          symbol.EndLine,
 		ContentHash:      symbol.ContentHash,
+		NormalizedHash:   symbol.NormalizedHash,
+		MinHashSig:       symbol.MinHashSig,
 		SearchText:       search,
 		RawText:          symbol.RawText,
 	}

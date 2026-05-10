@@ -328,6 +328,26 @@ principles:
               file.line_count > file.original_line_count) &&
               (file.original_nonblank_line_count < 0 ||
               file.nonblank_line_count_grows)))
+        - id: code.similar_code_detected
+          scope: file
+          severity: warn
+          mode: warn
+          skill_id: agent-operating-discipline
+          lint_scopes:
+            - files
+            - staged
+          tools: []
+          message: >-
+            Similar or duplicated code detected — consider reusing or
+            refactoring the existing implementation.
+          advice: >-
+            A function or block with near-identical normalized structure already
+            exists elsewhere in the codebase. Before adding this code, check
+            whether you should reuse the existing implementation, extract a
+            shared helper, or intentionally diverge with a comment explaining
+            why duplication is acceptable here.
+          when: >-
+            similarity_facts.exists(fact, fact.similarity >= 0.8)
     sections:
       - id: overview
         kind: overview

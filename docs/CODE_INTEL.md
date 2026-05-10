@@ -448,12 +448,16 @@ Acceptance criteria:
   linked findings through CLI and MCP.
 - [x] Add Markdown support using Goldmark for robust documentation chunking.
 - [x] Add incremental reindex by file hash and chunk-level invalidation.
+- [x] Add MinHash LSH-based code similarity detection with normalized hashing,
+  128-signature MinHash, 16-band LSH indexing, and CEL policy integration.
 
 Acceptance criteria:
 
 - [x] Editing one function reindexes only that file and re-embeds only changed
   chunks.
 - [x] Search results include stable file/line spans and symbol identity.
+- [x] Structurally similar code across files is detected at write time and
+  reported as a CEL policy warning with SARIF relatedLocations.
 
 ### Phase 3 - sqlite-vec Vector Backend
 
@@ -510,6 +514,61 @@ Acceptance criteria:
   remediation guidance.
 - Policy authors can identify which rules need better examples, skills, or
   evidence maps.
+
+## Code Similarity Detection
+
+The code-intelligence store supports real-time structural clone detection
+through MinHash LSH (Locality-Sensitive Hashing). This enables CEL policies to
+warn agents about duplicate or near-duplicate code at write time.
+
+### Storage Schema
+
+Three fields in `code_chunks` support similarity:
+
+- `normalized_hash` — SHA-256 of the token-normalized chunk content (identifiers
+  replaced with `$ID`, string literals with `$STR`, numeric literals with
+  `$NUM`). Exact equality finds Type-2 clones across files.
+- `minhash_sig` — 128-value MinHash signature stored as a little-endian
+  `[]uint64` blob. Used for Jaccard similarity estimation.
+
+A separate `lsh_bands` table stores band hashes for sub-linear candidate
+retrieval:
+
+| Column | Purpose |
+| --- | --- |
+| `chunk_id` | FK to `code_chunks.chunk_id` |
+| `band_index` | Band number (0–15) |
+| `band_hash` | Hash of the 8-row band slice |
+| `path` | File path (for filtering self-matches) |
+| `symbol_name` | Symbol name (for diagnostics) |
+
+### Detection Pipeline
+
+1. AST indexing normalizes each chunk's tokens and computes `normalized_hash`
+   and `minhash_sig`.
+2. LSH bands are computed (16 bands × 8 rows per band) and stored in
+   `lsh_bands`.
+3. At policy evaluation time, `similarity_facts` queries:
+   - Exact matches via `normalized_hash` equality (100% similarity).
+   - LSH candidates via band hash collisions, refined with full Jaccard
+     estimation (≥0.7 threshold for candidates, ≥0.8 for policy activation).
+4. Results are exposed to CEL as `similarity_facts` and reported through SARIF
+   `relatedLocations`.
+
+### Reconciliation
+
+LSH bands are transactionally reconciled with code chunks. When a file is
+reindexed, bands for the old path are deleted before new chunks and bands are
+inserted within the same transaction. This prevents stale band entries from
+producing false-positive candidates.
+
+### Configuration
+
+The MinHash configuration uses 128 hash functions, 16 bands, and 8 rows per
+band. This produces a candidate threshold of approximately 0.54 Jaccard
+similarity (the S-curve inflection point), which means most pairs above ~54%
+similarity will share at least one band hash. The policy threshold of 0.8 then
+filters to high-confidence matches only.
 
 ## Risks and Mitigations
 

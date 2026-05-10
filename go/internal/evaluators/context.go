@@ -3,7 +3,10 @@
 
 package evaluators
 
-import "blackcat.ca/coding-ethos/go/diagnostics"
+import (
+	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/celexpr"
+)
 
 type Context struct {
 	Diagnostic         *diagnostics.Diagnostic
@@ -24,6 +27,7 @@ type Context struct {
 	ToolResponseKeys   []string
 	ToolInputKeys      []string
 	Findings           []Finding
+	SimilarityFacts    []celexpr.SimilarityFactInput
 	Diagnostics        []diagnostics.Diagnostic
 	Files              []string
 	ChangedFiles       []string
