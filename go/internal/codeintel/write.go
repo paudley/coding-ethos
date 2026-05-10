@@ -14,6 +14,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+	"blackcat.ca/coding-ethos/go/internal/minhash"
 )
 
 const (
@@ -501,20 +502,52 @@ func replaceCodeFileChunks(
 		return err
 	}
 
-	// 2. Update file metadata (must happen before inserting chunks/edges for FKs)
+	err = DeleteLSHBandsForPath(ctx, transaction, file.Path)
+	if err != nil {
+		return err
+	}
+
 	err = upsertCodeFile(ctx, transaction, file)
 	if err != nil {
 		return err
 	}
 
-	// 3. Reconcile chunks
 	err = reconcileCodeChunks(ctx, transaction, chunks, existingChunks)
 	if err != nil {
 		return err
 	}
 
-	// 4. Reconcile edges
+	err = storeLSHBandsForChunks(ctx, transaction, file.Path, chunks)
+	if err != nil {
+		return err
+	}
+
 	return reconcileCodeEdges(ctx, transaction, edges, existingEdges)
+}
+
+func storeLSHBandsForChunks(
+	ctx context.Context,
+	transaction *sql.Tx,
+	path string,
+	chunks []CodeChunk,
+) error {
+	config := minhash.DefaultConfig()
+
+	for _, chunk := range chunks {
+		if len(chunk.MinHashSig) == 0 {
+			continue
+		}
+
+		sig := minhash.Signature{Values: chunk.MinHashSig}
+		bandHashes := minhash.BandHashes(sig, config)
+
+		err := StoreLSHBands(ctx, transaction, chunk.ID, path, chunk.SymbolName, bandHashes)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func existingEntitiesForPath(
@@ -747,8 +780,8 @@ func insertCodeChunk(ctx context.Context, transaction *sql.Tx, chunk CodeChunk) 
 		`INSERT OR REPLACE INTO code_chunks(
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
 			symbol_path, parent_symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
-			end_line, content_hash, search_text, raw_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			end_line, content_hash, normalized_hash, minhash_sig, search_text, raw_text
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		chunk.ID,
 		chunk.Path,
 		chunk.Language,
@@ -763,6 +796,8 @@ func insertCodeChunk(ctx context.Context, transaction *sql.Tx, chunk CodeChunk) 
 		chunk.StartLine,
 		chunk.EndLine,
 		chunk.ContentHash,
+		chunk.NormalizedHash,
+		packMinHashSig(chunk.MinHashSig),
 		chunk.SearchText,
 		chunk.RawText,
 	)

@@ -14,6 +14,8 @@ import (
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
+
+	"blackcat.ca/coding-ethos/go/internal/minhash"
 )
 
 const (
@@ -43,6 +45,8 @@ type Symbol struct {
 	SymbolPath      string
 	RawText         string
 	ContentHash     string
+	NormalizedHash  string
+	MinHashSig      []uint64
 	ReferencedNames []string
 	CallNames       []string
 	BaseNames       []string
@@ -147,9 +151,17 @@ func SymbolFromNode(
 	startLine := boundedUintToInt(start.Row, maxRow) + 1
 	endLine := boundedUintToInt(end.Row, maxRow) + 1
 
+	normalizedTokens := minhash.NormalizeTokens(raw, language)
+	normalizedHash := minhash.NormalizedHash(normalizedTokens)
+
+	config := minhash.DefaultConfig()
+	sig := minhash.ComputeSignature(normalizedTokens, config)
+
 	return Symbol{
 		RawText:         raw,
 		ContentHash:     ContentHash([]byte(raw)),
+		NormalizedHash:  normalizedHash,
+		MinHashSig:      sig.Values,
 		Language:        language,
 		NodeKind:        node.Kind(),
 		Path:            path,

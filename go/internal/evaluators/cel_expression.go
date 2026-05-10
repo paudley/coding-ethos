@@ -156,6 +156,21 @@ func celDiagnostic(
 		return diagnostic
 	}
 
+	if policyDef.ID == similarCodeDetectedPolicy {
+		applySimilarityDiagnostic(&diagnostic, activation)
+
+		return diagnostic
+	}
+
+	applyGrowingSymbolDiagnostic(&diagnostic, activation)
+
+	return diagnostic
+}
+
+func applyGrowingSymbolDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	activation map[string]any,
+) {
 	if symbol, ok := firstGrowingProposedSymbol(activation); ok {
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
@@ -172,7 +187,11 @@ func celDiagnostic(
 		diagnostic.Metadata["current_nonblank_line_count"] = symbol.CurrentNonBlankLineCount
 		diagnostic.Metadata["proposed_line_count"] = symbol.ProposedLineCount
 		diagnostic.Metadata["proposed_nonblank_line_count"] = symbol.ProposedNonBlankLineCount
-	} else if symbol, ok := firstGrowingChangedSymbol(activation); ok {
+
+		return
+	}
+
+	if symbol, ok := firstGrowingChangedSymbol(activation); ok {
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.CurrentStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
@@ -189,8 +208,6 @@ func celDiagnostic(
 		diagnostic.Metadata["original_line_count"] = symbol.OriginalLineCount
 		diagnostic.Metadata["original_nonblank_line_count"] = symbol.OriginalNonBlankLineCount
 	}
-
-	return diagnostic
 }
 
 func applyMatchedDiagnostic(
@@ -546,6 +563,7 @@ func celActivation(context Context, source string) map[string]any {
 		LineLimits:         celLineLimitThresholds(context.EvaluatorOptions),
 		CoverageThresholds: celCoverageThresholds(context.EvaluatorOptions),
 		PythonASTFacts:     celPythonASTFacts(context, source),
+		SimilarityFacts:    celSimilarityFacts(context, source),
 		ProtectedPaths: stringSliceOption(
 			context.EvaluatorOptions,
 			"protected_paths",

@@ -238,6 +238,8 @@ func codeSchemaStatements() []string {
 		start_line INTEGER NOT NULL,
 		end_line INTEGER NOT NULL,
 		content_hash TEXT NOT NULL,
+		normalized_hash TEXT,
+		minhash_sig BLOB,
 		search_text TEXT NOT NULL,
 		raw_text TEXT NOT NULL,
 		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE
@@ -267,6 +269,14 @@ func codeSchemaStatements() []string {
 		symbol_path TEXT,
 		content_hash TEXT,
 		stale INTEGER NOT NULL DEFAULT 0,
+		FOREIGN KEY(chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE
+	)`,
+		`CREATE TABLE IF NOT EXISTS lsh_bands (
+		band_hash TEXT NOT NULL,
+		band_index INTEGER NOT NULL,
+		chunk_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		symbol_name TEXT NOT NULL,
 		FOREIGN KEY(chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE
 	)`,
 	}
@@ -461,6 +471,10 @@ func indexSchemaStatements() []string {
 		ON remediation_outcomes(policy_id, skill_id, outcome, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_embedding_records_record
 		ON embedding_records(backend, collection, model_id, record_kind, record_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_code_chunks_normalized_hash
+		ON code_chunks(normalized_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_lsh_bands_lookup
+		ON lsh_bands(band_hash, band_index)`,
 	}
 }
 
@@ -502,6 +516,8 @@ func migrationColumns() map[string][]migrationColumn {
 		},
 		"code_chunks": {
 			{Name: "parent_symbol_path", Type: "TEXT"},
+			{Name: "normalized_hash", Type: "TEXT"},
+			{Name: "minhash_sig", Type: "BLOB"},
 		},
 		"sarif_results": {
 			{Name: "proxy_event_id", Type: "TEXT"},

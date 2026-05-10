@@ -80,6 +80,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return store, nil
 }
 
+func (store *Store) Database() *sql.DB {
+	return store.database
+}
+
 func (store *Store) Close() error {
 	err := store.database.Close()
 	if err != nil {

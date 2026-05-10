@@ -308,22 +308,24 @@ type CodeFile struct {
 }
 
 type CodeChunk struct {
-	ID               string `json:"id"`
-	Path             string `json:"path"`
-	Language         string `json:"language"`
-	NodeKind         string `json:"node_kind"`
-	SymbolKind       string `json:"symbol_kind,omitempty"`
-	SymbolName       string `json:"symbol_name,omitempty"`
-	SymbolPath       string `json:"symbol_path,omitempty"`
-	ParentSymbolPath string `json:"parent_symbol_path,omitempty"`
-	ParentChunkID    string `json:"parent_chunk_id,omitempty"`
-	ContentHash      string `json:"content_hash"`
-	SearchText       string `json:"search_text"`
-	RawText          string `json:"raw_text,omitempty"`
-	StartByte        int    `json:"start_byte"`
-	EndByte          int    `json:"end_byte"`
-	StartLine        int    `json:"start_line"`
-	EndLine          int    `json:"end_line"`
+	ID               string   `json:"id"`
+	Path             string   `json:"path"`
+	Language         string   `json:"language"`
+	NodeKind         string   `json:"node_kind"`
+	SymbolKind       string   `json:"symbol_kind,omitempty"`
+	SymbolName       string   `json:"symbol_name,omitempty"`
+	SymbolPath       string   `json:"symbol_path,omitempty"`
+	ParentSymbolPath string   `json:"parent_symbol_path,omitempty"`
+	ParentChunkID    string   `json:"parent_chunk_id,omitempty"`
+	ContentHash      string   `json:"content_hash"`
+	NormalizedHash   string   `json:"normalized_hash,omitempty"`
+	SearchText       string   `json:"search_text"`
+	RawText          string   `json:"raw_text,omitempty"`
+	MinHashSig       []uint64 `json:"minhash_sig,omitempty"`
+	StartByte        int      `json:"start_byte"`
+	EndByte          int      `json:"end_byte"`
+	StartLine        int      `json:"start_line"`
+	EndLine          int      `json:"end_line"`
 }
 
 type CodeEdge struct {

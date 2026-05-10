@@ -807,6 +807,10 @@ Current supported fields include:
 - `metadata`: non-sensitive event metadata.
 - `path`, `diagnostic`, `finding`, and `repo`: typed objects for the initial
   path, diagnostic, finding, and repo policy slices.
+- `similarity_facts`: MinHash LSH-based code similarity results for the current
+  file set, including source/match paths, symbol metadata, Jaccard similarity
+  score, and exact-normalized flag. Populated lazily from the code-intel store
+  only when the CEL expression references `similarity_facts`.
 
 CEL is intentionally pure. Expressions cannot read files, run shell or Git,
 inspect environment variables, access the network, or depend on wall-clock
