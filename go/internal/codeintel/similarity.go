@@ -16,14 +16,14 @@ import (
 const uint64ByteSize = 8
 
 type SimilarChunk struct {
-	ChunkID         string  `json:"chunk_id"`
-	Path            string  `json:"path"`
-	SymbolName      string  `json:"symbol_name"`
-	SymbolKind      string  `json:"symbol_kind"`
-	StartLine       int     `json:"start_line"`
-	Similarity      float64 `json:"similarity"`
-	ExactNormalized bool    `json:"exact_normalized"`
+	ChunkID         string `json:"chunk_id"`
+	Path            string `json:"path"`
+	SymbolName      string `json:"symbol_name"`
+	SymbolKind      string `json:"symbol_kind"`
 	sigBlob         []byte
+	Similarity      float64 `json:"similarity"`
+	StartLine       int     `json:"start_line"`
+	ExactNormalized bool    `json:"exact_normalized"`
 }
 
 func FindExactNormalizedMatches(
