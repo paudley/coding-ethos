@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 )
 
 func runFormatGroupCommand(cfg Config, files []string) int {
@@ -21,19 +23,29 @@ func runFormatGroup(cfg Config, files []string, restage bool) int {
 	}
 
 	exit := fixText(cfg, files)
-	if runPyupgrade(files) != 0 {
-		exit = 1
+	if exit != 0 {
+		return exit
 	}
 
-	if runRuffFormat(files) != 0 {
-		exit = 1
-	}
+	var failed atomic.Int32
 
-	if runRuffAutofix(files) != 0 {
-		exit = 1
-	}
+	var formatWait sync.WaitGroup
 
-	if runGofmtWrite(files) != 0 {
+	formatWait.Go(func() {
+		if runPythonFormatters(files) != 0 {
+			failed.Store(1)
+		}
+	})
+
+	formatWait.Go(func() {
+		if runGofmtWrite(files) != 0 {
+			failed.Store(1)
+		}
+	})
+
+	formatWait.Wait()
+
+	if failed.Load() != 0 {
 		exit = 1
 	}
 
@@ -45,6 +57,18 @@ func runFormatGroup(cfg Config, files []string, restage bool) int {
 	}
 
 	return exit
+}
+
+func runPythonFormatters(files []string) int {
+	if runPyupgrade(files) != 0 {
+		return 1
+	}
+
+	if runRuffFormat(files) != 0 {
+		return 1
+	}
+
+	return runRuffAutofix(files)
 }
 
 type fileSnapshot struct {

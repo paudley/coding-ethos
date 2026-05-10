@@ -206,6 +206,64 @@ Bootstrap needs a few guardrails:
 - Keep installed hook entrypoints as stable generated scripts and move
   versioned behavior into the `coding-ethos` checkout.
 
+## Hook Execution Model
+
+Hook execution follows a three-phase model designed for maximum parallelism
+while preserving correctness ordering.
+
+### Phase 1 — Format (Sequential Gate, Per-Language Parallel)
+
+Formatters mutate files and must complete before linters run. Within the format
+phase, per-language formatter chains run concurrently:
+
+- **Python lane** (sequential): `pyupgrade` → `ruff format` → `ruff autofix`
+- **Go lane** (sequential): `golangci-lint-format` (gofmt + golines)
+
+The two lanes operate on disjoint file sets and run in parallel goroutines.
+A cross-language text fixer (`fixText`) runs first and gates both lanes.
+
+If any formatter fails or the format phase produces a non-zero exit, the hook
+stops immediately.
+
+### Phase 2 — Analysis Groups (Fully Parallel)
+
+All non-AI analysis groups run concurrently as independent goroutines:
+
+- `syntax`, `docker`, `workflow`, `shell`
+- `python-policy`, `python-quality`, `python-static`
+- `docs`, `security`, `go`
+
+Within a group, commands run sequentially by default. Groups may declare a
+`ParallelAfter` index to split their command list into:
+
+- **Sequential prefix** — prerequisites that must pass before parallel work
+- **Parallel suffix** — independent commands that run concurrently
+
+For example, the `go` group uses `ParallelAfter: 2`:
+
+| Index | Command            | Phase      |
+|-------|--------------------|------------|
+| 0     | `go-format`        | Sequential |
+| 1     | `go-vet`           | Sequential |
+| 2     | `go-test`          | Parallel   |
+| 3     | `go-coverage`      | Parallel   |
+| 4     | `golangci-lint`    | Parallel   |
+
+If any sequential prefix command fails, the parallel suffix is skipped for
+that group.
+
+### Phase 3 — AI (Gated)
+
+AI review groups (e.g., `gemini-check`) run only after all Phase 2 groups
+succeed. This avoids wasting API credits on code that has already failed
+deterministic quality gates.
+
+### Incremental Linting
+
+During pre-commit, `golangci-lint` receives `--new-from-rev=HEAD` so it only
+reports issues in changed code. During pre-push, it runs on all files for
+complete coverage.
+
 ## Migration Direction
 
 Runtime artifacts are built and executed from the checked-out `coding-ethos`

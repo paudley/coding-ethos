@@ -19,8 +19,9 @@ type hookCommand struct {
 }
 
 type hookGroup struct {
-	Name     string
-	Commands []hookCommand
+	Name          string
+	Commands      []hookCommand
+	ParallelAfter int
 }
 
 func runHookGroupCommand(cfg Config, args []string) int {
