@@ -18,7 +18,7 @@ require (
 	github.com/tree-sitter/tree-sitter-json v0.24.8
 	github.com/tree-sitter/tree-sitter-python v0.25.0
 	github.com/yuin/goldmark v1.8.2
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.44.0
 	modernc.org/sqlite v1.50.0
 	mvdan.cc/sh/v3 v3.13.1
 )
