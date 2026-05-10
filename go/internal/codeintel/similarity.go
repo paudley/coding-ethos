@@ -23,6 +23,7 @@ type SimilarChunk struct {
 	StartLine       int     `json:"start_line"`
 	Similarity      float64 `json:"similarity"`
 	ExactNormalized bool    `json:"exact_normalized"`
+	sigBlob         []byte
 }
 
 func FindExactNormalizedMatches(
@@ -135,10 +136,7 @@ func FindLSHCandidates(
 
 		candidate.Similarity = -1
 		candidate.ExactNormalized = false
-
-		if len(sigBlob) > 0 {
-			candidate.Similarity = -1
-		}
+		candidate.sigBlob = sigBlob
 
 		candidates = append(candidates, candidate)
 	}
@@ -154,27 +152,16 @@ func FindLSHCandidates(
 func RefineLSHCandidates(
 	querySig minhash.Signature,
 	candidates []SimilarChunk,
-	database *sql.DB,
-	ctx context.Context,
 	threshold float64,
 ) []SimilarChunk {
 	var refined []SimilarChunk
 
 	for _, candidate := range candidates {
-		row := database.QueryRowContext(
-			ctx,
-			`SELECT minhash_sig FROM code_chunks WHERE chunk_id = ?`,
-			candidate.ChunkID,
-		)
-
-		var sigBlob []byte
-
-		err := row.Scan(&sigBlob)
-		if err != nil {
+		candidateSig := minhash.Signature{Values: unpackMinHashSig(candidate.sigBlob)}
+		if len(candidateSig.Values) == 0 {
 			continue
 		}
 
-		candidateSig := minhash.Signature{Values: unpackMinHashSig(sigBlob)}
 		similarity := minhash.EstimateJaccard(querySig, candidateSig)
 
 		if similarity >= threshold {

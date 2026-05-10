@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -53,9 +54,18 @@ func loadSimilarityFactsFromDB(
 	cwd string,
 	files []string,
 ) []celexpr.SimilarityFactInput {
+	if len(files) == 0 {
+		return nil
+	}
+
 	dbPath := filepath.Join(cwd, ".coding-ethos", "code-intel.db")
 
-	database, err := sql.Open("sqlite", dbPath)
+	_, statErr := os.Stat(dbPath)
+	if statErr != nil {
+		return nil
+	}
+
+	database, err := sql.Open("sqlite", dbPath+"?mode=ro")
 	if err != nil {
 		return nil
 	}
@@ -242,10 +252,8 @@ func queryLSHMatches(
 		return nil
 	}
 
-	rows, args := queryLSHCandidateRows(ctx, database, bandHashes, sourcePath)
+	rows := queryLSHCandidateRows(ctx, database, bandHashes, sourcePath)
 	if rows == nil {
-		_ = args
-
 		return nil
 	}
 	defer rows.Close()
@@ -255,8 +263,7 @@ func queryLSHMatches(
 		symbolKind, symbolPath, language,
 	)
 
-	lshRowsErr := rows.Err()
-	if lshRowsErr != nil {
+	if rows.Err() != nil {
 		return nil
 	}
 
@@ -268,7 +275,7 @@ func queryLSHCandidateRows(
 	database *sql.DB,
 	bandHashes []string,
 	sourcePath string,
-) (*sql.Rows, []any) {
+) *sql.Rows {
 	placeholders := make([]string, len(bandHashes))
 	args := make([]any, 0, len(bandHashes)+1)
 
@@ -291,10 +298,10 @@ func queryLSHCandidateRows(
 
 	rows, err := database.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, nil
+		return nil
 	}
 
-	return rows, args
+	return rows
 }
 
 func collectLSHFacts(

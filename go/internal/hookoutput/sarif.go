@@ -328,6 +328,10 @@ func (result sarifResult) MarshalJSON() ([]byte, error) {
 		fields["partialFingerprints"] = result.PartialFingerprints
 	}
 
+	if len(result.RelatedLocations) > 0 {
+		fields["relatedLocations"] = result.RelatedLocations
+	}
+
 	return marshalSARIFFields("result", fields)
 }
 

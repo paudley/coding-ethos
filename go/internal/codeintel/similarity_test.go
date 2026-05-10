@@ -220,7 +220,7 @@ func verifyLSHCandidatesFromA(
 		t.Errorf("expected beta.go in LSH candidates, got: %+v", candidates)
 	}
 
-	refined := RefineLSHCandidates(sigA, candidates, store.Database(), ctx, 0.5)
+	refined := RefineLSHCandidates(sigA, candidates, 0.5)
 
 	foundBetaRefined := false
 

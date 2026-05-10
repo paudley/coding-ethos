@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -109,7 +110,32 @@ func tokenizeValue(runes []rune, pos int, char rune) (string, int) {
 		return scanIdentifier(runes, pos)
 	}
 
-	return string(char), pos + 1
+	return scanOperator(runes, pos)
+}
+
+const (
+	maxOperatorLen = 3
+	twoCharOpLen   = 2
+)
+
+func scanOperator(runes []rune, pos int) (string, int) {
+	remaining := len(runes) - pos
+
+	if remaining >= maxOperatorLen {
+		candidate := string(runes[pos : pos+maxOperatorLen])
+		if isOperatorOrPunctuation(candidate) {
+			return candidate, pos + maxOperatorLen
+		}
+	}
+
+	if remaining >= twoCharOpLen {
+		candidate := string(runes[pos : pos+twoCharOpLen])
+		if isOperatorOrPunctuation(candidate) {
+			return candidate, pos + twoCharOpLen
+		}
+	}
+
+	return string(runes[pos]), pos + 1
 }
 
 func normalizeToken(token, language string) string {
@@ -129,7 +155,7 @@ func normalizeToken(token, language string) string {
 }
 
 func classifyLiteral(token string) string {
-	first := rune(token[0])
+	first, _ := utf8.DecodeRuneInString(token)
 
 	if first == '"' || first == '\'' || first == '`' {
 		return PlaceholderString
