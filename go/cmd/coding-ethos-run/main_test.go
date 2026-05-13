@@ -222,6 +222,94 @@ func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 	}
 }
 
+func TestParentWorkflowFlagsResolveParentInputs(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	repoEthos := filepath.Join(repo, "repo_ethos.yaml")
+	repoConfig := filepath.Join(repo, "repo_config.yml")
+
+	err := os.WriteFile(repoEthos, []byte("repo: {}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo ethos: %v", err)
+	}
+
+	err = os.WriteFile(repoConfig, []byte("hooks: {}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	options, err := parseParentWorkflowFlags(
+		runtimePaths{Root: "/fallback"},
+		"parent-lint",
+		[]string{"--repo", repo},
+	)
+	if err != nil {
+		t.Fatalf("parse parent flags: %v", err)
+	}
+
+	if options.Repo != repo {
+		t.Fatalf("repo = %q, want %q", options.Repo, repo)
+	}
+
+	if options.RepoEthos != repoEthos {
+		t.Fatalf("repo ethos = %q, want %q", options.RepoEthos, repoEthos)
+	}
+
+	if options.RepoConfig != repoConfig {
+		t.Fatalf("repo config = %q, want %q", options.RepoConfig, repoConfig)
+	}
+
+	if options.Scope != parentDefaultLintScope {
+		t.Fatalf("scope = %q, want %q", options.Scope, parentDefaultLintScope)
+	}
+}
+
+func TestParentLintArgsUseParentRepoAndTOONScope(t *testing.T) {
+	t.Parallel()
+
+	args := parentLintArgs(runtimePaths{
+		PolicyBundle:  "/ethos/build/policy/policy-bundle.json",
+		EthosRoot:     "/ethos",
+		InvocationCWD: "/parent/site",
+	}, parentWorkflowOptions{
+		Repo:  "/parent",
+		Scope: "changed",
+	})
+
+	for _, want := range []string{
+		"--bundle",
+		"/ethos/build/policy/policy-bundle.json",
+		"--ethos-root",
+		"/ethos",
+		"--consumer-root",
+		"/parent",
+		"--invocation-cwd",
+		"/parent/site",
+		"--cwd",
+		"/parent",
+		"--scope",
+		"changed",
+	} {
+		if !slices.Contains(args, want) {
+			t.Fatalf("parentLintArgs() missing %q: %#v", want, args)
+		}
+	}
+}
+
+func TestParentStepStatusFailsOnAnyFailedStep(t *testing.T) {
+	t.Parallel()
+
+	steps := []parentWorkflowStep{
+		{Name: "tool_configs", Status: "pass"},
+		{Name: "agent_hooks", Status: "fail", Detail: "missing setting"},
+	}
+
+	if got := parentStepStatus(steps); got != "fail" {
+		t.Fatalf("parentStepStatus() = %q, want fail", got)
+	}
+}
+
 func TestRuntimePathResolutionFallbacks(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
 
@@ -244,7 +332,7 @@ func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
 
 	repo := filepath.Join(t.TempDir(), "repo")
 	hooks := filepath.Join(repo, ".git", "hooks")
-	fakeGit := fakeRuntimeGit(t, repo, hooks)
+	fakeGit := fakeRuntimeGit(t, repo, hooks, "")
 
 	root, localRoot := resolveRuntimeRoot(fakeGit, "/cwd/repo")
 	if root != repo || localRoot != repo {
@@ -253,6 +341,30 @@ func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
 
 	if got := resolveRuntimeHooksDir(fakeGit, repo); got != hooks {
 		t.Fatalf("git hooks dir = %q, want %q", got, hooks)
+	}
+}
+
+//nolint:paralleltest // Serializes process-global runtime environment state.
+func TestRuntimePathResolutionPrefersSuperprojectForSubmodule(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	parent := filepath.Join(t.TempDir(), "parent")
+	repo := filepath.Join(parent, "coding-ethos")
+	hooks := filepath.Join(parent, ".git", "hooks")
+	err := os.MkdirAll(repo, 0o700)
+	if err != nil {
+		t.Fatalf("create submodule fixture: %v", err)
+	}
+
+	fakeGit := fakeRuntimeGit(t, repo, hooks, parent)
+
+	root, localRoot := resolveRuntimeRoot(fakeGit, repo)
+	if root != parent {
+		t.Fatalf("consumer root = %q, want parent %q", root, parent)
+	}
+
+	if localRoot != repo {
+		t.Fatalf("local root = %q, want submodule %q", localRoot, repo)
 	}
 }
 
@@ -417,14 +529,21 @@ func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
 	runtimeRunTool(paths, "tool")
 }
 
-func fakeRuntimeGit(t *testing.T, repo, hooks string) string {
+func fakeRuntimeGit(t *testing.T, repo, hooks, superproject string) string {
 	t.Helper()
+
+	superprojectCase := "  \"rev-parse --show-superproject-working-tree\") exit 1 ;;\n"
+	if superproject != "" {
+		superprojectCase = "  \"rev-parse --show-superproject-working-tree\") printf '%s\\n' " +
+			shellQuoteForRuntimeTest(superproject) + "; exit 0 ;;\n"
+	}
 
 	path := filepath.Join(t.TempDir(), "git")
 	body := "#!/usr/bin/env sh\n" +
 		"case \"$*\" in\n" +
 		"  \"rev-parse --show-toplevel\") printf '%s\\n' " +
 		shellQuoteForRuntimeTest(repo) + "; exit 0 ;;\n" +
+		superprojectCase +
 		"  \"rev-parse --path-format=absolute --git-path hooks\") printf '%s\\n' " +
 		shellQuoteForRuntimeTest(hooks) + "; exit 0 ;;\n" +
 		"esac\n" +

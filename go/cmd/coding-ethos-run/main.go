@@ -183,6 +183,15 @@ func resolveRuntimeRoot(realGit, invocationCWD string) (string, string) {
 	resolvedRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
 	if err == nil {
 		localRoot = resolvedRoot
+		superRoot, superErr := gitOutput(
+			realGit,
+			resolvedRoot,
+			"rev-parse",
+			"--show-superproject-working-tree",
+		)
+		if superErr == nil && strings.TrimSpace(superRoot) != "" {
+			return superRoot, localRoot
+		}
 	}
 
 	return localRoot, localRoot
