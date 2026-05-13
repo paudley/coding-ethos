@@ -400,24 +400,12 @@ func applySimilarityDiagnostic(
 		return
 	}
 
-	var matched []celexpr.SimilarityFactInput
-
-	for _, fact := range facts {
-		if fact.Similarity >= similarityconfig.DefaultSettings().StructuralThreshold {
-			matched = append(matched, fact)
-		}
-	}
-
-	if len(matched) == 0 {
-		return
-	}
-
-	first := matched[0]
+	first := facts[0]
 	diagnostic.File = first.File
 
 	var details []string
 
-	for _, fact := range matched {
+	for _, fact := range facts {
 		pct := int(fact.Similarity * similarityPercentScale)
 		kind := "similar"
 
@@ -446,7 +434,7 @@ func applySimilarityDiagnostic(
 
 	diagnostic.Message = "Similar code detected: " +
 		strings.Join(details, "; ")
-	diagnostic.Metadata["similarity_match_count"] = len(matched)
+	diagnostic.Metadata["similarity_match_count"] = len(facts)
 	diagnostic.Metadata["similarity_source_symbol"] = first.SymbolName
 	diagnostic.Metadata["similarity_source_file"] = first.File
 }

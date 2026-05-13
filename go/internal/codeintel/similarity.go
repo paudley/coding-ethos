@@ -20,7 +20,9 @@ import (
 
 const (
 	fallbackSimilarityLimit = 10
-	uint64ByteSize          = 8
+	// candidateMapSizeFactor bounds intermediate matches before final ranking.
+	candidateMapSizeFactor = 4
+	uint64ByteSize         = 8
 )
 
 type SimilarChunk struct {
@@ -314,7 +316,7 @@ func recordSimilarMatches(
 
 		matchesByKey[key] = match
 
-		if len(matchesByKey) >= limit*4 {
+		if len(matchesByKey) >= limit*candidateMapSizeFactor {
 			return
 		}
 	}

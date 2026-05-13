@@ -397,6 +397,31 @@ func TestApplySimilarityDiagnosticAnnotatesMatchingFacts(t *testing.T) {
 	}
 }
 
+func TestApplySimilarityDiagnosticUsesPreFilteredFacts(t *testing.T) {
+	t.Parallel()
+
+	diagnostic := diagnostics.Diagnostic{Metadata: map[string]any{}}
+	activation := map[string]any{
+		"similarity_facts": []celexpr.SimilarityFactInput{{
+			File:            "a.go",
+			SymbolName:      "Foo",
+			MatchPath:       "b.go",
+			MatchSymbolName: "Bar",
+			MatchSymbolKind: "function",
+			MatchStartLine:  20,
+			Similarity:      0.1,
+			ExactNormalized: true,
+		}},
+	}
+
+	applySimilarityDiagnostic(&diagnostic, activation)
+
+	if diagnostic.Metadata["similarity_match_count"] != 1 ||
+		len(diagnostic.RelatedLocations) != 1 {
+		t.Fatalf("diagnostic dropped a pre-filtered fact: %#v", diagnostic)
+	}
+}
+
 func packTestSigBlob(values []uint64) []byte {
 	data := make([]byte, len(values)*uint64ByteSize)
 
