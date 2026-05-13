@@ -177,6 +177,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_index_status", Handler: server.codeIntelIndexStatus},
 		{Name: "code_intel_hook_usage", Handler: server.codeIntelHookUsage},
 		{Name: "code_intel_index_code", Handler: server.codeIntelIndexCode},
+		{Name: "code_similarity_check", Handler: server.codeSimilarityCheck},
 		{
 			Name:    "code_intel_embedding_candidates",
 			Handler: server.codeIntelEmbeddingCandidates,

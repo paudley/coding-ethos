@@ -11,6 +11,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
 
 func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
@@ -279,6 +280,58 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	return map[string]any{
 		"kind":    "code_intel_code_context",
 		"context": context,
+	}, nil
+}
+
+func (server Server) codeSimilarityCheck(args json.RawMessage) (any, error) {
+	var input codeSimilarityCheckInput
+
+	inlineErr7 := json.Unmarshal(args, &input)
+	if inlineErr7 != nil {
+		return nil, fmt.Errorf(
+			"parse code similarity check arguments: %w",
+			inlineErr7,
+		)
+	}
+
+	if strings.TrimSpace(input.Code) == "" {
+		return nil, apperror.StaticError("code is required")
+	}
+
+	root := server.codeIntelRoot()
+
+	settings, err := similarityconfig.LoadFromRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("load similarity settings: %w", err)
+	}
+
+	settings, err = settings.WithStructuralThreshold(input.Threshold)
+	if err != nil {
+		return nil, fmt.Errorf("validate similarity threshold: %w", err)
+	}
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
+	}
+	defer closeStore()
+
+	matches, err := store.SimilarCode(argsContext(), codeintel.SimilarCodeQuery{
+		Settings: settings,
+		Code:     input.Code,
+		Path:     input.Path,
+		Language: input.Language,
+		Limit:    input.Limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("check code similarity: %w", err)
+	}
+
+	return map[string]any{
+		"kind":      "code_similarity_check",
+		"enabled":   settings.Enabled,
+		"threshold": settings.StructuralThreshold,
+		"matches":   matches,
 	}, nil
 }
 

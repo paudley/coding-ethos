@@ -69,6 +69,11 @@ hooks:
     - ai
     - commit-msg
 
+similarity:
+  enabled: true
+  structural_threshold: 0.8
+  min_symbol_lines: 5
+
 git:
   hook_bypass:
     enabled: true

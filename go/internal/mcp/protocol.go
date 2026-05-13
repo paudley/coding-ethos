@@ -286,6 +286,14 @@ type codeIntelCodeContextInput struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type codeSimilarityCheckInput struct {
+	Code      string  `json:"code"`
+	Path      string  `json:"path,omitempty"`
+	Language  string  `json:"language,omitempty"`
+	Threshold float64 `json:"threshold,omitempty"`
+	Limit     int     `json:"limit,omitempty"`
+}
+
 func writeResponse(
 	writer io.Writer,
 	framing messageFraming,
@@ -371,8 +379,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 22
-	codeIntelToolDefinitionCapacity = 8
+	toolDefinitionCapacity          = 23
+	codeIntelToolDefinitionCapacity = 9
 )
 
 func toolDefinitions() []map[string]any {
@@ -806,6 +814,7 @@ func codeIntelHookToolDefinitions() []map[string]any {
 
 func codeIntelCodeToolDefinitions() []map[string]any {
 	return []map[string]any{
+		codeSimilarityToolDefinition(),
 		toolDefinition(
 			"code_intel_index_code",
 			toolText(
@@ -882,6 +891,35 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeSimilarityToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_similarity_check",
+		toolText(
+			"Check whether proposed code is structurally similar to",
+			"indexed repository symbols using normalized hashes and",
+			"MinHash LSH.",
+		),
+		map[string]any{
+			"code":      map[string]any{"type": "string"},
+			"path":      map[string]any{"type": "string"},
+			"language":  map[string]any{"type": "string"},
+			"threshold": map[string]any{"type": "number"},
+			"limit":     map[string]any{"type": "integer"},
+		},
+		[]string{"code"},
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"preflight generated code before writing a duplicate",
+				"implementation",
+			),
+			TracePersisted: false,
+		},
+	)
 }
 
 func codeIntelEmbeddingToolDefinitions() []map[string]any {

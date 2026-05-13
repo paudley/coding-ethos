@@ -192,7 +192,8 @@ detection results. The pipeline:
 4. **Exact match**: `normalized_hash` equality finds structurally identical chunks
    across files (Type-2 clones at 100% similarity).
 5. **LSH candidate retrieval + Jaccard refinement**: band hash collisions produce
-   candidates; full Jaccard estimation filters below 0.7 threshold.
+   candidates; full Jaccard estimation filters below the configured candidate
+   threshold.
 
 CEL receives `similarity_facts` as a list of match records, each carrying:
 
@@ -214,8 +215,10 @@ When the policy fires, `applySimilarityDiagnostic` enriches the diagnostic with:
 - SARIF `relatedLocations` entries pointing at each matching symbol so IDE
   integrations can navigate directly to the existing code.
 
-The similarity threshold of 0.7 for LSH candidate retrieval and 0.8 for policy
-activation keeps false positives low while catching meaningful structural clones.
+The default `config.yaml` settings use a 0.7 LSH candidate threshold and 0.8
+structural threshold. Repos can tune `similarity.candidate_threshold`,
+`similarity.structural_threshold`, `similarity.min_symbol_lines`, and MinHash
+shape parameters without changing the compiled code.
 
 ## Current Python Fact Uses
 
