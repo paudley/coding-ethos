@@ -152,7 +152,7 @@ func checkParentArtifacts(
 			return err
 		}
 
-		return parentDriftError(mismatched)
+		return parentDriftError(paths, options, "tool_configs", mismatched)
 	}))
 	steps = append(steps, runParentStep("gemini_prompts", func() error {
 		mismatched, err := geminiprompts.Check(parentGeminiOptions(paths, options))
@@ -160,7 +160,7 @@ func checkParentArtifacts(
 			return err
 		}
 
-		return parentDriftError(mismatched)
+		return parentDriftError(paths, options, "gemini_prompts", mismatched)
 	}))
 	steps = append(steps, runParentStep("agent_skills", func() error {
 		mismatched, err := agentskills.Check(parentAgentSkillOptions(paths, options))
@@ -168,7 +168,7 @@ func checkParentArtifacts(
 			return err
 		}
 
-		return parentDriftError(mismatched)
+		return parentDriftError(paths, options, "agent_skills", mismatched)
 	}))
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.DoctorSettings(options.Repo, paths.RunBinary+" agent-hook")
@@ -186,12 +186,23 @@ func runParentStep(name string, action func() error) parentWorkflowStep {
 	return parentWorkflowStep{Name: name, Status: "pass"}
 }
 
-func parentDriftError(paths []string) error {
-	if len(paths) == 0 {
+func parentDriftError(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+	artifact string,
+	mismatched []string,
+) error {
+	if len(mismatched) == 0 {
 		return nil
 	}
 
-	return fmt.Errorf("out of sync: %s", strings.Join(paths, " "))
+	return fmt.Errorf(
+		"%s out of sync in %s checkout; run: %s; drift: %s",
+		artifact,
+		parentCheckoutLocation(paths, options),
+		parentInstallCommand(options),
+		parentDriftItems(paths, options, mismatched),
+	)
 }
 
 func parentStepStatus(steps []parentWorkflowStep) string {
@@ -249,6 +260,97 @@ func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string 
 		"--scope",
 		scope,
 	}
+}
+
+func parentInstallCommand(options parentWorkflowOptions) string {
+	return "coding-ethos/bin/coding-ethos-run parent-install --repo " +
+		shellQuoteForParent(options.Repo)
+}
+
+func parentCheckoutLocation(paths runtimePaths, options parentWorkflowOptions) string {
+	if sameCleanPath(options.Repo, paths.EthosRoot) {
+		return "submodule"
+	}
+
+	return "parent"
+}
+
+func parentDriftItems(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+	mismatched []string,
+) string {
+	items := make([]string, 0, len(mismatched))
+	for _, path := range mismatched {
+		items = append(items, parentDriftItem(paths, options, path))
+	}
+
+	return strings.Join(items, " ")
+}
+
+func parentDriftItem(paths runtimePaths, options parentWorkflowOptions, path string) string {
+	relative := relativeToRepo(options.Repo, path)
+	state := gitPathState(paths.RealGit, options.Repo, relative)
+
+	return relative + "(" + state + ")"
+}
+
+func relativeToRepo(repo, path string) string {
+	relative, err := filepath.Rel(filepath.Clean(repo), filepath.Clean(path))
+	if err != nil || strings.HasPrefix(relative, "..") {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+
+	return filepath.ToSlash(relative)
+}
+
+func gitPathState(realGit, repo, relative string) string {
+	output, err := gitOutput(realGit, repo, "status", "--porcelain", "--", relative)
+	if err != nil || strings.TrimSpace(output) == "" {
+		return "working_tree"
+	}
+
+	line := strings.TrimSpace(strings.Split(output, "\n")[0])
+	if strings.HasPrefix(line, "??") {
+		return "untracked"
+	}
+
+	if len(line) < 2 {
+		return "working_tree"
+	}
+
+	indexChanged := line[0] != ' '
+	workingTreeChanged := line[1] != ' '
+	switch {
+	case indexChanged && workingTreeChanged:
+		return "index+working_tree"
+	case indexChanged:
+		return "index"
+	default:
+		return "working_tree"
+	}
+}
+
+func sameCleanPath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(filepath.Clean(left))
+	rightAbs, rightErr := filepath.Abs(filepath.Clean(right))
+	if leftErr != nil || rightErr != nil {
+		return filepath.Clean(left) == filepath.Clean(right)
+	}
+
+	return leftAbs == rightAbs
+}
+
+func shellQuoteForParent(value string) string {
+	if value == "" {
+		return "''"
+	}
+
+	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();<>|&") {
+		return value
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func parentGeminiOptions(

@@ -58,9 +58,54 @@ func EvaluateGitStagedAdminFiles(
 	}
 
 	decision := policy.NewDecision(blockDecision, policyDef)
+	decision.Suggestion = stagedAdminHandoff(context.Cwd, context.Argv)
 	decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
 
 	return []policy.Decision{decision}, nil
+}
+
+func stagedAdminHandoff(cwd string, argv []string) string {
+	command := "git commit"
+	if len(argv) > 0 {
+		command = shellCommand(argv)
+	}
+
+	lines := []string{
+		"Administrative staged files require a human/admin commit.",
+		"Agent action: stop trying to commit these files.",
+	}
+	if cwd != "" {
+		lines = append(lines, "Human/admin handoff: from "+cwd+", run: "+command)
+	} else {
+		lines = append(lines, "Human/admin handoff: run: "+command)
+	}
+	lines = append(
+		lines,
+		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+	)
+
+	return strings.Join(lines, " ")
+}
+
+func shellCommand(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		parts = append(parts, shellQuote(arg))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+
+	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();<>|&") {
+		return value
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {

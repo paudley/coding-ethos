@@ -545,6 +545,19 @@ install/check emit only status plus artifact-step rows, while parent lint emits
 the normal coding-ethos TOON lint report. See `TO_MY_PARENT.md` for the parent
 artifact contract.
 
+Parent repos can opt into profile defaults in `repo_config.yaml`:
+
+```yaml
+repo:
+  kind: go-static-site
+profiles:
+  - generated-site-output
+```
+
+`go-static-site` enables Go-oriented checks and, when no Python sources are
+present in the parent repo, disables Python pytest, docstring, and type-check
+gates. Explicit `repo_config.yaml` settings override profile defaults.
+
 ## Direct CLI Usage
 
 The package exposes `coding-ethos`. During local development the Makefile runs

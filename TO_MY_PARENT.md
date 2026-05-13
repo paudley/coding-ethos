@@ -34,6 +34,17 @@ The parent repository may provide:
 - `repo_ethos.yml` or `repo_ethos.yaml`
 - `repo_config.yaml` or `repo_config.yml`
 
+Parent repos can declare conservative defaults with `repo.kind` or `profiles`:
+
+```yaml
+repo:
+  kind: go-static-site
+profiles:
+  - generated-site-output
+```
+
+Explicit `repo_config.yaml` settings override these profile defaults.
+
 `parent-install` syncs generated parent artifacts. `parent-check` verifies those
 artifacts without rewriting them. `parent-lint` syncs the parent artifacts, then
 runs the full parent lint scope through the compiled policy bundle.

@@ -6,6 +6,7 @@ package evaluators_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -72,6 +73,17 @@ func TestEvaluateGitStagedAdminFilesBlocksWithoutAdminApproval(t *testing.T) {
 
 	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
 		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+
+	for _, want := range []string{
+		"Human/admin handoff",
+		"Agent action: stop trying to commit these files.",
+		"git commit -m 'admin change'",
+		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+	} {
+		if !strings.Contains(decisions[0].Suggestion, want) {
+			t.Fatalf("suggestion missing %q: %q", want, decisions[0].Suggestion)
+		}
 	}
 }
 

@@ -723,6 +723,7 @@ func knownConfigSection(section string) bool {
 		"hooks",
 		"policy",
 		"project",
+		"profiles",
 		"python",
 		"repo",
 		"sandbox",

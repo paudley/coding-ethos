@@ -310,6 +310,31 @@ func TestParentStepStatusFailsOnAnyFailedStep(t *testing.T) {
 	}
 }
 
+func TestParentDriftErrorIncludesRepairCommandAndLocation(t *testing.T) {
+	t.Parallel()
+
+	err := parentDriftError(
+		runtimePaths{RealGit: "/missing/git", EthosRoot: "/repo/coding-ethos"},
+		parentWorkflowOptions{Repo: "/repo"},
+		"gemini_prompts",
+		[]string{"/repo/.code-ethos/gemini/prompt-pack.json"},
+	)
+	if err == nil {
+		t.Fatal("expected drift error")
+	}
+
+	message := err.Error()
+	for _, want := range []string{
+		"gemini_prompts out of sync in parent checkout",
+		"coding-ethos/bin/coding-ethos-run parent-install --repo /repo",
+		".code-ethos/gemini/prompt-pack.json(working_tree)",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("drift error missing %q: %s", want, message)
+		}
+	}
+}
+
 func TestRuntimePathResolutionFallbacks(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
 
