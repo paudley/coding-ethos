@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,7 +20,14 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
-const parentDefaultLintScope = "full"
+const (
+	parentDefaultLintScope = "full"
+	parentStepFail         = "fail"
+	parentStepPass         = "pass"
+	parentWorkingTreeState = "working_tree"
+)
+
+var errParentArtifactDrift = errors.New("parent artifact drift")
 
 type parentWorkflowOptions struct {
 	Repo       string
@@ -41,7 +49,12 @@ func runParentInstall(paths runtimePaths, rest []string) error {
 	}
 
 	steps := syncParentArtifacts(paths, options)
-	printParentWorkflowReport("parent-install", parentStepStatus(steps), options.Repo, steps)
+	printParentWorkflowReport(
+		"parent-install",
+		parentStepStatus(steps),
+		options.Repo,
+		steps,
+	)
 	exitForFailedParentSteps(steps)
 
 	return nil
@@ -71,8 +84,8 @@ func runParentLint(paths runtimePaths, rest []string) error {
 	installLintToolShims(paths)
 
 	steps := syncParentArtifacts(paths, options)
-	if parentStepStatus(steps) != "pass" {
-		printParentWorkflowReport("parent-lint", "fail", options.Repo, steps)
+	if parentStepStatus(steps) != parentStepPass {
+		printParentWorkflowReport("parent-lint", parentStepFail, options.Repo, steps)
 		requestRuntimeExit(1)
 	}
 
@@ -102,16 +115,25 @@ func parseParentWorkflowFlags(
 		return parentWorkflowOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
 	}
 
-	if strings.TrimSpace(*repo) == "" {
-		return parentWorkflowOptions{}, apperror.StaticError("parent workflow requires --repo")
+	repoRoot, err := cleanParentRepoFlag(*repo)
+	if err != nil {
+		return parentWorkflowOptions{}, err
 	}
 
 	return parentWorkflowOptions{
-		Repo:       filepath.Clean(*repo),
-		RepoEthos:  firstExistingPath(*repoEthos, parentRepoEthosCandidates(*repo)),
-		RepoConfig: firstExistingPath(*repoConfig, parentRepoConfigCandidates(*repo)),
+		Repo:       repoRoot,
+		RepoEthos:  firstExistingPath(*repoEthos, parentRepoEthosCandidates(repoRoot)),
+		RepoConfig: firstExistingPath(*repoConfig, parentRepoConfigCandidates(repoRoot)),
 		Scope:      strings.TrimSpace(*scope),
 	}, nil
+}
+
+func cleanParentRepoFlag(repo string) (string, error) {
+	if strings.TrimSpace(repo) == "" {
+		return "", apperror.StaticError("parent workflow requires --repo")
+	}
+
+	return filepath.Clean(repo), nil
 }
 
 func syncParentArtifacts(
@@ -121,18 +143,27 @@ func syncParentArtifacts(
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("tool_configs", func() error {
 		_, err := toolconfigs.Sync(paths.EthosRoot, options.Repo, options.RepoConfig)
+		if err != nil {
+			return fmt.Errorf("sync tool configs: %w", err)
+		}
 
-		return err
+		return nil
 	}))
 	steps = append(steps, runParentStep("gemini_prompts", func() error {
 		_, err := geminiprompts.Sync(parentGeminiOptions(paths, options))
+		if err != nil {
+			return fmt.Errorf("sync gemini prompts: %w", err)
+		}
 
-		return err
+		return nil
 	}))
 	steps = append(steps, runParentStep("agent_skills", func() error {
 		_, err := agentskills.Sync(parentAgentSkillOptions(paths, options))
+		if err != nil {
+			return fmt.Errorf("sync agent skills: %w", err)
+		}
 
-		return err
+		return nil
 	}))
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.SyncSettings(options.Repo, paths.RunBinary+" agent-hook")
@@ -147,9 +178,13 @@ func checkParentArtifacts(
 ) []parentWorkflowStep {
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("tool_configs", func() error {
-		mismatched, err := toolconfigs.Check(paths.EthosRoot, options.Repo, options.RepoConfig)
+		mismatched, err := toolconfigs.Check(
+			paths.EthosRoot,
+			options.Repo,
+			options.RepoConfig,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("check tool configs: %w", err)
 		}
 
 		return parentDriftError(paths, options, "tool_configs", mismatched)
@@ -157,7 +192,7 @@ func checkParentArtifacts(
 	steps = append(steps, runParentStep("gemini_prompts", func() error {
 		mismatched, err := geminiprompts.Check(parentGeminiOptions(paths, options))
 		if err != nil {
-			return err
+			return fmt.Errorf("check gemini prompts: %w", err)
 		}
 
 		return parentDriftError(paths, options, "gemini_prompts", mismatched)
@@ -165,7 +200,7 @@ func checkParentArtifacts(
 	steps = append(steps, runParentStep("agent_skills", func() error {
 		mismatched, err := agentskills.Check(parentAgentSkillOptions(paths, options))
 		if err != nil {
-			return err
+			return fmt.Errorf("check agent skills: %w", err)
 		}
 
 		return parentDriftError(paths, options, "agent_skills", mismatched)
@@ -180,10 +215,10 @@ func checkParentArtifacts(
 func runParentStep(name string, action func() error) parentWorkflowStep {
 	err := action()
 	if err != nil {
-		return parentWorkflowStep{Name: name, Status: "fail", Detail: err.Error()}
+		return parentWorkflowStep{Name: name, Status: parentStepFail, Detail: err.Error()}
 	}
 
-	return parentWorkflowStep{Name: name, Status: "pass"}
+	return parentWorkflowStep{Name: name, Status: parentStepPass}
 }
 
 func parentDriftError(
@@ -197,7 +232,8 @@ func parentDriftError(
 	}
 
 	return fmt.Errorf(
-		"%s out of sync in %s checkout; run: %s; drift: %s",
+		"%w: %s out of sync in %s checkout; run: %s; drift: %s",
+		errParentArtifactDrift,
 		artifact,
 		parentCheckoutLocation(paths, options),
 		parentInstallCommand(options),
@@ -207,12 +243,12 @@ func parentDriftError(
 
 func parentStepStatus(steps []parentWorkflowStep) string {
 	for _, step := range steps {
-		if step.Status != "pass" {
-			return "fail"
+		if step.Status != parentStepPass {
+			return parentStepFail
 		}
 	}
 
-	return "pass"
+	return parentStepPass
 }
 
 func exitForFailedParentSteps(steps []parentWorkflowStep) {
@@ -232,6 +268,7 @@ func printParentWorkflowReport(
 	fmt.Fprintln(os.Stdout, "status: "+hookoutput.TOONCell(status))
 	fmt.Fprintln(os.Stdout, "repo: "+hookoutput.TOONCell(repo))
 	fmt.Fprintf(os.Stdout, "steps[%d]{name,status,detail}:\n", len(steps))
+
 	for _, step := range steps {
 		fmt.Fprintf(
 			os.Stdout,
@@ -288,7 +325,11 @@ func parentDriftItems(
 	return strings.Join(items, " ")
 }
 
-func parentDriftItem(paths runtimePaths, options parentWorkflowOptions, path string) string {
+func parentDriftItem(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+	path string,
+) string {
 	relative := relativeToRepo(options.Repo, path)
 	state := gitPathState(paths.RealGit, options.Repo, relative)
 
@@ -305,35 +346,39 @@ func relativeToRepo(repo, path string) string {
 }
 
 func gitPathState(realGit, repo, relative string) string {
-	output, err := gitOutput(realGit, repo, "status", "--porcelain", "--", relative)
+	output, err := gitOutputRaw(realGit, repo, "status", "--porcelain", "--", relative)
 	if err != nil || strings.TrimSpace(output) == "" {
-		return "working_tree"
+		return parentWorkingTreeState
 	}
 
-	line := strings.TrimSpace(strings.Split(output, "\n")[0])
+	line := strings.TrimRight(strings.Split(output, "\n")[0], "\r\n")
 	if strings.HasPrefix(line, "??") {
 		return "untracked"
 	}
 
-	if len(line) < 2 {
-		return "working_tree"
+	const gitStatusPorcelainWidth = 2
+
+	if len(line) < gitStatusPorcelainWidth {
+		return parentWorkingTreeState
 	}
 
 	indexChanged := line[0] != ' '
 	workingTreeChanged := line[1] != ' '
+
 	switch {
 	case indexChanged && workingTreeChanged:
-		return "index+working_tree"
+		return "index+" + parentWorkingTreeState
 	case indexChanged:
 		return "index"
 	default:
-		return "working_tree"
+		return parentWorkingTreeState
 	}
 }
 
 func sameCleanPath(left, right string) bool {
 	leftAbs, leftErr := filepath.Abs(filepath.Clean(left))
 	rightAbs, rightErr := filepath.Abs(filepath.Clean(right))
+
 	if leftErr != nil || rightErr != nil {
 		return filepath.Clean(left) == filepath.Clean(right)
 	}

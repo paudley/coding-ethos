@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -265,6 +267,22 @@ func TestParentWorkflowFlagsResolveParentInputs(t *testing.T) {
 	}
 }
 
+func TestParentCommandsRejectInvalidFlags(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimePaths{Root: "/repo"}
+	for name, runCommand := range map[string]func(runtimePaths, []string) error{
+		"parent-install": runParentInstall,
+		"parent-check":   runParentCheck,
+		"parent-lint":    runParentLint,
+	} {
+		err := runCommand(paths, []string{"--missing-flag"})
+		if err == nil || !strings.Contains(err.Error(), "parse "+name+" flags") {
+			t.Fatalf("%s error = %v", name, err)
+		}
+	}
+}
+
 func TestParentLintArgsUseParentRepoAndTOONScope(t *testing.T) {
 	t.Parallel()
 
@@ -301,12 +319,75 @@ func TestParentStepStatusFailsOnAnyFailedStep(t *testing.T) {
 	t.Parallel()
 
 	steps := []parentWorkflowStep{
-		{Name: "tool_configs", Status: "pass"},
-		{Name: "agent_hooks", Status: "fail", Detail: "missing setting"},
+		{Name: "tool_configs", Status: parentStepPass},
+		{Name: "agent_hooks", Status: parentStepFail, Detail: "missing setting"},
 	}
 
-	if got := parentStepStatus(steps); got != "fail" {
+	if got := parentStepStatus(steps); got != parentStepFail {
 		t.Fatalf("parentStepStatus() = %q, want fail", got)
+	}
+}
+
+func TestParentStepHelpersReportPassAndFail(t *testing.T) {
+	t.Parallel()
+
+	passed := runParentStep("agent_hooks", func() error { return nil })
+	if passed.Status != parentStepPass || passed.Detail != "" {
+		t.Fatalf("passed step = %#v", passed)
+	}
+
+	failed := runParentStep("agent_hooks", func() error {
+		return apperror.StaticError("missing setting")
+	})
+	if failed.Status != parentStepFail || failed.Detail != "missing setting" {
+		t.Fatalf("failed step = %#v", failed)
+	}
+
+	if got := parentStepStatus([]parentWorkflowStep{passed}); got != parentStepPass {
+		t.Fatalf("parentStepStatus(pass) = %q", got)
+	}
+
+	exitForFailedParentSteps([]parentWorkflowStep{passed})
+}
+
+func TestPrintParentWorkflowReportEmitsTOON(t *testing.T) { //nolint:paralleltest
+	output := captureRuntimeStdout(t, func() {
+		printParentWorkflowReport(
+			"parent-check",
+			parentStepFail,
+			"/repo",
+			[]parentWorkflowStep{
+				{Name: "tool_configs", Status: parentStepPass},
+				{Name: "agent_hooks", Status: parentStepFail, Detail: "missing hook"},
+			},
+		)
+	})
+
+	for _, want := range []string{
+		"format: toon",
+		"tool: parent-check",
+		"status: fail",
+		"repo: /repo",
+		"steps[2]{name,status,detail}:",
+		"agent_hooks,fail,missing hook",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("parent report missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestParentDriftErrorSkipsEmptyDrift(t *testing.T) {
+	t.Parallel()
+
+	err := parentDriftError(
+		runtimePaths{},
+		parentWorkflowOptions{Repo: "/repo"},
+		"tool_configs",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("parentDriftError(empty) = %v, want nil", err)
 	}
 }
 
@@ -332,6 +413,158 @@ func TestParentDriftErrorIncludesRepairCommandAndLocation(t *testing.T) {
 		if !strings.Contains(message, want) {
 			t.Fatalf("drift error missing %q: %s", want, message)
 		}
+	}
+}
+
+func TestParentPathHelpersClassifyGitStates(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	git := fakeStatusGit(t, " M changed\n")
+	if got := gitPathState(git, repo, "changed"); got != parentWorkingTreeState {
+		t.Fatalf("working tree state = %q", got)
+	}
+
+	git = fakeStatusGit(t, "M  staged\n")
+	if got := gitPathState(git, repo, "staged"); got != "index" {
+		t.Fatalf("index state = %q", got)
+	}
+
+	git = fakeStatusGit(t, "MM both\n")
+	if got := gitPathState(git, repo, "both"); got != "index+working_tree" {
+		t.Fatalf("combined state = %q", got)
+	}
+
+	git = fakeStatusGit(t, "?? new\n")
+	if got := gitPathState(git, repo, "new"); got != "untracked" {
+		t.Fatalf("untracked state = %q", got)
+	}
+
+	if got := relativeToRepo("/repo", "/repo/sub/file.txt"); got != "sub/file.txt" {
+		t.Fatalf("relativeToRepo() = %q", got)
+	}
+
+	if !sameCleanPath("/repo/.", "/repo") {
+		t.Fatal("sameCleanPath() rejected equivalent paths")
+	}
+
+	if got := shellQuoteForParent("plain"); got != "plain" {
+		t.Fatalf("plain shell quote = %q", got)
+	}
+
+	if got := shellQuoteForParent("has space"); got != "'has space'" {
+		t.Fatalf("spaced shell quote = %q", got)
+	}
+}
+
+func TestParentOptionHelpersResolveCandidatesAndOutputFormat(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	ethos := filepath.Join(repo, "coding-ethos")
+
+	err := os.MkdirAll(ethos, 0o700)
+	if err != nil {
+		t.Fatalf("create ethos root: %v", err)
+	}
+
+	repoEthos := filepath.Join(repo, "repo_ethos.yml")
+	repoConfig := filepath.Join(repo, "repo_config.yaml")
+
+	err = os.WriteFile(repoEthos, []byte("repo: {}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo ethos: %v", err)
+	}
+
+	err = os.WriteFile(repoConfig, []byte("profiles: []\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	paths := runtimePaths{EthosRoot: ethos}
+	options := parentWorkflowOptions{
+		Repo:       repo,
+		RepoEthos:  repoEthos,
+		RepoConfig: repoConfig,
+	}
+
+	gemini := parentGeminiOptions(paths, options)
+	if gemini.RepoRoot != repo ||
+		gemini.RepoEthos != repoEthos ||
+		gemini.RepoConfig != repoConfig {
+		t.Fatalf("parentGeminiOptions() = %#v", gemini)
+	}
+
+	skills := parentAgentSkillOptions(paths, options)
+	if skills.RepoRoot != repo || skills.RepoEthos != repoEthos {
+		t.Fatalf("parentAgentSkillOptions() = %#v", skills)
+	}
+
+	if got := firstExistingPath("", parentRepoEthosCandidates(repo)); got != repoEthos {
+		t.Fatalf("first repo ethos = %q, want %q", got, repoEthos)
+	}
+
+	if got := firstExistingPath(
+		"/explicit",
+		parentRepoConfigCandidates(repo),
+	); got != "/explicit" {
+		t.Fatalf("explicit repo config = %q", got)
+	}
+
+	if got := firstNonBlank("", " ", "changed"); got != "changed" {
+		t.Fatalf("firstNonBlank() = %q", got)
+	}
+}
+
+func TestForceTOONOutputRestoresPreviousFormat(t *testing.T) {
+	t.Setenv(hookoutput.FormatEnv, hookoutput.FormatJSON)
+
+	restore := forceTOONOutput()
+
+	if got := os.Getenv(hookoutput.FormatEnv); got != hookoutput.FormatTOON {
+		t.Fatalf("forced hook output = %q", got)
+	}
+
+	restore()
+
+	if got := os.Getenv(hookoutput.FormatEnv); got != hookoutput.FormatJSON {
+		t.Fatalf("restored hook output = %q", got)
+	}
+}
+
+func TestGitlabChangedFilesUsesMergeRequestTarget(t *testing.T) {
+	repo := t.TempDir()
+	writeChangedGoFile(t, repo)
+
+	t.Setenv("CI_MERGE_REQUEST_TARGET_BRANCH_SHA", "base123")
+	git := fakeDiffGit(t, "changed.go\nmissing.go\n")
+
+	files, err := gitlabChangedFiles(git, repo)
+	if err != nil {
+		t.Fatalf("gitlabChangedFiles() returned error: %v", err)
+	}
+
+	if !slices.Equal(files, []string{"changed.go"}) {
+		t.Fatalf("gitlab changed files = %#v", files)
+	}
+}
+
+func TestGitlabChangedFilesUsesPushBeforeSHA(t *testing.T) {
+	repo := t.TempDir()
+	writeChangedGoFile(t, repo)
+
+	t.Setenv("CI_COMMIT_BEFORE_SHA", "before123")
+	t.Setenv("CI_COMMIT_SHA", "after123")
+	git := fakeDiffGit(t, "changed.go\n")
+
+	files, err := gitlabChangedFiles(git, repo)
+	if err != nil {
+		t.Fatalf("gitlabChangedFiles() returned error: %v", err)
+	}
+
+	if !slices.Equal(files, []string{"changed.go"}) {
+		t.Fatalf("gitlab changed files = %#v", files)
 	}
 }
 
@@ -376,6 +609,7 @@ func TestRuntimePathResolutionPrefersSuperprojectForSubmodule(t *testing.T) {
 	parent := filepath.Join(t.TempDir(), "parent")
 	repo := filepath.Join(parent, "coding-ethos")
 	hooks := filepath.Join(parent, ".git", "hooks")
+
 	err := os.MkdirAll(repo, 0o700)
 	if err != nil {
 		t.Fatalf("create submodule fixture: %v", err)
@@ -400,6 +634,7 @@ func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 		"INVOCATION_CWD",
 		"CODE_ETHOS_PRECOMMIT_ROOT",
 		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODE_ETHOS_LOCAL_ROOT",
 		"CODING_ETHOS_RUN_GO_HOOK",
 		"GIT_HOOK_SRC_DIR",
 		"TOOLS_SRC_DIR",
@@ -429,6 +664,10 @@ func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 
 	if got := os.Getenv("CODE_ETHOS_CONSUMER_ROOT"); got != "/repo" {
 		t.Fatalf("exported consumer root = %q", got)
+	}
+
+	if got := os.Getenv("CODE_ETHOS_LOCAL_ROOT"); got != "/repo" {
+		t.Fatalf("exported local root = %q", got)
 	}
 
 	if got := os.Getenv("CODING_ETHOS_REAL_GIT"); got != "/usr/bin/git" {
@@ -524,9 +763,7 @@ func TestRuntimeFailuresUseStructuredExitCodes(t *testing.T) {
 	}
 }
 
-func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) {
-	t.Parallel()
-
+func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) { //nolint:paralleltest
 	root := t.TempDir()
 
 	binDir := filepath.Join(root, "bin")
@@ -559,8 +796,11 @@ func fakeRuntimeGit(t *testing.T, repo, hooks, superproject string) string {
 
 	superprojectCase := "  \"rev-parse --show-superproject-working-tree\") exit 1 ;;\n"
 	if superproject != "" {
-		superprojectCase = "  \"rev-parse --show-superproject-working-tree\") printf '%s\\n' " +
-			shellQuoteForRuntimeTest(superproject) + "; exit 0 ;;\n"
+		superprojectCase = strings.Join([]string{
+			"  \"rev-parse --show-superproject-working-tree\") printf '%s\\n' ",
+			shellQuoteForRuntimeTest(superproject),
+			"; exit 0 ;;\n",
+		}, "")
 	}
 
 	path := filepath.Join(t.TempDir(), "git")
@@ -573,6 +813,86 @@ func fakeRuntimeGit(t *testing.T, repo, hooks, superproject string) string {
 		shellQuoteForRuntimeTest(hooks) + "; exit 0 ;;\n" +
 		"esac\n" +
 		"exit 1\n"
+	writeExecutableFixture(t, path, body)
+
+	return path
+}
+
+func captureRuntimeStdout(t *testing.T, action func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer := runtimeStdoutPipe(t)
+
+	os.Stdout = writer
+
+	t.Cleanup(func() {
+		os.Stdout = originalStdout
+	})
+
+	action()
+
+	closeErr := writer.Close()
+	if closeErr != nil {
+		t.Fatalf("close stdout writer: %v", closeErr)
+	}
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout pipe: %v", err)
+	}
+
+	return string(output)
+}
+
+func writeChangedGoFile(t *testing.T, repo string) {
+	t.Helper()
+
+	err := os.WriteFile(filepath.Join(repo, "changed.go"), []byte("package main\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write changed file: %v", err)
+	}
+}
+
+func runtimeStdoutPipe(t *testing.T) (*os.File, *os.File) {
+	t.Helper()
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+
+	return reader, writer
+}
+
+func fakeStatusGit(t *testing.T, status string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "git")
+	body := "#!/usr/bin/env sh\n" +
+		"case \"$*\" in\n" +
+		"  \"status --porcelain -- \"*) printf '%s' " +
+		shellQuoteForRuntimeTest(status) + "; exit 0 ;;\n" +
+		"esac\n" +
+		"printf 'unexpected git args: %s\\n' \"$*\" >&2\n" +
+		"exit 2\n"
+	writeExecutableFixture(t, path, body)
+
+	return path
+}
+
+func fakeDiffGit(t *testing.T, output string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "git")
+	body := "#!/usr/bin/env sh\n" +
+		"case \"$*\" in\n" +
+		"  \"diff --name-only \"*) printf '%s' " +
+		shellQuoteForRuntimeTest(output) + "; exit 0 ;;\n" +
+		"  *\" rev-parse --verify \"*) exit 0 ;;\n" +
+		"esac\n" +
+		"printf 'unexpected git args: %s\\n' \"$*\" >&2\n" +
+		"exit 2\n"
 	writeExecutableFixture(t, path, body)
 
 	return path

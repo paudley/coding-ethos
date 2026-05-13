@@ -99,6 +99,15 @@ func runtimeFailure(problem string) {
 }
 
 func gitOutput(realGit, dir string, args ...string) (string, error) {
+	output, err := gitOutputRaw(realGit, dir, args...)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(output), nil
+}
+
+func gitOutputRaw(realGit, dir string, args ...string) (string, error) {
 	command := realgit.CommandFor(context.Background(), realGit, false, args...)
 	if dir != "" {
 		command.Dir = dir
@@ -109,7 +118,7 @@ func gitOutput(realGit, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 
-	return strings.TrimSpace(string(output)), nil
+	return string(output), nil
 }
 
 func runtimeRunTool(paths runtimePaths, tool string, args ...string) {

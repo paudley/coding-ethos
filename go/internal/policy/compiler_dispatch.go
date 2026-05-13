@@ -508,23 +508,6 @@ func principleRefs(principles map[string]Principle, ids ...string) []string {
 	return refs
 }
 
-func mergeMaps(base, overlay map[string]any) map[string]any {
-	for key, overlayValue := range overlay {
-		baseMap, baseOK := base[key].(map[string]any)
-
-		overlayMap, overlayOK := overlayValue.(map[string]any)
-		if baseOK && overlayOK {
-			base[key] = mergeMaps(baseMap, overlayMap)
-
-			continue
-		}
-
-		base[key] = overlayValue
-	}
-
-	return base
-}
-
 func boolAt(values map[string]any, path ...string) bool {
 	value, exists := valueAt(values, path...)
 	if !exists {

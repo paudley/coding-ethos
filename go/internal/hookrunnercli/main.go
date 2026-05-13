@@ -28,6 +28,7 @@ const (
 	configEnv          = "CODE_ETHOS_PRECOMMIT_CONFIG"
 	precommitRootEnv   = "CODE_ETHOS_PRECOMMIT_ROOT"
 	consumerRootEnv    = "CODE_ETHOS_CONSUMER_ROOT"
+	localRootEnv       = "CODE_ETHOS_LOCAL_ROOT"
 	privateKeyPattern  = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize      = 8192
 	severityCritical   = "CRITICAL"
@@ -396,8 +397,14 @@ func loadMergedRootConfig() (string, map[string]any, error) {
 }
 
 func gitOutput(args ...string) string {
-	cmd := evaluators.GitCommand("", args...)
+	return gitOutputInRoot("", args...)
+}
 
+func gitOutputInRoot(root string, args ...string) string {
+	return gitCommandOutput(evaluators.GitCommand(root, args...))
+}
+
+func gitCommandOutput(cmd interface{ Output() ([]byte, error) }) string {
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -416,6 +423,14 @@ func repoRoot() string {
 	}
 
 	return "."
+}
+
+func localRepoRoot() string {
+	if root := strings.TrimSpace(os.Getenv(localRootEnv)); root != "" {
+		return root
+	}
+
+	return repoRoot()
 }
 
 func consumerRoot(ethosRoot string) string {

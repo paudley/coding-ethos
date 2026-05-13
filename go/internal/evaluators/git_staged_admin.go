@@ -79,6 +79,7 @@ func stagedAdminHandoff(cwd string, argv []string) string {
 	} else {
 		lines = append(lines, "Human/admin handoff: run: "+command)
 	}
+
 	lines = append(
 		lines,
 		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",

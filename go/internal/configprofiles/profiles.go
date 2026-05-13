@@ -40,6 +40,7 @@ func repoProfiles(repoConfig configdata.Map) []string {
 	profiles := []string{}
 	repo := configdata.MapValue(repoConfig["repo"])
 	kind := strings.TrimSpace(configdata.StringAt(repo, "kind"))
+
 	if kind != "" {
 		profiles = append(profiles, kind)
 	}
@@ -52,6 +53,7 @@ func repoProfiles(repoConfig configdata.Map) []string {
 func dedupeProfiles(values []string) []string {
 	seen := map[string]bool{}
 	deduped := []string{}
+
 	for _, value := range values {
 		profile := strings.TrimSpace(value)
 		if profile == "" || seen[profile] {
@@ -125,25 +127,28 @@ func generatedSiteOutputOverlay() configdata.Map {
 
 func repoHasPythonSources(repoRoot string) bool {
 	found := false
-	_ = filepath.WalkDir(filepath.Clean(repoRoot), func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || found {
+	err := filepath.WalkDir(
+		filepath.Clean(repoRoot),
+		func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || found {
+				return err
+			}
+
+			if entry.IsDir() && shouldSkipDir(entry.Name()) {
+				return filepath.SkipDir
+			}
+
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
+				found = true
+
+				return filepath.SkipAll
+			}
+
 			return nil
-		}
+		},
+	)
 
-		if entry.IsDir() && shouldSkipDir(entry.Name()) {
-			return filepath.SkipDir
-		}
-
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".py") {
-			found = true
-
-			return filepath.SkipAll
-		}
-
-		return nil
-	})
-
-	return found
+	return err == nil && found
 }
 
 func shouldSkipDir(name string) bool {

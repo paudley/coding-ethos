@@ -110,7 +110,7 @@ func matchingMergeConflictMarker(line string, markers []string) string {
 func fileHasConflictBoundary(path string) bool {
 	var hasStart, hasEnd bool
 
-	_, _ = scanGuardLines(
+	_, scanErr := scanGuardLines(
 		path,
 		func(_ int, line string) ([]policy.Decision, bool) {
 			hasStart = hasStart || strings.HasPrefix(line, "<<<<<<<")
@@ -120,7 +120,7 @@ func fileHasConflictBoundary(path string) bool {
 		},
 	)
 
-	return hasStart && hasEnd
+	return scanErr == nil && hasStart && hasEnd
 }
 
 func EvaluateFilePrivateKey(
