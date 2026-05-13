@@ -106,15 +106,6 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 			importName: "pathlib",
 			reference:  "pathlib",
 		},
-		{
-			path:       "web/app.js",
-			source:     "import tool from 'pkg';\nclass Worker { run() { return tool(); } }\n",
-			language:   "javascript",
-			symbolPath: "Worker.run",
-			symbolKind: "function",
-			importName: "pkg",
-			reference:  "tool",
-		},
 	}
 
 	for _, test := range tests {
@@ -152,6 +143,80 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestAnalyzeIndexesJavaScriptAndTypeScriptFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path     string
+		source   string
+		language string
+	}{
+		{
+			path:     "web/app.js",
+			source:   "import tool from 'pkg';\nclass Worker { run() { return tool(); } }\n",
+			language: "javascript",
+		},
+		{
+			path: "web/app.ts",
+			source: "import tool from 'pkg';\n" +
+				"class Worker { run(): string { return tool(); } }\n",
+			language: "typescript",
+		},
+		{
+			path: "web/app.mts",
+			source: "import tool from 'pkg';\n" +
+				"class Worker { run(): string { return tool(); } }\n",
+			language: "typescript",
+		},
+		{
+			path: "web/app.cts",
+			source: "import tool from 'pkg';\n" +
+				"class Worker { run(): string { return tool(); } }\n",
+			language: "typescript",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			t.Parallel()
+
+			file, found, err := Analyze(test.path, []byte(test.source))
+			if err != nil {
+				t.Fatalf("analyze: %v", err)
+			}
+
+			assertCodeFacts(t, file, found, test.language, "pkg", "tool")
+		})
+	}
+}
+
+func assertCodeFacts(
+	t *testing.T,
+	file File,
+	found bool,
+	language string,
+	importName string,
+	reference string,
+) {
+	t.Helper()
+
+	if !found || file.Language != language {
+		t.Fatalf("language = %q ok=%v", file.Language, found)
+	}
+
+	if !hasSymbol(file.Symbols, "Worker.run", "function") {
+		t.Fatalf("missing Worker.run symbol: %#v", file.Symbols)
+	}
+
+	if !hasImport(file.Imports, importName) {
+		t.Fatalf("missing import %q: %#v", importName, file.Imports)
+	}
+
+	if !symbolReferences(file.Symbols, "Worker.run", reference) {
+		t.Fatalf("Worker.run missing reference %q: %#v", reference, file.Symbols)
 	}
 }
 

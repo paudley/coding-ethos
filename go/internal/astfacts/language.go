@@ -15,6 +15,7 @@ import (
 	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	LanguageMarkdown   = "markdown"
 	LanguageShell      = "shell"
 	LanguageTOML       = "toml"
+	LanguageTypeScript = "typescript"
 	LanguageYAML       = "yaml"
 )
 
@@ -40,8 +42,12 @@ func languageForPath(path string) (string, unsafe.Pointer, bool) {
 		return LanguageGo, tree_sitter_go.Language(), true
 	case ".py":
 		return LanguagePython, tree_sitter_python.Language(), true
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx":
+	case ".js", ".jsx", ".mjs", ".cjs":
 		return LanguageJavaScript, tree_sitter_javascript.Language(), true
+	case ".ts", ".mts", ".cts":
+		return LanguageTypeScript, tree_sitter_typescript.LanguageTypescript(), true
+	case ".tsx":
+		return LanguageTypeScript, tree_sitter_typescript.LanguageTSX(), true
 	case ".json", ".jsonc":
 		return LanguageJSON, tree_sitter_json.Language(), true
 	case ".md":

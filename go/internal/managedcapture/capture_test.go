@@ -292,6 +292,81 @@ exit 1
 	}
 }
 
+func TestRunCapturedESLintRendersSARIF(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+
+	tool := filepath.Join(repo, "eslint-fixture")
+
+	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+case " $* " in
+  *" --format json "*) ;;
+  *) echo "missing json format flag" >&2; exit 2 ;;
+esac
+cat <<'JSON'
+[
+  {
+    "filePath": "pkg/app.js",
+    "messages": [
+      {
+"ruleId": "no-undef",
+"severity": 2,
+"message": "'missingName' is not defined.",
+"line": 3,
+"column": 12,
+"endLine": 3,
+"endColumn": 23
+      }
+    ]
+  }
+]
+JSON
+exit 1
+`)
+
+	var output bytes.Buffer
+
+	exitCode := runCapturedToolForTest(
+		"eslint",
+		tool,
+		repo,
+		[]string{"pkg/app.js"},
+		PolicyContext{
+			EvidenceMaps: []diagnostics.EvidenceMap{{
+				Source:       "eslint",
+				Codes:        []string{"no-undef"},
+				PolicyID:     "javascript.static_analysis",
+				SkillID:      "lint-remediation",
+				PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
+			}},
+		},
+		hookoutput.FormatSARIF,
+		&output,
+	)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+
+	for _, want := range []string{
+		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+		`"ruleId": "javascript.static_analysis"`,
+		`"uri": "pkg/app.js"`,
+		`"startLine": 3`,
+		`"policy_id": "javascript.static_analysis"`,
+		`"skill_id": "lint-remediation"`,
+		`"source_tool": "eslint"`,
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output.String())
+		}
+	}
+}
+
 func TestRunCapturedRuffWarningOutputCanBePromotedByCELIntoSARIFError(t *testing.T) {
 	t.Parallel()
 
@@ -1975,6 +2050,18 @@ func TestCapturedToolArgsForceMachineReadableOutput(t *testing.T) {
 				t.Fatalf("capturedToolArgs() = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestCapturedESLintArgsForceMachineReadableOutput(t *testing.T) {
+	t.Parallel()
+
+	args := []string{"web/app.js"}
+	want := []string{"--format", "json", "web/app.js"}
+
+	got := capturedToolArgs("eslint", args)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("capturedToolArgs() = %#v, want %#v", got, want)
 	}
 }
 

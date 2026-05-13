@@ -165,6 +165,7 @@ func toolchainCommandExpectations() map[string][]string {
 		"sqlfluff":      {"sqlfluff", "lint", "--format", "json"},
 		"tombi":         {"tombi", "lint", "--quiet", "--error-on-warnings"},
 		"dotenv-linter": {"dotenv-linter", "--plain", "--quiet", "check"},
+		"eslint":        {"eslint", "--format", "json"},
 		"golangci-lint": {"golangci-lint", "run"},
 		"golines":       {"golines", "-w", "-m", "88"},
 	}
@@ -195,6 +196,7 @@ func toolchainCategoryExpectations() map[string]string {
 		"sqlfluff":      "sql",
 		"tombi":         "syntax",
 		"dotenv-linter": "dotenv",
+		"eslint":        "javascript-static",
 		"golangci-lint": "go-static",
 		"golines":       "format",
 	}
@@ -252,6 +254,18 @@ func toolchainFileMetadataExpectations() map[string]toolFileMetadataExpectation 
 		},
 		"dotenv-linter": {
 			basenames: []string{".env"},
+		},
+		"eslint": {
+			extensions: []string{
+				".js",
+				".jsx",
+				".mjs",
+				".cjs",
+				".ts",
+				".tsx",
+				".mts",
+				".cts",
+			},
 		},
 		"golangci-lint": {
 			extensions: []string{".go"},
@@ -350,6 +364,7 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		"hadolint",
 		"bandit",
 		"sqlfluff",
+		"eslint",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -388,6 +403,7 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 		"yamllint",
 		"hadolint",
 		"dotenv-linter",
+		"eslint",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -743,6 +759,11 @@ func toolCaptureArgsForceCatalogOutputCases() []toolCaptureArgsCase {
 			name: "actionlint",
 			args: []string{"-format", "{{.Message}}", ".github/workflows/ci.yml"},
 			want: []string{"-format", "{{json .}}", ".github/workflows/ci.yml"},
+		},
+		{
+			name: "eslint",
+			args: []string{"-f", "stylish", "web/app.js"},
+			want: []string{"--format", "json", "web/app.js"},
 		},
 		{
 			name: "golangci-lint",

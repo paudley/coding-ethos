@@ -5,6 +5,7 @@
 package hookrunnercli
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -655,6 +656,47 @@ func TestNormalizeTypeCheckFilesHonorsConfiguredExcludedPathFragments(t *testing
 	)
 	if len(files) != 1 || files[0] != pythonFile {
 		t.Fatalf("normalizeTypeCheckFiles() = %#v, want [%q]", files, pythonFile)
+	}
+}
+
+func TestStagedTypeCheckFilesBypassesCodingEthosGitShim(t *testing.T) {
+	tempDir := t.TempDir()
+	repo := filepath.Join(tempDir, "repo")
+	pythonFile := filepath.Join(repo, "pkg", "module.py")
+	mustWriteTestFile(t, pythonFile, "value = 1\n")
+
+	realGit := filepath.Join(tempDir, "real", "git")
+	mustWriteExecutable(
+		t,
+		realGit,
+		"#!/bin/sh\n"+
+			"if [ \"$1\" = --version ]; then printf 'git version 2.0.0\\n'; exit 0; fi\n"+
+			"printf 'pkg/module.py\\n'\n",
+	)
+
+	shimGit := filepath.Join(tempDir, "shim", "git")
+	mustWriteExecutable(
+		t,
+		shimGit,
+		"#!/bin/sh\n"+
+			"printf 'recursive shim should not run\\n' >&2\n"+
+			"exit 96\n",
+	)
+
+	t.Setenv(consumerRootEnv, repo)
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGit)
+	t.Setenv(
+		"PATH",
+		filepath.Dir(shimGit)+string(os.PathListSeparator)+filepath.Dir(realGit),
+	)
+
+	files, err := stagedTypeCheckFiles(typeCheckSettings{})
+	if err != nil {
+		t.Fatalf("stagedTypeCheckFiles() error = %v", err)
+	}
+
+	if len(files) != 1 || files[0] != pythonFile {
+		t.Fatalf("stagedTypeCheckFiles() = %#v, want [%q]", files, pythonFile)
 	}
 }
 

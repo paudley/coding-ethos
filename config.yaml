@@ -376,6 +376,30 @@ policy:
         rerun:
           - make pre-commit
           - make check
+    - source: eslint
+      codes:
+        - fatal
+        - no-undef
+        - no-unused-vars
+      policy_id: javascript.static_analysis
+      skill_id: lint-remediation
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - linting-as-code-quality-enforcement
+      confidence: medium
+      meaning: >-
+        ESLint found a JavaScript or TypeScript correctness, syntax, or
+        maintainability issue that should be fixed structurally.
+      advice:
+        summary: >-
+          Fix the JavaScript or TypeScript issue without weakening lint coverage.
+        steps:
+          - Resolve syntax and undefined-symbol findings before relying on
+            runtime behavior.
+          - Remove unused code instead of hiding warnings behind broad disables.
+          - Keep ESLint execution routed through the managed coding-ethos wrapper.
+        rerun:
+          - make pre-commit
     - source: ruff
       message_substrings:
         - configuration or usage failed
@@ -400,6 +424,33 @@ policy:
           - Do not trust consumer-repo Ruff config or host binaries.
           - Restore generated config drift with make -C coding-ethos fix-configs.
         rerun:
+          - make pre-commit
+    - source: eslint
+      message_substrings:
+        - configuration or usage failed
+        - Cannot find module
+        - No files matching the pattern
+        - ESLint couldn't find
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        ESLint failed before producing normal diagnostics, usually because the
+        managed npm package, invocation, target paths, or config boundary drifted
+        away from the coding-ethos runtime contract.
+      advice:
+        summary: >-
+          Restore managed ESLint execution before interpreting JavaScript findings.
+        steps:
+          - Run ESLint through the coding-ethos capture wrapper.
+          - Do not fall back to host-global ESLint or unmanaged npm scripts.
+          - Rebuild the managed toolchain if the ESLint package or wrapper is missing.
+        rerun:
+          - make build
           - make pre-commit
     - source: mypy
       message_substrings:
