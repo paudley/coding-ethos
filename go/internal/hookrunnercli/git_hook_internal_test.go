@@ -275,6 +275,40 @@ exit 2
 	}
 }
 
+func TestPushedFilesUsesTreeComparisonForNewBranch(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		`#!/usr/bin/env sh
+case "$*" in
+  "diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 abc123")
+    printf 'README.md\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected git invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	files, err := pushedFiles(strings.NewReader(
+		"refs/heads/feature abc123 refs/heads/feature " + allZeroSHA + "\n",
+	))
+	if err != nil {
+		t.Fatalf("pushedFiles: %v", err)
+	}
+
+	if !slices.Equal(files, []string{"README.md"}) {
+		t.Fatalf("pushed files = %#v", files)
+	}
+}
+
 func TestRunHookGroupCommandRejectsMissingAndUnknownGroups(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		if got := runHookGroupCommand(Config{}, nil); got != 1 {

@@ -394,7 +394,7 @@ func pushedFiles(input io.Reader) ([]string, error) {
 		)
 
 		if fields[3] == allZeroSHA {
-			changed, err = gitLines("diff", "--name-only", emptyTreeSHA+".."+fields[1])
+			changed, err = gitLines("diff", "--name-only", emptyTreeSHA, fields[1])
 		} else {
 			changed, err = gitLines("diff", "--name-only", fields[3]+".."+fields[1])
 		}
