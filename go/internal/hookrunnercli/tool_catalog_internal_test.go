@@ -27,6 +27,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		"pyproject.toml",
 		"queries/report.sql",
 		"pkg/app.py",
+		"web/app.js",
 		".env.example",
 		"script.sh",
 	}
@@ -47,6 +48,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		"sqlfluff":      "queries/report.sql",
 		"tombi":         "pyproject.toml",
 		"dotenv-linter": ".env.example",
+		"eslint":        "web/app.js",
 	} {
 		got := toolchainFiles(name, paths)
 		if len(got) != 1 || got[0] != want {

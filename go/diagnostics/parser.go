@@ -187,6 +187,7 @@ func parserEntries() []parserEntry {
 		{Name: "actionlint", Parser: parseActionlint},
 		{Name: "bandit", Parser: parseBandit},
 		{Name: "dotenv-linter", Parser: parseDotenvLinter},
+		{Name: "eslint", Parser: parseESLint},
 		{Name: "gofmt", Parser: parseGofmt},
 		{Name: "gofmt-check", Parser: parseGofmt},
 		{Name: "go-test", Parser: parseGoTest},

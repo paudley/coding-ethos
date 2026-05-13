@@ -57,6 +57,7 @@ func canonicalHookCommands() map[string]CommandFunc {
 		"hook-plan":                        runHookPlanCommand,
 		"policy-bandit":                    runBandit,
 		"policy-dotenv-linter":             runDotenvLinter,
+		"policy-eslint":                    runESLint,
 		"policy-golangci-lint":             runGolangciLint,
 		"policy-sqlfluff":                  runSQLFluff,
 		"policy-tombi":                     runTombi,
@@ -123,6 +124,9 @@ func canonicalHookGroupsFromCommands(
 		),
 		"docker":   groupFromCommandNames(commands, "docker", []string{"hadolint"}),
 		"workflow": groupFromCommandNames(commands, "workflow", []string{"actionlint"}),
+		"javascript": groupFromCommandNames(commands, "javascript", []string{
+			"policy-eslint",
+		}),
 		"python-quality": groupFromCommandNames(commands, "python-quality", []string{
 			"python-complexity",
 			"python-maintainability",
@@ -176,6 +180,8 @@ func displayHookCommandName(name string) string {
 		return "bandit"
 	case "policy-dotenv-linter":
 		return "dotenv-linter"
+	case "policy-eslint":
+		return "eslint"
 	case "policy-golangci-lint":
 		return "golangci-lint"
 	case "policy-sqlfluff":

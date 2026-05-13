@@ -10,6 +10,26 @@ import (
 	"strings"
 )
 
+const eslintErrorSeverity = 2
+
+//nolint:tagliatelle // ESLint JSON uses camel-case fields.
+type eslintFileDiagnostic struct {
+	FilePath string                    `json:"filePath"`
+	Messages []eslintMessageDiagnostic `json:"messages"`
+}
+
+//nolint:govet,tagliatelle // ESLint JSON uses camel-case nullable fields.
+type eslintMessageDiagnostic struct {
+	Message   string  `json:"message"`
+	RuleID    *string `json:"ruleId"`
+	Severity  int     `json:"severity"`
+	Line      int     `json:"line"`
+	Column    int     `json:"column"`
+	EndLine   int     `json:"endLine"`
+	EndColumn int     `json:"endColumn"`
+	Fatal     bool    `json:"fatal"`
+}
+
 func parseHadolint(output string) []Diagnostic {
 	if diagnostics := parseHadolintJSON(output); len(diagnostics) > 0 {
 		return diagnostics
@@ -487,4 +507,84 @@ func parseDotenvLinter(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func parseESLint(output string) []Diagnostic {
+	var payload []eslintFileDiagnostic
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := []Diagnostic{}
+
+	for _, file := range payload {
+		for _, message := range file.Messages {
+			text := strings.TrimSpace(message.Message)
+			if text == "" {
+				continue
+			}
+
+			diagnostics = append(diagnostics, Diagnostic{
+				Tool:     "eslint",
+				File:     strings.TrimSpace(file.FilePath),
+				Line:     message.Line,
+				Column:   message.Column,
+				Severity: eslintSeverity(message.Severity, message.Fatal),
+				Code:     eslintRuleID(message.RuleID, message.Fatal),
+				Message:  text,
+				Metadata: eslintDiagnosticMetadata(
+					message.EndLine,
+					message.EndColumn,
+				),
+			})
+		}
+	}
+
+	return diagnostics
+}
+
+func eslintSeverity(level int, fatal bool) string {
+	if fatal {
+		return severityError
+	}
+
+	switch level {
+	case eslintErrorSeverity:
+		return severityError
+	case 1:
+		return severityWarning
+	default:
+		return severityNotice
+	}
+}
+
+func eslintRuleID(ruleID *string, fatal bool) string {
+	if ruleID != nil && strings.TrimSpace(*ruleID) != "" {
+		return strings.TrimSpace(*ruleID)
+	}
+
+	if fatal {
+		return "fatal"
+	}
+
+	return ""
+}
+
+func eslintDiagnosticMetadata(endLine, endColumn int) map[string]any {
+	if endLine == 0 && endColumn == 0 {
+		return nil
+	}
+
+	metadata := map[string]any{}
+	if endLine > 0 {
+		metadata["end_line"] = endLine
+	}
+
+	if endColumn > 0 {
+		metadata["end_column"] = endColumn
+	}
+
+	return metadata
 }

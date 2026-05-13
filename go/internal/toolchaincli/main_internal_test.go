@@ -620,10 +620,9 @@ func TestInstallManagedToolchainInstallsAndWritesManifest(t *testing.T) {
 		t.Fatalf("install managed toolchain: %v", inlineErr7)
 	}
 
-	if strings.Join(
-		installed,
-		",",
-	) != "go:mvdan.cc/sh/v3/cmd/shfmt@v3.13.1,github:koalaman/shellcheck@v0.10.0" {
+	wantInstalled := "go:mvdan.cc/sh/v3/cmd/shfmt@v3.13.1," +
+		"github:koalaman/shellcheck@v0.10.0,npm:eslint@10.3.0"
+	if strings.Join(installed, ",") != wantInstalled {
 		t.Fatalf("installed = %#v", installed)
 	}
 
@@ -639,6 +638,9 @@ func TestInstallManagedToolchainInstallsAndWritesManifest(t *testing.T) {
 			filepath.Join(goBinDir, "shfmt"),
 		"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64" +
 			"\tshellcheck\tabc\t" + filepath.Join(githubBinDir, "shellcheck"),
+		"eslint\tnpm\teslint\t10.3.0\tnpm-locks/eslint-10.3.0" +
+			"\teslint\tsha512-fixture\t" +
+			filepath.Join(githubBinDir, "eslint"),
 	} {
 		if !strings.Contains(manifest, want) {
 			t.Fatalf("installed manifest missing %q:\n%s", want, manifest)
@@ -656,7 +658,7 @@ func managedToolchainManifestFixture() string {
 				"version",
 				"asset_substring",
 				"binary",
-				"sha256",
+				"checksum",
 				"dest",
 			},
 			"\t",
@@ -664,6 +666,8 @@ func managedToolchainManifestFixture() string {
 		"shfmt\tgo\tmvdan.cc/sh/v3/cmd/shfmt\tv3.13.1\t-\tshfmt\t-\tgo-bin",
 		"shellcheck\tgithub\tkoalaman/shellcheck\tv0.10.0\tlinux.x86_64" +
 			"\tshellcheck\tabc\tgithub-bin",
+		"eslint\tnpm\teslint\t10.3.0\tnpm-locks/eslint-10.3.0" +
+			"\teslint\tsha512-fixture\tgithub-bin",
 		"",
 	}, "\n")
 }
@@ -679,6 +683,24 @@ func recordingManagedToolInstaller(
 			*installed = append(*installed, "go:"+module+"@"+version)
 
 			writeExecutableFixture(t, filepath.Join(destDir, "shfmt"), "shfmt\n")
+
+			return nil
+		},
+		InstallNPM: func(
+			packageName,
+			version,
+			binary,
+			integrity,
+			lockDir,
+			destDir string,
+		) error {
+			*installed = append(*installed, "npm:"+packageName+"@"+version)
+
+			if !strings.HasSuffix(lockDir, "npm-locks/eslint-10.3.0") {
+				t.Fatalf("npm lock dir = %q", lockDir)
+			}
+
+			writeExecutableFixture(t, filepath.Join(destDir, binary), binary+"\n")
 
 			return nil
 		},
@@ -728,20 +750,49 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 		t.Fatalf("write installed manifest: %v", err)
 	}
 
-	installer := managedToolInstaller{
+	err = installManagedToolchain(
+		manifestSource,
+		goBinDir,
+		filepath.Join(root, "github-bin"),
+		installedManifest,
+		unexpectedManagedToolInstaller(t),
+	)
+	if err != nil {
+		t.Fatalf("install managed toolchain: %v", err)
+	}
+}
+
+func unexpectedManagedToolInstaller(t *testing.T) managedToolInstaller {
+	t.Helper()
+
+	return managedToolInstaller{
 		InstallGo: func(module, version, destDir string) error {
 			t.Fatalf("unexpected go install %s@%s %s", module, version, destDir)
 
 			return nil
 		},
-		InstallRust: func(crate, version, binary, destDir string) error {
+		InstallNPM: func(
+			packageName,
+			version,
+			binary,
+			integrity,
+			lockDir,
+			destDir string,
+		) error {
 			t.Fatalf(
-				"unexpected rust install %s@%s %s %s",
-				crate,
+				"unexpected npm install %s@%s %s %s %s %s",
+				packageName,
 				version,
 				binary,
+				integrity,
+				lockDir,
 				destDir,
 			)
+
+			return nil
+		},
+		InstallRust: func(crate, version, binary, destDir string) error {
+			t.Fatalf("unexpected rust install %s@%s %s %s", crate, version, binary, destDir)
 
 			return nil
 		},
@@ -751,16 +802,37 @@ func TestInstallManagedToolchainSkipsAlreadyInstalledTools(t *testing.T) {
 			return nil
 		},
 	}
+}
 
-	err = installManagedToolchain(
-		manifestSource,
-		goBinDir,
-		filepath.Join(root, "github-bin"),
-		installedManifest,
-		installer,
-	)
+func TestWriteNPMBinaryWrapperExecutesManagedPackageScript(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	packageRoot := filepath.Join(root, "pkg with space")
+	script := filepath.Join(packageRoot, "node_modules", ".bin", "eslint")
+
+	err := os.MkdirAll(filepath.Dir(script), directoryMode)
 	if err != nil {
-		t.Fatalf("install managed toolchain: %v", err)
+		t.Fatalf("create npm fixture bin: %v", err)
+	}
+
+	writeExecutableFixture(t, script, "#!/usr/bin/env node\n")
+
+	target := filepath.Join(root, "bin", "eslint")
+
+	err = writeNPMBinaryWrapper(packageRoot, "eslint", target)
+	if err != nil {
+		t.Fatalf("write npm binary wrapper: %v", err)
+	}
+
+	payload, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read npm wrapper: %v", err)
+	}
+
+	want := "exec '" + script + "' \"$@\""
+	if !strings.Contains(string(payload), want) {
+		t.Fatalf("wrapper missing managed script exec %q:\n%s", want, payload)
 	}
 }
 

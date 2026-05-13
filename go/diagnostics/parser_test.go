@@ -186,6 +186,74 @@ func TestParsePylintJSON2Diagnostics(t *testing.T) {
 	})
 }
 
+func TestParseESLintJSONDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"eslint",
+		`[{"filePath":"web/app.js","messages":[`+
+			`{"ruleId":"no-undef","severity":2,"message":"`+
+			`'tool' is not defined.","line":3,"column":10,`+
+			`"endLine":3,"endColumn":14},`+
+			`{"ruleId":"no-console","severity":1,"message":"`+
+			`Unexpected console statement.","line":4,"column":3}`+
+			`]}]`,
+		"",
+	)
+
+	if len(parsed) != 2 {
+		t.Fatalf("diagnostics.Parse() = %#v, want two diagnostics", parsed)
+	}
+
+	endMetadata := parsed[0].Metadata
+	parsed[0].Metadata = nil
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Tool:     "eslint",
+		File:     "web/app.js",
+		Line:     3,
+		Column:   10,
+		Severity: "error",
+		Code:     "no-undef",
+		Message:  "'tool' is not defined.",
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Tool:     "eslint",
+		File:     "web/app.js",
+		Line:     4,
+		Column:   3,
+		Severity: "warning",
+		Code:     "no-console",
+		Message:  "Unexpected console statement.",
+	})
+
+	if endMetadata["end_line"] != 3 || endMetadata["end_column"] != 14 {
+		t.Fatalf("eslint end location metadata = %#v", endMetadata)
+	}
+}
+
+func TestParseESLintFatalDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"eslint",
+		`[{"filePath":"web/app.js","messages":[`+
+			`{"ruleId":null,"fatal":true,"severity":2,`+
+			`"message":"Parsing error: Unexpected token","line":1,"column":7}`+
+			`]}]`,
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "eslint",
+		File:     "web/app.js",
+		Line:     1,
+		Column:   7,
+		Severity: "error",
+		Code:     "fatal",
+		Message:  "Parsing error: Unexpected token",
+	})
+}
+
 func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 	t.Parallel()
 
@@ -483,6 +551,7 @@ func parserFixtureTools() map[string]bool {
 		"pylint":                true,
 		"pyright":               true,
 		"ruff":                  true,
+		"eslint":                true,
 		"ruff-autofix":          true,
 		"ruff-format":           true,
 		"pytest":                true,

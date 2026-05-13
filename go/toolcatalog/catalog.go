@@ -14,6 +14,7 @@ type Runtime string
 const (
 	RuntimeBinary Runtime = "binary"
 	RuntimeGo     Runtime = "go"
+	RuntimeNPM    Runtime = "npm"
 	RuntimePython Runtime = "python"
 	RuntimeUV     Runtime = "uv"
 
@@ -379,6 +380,14 @@ func (tool Tool) ManagedExecutablePath(ethosRoot string) string {
 			"github-bin",
 			tool.managedBinaryName(),
 		)
+	case RuntimeNPM:
+		return filepath.Join(
+			ethosRoot,
+			"build",
+			"toolchain",
+			"github-bin",
+			tool.managedBinaryName(),
+		)
 	case RuntimePython, RuntimeUV:
 		return ""
 	default:
@@ -491,6 +500,7 @@ func toolDisplayNameEntries() []toolDisplayNameEntry {
 		{Name: "actionlint", DisplayName: "actionlint"},
 		{Name: "bandit", DisplayName: "Bandit"},
 		{Name: "dotenv-linter", DisplayName: "dotenv-linter"},
+		{Name: "eslint", DisplayName: "ESLint"},
 		{Name: "golangci-lint", DisplayName: "golangci-lint"},
 		{Name: "golangci-lint-autofix", DisplayName: "golangci-lint autofix"},
 		{Name: "golangci-lint-format", DisplayName: "golangci-lint format"},
@@ -518,6 +528,7 @@ func toolchainToolDefinitions() []Tool {
 		sqlfluffTool(),
 		tombiTool(),
 		dotenvLinterTool(),
+		eslintTool(),
 		golangciLintTool(),
 		golinesTool(),
 	}
@@ -870,6 +881,43 @@ func dotenvLinterTool() Tool {
 		PassFilesAsArgs:  true,
 		Fast:             true,
 		EnabledByDefault: true,
+	}
+}
+
+func eslintTool() Tool {
+	return Tool{
+		Name:         "eslint",
+		Parser:       "eslint",
+		Captured:     true,
+		Category:     "javascript-static",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix ESLint findings structurally and keep JavaScript and",
+			"TypeScript checks inside the managed lint path.",
+		),
+		Runtime: RuntimeNPM,
+		Command: []string{
+			"eslint",
+			"--format",
+			"json",
+		},
+		CaptureOutputArgs:   []string{"--format", "json"},
+		CaptureStripArgs:    []string{"--format", "-f"},
+		CaptureMutatingArgs: []string{"--fix", "--fix-dry-run"},
+		FileExtensions: []string{
+			".js",
+			".jsx",
+			".mjs",
+			".cjs",
+			".ts",
+			".tsx",
+			".mts",
+			".cts",
+		},
+		Languages:        []string{"javascript", "typescript"},
+		PassFilesAsArgs:  true,
+		Fast:             true,
+		EnabledByDefault: false,
 	}
 }
 

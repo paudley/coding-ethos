@@ -136,7 +136,7 @@ func managedToolchainBinaryPath(tool toolcatalog.Tool) string {
 	switch runtime {
 	case toolcatalog.RuntimeGo:
 		return filepath.Join(ethosRoot, "build", "toolchain", "go-bin", tool.Name)
-	case toolcatalog.RuntimeBinary:
+	case toolcatalog.RuntimeBinary, toolcatalog.RuntimeNPM:
 		return filepath.Join(ethosRoot, "build", "toolchain", "github-bin", tool.Name)
 	case toolcatalog.RuntimePython, toolcatalog.RuntimeUV:
 		return ""

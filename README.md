@@ -282,8 +282,8 @@ The first tools are intentionally narrow and auditable:
 - `policy_check_command`: check a proposed shell command before running it.
 - `policy_check_edit`: check a proposed file edit before applying it.
 - `lint_check`: run managed lint capture for Ruff, mypy, pyright, pylint,
-  SQLFluff, and other captured tools; when no tool is supplied, run compiled
-  coding-ethos policy lint checks for current work.
+  ESLint, SQLFluff, and other captured tools; when no tool is supplied, run
+  compiled coding-ethos policy lint checks for current work.
 - `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
 - `sarif_remediation_advice`: turn SARIF or retained trace evidence into
   focused ETHOS-grounded repair guidance.
@@ -940,14 +940,39 @@ For non-linter Python commands, hooks prefer the consumer repo environment:
 `<repo>/.venv/bin/python ...` when only a virtualenv exists. The runtime also
 adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
 protected shims remain first.
-Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter, and golangci-lint are
-installed into `build/toolchain/` through the managed installer. ShellCheck,
-actionlint, and hadolint use pinned GitHub release assets with SHA-256 digests;
-golangci-lint is built into the managed Go bin directory with the repo Go
-toolchain. The source manifest lives at
-`pre-commit/hooks/managed-toolchain.tsv`, and the installed toolchain writes
-`build/toolchain/manifest.tsv`. Hook execution treats missing managed binaries
-as runtime artifact failures instead of falling back to host tools.
+Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter,
+golangci-lint, and ESLint are installed into `build/toolchain/` through the
+managed installer. ShellCheck, actionlint, and hadolint use pinned GitHub
+release assets with SHA-256 digests; actionlint and golangci-lint are built
+into the managed Go bin directory with the repo Go toolchain; ESLint is
+installed from a checked-in npm lockfile and exposed through a managed wrapper.
+The source manifest lives at `pre-commit/hooks/managed-toolchain.tsv`, and the
+installed toolchain writes `build/toolchain/manifest.tsv`. Hook execution treats
+missing managed binaries as runtime artifact failures instead of falling back to
+host tools.
+
+ESLint is registered as the `javascript` hook group and as a managed capture
+tool, but it is not part of the default pre-commit or pre-push group set until a
+repo opts in and owns an explicit ESLint config boundary.
+
+Current managed lint and analyzer integrations:
+
+| Tool | Ecosystem | Managed acquisition | Diagnostic parser |
+| --- | --- | --- | --- |
+| Ruff | Python | hook project | JSON and text |
+| mypy | Python | hook project | JSON lines and text |
+| Pyright | Python | hook project | JSON |
+| Pylint | Python | hook project | JSON |
+| Bandit | Python security | hook project | JSON |
+| SQLFluff | SQL | hook project | JSON |
+| Tombi | TOML | hook project | text |
+| yamllint | YAML | hook project | parsable text |
+| ShellCheck | shell | pinned GitHub release | JSON |
+| actionlint | GitHub Actions | pinned Go install | JSON lines |
+| hadolint | Dockerfile | pinned GitHub release | JSON and text |
+| dotenv-linter | dotenv | pinned GitHub release | text |
+| golangci-lint | Go | pinned Go install | JSON |
+| ESLint | JavaScript and TypeScript | pinned npm lockfile | JSON |
 
 The repo Makefile exposes only unified managed tool groups for ordinary source
 quality work: `make lint` runs the `linters` group, `make format` runs the

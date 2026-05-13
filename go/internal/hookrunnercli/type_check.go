@@ -4,7 +4,6 @@
 package hookrunnercli
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	diag "blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -487,15 +487,14 @@ func normalizeTypeCheckFiles(
 }
 
 func stagedTypeCheckFiles(settings typeCheckSettings) ([]string, error) {
-	cmd := exec.CommandContext(
-		context.Background(),
-		"git",
+	root := repoRoot()
+	cmd := evaluators.GitCommand(
+		root,
 		"diff",
 		"--cached",
 		"--name-only",
 		"--diff-filter=ACMR",
 	)
-	cmd.Dir = repoRoot()
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -512,9 +511,28 @@ func stagedTypeCheckFiles(settings typeCheckSettings) ([]string, error) {
 	}
 
 	return normalizeTypeCheckFiles(
-		strings.Split(strings.TrimSpace(string(output)), "\n"),
+		repoRelativeTypeCheckPaths(
+			root,
+			strings.Split(strings.TrimSpace(string(output)), "\n"),
+		),
 		settings.ExcludedPathFragments,
 	), nil
+}
+
+func repoRelativeTypeCheckPaths(root string, paths []string) []string {
+	normalized := make([]string, 0, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" || filepath.IsAbs(path) {
+			normalized = append(normalized, path)
+
+			continue
+		}
+
+		normalized = append(normalized, filepath.Join(root, path))
+	}
+
+	return normalized
 }
 
 func runTypeChecker(

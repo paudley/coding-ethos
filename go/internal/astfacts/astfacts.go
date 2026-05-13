@@ -244,7 +244,7 @@ func processCall(
 
 func isCallNode(language, nodeKind string) bool {
 	switch language {
-	case LanguageGo, LanguageJavaScript:
+	case LanguageGo, LanguageJavaScript, LanguageTypeScript:
 		return nodeKind == "call_expression"
 	case LanguagePython:
 		return nodeKind == "call"
@@ -274,7 +274,7 @@ func callFunctionName(language string, contents []byte, node *tree_sitter.Node) 
 				return cleanSymbolName(attr.Utf8Text(contents))
 			}
 		}
-	case LanguageJavaScript:
+	case LanguageJavaScript, LanguageTypeScript:
 		if functionNode.Kind() == "member_expression" {
 			if property := functionNode.ChildByFieldName("property"); property != nil {
 				return cleanSymbolName(property.Utf8Text(contents))
@@ -347,7 +347,7 @@ func importNodeKind(language, nodeKind string) bool {
 		return nodeKind == "import_spec"
 	case LanguagePython:
 		return nodeKind == "import_statement" || nodeKind == "import_from_statement"
-	case LanguageJavaScript:
+	case LanguageJavaScript, LanguageTypeScript:
 		return nodeKind == "import_statement"
 	default:
 		return false
@@ -356,7 +356,7 @@ func importNodeKind(language, nodeKind string) bool {
 
 func ImportTarget(language string, contents []byte, node *tree_sitter.Node) string {
 	switch language {
-	case LanguageGo, LanguageJavaScript:
+	case LanguageGo, LanguageJavaScript, LanguageTypeScript:
 		return cleanImportTarget(
 			firstDescendantText(contents, node, stringLikeNodeKind),
 		)
@@ -444,7 +444,7 @@ func pythonImportNameNodeKind(nodeKind string) bool {
 
 func referenceIdentifierKind(language, nodeKind string) bool {
 	switch language {
-	case LanguageGo, LanguagePython, LanguageJavaScript:
+	case LanguageGo, LanguagePython, LanguageJavaScript, LanguageTypeScript:
 		return nodeKind == "identifier"
 	case LanguageShell:
 		return nodeKind == "word" || nodeKind == "command_name"
@@ -499,6 +499,26 @@ func nodeSymbolKindEntries() []nodeSymbolKindEntry {
 		},
 		{
 			Language:   LanguageJavaScript,
+			NodeKind:   "method_definition",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageTypeScript,
+			NodeKind:   "class_declaration",
+			SymbolKind: "class",
+		},
+		{
+			Language:   LanguageTypeScript,
+			NodeKind:   "function_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageTypeScript,
+			NodeKind:   "generator_function_declaration",
+			SymbolKind: symbolKindFunction,
+		},
+		{
+			Language:   LanguageTypeScript,
 			NodeKind:   "method_definition",
 			SymbolKind: symbolKindFunction,
 		},

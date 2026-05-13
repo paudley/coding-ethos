@@ -59,6 +59,10 @@ func runDotenvLinter(_ Config, paths []string) int {
 	return runCatalogLintTool("dotenv-linter", paths)
 }
 
+func runESLint(_ Config, paths []string) int {
+	return runCatalogLintTool("eslint", paths)
+}
+
 func runCatalogLintTool(name string, paths []string) int {
 	files := toolchainFiles(name, existingFiles(paths))
 	if len(files) == 0 {
