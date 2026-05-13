@@ -70,6 +70,7 @@ def test_build_syncs_consumer_generated_outputs_before_runtime_install() -> None
     assert "_sync-consumer-agent-skills" in build_line
     assert "_sync-git-hooks" in build_line
     assert "_sync-parent-hook-runtime" in build_line
+    assert "check-local-artifacts" not in build_line
     assert "go-test-binaries-install" not in build_line
     assert "go-e2e-test-binary-install" not in build_line
     assert "GO_TEST_BIN" not in makefile
@@ -223,3 +224,24 @@ def test_tests_and_diagnostics_do_not_build_or_install_runtime() -> None:
     assert "go-tools-smoke" not in next(
         line for line in makefile.splitlines() if line.startswith("check:")
     )
+
+
+def test_check_blocks_unmanaged_go_module_root_binaries() -> None:
+    makefile, _lines = _makefile_lines()
+
+    check_lines = [line for line in makefile.splitlines() if line.startswith("check:")]
+    check_line = check_lines[0]
+    assert "check-local-artifacts" in check_line
+    assert check_line.index("check-local-artifacts") < check_line.index("test")
+
+    local_artifact_block = _target_block(makefile, "check-local-artifacts")
+    assert "GO_MODULE_ROOT_BINARY_OUTPUTS" in makefile
+    assert "$(GO_TOOL_CMDS)" in makefile
+    assert "coding-ethos-hook-runner" in makefile
+    assert "$(GO_TOOLS_DIR)/$$name" in local_artifact_block
+    assert "Unmanaged Go build artifact" in local_artifact_block
+    assert "make go-tools-clean" in local_artifact_block
+
+    clean_block = _target_block(makefile, "go-tools-clean")
+    assert "$(GO_MODULE_ROOT_BINARY_OUTPUTS)" in clean_block
+    assert 'rm -f "$(GO_TOOLS_DIR)/$$name"' in clean_block
