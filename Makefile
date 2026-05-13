@@ -83,6 +83,9 @@ GO_TOOL_CMDS := \
 	coding-ethos-toolchain \
 	coding-ethos-git-hook \
 	coding-ethos-git
+GO_MODULE_ROOT_BINARY_OUTPUTS := \
+	$(GO_TOOL_CMDS) \
+	coding-ethos-hook-runner
 
 GO_COVERAGE_MIN ?= 80.0
 PYTHON_COVERAGE_MIN ?= 80
@@ -195,6 +198,7 @@ endef
 	commit-msg \
 	hook-plan \
 	validate \
+	check-local-artifacts \
 	go-test \
 	go-e2e-test \
 	go-tidy \
@@ -363,7 +367,23 @@ python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
 	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
 	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
 
-check: test check-tool-configs check-gemini-prompts check-agent-skills go-test go-e2e-test ## Run the repo's current verification gate.
+check: check-local-artifacts test check-tool-configs check-gemini-prompts check-agent-skills go-test go-e2e-test ## Run the repo's current verification gate.
+
+check-local-artifacts: ## Fail if local build artifacts escaped managed output dirs.
+	@$(call print_step,Checking for unmanaged local build artifacts)
+	@set -eu; \
+	found=0; \
+	for name in $(GO_MODULE_ROOT_BINARY_OUTPUTS); do \
+		path="$(GO_TOOLS_DIR)/$$name"; \
+		if [ -e "$$path" ]; then \
+			printf '$(COLOR_WARN)Unmanaged Go build artifact: %s$(COLOR_RESET)\n' "$$path" >&2; \
+			found=1; \
+		fi; \
+	done; \
+	if [ "$$found" -ne 0 ]; then \
+		printf '$(COLOR_WARN)Use `make build` or `make go-tools-build`; remove module-root binaries with `make go-tools-clean`.$(COLOR_RESET)\n' >&2; \
+		exit 1; \
+	fi
 
 package-smoke: ## Build, install, and smoke test the wheel outside the source checkout.
 	@$(call print_step,Smoke testing built Python package)
@@ -646,6 +666,9 @@ go-tools-smoke: go-tools-install ## Smoke test shared Go tools using only tempor
 go-tools-clean: ## Remove shared Go tool build outputs under go/bin.
 	@$(call print_step,Removing shared Go tool build outputs)
 	@rm -rf "$(GO_TOOLS_DIR)/bin" "$(GO_TOOLS_DIR)/.cache"
+	@for name in $(GO_MODULE_ROOT_BINARY_OUTPUTS); do \
+		rm -f "$(GO_TOOLS_DIR)/$$name"; \
+	done
 
 clean-cache: ## Remove checkout-local hook runtime artifacts.
 	@$(call print_step,Removing checkout-local hook runtime artifacts)
