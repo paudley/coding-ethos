@@ -1394,6 +1394,27 @@ func TestServerChecksCodeSimilarity(t *testing.T) {
 	}
 }
 
+func TestServerRejectsInvalidSimilarityThreshold(t *testing.T) {
+	t.Parallel()
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":38,
+		"method":"tools/call",
+		"params":{
+			"name":"code_similarity_check",
+			"arguments":{
+				"code":"def hello():\n    return 'hello'\n",
+				"language":"python",
+				"threshold":1.1
+			}
+		}
+	}`), mcp.Runtime{ConsumerRoot: t.TempDir()})
+	if !strings.Contains(output, "thresholds must be") {
+		t.Fatalf("missing invalid threshold error:\n%s", output)
+	}
+}
+
 func TestServerRejectsUnderspecifiedCodeContext(t *testing.T) {
 	t.Parallel()
 

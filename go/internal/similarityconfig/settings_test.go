@@ -94,6 +94,24 @@ func TestLoadFromRootRejectsInvalidSimilarityShape(t *testing.T) {
 	}
 }
 
+func TestLoadFromRootRejectsNegativeSimilarityShape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(`similarity:
+  minhash_size: -1
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err = similarityconfig.LoadFromRoot(root)
+	if err == nil {
+		t.Fatal("expected negative shape error")
+	}
+}
+
 func TestSettingsExposeMinHashConfigAndThresholdOverride(t *testing.T) {
 	t.Parallel()
 
@@ -118,13 +136,30 @@ func TestSettingsExposeMinHashConfigAndThresholdOverride(t *testing.T) {
 		t.Fatalf("minhash config = %#v", config)
 	}
 
-	overridden := settings.WithStructuralThreshold(0.9)
+	overridden, err := settings.WithStructuralThreshold(0.9)
+	if err != nil {
+		t.Fatalf("override structural threshold: %v", err)
+	}
+
 	if overridden.StructuralThreshold != 0.9 {
 		t.Fatalf("structural threshold = %f", overridden.StructuralThreshold)
 	}
 
-	preserved := settings.WithStructuralThreshold(0)
+	preserved, err := settings.WithStructuralThreshold(0)
+	if err != nil {
+		t.Fatalf("preserve structural threshold: %v", err)
+	}
+
 	if preserved.StructuralThreshold != settings.StructuralThreshold {
 		t.Fatalf("zero threshold should preserve settings: %#v", preserved)
+	}
+}
+
+func TestWithStructuralThresholdRejectsInvalidOverride(t *testing.T) {
+	t.Parallel()
+
+	_, err := similarityconfig.DefaultSettings().WithStructuralThreshold(1.1)
+	if err == nil {
+		t.Fatal("expected invalid threshold error")
 	}
 }

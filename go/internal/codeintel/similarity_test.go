@@ -5,6 +5,7 @@ package codeintel_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ func TestFindExactNormalizedMatches(t *testing.T) {
 		store.Database(),
 		"norm-shared",
 		"foo.go",
+		10,
 	)
 	if err != nil {
 		t.Fatalf("find exact normalized matches: %v", err)
@@ -157,8 +159,13 @@ func TestSimilarCodeFindsIndexedSnippetMatches(t *testing.T) {
 		t.Fatalf("index snippet: %v", err)
 	}
 
+	settings, err := similarityconfig.DefaultSettings().WithStructuralThreshold(0.5)
+	if err != nil {
+		t.Fatalf("override threshold: %v", err)
+	}
+
 	matches, err := store.SimilarCode(ctx, SimilarCodeQuery{
-		Settings: similarityconfig.DefaultSettings().WithStructuralThreshold(0.5),
+		Settings: settings,
 		Code:     code,
 		Language: "text",
 	})
@@ -174,6 +181,62 @@ func TestSimilarCodeFindsIndexedSnippetMatches(t *testing.T) {
 		matches[0].SourceSymbol != "snippet" ||
 		matches[0].Similarity < 0.99 {
 		t.Fatalf("unexpected top match: %#v", matches[0])
+	}
+}
+
+func TestFindExactNormalizedMatchesHonorsLimit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+
+	for index := range 12 {
+		path := fmt.Sprintf("match-%02d.go", index)
+
+		err := store.ReplaceCodeFileIndex(
+			ctx,
+			CodeFile{
+				Path:         path,
+				Language:     "go",
+				ContentHash:  fmt.Sprintf("file-%02d", index),
+				IndexedAtUTC: "2026-01-01T00:00:00Z",
+				SizeBytes:    100,
+				LineCount:    10,
+			},
+			[]CodeChunk{{
+				ID:             fmt.Sprintf("chunk-%02d", index),
+				Path:           path,
+				Language:       "go",
+				NodeKind:       "function_declaration",
+				SymbolKind:     "function",
+				SymbolName:     fmt.Sprintf("Match%02d", index),
+				SymbolPath:     fmt.Sprintf("Match%02d", index),
+				ContentHash:    fmt.Sprintf("hash-%02d", index),
+				NormalizedHash: "norm-shared",
+				StartLine:      1,
+				EndLine:        10,
+				SearchText:     "Match",
+			}},
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("index %s: %v", path, err)
+		}
+	}
+
+	matches, err := FindExactNormalizedMatches(
+		ctx,
+		store.Database(),
+		"norm-shared",
+		"source.go",
+		12,
+	)
+	if err != nil {
+		t.Fatalf("find exact matches: %v", err)
+	}
+
+	if len(matches) != 12 {
+		t.Fatalf("match count = %d, want 12", len(matches))
 	}
 }
 

@@ -305,7 +305,10 @@ func (server Server) codeSimilarityCheck(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("load similarity settings: %w", err)
 	}
 
-	settings = settings.WithStructuralThreshold(input.Threshold)
+	settings, err = settings.WithStructuralThreshold(input.Threshold)
+	if err != nil {
+		return nil, fmt.Errorf("validate similarity threshold: %w", err)
+	}
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {

@@ -132,6 +132,7 @@ func (store *Store) recordExactSimilarity(
 		store.database,
 		chunk.NormalizedHash,
 		chunk.Path,
+		limit,
 	)
 	if err != nil {
 		return err
@@ -180,15 +181,19 @@ func FindExactNormalizedMatches(
 	database *sql.DB,
 	normalizedHash string,
 	excludePath string,
+	limit int,
 ) ([]SimilarChunk, error) {
+	limit = defaultSimilarityLimit(limit, fallbackSimilarityLimit)
+
 	rows, err := database.QueryContext(
 		ctx,
 		`SELECT chunk_id, path, symbol_name, symbol_kind, start_line
 		FROM code_chunks
 		WHERE normalized_hash = ? AND path != ?
-		LIMIT 10`,
+		LIMIT ?`,
 		normalizedHash,
 		excludePath,
+		limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query normalized matches: %w", err)

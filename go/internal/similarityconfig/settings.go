@@ -56,12 +56,12 @@ type rawSettings struct {
 	ExactNormalized     *bool    `yaml:"exact_normalized"`
 	CandidateThreshold  *float64 `yaml:"candidate_threshold"`
 	StructuralThreshold *float64 `yaml:"structural_threshold"`
-	MinHashSize         int      `yaml:"minhash_size"`
-	ShingleSize         int      `yaml:"shingle_size"`
-	LSHBands            int      `yaml:"lsh_bands"`
-	LSHRows             int      `yaml:"lsh_rows"`
-	MinSymbolLines      int      `yaml:"min_symbol_lines"`
-	MaxMatches          int      `yaml:"max_matches"`
+	MinHashSize         *int     `yaml:"minhash_size"`
+	ShingleSize         *int     `yaml:"shingle_size"`
+	LSHBands            *int     `yaml:"lsh_bands"`
+	LSHRows             *int     `yaml:"lsh_rows"`
+	MinSymbolLines      *int     `yaml:"min_symbol_lines"`
+	MaxMatches          *int     `yaml:"max_matches"`
 }
 
 // DefaultSettings returns the repo-wide defaults for structural similarity.
@@ -156,12 +156,18 @@ func validThreshold(value float64) bool {
 }
 
 // WithStructuralThreshold returns a copy with a caller-supplied threshold.
-func (settings Settings) WithStructuralThreshold(threshold float64) Settings {
-	if threshold > 0 {
-		settings.StructuralThreshold = threshold
+func (settings Settings) WithStructuralThreshold(threshold float64) (Settings, error) {
+	if threshold == 0 {
+		return settings, nil
 	}
 
-	return settings
+	if !validThreshold(threshold) {
+		return Settings{}, errInvalidThreshold
+	}
+
+	settings.StructuralThreshold = threshold
+
+	return settings, nil
 }
 
 func (settings Settings) apply(raw rawSettings) Settings {
@@ -184,28 +190,28 @@ func (settings Settings) applyFlags(raw rawSettings) Settings {
 }
 
 func (settings Settings) applyShape(raw rawSettings) Settings {
-	if raw.MinHashSize > 0 {
-		settings.SignatureSize = raw.MinHashSize
+	if raw.MinHashSize != nil {
+		settings.SignatureSize = *raw.MinHashSize
 	}
 
-	if raw.ShingleSize > 0 {
-		settings.ShingleSize = raw.ShingleSize
+	if raw.ShingleSize != nil {
+		settings.ShingleSize = *raw.ShingleSize
 	}
 
-	if raw.LSHBands > 0 {
-		settings.LSHBands = raw.LSHBands
+	if raw.LSHBands != nil {
+		settings.LSHBands = *raw.LSHBands
 	}
 
-	if raw.LSHRows > 0 {
-		settings.LSHRows = raw.LSHRows
+	if raw.LSHRows != nil {
+		settings.LSHRows = *raw.LSHRows
 	}
 
-	if raw.MinSymbolLines > 0 {
-		settings.MinSymbolLines = raw.MinSymbolLines
+	if raw.MinSymbolLines != nil {
+		settings.MinSymbolLines = *raw.MinSymbolLines
 	}
 
-	if raw.MaxMatches > 0 {
-		settings.MaxMatches = raw.MaxMatches
+	if raw.MaxMatches != nil {
+		settings.MaxMatches = *raw.MaxMatches
 	}
 
 	return settings
