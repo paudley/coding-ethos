@@ -18,13 +18,10 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 	"blackcat.ca/coding-ethos/go/internal/minhash"
+	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
 
 const (
-	// lshJaccardThreshold is the minimum Jaccard similarity to consider a match.
-	lshJaccardThreshold = 0.7
-	// similarityReportThreshold is the minimum similarity for reporting.
-	similarityReportThreshold = 0.8
 	// similarityPercentScale converts a float64 similarity to a percentage.
 	similarityPercentScale = 100
 	// uint64ByteSize is the byte width of a uint64 value.
@@ -47,12 +44,18 @@ func celSimilarityFacts(
 		return nil
 	}
 
-	return loadSimilarityFactsFromDB(evalContext.Cwd, evalContext.Files)
+	settings, err := similarityconfig.LoadFromRoot(evalContext.Cwd)
+	if err != nil || !settings.Enabled {
+		return nil
+	}
+
+	return loadSimilarityFactsFromDB(evalContext.Cwd, evalContext.Files, settings)
 }
 
 func loadSimilarityFactsFromDB(
 	cwd string,
 	files []string,
+	settings similarityconfig.Settings,
 ) []celexpr.SimilarityFactInput {
 	if len(files) == 0 {
 		return nil
@@ -72,16 +75,16 @@ func loadSimilarityFactsFromDB(
 	defer database.Close()
 
 	ctx := context.Background()
-	config := minhash.DefaultConfig()
+	config := settings.MinHashConfig()
 
 	var facts []celexpr.SimilarityFactInput
 
 	for _, file := range files {
-		fileFacts := querySimilarityForFile(ctx, database, file, config)
+		fileFacts := querySimilarityForFile(ctx, database, file, config, settings)
 		facts = append(facts, fileFacts...)
 	}
 
-	return facts
+	return thresholdSimilarityFacts(facts, settings.StructuralThreshold)
 }
 
 type chunkRow struct {
@@ -98,6 +101,7 @@ func querySimilarityForFile(
 	database *sql.DB,
 	path string,
 	config minhash.Config,
+	settings similarityconfig.Settings,
 ) []celexpr.SimilarityFactInput {
 	rows, err := database.QueryContext(
 		ctx,
@@ -128,7 +132,7 @@ func querySimilarityForFile(
 		}
 
 		facts = appendChunkFacts(
-			ctx, facts, database, path, row, config,
+			ctx, facts, database, path, row, config, settings,
 		)
 	}
 
@@ -147,8 +151,10 @@ func appendChunkFacts(
 	path string,
 	row chunkRow,
 	config minhash.Config,
+	settings similarityconfig.Settings,
 ) []celexpr.SimilarityFactInput {
-	if row.normalizedHash.Valid && row.normalizedHash.String != "" {
+	if settings.ExactNormalized && row.normalizedHash.Valid &&
+		row.normalizedHash.String != "" {
 		exactFacts := queryExactMatches(
 			ctx, database, path, row.symbolName, row.symbolKind,
 			row.symbolPath, row.language, row.normalizedHash.String,
@@ -159,7 +165,7 @@ func appendChunkFacts(
 	if len(row.sigBlob) > 0 {
 		lshFacts := queryLSHMatches(
 			ctx, database, path, row.symbolName, row.symbolKind,
-			row.symbolPath, row.language, row.sigBlob, config,
+			row.symbolPath, row.language, row.sigBlob, config, settings,
 		)
 		facts = append(facts, lshFacts...)
 	}
@@ -241,6 +247,7 @@ func queryLSHMatches(
 	language string,
 	sigBlob []byte,
 	config minhash.Config,
+	settings similarityconfig.Settings,
 ) []celexpr.SimilarityFactInput {
 	querySig := minhash.Signature{Values: unpackSigBlob(sigBlob)}
 	if len(querySig.Values) == 0 {
@@ -260,7 +267,7 @@ func queryLSHMatches(
 
 	facts := collectLSHFacts(
 		rows, querySig, sourcePath, symbolName,
-		symbolKind, symbolPath, language,
+		symbolKind, symbolPath, language, settings.CandidateThreshold,
 	)
 
 	if rows.Err() != nil {
@@ -312,6 +319,7 @@ func collectLSHFacts(
 	symbolKind string,
 	symbolPath string,
 	language string,
+	threshold float64,
 ) []celexpr.SimilarityFactInput {
 	var facts []celexpr.SimilarityFactInput
 
@@ -343,7 +351,7 @@ func collectLSHFacts(
 			minhash.Signature{Values: candidateValues},
 		)
 
-		if similarity < lshJaccardThreshold {
+		if similarity < threshold {
 			continue
 		}
 
@@ -365,6 +373,24 @@ func collectLSHFacts(
 	return facts
 }
 
+func thresholdSimilarityFacts(
+	facts []celexpr.SimilarityFactInput,
+	threshold float64,
+) []celexpr.SimilarityFactInput {
+	if len(facts) == 0 {
+		return nil
+	}
+
+	filtered := make([]celexpr.SimilarityFactInput, 0, len(facts))
+	for _, fact := range facts {
+		if fact.ExactNormalized || fact.Similarity >= threshold {
+			filtered = append(filtered, fact)
+		}
+	}
+
+	return filtered
+}
+
 func applySimilarityDiagnostic(
 	diagnostic *diagnostics.Diagnostic,
 	activation map[string]any,
@@ -377,7 +403,7 @@ func applySimilarityDiagnostic(
 	var matched []celexpr.SimilarityFactInput
 
 	for _, fact := range facts {
-		if fact.Similarity >= similarityReportThreshold {
+		if fact.Similarity >= similarityconfig.DefaultSettings().StructuralThreshold {
 			matched = append(matched, fact)
 		}
 	}

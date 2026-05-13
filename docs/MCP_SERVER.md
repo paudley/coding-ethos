@@ -46,6 +46,9 @@ skill metadata used by those enforcement paths.
   with FTS plus sqlite-vec when a query vector is supplied.
 - `code_intel_index_status`: report code-intelligence store freshness,
   embedding metadata counts, and sqlite-vec row counts.
+- `code_similarity_check`: compare proposed code against indexed repository
+  symbols using normalized hashes and MinHash LSH before an agent writes a
+  duplicate implementation.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,

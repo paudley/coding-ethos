@@ -34,8 +34,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 20 {
-		t.Fatalf("tool count = %d, want 20: %#v", len(tools), tools)
+	if len(tools) != 21 {
+		t.Fatalf("tool count = %d, want 21: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -54,6 +54,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_search",
 		"code_intel_index_status",
 		"code_intel_hook_usage",
+		"code_similarity_check",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -1323,6 +1324,73 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 			"line code context output missing indexed symbol:\n%s",
 			lineContextOutput,
 		)
+	}
+}
+
+func TestServerChecksCodeSimilarity(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "existing.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(sourcePath, []byte(`def build_message(name):
+    prefix = "hello"
+    cleaned = name.strip()
+    output = f"{prefix} {cleaned}"
+    return output
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	runtime := mcp.Runtime{ConsumerRoot: root}
+
+	indexOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":36,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_index_code",
+			"arguments":{"paths":["pkg"]}
+		}
+	}`), runtime)
+	if !strings.Contains(indexOutput, `"files_indexed":1`) {
+		t.Fatalf("index output missing summary:\n%s", indexOutput)
+	}
+
+	arguments, err := json.Marshal(map[string]any{
+		"code": `def make_label(value):
+    text = "bye"
+    cleaned = value.strip()
+    output = f"{text} {cleaned}"
+    return output
+`,
+		"language":  "python",
+		"path":      "pkg/new.py",
+		"threshold": 0.7,
+	})
+	if err != nil {
+		t.Fatalf("encode arguments: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":37,
+		"method":"tools/call",
+		"params":{
+			"name":"code_similarity_check",
+			"arguments":%s
+		}
+	}`, arguments)), runtime)
+	if !strings.Contains(output, `"code_similarity_check"`) ||
+		!strings.Contains(output, `"build_message"`) ||
+		!strings.Contains(output, `"exact_normalized":true`) {
+		t.Fatalf("similarity output missing expected match:\n%s", output)
 	}
 }
 

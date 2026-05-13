@@ -551,9 +551,12 @@ retrieval:
 3. At policy evaluation time, `similarity_facts` queries:
    - Exact matches via `normalized_hash` equality (100% similarity).
    - LSH candidates via band hash collisions, refined with full Jaccard
-     estimation (≥0.7 threshold for candidates, ≥0.8 for policy activation).
+     estimation. The default config uses ≥0.7 for candidates and ≥0.8 for
+     policy activation.
 4. Results are exposed to CEL as `similarity_facts` and reported through SARIF
    `relatedLocations`.
+5. Agents can call MCP `code_similarity_check` with proposed code to inspect
+   matches before writing a duplicate implementation.
 
 ### Reconciliation
 
@@ -564,11 +567,25 @@ producing false-positive candidates.
 
 ### Configuration
 
-The MinHash configuration uses 128 hash functions, 16 bands, and 8 rows per
-band. This produces a candidate threshold of approximately 0.54 Jaccard
+The default `similarity` config uses 128 hash functions, 16 bands, and 8 rows
+per band. This produces a candidate threshold of approximately 0.54 Jaccard
 similarity (the S-curve inflection point), which means most pairs above ~54%
-similarity will share at least one band hash. The policy threshold of 0.8 then
-filters to high-confidence matches only.
+similarity will share at least one band hash. The runtime candidate threshold
+defaults to 0.7, and the structural threshold defaults to 0.8.
+
+```yaml
+similarity:
+  enabled: true
+  minhash_size: 128
+  shingle_size: 5
+  lsh_bands: 16
+  lsh_rows: 8
+  min_symbol_lines: 5
+  exact_normalized: true
+  candidate_threshold: 0.7
+  structural_threshold: 0.8
+  max_matches: 10
+```
 
 ## Risks and Mitigations
 

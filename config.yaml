@@ -101,6 +101,18 @@ hooks:
     - warning
     - warn
 
+similarity:
+  enabled: true
+  minhash_size: 128
+  shingle_size: 5
+  lsh_bands: 16
+  lsh_rows: 8
+  min_symbol_lines: 5
+  exact_normalized: true
+  candidate_threshold: 0.7
+  structural_threshold: 0.8
+  max_matches: 10
+
 generated_config:
   ci:
     github_actions:

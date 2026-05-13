@@ -5,10 +5,12 @@ package codeintel_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/minhash"
+	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
 
 func TestFindExactNormalizedMatches(t *testing.T) {
@@ -111,6 +113,90 @@ func TestFindLSHCandidatesAndRefine(t *testing.T) {
 
 	verifyLSHCandidatesFromA(t, ctx, store, sigA, bandsA)
 	verifyLSHCandidatesFromB(t, ctx, store, bandsB)
+}
+
+func TestSimilarCodeFindsIndexedSnippetMatches(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+
+	code := similarSnippetFixture()
+	config := minhash.DefaultConfig()
+	tokens := minhash.NormalizeTokens(code, "text")
+	signature := minhash.ComputeSignature(tokens, config)
+
+	err := store.ReplaceCodeFileIndex(
+		ctx,
+		CodeFile{
+			Path:         "existing.txt",
+			Language:     "text",
+			ContentHash:  "existing-content",
+			IndexedAtUTC: "2026-01-01T00:00:00Z",
+			SizeBytes:    len(code),
+			LineCount:    5,
+		},
+		[]CodeChunk{{
+			ID:             "existing-snippet",
+			Path:           "existing.txt",
+			Language:       "text",
+			NodeKind:       "snippet",
+			SymbolKind:     "snippet",
+			SymbolName:     "existingSnippet",
+			SymbolPath:     "existingSnippet",
+			ContentHash:    "existing-chunk",
+			NormalizedHash: minhash.NormalizedHash(tokens),
+			MinHashSig:     signature.Values,
+			StartLine:      1,
+			EndLine:        5,
+			SearchText:     code,
+		}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("index snippet: %v", err)
+	}
+
+	matches, err := store.SimilarCode(ctx, SimilarCodeQuery{
+		Settings: similarityconfig.DefaultSettings().WithStructuralThreshold(0.5),
+		Code:     code,
+		Language: "text",
+	})
+	if err != nil {
+		t.Fatalf("find similar code: %v", err)
+	}
+
+	if len(matches) == 0 {
+		t.Fatal("expected at least one similarity match")
+	}
+
+	if matches[0].Path != "existing.txt" ||
+		matches[0].SourceSymbol != "snippet" ||
+		matches[0].Similarity < 0.99 {
+		t.Fatalf("unexpected top match: %#v", matches[0])
+	}
+}
+
+func TestSimilarCodeHonorsDisabledSettings(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	settings := similarityconfig.DefaultSettings()
+	settings.Enabled = false
+
+	matches, err := store.SimilarCode(ctx, SimilarCodeQuery{
+		Settings: settings,
+		Code:     similarSnippetFixture(),
+		Language: "text",
+	})
+	if err != nil {
+		t.Fatalf("find similar code: %v", err)
+	}
+
+	if len(matches) != 0 {
+		t.Fatalf("disabled similarity returned matches: %#v", matches)
+	}
 }
 
 func indexLSHTestData(
@@ -268,4 +354,14 @@ func candidatesContainPath(candidates []SimilarChunk, path string) bool {
 	}
 
 	return false
+}
+
+func similarSnippetFixture() string {
+	return strings.Join([]string{
+		"alpha beta gamma delta epsilon",
+		"zeta eta theta iota kappa",
+		"lambda mu nu xi omicron",
+		"pi rho sigma tau upsilon",
+		"phi chi psi omega alpha",
+	}, "\n")
 }

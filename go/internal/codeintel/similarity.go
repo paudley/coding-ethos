@@ -8,22 +8,169 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/minhash"
+	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
 
-const uint64ByteSize = 8
+const (
+	fallbackSimilarityLimit = 10
+	uint64ByteSize          = 8
+)
 
 type SimilarChunk struct {
 	ChunkID         string `json:"chunk_id"`
 	Path            string `json:"path"`
+	SourcePath      string `json:"source_path,omitempty"`
+	SourceSymbol    string `json:"source_symbol,omitempty"`
+	SourceKind      string `json:"source_kind,omitempty"`
 	SymbolName      string `json:"symbol_name"`
 	SymbolKind      string `json:"symbol_kind"`
 	sigBlob         []byte
 	Similarity      float64 `json:"similarity"`
 	StartLine       int     `json:"start_line"`
 	ExactNormalized bool    `json:"exact_normalized"`
+}
+
+// SimilarCodeQuery describes an ad hoc code snippet similarity lookup.
+type SimilarCodeQuery struct {
+	Code     string
+	Path     string
+	Language string
+	Settings similarityconfig.Settings
+	Limit    int
+}
+
+// SimilarCode compares proposed code against indexed repository chunks.
+func (store *Store) SimilarCode(
+	ctx context.Context,
+	query SimilarCodeQuery,
+) ([]SimilarChunk, error) {
+	if strings.TrimSpace(query.Code) == "" {
+		return nil, nil
+	}
+
+	settings := query.Settings
+	if settings.SignatureSize == 0 {
+		settings = similarityconfig.DefaultSettings()
+	}
+
+	if !settings.Enabled {
+		return nil, nil
+	}
+
+	chunks, err := querySymbols(query, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := defaultSimilarityLimit(query.Limit, settings.MaxMatches)
+	matchesByKey := map[string]SimilarChunk{}
+
+	for _, chunk := range chunks {
+		err = store.recordChunkSimilarity(ctx, matchesByKey, chunk, settings, limit)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	matches := make([]SimilarChunk, 0, len(matchesByKey))
+	for _, match := range matchesByKey {
+		if match.ExactNormalized || match.Similarity >= settings.StructuralThreshold {
+			matches = append(matches, match)
+		}
+	}
+
+	slices.SortFunc(matches, compareSimilarChunks)
+
+	if len(matches) > limit {
+		matches = matches[:limit]
+	}
+
+	return matches, nil
+}
+
+func (store *Store) recordChunkSimilarity(
+	ctx context.Context,
+	matchesByKey map[string]SimilarChunk,
+	chunk astfacts.Symbol,
+	settings similarityconfig.Settings,
+	limit int,
+) error {
+	if chunk.LineCount < settings.MinSymbolLines {
+		return nil
+	}
+
+	err := store.recordExactSimilarity(ctx, matchesByKey, chunk, settings, limit)
+	if err != nil {
+		return err
+	}
+
+	return store.recordLSHSimilarity(ctx, matchesByKey, chunk, settings, limit)
+}
+
+func (store *Store) recordExactSimilarity(
+	ctx context.Context,
+	matchesByKey map[string]SimilarChunk,
+	chunk astfacts.Symbol,
+	settings similarityconfig.Settings,
+	limit int,
+) error {
+	if !settings.ExactNormalized || chunk.NormalizedHash == "" {
+		return nil
+	}
+
+	exact, err := FindExactNormalizedMatches(
+		ctx,
+		store.database,
+		chunk.NormalizedHash,
+		chunk.Path,
+	)
+	if err != nil {
+		return err
+	}
+
+	recordSimilarMatches(matchesByKey, chunk, exact, limit)
+
+	return nil
+}
+
+func (store *Store) recordLSHSimilarity(
+	ctx context.Context,
+	matchesByKey map[string]SimilarChunk,
+	chunk astfacts.Symbol,
+	settings similarityconfig.Settings,
+	limit int,
+) error {
+	if len(chunk.MinHashSig) == 0 {
+		return nil
+	}
+
+	sig := minhash.Signature{Values: chunk.MinHashSig}
+
+	candidates, err := FindLSHCandidates(
+		ctx,
+		store.database,
+		minhash.BandHashes(sig, settings.MinHashConfig()),
+		chunk.Path,
+	)
+	if err != nil {
+		return err
+	}
+
+	refined := RefineLSHCandidates(
+		sig,
+		candidates,
+		settings.CandidateThreshold,
+	)
+	recordSimilarMatches(matchesByKey, chunk, refined, limit)
+
+	return nil
 }
 
 func FindExactNormalizedMatches(
@@ -74,6 +221,135 @@ func FindExactNormalizedMatches(
 	}
 
 	return matches, nil
+}
+
+func querySymbols(
+	query SimilarCodeQuery,
+	settings similarityconfig.Settings,
+) ([]astfacts.Symbol, error) {
+	path := similarityPath(query)
+
+	file, analyzed, err := astfacts.Analyze(path, []byte(query.Code))
+	if err != nil {
+		return nil, fmt.Errorf("analyze similarity query code: %w", err)
+	}
+
+	if analyzed && len(file.Symbols) > 0 {
+		return file.Symbols, nil
+	}
+
+	language := strings.TrimSpace(query.Language)
+	if language == "" && analyzed {
+		language = file.Language
+	}
+
+	tokens := minhash.NormalizeTokens(query.Code, language)
+	sig := minhash.ComputeSignature(tokens, settings.MinHashConfig())
+
+	return []astfacts.Symbol{{
+		Path:           path,
+		Language:       language,
+		SymbolName:     "snippet",
+		SymbolKind:     "snippet",
+		SymbolPath:     "snippet",
+		RawText:        query.Code,
+		ContentHash:    astfacts.ContentHash([]byte(query.Code)),
+		NormalizedHash: minhash.NormalizedHash(tokens),
+		MinHashSig:     sig.Values,
+		StartLine:      1,
+		EndLine:        astfacts.LineCount([]byte(query.Code)),
+		LineCount:      astfacts.LineCount([]byte(query.Code)),
+	}}, nil
+}
+
+func similarityPath(query SimilarCodeQuery) string {
+	if strings.TrimSpace(query.Path) != "" {
+		return filepath.Clean(strings.TrimSpace(query.Path))
+	}
+
+	switch strings.ToLower(strings.TrimSpace(query.Language)) {
+	case astfacts.LanguageGo:
+		return "__query__.go"
+	case astfacts.LanguagePython:
+		return "__query__.py"
+	case astfacts.LanguageJavaScript:
+		return "__query__.js"
+	case astfacts.LanguageJSON:
+		return "__query__.json"
+	case astfacts.LanguageYAML:
+		return "__query__.yaml"
+	case astfacts.LanguageTOML:
+		return "__query__.toml"
+	case astfacts.LanguageMarkdown:
+		return "__query__.md"
+	default:
+		return "__query__.txt"
+	}
+}
+
+func recordSimilarMatches(
+	matchesByKey map[string]SimilarChunk,
+	source astfacts.Symbol,
+	matches []SimilarChunk,
+	limit int,
+) {
+	for _, match := range matches {
+		match.SourcePath = source.Path
+		match.SourceSymbol = source.SymbolName
+		match.SourceKind = source.SymbolKind
+
+		key := strings.Join(
+			[]string{
+				source.SymbolPath,
+				match.ChunkID,
+				strconv.FormatBool(match.ExactNormalized),
+			},
+			"\x00",
+		)
+
+		existing, found := matchesByKey[key]
+		if found && existing.Similarity >= match.Similarity {
+			continue
+		}
+
+		matchesByKey[key] = match
+
+		if len(matchesByKey) >= limit*4 {
+			return
+		}
+	}
+}
+
+func compareSimilarChunks(left, right SimilarChunk) int {
+	if left.ExactNormalized != right.ExactNormalized {
+		if left.ExactNormalized {
+			return -1
+		}
+
+		return 1
+	}
+
+	if left.Similarity > right.Similarity {
+		return -1
+	}
+
+	if left.Similarity < right.Similarity {
+		return 1
+	}
+
+	return strings.Compare(left.Path+left.SymbolName, right.Path+right.SymbolName)
+}
+
+func defaultSimilarityLimit(input, configured int) int {
+	if input > 0 {
+		return input
+	}
+
+	if configured > 0 {
+		return configured
+	}
+
+	return fallbackSimilarityLimit
 }
 
 func FindLSHCandidates(

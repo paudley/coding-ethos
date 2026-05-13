@@ -304,6 +304,8 @@ The first tools are intentionally narrow and auditable:
   with FTS and sqlite-vec vector search.
 - `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
   embedding coverage.
+- `code_similarity_check`: preflight proposed code against indexed repository
+  symbols using normalized hashes and MinHash LSH.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
@@ -810,7 +812,9 @@ Current supported fields include:
 - `similarity_facts`: MinHash LSH-based code similarity results for the current
   file set, including source/match paths, symbol metadata, Jaccard similarity
   score, and exact-normalized flag. Populated lazily from the code-intel store
-  only when the CEL expression references `similarity_facts`.
+  only when the CEL expression references `similarity_facts`. Runtime
+  thresholds and MinHash parameters come from `config.yaml`'s `similarity`
+  section.
 
 CEL is intentionally pure. Expressions cannot read files, run shell or Git,
 inspect environment variables, access the network, or depend on wall-clock
