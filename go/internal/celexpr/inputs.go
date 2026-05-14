@@ -1202,7 +1202,7 @@ func gitCommandInput(argv, protectedBranches []string) GitCommandInput {
 			args,
 		),
 		HasCleanForceDelete: gitCleanForceDelete(flags),
-		HasCommitAmend: normalized[subcommandIndex] == "commit" &&
+		HasCommitAmend: normalized[subcommandIndex] == gitCommitSubcommand &&
 			listContains(flags, "--amend"),
 		HasForcePush: normalized[subcommandIndex] == gitPushSubcommand &&
 			gitHasForcePush(flags),

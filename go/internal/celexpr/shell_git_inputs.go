@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	gitCommitSubcommand    = "commit"
 	gitCheckoutSubcommand  = "checkout"
 	gitPushSubcommand      = "push"
 	wrappedToolMinimumArgs = 2

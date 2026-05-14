@@ -26,10 +26,11 @@ import (
 )
 
 const (
-	parentDefaultLintScope = "full"
-	parentStepFail         = "fail"
-	parentStepPass         = "pass"
-	parentWorkingTreeState = "working_tree"
+	parentDefaultLintScope  = "full"
+	parentExecutableDirMode = 0o755
+	parentStepFail          = "fail"
+	parentStepPass          = "pass"
+	parentWorkingTreeState  = "working_tree"
 )
 
 var (
@@ -37,21 +38,6 @@ var (
 	errParentGoToolsStale    = errors.New("parent Go tools are stale")
 	errParentPathIsDirectory = errors.New("path is a directory, want file")
 )
-
-var parentGoToolCommands = []string{
-	"coding-ethos-agent-hooks",
-	"coding-ethos-code-intel",
-	"coding-ethos-policy",
-	"coding-ethos-lint",
-	"coding-ethos-hook",
-	"coding-ethos-hook-log",
-	"coding-ethos-mcp",
-	"coding-ethos-toolchain",
-	"coding-ethos-git-hook",
-	"coding-ethos-git",
-	"coding-ethos-hook-runner",
-	"coding-ethos-run",
-}
 
 type parentWorkflowOptions struct {
 	Repo       string
@@ -259,16 +245,19 @@ func checkParentArtifacts(
 }
 
 func rebuildParentGoTools(paths runtimePaths) error {
-	if err := requireParentGoToolsSource(paths); err != nil {
+	err := requireParentGoToolsSource(paths)
+	if err != nil {
 		return err
 	}
 
-	if err := os.MkdirAll(paths.BinDir, 0o755); err != nil {
+	err = os.MkdirAll(paths.BinDir, parentExecutableDirMode)
+	if err != nil {
 		return fmt.Errorf("create Go tool bin dir: %w", err)
 	}
 
-	for _, tool := range parentGoToolCommands {
-		if err := buildParentGoTool(paths, tool); err != nil {
+	for _, tool := range parentGoToolCommands() {
+		err = buildParentGoTool(paths, tool)
+		if err != nil {
 			return err
 		}
 	}
@@ -303,7 +292,8 @@ func buildParentGoTool(paths runtimePaths, tool string) error {
 }
 
 func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error {
-	if err := requireParentGoToolsSource(paths); err != nil {
+	err := requireParentGoToolsSource(paths)
+	if err != nil {
 		return err
 	}
 
@@ -313,8 +303,10 @@ func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error
 	}
 
 	stale := []string{}
-	for _, tool := range parentGoToolCommands {
+
+	for _, tool := range parentGoToolCommands() {
 		toolPath := filepath.Join(paths.BinDir, tool)
+
 		info, err := os.Stat(toolPath)
 		if err != nil {
 			stale = append(stale, tool+"(missing)")
@@ -352,10 +344,31 @@ func requireParentGoToolsSource(paths runtimePaths) error {
 	}
 
 	if !info.IsDir() {
-		return fmt.Errorf("Go tools source %s: %w", paths.ToolsSource, errParentPathIsDirectory)
+		return fmt.Errorf(
+			"go tools source %s: %w",
+			paths.ToolsSource,
+			errParentPathIsDirectory,
+		)
 	}
 
 	return nil
+}
+
+func parentGoToolCommands() []string {
+	return []string{
+		"coding-ethos-agent-hooks",
+		"coding-ethos-code-intel",
+		"coding-ethos-policy",
+		"coding-ethos-lint",
+		"coding-ethos-hook",
+		"coding-ethos-hook-log",
+		"coding-ethos-mcp",
+		"coding-ethos-toolchain",
+		"coding-ethos-git-hook",
+		"coding-ethos-git",
+		"coding-ethos-hook-runner",
+		"coding-ethos-run",
+	}
 }
 
 func latestParentGoToolSourceModTime(root string) (time.Time, error) {
@@ -380,7 +393,7 @@ func latestParentGoToolSourceModTime(root string) (time.Time, error) {
 
 		info, err := entry.Info()
 		if err != nil {
-			return err
+			return fmt.Errorf("stat Go source %s: %w", path, err)
 		}
 
 		if info.ModTime().After(latest) {

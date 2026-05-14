@@ -1588,8 +1588,10 @@ func parentGoToolsSourceFixture(t *testing.T, ethosRoot string) string {
 
 	sourceRoot := filepath.Join(ethosRoot, "go")
 	oldTime := time.Now().Add(-3 * time.Hour)
-	for _, tool := range parentGoToolCommands {
+
+	for _, tool := range parentGoToolCommands() {
 		mainPath := filepath.Join(sourceRoot, "cmd", tool, "main.go")
+
 		err := os.MkdirAll(filepath.Dir(mainPath), 0o755)
 		if err != nil {
 			t.Fatalf("create source dir: %v", err)
@@ -1620,6 +1622,7 @@ func writeParentGoSource(
 	t.Helper()
 
 	path := filepath.Join(sourceRoot, relative)
+
 	err := os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		t.Fatalf("create source parent: %v", err)
@@ -1639,7 +1642,7 @@ func writeParentGoSource(
 func touchParentGoTools(t *testing.T, paths runtimePaths, modTime time.Time) {
 	t.Helper()
 
-	for _, tool := range parentGoToolCommands {
+	for _, tool := range parentGoToolCommands() {
 		toolPath := filepath.Join(paths.BinDir, tool)
 		writeExecutableFixture(t, toolPath, "#!/usr/bin/env sh\nexit 0\n")
 

@@ -673,21 +673,21 @@ func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
 		},
 	}
 
-	for name, tc := range tests {
+	for name, testCase := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			activation := Activation(ActivationInput{Argv: tc.argv})
+			activation := Activation(ActivationInput{Argv: testCase.argv})
 
 			gitCommand, found := activation["git_command"].(GitCommandInput)
 			if !found {
 				t.Fatalf("git command input = %#v", activation["git_command"])
 			}
 
-			if gitCommand.HasCommitAmend != tc.wantCommitAmend ||
-				gitCommand.HasForcePush != tc.wantForcePush ||
-				gitCommand.HasBranchRewriteReset != tc.wantBranchRewriteReset ||
-				gitCommand.HasForcedBranchMove != tc.wantForcedBranchMove {
+			if gitCommand.HasCommitAmend != testCase.wantCommitAmend ||
+				gitCommand.HasForcePush != testCase.wantForcePush ||
+				gitCommand.HasBranchRewriteReset != testCase.wantBranchRewriteReset ||
+				gitCommand.HasForcedBranchMove != testCase.wantForcedBranchMove {
 				t.Fatalf("git command input = %#v", gitCommand)
 			}
 		})
