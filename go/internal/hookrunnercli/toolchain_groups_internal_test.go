@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,6 +40,47 @@ func TestParseGofmtCheckFindings(t *testing.T) {
 		got.Severity != testSeverityError ||
 		got.Message != "Go file is not gofmt-formatted." {
 		t.Fatalf("unexpected finding: %#v", got)
+	}
+}
+
+func TestKubeLinterFiltersNonKubernetesYAML(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "deploy/pod.yaml"),
+		"apiVersion: v1\nkind: Pod\nmetadata:\n  name: app\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, ".github/workflows/ci.yml"),
+		"name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "config.yaml"),
+		"tooling:\n  enabled: true\n",
+	)
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "deploy/multi.yaml"),
+		"tooling:\n  enabled: true\n---\napiVersion: apps/v1\nkind: Deployment\n",
+	)
+
+	pod := filepath.Join(tempDir, "deploy/pod.yaml")
+	multi := filepath.Join(tempDir, "deploy/multi.yaml")
+	got := kubernetesManifestFiles([]string{
+		filepath.Join(tempDir, ".github/workflows/ci.yml"),
+		filepath.Join(tempDir, "config.yaml"),
+		pod,
+		multi,
+	})
+	want := []string{pod, multi}
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("kubernetesManifestFiles() = %#v, want %#v", got, want)
 	}
 }
 

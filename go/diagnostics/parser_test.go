@@ -313,6 +313,87 @@ func TestParseKubeLinterDiagnostic(t *testing.T) {
 	})
 }
 
+func TestParseKubeLinterWarningDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"kube-linter",
+		kubeLinterPayloadWithSeverity("warning"),
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "kube-linter",
+		File:     "deploy/pod.yaml",
+		Severity: "warning",
+		Code:     "privileged-container",
+		Message:  `container "app" is privileged`,
+		Advice:   "Do not run your container as privileged unless it is required.",
+		Metadata: map[string]any{
+			"kind":      "Pod",
+			"name":      "unsafe-pod",
+			"namespace": "default",
+			"version":   "v1",
+		},
+	})
+}
+
+func TestParseKubeLinterEmptyAndMalformedOutput(t *testing.T) {
+	t.Parallel()
+
+	for _, output := range []string{
+		`{"Reports":[]}`,
+		`not json`,
+	} {
+		if parsed := diagnostics.Parse("kube-linter", output, ""); len(parsed) != 0 {
+			t.Fatalf("Parse(kube-linter, %q) = %#v, want no diagnostics", output, parsed)
+		}
+	}
+}
+
+func TestParseKubeLinterMultipleReports(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"kube-linter",
+		`{"Reports":[`+
+			kubeLinterReportPayload("latest-tag", "error")+
+			`,`+
+			kubeLinterReportPayload("run-as-non-root", "warning")+
+			`]}`,
+		"",
+	)
+
+	assertDiagnosticAt(t, parsed, 0, diagnostics.Diagnostic{
+		Tool:     "kube-linter",
+		File:     "deploy/pod.yaml",
+		Severity: "error",
+		Code:     "latest-tag",
+		Message:  `container "app" is privileged`,
+		Advice:   "Do not run your container as privileged unless it is required.",
+		Metadata: map[string]any{
+			"kind":      "Pod",
+			"name":      "unsafe-pod",
+			"namespace": "default",
+			"version":   "v1",
+		},
+	})
+	assertDiagnosticAt(t, parsed, 1, diagnostics.Diagnostic{
+		Tool:     "kube-linter",
+		File:     "deploy/pod.yaml",
+		Severity: "warning",
+		Code:     "run-as-non-root",
+		Message:  `container "app" is privileged`,
+		Advice:   "Do not run your container as privileged unless it is required.",
+		Metadata: map[string]any{
+			"kind":      "Pod",
+			"name":      "unsafe-pod",
+			"namespace": "default",
+			"version":   "v1",
+		},
+	})
+}
+
 func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 	t.Parallel()
 
@@ -1536,10 +1617,28 @@ const goTestFixture = `{"Action":"run","Package":"blackcat.ca/coding-ethos/` +
 	`"Elapsed":0.187}`
 
 func kubeLinterPayload() string {
-	return `{"Reports":[{"Diagnostic":{"Message":"container \"app\" is privileged"},` +
-		`"Check":"privileged-container",` +
+	return `{"Reports":[` +
+		kubeLinterReportPayload("privileged-container", "") +
+		`]}`
+}
+
+func kubeLinterPayloadWithSeverity(severity string) string {
+	return `{"Reports":[` +
+		kubeLinterReportPayload("privileged-container", severity) +
+		`]}`
+}
+
+func kubeLinterReportPayload(check, severity string) string {
+	severityField := ""
+	if severity != "" {
+		severityField = `"Severity":"` + severity + `",`
+	}
+
+	return `{"Diagnostic":{` + severityField +
+		`"Message":"container \"app\" is privileged"},` +
+		strings.ReplaceAll(`"Check":"CHECK",`, "CHECK", check) +
 		`"Remediation":"Do not run your container as privileged unless it is required.",` +
 		`"Object":{"Metadata":{"FilePath":"deploy/pod.yaml"},` +
 		`"K8sObject":{"Namespace":"default","Name":"unsafe-pod",` +
-		`"GroupVersionKind":{"Group":"","Version":"v1","Kind":"Pod"}}}}]}`
+		`"GroupVersionKind":{"Group":"","Version":"v1","Kind":"Pod"}}}}`
 }

@@ -107,7 +107,8 @@ type kubeLinterReport struct {
 
 //nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
 type kubeLinterDiagnostic struct {
-	Message string `json:"Message"`
+	Severity string `json:"Severity"`
+	Message  string `json:"Message"`
 }
 
 //nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
@@ -138,7 +139,7 @@ type kubeLinterGroupVersionKind struct {
 func parseKubeLinter(output string) []Diagnostic {
 	var payload kubeLinterPayload
 
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	err := json.NewDecoder(strings.NewReader(strings.TrimSpace(output))).Decode(&payload)
 	if err != nil {
 		return nil
 	}
@@ -155,7 +156,7 @@ func parseKubeLinter(output string) []Diagnostic {
 		diagnostics = append(diagnostics, Diagnostic{
 			Tool:     "kube-linter",
 			File:     strings.TrimSpace(report.Object.Metadata.FilePath),
-			Severity: severityError,
+			Severity: kubeLinterSeverity(report.Diagnostic.Severity),
 			Code:     code,
 			Message:  message,
 			Advice:   strings.TrimSpace(report.Remediation),
@@ -164,6 +165,17 @@ func parseKubeLinter(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+func kubeLinterSeverity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "warning", "warn":
+		return severityWarning
+	case severityNotice, "info", "note":
+		return severityNotice
+	default:
+		return severityError
+	}
 }
 
 func kubeLinterMetadataMap(object kubeLinterK8sObject) map[string]any {

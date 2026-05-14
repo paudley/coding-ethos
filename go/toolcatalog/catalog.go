@@ -1004,7 +1004,7 @@ func kubeLinterTool() Tool {
 			".yaml",
 			".yml",
 		},
-		Languages:        []string{"kubernetes", "yaml"},
+		Languages:        []string{"kubernetes"},
 		PassFilesAsArgs:  true,
 		Fast:             false,
 		EnabledByDefault: false,

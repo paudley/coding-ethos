@@ -994,9 +994,10 @@ TypeScript project boundary with `--noEmit --pretty false --project
 <repo>/tsconfig.json`, because TypeScript compiler diagnostics are
 project-level facts rather than safe per-file checks.
 kube-linter is registered as the `kubernetes` hook group and as a managed
-capture tool. It runs against explicit YAML manifest paths with
-`lint --format json`; the hook group is opt-in so ordinary YAML files are not
-treated as Kubernetes manifests unless the caller selects that workflow.
+capture tool. It first filters YAML candidates to documents that parse with
+top-level Kubernetes `apiVersion` and `kind` fields, then runs those manifest
+paths with `lint --format json`; the hook group is opt-in so generic YAML files
+are not passed to kube-linter by extension alone.
 
 Current managed lint and analyzer integrations:
 
