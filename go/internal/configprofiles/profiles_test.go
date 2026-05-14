@@ -93,6 +93,43 @@ func TestExplicitRepoConfigOverridesProfileDefaults(t *testing.T) {
 	assertConfigPath(t, merged, "python.pytest_gate.enabled", true)
 }
 
+func TestRepoConfigCanDisableProtectedBranchWork(t *testing.T) {
+	t.Parallel()
+
+	merged := configprofiles.Apply(
+		configdata.Map{},
+		configdata.Map{
+			"repo": map[string]any{
+				"protected_branch_work": map[string]any{"enabled": false},
+			},
+		},
+		t.TempDir(),
+	)
+
+	assertConfigPath(t, merged, "git.checkout_protected_branch.enabled", false)
+	assertConfigPath(t, merged, "filesystem.protected_branch_write.enabled", false)
+}
+
+func TestExplicitPolicyConfigCanRestoreProtectedBranchWorkPolicy(t *testing.T) {
+	t.Parallel()
+
+	merged := configprofiles.Apply(
+		configdata.Map{},
+		configdata.Map{
+			"repo": map[string]any{
+				"protected_branch_work": map[string]any{"enabled": false},
+			},
+			"filesystem": map[string]any{
+				"protected_branch_write": map[string]any{"enabled": true},
+			},
+		},
+		t.TempDir(),
+	)
+
+	assertConfigPath(t, merged, "git.checkout_protected_branch.enabled", false)
+	assertConfigPath(t, merged, "filesystem.protected_branch_write.enabled", true)
+}
+
 func assertConfigPath(t *testing.T, config configdata.Map, path string, want any) {
 	t.Helper()
 

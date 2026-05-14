@@ -87,6 +87,19 @@ The ledger is local-first and repository scoped. It must not index `.git`,
 credential directories, protected enforcement internals, or configured secret
 exclusion paths.
 
+## Tool Output Compression
+
+Proxy-side tool output compression lives in `go/internal/agentproxy` as a pure
+content transform. The default transform preserves the beginning and ending of
+long tool output, inserts an explicit omission marker, and records token/hash
+evidence through the normal transform record path. This keeps command identity,
+early setup failures, and terminal stack-trace exceptions visible while removing
+repetitive progress output and dependency-frame noise.
+
+Compression must remain traceable. A compressed payload should carry metadata
+that records the omitted line count, and the corresponding proxy event should
+store the transform record in code-intel. Silent truncation is not allowed.
+
 ## CEL And SARIF Contract
 
 Proxy facts exposed to CEL use the `proxy` input object. CEL may inspect the

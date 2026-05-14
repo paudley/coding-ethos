@@ -765,6 +765,12 @@ inherit this repo's license policy. To opt in, set
 verifies the repo `LICENSE` file without overwriting it, and requires matching
 SPDX source headers.
 
+Consumer repos that intentionally allow direct work on protected branches can
+set `repo.protected_branch_work.enabled: false` in `repo_config.yaml`. That
+repo-level switch disables branch-switch blocking and protected-branch
+file-write blocking together while leaving force-push protection enabled unless
+the repo explicitly disables `git.force_push_protected_branch`.
+
 See [repo_config.example.yaml](repo_config.example.yaml).
 
 ### CEL Expression Policies
@@ -1228,7 +1234,7 @@ The CLI stays thin. Behavior belongs in focused modules:
 | `go/internal/managedcapture/` | managed linter/test execution capture |
 | `go/diagnostics/` | parser normalization for lint, formatter, type-check, and test output |
 | `go/internal/codeintel/` | repo-local trace, SARIF, AST, vector, and remediation storage |
-| `go/internal/agentproxy/` | provider-neutral agent event envelope and transform foundations |
+| `go/internal/agentproxy/` | provider-neutral agent event envelope and token-saving transform foundations |
 | `go/cmd/` | thin process entrypoints for compiled policy, hook, lint, MCP, code-intel, and wrapper tools |
 
 When flags, output layout, merge behavior, overlay semantics, or enforcement
