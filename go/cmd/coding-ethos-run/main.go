@@ -25,6 +25,7 @@ type runtimePaths struct {
 	RealGit          string
 	InvocationCWD    string
 	LocalRoot        string
+	GitCommonDir     string
 	Root             string
 	HooksDir         string
 	BinDir           string
@@ -127,6 +128,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 
 	root, localRoot := resolveRuntimeRoot(realGit, invocationCWD)
 	hooksDir := resolveRuntimeHooksDir(realGit, root)
+	gitCommonDir := resolveRuntimeGitCommonDir(realGit, root, hooksDir)
 
 	runBinary, err := os.Executable()
 	if err != nil {
@@ -148,6 +150,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 			RealGit:       realGit,
 			InvocationCWD: invocationCWD,
 			LocalRoot:     localRoot,
+			GitCommonDir:  gitCommonDir,
 			Root:          root,
 			HooksDir:      hooksDir,
 			BinDir:        binDir,
@@ -163,6 +166,7 @@ type runtimePathInputs struct {
 	RealGit       string
 	InvocationCWD string
 	LocalRoot     string
+	GitCommonDir  string
 	Root          string
 	HooksDir      string
 	BinDir        string
@@ -182,17 +186,7 @@ func resolveRuntimeRoot(realGit, invocationCWD string) (string, string) {
 
 	resolvedRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
 	if err == nil {
-		localRoot = resolvedRoot
-		superRoot, superErr := gitOutput(
-			realGit,
-			resolvedRoot,
-			"rev-parse",
-			"--show-superproject-working-tree",
-		)
-
-		if superErr == nil && strings.TrimSpace(superRoot) != "" {
-			return superRoot, localRoot
-		}
+		return resolvedRoot, resolvedRoot
 	}
 
 	return localRoot, localRoot
@@ -214,11 +208,32 @@ func resolveRuntimeHooksDir(realGit, root string) string {
 	return filepath.Join(root, ".git", "hooks")
 }
 
+func resolveRuntimeGitCommonDir(realGit, root, hooksDir string) string {
+	gitCommonDir, err := gitOutput(
+		realGit,
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	if err == nil && strings.TrimSpace(gitCommonDir) != "" {
+		return gitCommonDir
+	}
+
+	return filepath.Dir(hooksDir)
+}
+
 func runtimePathSet(inputs runtimePathInputs) runtimePaths {
+	gitCommonDir := inputs.GitCommonDir
+	if strings.TrimSpace(gitCommonDir) == "" {
+		gitCommonDir = filepath.Dir(inputs.HooksDir)
+	}
+
 	return runtimePaths{
 		RealGit:       inputs.RealGit,
 		InvocationCWD: inputs.InvocationCWD,
 		LocalRoot:     inputs.LocalRoot,
+		GitCommonDir:  gitCommonDir,
 		Root:          inputs.Root,
 		HooksDir:      inputs.HooksDir,
 		BinDir:        inputs.BinDir,

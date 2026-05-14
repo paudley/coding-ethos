@@ -63,6 +63,7 @@ def _prepare_consumer_repo(tmp_path: Path) -> Path:
     (consumer / ".gitignore").write_text(".coding-ethos/\n", encoding="utf-8")
     _run(["git", "add", ".gitignore"], cwd=consumer)
     _sync_consumer_tool_configs(consumer)
+    _sync_consumer_policy_bundle(consumer)
     return consumer
 
 
@@ -92,6 +93,25 @@ def _sync_consumer_tool_configs(consumer: Path) -> None:
             str(REPO_ROOT),
             "--repo",
             str(consumer),
+        ],
+        cwd=REPO_ROOT,
+        timeout=120,
+    )
+
+
+def _sync_consumer_policy_bundle(consumer: Path) -> None:
+    _run(
+        [
+            str(POLICY),
+            "compile",
+            "--primary",
+            str(REPO_ROOT / "coding_ethos.yml"),
+            "--repo-ethos",
+            str(REPO_ROOT / "repo_ethos.yml"),
+            "--config",
+            str(REPO_ROOT / "config.yaml"),
+            "--out-dir",
+            str(consumer / ".git" / "coding-ethos-hooks" / "policy"),
         ],
         cwd=REPO_ROOT,
         timeout=120,

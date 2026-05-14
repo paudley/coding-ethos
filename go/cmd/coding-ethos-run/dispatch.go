@@ -125,13 +125,14 @@ func runMCPHandler(paths runtimePaths, rest []string) error {
 }
 
 func runAgentHook(paths runtimePaths, rest []string) {
-	requirePolicyBundle(paths)
+	bundlePath := hookPolicyBundlePath(paths)
+	requireRuntimeFile(bundlePath, "compiled policy bundle")
 	installGitWrapperShim(paths)
 	installLintToolShims(paths)
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
 	paths.executor().execAgentHook(
-		append([]string{"--bundle", paths.PolicyBundle, "--json"}, rest...)...)
+		append([]string{"--bundle", bundlePath, "--json"}, rest...)...)
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
@@ -156,9 +157,10 @@ func runPolicyTool(paths runtimePaths, rest []string) error {
 }
 
 func runMCP(paths runtimePaths, rest []string) {
-	requirePolicyBundle(paths)
+	bundlePath := hookPolicyBundlePath(paths)
+	requireRuntimeFile(bundlePath, "compiled policy bundle")
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
-		"--bundle", paths.PolicyBundle,
+		"--bundle", bundlePath,
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,

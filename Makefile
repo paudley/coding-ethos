@@ -63,6 +63,7 @@ fi
 endef
 
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
+PARENT_REPO_CONFIG := $(shell if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then printf '%s' "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"; elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then printf '%s' "$(HOOK_CONSUMER_ROOT)/repo_config.yml"; fi)
 GIT_COMMON_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || printf '%s/.git' "$(HOOK_CONSUMER_ROOT)")
 HOOKS_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || printf '%s/.git/hooks' "$(HOOK_CONSUMER_ROOT)")
 PARENT_HOOK_RUNTIME_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
@@ -553,7 +554,12 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
 	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
 	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
-	@cp "$(POLICY_DIR)/policy-bundle.json" "$(PARENT_POLICY_DIR)/policy-bundle.json"
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" compile \
+		--primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" \
+		--repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" \
+		--config "$(LOCAL_REPO_ROOT)/config.yaml" \
+		$(if $(PARENT_REPO_CONFIG),--repo-config "$(PARENT_REPO_CONFIG)",) \
+		--out-dir "$(PARENT_POLICY_DIR)"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-shim \
 		--dest-dir "$(PARENT_HOOK_BIN_DIR)" \
 		--real-git "$(GIT)" \
