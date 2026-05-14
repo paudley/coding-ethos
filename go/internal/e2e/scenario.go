@@ -244,6 +244,47 @@ func (repo Repo) CodingEthosRunWithInput(
 	return result
 }
 
+// SyncHookPolicyBundle installs the consumer-scoped policy bundle used by
+// hook-facing runtime commands.
+func (repo Repo) SyncHookPolicyBundle(t *testing.T) {
+	t.Helper()
+
+	compile := repo.CodingEthosRun(
+		t,
+		"policy",
+		"compile",
+		"--primary",
+		filepath.Join(repo.EthosRoot, "coding_ethos.yml"),
+		"--repo-ethos",
+		filepath.Join(repo.EthosRoot, "repo_ethos.yml"),
+		"--config",
+		filepath.Join(repo.EthosRoot, "config.yaml"),
+		"--out-dir",
+		repo.HookPolicyDir(t),
+	)
+	compile.RequireExit(t, 0)
+}
+
+// HookPolicyDir returns the installed policy directory for this repo's Git
+// common directory.
+func (repo Repo) HookPolicyDir(t *testing.T) string {
+	t.Helper()
+
+	gitCommon := repo.Git(
+		t,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	gitCommon.RequireExit(t, 0)
+
+	return filepath.Join(
+		strings.TrimSpace(gitCommon.Stdout),
+		"coding-ethos-hooks",
+		"policy",
+	)
+}
+
 // Run executes a real command with a bounded timeout.
 func Run(t *testing.T, cwd string, args ...string) CommandResult {
 	t.Helper()

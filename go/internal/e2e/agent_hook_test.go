@@ -135,6 +135,7 @@ func preparedAgentHookRepo(t *testing.T) e2e.Repo {
 	runtimeRoot := e2e.InstrumentedEthosRoot(t, sourceRoot)
 	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	repo.EthosRoot = runtimeRoot
+	repo.SyncHookPolicyBundle(t)
 	repo.Git(t, "checkout", "-b", "e2e-agent-hooks")
 
 	return repo

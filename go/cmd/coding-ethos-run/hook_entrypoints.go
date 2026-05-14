@@ -34,16 +34,18 @@ func runGitHook(paths runtimePaths, args []string) error {
 		return apperror.StaticError("git-hook requires a hook name")
 	}
 
-	requirePolicyBundle(paths)
+	bundlePath := hookPolicyBundlePath(paths)
+	requireRuntimeFile(bundlePath, "compiled policy bundle")
 
 	if args[0] == "validate" {
-		requireRuntimeFile(paths.PolicyMetadata, "compiled policy metadata")
+		metadataPath := hookPolicyMetadataPath(paths)
+		requireRuntimeFile(metadataPath, "compiled policy metadata")
 		runtimeRunTool(
 			paths,
 			"coding-ethos-policy",
 			"validate-metadata",
 			"--metadata",
-			paths.PolicyMetadata,
+			metadataPath,
 		)
 	}
 
@@ -60,7 +62,7 @@ func runGitHook(paths runtimePaths, args []string) error {
 	requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
 	installLintToolShims(paths)
 	runtimeExecTool(paths, "coding-ethos-git-hook", append([]string{
-		"--bundle", paths.PolicyBundle,
+		"--bundle", bundlePath,
 		"--runner", paths.GitHookRunner,
 		"--cwd", paths.Root,
 	}, args...)...)

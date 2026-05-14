@@ -94,7 +94,6 @@ func runParentLint(paths runtimePaths, rest []string) error {
 		return err
 	}
 
-	requirePolicyBundle(paths)
 	installGitWrapperShim(paths)
 	installLintToolShims(paths)
 
@@ -276,11 +275,17 @@ func syncParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) e
 		return err
 	}
 
-	return writePolicyBundleArtifacts(filepath.Dir(paths.PolicyBundle), bundle, metadata)
+	return writePolicyBundleArtifacts(
+		parentPolicyBundleDir(paths, options),
+		bundle,
+		metadata,
+	)
 }
 
 func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) error {
-	existing, generatedAt, err := existingPolicyBundle(paths.PolicyBundle)
+	existing, generatedAt, err := existingPolicyBundle(
+		parentPolicyBundlePath(paths, options),
+	)
 	if err != nil {
 		return err
 	}
@@ -290,7 +295,9 @@ func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) 
 		return err
 	}
 
-	existingMetadata, err := existingPolicyMetadata(paths.PolicyMetadata)
+	existingMetadata, err := existingPolicyMetadata(
+		parentPolicyMetadataPath(paths, options),
+	)
 	if err != nil {
 		return err
 	}
@@ -305,6 +312,40 @@ func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) 
 	}
 
 	return nil
+}
+
+func parentPolicyBundlePath(paths runtimePaths, options parentWorkflowOptions) string {
+	return filepath.Join(parentPolicyBundleDir(paths, options), "policy-bundle.json")
+}
+
+func parentPolicyMetadataPath(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+) string {
+	return filepath.Join(parentPolicyBundleDir(paths, options), "policy-metadata.json")
+}
+
+func parentPolicyBundleDir(paths runtimePaths, options parentWorkflowOptions) string {
+	return filepath.Join(
+		parentGitCommonDir(paths, options.Repo),
+		"coding-ethos-hooks",
+		"policy",
+	)
+}
+
+func parentGitCommonDir(paths runtimePaths, repo string) string {
+	gitCommonDir, err := gitOutput(
+		paths.RealGit,
+		repo,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	if err == nil && strings.TrimSpace(gitCommonDir) != "" {
+		return gitCommonDir
+	}
+
+	return filepath.Join(repo, ".git")
 }
 
 func compileParentPolicyBundle(
@@ -795,7 +836,7 @@ func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string 
 	scope := firstNonBlank(options.Scope, parentDefaultLintScope)
 	args := []string{
 		"--bundle",
-		paths.PolicyBundle,
+		parentPolicyBundlePath(paths, options),
 		"--ethos-root",
 		paths.EthosRoot,
 		"--consumer-root",
