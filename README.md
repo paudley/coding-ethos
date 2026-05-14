@@ -975,11 +975,11 @@ For non-linter Python commands, hooks prefer the consumer repo environment:
 adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
 protected shims remain first.
 Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter,
-golangci-lint, and ESLint are installed into `build/toolchain/` through the
+golangci-lint, ESLint, and `tsc` are installed into `build/toolchain/` through the
 managed installer. ShellCheck, actionlint, and hadolint use pinned GitHub
 release assets with SHA-256 digests; actionlint and golangci-lint are built
-into the managed Go bin directory with the repo Go toolchain; ESLint is
-installed from a checked-in npm lockfile and exposed through a managed wrapper.
+into the managed Go bin directory with the repo Go toolchain; ESLint and `tsc`
+are installed from checked-in npm lockfiles and exposed through managed wrappers.
 The source manifest lives at `pre-commit/hooks/managed-toolchain.tsv`, and the
 installed toolchain writes `build/toolchain/manifest.tsv`. Hook execution treats
 missing managed binaries as runtime artifact failures instead of falling back to
@@ -988,6 +988,10 @@ host tools.
 ESLint is registered as the `javascript` hook group and as a managed capture
 tool, but it is not part of the default pre-commit or pre-push group set until a
 repo opts in and owns an explicit ESLint config boundary.
+`tsc` is also registered in the `javascript` hook group. It runs at the
+TypeScript project boundary with `--noEmit --pretty false --project
+<repo>/tsconfig.json`, because TypeScript compiler diagnostics are
+project-level facts rather than safe per-file checks.
 
 Current managed lint and analyzer integrations:
 
@@ -1007,6 +1011,7 @@ Current managed lint and analyzer integrations:
 | dotenv-linter | dotenv | pinned GitHub release | text |
 | golangci-lint | Go | pinned Go install | JSON |
 | ESLint | JavaScript and TypeScript | pinned npm lockfile | JSON |
+| tsc | TypeScript | pinned npm lockfile | text |
 
 The repo Makefile exposes only unified managed tool groups for ordinary source
 quality work: `make lint` runs the `linters` group, `make format` runs the

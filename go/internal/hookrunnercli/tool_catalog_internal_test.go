@@ -28,6 +28,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		"queries/report.sql",
 		"pkg/app.py",
 		"web/app.js",
+		"web/app.ts",
 		".env.example",
 		"script.sh",
 	}
@@ -42,13 +43,14 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		[]string{".github/workflows/ci.yml", "config.yaml"},
 	)
 	assertToolchainFiles(t, paths, "shfmt", []string{"script.sh"})
+	assertToolchainFiles(t, paths, "tsc", []string{"web/app.ts"})
+	assertToolchainFiles(t, paths, "eslint", []string{"web/app.js", "web/app.ts"})
 
 	for name, want := range map[string]string{
 		"bandit":        "pkg/app.py",
 		"sqlfluff":      "queries/report.sql",
 		"tombi":         "pyproject.toml",
 		"dotenv-linter": ".env.example",
-		"eslint":        "web/app.js",
 	} {
 		got := toolchainFiles(name, paths)
 		if len(got) != 1 || got[0] != want {

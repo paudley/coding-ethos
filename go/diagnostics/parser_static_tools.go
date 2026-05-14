@@ -588,3 +588,63 @@ func eslintDiagnosticMetadata(endLine, endColumn int) map[string]any {
 
 	return metadata
 }
+
+func parseTSC(output string) []Diagnostic {
+	diagnostics := []Diagnostic{}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if diagnostic, ok := parseTSCLine(trimmed); ok {
+			diagnostics = append(diagnostics, diagnostic)
+		}
+	}
+
+	return diagnostics
+}
+
+func parseTSCLine(line string) (Diagnostic, bool) {
+	matches := tscDiagnosticPattern.FindStringSubmatch(line)
+	if len(matches) == tscDiagnosticMatchParts {
+		lineNo, validLine := parseInt(matches[2])
+		column, validColumn := parseInt(matches[3])
+
+		if !validLine || !validColumn {
+			return Diagnostic{}, false
+		}
+
+		return Diagnostic{
+			Tool:     "tsc",
+			File:     strings.TrimSpace(matches[1]),
+			Line:     lineNo,
+			Column:   column,
+			Severity: tscSeverity(matches[4]),
+			Code:     strings.TrimSpace(matches[5]),
+			Message:  strings.TrimSpace(matches[6]),
+		}, true
+	}
+
+	matches = tscPathlessPattern.FindStringSubmatch(line)
+	if len(matches) == tscPathlessMatchParts {
+		return Diagnostic{
+			Tool:     "tsc",
+			Severity: tscSeverity(matches[1]),
+			Code:     strings.TrimSpace(matches[2]),
+			Message:  strings.TrimSpace(matches[3]),
+		}, true
+	}
+
+	return Diagnostic{}, false
+}
+
+func tscSeverity(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "warning":
+		return severityWarning
+	default:
+		return severityError
+	}
+}

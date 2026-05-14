@@ -55,6 +55,12 @@ var (
 	tombiLocationPattern = regexp.MustCompile(
 		`^\s*at\s+(.+?):(\d+):(\d+)\s*$`,
 	)
+	tscDiagnosticPattern = regexp.MustCompile(
+		`^(.+?)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)$`,
+	)
+	tscPathlessPattern = regexp.MustCompile(
+		`^(error|warning)\s+(TS\d+):\s*(.+)$`,
+	)
 	ruffCodePattern   = regexp.MustCompile(`^[A-Z]+[0-9]+$`)
 	ruffFormatPattern = regexp.MustCompile(
 		`^(Would reformat|would reformat|reformatted):\s+(.+)$`,
@@ -90,6 +96,8 @@ const (
 	shfmtHunkMatchParts       = 2
 	tombiHeaderMatchParts     = 3
 	tombiLocationMatchParts   = 4
+	tscDiagnosticMatchParts   = 7
+	tscPathlessMatchParts     = 4
 	ruffFormatMatchParts      = 3
 	yamllintMatchParts        = 5
 	pytestFileLineMatchParts  = 4
@@ -212,6 +220,7 @@ func parserEntries() []parserEntry {
 		{Name: "shellcheck", Parser: parseShellcheck},
 		{Name: "sqlfluff", Parser: parseSQLFluff},
 		{Name: "tombi", Parser: parseTombi},
+		{Name: "tsc", Parser: parseTSC},
 		{Name: "vulture", Parser: parseVulture},
 		{Name: "yamllint", Parser: parseYamllint},
 	}

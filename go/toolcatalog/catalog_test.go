@@ -166,6 +166,7 @@ func toolchainCommandExpectations() map[string][]string {
 		"tombi":         {"tombi", "lint", "--quiet", "--error-on-warnings"},
 		"dotenv-linter": {"dotenv-linter", "--plain", "--quiet", "check"},
 		"eslint":        {"eslint", "--format", "json"},
+		"tsc":           {"tsc", "--noEmit", "--pretty", "false"},
 		"golangci-lint": {"golangci-lint", "run"},
 		"golines":       {"golines", "-w", "-m", "88"},
 	}
@@ -197,6 +198,7 @@ func toolchainCategoryExpectations() map[string]string {
 		"tombi":         "syntax",
 		"dotenv-linter": "dotenv",
 		"eslint":        "javascript-static",
+		"tsc":           "typescript-static",
 		"golangci-lint": "go-static",
 		"golines":       "format",
 	}
@@ -266,6 +268,9 @@ func toolchainFileMetadataExpectations() map[string]toolFileMetadataExpectation 
 				".mts",
 				".cts",
 			},
+		},
+		"tsc": {
+			extensions: []string{".ts", ".tsx", ".mts", ".cts"},
 		},
 		"golangci-lint": {
 			extensions: []string{".go"},
@@ -365,6 +370,7 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		"bandit",
 		"sqlfluff",
 		"eslint",
+		"tsc",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -404,6 +410,7 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 		"hadolint",
 		"dotenv-linter",
 		"eslint",
+		"tsc",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -764,6 +771,11 @@ func toolCaptureArgsForceCatalogOutputCases() []toolCaptureArgsCase {
 			name: "eslint",
 			args: []string{"-f", "stylish", "web/app.js"},
 			want: []string{"--format", "json", "web/app.js"},
+		},
+		{
+			name: "tsc",
+			args: []string{"--pretty", "true", "--project", "tsconfig.dev.json"},
+			want: []string{"--noEmit", "--pretty", "false"},
 		},
 		{
 			name: "golangci-lint",

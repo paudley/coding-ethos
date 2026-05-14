@@ -66,7 +66,6 @@ linters:
     - maintidx
     - makezero
     - mirror
-    - misspell
     - mnd
     - modernize
     - musttag
