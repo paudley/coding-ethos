@@ -228,6 +228,8 @@ func TestMCPWorkflow(t *testing.T) {
 	runtimeRoot := e2e.InstrumentedEthosRoot(t, ethosRoot)
 
 	repo := e2e.FromReference(t, ethosRoot, "policy-lint-basic")
+	repo.EthosRoot = runtimeRoot
+	repo.SyncHookPolicyBundle(t)
 	client := StartMCPClient(t, runtimeRoot, repo.Root)
 
 	testMCPInitialize(t, client, repo.Root)

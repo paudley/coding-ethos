@@ -69,7 +69,6 @@ func FromReference(t *testing.T, ethosRoot, reference string) Repo {
 	repo.Git(t, "config", "commit.gpgsign", "false")
 	repo.Git(t, "add", ".")
 	repo.Git(t, "commit", "-m", "test(repo): initialize reference repo")
-	repo.SyncHookPolicyBundle(t)
 
 	return repo
 }
