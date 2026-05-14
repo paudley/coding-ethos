@@ -3213,7 +3213,16 @@ principles:
                       )
                     )
                   ) ||
-                  list_contains(["touch", "mkdir", "sed"], command.name) ||
+                  list_contains(["touch", "mkdir"], command.name) ||
+                  (
+                    command.name == "sed" &&
+                    command.argv.exists(arg,
+                      arg == "-i" ||
+                      arg == "--in-place" ||
+                      arg.startsWith("-i") ||
+                      arg.startsWith("--in-place=")
+                    )
+                  ) ||
                   (
                     command.is_git &&
                     command.argv.exists(arg,

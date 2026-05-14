@@ -212,6 +212,7 @@ bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel compact-context --path pkg/app.go
 bin/coding-ethos-run code-intel ingest-sarif --file policy.sarif
 bin/coding-ethos-run code-intel sarif-results --policy-id python.unused_imports
+bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.go
 bin/coding-ethos-run code-intel record-proxy-event --event-id evt-1 --session-id sess-1 --kind file_read --provider codex --target-path pkg/app.go
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
@@ -241,6 +242,14 @@ accepts raw listing output from stdin or `--listing-file` and can infer the
 target directory from a static, single-target `ls` or `tree` command; future
 proxy interception should reuse the same detection and enrichment path when it
 persists proxy events.
+
+`proxy-file-read` is the current bridge for read deduplication. It reads a
+repo-relative file, computes the current content hash, records the first read as
+a `file_read` proxy event, and records later unchanged reads in the same session
+as `cache_hit` events with a `file-read-cache` transform. Changed content is a
+cache miss and returns the full file body again. The command gives transparent
+proxy work a tested cache primitive without requiring provider/API interception
+to exist first.
 
 ## Implemented Storage Foundation
 

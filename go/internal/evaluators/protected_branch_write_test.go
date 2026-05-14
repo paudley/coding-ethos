@@ -75,6 +75,48 @@ func TestEvaluateProtectedBranchWriteAllowsCommitVerification(t *testing.T) {
 	}
 }
 
+func TestEvaluateProtectedBranchWriteAllowsReadOnlySed(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Bash",
+		Cwd:              repo,
+		Command:          "sed -n '1,120p' repo_config.yaml",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected no decisions, got %#v", decisions)
+	}
+}
+
+func TestEvaluateProtectedBranchWriteBlocksInPlaceSed(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Bash",
+		Cwd:              repo,
+		Command:          "sed -i 's/old/new/' app.py",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluateProtectedBranchWriteUsesConfiguredBranches(t *testing.T) {
 	t.Parallel()
 

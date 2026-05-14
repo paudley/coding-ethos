@@ -100,6 +100,20 @@ Compression must remain traceable. A compressed payload should carry metadata
 that records the omitted line count, and the corresponding proxy event should
 store the transform record in code-intel. Silent truncation is not allowed.
 
+## File Read Deduplication
+
+Proxy-side file read caching is session scoped and hash validated. The
+`proxy-file-read` bridge reads a repo-relative file, stores the resulting
+`file_read` event in code-intel, and uses the recorded output hash as the cache
+validator. When the same session asks for the same path again and the current
+file hash still matches, the bridge records a `cache_hit` event with a
+`file-read-cache` transform and returns a short cached-read stub instead of the
+full file body.
+
+The cache must miss whenever the file changes, the path changes, or the session
+changes. A transparent proxy should reuse this path before returning read tool
+output to an agent so repeated reads save tokens without hiding changed source.
+
 ## Directory Listing Anatomy
 
 Directory listing enrichment uses the same transform contract. The

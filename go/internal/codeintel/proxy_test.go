@@ -5,6 +5,7 @@ package codeintel_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -93,6 +94,111 @@ func TestRecordProxyEventMaintainsSessionLedger(t *testing.T) {
 	}
 
 	assertProxyEventLedger(t, events)
+}
+
+func TestReadFileWithCacheSuppressesRepeatedUnchangedReads(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	if err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(root, "pkg", "app.py"), []byte("print('hello')\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	request := FileReadCacheRequest{
+		SessionID:  "session-1",
+		Provider:   "codex",
+		Tool:       "Read",
+		RepoRoot:   root,
+		TargetPath: "pkg/app.py",
+	}
+
+	first, err := store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+
+	if first.CacheHit || first.Text != "print('hello')\n" {
+		t.Fatalf("first read = %#v", first)
+	}
+
+	second, err := store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+
+	if !second.CacheHit ||
+		second.Text != "[CACHED: You already have this file in your context. Do not read it again unless instructed.]" ||
+		second.Decision != "cache_hit" {
+		t.Fatalf("second read = %#v", second)
+	}
+
+	sessions, err := store.ProxySessions(ctx, ProxySessionQuery{Provider: "codex"})
+	if err != nil {
+		t.Fatalf("query proxy sessions: %v", err)
+	}
+
+	if len(sessions) != 1 ||
+		sessions[0].FileReadCount != 1 ||
+		sessions[0].CacheHitCount != 1 {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestReadFileWithCacheMissesAfterContentChanges(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	path := filepath.Join(root, "app.py")
+
+	err := os.WriteFile(path, []byte("print('one')\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	request := FileReadCacheRequest{
+		SessionID:  "session-1",
+		RepoRoot:   root,
+		TargetPath: "app.py",
+	}
+
+	first, err := store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+
+	err = os.WriteFile(path, []byte("print('two')\n"), 0o600)
+	if err != nil {
+		t.Fatalf("rewrite app.py: %v", err)
+	}
+
+	second, err := store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+
+	if second.CacheHit || first.ContentHash == second.ContentHash {
+		t.Fatalf("changed file should miss cache: first=%#v second=%#v", first, second)
+	}
 }
 
 func assertProxySessionLedger(t *testing.T, sessions []ProxySession) {
