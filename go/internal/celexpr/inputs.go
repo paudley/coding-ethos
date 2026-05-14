@@ -1200,6 +1200,7 @@ func gitCommandInput(argv, protectedBranches []string) GitCommandInput {
 		HasBranchRewriteReset: gitBranchRewriteReset(
 			normalized[subcommandIndex],
 			args,
+			protectedBranches,
 		),
 		HasCleanForceDelete: gitCleanForceDelete(flags),
 		HasCommitAmend: normalized[subcommandIndex] == gitCommitSubcommand &&

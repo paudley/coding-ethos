@@ -547,20 +547,94 @@ func gitCleanForceDelete(flags []string) bool {
 		listContains(flags, "-d")
 }
 
-func gitBranchRewriteReset(subcommand string, args []string) bool {
+func gitBranchRewriteReset(
+	subcommand string,
+	args []string,
+	protectedBranches []string,
+) bool {
 	if subcommand != "reset" || listContains(args, "--") {
 		return false
 	}
 
+	targets := gitResetTargets(args)
+	if len(targets) != 1 {
+		return false
+	}
+
+	target := targets[0]
+
+	return gitResetTargetLooksLikeCommit(target) ||
+		gitProtectedBranchRef(target, protectedBranches)
+}
+
+func gitResetTargets(args []string) []string {
+	targets := []string{}
+	skipNext := false
+
 	for _, arg := range args {
-		if arg == "" || strings.HasPrefix(arg, "-") || arg == "HEAD" {
+		if skipNext {
+			skipNext = false
+
 			continue
 		}
 
+		if arg == "" || arg == "HEAD" {
+			continue
+		}
+
+		if gitArgOptionHasValue(arg) {
+			skipNext = true
+
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		targets = append(targets, arg)
+	}
+
+	return targets
+}
+
+func gitResetTargetLooksLikeCommit(target string) bool {
+	if target == "" || target == "HEAD" || target == "@" {
+		return false
+	}
+
+	if strings.ContainsAny(target, "~^") {
 		return true
 	}
 
-	return false
+	if strings.HasPrefix(target, "refs/") {
+		return true
+	}
+
+	return gitLooksLikeSHA(target)
+}
+
+func gitLooksLikeSHA(value string) bool {
+	const (
+		minShortSHALength = 7
+		maxSHALength      = 40
+	)
+
+	if len(value) < minShortSHALength || len(value) > maxSHALength {
+		return false
+	}
+
+	for _, char := range value {
+		switch {
+		case char >= '0' && char <= '9':
+		case char >= 'a' && char <= 'f':
+		case char >= 'A' && char <= 'F':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
 
 func gitForcedBranchMove(subcommand string, flags []string) bool {

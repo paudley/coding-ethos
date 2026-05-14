@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,9 +35,10 @@ const (
 )
 
 var (
-	errParentArtifactDrift   = errors.New("parent artifact drift")
-	errParentGoToolsStale    = errors.New("parent Go tools are stale")
-	errParentPathIsDirectory = errors.New("path is a directory, want file")
+	errParentArtifactDrift      = errors.New("parent artifact drift")
+	errParentGoToolsStale       = errors.New("parent Go tools are stale")
+	errParentPathIsDirectory    = errors.New("path is a directory, want file")
+	errParentPathIsNotDirectory = errors.New("path is not a directory, want directory")
 )
 
 type parentWorkflowOptions struct {
@@ -255,7 +257,12 @@ func rebuildParentGoTools(paths runtimePaths) error {
 		return fmt.Errorf("create Go tool bin dir: %w", err)
 	}
 
-	for _, tool := range parentGoToolCommands() {
+	tools, err := parentGoToolCommands(paths)
+	if err != nil {
+		return err
+	}
+
+	for _, tool := range tools {
 		err = buildParentGoTool(paths, tool)
 		if err != nil {
 			return err
@@ -268,10 +275,26 @@ func rebuildParentGoTools(paths runtimePaths) error {
 func buildParentGoTool(paths runtimePaths, tool string) error {
 	outputPath := filepath.Join(paths.BinDir, tool)
 
-	err := os.Remove(outputPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove stale %s: %w", tool, err)
+	tempFile, err := os.CreateTemp(paths.BinDir, "."+tool+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary binary for %s: %w", tool, err)
 	}
+
+	tempPath := tempFile.Name()
+
+	err = tempFile.Close()
+	if err != nil {
+		return fmt.Errorf("close temporary binary for %s: %w", tool, err)
+	}
+
+	err = os.Remove(tempPath)
+	if err != nil {
+		return fmt.Errorf("prepare temporary binary for %s: %w", tool, err)
+	}
+
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
 
 	command := safeexec.CommandContext(
 		context.Background(),
@@ -280,7 +303,7 @@ func buildParentGoTool(paths runtimePaths, tool string) error {
 		"-trimpath",
 		"-buildvcs=false",
 		"-o",
-		outputPath,
+		tempPath,
 		"./cmd/"+tool,
 	)
 	command.Dir = paths.ToolsSource
@@ -293,6 +316,11 @@ func buildParentGoTool(paths runtimePaths, tool string) error {
 		}
 
 		return fmt.Errorf("build %s: %w", tool, err)
+	}
+
+	err = os.Rename(tempPath, outputPath)
+	if err != nil {
+		return fmt.Errorf("install %s: %w", tool, err)
 	}
 
 	return nil
@@ -311,7 +339,12 @@ func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error
 
 	stale := []string{}
 
-	for _, tool := range parentGoToolCommands() {
+	tools, err := parentGoToolCommands(paths)
+	if err != nil {
+		return err
+	}
+
+	for _, tool := range tools {
 		toolPath := filepath.Join(paths.BinDir, tool)
 
 		info, err := os.Stat(toolPath)
@@ -354,28 +387,52 @@ func requireParentGoToolsSource(paths runtimePaths) error {
 		return fmt.Errorf(
 			"go tools source %s: %w",
 			paths.ToolsSource,
-			errParentPathIsDirectory,
+			errParentPathIsNotDirectory,
 		)
 	}
 
 	return nil
 }
 
-func parentGoToolCommands() []string {
-	return []string{
-		"coding-ethos-agent-hooks",
-		"coding-ethos-code-intel",
-		"coding-ethos-policy",
-		"coding-ethos-lint",
-		"coding-ethos-hook",
-		"coding-ethos-hook-log",
-		"coding-ethos-mcp",
-		"coding-ethos-toolchain",
-		"coding-ethos-git-hook",
-		"coding-ethos-git",
-		"coding-ethos-hook-runner",
-		"coding-ethos-run",
+func parentGoToolCommands(paths runtimePaths) ([]string, error) {
+	cmdRoot := filepath.Join(paths.ToolsSource, "cmd")
+
+	entries, err := os.ReadDir(cmdRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read Go cmd dir: %w", err)
 	}
+
+	tools := []string{}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		mainPath := filepath.Join(cmdRoot, entry.Name(), "main.go")
+		info, err := os.Stat(mainPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("stat Go command %s: %w", entry.Name(), err)
+		}
+
+		if info.IsDir() {
+			continue
+		}
+
+		tools = append(tools, entry.Name())
+	}
+
+	sort.Strings(tools)
+
+	if len(tools) == 0 {
+		return nil, apperror.StaticError("Go cmd dir has no buildable tools")
+	}
+
+	return tools, nil
 }
 
 func latestParentGoToolSourceModTime(root string) (time.Time, error) {
@@ -394,7 +451,7 @@ func latestParentGoToolSourceModTime(root string) (time.Time, error) {
 			return nil
 		}
 
-		if !parentGoToolSourceFile(path, entry.Name()) {
+		if !parentGoToolSourceFile(entry.Name()) {
 			return nil
 		}
 
@@ -429,12 +486,10 @@ func shouldSkipParentGoToolSourceDir(name string) bool {
 	}
 }
 
-func parentGoToolSourceFile(path, name string) bool {
+func parentGoToolSourceFile(name string) bool {
 	return strings.HasSuffix(name, ".go") ||
 		name == "go.mod" ||
-		name == "go.sum" ||
-		strings.HasSuffix(path, string(filepath.Separator)+"go.mod") ||
-		strings.HasSuffix(path, string(filepath.Separator)+"go.sum")
+		name == "go.sum"
 }
 
 func runParentStep(name string, action func() error) parentWorkflowStep {

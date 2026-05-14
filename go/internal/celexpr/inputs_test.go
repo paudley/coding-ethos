@@ -637,6 +637,7 @@ func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
 
 	tests := map[string]struct {
 		argv                   []string
+		protectedBranches      []string
 		wantCommitAmend        bool
 		wantForcePush          bool
 		wantBranchRewriteReset bool
@@ -654,8 +655,28 @@ func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
 			argv:                   []string{"git", "reset", "--soft", "HEAD~1"},
 			wantBranchRewriteReset: true,
 		},
+		"reset protected branch": {
+			argv:                   []string{"git", "reset", "main"},
+			protectedBranches:      []string{"main"},
+			wantBranchRewriteReset: true,
+		},
+		"reset protected remote branch": {
+			argv:                   []string{"git", "reset", "origin/main"},
+			protectedBranches:      []string{"main"},
+			wantBranchRewriteReset: true,
+		},
+		"reset commit sha": {
+			argv:                   []string{"git", "reset", "1234abc"},
+			wantBranchRewriteReset: true,
+		},
 		"reset index to head": {
 			argv: []string{"git", "reset", "HEAD"},
+		},
+		"reset single pathspec": {
+			argv: []string{"git", "reset", "file.txt"},
+		},
+		"reset head pathspec without separator": {
+			argv: []string{"git", "reset", "HEAD", "file.txt"},
 		},
 		"reset pathspec": {
 			argv: []string{"git", "reset", "HEAD", "--", "file.txt"},
@@ -677,7 +698,10 @@ func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			activation := Activation(ActivationInput{Argv: testCase.argv})
+			activation := Activation(ActivationInput{
+				Argv:              testCase.argv,
+				ProtectedBranches: testCase.protectedBranches,
+			})
 
 			gitCommand, found := activation["git_command"].(GitCommandInput)
 			if !found {

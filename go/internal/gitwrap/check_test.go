@@ -108,6 +108,8 @@ func TestCheckBlocksHistoryRewriteCommands(t *testing.T) {
 		"commit amend":         {"commit", "--amend", "-m", "fix"},
 		"force push":           {"push", "--force-with-lease", "origin", "topic"},
 		"reset branch":         {"reset", "--soft", "HEAD~1"},
+		"reset protected":      {"reset", "main"},
+		"reset sha":            {"reset", "1234abc"},
 	}
 
 	for name, argv := range tests {
@@ -135,9 +137,11 @@ func TestCheckAllowsRebaseAndNonMovingReset(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string][]string{
-		"rebase":         {"rebase", "main"},
-		"reset head":     {"reset", "HEAD"},
-		"reset pathspec": {"reset", "HEAD", "--", "file.txt"},
+		"rebase":                           {"rebase", "main"},
+		"reset head":                       {"reset", "HEAD"},
+		"reset pathspec":                   {"reset", "HEAD", "--", "file.txt"},
+		"reset single pathspec":            {"reset", "file.txt"},
+		"reset head pathspec no separator": {"reset", "HEAD", "file.txt"},
 	}
 
 	for name, argv := range tests {
