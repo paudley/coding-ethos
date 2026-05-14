@@ -174,6 +174,17 @@ func basicStringHelpers() []cel.EnvOption {
 				}),
 			),
 		),
+		cel.Function(
+			"advertising_filter",
+			cel.Overload(
+				"advertising_filter_string",
+				[]*cel.Type{cel.StringType},
+				cel.BoolType,
+				cel.UnaryBinding(func(value ref.Val) ref.Val {
+					return types.Bool(advertisingFilter(stringFromValue(value)))
+				}),
+			),
+		),
 		stringHelper(
 			"self_promotion_branding",
 			"self_promotion_branding_string_string",
@@ -449,7 +460,7 @@ func selfPromotionBranding(text, provider string) bool {
 		return false
 	}
 
-	normalizedText := normalizedSelfPromotionText(text)
+	normalizedText := normalizedAdvertisingText(text)
 	for _, pattern := range selfPromotionPatterns(normalizedProvider) {
 		if strings.Contains(normalizedText, pattern) {
 			return true
@@ -459,11 +470,24 @@ func selfPromotionBranding(text, provider string) bool {
 	return false
 }
 
-func normalizedSelfPromotionText(text string) string {
+func advertisingFilter(text string) bool {
+	return selfPromotionBranding(text, "codex") ||
+		selfPromotionBranding(text, "claude") ||
+		selfPromotionBranding(text, "gemini")
+}
+
+func normalizedAdvertisingText(text string) string {
 	lower := strings.ToLower(text)
-	for _, directory := range []string{".codex", ".claude", ".gemini"} {
-		lower = strings.ReplaceAll(lower, directory+"/", "")
-		lower = strings.ReplaceAll(lower, directory+"\\", "")
+	for _, path := range []string{
+		"claude.md",
+		".codex/",
+		".codex\\",
+		".claude/",
+		".claude\\",
+		".gemini/",
+		".gemini\\",
+	} {
+		lower = strings.ReplaceAll(lower, path, "")
 	}
 
 	return lower

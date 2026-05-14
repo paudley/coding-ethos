@@ -2260,23 +2260,13 @@ principles:
             - Bash
             - bash
             - exec_command
-          command_patterns:
-            - gh
-          message: Agent-branded pull request mutations are forbidden.
+          message: Agent advertising in tool commands is forbidden.
           advice: >-
             Remove agent branding such as [codex], generated-with footers, or
-            tool attribution from pull request titles and bodies before calling
-            GitHub.
+            tool attribution from commands before running them.
           when: >-
             event.name == "PreToolUse" &&
-            (self_promotion_branding(command, "codex") ||
-            self_promotion_branding(command, "claude") ||
-            self_promotion_branding(command, "gemini")) &&
-            shell_commands.exists(cmd, cmd.name == "gh" &&
-              ((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&
-              list_contains(["create", "edit"], cmd.argv[2])) ||
-              (cmd.argv.size() >= 2 && cmd.argv[1] == "api" &&
-              command_fact.lower.contains("pulls"))))
+            advertising_filter(command)
         - id: agent.self_promotion_payload
           principle_ids:
             - no-self-promotion
@@ -2302,9 +2292,7 @@ principles:
             that produced it.
           when: >-
             event.name == "PreToolUse" &&
-            (self_promotion_branding(content.raw, "codex") ||
-            self_promotion_branding(content.raw, "claude") ||
-            self_promotion_branding(content.raw, "gemini"))
+            advertising_filter(content.raw)
         - id: agent.self_promotion_staged_text
           principle_ids:
             - no-self-promotion
@@ -2327,9 +2315,7 @@ principles:
               (has_suffix(line.file, ".md") ||
               has_suffix(line.file, ".markdown") ||
               has_suffix(line.file, ".md.j2")) &&
-              (self_promotion_branding(line.text, "codex") ||
-              self_promotion_branding(line.text, "claude") ||
-              self_promotion_branding(line.text, "gemini")))
+              advertising_filter(line.text))
         - id: agent.self_promotion_commit_msg
           principle_ids:
             - no-self-promotion
@@ -2343,9 +2329,7 @@ principles:
             Keep commit subjects and bodies unbranded; describe the repository
             change instead of the tool that produced it.
           when: >-
-            self_promotion_branding(content.raw, "codex") ||
-            self_promotion_branding(content.raw, "claude") ||
-            self_promotion_branding(content.raw, "gemini")
+            advertising_filter(content.raw)
     sections:
       - id: overview
         kind: overview
