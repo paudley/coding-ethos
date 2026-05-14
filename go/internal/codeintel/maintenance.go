@@ -69,5 +69,5 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	}
 	defer store.Close()
 
-	return NewTraceIngester(store).IngestHookTrace(ctx, payload)
+	return NewTraceIngester(store).IngestHookTraceSource(ctx, tracePath, payload)
 }

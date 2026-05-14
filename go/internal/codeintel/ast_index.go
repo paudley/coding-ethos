@@ -230,7 +230,11 @@ func (indexer ASTIndexer) indexFile(
 		return nil
 	}
 
-	lineCount, tooManyLines, err := countSourceLinesUpTo(path, maxIndexedSourceLines)
+	lineCount, tooManyLines, err := countSourceLinesUpTo(
+		ctx,
+		path,
+		maxIndexedSourceLines,
+	)
 	if err != nil {
 		return err
 	}
@@ -377,7 +381,11 @@ func formatSourceModTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }
 
-func countSourceLinesUpTo(path string, maxLines int) (int, bool, error) {
+func countSourceLinesUpTo(
+	ctx context.Context,
+	path string,
+	maxLines int,
+) (int, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, false, fmt.Errorf("open indexed file for line count %q: %w", path, err)
@@ -387,7 +395,13 @@ func countSourceLinesUpTo(path string, maxLines int) (int, bool, error) {
 	lineCount := 0
 
 	buffer := make([]byte, lineCountBufferSizeKiB*bytesPerKiB)
+
 	for {
+		err = ctx.Err()
+		if err != nil {
+			return 0, false, fmt.Errorf("count indexed file lines %q: %w", path, err)
+		}
+
 		read, readErr := file.Read(buffer)
 		if read > 0 {
 			lineCount += bytes.Count(buffer[:read], []byte{'\n'})

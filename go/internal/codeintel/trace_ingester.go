@@ -44,7 +44,15 @@ func (ingester TraceIngester) IngestHookTrace(
 	ctx context.Context,
 	payload []byte,
 ) error {
-	trace, err := DecodeHookTrace("", payload)
+	return ingester.IngestHookTraceSource(ctx, "", payload)
+}
+
+func (ingester TraceIngester) IngestHookTraceSource(
+	ctx context.Context,
+	path string,
+	payload []byte,
+) error {
+	trace, err := DecodeHookTrace(path, payload)
 	if err != nil {
 		return err
 	}

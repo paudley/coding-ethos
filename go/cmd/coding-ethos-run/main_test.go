@@ -451,20 +451,32 @@ repo:
 	}
 
 	assertProtectedBranchWorkPoliciesAbsent(t, paths.PolicyBundle)
-	assertProtectedBranchWorkPoliciesAbsent(
-		t,
-		filepath.Join(
-			parentRepo,
-			".git",
-			"coding-ethos-hooks",
-			"policy",
-			"policy-bundle.json",
-		),
-	)
 
 	err = checkParentPolicyBundle(paths, options)
 	if err != nil {
 		t.Fatalf("check synced parent policy bundle: %v", err)
+	}
+
+	bundle, err := os.ReadFile(paths.PolicyBundle)
+	if err != nil {
+		t.Fatalf("read policy bundle: %v", err)
+	}
+
+	tampered := strings.Replace(
+		string(bundle),
+		`"mode": "block"`,
+		`"mode": "warn"`,
+		1,
+	)
+
+	err = os.WriteFile(paths.PolicyBundle, []byte(tampered), 0o600)
+	if err != nil {
+		t.Fatalf("write tampered policy bundle: %v", err)
+	}
+
+	err = checkParentPolicyBundle(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) {
+		t.Fatalf("check tampered parent policy bundle error = %v", err)
 	}
 }
 

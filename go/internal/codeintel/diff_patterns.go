@@ -75,10 +75,10 @@ func (store *Store) RepeatedDiffEditPatterns(
 			COALESCE(hunk_header, ''), old_start, old_lines, new_start, new_lines,
 			seen_count
 		FROM diff_edit_patterns
-		JOIN code_files ON code_files.path = diff_edit_patterns.target_path
+		LEFT JOIN code_files ON code_files.path = diff_edit_patterns.target_path
 		WHERE (? = '' OR diff_source = ?)
 			AND (? = '' OR target_path = ?)
-			AND COALESCE(code_files.deleted_at_utc, '') = ''
+			AND (code_files.path IS NULL OR COALESCE(code_files.deleted_at_utc, '') = '')
 		ORDER BY seen_count DESC, last_seen_utc DESC, target_path
 		LIMIT ?`,
 		query.DiffSource,

@@ -155,6 +155,41 @@ func TestStoreIngestTraceDirsFindsLintAndHookTraces(t *testing.T) {
 	}
 }
 
+func TestIngestHookTraceFilePreservesSourcePath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	tracePath := filepath.Join(root, ".coding-ethos", "hook-runs", "run-a", "event.json")
+
+	writeFile(t, tracePath, hookTracePayload(t))
+
+	err := IngestHookTraceFile(ctx, root, tracePath)
+	if err != nil {
+		t.Fatalf("ingest hook trace file: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	var sourcePath string
+
+	err = store.Database().QueryRowContext(
+		ctx,
+		`SELECT COALESCE(source_path, '') FROM traces LIMIT 1`,
+	).Scan(&sourcePath)
+	if err != nil {
+		t.Fatalf("query trace source path: %v", err)
+	}
+
+	if sourcePath != tracePath {
+		t.Fatalf("source path = %q, want %q", sourcePath, tracePath)
+	}
+}
+
 func TestStoreIngestTraceDirsBackfillsMissingTraceIDs(t *testing.T) {
 	t.Parallel()
 
@@ -300,11 +335,7 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-
-	err = store.Close()
-	if err != nil {
-		t.Fatalf("close store: %v", err)
-	}
+	defer store.Close()
 
 	database, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -326,6 +357,17 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 
 	if count != 1 {
 		t.Fatalf("note edit patterns = %d, want 1", count)
+	}
+
+	patterns, err := store.RepeatedDiffEditPatterns(ctx, DiffEditPatternQuery{
+		Path: "notes.txt",
+	})
+	if err != nil {
+		t.Fatalf("query note edit pattern: %v", err)
+	}
+
+	if len(patterns) != 1 || patterns[0].ASTChunkID != "" {
+		t.Fatalf("patterns = %#v, want one non-AST pattern", patterns)
 	}
 }
 
@@ -408,6 +450,15 @@ func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T
 
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active chunks", chunks)
+	}
+
+	searchResults, err := store.Search(ctx, SearchQuery{Text: "BuildMessage", Limit: 5})
+	if err != nil {
+		t.Fatalf("search deleted code chunks: %v", err)
+	}
+
+	if len(searchResults) != 0 {
+		t.Fatalf("search results = %#v, want no deleted code chunks", searchResults)
 	}
 
 	patterns, err := store.RepeatedDiffEditPatterns(ctx, DiffEditPatternQuery{

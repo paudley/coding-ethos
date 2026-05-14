@@ -276,22 +276,7 @@ func syncParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) e
 		return err
 	}
 
-	err = writePolicyBundleArtifacts(filepath.Dir(paths.PolicyBundle), bundle, metadata)
-	if err != nil {
-		return err
-	}
-
-	runtimePolicyDir, err := parentRuntimePolicyDir(paths, options.Repo)
-	if err != nil {
-		return err
-	}
-
-	err = writePolicyBundleArtifacts(runtimePolicyDir, bundle, metadata)
-	if err != nil {
-		return err
-	}
-
-	return syncParentRuntimeTools(paths, options)
+	return writePolicyBundleArtifacts(filepath.Dir(paths.PolicyBundle), bundle, metadata)
 }
 
 func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) error {
@@ -313,34 +298,6 @@ func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) 
 	if !policyBundleCurrent(existing, existingMetadata, bundle, metadata) {
 		return fmt.Errorf(
 			"%w: policy_bundle out of sync in %s checkout; run: %s",
-			errParentArtifactDrift,
-			parentCheckoutLocation(paths, options),
-			parentInstallCommand(options),
-		)
-	}
-
-	runtimePolicyDir, err := parentRuntimePolicyDir(paths, options.Repo)
-	if err != nil {
-		return err
-	}
-
-	runtimeBundlePath := filepath.Join(runtimePolicyDir, "policy-bundle.json")
-
-	runtimeBundle, _, err := existingPolicyBundle(runtimeBundlePath)
-	if err != nil {
-		return err
-	}
-
-	runtimeMetadata, err := existingPolicyMetadata(
-		filepath.Join(runtimePolicyDir, "policy-metadata.json"),
-	)
-	if err != nil {
-		return err
-	}
-
-	if !policyBundleCurrent(runtimeBundle, runtimeMetadata, bundle, metadata) {
-		return fmt.Errorf(
-			"%w: installed policy_bundle out of sync in %s checkout; run: %s",
 			errParentArtifactDrift,
 			parentCheckoutLocation(paths, options),
 			parentInstallCommand(options),
@@ -471,7 +428,13 @@ func policyBundleCurrent(
 	expected policy.Bundle,
 	expectedMetadata policy.Metadata,
 ) bool {
-	return samePolicyIDs(existing.Policies, expected.Policies) &&
+	existingHash, err := policy.HashBundle(existing)
+	if err != nil {
+		return false
+	}
+
+	return existingMetadata.BundleHash == existingHash &&
+		samePolicyIDs(existing.Policies, expected.Policies) &&
 		sameStringMap(existingMetadata.SourceHashes, expectedMetadata.SourceHashes)
 }
 
@@ -501,118 +464,6 @@ func sameStringMap(left, right map[string]string) bool {
 	}
 
 	return true
-}
-
-func syncParentRuntimeTools(paths runtimePaths, options parentWorkflowOptions) error {
-	runtimeBinDir, err := parentRuntimeBinDir(paths, options.Repo)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(runtimeBinDir, parentExecutableDirMode)
-	if err != nil {
-		return fmt.Errorf("create parent runtime bin dir: %w", err)
-	}
-
-	entries, err := os.ReadDir(paths.BinDir)
-	if err != nil {
-		return fmt.Errorf("read parent tool bin dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "coding-ethos-") {
-			continue
-		}
-
-		source := filepath.Join(paths.BinDir, entry.Name())
-		destination := filepath.Join(runtimeBinDir, entry.Name())
-
-		err = copyFileMode(source, destination, parentExecutableDirMode)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func copyFileMode(source, destination string, mode fs.FileMode) error {
-	input, err := os.Open(source)
-	if err != nil {
-		return fmt.Errorf("open %s: %w", source, err)
-	}
-	defer input.Close()
-
-	temp, err := os.CreateTemp(
-		filepath.Dir(destination),
-		"."+filepath.Base(destination)+"-*.tmp",
-	)
-	if err != nil {
-		return fmt.Errorf("create temporary copy for %s: %w", destination, err)
-	}
-
-	tempPath := temp.Name()
-
-	defer func() {
-		_ = os.Remove(tempPath)
-	}()
-
-	_, err = io.Copy(temp, input)
-	if err != nil {
-		_ = temp.Close()
-
-		return fmt.Errorf("copy %s to %s: %w", source, destination, err)
-	}
-
-	err = temp.Chmod(mode)
-	if err != nil {
-		_ = temp.Close()
-
-		return fmt.Errorf("chmod temporary copy %s: %w", destination, err)
-	}
-
-	err = temp.Close()
-	if err != nil {
-		return fmt.Errorf("close temporary copy %s: %w", destination, err)
-	}
-
-	err = os.Rename(tempPath, destination)
-	if err != nil {
-		return fmt.Errorf("install %s: %w", destination, err)
-	}
-
-	return nil
-}
-
-func parentRuntimeBinDir(paths runtimePaths, repo string) (string, error) {
-	runtimeDir, err := parentHookRuntimeDir(paths, repo)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(runtimeDir, "bin"), nil
-}
-
-func parentRuntimePolicyDir(paths runtimePaths, repo string) (string, error) {
-	runtimeDir, err := parentHookRuntimeDir(paths, repo)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(runtimeDir, "policy"), nil
-}
-
-func parentHookRuntimeDir(paths runtimePaths, repo string) (string, error) {
-	gitCommonDir, err := gitOutput(paths.RealGit, repo, "rev-parse", "--git-common-dir")
-	if err != nil {
-		return "", fmt.Errorf("resolve parent git common dir: %w", err)
-	}
-
-	if !filepath.IsAbs(gitCommonDir) {
-		gitCommonDir = filepath.Join(repo, gitCommonDir)
-	}
-
-	return filepath.Join(filepath.Clean(gitCommonDir), "coding-ethos-hooks"), nil
 }
 
 func firstNonEmptyPath(values ...string) string {

@@ -4,6 +4,7 @@
 package codeintel
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -12,9 +13,10 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
-//nolint:gocyclo,cyclop // Deletion refresh owns scope filtering and marking.
 func (store *Store) MarkMissingCodeFilesDeleted(
 	ctx context.Context,
 	root string,
@@ -25,47 +27,23 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 		return nil, err
 	}
 
-	rows, err := store.database.QueryContext(
-		ctx,
-		`SELECT path
-		FROM code_files
-		WHERE COALESCE(deleted_at_utc, '') = ''
-		ORDER BY path`,
+	activePaths, _ := gitTrackedAndUnignoredPaths(ctx, root)
+	deletedPaths := gitDeletedPaths(ctx, root)
+
+	indexedPaths, err := store.activeCodeFilePaths(ctx, "deletion")
+	if err != nil {
+		return nil, err
+	}
+
+	deleted, err := missingIndexedCodeFiles(
+		root,
+		indexedPaths,
+		scopes,
+		activePaths,
+		deletedPaths,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query active code files for deletion refresh: %w", err)
-	}
-	defer rows.Close()
-
-	deleted := []string{}
-
-	for rows.Next() {
-		var path string
-
-		err = rows.Scan(&path)
-		if err != nil {
-			return nil, fmt.Errorf("scan active code file for deletion refresh: %w", err)
-		}
-
-		if !pathInDeletionScopes(path, scopes) {
-			continue
-		}
-
-		_, err = os.Stat(filepath.Join(root, filepath.FromSlash(path)))
-		if err == nil {
-			continue
-		}
-
-		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("stat indexed code file %q: %w", path, err)
-		}
-
-		deleted = append(deleted, path)
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return nil, fmt.Errorf("iterate active code files for deletion refresh: %w", err)
+		return nil, err
 	}
 
 	if len(deleted) == 0 {
@@ -95,9 +73,9 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 	return deleted, nil
 }
 
-func (store *Store) MarkIgnoredCodeFilesDeleted(
+func (store *Store) activeCodeFilePaths(
 	ctx context.Context,
-	ignoredPath func(path string) bool,
+	operation string,
 ) ([]string, error) {
 	rows, err := store.database.QueryContext(
 		ctx,
@@ -107,28 +85,122 @@ func (store *Store) MarkIgnoredCodeFilesDeleted(
 		ORDER BY path`,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query active code files for ignored refresh: %w", err)
+		return nil, fmt.Errorf("query active code files for %s refresh: %w", operation, err)
 	}
 	defer rows.Close()
 
-	ignored := []string{}
+	paths := []string{}
 
 	for rows.Next() {
 		var path string
 
 		err = rows.Scan(&path)
 		if err != nil {
-			return nil, fmt.Errorf("scan active code file for ignored refresh: %w", err)
+			return nil, fmt.Errorf("scan active code file for %s refresh: %w", operation, err)
 		}
 
-		if ignoredPath(path) {
-			ignored = append(ignored, path)
-		}
+		paths = append(paths, path)
 	}
 
 	err = rows.Err()
 	if err != nil {
-		return nil, fmt.Errorf("iterate active code files for ignored refresh: %w", err)
+		return nil, fmt.Errorf("iterate active code files for %s refresh: %w", operation, err)
+	}
+
+	return paths, nil
+}
+
+func missingIndexedCodeFiles(
+	root string,
+	indexedPaths []string,
+	scopes []string,
+	activePaths map[string]bool,
+	deletedPaths map[string]bool,
+) ([]string, error) {
+	deleted := []string{}
+
+	for _, path := range indexedPaths {
+		if !pathInDeletionScopes(path, scopes) {
+			continue
+		}
+
+		missing, missingErr := indexedPathMissing(
+			root,
+			path,
+			activePaths,
+			deletedPaths,
+		)
+		if missingErr != nil {
+			return nil, missingErr
+		}
+
+		if missing {
+			deleted = append(deleted, path)
+		}
+	}
+
+	return deleted, nil
+}
+
+func indexedPathMissing(
+	root string,
+	path string,
+	activePaths map[string]bool,
+	deletedPaths map[string]bool,
+) (bool, error) {
+	if activePaths[path] && !deletedPaths[path] {
+		return false, nil
+	}
+
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(path)))
+	if err == nil {
+		return false, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return false, fmt.Errorf("stat indexed code file %q: %w", path, err)
+	}
+
+	return true, nil
+}
+
+func gitDeletedPaths(ctx context.Context, root string) map[string]bool {
+	command := realgit.Command(ctx, false, "-C", root, "ls-files", "-d", "-z")
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return nil
+	}
+
+	deleted := map[string]bool{}
+
+	for rawPath := range bytes.SplitSeq(output, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+
+		deleted[filepath.ToSlash(string(rawPath))] = true
+	}
+
+	return deleted
+}
+
+func (store *Store) MarkIgnoredCodeFilesDeleted(
+	ctx context.Context,
+	ignoredPath func(path string) bool,
+) ([]string, error) {
+	paths, err := store.activeCodeFilePaths(ctx, "ignored")
+	if err != nil {
+		return nil, err
+	}
+
+	ignored := []string{}
+
+	for _, path := range paths {
+		if ignoredPath(path) {
+			ignored = append(ignored, path)
+		}
 	}
 
 	if len(ignored) == 0 {
@@ -185,6 +257,16 @@ func markCodeFileInactive(
 	)
 	if err != nil {
 		return fmt.Errorf("mark code file %s %q: %w", reason, path, err)
+	}
+
+	_, err = transaction.ExecContext(
+		ctx,
+		`DELETE FROM code_intel_fts
+		WHERE kind = 'code_chunk' AND path = ?`,
+		path,
+	)
+	if err != nil {
+		return fmt.Errorf("remove inactive code file FTS rows %q: %w", path, err)
 	}
 
 	return nil

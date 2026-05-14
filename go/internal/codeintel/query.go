@@ -206,9 +206,14 @@ func (store *Store) Search(
 
 	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT kind, record_id, trace_id, policy_id, skill_id, path, message
+		`SELECT code_intel_fts.kind, record_id, trace_id, policy_id, skill_id,
+			code_intel_fts.path, message
 		FROM code_intel_fts
+		LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
+			AND code_files.path = code_intel_fts.path
 		WHERE code_intel_fts MATCH ?
+			AND (code_intel_fts.kind != 'code_chunk'
+				OR COALESCE(code_files.deleted_at_utc, '') = '')
 		ORDER BY rank
 		LIMIT ?`,
 		query.Text,
