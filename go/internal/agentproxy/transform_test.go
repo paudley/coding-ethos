@@ -197,3 +197,40 @@ func TestToolOutputCompressionPreservesPythonTracebackException(t *testing.T) {
 		}
 	}
 }
+
+func TestToolOutputCompressionNormalizesCRLFLines(t *testing.T) {
+	t.Parallel()
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputCompressionTransform{
+			MaxLines: 5,
+			Head:     2,
+			Tail:     2,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{
+			Text: strings.Join([]string{
+				"line 01",
+				"line 02",
+				"line 03",
+				"line 04",
+				"line 05",
+				"line 06",
+			}, "\r\n") + "\r\n",
+		},
+	)
+	if err != nil {
+		t.Fatalf("apply compression: %v", err)
+	}
+
+	if strings.Contains(output.Text, "\r") {
+		t.Fatalf("compressed output kept CRLF carriage returns:\n%q", output.Text)
+	}
+
+	if !strings.HasSuffix(output.Text, "\n") ||
+		!strings.Contains(output.Text, "2 of 6 lines omitted") {
+		t.Fatalf("compressed CRLF output = %q", output.Text)
+	}
+}

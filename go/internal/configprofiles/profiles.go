@@ -55,11 +55,8 @@ func overlayForRepoConfig(
 	detector pythonSourceDetector,
 ) configdata.Map {
 	overlay := configdata.Map{}
-	if protectedBranchWorkDisabled(repoConfig) {
-		overlay = configdata.DeepMerge(overlay, protectedBranchWorkDisabledOverlay())
-	}
-
 	profiles := repoProfiles(repoConfig)
+
 	for _, profile := range profiles {
 		overlay = configdata.DeepMerge(overlay, overlayForProfile(
 			profile,
@@ -70,24 +67,6 @@ func overlayForRepoConfig(
 	}
 
 	return overlay
-}
-
-func protectedBranchWorkDisabled(repoConfig configdata.Map) bool {
-	value := configdata.GetPath(repoConfig, "repo.protected_branch_work.enabled", nil)
-	boolValue, ok := value.(bool)
-
-	return ok && !boolValue
-}
-
-func protectedBranchWorkDisabledOverlay() configdata.Map {
-	return configdata.Map{
-		"git": map[string]any{
-			"checkout_protected_branch": map[string]any{"enabled": false},
-		},
-		"filesystem": map[string]any{
-			"protected_branch_write": map[string]any{"enabled": false},
-		},
-	}
 }
 
 func repoProfiles(repoConfig configdata.Map) []string {

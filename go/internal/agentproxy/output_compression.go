@@ -5,6 +5,7 @@ package agentproxy
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -125,12 +126,20 @@ func (
 }
 
 func splitOutputLines(text string) []string {
-	trimmed := strings.TrimSuffix(text, "\n")
-	if trimmed == "" {
+	if text == "" {
 		return nil
 	}
 
-	return strings.Split(trimmed, "\n")
+	lines := slices.Collect(strings.Lines(text))
+	for index, line := range lines {
+		lines[index] = trimLineEnding(line)
+	}
+
+	return lines
+}
+
+func trimLineEnding(line string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 }
 
 func joinOutputLines(lines []string, trailingNewline bool) string {
