@@ -76,6 +76,7 @@ func addBlockingBashDispatch(
 	for _, policyID := range []string{
 		"git.destructive_command",
 		"git.merge_strategy_shortcut",
+		"git.history_rewrite_prevention",
 		"git.force_push_protected_branch",
 		"git.checkout_protected_branch",
 		"git.destructive_worktree",
@@ -345,6 +346,7 @@ func stagedGitPolicyIDs() []string {
 		"git.hook_bypass",
 		"git.destructive_command",
 		"git.merge_strategy_shortcut",
+		"git.history_rewrite_prevention",
 		"git.force_push_protected_branch",
 		"git.checkout_protected_branch",
 		"git.destructive_worktree",
@@ -433,7 +435,11 @@ func addExpressionPoliciesToLinterDispatch(
 func compileGitDispatch(policies map[string]Policy) map[string]GitOperationDispatch {
 	return map[string]GitOperationDispatch{
 		"*": {
-			Pre: existingPolicyIDs(policies, "git.change_dir_flag"),
+			Pre: existingPolicyIDs(
+				policies,
+				"git.change_dir_flag",
+				"git.history_rewrite_prevention",
+			),
 		},
 		"commit": {
 			Pre: existingPolicyIDs(

@@ -269,6 +269,7 @@ func examplePolicies() map[string]Policy {
 		"python.conditional_imports":     exampleConditionalImportPolicy(),
 		"python.functional_idioms":       exampleFunctionalIdiomPolicy(),
 		"git.hook_bypass":                exampleHookBypassPolicy(),
+		"git.history_rewrite_prevention": exampleHistoryRewritePreventionPolicy(),
 		"git.protected_submodule_update": exampleProtectedSubmoduleUpdatePolicy(),
 		"git.commit_attribution":         exampleCommitAttributionPolicy(),
 		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
@@ -533,6 +534,55 @@ func exampleHookBypassPolicy() Policy {
 						)
 					)
 				)`,
+			},
+		}},
+	}
+}
+
+func exampleHistoryRewritePreventionPolicy() Policy {
+	return Policy{
+		ID:       "git.history_rewrite_prevention",
+		Category: "expression",
+		Source: SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles.no-rationalized-shortcuts.policy.expressions[8]",
+		},
+		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Branch history rewriting is forbidden.",
+		Suggestion: sentence(
+			"Make a new commit that preserves review history instead of",
+			"amending, force pushing, resetting branch history, or forcibly",
+			"moving a branch pointer.",
+		),
+		DefenseLayers: GitDefenseLayers(
+			"block",
+			"wrapper",
+			"block",
+			"pre_commit",
+			"git_state",
+		),
+		AppliesTo: AppliesTo{
+			Commands: []string{"git commit", "git push", "git reset", "git branch"},
+			Tools:    []string{"Bash"},
+		},
+		Evaluators: []Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"hook_events": []string{"PreToolUse"},
+				"mode":        "block",
+				"scope":       "command",
+				"skill_id":    "safe-git-workflow",
+				"tools":       []string{"Bash"},
+				"when": `git_command.is_git &&
+					(
+						git_command.has_commit_amend ||
+						git_command.has_force_push ||
+						git_command.has_branch_rewrite_reset ||
+						git_command.has_forced_branch_move
+					)`,
 			},
 		}},
 	}
@@ -924,6 +974,9 @@ func exampleDispatch() Dispatch {
 		Hooks:  exampleHookDispatch(),
 		Linter: exampleLinterDispatch(),
 		Git: map[string]GitOperationDispatch{
+			"*": {
+				Pre: []string{"git.history_rewrite_prevention"},
+			},
 			"commit": {
 				Pre:  []string{"git.hook_bypass", "git.commit_attribution"},
 				Post: []string{"git.commit_head_advanced"},
@@ -972,6 +1025,10 @@ func examplePreToolBashDispatch() []HookDispatchEntry {
 			PolicyID:        "git.commit_attribution",
 			Mode:            "block",
 			CommandPatterns: []string{"git commit"},
+		},
+		{
+			PolicyID: "git.history_rewrite_prevention",
+			Mode:     "block",
 		},
 		{
 			PolicyID:        "git.commit_head_advanced",
@@ -1029,6 +1086,7 @@ func exampleLinterDispatch() map[string][]string {
 		"files": {"python.conditional_imports", "python.functional_idioms"},
 		"staged": {
 			"git.hook_bypass",
+			"git.history_rewrite_prevention",
 			"git.commit_attribution",
 			"git.commit_head_advanced",
 			"filesystem.protected_path",

@@ -217,8 +217,11 @@ type GitCommandInput struct {
 	GlobalOptions              []string `json:"global_options"`
 	Targets                    []string `json:"targets"`
 	HasForcePush               bool     `json:"has_force_push"`
+	HasCommitAmend             bool     `json:"has_commit_amend"`
 	HasCleanForceDelete        bool     `json:"has_clean_force_delete"`
 	HasForcePushProtected      bool     `json:"has_force_push_protected"`
+	HasBranchRewriteReset      bool     `json:"has_branch_rewrite_reset"`
+	HasForcedBranchMove        bool     `json:"has_forced_branch_move"`
 	HasHardReset               bool     `json:"has_hard_reset"`
 	HasMergeStrategyShortcut   bool     `json:"has_merge_strategy_shortcut"`
 	HasRestorePathspec         bool     `json:"has_restore_pathspec"`
@@ -491,6 +494,11 @@ func gitInputSchema() []string {
 			"targets",
 			"global_options",
 			"has_change_dir",
+			"has_commit_amend",
+			"has_force_push",
+			"has_force_push_protected",
+			"has_branch_rewrite_reset",
+			"has_forced_branch_move",
 		),
 	}
 }
@@ -1189,11 +1197,23 @@ func gitCommandInput(argv, protectedBranches []string) GitCommandInput {
 			normalized,
 			protectedBranches,
 		),
+		HasBranchRewriteReset: gitBranchRewriteReset(
+			normalized[subcommandIndex],
+			args,
+			protectedBranches,
+		),
 		HasCleanForceDelete: gitCleanForceDelete(flags),
-		HasForcePush:        gitHasForcePush(flags),
+		HasCommitAmend: normalized[subcommandIndex] == gitCommitSubcommand &&
+			listContains(flags, "--amend"),
+		HasForcePush: normalized[subcommandIndex] == gitPushSubcommand &&
+			gitHasForcePush(flags),
 		HasForcePushProtected: gitForcePushProtectedBranch(
 			normalized,
 			protectedBranches,
+		),
+		HasForcedBranchMove: gitForcedBranchMove(
+			normalized[subcommandIndex],
+			flags,
 		),
 		HasHardReset: normalized[subcommandIndex] == "reset" &&
 			listContains(flags, "--hard"),

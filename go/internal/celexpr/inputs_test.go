@@ -632,6 +632,119 @@ func TestActivationPopulatesGitCommandGlobalOptionValues(t *testing.T) {
 	}
 }
 
+func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		argv                 []string
+		wantCommitAmend      bool
+		wantForcePush        bool
+		wantForcedBranchMove bool
+	}{
+		"commit amend": {
+			argv:            []string{"git", "commit", "--amend", "-m", "fix"},
+			wantCommitAmend: true,
+		},
+		"force push": {
+			argv:          []string{"git", "push", "--force-with-lease", "origin", "topic"},
+			wantForcePush: true,
+		},
+		"checkout forced branch move": {
+			argv:                 []string{"git", "checkout", "-B", "topic", "main"},
+			wantForcedBranchMove: true,
+		},
+		"branch forced move": {
+			argv:                 []string{"git", "branch", "--force", "topic", "HEAD~1"},
+			wantForcedBranchMove: true,
+		},
+		"rebase remains allowed": {
+			argv: []string{"git", "rebase", "main"},
+		},
+	}
+
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			activation := Activation(ActivationInput{
+				Argv: testCase.argv,
+			})
+
+			gitCommand, found := activation["git_command"].(GitCommandInput)
+			if !found {
+				t.Fatalf("git command input = %#v", activation["git_command"])
+			}
+
+			if gitCommand.HasCommitAmend != testCase.wantCommitAmend ||
+				gitCommand.HasForcePush != testCase.wantForcePush ||
+				gitCommand.HasForcedBranchMove != testCase.wantForcedBranchMove {
+				t.Fatalf("git command input = %#v", gitCommand)
+			}
+		})
+	}
+}
+
+func TestActivationPopulatesGitResetRewriteFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		argv                   []string
+		protectedBranches      []string
+		wantBranchRewriteReset bool
+	}{
+		"reset moves branch": {
+			argv:                   []string{"git", "reset", "--soft", "HEAD~1"},
+			wantBranchRewriteReset: true,
+		},
+		"reset protected branch": {
+			argv:                   []string{"git", "reset", "main"},
+			protectedBranches:      []string{"main"},
+			wantBranchRewriteReset: true,
+		},
+		"reset protected remote branch": {
+			argv:                   []string{"git", "reset", "origin/main"},
+			protectedBranches:      []string{"main"},
+			wantBranchRewriteReset: true,
+		},
+		"reset commit sha": {
+			argv:                   []string{"git", "reset", "1234abc"},
+			wantBranchRewriteReset: true,
+		},
+		"reset index to head": {
+			argv: []string{"git", "reset", "HEAD"},
+		},
+		"reset single pathspec": {
+			argv: []string{"git", "reset", "file.txt"},
+		},
+		"reset head pathspec without separator": {
+			argv: []string{"git", "reset", "HEAD", "file.txt"},
+		},
+		"reset pathspec": {
+			argv: []string{"git", "reset", "HEAD", "--", "file.txt"},
+		},
+	}
+
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			activation := Activation(ActivationInput{
+				Argv:              testCase.argv,
+				ProtectedBranches: testCase.protectedBranches,
+			})
+
+			gitCommand, found := activation["git_command"].(GitCommandInput)
+			if !found {
+				t.Fatalf("git command input = %#v", activation["git_command"])
+			}
+
+			if gitCommand.HasBranchRewriteReset != testCase.wantBranchRewriteReset {
+				t.Fatalf("git command input = %#v", gitCommand)
+			}
+		})
+	}
+}
+
 func TestActivationStopsGitFlagParsingAtPathspecSeparator(t *testing.T) {
 	t.Parallel()
 

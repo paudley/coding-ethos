@@ -478,6 +478,8 @@ The first migrated built-ins prove the intended pattern:
 - `git.destructive_worktree` is CEL over `git_command.subcommand`,
   `git_command.args`, and `git_command.flags`.
 - `git.stash_blocked` is CEL over `git_command.subcommand`.
+- `git.history_rewrite_prevention` is CEL over normalized Git facts for amend
+  commits, force pushes, branch-moving resets, and forced branch-pointer moves.
 - `git.hook_bypass`, `git.destructive_command`,
   `git.merge_strategy_shortcut`, `git.force_push_protected_branch`,
   `git.checkout_protected_branch`, and `git.protected_submodule_update` are
