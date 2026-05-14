@@ -218,6 +218,74 @@ func TestManagedRuffCaptureProducesJSONDiagnostics(t *testing.T) {
 	}
 }
 
+func TestManagedTSCCaptureRunsRealToolAgainstTypeScriptProject(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	repo.Touch(t, "tsconfig.json", typescriptConfig())
+	repo.Touch(t, "src/index.ts", "const answer: number = 'forty-two';\n")
+
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--json",
+		"--managed-capture-tool",
+		"tsc",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+	)
+	result.RequireExit(t, 2)
+
+	for _, want := range []string{
+		`"tool": "tsc"`,
+		`"code": "TS2322"`,
+		`"file": "src/index.ts"`,
+		`"policy_id": "typescript.static_analysis"`,
+		`"parse_status": "parsed"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
+func TestManagedTSCCaptureProducesRealSARIF(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	repo.Touch(t, "tsconfig.json", typescriptConfig())
+	repo.Touch(t, "src/index.ts", "const answer: number = 'forty-two';\n")
+
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--sarif",
+		"--managed-capture-tool",
+		"tsc",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+	)
+	result.RequireExit(t, 2)
+
+	for _, want := range []string{
+		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+		`"ruleId": "typescript.static_analysis"`,
+		`"uri": "src/index.ts"`,
+		`"source_tool": "tsc"`,
+		`"code": "TS2322"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
 func TestGeneratedConfigDriftProducesTraceAndSARIF(t *testing.T) {
 	t.Parallel()
 
@@ -403,6 +471,17 @@ import json
 def answer() -> int:
     """Return a stable value."""
     return 42
+`
+}
+
+func typescriptConfig() string {
+	return `{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["src/**/*.ts"]
+}
 `
 }
 

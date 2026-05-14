@@ -529,6 +529,7 @@ func toolchainToolDefinitions() []Tool {
 		tombiTool(),
 		dotenvLinterTool(),
 		eslintTool(),
+		tscTool(),
 		golangciLintTool(),
 		golinesTool(),
 	}
@@ -917,6 +918,56 @@ func eslintTool() Tool {
 		Languages:        []string{"javascript", "typescript"},
 		PassFilesAsArgs:  true,
 		Fast:             true,
+		EnabledByDefault: false,
+	}
+}
+
+func tscTool() Tool {
+	return Tool{
+		Name:         "tsc",
+		Parser:       "tsc",
+		Captured:     true,
+		Category:     "typescript-static",
+		OutputFormat: "text",
+		Advice: adviceText(
+			"Fix TypeScript compiler diagnostics with explicit types and",
+			"project-level configuration instead of relying on runtime checks.",
+		),
+		Runtime: RuntimeNPM,
+		Command: []string{
+			"tsc",
+			"--noEmit",
+			"--pretty",
+			"false",
+		},
+		CaptureOutputArgs: []string{
+			"--noEmit",
+			"--pretty",
+			"false",
+		},
+		CaptureStripArgs: []string{
+			"--pretty",
+			"--project",
+			"-p",
+		},
+		CaptureStripFlags: []string{
+			"--noEmit",
+			"--watch",
+			"-w",
+			"--build",
+			"-b",
+		},
+		ConfigFlags: []string{"--project", "-p"},
+		FileExtensions: []string{
+			".ts",
+			".tsx",
+			".mts",
+			".cts",
+		},
+		Languages:        []string{"typescript"},
+		RepoConfig:       "tsconfig.json",
+		PassFilesAsArgs:  false,
+		Fast:             false,
 		EnabledByDefault: false,
 	}
 }

@@ -254,6 +254,44 @@ func TestParseESLintFatalDiagnostic(t *testing.T) {
 	})
 }
 
+func TestParseTSCDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"tsc",
+		"src/index.ts(3,7): error TS2322: "+
+			"Type 'string' is not assignable to type 'number'.\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "tsc",
+		File:     "src/index.ts",
+		Line:     3,
+		Column:   7,
+		Severity: "error",
+		Code:     "TS2322",
+		Message:  "Type 'string' is not assignable to type 'number'.",
+	})
+}
+
+func TestParseTSCPathlessDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse(
+		"tsc",
+		"error TS5058: The specified path does not exist: 'tsconfig.json'.\n",
+		"",
+	)
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "tsc",
+		Severity: "error",
+		Code:     "TS5058",
+		Message:  "The specified path does not exist: 'tsconfig.json'.",
+	})
+}
+
 func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 	t.Parallel()
 
@@ -552,6 +590,7 @@ func parserFixtureTools() map[string]bool {
 		"pyright":               true,
 		"ruff":                  true,
 		"eslint":                true,
+		"tsc":                   true,
 		"ruff-autofix":          true,
 		"ruff-format":           true,
 		"pytest":                true,

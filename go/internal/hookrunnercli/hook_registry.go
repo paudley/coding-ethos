@@ -60,6 +60,7 @@ func canonicalHookCommands() map[string]CommandFunc {
 		"policy-eslint":                    runESLint,
 		"policy-golangci-lint":             runGolangciLint,
 		"policy-sqlfluff":                  runSQLFluff,
+		"policy-tsc":                       runTSC,
 		"policy-tombi":                     runTombi,
 		"python-complexity":                runPythonComplexity,
 		"python-maintainability":           runPythonMaintainability,
@@ -126,6 +127,7 @@ func canonicalHookGroupsFromCommands(
 		"workflow": groupFromCommandNames(commands, "workflow", []string{"actionlint"}),
 		"javascript": groupFromCommandNames(commands, "javascript", []string{
 			"policy-eslint",
+			"policy-tsc",
 		}),
 		"python-quality": groupFromCommandNames(commands, "python-quality", []string{
 			"python-complexity",
@@ -182,6 +184,8 @@ func displayHookCommandName(name string) string {
 		return "dotenv-linter"
 	case "policy-eslint":
 		return "eslint"
+	case "policy-tsc":
+		return "tsc"
 	case "policy-golangci-lint":
 		return "golangci-lint"
 	case "policy-sqlfluff":

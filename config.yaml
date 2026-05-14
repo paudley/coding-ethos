@@ -400,6 +400,26 @@ policy:
           - Keep ESLint execution routed through the managed coding-ethos wrapper.
         rerun:
           - make pre-commit
+    - source: tsc
+      codes:
+        - TS*
+      policy_id: typescript.static_analysis
+      skill_id: lint-remediation
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - linting-as-code-quality-enforcement
+      confidence: high
+      meaning: >-
+        TypeScript compiler diagnostics found a type, syntax, or project
+        contract problem that should be fixed before runtime.
+      advice:
+        summary: Fix the TypeScript compiler diagnostic through the project type contract.
+        steps:
+          - Keep tsc execution routed through the managed coding-ethos wrapper.
+          - Fix type declarations, imports, and tsconfig boundaries structurally.
+          - Do not bypass type checking with broad any casts or unchecked excludes.
+        rerun:
+          - make pre-commit
     - source: ruff
       message_substrings:
         - configuration or usage failed
@@ -449,6 +469,31 @@ policy:
           - Run ESLint through the coding-ethos capture wrapper.
           - Do not fall back to host-global ESLint or unmanaged npm scripts.
           - Rebuild the managed toolchain if the ESLint package or wrapper is missing.
+        rerun:
+          - make build
+          - make pre-commit
+    - source: tsc
+      message_substrings:
+        - configuration or usage failed
+        - Cannot find
+        - The specified path does not exist
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        tsc failed before producing normal project diagnostics, usually because
+        the managed npm package, invocation, or tsconfig boundary drifted away
+        from the coding-ethos runtime contract.
+      advice:
+        summary: Restore managed tsc execution before interpreting TypeScript findings.
+        steps:
+          - Run tsc through the coding-ethos capture wrapper.
+          - Keep the project boundary explicit with tsconfig.json.
+          - Rebuild the managed toolchain if the TypeScript package or wrapper is missing.
         rerun:
           - make build
           - make pre-commit
@@ -1266,7 +1311,6 @@ tooling:
         - maintidx
         - makezero
         - mirror
-        - misspell
         - mnd
         - modernize
         - musttag
