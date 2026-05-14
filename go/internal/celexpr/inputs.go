@@ -733,6 +733,7 @@ func HelperSchema() []string {
 		"command_invokes(command, tool)",
 		"argv_invokes(argv, tool)",
 		"argv_command_is(argv, tool)",
+		"sed_writes_files(argv)",
 		"has_inline_env(command, name)",
 		"self_promotion_branding(text, provider)",
 		"repo_config_present(files, candidates)",
