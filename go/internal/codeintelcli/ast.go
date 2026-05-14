@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
@@ -28,6 +29,9 @@ var (
 	)
 	errListingCommandUnsupported = apperror.StaticError(
 		"listing command is not a supported single-target ls/tree invocation",
+	)
+	errListingPathOutsideRoot = apperror.StaticError(
+		"listing path must be inside repository root",
 	)
 )
 
@@ -102,6 +106,11 @@ func printAnatomyMap(ctx context.Context, args []string) error {
 		return err
 	}
 
+	targetPath, err := repoRelativePath(*storeFlags.root, *path)
+	if err != nil {
+		return err
+	}
+
 	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
 	if err != nil {
 		return err
@@ -109,14 +118,14 @@ func printAnatomyMap(ctx context.Context, args []string) error {
 	defer store.Close()
 
 	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, *storeFlags.root, []string{
-		*path,
+		targetPath,
 	})
 	if err != nil {
 		return fmt.Errorf("refresh anatomy map index: %w", err)
 	}
 
 	anatomy, err := store.DirectoryAnatomy(ctx, codeintel.DirectoryAnatomyQuery{
-		Path:           *path,
+		Path:           targetPath,
 		Language:       *language,
 		Limit:          *limit,
 		SymbolsPerFile: *symbolsPerFile,
@@ -159,6 +168,11 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 		return err
 	}
 
+	targetPath, err = repoRelativePath(*storeFlags.root, targetPath)
+	if err != nil {
+		return err
+	}
+
 	listing, err := readListingInput(*listingFile)
 	if err != nil {
 		return err
@@ -170,9 +184,8 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, *storeFlags.root, []string{
-		targetPath,
-	})
+	_, err = codeintel.NewASTIndexer(store).
+		IndexDirectoryChildren(ctx, *storeFlags.root, targetPath)
 	if err != nil {
 		return fmt.Errorf("refresh listing anatomy index: %w", err)
 	}
@@ -215,12 +228,67 @@ func listingTargetPath(path, command string) (string, error) {
 		return "", errListingCommandUnsupported
 	}
 
+	if !staticListingCommand(commands[0]) {
+		return "", errListingCommandUnsupported
+	}
+
 	invocation, ok := agentproxy.DetectDirectoryListingInvocation(commands[0].Argv)
 	if !ok {
 		return "", errListingCommandUnsupported
 	}
 
 	return invocation.Path, nil
+}
+
+func staticListingCommand(command shellparse.Command) bool {
+	return !command.HasCommandSubstitution &&
+		!command.HasDynamicExpansion &&
+		!command.HasProcessSubstitution &&
+		!command.HasSubshell
+}
+
+func repoRelativePath(root, path string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "."
+	}
+
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo root %q: %w", root, err)
+	}
+
+	absolutePath := path
+	if !filepath.IsAbs(absolutePath) {
+		absolutePath = filepath.Join(absoluteRoot, absolutePath)
+	}
+
+	absolutePath, err = filepath.Abs(absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve listing path %q: %w", path, err)
+	}
+
+	relativePath, err := filepath.Rel(absoluteRoot, absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("relativize listing path %q: %w", path, err)
+	}
+
+	if relativePath == ".." ||
+		strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %s", errListingPathOutsideRoot, path)
+	}
+
+	relativePath = filepath.ToSlash(relativePath)
+	if relativePath == "." {
+		return ".", nil
+	}
+
+	return relativePath, nil
 }
 
 func readListingInput(path string) (string, error) {

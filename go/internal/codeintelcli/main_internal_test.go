@@ -66,6 +66,20 @@ func runApp() {
 		t.Fatalf("write source: %v", err)
 	}
 
+	nestedPath := filepath.Join(root, "cmd", "nested", "deep.go")
+	err = os.MkdirAll(filepath.Dir(nestedPath), 0o700)
+	if err != nil {
+		t.Fatalf("create nested source dir: %v", err)
+	}
+
+	err = os.WriteFile(nestedPath, []byte(`package nested
+
+func deep() {}
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write nested source: %v", err)
+	}
+
 	ctx := context.Background()
 
 	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd"})
@@ -184,6 +198,40 @@ func TestListingTargetPathParsesSupportedCommands(t *testing.T) {
 	}
 }
 
+func TestRepoRelativePathNormalizesInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "pkg")
+
+	got, err := repoRelativePath(root, target)
+	if err != nil {
+		t.Fatalf("repoRelativePath returned error: %v", err)
+	}
+
+	if got != "pkg" {
+		t.Fatalf("path = %q, want pkg", got)
+	}
+
+	got, err = repoRelativePath(root, ".")
+	if err != nil {
+		t.Fatalf("repoRelativePath root returned error: %v", err)
+	}
+
+	if got != "." {
+		t.Fatalf("root path = %q, want .", got)
+	}
+}
+
+func TestRepoRelativePathRejectsOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	_, err := repoRelativePath(t.TempDir(), filepath.Join(t.TempDir(), "other"))
+	if err == nil {
+		t.Fatal("expected outside-root path error")
+	}
+}
+
 func TestListingTargetPathRejectsUnsupportedCommands(t *testing.T) {
 	t.Parallel()
 
@@ -195,6 +243,7 @@ func TestListingTargetPathRejectsUnsupportedCommands(t *testing.T) {
 		{name: "unsupported tool", command: "find . -maxdepth 1"},
 		{name: "multiple shell commands", command: "ls cmd; ls docs"},
 		{name: "multiple listing targets", command: "ls cmd docs"},
+		{name: "dynamic shell target", command: "ls $DIR"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

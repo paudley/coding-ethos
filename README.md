@@ -380,9 +380,10 @@ The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the
 repo-local Go AST index as the source of truth. The proxy transform preserves
 the original directory listing and appends a compact TOON anatomy block with
-normal transform evidence. `enrich-listing` is the runnable bridge for future
-proxy interception: it accepts raw `ls` or `tree` output and applies the same
-append-only transform that a transparent proxy should call.
+normal in-memory transform evidence. `enrich-listing` is the runnable bridge
+for future proxy interception: it accepts raw `ls` or `tree` output and applies
+the same append-only transform that a transparent proxy should call, but it does
+not persist a proxy event by itself.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows

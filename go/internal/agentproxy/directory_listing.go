@@ -41,7 +41,15 @@ func DetectDirectoryListingInvocation(
 }
 
 func detectLSInvocation(args []string) (DirectoryListingInvocation, bool) {
-	targets := directoryListingPositionals(args, lsOptionsWithValue())
+	targets, ok := directoryListingPositionals(
+		args,
+		lsOptionsWithValue(),
+		lsUnsupportedListingOptions(),
+	)
+	if !ok {
+		return DirectoryListingInvocation{}, false
+	}
+
 	if len(targets) > 1 {
 		return DirectoryListingInvocation{}, false
 	}
@@ -53,7 +61,15 @@ func detectLSInvocation(args []string) (DirectoryListingInvocation, bool) {
 }
 
 func detectTreeInvocation(args []string) (DirectoryListingInvocation, bool) {
-	targets := directoryListingPositionals(args, treeOptionsWithValue())
+	targets, ok := directoryListingPositionals(
+		args,
+		treeOptionsWithValue(),
+		nil,
+	)
+	if !ok {
+		return DirectoryListingInvocation{}, false
+	}
+
 	if len(targets) > 1 {
 		return DirectoryListingInvocation{}, false
 	}
@@ -67,7 +83,8 @@ func detectTreeInvocation(args []string) (DirectoryListingInvocation, bool) {
 func directoryListingPositionals(
 	args []string,
 	optionsWithValue map[string]struct{},
-) []string {
+	unsupportedOptions map[string]struct{},
+) ([]string, bool) {
 	positionals := []string{}
 	endOptions := false
 	skipNext := false
@@ -89,15 +106,50 @@ func directoryListingPositionals(
 		case arg == "--":
 			endOptions = true
 		case strings.HasPrefix(arg, "--"):
+			if longDirectoryListingOptionUnsupported(arg, unsupportedOptions) {
+				return nil, false
+			}
+
 			skipNext = longDirectoryListingOptionConsumesNext(arg, optionsWithValue)
 		case strings.HasPrefix(arg, "-") && arg != "-":
+			if shortDirectoryListingOptionUnsupported(arg, unsupportedOptions) {
+				return nil, false
+			}
+
 			skipNext = shortDirectoryListingOptionConsumesNext(arg, optionsWithValue)
 		default:
 			positionals = append(positionals, arg)
 		}
 	}
 
-	return positionals
+	return positionals, true
+}
+
+func longDirectoryListingOptionUnsupported(
+	arg string,
+	unsupportedOptions map[string]struct{},
+) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	_, unsupported := unsupportedOptions[name]
+
+	return unsupported
+}
+
+func shortDirectoryListingOptionUnsupported(
+	arg string,
+	unsupportedOptions map[string]struct{},
+) bool {
+	if len(unsupportedOptions) == 0 {
+		return false
+	}
+
+	for _, option := range strings.TrimPrefix(arg, "-") {
+		if _, unsupported := unsupportedOptions["-"+string(option)]; unsupported {
+			return true
+		}
+	}
+
+	return false
 }
 
 func longDirectoryListingOptionConsumesNext(
@@ -138,7 +190,6 @@ func firstDirectoryListingTarget(targets []string) string {
 func lsOptionsWithValue() map[string]struct{} {
 	return map[string]struct{}{
 		"--block-size": {},
-		"--color":      {},
 		"--format":     {},
 		"--hide":       {},
 		"--indicator":  {},
@@ -152,6 +203,13 @@ func lsOptionsWithValue() map[string]struct{} {
 	}
 }
 
+func lsUnsupportedListingOptions() map[string]struct{} {
+	return map[string]struct{}{
+		"--directory": {},
+		"-d":          {},
+	}
+}
+
 func treeOptionsWithValue() map[string]struct{} {
 	return map[string]struct{}{
 		"--charset":   {},
@@ -159,13 +217,11 @@ func treeOptionsWithValue() map[string]struct{} {
 		"--fromfile":  {},
 		"--gitfile":   {},
 		"--infofile":  {},
-		"--metafirst": {},
 		"--timefmt":   {},
 		"-H":          {},
 		"-I":          {},
 		"-L":          {},
 		"-o":          {},
 		"-P":          {},
-		"-s":          {},
 	}
 }

@@ -27,8 +27,15 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 			ok:   true,
 		},
 		{
-			name: "ls explicit path after value option",
-			argv: []string{"ls", "--color", "always", "pkg"},
+			name: "ls color optional argument does not consume path",
+			argv: []string{"ls", "--color", "pkg"},
+			tool: "ls",
+			path: "pkg",
+			ok:   true,
+		},
+		{
+			name: "ls value option consumes next argument",
+			argv: []string{"ls", "--block-size", "K", "pkg"},
 			tool: "ls",
 			path: "pkg",
 			ok:   true,
@@ -39,6 +46,21 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 			tool: "tree",
 			path: "go/internal",
 			ok:   true,
+		},
+		{
+			name: "tree size flag does not consume path",
+			argv: []string{"tree", "-s", "go/internal"},
+			tool: "tree",
+			path: "go/internal",
+			ok:   true,
+		},
+		{
+			name: "ls directory entry mode rejected",
+			argv: []string{"ls", "-d", "pkg"},
+		},
+		{
+			name: "ls long directory entry mode rejected",
+			argv: []string{"ls", "--directory", "pkg"},
 		},
 		{
 			name: "multiple targets rejected",

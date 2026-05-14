@@ -235,11 +235,12 @@ than Aider's prompt-time Python parser/cache and global PageRank ranking. The
 first implementation is intentionally directory-local so proxy listing
 enrichment can append concise file anatomy without replacing the original tool
 output. The `directory-anatomy-map` proxy transform preserves the raw directory
-listing and appends a compact TOON block with transform hashes and token counts
-recorded through the shared agent proxy pipeline. `enrich-listing` accepts raw
-listing output from stdin or `--listing-file` and can infer the target directory
-from a single-target `ls` or `tree` command; future proxy interception should
-reuse the same detection and enrichment path.
+listing and appends a compact TOON block with in-memory transform hashes and
+token counts returned by the shared agent proxy pipeline. `enrich-listing`
+accepts raw listing output from stdin or `--listing-file` and can infer the
+target directory from a static, single-target `ls` or `tree` command; future
+proxy interception should reuse the same detection and enrichment path when it
+persists proxy events.
 
 ## Implemented Storage Foundation
 

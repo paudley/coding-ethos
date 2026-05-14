@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultAnatomySymbolsPerFile = 6
-	directoryAnatomyOverfetch    = 4
+	directoryAnatomySymbolArgs   = 4
 	tokenEstimateBytes           = 4
 )
 
@@ -34,7 +34,7 @@ func (store *Store) DirectoryAnatomy(
 		return DirectoryAnatomy{Path: dir}, nil
 	}
 
-	symbols, err := store.directoryAnatomySymbols(ctx, query, dir)
+	symbols, err := store.directoryAnatomySymbols(ctx, query, files)
 	if err != nil {
 		return DirectoryAnatomy{}, err
 	}
@@ -78,7 +78,8 @@ func (store *Store) directoryAnatomyFiles(
 		LEFT JOIN code_chunks chunk ON chunk.path = file.path
 		WHERE COALESCE(file.deleted_at_utc, '') = ''
 			AND (? = '' OR file.language = ?)
-			AND (? = '' OR file.path = ? OR file.path LIKE ?)
+			AND ((? = '' AND file.path NOT LIKE ?)
+				OR (? != '' AND file.path LIKE ? AND file.path NOT LIKE ?))
 		GROUP BY file.path, file.language, file.line_count, file.size_bytes,
 			file.stale_reason
 		ORDER BY file.path
@@ -86,9 +87,11 @@ func (store *Store) directoryAnatomyFiles(
 		strings.TrimSpace(query.Language),
 		strings.TrimSpace(query.Language),
 		dir,
+		anatomyNestedLike(""),
 		dir,
 		anatomyDirLike(dir),
-		defaultQueryLimit(query.Limit)*directoryAnatomyOverfetch,
+		anatomyNestedLike(dir),
+		defaultQueryLimit(query.Limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query directory anatomy files: %w", err)
@@ -113,16 +116,8 @@ func (store *Store) directoryAnatomyFiles(
 			return nil, fmt.Errorf("scan directory anatomy file: %w", err)
 		}
 
-		if !directDirectoryAnatomyChild(file.Path, dir) {
-			continue
-		}
-
 		file.EstimatedTokens = estimateSourceTokens(file.SizeBytes)
 		files = append(files, file)
-
-		if len(files) >= defaultQueryLimit(query.Limit) {
-			break
-		}
 	}
 
 	err = rows.Err()
@@ -144,28 +139,40 @@ type directoryAnatomySymbolRow struct {
 func (store *Store) directoryAnatomySymbols(
 	ctx context.Context,
 	query DirectoryAnatomyQuery,
-	dir string,
+	files []DirectoryAnatomyFile,
 ) ([]directoryAnatomySymbolRow, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	placeholders, args := directoryAnatomySymbolQueryArgs(query, files)
+
+	// #nosec G202 -- IN-list placeholders are generated from selected file rows.
 	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT code_chunks.path, COALESCE(symbol_kind, ''),
-			COALESCE(symbol_name, ''), COALESCE(symbol_path, ''), start_line
-		FROM code_chunks
-		JOIN code_files ON code_files.path = code_chunks.path
-		WHERE COALESCE(symbol_path, '') != ''
-			AND COALESCE(code_files.deleted_at_utc, '') = ''
-			AND (? = '' OR code_chunks.language = ?)
-			AND (? = '' OR code_chunks.path = ? OR code_chunks.path LIKE ?)
-		ORDER BY code_chunks.path, start_line, start_byte
+		`SELECT path, kind, name, symbol_path, start_line
+		FROM (
+			SELECT code_chunks.path,
+				COALESCE(symbol_kind, '') AS kind,
+				COALESCE(symbol_name, '') AS name,
+				COALESCE(symbol_path, '') AS symbol_path,
+				start_line,
+				start_byte,
+				ROW_NUMBER() OVER (
+					PARTITION BY code_chunks.path
+					ORDER BY start_line, start_byte
+				) AS symbol_rank
+			FROM code_chunks
+			JOIN code_files ON code_files.path = code_chunks.path
+			WHERE COALESCE(symbol_path, '') != ''
+				AND COALESCE(code_files.deleted_at_utc, '') = ''
+				AND code_chunks.path IN (`+strings.Join(placeholders, ",")+`)
+				AND (? = '' OR code_chunks.language = ?)
+		)
+		WHERE symbol_rank <= ?
+		ORDER BY path, start_line, start_byte
 		LIMIT ?`,
-		strings.TrimSpace(query.Language),
-		strings.TrimSpace(query.Language),
-		dir,
-		dir,
-		anatomyDirLike(dir),
-		defaultQueryLimit(query.Limit)*
-			max(1, anatomySymbolsPerFile(query))*
-			directoryAnatomyOverfetch,
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query directory anatomy symbols: %w", err)
@@ -188,9 +195,7 @@ func (store *Store) directoryAnatomySymbols(
 			return nil, fmt.Errorf("scan directory anatomy symbol: %w", err)
 		}
 
-		if directDirectoryAnatomyChild(symbol.file, dir) {
-			symbols = append(symbols, symbol)
-		}
+		symbols = append(symbols, symbol)
 	}
 
 	err = rows.Err()
@@ -199,6 +204,35 @@ func (store *Store) directoryAnatomySymbols(
 	}
 
 	return symbols, nil
+}
+
+func directoryAnatomySymbolQueryArgs(
+	query DirectoryAnatomyQuery,
+	files []DirectoryAnatomyFile,
+) ([]string, []any) {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+
+	placeholders := make([]string, len(paths))
+
+	args := make([]any, 0, len(paths)+directoryAnatomySymbolArgs)
+	for index, path := range paths {
+		placeholders[index] = "?"
+
+		args = append(args, path)
+	}
+
+	args = append(
+		args,
+		strings.TrimSpace(query.Language),
+		strings.TrimSpace(query.Language),
+		anatomySymbolsPerFile(query),
+		defaultQueryLimit(query.Limit)*max(1, anatomySymbolsPerFile(query)),
+	)
+
+	return placeholders, args
 }
 
 func cleanDirectoryAnatomyPath(path string) string {
@@ -223,14 +257,12 @@ func anatomyDirLike(dir string) string {
 	return dir + "/%"
 }
 
-func directDirectoryAnatomyChild(path, dir string) bool {
+func anatomyNestedLike(dir string) string {
 	if dir == "" {
-		return !strings.Contains(path, "/")
+		return "%/%"
 	}
 
-	rest, found := strings.CutPrefix(path, dir+"/")
-
-	return found && rest != "" && !strings.Contains(rest, "/")
+	return dir + "/%/%"
 }
 
 func estimateSourceTokens(sizeBytes int) int {
