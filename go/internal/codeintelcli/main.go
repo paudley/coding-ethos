@@ -76,6 +76,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"remediation-effectiveness": printRemediationEffectiveness,
 		"remediation-outcomes":      printRemediationOutcomes,
 		"proxy-events":              printProxyEvents,
+		"proxy-file-read":           proxyFileRead,
 		"proxy-sessions":            printProxySessions,
 		"repo-map":                  printRepoMap,
 		"repeated-failures":         printRepeatedFailures,

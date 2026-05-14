@@ -80,6 +80,7 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 	for _, want := range []string{
 		"glob_match(pattern, value)",
 		"command_invokes(command, tool)",
+		"sed_writes_files(argv)",
 		"is_protected_path(path, protected_paths)",
 		"any_contains(values, value)",
 	} {
@@ -509,6 +510,70 @@ func TestProgramEvaluatesArgvCommandHelperAgainstEmptyAssignment(t *testing.T) {
 
 	if matched, found := output.Value().(bool); !found || !matched {
 		t.Fatalf("argv command helper output = %#v, want true", output.Value())
+	}
+}
+
+func TestProgramEvaluatesSedWritesFilesHelper(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{
+			name: "read only print",
+			argv: []string{"sed", "-n", "1,120p", "repo_config.yaml"},
+			want: false,
+		},
+		{
+			name: "in place long option",
+			argv: []string{"sed", "--in-place=.bak", "s/old/new/", "app.py"},
+			want: true,
+		},
+		{
+			name: "combined in place short option",
+			argv: []string{"sed", "-Ei", "s/old/new/", "app.py"},
+			want: true,
+		},
+		{
+			name: "explicit expression write command",
+			argv: []string{"sed", "-n", "-e", "/old/w output.txt", "app.py"},
+			want: true,
+		},
+		{
+			name: "substitute write flag",
+			argv: []string{"sed", "-n", "s/old/new/w output.txt", "app.py"},
+			want: true,
+		},
+		{
+			name: "script file does not inspect target",
+			argv: []string{"sed", "-f", "script.sed", "app.py"},
+			want: false,
+		},
+	}
+
+	program, err := Program("test.sed_writes_files", `sed_writes_files(argv)`)
+	if err != nil {
+		t.Fatalf("compile CEL program: %v", err)
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			output, _, evalErr := program.Eval(Activation(ActivationInput{
+				Argv: testCase.argv,
+			}))
+			if evalErr != nil {
+				t.Fatalf("evaluate CEL program: %v", evalErr)
+			}
+
+			matched, found := output.Value().(bool)
+			if !found || matched != testCase.want {
+				t.Fatalf("sed_writes_files output = %#v, want %t", output.Value(), testCase.want)
+			}
+		})
 	}
 }
 

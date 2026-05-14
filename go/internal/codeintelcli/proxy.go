@@ -140,3 +140,45 @@ func printProxyEvents(ctx context.Context, args []string) error {
 		},
 	)
 }
+
+func proxyFileRead(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("proxy-file-read", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	eventID := flags.String("event-id", "", "Proxy event ID")
+	sessionID := flags.String("session-id", "", "Proxy session ID")
+	provider := flags.String("provider", "", "Agent provider")
+	tool := flags.String("tool", "", "Tool name")
+	model := flags.String("model", "", "Model name")
+	traceID := flags.String("trace-id", "", "Trace ID")
+	trackingID := flags.String("tracking-id", "", "Tracking ID")
+	targetPath := flags.String("path", "", "File path to read through the proxy cache")
+
+	err := parseCommandFlags(flags, args, "proxy-file-read")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	result, err := store.ReadFileWithCache(ctx, codeintel.FileReadCacheRequest{
+		EventID:    strings.TrimSpace(*eventID),
+		SessionID:  strings.TrimSpace(*sessionID),
+		Provider:   strings.TrimSpace(*provider),
+		Tool:       strings.TrimSpace(*tool),
+		Model:      strings.TrimSpace(*model),
+		TraceID:    strings.TrimSpace(*traceID),
+		TrackingID: strings.TrimSpace(*trackingID),
+		RepoRoot:   *storeFlags.root,
+		Cwd:        *storeFlags.root,
+		TargetPath: strings.TrimSpace(*targetPath),
+	})
+	if err != nil {
+		return fmt.Errorf("proxy file read: %w", err)
+	}
+
+	return encodeJSON(os.Stdout, result)
+}

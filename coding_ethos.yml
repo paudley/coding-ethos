@@ -3213,7 +3213,11 @@ principles:
                       )
                     )
                   ) ||
-                  list_contains(["touch", "mkdir", "sed"], command.name) ||
+                  list_contains(["touch", "mkdir"], command.name) ||
+                  (
+                    command.name == "sed" &&
+                    sed_writes_files(command.argv)
+                  ) ||
                   (
                     command.is_git &&
                     command.argv.exists(arg,

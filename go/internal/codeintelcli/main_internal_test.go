@@ -284,6 +284,16 @@ func TestRecordAndQueryCommands(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	err := os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	if err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(root, "pkg", "app.py"), []byte("print('hello')\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
 	ctx := context.Background()
 	baseArgs := []string{"--root", root, "--db", dbPath}
@@ -344,6 +354,22 @@ func recordCommandArgs(root string, baseArgs []string) [][]string {
 			"--decision", "allow",
 			"--input-tokens", "7",
 			"--output-tokens", "11",
+		}, baseArgs...),
+		append([]string{
+			"proxy-file-read",
+			"--event-id", "proxy-file-read-1",
+			"--session-id", "proxy-session-1",
+			"--provider", "codex",
+			"--tool", "Read",
+			"--path", "pkg/app.py",
+		}, baseArgs...),
+		append([]string{
+			"proxy-file-read",
+			"--event-id", "proxy-file-read-2",
+			"--session-id", "proxy-session-1",
+			"--provider", "codex",
+			"--tool", "Read",
+			"--path", "pkg/app.py",
 		}, baseArgs...),
 		append([]string{
 			"record-embedding",

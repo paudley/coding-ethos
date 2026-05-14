@@ -367,6 +367,7 @@ bin/coding-ethos-run code-intel search --text 'unused import'
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel compact-context --path pkg/app.py
+bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 ```
@@ -384,6 +385,13 @@ normal in-memory transform evidence. `enrich-listing` is the runnable bridge
 for future proxy interception: it accepts raw `ls` or `tree` output and applies
 the same append-only transform that a transparent proxy should call, but it does
 not persist a proxy event by itself.
+
+The `proxy-file-read` bridge records session-scoped file read cache evidence in
+the same proxy ledger. The first unchanged read records a normal `file_read`
+event with the file content hash. A later read of the same path in the same
+session recomputes the file hash and, when it still matches, records a
+`cache_hit` event and returns a short cached-read stub instead of resending the
+file body. This is the reusable core for future transparent read interception.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows
