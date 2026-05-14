@@ -29,6 +29,8 @@ const (
 	maxIndexedSourceChunksPerFile = 2000
 )
 
+var errCodeIntelPathNotDirectory = errors.New("path is not a directory")
+
 type ASTIndexer struct {
 	store *Store
 }
@@ -118,6 +120,82 @@ func (indexer ASTIndexer) IndexPaths(
 	}
 
 	summary.Deleted = append(summary.Deleted, ignored...)
+
+	return summary, nil
+}
+
+// IndexDirectoryChildren refreshes only direct child source files under dir.
+func (indexer ASTIndexer) IndexDirectoryChildren(
+	ctx context.Context,
+	root string,
+	dir string,
+) (CodeIndexSummary, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+
+	if strings.TrimSpace(dir) == "" {
+		dir = "."
+	}
+
+	path := dir
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf("stat index directory %q: %w", dir, err)
+	}
+
+	if !info.IsDir() {
+		return CodeIndexSummary{}, fmt.Errorf(
+			"index directory %q: %w",
+			dir,
+			errCodeIntelPathNotDirectory,
+		)
+	}
+
+	ignoreMatcher := newGitIgnoreMatcher(ctx, root)
+
+	existingFiles, err := indexer.store.CodeFilesByPath(ctx)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
+	summary := CodeIndexSummary{}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf("read index directory %q: %w", dir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		childPath := filepath.Join(path, entry.Name())
+
+		fileInfo, statErr := entry.Info()
+		if statErr != nil {
+			return CodeIndexSummary{}, fmt.Errorf("stat indexed file %q: %w", childPath, statErr)
+		}
+
+		err = indexer.indexFile(
+			ctx,
+			root,
+			childPath,
+			fileInfo,
+			ignoreMatcher,
+			existingFiles,
+			&summary,
+		)
+		if err != nil {
+			return CodeIndexSummary{}, err
+		}
+	}
 
 	return summary, nil
 }

@@ -415,6 +415,37 @@ type CompactCodeContextQuery struct {
 	Limit    int
 }
 
+type DirectoryAnatomyQuery struct {
+	Path           string
+	Language       string
+	Limit          int
+	SymbolsPerFile int
+}
+
+type DirectoryAnatomy struct {
+	Path  string                 `json:"path"`
+	Files []DirectoryAnatomyFile `json:"files,omitempty"`
+}
+
+type DirectoryAnatomyFile struct {
+	Path            string                   `json:"path"`
+	Language        string                   `json:"language"`
+	StaleReason     string                   `json:"stale_reason,omitempty"`
+	Symbols         []DirectoryAnatomySymbol `json:"symbols,omitempty"`
+	SizeBytes       int                      `json:"size_bytes"`
+	EstimatedTokens int                      `json:"estimated_tokens"`
+	LineCount       int                      `json:"line_count"`
+	SymbolCount     int                      `json:"symbol_count"`
+	ChunkCount      int                      `json:"chunk_count"`
+}
+
+type DirectoryAnatomySymbol struct {
+	Kind       string `json:"kind,omitempty"`
+	Name       string `json:"name,omitempty"`
+	SymbolPath string `json:"symbol_path,omitempty"`
+	StartLine  int    `json:"start_line"`
+}
+
 type CodeIndexSummary struct {
 	Skipped       []string `json:"skipped,omitempty"`
 	Deleted       []string `json:"deleted,omitempty"`

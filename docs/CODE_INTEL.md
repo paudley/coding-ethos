@@ -205,6 +205,8 @@ bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --dispositi
 bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel index-code pkg scripts config.yml
+bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
+ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
 bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel compact-context --path pkg/app.go
@@ -225,6 +227,20 @@ bin/coding-ethos-run code-intel search --text 'unused import'
 
 These commands read retained `.coding-ethos` traces and write only the
 repo-local `.coding-ethos/code-intel.db` store.
+
+`anatomy-map` is inspired by Aider's repo map, which gives agents a compact
+symbol-level view before they spend context on full file reads. coding-ethos
+keeps the same core idea but uses the repo-local Go AST/code-intel store rather
+than Aider's prompt-time Python parser/cache and global PageRank ranking. The
+first implementation is intentionally directory-local so proxy listing
+enrichment can append concise file anatomy without replacing the original tool
+output. The `directory-anatomy-map` proxy transform preserves the raw directory
+listing and appends a compact TOON block with in-memory transform hashes and
+token counts returned by the shared agent proxy pipeline. `enrich-listing`
+accepts raw listing output from stdin or `--listing-file` and can infer the
+target directory from a static, single-target `ls` or `tree` command; future
+proxy interception should reuse the same detection and enrichment path when it
+persists proxy events.
 
 ## Implemented Storage Foundation
 

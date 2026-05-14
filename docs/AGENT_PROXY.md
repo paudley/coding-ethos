@@ -100,6 +100,28 @@ Compression must remain traceable. A compressed payload should carry metadata
 that records the omitted line count, and the corresponding proxy event should
 store the transform record in code-intel. Silent truncation is not allowed.
 
+## Directory Listing Anatomy
+
+Directory listing enrichment uses the same transform contract. The
+code-intel store builds a directory-local anatomy map from its AST index and
+`EnrichDirectoryListing` appends a compact TOON block to the raw listing text.
+The original listing remains intact, and the proxy pipeline returns the
+transform name, hashes, token counts, and injected file count to the caller. A
+transparent proxy must persist that returned transform record on its proxy
+event. The implementation is inspired by Aider's repo map, but it uses
+coding-ethos' repo-local AST ledger instead of reparsing source during prompt
+construction.
+
+The interception-adjacent command classifier lives in `agentproxy` and
+recognizes conservative single-target `ls` and `tree` invocations. The
+`code-intel enrich-listing` command is the runnable bridge for this behavior:
+it accepts raw listing output, infers the target directory from `--command` when
+`--path` is not supplied, refreshes direct child source files for that
+directory, and emits the original listing plus the anatomy block. The command
+does not create a proxy event; transparent proxy wiring should route listing
+tool output through that same classifier and enrichment API, then store the
+returned transform evidence.
+
 ## CEL And SARIF Contract
 
 Proxy facts exposed to CEL use the `proxy` input object. CEL may inspect the

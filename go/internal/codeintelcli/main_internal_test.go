@@ -66,11 +66,48 @@ func runApp() {
 		t.Fatalf("write source: %v", err)
 	}
 
+	nestedPath := filepath.Join(root, "cmd", "nested", "deep.go")
+	err = os.MkdirAll(filepath.Dir(nestedPath), 0o700)
+	if err != nil {
+		t.Fatalf("create nested source dir: %v", err)
+	}
+
+	err = os.WriteFile(nestedPath, []byte(`package nested
+
+func deep() {}
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write nested source: %v", err)
+	}
+
 	ctx := context.Background()
 
 	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd"})
 	if err != nil {
 		t.Fatalf("index-code command returned error: %v", err)
+	}
+
+	err = run(ctx, []string{
+		"anatomy-map", "--root", root, "--db", dbPath,
+		"--path", "cmd", "--symbols-per-file", "3", "--format", "toon",
+	})
+	if err != nil {
+		t.Fatalf("anatomy-map command returned error: %v", err)
+	}
+
+	listingPath := filepath.Join(root, "listing.txt")
+	err = os.WriteFile(listingPath, []byte("app.go\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write listing: %v", err)
+	}
+
+	err = run(ctx, []string{
+		"enrich-listing", "--root", root, "--db", dbPath,
+		"--command", "ls -la cmd", "--listing-file", listingPath,
+		"--symbols-per-file", "3",
+	})
+	if err != nil {
+		t.Fatalf("enrich-listing command returned error: %v", err)
 	}
 
 	err = run(ctx, []string{
@@ -97,10 +134,149 @@ func runApp() {
 		t.Fatalf("code-context by line returned error: %v", err)
 	}
 
+	err = run(ctx, []string{
+		"repo-map", "--root", root, "--db", dbPath,
+		"--path", "cmd/app.go",
+	})
+	if err != nil {
+		t.Fatalf("repo-map command returned error: %v", err)
+	}
+
+	err = run(ctx, []string{
+		"compact-context", "--root", root, "--db", dbPath,
+		"--path", "cmd/app.go",
+	})
+	if err != nil {
+		t.Fatalf("compact-context command returned error: %v", err)
+	}
+
 	err = run(ctx, []string{"code-context", "--root", root, "--db", dbPath})
 	if err == nil ||
 		!strings.Contains(err.Error(), "--chunk-id") {
 		t.Fatalf("code-context without identifier error = %v", err)
+	}
+}
+
+func TestListingTargetPathParsesSupportedCommands(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		path    string
+		command string
+		want    string
+	}{
+		{
+			name:    "explicit path wins",
+			path:    "pkg",
+			command: "ls docs",
+			want:    "pkg",
+		},
+		{
+			name:    "ls command path",
+			command: "ls -la cmd",
+			want:    "cmd",
+		},
+		{
+			name:    "tree command path",
+			command: "tree -L 2 go/internal",
+			want:    "go/internal",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := listingTargetPath(test.path, test.command)
+			if err != nil {
+				t.Fatalf("listingTargetPath returned error: %v", err)
+			}
+
+			if got != test.want {
+				t.Fatalf("path = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRepoRelativePathNormalizesInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "pkg")
+
+	got, err := repoRelativePath(root, target)
+	if err != nil {
+		t.Fatalf("repoRelativePath returned error: %v", err)
+	}
+
+	if got != "pkg" {
+		t.Fatalf("path = %q, want pkg", got)
+	}
+
+	got, err = repoRelativePath(root, ".")
+	if err != nil {
+		t.Fatalf("repoRelativePath root returned error: %v", err)
+	}
+
+	if got != "." {
+		t.Fatalf("root path = %q, want .", got)
+	}
+}
+
+func TestRepoRelativePathRejectsOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	_, err := repoRelativePath(t.TempDir(), filepath.Join(t.TempDir(), "other"))
+	if err == nil {
+		t.Fatal("expected outside-root path error")
+	}
+}
+
+func TestListingTargetPathRejectsUnsupportedCommands(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		command string
+	}{
+		{name: "missing target", command: ""},
+		{name: "unsupported tool", command: "find . -maxdepth 1"},
+		{name: "multiple shell commands", command: "ls cmd; ls docs"},
+		{name: "multiple listing targets", command: "ls cmd docs"},
+		{name: "dynamic shell target", command: "ls $DIR"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := listingTargetPath("", test.command)
+			if err == nil {
+				t.Fatal("expected listingTargetPath error")
+			}
+		})
+	}
+}
+
+func TestReadListingInputReadsFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "listing.txt")
+	err := os.WriteFile(path, []byte("app.go\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write listing: %v", err)
+	}
+
+	got, err := readListingInput(path)
+	if err != nil {
+		t.Fatalf("readListingInput returned error: %v", err)
+	}
+
+	if got != "app.go\n" {
+		t.Fatalf("listing = %q", got)
+	}
+
+	_, err = readListingInput(filepath.Join(t.TempDir(), "missing.txt"))
+	if err == nil {
+		t.Fatal("expected missing listing file error")
 	}
 }
 
