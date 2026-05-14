@@ -74,6 +74,29 @@ func runApp() {
 	}
 
 	err = run(ctx, []string{
+		"anatomy-map", "--root", root, "--db", dbPath,
+		"--path", "cmd", "--symbols-per-file", "3", "--format", "toon",
+	})
+	if err != nil {
+		t.Fatalf("anatomy-map command returned error: %v", err)
+	}
+
+	listingPath := filepath.Join(root, "listing.txt")
+	err = os.WriteFile(listingPath, []byte("app.go\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write listing: %v", err)
+	}
+
+	err = run(ctx, []string{
+		"enrich-listing", "--root", root, "--db", dbPath,
+		"--command", "ls -la cmd", "--listing-file", listingPath,
+		"--symbols-per-file", "3",
+	})
+	if err != nil {
+		t.Fatalf("enrich-listing command returned error: %v", err)
+	}
+
+	err = run(ctx, []string{
 		"code-chunks", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--symbol-name", "runApp",
 	})

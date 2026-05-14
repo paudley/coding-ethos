@@ -7,10 +7,28 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
+)
+
+const defaultAnatomyMapSymbolsPerFile = 6
+
+var (
+	errUnsupportedAnatomyMapFormat = apperror.StaticError(
+		"unsupported anatomy-map format",
+	)
+	errListingPathRequired = apperror.StaticError(
+		"listing path or listing command is required",
+	)
+	errListingCommandUnsupported = apperror.StaticError(
+		"listing command is not a supported single-target ls/tree invocation",
+	)
 )
 
 func indexCode(ctx context.Context, args []string) error {
@@ -64,6 +82,177 @@ func printCodeChunks(ctx context.Context, args []string) error {
 			})
 		},
 	)
+}
+
+func printAnatomyMap(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("anatomy-map", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root to inspect")
+	path := flags.String("path", ".", "Directory path to summarize")
+	language := flags.String("language", "", "Filter by language")
+	outputFormat := flags.String("format", "json", "Output format: json or toon")
+	symbolsPerFile := flags.Int(
+		"symbols-per-file",
+		defaultAnatomyMapSymbolsPerFile,
+		"Maximum symbols per file",
+	)
+	limit := addResultLimit(flags)
+
+	err := parseCommandFlags(flags, args, "anatomy-map")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, *storeFlags.root, []string{
+		*path,
+	})
+	if err != nil {
+		return fmt.Errorf("refresh anatomy map index: %w", err)
+	}
+
+	anatomy, err := store.DirectoryAnatomy(ctx, codeintel.DirectoryAnatomyQuery{
+		Path:           *path,
+		Language:       *language,
+		Limit:          *limit,
+		SymbolsPerFile: *symbolsPerFile,
+	})
+	if err != nil {
+		return fmt.Errorf("read anatomy map: %w", err)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(*outputFormat)) {
+	case "", "json":
+		return encodeJSON(os.Stdout, anatomy)
+	case "toon":
+		return printDirectoryAnatomyTOON(anatomy)
+	default:
+		return fmt.Errorf("%w: %s", errUnsupportedAnatomyMapFormat, *outputFormat)
+	}
+}
+
+func enrichDirectoryListing(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("enrich-listing", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root to inspect")
+	path := flags.String("path", "", "Directory path to summarize")
+	command := flags.String("command", "", "Original listing command")
+	listingFile := flags.String("listing-file", "", "File containing raw listing output")
+	language := flags.String("language", "", "Filter by language")
+	symbolsPerFile := flags.Int(
+		"symbols-per-file",
+		defaultAnatomyMapSymbolsPerFile,
+		"Maximum symbols per file",
+	)
+	limit := addResultLimit(flags)
+
+	err := parseCommandFlags(flags, args, "enrich-listing")
+	if err != nil {
+		return err
+	}
+
+	targetPath, err := listingTargetPath(*path, *command)
+	if err != nil {
+		return err
+	}
+
+	listing, err := readListingInput(*listingFile)
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, *storeFlags.root, []string{
+		targetPath,
+	})
+	if err != nil {
+		return fmt.Errorf("refresh listing anatomy index: %w", err)
+	}
+
+	output, err := store.EnrichDirectoryListing(ctx, codeintel.DirectoryAnatomyQuery{
+		Path:           targetPath,
+		Language:       *language,
+		Limit:          *limit,
+		SymbolsPerFile: *symbolsPerFile,
+	}, listing)
+	if err != nil {
+		return fmt.Errorf("enrich directory listing: %w", err)
+	}
+
+	_, err = fmt.Fprint(os.Stdout, output.Text)
+	if err != nil {
+		return fmt.Errorf("write enriched listing: %w", err)
+	}
+
+	return nil
+}
+
+func listingTargetPath(path, command string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path != "" {
+		return path, nil
+	}
+
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", errListingPathRequired
+	}
+
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return "", fmt.Errorf("parse listing command: %w", err)
+	}
+
+	if len(commands) != 1 {
+		return "", errListingCommandUnsupported
+	}
+
+	invocation, ok := agentproxy.DetectDirectoryListingInvocation(commands[0].Argv)
+	if !ok {
+		return "", errListingCommandUnsupported
+	}
+
+	return invocation.Path, nil
+}
+
+func readListingInput(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		payload, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read listing from stdin: %w", err)
+		}
+
+		return string(payload), nil
+	}
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read listing file %q: %w", path, err)
+	}
+
+	return string(payload), nil
+}
+
+func printDirectoryAnatomyTOON(anatomy codeintel.DirectoryAnatomy) error {
+	output := codeintel.RenderDirectoryAnatomyTOON(anatomy)
+	if output == "" {
+		return nil
+	}
+
+	_, err := fmt.Fprintln(os.Stdout, output)
+	if err != nil {
+		return fmt.Errorf("write anatomy map TOON: %w", err)
+	}
+
+	return nil
 }
 
 func printCodeContext(ctx context.Context, args []string) error {

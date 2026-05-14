@@ -1679,6 +1679,86 @@ func (worker Worker) Run() string {
 	})
 }
 
+func TestStoreBuildsDirectoryAnatomyMap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeFile(t, filepath.Join(root, "pkg", "app.go"), []byte(`package pkg
+
+func BuildMessage(name string) string {
+	return "hello " + name
+}
+
+type Worker struct{}
+`))
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(`def run_worker():
+    return "ok"
+`))
+	writeFile(t, filepath.Join(root, "pkg", "sub", "deep.go"), []byte(`package sub
+
+func Hidden() {}
+`))
+
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	anatomy, err := store.DirectoryAnatomy(ctx, DirectoryAnatomyQuery{
+		Path:           "pkg",
+		SymbolsPerFile: 2,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("directory anatomy: %v", err)
+	}
+
+	if anatomy.Path != "pkg" || len(anatomy.Files) != 2 {
+		t.Fatalf("anatomy = %#v", anatomy)
+	}
+
+	app := anatomyFileByPath(anatomy.Files, "pkg/app.go")
+	if app == nil ||
+		app.Language != "go" ||
+		app.EstimatedTokens == 0 ||
+		app.SymbolCount == 0 ||
+		!anatomyHasSymbol(*app, "BuildMessage") {
+		t.Fatalf("app anatomy = %#v", app)
+	}
+
+	if anatomyFileByPath(anatomy.Files, "pkg/sub/deep.go") != nil {
+		t.Fatalf("anatomy included nested file: %#v", anatomy.Files)
+	}
+
+	output, err := store.EnrichDirectoryListing(
+		ctx,
+		DirectoryAnatomyQuery{
+			Path:           "pkg",
+			SymbolsPerFile: 1,
+			Limit:          10,
+		},
+		"app.go\nworker.py\nsub\n",
+	)
+	if err != nil {
+		t.Fatalf("enrich directory listing: %v", err)
+	}
+
+	if !strings.HasPrefix(output.Text, "app.go\nworker.py\nsub\n") ||
+		!strings.Contains(output.Text, "coding_ethos_anatomy:") ||
+		output.Record.Name != DirectoryAnatomyTransformName ||
+		output.Record.Decision != "inject" {
+		t.Fatalf("enriched listing = %#v", output)
+	}
+}
+
 func TestASTIndexerStoresParentEdgesAndContext(t *testing.T) {
 	t.Parallel()
 
@@ -1853,6 +1933,29 @@ func assertBuildMessageChunk(t *testing.T, chunks []CodeChunk) {
 		!strings.Contains(chunks[0].RawText, "BuildMessage") {
 		t.Fatalf("chunk = %#v", chunks[0])
 	}
+}
+
+func anatomyFileByPath(
+	files []DirectoryAnatomyFile,
+	path string,
+) *DirectoryAnatomyFile {
+	for index := range files {
+		if files[index].Path == path {
+			return &files[index]
+		}
+	}
+
+	return nil
+}
+
+func anatomyHasSymbol(file DirectoryAnatomyFile, symbolName string) bool {
+	for _, symbol := range file.Symbols {
+		if symbol.Name == symbolName || symbol.SymbolPath == symbolName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func assertWorkerRunChunk(t *testing.T, chunks []CodeChunk) {

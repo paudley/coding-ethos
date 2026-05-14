@@ -364,6 +364,8 @@ SQLite code-intelligence store for repeated-failure and remediation search:
 bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
+ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
@@ -373,6 +375,14 @@ The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
 from retained traces, SARIF, AST chunks, proxy session events, remediation
 records, and vector metadata. It is not a replacement for hooks or CEL policy
 evaluation.
+
+The directory anatomy map is inspired by Aider's repo map: agents get a compact
+symbol preview before deciding which files to open, while coding-ethos keeps the
+repo-local Go AST index as the source of truth. The proxy transform preserves
+the original directory listing and appends a compact TOON anatomy block with
+normal transform evidence. `enrich-listing` is the runnable bridge for future
+proxy interception: it accepts raw `ls` or `tree` output and applies the same
+append-only transform that a transparent proxy should call.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows

@@ -54,11 +54,13 @@ type codeIntelCommand func(context.Context, []string) error
 
 func commandHandlers() map[string]codeIntelCommand {
 	return map[string]codeIntelCommand{
+		"anatomy-map":               printAnatomyMap,
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
 		"code-context":              printCodeContext,
 		"embedding-candidates":      printEmbeddingCandidates,
 		"embedding-records":         printEmbeddingRecords,
+		"enrich-listing":            enrichDirectoryListing,
 		"hook-reviews":              printHookReviews,
 		"hook-usage":                printHookUsage,
 		"repeated-edits":            printRepeatedEdits,
