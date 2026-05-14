@@ -67,6 +67,10 @@ func runTSC(_ Config, paths []string) int {
 	return runCatalogLintTool("tsc", paths)
 }
 
+func runKubeLinter(_ Config, paths []string) int {
+	return runCatalogLintTool("kube-linter", paths)
+}
+
 func runCatalogLintTool(name string, paths []string) int {
 	files := toolchainFiles(name, existingFiles(paths))
 	if len(files) == 0 {

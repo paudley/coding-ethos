@@ -92,6 +92,109 @@ func parseHadolintJSON(output string) []Diagnostic {
 	return diagnostics
 }
 
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterPayload struct {
+	Reports []kubeLinterReport `json:"Reports"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterReport struct {
+	Diagnostic  kubeLinterDiagnostic `json:"Diagnostic"`
+	Object      kubeLinterObject     `json:"Object"`
+	Check       string               `json:"Check"`
+	Remediation string               `json:"Remediation"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterDiagnostic struct {
+	Message string `json:"Message"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterObject struct {
+	Metadata  kubeLinterMetadata  `json:"Metadata"`
+	K8sObject kubeLinterK8sObject `json:"K8sObject"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterMetadata struct {
+	FilePath string `json:"FilePath"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterK8sObject struct {
+	GroupVersionKind kubeLinterGroupVersionKind `json:"GroupVersionKind"`
+	Namespace        string                     `json:"Namespace"`
+	Name             string                     `json:"Name"`
+}
+
+//nolint:tagliatelle // kube-linter JSON uses exported Go-style field names.
+type kubeLinterGroupVersionKind struct {
+	Group   string `json:"Group"`
+	Version string `json:"Version"`
+	Kind    string `json:"Kind"`
+}
+
+func parseKubeLinter(output string) []Diagnostic {
+	var payload kubeLinterPayload
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	if err != nil {
+		return nil
+	}
+
+	diagnostics := make([]Diagnostic, 0, len(payload.Reports))
+	for _, report := range payload.Reports {
+		message := strings.TrimSpace(report.Diagnostic.Message)
+		code := strings.TrimSpace(report.Check)
+
+		if message == "" && code == "" {
+			continue
+		}
+
+		diagnostics = append(diagnostics, Diagnostic{
+			Tool:     "kube-linter",
+			File:     strings.TrimSpace(report.Object.Metadata.FilePath),
+			Severity: severityError,
+			Code:     code,
+			Message:  message,
+			Advice:   strings.TrimSpace(report.Remediation),
+			Metadata: kubeLinterMetadataMap(report.Object.K8sObject),
+		})
+	}
+
+	return diagnostics
+}
+
+func kubeLinterMetadataMap(object kubeLinterK8sObject) map[string]any {
+	metadata := map[string]any{}
+	if object.Name != "" {
+		metadata["name"] = object.Name
+	}
+
+	if object.Namespace != "" {
+		metadata["namespace"] = object.Namespace
+	}
+
+	if object.GroupVersionKind.Group != "" {
+		metadata["group"] = object.GroupVersionKind.Group
+	}
+
+	if object.GroupVersionKind.Version != "" {
+		metadata["version"] = object.GroupVersionKind.Version
+	}
+
+	if object.GroupVersionKind.Kind != "" {
+		metadata["kind"] = object.GroupVersionKind.Kind
+	}
+
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	return metadata
+}
+
 func parseActionlint(output string) []Diagnostic {
 	if diagnostics := parseActionlintJSON(output); len(diagnostics) > 0 {
 		return diagnostics

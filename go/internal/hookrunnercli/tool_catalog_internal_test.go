@@ -24,6 +24,7 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		".github/workflows/ci.yml",
 		toolCatalogGoFile,
 		"config.yaml",
+		"deploy/pod.yaml",
 		"pyproject.toml",
 		"queries/report.sql",
 		"pkg/app.py",
@@ -40,11 +41,17 @@ func TestToolchainFilesUsesCatalogMetadata(t *testing.T) {
 		t,
 		paths,
 		"yamllint",
-		[]string{".github/workflows/ci.yml", "config.yaml"},
+		[]string{".github/workflows/ci.yml", "config.yaml", "deploy/pod.yaml"},
 	)
 	assertToolchainFiles(t, paths, "shfmt", []string{"script.sh"})
 	assertToolchainFiles(t, paths, "tsc", []string{"web/app.ts"})
 	assertToolchainFiles(t, paths, "eslint", []string{"web/app.js", "web/app.ts"})
+	assertToolchainFiles(
+		t,
+		paths,
+		"kube-linter",
+		[]string{".github/workflows/ci.yml", "config.yaml", "deploy/pod.yaml"},
+	)
 
 	for name, want := range map[string]string{
 		"bandit":        "pkg/app.py",

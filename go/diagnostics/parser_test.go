@@ -292,6 +292,27 @@ func TestParseTSCPathlessDiagnostic(t *testing.T) {
 	})
 }
 
+func TestParseKubeLinterDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	parsed := diagnostics.Parse("kube-linter", kubeLinterPayload(), "")
+
+	assertDiagnostic(t, parsed, diagnostics.Diagnostic{
+		Tool:     "kube-linter",
+		File:     "deploy/pod.yaml",
+		Severity: "error",
+		Code:     "privileged-container",
+		Message:  `container "app" is privileged`,
+		Advice:   "Do not run your container as privileged unless it is required.",
+		Metadata: map[string]any{
+			"kind":      "Pod",
+			"name":      "unsafe-pod",
+			"namespace": "default",
+			"version":   "v1",
+		},
+	})
+}
+
 func TestParseTypeCheckerPolicyCodes(t *testing.T) {
 	t.Parallel()
 
@@ -591,6 +612,7 @@ func parserFixtureTools() map[string]bool {
 		"ruff":                  true,
 		"eslint":                true,
 		"tsc":                   true,
+		"kube-linter":           true,
 		"ruff-autofix":          true,
 		"ruff-format":           true,
 		"pytest":                true,
@@ -1512,3 +1534,12 @@ const goTestFixture = `{"Action":"run","Package":"blackcat.ca/coding-ethos/` +
 	`go/cmd/coding-ethos-policy","Test":"TestPolicyUsage","Elapsed":0}` + "\n" +
 	`{"Action":"pass","Package":"blackcat.ca/coding-ethos/go/internal/hooks",` +
 	`"Elapsed":0.187}`
+
+func kubeLinterPayload() string {
+	return `{"Reports":[{"Diagnostic":{"Message":"container \"app\" is privileged"},` +
+		`"Check":"privileged-container",` +
+		`"Remediation":"Do not run your container as privileged unless it is required.",` +
+		`"Object":{"Metadata":{"FilePath":"deploy/pod.yaml"},` +
+		`"K8sObject":{"Namespace":"default","Name":"unsafe-pod",` +
+		`"GroupVersionKind":{"Group":"","Version":"v1","Kind":"Pod"}}}}]}`
+}
