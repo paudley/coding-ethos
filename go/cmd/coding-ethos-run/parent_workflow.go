@@ -410,6 +410,7 @@ func parentGoToolCommands(paths runtimePaths) ([]string, error) {
 		}
 
 		mainPath := filepath.Join(cmdRoot, entry.Name(), "main.go")
+
 		info, err := os.Stat(mainPath)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
