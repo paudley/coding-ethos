@@ -99,6 +99,10 @@ func assertCompiledCorePolicies(t *testing.T, bundle Bundle) {
 		)
 	}
 
+	if _, found := bundle.Policies["git.history_rewrite_prevention"]; !found {
+		t.Fatalf("missing compiled history rewrite policy")
+	}
+
 	if _, found := bundle.Policies["python.structured_logging"]; found {
 		t.Fatalf("structured logging policy should be disabled by fixture config")
 	}
@@ -503,6 +507,7 @@ git:
 	for _, policyID := range []string{
 		"git.destructive_worktree",
 		"git.stash_blocked",
+		"git.history_rewrite_prevention",
 	} {
 		policyDef := bundle.Policies[policyID]
 		if len(policyDef.Evaluators) != 1 ||
@@ -2062,7 +2067,7 @@ func writeTestFile(t *testing.T, path, content string) {
 func testEthosYAML(t *testing.T) string {
 	t.Helper()
 
-	return strings.Replace(
+	withLineLimits := strings.Replace(
 		testEthosYAMLTemplate,
 		"          when:",
 		strings.Join([]string{
@@ -2074,6 +2079,32 @@ func testEthosYAML(t *testing.T) string {
 		}, "\n"),
 		1,
 	)
+
+	return strings.Replace(
+		withLineLimits,
+		"        - id: git.force_push_protected_branch",
+		testHistoryRewritePolicyYAML()+"\n        - id: git.force_push_protected_branch",
+		1,
+	)
+}
+
+func testHistoryRewritePolicyYAML() string {
+	return strings.Join([]string{
+		"        - id: git.history_rewrite_prevention",
+		"          scope: command",
+		"          severity: block",
+		"          mode: block",
+		"          tools: [Bash]",
+		"          lint_scopes: [staged]",
+		"          message: Branch history rewriting is forbidden.",
+		"          advice: Make a new commit that preserves review history.",
+		"          when: >-",
+		"            git_command.is_git &&",
+		"            (git_command.has_commit_amend ||",
+		"            git_command.has_force_push ||",
+		"            git_command.has_branch_rewrite_reset ||",
+		"            git_command.has_forced_branch_move)",
+	}, "\n")
 }
 
 const testEthosYAMLTemplate = `

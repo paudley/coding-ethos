@@ -622,6 +622,8 @@ git:
     enabled: true
   merge_strategy_shortcut:
     enabled: true
+  history_rewrite_prevention:
+    enabled: true
   force_push_protected_branch:
     enabled: true
   checkout_protected_branch:

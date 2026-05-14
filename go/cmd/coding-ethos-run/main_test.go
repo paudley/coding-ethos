@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
@@ -355,6 +356,46 @@ func TestParentStepHelpersReportPassAndFail(t *testing.T) {
 	}
 
 	exitForFailedParentSteps([]parentWorkflowStep{passed})
+}
+
+func TestParentGoToolsCheckFailsWhenBinaryIsStale(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	sourceRoot := parentGoToolsSourceFixture(t, paths.EthosRoot)
+	paths.ToolsSource = sourceRoot
+
+	oldTime := time.Now().Add(-2 * time.Hour)
+	newTime := time.Now().Add(-1 * time.Hour)
+
+	touchParentGoTools(t, paths, oldTime)
+	writeParentGoSource(t, sourceRoot, "internal/runtime/source.go", newTime)
+
+	err := checkParentGoTools(paths, parentWorkflowOptions{Repo: paths.Root})
+	if err == nil ||
+		!strings.Contains(err.Error(), "parent Go tools are stale") ||
+		!strings.Contains(err.Error(), "coding-ethos-run(stale)") {
+		t.Fatalf("checkParentGoTools error = %v", err)
+	}
+}
+
+func TestParentGoToolsCheckPassesWhenBinariesAreCurrent(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	sourceRoot := parentGoToolsSourceFixture(t, paths.EthosRoot)
+	paths.ToolsSource = sourceRoot
+
+	oldTime := time.Now().Add(-2 * time.Hour)
+	newTime := time.Now().Add(-1 * time.Hour)
+
+	writeParentGoSource(t, sourceRoot, "internal/runtime/source.go", oldTime)
+	touchParentGoTools(t, paths, newTime)
+
+	err := checkParentGoTools(paths, parentWorkflowOptions{Repo: paths.Root})
+	if err != nil {
+		t.Fatalf("checkParentGoTools: %v", err)
+	}
 }
 
 func TestPrintParentWorkflowReportEmitsTOON(t *testing.T) { //nolint:paralleltest
@@ -1540,6 +1581,73 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 	}
 
 	return paths
+}
+
+func parentGoToolsSourceFixture(t *testing.T, ethosRoot string) string {
+	t.Helper()
+
+	sourceRoot := filepath.Join(ethosRoot, "go")
+	oldTime := time.Now().Add(-3 * time.Hour)
+	for _, tool := range parentGoToolCommands {
+		mainPath := filepath.Join(sourceRoot, "cmd", tool, "main.go")
+		err := os.MkdirAll(filepath.Dir(mainPath), 0o755)
+		if err != nil {
+			t.Fatalf("create source dir: %v", err)
+		}
+
+		err = os.WriteFile(mainPath, []byte("package main\n"), 0o600)
+		if err != nil {
+			t.Fatalf("write source: %v", err)
+		}
+
+		err = os.Chtimes(mainPath, oldTime, oldTime)
+		if err != nil {
+			t.Fatalf("touch source: %v", err)
+		}
+	}
+
+	writeParentGoSource(t, sourceRoot, "go.mod", oldTime)
+
+	return sourceRoot
+}
+
+func writeParentGoSource(
+	t *testing.T,
+	sourceRoot string,
+	relative string,
+	modTime time.Time,
+) {
+	t.Helper()
+
+	path := filepath.Join(sourceRoot, relative)
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
+		t.Fatalf("create source parent: %v", err)
+	}
+
+	err = os.WriteFile(path, []byte("package runtime\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source file: %v", err)
+	}
+
+	err = os.Chtimes(path, modTime, modTime)
+	if err != nil {
+		t.Fatalf("touch source file: %v", err)
+	}
+}
+
+func touchParentGoTools(t *testing.T, paths runtimePaths, modTime time.Time) {
+	t.Helper()
+
+	for _, tool := range parentGoToolCommands {
+		toolPath := filepath.Join(paths.BinDir, tool)
+		writeExecutableFixture(t, toolPath, "#!/usr/bin/env sh\nexit 0\n")
+
+		err := os.Chtimes(toolPath, modTime, modTime)
+		if err != nil {
+			t.Fatalf("touch tool %s: %v", tool, err)
+		}
+	}
 }
 
 type stubRuntimeOps struct {

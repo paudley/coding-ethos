@@ -357,7 +357,9 @@ Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 Set `repo.protected_branch_work.enabled: false` in `repo_config.yaml` when a
 consumer intentionally permits direct work on main/master. The switch disables
 branch-switch blocking and protected-branch file-write blocking together; it
-does not disable force-push protection.
+does not disable history-rewrite prevention. Amend commits, force pushes,
+branch-moving resets, `git checkout -B`, and `git branch -f` remain blocked;
+make a new commit instead.
 
 License enforcement is intentionally not inherited from the bundle defaults.
 Consumers opt in with `repo.license.spdx_identifier` in `repo_config.yaml`; the

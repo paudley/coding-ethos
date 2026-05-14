@@ -3121,6 +3121,28 @@ principles:
             git_command.is_git &&
             git_command.subcommand == "merge" &&
             git_command.has_merge_strategy_shortcut
+        - id: git.history_rewrite_prevention
+          scope: command
+          severity: block
+          mode: block
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Branch history rewriting is forbidden.
+          advice: >-
+            Make a new commit that preserves review history instead of
+            amending, force pushing, resetting branch history, or forcibly
+            moving a branch pointer.
+          when: >-
+            git_command.is_git &&
+            (
+              git_command.has_commit_amend ||
+              git_command.has_force_push ||
+              git_command.has_branch_rewrite_reset ||
+              git_command.has_forced_branch_move
+            )
         - id: git.force_push_protected_branch
           scope: command
           severity: block

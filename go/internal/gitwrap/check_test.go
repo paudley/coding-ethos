@@ -99,6 +99,67 @@ func TestCheckAllowsUnknownOperation(t *testing.T) {
 	}
 }
 
+func TestCheckBlocksHistoryRewriteCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"branch force":         {"branch", "-f", "topic", "HEAD~1"},
+		"checkout branch move": {"checkout", "-B", "topic", "main"},
+		"commit amend":         {"commit", "--amend", "-m", "fix"},
+		"force push":           {"push", "--force-with-lease", "origin", "topic"},
+		"reset branch":         {"reset", "--soft", "HEAD~1"},
+	}
+
+	for name, argv := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Check(policy.ExampleBundle(), Options{Argv: argv})
+			if err != nil {
+				t.Fatalf("check git wrapper: %v", err)
+			}
+
+			if result.Status != checkStatusBlocked {
+				t.Fatalf("status mismatch: got %q", result.Status)
+			}
+
+			if len(result.Decisions) == 0 ||
+				result.Decisions[0].PolicyID != "git.history_rewrite_prevention" {
+				t.Fatalf("policy mismatch: %#v", result.Decisions)
+			}
+		})
+	}
+}
+
+func TestCheckAllowsRebaseAndNonMovingReset(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string][]string{
+		"rebase":         {"rebase", "main"},
+		"reset head":     {"reset", "HEAD"},
+		"reset pathspec": {"reset", "HEAD", "--", "file.txt"},
+	}
+
+	for name, argv := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Check(policy.ExampleBundle(), Options{Argv: argv})
+			if err != nil {
+				t.Fatalf("check git wrapper: %v", err)
+			}
+
+			if result.Status != checkStatusAllowed {
+				t.Fatalf(
+					"status mismatch: got %q decisions %#v",
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
+	}
+}
+
 func TestCheckBlocksProtectedSubmoduleInit(t *testing.T) {
 	t.Parallel()
 

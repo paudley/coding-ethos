@@ -632,6 +632,68 @@ func TestActivationPopulatesGitCommandGlobalOptionValues(t *testing.T) {
 	}
 }
 
+func TestActivationPopulatesGitHistoryRewriteFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		argv                   []string
+		wantCommitAmend        bool
+		wantForcePush          bool
+		wantBranchRewriteReset bool
+		wantForcedBranchMove   bool
+	}{
+		"commit amend": {
+			argv:            []string{"git", "commit", "--amend", "-m", "fix"},
+			wantCommitAmend: true,
+		},
+		"force push": {
+			argv:          []string{"git", "push", "--force-with-lease", "origin", "topic"},
+			wantForcePush: true,
+		},
+		"reset moves branch": {
+			argv:                   []string{"git", "reset", "--soft", "HEAD~1"},
+			wantBranchRewriteReset: true,
+		},
+		"reset index to head": {
+			argv: []string{"git", "reset", "HEAD"},
+		},
+		"reset pathspec": {
+			argv: []string{"git", "reset", "HEAD", "--", "file.txt"},
+		},
+		"checkout forced branch move": {
+			argv:                 []string{"git", "checkout", "-B", "topic", "main"},
+			wantForcedBranchMove: true,
+		},
+		"branch forced move": {
+			argv:                 []string{"git", "branch", "--force", "topic", "HEAD~1"},
+			wantForcedBranchMove: true,
+		},
+		"rebase remains allowed": {
+			argv: []string{"git", "rebase", "main"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			activation := Activation(ActivationInput{Argv: tc.argv})
+
+			gitCommand, found := activation["git_command"].(GitCommandInput)
+			if !found {
+				t.Fatalf("git command input = %#v", activation["git_command"])
+			}
+
+			if gitCommand.HasCommitAmend != tc.wantCommitAmend ||
+				gitCommand.HasForcePush != tc.wantForcePush ||
+				gitCommand.HasBranchRewriteReset != tc.wantBranchRewriteReset ||
+				gitCommand.HasForcedBranchMove != tc.wantForcedBranchMove {
+				t.Fatalf("git command input = %#v", gitCommand)
+			}
+		})
+	}
+}
+
 func TestActivationStopsGitFlagParsingAtPathspecSeparator(t *testing.T) {
 	t.Parallel()
 

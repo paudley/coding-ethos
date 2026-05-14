@@ -90,6 +90,8 @@ similarity:
 git:
   hook_bypass:
     enabled: true
+  history_rewrite_prevention:
+    enabled: true
   stash_blocked:
     enabled: true
   protected_submodule_update:

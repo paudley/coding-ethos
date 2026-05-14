@@ -546,6 +546,28 @@ func gitCleanForceDelete(flags []string) bool {
 		listContains(flags, "-d")
 }
 
+func gitBranchRewriteReset(subcommand string, args []string) bool {
+	if subcommand != "reset" || listContains(args, "--") {
+		return false
+	}
+
+	for _, arg := range args {
+		if arg == "" || strings.HasPrefix(arg, "-") || arg == "HEAD" {
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func gitForcedBranchMove(subcommand string, flags []string) bool {
+	return (subcommand == gitCheckoutSubcommand && listContains(flags, "-B")) ||
+		(subcommand == "branch" &&
+			(listContains(flags, "-f") || listContains(flags, "--force")))
+}
+
 func gitHasForcePush(flags []string) bool {
 	return listContains(flags, "--force") ||
 		listContains(flags, "--force-with-lease") ||

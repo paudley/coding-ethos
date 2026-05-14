@@ -768,8 +768,10 @@ SPDX source headers.
 Consumer repos that intentionally allow direct work on protected branches can
 set `repo.protected_branch_work.enabled: false` in `repo_config.yaml`. That
 repo-level switch disables branch-switch blocking and protected-branch
-file-write blocking together while leaving force-push protection enabled unless
-the repo explicitly disables `git.force_push_protected_branch`.
+file-write blocking together while leaving history-rewrite prevention enabled.
+The history-rewrite policy blocks amend commits, force pushes, branch-moving
+resets, `git checkout -B`, and `git branch -f`; use a new commit instead of
+rewriting review history.
 
 See [repo_config.example.yaml](repo_config.example.yaml).
 
