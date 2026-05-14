@@ -506,6 +506,7 @@ func toolDisplayNameEntries() []toolDisplayNameEntry {
 		{Name: "golangci-lint-format", DisplayName: "golangci-lint format"},
 		{Name: "golines", DisplayName: "golines"},
 		{Name: "hadolint", DisplayName: "hadolint"},
+		{Name: "kube-linter", DisplayName: "kube-linter"},
 		{Name: "mypy", DisplayName: "mypy"},
 		{Name: "pylint", DisplayName: "Pylint"},
 		{Name: "pyright", DisplayName: "Pyright"},
@@ -530,6 +531,7 @@ func toolchainToolDefinitions() []Tool {
 		dotenvLinterTool(),
 		eslintTool(),
 		tscTool(),
+		kubeLinterTool(),
 		golangciLintTool(),
 		golinesTool(),
 	}
@@ -967,6 +969,43 @@ func tscTool() Tool {
 		Languages:        []string{"typescript"},
 		RepoConfig:       "tsconfig.json",
 		PassFilesAsArgs:  false,
+		Fast:             false,
+		EnabledByDefault: false,
+	}
+}
+
+func kubeLinterTool() Tool {
+	return Tool{
+		Name:         "kube-linter",
+		Parser:       "kube-linter",
+		Captured:     true,
+		Category:     "kubernetes-security",
+		OutputFormat: "json",
+		Advice: adviceText(
+			"Fix Kubernetes manifest findings with least-privilege pod",
+			"security settings and explicit resource boundaries.",
+		),
+		Runtime: RuntimeGo,
+		Command: []string{
+			"kube-linter",
+			"lint",
+			"--format",
+			"json",
+		},
+		CaptureOutputArgs: []string{
+			"--format",
+			"json",
+		},
+		CaptureStripArgs: []string{
+			"--format",
+		},
+		CaptureAfterFirst: []string{"lint"},
+		FileExtensions: []string{
+			".yaml",
+			".yml",
+		},
+		Languages:        []string{"kubernetes"},
+		PassFilesAsArgs:  true,
 		Fast:             false,
 		EnabledByDefault: false,
 	}

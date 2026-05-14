@@ -206,6 +206,7 @@ func parserEntries() []parserEntry {
 		{Name: "gemini", Parser: parseGemini},
 		{Name: "gemini-check", Parser: parseGemini},
 		{Name: "hadolint", Parser: parseHadolint},
+		{Name: "kube-linter", Parser: parseKubeLinter},
 		{Name: "mypy", Parser: parseMypy},
 		{Name: "pylint", Parser: parsePylint},
 		{Name: "pyright", Parser: parsePyright},

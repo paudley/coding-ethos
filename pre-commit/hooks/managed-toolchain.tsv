@@ -11,3 +11,4 @@ golines	go	github.com/segmentio/golines	v0.13.0	-	golines	-	go-bin
 dotenv-linter	github	dotenv-linter/dotenv-linter	v4.0.0	linux-x86_64	dotenv-linter	9e2f1f6eb88a71ac15ef209f78f5a68644db82f132d2677112b4f80ec2bd2127	github-bin
 eslint	npm	eslint	10.3.0	npm-locks/eslint-10.3.0	eslint	sha512-XbEXaRva5cF0ZQB8w6MluHA0kZZfV2DuCMJ3ozyEOHLwDpZX2Lmm/7Pp0xdJmI0GL1W05VH5VwIFHEm1Vcw2gw==	github-bin
 tsc	npm	typescript	5.6.3	npm-locks/typescript-5.6.3	tsc	sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==	github-bin
+kube-linter	go	golang.stackrox.io/kube-linter/cmd/kube-linter	v0.7.6	-	kube-linter	-	go-bin

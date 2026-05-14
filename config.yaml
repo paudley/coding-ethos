@@ -420,6 +420,27 @@ policy:
           - Do not bypass type checking with broad any casts or unchecked excludes.
         rerun:
           - make pre-commit
+    - source: kube-linter
+      codes:
+        - "*"
+      policy_id: kubernetes.manifest_security
+      skill_id: lint-remediation
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - linting-as-code-quality-enforcement
+        - security-by-design
+      confidence: high
+      meaning: >-
+        kube-linter found a Kubernetes manifest safety, least-privilege, or
+        resource-boundary issue that should be fixed before deployment.
+      advice:
+        summary: Fix the Kubernetes manifest finding structurally.
+        steps:
+          - Keep kube-linter execution routed through the managed coding-ethos wrapper.
+          - Prefer least-privilege pod security settings and explicit resource limits.
+          - Do not silence manifest findings without documenting the operational exception.
+        rerun:
+          - make pre-commit
     - source: ruff
       message_substrings:
         - configuration or usage failed
@@ -494,6 +515,32 @@ policy:
           - Run tsc through the coding-ethos capture wrapper.
           - Keep the project boundary explicit with tsconfig.json.
           - Rebuild the managed toolchain if the TypeScript package or wrapper is missing.
+        rerun:
+          - make build
+          - make pre-commit
+    - source: kube-linter
+      message_substrings:
+        - configuration or usage failed
+        - failed to load config
+        - failed to parse
+        - no valid objects found
+      policy_id: tool.managed_config
+      skill_id: managed-toolchain
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - one-path-for-critical-operations
+      confidence: high
+      meaning: >-
+        kube-linter failed before producing normal manifest diagnostics,
+        usually because the managed Go binary, invocation, or Kubernetes
+        manifest boundary drifted away from the coding-ethos runtime contract.
+      advice:
+        summary: Restore managed kube-linter execution before interpreting manifest findings.
+        steps:
+          - Run kube-linter through the coding-ethos capture wrapper.
+          - Pass explicit Kubernetes manifest paths rather than relying on host discovery.
+          - Rebuild the managed toolchain if the kube-linter binary is missing.
         rerun:
           - make build
           - make pre-commit

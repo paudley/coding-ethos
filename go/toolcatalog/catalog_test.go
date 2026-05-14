@@ -167,6 +167,7 @@ func toolchainCommandExpectations() map[string][]string {
 		"dotenv-linter": {"dotenv-linter", "--plain", "--quiet", "check"},
 		"eslint":        {"eslint", "--format", "json"},
 		"tsc":           {"tsc", "--noEmit", "--pretty", "false"},
+		"kube-linter":   {"kube-linter", "lint", "--format", "json"},
 		"golangci-lint": {"golangci-lint", "run"},
 		"golines":       {"golines", "-w", "-m", "88"},
 	}
@@ -199,6 +200,7 @@ func toolchainCategoryExpectations() map[string]string {
 		"dotenv-linter": "dotenv",
 		"eslint":        "javascript-static",
 		"tsc":           "typescript-static",
+		"kube-linter":   "kubernetes-security",
 		"golangci-lint": "go-static",
 		"golines":       "format",
 	}
@@ -271,6 +273,9 @@ func toolchainFileMetadataExpectations() map[string]toolFileMetadataExpectation 
 		},
 		"tsc": {
 			extensions: []string{".ts", ".tsx", ".mts", ".cts"},
+		},
+		"kube-linter": {
+			extensions: []string{".yaml", ".yml"},
 		},
 		"golangci-lint": {
 			extensions: []string{".go"},
@@ -371,6 +376,7 @@ func TestHookOwnedCapturedToolsExposeCaptureMetadata(t *testing.T) {
 		"sqlfluff",
 		"eslint",
 		"tsc",
+		"kube-linter",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -411,6 +417,7 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 		"dotenv-linter",
 		"eslint",
 		"tsc",
+		"kube-linter",
 	} {
 		tool, found := toolcatalog.HookOwnedTool(name)
 		if !found {
@@ -776,6 +783,11 @@ func toolCaptureArgsForceCatalogOutputCases() []toolCaptureArgsCase {
 			name: "tsc",
 			args: []string{"--pretty", "true", "--project", "tsconfig.dev.json"},
 			want: []string{"--noEmit", "--pretty", "false"},
+		},
+		{
+			name: "kube-linter",
+			args: []string{"lint", "--format", "plain", "deploy/pod.yaml"},
+			want: []string{"lint", "--format", "json", "deploy/pod.yaml"},
 		},
 		{
 			name: "golangci-lint",

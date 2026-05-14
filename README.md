@@ -975,11 +975,12 @@ For non-linter Python commands, hooks prefer the consumer repo environment:
 adds `<repo>/.venv/bin` to `PATH` after coding-ethos-managed directories so
 protected shims remain first.
 Binary linters such as ShellCheck, actionlint, hadolint, dotenv-linter,
-golangci-lint, ESLint, and `tsc` are installed into `build/toolchain/` through the
-managed installer. ShellCheck, actionlint, and hadolint use pinned GitHub
-release assets with SHA-256 digests; actionlint and golangci-lint are built
-into the managed Go bin directory with the repo Go toolchain; ESLint and `tsc`
-are installed from checked-in npm lockfiles and exposed through managed wrappers.
+golangci-lint, kube-linter, ESLint, and `tsc` are installed into
+`build/toolchain/` through the managed installer. ShellCheck, actionlint, and
+hadolint use pinned GitHub release assets with SHA-256 digests; actionlint,
+golangci-lint, and kube-linter are built into the managed Go bin directory with
+the repo Go toolchain; ESLint and `tsc` are installed from checked-in npm
+lockfiles and exposed through managed wrappers.
 The source manifest lives at `pre-commit/hooks/managed-toolchain.tsv`, and the
 installed toolchain writes `build/toolchain/manifest.tsv`. Hook execution treats
 missing managed binaries as runtime artifact failures instead of falling back to
@@ -992,6 +993,11 @@ repo opts in and owns an explicit ESLint config boundary.
 TypeScript project boundary with `--noEmit --pretty false --project
 <repo>/tsconfig.json`, because TypeScript compiler diagnostics are
 project-level facts rather than safe per-file checks.
+kube-linter is registered as the `kubernetes` hook group and as a managed
+capture tool. It first filters YAML candidates to documents that parse with
+top-level Kubernetes `apiVersion` and `kind` fields, then runs those manifest
+paths with `lint --format json`; the hook group is opt-in so generic YAML files
+are not passed to kube-linter by extension alone.
 
 Current managed lint and analyzer integrations:
 
@@ -1012,6 +1018,7 @@ Current managed lint and analyzer integrations:
 | golangci-lint | Go | pinned Go install | JSON |
 | ESLint | JavaScript and TypeScript | pinned npm lockfile | JSON |
 | tsc | TypeScript | pinned npm lockfile | text |
+| kube-linter | Kubernetes YAML | pinned Go install | JSON |
 
 The repo Makefile exposes only unified managed tool groups for ordinary source
 quality work: `make lint` runs the `linters` group, `make format` runs the

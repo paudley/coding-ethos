@@ -236,8 +236,8 @@ func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 	}
 
 	yamlFile, found, err := Analyze(
-		"config.yaml",
-		[]byte("tooling:\n  enabled: true\n"),
+		"deploy/pod.yaml",
+		[]byte("apiVersion: v1\nkind: Pod\nmetadata:\n  name: unsafe-pod\n"),
 	)
 	if err != nil {
 		t.Fatalf("analyze yaml: %v", err)
@@ -245,6 +245,11 @@ func TestAnalyzeHandlesShellAndYAMLFacts(t *testing.T) {
 
 	if !found || yamlFile.Language != "yaml" || len(yamlFile.Symbols) == 0 {
 		t.Fatalf("yaml facts = %#v ok=%v", yamlFile, found)
+	}
+
+	if !hasSymbol(yamlFile.Symbols, "kind", "config_entry") ||
+		!hasSymbol(yamlFile.Symbols, "metadata.name", "config_entry") {
+		t.Fatalf("kubernetes yaml facts missing expected entries: %#v", yamlFile.Symbols)
 	}
 }
 

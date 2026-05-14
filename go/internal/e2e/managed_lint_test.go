@@ -286,6 +286,82 @@ func TestManagedTSCCaptureProducesRealSARIF(t *testing.T) {
 	}
 }
 
+func TestManagedKubeLinterCaptureRunsRealToolAgainstManifest(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	repo.Touch(t, "deploy/pod.yaml", unsafeKubernetesPod())
+
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--json",
+		"--managed-capture-tool",
+		"kube-linter",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+		"lint",
+		"--do-not-auto-add-defaults",
+		"--include",
+		"privileged-container",
+		"deploy/pod.yaml",
+	)
+	result.RequireExit(t, 1)
+
+	for _, want := range []string{
+		`"tool": "kube-linter"`,
+		`"code": "privileged-container"`,
+		`"file": "deploy/pod.yaml"`,
+		`"policy_id": "kubernetes.manifest_security"`,
+		`"parse_status": "parsed"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
+func TestManagedKubeLinterCaptureProducesRealSARIF(t *testing.T) {
+	t.Parallel()
+
+	repo := preparedManagedLintRepo(t)
+	repo.Touch(t, "deploy/pod.yaml", unsafeKubernetesPod())
+
+	result := repo.CodingEthosRun(
+		t,
+		"policy-lint",
+		"--sarif",
+		"--managed-capture-tool",
+		"kube-linter",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--consumer-root",
+		repo.Root,
+		"--invocation-cwd",
+		repo.Root,
+		"--",
+		"lint",
+		"--do-not-auto-add-defaults",
+		"--include",
+		"privileged-container",
+		"deploy/pod.yaml",
+	)
+	result.RequireExit(t, 1)
+
+	for _, want := range []string{
+		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+		`"ruleId": "kubernetes.manifest_security"`,
+		`"uri": "deploy/pod.yaml"`,
+		`"source_tool": "kube-linter"`,
+		`"code": "privileged-container"`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
 func TestGeneratedConfigDriftProducesTraceAndSARIF(t *testing.T) {
 	t.Parallel()
 
@@ -483,6 +559,19 @@ func typescriptConfig() string {
   "include": ["src/**/*.ts"]
 }
 `
+}
+
+func unsafeKubernetesPod() string {
+	return "apiVersion: v1\n" +
+		"kind: Pod\n" +
+		"metadata:\n" +
+		"  name: unsafe-pod\n" +
+		"spec:\n" +
+		"  containers:\n" +
+		"    - name: app\n" +
+		"      image: nginx:latest\n" +
+		"      securityContext:\n" +
+		"        privileged: true\n"
 }
 
 func repoRootFromWorkingDirectory(t *testing.T) string {
