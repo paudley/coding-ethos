@@ -43,6 +43,26 @@ func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) e
 	return nil
 }
 
+func traceExists(ctx context.Context, transaction *sql.Tx, traceID string) (bool, error) {
+	row := transaction.QueryRowContext(
+		ctx,
+		"SELECT 1 FROM traces WHERE trace_id = ? LIMIT 1",
+		traceID,
+	)
+
+	var exists int
+	err := row.Scan(&exists)
+	if err == nil {
+		return true, nil
+	}
+
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("lookup trace %q: %w", traceID, err)
+}
+
 func insertTrace(ctx context.Context, transaction *sql.Tx, trace Trace) error {
 	_, err := transaction.ExecContext(
 		ctx,
@@ -532,6 +552,7 @@ func storeLSHBandsForChunks(
 	chunks []CodeChunk,
 ) error {
 	config := minhash.DefaultConfig()
+	rows := []lshBandRow{}
 
 	for _, chunk := range chunks {
 		if len(chunk.MinHashSig) == 0 {
@@ -541,9 +562,62 @@ func storeLSHBandsForChunks(
 		sig := minhash.Signature{Values: chunk.MinHashSig}
 		bandHashes := minhash.BandHashes(sig, config)
 
-		err := StoreLSHBands(ctx, transaction, chunk.ID, path, chunk.SymbolName, bandHashes)
+		for bandIndex, bandHash := range bandHashes {
+			rows = append(rows, lshBandRow{
+				BandHash:   bandHash,
+				BandIndex:  bandIndex,
+				ChunkID:    chunk.ID,
+				Path:       path,
+				SymbolName: chunk.SymbolName,
+			})
+		}
+	}
+
+	return storeLSHBandRows(ctx, transaction, rows)
+}
+
+type lshBandRow struct {
+	BandHash   string
+	BandIndex  int
+	ChunkID    string
+	Path       string
+	SymbolName string
+}
+
+func storeLSHBandRows(
+	ctx context.Context,
+	transaction *sql.Tx,
+	rows []lshBandRow,
+) error {
+	const batchSize = 100
+
+	for start := 0; start < len(rows); start += batchSize {
+		end := min(start+batchSize, len(rows))
+		batch := rows[start:end]
+
+		placeholders := make([]string, 0, len(batch))
+		args := make([]any, 0, len(batch)*5)
+		for _, row := range batch {
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
+			args = append(
+				args,
+				row.BandHash,
+				row.BandIndex,
+				row.ChunkID,
+				row.Path,
+				row.SymbolName,
+			)
+		}
+
+		_, err := transaction.ExecContext(
+			ctx,
+			`INSERT OR IGNORE INTO lsh_bands(
+				band_hash, band_index, chunk_id, path, symbol_name
+			) VALUES `+strings.Join(placeholders, ", "),
+			args...,
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("store LSH band batch: %w", err)
 		}
 	}
 
@@ -755,13 +829,16 @@ func upsertCodeFile(
 		ctx,
 		`INSERT OR REPLACE INTO code_files(
 			path, language, content_hash, parser_name, parser_version,
-			size_bytes, line_count, indexed_at_utc, stale_reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			source_mtime_utc, deleted_at_utc, size_bytes, line_count,
+			indexed_at_utc, stale_reason
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		file.Path,
 		file.Language,
 		file.ContentHash,
 		file.ParserName,
 		file.ParserVersion,
+		file.SourceModTimeUTC,
+		file.DeletedAtUTC,
 		file.SizeBytes,
 		file.LineCount,
 		file.IndexedAtUTC,

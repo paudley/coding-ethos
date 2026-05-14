@@ -98,6 +98,7 @@ func configureStore(ctx context.Context, database *sql.DB) error {
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA synchronous = NORMAL",
+		"PRAGMA busy_timeout = 30000",
 	} {
 		_, inlineErrA := database.ExecContext(ctx, statement)
 		if inlineErrA != nil {
@@ -122,6 +123,13 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+
+	for _, statement := range indexSchemaStatements() {
+		_, err := database.ExecContext(ctx, statement)
+		if err != nil {
+			return fmt.Errorf("migrate code intelligence indexes: %w", err)
 		}
 	}
 

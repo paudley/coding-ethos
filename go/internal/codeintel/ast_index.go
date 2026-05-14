@@ -4,15 +4,26 @@
 package codeintel
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
+)
+
+const (
+	maxIndexedSourceBytes         = 1 * 1024 * 1024
+	maxIndexedSourceLines         = 5000
+	maxIndexedSourceChunksPerFile = 2000
 )
 
 type ASTIndexer struct {
@@ -38,6 +49,11 @@ func (indexer ASTIndexer) IndexPaths(
 	}
 
 	summary := CodeIndexSummary{}
+	ignoreMatcher := newGitIgnoreMatcher(ctx, root)
+	existingFiles, err := indexer.store.CodeFilesByPath(ctx)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
 
 	for _, inputPath := range paths {
 		path := inputPath
@@ -55,7 +71,7 @@ func (indexer ASTIndexer) IndexPaths(
 		}
 
 		if info.IsDir() {
-			err := indexer.indexDir(ctx, root, path, &summary)
+			err := indexer.indexDir(ctx, root, path, ignoreMatcher, existingFiles, &summary)
 			if err != nil {
 				return CodeIndexSummary{}, err
 			}
@@ -63,11 +79,30 @@ func (indexer ASTIndexer) IndexPaths(
 			continue
 		}
 
-		inlineErr0 := indexer.indexFile(ctx, root, path, &summary)
+		inlineErr0 := indexer.indexFile(ctx, root, path, info, ignoreMatcher, existingFiles, &summary)
 		if inlineErr0 != nil {
 			return CodeIndexSummary{}, inlineErr0
 		}
 	}
+
+	deleted, err := indexer.store.MarkMissingCodeFilesDeleted(ctx, root, paths)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+	summary.Deleted = deleted
+
+	ignored, err := indexer.store.MarkIgnoredCodeFilesDeleted(
+		ctx,
+		func(path string) bool {
+			absolutePath := filepath.Join(root, filepath.FromSlash(path))
+
+			return pathHasSkippedDir(path) || ignoreMatcher.ignoredFile(absolutePath)
+		},
+	)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+	summary.Deleted = append(summary.Deleted, ignored...)
 
 	return summary, nil
 }
@@ -76,6 +111,8 @@ func (indexer ASTIndexer) indexDir(
 	ctx context.Context,
 	root string,
 	dir string,
+	ignoreMatcher gitIgnoreMatcher,
+	existingFiles map[string]CodeFile,
 	summary *CodeIndexSummary,
 ) error {
 	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
@@ -84,14 +121,19 @@ func (indexer ASTIndexer) indexDir(
 		}
 
 		if entry.IsDir() {
-			if shouldSkipDir(entry.Name()) {
+			if shouldSkipDir(entry.Name()) || ignoreMatcher.ignoredDir(path) {
 				return filepath.SkipDir
 			}
 
 			return nil
 		}
 
-		return indexer.indexFile(ctx, root, path, summary)
+		info, statErr := entry.Info()
+		if statErr != nil {
+			return fmt.Errorf("stat indexed file %q: %w", path, statErr)
+		}
+
+		return indexer.indexFile(ctx, root, path, info, ignoreMatcher, existingFiles, summary)
 	})
 	if err != nil {
 		return fmt.Errorf("walk code-intel AST directory %s: %w", dir, err)
@@ -104,16 +146,14 @@ func (indexer ASTIndexer) indexFile(
 	ctx context.Context,
 	root string,
 	path string,
+	info os.FileInfo,
+	ignoreMatcher gitIgnoreMatcher,
+	existingFiles map[string]CodeFile,
 	summary *CodeIndexSummary,
 ) error {
 	language, ok := astfacts.LanguageForPath(path)
 	if !ok {
 		return nil
-	}
-
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read indexed file %q: %w", path, err)
 	}
 
 	relativePath, err := filepath.Rel(root, path)
@@ -122,14 +162,83 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
-	hash := astfacts.ContentHash(contents)
-
-	existing, found, err := indexer.store.GetCodeFile(ctx, relativePath)
-	if err != nil {
-		return fmt.Errorf("lookup existing code file %q: %w", relativePath, err)
+	if ignoreMatcher.ignoredFile(path) || pathHasSkippedDir(relativePath) {
+		return nil
 	}
 
+	existing, found := existingFiles[relativePath]
+
 	parserName, parserVersion := astfacts.ParserMetadataForLanguage(language)
+	sourceModTime := formatSourceModTime(info.ModTime())
+
+	if found && inactiveCodeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
+	if found && codeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
+	if info.Size() > maxIndexedSourceBytes {
+		inactiveFile := inactiveCodeFile(
+			relativePath,
+			language,
+			"too_large",
+			stableID("too-large-code-file", relativePath, sourceModTime, fmt.Sprint(info.Size())),
+			parserName,
+			parserVersion,
+			sourceModTime,
+			info,
+			0,
+		)
+		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
+		if err != nil {
+			return err
+		}
+		existingFiles[relativePath] = inactiveFile
+
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
+	lineCount, tooManyLines, err := countSourceLinesUpTo(path, maxIndexedSourceLines)
+	if err != nil {
+		return err
+	}
+	if tooManyLines {
+		inactiveFile := inactiveCodeFile(
+			relativePath,
+			language,
+			"too_many_lines",
+			stableID("too-many-lines-code-file", relativePath, sourceModTime, fmt.Sprint(info.Size())),
+			parserName,
+			parserVersion,
+			sourceModTime,
+			info,
+			lineCount,
+		)
+		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
+		if err != nil {
+			return err
+		}
+		existingFiles[relativePath] = inactiveFile
+
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read indexed file %q: %w", path, err)
+	}
+
+	hash := astfacts.ContentHash(contents)
 
 	if found &&
 		existing.ContentHash == hash &&
@@ -148,28 +257,279 @@ func (indexer ASTIndexer) indexFile(
 
 	chunks := codeChunksFromSymbols(parsed.Symbols)
 	chunks = attachParentChunks(chunks)
+	if len(chunks) > maxIndexedSourceChunksPerFile {
+		inactiveFile := inactiveCodeFile(
+			relativePath,
+			language,
+			"too_many_chunks",
+			parsed.ContentHash,
+			parserName,
+			parserVersion,
+			sourceModTime,
+			info,
+			parsed.LineCount,
+		)
+		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
+		if err != nil {
+			return err
+		}
+		existingFiles[relativePath] = inactiveFile
+
+		summary.Skipped = append(summary.Skipped, relativePath)
+
+		return nil
+	}
+
 	edges := codeEdgesFromParsedFile(relativePath, parsed, chunks)
 
 	file := CodeFile{
-		Path:          relativePath,
-		Language:      language,
-		ContentHash:   parsed.ContentHash,
-		ParserName:    parserName,
-		ParserVersion: parserVersion,
-		SizeBytes:     len(contents),
-		LineCount:     parsed.LineCount,
-		IndexedAtUTC:  time.Now().UTC().Format(time.RFC3339),
+		Path:             relativePath,
+		Language:         language,
+		ContentHash:      parsed.ContentHash,
+		ParserName:       parserName,
+		ParserVersion:    parserVersion,
+		SourceModTimeUTC: sourceModTime,
+		SizeBytes:        len(contents),
+		LineCount:        parsed.LineCount,
+		IndexedAtUTC:     time.Now().UTC().Format(time.RFC3339),
 	}
 
 	inlineErr1 := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges)
 	if inlineErr1 != nil {
 		return inlineErr1
 	}
+	existingFiles[relativePath] = file
 
 	summary.FilesIndexed++
 	summary.ChunksIndexed += len(chunks)
 
 	return nil
+}
+
+func codeFileFresh(
+	existing CodeFile,
+	parserName string,
+	parserVersion string,
+	sourceModTime string,
+	info os.FileInfo,
+) bool {
+	return existing.SourceModTimeUTC != "" &&
+		existing.SourceModTimeUTC == sourceModTime &&
+		existing.SizeBytes == int(info.Size()) &&
+		existing.ParserName == parserName &&
+		existing.ParserVersion == parserVersion &&
+		existing.StaleReason == ""
+}
+
+func inactiveCodeFileFresh(
+	existing CodeFile,
+	parserName string,
+	parserVersion string,
+	sourceModTime string,
+	info os.FileInfo,
+) bool {
+	return (existing.StaleReason == "too_large" ||
+		existing.StaleReason == "too_many_lines" ||
+		existing.StaleReason == "too_many_chunks") &&
+		existing.SourceModTimeUTC == sourceModTime &&
+		existing.SizeBytes == int(info.Size()) &&
+		existing.ParserName == parserName &&
+		existing.ParserVersion == parserVersion
+}
+
+func formatSourceModTime(value time.Time) string {
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func countSourceLinesUpTo(path string, maxLines int) (int, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, false, fmt.Errorf("open indexed file for line count %q: %w", path, err)
+	}
+	defer file.Close()
+
+	lineCount := 0
+	buffer := make([]byte, 32*1024)
+	for {
+		read, readErr := file.Read(buffer)
+		if read > 0 {
+			lineCount += bytes.Count(buffer[:read], []byte{'\n'})
+			if lineCount > maxLines {
+				return lineCount, true, nil
+			}
+		}
+		if readErr == nil {
+			continue
+		}
+		if errors.Is(readErr, io.EOF) {
+			return lineCount, false, nil
+		}
+
+		return 0, false, fmt.Errorf("count indexed file lines %q: %w", path, readErr)
+	}
+}
+
+func inactiveCodeFile(
+	relativePath string,
+	language string,
+	reason string,
+	contentHash string,
+	parserName string,
+	parserVersion string,
+	sourceModTime string,
+	info os.FileInfo,
+	lineCount int,
+) CodeFile {
+	indexedAt := time.Now().UTC().Format(time.RFC3339)
+
+	return CodeFile{
+		Path:             relativePath,
+		Language:         language,
+		ContentHash:      contentHash,
+		ParserName:       parserName,
+		ParserVersion:    parserVersion,
+		SourceModTimeUTC: sourceModTime,
+		SizeBytes:        int(info.Size()),
+		LineCount:        lineCount,
+		IndexedAtUTC:     indexedAt,
+		DeletedAtUTC:     indexedAt,
+		StaleReason:      reason,
+	}
+}
+
+type gitIgnoreMatcher struct {
+	ctx         context.Context
+	root        string
+	active      bool
+	allowedPath map[string]bool
+	allowedDir  map[string]bool
+}
+
+func newGitIgnoreMatcher(ctx context.Context, root string) gitIgnoreMatcher {
+	allowedPaths, allowedDirs := gitTrackedAndUnignoredPaths(ctx, root)
+
+	return gitIgnoreMatcher{
+		ctx:         ctx,
+		root:        root,
+		active:      gitWorkTreeAvailable(ctx, root),
+		allowedPath: allowedPaths,
+		allowedDir:  allowedDirs,
+	}
+}
+
+func gitTrackedAndUnignoredPaths(
+	ctx context.Context,
+	root string,
+) (map[string]bool, map[string]bool) {
+	command := realgit.Command(
+		ctx,
+		false,
+		"-C",
+		root,
+		"ls-files",
+		"-co",
+		"--exclude-standard",
+		"-z",
+	)
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return nil, nil
+	}
+
+	paths := map[string]bool{}
+	dirs := map[string]bool{"": true}
+	for _, rawPath := range bytes.Split(output, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+
+		path := filepath.ToSlash(string(rawPath))
+		paths[path] = true
+
+		dir := filepath.ToSlash(filepath.Dir(path))
+		for dir != "." && dir != "" {
+			dirs[dir] = true
+			dir = filepath.ToSlash(filepath.Dir(dir))
+		}
+	}
+
+	return paths, dirs
+}
+
+func gitWorkTreeAvailable(ctx context.Context, root string) bool {
+	command := realgit.Command(ctx, false, "-C", root, "rev-parse", "--is-inside-work-tree")
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+
+	return err == nil && strings.TrimSpace(string(output)) == "true"
+}
+
+func (matcher gitIgnoreMatcher) ignoredFile(path string) bool {
+	if !matcher.active {
+		return false
+	}
+
+	relativePath, err := filepath.Rel(matcher.root, path)
+	if err != nil {
+		return false
+	}
+
+	relativePath = filepath.ToSlash(relativePath)
+	if matcher.allowedPath != nil {
+		return !matcher.allowedPath[relativePath]
+	}
+
+	return matcher.gitCheckIgnored(relativePath)
+}
+
+func (matcher gitIgnoreMatcher) ignoredDir(path string) bool {
+	if !matcher.active {
+		return false
+	}
+
+	relativePath, err := filepath.Rel(matcher.root, path)
+	if err != nil {
+		return false
+	}
+
+	relativePath = filepath.ToSlash(filepath.Clean(relativePath))
+	if relativePath == "." {
+		return false
+	}
+	if matcher.allowedDir != nil && !matcher.allowedDir[relativePath] {
+		return true
+	}
+
+	return matcher.gitCheckIgnored(relativePath)
+}
+
+func (matcher gitIgnoreMatcher) gitCheckIgnored(relativePath string) bool {
+	command := realgit.Command(
+		matcher.ctx,
+		false,
+		"-C",
+		matcher.root,
+		"check-ignore",
+		"--quiet",
+		"--no-index",
+		relativePath,
+	)
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	err := command.Run()
+	if err == nil {
+		return true
+	}
+
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+		return false
+	}
+
+	return false
 }
 
 func codeChunksFromSymbols(symbols []astfacts.Symbol) []CodeChunk {
@@ -635,10 +995,16 @@ func dedupeCodeEdges(edges []CodeEdge) []CodeEdge {
 func shouldSkipDir(name string) bool {
 	switch name {
 	case ".git",
+		".coding-ethos",
+		".code-ethos",
 		".hg",
 		".svn",
 		".tox",
 		".venv",
+		".wolf",
+		".pytest_cache",
+		".mypy_cache",
+		".ruff_cache",
 		"node_modules",
 		"build",
 		"dist",

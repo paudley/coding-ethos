@@ -50,9 +50,16 @@ func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 	}
 	defer rollbackUnlessCommitted(transaction)
 
-	inlineErr0 := deleteTraceRows(ctx, transaction, trace.ID)
-	if inlineErr0 != nil {
-		return inlineErr0
+	exists, err := traceExists(ctx, transaction, trace.ID)
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		inlineErr0 := deleteTraceRows(ctx, transaction, trace.ID)
+		if inlineErr0 != nil {
+			return inlineErr0
+		}
 	}
 
 	inlineErr1 := insertTrace(ctx, transaction, trace)

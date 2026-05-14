@@ -61,6 +61,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"embedding-records":         printEmbeddingRecords,
 		"hook-reviews":              printHookReviews,
 		"hook-usage":                printHookUsage,
+		"repeated-edits":            printRepeatedEdits,
 		"hybrid-search":             hybridSearch,
 		"index-code":                indexCode,
 		"index-status":              printIndexStatus,
