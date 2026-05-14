@@ -180,12 +180,11 @@ endef
 
 define quiet_build
 tmp="$$(mktemp)"; \
+trap 'rm -f "$$tmp"' EXIT; \
 if ! $(MAKE) --no-print-directory build >"$$tmp" 2>&1; then \
 	cat "$$tmp" >&2; \
-	rm -f "$$tmp"; \
 	exit 1; \
-fi; \
-rm -f "$$tmp"
+fi
 endef
 
 .PHONY: \

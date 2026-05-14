@@ -210,7 +210,9 @@ func pyprojectDeclaresUV(root string) bool {
 	}
 
 	var config struct {
-		Tool map[string]any `toml:"tool"`
+		Tool struct {
+			UV map[string]any `toml:"uv"`
+		} `toml:"tool"`
 	}
 
 	err = toml.Unmarshal(content, &config)
@@ -218,9 +220,7 @@ func pyprojectDeclaresUV(root string) bool {
 		return false
 	}
 
-	_, ok := config.Tool["uv"]
-
-	return ok
+	return config.Tool.UV != nil
 }
 
 func fileExists(path string) bool {

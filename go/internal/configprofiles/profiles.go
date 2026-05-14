@@ -11,10 +11,36 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 )
 
+type pythonSourceDetector interface {
+	HasPythonSources(repoRoot, ethosRoot string) bool
+}
+
+type walkingPythonSourceDetector struct {
+	pythonSources map[string]bool
+}
+
 // Apply merges repo-kind/profile defaults into base before explicit repo
 // overrides are applied. Explicit repo_config.yaml values always win.
 func Apply(base, repoConfig configdata.Map, repoRoot string) configdata.Map {
-	profileOverlay := overlayForRepoConfig(repoConfig, repoRoot)
+	return ApplyWithEthosRoot(base, repoConfig, repoRoot, "")
+}
+
+// ApplyWithEthosRoot applies profile defaults while excluding the actual
+// coding-ethos checkout from parent source discovery.
+func ApplyWithEthosRoot(
+	base,
+	repoConfig configdata.Map,
+	repoRoot,
+	ethosRoot string,
+) configdata.Map {
+	detector := newWalkingPythonSourceDetector()
+
+	profileOverlay := overlayForRepoConfig(
+		repoConfig,
+		repoRoot,
+		ethosRoot,
+		detector,
+	)
 	if len(profileOverlay) == 0 {
 		return configdata.DeepMerge(base, repoConfig)
 	}
@@ -22,7 +48,12 @@ func Apply(base, repoConfig configdata.Map, repoRoot string) configdata.Map {
 	return configdata.DeepMerge(configdata.DeepMerge(base, profileOverlay), repoConfig)
 }
 
-func overlayForRepoConfig(repoConfig configdata.Map, repoRoot string) configdata.Map {
+func overlayForRepoConfig(
+	repoConfig configdata.Map,
+	repoRoot,
+	ethosRoot string,
+	detector pythonSourceDetector,
+) configdata.Map {
 	profiles := repoProfiles(repoConfig)
 	if len(profiles) == 0 {
 		return nil
@@ -30,7 +61,12 @@ func overlayForRepoConfig(repoConfig configdata.Map, repoRoot string) configdata
 
 	overlay := configdata.Map{}
 	for _, profile := range profiles {
-		overlay = configdata.DeepMerge(overlay, overlayForProfile(profile, repoRoot))
+		overlay = configdata.DeepMerge(overlay, overlayForProfile(
+			profile,
+			repoRoot,
+			ethosRoot,
+			detector,
+		))
 	}
 
 	return overlay
@@ -67,10 +103,15 @@ func dedupeProfiles(values []string) []string {
 	return deduped
 }
 
-func overlayForProfile(profile, repoRoot string) configdata.Map {
+func overlayForProfile(
+	profile,
+	repoRoot,
+	ethosRoot string,
+	detector pythonSourceDetector,
+) configdata.Map {
 	switch profile {
 	case "go", "go-static-site":
-		return goProfileOverlay(repoRoot)
+		return goProfileOverlay(repoRoot, ethosRoot, detector)
 	case "static-site", "generated-site-output":
 		return generatedSiteOutputOverlay()
 	default:
@@ -78,7 +119,11 @@ func overlayForProfile(profile, repoRoot string) configdata.Map {
 	}
 }
 
-func goProfileOverlay(repoRoot string) configdata.Map {
+func goProfileOverlay(
+	repoRoot,
+	ethosRoot string,
+	detector pythonSourceDetector,
+) configdata.Map {
 	overlay := configdata.Map{
 		"go": map[string]any{"enabled": true},
 		"hooks": map[string]any{"enabled_groups": []any{
@@ -93,7 +138,7 @@ func goProfileOverlay(repoRoot string) configdata.Map {
 		}},
 	}
 
-	if !repoHasPythonSources(repoRoot) {
+	if !detector.HasPythonSources(repoRoot, ethosRoot) {
 		overlay = configdata.DeepMerge(overlay, nonPythonOverlay())
 	}
 
@@ -125,16 +170,32 @@ func generatedSiteOutputOverlay() configdata.Map {
 	}
 }
 
-func repoHasPythonSources(repoRoot string) bool {
+func newWalkingPythonSourceDetector() *walkingPythonSourceDetector {
+	return &walkingPythonSourceDetector{pythonSources: map[string]bool{}}
+}
+
+func (detector *walkingPythonSourceDetector) HasPythonSources(
+	repoRoot,
+	ethosRoot string,
+) bool {
+	cleanRepoRoot := filepath.Clean(repoRoot)
+	cacheKey := cleanRepoRoot + "\x00" + filepath.Clean(ethosRoot)
+
+	if found, ok := detector.pythonSources[cacheKey]; ok {
+		return found
+	}
+
 	found := false
+	skipDirs := pythonSourceSkipDirs(repoRoot, ethosRoot)
+
 	err := filepath.WalkDir(
-		filepath.Clean(repoRoot),
+		cleanRepoRoot,
 		func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || found {
 				return err
 			}
 
-			if entry.IsDir() && shouldSkipDir(entry.Name()) {
+			if entry.IsDir() && shouldSkipDir(path, entry.Name(), skipDirs) {
 				return filepath.SkipDir
 			}
 
@@ -148,12 +209,32 @@ func repoHasPythonSources(repoRoot string) bool {
 		},
 	)
 
-	return err == nil && found
+	found = err == nil && found
+	detector.pythonSources[cacheKey] = found
+
+	return found
 }
 
-func shouldSkipDir(name string) bool {
+func pythonSourceSkipDirs(repoRoot, ethosRoot string) map[string]bool {
+	dirs := map[string]bool{}
+
+	if ethosRoot = strings.TrimSpace(ethosRoot); ethosRoot != "" {
+		rel, err := filepath.Rel(filepath.Clean(repoRoot), filepath.Clean(ethosRoot))
+		if err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			dirs[filepath.Clean(ethosRoot)] = true
+		}
+	}
+
+	return dirs
+}
+
+func shouldSkipDir(path, name string, dynamicDirs map[string]bool) bool {
+	if dynamicDirs[filepath.Clean(path)] {
+		return true
+	}
+
 	switch name {
-	case ".git", ".venv", "node_modules", "coding-ethos", "dist", "site":
+	case ".git", ".venv", "node_modules", "dist", "site":
 		return true
 	default:
 		return false

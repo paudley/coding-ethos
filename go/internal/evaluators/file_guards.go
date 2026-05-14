@@ -59,11 +59,19 @@ func scanMergeConflictMarkers(
 	policyDef policy.Policy,
 	markers []string,
 ) ([]policy.Decision, error) {
-	var separatorCandidate *policy.Decision
+	var (
+		firstMarkerCandidate *policy.Decision
+		separatorCandidate   *policy.Decision
+		hasStart             bool
+		hasEnd               bool
+	)
 
 	found, err := scanGuardLines(
 		path,
 		func(lineNumber int, line string) ([]policy.Decision, bool) {
+			hasStart = hasStart || strings.HasPrefix(line, "<<<<<<<")
+			hasEnd = hasEnd || strings.HasPrefix(line, ">>>>>>>")
+
 			marker := matchingMergeConflictMarker(line, markers)
 			if marker == "" {
 				return nil, false
@@ -83,15 +91,23 @@ func scanMergeConflictMarkers(
 				return nil, false
 			}
 
-			return []policy.Decision{decision}, true
+			if firstMarkerCandidate == nil {
+				firstMarkerCandidate = &decision
+			}
+
+			return nil, false
 		},
 	)
 	if err != nil || len(found) > 0 {
 		return found, err
 	}
 
-	if separatorCandidate != nil && fileHasConflictBoundary(path) {
+	if separatorCandidate != nil && hasStart && hasEnd {
 		return []policy.Decision{*separatorCandidate}, nil
+	}
+
+	if firstMarkerCandidate != nil {
+		return []policy.Decision{*firstMarkerCandidate}, nil
 	}
 
 	return nil, nil
@@ -105,22 +121,6 @@ func matchingMergeConflictMarker(line string, markers []string) string {
 	}
 
 	return ""
-}
-
-func fileHasConflictBoundary(path string) bool {
-	var hasStart, hasEnd bool
-
-	_, scanErr := scanGuardLines(
-		path,
-		func(_ int, line string) ([]policy.Decision, bool) {
-			hasStart = hasStart || strings.HasPrefix(line, "<<<<<<<")
-			hasEnd = hasEnd || strings.HasPrefix(line, ">>>>>>>")
-
-			return nil, hasStart && hasEnd
-		},
-	)
-
-	return scanErr == nil && hasStart && hasEnd
 }
 
 func EvaluateFilePrivateKey(

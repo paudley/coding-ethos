@@ -5,10 +5,12 @@ package evaluators
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
 
 func defaultAdminOnlyBasenames() []string {
@@ -80,33 +82,41 @@ func stagedAdminHandoff(cwd string, argv []string) string {
 		lines = append(lines, "Human/admin handoff: run: "+command)
 	}
 
-	lines = append(
-		lines,
-		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
-	)
+	if !isCodingEthosCheckout(cwd) {
+		lines = append(
+			lines,
+			"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+		)
+	}
 
 	return strings.Join(lines, " ")
 }
 
 func shellCommand(argv []string) string {
-	parts := make([]string, 0, len(argv))
-	for _, arg := range argv {
-		parts = append(parts, shellQuote(arg))
-	}
-
-	return strings.Join(parts, " ")
+	return shellquote.Command(argv...)
 }
 
-func shellQuote(value string) string {
-	if value == "" {
-		return "''"
+func isCodingEthosCheckout(cwd string) bool {
+	if strings.TrimSpace(cwd) == "" {
+		return false
 	}
 
-	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();<>|&") {
-		return value
+	for _, marker := range codingEthosCheckoutMarkers() {
+		_, err := os.Stat(filepath.Join(cwd, marker))
+		if err != nil {
+			return false
+		}
 	}
 
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	return true
+}
+
+func codingEthosCheckoutMarkers() []string {
+	return []string{
+		"coding_ethos.yml",
+		"config.yaml",
+		"go/cmd/coding-ethos-run",
+	}
 }
 
 func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {

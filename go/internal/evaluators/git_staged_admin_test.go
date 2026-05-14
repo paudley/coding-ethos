@@ -87,6 +87,28 @@ func TestEvaluateGitStagedAdminFilesBlocksWithoutAdminApproval(t *testing.T) {
 	}
 }
 
+func TestEvaluateGitStagedAdminFilesOmitsWrapperWarningInsideCodingEthos(t *testing.T) {
+	t.Parallel()
+
+	repo := stagedAdminRepo(t)
+	writeCodingEthosMarkers(t, repo)
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "admin change"},
+			Cwd:  repo,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate staged admin: %v", err)
+	}
+
+	if strings.Contains(decisions[0].Suggestion, "--admin-approved is only valid") {
+		t.Fatalf("suggestion should omit wrapper warning: %q", decisions[0].Suggestion)
+	}
+}
+
 func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 	t.Parallel()
 
@@ -108,6 +130,28 @@ func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 		decisions[0].Decision != recordDecision ||
 		decisions[0].Severity != recordDecision {
 		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+}
+
+func writeCodingEthosMarkers(t *testing.T, repo string) {
+	t.Helper()
+
+	for _, path := range []string{
+		"coding_ethos.yml",
+		"config.yaml",
+		"go/cmd/coding-ethos-run",
+	} {
+		fullPath := filepath.Join(repo, path)
+
+		err := os.MkdirAll(filepath.Dir(fullPath), 0o755)
+		if err != nil {
+			t.Fatalf("create marker parent: %v", err)
+		}
+
+		err = os.WriteFile(fullPath, []byte("marker\n"), 0o600)
+		if err != nil {
+			t.Fatalf("write marker %s: %v", path, err)
+		}
 	}
 }
 

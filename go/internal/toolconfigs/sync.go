@@ -125,13 +125,13 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 			return nil, fmt.Errorf("load repo config %s: %w", repoConfig, err)
 		}
 
-		return configprofiles.Apply(base, override, repoRoot), nil
+		return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
 	}
 
 	for _, name := range repoConfigCandidates(base) {
 		override, err := configdata.LoadYAMLMap(filepath.Join(repoRoot, name))
 		if err == nil {
-			return configprofiles.Apply(base, override, repoRoot), nil
+			return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
 		}
 
 		if !errors.Is(err, os.ErrNotExist) {

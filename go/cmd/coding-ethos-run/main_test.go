@@ -15,6 +15,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -291,8 +292,10 @@ func TestParentLintArgsUseParentRepoAndTOONScope(t *testing.T) {
 		EthosRoot:     "/ethos",
 		InvocationCWD: "/parent/site",
 	}, parentWorkflowOptions{
-		Repo:  "/parent",
-		Scope: "changed",
+		Repo:       "/parent",
+		RepoEthos:  "/parent/repo_ethos.yaml",
+		RepoConfig: "/parent/repo_config.yml",
+		Scope:      "changed",
 	})
 
 	for _, want := range []string{
@@ -308,6 +311,10 @@ func TestParentLintArgsUseParentRepoAndTOONScope(t *testing.T) {
 		"/parent",
 		"--scope",
 		"changed",
+		"--repo-ethos",
+		"/parent/repo_ethos.yaml",
+		"--repo-config",
+		"/parent/repo_config.yml",
 	} {
 		if !slices.Contains(args, want) {
 			t.Fatalf("parentLintArgs() missing %q: %#v", want, args)
@@ -416,6 +423,20 @@ func TestParentDriftErrorIncludesRepairCommandAndLocation(t *testing.T) {
 	}
 }
 
+func TestParentCheckoutLocationLabelsSameRepoAsCodingEthos(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	got := parentCheckoutLocation(
+		runtimePaths{EthosRoot: repo},
+		parentWorkflowOptions{Repo: repo},
+	)
+	if got != "coding-ethos" {
+		t.Fatalf("checkout location = %q", got)
+	}
+}
+
 func TestParentPathHelpersClassifyGitStates(t *testing.T) {
 	t.Parallel()
 
@@ -449,16 +470,16 @@ func TestParentPathHelpersClassifyGitStates(t *testing.T) {
 		t.Fatal("sameCleanPath() rejected equivalent paths")
 	}
 
-	if got := shellQuoteForParent("plain"); got != "plain" {
+	if got := shellquote.Arg("plain"); got != "plain" {
 		t.Fatalf("plain shell quote = %q", got)
 	}
 
-	if got := shellQuoteForParent("has space"); got != "'has space'" {
+	if got := shellquote.Arg("has space"); got != "'has space'" {
 		t.Fatalf("spaced shell quote = %q", got)
 	}
 }
 
-func TestParentOptionHelpersResolveCandidatesAndOutputFormat(t *testing.T) {
+func TestParentOptionHelpersResolveCandidates(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
@@ -500,20 +521,57 @@ func TestParentOptionHelpersResolveCandidatesAndOutputFormat(t *testing.T) {
 	if skills.RepoRoot != repo || skills.RepoEthos != repoEthos {
 		t.Fatalf("parentAgentSkillOptions() = %#v", skills)
 	}
+}
 
-	if got := firstExistingPath("", parentRepoEthosCandidates(repo)); got != repoEthos {
+func TestParentPathHelpersResolveCandidates(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	repoEthos := filepath.Join(repo, "repo_ethos.yml")
+	repoConfig := filepath.Join(repo, "repo_config.yaml")
+
+	err := os.WriteFile(repoEthos, []byte("repo: {}\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo ethos: %v", err)
+	}
+
+	err = os.WriteFile(repoConfig, []byte("profiles: []\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	got, err := firstExistingPath("", parentRepoEthosCandidates(repo))
+	if err != nil {
+		t.Fatalf("first repo ethos: %v", err)
+	}
+
+	if got != repoEthos {
 		t.Fatalf("first repo ethos = %q, want %q", got, repoEthos)
 	}
 
-	if got := firstExistingPath(
-		"/explicit",
+	got, err = firstExistingPath(
+		repoConfig,
 		parentRepoConfigCandidates(repo),
-	); got != "/explicit" {
+	)
+	if err != nil {
+		t.Fatalf("explicit repo config: %v", err)
+	}
+
+	if got != repoConfig {
 		t.Fatalf("explicit repo config = %q", got)
 	}
 
 	if got := firstNonBlank("", " ", "changed"); got != "changed" {
 		t.Fatalf("firstNonBlank() = %q", got)
+	}
+}
+
+func TestFirstExistingPathRejectsMissingExplicitPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := firstExistingPath(filepath.Join(t.TempDir(), "missing.yml"), nil)
+	if err == nil || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("missing explicit path error = %v", err)
 	}
 }
 

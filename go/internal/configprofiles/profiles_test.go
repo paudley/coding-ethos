@@ -50,6 +50,32 @@ func TestGoStaticSiteProfileKeepsPythonGatesWhenPythonSourcesExist(t *testing.T)
 	assertConfigPath(t, merged, "python.pytest_gate.enabled", true)
 }
 
+func TestGoStaticSiteProfileIgnoresPythonSourcesInEthosCheckout(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	ethos := filepath.Join(repo, "vendor", "policy-tools")
+
+	err := os.MkdirAll(ethos, 0o755)
+	if err != nil {
+		t.Fatalf("create ethos checkout: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(ethos, "tool.py"), []byte("print('ok')\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write ethos python source: %v", err)
+	}
+
+	merged := configprofiles.ApplyWithEthosRoot(
+		configdata.Map{},
+		configdata.Map{"profiles": []any{"go"}},
+		repo,
+		ethos,
+	)
+
+	assertConfigPath(t, merged, "python.pytest_gate.enabled", false)
+}
+
 func TestExplicitRepoConfigOverridesProfileDefaults(t *testing.T) {
 	t.Parallel()
 

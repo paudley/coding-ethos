@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -27,7 +28,10 @@ const (
 	parentWorkingTreeState = "working_tree"
 )
 
-var errParentArtifactDrift = errors.New("parent artifact drift")
+var (
+	errParentArtifactDrift   = errors.New("parent artifact drift")
+	errParentPathIsDirectory = errors.New("path is a directory, want file")
+)
 
 type parentWorkflowOptions struct {
 	Repo       string
@@ -120,10 +124,26 @@ func parseParentWorkflowFlags(
 		return parentWorkflowOptions{}, err
 	}
 
+	resolvedRepoEthos, err := firstExistingPath(
+		*repoEthos,
+		parentRepoEthosCandidates(repoRoot),
+	)
+	if err != nil {
+		return parentWorkflowOptions{}, err
+	}
+
+	resolvedRepoConfig, err := firstExistingPath(
+		*repoConfig,
+		parentRepoConfigCandidates(repoRoot),
+	)
+	if err != nil {
+		return parentWorkflowOptions{}, err
+	}
+
 	return parentWorkflowOptions{
 		Repo:       repoRoot,
-		RepoEthos:  firstExistingPath(*repoEthos, parentRepoEthosCandidates(repoRoot)),
-		RepoConfig: firstExistingPath(*repoConfig, parentRepoConfigCandidates(repoRoot)),
+		RepoEthos:  resolvedRepoEthos,
+		RepoConfig: resolvedRepoConfig,
 		Scope:      strings.TrimSpace(*scope),
 	}, nil
 }
@@ -166,7 +186,7 @@ func syncParentArtifacts(
 		return nil
 	}))
 	steps = append(steps, runParentStep("agent_hooks", func() error {
-		return agenthooks.SyncSettings(options.Repo, paths.RunBinary+" agent-hook")
+		return agenthooks.SyncSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
 
 	return steps
@@ -206,7 +226,7 @@ func checkParentArtifacts(
 		return parentDriftError(paths, options, "agent_skills", mismatched)
 	}))
 	steps = append(steps, runParentStep("agent_hooks", func() error {
-		return agenthooks.DoctorSettings(options.Repo, paths.RunBinary+" agent-hook")
+		return agenthooks.DoctorSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
 
 	return steps
@@ -252,7 +272,7 @@ func parentStepStatus(steps []parentWorkflowStep) string {
 }
 
 func exitForFailedParentSteps(steps []parentWorkflowStep) {
-	if parentStepStatus(steps) != "pass" {
+	if parentStepStatus(steps) != parentStepPass {
 		requestRuntimeExit(1)
 	}
 }
@@ -282,8 +302,7 @@ func printParentWorkflowReport(
 
 func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string {
 	scope := firstNonBlank(options.Scope, parentDefaultLintScope)
-
-	return []string{
+	args := []string{
 		"--bundle",
 		paths.PolicyBundle,
 		"--ethos-root",
@@ -297,16 +316,26 @@ func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string 
 		"--scope",
 		scope,
 	}
+
+	if options.RepoEthos != "" {
+		args = append(args, "--repo-ethos", options.RepoEthos)
+	}
+
+	if options.RepoConfig != "" {
+		args = append(args, "--repo-config", options.RepoConfig)
+	}
+
+	return args
 }
 
 func parentInstallCommand(options parentWorkflowOptions) string {
 	return "coding-ethos/bin/coding-ethos-run parent-install --repo " +
-		shellQuoteForParent(options.Repo)
+		shellquote.Arg(options.Repo)
 }
 
 func parentCheckoutLocation(paths runtimePaths, options parentWorkflowOptions) string {
 	if sameCleanPath(options.Repo, paths.EthosRoot) {
-		return "submodule"
+		return "coding-ethos"
 	}
 
 	return "parent"
@@ -317,23 +346,33 @@ func parentDriftItems(
 	options parentWorkflowOptions,
 	mismatched []string,
 ) string {
+	statuses := gitPathStates(paths.RealGit, options.Repo, mismatched)
 	items := make([]string, 0, len(mismatched))
+
 	for _, path := range mismatched {
-		items = append(items, parentDriftItem(paths, options, path))
+		items = append(items, parentDriftItem(options, path, statuses))
 	}
 
 	return strings.Join(items, " ")
 }
 
 func parentDriftItem(
-	paths runtimePaths,
 	options parentWorkflowOptions,
 	path string,
+	statuses map[string]string,
 ) string {
 	relative := relativeToRepo(options.Repo, path)
-	state := gitPathState(paths.RealGit, options.Repo, relative)
+	state := statuses[relative]
+
+	if state == "" {
+		state = parentWorkingTreeState
+	}
 
 	return relative + "(" + state + ")"
+}
+
+func parentAgentHookCommand(paths runtimePaths) string {
+	return shellquote.Command(paths.RunBinary, "agent-hook")
 }
 
 func relativeToRepo(repo, path string) string {
@@ -346,32 +385,65 @@ func relativeToRepo(repo, path string) string {
 }
 
 func gitPathState(realGit, repo, relative string) string {
-	output, err := gitOutputRaw(realGit, repo, "status", "--porcelain", "--", relative)
-	if err != nil || strings.TrimSpace(output) == "" {
-		return parentWorkingTreeState
+	return gitPathStates(realGit, repo, []string{relative})[relative]
+}
+
+func gitPathStates(realGit, repo string, paths []string) map[string]string {
+	relativePaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		relativePaths = append(relativePaths, relativeToRepo(repo, path))
 	}
 
-	line := strings.TrimRight(strings.Split(output, "\n")[0], "\r\n")
-	if strings.HasPrefix(line, "??") {
-		return "untracked"
+	args := append([]string{"status", "--porcelain", "--"}, relativePaths...)
+	output, err := gitOutputRaw(realGit, repo, args...)
+
+	if err != nil || strings.TrimSpace(output) == "" {
+		return defaultGitPathStates(relativePaths)
+	}
+
+	states := defaultGitPathStates(relativePaths)
+
+	for line := range strings.SplitSeq(strings.TrimRight(output, "\r\n"), "\n") {
+		path, state := parseGitStatusLine(line)
+		if path != "" {
+			states[path] = state
+		}
+	}
+
+	return states
+}
+
+func defaultGitPathStates(paths []string) map[string]string {
+	states := make(map[string]string, len(paths))
+	for _, path := range paths {
+		states[path] = parentWorkingTreeState
+	}
+
+	return states
+}
+
+func parseGitStatusLine(line string) (string, string) {
+	if path, found := strings.CutPrefix(line, "??"); found {
+		return strings.TrimSpace(path), "untracked"
 	}
 
 	const gitStatusPorcelainWidth = 2
 
 	if len(line) < gitStatusPorcelainWidth {
-		return parentWorkingTreeState
+		return "", parentWorkingTreeState
 	}
 
 	indexChanged := line[0] != ' '
 	workingTreeChanged := line[1] != ' '
+	path := strings.TrimSpace(line[gitStatusPorcelainWidth:])
 
 	switch {
 	case indexChanged && workingTreeChanged:
-		return "index+" + parentWorkingTreeState
+		return path, "index+" + parentWorkingTreeState
 	case indexChanged:
-		return "index"
+		return path, "index"
 	default:
-		return parentWorkingTreeState
+		return path, parentWorkingTreeState
 	}
 }
 
@@ -384,18 +456,6 @@ func sameCleanPath(left, right string) bool {
 	}
 
 	return leftAbs == rightAbs
-}
-
-func shellQuoteForParent(value string) string {
-	if value == "" {
-		return "''"
-	}
-
-	if !strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}();<>|&") {
-		return value
-	}
-
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func parentGeminiOptions(
@@ -437,19 +497,28 @@ func parentRepoConfigCandidates(repo string) []string {
 	}
 }
 
-func firstExistingPath(explicit string, candidates []string) string {
+func firstExistingPath(explicit string, candidates []string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
-		return explicit
+		info, err := os.Stat(filepath.Clean(explicit))
+		if err != nil {
+			return "", fmt.Errorf("parent path %s: %w", explicit, err)
+		}
+
+		if info.IsDir() {
+			return "", fmt.Errorf("parent path %s: %w", explicit, errParentPathIsDirectory)
+		}
+
+		return filepath.Clean(explicit), nil
 	}
 
 	for _, candidate := range candidates {
 		info, err := os.Stat(filepath.Clean(candidate))
 		if err == nil && !info.IsDir() {
-			return candidate
+			return candidate, nil
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
 func forceTOONOutput() func() {

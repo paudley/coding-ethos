@@ -227,10 +227,11 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 			return compileInputPayloads{}, err
 		}
 
-		configPayload = configprofiles.Apply(
+		configPayload = configprofiles.ApplyWithEthosRoot(
 			configPayload,
 			repoConfigPayload,
 			filepath.Dir(options.RepoConfig),
+			filepath.Dir(options.Primary),
 		)
 	}
 

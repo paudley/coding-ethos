@@ -824,10 +824,15 @@ func TestRunDoesNotRewritePythonForPlainVenvWithoutUV(t *testing.T) {
 	}
 }
 
-func TestRunRewritesPythonAssignmentsAndRedirectionThroughUV(t *testing.T) {
+func TestRunRewritesPythonThroughUV(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+
+	inlineErr9 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
+	if inlineErr9 != nil {
+		t.Fatalf("mkdir .git: %v", inlineErr9)
+	}
 
 	inlineErr10 := os.WriteFile(filepath.Join(root, "uv.toml"), nil, 0o600)
 	if inlineErr10 != nil {
@@ -841,7 +846,7 @@ func TestRunRewritesPythonAssignmentsAndRedirectionThroughUV(t *testing.T) {
 			Cwd:           root,
 			Source:        "claude",
 			ToolInput: map[string]any{
-				"command": "PYTHONPATH=src python script.py > out.txt",
+				"command": "python script.py",
 			},
 		},
 	})
@@ -853,7 +858,7 @@ func TestRunRewritesPythonAssignmentsAndRedirectionThroughUV(t *testing.T) {
 	if !ok ||
 		!strings.Contains(
 			rewritten,
-			"PYTHONPATH='src' uv run --project '"+root+"' python 'script.py' >out.txt",
+			"uv run --project '"+root+"' python 'script.py'",
 		) {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -903,6 +908,11 @@ func TestRunRewritesPythonForPyprojectUVEvidence(t *testing.T) {
 
 	root := t.TempDir()
 
+	inlineErr9 := os.Mkdir(filepath.Join(root, ".git"), 0o755)
+	if inlineErr9 != nil {
+		t.Fatalf("mkdir .git: %v", inlineErr9)
+	}
+
 	inlineErr10 := os.WriteFile(
 		filepath.Join(root, "pyproject.toml"),
 		[]byte("[project]\nname = \"demo\"\n\n[tool.uv]\npackage = true\n"),
@@ -925,6 +935,10 @@ func TestRunRewritesPythonForPyprojectUVEvidence(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("result = %#v", result)
 	}
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)

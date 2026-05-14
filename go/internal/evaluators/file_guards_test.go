@@ -71,6 +71,26 @@ func TestEvaluateFileMergeConflictBlocksSeparatorInConflictContext(t *testing.T)
 	}
 }
 
+func TestEvaluateFileMergeConflictReportsSeparatorWithDefaultMarkers(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(
+		t,
+		"conflict.txt",
+		"<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> feature\n",
+	)
+	decision := evaluateFileGuardPolicy(
+		t,
+		"syntax.merge_conflict",
+		EvaluateFileMergeConflict,
+		Context{Files: []string{path}},
+	)
+
+	if decision.Diagnostics[0].Code != "=======" {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
 func TestEvaluateFileMergeConflictSkipsDirectories(t *testing.T) {
 	t.Parallel()
 
