@@ -5,6 +5,7 @@ package celexpr
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar"
@@ -280,6 +281,17 @@ func commandHelpers(listOfStrings *cel.Type) []cel.EnvOption {
 						stringsFromValue(argv),
 						stringFromValue(tool),
 					))
+				}),
+			),
+		),
+		cel.Function(
+			"sed_writes_files",
+			cel.Overload(
+				"sed_writes_files_list_string",
+				[]*cel.Type{listOfStrings},
+				cel.BoolType,
+				cel.UnaryBinding(func(argv ref.Val) ref.Val {
+					return types.Bool(sedWritesFiles(stringsFromValue(argv)))
 				}),
 			),
 		),
@@ -569,6 +581,147 @@ func argvCommandIs(argv []string, tool string) bool {
 	stripped := stripLeadingAssignments(argv)
 
 	return len(stripped) > 0 && commandTokenMatchesTool(stripped[0], tool)
+}
+
+func sedWritesFiles(argv []string) bool {
+	stripped := stripLeadingAssignments(argv)
+	if !argvCommandIs(stripped, "sed") {
+		return false
+	}
+
+	return sedHasInPlaceOption(stripped[1:]) || sedHasWriteCommand(stripped[1:])
+}
+
+func sedHasInPlaceOption(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+
+		if arg == "-i" || arg == "--in-place" ||
+			strings.HasPrefix(arg, "-i") ||
+			strings.HasPrefix(arg, "--in-place=") {
+			return true
+		}
+
+		if strings.HasPrefix(arg, "--") {
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") && strings.Contains(arg[1:], "i") {
+			return true
+		}
+
+		if !strings.HasPrefix(arg, "-") {
+			return false
+		}
+	}
+
+	return false
+}
+
+func sedHasWriteCommand(args []string) bool {
+	scripts := sedScriptArgs(args)
+
+	return slices.ContainsFunc(scripts, sedScriptWritesFile)
+}
+
+func sedScriptArgs(args []string) []string {
+	collector := sedScriptArgCollector{}
+
+	for _, arg := range args {
+		if collector.consume(arg) {
+			break
+		}
+	}
+
+	return collector.scripts
+}
+
+type sedScriptArgCollector struct {
+	scripts           []string
+	expectScript      bool
+	skipNext          bool
+	scriptFromOperand bool
+}
+
+func (collector *sedScriptArgCollector) consume(arg string) bool {
+	if collector.skipNext {
+		collector.skipNext = false
+
+		return false
+	}
+
+	if collector.expectScript {
+		collector.scripts = append(collector.scripts, arg)
+		collector.expectScript = false
+
+		return false
+	}
+
+	if arg == "--" {
+		collector.scriptFromOperand = true
+
+		return false
+	}
+
+	return collector.consumeOptionOrOperand(arg)
+}
+
+func (collector *sedScriptArgCollector) consumeOptionOrOperand(arg string) bool {
+	if script, ok := strings.CutPrefix(arg, "--expression="); ok {
+		collector.scripts = append(collector.scripts, script)
+
+		return false
+	}
+
+	if arg == "-e" || arg == "--expression" {
+		collector.expectScript = true
+
+		return false
+	}
+
+	if arg == "-f" || arg == "--file" {
+		collector.skipNext = true
+
+		return false
+	}
+
+	if strings.HasPrefix(arg, "-e") && len(arg) > len("-e") {
+		collector.scripts = append(collector.scripts, strings.TrimPrefix(arg, "-e"))
+
+		return false
+	}
+
+	if strings.HasPrefix(arg, "-") && !collector.scriptFromOperand {
+		return false
+	}
+
+	collector.scripts = append(collector.scripts, arg)
+
+	return true
+}
+
+func sedScriptWritesFile(script string) bool {
+	return slices.ContainsFunc(
+		strings.FieldsFunc(script, sedScriptSeparator),
+		sedCommandSegmentWritesFile,
+	)
+}
+
+func sedScriptSeparator(char rune) bool {
+	return char == ';' || char == '\n' || char == '{' || char == '}'
+}
+
+func sedCommandSegmentWritesFile(segment string) bool {
+	fields := strings.Fields(strings.TrimSpace(segment))
+	for index, field := range fields {
+		if field == "w" || strings.HasSuffix(field, "w") {
+			return index+1 < len(fields)
+		}
+	}
+
+	return false
 }
 
 func stripLeadingAssignments(argv []string) []string {

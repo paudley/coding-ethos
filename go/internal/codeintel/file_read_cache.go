@@ -43,13 +43,15 @@ type FileReadCacheRequest struct {
 }
 
 type FileReadCacheResult struct {
-	Text        string                   `json:"text"`
-	TargetPath  string                   `json:"target_path"`
-	ContentHash string                   `json:"content_hash"`
-	CacheKey    string                   `json:"cache_key"`
-	Decision    string                   `json:"decision"`
-	Event       agentproxy.ProviderEvent `json:"event"`
-	CacheHit    bool                     `json:"cache_hit"`
+	Text         string `json:"text"`
+	TargetPath   string `json:"target_path"`
+	ContentHash  string `json:"content_hash"`
+	CacheKey     string `json:"cache_key"`
+	Decision     string `json:"decision"`
+	originalText string
+
+	Event    agentproxy.ProviderEvent `json:"event"`
+	CacheHit bool                     `json:"cache_hit"`
 }
 
 func (store *Store) ReadFileWithCache(
@@ -73,13 +75,14 @@ func (store *Store) ReadFileWithCache(
 		)
 	}
 
+	sessionID := strings.TrimSpace(request.SessionID)
 	text := string(content)
 	contentHash := agentproxy.HashText(text)
-	cacheKey := "file-read:" + request.SessionID + ":" + targetPath
+	cacheKey := "file-read:" + sessionID + ":" + targetPath
 
 	cacheHit, err := store.fileReadCacheHit(
 		ctx,
-		request.SessionID,
+		sessionID,
 		targetPath,
 		contentHash,
 	)
@@ -88,12 +91,13 @@ func (store *Store) ReadFileWithCache(
 	}
 
 	result := FileReadCacheResult{
-		Text:        text,
-		TargetPath:  targetPath,
-		ContentHash: contentHash,
-		CacheKey:    cacheKey,
-		Decision:    "allow",
-		CacheHit:    cacheHit,
+		Text:         text,
+		TargetPath:   targetPath,
+		ContentHash:  contentHash,
+		CacheKey:     cacheKey,
+		Decision:     "allow",
+		CacheHit:     cacheHit,
+		originalText: text,
 	}
 	if cacheHit {
 		result.Text = fileReadCacheStub
@@ -126,6 +130,11 @@ func resolvedReadCachePath(root, target string) (string, string, error) {
 		return "", "", fmt.Errorf("resolve repo root %q: %w", root, err)
 	}
 
+	absoluteRoot, err = filepath.EvalSymlinks(absoluteRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve repo root symlinks %q: %w", root, err)
+	}
+
 	absoluteTarget := target
 	if !filepath.IsAbs(absoluteTarget) {
 		absoluteTarget = filepath.Join(absoluteRoot, absoluteTarget)
@@ -134,6 +143,15 @@ func resolvedReadCachePath(root, target string) (string, string, error) {
 	absoluteTarget, err = filepath.Abs(absoluteTarget)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve file-read cache target %q: %w", target, err)
+	}
+
+	absoluteTarget, err = filepath.EvalSymlinks(absoluteTarget)
+	if err != nil {
+		return "", "", fmt.Errorf(
+			"resolve file-read cache target symlinks %q: %w",
+			target,
+			err,
+		)
 	}
 
 	relative, err := filepath.Rel(absoluteRoot, absoluteTarget)
@@ -257,15 +275,17 @@ func fileReadCacheTransforms(result FileReadCacheResult) []agentproxy.TransformR
 		OutputHash:   agentproxy.HashText(result.Text),
 		PolicyID:     fileReadCachePolicyID,
 		Decision:     result.Decision,
-		InputTokens:  agentproxy.WhitespaceTokenizer{}.Count(result.ContentHash),
+		InputTokens:  agentproxy.WhitespaceTokenizer{}.Count(result.originalText),
 		OutputTokens: agentproxy.WhitespaceTokenizer{}.Count(result.Text),
+		BytesRemoved: max(0, len([]byte(result.originalText))-len([]byte(result.Text))),
 	}}
 }
 
 func lineCount(text string) int {
-	if text == "" {
-		return 0
+	count := 0
+	for range strings.Lines(text) {
+		count++
 	}
 
-	return strings.Count(text, "\n") + 1
+	return count
 }

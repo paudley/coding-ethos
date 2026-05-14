@@ -117,6 +117,48 @@ func TestEvaluateProtectedBranchWriteBlocksInPlaceSed(t *testing.T) {
 	}
 }
 
+func TestEvaluateProtectedBranchWriteBlocksCombinedInPlaceSed(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Bash",
+		Cwd:              repo,
+		Command:          "sed -Ei 's/old/new/' app.py",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluateProtectedBranchWriteBlocksSedWriteCommand(t *testing.T) {
+	t.Parallel()
+
+	repo := initProtectedBranchRepo(t)
+	policyDef := compiledRepoBundle(t).Policies["filesystem.protected_branch_write"]
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Tool:             "Bash",
+		Cwd:              repo,
+		Command:          "sed -n '/old/w output.txt' app.py",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate protected branch write: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluateProtectedBranchWriteUsesConfiguredBranches(t *testing.T) {
 	t.Parallel()
 

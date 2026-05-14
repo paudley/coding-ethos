@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,6 +199,103 @@ func TestReadFileWithCacheMissesAfterContentChanges(t *testing.T) {
 
 	if second.CacheHit || first.ContentHash == second.ContentHash {
 		t.Fatalf("changed file should miss cache: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestReadFileWithCacheRejectsSymlinkOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+
+	err := os.WriteFile(outside, []byte("outside\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	err = os.Symlink(outside, filepath.Join(root, "link.txt"))
+	if err != nil {
+		t.Fatalf("symlink outside file: %v", err)
+	}
+
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.ReadFileWithCache(ctx, FileReadCacheRequest{
+		SessionID:  "session-1",
+		RepoRoot:   root,
+		TargetPath: "link.txt",
+	})
+	if err == nil || !strings.Contains(err.Error(), "target outside repo root") {
+		t.Fatalf("expected outside-root symlink error, got %v", err)
+	}
+}
+
+func TestReadFileWithCacheRecordsOriginalTransformMeasurements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	content := strings.Repeat("token ", 80) + "\n"
+
+	err := os.WriteFile(filepath.Join(root, "app.py"), []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	request := FileReadCacheRequest{
+		SessionID:  " session-1 ",
+		Provider:   "codex",
+		RepoRoot:   root,
+		TargetPath: "app.py",
+	}
+
+	_, err = store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+
+	second, err := store.ReadFileWithCache(ctx, request)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+
+	if !second.CacheHit {
+		t.Fatalf("expected cache hit after trimmed session normalization: %#v", second)
+	}
+
+	events, err := store.ProxyEvents(ctx, ProxyEventQuery{
+		SessionID: "session-1",
+		Decision:  "cache_hit",
+	})
+	if err != nil {
+		t.Fatalf("query proxy events: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("cache-hit events = %#v", events)
+	}
+
+	cacheHit := events[0]
+	if len(cacheHit.Transforms) != 1 {
+		t.Fatalf("cache-hit transforms = %#v", cacheHit.Transforms)
+	}
+
+	transform := cacheHit.Transforms[0]
+	if transform.InputTokens != 80 ||
+		transform.OutputTokens >= transform.InputTokens ||
+		transform.BytesRemoved == 0 {
+		t.Fatalf("cache-hit transform = %#v", transform)
 	}
 }
 

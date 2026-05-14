@@ -3216,12 +3216,7 @@ principles:
                   list_contains(["touch", "mkdir"], command.name) ||
                   (
                     command.name == "sed" &&
-                    command.argv.exists(arg,
-                      arg == "-i" ||
-                      arg == "--in-place" ||
-                      arg.startsWith("-i") ||
-                      arg.startsWith("--in-place=")
-                    )
+                    sed_writes_files(command.argv)
                   ) ||
                   (
                     command.is_git &&
