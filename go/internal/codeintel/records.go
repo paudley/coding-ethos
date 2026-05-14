@@ -296,15 +296,17 @@ type EmbeddingRecord struct {
 }
 
 type CodeFile struct {
-	Path          string `json:"path"`
-	Language      string `json:"language"`
-	ContentHash   string `json:"content_hash"`
-	ParserName    string `json:"parser_name,omitempty"`
-	ParserVersion string `json:"parser_version,omitempty"`
-	IndexedAtUTC  string `json:"indexed_at_utc"`
-	StaleReason   string `json:"stale_reason,omitempty"`
-	SizeBytes     int    `json:"size_bytes"`
-	LineCount     int    `json:"line_count"`
+	Path             string `json:"path"`
+	Language         string `json:"language"`
+	ContentHash      string `json:"content_hash"`
+	ParserName       string `json:"parser_name,omitempty"`
+	ParserVersion    string `json:"parser_version,omitempty"`
+	SourceModTimeUTC string `json:"source_mtime_utc,omitempty"`
+	IndexedAtUTC     string `json:"indexed_at_utc"`
+	DeletedAtUTC     string `json:"deleted_at_utc,omitempty"`
+	StaleReason      string `json:"stale_reason,omitempty"`
+	SizeBytes        int    `json:"size_bytes"`
+	LineCount        int    `json:"line_count"`
 }
 
 type CodeChunk struct {
@@ -415,8 +417,44 @@ type CompactCodeContextQuery struct {
 
 type CodeIndexSummary struct {
 	Skipped       []string `json:"skipped,omitempty"`
+	Deleted       []string `json:"deleted,omitempty"`
 	FilesIndexed  int      `json:"files_indexed"`
 	ChunksIndexed int      `json:"chunks_indexed"`
+}
+
+type DiffEditPatternSummary struct {
+	PatternsRecorded int `json:"patterns_recorded"`
+}
+
+type DiffEditPattern struct {
+	DiffSource        string `json:"diff_source"`
+	GitHead           string `json:"git_head,omitempty"`
+	FirstGitHead      string `json:"first_git_head,omitempty"`
+	LastGitHead       string `json:"last_git_head,omitempty"`
+	TargetPath        string `json:"target_path"`
+	PatternHash       string `json:"pattern_hash"`
+	RemovedSHA256     string `json:"removed_sha256,omitempty"`
+	AddedSHA256       string `json:"added_sha256,omitempty"`
+	ASTChunkID        string `json:"ast_chunk_id,omitempty"`
+	ASTLanguage       string `json:"ast_language,omitempty"`
+	ASTNodeKind       string `json:"ast_node_kind,omitempty"`
+	ASTSymbolKind     string `json:"ast_symbol_kind,omitempty"`
+	ASTSymbolName     string `json:"ast_symbol_name,omitempty"`
+	ASTSymbolPath     string `json:"ast_symbol_path,omitempty"`
+	LastSeenUTC       string `json:"last_seen_utc,omitempty"`
+	HunkHeader        string `json:"hunk_header,omitempty"`
+	OldStart          int64  `json:"old_start"`
+	OldLines          int64  `json:"old_lines"`
+	NewStart          int64  `json:"new_start"`
+	NewLines          int64  `json:"new_lines"`
+	SeenCount         int    `json:"seen_count"`
+	DistinctAddHashes int    `json:"distinct_add_hashes,omitempty"`
+}
+
+type DiffEditPatternQuery struct {
+	DiffSource string
+	Path       string
+	Limit      int
 }
 
 func (store *Store) IngestSARIFRun(ctx context.Context, run SARIFRun) error {

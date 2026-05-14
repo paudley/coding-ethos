@@ -19,19 +19,22 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 const (
-	parentDefaultLintScope  = "full"
-	parentExecutableDirMode = 0o755
-	parentStepFail          = "fail"
-	parentStepPass          = "pass"
-	parentWorkingTreeState  = "working_tree"
+	parentDefaultLintScope    = "full"
+	parentExecutableDirMode   = 0o755
+	parentPolicyBundleDirMode = 0o755
+	parentStepFail            = "fail"
+	parentStepPass            = "pass"
+	parentWorkingTreeState    = "working_tree"
 )
 
 var (
@@ -172,6 +175,9 @@ func syncParentArtifacts(
 	steps = append(steps, runParentStep("go_tools", func() error {
 		return rebuildParentGoTools(paths)
 	}))
+	steps = append(steps, runParentStep("policy_bundle", func() error {
+		return syncParentPolicyBundle(paths, options)
+	}))
 	steps = append(steps, runParentStep("tool_configs", func() error {
 		_, err := toolconfigs.Sync(paths.EthosRoot, options.Repo, options.RepoConfig)
 		if err != nil {
@@ -199,6 +205,9 @@ func syncParentArtifacts(
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.SyncSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
+	steps = append(steps, runParentStep("code_intel", func() error {
+		return refreshParentCodeIntel(options.Repo)
+	}))
 
 	return steps
 }
@@ -210,6 +219,9 @@ func checkParentArtifacts(
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("go_tools", func() error {
 		return checkParentGoTools(paths, options)
+	}))
+	steps = append(steps, runParentStep("policy_bundle", func() error {
+		return checkParentPolicyBundle(paths, options)
 	}))
 	steps = append(steps, runParentStep("tool_configs", func() error {
 		mismatched, err := toolconfigs.Check(
@@ -242,8 +254,226 @@ func checkParentArtifacts(
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.DoctorSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
+	steps = append(steps, runParentStep("code_intel", func() error {
+		return refreshParentCodeIntel(options.Repo)
+	}))
 
 	return steps
+}
+
+func refreshParentCodeIntel(repo string) error {
+	_, err := codeintel.RefreshRepository(context.Background(), repo, []string{"."})
+	if err != nil {
+		return fmt.Errorf("refresh code-intel: %w", err)
+	}
+
+	return nil
+}
+
+func syncParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) error {
+	bundle, metadata, err := compileParentPolicyBundle(paths, options, "")
+	if err != nil {
+		return err
+	}
+
+	return writePolicyBundleArtifacts(filepath.Dir(paths.PolicyBundle), bundle, metadata)
+}
+
+func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) error {
+	existing, generatedAt, err := existingPolicyBundle(paths.PolicyBundle)
+	if err != nil {
+		return err
+	}
+
+	bundle, metadata, err := compileParentPolicyBundle(paths, options, generatedAt)
+	if err != nil {
+		return err
+	}
+
+	existingMetadata, err := existingPolicyMetadata(paths.PolicyMetadata)
+	if err != nil {
+		return err
+	}
+
+	if !policyBundleCurrent(existing, existingMetadata, bundle, metadata) {
+		return fmt.Errorf(
+			"%w: policy_bundle out of sync in %s checkout; run: %s",
+			errParentArtifactDrift,
+			parentCheckoutLocation(paths, options),
+			parentInstallCommand(options),
+		)
+	}
+
+	return nil
+}
+
+func compileParentPolicyBundle(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+	generatedAt string,
+) (policy.Bundle, policy.Metadata, error) {
+	bundle, metadata, err := policy.Compile(policy.CompileOptions{
+		Primary: filepath.Join(paths.EthosRoot, "coding_ethos.yml"),
+		RepoEthos: firstNonEmptyPath(
+			options.RepoEthos,
+			filepath.Join(paths.EthosRoot, "repo_ethos.yml"),
+		),
+		Config:      filepath.Join(paths.EthosRoot, "config.yaml"),
+		RepoConfig:  options.RepoConfig,
+		GeneratedAt: generatedAt,
+	})
+	if err != nil {
+		return policy.Bundle{}, policy.Metadata{}, fmt.Errorf(
+			"compile parent policy bundle: %w",
+			err,
+		)
+	}
+
+	return bundle, metadata, nil
+}
+
+func writePolicyBundleArtifacts(
+	outDir string,
+	bundle policy.Bundle,
+	metadata policy.Metadata,
+) error {
+	err := os.MkdirAll(outDir, parentPolicyBundleDirMode)
+	if err != nil {
+		return fmt.Errorf("create policy bundle dir: %w", err)
+	}
+
+	err = writePolicyJSONFile(
+		filepath.Join(outDir, "policy-bundle.json"),
+		func(file *os.File) error {
+			return policy.EncodeBundle(file, bundle)
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return writePolicyJSONFile(
+		filepath.Join(outDir, "policy-metadata.json"),
+		func(file *os.File) error {
+			return policy.EncodeMetadata(file, metadata)
+		},
+	)
+}
+
+func writePolicyJSONFile(path string, encode func(*os.File) error) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temporary policy file: %w", err)
+	}
+
+	tempPath := temp.Name()
+
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	err = encode(temp)
+	if err != nil {
+		_ = temp.Close()
+
+		return err
+	}
+
+	err = temp.Close()
+	if err != nil {
+		return fmt.Errorf("close temporary policy file: %w", err)
+	}
+
+	err = os.Rename(tempPath, path)
+	if err != nil {
+		return fmt.Errorf("install policy file %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func existingPolicyBundle(path string) (policy.Bundle, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return policy.Bundle{}, "", fmt.Errorf("open policy bundle %s: %w", path, err)
+	}
+	defer file.Close()
+
+	bundle, err := policy.DecodeBundle(file)
+	if err != nil {
+		return policy.Bundle{}, "", fmt.Errorf("decode policy bundle %s: %w", path, err)
+	}
+
+	return bundle, bundle.GeneratedAt, nil
+}
+
+func existingPolicyMetadata(path string) (policy.Metadata, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return policy.Metadata{}, fmt.Errorf("open policy metadata %s: %w", path, err)
+	}
+	defer file.Close()
+
+	metadata, err := policy.DecodeMetadata(file)
+	if err != nil {
+		return policy.Metadata{}, fmt.Errorf("decode policy metadata %s: %w", path, err)
+	}
+
+	return metadata, nil
+}
+
+func policyBundleCurrent(
+	existing policy.Bundle,
+	existingMetadata policy.Metadata,
+	expected policy.Bundle,
+	expectedMetadata policy.Metadata,
+) bool {
+	existingHash, err := policy.HashBundle(existing)
+	if err != nil {
+		return false
+	}
+
+	return existingMetadata.BundleHash == existingHash &&
+		samePolicyIDs(existing.Policies, expected.Policies) &&
+		sameStringMap(existingMetadata.SourceHashes, expectedMetadata.SourceHashes)
+}
+
+func samePolicyIDs(left, right map[string]policy.Policy) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for id := range left {
+		if _, found := right[id]; !found {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sameStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for key, leftValue := range left {
+		if right[key] != leftValue {
+			return false
+		}
+	}
+
+	return true
+}
+
+func firstNonEmptyPath(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func rebuildParentGoTools(paths runtimePaths) error {

@@ -194,6 +194,8 @@ func TestValidateAcceptsExpandedHelperFunctions(t *testing.T) {
 		list_contains(git_command.flags, "-f") &&
 		has_inline_env(command, "CODE_ETHOS_CONSUMER_ROOT") &&
 		lint_code_matches(diagnostic.code, "S*") &&
+		is_linter(diagnostic.tool) &&
+		advertising_filter("[codex] generated output") &&
 		repo_config_present(files, config.candidates) &&
 		is_protected_path(path.file, repo.protected_paths) &&
 		is_protected_branch(git.current_branch, repo.protected_branches) &&

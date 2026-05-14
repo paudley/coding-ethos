@@ -4,10 +4,13 @@
 package codeintel_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,6 +144,50 @@ func TestStoreIngestTraceDirsFindsLintAndHookTraces(t *testing.T) {
 	if stats.Traces != 2 {
 		t.Fatalf("stats = %#v", stats)
 	}
+
+	summary, err = ingester.IngestTraceDirs(ctx, root)
+	if err != nil {
+		t.Fatalf("reingest trace dirs: %v", err)
+	}
+
+	if summary.FilesScanned != 2 || summary.FilesIngested != 0 {
+		t.Fatalf("reingest summary = %#v", summary)
+	}
+}
+
+func TestIngestHookTraceFilePreservesSourcePath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	tracePath := filepath.Join(root, ".coding-ethos", "hook-runs", "run-a", "event.json")
+
+	writeFile(t, tracePath, hookTracePayload(t))
+
+	err := IngestHookTraceFile(ctx, root, tracePath)
+	if err != nil {
+		t.Fatalf("ingest hook trace file: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	var sourcePath string
+
+	err = store.Database().QueryRowContext(
+		ctx,
+		`SELECT COALESCE(source_path, '') FROM traces LIMIT 1`,
+	).Scan(&sourcePath)
+	if err != nil {
+		t.Fatalf("query trace source path: %v", err)
+	}
+
+	if sourcePath != tracePath {
+		t.Fatalf("source path = %q, want %q", sourcePath, tracePath)
+	}
 }
 
 func TestStoreIngestTraceDirsBackfillsMissingTraceIDs(t *testing.T) {
@@ -175,6 +222,645 @@ func TestStoreIngestTraceDirsBackfillsMissingTraceIDs(t *testing.T) {
 		!strings.HasPrefix(usage[0].LastTraceID, "source-run-a-event.json-") {
 		t.Fatalf("hook usage trace fallback = %#v", usage)
 	}
+}
+
+func TestRefreshRepositoryRecordsDiffEditPatternsWithGitHeadAndAST(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	err := os.MkdirAll(filepath.Join(root, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("create pkg dir: %v", err)
+	}
+
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'old'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "initial")
+	head := strings.TrimSpace(runCodeIntelGitOutput(t, root, "rev-parse", "HEAD"))
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'new'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("modify source: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	patterns, err := store.RepeatedDiffEditPatterns(ctx, DiffEditPatternQuery{
+		Path: "pkg/app.py",
+	})
+	if err != nil {
+		t.Fatalf("query repeated edits: %v", err)
+	}
+
+	if len(patterns) != 1 {
+		t.Fatalf("patterns = %#v, want one pattern", patterns)
+	}
+
+	pattern := patterns[0]
+	if pattern.SeenCount != 2 ||
+		pattern.FirstGitHead != head ||
+		pattern.LastGitHead != head ||
+		pattern.ASTSymbolPath != "build_message" ||
+		pattern.RemovedSHA256 == "" ||
+		pattern.AddedSHA256 == "" {
+		t.Fatalf("pattern = %#v", pattern)
+	}
+}
+
+func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	notePath := filepath.Join(root, "notes.txt")
+
+	err := os.WriteFile(notePath, []byte("old\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write note: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "add", "notes.txt")
+	runCodeIntelGit(t, root, "commit", "-m", "initial")
+
+	err = os.WriteFile(notePath, []byte("new\n"), 0o600)
+	if err != nil {
+		t.Fatalf("modify note: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	dbPath := DefaultDBPath(root)
+
+	store, err := Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	database, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw sqlite: %v", err)
+	}
+	defer database.Close()
+
+	var count int
+
+	err = database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM diff_edit_patterns
+		WHERE target_path = 'notes.txt' AND ast_chunk_id IS NULL`,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("query note edit pattern: %v", err)
+	}
+
+	if count != 1 {
+		t.Fatalf("note edit patterns = %d, want 1", count)
+	}
+
+	patterns, err := store.RepeatedDiffEditPatterns(ctx, DiffEditPatternQuery{
+		Path: "notes.txt",
+	})
+	if err != nil {
+		t.Fatalf("query note edit pattern: %v", err)
+	}
+
+	if len(patterns) != 1 || patterns[0].ASTChunkID != "" {
+		t.Fatalf("patterns = %#v, want one non-AST pattern", patterns)
+	}
+}
+
+func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	err := os.MkdirAll(filepath.Join(root, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("create pkg dir: %v", err)
+	}
+
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'old'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "initial")
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'new'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("modify source: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("first refresh: %v", err)
+	}
+
+	err = os.Remove(sourcePath)
+	if err != nil {
+		t.Fatalf("remove source: %v", err)
+	}
+
+	summary, err := RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("delete refresh: %v", err)
+	}
+
+	if len(summary.CodeIndex.Deleted) != 1 ||
+		summary.CodeIndex.Deleted[0] != "pkg/app.py" {
+		t.Fatalf("deleted summary = %#v", summary.CodeIndex.Deleted)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("get deleted code file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "deleted" {
+		t.Fatalf("file = %#v, found = %v", file, found)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "pkg/app.py"})
+	if err != nil {
+		t.Fatalf("query deleted code chunks: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %#v, want no active chunks", chunks)
+	}
+
+	searchResults, err := store.Search(ctx, SearchQuery{Text: "BuildMessage", Limit: 5})
+	if err != nil {
+		t.Fatalf("search deleted code chunks: %v", err)
+	}
+
+	if len(searchResults) != 0 {
+		t.Fatalf("search results = %#v, want no deleted code chunks", searchResults)
+	}
+
+	patterns, err := store.RepeatedDiffEditPatterns(ctx, DiffEditPatternQuery{
+		Path: "pkg/app.py",
+	})
+	if err != nil {
+		t.Fatalf("query deleted diff edit patterns: %v", err)
+	}
+
+	if len(patterns) != 0 {
+		t.Fatalf("patterns = %#v, want no active deleted-file patterns", patterns)
+	}
+}
+
+func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+
+	err := os.MkdirAll(filepath.Join(root, ".wolf"), 0o700)
+	if err != nil {
+		t.Fatalf("create tool state dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(root, ".wolf", "buglog.json"),
+		[]byte(`{"items":[]}`),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write tool state: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+
+	err = store.ReplaceCodeFileIndex(
+		ctx,
+		CodeFile{
+			Path:         ".wolf/buglog.json",
+			Language:     "json",
+			ContentHash:  "old",
+			IndexedAtUTC: "2026-01-01T00:00:00Z",
+			SizeBytes:    12,
+			LineCount:    1,
+		},
+		[]CodeChunk{{
+			ID:          "wolf-chunk",
+			Path:        ".wolf/buglog.json",
+			Language:    "json",
+			NodeKind:    "object",
+			ContentHash: "chunk",
+			StartLine:   1,
+			EndLine:     1,
+			SearchText:  "items",
+		}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("seed ignored code index: %v", err)
+	}
+
+	err = store.Close()
+	if err != nil {
+		t.Fatalf("close seeded store: %v", err)
+	}
+
+	summary, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	if len(summary.CodeIndex.Deleted) != 1 ||
+		summary.CodeIndex.Deleted[0] != ".wolf/buglog.json" {
+		t.Fatalf("deleted summary = %#v", summary.CodeIndex.Deleted)
+	}
+
+	store, err = Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, ".wolf/buglog.json")
+	if err != nil {
+		t.Fatalf("get ignored code file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "ignored" {
+		t.Fatalf("file = %#v, found = %v", file, found)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: ".wolf/buglog.json"})
+	if err != nil {
+		t.Fatalf("query ignored chunks: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %#v, want no active ignored chunks", chunks)
+	}
+}
+
+func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	writeFile(t, filepath.Join(root, ".gitignore"), []byte("ignored/\n"))
+
+	err := os.MkdirAll(filepath.Join(root, "ignored"), 0o700)
+	if err != nil {
+		t.Fatalf("create ignored dir: %v", err)
+	}
+
+	writeFile(
+		t,
+		filepath.Join(root, "ignored", "generated.py"),
+		[]byte("def noisy():\n    return 1\n"),
+	)
+	writeFile(t, filepath.Join(root, "tracked.py"), []byte("def kept():\n    return 1\n"))
+
+	_, err = RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	_, found, err := store.GetCodeFile(ctx, "ignored/generated.py")
+	if err != nil {
+		t.Fatalf("get ignored file: %v", err)
+	}
+
+	if found {
+		t.Fatalf("ignored/generated.py should not be indexed")
+	}
+
+	file, found, err := store.GetCodeFile(ctx, "tracked.py")
+	if err != nil {
+		t.Fatalf("get tracked file: %v", err)
+	}
+
+	if !found || file.Language != "python" {
+		t.Fatalf("tracked file = %#v, found = %v", file, found)
+	}
+}
+
+func TestRefreshRepositoryMarksOversizedSourcesInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	largeYAML := append([]byte("items:\n"), bytes.Repeat([]byte("  - value\n"), 140000)...)
+	writeFile(t, filepath.Join(root, "large.yaml"), largeYAML)
+
+	_, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "large.yaml")
+	if err != nil {
+		t.Fatalf("get large file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_large" {
+		t.Fatalf("large file = %#v, found = %v", file, found)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "large.yaml"})
+	if err != nil {
+		t.Fatalf("query large file chunks: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %#v, want no active oversized chunks", chunks)
+	}
+}
+
+func TestRefreshRepositoryMarksOverlongSourcesInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	writeFile(
+		t,
+		filepath.Join(root, "long.md"),
+		bytes.Repeat([]byte("plain prose line\n"), 5001),
+	)
+
+	_, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "long.md")
+	if err != nil {
+		t.Fatalf("get long file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_many_lines" {
+		t.Fatalf("long file = %#v, found = %v", file, found)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "long.md"})
+	if err != nil {
+		t.Fatalf("query long file chunks: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %#v, want no active overlong chunks", chunks)
+	}
+}
+
+func TestRefreshRepositoryMarksDenseSourcesInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+
+	var denseJSON strings.Builder
+	denseJSON.WriteString("[\n")
+
+	for index := range 2500 {
+		_, err := fmt.Fprintf(&denseJSON, `  {"id": %d, "name": "item-%d"}`, index, index)
+		if err != nil {
+			t.Fatalf("write dense JSON entry: %v", err)
+		}
+
+		if index < 2499 {
+			denseJSON.WriteString(",")
+		}
+
+		denseJSON.WriteString("\n")
+	}
+
+	denseJSON.WriteString("]\n")
+	writeFile(t, filepath.Join(root, "dense.json"), []byte(denseJSON.String()))
+
+	_, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "dense.json")
+	if err != nil {
+		t.Fatalf("get dense file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_many_chunks" {
+		t.Fatalf("dense file = %#v, found = %v", file, found)
+	}
+
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{Path: "dense.json"})
+	if err != nil {
+		t.Fatalf("query dense file chunks: %v", err)
+	}
+
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %#v, want no active dense chunks", chunks)
+	}
+}
+
+func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	dbPath := DefaultDBPath(root)
+
+	err := os.MkdirAll(filepath.Dir(dbPath), 0o700)
+	if err != nil {
+		t.Fatalf("create db dir: %v", err)
+	}
+
+	database, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+
+	_, err = database.ExecContext(ctx, `CREATE TABLE code_chunks (
+		chunk_id TEXT PRIMARY KEY,
+		path TEXT NOT NULL,
+		language TEXT NOT NULL,
+		node_kind TEXT NOT NULL,
+		symbol_kind TEXT,
+		symbol_name TEXT,
+		symbol_path TEXT,
+		parent_chunk_id TEXT,
+		start_byte INTEGER NOT NULL,
+		end_byte INTEGER NOT NULL,
+		start_line INTEGER NOT NULL,
+		end_line INTEGER NOT NULL,
+		content_hash TEXT NOT NULL,
+		search_text TEXT NOT NULL,
+		raw_text TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatalf("create legacy code_chunks table: %v", err)
+	}
+
+	err = database.Close()
+	if err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	store, err := Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	defer store.Close()
+
+	for _, column := range []string{"normalized_hash", "minhash_sig"} {
+		found, err := testColumnExists(ctx, store.Database(), "code_chunks", column)
+		if err != nil {
+			t.Fatalf("check migrated column %s: %v", column, err)
+		}
+
+		if !found {
+			t.Fatalf("column %s was not migrated", column)
+		}
+	}
+}
+
+func testColumnExists(
+	ctx context.Context,
+	database *sql.DB,
+	table string,
+	name string,
+) (bool, error) {
+	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, fmt.Errorf("query table info for %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			columnName string
+			columnType string
+			notNull    int
+			defaultVal any
+			pk         int
+		)
+
+		err = rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk)
+		if err != nil {
+			return false, fmt.Errorf("scan table info for %s: %w", table, err)
+		}
+
+		if columnName == name {
+			return true, nil
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return false, fmt.Errorf("iterate table info for %s: %w", table, err)
+	}
+
+	return false, nil
 }
 
 func TestStoreIngestsHookUsageAnalytics(t *testing.T) {
@@ -2064,6 +2750,25 @@ func hookTracePayload(t *testing.T) []byte {
 		"deny-hook-a",
 		"2026-01-01T00:02:00Z",
 	)
+}
+
+func runCodeIntelGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	_ = runCodeIntelGitOutput(t, dir, args...)
+}
+
+func runCodeIntelGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+
+	command := exec.CommandContext(context.Background(), "git", args...)
+	command.Dir = dir
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+
+	return string(output)
 }
 
 func hookTracePayloadForProvider(t *testing.T, provider string) []byte {

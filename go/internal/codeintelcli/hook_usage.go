@@ -124,3 +124,30 @@ func printHookReviews(ctx context.Context, args []string) error {
 		},
 	)
 }
+
+func printRepeatedEdits(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("repeated-edits", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	diffSource := flags.String(
+		"diff-source",
+		"",
+		"Filter by diff source: worktree or staged",
+	)
+	path := flags.String("path", "", "Filter by edited path")
+	limit := addResultLimit(flags)
+
+	return parseAndPrintStoreJSON(
+		ctx,
+		args,
+		"repeated-edits",
+		flags,
+		storeFlags,
+		func(store *codeintel.Store) (any, error) {
+			return store.RepeatedDiffEditPatterns(ctx, codeintel.DiffEditPatternQuery{
+				DiffSource: *diffSource,
+				Path:       *path,
+				Limit:      *limit,
+			})
+		},
+	)
+}

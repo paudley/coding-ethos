@@ -12,7 +12,6 @@ func schemaStatements() []string {
 	statements = append(statements, sarifSchemaStatements()...)
 	statements = append(statements, remediationSchemaStatements()...)
 	statements = append(statements, searchSchemaStatements()...)
-	statements = append(statements, indexSchemaStatements()...)
 
 	return statements
 }
@@ -210,6 +209,7 @@ func proxySchemaStatements() []string {
 	}
 }
 
+//nolint:funlen // Code-intel schema DDL stays together for migration review.
 func codeSchemaStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS code_files (
@@ -218,6 +218,8 @@ func codeSchemaStatements() []string {
 		content_hash TEXT NOT NULL,
 		parser_name TEXT,
 		parser_version TEXT,
+		source_mtime_utc TEXT,
+		deleted_at_utc TEXT,
 		size_bytes INTEGER NOT NULL,
 		line_count INTEGER NOT NULL,
 		indexed_at_utc TEXT NOT NULL,
@@ -257,6 +259,30 @@ func codeSchemaStatements() []string {
 		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE,
 		FOREIGN KEY(source_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE,
 		FOREIGN KEY(target_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS diff_edit_patterns (
+		pattern_hash TEXT PRIMARY KEY,
+		diff_source TEXT NOT NULL,
+		first_git_head TEXT,
+		last_git_head TEXT,
+		target_path TEXT NOT NULL,
+		hunk_header TEXT,
+		removed_sha256 TEXT,
+		added_sha256 TEXT,
+		old_start INTEGER NOT NULL,
+		old_lines INTEGER NOT NULL,
+		new_start INTEGER NOT NULL,
+		new_lines INTEGER NOT NULL,
+		ast_chunk_id TEXT,
+		ast_language TEXT,
+		ast_node_kind TEXT,
+		ast_symbol_kind TEXT,
+		ast_symbol_name TEXT,
+		ast_symbol_path TEXT,
+		first_seen_utc TEXT NOT NULL,
+		last_seen_utc TEXT NOT NULL,
+		seen_count INTEGER NOT NULL DEFAULT 1,
+		FOREIGN KEY(ast_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
 	)`,
 		`CREATE TABLE IF NOT EXISTS ast_finding_links (
 		link_id TEXT PRIMARY KEY,
@@ -437,6 +463,8 @@ func indexSchemaStatements() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_finding_occurrences_policy
 		ON finding_occurrences(policy_id, skill_id, path)`,
+		`CREATE INDEX IF NOT EXISTS idx_traces_source_path
+		ON traces(source_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_hook_events_usage
 		ON hook_events(provider, status, operation_kind, target_kind, risk_category)`,
 		`CREATE INDEX IF NOT EXISTS idx_hook_decisions_policy
@@ -461,6 +489,8 @@ func indexSchemaStatements() []string {
 		ON code_chunks(content_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_edges_path
 		ON code_edges(path, edge_kind, source_chunk_id, target_chunk_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_diff_edit_patterns_lookup
+		ON diff_edit_patterns(target_path, diff_source, seen_count)`,
 		`CREATE INDEX IF NOT EXISTS idx_ast_finding_links_chunk
 		ON ast_finding_links(chunk_id, policy_id, skill_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_sarif_results_policy
@@ -512,7 +542,13 @@ func migrationColumns() map[string][]migrationColumn {
 		"code_files": {
 			{Name: "parser_name", Type: "TEXT"},
 			{Name: "parser_version", Type: "TEXT"},
+			{Name: "source_mtime_utc", Type: "TEXT"},
+			{Name: "deleted_at_utc", Type: "TEXT"},
 			{Name: "stale_reason", Type: "TEXT"},
+		},
+		"diff_edit_patterns": {
+			{Name: "first_git_head", Type: "TEXT"},
+			{Name: "last_git_head", Type: "TEXT"},
 		},
 		"code_chunks": {
 			{Name: "parent_symbol_path", Type: "TEXT"},

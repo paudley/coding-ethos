@@ -56,6 +56,7 @@ func (store *Store) RepoMap(
 		LEFT JOIN code_chunks chunk ON chunk.path = file.path
 		WHERE (? = '' OR file.path = ?)
 			AND (? = '' OR file.language = ?)
+			AND COALESCE(file.deleted_at_utc, '') = ''
 		GROUP BY file.path, file.language, file.line_count, file.stale_reason
 		ORDER BY file.path
 		LIMIT ?`,
@@ -104,14 +105,16 @@ func (store *Store) SymbolSummaries(
 ) ([]SymbolSummary, error) {
 	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT path, language, node_kind, COALESCE(symbol_kind, ''),
+		`SELECT code_chunks.path, code_chunks.language, node_kind, COALESCE(symbol_kind, ''),
 			COALESCE(symbol_name, ''), COALESCE(symbol_path, ''),
-			start_line, end_line, content_hash, search_text
+			start_line, end_line, code_chunks.content_hash, search_text
 		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
 		WHERE COALESCE(symbol_path, '') != ''
-			AND (? = '' OR path = ?)
-			AND (? = '' OR language = ?)
-		ORDER BY path, start_line, start_byte
+			AND (? = '' OR code_chunks.path = ?)
+			AND (? = '' OR code_chunks.language = ?)
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
+		ORDER BY code_chunks.path, start_line, start_byte
 		LIMIT ?`,
 		strings.TrimSpace(query.Path),
 		strings.TrimSpace(query.Path),

@@ -187,9 +187,12 @@ func FindExactNormalizedMatches(
 
 	rows, err := database.QueryContext(
 		ctx,
-		`SELECT chunk_id, path, symbol_name, symbol_kind, start_line
+		`SELECT code_chunks.chunk_id, code_chunks.path, symbol_name,
+			symbol_kind, start_line
 		FROM code_chunks
-		WHERE normalized_hash = ? AND path != ?
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE normalized_hash = ? AND code_chunks.path != ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
 		LIMIT ?`,
 		normalizedHash,
 		excludePath,
@@ -386,7 +389,9 @@ func FindLSHCandidates(
 			cc.start_line, cc.minhash_sig
 		FROM lsh_bands lb
 		JOIN code_chunks cc ON cc.chunk_id = lb.chunk_id
+		JOIN code_files cf ON cf.path = cc.path
 		WHERE lb.band_hash IN (%s) AND cc.path != ?
+			AND COALESCE(cf.deleted_at_utc, '') = ''
 		LIMIT 50`,
 		strings.Join(placeholders, ","),
 	)

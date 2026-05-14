@@ -449,6 +449,25 @@ func CapturedLintTool(name string) (CapturedTool, bool) {
 	return CapturedTool{}, false
 }
 
+func IsLinter(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+
+	for _, tool := range HookOwnedTools() {
+		if !tool.Captured {
+			continue
+		}
+
+		if tool.Name == name || tool.Parser == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 func pythonStaticToolDefinitions() []Tool {
 	return []Tool{
 		ruffTool(),

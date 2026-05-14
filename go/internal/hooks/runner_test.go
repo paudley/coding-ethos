@@ -1488,6 +1488,58 @@ func TestRunBlocksAgentBrandedPRCreateTitle(t *testing.T) {
 	}
 }
 
+func TestRunBlocksAgentBrandedCommandEverywhere(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"command": `ls [claude]`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_pr_mutation") {
+		t.Fatalf("missing self-promotion decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsParentAgentPathReferences(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"command": `ls .claude/skills CLAUDE.md .codex/skills .gemini/extensions`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunBlocksCrossAgentBrandedPRCreateTitle(t *testing.T) {
 	t.Parallel()
 
@@ -2681,9 +2733,8 @@ func bundleWithSelfPromotionPRPolicy() policy.Bundle {
 	bundle.Dispatch.Hooks[eventPreToolUse][toolBash] = append(
 		bundle.Dispatch.Hooks[eventPreToolUse][toolBash],
 		policy.HookDispatchEntry{
-			PolicyID:        "agent.self_promotion_pr_mutation",
-			Mode:            "block",
-			CommandPatterns: []string{"gh"},
+			PolicyID: "agent.self_promotion_pr_mutation",
+			Mode:     "block",
 		},
 	)
 	addSelfPromotionPayloadDispatch(&bundle)
@@ -2700,8 +2751,8 @@ func selfPromotionPRMutationPolicy() policy.Policy {
 			File: "coding_ethos.yml",
 			Path: "principles.no-self-promotion.policy.expressions[0]",
 		},
-		Message:        "Agent-branded pull request mutations are forbidden.",
-		Suggestion:     "Remove agent branding from pull request titles and bodies.",
+		Message:        "Agent advertising in tool commands is forbidden.",
+		Suggestion:     "Remove agent branding from commands before running them.",
 		DefenseLayers:  policy.CodeDefenseLayers(),
 		SupportedModes: []string{"block", "record", "advise"},
 		PrincipleIDs:   []string{"no-self-promotion"},
@@ -2712,14 +2763,7 @@ func selfPromotionPRMutationPolicy() policy.Policy {
 				"scope": "command",
 				"when": strings.Join([]string{
 					`event.name == "PreToolUse" &&`,
-					`(self_promotion_branding(command, "codex") ||`,
-					`self_promotion_branding(command, "claude") ||`,
-					`self_promotion_branding(command, "gemini")) &&`,
-					`shell_commands.exists(cmd, cmd.name == "gh" &&`,
-					`((cmd.argv.size() >= 3 && cmd.argv[1] == "pr" &&`,
-					`list_contains(["create", "edit"], cmd.argv[2])) ||`,
-					`(cmd.argv.size() >= 2 && cmd.argv[1] == "api" &&`,
-					`command_fact.lower.contains("pulls"))))`,
+					`advertising_filter(command)`,
 				}, " "),
 			},
 		}},

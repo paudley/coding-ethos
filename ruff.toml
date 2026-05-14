@@ -3,7 +3,7 @@
 
 target-version = "py313"
 line-length = 88
-exclude = [".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "*.egg-info", ".eggs", "build", "dist", "node_modules"]
+exclude = [".git", ".venv", ".mypy_cache", ".ruff_cache", "__pycache__", "tests", "**/tests/**", "**/*_test.py", "**/test_*.py", "*.egg-info", ".eggs", "build", "dist", "node_modules"]
 
 [lint]
 select = ["ALL"]

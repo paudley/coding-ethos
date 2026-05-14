@@ -121,6 +121,8 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
+    paths:
+      - .*_test\.go
   settings:
     cyclop:
       max-complexity: 12

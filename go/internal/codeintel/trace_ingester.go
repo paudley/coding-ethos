@@ -6,7 +6,9 @@ package codeintel
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -42,7 +44,15 @@ func (ingester TraceIngester) IngestHookTrace(
 	ctx context.Context,
 	payload []byte,
 ) error {
-	trace, err := DecodeHookTrace("", payload)
+	return ingester.IngestHookTraceSource(ctx, "", payload)
+}
+
+func (ingester TraceIngester) IngestHookTraceSource(
+	ctx context.Context,
+	path string,
+	payload []byte,
+) error {
+	trace, err := DecodeHookTrace(path, payload)
 	if err != nil {
 		return err
 	}
@@ -161,6 +171,15 @@ func (ingester TraceIngester) ingestTraceEntry(
 		return fmt.Errorf("read trace %q: %w", input.path, readErr)
 	}
 
+	unchanged, unchangedErr := ingester.traceSourceUnchanged(ctx, input.path, payload)
+	if unchangedErr != nil {
+		return unchangedErr
+	}
+
+	if unchanged {
+		return nil
+	}
+
 	ingestErr := ingester.ingestTracePayload(ctx, input.kind, input.path, payload)
 	if ingestErr != nil {
 		return fmt.Errorf("ingest trace %q: %w", input.path, ingestErr)
@@ -169,6 +188,31 @@ func (ingester TraceIngester) ingestTraceEntry(
 	input.summary.FilesIngested++
 
 	return nil
+}
+
+func (ingester TraceIngester) traceSourceUnchanged(
+	ctx context.Context,
+	path string,
+	payload []byte,
+) (bool, error) {
+	row := ingester.store.database.QueryRowContext(
+		ctx,
+		"SELECT raw_json FROM traces WHERE source_path = ? LIMIT 1",
+		path,
+	)
+
+	var raw string
+
+	err := row.Scan(&raw)
+	if err == nil {
+		return raw == string(payload), nil
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("lookup ingested trace source %q: %w", path, err)
 }
 
 func skipTraceEntry(kind, path string, entry os.DirEntry) bool {

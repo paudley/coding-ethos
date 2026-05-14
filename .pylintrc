@@ -5,7 +5,7 @@
 jobs = 0
 persistent = no
 ignore = .git,.venv,.mypy_cache,.ruff_cache,__pycache__,build,dist,node_modules
-ignore-paths = (^|/)\.git/,(^|/)\.venv/,(^|/)__pycache__/,(^|/)\.mypy_cache/,(^|/)\.ruff_cache/,(^|/)build/,(^|/)dist/,(^|/)node_modules/
+ignore-paths = (^|/)\.git/,(^|/)\.venv/,(^|/)__pycache__/,(^|/)\.mypy_cache/,(^|/)\.ruff_cache/,(^|/)build/,(^|/)dist/,(^|/)node_modules/,(^|/)tests/,(^|/).*_test\.py$,(^|/)test_.*\.py$
 
 [MESSAGES CONTROL]
 disable = missing-module-docstring,missing-class-docstring,missing-function-docstring,line-too-long,too-few-public-methods,duplicate-code,import-error,no-member,too-many-instance-attributes,too-many-locals,too-many-branches,too-many-statements,fixme

@@ -55,6 +55,49 @@ func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestASTIndexerSkipsFreshFileBeforeReading(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "app.py")
+
+	err := os.WriteFile(filePath, []byte("def hello():\n    return 'hello'\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	_, err = indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err != nil {
+		t.Fatalf("first index: %v", err)
+	}
+
+	err = os.Chmod(filePath, 0)
+	if err != nil {
+		t.Fatalf("chmod unreadable: %v", err)
+	}
+
+	t.Cleanup(func() {
+		chmodErr := os.Chmod(filePath, 0o600)
+		if chmodErr != nil {
+			t.Fatalf("restore readable file mode: %v", chmodErr)
+		}
+	})
+
+	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err != nil {
+		t.Fatalf("second index should skip without reading: %v", err)
+	}
+
+	if summary.FilesIndexed != 0 ||
+		len(summary.Skipped) != 1 ||
+		summary.Skipped[0] != "app.py" {
+		t.Fatalf("summary = %#v, want app.py skipped without reindex", summary)
+	}
+}
+
 func TestASTIndexerReindexesModifiedFiles(t *testing.T) {
 	t.Parallel()
 
@@ -94,6 +137,60 @@ func TestASTIndexerReindexesModifiedFiles(t *testing.T) {
 
 	if len(summary3.Skipped) != 0 {
 		t.Fatalf("expected 0 skipped after modification, got %d", len(summary3.Skipped))
+	}
+}
+
+func TestASTIndexerIndexesJavaScriptAndTypeScript(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+	webDir := filepath.Join(tempDir, "web")
+
+	err := os.MkdirAll(webDir, 0o700)
+	if err != nil {
+		t.Fatalf("mkdir web: %v", err)
+	}
+
+	files := map[string]string{
+		"web/app.js": "import tool from 'pkg';\nexport function run() { return tool(); }\n",
+		"web/app.ts": "import tool from 'pkg';\n" +
+			"export function runTyped(): string { return tool(); }\n",
+	}
+
+	for path, content := range files {
+		err = os.WriteFile(filepath.Join(tempDir, path), []byte(content), 0o600)
+		if err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	summary, err := indexer.IndexPaths(ctx, tempDir, []string{"web"})
+	if err != nil {
+		t.Fatalf("index web: %v", err)
+	}
+
+	if summary.FilesIndexed != 2 {
+		t.Fatalf("indexed %d files, want 2", summary.FilesIndexed)
+	}
+
+	for _, test := range []struct {
+		path     string
+		language string
+	}{
+		{path: "web/app.js", language: "javascript"},
+		{path: "web/app.ts", language: "typescript"},
+	} {
+		file, found, err := store.GetCodeFile(ctx, test.path)
+		if err != nil {
+			t.Fatalf("get %s: %v", test.path, err)
+		}
+
+		if !found || file.Language != test.language || file.SourceModTimeUTC == "" {
+			t.Fatalf("code file %s = %#v, found=%v", test.path, file, found)
+		}
 	}
 }
 

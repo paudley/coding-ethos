@@ -11,6 +11,8 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 func helperFunctions() []cel.EnvOption {
@@ -160,6 +162,28 @@ func basicStringHelpers() []cel.EnvOption {
 			"lint_code_matches",
 			"lint_code_matches_string_string",
 			lintCodeMatches,
+		),
+		cel.Function(
+			"is_linter",
+			cel.Overload(
+				"is_linter_string",
+				[]*cel.Type{cel.StringType},
+				cel.BoolType,
+				cel.UnaryBinding(func(value ref.Val) ref.Val {
+					return types.Bool(toolcatalog.IsLinter(stringFromValue(value)))
+				}),
+			),
+		),
+		cel.Function(
+			"advertising_filter",
+			cel.Overload(
+				"advertising_filter_string",
+				[]*cel.Type{cel.StringType},
+				cel.BoolType,
+				cel.UnaryBinding(func(value ref.Val) ref.Val {
+					return types.Bool(advertisingFilter(stringFromValue(value)))
+				}),
+			),
 		),
 		stringHelper(
 			"self_promotion_branding",
@@ -436,7 +460,7 @@ func selfPromotionBranding(text, provider string) bool {
 		return false
 	}
 
-	normalizedText := normalizedSelfPromotionText(text)
+	normalizedText := normalizedAdvertisingText(text)
 	for _, pattern := range selfPromotionPatterns(normalizedProvider) {
 		if strings.Contains(normalizedText, pattern) {
 			return true
@@ -446,11 +470,24 @@ func selfPromotionBranding(text, provider string) bool {
 	return false
 }
 
-func normalizedSelfPromotionText(text string) string {
+func advertisingFilter(text string) bool {
+	return selfPromotionBranding(text, "codex") ||
+		selfPromotionBranding(text, "claude") ||
+		selfPromotionBranding(text, "gemini")
+}
+
+func normalizedAdvertisingText(text string) string {
 	lower := strings.ToLower(text)
-	for _, directory := range []string{".codex", ".claude", ".gemini"} {
-		lower = strings.ReplaceAll(lower, directory+"/", "")
-		lower = strings.ReplaceAll(lower, directory+"\\", "")
+	for _, path := range []string{
+		"claude.md",
+		".codex/",
+		".codex\\",
+		".claude/",
+		".claude\\",
+		".gemini/",
+		".gemini\\",
+	} {
+		lower = strings.ReplaceAll(lower, path, "")
 	}
 
 	return lower

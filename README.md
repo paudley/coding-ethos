@@ -366,12 +366,24 @@ bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_impo
 bin/coding-ethos-run code-intel search --text 'unused import'
 bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
+bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 ```
 
 The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
 from retained traces, SARIF, AST chunks, proxy session events, remediation
 records, and vector metadata. It is not a replacement for hooks or CEL policy
 evaluation.
+
+Parent install/check, parent lint, policy lint, policy-tool runs, and
+pre-commit/pre-push refresh the store through the compiled runner. AST rows
+store each source file's mtime and size, so repeated scans can skip unchanged
+files before reading file contents. Source indexing follows Git's
+`--exclude-standard` ignore rules and records oversized, overlong, or
+structurally dense sources as inactive metadata instead of parsing them into
+expensive AST chunk sets. Refreshes also record staged/worktree diff hunk
+fingerprints with the current Git HEAD, hunk coordinates, and nearest AST symbol
+identity so repeated edits to the same code area can be learned without
+persisting raw edited text.
 
 Current built-in skills:
 

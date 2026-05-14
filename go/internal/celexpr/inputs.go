@@ -728,6 +728,8 @@ func HelperSchema() []string {
 		"is_protected_path(path, protected_paths)",
 		"in_source_root(path, source_roots)",
 		"lint_code_matches(code, pattern)",
+		"is_linter(tool)",
+		"advertising_filter(text)",
 		"command_invokes(command, tool)",
 		"argv_invokes(argv, tool)",
 		"argv_command_is(argv, tool)",

@@ -206,9 +206,14 @@ func (store *Store) Search(
 
 	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT kind, record_id, trace_id, policy_id, skill_id, path, message
+		`SELECT code_intel_fts.kind, record_id, trace_id, policy_id, skill_id,
+			code_intel_fts.path, message
 		FROM code_intel_fts
+		LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
+			AND code_files.path = code_intel_fts.path
 		WHERE code_intel_fts MATCH ?
+			AND (code_intel_fts.kind != 'code_chunk'
+				OR COALESCE(code_files.deleted_at_utc, '') = '')
 		ORDER BY rank
 		LIMIT ?`,
 		query.Text,
@@ -576,10 +581,12 @@ const embeddingCandidatesSQL = `SELECT 'remediation' AS record_kind,
 			AND (? = '' OR file = ? OR path = ?)
 		UNION ALL
 		SELECT 'code_chunk' AS record_kind, chunk_id, '' AS policy_id,
-			'' AS skill_id, path, search_text
+			'' AS skill_id, code_chunks.path, search_text
 		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
 		WHERE (? = '' OR 'code_chunk' = ?)
-			AND (? = '' OR path = ?)
+			AND (? = '' OR code_chunks.path = ?)
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
 		UNION ALL
 		SELECT 'sarif_result' AS record_kind, sarif_result_id, policy_id, skill_id,
 			path, search_text
@@ -638,17 +645,20 @@ func (store *Store) CodeChunks(
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
-			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id,
-			start_byte, end_byte, start_line,
-			end_line, content_hash, search_text, raw_text
+			chunk_id, code_chunks.path, code_chunks.language, node_kind,
+			symbol_kind, symbol_name, symbol_path,
+			COALESCE(parent_symbol_path, ''), parent_chunk_id,
+			start_byte, end_byte, start_line, end_line, code_chunks.content_hash,
+			search_text, raw_text
 		FROM code_chunks
-		WHERE (? = '' OR path = ?)
-			AND (? = '' OR language = ?)
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE (? = '' OR code_chunks.path = ?)
+			AND (? = '' OR code_chunks.language = ?)
 			AND (? = '' OR symbol_kind = ?)
 			AND (? = '' OR symbol_name = ?)
 			AND (? = '' OR symbol_path = ?)
-		ORDER BY path, start_line, start_byte
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
+		ORDER BY code_chunks.path, start_line, start_byte
 		LIMIT ?`,
 		query.Path,
 		query.Path,
@@ -677,7 +687,8 @@ func (store *Store) GetCodeFile(
 	row := store.database.QueryRowContext(
 		ctx,
 		`SELECT path, language, content_hash, COALESCE(parser_name, ''),
-			COALESCE(parser_version, ''), indexed_at_utc,
+			COALESCE(parser_version, ''), COALESCE(source_mtime_utc, ''),
+			COALESCE(deleted_at_utc, ''), indexed_at_utc,
 			COALESCE(stale_reason, ''), size_bytes, line_count
 		FROM code_files
 		WHERE path = ?`,
@@ -692,6 +703,8 @@ func (store *Store) GetCodeFile(
 		&file.ContentHash,
 		&file.ParserName,
 		&file.ParserVersion,
+		&file.SourceModTimeUTC,
+		&file.DeletedAtUTC,
 		&file.IndexedAtUTC,
 		&file.StaleReason,
 		&file.SizeBytes,
@@ -707,6 +720,53 @@ func (store *Store) GetCodeFile(
 	}
 
 	return file, true, nil
+}
+
+func (store *Store) CodeFilesByPath(ctx context.Context) (map[string]CodeFile, error) {
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT path, language, content_hash, COALESCE(parser_name, ''),
+			COALESCE(parser_version, ''), COALESCE(source_mtime_utc, ''),
+			COALESCE(deleted_at_utc, ''), indexed_at_utc,
+			COALESCE(stale_reason, ''), size_bytes, line_count
+		FROM code_files`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code files by path: %w", err)
+	}
+	defer rows.Close()
+
+	files := map[string]CodeFile{}
+
+	for rows.Next() {
+		var file CodeFile
+
+		err = rows.Scan(
+			&file.Path,
+			&file.Language,
+			&file.ContentHash,
+			&file.ParserName,
+			&file.ParserVersion,
+			&file.SourceModTimeUTC,
+			&file.DeletedAtUTC,
+			&file.IndexedAtUTC,
+			&file.StaleReason,
+			&file.SizeBytes,
+			&file.LineCount,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan code file metadata: %w", err)
+		}
+
+		files[file.Path] = file
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate code file metadata: %w", err)
+	}
+
+	return files, nil
 }
 
 func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {

@@ -17,6 +17,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -396,6 +397,86 @@ func TestParentGoToolsCheckPassesWhenBinariesAreCurrent(t *testing.T) {
 	err := checkParentGoTools(paths, parentWorkflowOptions{Repo: paths.Root})
 	if err != nil {
 		t.Fatalf("checkParentGoTools: %v", err)
+	}
+}
+
+func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
+	t.Parallel()
+
+	sourceRoot := findRunnerRepoRoot(t)
+	parentRepo := t.TempDir()
+	runRunnerTestGit(t, parentRepo, "init", "--initial-branch", "main")
+
+	repoConfig := filepath.Join(parentRepo, "repo_config.yaml")
+
+	err := os.WriteFile(repoConfig, []byte(`
+repo:
+  protected_branch_work:
+    enabled: false
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	paths := runtimeTestPaths(t)
+	paths.RealGit = "git"
+	paths.EthosRoot = sourceRoot
+	paths.BinDir = filepath.Join(t.TempDir(), "bin")
+	paths.PolicyBundle = filepath.Join(t.TempDir(), "policy", "policy-bundle.json")
+	paths.PolicyMetadata = filepath.Join(
+		filepath.Dir(paths.PolicyBundle),
+		"policy-metadata.json",
+	)
+
+	err = os.MkdirAll(paths.BinDir, 0o755)
+	if err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+
+	writeExecutableFixture(
+		t,
+		filepath.Join(paths.BinDir, "coding-ethos-policy"),
+		"#!/usr/bin/env sh\nexit 0\n",
+	)
+
+	options := parentWorkflowOptions{
+		Repo:       parentRepo,
+		RepoEthos:  filepath.Join(sourceRoot, "repo_ethos.yml"),
+		RepoConfig: repoConfig,
+	}
+
+	err = syncParentPolicyBundle(paths, options)
+	if err != nil {
+		t.Fatalf("sync parent policy bundle: %v", err)
+	}
+
+	assertProtectedBranchWorkPoliciesAbsent(t, paths.PolicyBundle)
+
+	err = checkParentPolicyBundle(paths, options)
+	if err != nil {
+		t.Fatalf("check synced parent policy bundle: %v", err)
+	}
+
+	bundle, err := os.ReadFile(paths.PolicyBundle)
+	if err != nil {
+		t.Fatalf("read policy bundle: %v", err)
+	}
+
+	tampered := strings.Replace(
+		string(bundle),
+		`"mode": "block"`,
+		`"mode": "warn"`,
+		1,
+	)
+
+	err = os.WriteFile(paths.PolicyBundle, []byte(tampered), 0o600)
+	if err != nil {
+		t.Fatalf("write tampered policy bundle: %v", err)
+	}
+
+	err = checkParentPolicyBundle(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) {
+		t.Fatalf("check tampered parent policy bundle error = %v", err)
 	}
 }
 
@@ -1736,6 +1817,65 @@ func parentBuildableGoToolsSourceFixture(t *testing.T, ethosRoot string) string 
 	}
 
 	return sourceRoot
+}
+
+func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
+	t.Helper()
+
+	file, err := os.Open(bundlePath)
+	if err != nil {
+		t.Fatalf("open policy bundle %s: %v", bundlePath, err)
+	}
+	defer file.Close()
+
+	bundle, err := policy.DecodeBundle(file)
+	if err != nil {
+		t.Fatalf("decode policy bundle %s: %v", bundlePath, err)
+	}
+
+	for _, policyID := range []string{
+		"git.checkout_protected_branch",
+		"filesystem.protected_branch_write",
+	} {
+		if _, found := bundle.Policies[policyID]; found {
+			t.Fatalf("%s should be disabled in %s", policyID, bundlePath)
+		}
+	}
+}
+
+func runRunnerTestGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+
+	command := exec.CommandContext(context.Background(), "git", args...)
+	command.Dir = dir
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+}
+
+func findRunnerRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+
+	for {
+		_, err = os.Stat(filepath.Join(workingDir, "coding_ethos.yml"))
+		if err == nil {
+			return workingDir
+		}
+
+		parent := filepath.Dir(workingDir)
+		if parent == workingDir {
+			t.Fatalf("could not find repo root from %s", workingDir)
+		}
+
+		workingDir = parent
+	}
 }
 
 func writeParentGoSource(

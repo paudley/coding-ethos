@@ -446,6 +446,37 @@ func TestCapturedLintToolsAreDerivedFromCatalog(t *testing.T) {
 	}
 }
 
+func TestIsLinterUsesCapturedToolMetadata(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{
+		"ruff",
+		"pyright",
+		"mypy",
+		"pylint",
+		"golangci-lint",
+		"eslint",
+		"tsc",
+		"kube-linter",
+	} {
+		if !toolcatalog.IsLinter(name) {
+			t.Fatalf("IsLinter(%q) = false, want true", name)
+		}
+	}
+
+	for _, name := range []string{
+		"go-test",
+		"pytest-gate",
+		"gemini-check",
+		"ruff-format",
+		"golangci-lint-format",
+	} {
+		if toolcatalog.IsLinter(name) {
+			t.Fatalf("IsLinter(%q) = true, want false", name)
+		}
+	}
+}
+
 func TestHookOwnedToolsDeclareDiagnosticContract(t *testing.T) {
 	t.Parallel()
 

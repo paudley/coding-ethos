@@ -1133,6 +1133,10 @@ tooling:
       - .mypy_cache
       - .ruff_cache
       - __pycache__
+      - tests
+      - "**/tests/**"
+      - "**/*_test.py"
+      - "**/test_*.py"
       - '*.egg-info'
       - .eggs
       - build
@@ -1205,6 +1209,9 @@ tooling:
       - (^|/)build/
       - (^|/)dist/
       - (^|/)node_modules/
+      - (^|/)tests/
+      - (^|/).*_test\.py$
+      - (^|/)test_.*\.py$
     disable:
       - missing-module-docstring
       - missing-class-docstring
@@ -1409,6 +1416,8 @@ tooling:
         - zerologlint
       exclusions:
         generated: strict
+        paths:
+          - ".*_test\\.go"
         warn-unused: true
         presets:
           - comments

@@ -4,6 +4,7 @@
 package hooklog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
@@ -117,11 +119,85 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
+	maintenanceErr := refreshCodeIntelAfterRun(options, runDir)
+
 	if err != nil {
 		return status, commandError{err: err, code: status}
 	}
 
+	if maintenanceErr != nil {
+		return 1, maintenanceErr
+	}
+
 	return status, nil
+}
+
+func refreshCodeIntelAfterRun(options Options, runDir string) error {
+	if shouldForceCodeIntelRefresh(options.Command) {
+		_, err := codeintel.RefreshRepository(
+			context.Background(),
+			options.Root,
+			[]string{"."},
+		)
+		if err != nil {
+			return fmt.Errorf("refresh code-intel after hook run: %w", err)
+		}
+
+		return nil
+	}
+
+	tracePath := filepath.Join(runDir, "event.json")
+
+	_, err := os.Stat(tracePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		return fmt.Errorf("stat hook trace for code-intel ingest: %w", err)
+	}
+
+	err = codeintel.IngestHookTraceFile(context.Background(), options.Root, tracePath)
+	if err != nil {
+		return fmt.Errorf("ingest hook trace into code-intel: %w", err)
+	}
+
+	return nil
+}
+
+func shouldForceCodeIntelRefresh(command []string) bool {
+	return commandContains(command, "parent-install") ||
+		commandContains(command, "parent-check") ||
+		commandContains(command, "parent-lint") ||
+		commandContains(command, "policy-lint") ||
+		commandContains(command, "policy-tool") ||
+		commandContains(command, "policy-tool-group") ||
+		commandContainsSequence(command, "git-hook", "pre-commit") ||
+		commandContainsSequence(command, "git-hook", "pre-push") ||
+		commandContainsSequence(command, "make", "pre-commit") ||
+		commandContainsSequence(command, "make", "pre-commit-all") ||
+		commandContainsSequence(command, "make", "check") ||
+		commandContainsSequence(command, "make", "lint")
+}
+
+func commandContains(command []string, value string) bool {
+	for _, part := range command {
+		if filepath.Base(part) == value || part == value {
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandContainsSequence(command []string, first, second string) bool {
+	for index := 0; index+1 < len(command); index++ {
+		if filepath.Base(command[index]) == first && command[index+1] == second {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runLoggedPayload(

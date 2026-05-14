@@ -97,13 +97,16 @@ func (store *Store) codeChunkByPathLine(
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
-			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
-			start_line, end_line, content_hash, search_text, raw_text
+			chunk_id, code_chunks.path, code_chunks.language, node_kind,
+			symbol_kind, symbol_name, symbol_path,
+			COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
+			start_line, end_line, code_chunks.content_hash, search_text, raw_text
 		FROM code_chunks
-		WHERE path = ?
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE code_chunks.path = ?
 			AND start_line <= ?
 			AND end_line >= ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
 		ORDER BY start_line DESC, (end_line - start_line) ASC, start_byte DESC
 		LIMIT 1`,
 		path,
@@ -139,11 +142,14 @@ func (store *Store) codeChunkByID(
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
-			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
-			start_line, end_line, content_hash, search_text, raw_text
+			chunk_id, code_chunks.path, code_chunks.language, node_kind,
+			symbol_kind, symbol_name, symbol_path,
+			COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
+			start_line, end_line, code_chunks.content_hash, search_text, raw_text
 		FROM code_chunks
-		WHERE chunk_id = ?`,
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE chunk_id = ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''`,
 		chunkID,
 	)
 	if err != nil {
@@ -175,11 +181,14 @@ func (store *Store) childCodeChunks(
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT
-			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
-			symbol_path, COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
-			start_line, end_line, content_hash, search_text, raw_text
+			chunk_id, code_chunks.path, code_chunks.language, node_kind,
+			symbol_kind, symbol_name, symbol_path,
+			COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
+			start_line, end_line, code_chunks.content_hash, search_text, raw_text
 		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
 		WHERE parent_chunk_id = ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
 		ORDER BY start_line, start_byte
 		LIMIT ?`,
 		parentID,
