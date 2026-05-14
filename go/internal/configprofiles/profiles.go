@@ -54,12 +54,9 @@ func overlayForRepoConfig(
 	ethosRoot string,
 	detector pythonSourceDetector,
 ) configdata.Map {
-	profiles := repoProfiles(repoConfig)
-	if len(profiles) == 0 {
-		return nil
-	}
-
 	overlay := configdata.Map{}
+	profiles := repoProfiles(repoConfig)
+
 	for _, profile := range profiles {
 		overlay = configdata.DeepMerge(overlay, overlayForProfile(
 			profile,

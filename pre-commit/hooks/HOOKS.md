@@ -62,6 +62,10 @@ machine-readable output option, parses diagnostics into the shared lint schema,
 enriches known findings with ETHOS evidence-map advice, records them in the
 lint trace log, and prints coding-ethos human or TOON output instead of raw
 tool output.
+When PostToolUse context must quote verbose tool output, the runner compresses
+the payload with the shared agent proxy transform so agents receive the opening
+context, the terminal failure, and an explicit omitted-line marker instead of
+the full repetitive middle section.
 Raw Python execution is also normalized when the consumer repo has a Python
 environment. Hooks prepend `<repo>/.venv/bin` after coding-ethos-managed
 directories, and Claude shell commands using `python`, `python3`, or

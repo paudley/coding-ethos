@@ -1829,6 +1829,86 @@ go:
 	}
 }
 
+func TestCompileRepoConfigCanDisableProtectedBranchWorkPolicies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
+
+	writeTestFile(t, primaryPath, testEthosYAML(t))
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, `
+repo:
+  protected_branch_work:
+    enabled: false
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, policyID := range []string{
+		"git.checkout_protected_branch",
+		"filesystem.protected_branch_write",
+	} {
+		if _, found := bundle.Policies[policyID]; found {
+			t.Fatalf("policy should be disabled by repo_config: %s", policyID)
+		}
+	}
+
+	if _, found := bundle.Policies["git.force_push_protected_branch"]; !found {
+		t.Fatal("force-push protection should remain enabled")
+	}
+}
+
+func TestCompileProtectedBranchWorkSwitchOwnsRelatedPolicies(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+	repoConfigPath := filepath.Join(dir, repoConfigFileName)
+
+	writeTestFile(t, primaryPath, testEthosYAML(t))
+	writeTestFile(t, configPath, testConfigYAML)
+	writeTestFile(t, repoConfigPath, `
+repo:
+  protected_branch_work:
+    enabled: false
+filesystem:
+  protected_branch_write:
+    enabled: true
+git:
+  checkout_protected_branch:
+    enabled: true
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary:    primaryPath,
+		Config:     configPath,
+		RepoConfig: repoConfigPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, policyID := range []string{
+		"git.checkout_protected_branch",
+		"filesystem.protected_branch_write",
+	} {
+		if _, found := bundle.Policies[policyID]; found {
+			t.Fatalf("repo switch should own related policy disable: %s", policyID)
+		}
+	}
+}
+
 func optionStrings(t *testing.T, evaluator Evaluator, key string) []string {
 	t.Helper()
 

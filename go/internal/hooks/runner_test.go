@@ -3642,6 +3642,53 @@ func TestRunAddsPostToolEthosReminderWhenSampled(t *testing.T) {
 	}
 }
 
+func TestRunCompressesVerbosePostToolOutputContext(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	outputLines := []string{"pre-commit...Failed"}
+	for index := 1; index <= 90; index++ {
+		outputLines = append(outputLines, fmt.Sprintf(
+			"line %02d: repeated hook progress output with unchanged package metadata",
+			index,
+		))
+	}
+
+	outputLines = append(outputLines, "ValueError: terminal failure remains visible")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git commit",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      strings.Join(outputLines, "\n"),
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"compressed tool output",
+		"line 01:",
+		"line 90:",
+		"ValueError: terminal failure remains visible",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("compressed hook context missing %q:\n%s", expected, context)
+		}
+	}
+
+	if strings.Contains(context, "line 50:") {
+		t.Fatalf("compressed hook context retained omitted middle output:\n%s", context)
+	}
+}
+
 func TestRunAddsPriorityEthosRemindersForLintCalls(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

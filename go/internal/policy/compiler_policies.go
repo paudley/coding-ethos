@@ -57,7 +57,23 @@ func compilePolicies(
 		return nil, err
 	}
 
+	if protectedBranchWorkDisabled(config) {
+		delete(policies, "git.checkout_protected_branch")
+		delete(policies, "filesystem.protected_branch_write")
+	}
+
 	return policies, nil
+}
+
+func protectedBranchWorkDisabled(config map[string]any) bool {
+	value, exists := valueAt(config, "repo", "protected_branch_work", "enabled")
+	if !exists {
+		return false
+	}
+
+	boolValue, ok := value.(bool)
+
+	return ok && !boolValue
 }
 
 func addGitPolicies(

@@ -5,6 +5,7 @@ package hooks
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -277,6 +279,7 @@ func buildHookOutputContext(
 	normalizer := hookOutputNormalizer(cwd)
 	command = normalizer.compact(command)
 	output = normalizer.preserveLines(output)
+	output = compressToolOutput(output)
 
 	switch format {
 	case outputFormatJSON:
@@ -519,6 +522,21 @@ func compactHookOutputLines(output string) []string {
 	}
 
 	return lines
+}
+
+func compressToolOutput(output string) string {
+	compressed, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputCompressionTransform{},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: output},
+	)
+	if err != nil {
+		return output
+	}
+
+	return compressed.Text
 }
 
 func sentence(parts ...string) string {

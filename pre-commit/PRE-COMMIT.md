@@ -354,6 +354,11 @@ merged policy bundle, and report policy/evidence/dispatch counts.
 Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
 
+Set `repo.protected_branch_work.enabled: false` in `repo_config.yaml` when a
+consumer intentionally permits direct work on main/master. The switch disables
+branch-switch blocking and protected-branch file-write blocking together; it
+does not disable force-push protection.
+
 License enforcement is intentionally not inherited from the bundle defaults.
 Consumers opt in with `repo.license.spdx_identifier` in `repo_config.yaml`; the
 compiler downloads that SPDX license text into the policy bundle, the hook
@@ -439,6 +444,9 @@ Agent-facing hook feedback should render from normalized diagnostics instead of
 raw tool output. `CODE_ETHOS_HOOK_OUTPUT_FORMAT=human|json|toon|auto` controls
 structured hook reports; `auto` selects TOON when common agent caller
 environment markers are present and otherwise keeps the human terminal report.
+Verbose PostToolUse output is compressed before agent context injection by
+preserving command-opening lines, terminal failure lines, and an explicit
+omission marker instead of replaying repetitive middle output.
 Failed grouped hook runs emit a runner-owned execution summary before captured
 tool output, including group status, duration, failed groups, and per-command
 timing for in-process group execution.
