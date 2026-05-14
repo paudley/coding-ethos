@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -166,6 +167,7 @@ func (ingester TraceIngester) ingestTraceEntry(
 	if unchangedErr != nil {
 		return unchangedErr
 	}
+
 	if unchanged {
 		return nil
 	}
@@ -192,12 +194,13 @@ func (ingester TraceIngester) traceSourceUnchanged(
 	)
 
 	var raw string
+
 	err := row.Scan(&raw)
 	if err == nil {
 		return raw == string(payload), nil
 	}
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 

@@ -128,7 +128,11 @@ func printHookReviews(ctx context.Context, args []string) error {
 func printRepeatedEdits(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("repeated-edits", flag.ExitOnError)
 	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
-	diffSource := flags.String("diff-source", "", "Filter by diff source: worktree or staged")
+	diffSource := flags.String(
+		"diff-source",
+		"",
+		"Filter by diff source: worktree or staged",
+	)
 	path := flags.String("path", "", "Filter by edited path")
 	limit := addResultLimit(flags)
 

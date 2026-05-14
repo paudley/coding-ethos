@@ -120,6 +120,8 @@ func TestRunIngestsHookTraceIntoCodeIntel(t *testing.T) {
 		},
 	}, func() int {
 		tracePath := filepath.Join(os.Getenv("CODE_ETHOS_HOOK_RUN_DIR"), "event.json")
+
+		// #nosec G703 -- test path is created by the hook runner under t.TempDir.
 		err := os.WriteFile(tracePath, []byte(`{
   "schema_version": 1,
   "trace_id": "hook-trace-1",

@@ -732,6 +732,7 @@ func (store *Store) CodeFilesByPath(ctx context.Context) (map[string]CodeFile, e
 	defer rows.Close()
 
 	files := map[string]CodeFile{}
+
 	for rows.Next() {
 		var file CodeFile
 

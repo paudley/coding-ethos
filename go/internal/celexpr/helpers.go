@@ -11,6 +11,8 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 func helperFunctions() []cel.EnvOption {
@@ -160,6 +162,17 @@ func basicStringHelpers() []cel.EnvOption {
 			"lint_code_matches",
 			"lint_code_matches_string_string",
 			lintCodeMatches,
+		),
+		cel.Function(
+			"is_linter",
+			cel.Overload(
+				"is_linter_string",
+				[]*cel.Type{cel.StringType},
+				cel.BoolType,
+				cel.UnaryBinding(func(value ref.Val) ref.Val {
+					return types.Bool(toolcatalog.IsLinter(stringFromValue(value)))
+				}),
+			),
 		),
 		stringHelper(
 			"self_promotion_branding",

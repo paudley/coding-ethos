@@ -204,6 +204,7 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithGitHeadAndAST(t *testing.T)
 	}
 
 	sourcePath := filepath.Join(root, "pkg", "app.py")
+
 	err = os.WriteFile(
 		sourcePath,
 		[]byte("def build_message():\n    return 'old'\n"),
@@ -274,6 +275,7 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	runCodeIntelGit(t, root, "config", "user.name", "Test User")
 
 	notePath := filepath.Join(root, "notes.txt")
+
 	err := os.WriteFile(notePath, []byte("old\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write note: %v", err)
@@ -293,10 +295,12 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	}
 
 	dbPath := DefaultDBPath(root)
+
 	store, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
+
 	err = store.Close()
 	if err != nil {
 		t.Fatalf("close store: %v", err)
@@ -309,6 +313,7 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	defer database.Close()
 
 	var count int
+
 	err = database.QueryRowContext(
 		ctx,
 		`SELECT COUNT(*)
@@ -318,6 +323,7 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query note edit pattern: %v", err)
 	}
+
 	if count != 1 {
 		t.Fatalf("note edit patterns = %d, want 1", count)
 	}
@@ -338,6 +344,7 @@ func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T
 	}
 
 	sourcePath := filepath.Join(root, "pkg", "app.py")
+
 	err = os.WriteFile(
 		sourcePath,
 		[]byte("def build_message():\n    return 'old'\n"),
@@ -398,6 +405,7 @@ func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T
 	if err != nil {
 		t.Fatalf("query deleted code chunks: %v", err)
 	}
+
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active chunks", chunks)
 	}
@@ -408,6 +416,7 @@ func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T
 	if err != nil {
 		t.Fatalf("query deleted diff edit patterns: %v", err)
 	}
+
 	if len(patterns) != 0 {
 		t.Fatalf("patterns = %#v, want no active deleted-file patterns", patterns)
 	}
@@ -418,12 +427,17 @@ func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
+
 	err := os.MkdirAll(filepath.Join(root, ".wolf"), 0o700)
 	if err != nil {
 		t.Fatalf("create tool state dir: %v", err)
 	}
 
-	err = os.WriteFile(filepath.Join(root, ".wolf", "buglog.json"), []byte(`{"items":[]}`), 0o600)
+	err = os.WriteFile(
+		filepath.Join(root, ".wolf", "buglog.json"),
+		[]byte(`{"items":[]}`),
+		0o600,
+	)
 	if err != nil {
 		t.Fatalf("write tool state: %v", err)
 	}
@@ -458,6 +472,7 @@ func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed ignored code index: %v", err)
 	}
+
 	err = store.Close()
 	if err != nil {
 		t.Fatalf("close seeded store: %v", err)
@@ -467,6 +482,7 @@ func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh repository: %v", err)
 	}
+
 	if len(summary.CodeIndex.Deleted) != 1 ||
 		summary.CodeIndex.Deleted[0] != ".wolf/buglog.json" {
 		t.Fatalf("deleted summary = %#v", summary.CodeIndex.Deleted)
@@ -482,6 +498,7 @@ func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get ignored code file: %v", err)
 	}
+
 	if !found || file.DeletedAtUTC == "" || file.StaleReason != "ignored" {
 		t.Fatalf("file = %#v, found = %v", file, found)
 	}
@@ -490,6 +507,7 @@ func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query ignored chunks: %v", err)
 	}
+
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active ignored chunks", chunks)
 	}
@@ -505,11 +523,17 @@ func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
 	runCodeIntelGit(t, root, "config", "user.name", "Test User")
 
 	writeFile(t, filepath.Join(root, ".gitignore"), []byte("ignored/\n"))
+
 	err := os.MkdirAll(filepath.Join(root, "ignored"), 0o700)
 	if err != nil {
 		t.Fatalf("create ignored dir: %v", err)
 	}
-	writeFile(t, filepath.Join(root, "ignored", "generated.py"), []byte("def noisy():\n    return 1\n"))
+
+	writeFile(
+		t,
+		filepath.Join(root, "ignored", "generated.py"),
+		[]byte("def noisy():\n    return 1\n"),
+	)
 	writeFile(t, filepath.Join(root, "tracked.py"), []byte("def kept():\n    return 1\n"))
 
 	_, err = RefreshRepository(ctx, root, []string{"."})
@@ -527,6 +551,7 @@ func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get ignored file: %v", err)
 	}
+
 	if found {
 		t.Fatalf("ignored/generated.py should not be indexed")
 	}
@@ -535,6 +560,7 @@ func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get tracked file: %v", err)
 	}
+
 	if !found || file.Language != "python" {
 		t.Fatalf("tracked file = %#v, found = %v", file, found)
 	}
@@ -567,6 +593,7 @@ func TestRefreshRepositoryMarksOversizedSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get large file: %v", err)
 	}
+
 	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_large" {
 		t.Fatalf("large file = %#v, found = %v", file, found)
 	}
@@ -575,6 +602,7 @@ func TestRefreshRepositoryMarksOversizedSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query large file chunks: %v", err)
 	}
+
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active oversized chunks", chunks)
 	}
@@ -610,6 +638,7 @@ func TestRefreshRepositoryMarksOverlongSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get long file: %v", err)
 	}
+
 	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_many_lines" {
 		t.Fatalf("long file = %#v, found = %v", file, found)
 	}
@@ -618,6 +647,7 @@ func TestRefreshRepositoryMarksOverlongSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query long file chunks: %v", err)
 	}
+
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active overlong chunks", chunks)
 	}
@@ -634,16 +664,20 @@ func TestRefreshRepositoryMarksDenseSourcesInactive(t *testing.T) {
 
 	var denseJSON strings.Builder
 	denseJSON.WriteString("[\n")
+
 	for index := range 2500 {
 		_, err := fmt.Fprintf(&denseJSON, `  {"id": %d, "name": "item-%d"}`, index, index)
 		if err != nil {
 			t.Fatalf("write dense JSON entry: %v", err)
 		}
+
 		if index < 2499 {
 			denseJSON.WriteString(",")
 		}
+
 		denseJSON.WriteString("\n")
 	}
+
 	denseJSON.WriteString("]\n")
 	writeFile(t, filepath.Join(root, "dense.json"), []byte(denseJSON.String()))
 
@@ -662,6 +696,7 @@ func TestRefreshRepositoryMarksDenseSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dense file: %v", err)
 	}
+
 	if !found || file.DeletedAtUTC == "" || file.StaleReason != "too_many_chunks" {
 		t.Fatalf("dense file = %#v, found = %v", file, found)
 	}
@@ -670,6 +705,7 @@ func TestRefreshRepositoryMarksDenseSourcesInactive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query dense file chunks: %v", err)
 	}
+
 	if len(chunks) != 0 {
 		t.Fatalf("chunks = %#v, want no active dense chunks", chunks)
 	}
@@ -681,17 +717,18 @@ func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	dbPath := DefaultDBPath(root)
+
 	err := os.MkdirAll(filepath.Dir(dbPath), 0o700)
 	if err != nil {
 		t.Fatalf("create db dir: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	database, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open raw db: %v", err)
 	}
 
-	_, err = db.ExecContext(ctx, `CREATE TABLE code_chunks (
+	_, err = database.ExecContext(ctx, `CREATE TABLE code_chunks (
 		chunk_id TEXT PRIMARY KEY,
 		path TEXT NOT NULL,
 		language TEXT NOT NULL,
@@ -712,7 +749,7 @@ func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
 		t.Fatalf("create legacy code_chunks table: %v", err)
 	}
 
-	err = db.Close()
+	err = database.Close()
 	if err != nil {
 		t.Fatalf("close raw db: %v", err)
 	}
@@ -728,6 +765,7 @@ func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("check migrated column %s: %v", column, err)
 		}
+
 		if !found {
 			t.Fatalf("column %s was not migrated", column)
 		}
@@ -742,7 +780,7 @@ func testColumnExists(
 ) (bool, error) {
 	rows, err := database.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("query table info for %s: %w", table, err)
 	}
 	defer rows.Close()
 
@@ -758,7 +796,7 @@ func testColumnExists(
 
 		err = rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("scan table info for %s: %w", table, err)
 		}
 
 		if columnName == name {
@@ -766,8 +804,9 @@ func testColumnExists(
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return false, err
+	err = rows.Err()
+	if err != nil {
+		return false, fmt.Errorf("iterate table info for %s: %w", table, err)
 	}
 
 	return false, nil
@@ -2670,8 +2709,9 @@ func runCodeIntelGit(t *testing.T, dir string, args ...string) {
 func runCodeIntelGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 
-	command := exec.Command("git", args...)
+	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = dir
+
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)

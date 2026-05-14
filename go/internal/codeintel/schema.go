@@ -209,6 +209,7 @@ func proxySchemaStatements() []string {
 	}
 }
 
+//nolint:funlen // Code-intel schema DDL stays together for migration review.
 func codeSchemaStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS code_files (

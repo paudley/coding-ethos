@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -21,6 +22,7 @@ const (
 	unknownCELPolicyID   = ""
 	unknownCELExpression = ""
 	unknownPolicySource  = ""
+	lshBandColumnCount   = 5
 )
 
 func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) error {
@@ -43,7 +45,11 @@ func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) e
 	return nil
 }
 
-func traceExists(ctx context.Context, transaction *sql.Tx, traceID string) (bool, error) {
+func traceExists(
+	ctx context.Context,
+	transaction *sql.Tx,
+	traceID string,
+) (bool, error) {
 	row := transaction.QueryRowContext(
 		ctx,
 		"SELECT 1 FROM traces WHERE trace_id = ? LIMIT 1",
@@ -51,12 +57,13 @@ func traceExists(ctx context.Context, transaction *sql.Tx, traceID string) (bool
 	)
 
 	var exists int
+
 	err := row.Scan(&exists)
 	if err == nil {
 		return true, nil
 	}
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 
@@ -578,10 +585,10 @@ func storeLSHBandsForChunks(
 
 type lshBandRow struct {
 	BandHash   string
-	BandIndex  int
 	ChunkID    string
 	Path       string
 	SymbolName string
+	BandIndex  int
 }
 
 func storeLSHBandRows(
@@ -596,7 +603,8 @@ func storeLSHBandRows(
 		batch := rows[start:end]
 
 		placeholders := make([]string, 0, len(batch))
-		args := make([]any, 0, len(batch)*5)
+
+		args := make([]any, 0, len(batch)*lshBandColumnCount)
 		for _, row := range batch {
 			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
 			args = append(
@@ -609,6 +617,7 @@ func storeLSHBandRows(
 			)
 		}
 
+		// #nosec G202 -- placeholders are generated from a fixed batch shape.
 		_, err := transaction.ExecContext(
 			ctx,
 			`INSERT OR IGNORE INTO lsh_bands(

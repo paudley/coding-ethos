@@ -8,8 +8,10 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,10 +39,11 @@ func (store *Store) RefreshDiffEditPatterns(
 	defer rollbackUnlessCommitted(transaction)
 
 	now := time.Now().UTC().Format(time.RFC3339)
+
 	for _, pattern := range patterns {
-		enriched, err := enrichDiffEditPattern(ctx, transaction, pattern)
-		if err != nil {
-			return 0, err
+		enriched, enrichErr := enrichDiffEditPattern(ctx, transaction, pattern)
+		if enrichErr != nil {
+			return 0, enrichErr
 		}
 
 		err = upsertDiffEditPattern(ctx, transaction, enriched, now)
@@ -90,6 +93,7 @@ func (store *Store) RepeatedDiffEditPatterns(
 	defer rows.Close()
 
 	results := []DiffEditPattern{}
+
 	for rows.Next() {
 		var result DiffEditPattern
 
@@ -122,7 +126,8 @@ func (store *Store) RepeatedDiffEditPatterns(
 		results = append(results, result)
 	}
 
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("iterate repeated diff edit patterns: %w", err)
 	}
 
@@ -131,11 +136,11 @@ func (store *Store) RepeatedDiffEditPatterns(
 
 func diffEditPatterns(ctx context.Context, root string) ([]DiffEditPattern, error) {
 	patterns := []DiffEditPattern{}
-	gitHead, err := gitDiffOutput(ctx, root, "rev-parse", "--verify", "HEAD")
-	if err != nil {
+
+	gitHead, found := gitHeadOrMissing(ctx, root)
+	if !found {
 		return patterns, nil
 	}
-	gitHead = strings.TrimSpace(gitHead)
 
 	for _, source := range []struct {
 		name string
@@ -155,6 +160,15 @@ func diffEditPatterns(ctx context.Context, root string) ([]DiffEditPattern, erro
 	}
 
 	return patterns, nil
+}
+
+func gitHeadOrMissing(ctx context.Context, root string) (string, bool) {
+	gitHead, err := gitDiffOutput(ctx, root, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "", false
+	}
+
+	return strings.TrimSpace(gitHead), true
 }
 
 func gitDiffOutput(ctx context.Context, root string, args ...string) (string, error) {
@@ -181,8 +195,8 @@ func diffEditPattern(
 	patternHash := diffLineHash([]string{
 		source,
 		hunk.File,
-		fmt.Sprintf("%d", hunk.OldStart),
-		fmt.Sprintf("%d", hunk.NewStart),
+		strconv.FormatInt(hunk.OldStart, 10),
+		strconv.FormatInt(hunk.NewStart, 10),
 		removedHash,
 	})
 
@@ -262,7 +276,7 @@ func enrichDiffEditPattern(
 		return pattern, nil
 	}
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return pattern, nil
 	}
 

@@ -29,11 +29,12 @@ import (
 )
 
 const (
-	parentDefaultLintScope  = "full"
-	parentExecutableDirMode = 0o755
-	parentStepFail          = "fail"
-	parentStepPass          = "pass"
-	parentWorkingTreeState  = "working_tree"
+	parentDefaultLintScope    = "full"
+	parentExecutableDirMode   = 0o755
+	parentPolicyBundleDirMode = 0o755
+	parentStepFail            = "fail"
+	parentStepPass            = "pass"
+	parentWorkingTreeState    = "working_tree"
 )
 
 var (
@@ -324,6 +325,7 @@ func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) 
 	}
 
 	runtimeBundlePath := filepath.Join(runtimePolicyDir, "policy-bundle.json")
+
 	runtimeBundle, _, err := existingPolicyBundle(runtimeBundlePath)
 	if err != nil {
 		return err
@@ -354,8 +356,11 @@ func compileParentPolicyBundle(
 	generatedAt string,
 ) (policy.Bundle, policy.Metadata, error) {
 	bundle, metadata, err := policy.Compile(policy.CompileOptions{
-		Primary:     filepath.Join(paths.EthosRoot, "coding_ethos.yml"),
-		RepoEthos:   firstNonEmptyPath(options.RepoEthos, filepath.Join(paths.EthosRoot, "repo_ethos.yml")),
+		Primary: filepath.Join(paths.EthosRoot, "coding_ethos.yml"),
+		RepoEthos: firstNonEmptyPath(
+			options.RepoEthos,
+			filepath.Join(paths.EthosRoot, "repo_ethos.yml"),
+		),
 		Config:      filepath.Join(paths.EthosRoot, "config.yaml"),
 		RepoConfig:  options.RepoConfig,
 		GeneratedAt: generatedAt,
@@ -375,21 +380,27 @@ func writePolicyBundleArtifacts(
 	bundle policy.Bundle,
 	metadata policy.Metadata,
 ) error {
-	err := os.MkdirAll(outDir, 0o755)
+	err := os.MkdirAll(outDir, parentPolicyBundleDirMode)
 	if err != nil {
 		return fmt.Errorf("create policy bundle dir: %w", err)
 	}
 
-	err = writePolicyJSONFile(filepath.Join(outDir, "policy-bundle.json"), func(file *os.File) error {
-		return policy.EncodeBundle(file, bundle)
-	})
+	err = writePolicyJSONFile(
+		filepath.Join(outDir, "policy-bundle.json"),
+		func(file *os.File) error {
+			return policy.EncodeBundle(file, bundle)
+		},
+	)
 	if err != nil {
 		return err
 	}
 
-	return writePolicyJSONFile(filepath.Join(outDir, "policy-metadata.json"), func(file *os.File) error {
-		return policy.EncodeMetadata(file, metadata)
-	})
+	return writePolicyJSONFile(
+		filepath.Join(outDir, "policy-metadata.json"),
+		func(file *os.File) error {
+			return policy.EncodeMetadata(file, metadata)
+		},
+	)
 }
 
 func writePolicyJSONFile(path string, encode func(*os.File) error) error {
@@ -399,6 +410,7 @@ func writePolicyJSONFile(path string, encode func(*os.File) error) error {
 	}
 
 	tempPath := temp.Name()
+
 	defer func() {
 		_ = os.Remove(tempPath)
 	}()
@@ -432,7 +444,7 @@ func existingPolicyBundle(path string) (policy.Bundle, string, error) {
 
 	bundle, err := policy.DecodeBundle(file)
 	if err != nil {
-		return policy.Bundle{}, "", err
+		return policy.Bundle{}, "", fmt.Errorf("decode policy bundle %s: %w", path, err)
 	}
 
 	return bundle, bundle.GeneratedAt, nil
@@ -447,7 +459,7 @@ func existingPolicyMetadata(path string) (policy.Metadata, error) {
 
 	metadata, err := policy.DecodeMetadata(file)
 	if err != nil {
-		return policy.Metadata{}, err
+		return policy.Metadata{}, fmt.Errorf("decode policy metadata %s: %w", path, err)
 	}
 
 	return metadata, nil
@@ -463,7 +475,7 @@ func policyBundleCurrent(
 		sameStringMap(existingMetadata.SourceHashes, expectedMetadata.SourceHashes)
 }
 
-func samePolicyIDs(left map[string]policy.Policy, right map[string]policy.Policy) bool {
+func samePolicyIDs(left, right map[string]policy.Policy) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -477,7 +489,7 @@ func samePolicyIDs(left map[string]policy.Policy, right map[string]policy.Policy
 	return true
 }
 
-func sameStringMap(left map[string]string, right map[string]string) bool {
+func sameStringMap(left, right map[string]string) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -524,19 +536,23 @@ func syncParentRuntimeTools(paths runtimePaths, options parentWorkflowOptions) e
 	return nil
 }
 
-func copyFileMode(source string, destination string, mode fs.FileMode) error {
+func copyFileMode(source, destination string, mode fs.FileMode) error {
 	input, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", source, err)
 	}
 	defer input.Close()
 
-	temp, err := os.CreateTemp(filepath.Dir(destination), "."+filepath.Base(destination)+"-*.tmp")
+	temp, err := os.CreateTemp(
+		filepath.Dir(destination),
+		"."+filepath.Base(destination)+"-*.tmp",
+	)
 	if err != nil {
 		return fmt.Errorf("create temporary copy for %s: %w", destination, err)
 	}
 
 	tempPath := temp.Name()
+
 	defer func() {
 		_ = os.Remove(tempPath)
 	}()

@@ -4070,6 +4070,36 @@ principles:
         test gap, even when the unit tests pass.
       gemini: Anchor verification advice in runnable user workflows and visible
         outputs.
+    policy:
+      expressions:
+        - id: testing.production_lint_scope
+          description: >-
+            Managed lint diagnostics should focus on production code; tests are
+            validated by test execution and functional workflow coverage.
+          scope: diagnostic
+          severity: block
+          mode: block
+          protected: true
+          allow_override: false
+          allow_severity_weaken: false
+          lint_scopes:
+            - files
+            - staged
+            - smoke
+            - full
+          principle_ids:
+            - functional-testing-is-the-proof
+          skill_id: lint-remediation
+          message: Managed lint diagnostics must not target test files.
+          advice: >-
+            Route lint/style/complexity enforcement to production code and
+            keep tests broad, low-mock, and cheap to write and maintain. Fix
+            the managed tool configuration or target selection so tests are
+            verified by the test runner instead of production lint rules.
+          when: >-
+            diagnostic.file != "" &&
+            is_test_path(diagnostic.file) &&
+            is_linter(diagnostic.tool)
     sections:
       - id: overview
         kind: overview

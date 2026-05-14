@@ -78,8 +78,12 @@ func TestASTIndexerSkipsFreshFileBeforeReading(t *testing.T) {
 	if err != nil {
 		t.Fatalf("chmod unreadable: %v", err)
 	}
+
 	t.Cleanup(func() {
-		_ = os.Chmod(filePath, 0o600)
+		chmodErr := os.Chmod(filePath, 0o600)
+		if chmodErr != nil {
+			t.Fatalf("restore readable file mode: %v", chmodErr)
+		}
 	})
 
 	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})

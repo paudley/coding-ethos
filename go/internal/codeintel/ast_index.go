@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +22,9 @@ import (
 )
 
 const (
-	maxIndexedSourceBytes         = 1 * 1024 * 1024
+	bytesPerKiB                   = 1024
+	lineCountBufferSizeKiB        = 32
+	maxIndexedSourceBytes         = 1 * bytesPerKiB * bytesPerKiB
 	maxIndexedSourceLines         = 5000
 	maxIndexedSourceChunksPerFile = 2000
 )
@@ -34,6 +37,7 @@ func NewASTIndexer(store *Store) ASTIndexer {
 	return ASTIndexer{store: store}
 }
 
+//nolint:gocyclo,cyclop,funlen // Coordinates the repository traversal gate.
 func (indexer ASTIndexer) IndexPaths(
 	ctx context.Context,
 	root string,
@@ -50,6 +54,7 @@ func (indexer ASTIndexer) IndexPaths(
 
 	summary := CodeIndexSummary{}
 	ignoreMatcher := newGitIgnoreMatcher(ctx, root)
+
 	existingFiles, err := indexer.store.CodeFilesByPath(ctx)
 	if err != nil {
 		return CodeIndexSummary{}, err
@@ -61,17 +66,17 @@ func (indexer ASTIndexer) IndexPaths(
 			path = filepath.Join(root, path)
 		}
 
-		info, err := os.Stat(path)
-		if err != nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
 			return CodeIndexSummary{}, fmt.Errorf(
 				"stat index path %q: %w",
 				inputPath,
-				err,
+				statErr,
 			)
 		}
 
 		if info.IsDir() {
-			err := indexer.indexDir(ctx, root, path, ignoreMatcher, existingFiles, &summary)
+			err = indexer.indexDir(ctx, root, path, ignoreMatcher, existingFiles, &summary)
 			if err != nil {
 				return CodeIndexSummary{}, err
 			}
@@ -79,7 +84,15 @@ func (indexer ASTIndexer) IndexPaths(
 			continue
 		}
 
-		inlineErr0 := indexer.indexFile(ctx, root, path, info, ignoreMatcher, existingFiles, &summary)
+		inlineErr0 := indexer.indexFile(
+			ctx,
+			root,
+			path,
+			info,
+			ignoreMatcher,
+			existingFiles,
+			&summary,
+		)
 		if inlineErr0 != nil {
 			return CodeIndexSummary{}, inlineErr0
 		}
@@ -89,6 +102,7 @@ func (indexer ASTIndexer) IndexPaths(
 	if err != nil {
 		return CodeIndexSummary{}, err
 	}
+
 	summary.Deleted = deleted
 
 	ignored, err := indexer.store.MarkIgnoredCodeFilesDeleted(
@@ -96,12 +110,13 @@ func (indexer ASTIndexer) IndexPaths(
 		func(path string) bool {
 			absolutePath := filepath.Join(root, filepath.FromSlash(path))
 
-			return pathHasSkippedDir(path) || ignoreMatcher.ignoredFile(absolutePath)
+			return pathHasSkippedDir(path) || ignoreMatcher.ignoredFile(ctx, absolutePath)
 		},
 	)
 	if err != nil {
 		return CodeIndexSummary{}, err
 	}
+
 	summary.Deleted = append(summary.Deleted, ignored...)
 
 	return summary, nil
@@ -121,7 +136,7 @@ func (indexer ASTIndexer) indexDir(
 		}
 
 		if entry.IsDir() {
-			if shouldSkipDir(entry.Name()) || ignoreMatcher.ignoredDir(path) {
+			if shouldSkipDir(entry.Name()) || ignoreMatcher.ignoredDir(ctx, path) {
 				return filepath.SkipDir
 			}
 
@@ -142,6 +157,7 @@ func (indexer ASTIndexer) indexDir(
 	return nil
 }
 
+//nolint:gocognit,gocyclo,cyclop,funlen // Ordered gates stay together.
 func (indexer ASTIndexer) indexFile(
 	ctx context.Context,
 	root string,
@@ -162,7 +178,7 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
-	if ignoreMatcher.ignoredFile(path) || pathHasSkippedDir(relativePath) {
+	if ignoreMatcher.ignoredFile(ctx, path) || pathHasSkippedDir(relativePath) {
 		return nil
 	}
 
@@ -171,7 +187,8 @@ func (indexer ASTIndexer) indexFile(
 	parserName, parserVersion := astfacts.ParserMetadataForLanguage(language)
 	sourceModTime := formatSourceModTime(info.ModTime())
 
-	if found && inactiveCodeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
+	if found &&
+		inactiveCodeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
 		summary.Skipped = append(summary.Skipped, relativePath)
 
 		return nil
@@ -188,17 +205,24 @@ func (indexer ASTIndexer) indexFile(
 			relativePath,
 			language,
 			"too_large",
-			stableID("too-large-code-file", relativePath, sourceModTime, fmt.Sprint(info.Size())),
+			stableID(
+				"too-large-code-file",
+				relativePath,
+				sourceModTime,
+				strconv.FormatInt(info.Size(), 10),
+			),
 			parserName,
 			parserVersion,
 			sourceModTime,
 			info,
 			0,
 		)
+
 		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
 		if err != nil {
 			return err
 		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -210,22 +234,30 @@ func (indexer ASTIndexer) indexFile(
 	if err != nil {
 		return err
 	}
+
 	if tooManyLines {
 		inactiveFile := inactiveCodeFile(
 			relativePath,
 			language,
 			"too_many_lines",
-			stableID("too-many-lines-code-file", relativePath, sourceModTime, fmt.Sprint(info.Size())),
+			stableID(
+				"too-many-lines-code-file",
+				relativePath,
+				sourceModTime,
+				strconv.FormatInt(info.Size(), 10),
+			),
 			parserName,
 			parserVersion,
 			sourceModTime,
 			info,
 			lineCount,
 		)
+
 		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
 		if err != nil {
 			return err
 		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -256,6 +288,7 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	chunks := codeChunksFromSymbols(parsed.Symbols)
+
 	chunks = attachParentChunks(chunks)
 	if len(chunks) > maxIndexedSourceChunksPerFile {
 		inactiveFile := inactiveCodeFile(
@@ -269,10 +302,12 @@ func (indexer ASTIndexer) indexFile(
 			info,
 			parsed.LineCount,
 		)
+
 		err = indexer.store.ReplaceCodeFileIndex(ctx, inactiveFile, nil, nil)
 		if err != nil {
 			return err
 		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -298,6 +333,7 @@ func (indexer ASTIndexer) indexFile(
 	if inlineErr1 != nil {
 		return inlineErr1
 	}
+
 	existingFiles[relativePath] = file
 
 	summary.FilesIndexed++
@@ -349,7 +385,8 @@ func countSourceLinesUpTo(path string, maxLines int) (int, bool, error) {
 	defer file.Close()
 
 	lineCount := 0
-	buffer := make([]byte, 32*1024)
+
+	buffer := make([]byte, lineCountBufferSizeKiB*bytesPerKiB)
 	for {
 		read, readErr := file.Read(buffer)
 		if read > 0 {
@@ -358,9 +395,11 @@ func countSourceLinesUpTo(path string, maxLines int) (int, bool, error) {
 				return lineCount, true, nil
 			}
 		}
+
 		if readErr == nil {
 			continue
 		}
+
 		if errors.Is(readErr, io.EOF) {
 			return lineCount, false, nil
 		}
@@ -398,18 +437,16 @@ func inactiveCodeFile(
 }
 
 type gitIgnoreMatcher struct {
-	ctx         context.Context
-	root        string
-	active      bool
 	allowedPath map[string]bool
 	allowedDir  map[string]bool
+	root        string
+	active      bool
 }
 
 func newGitIgnoreMatcher(ctx context.Context, root string) gitIgnoreMatcher {
 	allowedPaths, allowedDirs := gitTrackedAndUnignoredPaths(ctx, root)
 
 	return gitIgnoreMatcher{
-		ctx:         ctx,
 		root:        root,
 		active:      gitWorkTreeAvailable(ctx, root),
 		allowedPath: allowedPaths,
@@ -440,7 +477,8 @@ func gitTrackedAndUnignoredPaths(
 
 	paths := map[string]bool{}
 	dirs := map[string]bool{"": true}
-	for _, rawPath := range bytes.Split(output, []byte{0}) {
+
+	for rawPath := range bytes.SplitSeq(output, []byte{0}) {
 		if len(rawPath) == 0 {
 			continue
 		}
@@ -459,7 +497,14 @@ func gitTrackedAndUnignoredPaths(
 }
 
 func gitWorkTreeAvailable(ctx context.Context, root string) bool {
-	command := realgit.Command(ctx, false, "-C", root, "rev-parse", "--is-inside-work-tree")
+	command := realgit.Command(
+		ctx,
+		false,
+		"-C",
+		root,
+		"rev-parse",
+		"--is-inside-work-tree",
+	)
 	command.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	output, err := command.Output()
@@ -467,7 +512,7 @@ func gitWorkTreeAvailable(ctx context.Context, root string) bool {
 	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
-func (matcher gitIgnoreMatcher) ignoredFile(path string) bool {
+func (matcher gitIgnoreMatcher) ignoredFile(ctx context.Context, path string) bool {
 	if !matcher.active {
 		return false
 	}
@@ -482,10 +527,10 @@ func (matcher gitIgnoreMatcher) ignoredFile(path string) bool {
 		return !matcher.allowedPath[relativePath]
 	}
 
-	return matcher.gitCheckIgnored(relativePath)
+	return matcher.gitCheckIgnored(ctx, relativePath)
 }
 
-func (matcher gitIgnoreMatcher) ignoredDir(path string) bool {
+func (matcher gitIgnoreMatcher) ignoredDir(ctx context.Context, path string) bool {
 	if !matcher.active {
 		return false
 	}
@@ -499,16 +544,20 @@ func (matcher gitIgnoreMatcher) ignoredDir(path string) bool {
 	if relativePath == "." {
 		return false
 	}
+
 	if matcher.allowedDir != nil && !matcher.allowedDir[relativePath] {
 		return true
 	}
 
-	return matcher.gitCheckIgnored(relativePath)
+	return matcher.gitCheckIgnored(ctx, relativePath)
 }
 
-func (matcher gitIgnoreMatcher) gitCheckIgnored(relativePath string) bool {
+func (matcher gitIgnoreMatcher) gitCheckIgnored(
+	ctx context.Context,
+	relativePath string,
+) bool {
 	command := realgit.Command(
-		matcher.ctx,
+		ctx,
 		false,
 		"-C",
 		matcher.root,

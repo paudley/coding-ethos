@@ -408,6 +408,7 @@ func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
 	runRunnerTestGit(t, parentRepo, "init", "--initial-branch", "main")
 
 	repoConfig := filepath.Join(parentRepo, "repo_config.yaml")
+
 	err := os.WriteFile(repoConfig, []byte(`
 repo:
   protected_branch_work:
@@ -422,7 +423,10 @@ repo:
 	paths.EthosRoot = sourceRoot
 	paths.BinDir = filepath.Join(t.TempDir(), "bin")
 	paths.PolicyBundle = filepath.Join(t.TempDir(), "policy", "policy-bundle.json")
-	paths.PolicyMetadata = filepath.Join(filepath.Dir(paths.PolicyBundle), "policy-metadata.json")
+	paths.PolicyMetadata = filepath.Join(
+		filepath.Dir(paths.PolicyBundle),
+		"policy-metadata.json",
+	)
 
 	err = os.MkdirAll(paths.BinDir, 0o755)
 	if err != nil {
@@ -1830,7 +1834,7 @@ func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
 func runRunnerTestGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	command := exec.Command("git", args...)
+	command := exec.CommandContext(context.Background(), "git", args...)
 	command.Dir = dir
 
 	output, err := command.CombinedOutput()
@@ -1848,7 +1852,8 @@ func findRunnerRepoRoot(t *testing.T) string {
 	}
 
 	for {
-		if _, err := os.Stat(filepath.Join(workingDir, "coding_ethos.yml")); err == nil {
+		_, err = os.Stat(filepath.Join(workingDir, "coding_ethos.yml"))
+		if err == nil {
 			return workingDir
 		}
 

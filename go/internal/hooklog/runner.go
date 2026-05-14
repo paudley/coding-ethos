@@ -147,7 +147,9 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	}
 
 	tracePath := filepath.Join(runDir, "event.json")
-	if _, err := os.Stat(tracePath); err != nil {
+
+	_, err := os.Stat(tracePath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
@@ -155,7 +157,7 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 		return fmt.Errorf("stat hook trace for code-intel ingest: %w", err)
 	}
 
-	err := codeintel.IngestHookTraceFile(context.Background(), options.Root, tracePath)
+	err = codeintel.IngestHookTraceFile(context.Background(), options.Root, tracePath)
 	if err != nil {
 		return fmt.Errorf("ingest hook trace into code-intel: %w", err)
 	}
@@ -188,7 +190,7 @@ func commandContains(command []string, value string) bool {
 	return false
 }
 
-func commandContainsSequence(command []string, first string, second string) bool {
+func commandContainsSequence(command []string, first, second string) bool {
 	for index := 0; index+1 < len(command); index++ {
 		if filepath.Base(command[index]) == first && command[index+1] == second {
 			return true

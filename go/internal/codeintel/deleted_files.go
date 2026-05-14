@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
 
+//nolint:gocyclo,cyclop // Deletion refresh owns scope filtering and marking.
 func (store *Store) MarkMissingCodeFilesDeleted(
 	ctx context.Context,
 	root string,
@@ -36,6 +38,7 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 	defer rows.Close()
 
 	deleted := []string{}
+
 	for rows.Next() {
 		var path string
 
@@ -70,6 +73,7 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 	}
 
 	deletedAt := time.Now().UTC().Format(time.RFC3339)
+
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin deleted code file refresh: %w", err)
@@ -108,6 +112,7 @@ func (store *Store) MarkIgnoredCodeFilesDeleted(
 	defer rows.Close()
 
 	ignored := []string{}
+
 	for rows.Next() {
 		var path string
 
@@ -131,6 +136,7 @@ func (store *Store) MarkIgnoredCodeFilesDeleted(
 	}
 
 	deletedAt := time.Now().UTC().Format(time.RFC3339)
+
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin ignored code file refresh: %w", err)
@@ -202,7 +208,7 @@ func deletionScopes(root string, paths []string) ([]string, error) {
 	return scopes, nil
 }
 
-func deletionScope(root string, inputPath string) (string, error) {
+func deletionScope(root, inputPath string) (string, error) {
 	path := strings.TrimSpace(inputPath)
 	if path == "" {
 		path = "."
@@ -236,11 +242,8 @@ func pathInDeletionScopes(path string, scopes []string) bool {
 }
 
 func pathHasSkippedDir(path string) bool {
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
-		if shouldSkipDir(part) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(
+		strings.Split(filepath.ToSlash(path), "/"),
+		shouldSkipDir,
+	)
 }
