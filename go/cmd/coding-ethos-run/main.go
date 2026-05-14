@@ -183,6 +183,16 @@ func resolveRuntimeRoot(realGit, invocationCWD string) (string, string) {
 	resolvedRoot, err := gitOutput(realGit, "", "rev-parse", "--show-toplevel")
 	if err == nil {
 		localRoot = resolvedRoot
+		superRoot, superErr := gitOutput(
+			realGit,
+			resolvedRoot,
+			"rev-parse",
+			"--show-superproject-working-tree",
+		)
+
+		if superErr == nil && strings.TrimSpace(superRoot) != "" {
+			return superRoot, localRoot
+		}
 	}
 
 	return localRoot, localRoot
@@ -269,6 +279,7 @@ func (paths runtimePaths) export() {
 		"INVOCATION_CWD":            paths.InvocationCWD,
 		"CODE_ETHOS_PRECOMMIT_ROOT": paths.BundleRoot,
 		"CODE_ETHOS_CONSUMER_ROOT":  paths.Root,
+		"CODE_ETHOS_LOCAL_ROOT":     paths.LocalRoot,
 		"CODING_ETHOS_RUN_GO_HOOK":  paths.RunBinary,
 		"GIT_HOOK_SRC_DIR": filepath.Join(
 			paths.ToolsSource,

@@ -57,6 +57,23 @@ func TestHookGroupChildEnvironmentCarriesBundleRoot(t *testing.T) {
 	}
 }
 
+func TestUseLocalRootForPrePushTemporarilyOverridesConsumerRoot(t *testing.T) {
+	t.Setenv(consumerRootEnv, "/repo")
+	t.Setenv(localRootEnv, "/repo/coding-ethos")
+
+	restore := useLocalRootForPrePush()
+
+	if got := os.Getenv(consumerRootEnv); got != "/repo/coding-ethos" {
+		t.Fatalf("pre-push consumer root = %q, want local root", got)
+	}
+
+	restore()
+
+	if got := os.Getenv(consumerRootEnv); got != "/repo" {
+		t.Fatalf("restored consumer root = %q, want parent root", got)
+	}
+}
+
 func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 	root := setupGitHookTestRepo(t)
 	chdirForTest(t, root)
@@ -272,6 +289,87 @@ exit 2
 
 	if got := validateGoHookRuntime(); got != 0 {
 		t.Fatalf("validateGoHookRuntime() = %d, want 0", got)
+	}
+}
+
+func TestPushedFilesUsesTreeComparisonForNewBranch(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		`#!/usr/bin/env sh
+case "$*" in
+  "diff --name-only 4b825dc642cb6eb9a060e54bf8d69288fbee4904 abc123")
+    printf 'README.md\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected git invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	files, err := pushedFiles(strings.NewReader(
+		"refs/heads/feature abc123 refs/heads/feature " + allZeroSHA + "\n",
+	))
+	if err != nil {
+		t.Fatalf("pushedFiles: %v", err)
+	}
+
+	if !slices.Equal(files, []string{"README.md"}) {
+		t.Fatalf("pushed files = %#v", files)
+	}
+}
+
+func TestPushedFilesRunsGitDiffInLocalRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	parentRoot := filepath.Join(tempDir, "parent")
+	localRoot := filepath.Join(parentRoot, "coding-ethos")
+
+	err := os.MkdirAll(localRoot, 0o755)
+	if err != nil {
+		t.Fatalf("create test roots: %v", err)
+	}
+
+	t.Setenv(consumerRootEnv, parentRoot)
+	t.Setenv(localRootEnv, localRoot)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "git"),
+		`#!/usr/bin/env sh
+if [ "$PWD" != "$CODE_ETHOS_LOCAL_ROOT" ]; then
+  printf 'git ran in %s, want %s\n' "$PWD" "$CODE_ETHOS_LOCAL_ROOT" >&2
+  exit 2
+fi
+case "$*" in
+  "diff --name-only remote123..local123")
+    printf 'README.md\n'
+    exit 0
+    ;;
+esac
+printf 'unexpected git invocation: %s\n' "$*" >&2
+exit 2
+`,
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	files, err := pushedFiles(strings.NewReader(
+		"refs/heads/feature local123 refs/heads/feature remote123\n",
+	))
+	if err != nil {
+		t.Fatalf("pushedFiles: %v", err)
+	}
+
+	if !slices.Equal(files, []string{"README.md"}) {
+		t.Fatalf("pushed files = %#v", files)
 	}
 }
 

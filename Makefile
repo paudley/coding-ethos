@@ -178,12 +178,24 @@ define print_kv
 printf '  $(COLOR_ACCENT)%-24s$(COLOR_RESET) %s\n' "$(1)" "$(2)"
 endef
 
+define quiet_build
+tmp="$$(mktemp)"; \
+trap 'rm -f "$$tmp"' EXIT; \
+if ! $(MAKE) --no-print-directory build >"$$tmp" 2>&1; then \
+	cat "$$tmp" >&2; \
+	exit 1; \
+fi
+endef
+
 .PHONY: \
 	help \
 	status \
 	doctor \
 	install \
 	install-runtime \
+	parent-install \
+	parent-check \
+	parent-lint \
 	build \
 	package-smoke \
 	release-dry-run \
@@ -268,6 +280,7 @@ help: ## Show the available targets and the most useful overrides.
 	@printf '  make doctor\n'
 	@printf '  make test\n'
 	@printf '  make validate\n'
+	@printf '  make parent-lint\n'
 	@printf '  make install-hooks\n'
 	@printf '  make cutover-install\n'
 	@printf '  make cutover-verify\n'
@@ -354,6 +367,18 @@ install-runtime: ensure-uv ## Sync only the runtime dependencies.
 	@$(UV) sync --all-packages
 	@$(MAKE) sync-tool-configs
 	@$(MAKE) sync-gemini-prompts
+
+parent-install: ensure-go ## Sync parent repo coding-ethos artifacts with TOON output.
+	@$(quiet_build)
+	@"$(GO_HOOK)" parent-install --repo "$(HOOK_CONSUMER_ROOT)"
+
+parent-check: ensure-go ## Verify parent repo coding-ethos artifacts with TOON output.
+	@$(quiet_build)
+	@"$(GO_HOOK)" parent-check --repo "$(HOOK_CONSUMER_ROOT)"
+
+parent-lint: ensure-go ## Sync and lint the parent repo with TOON output.
+	@$(quiet_build)
+	@"$(GO_HOOK)" parent-lint --repo "$(HOOK_CONSUMER_ROOT)"
 
 ##@ Quality
 test: ensure-uv ## Run the current automated test suite.

@@ -37,6 +37,13 @@ policy:
       advice: Use the protected Git wrapper and keep hook failures visible.
 
 repo:
+  # Optional consumer profile defaults. Explicit settings below still win.
+  # `go-static-site` enables Go checks and disables Python test/doc/type gates
+  # when no Python sources are present in the consumer repo.
+  kind: go-static-site
+  # Additional opt-in profiles can be layered when needed.
+  profiles:
+    - generated-site-output
   license:
     # Set this per consuming repo to opt into LICENSE file and header checks.
     # When enabled, coding-ethos downloads the SPDX text, validates LICENSE

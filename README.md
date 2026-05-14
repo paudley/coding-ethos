@@ -494,6 +494,9 @@ results from the packages that own those concerns.
 | Run Python tests | `make test` |
 | Run full local check | `make check` |
 | Run all configured linters | `make lint` |
+| Sync parent repo artifacts | `make parent-install` |
+| Check parent repo artifact freshness | `make parent-check` |
+| Sync and lint parent repo | `make parent-lint` |
 | Run all configured formatters | `make format` |
 | Apply managed autofixers | `make fix` |
 | Format, then apply autofixers | `make lint-fix` |
@@ -523,6 +526,37 @@ make sync-tool-configs \
   REPO_CONFIG=/path/to/repo_config.yaml
 make seed SEED_FROM=/path/to/ETHOS.md PRIMARY=/path/to/coding_ethos.yml
 ```
+
+## Parent Repo Workflow
+
+For submodule consumers, prefer the Go runner as the stable interface and keep
+Make as a thin alias:
+
+```bash
+coding-ethos/bin/coding-ethos-run parent-install
+coding-ethos/bin/coding-ethos-run parent-check
+coding-ethos/bin/coding-ethos-run parent-lint
+```
+
+The runner resolves the parent repo from Git when `coding-ethos/` is installed
+as a submodule. It accepts `--repo`, `--repo-ethos`, `--repo-config`, and
+`--scope` when the caller needs explicit paths. Parent command output is TOON:
+install/check emit only status plus artifact-step rows, while parent lint emits
+the normal coding-ethos TOON lint report. See `TO_MY_PARENT.md` for the parent
+artifact contract.
+
+Parent repos can opt into profile defaults in `repo_config.yaml`:
+
+```yaml
+repo:
+  kind: go-static-site
+profiles:
+  - generated-site-output
+```
+
+`go-static-site` enables Go-oriented checks and, when no Python sources are
+present in the parent repo, disables Python pytest, docstring, and type-check
+gates. Explicit `repo_config.yaml` settings override profile defaults.
 
 ## Direct CLI Usage
 

@@ -60,6 +60,9 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy-tool", Handler: runPolicyTool},
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
+		{Command: "parent-install", Handler: runParentInstall},
+		{Command: "parent-check", Handler: runParentCheck},
+		{Command: "parent-lint", Handler: runParentLint},
 		{Command: "mcp", Handler: runMCPHandler},
 	}
 }

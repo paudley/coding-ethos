@@ -47,6 +47,8 @@ type lintCLIConfig struct {
 	filesFrom          *string
 	filesRaw           *string
 	forFilesFrom       *string
+	repoConfig         *string
+	repoEthos          *string
 	traceRoot          *string
 	analyzeLog         *bool
 	listCapturedTools  *bool
@@ -170,6 +172,16 @@ func registerLintFlags(flags *flag.FlagSet) lintCLIConfig {
 			"Working directory for git-state evaluators",
 		),
 		ethosRoot: flags.String("ethos-root", "", "coding-ethos checkout root"),
+		repoConfig: flags.String(
+			"repo-config",
+			"",
+			"consumer repo config path used to compile the bundle",
+		),
+		repoEthos: flags.String(
+			"repo-ethos",
+			"",
+			"consumer repo ethos overlay used to compile the bundle",
+		),
 		filesFrom: registerFilesFromFlag(flags),
 		filesRaw: flags.String(
 			"files",

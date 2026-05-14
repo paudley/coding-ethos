@@ -40,27 +40,7 @@ func EvaluateFileMergeConflict(
 	for _, file := range context.Files {
 		path := resolveGuardPath(context.Cwd, file)
 
-		found, err := scanGuardLines(
-			path,
-			func(lineNumber int, line string) ([]policy.Decision, bool) {
-				for _, marker := range markers {
-					if strings.HasPrefix(line, marker) {
-						return []policy.Decision{
-							fileGuardDecision(
-								policyDef,
-								"merge_conflict",
-								file,
-								lineNumber,
-								marker,
-								"unresolved merge conflict marker",
-							),
-						}, true
-					}
-				}
-
-				return nil, false
-			},
-		)
+		found, err := scanMergeConflictMarkers(path, file, policyDef, markers)
 		if err != nil {
 			return nil, err
 		}
@@ -71,6 +51,76 @@ func EvaluateFileMergeConflict(
 	}
 
 	return nil, nil
+}
+
+func scanMergeConflictMarkers(
+	path string,
+	file string,
+	policyDef policy.Policy,
+	markers []string,
+) ([]policy.Decision, error) {
+	var (
+		firstMarkerCandidate *policy.Decision
+		separatorCandidate   *policy.Decision
+		hasStart             bool
+		hasEnd               bool
+	)
+
+	found, err := scanGuardLines(
+		path,
+		func(lineNumber int, line string) ([]policy.Decision, bool) {
+			hasStart = hasStart || strings.HasPrefix(line, "<<<<<<<")
+			hasEnd = hasEnd || strings.HasPrefix(line, ">>>>>>>")
+
+			marker := matchingMergeConflictMarker(line, markers)
+			if marker == "" {
+				return nil, false
+			}
+
+			decision := fileGuardDecision(
+				policyDef,
+				"merge_conflict",
+				file,
+				lineNumber,
+				marker,
+				"unresolved merge conflict marker",
+			)
+			if marker == "=======" {
+				separatorCandidate = &decision
+
+				return nil, false
+			}
+
+			if firstMarkerCandidate == nil {
+				firstMarkerCandidate = &decision
+			}
+
+			return nil, false
+		},
+	)
+	if err != nil || len(found) > 0 {
+		return found, err
+	}
+
+	if separatorCandidate != nil && hasStart && hasEnd {
+		return []policy.Decision{*separatorCandidate}, nil
+	}
+
+	if firstMarkerCandidate != nil {
+		return []policy.Decision{*firstMarkerCandidate}, nil
+	}
+
+	return nil, nil
+}
+
+func matchingMergeConflictMarker(line string, markers []string) string {
+	for _, marker := range markers {
+		if strings.HasPrefix(line, marker) {
+			return marker
+		}
+	}
+
+	return ""
 }
 
 func EvaluateFilePrivateKey(

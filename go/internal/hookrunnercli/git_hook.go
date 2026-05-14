@@ -95,6 +95,9 @@ func runPreCommitHook(cfg Config, args []string) int {
 
 func runPrePushHook(cfg Config, input io.Reader) int {
 	cfg.HookStage = "pre-push"
+	restoreRoot := useLocalRootForPrePush()
+
+	defer restoreRoot()
 
 	files, err := pushedFiles(input)
 	if err != nil {
@@ -125,6 +128,28 @@ func runPrePushHook(cfg Config, input io.Reader) int {
 	}
 
 	return 0
+}
+
+func useLocalRootForPrePush() func() {
+	localRoot := strings.TrimSpace(localRepoRoot())
+	currentRoot := strings.TrimSpace(repoRoot())
+
+	if localRoot == "" || localRoot == currentRoot {
+		return func() {}
+	}
+
+	previousRoot, hadPreviousRoot := os.LookupEnv(consumerRootEnv)
+	_ = os.Setenv(consumerRootEnv, localRoot)
+
+	return func() {
+		if hadPreviousRoot {
+			_ = os.Setenv(consumerRootEnv, previousRoot)
+
+			return
+		}
+
+		_ = os.Unsetenv(consumerRootEnv)
+	}
 }
 
 func runNamedHookGroups(cfg Config, names, files []string) int {
@@ -394,9 +419,20 @@ func pushedFiles(input io.Reader) ([]string, error) {
 		)
 
 		if fields[3] == allZeroSHA {
-			changed, err = gitLines("diff", "--name-only", emptyTreeSHA+".."+fields[1])
+			changed, err = gitLinesInRoot(
+				localRepoRoot(),
+				"diff",
+				"--name-only",
+				emptyTreeSHA,
+				fields[1],
+			)
 		} else {
-			changed, err = gitLines("diff", "--name-only", fields[3]+".."+fields[1])
+			changed, err = gitLinesInRoot(
+				localRepoRoot(),
+				"diff",
+				"--name-only",
+				fields[3]+".."+fields[1],
+			)
 		}
 
 		if err != nil {
@@ -420,24 +456,34 @@ func pushedFiles(input io.Reader) ([]string, error) {
 		return files, nil
 	}
 
-	upstream := gitOutput(
+	upstream := gitOutputInRoot(
+		localRepoRoot(),
 		"rev-parse",
 		"--abbrev-ref",
 		"--symbolic-full-name",
 		"@{upstream}",
 	)
 	if upstream != "" {
-		changed, err := gitLines("diff", "--name-only", upstream+"...HEAD")
+		changed, err := gitLinesInRoot(
+			localRepoRoot(),
+			"diff",
+			"--name-only",
+			upstream+"...HEAD",
+		)
 		if err == nil {
 			return changed, nil
 		}
 	}
 
-	return gitLines("diff", "--name-only", "HEAD")
+	return gitLinesInRoot(localRepoRoot(), "diff", "--name-only", "HEAD")
 }
 
 func gitLines(args ...string) ([]string, error) {
-	output, err := combinedGitOutput(args...)
+	return gitLinesInRoot(repoRoot(), args...)
+}
+
+func gitLinesInRoot(root string, args ...string) ([]string, error) {
+	output, err := combinedGitOutputInRoot(root, args...)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"git %s: %w: %s",
@@ -485,7 +531,11 @@ func restageFiles(files []string) int {
 }
 
 func combinedGitOutput(args ...string) ([]byte, error) {
-	output, err := evaluators.GitCommand(repoRoot(), args...).CombinedOutput()
+	return combinedGitOutputInRoot(repoRoot(), args...)
+}
+
+func combinedGitOutputInRoot(root string, args ...string) ([]byte, error) {
+	output, err := evaluators.GitCommand(root, args...).CombinedOutput()
 	if err != nil {
 		return output, fmt.Errorf("run git command: %w", err)
 	}

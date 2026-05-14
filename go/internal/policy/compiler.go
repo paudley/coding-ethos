@@ -15,6 +15,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/configprofiles"
 )
 
 var (
@@ -226,7 +227,12 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 			return compileInputPayloads{}, err
 		}
 
-		configPayload = mergeMaps(configPayload, repoConfigPayload)
+		configPayload = configprofiles.ApplyWithEthosRoot(
+			configPayload,
+			repoConfigPayload,
+			filepath.Dir(options.RepoConfig),
+			filepath.Dir(options.Primary),
+		)
 	}
 
 	return compileInputPayloads{

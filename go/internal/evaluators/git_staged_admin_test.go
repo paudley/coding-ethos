@@ -6,6 +6,7 @@ package evaluators_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
@@ -73,6 +74,39 @@ func TestEvaluateGitStagedAdminFilesBlocksWithoutAdminApproval(t *testing.T) {
 	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
 		t.Fatalf("decision mismatch: %#v", decisions)
 	}
+
+	for _, want := range []string{
+		"Human/admin handoff",
+		"Agent action: stop trying to commit these files.",
+		"git commit -m 'admin change'",
+		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+	} {
+		if !strings.Contains(decisions[0].Suggestion, want) {
+			t.Fatalf("suggestion missing %q: %q", want, decisions[0].Suggestion)
+		}
+	}
+}
+
+func TestEvaluateGitStagedAdminFilesOmitsWrapperWarningInsideCodingEthos(t *testing.T) {
+	t.Parallel()
+
+	repo := stagedAdminRepo(t)
+	writeCodingEthosMarkers(t, repo)
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "admin change"},
+			Cwd:  repo,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate staged admin: %v", err)
+	}
+
+	if strings.Contains(decisions[0].Suggestion, "--admin-approved is only valid") {
+		t.Fatalf("suggestion should omit wrapper warning: %q", decisions[0].Suggestion)
+	}
 }
 
 func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
@@ -96,6 +130,28 @@ func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 		decisions[0].Decision != recordDecision ||
 		decisions[0].Severity != recordDecision {
 		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+}
+
+func writeCodingEthosMarkers(t *testing.T, repo string) {
+	t.Helper()
+
+	for _, path := range []string{
+		"coding_ethos.yml",
+		"config.yaml",
+		"go/cmd/coding-ethos-run",
+	} {
+		fullPath := filepath.Join(repo, path)
+
+		err := os.MkdirAll(filepath.Dir(fullPath), 0o755)
+		if err != nil {
+			t.Fatalf("create marker parent: %v", err)
+		}
+
+		err = os.WriteFile(fullPath, []byte("marker\n"), 0o600)
+		if err != nil {
+			t.Fatalf("write marker %s: %v", path, err)
+		}
 	}
 }
 
