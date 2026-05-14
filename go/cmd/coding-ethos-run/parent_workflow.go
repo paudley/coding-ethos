@@ -267,11 +267,18 @@ func rebuildParentGoTools(paths runtimePaths) error {
 
 func buildParentGoTool(paths runtimePaths, tool string) error {
 	outputPath := filepath.Join(paths.BinDir, tool)
+
+	err := os.Remove(outputPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale %s: %w", tool, err)
+	}
+
 	command := safeexec.CommandContext(
 		context.Background(),
 		"go",
 		"build",
 		"-trimpath",
+		"-buildvcs=false",
 		"-o",
 		outputPath,
 		"./cmd/"+tool,

@@ -398,6 +398,32 @@ func TestParentGoToolsCheckPassesWhenBinariesAreCurrent(t *testing.T) {
 	}
 }
 
+func TestRebuildParentGoToolsBuildsRepoLocalBinaries(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	sourceRoot := parentBuildableGoToolsSourceFixture(t, paths.EthosRoot)
+	paths.ToolsSource = sourceRoot
+
+	err := rebuildParentGoTools(paths)
+	if err != nil {
+		t.Fatalf("rebuildParentGoTools: %v", err)
+	}
+
+	for _, tool := range parentGoToolCommands() {
+		toolPath := filepath.Join(paths.BinDir, tool)
+
+		info, err := os.Stat(toolPath)
+		if err != nil {
+			t.Fatalf("stat rebuilt tool %s: %v", tool, err)
+		}
+
+		if info.IsDir() || info.Mode()&0o111 == 0 {
+			t.Fatalf("rebuilt tool %s not executable: %#v", tool, info.Mode())
+		}
+	}
+}
+
 func TestPrintParentWorkflowReportEmitsTOON(t *testing.T) { //nolint:paralleltest
 	output := captureRuntimeStdout(t, func() {
 		printParentWorkflowReport(
@@ -1609,6 +1635,46 @@ func parentGoToolsSourceFixture(t *testing.T, ethosRoot string) string {
 	}
 
 	writeParentGoSource(t, sourceRoot, "go.mod", oldTime)
+
+	return sourceRoot
+}
+
+func parentBuildableGoToolsSourceFixture(t *testing.T, ethosRoot string) string {
+	t.Helper()
+
+	sourceRoot := filepath.Join(ethosRoot, "go")
+
+	err := os.MkdirAll(sourceRoot, 0o755)
+	if err != nil {
+		t.Fatalf("create Go source root: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(sourceRoot, "go.mod"),
+		[]byte("module example.test/coding-ethos\n\ngo 1.26\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	for _, tool := range parentGoToolCommands() {
+		mainPath := filepath.Join(sourceRoot, "cmd", tool, "main.go")
+
+		err = os.MkdirAll(filepath.Dir(mainPath), 0o755)
+		if err != nil {
+			t.Fatalf("create source dir: %v", err)
+		}
+
+		err = os.WriteFile(
+			mainPath,
+			[]byte("package main\n\nfunc main() {}\n"),
+			0o600,
+		)
+		if err != nil {
+			t.Fatalf("write source: %v", err)
+		}
+	}
 
 	return sourceRoot
 }
