@@ -792,6 +792,8 @@ The merged config drives:
   `generated_config.ci.*.enabled`, timeout, trigger, artifact, test, and build
   knobs
 - hook policy for Python, shell, text, commit-message, and Go checks
+- code-intel path exclusions such as `code_intel.exclude_paths` for
+  repo-specific generated output
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
 

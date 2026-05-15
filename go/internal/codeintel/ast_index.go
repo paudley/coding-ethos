@@ -17,7 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmatcuk/doublestar"
+
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
+	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
@@ -35,15 +38,79 @@ type ASTIndexer struct {
 	store *Store
 }
 
+type IndexOptions struct {
+	ExcludePatterns []string
+}
+
 func NewASTIndexer(store *Store) ASTIndexer {
 	return ASTIndexer{store: store}
 }
 
-//nolint:gocyclo,cyclop,funlen // Coordinates the repository traversal gate.
+func LoadIndexOptions(root string) (IndexOptions, error) {
+	config, err := loadRepoConfig(root)
+	if err != nil {
+		return IndexOptions{}, err
+	}
+
+	return IndexOptions{
+		ExcludePatterns: configdata.StringList(
+			configdata.GetPath(config, "code_intel.exclude_paths", []any{}),
+		),
+	}, nil
+}
+
+func loadRepoConfig(root string) (configdata.Map, error) {
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve code-intel config root: %w", err)
+	}
+
+	for _, name := range repoConfigCandidates() {
+		path := filepath.Join(resolvedRoot, name)
+
+		config, err := configdata.LoadYAMLMap(path)
+		if err == nil {
+			return config, nil
+		}
+
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("load code-intel repo config %s: %w", path, err)
+		}
+	}
+
+	return configdata.Map{}, nil
+}
+
+func repoConfigCandidates() []string {
+	return []string{
+		"repo_config.yaml",
+		"repo_config.yml",
+		"code-ethos.repo.yaml",
+		"code-ethos.repo.yml",
+		"coding-ethos.repo.yaml",
+		"coding-ethos.repo.yml",
+	}
+}
+
 func (indexer ASTIndexer) IndexPaths(
 	ctx context.Context,
 	root string,
 	paths []string,
+) (CodeIndexSummary, error) {
+	options, err := LoadIndexOptions(root)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
+	return indexer.IndexPathsWithOptions(ctx, root, paths, options)
+}
+
+//nolint:gocyclo,cyclop,funlen // Coordinates the repository traversal gate.
+func (indexer ASTIndexer) IndexPathsWithOptions(
+	ctx context.Context,
+	root string,
+	paths []string,
+	options IndexOptions,
 ) (CodeIndexSummary, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -78,7 +145,15 @@ func (indexer ASTIndexer) IndexPaths(
 		}
 
 		if info.IsDir() {
-			err = indexer.indexDir(ctx, root, path, ignoreMatcher, existingFiles, &summary)
+			err = indexer.indexDir(
+				ctx,
+				root,
+				path,
+				ignoreMatcher,
+				existingFiles,
+				options,
+				&summary,
+			)
 			if err != nil {
 				return CodeIndexSummary{}, err
 			}
@@ -93,6 +168,7 @@ func (indexer ASTIndexer) IndexPaths(
 			info,
 			ignoreMatcher,
 			existingFiles,
+			options,
 			&summary,
 		)
 		if inlineErr0 != nil {
@@ -112,7 +188,9 @@ func (indexer ASTIndexer) IndexPaths(
 		func(path string) bool {
 			absolutePath := filepath.Join(root, filepath.FromSlash(path))
 
-			return pathHasSkippedDir(path) || ignoreMatcher.ignoredFile(ctx, absolutePath)
+			return pathHasSkippedDir(path) ||
+				excludedByConfig(path, options.ExcludePatterns) ||
+				ignoreMatcher.ignoredFile(ctx, absolutePath)
 		},
 	)
 	if err != nil {
@@ -130,34 +208,17 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 	root string,
 	dir string,
 ) (CodeIndexSummary, error) {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		root = "."
-	}
-
-	if strings.TrimSpace(dir) == "" {
-		dir = "."
-	}
-
-	path := dir
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(root, path)
-	}
-
-	info, err := os.Stat(path)
+	root, path, err := indexDirectoryTarget(root, dir)
 	if err != nil {
-		return CodeIndexSummary{}, fmt.Errorf("stat index directory %q: %w", dir, err)
-	}
-
-	if !info.IsDir() {
-		return CodeIndexSummary{}, fmt.Errorf(
-			"index directory %q: %w",
-			dir,
-			errCodeIntelPathNotDirectory,
-		)
+		return CodeIndexSummary{}, err
 	}
 
 	ignoreMatcher := newGitIgnoreMatcher(ctx, root)
+
+	options, err := LoadIndexOptions(root)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
 
 	existingFiles, err := indexer.store.CodeFilesByPath(ctx)
 	if err != nil {
@@ -190,6 +251,7 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 			fileInfo,
 			ignoreMatcher,
 			existingFiles,
+			options,
 			&summary,
 		)
 		if err != nil {
@@ -200,12 +262,44 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 	return summary, nil
 }
 
+func indexDirectoryTarget(root, dir string) (string, string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+
+	if strings.TrimSpace(dir) == "" {
+		dir = "."
+	}
+
+	path := dir
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", "", fmt.Errorf("stat index directory %q: %w", dir, err)
+	}
+
+	if !info.IsDir() {
+		return "", "", fmt.Errorf(
+			"index directory %q: %w",
+			dir,
+			errCodeIntelPathNotDirectory,
+		)
+	}
+
+	return root, path, nil
+}
+
 func (indexer ASTIndexer) indexDir(
 	ctx context.Context,
 	root string,
 	dir string,
 	ignoreMatcher gitIgnoreMatcher,
 	existingFiles map[string]CodeFile,
+	options IndexOptions,
 	summary *CodeIndexSummary,
 ) error {
 	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
@@ -218,6 +312,15 @@ func (indexer ASTIndexer) indexDir(
 				return filepath.SkipDir
 			}
 
+			relativePath, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				return fmt.Errorf("relativize indexed directory %q: %w", path, relErr)
+			}
+
+			if excludedByConfig(relativePath, options.ExcludePatterns) {
+				return filepath.SkipDir
+			}
+
 			return nil
 		}
 
@@ -226,7 +329,16 @@ func (indexer ASTIndexer) indexDir(
 			return fmt.Errorf("stat indexed file %q: %w", path, statErr)
 		}
 
-		return indexer.indexFile(ctx, root, path, info, ignoreMatcher, existingFiles, summary)
+		return indexer.indexFile(
+			ctx,
+			root,
+			path,
+			info,
+			ignoreMatcher,
+			existingFiles,
+			options,
+			summary,
+		)
 	})
 	if err != nil {
 		return fmt.Errorf("walk code-intel AST directory %s: %w", dir, err)
@@ -243,6 +355,7 @@ func (indexer ASTIndexer) indexFile(
 	info os.FileInfo,
 	ignoreMatcher gitIgnoreMatcher,
 	existingFiles map[string]CodeFile,
+	options IndexOptions,
 	summary *CodeIndexSummary,
 ) error {
 	language, ok := astfacts.LanguageForPath(path)
@@ -256,7 +369,9 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
-	if ignoreMatcher.ignoredFile(ctx, path) || pathHasSkippedDir(relativePath) {
+	if ignoreMatcher.ignoredFile(ctx, path) ||
+		pathHasSkippedDir(relativePath) ||
+		excludedByConfig(relativePath, options.ExcludePatterns) {
 		return nil
 	}
 
@@ -1138,6 +1253,7 @@ func shouldSkipDir(name string) bool {
 	case ".git",
 		".coding-ethos",
 		".code-ethos",
+		"coding-ethos",
 		".hg",
 		".svn",
 		".tox",
@@ -1148,10 +1264,46 @@ func shouldSkipDir(name string) bool {
 		".ruff_cache",
 		"node_modules",
 		"build",
-		"dist",
 		".cache":
 		return true
 	default:
 		return false
 	}
+}
+
+func excludedByConfig(path string, patterns []string) bool {
+	normalized := filepath.ToSlash(filepath.Clean(path))
+	if normalized == "." {
+		return false
+	}
+
+	for _, pattern := range patterns {
+		if pathMatchesConfiguredPattern(normalized, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func pathMatchesConfiguredPattern(path, pattern string) bool {
+	normalizedPattern := strings.TrimSpace(filepath.ToSlash(pattern))
+	if normalizedPattern == "" {
+		return false
+	}
+
+	for _, candidate := range []string{
+		path,
+		strings.TrimPrefix(path, "./"),
+	} {
+		matched, err := doublestar.Match(normalizedPattern, candidate)
+		if err == nil && matched {
+			return true
+		}
+	}
+
+	prefix := strings.TrimSuffix(normalizedPattern, "/**")
+	prefix = strings.TrimSuffix(prefix, "/")
+
+	return prefix != "" && (path == prefix || strings.HasPrefix(path, prefix+"/"))
 }

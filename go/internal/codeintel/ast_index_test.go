@@ -194,6 +194,94 @@ func TestASTIndexerIndexesJavaScriptAndTypeScript(t *testing.T) {
 	}
 }
 
+func TestASTIndexerSkipsNestedCodingEthosCheckout(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+
+	files := map[string]string{
+		"app/main.go":                 "package main\nfunc main() {}\n",
+		"coding-ethos/go/internal.go": "package internal\nfunc SkipMe() {}\n",
+		"nested/coding-ethos/tool.go": "package tool\nfunc AlsoSkipMe() {}\n",
+	}
+
+	for path, content := range files {
+		writeIndexedTestFile(t, tempDir, path, content)
+	}
+
+	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err != nil {
+		t.Fatalf("index tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 1 {
+		t.Fatalf("indexed %d files, want 1", summary.FilesIndexed)
+	}
+
+	assertCodeFilePresence(t, ctx, store, "app/main.go", true)
+	assertCodeFilePresence(t, ctx, store, "coding-ethos/go/internal.go", false)
+	assertCodeFilePresence(t, ctx, store, "nested/coding-ethos/tool.go", false)
+}
+
+func TestASTIndexerUsesConfiguredRepoExcludes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+
+	writeIndexedTestFile(t, tempDir, "app/main.go", "package main\nfunc main() {}\n")
+	writeIndexedTestFile(t, tempDir, "public/dist/generated.go", "package generated\n")
+	writeIndexedTestFile(
+		t,
+		tempDir,
+		"repo_config.yaml",
+		"code_intel:\n  exclude_paths:\n    - \"**/dist/**\"\n",
+	)
+
+	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err != nil {
+		t.Fatalf("index tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 2 {
+		t.Fatalf(
+			"indexed %d files, want app/main.go and repo_config.yaml",
+			summary.FilesIndexed,
+		)
+	}
+
+	assertCodeFilePresence(t, ctx, store, "app/main.go", true)
+	assertCodeFilePresence(t, ctx, store, "repo_config.yaml", true)
+	assertCodeFilePresence(t, ctx, store, "public/dist/generated.go", false)
+}
+
+func TestASTIndexerDoesNotHardCodeConsumerDistDirectory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+
+	writeIndexedTestFile(t, tempDir, "dist/source.go", "package dist\n")
+
+	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err != nil {
+		t.Fatalf("index tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 1 {
+		t.Fatalf("indexed %d files, want 1", summary.FilesIndexed)
+	}
+
+	assertCodeFilePresence(t, ctx, store, "dist/source.go", true)
+}
+
 func TestASTIndexerStoresExtendedEdges(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +358,40 @@ Run the installer.
 
 	if !hasCodeEdge(edges, "documents", "Installation") {
 		t.Errorf("missing documents:Installation edge. Edges: %#v", edges)
+	}
+}
+
+func writeIndexedTestFile(t *testing.T, root, path, content string) {
+	t.Helper()
+
+	fullPath := filepath.Join(root, path)
+	err := os.MkdirAll(filepath.Dir(fullPath), 0o700)
+	if err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(fullPath), err)
+	}
+
+	err = os.WriteFile(fullPath, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func assertCodeFilePresence(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	path string,
+	wantFound bool,
+) {
+	t.Helper()
+
+	file, found, err := store.GetCodeFile(ctx, path)
+	if err != nil {
+		t.Fatalf("get %s: %v", path, err)
+	}
+
+	if found != wantFound {
+		t.Fatalf("file %s found=%v, want %v: %#v", path, found, wantFound, file)
 	}
 }
 

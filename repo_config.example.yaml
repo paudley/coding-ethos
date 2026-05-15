@@ -87,6 +87,13 @@ similarity:
   structural_threshold: 0.8
   min_symbol_lines: 5
 
+code_intel:
+  # Repo-local source indexing exclusions. Use these for generated or vendored
+  # paths that are specific to the consuming repository, such as static-site
+  # output directories.
+  exclude_paths:
+    - "**/dist/**"
+
 git:
   hook_bypass:
     enabled: true
