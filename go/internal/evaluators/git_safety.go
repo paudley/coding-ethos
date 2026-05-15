@@ -358,7 +358,7 @@ func readCommitMessageFile(path, cwd string, stdin []byte) (string, error) {
 	}
 
 	if path == "-" {
-		return string(stdin), nil
+		return normalizeCommitMessageValue(string(stdin)), nil
 	}
 
 	if !filepath.IsAbs(path) && cwd != "" {
@@ -370,7 +370,7 @@ func readCommitMessageFile(path, cwd string, stdin []byte) (string, error) {
 		return "", fmt.Errorf("read commit message file %s: %w", path, err)
 	}
 
-	return string(data), nil
+	return normalizeCommitMessageValue(string(data)), nil
 }
 
 func forbiddenAttributionMatches(messages, names []string) []string {
