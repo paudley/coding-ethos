@@ -161,6 +161,47 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	assertEvidenceFileContains(t, output.Record.EvidencePath, input)
 }
 
+func TestToolOutputDiagnosticSummaryCondensesParsedDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		"checking package metadata",
+		"src/app.ts(1,1): error TS2304: Cannot find name 'missing'.",
+		"Files:              318",
+		"Found 1 error in src/app.ts:1",
+	}, "\n")
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputDiagnosticSummaryTransform{Tool: "tsc"},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: input},
+	)
+	if err != nil {
+		t.Fatalf("apply diagnostic summary: %v", err)
+	}
+
+	for _, expected := range []string{
+		"diagnostic summary",
+		"findings[1]{tool,file,line,column,severity,code,message}",
+		"tsc,src/app.ts,1,1,error,TS2304,Cannot find name 'missing'.",
+		"full output: " + output.Record.EvidencePath,
+	} {
+		if !strings.Contains(output.Text, expected) {
+			t.Fatalf("diagnostic summary missing %q:\n%s", expected, output.Text)
+		}
+	}
+
+	if strings.Contains(output.Text, "Files:              318") ||
+		output.Record.Decision != "summarize" ||
+		output.Record.FindingsCount != 1 ||
+		output.Metadata["coding_ethos.diagnostic_summary"] != "true" ||
+		output.Metadata["coding_ethos.full_output_path"] == "" {
+		t.Fatalf("diagnostic summary output = %#v", output)
+	}
+}
+
 func TestToolOutputCompressionPreservesPythonTracebackException(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +284,11 @@ func TestToolOutputCompressionNormalizesCRLFLines(t *testing.T) {
 	if !strings.HasSuffix(output.Text, "\n") ||
 		!strings.Contains(output.Text, "2 of 6 lines omitted") {
 		t.Fatalf("compressed CRLF output = %q", output.Text)
+	}
+
+	if output.Record.PolicyID != "proxy.token_budget" ||
+		output.Record.Decision != "truncate" {
+		t.Fatalf("compressed CRLF record = %#v", output.Record)
 	}
 }
 

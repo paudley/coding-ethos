@@ -227,6 +227,10 @@ func shouldEmitPostToolBashContext(event Event, command, output string) bool {
 		return true
 	}
 
+	if event.ReturnCode() != 0 && inferDiagnosticTool(command) != "" {
+		return true
+	}
+
 	return event.ReturnCode() != 0 &&
 		isGitHookCommand(command) &&
 		hasHookOutputKeywords(output)

@@ -1828,6 +1828,19 @@ func BuildMessage(name string) string {
 		t.Fatalf("record code chunk embedding: %v", err)
 	}
 
+	originalRecords, err := store.EmbeddingRecords(ctx, EmbeddingRecordQuery{
+		RecordKind: codeChunkRecordKind,
+		RecordID:   chunks[0].ID,
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query original embedding records: %v", err)
+	}
+
+	if len(originalRecords) != 1 {
+		t.Fatalf("original embedding records = %#v", originalRecords)
+	}
+
 	writeFile(t, sourcePath, []byte(`package pkg
 
 func BuildMessage(name string) string {
@@ -1851,6 +1864,20 @@ func BuildMessage(name string) string {
 
 	if len(records) != 0 {
 		t.Fatalf("stale embedding records = %#v", records)
+	}
+
+	searchResults, err := store.Search(ctx, SearchQuery{
+		Text:  "code_chunk",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("search stale embedding FTS: %v", err)
+	}
+
+	for _, result := range searchResults {
+		if result.Kind == "embedding_record" && result.RecordID == originalRecords[0].ID {
+			t.Fatalf("stale embedding FTS result = %#v", result)
+		}
 	}
 }
 
@@ -2143,10 +2170,37 @@ func Generated() {}
 		t.Fatalf("index directory children: %v", err)
 	}
 
+	chunks, err := store.CodeChunks(ctx, CodeChunkQuery{
+		Path:       "pkg/generated.go",
+		SymbolName: "Generated",
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query generated chunk: %v", err)
+	}
+
+	if len(chunks) != 1 {
+		t.Fatalf("generated chunks = %#v", chunks)
+	}
+
+	err = store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
+		Backend:     vectorBackendName,
+		Collection:  "code_chunks",
+		ModelID:     "voyage-code-3",
+		RecordKind:  codeChunkRecordKind,
+		RecordID:    chunks[0].ID,
+		Path:        chunks[0].Path,
+		ContentHash: chunks[0].ContentHash,
+		Dimension:   1024,
+	})
+	if err != nil {
+		t.Fatalf("record generated embedding: %v", err)
+	}
+
 	writeFile(t, filepath.Join(root, "repo_config.yaml"), []byte(
 		"code_intel:\n"+
 			"  exclude_paths:\n"+
-			"    - \"pkg/generated.go\"\n",
+			"    - \"pkg\"\n",
 	))
 
 	summary, err := indexer.IndexDirectoryChildren(ctx, root, "pkg")
@@ -2169,8 +2223,34 @@ func Generated() {}
 	}
 
 	keep, found := files["pkg/app.go"]
-	if !found || keep.DeletedAtUTC != "" {
+	if !found || keep.DeletedAtUTC == "" {
 		t.Fatalf("keep file = %#v, found = %t", keep, found)
+	}
+
+	records, err := store.EmbeddingRecords(ctx, EmbeddingRecordQuery{
+		RecordKind: codeChunkRecordKind,
+		RecordID:   chunks[0].ID,
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query generated embedding records: %v", err)
+	}
+
+	if len(records) != 0 {
+		t.Fatalf("generated embedding records = %#v", records)
+	}
+
+	status, err := store.IndexStatus(ctx, evidence.VectorStats{}, EmbeddingRecordQuery{
+		Backend:    vectorBackendName,
+		Collection: "code_chunks",
+		ModelID:    "voyage-code-3",
+	})
+	if err != nil {
+		t.Fatalf("index status after ignored file: %v", err)
+	}
+
+	if status.ReadyRecords != 0 || status.MissingVectors != 0 {
+		t.Fatalf("ignored code chunks counted as ready records: %#v", status)
 	}
 }
 
@@ -2789,6 +2869,33 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
 	if len(results) == 0 || results[0].Kind != codeChunkRecordKind ||
 		results[0].Source != "fts+vector" {
 		t.Fatalf("hybrid results = %#v", results)
+	}
+
+	writeFile(t, filepath.Join(root, "repo_config.yaml"), []byte(
+		"code_intel:\n"+
+			"  exclude_paths:\n"+
+			"    - \"pkg\"\n",
+	))
+
+	_, err = NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("refresh excluded code: %v", err)
+	}
+
+	results, err = store.HybridSearch(ctx, index, HybridSearchQuery{
+		Text:       "Worker",
+		Collection: "code_chunks",
+		ModelID:    "test-model",
+		Path:       "pkg/worker.py",
+		Vector:     []float32{0, 1, 0},
+		Limit:      5,
+	})
+	if err != nil {
+		t.Fatalf("hybrid search after exclude: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Fatalf("stale vector-backed code chunks = %#v", results)
 	}
 }
 

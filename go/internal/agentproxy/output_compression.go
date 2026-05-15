@@ -12,26 +12,163 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
 )
 
 const (
-	defaultToolOutputMaxLines   = 80
-	defaultToolOutputHead       = 32
-	defaultToolOutputTail       = 32
-	defaultToolOutputMaxTokens  = 2000
-	defaultToolOutputHeadTokens = 900
-	defaultToolOutputTailTokens = 900
-	minPreservedLineBudget      = 2
-	minToolOutputMaxLines       = 3
-	minToolOutputMaxTokens      = 32
-	metadataFullOutputPath      = "coding_ethos.full_output_path"
-	toolOutputEvidenceMaxAge    = 24 * time.Hour
-	toolOutputEvidencePattern   = "coding-ethos-tool-output-*.log"
-	toolOutputEvidencePrefix    = "coding-ethos-tool-output-"
-	toolOutputEvidenceSuffix    = ".log"
-	tokenBudgetMarkerTokens     = 8
-	tokenBudgetSplitParts       = 2
+	defaultToolOutputMaxLines    = 80
+	defaultToolOutputHead        = 32
+	defaultToolOutputTail        = 32
+	defaultToolOutputMaxTokens   = 2000
+	defaultToolOutputHeadTokens  = 900
+	defaultToolOutputTailTokens  = 900
+	minPreservedLineBudget       = 2
+	minToolOutputMaxLines        = 3
+	minToolOutputMaxTokens       = 32
+	metadataFullOutputPath       = "coding_ethos.full_output_path"
+	toolOutputEvidenceMaxAge     = 24 * time.Hour
+	toolOutputEvidencePattern    = "coding-ethos-tool-output-*.log"
+	toolOutputEvidencePrefix     = "coding-ethos-tool-output-"
+	toolOutputEvidenceSuffix     = ".log"
+	tokenBudgetMarkerTokens      = 8
+	tokenBudgetSplitParts        = 2
+	defaultDiagnosticMaxFindings = 12
+	diagnosticSummaryLineSlack   = 3
+	metadataValueTrue            = "true"
 )
+
+// ToolOutputDiagnosticSummaryTransform condenses parseable compiler, linter,
+// and test output into a concise diagnostic table before generic output
+// compression runs.
+type ToolOutputDiagnosticSummaryTransform struct {
+	Tool        string
+	MaxFindings int
+}
+
+func (transform ToolOutputDiagnosticSummaryTransform) Name() string {
+	return "tool-output-diagnostic-summary"
+}
+
+func (transform ToolOutputDiagnosticSummaryTransform) Apply(
+	_ context.Context,
+	input TransformInput,
+) (TransformOutput, error) {
+	tool := strings.TrimSpace(transform.Tool)
+	if tool == "" || strings.TrimSpace(input.Text) == "" {
+		return TransformOutput{
+			Text:     input.Text,
+			Metadata: cloneMetadata(input.Metadata),
+			Record: TransformRecord{
+				PolicyID: "proxy.diagnostic_summary",
+				Decision: "allow",
+				Reason:   "tool output has no diagnostic parser",
+			},
+		}, nil
+	}
+
+	items := diagnostics.Parse(tool, input.Text, "")
+	if len(items) == 0 {
+		return TransformOutput{
+			Text:     input.Text,
+			Metadata: cloneMetadata(input.Metadata),
+			Record: TransformRecord{
+				PolicyID: "proxy.diagnostic_summary",
+				Decision: "allow",
+				Reason:   "tool output had no parseable diagnostics",
+			},
+		}, nil
+	}
+
+	evidencePath, err := writeFullOutputEvidence(input.Text)
+	if err != nil {
+		return TransformOutput{}, err
+	}
+
+	output := diagnosticSummaryOutput(tool, items, transform.findingLimit(), evidencePath)
+	metadata := cloneMetadata(input.Metadata)
+	metadata["coding_ethos.diagnostic_summary"] = metadataValueTrue
+	metadata["coding_ethos.diagnostic_count"] = strconv.Itoa(len(items))
+	metadata[metadataFullOutputPath] = evidencePath
+
+	return TransformOutput{
+		Text:     output,
+		Metadata: metadata,
+		Record: TransformRecord{
+			PolicyID:      "proxy.diagnostic_summary",
+			Decision:      "summarize",
+			Reason:        "tool output converted to diagnostic summary",
+			EvidencePath:  evidencePath,
+			FindingsCount: len(items),
+		},
+	}, nil
+}
+
+func (transform ToolOutputDiagnosticSummaryTransform) findingLimit() int {
+	if transform.MaxFindings <= 0 {
+		return defaultDiagnosticMaxFindings
+	}
+
+	return transform.MaxFindings
+}
+
+func diagnosticSummaryOutput(
+	tool string,
+	items []diagnostics.Diagnostic,
+	limit int,
+	evidencePath string,
+) string {
+	count := min(len(items), limit)
+	lines := make([]string, 0, count+diagnosticSummaryLineSlack)
+	lines = append(lines, "[coding-ethos: diagnostic summary; "+
+		strconv.Itoa(len(items))+" findings parsed from "+tool+
+		"; full output: "+evidencePath+"]")
+	lines = append(lines, "findings["+strconv.Itoa(count)+
+		"]{tool,file,line,column,severity,code,message}:")
+
+	for _, item := range items[:count] {
+		lines = append(lines, "  "+diagnosticSummaryLine(item))
+	}
+
+	if len(items) > count {
+		lines = append(lines, "  "+
+			strconv.Itoa(len(items)-count)+" additional findings omitted; "+
+			"use full output evidence for complete diagnostics")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func diagnosticSummaryLine(item diagnostics.Diagnostic) string {
+	return strings.Join([]string{
+		summaryCell(firstNonEmptyString(item.Tool, "unknown")),
+		summaryCell(item.File),
+		strconv.Itoa(item.Line),
+		strconv.Itoa(item.Column),
+		summaryCell(item.Severity),
+		summaryCell(item.Code),
+		summaryCell(item.Message),
+	}, ",")
+}
+
+func summaryCell(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, ",", "\\,")
+
+	return value
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+
+	return ""
+}
 
 // ToolOutputCompressionTransform caps verbose tool output while preserving the
 // beginning and ending context where command identity and terminal failures
@@ -86,7 +223,7 @@ func (transform ToolOutputCompressionTransform) Apply(
 	compressed = append(compressed, lines[len(lines)-limits.Tail:]...)
 
 	metadata := cloneMetadata(input.Metadata)
-	metadata["coding_ethos.compressed"] = "true"
+	metadata["coding_ethos.compressed"] = metadataValueTrue
 	metadata["coding_ethos.compressed_lines_omitted"] = strconv.Itoa(omitted)
 	metadata[metadataFullOutputPath] = evidencePath
 
@@ -94,6 +231,8 @@ func (transform ToolOutputCompressionTransform) Apply(
 		Text:     joinOutputLines(compressed, strings.HasSuffix(input.Text, "\n")),
 		Metadata: metadata,
 		Record: TransformRecord{
+			PolicyID:     "proxy.token_budget",
+			Decision:     "truncate",
 			Reason:       "tool output exceeded line budget",
 			EvidencePath: evidencePath,
 		},
@@ -222,7 +361,7 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 
 	output := budgetedOutput(input.Text, limits, tokenizer, evidencePath)
 	metadata := cloneMetadata(input.Metadata)
-	metadata["coding_ethos.token_budget_exceeded"] = "true"
+	metadata["coding_ethos.token_budget_exceeded"] = metadataValueTrue
 	metadata["coding_ethos.input_tokens"] = strconv.Itoa(tokens)
 	metadata["coding_ethos.max_tokens"] = strconv.Itoa(limits.MaxTokens)
 	metadata[metadataFullOutputPath] = evidencePath

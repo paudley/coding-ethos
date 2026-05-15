@@ -199,6 +199,66 @@ func TestValidateRepoConfigSectionsRejectsUnknownCodeIntelKey(t *testing.T) {
 	}
 }
 
+func TestValidateRepoConfigSectionsAllowsProxyOutputCompression(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte(
+			"proxy:\n"+
+				"  output_compression:\n"+
+				"    max_lines: 40\n"+
+				"    head_lines: 10\n"+
+				"    tail_lines: 10\n"+
+				"    max_tokens: 1000\n"+
+				"    head_tokens: 400\n"+
+				"    tail_tokens: 400\n"+
+				"    max_diagnostics: 8\n",
+		),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	sections, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err != nil {
+		t.Fatalf("validate repo config: %v", err)
+	}
+
+	if strings.Join(sections, ",") != "proxy" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
+func TestValidateRepoConfigSectionsRejectsUnknownProxyOutputKey(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte("proxy:\n  output_compression:\n    max_tokenz: 1000\n"),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	_, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err == nil {
+		t.Fatal("expected unknown proxy output key error")
+	}
+
+	if !strings.Contains(err.Error(), "proxy.output_compression.max_tokenz") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 	t.Parallel()
 

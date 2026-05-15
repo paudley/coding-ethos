@@ -86,48 +86,66 @@ func (store *Store) validateCodeContextFresh(
 		return nil
 	}
 
-	storedHash, err := store.codeFileContentHash(ctx, path)
+	storedHash, storedSize, err := store.codeFileContentMetadata(ctx, path)
 	if err != nil {
 		return err
 	}
 
-	contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+	sourcePath := filepath.Join(root, filepath.FromSlash(path))
+
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("stat current source for code context %s: %w", path, err)
+	}
+
+	if info.Size() != storedSize || info.Size() > maxIndexedSourceBytes {
+		return staleCodeContextError(path)
+	}
+
+	contents, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return fmt.Errorf("read current source for code context %s: %w", path, err)
 	}
 
 	currentHash := astfacts.ContentHash(contents)
 	if currentHash != storedHash {
-		return apperror.Wrapf(
-			apperror.StaticError("stale code context for %s; reindex before using AST context"),
-			"stale code context for %s; reindex before using AST context",
-			path,
-		)
+		return staleCodeContextError(path)
 	}
 
 	return nil
 }
 
-func (store *Store) codeFileContentHash(
+func staleCodeContextError(path string) error {
+	return apperror.Wrapf(
+		apperror.StaticError("stale code context for %s; reindex before using AST context"),
+		"stale code context for %s; reindex before using AST context",
+		path,
+	)
+}
+
+func (store *Store) codeFileContentMetadata(
 	ctx context.Context,
 	path string,
-) (string, error) {
+) (string, int64, error) {
 	row := store.database.QueryRowContext(
 		ctx,
-		`SELECT content_hash
+		`SELECT content_hash, size_bytes
 		FROM code_files
 		WHERE path = ? AND COALESCE(deleted_at_utc, '') = ''`,
 		path,
 	)
 
-	var hash string
+	var (
+		hash string
+		size int64
+	)
 
-	err := row.Scan(&hash)
+	err := row.Scan(&hash, &size)
 	if err != nil {
-		return "", fmt.Errorf("query code file hash %s: %w", path, err)
+		return "", 0, fmt.Errorf("query code file metadata %s: %w", path, err)
 	}
 
-	return hash, nil
+	return hash, size, nil
 }
 
 func (store *Store) findCodeContextChunk(

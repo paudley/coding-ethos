@@ -395,14 +395,17 @@ file body. This is the reusable core for future transparent read interception.
 
 Agent Bash `PostToolUse` output also passes through the proxy transform path
 before hook context is returned to the provider. Verbose shell, lint, compiler,
-and test output is line-compressed, then capped by a hard token budget while
-preserving command identity and the terminal failure tail. Whenever output is
-removed, the runtime writes the full original payload to a
+and test output is summarized with known diagnostic parsers where possible,
+line-compressed, then capped by a hard token budget while preserving command
+identity and the terminal failure tail. Whenever output is removed, the runtime
+writes the full original payload to a
 `/tmp/coding-ethos-tool-output-*.log` evidence file and surfaces that path in
 the visible marker. When the event includes a session id, the runtime records a
 `tool_output` proxy event and ordered transform ledger in
 `.coding-ethos/code-intel.db`. Stale matching temp evidence files are pruned
-before new evidence is written.
+before new evidence is written. Repositories can tune this behavior with
+`proxy.output_compression` in `repo_config.yaml`; token-budget environment
+variables remain local runtime overrides.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows

@@ -1201,8 +1201,10 @@ Acceptance criteria:
   test-to-source links, and documentation links.
 - [x] Store parser metadata, index timestamp, and content hashes beside
   AST-derived code files/chunks.
-- [x] Add incremental reindex/embedding invalidation by file hash and chunk
-  hash.
+- [x] Add stale code-chunk embedding invalidation when reindexing changes chunk
+  hashes.
+- [ ] Add incremental reindex invalidation that compares file hashes even when
+  mtime and size appear unchanged.
 - [ ] Use Tree-sitter facts to augment CEL source inputs with symbol kind,
   symbol name, symbol path, enclosing function/class/type/config entry, byte
   span, line span, content hash, parent symbol, and nearest test/doc chunk.
@@ -1327,7 +1329,9 @@ Acceptance criteria:
 - [x] Add first staleness and trust metadata to indexed AST files: indexed
   content hash, index timestamp, and parser metadata.
 - [x] Add stale-result refusal behavior and current-content validation for
-  AST-derived code context lookups.
+  `CodeContext` lookups.
+- [ ] Add stale-result refusal behavior and current-content validation for
+  compact code context, repo maps, and other AST-derived context lookups.
 - [ ] Add stale-result refusal behavior and current-content validation for
   every AST-derived CEL/SARIF result.
 - [ ] Add regression tests proving Tree-sitter facts are identical across hook,

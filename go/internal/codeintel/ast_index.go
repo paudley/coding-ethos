@@ -82,14 +82,7 @@ func loadRepoConfig(root string) (configdata.Map, error) {
 }
 
 func repoConfigCandidates() []string {
-	return []string{
-		"repo_config.yaml",
-		"repo_config.yml",
-		"code-ethos.repo.yaml",
-		"code-ethos.repo.yml",
-		"coding-ethos.repo.yaml",
-		"coding-ethos.repo.yml",
-	}
+	return configdata.RepoConfigCandidates()
 }
 
 func (indexer ASTIndexer) IndexPaths(
@@ -1367,6 +1360,11 @@ func validateIndexExcludePattern(pattern string) error {
 		return fmt.Errorf("invalid code_intel.exclude_paths pattern %q: %w", pattern, err)
 	}
 
+	_, err = doublestar.Match(strings.TrimSuffix(pattern, "/")+"/**", "a")
+	if err != nil {
+		return fmt.Errorf("invalid code_intel.exclude_paths pattern %q: %w", pattern, err)
+	}
+
 	prefix := directoryExcludePrefix(pattern)
 	if prefix == "" {
 		return nil
@@ -1402,6 +1400,13 @@ func pathMatchesConfiguredPattern(path, pattern string) bool {
 	}
 
 	matched, err := doublestar.Match(normalizedPattern, path)
+	if err == nil && matched {
+		return true
+	}
+
+	descendantPattern := strings.TrimSuffix(normalizedPattern, "/") + "/**"
+
+	matched, err = doublestar.Match(descendantPattern, path)
 	if err == nil && matched {
 		return true
 	}

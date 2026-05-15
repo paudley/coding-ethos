@@ -23,6 +23,7 @@ const (
 	unknownCELExpression = ""
 	unknownPolicySource  = ""
 	lshBandColumnCount   = 5
+	sqliteBatchSize      = 900
 )
 
 func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) error {
@@ -767,17 +768,24 @@ func deleteEmbeddingRecordsForCodeChunks(
 		return nil
 	}
 
-	err := batchDeleteEntities(
-		ctx,
-		transaction,
-		"code_intel_fts",
-		"record_id",
-		chunkIDs,
-		"kind = 'embedding_record'",
-		"message = 'code_chunk'",
-	)
+	embeddingIDs, err := embeddingIDsForCodeChunks(ctx, transaction, chunkIDs)
 	if err != nil {
 		return err
+	}
+
+	if len(embeddingIDs) > 0 {
+		err = batchDeleteEntities(
+			ctx,
+			transaction,
+			"code_intel_fts",
+			"record_id",
+			embeddingIDs,
+			"kind = 'embedding_record'",
+			"message = 'code_chunk'",
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return batchDeleteEntities(
@@ -788,6 +796,77 @@ func deleteEmbeddingRecordsForCodeChunks(
 		chunkIDs,
 		"record_kind = 'code_chunk'",
 	)
+}
+
+func embeddingIDsForCodeChunks(
+	ctx context.Context,
+	transaction *sql.Tx,
+	chunkIDs []any,
+) ([]any, error) {
+	if len(chunkIDs) == 0 {
+		return nil, nil
+	}
+
+	embeddingIDs := []any{}
+
+	for offset := 0; offset < len(chunkIDs); offset += sqliteBatchSize {
+		end := min(offset+sqliteBatchSize, len(chunkIDs))
+		batch := chunkIDs[offset:end]
+
+		batchIDs, err := embeddingIDsForCodeChunkBatch(ctx, transaction, batch)
+		if err != nil {
+			return nil, err
+		}
+
+		embeddingIDs = append(embeddingIDs, batchIDs...)
+	}
+
+	return embeddingIDs, nil
+}
+
+func embeddingIDsForCodeChunkBatch(
+	ctx context.Context,
+	transaction *sql.Tx,
+	chunkIDs []any,
+) ([]any, error) {
+	placeholders := make([]string, len(chunkIDs))
+	for index := range placeholders {
+		placeholders[index] = "?"
+	}
+
+	// #nosec G202 -- placeholders are generated internally for bound parameters.
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT embedding_id
+		FROM embedding_records
+		WHERE record_kind = 'code_chunk'
+			AND record_id IN (`+strings.Join(placeholders, ",")+`)`,
+		chunkIDs...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code chunk embedding IDs: %w", err)
+	}
+	defer rows.Close()
+
+	embeddingIDs := []any{}
+
+	for rows.Next() {
+		var embeddingID string
+
+		err = rows.Scan(&embeddingID)
+		if err != nil {
+			return nil, fmt.Errorf("scan code chunk embedding ID: %w", err)
+		}
+
+		embeddingIDs = append(embeddingIDs, embeddingID)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate code chunk embedding IDs: %w", err)
+	}
+
+	return embeddingIDs, nil
 }
 
 func reconcileCodeEdges(
@@ -835,10 +914,8 @@ func batchDeleteEntities(
 	extraWhere ...string,
 ) error {
 	// SQLite has a limit of 999 parameters.
-	const batchSize = 900
-
-	for offset := 0; offset < len(ids); offset += batchSize {
-		end := min(offset+batchSize, len(ids))
+	for offset := 0; offset < len(ids); offset += sqliteBatchSize {
+		end := min(offset+sqliteBatchSize, len(ids))
 		batch := ids[offset:end]
 
 		placeholders := make([]string, len(batch))
