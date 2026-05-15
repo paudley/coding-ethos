@@ -232,6 +232,19 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 
 	summary := CodeIndexSummary{}
 
+	deleted, err := indexer.markIgnoredDirectoryChildrenDeleted(
+		ctx,
+		root,
+		path,
+		ignoreMatcher,
+		options,
+	)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
+	summary.Deleted = deleted
+
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return CodeIndexSummary{}, fmt.Errorf("read index directory %q: %w", dir, err)
@@ -265,6 +278,52 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 	}
 
 	return summary, nil
+}
+
+func (indexer ASTIndexer) markIgnoredDirectoryChildrenDeleted(
+	ctx context.Context,
+	root string,
+	dir string,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+) ([]string, error) {
+	relativeDir, err := filepath.Rel(root, dir)
+	if err != nil {
+		return nil, fmt.Errorf("relativize indexed directory %q: %w", dir, err)
+	}
+
+	relativeDir = filepath.ToSlash(relativeDir)
+
+	return indexer.store.MarkIgnoredCodeFilesDeleted(
+		ctx,
+		func(path string) bool {
+			if !directChildCodeFilePath(relativeDir, path) {
+				return false
+			}
+
+			absolutePath := filepath.Join(root, filepath.FromSlash(path))
+
+			return pathHasSkippedDir(path) ||
+				excludedByConfig(path, options.ExcludePatterns) ||
+				ignoreMatcher.ignoredFile(ctx, absolutePath)
+		},
+	)
+}
+
+func directChildCodeFilePath(dir, path string) bool {
+	dir = filepath.ToSlash(filepath.Clean(dir))
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	if dir == "." {
+		return path != "." && !strings.Contains(path, "/")
+	}
+
+	relativePath, found := strings.CutPrefix(path, strings.TrimSuffix(dir, "/")+"/")
+	if !found || relativePath == "" {
+		return false
+	}
+
+	return !strings.Contains(relativePath, "/")
 }
 
 func indexDirectoryTarget(root, dir string) (string, string, error) {

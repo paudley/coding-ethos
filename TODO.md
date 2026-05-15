@@ -1201,7 +1201,7 @@ Acceptance criteria:
   test-to-source links, and documentation links.
 - [x] Store parser metadata, index timestamp, and content hashes beside
   AST-derived code files/chunks.
-- [ ] Add incremental reindex/embedding invalidation by file hash and chunk
+- [x] Add incremental reindex/embedding invalidation by file hash and chunk
   hash.
 - [ ] Use Tree-sitter facts to augment CEL source inputs with symbol kind,
   symbol name, symbol path, enclosing function/class/type/config entry, byte
@@ -1315,7 +1315,8 @@ Acceptance criteria:
   graph edges, and linked SARIF/CEL findings.
 - [x] Add MCP context expansion for code chunks with parent, children,
   graph edges, and linked SARIF/CEL findings.
-- [ ] Extend context expansion with siblings, language-specific callers/callees,
+- [x] Extend context expansion with sibling chunks.
+- [ ] Extend context expansion with language-specific callers/callees,
   related tests, related docs, recent policy failures, and prior fixes for the
   same symbol.
 - [ ] Promote diagnostic signature tokens into a first-class stored column or
@@ -1325,6 +1326,8 @@ Acceptance criteria:
   `coding_ethos.yml` and use capture specs only to supply facts.
 - [x] Add first staleness and trust metadata to indexed AST files: indexed
   content hash, index timestamp, and parser metadata.
+- [x] Add stale-result refusal behavior and current-content validation for
+  AST-derived code context lookups.
 - [ ] Add stale-result refusal behavior and current-content validation for
   every AST-derived CEL/SARIF result.
 - [ ] Add regression tests proving Tree-sitter facts are identical across hook,

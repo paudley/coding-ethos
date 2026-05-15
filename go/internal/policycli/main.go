@@ -684,6 +684,10 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"text":            "",
 		"url":             "",
 	}
+
+	reference["code_intel"] = map[string]any{
+		"exclude_paths": []any{},
+	}
 }
 
 func cloneAnyMap(values map[string]any) map[string]any {

@@ -7,9 +7,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
 func (store *Store) CodeContext(
@@ -17,6 +20,11 @@ func (store *Store) CodeContext(
 	query CodeContextQuery,
 ) (CodeContext, error) {
 	chunk, err := store.findCodeContextChunk(ctx, query)
+	if err != nil {
+		return CodeContext{}, err
+	}
+
+	err = store.validateCodeContextFresh(ctx, query.Root, chunk.Path)
 	if err != nil {
 		return CodeContext{}, err
 	}
@@ -43,6 +51,13 @@ func (store *Store) CodeContext(
 
 	context.Children = children
 
+	siblings, err := store.siblingCodeChunks(ctx, chunk, limit)
+	if err != nil {
+		return CodeContext{}, err
+	}
+
+	context.Siblings = siblings
+
 	outgoing, incoming, err := store.codeEdgesForChunk(ctx, chunk.ID, limit)
 	if err != nil {
 		return CodeContext{}, err
@@ -59,6 +74,60 @@ func (store *Store) CodeContext(
 	context.FindingLinks = links
 
 	return context, nil
+}
+
+func (store *Store) validateCodeContextFresh(
+	ctx context.Context,
+	root string,
+	path string,
+) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+
+	storedHash, err := store.codeFileContentHash(ctx, path)
+	if err != nil {
+		return err
+	}
+
+	contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+	if err != nil {
+		return fmt.Errorf("read current source for code context %s: %w", path, err)
+	}
+
+	currentHash := astfacts.ContentHash(contents)
+	if currentHash != storedHash {
+		return apperror.Wrapf(
+			apperror.StaticError("stale code context for %s; reindex before using AST context"),
+			"stale code context for %s; reindex before using AST context",
+			path,
+		)
+	}
+
+	return nil
+}
+
+func (store *Store) codeFileContentHash(
+	ctx context.Context,
+	path string,
+) (string, error) {
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT content_hash
+		FROM code_files
+		WHERE path = ? AND COALESCE(deleted_at_utc, '') = ''`,
+		path,
+	)
+
+	var hash string
+
+	err := row.Scan(&hash)
+	if err != nil {
+		return "", fmt.Errorf("query code file hash %s: %w", path, err)
+	}
+
+	return hash, nil
 }
 
 func (store *Store) findCodeContextChunk(
@@ -196,6 +265,39 @@ func (store *Store) childCodeChunks(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query child code chunks: %w", err)
+	}
+	defer rows.Close()
+
+	return scanCodeChunks(rows)
+}
+
+func (store *Store) siblingCodeChunks(
+	ctx context.Context,
+	chunk CodeChunk,
+	limit int,
+) ([]CodeChunk, error) {
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT
+			chunk_id, code_chunks.path, code_chunks.language, node_kind,
+			symbol_kind, symbol_name, symbol_path,
+			COALESCE(parent_symbol_path, ''), parent_chunk_id, start_byte, end_byte,
+			start_line, end_line, code_chunks.content_hash, search_text, raw_text
+		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE code_chunks.path = ?
+			AND COALESCE(parent_chunk_id, '') = ?
+			AND chunk_id != ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''
+		ORDER BY start_line, start_byte
+		LIMIT ?`,
+		chunk.Path,
+		chunk.ParentChunkID,
+		chunk.ID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query sibling code chunks: %w", err)
 	}
 	defer rows.Close()
 

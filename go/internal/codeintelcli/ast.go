@@ -356,6 +356,7 @@ func printCodeContext(ctx context.Context, args []string) error {
 	context, err := store.CodeContext(ctx, codeintel.CodeContextQuery{
 		ChunkID:    *chunkID,
 		Path:       *path,
+		Root:       *storeFlags.root,
 		SymbolPath: *symbolPath,
 		Line:       *line,
 		Limit:      *limit,

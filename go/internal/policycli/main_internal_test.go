@@ -174,6 +174,31 @@ func TestValidateRepoConfigSectionsAllowsCodeIntelOverlay(t *testing.T) {
 	}
 }
 
+func TestValidateRepoConfigSectionsRejectsUnknownCodeIntelKey(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte("code_intel:\n  exlude_paths:\n    - \"**/dist/**\"\n"),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	_, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err == nil {
+		t.Fatal("expected unknown code_intel key error")
+	}
+
+	if !strings.Contains(err.Error(), "code_intel.exlude_paths") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 	t.Parallel()
 

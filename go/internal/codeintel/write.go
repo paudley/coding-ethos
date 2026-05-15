@@ -725,35 +725,69 @@ func reconcileCodeChunks(
 		}
 	}
 
-	if len(obsoleteChunkIDs) > 0 {
-		err := batchDeleteEntities(
-			ctx, transaction, "code_chunks", "chunk_id", obsoleteChunkIDs,
-		)
-		if err != nil {
-			return err
-		}
-
-		err = batchDeleteEntities(
-			ctx,
-			transaction,
-			"code_intel_fts",
-			"record_id",
-			obsoleteChunkIDs,
-			"kind = 'code_chunk'",
-		)
-		if err != nil {
-			return err
-		}
-
-		err = batchDeleteEntities(
-			ctx, transaction, "ast_finding_links", "chunk_id", obsoleteChunkIDs,
-		)
-		if err != nil {
-			return err
-		}
+	if len(obsoleteChunkIDs) == 0 {
+		return nil
 	}
 
-	return nil
+	err := deleteEmbeddingRecordsForCodeChunks(ctx, transaction, obsoleteChunkIDs)
+	if err != nil {
+		return err
+	}
+
+	err = batchDeleteEntities(
+		ctx, transaction, "code_chunks", "chunk_id", obsoleteChunkIDs,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = batchDeleteEntities(
+		ctx,
+		transaction,
+		"code_intel_fts",
+		"record_id",
+		obsoleteChunkIDs,
+		"kind = 'code_chunk'",
+	)
+	if err != nil {
+		return err
+	}
+
+	return batchDeleteEntities(
+		ctx, transaction, "ast_finding_links", "chunk_id", obsoleteChunkIDs,
+	)
+}
+
+func deleteEmbeddingRecordsForCodeChunks(
+	ctx context.Context,
+	transaction *sql.Tx,
+	chunkIDs []any,
+) error {
+	if len(chunkIDs) == 0 {
+		return nil
+	}
+
+	err := batchDeleteEntities(
+		ctx,
+		transaction,
+		"code_intel_fts",
+		"record_id",
+		chunkIDs,
+		"kind = 'embedding_record'",
+		"message = 'code_chunk'",
+	)
+	if err != nil {
+		return err
+	}
+
+	return batchDeleteEntities(
+		ctx,
+		transaction,
+		"embedding_records",
+		"record_id",
+		chunkIDs,
+		"record_kind = 'code_chunk'",
+	)
 }
 
 func reconcileCodeEdges(
