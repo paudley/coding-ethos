@@ -199,6 +199,7 @@ func proxySchemaStatements() []string {
 		output_hash TEXT,
 		policy_id TEXT,
 		decision TEXT,
+		evidence_path TEXT,
 		input_tokens INTEGER NOT NULL DEFAULT 0,
 		output_tokens INTEGER NOT NULL DEFAULT 0,
 		bytes_removed INTEGER NOT NULL DEFAULT 0,
@@ -538,6 +539,7 @@ func migrationColumns() map[string][]migrationColumn {
 		"proxy_transforms": {
 			{Name: "policy_id", Type: "TEXT"},
 			{Name: "decision", Type: "TEXT"},
+			{Name: "evidence_path", Type: "TEXT"},
 		},
 		"code_files": {
 			{Name: "parser_name", Type: "TEXT"},

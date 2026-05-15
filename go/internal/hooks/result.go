@@ -4,18 +4,22 @@
 //nolint:tagliatelle // Claude hook output contract uses camelCase fields.
 package hooks
 
-import "blackcat.ca/coding-ethos/go/internal/policy"
+import (
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+)
 
 type Result struct {
-	HookSpecificOutput *HookSpecificOutput `json:"hookSpecificOutput,omitempty"`
-	Event              string              `json:"event"`
-	Provider           string              `json:"provider,omitempty"`
-	Status             string              `json:"status"`
-	TrackingID         string              `json:"trackingID,omitempty"`
-	Tool               string              `json:"tool,omitempty"`
-	Decisions          []policy.Decision   `json:"decisions,omitempty"`
-	Advice             policy.Advice       `json:"advice,omitzero"`
-	RuntimeMS          int64               `json:"runtime_ms,omitempty"`
+	HookSpecificOutput *HookSpecificOutput        `json:"hookSpecificOutput,omitempty"`
+	ProxyEvents        []agentproxy.ProviderEvent `json:"-"`
+	Event              string                     `json:"event"`
+	Provider           string                     `json:"provider,omitempty"`
+	Status             string                     `json:"status"`
+	TrackingID         string                     `json:"trackingID,omitempty"`
+	Tool               string                     `json:"tool,omitempty"`
+	Decisions          []policy.Decision          `json:"decisions,omitempty"`
+	Advice             policy.Advice              `json:"advice,omitzero"`
+	RuntimeMS          int64                      `json:"runtime_ms,omitempty"`
 }
 
 func (result Result) Blocked() bool {

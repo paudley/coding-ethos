@@ -823,6 +823,103 @@ func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesProxyTransformEvidencePath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	dbPath := DefaultDBPath(root)
+
+	err := os.MkdirAll(filepath.Dir(dbPath), 0o700)
+	if err != nil {
+		t.Fatalf("create db dir: %v", err)
+	}
+
+	database, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+
+	_, err = database.ExecContext(ctx, `CREATE TABLE proxy_transforms (
+		event_id TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		reason TEXT,
+		input_hash TEXT,
+		output_hash TEXT,
+		policy_id TEXT,
+		decision TEXT,
+		input_tokens INTEGER NOT NULL DEFAULT 0,
+		output_tokens INTEGER NOT NULL DEFAULT 0,
+		bytes_removed INTEGER NOT NULL DEFAULT 0,
+		findings_count INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY(event_id, ordinal)
+	)`)
+	if err != nil {
+		t.Fatalf("create legacy proxy_transforms table: %v", err)
+	}
+
+	err = database.Close()
+	if err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	store, err := Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	defer store.Close()
+
+	found, err := testColumnExists(
+		ctx,
+		store.Database(),
+		"proxy_transforms",
+		"evidence_path",
+	)
+	if err != nil {
+		t.Fatalf("check migrated evidence_path column: %v", err)
+	}
+	if !found {
+		t.Fatal("proxy_transforms.evidence_path was not migrated")
+	}
+}
+
+func TestOpenCreatesProxyEvidencePathOnlyOnTransforms(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(context.Background(), DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("open fresh store: %v", err)
+	}
+	defer store.Close()
+
+	transformColumn, err := testColumnExists(
+		context.Background(),
+		store.Database(),
+		"proxy_transforms",
+		"evidence_path",
+	)
+	if err != nil {
+		t.Fatalf("check proxy_transforms evidence_path column: %v", err)
+	}
+	if !transformColumn {
+		t.Fatal("proxy_transforms.evidence_path was not created")
+	}
+
+	eventColumn, err := testColumnExists(
+		context.Background(),
+		store.Database(),
+		"proxy_events",
+		"evidence_path",
+	)
+	if err != nil {
+		t.Fatalf("check proxy_events evidence_path column: %v", err)
+	}
+	if eventColumn {
+		t.Fatal("proxy_events.evidence_path should not exist")
+	}
+}
+
 func testColumnExists(
 	ctx context.Context,
 	database *sql.DB,

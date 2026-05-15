@@ -289,7 +289,11 @@ func TestRecordAndQueryCommands(t *testing.T) {
 		t.Fatalf("mkdir pkg: %v", err)
 	}
 
-	err = os.WriteFile(filepath.Join(root, "pkg", "app.py"), []byte("print('hello')\n"), 0o600)
+	err = os.WriteFile(
+		filepath.Join(root, "pkg", "app.py"),
+		[]byte("print('hello')\n"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatalf("write app.py: %v", err)
 	}

@@ -89,16 +89,30 @@ exclusion paths.
 
 ## Tool Output Compression
 
-Proxy-side tool output compression lives in `go/internal/agentproxy` as a pure
-content transform. The default transform preserves the beginning and ending of
-long tool output, inserts an explicit omission marker, and records token/hash
-evidence through the normal transform record path. This keeps command identity,
-early setup failures, and terminal stack-trace exceptions visible while removing
-repetitive progress output and dependency-frame noise.
+Proxy-side tool output compression lives in `go/internal/agentproxy`. The
+default transform preserves the beginning and ending of long tool output,
+inserts an explicit omission marker, writes the full original output to a
+session-local `/tmp/coding-ethos-tool-output-*.log` evidence file, and records
+token/hash/path evidence through the normal transform record path. This keeps
+command identity, early setup failures, and terminal stack-trace exceptions
+visible while removing repetitive progress output and dependency-frame noise.
+The runtime prunes stale matching evidence files from the OS temp directory
+before writing a new one.
+
+Agent hooks now route Bash `PostToolUse` output through this transform path
+before any output is returned to the provider. The live path applies line
+compression and a hard token-budget transform, then stores the proxy
+`tool_output` event and transform ledger in the repo-local code-intel database
+when the provider payload includes a session id. The default hard stop is 2,000
+whitespace-estimated tokens, with `CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS`,
+`CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS`, and
+`CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS` available for local runtime tuning.
 
 Compression must remain traceable. A compressed payload should carry metadata
-that records the omitted line count, and the corresponding proxy event should
-store the transform record in code-intel. Silent truncation is not allowed.
+that records the omitted line count and temporary full-output path, and the
+corresponding proxy event should store the transform record in code-intel.
+Silent truncation is not allowed. The `/tmp` evidence file is debug evidence,
+not durable archival storage.
 
 ## File Read Deduplication
 
