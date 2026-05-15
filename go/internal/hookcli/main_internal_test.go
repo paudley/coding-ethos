@@ -5,12 +5,14 @@ package hookcli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
@@ -187,6 +189,87 @@ func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
 			stdout.String(),
 			stderr.String(),
 		)
+	}
+}
+
+func TestRunWithIOPersistsProxyOutputTransforms(t *testing.T) {
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "30")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "10")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "10")
+
+	repo := t.TempDir()
+	err := os.Mkdir(filepath.Join(repo, ".git"), 0o700)
+	if err != nil {
+		t.Fatalf("create git marker: %v", err)
+	}
+
+	outputLines := []string{"ruff...Failed"}
+	for index := 0; index < 40; index++ {
+		outputLines = append(
+			outputLines,
+			"repeated diagnostic progress with package metadata",
+		)
+	}
+	outputLines = append(outputLines, "ValueError: terminal failure remains visible")
+
+	payload, err := json.Marshal(map[string]any{
+		"hook_event_name": "PostToolUse",
+		"provider":        "codex",
+		"session_id":      "session-proxy-output",
+		"cwd":             repo,
+		"tool_name":       "Bash",
+		"tool_input": map[string]any{
+			"command": "uv run ruff check src/app.py",
+		},
+		"tool_response": map[string]any{
+			"stdout":      strings.Join(outputLines, "\n"),
+			"return_code": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
+	status := runWithIO(
+		[]string{"--bundle", writeCLITestBundle(t), "--json"},
+		bytes.NewReader(payload),
+		&stdout,
+		&stderr,
+	)
+	if status != 0 {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, stdout.String(), stderr.String())
+	}
+
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(repo))
+	if err != nil {
+		t.Fatalf("open code-intel: %v", err)
+	}
+	defer store.Close()
+
+	events, err := store.ProxyEvents(
+		context.Background(),
+		codeintel.ProxyEventQuery{SessionID: "session-proxy-output"},
+	)
+	if err != nil {
+		t.Fatalf("query proxy events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("proxy events = %#v", events)
+	}
+	if events[0].Kind != "tool_output" ||
+		events[0].Decision != "truncate" ||
+		len(events[0].Transforms) != 2 {
+		t.Fatalf("proxy output event = %#v", events[0])
+	}
+	if events[0].Transforms[1].PolicyID != "proxy.token_budget" ||
+		events[0].Transforms[1].Decision != "truncate" ||
+		events[0].Transforms[1].EvidencePath == "" {
+		t.Fatalf("proxy transforms = %#v", events[0].Transforms)
 	}
 }
 

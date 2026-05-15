@@ -6,6 +6,8 @@ package agentproxy_test
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -58,6 +60,10 @@ func TestPipelineRecordsOrderedTokenAndHashEvidence(t *testing.T) {
 		output.Record.OutputTokens != 2 ||
 		output.Record.BytesRemoved != 4 {
 		t.Fatalf("record = %#v", output.Record)
+	}
+
+	if len(output.Records) != 1 || output.Records[0].Name != "trim" {
+		t.Fatalf("records = %#v", output.Records)
 	}
 }
 
@@ -138,9 +144,12 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	}
 
 	if !strings.Contains(output.Text, "5 of 9 lines omitted") ||
+		!strings.Contains(output.Text, "full output: "+output.Record.EvidencePath) ||
 		output.Metadata["coding_ethos.compressed"] != "true" ||
 		output.Metadata["coding_ethos.compressed_lines_omitted"] != "5" ||
+		output.Metadata["coding_ethos.full_output_path"] == "" ||
 		output.Record.Name != "tool-output-compression" ||
+		output.Record.EvidencePath == "" ||
 		output.Record.BytesRemoved <= 0 {
 		t.Fatalf("compression record = %#v metadata = %#v output = %q",
 			output.Record,
@@ -148,6 +157,8 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 			output.Text,
 		)
 	}
+
+	assertEvidenceFileContains(t, output.Record.EvidencePath, input)
 }
 
 func TestToolOutputCompressionPreservesPythonTracebackException(t *testing.T) {
@@ -232,5 +243,246 @@ func TestToolOutputCompressionNormalizesCRLFLines(t *testing.T) {
 	if !strings.HasSuffix(output.Text, "\n") ||
 		!strings.Contains(output.Text, "2 of 6 lines omitted") {
 		t.Fatalf("compressed CRLF output = %q", output.Text)
+	}
+}
+
+func TestToolOutputCompressionGoldenToolOutputs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		lines    []string
+		expected []string
+	}{
+		{
+			name: "go test",
+			lines: append(
+				append(
+					[]string{"ok  blackcat.ca/coding-ethos/go/internal/a  0.001s"},
+					repeatedLines("ok  blackcat.ca/coding-ethos/go/internal/noise  0.001s", 32)...,
+				),
+				"--- FAIL: TestPolicy (0.00s)",
+				"    policy_test.go:42: expected block",
+				"FAIL",
+			),
+			expected: []string{"ok  blackcat", "TestPolicy", "policy_test.go:42", "FAIL"},
+		},
+		{
+			name: "pytest",
+			lines: append(
+				append(
+					[]string{
+						"============================= test session starts =============================",
+					},
+					repeatedLines("tests/test_cli.py::test_generated_contract PASSED", 32)...,
+				),
+				"FAILED tests/test_cli.py::test_policy - AssertionError: missing finding",
+			),
+			expected: []string{
+				"test session starts",
+				"FAILED tests/test_cli.py",
+				"AssertionError",
+			},
+		},
+		{
+			name: "tsc",
+			lines: append(
+				append(
+					[]string{"src/app.ts(1,1): error TS2304: Cannot find name 'missing'."},
+					repeatedLines("Files:              318", 32)...,
+				),
+				"Found 1 error in src/app.ts:1",
+			),
+			expected: []string{"TS2304", "Cannot find name", "Found 1 error"},
+		},
+		{
+			name: "noisy linter",
+			lines: append(
+				append(
+					[]string{"ruff...Failed"},
+					repeatedLines("checking package metadata and cache state", 32)...,
+				),
+				"src/app.py:10:1: F401 unused import os",
+			),
+			expected: []string{"ruff...Failed", "F401", "unused import os"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			output, err := agentproxy.NewPipeline(
+				nil,
+				agentproxy.ToolOutputCompressionTransform{
+					MaxLines: 8,
+					Head:     2,
+					Tail:     3,
+				},
+			).Apply(
+				context.Background(),
+				agentproxy.TransformInput{Text: strings.Join(testCase.lines, "\n")},
+			)
+			if err != nil {
+				t.Fatalf("apply compression: %v", err)
+			}
+
+			for _, expected := range testCase.expected {
+				if !strings.Contains(output.Text, expected) {
+					t.Fatalf("%s output missing %q:\n%s",
+						testCase.name,
+						expected,
+						output.Text,
+					)
+				}
+			}
+			if !strings.Contains(output.Text, "compressed tool output") {
+				t.Fatalf("%s output was not compressed:\n%s", testCase.name, output.Text)
+			}
+			assertEvidenceFileContains(
+				t,
+				output.Record.EvidencePath,
+				strings.Join(testCase.lines, "\n"),
+			)
+		})
+	}
+}
+
+func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{"$ pytest tests"}
+	for range 40 {
+		lines = append(lines, "collected test progress with repeated fixture output")
+	}
+	lines = append(lines, "E   AssertionError: expected failure remains visible")
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputTokenBudgetTransform{
+			MaxTokens:  32,
+			HeadTokens: 10,
+			TailTokens: 10,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: strings.Join(lines, "\n")},
+	)
+	if err != nil {
+		t.Fatalf("apply token budget: %v", err)
+	}
+
+	for _, expected := range []string{
+		"$ pytest tests",
+		"token budget hard stop",
+		"full output: " + output.Record.EvidencePath,
+		"E   AssertionError: expected failure remains visible",
+	} {
+		if !strings.Contains(output.Text, expected) {
+			t.Fatalf("token-budget output missing %q:\n%s", expected, output.Text)
+		}
+	}
+
+	if output.Record.PolicyID != "proxy.token_budget" ||
+		output.Record.Decision != "truncate" ||
+		output.Record.EvidencePath == "" ||
+		output.Metadata["coding_ethos.token_budget_exceeded"] != "true" {
+		t.Fatalf("token-budget record = %#v metadata = %#v", output.Record, output.Metadata)
+	}
+
+	assertEvidenceFileContains(
+		t,
+		output.Record.EvidencePath,
+		strings.Join(lines, "\n"),
+	)
+}
+
+func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
+	t.Parallel()
+
+	lines := []string{"$ noisy command with important invocation"}
+	for range 24 {
+		lines = append(
+			lines,
+			"verbose progress output with enough repeated words to exceed budgets",
+		)
+	}
+	lines = append(lines, "fatal: final diagnostic remains visible")
+	input := strings.Join(lines, "\n")
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputCompressionTransform{
+			MaxLines: 6,
+			Head:     2,
+			Tail:     2,
+		},
+		agentproxy.ToolOutputTokenBudgetTransform{
+			MaxTokens:  32,
+			HeadTokens: 8,
+			TailTokens: 8,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: input},
+	)
+	if err != nil {
+		t.Fatalf("apply compression and token budget: %v", err)
+	}
+
+	if len(output.Records) != 2 {
+		t.Fatalf("records = %#v", output.Records)
+	}
+
+	compressionPath := output.Records[0].EvidencePath
+	if output.Record.Name != "tool-output-token-budget" ||
+		output.Record.EvidencePath != compressionPath ||
+		output.Metadata["coding_ethos.full_output_path"] != compressionPath {
+		t.Fatalf("record = %#v metadata = %#v", output.Record, output.Metadata)
+	}
+
+	if !strings.Contains(output.Text, "token budget hard stop") ||
+		!strings.Contains(output.Text, "full output: "+compressionPath) {
+		t.Fatalf(
+			"token-budget output did not expose original evidence path:\n%s",
+			output.Text,
+		)
+	}
+
+	assertEvidenceFileContains(t, compressionPath, input)
+}
+
+func repeatedLines(line string, count int) []string {
+	lines := make([]string, count)
+	for index := range lines {
+		lines[index] = line
+	}
+
+	return lines
+}
+
+func assertEvidenceFileContains(t *testing.T, path, expected string) {
+	t.Helper()
+
+	if path == "" {
+		t.Fatal("missing evidence path")
+	}
+
+	if filepath.Dir(path) != os.TempDir() ||
+		!strings.HasPrefix(filepath.Base(path), "coding-ethos-tool-output-") {
+		t.Fatalf("evidence path = %q", path)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read evidence path %s: %v", path, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(path)
+	})
+
+	if string(content) != expected {
+		t.Fatalf("evidence content mismatch\nwant:\n%s\ngot:\n%s", expected, content)
 	}
 }

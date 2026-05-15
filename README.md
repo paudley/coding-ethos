@@ -393,6 +393,17 @@ session recomputes the file hash and, when it still matches, records a
 `cache_hit` event and returns a short cached-read stub instead of resending the
 file body. This is the reusable core for future transparent read interception.
 
+Agent Bash `PostToolUse` output also passes through the proxy transform path
+before hook context is returned to the provider. Verbose shell, lint, compiler,
+and test output is line-compressed, then capped by a hard token budget while
+preserving command identity and the terminal failure tail. Whenever output is
+removed, the runtime writes the full original payload to a
+`/tmp/coding-ethos-tool-output-*.log` evidence file and surfaces that path in
+the visible marker. When the event includes a session id, the runtime records a
+`tool_output` proxy event and ordered transform ledger in
+`.coding-ethos/code-intel.db`. Stale matching temp evidence files are pruned
+before new evidence is written.
+
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows
 store each source file's mtime and size, so repeated scans can skip unchanged

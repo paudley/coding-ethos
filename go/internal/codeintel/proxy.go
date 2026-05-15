@@ -220,9 +220,9 @@ func insertProxyTransforms(
 			ctx,
 			`INSERT INTO proxy_transforms(
 				event_id, ordinal, name, reason, input_hash, output_hash,
-				policy_id, decision, input_tokens, output_tokens, bytes_removed,
-				findings_count
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				policy_id, decision, evidence_path, input_tokens, output_tokens,
+				bytes_removed, findings_count
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			event.ID,
 			index,
 			transform.Name,
@@ -231,6 +231,7 @@ func insertProxyTransforms(
 			transform.OutputHash,
 			transform.PolicyID,
 			transform.Decision,
+			transform.EvidencePath,
 			transform.InputTokens,
 			transform.OutputTokens,
 			transform.BytesRemoved,
@@ -459,8 +460,8 @@ func (store *Store) proxyTransforms(
 		ctx,
 		`SELECT name, COALESCE(reason, ''), COALESCE(input_hash, ''),
 			COALESCE(output_hash, ''), COALESCE(policy_id, ''),
-			COALESCE(decision, ''), input_tokens, output_tokens, bytes_removed,
-			findings_count
+			COALESCE(decision, ''), COALESCE(evidence_path, ''), input_tokens,
+			output_tokens, bytes_removed, findings_count
 		FROM proxy_transforms
 		WHERE event_id = ?
 		ORDER BY ordinal`,
@@ -483,6 +484,7 @@ func (store *Store) proxyTransforms(
 			&result.OutputHash,
 			&result.PolicyID,
 			&result.Decision,
+			&result.EvidencePath,
 			&result.InputTokens,
 			&result.OutputTokens,
 			&result.BytesRemoved,

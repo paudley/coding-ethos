@@ -5,7 +5,6 @@ package hooks
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -137,6 +136,8 @@ func buildResult(
 	event Event,
 	decision InspectionDecision,
 ) Result {
+	hookOutput, proxyEvents := hookSpecificOutput(bundle, event, decision.Route)
+
 	result := Result{
 		Event:              event.HookEventName,
 		Advice:             bundle.Advice,
@@ -144,7 +145,8 @@ func buildResult(
 		Tool:               event.ToolName,
 		Status:             decision.Status,
 		Decisions:          decision.Policies,
-		HookSpecificOutput: hookSpecificOutput(bundle, event, decision.Route),
+		HookSpecificOutput: hookOutput,
+		ProxyEvents:        proxyEvents,
 	}
 	if result.Blocked() {
 		result.TrackingID = newDenialTrackingID(event, decision.Policies)
@@ -173,50 +175,51 @@ func hookSpecificOutput(
 	bundle policy.Bundle,
 	event Event,
 	route InspectionRoute,
-) *HookSpecificOutput {
+) (*HookSpecificOutput, []agentproxy.ProviderEvent) {
 	if route.Rewrite {
 		return &HookSpecificOutput{
 			HookEventName:            event.HookEventName,
 			PermissionDecision:       permissionAllow,
 			PermissionDecisionReason: route.Reason,
 			UpdatedInput:             route.UpdatedInput,
-		}
+		}, nil
 	}
 
 	if output := continuationOutput(event); output != nil {
-		return output
+		return output, nil
 	}
 
 	if output := lifecycleOutput(event); output != nil {
-		return output
+		return output, nil
 	}
 
 	if output := postEditOutput(bundle, event); output != nil {
-		return output
+		return output, nil
 	}
 
 	if event.HookEventName != eventPostToolUse || event.ToolName != toolBash {
-		return nil
+		return nil, nil
 	}
 
 	command := event.Command()
 	output := event.ToolOutput()
+	proxiedOutput := proxyPostToolOutput(event, output)
 
 	if !shouldEmitPostToolBashContext(event, command, output) {
-		return nil
+		return nil, proxiedOutput.Events
 	}
 
 	return &HookSpecificOutput{
 		HookEventName: event.HookEventName,
 		AdditionalContext: buildHookOutputContext(
 			command,
-			output,
+			proxiedOutput.Text,
 			event.ReturnCode(),
 			selectedOutputFormat(),
 			event.Cwd,
 			postToolReminder(bundle, event),
 		),
-	}
+	}, proxiedOutput.Events
 }
 
 func shouldEmitPostToolBashContext(event Event, command, output string) bool {
@@ -278,8 +281,6 @@ func buildHookOutputContext(
 	status := hookOutputStatus(returnCode)
 	normalizer := hookOutputNormalizer(cwd)
 	command = normalizer.compact(command)
-	output = normalizer.preserveLines(output)
-	output = compressToolOutput(output)
 
 	switch format {
 	case outputFormatJSON:
@@ -522,21 +523,6 @@ func compactHookOutputLines(output string) []string {
 	}
 
 	return lines
-}
-
-func compressToolOutput(output string) string {
-	compressed, err := agentproxy.NewPipeline(
-		nil,
-		agentproxy.ToolOutputCompressionTransform{},
-	).Apply(
-		context.Background(),
-		agentproxy.TransformInput{Text: output},
-	)
-	if err != nil {
-		return output
-	}
-
-	return compressed.Text
 }
 
 func sentence(parts ...string) string {

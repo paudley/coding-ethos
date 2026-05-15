@@ -33,8 +33,9 @@ type TransformInput struct {
 }
 
 type TransformOutput struct {
-	Metadata map[string]string
 	Text     string
+	Records  []TransformRecord
+	Metadata map[string]string
 	Record   TransformRecord
 }
 
@@ -104,6 +105,7 @@ func (pipeline Pipeline) Apply(
 
 		output.Text = next.Text
 		output.Record = record
+		output.Records = append(output.Records, record)
 		output.Metadata = cloneMetadata(next.Metadata)
 	}
 

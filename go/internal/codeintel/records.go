@@ -255,6 +255,7 @@ type ProxyTransform struct {
 	OutputHash    string `json:"output_hash,omitempty"`
 	PolicyID      string `json:"policy_id,omitempty"`
 	Decision      string `json:"decision,omitempty"`
+	EvidencePath  string `json:"evidence_path,omitempty"`
 	InputTokens   int    `json:"input_tokens,omitempty"`
 	OutputTokens  int    `json:"output_tokens,omitempty"`
 	BytesRemoved  int    `json:"bytes_removed,omitempty"`
