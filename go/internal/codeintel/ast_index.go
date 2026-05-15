@@ -52,11 +52,11 @@ func LoadIndexOptions(root string) (IndexOptions, error) {
 		return IndexOptions{}, err
 	}
 
-	return IndexOptions{
-		ExcludePatterns: configdata.StringList(
-			configdata.GetPath(config, "code_intel.exclude_paths", []any{}),
-		),
-	}, nil
+	patterns := configdata.StringList(
+		configdata.GetPath(config, "code_intel.exclude_paths", []any{}),
+	)
+
+	return validateIndexOptions(IndexOptions{ExcludePatterns: patterns})
 }
 
 func loadRepoConfig(root string) (configdata.Map, error) {
@@ -112,6 +112,11 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 	paths []string,
 	options IndexOptions,
 ) (CodeIndexSummary, error) {
+	options, err := validateIndexOptions(options)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
 	root = strings.TrimSpace(root)
 	if root == "" {
 		root = "."
@@ -308,16 +313,17 @@ func (indexer ASTIndexer) indexDir(
 		}
 
 		if entry.IsDir() {
-			if shouldSkipDir(entry.Name()) || ignoreMatcher.ignoredDir(ctx, path) {
-				return filepath.SkipDir
-			}
-
 			relativePath, relErr := filepath.Rel(root, path)
 			if relErr != nil {
 				return fmt.Errorf("relativize indexed directory %q: %w", path, relErr)
 			}
 
-			if excludedByConfig(relativePath, options.ExcludePatterns) {
+			relativePath = filepath.ToSlash(relativePath)
+			if relativePath != "." &&
+				(shouldSkipDir(entry.Name()) ||
+					pathHasSkippedDir(relativePath) ||
+					ignoreMatcher.ignoredDir(ctx, path) ||
+					excludedByConfig(relativePath, options.ExcludePatterns)) {
 				return filepath.SkipDir
 			}
 
@@ -1253,7 +1259,6 @@ func shouldSkipDir(name string) bool {
 	case ".git",
 		".coding-ethos",
 		".code-ethos",
-		"coding-ethos",
 		".hg",
 		".svn",
 		".tox",
@@ -1269,6 +1274,51 @@ func shouldSkipDir(name string) bool {
 	default:
 		return false
 	}
+}
+
+func validateIndexOptions(options IndexOptions) (IndexOptions, error) {
+	patterns := make([]string, 0, len(options.ExcludePatterns))
+	for _, pattern := range options.ExcludePatterns {
+		normalizedPattern := normalizeIndexExcludePattern(pattern)
+		if normalizedPattern == "" {
+			continue
+		}
+
+		err := validateIndexExcludePattern(normalizedPattern)
+		if err != nil {
+			return IndexOptions{}, err
+		}
+
+		patterns = append(patterns, normalizedPattern)
+	}
+
+	return IndexOptions{ExcludePatterns: patterns}, nil
+}
+
+func normalizeIndexExcludePattern(pattern string) string {
+	return strings.TrimPrefix(
+		strings.TrimSpace(filepath.ToSlash(pattern)),
+		"./",
+	)
+}
+
+func validateIndexExcludePattern(pattern string) error {
+	_, err := doublestar.Match(pattern, "a")
+	if err != nil {
+		return fmt.Errorf("invalid code_intel.exclude_paths pattern %q: %w", pattern, err)
+	}
+
+	prefix := directoryExcludePrefix(pattern)
+	if prefix == "" {
+		return nil
+	}
+
+	_, err = doublestar.Match(prefix, "a")
+	if err != nil {
+		return fmt.Errorf("invalid code_intel.exclude_paths pattern %q: %w", pattern, err)
+	}
+
+	return nil
 }
 
 func excludedByConfig(path string, patterns []string) bool {
@@ -1287,23 +1337,32 @@ func excludedByConfig(path string, patterns []string) bool {
 }
 
 func pathMatchesConfiguredPattern(path, pattern string) bool {
-	normalizedPattern := strings.TrimSpace(filepath.ToSlash(pattern))
+	normalizedPattern := normalizeIndexExcludePattern(pattern)
 	if normalizedPattern == "" {
 		return false
 	}
 
-	for _, candidate := range []string{
-		path,
-		strings.TrimPrefix(path, "./"),
-	} {
-		matched, err := doublestar.Match(normalizedPattern, candidate)
-		if err == nil && matched {
-			return true
-		}
+	matched, err := doublestar.Match(normalizedPattern, path)
+	if err == nil && matched {
+		return true
 	}
 
-	prefix := strings.TrimSuffix(normalizedPattern, "/**")
-	prefix = strings.TrimSuffix(prefix, "/")
+	prefix := directoryExcludePrefix(normalizedPattern)
+	if prefix == "" {
+		return false
+	}
 
-	return prefix != "" && (path == prefix || strings.HasPrefix(path, prefix+"/"))
+	matched, err = doublestar.Match(prefix, path)
+
+	return err == nil && matched
+}
+
+func directoryExcludePrefix(pattern string) string {
+	if !strings.HasSuffix(pattern, "/**") {
+		return ""
+	}
+
+	prefix := strings.TrimSuffix(pattern, "/**")
+
+	return strings.TrimSuffix(prefix, "/")
 }

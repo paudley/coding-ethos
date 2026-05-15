@@ -149,6 +149,31 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	}
 }
 
+func TestValidateRepoConfigSectionsAllowsCodeIntelOverlay(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte("code_intel:\n  exclude_paths:\n    - \"**/dist/**\"\n"),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	sections, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err != nil {
+		t.Fatalf("validate repo config: %v", err)
+	}
+
+	if strings.Join(sections, ",") != "code_intel" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
 func TestValidateMetadataCommandChecksPolicySources(t *testing.T) {
 	t.Parallel()
 

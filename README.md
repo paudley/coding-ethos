@@ -792,10 +792,12 @@ The merged config drives:
   `generated_config.ci.*.enabled`, timeout, trigger, artifact, test, and build
   knobs
 - hook policy for Python, shell, text, commit-message, and Go checks
-- code-intel path exclusions such as `code_intel.exclude_paths` for
-  repo-specific generated output
 - Gemini AI review settings and prompt grounding
 - shared style settings such as `style.python_version` and `style.line_length`
+
+Code-intel also reads repo-root `repo_config.yaml` / `repo_config.yml`
+directly for source indexing exclusions such as `code_intel.exclude_paths`.
+Use that setting for repo-specific generated output that should not be indexed.
 
 `coding-ethos-policy config-trace` validates known top-level enforcement
 sections, compiles the merged bundle, validates it, and reports policy,

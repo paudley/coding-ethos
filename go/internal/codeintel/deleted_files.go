@@ -326,6 +326,8 @@ func pathInDeletionScopes(path string, scopes []string) bool {
 func pathHasSkippedDir(path string) bool {
 	return slices.ContainsFunc(
 		strings.Split(filepath.ToSlash(path), "/"),
-		shouldSkipDir,
+		func(segment string) bool {
+			return shouldSkipDir(segment) || segment == "coding-ethos"
+		},
 	)
 }

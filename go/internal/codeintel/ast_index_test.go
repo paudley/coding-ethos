@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/codeintel"
@@ -226,6 +227,31 @@ func TestASTIndexerSkipsNestedCodingEthosCheckout(t *testing.T) {
 	assertCodeFilePresence(t, ctx, store, "nested/coding-ethos/tool.go", false)
 }
 
+func TestASTIndexerIndexesRepoNamedCodingEthos(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+	repo := filepath.Join(tempDir, "coding-ethos")
+
+	writeIndexedTestFile(t, repo, "go/main.go", "package main\nfunc main() {}\n")
+	writeIndexedTestFile(t, repo, "nested/coding-ethos/tool.go", "package tool\n")
+
+	summary, err := indexer.IndexPaths(ctx, repo, []string{repo})
+	if err != nil {
+		t.Fatalf("index tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 1 {
+		t.Fatalf("indexed %d files, want 1", summary.FilesIndexed)
+	}
+
+	assertCodeFilePresence(t, ctx, store, "go/main.go", true)
+	assertCodeFilePresence(t, ctx, store, "nested/coding-ethos/tool.go", false)
+}
+
 func TestASTIndexerUsesConfiguredRepoExcludes(t *testing.T) {
 	t.Parallel()
 
@@ -258,6 +284,32 @@ func TestASTIndexerUsesConfiguredRepoExcludes(t *testing.T) {
 	assertCodeFilePresence(t, ctx, store, "app/main.go", true)
 	assertCodeFilePresence(t, ctx, store, "repo_config.yaml", true)
 	assertCodeFilePresence(t, ctx, store, "public/dist/generated.go", false)
+}
+
+func TestASTIndexerRejectsInvalidConfiguredRepoExclude(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	tempDir := t.TempDir()
+
+	writeIndexedTestFile(t, tempDir, "app/main.go", "package main\nfunc main() {}\n")
+	writeIndexedTestFile(
+		t,
+		tempDir,
+		"repo_config.yaml",
+		"code_intel:\n  exclude_paths:\n    - \"[\"\n",
+	)
+
+	_, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
+	if err == nil {
+		t.Fatal("expected invalid exclude pattern error")
+	}
+
+	if !strings.Contains(err.Error(), "code_intel.exclude_paths") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestASTIndexerDoesNotHardCodeConsumerDistDirectory(t *testing.T) {

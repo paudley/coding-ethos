@@ -715,6 +715,7 @@ func knownConfigSection(section string) bool {
 	switch section {
 	case "agent_advice",
 		"bundle",
+		"code_intel",
 		"filesystem",
 		"gemini",
 		"generated_config",
