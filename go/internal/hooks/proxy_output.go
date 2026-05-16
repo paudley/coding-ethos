@@ -31,6 +31,7 @@ const (
 	defaultHookOutputTailLines   = 32
 	defaultHookOutputDiagnostics = 12
 	defaultAnatomyMapSymbols     = 6
+	defaultAnatomyMapTimeout     = 5 * time.Second
 	proxyDecisionAllow           = "allow"
 	proxyDecisionInject          = "inject"
 	proxyDecisionSummarize       = "summarize"
@@ -79,7 +80,11 @@ func enrichDirectoryListingToolOutput(
 		return proxied
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		defaultAnatomyMapTimeout,
+	)
+	defer cancel()
 
 	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
@@ -311,6 +316,10 @@ func proxyToolOutputDecision(records []agentproxy.TransformRecord) string {
 }
 
 func proxyToolOutputPolicyID(records []agentproxy.TransformRecord) string {
+	if hasDirectoryAnatomyTransform(records) {
+		return proxyPolicyDirectoryAnatomy
+	}
+
 	switch proxyToolOutputDecision(records) {
 	case proxyDecisionSummarize:
 		return proxyPolicyDiagnosticSummary

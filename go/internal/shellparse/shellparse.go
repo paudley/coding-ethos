@@ -10,11 +10,13 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"mvdan.cc/sh/v3/syntax"
 )
 
 const (
+	ansiByteMax        = 255
 	ansiHexByteWidth   = 2
 	ansiOctalBase      = 8
 	ansiOctalMaxWidth  = 3
@@ -543,24 +545,32 @@ func decodeANSIEscape(value string, index int) (string, int, bool) {
 }
 
 func simpleANSIEscape(char byte) (string, bool) {
-	escapes := map[byte]string{
-		'a':  "\a",
-		'b':  "\b",
-		'e':  "\x1b",
-		'E':  "\x1b",
-		'f':  "\f",
-		'n':  "\n",
-		'r':  "\r",
-		't':  "\t",
-		'v':  "\v",
-		'\\': "\\",
-		'\'': "'",
-		'"':  "\"",
+	switch char {
+	case 'a':
+		return "\a", true
+	case 'b':
+		return "\b", true
+	case 'e', 'E':
+		return "\x1b", true
+	case 'f':
+		return "\f", true
+	case 'n':
+		return "\n", true
+	case 'r':
+		return "\r", true
+	case 't':
+		return "\t", true
+	case 'v':
+		return "\v", true
+	case '\\':
+		return "\\", true
+	case '\'':
+		return "'", true
+	case '"':
+		return "\"", true
+	default:
+		return "", false
 	}
-
-	decoded, ok := escapes[char]
-
-	return decoded, ok
 }
 
 func decodeFixedWidthEscape(
@@ -573,7 +583,7 @@ func decodeFixedWidthEscape(
 		return "", start, false
 	}
 
-	return decodeRuneEscape(value, start, start+width, base)
+	return decodeNumericEscape(value, start, start+width, base)
 }
 
 func decodeVariableWidthEscape(
@@ -592,7 +602,7 @@ func decodeVariableWidthEscape(
 		return "", start, false
 	}
 
-	return decodeRuneEscape(value, start, end, base)
+	return decodeNumericEscape(value, start, end, base)
 }
 
 func validEscapeDigit(char byte, base int) bool {
@@ -613,18 +623,35 @@ func isHexDigit(char byte) bool {
 		(char >= 'A' && char <= 'F')
 }
 
-func decodeRuneEscape(
+func decodeNumericEscape(
 	value string,
 	start int,
 	end int,
 	base int,
 ) (string, int, bool) {
-	parsed, err := strconv.ParseInt(value[start:end], base, 32)
+	parsed, err := strconv.ParseUint(value[start:end], base, 32)
 	if err != nil {
 		return "", start, false
 	}
 
-	return string(rune(parsed)), end - 1, true
+	if base != ansiOctalBase && end-start > ansiHexByteWidth {
+		if parsed > utf8.MaxRune {
+			return "", start, false
+		}
+
+		decoded := rune(parsed)
+		if !utf8.ValidRune(decoded) {
+			return "", start, false
+		}
+
+		return string(decoded), end - 1, true
+	}
+
+	if parsed > ansiByteMax {
+		return "", start, false
+	}
+
+	return string([]byte{byte(parsed)}), end - 1, true
 }
 
 func mergeWordInfo(command *Command, info wordInfo) {
