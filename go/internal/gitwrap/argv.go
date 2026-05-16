@@ -3,7 +3,10 @@
 
 package gitwrap
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 type ParsedArgv struct {
 	Operation string
@@ -25,11 +28,17 @@ func normalizeArgv(argv []string) []string {
 		return []string{gitExecutableName}
 	}
 
-	if normalized[0] == gitExecutableName {
+	if isGitExecutable(normalized[0]) {
+		normalized[0] = gitExecutableName
+
 		return normalized
 	}
 
 	return append([]string{gitExecutableName}, normalized...)
+}
+
+func isGitExecutable(command string) bool {
+	return filepath.Base(command) == gitExecutableName
 }
 
 func gitOperation(argv []string) string {

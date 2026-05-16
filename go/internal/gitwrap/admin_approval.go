@@ -129,6 +129,49 @@ func ProcessAncestryApproved(pid int, path string) (bool, error) {
 	return false, nil
 }
 
+// ProcessAncestryContains reports whether ancestorPID appears in pid's process
+// ancestry. It fails closed when process ancestry cannot be inspected.
+func ProcessAncestryContains(pid, ancestorPID int) (bool, error) {
+	for current := pid; current > 0; {
+		if current == ancestorPID {
+			return true, nil
+		}
+
+		parent, err := parentPID(current)
+		if err != nil {
+			return false, err
+		}
+
+		if parent == current {
+			return false, nil
+		}
+
+		current = parent
+	}
+
+	return false, nil
+}
+
+// ProcessCommandLine returns a process argv from /proc. Empty command lines are
+// treated as unavailable evidence by callers that require provenance.
+func ProcessCommandLine(pid int) ([]string, error) {
+	payload, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return nil, fmt.Errorf("read process cmdline for pid %d: %w", pid, err)
+	}
+
+	parts := strings.Split(strings.TrimRight(string(payload), "\x00"), "\x00")
+
+	args := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			args = append(args, part)
+		}
+	}
+
+	return args, nil
+}
+
 func readApprovedPIDs(path string) (map[int]bool, error) {
 	return ReadApprovedPIDs(path)
 }

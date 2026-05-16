@@ -295,7 +295,7 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 		)
 	}
 
-	repoMap, rendered, err := server.loadRepoMap(input)
+	repoMap, rendered, err := server.loadFreshRepoMap(input)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +314,7 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 }
 
 func (server Server) repoMapResource() (any, error) {
-	_, rendered, err := server.loadRepoMap(codeIntelRepoMapInput{})
+	_, rendered, err := server.loadStoredRepoMap(codeIntelRepoMapInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func (server Server) repoMapResource() (any, error) {
 	}, nil
 }
 
-func (server Server) loadRepoMap(
+func (server Server) loadFreshRepoMap(
 	input codeIntelRepoMapInput,
 ) (codeintel.RepoMap, string, error) {
 	root := server.codeIntelRoot()
@@ -352,6 +352,33 @@ func (server Server) loadRepoMap(
 	if err != nil {
 		return codeintel.RepoMap{}, "", fmt.Errorf("refresh repo map index: %w", err)
 	}
+
+	return server.readRepoMap(store, root, input)
+}
+
+func (server Server) loadStoredRepoMap(
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	root := server.codeIntelRoot()
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return codeintel.RepoMap{}, "", fmt.Errorf(
+			"open code intelligence store: %w",
+			err,
+		)
+	}
+	defer closeStore()
+
+	return server.readRepoMap(store, root, input)
+}
+
+func (server Server) readRepoMap(
+	store *codeintel.Store,
+	root string,
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	ctx := argsContext()
 
 	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
 		Path:           input.Path,

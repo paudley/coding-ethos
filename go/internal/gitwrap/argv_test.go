@@ -25,6 +25,21 @@ func TestParseArgvSkipsGitGlobalOptions(t *testing.T) {
 	}
 }
 
+func TestParseArgvNormalizesAbsoluteGitExecutable(t *testing.T) {
+	t.Parallel()
+
+	parsed := ParseArgv(
+		[]string{"/usr/bin/git", "commit", "--amend", "--no-edit"},
+	)
+	if parsed.Operation != "commit" {
+		t.Fatalf("operation mismatch: got %q", parsed.Operation)
+	}
+
+	if parsed.Argv[0] != "git" {
+		t.Fatalf("argv was not normalized: %#v", parsed.Argv)
+	}
+}
+
 func TestParseArgvAllowsGlobalPolicyForStatus(t *testing.T) {
 	t.Parallel()
 

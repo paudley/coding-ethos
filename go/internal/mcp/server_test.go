@@ -537,6 +537,49 @@ func TestServerCodeIntelRepoMapResource(t *testing.T) {
 	}
 }
 
+func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	newSourcePath := filepath.Join(root, "pkg", "new_file.py")
+	inlineErr0 := os.WriteFile(
+		newSourcePath,
+		[]byte("def newly_added():\n    return 'new'\n"),
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write new source: %v", inlineErr0)
+	}
+
+	readOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":56,
+		"method":"resources/read",
+		"params":{"uri":"coding-ethos://code-intel/repo-map"}
+	}`), runtime)
+	if strings.Contains(readOutput, "pkg/new_file.py") {
+		t.Fatalf("resource read refreshed unindexed file:\n%s", readOutput)
+	}
+
+	assertRepoMapPathAbsent(t, root, "pkg/new_file.py")
+
+	toolOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":57,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{"path":"pkg/new_file.py","format":"toon"}
+		}
+	}`), runtime)
+	if !strings.Contains(toolOutput, "pkg/new_file.py") {
+		t.Fatalf("repo-map tool did not refresh requested path:\n%s", toolOutput)
+	}
+}
+
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -604,6 +647,35 @@ func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %s in SARIF remediation output:\n%s", expected, output)
 		}
+	}
+}
+
+func assertRepoMapPathAbsent(t *testing.T, root, path string) {
+	t.Helper()
+
+	ctx := context.Background()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer func() {
+		inlineErr := store.Close()
+		if inlineErr != nil {
+			t.Fatalf("close code-intel store: %v", inlineErr)
+		}
+	}()
+
+	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
+		Root:  root,
+		Path:  path,
+		Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("query repo map: %v", err)
+	}
+
+	if len(repoMap.Files) != 0 {
+		t.Fatalf("repo map unexpectedly contains %s: %#v", path, repoMap.Files)
 	}
 }
 
