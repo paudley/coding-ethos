@@ -301,6 +301,11 @@ func splitOutputLines(text string) []string {
 	return lines
 }
 
+// OutputLineCount returns the line count used by proxy output transforms.
+func OutputLineCount(text string) int {
+	return len(splitOutputLines(text))
+}
+
 func trimLineEnding(line string) string {
 	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 }

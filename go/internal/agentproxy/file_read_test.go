@@ -74,7 +74,7 @@ func TestDetectFileReadInvocation(t *testing.T) {
 				return
 			}
 
-			if got.Tool != "cat" || got.Path != test.path {
+			if got.Path != test.path {
 				t.Fatalf("invocation = %#v", got)
 			}
 		})

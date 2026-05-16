@@ -17,6 +17,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -35,6 +36,7 @@ const (
 	defaultAnatomyMapTimeout     = 5 * time.Second
 	defaultFileReadPageLines     = 100
 	defaultFileReadSemanticSlack = 50
+	semanticBackupTargetDivisor  = 2
 	proxyDecisionAllow           = "allow"
 	proxyDecisionInject          = "inject"
 	proxyDecisionSummarize       = "summarize"
@@ -57,7 +59,7 @@ func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
 	proxied := proxiedToolOutput{Text: normalized}
 
 	proxied = paginateFileReadToolOutput(event, proxied)
-	if !hasFileReadPaginationRecord(proxied.Records) {
+	if !hasFileReadTransformChange(proxied.Records) {
 		compressed := compressToolOutputWithRecords(event, proxied.Text)
 		proxied.Text = compressed.Text
 		proxied.Records = append(proxied.Records, compressed.Records...)
@@ -140,7 +142,7 @@ func isRepoFile(root, targetPath string) bool {
 }
 
 func semanticFileReadPageEnd(root, targetPath, output string) int {
-	totalLines := lineCount(output)
+	totalLines := agentproxy.OutputLineCount(output)
 	if totalLines <= 0 {
 		return defaultFileReadPageLines
 	}
@@ -162,6 +164,18 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 	}
 	defer store.Close()
 
+	contentHash := astfacts.ContentHash([]byte(output))
+
+	chunks, cached, err := cachedSemanticChunks(
+		ctx,
+		store,
+		targetPath,
+		contentHash,
+	)
+	if err == nil && cached {
+		return semanticPageEnd(pageEnd, totalLines, chunks)
+	}
+
 	indexer := codeintel.NewASTIndexer(store)
 
 	_, err = indexer.IndexPaths(ctx, root, []string{targetPath})
@@ -169,6 +183,55 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 		return pageEnd
 	}
 
+	chunks, err = querySemanticChunks(
+		ctx,
+		store,
+		targetPath,
+	)
+	if err != nil {
+		return pageEnd
+	}
+
+	return semanticPageEnd(pageEnd, totalLines, chunks)
+}
+
+func cachedSemanticChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	targetPath string,
+	contentHash string,
+) ([]codeintel.CodeChunk, bool, error) {
+	file, found, err := store.GetCodeFile(ctx, targetPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("get cached code file: %w", err)
+	}
+
+	if !found {
+		return nil, false, nil
+	}
+
+	if file.ContentHash != contentHash || file.DeletedAtUTC != "" ||
+		(file.StaleReason != "" && file.StaleReason != "too_many_chunks") {
+		return nil, false, nil
+	}
+
+	chunks, err := querySemanticChunks(ctx, store, targetPath)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(chunks) == 0 {
+		return nil, false, nil
+	}
+
+	return chunks, true, nil
+}
+
+func querySemanticChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	targetPath string,
+) ([]codeintel.CodeChunk, error) {
 	chunks, err := store.CodeChunks(
 		ctx,
 		codeintel.CodeChunkQuery{
@@ -177,10 +240,10 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 		},
 	)
 	if err != nil {
-		return pageEnd
+		return nil, fmt.Errorf("query semantic chunks: %w", err)
 	}
 
-	return semanticPageEnd(pageEnd, totalLines, chunks)
+	return chunks, nil
 }
 
 func semanticPageEnd(
@@ -221,11 +284,18 @@ func (candidate semanticPageCandidate) withChunk(
 	}
 
 	semanticStartFloor := max(target-defaultFileReadSemanticSlack, 1)
-	if chunk.StartLine >= semanticStartFloor && chunk.StartLine > 1 {
-		candidate.fallback = min(candidate.fallback, chunk.StartLine-1)
+	backupFloor := semanticBackupFloor(target)
+	backupEnd := chunk.StartLine - 1
+
+	if chunk.StartLine >= semanticStartFloor && backupEnd >= backupFloor {
+		candidate.fallback = min(candidate.fallback, backupEnd)
 	}
 
 	return candidate
+}
+
+func semanticBackupFloor(target int) int {
+	return max(target/semanticBackupTargetDivisor, 1)
 }
 
 func (candidate semanticPageCandidate) withBestEnd(endLine int) semanticPageCandidate {

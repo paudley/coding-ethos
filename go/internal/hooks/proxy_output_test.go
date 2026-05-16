@@ -130,6 +130,60 @@ func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) 
 	}
 }
 
+func TestProxyPostToolOutputCompressesAllowedFileRead(t *testing.T) {
+	repo := initProxyOutputRepo(t)
+	err := os.MkdirAll(filepath.Join(repo, "docs"), 0o700)
+	if err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	lines := make([]string, 0, 90)
+	for index := 0; index < 90; index++ {
+		lines = append(lines, fmt.Sprintf("line %02d", index+1))
+	}
+
+	output := strings.Join(lines, "\n") + "\n"
+	err = os.WriteFile(filepath.Join(repo, "docs", "small.md"), []byte(output), 0o600)
+	if err != nil {
+		t.Fatalf("write small file: %v", err)
+	}
+
+	proxied := proxyPostToolOutput(
+		Event{
+			SessionID: "session-file-read-line-compression",
+			ToolName:  toolBash,
+			Cwd:       repo,
+			ToolInput: map[string]any{
+				"command": "cat docs/small.md",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      output,
+				"return_code": 0,
+			},
+		},
+		output,
+	)
+
+	if !strings.Contains(proxied.Text, "compressed tool output") {
+		t.Fatalf("expected generic compression after allowed file read: %s", proxied.Text)
+	}
+
+	foundPaginationAllow := false
+	foundCompressionTruncate := false
+	for _, record := range proxied.Records {
+		switch record.Name {
+		case agentproxy.FileReadPaginationTransformName:
+			foundPaginationAllow = record.Decision == proxyDecisionAllow
+		case "tool-output-compression":
+			foundCompressionTruncate = record.Decision == proxyDecisionTruncate
+		}
+	}
+
+	if !foundPaginationAllow || !foundCompressionTruncate {
+		t.Fatalf("missing expected records: %#v", proxied.Records)
+	}
+}
+
 func TestSemanticPageEndPrefersNestedBoundaryWithinSlack(t *testing.T) {
 	t.Parallel()
 
@@ -165,6 +219,38 @@ func TestSemanticPageEndDoesNotBackUpToDistantWrapper(t *testing.T) {
 
 	if got := semanticPageEnd(100, 260, chunks); got != 100 {
 		t.Fatalf("page end = %d, want 100", got)
+	}
+}
+
+func TestSemanticPageEndDoesNotBackUpBelowHalfTarget(t *testing.T) {
+	t.Parallel()
+
+	chunks := []codeintel.CodeChunk{
+		{
+			SymbolPath: "Widget",
+			StartLine:  40,
+			EndLine:    250,
+		},
+	}
+
+	if got := semanticPageEnd(100, 260, chunks); got != 100 {
+		t.Fatalf("page end = %d, want 100", got)
+	}
+}
+
+func TestSemanticPageEndBacksUpToNearbyLargeWrapper(t *testing.T) {
+	t.Parallel()
+
+	chunks := []codeintel.CodeChunk{
+		{
+			SymbolPath: "Widget",
+			StartLine:  61,
+			EndLine:    250,
+		},
+	}
+
+	if got := semanticPageEnd(100, 260, chunks); got != 60 {
+		t.Fatalf("page end = %d, want 60", got)
 	}
 }
 

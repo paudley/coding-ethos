@@ -13,7 +13,6 @@ import (
 // FileReadInvocation is the normalized shape of a conservative file-read
 // command that can safely receive context-aware pagination.
 type FileReadInvocation struct {
-	Tool string
 	Path string
 }
 
@@ -72,5 +71,5 @@ func detectCatFileReadInvocation(args []string) (FileReadInvocation, bool) {
 		return FileReadInvocation{}, false
 	}
 
-	return FileReadInvocation{Tool: "cat", Path: targets[0]}, true
+	return FileReadInvocation{Path: targets[0]}, true
 }

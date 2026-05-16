@@ -92,7 +92,8 @@ exclusion paths.
 Proxy-side tool output compression lives in `go/internal/agentproxy`. The
 default transform preserves the beginning and ending of long tool output,
 inserts an explicit omission marker, writes the full original output to a
-session-local `/tmp/coding-ethos-tool-output-*.log` evidence file, and records
+session-local `coding-ethos-tool-output-*.log` evidence file in the system temp
+directory, and records
 token/hash/path evidence through the normal transform record path. This keeps
 command identity, early setup failures, and terminal stack-trace exceptions
 visible while removing repetitive progress output and dependency-frame noise.
@@ -115,7 +116,7 @@ for local runtime token tuning.
 Compression must remain traceable. A compressed payload should carry metadata
 that records the omitted line count and temporary full-output path, and the
 corresponding proxy event should store the transform record in code-intel.
-Silent truncation is not allowed. The `/tmp` evidence file is debug evidence,
+Silent truncation is not allowed. The temp evidence file is debug evidence,
 not durable archival storage.
 
 ## File Read Deduplication
@@ -138,7 +139,8 @@ Live Bash `PostToolUse` output now recognizes conservative single-file
 `cat <path>` reads through the shared shell parser before generic output
 compression runs. Successful reads inside the current repository are returned as
 a line-numbered first page instead of an unbounded file body. The transform
-writes the complete original payload to `/tmp/coding-ethos-tool-output-*.log`,
+writes the complete original payload to a `coding-ethos-tool-output-*.log`
+file in the system temp directory,
 surfaces that evidence path in the visible marker, and records
 `proxy.file_pagination` with the `file-read-pagination` transform in the
 provider-neutral proxy ledger.

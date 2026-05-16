@@ -411,8 +411,8 @@ before hook context is returned to the provider. Verbose shell, lint, compiler,
 and test output is summarized with known diagnostic parsers where possible,
 line-compressed, then capped by a hard token budget while preserving command
 identity and the terminal failure tail. Whenever output is removed, the runtime
-writes the full original payload to a
-`/tmp/coding-ethos-tool-output-*.log` evidence file and surfaces that path in
+writes the full original payload to a `coding-ethos-tool-output-*.log` evidence
+file in the system temp directory and surfaces that path in
 the visible marker. When the event includes a session id, the runtime records a
 `tool_output` proxy event and ordered transform ledger in
 `.coding-ethos/code-intel.db`. Stale matching temp evidence files are pruned

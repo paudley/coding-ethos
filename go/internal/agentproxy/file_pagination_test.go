@@ -101,3 +101,28 @@ func TestFileReadPaginationTransformAllowsSmallOutput(t *testing.T) {
 		t.Fatalf("records = %#v", output.Records)
 	}
 }
+
+func TestOutputLineCountMatchesProxyTransforms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want int
+	}{
+		{name: "empty", text: "", want: 0},
+		{name: "no trailing newline", text: "one\ntwo", want: 2},
+		{name: "trailing newline", text: "one\ntwo\n", want: 2},
+		{name: "crlf", text: "one\r\ntwo\r\n", want: 2},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := agentproxy.OutputLineCount(test.text); got != test.want {
+				t.Fatalf("line count = %d, want %d", got, test.want)
+			}
+		})
+	}
+}

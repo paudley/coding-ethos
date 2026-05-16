@@ -233,12 +233,7 @@ func shouldEmitPostToolBashContext(
 		return true
 	}
 
-	if hasFilePaginationTransform(proxiedOutput.Records) {
-		return true
-	}
-
-	if hasFileReadPaginationRecord(proxiedOutput.Records) &&
-		proxyToolOutputDecision(proxiedOutput.Records) == proxyDecisionTruncate {
+	if hasFileReadTransformChange(proxiedOutput.Records) {
 		return true
 	}
 
@@ -279,6 +274,16 @@ func hasFilePaginationTransform(records []agentproxy.TransformRecord) bool {
 
 func hasFileReadPaginationRecord(records []agentproxy.TransformRecord) bool {
 	return slices.ContainsFunc(records, isFilePaginationTransform)
+}
+
+func hasFileReadTransformChange(records []agentproxy.TransformRecord) bool {
+	if !hasFileReadPaginationRecord(records) {
+		return false
+	}
+
+	return slices.ContainsFunc(records, func(record agentproxy.TransformRecord) bool {
+		return record.Decision == proxyDecisionTruncate
+	})
 }
 
 func isFilePaginationTransform(record agentproxy.TransformRecord) bool {
