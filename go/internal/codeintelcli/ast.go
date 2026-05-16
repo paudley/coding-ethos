@@ -230,23 +230,12 @@ func listingTargetPath(path, command string) (string, error) {
 		return "", errListingCommandUnsupported
 	}
 
-	if !staticListingCommand(commands[0]) {
-		return "", errListingCommandUnsupported
-	}
-
-	invocation, ok := agentproxy.DetectDirectoryListingInvocation(commands[0].Argv)
+	invocation, ok := agentproxy.DetectShellDirectoryListingInvocation(commands[0])
 	if !ok {
 		return "", errListingCommandUnsupported
 	}
 
 	return invocation.Path, nil
-}
-
-func staticListingCommand(command shellparse.Command) bool {
-	return !command.HasCommandSubstitution &&
-		!command.HasDynamicExpansion &&
-		!command.HasProcessSubstitution &&
-		!command.HasSubshell
 }
 
 func repoRelativePath(root, path string) (string, error) {

@@ -139,20 +139,23 @@ code-intel store builds a directory-local anatomy map from its AST index and
 `EnrichDirectoryListing` appends a compact TOON block to the raw listing text.
 The original listing remains intact, and the proxy pipeline returns the
 transform name, hashes, token counts, and injected file count to the caller. A
-transparent proxy must persist that returned transform record on its proxy
-event. The implementation is inspired by Aider's repo map, but it uses
+live hook proxy persists that returned transform record on its proxy event with
+the `proxy.directory_anatomy` policy ID. The implementation is inspired by
+Aider's repo map, but it uses
 coding-ethos' repo-local AST ledger instead of reparsing source during prompt
 construction.
 
 The interception-adjacent command classifier lives in `agentproxy` and
 recognizes conservative single-target `ls` and `tree` invocations. The
+PostToolUse Bash proxy path uses that classifier after parsing the command with
+the shared shell parser, refreshes direct child source files for the listed
+directory, and emits the enriched output as AdditionalContext for successful
+listings. The
 `code-intel enrich-listing` command is the runnable bridge for this behavior:
 it accepts raw listing output, infers the target directory from `--command` when
 `--path` is not supplied, refreshes direct child source files for that
 directory, and emits the original listing plus the anatomy block. The command
-does not create a proxy event; transparent proxy wiring should route listing
-tool output through that same classifier and enrichment API, then store the
-returned transform evidence.
+does not create a proxy event by itself.
 
 ## CEL And SARIF Contract
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 func TestDetectDirectoryListingInvocation(t *testing.T) {
@@ -89,5 +90,19 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 				t.Fatalf("invocation = %#v", got)
 			}
 		})
+	}
+}
+
+func TestDetectShellDirectoryListingInvocationRejectsDynamicCommand(t *testing.T) {
+	t.Parallel()
+
+	commands, err := shellparse.Commands("ls $TARGET")
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	_, ok := agentproxy.DetectShellDirectoryListingInvocation(commands[0])
+	if ok {
+		t.Fatal("dynamic listing command was accepted")
 	}
 }

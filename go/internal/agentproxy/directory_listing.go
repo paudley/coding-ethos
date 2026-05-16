@@ -6,6 +6,8 @@ package agentproxy
 import (
 	"path/filepath"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -38,6 +40,22 @@ func DetectDirectoryListingInvocation(
 	default:
 		return DirectoryListingInvocation{}, false
 	}
+}
+
+// DetectShellDirectoryListingInvocation recognizes static, single-target
+// ls/tree shell commands whose output can safely be paired with a directory
+// anatomy map.
+func DetectShellDirectoryListingInvocation(
+	command shellparse.Command,
+) (DirectoryListingInvocation, bool) {
+	if command.HasCommandSubstitution ||
+		command.HasDynamicExpansion ||
+		command.HasProcessSubstitution ||
+		command.HasSubshell {
+		return DirectoryListingInvocation{}, false
+	}
+
+	return DetectDirectoryListingInvocation(command.Argv)
 }
 
 func detectLSInvocation(args []string) (DirectoryListingInvocation, bool) {
