@@ -39,8 +39,12 @@ type toolConfigBool struct {
 	value     bool
 }
 
-func applyPrincipleToolConfig(ethosRoot string, base configMap) (configMap, error) {
-	sources, err := loadPrincipleToolConfigSources(ethosRoot)
+func applyPrincipleToolConfig(
+	ethosRoot string,
+	repoRoot string,
+	base configMap,
+) (configMap, error) {
+	sources, err := loadPrincipleToolConfigSources(ethosRoot, repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +66,7 @@ func applyPrincipleToolConfig(ethosRoot string, base configMap) (configMap, erro
 
 func loadPrincipleToolConfigSources(
 	ethosRoot string,
+	repoRoot string,
 ) ([]principleToolConfigSource, error) {
 	primary, err := loadPrimaryPrincipleToolConfigSources(
 		filepath.Join(ethosRoot, "coding_ethos.yml"),
@@ -75,7 +80,7 @@ func loadPrincipleToolConfigSources(
 	}
 
 	repo, err := loadRepoPrincipleToolConfigSources(
-		filepath.Join(ethosRoot, "repo_ethos.yml"),
+		filepath.Join(repoRoot, "repo_ethos.yml"),
 	)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -270,6 +275,18 @@ func applyGolangCIPrincipleToolConfig(
 			source.source,
 			source.principleID,
 		)
+	}
+
+	for field := range linters {
+		if field != "enable" && field != "disable" {
+			return apperror.Wrapf(
+				errInvalidPrincipleToolConfig,
+				"%s %s tool_config.golangci_lint.linters.%s is not supported",
+				source.source,
+				source.principleID,
+				field,
+			)
+		}
 	}
 
 	for field, path := range map[string]string{

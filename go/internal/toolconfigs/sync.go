@@ -119,7 +119,7 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 		return nil, fmt.Errorf("load base config: %w", err)
 	}
 
-	base, err = applyPrincipleToolConfig(ethosRoot, base)
+	base, err = applyPrincipleToolConfig(ethosRoot, repoRoot, base)
 	if err != nil {
 		return nil, fmt.Errorf("apply principle tool config: %w", err)
 	}

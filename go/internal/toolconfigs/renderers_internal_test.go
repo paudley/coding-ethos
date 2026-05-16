@@ -414,7 +414,7 @@ principles:
             - name: gosec
               rationale: Security analyzer.
 `)
-	writeFile(t, filepath.Join(ethos, "repo_ethos.yml"), `
+	writeFile(t, filepath.Join(repo, "repo_ethos.yml"), `
 principles:
   overrides:
     static-analysis-is-the-first-line-of-defense:
@@ -457,6 +457,67 @@ principles:
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestLoadMergedConfigRejectsUnsupportedGolangCILinterKey(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enabled:
+            - gosec
+`)
+
+	_, err := LoadMergedConfig(ethos, repo, "")
+	if err == nil ||
+		!strings.Contains(
+			err.Error(),
+			"tool_config.golangci_lint.linters.enabled is not supported",
+		) {
+		t.Fatalf("LoadMergedConfig() error = %v", err)
+	}
+}
+
+func TestRenderAllSkipsBanditWhenPrincipleDisablesIt(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), "principles: []\n")
+	writeFile(t, filepath.Join(repo, "repo_ethos.yml"), `
+principles:
+  additional:
+    - id: repo-security-tools
+      tool_config:
+        bandit:
+          enabled:
+            value: false
+            rationale: This repo has no Python source.
+`)
+
+	merged, err := LoadMergedConfig(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("LoadMergedConfig(): %v", err)
+	}
+
+	rendered, err := RenderAll(merged)
+	if err != nil {
+		t.Fatalf("RenderAll(): %v", err)
+	}
+
+	if _, found := rendered[".bandit.yml"]; found {
+		t.Fatalf("RenderAll() generated .bandit.yml despite disabled Bandit")
 	}
 }
 
