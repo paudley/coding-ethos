@@ -273,6 +273,8 @@ func repoMapSignature(rawText string) string {
 			continue
 		}
 
+		signature = strings.ReplaceAll(signature, ";", " ")
+
 		return truncateRepoMapSignature(signature)
 	}
 

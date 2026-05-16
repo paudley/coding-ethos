@@ -2252,7 +2252,9 @@ func TestASTIndexerReturnsGlobalRepoMap(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "cmd", "main.go"), []byte(`package main
 
-func main() {}
+import "fmt"
+
+func main() { fmt.Println("x"); fmt.Println("y") }
 `))
 	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(
 		"def helper():\n"+
@@ -2285,7 +2287,8 @@ func main() {}
 	if len(repoMap.Files) != 2 ||
 		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
 		!strings.Contains(rendered, "pkg/worker.py") ||
-		!strings.Contains(rendered, "def helper():") {
+		!strings.Contains(rendered, "def helper():") ||
+		strings.Contains(rendered, `fmt.Println("x");`) {
 		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
 	}
 }

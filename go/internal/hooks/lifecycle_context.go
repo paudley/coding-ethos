@@ -5,6 +5,8 @@ package hooks
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -113,14 +115,11 @@ func startupRepoMap(cwd string) string {
 
 	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
+		startupRepoMapWarning("open", err)
+
 		return ""
 	}
 	defer store.Close()
-
-	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, root, nil)
-	if err != nil {
-		return ""
-	}
 
 	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
 		Root:           root,
@@ -128,6 +127,8 @@ func startupRepoMap(cwd string) string {
 		SymbolsPerFile: defaultStartupRepoMapSymbolsPerFile,
 	})
 	if err != nil {
+		startupRepoMapWarning("query", err)
+
 		return ""
 	}
 
@@ -138,8 +139,16 @@ func startupRepoMap(cwd string) string {
 
 	return strings.Join([]string{
 		rendered,
-		`repo_map_mcp: code_intel_repo_map {"limit":16,"symbols_per_file":3}`,
+		fmt.Sprintf(
+			`repo_map_mcp: code_intel_repo_map {"limit":%d,"symbols_per_file":%d}`,
+			defaultStartupRepoMapLimit,
+			defaultStartupRepoMapSymbolsPerFile,
+		),
 	}, "\n")
+}
+
+func startupRepoMapWarning(stage string, err error) {
+	fmt.Fprintf(os.Stderr, "WARN: startup repo map %s failed: %v\n", stage, err)
 }
 
 func buildChecklistContext(heading string, guidance []string) string {
