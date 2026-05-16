@@ -263,13 +263,21 @@ func hasDirectoryAnatomyTransform(records []agentproxy.TransformRecord) bool {
 
 func hasFilePaginationTransform(records []agentproxy.TransformRecord) bool {
 	for _, record := range records {
-		if record.Name == agentproxy.FileReadPaginationTransformName &&
+		if isFilePaginationTransform(record) &&
 			record.Decision == proxyDecisionTruncate {
 			return true
 		}
 	}
 
 	return false
+}
+
+func hasFileReadPaginationRecord(records []agentproxy.TransformRecord) bool {
+	return slices.ContainsFunc(records, isFilePaginationTransform)
+}
+
+func isFilePaginationTransform(record agentproxy.TransformRecord) bool {
+	return record.Name == agentproxy.FileReadPaginationTransformName
 }
 
 func isGitHookCommand(command string) bool {

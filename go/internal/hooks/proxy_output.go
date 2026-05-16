@@ -41,7 +41,7 @@ const (
 	proxyDecisionTruncate        = "truncate"
 	proxyPolicyDiagnosticSummary = "proxy.diagnostic_summary"
 	proxyPolicyDirectoryAnatomy  = "proxy.directory_anatomy"
-	proxyPolicyFilePagination    = "proxy.file_pagination"
+	proxyPolicyFilePagination    = agentproxy.FileReadPaginationPolicyID
 	proxyPolicyTokenBudget       = "proxy.token_budget"
 )
 
@@ -57,7 +57,7 @@ func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
 	proxied := proxiedToolOutput{Text: normalized}
 
 	proxied = paginateFileReadToolOutput(event, proxied)
-	if !hasFilePaginationTransform(proxied.Records) {
+	if !hasFileReadPaginationRecord(proxied.Records) {
 		compressed := compressToolOutputWithRecords(event, proxied.Text)
 		proxied.Text = compressed.Text
 		proxied.Records = append(proxied.Records, compressed.Records...)
@@ -93,6 +93,7 @@ func paginateFileReadToolOutput(
 	}
 
 	pageEnd := semanticFileReadPageEnd(root, targetPath, proxied.Text)
+	options := loadHookOutputCompressionOptions(event.Cwd)
 
 	output, err := agentproxy.NewPipeline(
 		nil,
@@ -100,6 +101,11 @@ func paginateFileReadToolOutput(
 			Path:      targetPath,
 			PageStart: 1,
 			PageEnd:   pageEnd,
+		},
+		agentproxy.ToolOutputTokenBudgetTransform{
+			MaxTokens:  options.MaxTokens,
+			HeadTokens: options.HeadTokens,
+			TailTokens: options.TailTokens,
 		},
 	).Apply(
 		context.Background(),
@@ -182,33 +188,66 @@ func semanticPageEnd(
 	totalLines int,
 	chunks []codeintel.CodeChunk,
 ) int {
-	semanticLimit := min(target+defaultFileReadSemanticSlack, totalLines)
+	candidate := semanticPageCandidate{fallback: target}
 
 	for _, chunk := range chunks {
-		if chunk.StartLine <= 0 || chunk.EndLine <= 0 || chunk.SymbolPath == "" {
-			continue
-		}
-
 		if chunk.StartLine > target {
 			break
 		}
 
-		if chunk.EndLine <= target {
-			continue
-		}
-
-		if chunk.EndLine <= semanticLimit {
-			return chunk.EndLine
-		}
-
-		if chunk.StartLine > 1 {
-			return chunk.StartLine - 1
-		}
-
-		return target
+		candidate = candidate.withChunk(target, totalLines, chunk)
 	}
 
-	return target
+	return candidate.pageEnd()
+}
+
+type semanticPageCandidate struct {
+	bestEnd  int
+	fallback int
+}
+
+func (candidate semanticPageCandidate) withChunk(
+	target int,
+	totalLines int,
+	chunk codeintel.CodeChunk,
+) semanticPageCandidate {
+	if !isCrossingSemanticChunk(target, chunk) {
+		return candidate
+	}
+
+	semanticLimit := min(target+defaultFileReadSemanticSlack, totalLines)
+	if chunk.EndLine <= semanticLimit {
+		return candidate.withBestEnd(chunk.EndLine)
+	}
+
+	semanticStartFloor := max(target-defaultFileReadSemanticSlack, 1)
+	if chunk.StartLine >= semanticStartFloor && chunk.StartLine > 1 {
+		candidate.fallback = min(candidate.fallback, chunk.StartLine-1)
+	}
+
+	return candidate
+}
+
+func (candidate semanticPageCandidate) withBestEnd(endLine int) semanticPageCandidate {
+	if candidate.bestEnd == 0 || endLine < candidate.bestEnd {
+		candidate.bestEnd = endLine
+	}
+
+	return candidate
+}
+
+func (candidate semanticPageCandidate) pageEnd() int {
+	if candidate.bestEnd > 0 {
+		return candidate.bestEnd
+	}
+
+	return candidate.fallback
+}
+
+func isCrossingSemanticChunk(target int, chunk codeintel.CodeChunk) bool {
+	return chunk.StartLine > 0 &&
+		chunk.EndLine > target &&
+		chunk.SymbolPath != ""
 }
 
 func enrichDirectoryListingToolOutput(

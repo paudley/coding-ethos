@@ -32,6 +32,18 @@ func TestDetectFileReadInvocation(t *testing.T) {
 			ok:   true,
 		},
 		{
+			name: "cat literal option-looking filename",
+			argv: []string{"cat", "--", "-n"},
+			path: "-n",
+			ok:   true,
+		},
+		{
+			name: "cat literal double-dash filename",
+			argv: []string{"cat", "--", "--"},
+			path: "--",
+			ok:   true,
+		},
+		{
 			name: "cat formatter option rejected",
 			argv: []string{"cat", "-n", "pkg/app.py"},
 		},

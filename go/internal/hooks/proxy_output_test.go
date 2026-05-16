@@ -4,6 +4,11 @@
 package hooks
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
@@ -50,4 +55,129 @@ func TestProxyToolOutputPolicyIDPrefersFilePaginationOverTokenBudget(t *testing.
 	if got := proxyToolOutputPolicyID(records); got != proxyPolicyFilePagination {
 		t.Fatalf("policy ID mismatch: got %q, want %q", got, proxyPolicyFilePagination)
 	}
+}
+
+func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) {
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "80")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "20")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "20")
+
+	repo := initProxyOutputRepo(t)
+	err := os.MkdirAll(filepath.Join(repo, "docs"), 0o700)
+	if err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	line := "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+	lines := make([]string, 0, 120)
+	for index := 0; index < 120; index++ {
+		lines = append(lines, fmt.Sprintf("%s %d", line, index))
+	}
+
+	output := strings.Join(lines, "\n") + "\n"
+	path := filepath.Join(repo, "docs", "large.md")
+	err = os.WriteFile(path, []byte(output), 0o600)
+	if err != nil {
+		t.Fatalf("write large file: %v", err)
+	}
+
+	proxied := proxyPostToolOutput(
+		Event{
+			SessionID: "session-file-read-token-budget",
+			ToolName:  toolBash,
+			Cwd:       repo,
+			ToolInput: map[string]any{
+				"command": "cat docs/large.md",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      output,
+				"return_code": 0,
+			},
+		},
+		output,
+	)
+
+	if !strings.Contains(proxied.Text, "paginated file read") ||
+		!strings.Contains(proxied.Text, "token budget hard stop") {
+		t.Fatalf("expected paginated and token-budgeted output: %s", proxied.Text)
+	}
+
+	paginationEvidence := ""
+	foundTokenBudget := false
+	for _, record := range proxied.Records {
+		switch record.Name {
+		case agentproxy.FileReadPaginationTransformName:
+			if record.Decision != proxyDecisionTruncate {
+				t.Fatalf("pagination record = %#v", record)
+			}
+			paginationEvidence = record.EvidencePath
+		case "tool-output-token-budget":
+			if record.Decision == proxyDecisionTruncate {
+				foundTokenBudget = true
+				if record.EvidencePath == "" ||
+					record.EvidencePath != paginationEvidence {
+					t.Fatalf(
+						"token budget evidence did not preserve original path: %#v",
+						proxied.Records,
+					)
+				}
+			}
+		}
+	}
+
+	if paginationEvidence == "" || !foundTokenBudget {
+		t.Fatalf("missing expected transform records: %#v", proxied.Records)
+	}
+}
+
+func TestSemanticPageEndPrefersNestedBoundaryWithinSlack(t *testing.T) {
+	t.Parallel()
+
+	chunks := []codeintel.CodeChunk{
+		{
+			SymbolPath: "Widget",
+			StartLine:  50,
+			EndLine:    250,
+		},
+		{
+			SymbolPath:       "Widget.build",
+			ParentSymbolPath: "Widget",
+			StartLine:        90,
+			EndLine:          120,
+		},
+	}
+
+	if got := semanticPageEnd(100, 260, chunks); got != 120 {
+		t.Fatalf("page end = %d, want 120", got)
+	}
+}
+
+func TestSemanticPageEndDoesNotBackUpToDistantWrapper(t *testing.T) {
+	t.Parallel()
+
+	chunks := []codeintel.CodeChunk{
+		{
+			SymbolPath: "Widget",
+			StartLine:  20,
+			EndLine:    250,
+		},
+	}
+
+	if got := semanticPageEnd(100, 260, chunks); got != 100 {
+		t.Fatalf("page end = %d, want 100", got)
+	}
+}
+
+func initProxyOutputRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	command := exec.Command("git", "init")
+	command.Dir = repo
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, string(output))
+	}
+
+	return repo
 }

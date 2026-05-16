@@ -46,7 +46,7 @@ func TestFileReadPaginationTransformPaginatesWithEvidence(t *testing.T) {
 
 	record := output.Records[0]
 	if record.Name != agentproxy.FileReadPaginationTransformName ||
-		record.PolicyID != "proxy.file_pagination" ||
+		record.PolicyID != agentproxy.FileReadPaginationPolicyID ||
 		record.Decision != "truncate" ||
 		record.EvidencePath == "" {
 		t.Fatalf("record = %#v", record)
@@ -74,7 +74,7 @@ func TestFileReadPaginationTransformAllowsSmallOutput(t *testing.T) {
 
 	if len(output.Records) != 1 ||
 		output.Records[0].Decision != "allow" ||
-		output.Records[0].PolicyID != "proxy.file_pagination" {
+		output.Records[0].PolicyID != agentproxy.FileReadPaginationPolicyID {
 		t.Fatalf("records = %#v", output.Records)
 	}
 }

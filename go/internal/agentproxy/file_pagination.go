@@ -5,6 +5,7 @@ package agentproxy
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -13,6 +14,7 @@ const (
 	// FileReadPaginationTransformName is the stable transform identifier for
 	// file-read proxy pagination evidence.
 	FileReadPaginationTransformName = "file-read-pagination"
+	FileReadPaginationPolicyID      = "proxy.file_pagination"
 
 	defaultFileReadPageStart       = 1
 	fileReadPageMarkerLineCapacity = 3
@@ -40,7 +42,7 @@ func (transform FileReadPaginationTransform) Apply(
 			Text:     input.Text,
 			Metadata: cloneMetadata(input.Metadata),
 			Record: TransformRecord{
-				PolicyID: "proxy.file_pagination",
+				PolicyID: FileReadPaginationPolicyID,
 				Decision: "allow",
 				Reason:   "file read output within page budget",
 			},
@@ -77,7 +79,7 @@ func (transform FileReadPaginationTransform) Apply(
 		Text:     output,
 		Metadata: metadata,
 		Record: TransformRecord{
-			PolicyID:     "proxy.file_pagination",
+			PolicyID:     FileReadPaginationPolicyID,
 			Decision:     "truncate",
 			Reason:       "file read output paginated by line budget",
 			EvidencePath: evidencePath,
@@ -124,10 +126,5 @@ func fileReadNumberedLine(number, width int, line string) string {
 }
 
 func leftPadInt(value, width int) string {
-	text := strconv.Itoa(value)
-	if len(text) >= width {
-		return text
-	}
-
-	return strings.Repeat(" ", width-len(text)) + text
+	return fmt.Sprintf("%*d", width, value)
 }
