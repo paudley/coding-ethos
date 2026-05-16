@@ -130,7 +130,12 @@ func indexListingTarget(
 	invocation agentproxy.DirectoryListingInvocation,
 ) error {
 	if invocation.Recursive {
-		_, err := indexer.IndexPaths(ctx, root, []string{targetPath})
+		_, err := indexer.IndexDirectoryTree(
+			ctx,
+			root,
+			targetPath,
+			invocation.MaxDepth,
+		)
 		if err != nil {
 			return fmt.Errorf("index recursive listing target: %w", err)
 		}

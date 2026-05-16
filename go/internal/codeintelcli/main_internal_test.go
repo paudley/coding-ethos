@@ -198,6 +198,27 @@ func TestListingTargetPathParsesSupportedCommands(t *testing.T) {
 	}
 }
 
+func TestListingInvocationPreservesCommandShapeWithExplicitPath(t *testing.T) {
+	t.Parallel()
+
+	invocation, err := listingInvocation("pkg", "tree -L 2 docs")
+	if err != nil {
+		t.Fatalf("listingInvocation returned error: %v", err)
+	}
+
+	if invocation.Path != "pkg" {
+		t.Fatalf("path = %q, want pkg", invocation.Path)
+	}
+
+	if !invocation.Recursive {
+		t.Fatalf("expected recursive invocation: %#v", invocation)
+	}
+
+	if invocation.MaxDepth != 2 {
+		t.Fatalf("max depth = %d, want 2", invocation.MaxDepth)
+	}
+}
+
 func TestRepoRelativePathNormalizesInsideRoot(t *testing.T) {
 	t.Parallel()
 

@@ -187,7 +187,12 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 
 	indexer := codeintel.NewASTIndexer(store)
 	if invocation.Recursive {
-		_, err = indexer.IndexPaths(ctx, *storeFlags.root, []string{targetPath})
+		_, err = indexer.IndexDirectoryTree(
+			ctx,
+			*storeFlags.root,
+			targetPath,
+			invocation.MaxDepth,
+		)
 	} else {
 		_, err = indexer.IndexDirectoryChildren(ctx, *storeFlags.root, targetPath)
 	}
@@ -222,11 +227,25 @@ func listingInvocation(
 	command string,
 ) (agentproxy.DirectoryListingInvocation, error) {
 	path = strings.TrimSpace(path)
+	command = strings.TrimSpace(command)
+
 	if path != "" {
-		return agentproxy.DirectoryListingInvocation{
+		invocation := agentproxy.DirectoryListingInvocation{
 			Tool: "listing",
 			Path: path,
-		}, nil
+		}
+		if command == "" {
+			return invocation, nil
+		}
+
+		commandInvocation, err := listingCommandInvocation(command)
+		if err != nil {
+			return agentproxy.DirectoryListingInvocation{}, err
+		}
+
+		commandInvocation.Path = path
+
+		return commandInvocation, nil
 	}
 
 	return listingCommandInvocation(command)

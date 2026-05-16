@@ -2413,6 +2413,60 @@ func Nested() {}
 	}
 }
 
+func TestASTIndexerDirectoryTreeHonorsMaxDepth(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeFile(t, filepath.Join(root, "pkg", "app.go"), []byte(`package pkg
+
+func Direct() {}
+`))
+	writeFile(t, filepath.Join(root, "pkg", "sub", "deep.go"), []byte(`package sub
+
+func Nested() {}
+`))
+	writeFile(
+		t,
+		filepath.Join(root, "pkg", "sub", "deeper", "hidden.go"),
+		[]byte(`package deeper
+
+func Hidden() {}
+`),
+	)
+
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	summary, err := NewASTIndexer(store).IndexDirectoryTree(ctx, root, "pkg", 2)
+	if err != nil {
+		t.Fatalf("index directory tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 2 || summary.ChunksIndexed == 0 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	files, err := store.CodeFilesByPath(ctx)
+	if err != nil {
+		t.Fatalf("code files by path: %v", err)
+	}
+
+	for _, path := range []string{"pkg/app.go", "pkg/sub/deep.go"} {
+		if _, found := files[path]; !found {
+			t.Fatalf("indexed file %q missing: %#v", path, files)
+		}
+	}
+
+	if _, found := files["pkg/sub/deeper/hidden.go"]; found {
+		t.Fatalf("too-deep file was indexed: %#v", files)
+	}
+}
+
 func TestASTIndexerDirectoryChildrenMarksConfiguredExcludesInactive(t *testing.T) {
 	t.Parallel()
 
