@@ -392,6 +392,40 @@ func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
 	}
 }
 
+func TestGitCommitLintNormalizesHeredocMessageFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	messagePath := filepath.Join(repo, "COMMIT_EDITMSG")
+	message := "$(cat <<'HEREDOC'\n" +
+		"fix(commitlint): accept heredoc message files\n" +
+		"\n" +
+		"Preserve multi-line commit bodies from command substitution text.\n" +
+		"HEREDOC\n" +
+		")"
+
+	err := os.WriteFile(messagePath, []byte(message), 0o600)
+	if err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+
+	decisions, err := EvaluateGitCommitLint(policyDef, Context{
+		Cwd:              repo,
+		Files:            []string{"COMMIT_EDITMSG"},
+		Scope:            "commit-msg",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allow decision, got %#v", decisions)
+	}
+}
+
 func TestGitSafetyEvaluatorsAllowSafeCommands(t *testing.T) {
 	t.Parallel()
 

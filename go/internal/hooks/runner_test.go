@@ -3733,6 +3733,185 @@ func TestRunCompressesVerbosePostToolOutputContext(t *testing.T) {
 	}
 }
 
+func TestRunSummarizesParsedPostToolDiagnostics(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "npx tsc --noEmit",
+			},
+			ToolResponse: map[string]any{
+				"stderr": strings.Join([]string{
+					"checking project references",
+					"src/app.ts(1,1): error TS2304: Cannot find name 'missing'.",
+					"Files:              318",
+				}, "\n"),
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"diagnostic summary",
+		"findings[1]",
+		"tsc\\,src/app.ts\\,1\\,1\\,error\\,TS2304\\,Cannot find name 'missing'.",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("diagnostic hook context missing %q:\n%s", expected, context)
+		}
+	}
+
+	if strings.Contains(context, "Files:              318") {
+		t.Fatalf("diagnostic hook context retained noisy compiler output:\n%s", context)
+	}
+}
+
+func TestRunSummarizesGoSubcommandDiagnostics(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "go test ./...",
+			},
+			ToolResponse: map[string]any{
+				"stdout": strings.Join([]string{
+					`{"Time":"2026-05-15T17:00:00Z","Action":"run","Package":"example.com/app","Test":"TestPolicy"}`,
+					`{"Time":"2026-05-15T17:00:00Z","Action":"output","Package":"example.com/app","Test":"TestPolicy","Output":"    policy_test.go:42: expected block\n"}`,
+					`{"Time":"2026-05-15T17:00:00Z","Action":"fail","Package":"example.com/app","Test":"TestPolicy","Elapsed":0.01}`,
+				}, "\n"),
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"diagnostic summary",
+		"go-test\\,policy_test.go\\,42\\,0\\,error\\,TestPolicy",
+		"expected block",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("go diagnostic hook context missing %q:\n%s", expected, context)
+		}
+	}
+}
+
+func TestRunUsesRepoConfiguredPostToolCompressionLimits(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	repo := t.TempDir()
+	err := os.Mkdir(filepath.Join(repo, ".git"), 0o700)
+	if err != nil {
+		t.Fatalf("create git marker: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(repo, "repo_config.yaml"), []byte(
+		"proxy:\n"+
+			"  output_compression:\n"+
+			"    max_lines: 5\n"+
+			"    head_lines: 1\n"+
+			"    tail_lines: 1\n",
+	), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	outputLines := []string{"command failed"}
+	for index := 1; index <= 8; index++ {
+		outputLines = append(outputLines, fmt.Sprintf("noise line %02d", index))
+	}
+	outputLines = append(outputLines, "terminal failure")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      toolBash,
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      strings.Join(outputLines, "\n"),
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "8 of 10 lines omitted") ||
+		!strings.Contains(context, "command failed") ||
+		!strings.Contains(context, "terminal failure") {
+		t.Fatalf("repo-configured compression context:\n%s", context)
+	}
+
+	if strings.Contains(context, "noise line 04") {
+		t.Fatalf("repo-configured compression retained omitted line:\n%s", context)
+	}
+}
+
+func TestRunSkipsRepoConfiguredCompressionWhenPostToolCWDIsEmpty(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+
+	repo := t.TempDir()
+	err := os.Mkdir(filepath.Join(repo, ".git"), 0o700)
+	if err != nil {
+		t.Fatalf("create git marker: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(repo, "repo_config.yaml"), []byte(
+		"proxy:\n"+
+			"  output_compression:\n"+
+			"    max_diagnostics: 1\n",
+	), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	t.Chdir(repo)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "npx tsc --noEmit",
+			},
+			ToolResponse: map[string]any{
+				"stderr": strings.Join([]string{
+					"src/one.ts(1,1): error TS2304: Cannot find name 'one'.",
+					"src/two.ts(2,1): error TS2304: Cannot find name 'two'.",
+				}, "\n"),
+				"return_code": 1,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "src/one.ts") ||
+		!strings.Contains(context, "src/two.ts") {
+		t.Fatalf("empty-CWD diagnostic context used process repo config:\n%s", context)
+	}
+}
+
 func TestRunAddsPriorityEthosRemindersForLintCalls(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

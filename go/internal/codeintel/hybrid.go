@@ -107,10 +107,47 @@ func (store *Store) addHybridVectorMatches(
 			continue
 		}
 
+		active, err := store.hybridVectorRecordActive(ctx, item)
+		if err != nil {
+			return err
+		}
+
+		if !active {
+			continue
+		}
+
 		mergeHybridVectorMatch(resultMap, item, match)
 	}
 
 	return nil
+}
+
+func (store *Store) hybridVectorRecordActive(
+	ctx context.Context,
+	item HybridSearchResult,
+) (bool, error) {
+	if item.Kind != "code_chunk" {
+		return true, nil
+	}
+
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE chunk_id = ?
+			AND COALESCE(code_files.deleted_at_utc, '') = ''`,
+		item.RecordID,
+	)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("query active vector code chunk %q: %w", item.RecordID, err)
+	}
+
+	return count > 0, nil
 }
 
 func mergeHybridVectorMatch(
@@ -171,14 +208,39 @@ func (store *Store) IndexStatus(
 		ModelID:          query.ModelID,
 		Collection:       query.Collection,
 	}
+
+	codeChunks, err := store.activeCodeChunkCount(ctx)
+	if err != nil {
+		return IndexStatus{}, err
+	}
+
 	status.ReadyRecords = stats.SARIFResults + stats.RemediationOutcomes +
-		stats.Remediations + stats.CodeChunks
+		stats.Remediations + codeChunks
 
 	status.MissingVectors = max(status.ReadyRecords-status.EmbeddingRecords, 0)
 
 	status.Fresh = status.MissingVectors == 0
 
 	return status, nil
+}
+
+func (store *Store) activeCodeChunkCount(ctx context.Context) (int, error) {
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM code_chunks
+		JOIN code_files ON code_files.path = code_chunks.path
+		WHERE COALESCE(code_files.deleted_at_utc, '') = ''`,
+	)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("query active code chunk count: %w", err)
+	}
+
+	return count, nil
 }
 
 func hybridFromFTS(result SearchResult, position int) HybridSearchResult {

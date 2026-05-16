@@ -269,6 +269,7 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	context, err := store.CodeContext(argsContext(), codeintel.CodeContextQuery{
 		ChunkID:    input.ChunkID,
 		Path:       input.Path,
+		Root:       server.codeIntelRoot(),
 		SymbolPath: input.SymbolPath,
 		Line:       input.Line,
 		Limit:      input.Limit,

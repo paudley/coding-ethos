@@ -684,6 +684,22 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"text":            "",
 		"url":             "",
 	}
+
+	reference["code_intel"] = map[string]any{
+		"exclude_paths": []any{},
+	}
+
+	reference["proxy"] = map[string]any{
+		"output_compression": map[string]any{
+			"head_lines":      0,
+			"head_tokens":     0,
+			"max_diagnostics": 0,
+			"max_lines":       0,
+			"max_tokens":      0,
+			"tail_lines":      0,
+			"tail_tokens":     0,
+		},
+	}
 }
 
 func cloneAnyMap(values map[string]any) map[string]any {
@@ -715,6 +731,7 @@ func knownConfigSection(section string) bool {
 	switch section {
 	case "agent_advice",
 		"bundle",
+		"code_intel",
 		"filesystem",
 		"gemini",
 		"generated_config",
@@ -723,6 +740,7 @@ func knownConfigSection(section string) bool {
 		"hooks",
 		"policy",
 		"project",
+		"proxy",
 		"profiles",
 		"python",
 		"repo",

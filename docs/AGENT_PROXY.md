@@ -100,13 +100,17 @@ The runtime prunes stale matching evidence files from the OS temp directory
 before writing a new one.
 
 Agent hooks now route Bash `PostToolUse` output through this transform path
-before any output is returned to the provider. The live path applies line
-compression and a hard token-budget transform, then stores the proxy
+before any output is returned to the provider. The live path first parses known
+compiler, linter, and test output into a compact diagnostic table, then applies
+line compression and a hard token-budget transform. It stores the proxy
 `tool_output` event and transform ledger in the repo-local code-intel database
-when the provider payload includes a session id. The default hard stop is 2,000
-whitespace-estimated tokens, with `CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS`,
+when the provider payload includes a session id. Repositories can tune
+`proxy.output_compression.max_lines`, `head_lines`, `tail_lines`, `max_tokens`,
+`head_tokens`, `tail_tokens`, and `max_diagnostics` in `repo_config.yaml`. The
+`CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS`,
 `CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS`, and
-`CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS` available for local runtime tuning.
+`CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS` environment variables remain available
+for local runtime token tuning.
 
 Compression must remain traceable. A compressed payload should carry metadata
 that records the omitted line count and temporary full-output path, and the

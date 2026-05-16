@@ -87,6 +87,24 @@ similarity:
   structural_threshold: 0.8
   min_symbol_lines: 5
 
+code_intel:
+  # Repo-local source indexing exclusions. Use these for generated or vendored
+  # paths that are specific to the consuming repository, such as static-site
+  # output directories.
+  exclude_paths:
+    - "**/dist/**"
+
+proxy:
+  output_compression:
+    # Repo-local defaults for Bash PostToolUse output returned to agents.
+    max_lines: 80
+    head_lines: 32
+    tail_lines: 32
+    max_tokens: 2000
+    head_tokens: 900
+    tail_tokens: 900
+    max_diagnostics: 12
+
 git:
   hook_bypass:
     enabled: true

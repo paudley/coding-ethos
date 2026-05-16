@@ -263,12 +263,12 @@ func TestRunWithIOPersistsProxyOutputTransforms(t *testing.T) {
 	}
 	if events[0].Kind != "tool_output" ||
 		events[0].Decision != "truncate" ||
-		len(events[0].Transforms) != 2 {
+		len(events[0].Transforms) != 3 {
 		t.Fatalf("proxy output event = %#v", events[0])
 	}
-	if events[0].Transforms[1].PolicyID != "proxy.token_budget" ||
-		events[0].Transforms[1].Decision != "truncate" ||
-		events[0].Transforms[1].EvidencePath == "" {
+	if events[0].Transforms[2].PolicyID != "proxy.token_budget" ||
+		events[0].Transforms[2].Decision != "truncate" ||
+		events[0].Transforms[2].EvidencePath == "" {
 		t.Fatalf("proxy transforms = %#v", events[0].Transforms)
 	}
 }

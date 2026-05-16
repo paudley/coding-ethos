@@ -366,6 +366,17 @@ carry AST identity are linked back to matching chunks through
 a maintained Go binding or the project adds a first-class adapter for its split
 parser layout.
 
+Code indexing always ignores repository metadata, runtime cache directories,
+and nested `coding-ethos/` tool checkouts. Consumer-specific generated output
+belongs in repo-local configuration rather than global code. For example, a
+static-site repo can exclude generated output in `repo_config.yaml`:
+
+```yaml
+code_intel:
+  exclude_paths:
+    - "**/dist/**"
+```
+
 ## Embedding Strategy
 
 Embedding providers must be pluggable and recorded per vector row.

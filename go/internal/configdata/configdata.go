@@ -16,6 +16,19 @@ import (
 
 type Map = map[string]any
 
+// RepoConfigCandidates returns the repo-local config filenames recognized by
+// runtime features that read consumer repository overrides.
+func RepoConfigCandidates() []string {
+	return []string{
+		"repo_config.yaml",
+		"repo_config.yml",
+		"code-ethos.repo.yaml",
+		"code-ethos.repo.yml",
+		"coding-ethos.repo.yaml",
+		"coding-ethos.repo.yml",
+	}
+}
+
 func LoadYAMLMap(path string) (Map, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {

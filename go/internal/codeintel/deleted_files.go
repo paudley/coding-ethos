@@ -259,6 +259,16 @@ func markCodeFileInactive(
 		return fmt.Errorf("mark code file %s %q: %w", reason, path, err)
 	}
 
+	chunkIDs, err := codeChunkIDsForPath(ctx, transaction, path)
+	if err != nil {
+		return err
+	}
+
+	err = deleteEmbeddingRecordsForCodeChunks(ctx, transaction, chunkIDs)
+	if err != nil {
+		return err
+	}
+
 	_, err = transaction.ExecContext(
 		ctx,
 		`DELETE FROM code_intel_fts
@@ -270,6 +280,44 @@ func markCodeFileInactive(
 	}
 
 	return nil
+}
+
+func codeChunkIDsForPath(
+	ctx context.Context,
+	transaction *sql.Tx,
+	path string,
+) ([]any, error) {
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT chunk_id
+		FROM code_chunks
+		WHERE path = ?`,
+		path,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code chunk IDs for inactive file %q: %w", path, err)
+	}
+	defer rows.Close()
+
+	chunkIDs := []any{}
+
+	for rows.Next() {
+		var chunkID string
+
+		err = rows.Scan(&chunkID)
+		if err != nil {
+			return nil, fmt.Errorf("scan code chunk ID for inactive file %q: %w", path, err)
+		}
+
+		chunkIDs = append(chunkIDs, chunkID)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate code chunk IDs for inactive file %q: %w", path, err)
+	}
+
+	return chunkIDs, nil
 }
 
 func deletionScopes(root string, paths []string) ([]string, error) {
@@ -326,6 +374,8 @@ func pathInDeletionScopes(path string, scopes []string) bool {
 func pathHasSkippedDir(path string) bool {
 	return slices.ContainsFunc(
 		strings.Split(filepath.ToSlash(path), "/"),
-		shouldSkipDir,
+		func(segment string) bool {
+			return shouldSkipDir(segment) || segment == "coding-ethos"
+		},
 	)
 }

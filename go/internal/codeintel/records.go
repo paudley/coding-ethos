@@ -367,6 +367,7 @@ type ASTFindingLink struct {
 type CodeContextQuery struct {
 	ChunkID    string
 	Path       string
+	Root       string
 	SymbolPath string
 	Line       int
 	Limit      int
@@ -375,6 +376,7 @@ type CodeContextQuery struct {
 type CodeContext struct {
 	Parent        *CodeChunk       `json:"parent,omitempty"`
 	Children      []CodeChunk      `json:"children,omitempty"`
+	Siblings      []CodeChunk      `json:"siblings,omitempty"`
 	OutgoingEdges []CodeEdge       `json:"outgoing_edges,omitempty"`
 	IncomingEdges []CodeEdge       `json:"incoming_edges,omitempty"`
 	FindingLinks  []ASTFindingLink `json:"finding_links,omitempty"`
