@@ -26,18 +26,22 @@ const (
 	defaultHookOutputMaxTokens   = 2000
 	defaultHookOutputHeadTokens  = 900
 	defaultHookOutputTailTokens  = 900
+	defaultFileReadChunkLimit    = 512
 	defaultHookOutputMaxLines    = 80
 	defaultHookOutputHeadLines   = 32
 	defaultHookOutputTailLines   = 32
 	defaultHookOutputDiagnostics = 12
 	defaultAnatomyMapSymbols     = 6
 	defaultAnatomyMapTimeout     = 5 * time.Second
+	defaultFileReadPageLines     = 100
+	defaultFileReadSemanticSlack = 50
 	proxyDecisionAllow           = "allow"
 	proxyDecisionInject          = "inject"
 	proxyDecisionSummarize       = "summarize"
 	proxyDecisionTruncate        = "truncate"
 	proxyPolicyDiagnosticSummary = "proxy.diagnostic_summary"
 	proxyPolicyDirectoryAnatomy  = "proxy.directory_anatomy"
+	proxyPolicyFilePagination    = "proxy.file_pagination"
 	proxyPolicyTokenBudget       = "proxy.token_budget"
 )
 
@@ -50,11 +54,161 @@ type proxiedToolOutput struct {
 func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
 	normalizer := hookOutputNormalizer(event.Cwd)
 	normalized := normalizer.preserveLines(output)
-	proxied := compressToolOutputWithRecords(event, normalized)
+	proxied := proxiedToolOutput{Text: normalized}
+
+	proxied = paginateFileReadToolOutput(event, proxied)
+	if !hasFilePaginationTransform(proxied.Records) {
+		compressed := compressToolOutputWithRecords(event, proxied.Text)
+		proxied.Text = compressed.Text
+		proxied.Records = append(proxied.Records, compressed.Records...)
+	}
+
 	proxied = enrichDirectoryListingToolOutput(event, proxied)
 	proxied.Events = proxyToolOutputEvents(event, normalized, proxied)
 
 	return proxied
+}
+
+func paginateFileReadToolOutput(
+	event Event,
+	proxied proxiedToolOutput,
+) proxiedToolOutput {
+	if event.ReturnCode() != 0 {
+		return proxied
+	}
+
+	invocation, readDetected := fileReadInvocation(event.Command())
+	if !readDetected {
+		return proxied
+	}
+
+	root := gitRootFromPath(event.Cwd)
+	if root == "" {
+		return proxied
+	}
+
+	targetPath, ok := repoRelativeListingPath(root, event.Cwd, invocation.Path)
+	if !ok || !isRepoFile(root, targetPath) {
+		return proxied
+	}
+
+	pageEnd := semanticFileReadPageEnd(root, targetPath, proxied.Text)
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.FileReadPaginationTransform{
+			Path:      targetPath,
+			PageStart: 1,
+			PageEnd:   pageEnd,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: proxied.Text},
+	)
+	if err != nil {
+		return proxied
+	}
+
+	proxied.Text = output.Text
+	proxied.Records = append(proxied.Records, output.Records...)
+
+	return proxied
+}
+
+func fileReadInvocation(command string) (agentproxy.FileReadInvocation, bool) {
+	commands, err := shellparse.Commands(command)
+	if err != nil || len(commands) != 1 {
+		return agentproxy.FileReadInvocation{}, false
+	}
+
+	return agentproxy.DetectShellFileReadInvocation(commands[0])
+}
+
+func isRepoFile(root, targetPath string) bool {
+	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(targetPath)))
+	if err != nil {
+		return false
+	}
+
+	return !info.IsDir()
+}
+
+func semanticFileReadPageEnd(root, targetPath, output string) int {
+	totalLines := lineCount(output)
+	if totalLines <= 0 {
+		return defaultFileReadPageLines
+	}
+
+	pageEnd := min(defaultFileReadPageLines, totalLines)
+	if totalLines <= pageEnd {
+		return pageEnd
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		defaultAnatomyMapTimeout,
+	)
+	defer cancel()
+
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		return pageEnd
+	}
+	defer store.Close()
+
+	indexer := codeintel.NewASTIndexer(store)
+
+	_, err = indexer.IndexPaths(ctx, root, []string{targetPath})
+	if err != nil {
+		return pageEnd
+	}
+
+	chunks, err := store.CodeChunks(
+		ctx,
+		codeintel.CodeChunkQuery{
+			Path:  targetPath,
+			Limit: defaultFileReadChunkLimit,
+		},
+	)
+	if err != nil {
+		return pageEnd
+	}
+
+	return semanticPageEnd(pageEnd, totalLines, chunks)
+}
+
+func semanticPageEnd(
+	target int,
+	totalLines int,
+	chunks []codeintel.CodeChunk,
+) int {
+	semanticLimit := min(target+defaultFileReadSemanticSlack, totalLines)
+
+	for _, chunk := range chunks {
+		if chunk.StartLine <= 0 || chunk.EndLine <= 0 || chunk.SymbolPath == "" {
+			continue
+		}
+
+		if chunk.StartLine > target {
+			break
+		}
+
+		if chunk.EndLine <= target {
+			continue
+		}
+
+		if chunk.EndLine <= semanticLimit {
+			return chunk.EndLine
+		}
+
+		if chunk.StartLine > 1 {
+			return chunk.StartLine - 1
+		}
+
+		return target
+	}
+
+	return target
 }
 
 func enrichDirectoryListingToolOutput(
@@ -323,6 +477,10 @@ func proxyToolOutputDecision(records []agentproxy.TransformRecord) string {
 func proxyToolOutputPolicyID(records []agentproxy.TransformRecord) string {
 	if hasDirectoryAnatomyTransform(records) {
 		return proxyPolicyDirectoryAnatomy
+	}
+
+	if hasFilePaginationTransform(records) {
+		return proxyPolicyFilePagination
 	}
 
 	switch proxyToolOutputDecision(records) {

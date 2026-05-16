@@ -2480,6 +2480,98 @@ func TestRunEnrichesTreeOutputWithNestedAnatomy(t *testing.T) {
 	}
 }
 
+func TestRunPaginatesFileReadOutputAtSemanticBoundary(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	repo := initHookRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+
+	err := os.MkdirAll(pkgDir, 0o700)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	lines := make([]string, 0, 136)
+	for index := 1; index <= 80; index++ {
+		lines = append(lines, fmt.Sprintf("# filler %d", index))
+	}
+	lines = append(lines, "def boundary_function():")
+	for index := 1; index <= 24; index++ {
+		lines = append(lines, fmt.Sprintf("    value_%d = %d", index, index))
+	}
+	lines = append(lines, "    return value_24")
+	for index := 1; index <= 30; index++ {
+		lines = append(lines, fmt.Sprintf("# tail %d", index))
+	}
+
+	content := strings.Join(lines, "\n") + "\n"
+	err = os.WriteFile(filepath.Join(pkgDir, "large.py"), []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write large file fixture: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ProviderHint:  "codex",
+			SessionID:     "session-file-read",
+			ToolName:      toolBash,
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "cat pkg/large.py",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      content,
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing file pagination context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"paginated file read",
+		"showing lines 1-106 of 136",
+		" 81 | def boundary_function():",
+		"106 |     return value_24",
+		"next page: sed -n '107\\,136p' pkg/large.py",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("file pagination context missing %q: %s", expected, context)
+		}
+	}
+
+	if strings.Contains(context, "107 | # tail 1") {
+		t.Fatalf("file pagination crossed semantic boundary: %s", context)
+	}
+
+	if len(result.ProxyEvents) != 1 {
+		t.Fatalf("expected one proxy event: %#v", result.ProxyEvents)
+	}
+
+	event := result.ProxyEvents[0]
+	if event.Decision != "truncate" || event.PolicyID != "proxy.file_pagination" {
+		t.Fatalf("unexpected proxy event policy: %#v", event)
+	}
+
+	foundTransform := false
+	for _, record := range event.Transforms {
+		if record.Name == "file-read-pagination" &&
+			record.Decision == "truncate" &&
+			record.EvidencePath != "" {
+			foundTransform = true
+		}
+	}
+	if !foundTransform {
+		t.Fatalf("missing file pagination transform: %#v", event.Transforms)
+	}
+}
+
 func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

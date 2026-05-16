@@ -233,6 +233,10 @@ func shouldEmitPostToolBashContext(
 		return true
 	}
 
+	if hasFilePaginationTransform(proxiedOutput.Records) {
+		return true
+	}
+
 	if isLintCommand(command) {
 		return true
 	}
@@ -250,6 +254,17 @@ func hasDirectoryAnatomyTransform(records []agentproxy.TransformRecord) bool {
 	for _, record := range records {
 		if record.Name == codeintel.DirectoryAnatomyTransformName &&
 			record.Decision == proxyDecisionInject {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasFilePaginationTransform(records []agentproxy.TransformRecord) bool {
+	for _, record := range records {
+		if record.Name == agentproxy.FileReadPaginationTransformName &&
+			record.Decision == proxyDecisionTruncate {
 			return true
 		}
 	}

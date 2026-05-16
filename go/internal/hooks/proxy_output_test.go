@@ -32,3 +32,22 @@ func TestProxyToolOutputPolicyIDPrefersDirectoryAnatomy(t *testing.T) {
 		t.Fatalf("decision mismatch: got %q, want %q", got, proxyDecisionTruncate)
 	}
 }
+
+func TestProxyToolOutputPolicyIDPrefersFilePaginationOverTokenBudget(t *testing.T) {
+	t.Parallel()
+
+	records := []agentproxy.TransformRecord{
+		{
+			Name:     "token-budget",
+			Decision: proxyDecisionTruncate,
+		},
+		{
+			Name:     agentproxy.FileReadPaginationTransformName,
+			Decision: proxyDecisionTruncate,
+		},
+	}
+
+	if got := proxyToolOutputPolicyID(records); got != proxyPolicyFilePagination {
+		t.Fatalf("policy ID mismatch: got %q, want %q", got, proxyPolicyFilePagination)
+	}
+}

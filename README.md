@@ -397,6 +397,15 @@ session recomputes the file hash and, when it still matches, records a
 `cache_hit` event and returns a short cached-read stub instead of resending the
 file body. This is the reusable core for future transparent read interception.
 
+Successful Bash `cat <path>` PostToolUse outputs are also recognized as direct
+file reads when the command is static, single-target, and repo-local. Large
+reads return a line-numbered first page with a visible full-output evidence path
+instead of flooding the agent context with the entire file. The page defaults to
+100 lines, but the hook refreshes code-intel AST chunks for the target file and
+extends or backs up the page end around nearby function/class boundaries when
+that avoids severing a symbol. The resulting proxy event uses
+`proxy.file_pagination` and the `file-read-pagination` transform.
+
 Agent Bash `PostToolUse` output also passes through the proxy transform path
 before hook context is returned to the provider. Verbose shell, lint, compiler,
 and test output is summarized with known diagnostic parsers where possible,

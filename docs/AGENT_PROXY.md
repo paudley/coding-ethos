@@ -132,6 +132,26 @@ The cache must miss whenever the file changes, the path changes, or the session
 changes. A transparent proxy should reuse this path before returning read tool
 output to an agent so repeated reads save tokens without hiding changed source.
 
+## File Read Pagination
+
+Live Bash `PostToolUse` output now recognizes conservative single-file
+`cat <path>` reads through the shared shell parser before generic output
+compression runs. Successful reads inside the current repository are returned as
+a line-numbered first page instead of an unbounded file body. The transform
+writes the complete original payload to `/tmp/coding-ethos-tool-output-*.log`,
+surfaces that evidence path in the visible marker, and records
+`proxy.file_pagination` with the `file-read-pagination` transform in the
+provider-neutral proxy ledger.
+
+Pagination defaults to the first 100 lines. Before choosing the final page end,
+the hook refreshes the target path in the repo-local AST index and asks
+code-intel for code chunks. When a symbol crosses the 100-line boundary and
+finishes within the semantic slack window, the page extends through the symbol
+end. When the crossing symbol is too large, the page stops before that symbol
+starts where possible. This keeps ordinary function and class signatures from
+being severed while still requiring explicit follow-up reads such as
+`sed -n '101,200p' path`.
+
 ## Directory Listing Anatomy
 
 Directory listing enrichment uses the same transform contract. The
