@@ -246,6 +246,14 @@ depth cap. `enrich-listing` accepts raw listing output from stdin or
 `--listing-file` and can infer the target directory and recursive depth from a
 static, single-target `ls` or `tree` command for replay and debugging.
 
+`repo-map` and the startup `coding_ethos_repo_map` hook context provide the
+global variant. The hook refreshes the repo-local AST index at `SessionStart`,
+ranks indexed files by compact symbol/chunk signals, and emits the most useful
+file/symbol signatures as TOON. The same renderer backs MCP
+`code_intel_repo_map` and the read-only
+`coding-ethos://code-intel/repo-map` resource so agents can request the current
+map explicitly before broad exploration.
+
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
 a `file_read` proxy event, and records later unchanged reads in the same session
@@ -417,6 +425,8 @@ Add tools only after the store has a stable schema:
 
 - `code_intel_search`: hybrid semantic/FTS search over stored SARIF,
   remediation, and AST chunk memory.
+- `code_intel_repo_map`: return compact ranked files, symbols, and signatures
+  from the repo-local AST index for session orientation.
 - `code_intel_index_code`: refresh Tree-sitter code chunks for selected paths.
 - `code_intel_code_chunks`: return focused symbol/config chunks by path,
   language, symbol kind, or symbol name.

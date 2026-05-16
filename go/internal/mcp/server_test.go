@@ -34,8 +34,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 21 {
-		t.Fatalf("tool count = %d, want 21: %#v", len(tools), tools)
+	if len(tools) != 22 {
+		t.Fatalf("tool count = %d, want 22: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -55,6 +55,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_index_status",
 		"code_intel_hook_usage",
 		"code_similarity_check",
+		"code_intel_repo_map",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -475,6 +476,11 @@ func codeIntelToolRequests() []codeIntelToolRequestCase {
 			want: "code_intel_code_context",
 		},
 		{
+			name: "repo map",
+			body: `{"limit":5,"symbols_per_file":2,"format":"toon"}`,
+			want: "coding_ethos_repo_map",
+		},
+		{
 			name: "embedding candidates",
 			body: `{"record_kind":"remediation_outcome",` +
 				`"policy_id":"python.conditional_imports"}`,
@@ -501,6 +507,34 @@ func codeIntelToolRequest(
 			"method":"tools/call",
 			"params":{"name":"code_intel_%s","arguments":%s}
 		}`, 40+index, strings.ReplaceAll(request.name, " ", "_"), request.body))
+}
+
+func TestServerCodeIntelRepoMapResource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	listOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":54,
+		"method":"resources/list"
+	}`), runtime)
+	if !strings.Contains(listOutput, "coding-ethos://code-intel/repo-map") {
+		t.Fatalf("resource list missing repo map:\n%s", listOutput)
+	}
+
+	readOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":55,
+		"method":"resources/read",
+		"params":{"uri":"coding-ethos://code-intel/repo-map"}
+	}`), runtime)
+	if !strings.Contains(readOutput, "coding_ethos_repo_map") ||
+		!strings.Contains(readOutput, "pkg/app.py") {
+		t.Fatalf("resource read missing repo map:\n%s", readOutput)
+	}
 }
 
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {

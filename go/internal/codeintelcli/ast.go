@@ -420,7 +420,7 @@ func printRepoMap(ctx context.Context, args []string) error {
 		flags,
 		storeFlags,
 		func(store *codeintel.Store) (any, error) {
-			return store.RepoMap(ctx, codeintel.CompactCodeContextQuery{
+			return store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
 				Path:     *path,
 				Root:     *storeFlags.root,
 				Language: *language,

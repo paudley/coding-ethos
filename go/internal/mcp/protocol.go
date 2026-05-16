@@ -46,6 +46,10 @@ type toolCallParams struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
+type resourceReadParams struct {
+	URI string `json:"uri"`
+}
+
 func toolText(parts ...string) string {
 	return strings.Join(parts, " ")
 }
@@ -286,6 +290,14 @@ type codeIntelCodeContextInput struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type codeIntelRepoMapInput struct {
+	Path           string `json:"path,omitempty"`
+	Language       string `json:"language,omitempty"`
+	Format         string `json:"format,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	SymbolsPerFile int    `json:"symbols_per_file,omitempty"`
+}
+
 type codeSimilarityCheckInput struct {
 	Code      string  `json:"code"`
 	Path      string  `json:"path,omitempty"`
@@ -355,6 +367,9 @@ func initializeResult(params json.RawMessage) map[string]any {
 			"tools": map[string]any{
 				"listChanged": false,
 			},
+			"resources": map[string]any{
+				"listChanged": false,
+			},
 		},
 		"serverInfo": map[string]any{
 			"name":    "coding-ethos",
@@ -379,8 +394,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 23
-	codeIntelToolDefinitionCapacity = 9
+	toolDefinitionCapacity          = 24
+	codeIntelToolDefinitionCapacity = 10
 )
 
 func toolDefinitions() []map[string]any {
@@ -392,6 +407,17 @@ func toolDefinitions() []map[string]any {
 	definitions = append(definitions, codeIntelToolDefinitions()...)
 
 	return definitions
+}
+
+func resourceDefinitions() []map[string]any {
+	return []map[string]any{
+		{
+			"uri":         repoMapResourceURI,
+			"name":        "coding_ethos_repo_map",
+			"description": "Compact repository-wide AST map for session orientation.",
+			"mimeType":    "text/vnd.coding-ethos.toon",
+		},
+	}
 }
 
 func policyPreflightToolDefinitions() []map[string]any {
@@ -815,6 +841,7 @@ func codeIntelHookToolDefinitions() []map[string]any {
 func codeIntelCodeToolDefinitions() []map[string]any {
 	return []map[string]any{
 		codeSimilarityToolDefinition(),
+		codeIntelRepoMapToolDefinition(),
 		toolDefinition(
 			"code_intel_index_code",
 			toolText(
@@ -891,6 +918,34 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeIntelRepoMapToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_repo_map",
+		toolText(
+			"Return a compact repository-wide AST map with ranked files,",
+			"important symbols, and signatures for startup orientation.",
+		),
+		map[string]any{
+			"path":             map[string]any{"type": "string"},
+			"language":         map[string]any{"type": "string"},
+			"limit":            map[string]any{"type": "integer"},
+			"symbols_per_file": map[string]any{"type": "integer"},
+			"format":           map[string]any{"type": "string"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"orient a session before broad directory listings or",
+				"whole-file reads",
+			),
+			TracePersisted: false,
+		},
+	)
 }
 
 func codeSimilarityToolDefinition() map[string]any {

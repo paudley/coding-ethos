@@ -154,6 +154,15 @@ starts where possible. This keeps ordinary function and class signatures from
 being severed while still requiring explicit follow-up reads such as
 `sed -n '101,200p' path`.
 
+## Startup Repo Map
+
+On `SessionStart`, the hook runtime refreshes the repo-local Tree-sitter index
+and injects a compact `coding_ethos_repo_map` when indexed source symbols are
+available. The map ranks files by symbol/chunk signals and includes concise
+symbol signatures so agents can choose focused reads before broad exploration.
+The same map is available through MCP as `code_intel_repo_map` and the
+`coding-ethos://code-intel/repo-map` resource.
+
 ## Directory Listing Anatomy
 
 Directory listing enrichment uses the same transform contract. The

@@ -2245,6 +2245,51 @@ func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
 	}
 }
 
+func TestASTIndexerReturnsGlobalRepoMap(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "cmd", "main.go"), []byte(`package main
+
+func main() {}
+`))
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(
+		"def helper():\n"+
+			"    return \"ok\"\n\n"+
+			"class Worker:\n"+
+			"    def run(self):\n"+
+			"        return helper()\n",
+	))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	repoMap, err := store.GlobalRepoMap(ctx, RepoMapQuery{
+		Root:           root,
+		Limit:          2,
+		SymbolsPerFile: 2,
+	})
+	if err != nil {
+		t.Fatalf("global repo map: %v", err)
+	}
+
+	rendered := RenderRepoMapTOON(repoMap)
+	if len(repoMap.Files) != 2 ||
+		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
+		!strings.Contains(rendered, "pkg/worker.py") ||
+		!strings.Contains(rendered, "def helper():") {
+		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
+	}
+}
+
 func TestASTDerivedContextRefusesStaleSource(t *testing.T) {
 	t.Parallel()
 

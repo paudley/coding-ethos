@@ -3,7 +3,19 @@
 
 package hooks
 
-import "strings"
+import (
+	"context"
+	"strings"
+	"time"
+
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
+)
+
+const (
+	defaultStartupRepoMapLimit          = 16
+	defaultStartupRepoMapSymbolsPerFile = 3
+	defaultStartupRepoMapTimeout        = 5 * time.Second
+)
 
 func lifecycleOutput(event Event) *HookSpecificOutput {
 	context := lifecycleContext(event)
@@ -20,13 +32,7 @@ func lifecycleOutput(event Event) *HookSpecificOutput {
 func lifecycleContext(event Event) string {
 	switch event.HookEventName {
 	case eventSessionStart:
-		return buildGuidanceContext(
-			[]string{
-				"Load repository conventions, managed toolchain rules, " +
-					"and generated skills before editing.",
-			},
-			"",
-		)
+		return sessionStartContext(event)
 	case eventUserPromptSubmit:
 		return buildGuidanceContext(
 			[]string{
@@ -73,6 +79,67 @@ func lifecycleContext(event Event) string {
 	default:
 		return ""
 	}
+}
+
+func sessionStartContext(event Event) string {
+	context := buildGuidanceContext(
+		[]string{
+			"Load repository conventions, managed toolchain rules, " +
+				"and generated skills before editing.",
+			"Use the repo map to choose focused reads before broad exploration.",
+		},
+		"",
+	)
+
+	repoMap := startupRepoMap(event.Cwd)
+	if repoMap == "" {
+		return context
+	}
+
+	return context + "\n\n" + repoMap
+}
+
+func startupRepoMap(cwd string) string {
+	root := gitRootFromPath(cwd)
+	if root == "" {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		defaultStartupRepoMapTimeout,
+	)
+	defer cancel()
+
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		return ""
+	}
+	defer store.Close()
+
+	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, root, nil)
+	if err != nil {
+		return ""
+	}
+
+	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
+		Root:           root,
+		Limit:          defaultStartupRepoMapLimit,
+		SymbolsPerFile: defaultStartupRepoMapSymbolsPerFile,
+	})
+	if err != nil {
+		return ""
+	}
+
+	rendered := codeintel.RenderRepoMapTOON(repoMap)
+	if rendered == "" {
+		return ""
+	}
+
+	return strings.Join([]string{
+		rendered,
+		`repo_map_mcp: code_intel_repo_map {"limit":16,"symbols_per_file":3}`,
+	}, "\n")
 }
 
 func buildChecklistContext(heading string, guidance []string) string {
