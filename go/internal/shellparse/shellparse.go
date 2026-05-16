@@ -546,12 +546,25 @@ func decodeANSIEscape(value string, index int) (string, int, bool) {
 
 func simpleANSIEscape(char byte) (string, bool) {
 	switch char {
+	case 'e', 'E':
+		return "\x1b", true
+	case '\\':
+		return "\\", true
+	case '\'':
+		return "'", true
+	case '"':
+		return "\"", true
+	default:
+		return simpleANSIControlEscape(char)
+	}
+}
+
+func simpleANSIControlEscape(char byte) (string, bool) {
+	switch char {
 	case 'a':
 		return "\a", true
 	case 'b':
 		return "\b", true
-	case 'e', 'E':
-		return "\x1b", true
 	case 'f':
 		return "\f", true
 	case 'n':
@@ -562,12 +575,6 @@ func simpleANSIEscape(char byte) (string, bool) {
 		return "\t", true
 	case 'v':
 		return "\v", true
-	case '\\':
-		return "\\", true
-	case '\'':
-		return "'", true
-	case '"':
-		return "\"", true
 	default:
 		return "", false
 	}
