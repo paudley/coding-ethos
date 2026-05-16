@@ -425,6 +425,8 @@ type DirectoryAnatomyQuery struct {
 	Language       string
 	Limit          int
 	SymbolsPerFile int
+	IncludeNested  bool
+	MaxDepth       int
 }
 
 type DirectoryAnatomy struct {

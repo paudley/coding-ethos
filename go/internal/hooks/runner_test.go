@@ -147,6 +147,33 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	}
 }
 
+func TestRunAllowsANSICQuotedMultilineCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m " +
+					"$'feat(proxy): enrich listings\\n\\n" +
+					"Append AST anatomy to directory listings.\\n\\nFixes #54'",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -2308,6 +2335,148 @@ func TestRunSuppressesSuccessfulPostToolHookOutputContext(t *testing.T) {
 			"successful hook-like output should stay silent: %#v",
 			result.HookSpecificOutput,
 		)
+	}
+}
+
+func TestRunEnrichesSuccessfulDirectoryListingOutput(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	repo := initHookRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+
+	err := os.MkdirAll(pkgDir, 0o700)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(pkgDir, "listing_fixture.go"),
+		[]byte("package pkg\n\nfunc LoadUser() string {\n\treturn \"ok\"\n}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write listing fixture: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ProviderHint:  "codex",
+			SessionID:     "session-directory-listing",
+			ToolName:      toolBash,
+			Cwd:           pkgDir,
+			ToolInput: map[string]any{
+				"command": "ls .",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      "listing_fixture.go\n",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing directory listing context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"listing_fixture.go",
+		"coding_ethos_anatomy:",
+		"path: pkg",
+		"pkg/listing_fixture.go",
+		"LoadUser",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("directory listing context missing %q: %s", expected, context)
+		}
+	}
+
+	if len(result.ProxyEvents) != 1 {
+		t.Fatalf("expected one proxy event: %#v", result.ProxyEvents)
+	}
+
+	event := result.ProxyEvents[0]
+	if event.Decision != "inject" || event.PolicyID != "proxy.directory_anatomy" {
+		t.Fatalf("unexpected proxy event policy: %#v", event)
+	}
+
+	foundTransform := false
+	for _, record := range event.Transforms {
+		if record.Name == "directory-anatomy-map" && record.Decision == "inject" {
+			foundTransform = true
+		}
+	}
+	if !foundTransform {
+		t.Fatalf("missing directory anatomy transform: %#v", event.Transforms)
+	}
+}
+
+func TestRunEnrichesTreeOutputWithNestedAnatomy(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	repo := initHookRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+
+	err := os.MkdirAll(filepath.Join(pkgDir, "sub"), 0o700)
+	if err != nil {
+		t.Fatalf("create package dirs: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(pkgDir, "root.go"),
+		[]byte("package pkg\n\nfunc RootSymbol() {}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write root fixture: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(pkgDir, "sub", "deep.go"),
+		[]byte("package sub\n\nfunc DeepSymbol() {}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write nested fixture: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ProviderHint:  "codex",
+			SessionID:     "session-tree-listing",
+			ToolName:      toolBash,
+			Cwd:           pkgDir,
+			ToolInput: map[string]any{
+				"command": "tree -L 2 .",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      ".\n|-- root.go\n`-- sub\n    `-- deep.go\n",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing tree context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"coding_ethos_anatomy:",
+		"pkg/root.go",
+		"RootSymbol",
+		"pkg/sub/deep.go",
+		"DeepSymbol",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("tree context missing %q: %s", expected, context)
+		}
 	}
 }
 

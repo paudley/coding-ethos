@@ -271,6 +271,158 @@ func (indexer ASTIndexer) IndexDirectoryChildren(
 	return summary, nil
 }
 
+// IndexDirectoryTree refreshes source files under dir up to maxDepth listing
+// levels. A maxDepth of 1 indexes only direct child files, matching tree -L 1.
+func (indexer ASTIndexer) IndexDirectoryTree(
+	ctx context.Context,
+	root string,
+	dir string,
+	maxDepth int,
+) (CodeIndexSummary, error) {
+	if maxDepth <= 1 {
+		return indexer.IndexDirectoryChildren(ctx, root, dir)
+	}
+
+	root, path, err := indexDirectoryTarget(root, dir)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
+	options, err := LoadIndexOptions(root)
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+
+	ignoreMatcher := newGitIgnoreMatcher(ctx, root)
+	summary := CodeIndexSummary{}
+
+	err = filepath.WalkDir(
+		path,
+		func(currentPath string, entry os.DirEntry, walkErr error) error {
+			return indexer.walkDirectoryTreeEntry(
+				ctx,
+				root,
+				path,
+				currentPath,
+				entry,
+				walkErr,
+				ignoreMatcher,
+				options,
+				&summary,
+				maxDepth,
+			)
+		},
+	)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf(
+			"walk bounded code-intel AST directory %s: %w",
+			dir,
+			err,
+		)
+	}
+
+	return summary, nil
+}
+
+func (indexer ASTIndexer) walkDirectoryTreeEntry(
+	ctx context.Context,
+	root string,
+	targetPath string,
+	currentPath string,
+	entry os.DirEntry,
+	walkErr error,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+	summary *CodeIndexSummary,
+	maxDepth int,
+) error {
+	if walkErr != nil {
+		return fmt.Errorf("walk bounded code-intel AST path %s: %w", currentPath, walkErr)
+	}
+
+	if !entry.IsDir() {
+		return nil
+	}
+
+	fileDepth, depthErr := directoryTreeFileDepth(targetPath, currentPath)
+	if depthErr != nil {
+		return depthErr
+	}
+
+	if fileDepth > maxDepth {
+		return filepath.SkipDir
+	}
+
+	relativePath, relErr := filepath.Rel(root, currentPath)
+	if relErr != nil {
+		return fmt.Errorf("relativize bounded index directory %q: %w", currentPath, relErr)
+	}
+
+	relativePath = filepath.ToSlash(relativePath)
+	if skipDirectoryTreeIndex(
+		ctx,
+		ignoreMatcher,
+		options,
+		entry,
+		currentPath,
+		relativePath,
+	) {
+		return filepath.SkipDir
+	}
+
+	childSummary, indexErr := indexer.IndexDirectoryChildren(
+		ctx,
+		root,
+		relativePath,
+	)
+	if indexErr != nil {
+		return indexErr
+	}
+
+	mergeCodeIndexSummary(summary, childSummary)
+
+	if fileDepth >= maxDepth {
+		return filepath.SkipDir
+	}
+
+	return nil
+}
+
+func skipDirectoryTreeIndex(
+	ctx context.Context,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+	entry os.DirEntry,
+	currentPath string,
+	relativePath string,
+) bool {
+	return relativePath != "." &&
+		(shouldSkipDir(entry.Name()) ||
+			pathHasSkippedDir(relativePath) ||
+			ignoreMatcher.ignoredDir(ctx, currentPath) ||
+			excludedByConfig(relativePath, options.ExcludePatterns))
+}
+
+func directoryTreeFileDepth(rootPath, currentPath string) (int, error) {
+	relativePath, err := filepath.Rel(rootPath, currentPath)
+	if err != nil {
+		return 0, fmt.Errorf("relativize bounded tree directory %q: %w", currentPath, err)
+	}
+
+	if relativePath == "." {
+		return 1, nil
+	}
+
+	return len(strings.Split(filepath.ToSlash(relativePath), "/")) + 1, nil
+}
+
+func mergeCodeIndexSummary(summary *CodeIndexSummary, child CodeIndexSummary) {
+	summary.Skipped = append(summary.Skipped, child.Skipped...)
+	summary.Deleted = append(summary.Deleted, child.Deleted...)
+	summary.FilesIndexed += child.FilesIndexed
+	summary.ChunksIndexed += child.ChunksIndexed
+}
+
 func (indexer ASTIndexer) markIgnoredDirectoryChildrenDeleted(
 	ctx context.Context,
 	root string,

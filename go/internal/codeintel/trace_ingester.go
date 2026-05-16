@@ -15,8 +15,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/hooks"
+	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
@@ -279,7 +280,7 @@ func DecodeLintTrace(path string, payload []byte) (Trace, error) {
 }
 
 func DecodeHookTrace(path string, payload []byte) (Trace, error) {
-	var record hooks.HookTrace
+	var record hookTraceRecord
 
 	err := json.Unmarshal(payload, &record)
 	if err != nil {
@@ -308,6 +309,58 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 	}, nil
 }
 
+type hookTraceRecord struct {
+	Command           *hookTraceCommand           `json:"command,omitempty"`
+	Tool              string                      `json:"tool,omitempty"`
+	Matcher           string                      `json:"matcher,omitempty"`
+	RecordedAtUTC     string                      `json:"recorded_at_utc"`
+	Provider          string                      `json:"provider,omitempty"`
+	Event             string                      `json:"event"`
+	OperationKind     string                      `json:"operation_kind,omitempty"`
+	SessionID         string                      `json:"session_id,omitempty"`
+	TargetSetSHA256   string                      `json:"target_set_sha256,omitempty"`
+	Source            string                      `json:"source,omitempty"`
+	TranscriptPath    string                      `json:"transcript_path,omitempty"`
+	Cwd               string                      `json:"cwd,omitempty"`
+	TraceID           string                      `json:"trace_id"`
+	TrackingID        string                      `json:"tracking_id,omitempty"`
+	TargetKind        string                      `json:"target_kind,omitempty"`
+	Status            string                      `json:"status"`
+	RiskCategory      string                      `json:"risk_category,omitempty"`
+	AgentRemediation  []agentmsg.Remediation      `json:"agent_remediation,omitempty"`
+	Files             []string                    `json:"files,omitempty"`
+	Decisions         []hookTraceDecision         `json:"decisions,omitempty"`
+	Findings          []evidence.Finding          `json:"findings,omitempty"`
+	RemediationEvents []evidence.RemediationEvent `json:"remediation_events,omitempty"`
+	OutputShape       hookTraceOutputShape        `json:"output_shape"`
+	RuntimeMS         int64                       `json:"runtime_ms,omitempty"`
+}
+
+type hookTraceCommand struct {
+	SHA256      string `json:"sha256"`
+	ShapeSHA256 string `json:"shape_sha256,omitempty"`
+}
+
+type hookTraceDecision struct {
+	PolicyID        string   `json:"policy_id,omitempty"`
+	Decision        string   `json:"decision,omitempty"`
+	Severity        string   `json:"severity,omitempty"`
+	SkillID         string   `json:"skill_id,omitempty"`
+	Suggestion      string   `json:"suggestion,omitempty"`
+	Implementation  string   `json:"implementation,omitempty"`
+	Message         string   `json:"message,omitempty"`
+	MessageHash     string   `json:"message_hash,omitempty"`
+	SuggestionHash  string   `json:"suggestion_hash,omitempty"`
+	PrincipleIDs    []string `json:"principle_ids,omitempty"`
+	DiagnosticCount int      `json:"diagnostic_count,omitempty"`
+}
+
+type hookTraceOutputShape struct {
+	HasUpdatedInput      bool `json:"has_updated_input"`
+	HasAdditionalContext bool `json:"has_additional_context"`
+	Blocked              bool `json:"blocked"`
+}
+
 func traceIDOrSourceFallback(traceID, path string) string {
 	if strings.TrimSpace(traceID) != "" || strings.TrimSpace(path) == "" {
 		return traceID
@@ -321,7 +374,7 @@ func traceIDOrSourceFallback(traceID, path string) string {
 	return fmt.Sprintf("source-%s-%s-%x", parent, base, sum[:6])
 }
 
-func hookEventAnalytics(record hooks.HookTrace) *HookEventAnalytics {
+func hookEventAnalytics(record hookTraceRecord) *HookEventAnalytics {
 	event := &HookEventAnalytics{
 		TraceID:           record.TraceID,
 		TrackingID:        record.TrackingID,
@@ -352,7 +405,7 @@ func hookEventAnalytics(record hooks.HookTrace) *HookEventAnalytics {
 	return event
 }
 
-func hookDecisionAnalytics(record hooks.HookTrace) []HookDecisionAnalytics {
+func hookDecisionAnalytics(record hookTraceRecord) []HookDecisionAnalytics {
 	if len(record.Decisions) == 0 {
 		return nil
 	}
@@ -380,7 +433,7 @@ func hookDecisionAnalytics(record hooks.HookTrace) []HookDecisionAnalytics {
 	return decisions
 }
 
-func hookTargetAnalytics(record hooks.HookTrace) []HookTargetAnalytics {
+func hookTargetAnalytics(record hookTraceRecord) []HookTargetAnalytics {
 	if len(record.Files) == 0 {
 		return nil
 	}

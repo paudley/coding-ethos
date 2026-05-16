@@ -2026,6 +2026,14 @@ func NestedA() {}
 
 func NestedB() {}
 `))
+	writeFile(
+		t,
+		filepath.Join(root, "pkg", "aaa", "deeper", "nested.go"),
+		[]byte(`package deeper
+
+func TooDeep() {}
+`),
+	)
 	writeFile(t, filepath.Join(root, "pkg", "zz.go"), []byte(`package pkg
 
 func LastDirect() {}
@@ -2084,6 +2092,26 @@ func LastDirect() {}
 
 	if anatomyFileByPath(limited.Files, "pkg/aaa/nested.go") != nil {
 		t.Fatalf("limited anatomy included nested file: %#v", limited.Files)
+	}
+
+	recursive, err := store.DirectoryAnatomy(ctx, DirectoryAnatomyQuery{
+		Path:           "pkg",
+		IncludeNested:  true,
+		MaxDepth:       2,
+		SymbolsPerFile: 1,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("recursive directory anatomy: %v", err)
+	}
+
+	deep := anatomyFileByPath(recursive.Files, "pkg/sub/deep.go")
+	if deep == nil || !anatomyHasSymbol(*deep, "Hidden") {
+		t.Fatalf("recursive anatomy missed nested file: %#v", recursive.Files)
+	}
+
+	if anatomyFileByPath(recursive.Files, "pkg/aaa/deeper/nested.go") != nil {
+		t.Fatalf("recursive anatomy exceeded depth: %#v", recursive.Files)
 	}
 
 	output, err := store.EnrichDirectoryListing(
@@ -2382,6 +2410,60 @@ func Nested() {}
 
 	if _, found := files["pkg/sub/deep.go"]; found {
 		t.Fatalf("nested file was indexed: %#v", files)
+	}
+}
+
+func TestASTIndexerDirectoryTreeHonorsMaxDepth(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeFile(t, filepath.Join(root, "pkg", "app.go"), []byte(`package pkg
+
+func Direct() {}
+`))
+	writeFile(t, filepath.Join(root, "pkg", "sub", "deep.go"), []byte(`package sub
+
+func Nested() {}
+`))
+	writeFile(
+		t,
+		filepath.Join(root, "pkg", "sub", "deeper", "hidden.go"),
+		[]byte(`package deeper
+
+func Hidden() {}
+`),
+	)
+
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	summary, err := NewASTIndexer(store).IndexDirectoryTree(ctx, root, "pkg", 2)
+	if err != nil {
+		t.Fatalf("index directory tree: %v", err)
+	}
+
+	if summary.FilesIndexed != 2 || summary.ChunksIndexed == 0 {
+		t.Fatalf("summary = %#v", summary)
+	}
+
+	files, err := store.CodeFilesByPath(ctx)
+	if err != nil {
+		t.Fatalf("code files by path: %v", err)
+	}
+
+	for _, path := range []string{"pkg/app.go", "pkg/sub/deep.go"} {
+		if _, found := files[path]; !found {
+			t.Fatalf("indexed file %q missing: %#v", path, files)
+		}
+	}
+
+	if _, found := files["pkg/sub/deeper/hidden.go"]; found {
+		t.Fatalf("too-deep file was indexed: %#v", files)
 	}
 }
 

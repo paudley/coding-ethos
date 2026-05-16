@@ -14,6 +14,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -205,7 +206,7 @@ func hookSpecificOutput(
 	output := event.ToolOutput()
 	proxiedOutput := proxyPostToolOutput(event, output)
 
-	if !shouldEmitPostToolBashContext(event, command, output) {
+	if !shouldEmitPostToolBashContext(event, command, output, proxiedOutput) {
 		return nil, proxiedOutput.Events
 	}
 
@@ -222,7 +223,16 @@ func hookSpecificOutput(
 	}, proxiedOutput.Events
 }
 
-func shouldEmitPostToolBashContext(event Event, command, output string) bool {
+func shouldEmitPostToolBashContext(
+	event Event,
+	command string,
+	output string,
+	proxiedOutput proxiedToolOutput,
+) bool {
+	if hasDirectoryAnatomyTransform(proxiedOutput.Records) {
+		return true
+	}
+
 	if isLintCommand(command) {
 		return true
 	}
@@ -234,6 +244,17 @@ func shouldEmitPostToolBashContext(event Event, command, output string) bool {
 	return event.ReturnCode() != 0 &&
 		isGitHookCommand(command) &&
 		hasHookOutputKeywords(output)
+}
+
+func hasDirectoryAnatomyTransform(records []agentproxy.TransformRecord) bool {
+	for _, record := range records {
+		if record.Name == codeintel.DirectoryAnatomyTransformName &&
+			record.Decision == proxyDecisionInject {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isGitHookCommand(command string) bool {

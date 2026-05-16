@@ -5,7 +5,10 @@ package agentproxy
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 const (
@@ -16,8 +19,10 @@ const (
 // DirectoryListingInvocation is the normalized shape a future proxy interceptor
 // needs after recognizing an ls/tree-style directory listing tool call.
 type DirectoryListingInvocation struct {
-	Tool string
-	Path string
+	Tool      string
+	Path      string
+	Recursive bool
+	MaxDepth  int
 }
 
 // DetectDirectoryListingInvocation recognizes simple ls/tree invocations and
@@ -38,6 +43,22 @@ func DetectDirectoryListingInvocation(
 	default:
 		return DirectoryListingInvocation{}, false
 	}
+}
+
+// DetectShellDirectoryListingInvocation recognizes static, single-target
+// ls/tree shell commands whose output can safely be paired with a directory
+// anatomy map.
+func DetectShellDirectoryListingInvocation(
+	command shellparse.Command,
+) (DirectoryListingInvocation, bool) {
+	if command.HasCommandSubstitution ||
+		command.HasDynamicExpansion ||
+		command.HasProcessSubstitution ||
+		command.HasSubshell {
+		return DirectoryListingInvocation{}, false
+	}
+
+	return DetectDirectoryListingInvocation(command.Argv)
 }
 
 func detectLSInvocation(args []string) (DirectoryListingInvocation, bool) {
@@ -61,12 +82,17 @@ func detectLSInvocation(args []string) (DirectoryListingInvocation, bool) {
 }
 
 func detectTreeInvocation(args []string) (DirectoryListingInvocation, bool) {
-	targets, ok := directoryListingPositionals(
+	maxDepth, depthDetected := treeMaxDepth(args)
+	if !depthDetected {
+		return DirectoryListingInvocation{}, false
+	}
+
+	targets, positionalsDetected := directoryListingPositionals(
 		args,
 		treeOptionsWithValue(),
 		nil,
 	)
-	if !ok {
+	if !positionalsDetected {
 		return DirectoryListingInvocation{}, false
 	}
 
@@ -75,9 +101,43 @@ func detectTreeInvocation(args []string) (DirectoryListingInvocation, bool) {
 	}
 
 	return DirectoryListingInvocation{
-		Tool: "tree",
-		Path: firstDirectoryListingTarget(targets),
+		Tool:      "tree",
+		Path:      firstDirectoryListingTarget(targets),
+		Recursive: true,
+		MaxDepth:  maxDepth,
 	}, true
+}
+
+func treeMaxDepth(args []string) (int, bool) {
+	for index := range args {
+		arg := args[index]
+		switch {
+		case arg == "-L":
+			if index+1 >= len(args) {
+				return 0, false
+			}
+
+			depth, ok := parseTreeMaxDepth(args[index+1])
+			if !ok {
+				return 0, false
+			}
+
+			return depth, true
+		case strings.HasPrefix(arg, "-L") && arg != "-L":
+			return parseTreeMaxDepth(strings.TrimPrefix(arg, "-L"))
+		}
+	}
+
+	return 0, true
+}
+
+func parseTreeMaxDepth(value string) (int, bool) {
+	depth, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || depth <= 0 {
+		return 0, false
+	}
+
+	return depth, true
 }
 
 func directoryListingPositionals(

@@ -83,6 +83,37 @@ func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
 	}
 }
 
+func TestFieldsDecodeANSICQuotedWords(t *testing.T) {
+	t.Parallel()
+
+	fields, err := shellparse.Fields(
+		"git commit -m $'fix(commitlint): subject\\n\\nBody.\\nFixes #54' $'\\xff\\377\\u263a\\ud800'",
+	)
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	want := []string{
+		"git",
+		"commit",
+		"-m",
+		"fix(commitlint): subject\n\nBody.\nFixes #54",
+		string([]byte{0xff, 0xff}) + "☺\\ud800",
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields mismatch:\n got %#v\nwant %#v", fields, want)
+	}
+
+	wantBytes := []byte{0xff, 0xff, 0xe2, 0x98, 0xba, '\\', 'u', 'd', '8', '0', '0'}
+	if !reflect.DeepEqual([]byte(fields[4]), wantBytes) {
+		t.Fatalf(
+			"ANSI-C byte escape mismatch:\n got %#v\nwant %#v",
+			[]byte(fields[4]),
+			wantBytes,
+		)
+	}
+}
+
 func TestCommandsExposeStructuredFacts(t *testing.T) {
 	t.Parallel()
 
