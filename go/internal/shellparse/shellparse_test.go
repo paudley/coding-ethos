@@ -83,6 +83,27 @@ func TestCatHeredocCommandSubstitutionExtractsRenderedCommand(t *testing.T) {
 	}
 }
 
+func TestFieldsDecodeANSICQuotedWords(t *testing.T) {
+	t.Parallel()
+
+	fields, err := shellparse.Fields(
+		"git commit -m $'fix(commitlint): subject\\n\\nBody.\\nFixes #54'",
+	)
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	want := []string{
+		"git",
+		"commit",
+		"-m",
+		"fix(commitlint): subject\n\nBody.\nFixes #54",
+	}
+	if !reflect.DeepEqual(fields, want) {
+		t.Fatalf("fields mismatch:\n got %#v\nwant %#v", fields, want)
+	}
+}
+
 func TestCommandsExposeStructuredFacts(t *testing.T) {
 	t.Parallel()
 

@@ -147,6 +147,33 @@ func TestRunBlocksCommitAttributionBeforeWrapperRewrite(t *testing.T) {
 	}
 }
 
+func TestRunAllowsANSICQuotedMultilineCommitMessage(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "git commit -m " +
+					"$'feat(proxy): enrich listings\\n\\n" +
+					"Append AST anatomy to directory listings.\\n\\nFixes #54'",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunEvaluatesDispatchedCELCommandPolicy(t *testing.T) {
 	t.Parallel()
 

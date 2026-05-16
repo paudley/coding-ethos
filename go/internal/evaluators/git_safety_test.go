@@ -392,6 +392,64 @@ func TestGitCommitLintAllowsHeredocCommandSubstitutionMessage(t *testing.T) {
 	}
 }
 
+func TestGitCommitLintAllowsHeredocBodyMessageFlag(t *testing.T) {
+	t.Parallel()
+
+	argv, err := shellparse.Fields(
+		"git commit -m \"feat(proxy): enrich listings\" " +
+			"-m \"$(cat <<'EOF'\n" +
+			"Append AST anatomy to directory listings.\n" +
+			"\n" +
+			"Fixes #54\n" +
+			"EOF\n" +
+			")\"",
+	)
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+
+	decisions, err := EvaluateGitCommitLint(policyDef, Context{
+		Argv:             argv,
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allow decision, got %#v", decisions)
+	}
+}
+
+func TestGitCommitLintAllowsANSICQuotedMultilineMessage(t *testing.T) {
+	t.Parallel()
+
+	argv, err := shellparse.Fields(
+		"git commit -m " +
+			"$'feat(proxy): enrich listings\\n\\n" +
+			"Append AST anatomy to directory listings.\\n\\nFixes #54'",
+	)
+	if err != nil {
+		t.Fatalf("parse command: %v", err)
+	}
+
+	policyDef := compiledGitSafetyTestBundle(t).Policies["git.commitlint"]
+
+	decisions, err := EvaluateGitCommitLint(policyDef, Context{
+		Argv:             argv,
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("expected allow decision, got %#v", decisions)
+	}
+}
+
 func TestGitCommitLintNormalizesHeredocMessageFile(t *testing.T) {
 	t.Parallel()
 

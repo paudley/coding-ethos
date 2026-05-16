@@ -14,6 +14,15 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
+const (
+	ansiHexByteWidth   = 2
+	ansiOctalBase      = 8
+	ansiOctalMaxWidth  = 3
+	ansiUnicode16Width = 4
+	ansiUnicode32Width = 8
+	hexBase            = 16
+)
+
 type Command struct {
 	Command                string
 	Name                   string
@@ -412,6 +421,10 @@ func wordPartInfo(part syntax.WordPart) (wordInfo, bool) {
 	case *syntax.Lit:
 		return wordInfo{Text: typed.Value}, true
 	case *syntax.SglQuoted:
+		if typed.Dollar {
+			return wordInfo{Text: decodeANSICQuoted(typed.Value)}, true
+		}
+
 		return wordInfo{Text: typed.Value}, true
 	case *syntax.DblQuoted:
 		return doubleQuotedWordInfo(typed)
@@ -460,6 +473,158 @@ func doubleQuotedWordInfo(quoted *syntax.DblQuoted) (wordInfo, bool) {
 	info.Text = builder.String()
 
 	return info, true
+}
+
+func decodeANSICQuoted(value string) string {
+	var builder strings.Builder
+
+	for index := 0; index < len(value); index++ {
+		if value[index] != '\\' || index+1 >= len(value) {
+			builder.WriteByte(value[index])
+
+			continue
+		}
+
+		decoded, nextIndex, ok := decodeANSIEscape(value, index+1)
+		if !ok {
+			builder.WriteByte(value[index])
+
+			continue
+		}
+
+		builder.WriteString(decoded)
+
+		index = nextIndex
+	}
+
+	return builder.String()
+}
+
+func decodeANSIEscape(value string, index int) (string, int, bool) {
+	decoded, ok := simpleANSIEscape(value[index])
+	if ok {
+		return decoded, index, true
+	}
+
+	switch value[index] {
+	case 'x':
+		return decodeVariableWidthEscape(
+			value,
+			index+1,
+			ansiHexByteWidth,
+			hexBase,
+		)
+	case 'u':
+		return decodeFixedWidthEscape(
+			value,
+			index+1,
+			ansiUnicode16Width,
+			hexBase,
+		)
+	case 'U':
+		return decodeFixedWidthEscape(
+			value,
+			index+1,
+			ansiUnicode32Width,
+			hexBase,
+		)
+	}
+
+	if isOctalDigit(value[index]) {
+		return decodeVariableWidthEscape(
+			value,
+			index,
+			ansiOctalMaxWidth,
+			ansiOctalBase,
+		)
+	}
+
+	return "", index, false
+}
+
+func simpleANSIEscape(char byte) (string, bool) {
+	escapes := map[byte]string{
+		'a':  "\a",
+		'b':  "\b",
+		'e':  "\x1b",
+		'E':  "\x1b",
+		'f':  "\f",
+		'n':  "\n",
+		'r':  "\r",
+		't':  "\t",
+		'v':  "\v",
+		'\\': "\\",
+		'\'': "'",
+		'"':  "\"",
+	}
+
+	decoded, ok := escapes[char]
+
+	return decoded, ok
+}
+
+func decodeFixedWidthEscape(
+	value string,
+	start int,
+	width int,
+	base int,
+) (string, int, bool) {
+	if start+width > len(value) {
+		return "", start, false
+	}
+
+	return decodeRuneEscape(value, start, start+width, base)
+}
+
+func decodeVariableWidthEscape(
+	value string,
+	start int,
+	maxWidth int,
+	base int,
+) (string, int, bool) {
+	end := start
+	for end < len(value) && end-start < maxWidth &&
+		validEscapeDigit(value[end], base) {
+		end++
+	}
+
+	if end == start {
+		return "", start, false
+	}
+
+	return decodeRuneEscape(value, start, end, base)
+}
+
+func validEscapeDigit(char byte, base int) bool {
+	if base == ansiOctalBase {
+		return isOctalDigit(char)
+	}
+
+	return isHexDigit(char)
+}
+
+func isOctalDigit(char byte) bool {
+	return char >= '0' && char <= '7'
+}
+
+func isHexDigit(char byte) bool {
+	return (char >= '0' && char <= '9') ||
+		(char >= 'a' && char <= 'f') ||
+		(char >= 'A' && char <= 'F')
+}
+
+func decodeRuneEscape(
+	value string,
+	start int,
+	end int,
+	base int,
+) (string, int, bool) {
+	parsed, err := strconv.ParseInt(value[start:end], base, 32)
+	if err != nil {
+		return "", start, false
+	}
+
+	return string(rune(parsed)), end - 1, true
 }
 
 func mergeWordInfo(command *Command, info wordInfo) {
