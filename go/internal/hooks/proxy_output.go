@@ -17,6 +17,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -26,18 +27,23 @@ const (
 	defaultHookOutputMaxTokens   = 2000
 	defaultHookOutputHeadTokens  = 900
 	defaultHookOutputTailTokens  = 900
+	defaultFileReadChunkLimit    = 512
 	defaultHookOutputMaxLines    = 80
 	defaultHookOutputHeadLines   = 32
 	defaultHookOutputTailLines   = 32
 	defaultHookOutputDiagnostics = 12
 	defaultAnatomyMapSymbols     = 6
 	defaultAnatomyMapTimeout     = 5 * time.Second
+	defaultFileReadPageLines     = 100
+	defaultFileReadSemanticSlack = 50
+	semanticBackupTargetDivisor  = 2
 	proxyDecisionAllow           = "allow"
 	proxyDecisionInject          = "inject"
 	proxyDecisionSummarize       = "summarize"
 	proxyDecisionTruncate        = "truncate"
 	proxyPolicyDiagnosticSummary = "proxy.diagnostic_summary"
 	proxyPolicyDirectoryAnatomy  = "proxy.directory_anatomy"
+	proxyPolicyFilePagination    = agentproxy.FileReadPaginationPolicyID
 	proxyPolicyTokenBudget       = "proxy.token_budget"
 )
 
@@ -50,11 +56,268 @@ type proxiedToolOutput struct {
 func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
 	normalizer := hookOutputNormalizer(event.Cwd)
 	normalized := normalizer.preserveLines(output)
-	proxied := compressToolOutputWithRecords(event, normalized)
+	proxied := proxiedToolOutput{Text: normalized}
+
+	proxied = paginateFileReadToolOutput(event, proxied)
+	if !hasFileReadTransformChange(proxied.Records) {
+		compressed := compressToolOutputWithRecords(event, proxied.Text)
+		proxied.Text = compressed.Text
+		proxied.Records = append(proxied.Records, compressed.Records...)
+	}
+
 	proxied = enrichDirectoryListingToolOutput(event, proxied)
 	proxied.Events = proxyToolOutputEvents(event, normalized, proxied)
 
 	return proxied
+}
+
+func paginateFileReadToolOutput(
+	event Event,
+	proxied proxiedToolOutput,
+) proxiedToolOutput {
+	if event.ReturnCode() != 0 {
+		return proxied
+	}
+
+	invocation, readDetected := fileReadInvocation(event.Command())
+	if !readDetected {
+		return proxied
+	}
+
+	root := gitRootFromPath(event.Cwd)
+	if root == "" {
+		return proxied
+	}
+
+	targetPath, ok := repoRelativeListingPath(root, event.Cwd, invocation.Path)
+	if !ok || !isRepoFile(root, targetPath) {
+		return proxied
+	}
+
+	pageEnd := semanticFileReadPageEnd(root, targetPath, proxied.Text)
+	options := loadHookOutputCompressionOptions(event.Cwd)
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.FileReadPaginationTransform{
+			Path:      targetPath,
+			PageStart: 1,
+			PageEnd:   pageEnd,
+		},
+		agentproxy.ToolOutputTokenBudgetTransform{
+			MaxTokens:  options.MaxTokens,
+			HeadTokens: options.HeadTokens,
+			TailTokens: options.TailTokens,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: proxied.Text},
+	)
+	if err != nil {
+		return proxied
+	}
+
+	proxied.Text = output.Text
+	proxied.Records = append(proxied.Records, output.Records...)
+
+	return proxied
+}
+
+func fileReadInvocation(command string) (agentproxy.FileReadInvocation, bool) {
+	commands, err := shellparse.Commands(command)
+	if err != nil || len(commands) != 1 {
+		return agentproxy.FileReadInvocation{}, false
+	}
+
+	return agentproxy.DetectShellFileReadInvocation(commands[0])
+}
+
+func isRepoFile(root, targetPath string) bool {
+	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(targetPath)))
+	if err != nil {
+		return false
+	}
+
+	return !info.IsDir()
+}
+
+func semanticFileReadPageEnd(root, targetPath, output string) int {
+	totalLines := agentproxy.OutputLineCount(output)
+	if totalLines <= 0 {
+		return defaultFileReadPageLines
+	}
+
+	pageEnd := min(defaultFileReadPageLines, totalLines)
+	if totalLines <= pageEnd {
+		return pageEnd
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		defaultAnatomyMapTimeout,
+	)
+	defer cancel()
+
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		return pageEnd
+	}
+	defer store.Close()
+
+	contentHash := astfacts.ContentHash([]byte(output))
+
+	chunks, cached, err := cachedSemanticChunks(
+		ctx,
+		store,
+		targetPath,
+		contentHash,
+	)
+	if err == nil && cached {
+		return semanticPageEnd(pageEnd, totalLines, chunks)
+	}
+
+	indexer := codeintel.NewASTIndexer(store)
+
+	_, err = indexer.IndexPaths(ctx, root, []string{targetPath})
+	if err != nil {
+		return pageEnd
+	}
+
+	chunks, err = querySemanticChunks(
+		ctx,
+		store,
+		targetPath,
+	)
+	if err != nil {
+		return pageEnd
+	}
+
+	return semanticPageEnd(pageEnd, totalLines, chunks)
+}
+
+func cachedSemanticChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	targetPath string,
+	contentHash string,
+) ([]codeintel.CodeChunk, bool, error) {
+	file, found, err := store.GetCodeFile(ctx, targetPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("get cached code file: %w", err)
+	}
+
+	if !found {
+		return nil, false, nil
+	}
+
+	if file.ContentHash != contentHash || file.DeletedAtUTC != "" ||
+		(file.StaleReason != "" && file.StaleReason != "too_many_chunks") {
+		return nil, false, nil
+	}
+
+	chunks, err := querySemanticChunks(ctx, store, targetPath)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(chunks) == 0 {
+		return nil, false, nil
+	}
+
+	return chunks, true, nil
+}
+
+func querySemanticChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	targetPath string,
+) ([]codeintel.CodeChunk, error) {
+	chunks, err := store.CodeChunks(
+		ctx,
+		codeintel.CodeChunkQuery{
+			Path:  targetPath,
+			Limit: defaultFileReadChunkLimit,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query semantic chunks: %w", err)
+	}
+
+	return chunks, nil
+}
+
+func semanticPageEnd(
+	target int,
+	totalLines int,
+	chunks []codeintel.CodeChunk,
+) int {
+	candidate := semanticPageCandidate{fallback: target}
+
+	for _, chunk := range chunks {
+		if chunk.StartLine > target {
+			break
+		}
+
+		candidate = candidate.withChunk(target, totalLines, chunk)
+	}
+
+	return candidate.pageEnd()
+}
+
+type semanticPageCandidate struct {
+	bestEnd  int
+	fallback int
+}
+
+func (candidate semanticPageCandidate) withChunk(
+	target int,
+	totalLines int,
+	chunk codeintel.CodeChunk,
+) semanticPageCandidate {
+	if !isCrossingSemanticChunk(target, chunk) {
+		return candidate
+	}
+
+	semanticLimit := min(target+defaultFileReadSemanticSlack, totalLines)
+	if chunk.EndLine <= semanticLimit {
+		return candidate.withBestEnd(chunk.EndLine)
+	}
+
+	semanticStartFloor := max(target-defaultFileReadSemanticSlack, 1)
+	backupFloor := semanticBackupFloor(target)
+	backupEnd := chunk.StartLine - 1
+
+	if chunk.StartLine >= semanticStartFloor && backupEnd >= backupFloor {
+		candidate.fallback = min(candidate.fallback, backupEnd)
+	}
+
+	return candidate
+}
+
+func semanticBackupFloor(target int) int {
+	return max(target/semanticBackupTargetDivisor, 1)
+}
+
+func (candidate semanticPageCandidate) withBestEnd(endLine int) semanticPageCandidate {
+	if candidate.bestEnd == 0 || endLine < candidate.bestEnd {
+		candidate.bestEnd = endLine
+	}
+
+	return candidate
+}
+
+func (candidate semanticPageCandidate) pageEnd() int {
+	if candidate.bestEnd > 0 {
+		return candidate.bestEnd
+	}
+
+	return candidate.fallback
+}
+
+func isCrossingSemanticChunk(target int, chunk codeintel.CodeChunk) bool {
+	return chunk.StartLine > 0 &&
+		chunk.EndLine > target &&
+		chunk.SymbolPath != ""
 }
 
 func enrichDirectoryListingToolOutput(
@@ -323,6 +586,10 @@ func proxyToolOutputDecision(records []agentproxy.TransformRecord) string {
 func proxyToolOutputPolicyID(records []agentproxy.TransformRecord) string {
 	if hasDirectoryAnatomyTransform(records) {
 		return proxyPolicyDirectoryAnatomy
+	}
+
+	if hasFilePaginationTransform(records) {
+		return proxyPolicyFilePagination
 	}
 
 	switch proxyToolOutputDecision(records) {

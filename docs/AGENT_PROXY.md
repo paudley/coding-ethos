@@ -92,7 +92,8 @@ exclusion paths.
 Proxy-side tool output compression lives in `go/internal/agentproxy`. The
 default transform preserves the beginning and ending of long tool output,
 inserts an explicit omission marker, writes the full original output to a
-session-local `/tmp/coding-ethos-tool-output-*.log` evidence file, and records
+session-local `coding-ethos-tool-output-*.log` evidence file in the system temp
+directory, and records
 token/hash/path evidence through the normal transform record path. This keeps
 command identity, early setup failures, and terminal stack-trace exceptions
 visible while removing repetitive progress output and dependency-frame noise.
@@ -115,7 +116,7 @@ for local runtime token tuning.
 Compression must remain traceable. A compressed payload should carry metadata
 that records the omitted line count and temporary full-output path, and the
 corresponding proxy event should store the transform record in code-intel.
-Silent truncation is not allowed. The `/tmp` evidence file is debug evidence,
+Silent truncation is not allowed. The temp evidence file is debug evidence,
 not durable archival storage.
 
 ## File Read Deduplication
@@ -131,6 +132,27 @@ full file body.
 The cache must miss whenever the file changes, the path changes, or the session
 changes. A transparent proxy should reuse this path before returning read tool
 output to an agent so repeated reads save tokens without hiding changed source.
+
+## File Read Pagination
+
+Live Bash `PostToolUse` output now recognizes conservative single-file
+`cat <path>` reads through the shared shell parser before generic output
+compression runs. Successful reads inside the current repository are returned as
+a line-numbered first page instead of an unbounded file body. The transform
+writes the complete original payload to a `coding-ethos-tool-output-*.log`
+file in the system temp directory,
+surfaces that evidence path in the visible marker, and records
+`proxy.file_pagination` with the `file-read-pagination` transform in the
+provider-neutral proxy ledger.
+
+Pagination defaults to the first 100 lines. Before choosing the final page end,
+the hook refreshes the target path in the repo-local AST index and asks
+code-intel for code chunks. When a symbol crosses the 100-line boundary and
+finishes within the semantic slack window, the page extends through the symbol
+end. When the crossing symbol is too large, the page stops before that symbol
+starts where possible. This keeps ordinary function and class signatures from
+being severed while still requiring explicit follow-up reads such as
+`sed -n '101,200p' path`.
 
 ## Directory Listing Anatomy
 

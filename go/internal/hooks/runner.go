@@ -233,6 +233,10 @@ func shouldEmitPostToolBashContext(
 		return true
 	}
 
+	if hasFileReadTransformChange(proxiedOutput.Records) {
+		return true
+	}
+
 	if isLintCommand(command) {
 		return true
 	}
@@ -255,6 +259,35 @@ func hasDirectoryAnatomyTransform(records []agentproxy.TransformRecord) bool {
 	}
 
 	return false
+}
+
+func hasFilePaginationTransform(records []agentproxy.TransformRecord) bool {
+	for _, record := range records {
+		if isFilePaginationTransform(record) &&
+			record.Decision == proxyDecisionTruncate {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasFileReadPaginationRecord(records []agentproxy.TransformRecord) bool {
+	return slices.ContainsFunc(records, isFilePaginationTransform)
+}
+
+func hasFileReadTransformChange(records []agentproxy.TransformRecord) bool {
+	if !hasFileReadPaginationRecord(records) {
+		return false
+	}
+
+	return slices.ContainsFunc(records, func(record agentproxy.TransformRecord) bool {
+		return record.Decision == proxyDecisionTruncate
+	})
+}
+
+func isFilePaginationTransform(record agentproxy.TransformRecord) bool {
+	return record.Name == agentproxy.FileReadPaginationTransformName
 }
 
 func isGitHookCommand(command string) bool {
