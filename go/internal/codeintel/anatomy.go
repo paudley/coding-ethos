@@ -34,6 +34,15 @@ func (store *Store) DirectoryAnatomy(
 		return DirectoryAnatomy{Path: dir}, nil
 	}
 
+	err = store.validateASTContextPathsFresh(
+		ctx,
+		query.Root,
+		directoryAnatomyFilePaths(files),
+	)
+	if err != nil {
+		return DirectoryAnatomy{}, err
+	}
+
 	symbols, err := store.directoryAnatomySymbols(ctx, query, files)
 	if err != nil {
 		return DirectoryAnatomy{}, err
@@ -126,6 +135,15 @@ func (store *Store) directoryAnatomyFiles(
 	}
 
 	return files, nil
+}
+
+func directoryAnatomyFilePaths(files []DirectoryAnatomyFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+
+	return paths
 }
 
 type directoryAnatomySymbolRow struct {

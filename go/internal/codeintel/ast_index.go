@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +25,6 @@ import (
 
 const (
 	bytesPerKiB                   = 1024
-	lineCountBufferSizeKiB        = 32
 	maxIndexedSourceBytes         = 1 * bytesPerKiB * bytesPerKiB
 	maxIndexedSourceLines         = 5000
 	maxIndexedSourceChunksPerFile = 2000
@@ -439,13 +437,7 @@ func (indexer ASTIndexer) indexFile(
 	sourceModTime := formatSourceModTime(info.ModTime())
 
 	if found &&
-		inactiveCodeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
-		summary.Skipped = append(summary.Skipped, relativePath)
-
-		return nil
-	}
-
-	if found && codeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
+		oversizedCodeFileFresh(existing, parserName, parserVersion, sourceModTime, info) {
 		summary.Skipped = append(summary.Skipped, relativePath)
 
 		return nil
@@ -481,14 +473,29 @@ func (indexer ASTIndexer) indexFile(
 		return nil
 	}
 
-	lineCount, tooManyLines, err := countSourceLinesUpTo(
-		ctx,
-		path,
+	err = ctx.Err()
+	if err != nil {
+		return fmt.Errorf("read indexed file %q: %w", path, err)
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read indexed file %q: %w", path, err)
+	}
+
+	if found {
+		hash := astfacts.ContentHash(contents)
+		if codeFileContentFresh(existing, parserName, parserVersion, hash) {
+			summary.Skipped = append(summary.Skipped, relativePath)
+
+			return nil
+		}
+	}
+
+	lineCount, tooManyLines := countSourceLinesInMemory(
+		contents,
 		maxIndexedSourceLines,
 	)
-	if err != nil {
-		return err
-	}
 
 	if tooManyLines {
 		inactiveFile := inactiveCodeFile(
@@ -515,23 +522,6 @@ func (indexer ASTIndexer) indexFile(
 
 		existingFiles[relativePath] = inactiveFile
 
-		summary.Skipped = append(summary.Skipped, relativePath)
-
-		return nil
-	}
-
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read indexed file %q: %w", path, err)
-	}
-
-	hash := astfacts.ContentHash(contents)
-
-	if found &&
-		existing.ContentHash == hash &&
-		existing.ParserName == parserName &&
-		existing.ParserVersion == parserVersion &&
-		existing.StaleReason == "" {
 		summary.Skipped = append(summary.Skipped, relativePath)
 
 		return nil
@@ -597,31 +587,26 @@ func (indexer ASTIndexer) indexFile(
 	return nil
 }
 
-func codeFileFresh(
+func codeFileContentFresh(
 	existing CodeFile,
 	parserName string,
 	parserVersion string,
-	sourceModTime string,
-	info os.FileInfo,
+	hash string,
 ) bool {
-	return existing.SourceModTimeUTC != "" &&
-		existing.SourceModTimeUTC == sourceModTime &&
-		existing.SizeBytes == int(info.Size()) &&
+	return existing.ContentHash == hash &&
 		existing.ParserName == parserName &&
 		existing.ParserVersion == parserVersion &&
-		existing.StaleReason == ""
+		(existing.StaleReason == "" || existing.StaleReason == "too_many_chunks")
 }
 
-func inactiveCodeFileFresh(
+func oversizedCodeFileFresh(
 	existing CodeFile,
 	parserName string,
 	parserVersion string,
 	sourceModTime string,
 	info os.FileInfo,
 ) bool {
-	return (existing.StaleReason == "too_large" ||
-		existing.StaleReason == "too_many_lines" ||
-		existing.StaleReason == "too_many_chunks") &&
+	return existing.StaleReason == "too_large" &&
 		existing.SourceModTimeUTC == sourceModTime &&
 		existing.SizeBytes == int(info.Size()) &&
 		existing.ParserName == parserName &&
@@ -632,45 +617,10 @@ func formatSourceModTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339Nano)
 }
 
-func countSourceLinesUpTo(
-	ctx context.Context,
-	path string,
-	maxLines int,
-) (int, bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return 0, false, fmt.Errorf("open indexed file for line count %q: %w", path, err)
-	}
-	defer file.Close()
+func countSourceLinesInMemory(contents []byte, maxLines int) (int, bool) {
+	lineCount := bytes.Count(contents, []byte{'\n'})
 
-	lineCount := 0
-
-	buffer := make([]byte, lineCountBufferSizeKiB*bytesPerKiB)
-
-	for {
-		err = ctx.Err()
-		if err != nil {
-			return 0, false, fmt.Errorf("count indexed file lines %q: %w", path, err)
-		}
-
-		read, readErr := file.Read(buffer)
-		if read > 0 {
-			lineCount += bytes.Count(buffer[:read], []byte{'\n'})
-			if lineCount > maxLines {
-				return lineCount, true, nil
-			}
-		}
-
-		if readErr == nil {
-			continue
-		}
-
-		if errors.Is(readErr, io.EOF) {
-			return lineCount, false, nil
-		}
-
-		return 0, false, fmt.Errorf("count indexed file lines %q: %w", path, readErr)
-	}
+	return lineCount, lineCount > maxLines
 }
 
 func inactiveCodeFile(

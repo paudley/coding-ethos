@@ -4,6 +4,7 @@
 package codeintel_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -56,7 +57,7 @@ func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
 	}
 }
 
-func TestASTIndexerSkipsFreshFileBeforeReading(t *testing.T) {
+func TestASTIndexerSkipsFreshOversizedFileBeforeReading(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -65,7 +66,7 @@ func TestASTIndexerSkipsFreshFileBeforeReading(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "app.py")
 
-	err := os.WriteFile(filePath, []byte("def hello():\n    return 'hello'\n"), 0o600)
+	err := os.WriteFile(filePath, bytes.Repeat([]byte("x"), 1024*1024+1), 0o600)
 	if err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestASTIndexerSkipsFreshFileBeforeReading(t *testing.T) {
 
 	summary, err := indexer.IndexPaths(ctx, tempDir, []string{tempDir})
 	if err != nil {
-		t.Fatalf("second index should skip without reading: %v", err)
+		t.Fatalf("second index should skip oversized file without reading: %v", err)
 	}
 
 	if summary.FilesIndexed != 0 ||

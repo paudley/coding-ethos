@@ -18,6 +18,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	. "blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
@@ -1881,6 +1882,123 @@ func BuildMessage(name string) string {
 	}
 }
 
+func TestASTIndexerReindexesSameSizeContentWithPreservedModTime(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.go")
+	originalSource := []byte(`package pkg
+
+func BuildMessage(name string) string {
+	return "hello " + name
+}
+`)
+	updatedSource := []byte(`package pkg
+
+func BuildMessage(name string) string {
+	return "hullo " + name
+}
+`)
+	if len(originalSource) != len(updatedSource) {
+		t.Fatalf(
+			"test sources must be same size: %d != %d",
+			len(originalSource),
+			len(updatedSource),
+		)
+	}
+
+	writeFile(t, sourcePath, originalSource)
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index original code: %v", err)
+	}
+
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatalf("stat original source: %v", err)
+	}
+
+	originalChunks, err := store.CodeChunks(ctx, CodeChunkQuery{
+		Path:       "pkg/app.go",
+		SymbolName: "BuildMessage",
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query original chunk: %v", err)
+	}
+
+	if len(originalChunks) != 1 {
+		t.Fatalf("original chunks = %#v", originalChunks)
+	}
+
+	err = store.UpsertEmbeddingRecord(ctx, EmbeddingRecord{
+		Backend:     vectorBackendName,
+		Collection:  "code_chunks",
+		ModelID:     "voyage-code-3",
+		RecordKind:  codeChunkRecordKind,
+		RecordID:    originalChunks[0].ID,
+		Path:        originalChunks[0].Path,
+		ContentHash: originalChunks[0].ContentHash,
+		Dimension:   1024,
+	})
+	if err != nil {
+		t.Fatalf("record original chunk embedding: %v", err)
+	}
+
+	writeFile(t, sourcePath, updatedSource)
+	err = os.Chtimes(sourcePath, sourceInfo.ModTime(), sourceInfo.ModTime())
+	if err != nil {
+		t.Fatalf("preserve source mtime: %v", err)
+	}
+
+	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("reindex same-size preserved-mtime code: %v", err)
+	}
+
+	if summary.FilesIndexed != 1 || len(summary.Skipped) != 0 {
+		t.Fatalf("same-size preserved-mtime summary = %#v", summary)
+	}
+
+	updatedChunks, err := store.CodeChunks(ctx, CodeChunkQuery{
+		Path:       "pkg/app.go",
+		SymbolName: "BuildMessage",
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query updated chunk: %v", err)
+	}
+
+	if len(updatedChunks) != 1 {
+		t.Fatalf("updated chunks = %#v", updatedChunks)
+	}
+
+	if updatedChunks[0].ContentHash == originalChunks[0].ContentHash ||
+		!strings.Contains(updatedChunks[0].RawText, `"hullo "`) {
+		t.Fatalf("updated chunk = %#v, original = %#v", updatedChunks[0], originalChunks[0])
+	}
+
+	records, err := store.EmbeddingRecords(ctx, EmbeddingRecordQuery{
+		RecordKind: codeChunkRecordKind,
+		RecordID:   originalChunks[0].ID,
+		Limit:      1,
+	})
+	if err != nil {
+		t.Fatalf("query stale embedding records: %v", err)
+	}
+
+	if len(records) != 0 {
+		t.Fatalf("stale embedding records = %#v", records)
+	}
+}
+
 func TestStoreBuildsDirectoryAnatomyMap(t *testing.T) {
 	t.Parallel()
 
@@ -2096,6 +2214,130 @@ func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
 		len(context.Chunks) == 0 ||
 		context.Symbols[0].TokenSize == 0 {
 		t.Fatalf("compact context = %#v", context)
+	}
+}
+
+func TestASTDerivedContextRefusesStaleSource(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(
+		"def helper():\n"+
+			"    return \"ok\"\n\n"+
+			"class Worker:\n"+
+			"    def run(self):\n"+
+			"        return helper()\n",
+	))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	writeFile(t, filepath.Join(root, "pkg", "worker.py"), []byte(
+		"def helper():\n"+
+			"    return \"changed\"\n\n"+
+			"class Worker:\n"+
+			"    def run(self):\n"+
+			"        return helper()\n",
+	))
+
+	assertStaleASTContextRefusal(t, "repo map", func() error {
+		_, repoMapErr := store.RepoMap(ctx, CompactCodeContextQuery{
+			Path:  "pkg/worker.py",
+			Root:  root,
+			Limit: 10,
+		})
+
+		return repoMapErr
+	})
+
+	assertStaleASTContextRefusal(t, "compact context", func() error {
+		_, compactErr := store.CompactCodeContext(ctx, CompactCodeContextQuery{
+			Path:  "pkg/worker.py",
+			Root:  root,
+			Limit: 10,
+		})
+
+		return compactErr
+	})
+
+	assertStaleASTContextRefusal(t, "directory anatomy", func() error {
+		_, anatomyErr := store.DirectoryAnatomy(ctx, DirectoryAnatomyQuery{
+			Path:  "pkg",
+			Root:  root,
+			Limit: 10,
+		})
+
+		return anatomyErr
+	})
+}
+
+func TestASTDerivedContextPreservesWhitespacePaths(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	source := []byte(
+		"def helper():\n" +
+			"    return \"ok\"\n",
+	)
+	writeFile(t, filepath.Join(root, " worker.py"), source)
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	store := openTestStoreAt(
+		t,
+		ctx,
+		dbPath,
+	)
+	rawDatabase := openRawSQLite(t, dbPath)
+
+	_, err := rawDatabase.ExecContext(
+		ctx,
+		`INSERT INTO code_files(
+			path, language, content_hash, size_bytes, line_count, indexed_at_utc
+		) VALUES (?, 'python', ?, ?, 2, '2026-01-01T00:00:00Z')`,
+		" worker.py",
+		astfacts.ContentHash(source),
+		len(source),
+	)
+	if err != nil {
+		t.Fatalf("insert whitespace code file: %v", err)
+	}
+
+	_, err = rawDatabase.ExecContext(
+		ctx,
+		`INSERT INTO code_chunks(
+			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
+			symbol_path, parent_symbol_path, parent_chunk_id, start_byte,
+			end_byte, start_line, end_line, content_hash, search_text, raw_text
+		) VALUES (
+			'chunk-space', ' worker.py', 'python', 'function_definition',
+			'function', 'helper', 'helper', '', '', 0, ?, 1, 2, ?, 'helper', ?
+		)`,
+		len(source),
+		astfacts.ContentHash(source),
+		string(source),
+	)
+	if err != nil {
+		t.Fatalf("insert whitespace code chunk: %v", err)
+	}
+
+	repoMap, err := store.RepoMap(ctx, CompactCodeContextQuery{
+		Root:  root,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("repo map for whitespace path: %v", err)
+	}
+
+	if len(repoMap) != 1 || repoMap[0].Path != " worker.py" {
+		t.Fatalf("repo map = %#v", repoMap)
 	}
 }
 
@@ -2410,6 +2652,23 @@ class Worker:
 
 	if !strings.Contains(err.Error(), "stale code context") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func assertStaleASTContextRefusal(
+	t *testing.T,
+	label string,
+	query func() error,
+) {
+	t.Helper()
+
+	err := query()
+	if err == nil {
+		t.Fatalf("expected stale %s refusal", label)
+	}
+
+	if !strings.Contains(err.Error(), "stale code context") {
+		t.Fatalf("%s error = %v", label, err)
 	}
 }
 

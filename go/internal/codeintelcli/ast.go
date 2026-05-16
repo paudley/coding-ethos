@@ -126,6 +126,7 @@ func printAnatomyMap(ctx context.Context, args []string) error {
 
 	anatomy, err := store.DirectoryAnatomy(ctx, codeintel.DirectoryAnatomyQuery{
 		Path:           targetPath,
+		Root:           *storeFlags.root,
 		Language:       *language,
 		Limit:          *limit,
 		SymbolsPerFile: *symbolsPerFile,
@@ -192,6 +193,7 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 
 	output, err := store.EnrichDirectoryListing(ctx, codeintel.DirectoryAnatomyQuery{
 		Path:           targetPath,
+		Root:           *storeFlags.root,
 		Language:       *language,
 		Limit:          *limit,
 		SymbolsPerFile: *symbolsPerFile,
@@ -384,6 +386,7 @@ func printRepoMap(ctx context.Context, args []string) error {
 		func(store *codeintel.Store) (any, error) {
 			return store.RepoMap(ctx, codeintel.CompactCodeContextQuery{
 				Path:     *path,
+				Root:     *storeFlags.root,
 				Language: *language,
 				Limit:    *limit,
 			})
@@ -407,6 +410,7 @@ func printCompactContext(ctx context.Context, args []string) error {
 		func(store *codeintel.Store) (any, error) {
 			return store.CompactCodeContext(ctx, codeintel.CompactCodeContextQuery{
 				Path:     *path,
+				Root:     *storeFlags.root,
 				Language: *language,
 				Limit:    *limit,
 			})
