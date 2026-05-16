@@ -237,6 +237,11 @@ func shouldEmitPostToolBashContext(
 		return true
 	}
 
+	if hasFileReadPaginationRecord(proxiedOutput.Records) &&
+		proxyToolOutputDecision(proxiedOutput.Records) == proxyDecisionTruncate {
+		return true
+	}
+
 	if isLintCommand(command) {
 		return true
 	}

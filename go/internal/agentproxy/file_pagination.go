@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
 
 const (
@@ -114,7 +116,7 @@ func fileReadPageOutput(
 			"[coding-ethos: next page: sed -n '"+
 				strconv.Itoa(pageEnd+1)+","+
 				strconv.Itoa(min(pageEnd+(pageEnd-pageStart)+1, len(lines)))+
-				"p' "+path+"]",
+				"p' "+shellquote.Arg(path)+"]",
 		)
 	}
 

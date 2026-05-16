@@ -2572,6 +2572,66 @@ func TestRunPaginatesFileReadOutputAtSemanticBoundary(t *testing.T) {
 	}
 }
 
+func TestRunEmitsTokenBudgetedFileReadWithinPageLineCount(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "80")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "20")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "20")
+
+	repo := initHookRepo(t)
+	docsDir := filepath.Join(repo, "docs")
+
+	err := os.MkdirAll(docsDir, 0o700)
+	if err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	content := strings.Repeat("alpha beta gamma delta epsilon ", 80) + "\n"
+	err = os.WriteFile(filepath.Join(docsDir, "minified.md"), []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write minified file fixture: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ProviderHint:  "codex",
+			SessionID:     "session-token-budgeted-file-read",
+			ToolName:      toolBash,
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"command": "cat docs/minified.md",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      content,
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing token-budgeted file-read context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "token budget hard stop") ||
+		!strings.Contains(context, "full output:") {
+		t.Fatalf("missing token-budget context: %s", context)
+	}
+
+	if len(result.ProxyEvents) != 1 {
+		t.Fatalf("expected one proxy event: %#v", result.ProxyEvents)
+	}
+
+	event := result.ProxyEvents[0]
+	if event.Decision != "truncate" || event.PolicyID != "proxy.token_budget" {
+		t.Fatalf("unexpected proxy event policy: %#v", event)
+	}
+}
+
 func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

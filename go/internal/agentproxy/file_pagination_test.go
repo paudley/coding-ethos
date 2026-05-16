@@ -53,6 +53,29 @@ func TestFileReadPaginationTransformPaginatesWithEvidence(t *testing.T) {
 	}
 }
 
+func TestFileReadPaginationTransformQuotesContinuationPath(t *testing.T) {
+	t.Parallel()
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.FileReadPaginationTransform{
+			Path:    "docs/my file's $(draft).md",
+			PageEnd: 1,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: "one\ntwo\n"},
+	)
+	if err != nil {
+		t.Fatalf("apply transform: %v", err)
+	}
+
+	expected := "next page: sed -n '2,2p' 'docs/my file'\\''s $(draft).md'"
+	if !strings.Contains(output.Text, expected) {
+		t.Fatalf("paginated output missing quoted path %q: %s", expected, output.Text)
+	}
+}
+
 func TestFileReadPaginationTransformAllowsSmallOutput(t *testing.T) {
 	t.Parallel()
 
