@@ -191,6 +191,7 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 	} else {
 		_, err = indexer.IndexDirectoryChildren(ctx, *storeFlags.root, targetPath)
 	}
+
 	if err != nil {
 		return fmt.Errorf("refresh listing anatomy index: %w", err)
 	}
