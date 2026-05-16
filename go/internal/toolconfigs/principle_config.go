@@ -130,12 +130,25 @@ func loadRepoPrincipleToolConfigSources(
 
 	slices.Sort(overrideIDs)
 
+	var (
+		toolConfig configMap
+		found      bool
+	)
+
 	for _, principleID := range overrideIDs {
 		rawOverride := overrides[principleID]
 		override := configdata.MapValue(rawOverride)
-		toolConfig := configdata.MapValue(override["tool_config"])
 
-		if len(toolConfig) == 0 {
+		toolConfig, found, err = optionalToolConfigMap(
+			override,
+			"tool_config",
+			filepath.Base(path)+" overrides."+principleID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !found || len(toolConfig) == 0 {
 			continue
 		}
 
@@ -175,12 +188,20 @@ func principleToolConfigSourcesFromList(
 			)
 		}
 
-		toolConfig := configdata.MapValue(principle["tool_config"])
-		if len(toolConfig) == 0 {
+		toolConfig, found, err := optionalToolConfigMap(
+			principle,
+			"tool_config",
+			fmt.Sprintf("%s principles[%d]", source, index),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !found || len(toolConfig) == 0 {
 			continue
 		}
 
-		principleID := strings.TrimSpace(fmt.Sprint(principle["id"]))
+		principleID := configdata.StringAt(principle, "id")
 		if principleID == "" {
 			return nil, apperror.Wrapf(
 				errInvalidPrincipleToolConfig,
@@ -248,6 +269,29 @@ func applyPrincipleToolConfigSource(
 	}
 
 	return nil
+}
+
+func optionalToolConfigMap(
+	config configMap,
+	key string,
+	context string,
+) (configMap, bool, error) {
+	rawValue, found := config[key]
+	if !found {
+		return nil, false, nil
+	}
+
+	toolConfig, ok := rawValue.(map[string]any)
+	if !ok {
+		return nil, true, apperror.Wrapf(
+			errInvalidPrincipleToolConfig,
+			"%s.%s must be a mapping",
+			context,
+			key,
+		)
+	}
+
+	return toolConfig, true, nil
 }
 
 func applyGolangCIPrincipleToolConfig(
@@ -409,7 +453,7 @@ func toolConfigItems(
 }
 
 func toolConfigItemValue(rawItem any) (toolConfigItem, error) {
-	if itemMap := configdata.MapValue(rawItem); len(itemMap) > 0 {
+	if itemMap, ok := rawItem.(map[string]any); ok {
 		name := firstNonEmptyString(itemMap, "name", "id", "rule", "path")
 		if name == "" {
 			return toolConfigItem{}, apperror.Wrapf(
@@ -422,6 +466,13 @@ func toolConfigItemValue(rawItem any) (toolConfigItem, error) {
 			value:     name,
 			rationale: configdata.StringAt(itemMap, "rationale"),
 		}, nil
+	}
+
+	if rawItem == nil {
+		return toolConfigItem{}, apperror.Wrapf(
+			errInvalidToolConfigItem,
+			"item must not be null",
+		)
 	}
 
 	value := strings.TrimSpace(fmt.Sprint(rawItem))

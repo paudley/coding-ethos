@@ -487,6 +487,112 @@ principles:
 	}
 }
 
+func TestLoadMergedConfigRejectsMalformedPrincipleToolConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+
+	cases := []struct {
+		name       string
+		path       string
+		content    string
+		wantError  string
+		primaryYML string
+	}{
+		{
+			name: "missing principle id",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - gosec
+`,
+			wantError: "with tool_config must declare id",
+		},
+		{
+			name: "non mapping principle tool config",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      - gosec
+`,
+			wantError: "coding_ethos.yml principles[0].tool_config must be a mapping",
+		},
+		{
+			name:       "non mapping repo override tool config",
+			path:       filepath.Join(repo, "repo_ethos.yml"),
+			primaryYML: "principles: []\n",
+			content: `
+principles:
+  overrides:
+    static-analysis-is-the-first-line-of-defense:
+      tool_config:
+        - gosec
+`,
+			wantError: "repo_ethos.yml overrides.static-analysis-is-the-first-line-of-defense.tool_config must be a mapping",
+		},
+		{
+			name: "empty mapping item",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - {}
+`,
+			wantError: "mapping item must declare name, id, rule, or path",
+		},
+		{
+			name: "null item",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            -
+`,
+			wantError: "item must not be null",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			caseRoot := t.TempDir()
+			caseEthos := filepath.Join(caseRoot, "ethos")
+			caseRepo := filepath.Join(caseRoot, "repo")
+			writeFile(t, filepath.Join(caseEthos, "config.yaml"), minimalConfig())
+			if tc.primaryYML != "" {
+				writeFile(t, filepath.Join(caseEthos, "coding_ethos.yml"), tc.primaryYML)
+			}
+
+			targetPath := strings.Replace(tc.path, ethos, caseEthos, 1)
+			targetPath = strings.Replace(targetPath, repo, caseRepo, 1)
+			writeFile(t, targetPath, tc.content)
+
+			_, err := LoadMergedConfig(caseEthos, caseRepo, "")
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("LoadMergedConfig() error = %v, want %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
 func TestRenderAllSkipsBanditWhenPrincipleDisablesIt(t *testing.T) {
 	t.Parallel()
 
