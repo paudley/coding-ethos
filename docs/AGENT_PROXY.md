@@ -148,14 +148,15 @@ construction.
 The interception-adjacent command classifier lives in `agentproxy` and
 recognizes conservative single-target `ls` and `tree` invocations. The
 PostToolUse Bash proxy path uses that classifier after parsing the command with
-the shared shell parser, refreshes direct child source files for the listed
-directory, and emits the enriched output as AdditionalContext for successful
-listings. The
+the shared shell parser, refreshes source files for the listed directory, and
+emits the enriched output as AdditionalContext for successful listings. `ls`
+uses direct child anatomy. `tree` uses recursive anatomy, with `tree -L N`
+limiting nested files to the displayed depth. The
 `code-intel enrich-listing` command is the runnable bridge for this behavior:
 it accepts raw listing output, infers the target directory from `--command` when
-`--path` is not supplied, refreshes direct child source files for that
-directory, and emits the original listing plus the anatomy block. The command
-does not create a proxy event by itself.
+`--path` is not supplied, refreshes source files for that listing shape, and
+emits the original listing plus the anatomy block. The command does not create a
+proxy event by itself.
 
 ## CEL And SARIF Contract
 

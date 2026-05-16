@@ -239,11 +239,12 @@ output. The `directory-anatomy-map` proxy transform preserves the raw directory
 listing and appends a compact TOON block with in-memory transform hashes and
 token counts returned by the shared agent proxy pipeline. The live Bash
 PostToolUse path uses the shared shell parser plus the conservative `ls`/`tree`
-classifier, refreshes the listed directory's direct child source files, and
-emits the enriched listing as context with `proxy.directory_anatomy` evidence.
-`enrich-listing` accepts raw listing output from stdin or `--listing-file` and
-can infer the target directory from a static, single-target `ls` or `tree`
-command for replay and debugging.
+classifier, refreshes the listed source files, and emits the enriched listing
+as context with `proxy.directory_anatomy` evidence. `ls` stays direct-child
+only, while `tree` includes nested files and honors `tree -L N` as an anatomy
+depth cap. `enrich-listing` accepts raw listing output from stdin or
+`--listing-file` and can infer the target directory and recursive depth from a
+static, single-target `ls` or `tree` command for replay and debugging.
 
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as

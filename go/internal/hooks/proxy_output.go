@@ -87,9 +87,10 @@ func enrichDirectoryListingToolOutput(
 	}
 	defer store.Close()
 
-	_, err = codeintel.NewASTIndexer(store).
-		IndexDirectoryChildren(ctx, root, targetPath)
-	if err != nil {
+	indexer := codeintel.NewASTIndexer(store)
+
+	indexErr := indexListingTarget(ctx, indexer, root, targetPath, invocation)
+	if indexErr != nil {
 		return proxied
 	}
 
@@ -99,6 +100,8 @@ func enrichDirectoryListingToolOutput(
 			Path:           targetPath,
 			Root:           root,
 			SymbolsPerFile: defaultAnatomyMapSymbols,
+			IncludeNested:  invocation.Recursive,
+			MaxDepth:       invocation.MaxDepth,
 		},
 		proxied.Text,
 	)
@@ -112,6 +115,30 @@ func enrichDirectoryListingToolOutput(
 	}
 
 	return proxied
+}
+
+func indexListingTarget(
+	ctx context.Context,
+	indexer codeintel.ASTIndexer,
+	root string,
+	targetPath string,
+	invocation agentproxy.DirectoryListingInvocation,
+) error {
+	if invocation.Recursive {
+		_, err := indexer.IndexPaths(ctx, root, []string{targetPath})
+		if err != nil {
+			return fmt.Errorf("index recursive listing target: %w", err)
+		}
+
+		return nil
+	}
+
+	_, err := indexer.IndexDirectoryChildren(ctx, root, targetPath)
+	if err != nil {
+		return fmt.Errorf("index listing directory children: %w", err)
+	}
+
+	return nil
 }
 
 func directoryListingInvocation(

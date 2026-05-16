@@ -2414,6 +2414,72 @@ func TestRunEnrichesSuccessfulDirectoryListingOutput(t *testing.T) {
 	}
 }
 
+func TestRunEnrichesTreeOutputWithNestedAnatomy(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
+	repo := initHookRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+
+	err := os.MkdirAll(filepath.Join(pkgDir, "sub"), 0o700)
+	if err != nil {
+		t.Fatalf("create package dirs: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(pkgDir, "root.go"),
+		[]byte("package pkg\n\nfunc RootSymbol() {}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write root fixture: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(pkgDir, "sub", "deep.go"),
+		[]byte("package sub\n\nfunc DeepSymbol() {}\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write nested fixture: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ProviderHint:  "codex",
+			SessionID:     "session-tree-listing",
+			ToolName:      toolBash,
+			Cwd:           pkgDir,
+			ToolInput: map[string]any{
+				"command": "tree -L 2 .",
+			},
+			ToolResponse: map[string]any{
+				"stdout":      ".\n|-- root.go\n`-- sub\n    `-- deep.go\n",
+				"return_code": 0,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing tree context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"coding_ethos_anatomy:",
+		"pkg/root.go",
+		"RootSymbol",
+		"pkg/sub/deep.go",
+		"DeepSymbol",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("tree context missing %q: %s", expected, context)
+		}
+	}
+}
+
 func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

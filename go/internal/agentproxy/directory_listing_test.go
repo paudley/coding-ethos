@@ -14,11 +14,13 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		argv []string
-		tool string
-		path string
-		ok   bool
+		name      string
+		argv      []string
+		tool      string
+		path      string
+		depth     int
+		recursive bool
+		ok        bool
 	}{
 		{
 			name: "ls default path",
@@ -42,18 +44,34 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 			ok:   true,
 		},
 		{
-			name: "tree explicit path",
-			argv: []string{"tree", "-L", "2", "go/internal"},
-			tool: "tree",
-			path: "go/internal",
-			ok:   true,
+			name:      "tree explicit path",
+			argv:      []string{"tree", "-L", "2", "go/internal"},
+			tool:      "tree",
+			path:      "go/internal",
+			depth:     2,
+			recursive: true,
+			ok:        true,
 		},
 		{
-			name: "tree size flag does not consume path",
-			argv: []string{"tree", "-s", "go/internal"},
-			tool: "tree",
-			path: "go/internal",
-			ok:   true,
+			name:      "tree compact depth option",
+			argv:      []string{"tree", "-L2", "go/internal"},
+			tool:      "tree",
+			path:      "go/internal",
+			depth:     2,
+			recursive: true,
+			ok:        true,
+		},
+		{
+			name:      "tree size flag does not consume path",
+			argv:      []string{"tree", "-s", "go/internal"},
+			tool:      "tree",
+			path:      "go/internal",
+			recursive: true,
+			ok:        true,
+		},
+		{
+			name: "tree invalid depth rejected",
+			argv: []string{"tree", "-L", "nope", "go/internal"},
 		},
 		{
 			name: "ls directory entry mode rejected",
@@ -86,7 +104,10 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 				return
 			}
 
-			if got.Tool != test.tool || got.Path != test.path {
+			if got.Tool != test.tool ||
+				got.Path != test.path ||
+				got.Recursive != test.recursive ||
+				got.MaxDepth != test.depth {
 				t.Fatalf("invocation = %#v", got)
 			}
 		})

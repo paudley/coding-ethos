@@ -164,12 +164,12 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 		return err
 	}
 
-	targetPath, err := listingTargetPath(*path, *command)
+	invocation, err := listingInvocation(*path, *command)
 	if err != nil {
 		return err
 	}
 
-	targetPath, err = repoRelativePath(*storeFlags.root, targetPath)
+	targetPath, err := repoRelativePath(*storeFlags.root, invocation.Path)
 	if err != nil {
 		return err
 	}
@@ -185,8 +185,12 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	_, err = codeintel.NewASTIndexer(store).
-		IndexDirectoryChildren(ctx, *storeFlags.root, targetPath)
+	indexer := codeintel.NewASTIndexer(store)
+	if invocation.Recursive {
+		_, err = indexer.IndexPaths(ctx, *storeFlags.root, []string{targetPath})
+	} else {
+		_, err = indexer.IndexDirectoryChildren(ctx, *storeFlags.root, targetPath)
+	}
 	if err != nil {
 		return fmt.Errorf("refresh listing anatomy index: %w", err)
 	}
@@ -197,6 +201,8 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 		Language:       *language,
 		Limit:          *limit,
 		SymbolsPerFile: *symbolsPerFile,
+		IncludeNested:  invocation.Recursive,
+		MaxDepth:       invocation.MaxDepth,
 	}, listing)
 	if err != nil {
 		return fmt.Errorf("enrich directory listing: %w", err)
@@ -210,32 +216,53 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 	return nil
 }
 
-func listingTargetPath(path, command string) (string, error) {
+func listingInvocation(
+	path string,
+	command string,
+) (agentproxy.DirectoryListingInvocation, error) {
 	path = strings.TrimSpace(path)
 	if path != "" {
-		return path, nil
+		return agentproxy.DirectoryListingInvocation{
+			Tool: "listing",
+			Path: path,
+		}, nil
 	}
 
+	return listingCommandInvocation(command)
+}
+
+func listingTargetPath(path, command string) (string, error) {
+	invocation, err := listingInvocation(path, command)
+
+	return invocation.Path, err
+}
+
+func listingCommandInvocation(
+	command string,
+) (agentproxy.DirectoryListingInvocation, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
-		return "", errListingPathRequired
+		return agentproxy.DirectoryListingInvocation{}, errListingPathRequired
 	}
 
 	commands, err := shellparse.Commands(command)
 	if err != nil {
-		return "", fmt.Errorf("parse listing command: %w", err)
+		return agentproxy.DirectoryListingInvocation{}, fmt.Errorf(
+			"parse listing command: %w",
+			err,
+		)
 	}
 
 	if len(commands) != 1 {
-		return "", errListingCommandUnsupported
+		return agentproxy.DirectoryListingInvocation{}, errListingCommandUnsupported
 	}
 
 	invocation, ok := agentproxy.DetectShellDirectoryListingInvocation(commands[0])
 	if !ok {
-		return "", errListingCommandUnsupported
+		return agentproxy.DirectoryListingInvocation{}, errListingCommandUnsupported
 	}
 
-	return invocation.Path, nil
+	return invocation, nil
 }
 
 func repoRelativePath(root, path string) (string, error) {

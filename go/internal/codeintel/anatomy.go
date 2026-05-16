@@ -87,19 +87,32 @@ func (store *Store) directoryAnatomyFiles(
 		LEFT JOIN code_chunks chunk ON chunk.path = file.path
 		WHERE COALESCE(file.deleted_at_utc, '') = ''
 			AND (? = '' OR file.language = ?)
-			AND ((? = '' AND file.path NOT LIKE ?)
-				OR (? != '' AND file.path LIKE ? AND file.path NOT LIKE ?))
+			AND (
+				(? = 0 AND ((? = '' AND file.path NOT LIKE ?)
+					OR (? != '' AND file.path LIKE ? AND file.path NOT LIKE ?)))
+				OR (? != 0 AND ((? = '' AND (? = '' OR file.path NOT LIKE ?))
+					OR (? != '' AND file.path LIKE ? AND (? = '' OR file.path NOT LIKE ?))))
+			)
 		GROUP BY file.path, file.language, file.line_count, file.size_bytes,
 			file.stale_reason
 		ORDER BY file.path
 		LIMIT ?`,
 		strings.TrimSpace(query.Language),
 		strings.TrimSpace(query.Language),
+		anatomyBoolInt(query.IncludeNested),
 		dir,
 		anatomyNestedLike(""),
 		dir,
 		anatomyDirLike(dir),
 		anatomyNestedLike(dir),
+		anatomyBoolInt(query.IncludeNested),
+		dir,
+		anatomyBeyondDepthLike("", query.MaxDepth),
+		anatomyBeyondDepthLike("", query.MaxDepth),
+		dir,
+		anatomyDirLike(dir),
+		anatomyBeyondDepthLike(dir, query.MaxDepth),
+		anatomyBeyondDepthLike(dir, query.MaxDepth),
 		defaultQueryLimit(query.Limit),
 	)
 	if err != nil {
@@ -281,6 +294,27 @@ func anatomyNestedLike(dir string) string {
 	}
 
 	return dir + "/%/%"
+}
+
+func anatomyBeyondDepthLike(dir string, maxDepth int) string {
+	if maxDepth <= 0 {
+		return ""
+	}
+
+	segments := strings.Repeat("/%", maxDepth)
+	if dir == "" {
+		return strings.TrimPrefix(segments+"/%", "/")
+	}
+
+	return dir + segments + "/%"
+}
+
+func anatomyBoolInt(value bool) int {
+	if value {
+		return 1
+	}
+
+	return 0
 }
 
 func estimateSourceTokens(sizeBytes int) int {

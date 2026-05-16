@@ -2026,6 +2026,14 @@ func NestedA() {}
 
 func NestedB() {}
 `))
+	writeFile(
+		t,
+		filepath.Join(root, "pkg", "aaa", "deeper", "nested.go"),
+		[]byte(`package deeper
+
+func TooDeep() {}
+`),
+	)
 	writeFile(t, filepath.Join(root, "pkg", "zz.go"), []byte(`package pkg
 
 func LastDirect() {}
@@ -2084,6 +2092,26 @@ func LastDirect() {}
 
 	if anatomyFileByPath(limited.Files, "pkg/aaa/nested.go") != nil {
 		t.Fatalf("limited anatomy included nested file: %#v", limited.Files)
+	}
+
+	recursive, err := store.DirectoryAnatomy(ctx, DirectoryAnatomyQuery{
+		Path:           "pkg",
+		IncludeNested:  true,
+		MaxDepth:       2,
+		SymbolsPerFile: 1,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("recursive directory anatomy: %v", err)
+	}
+
+	deep := anatomyFileByPath(recursive.Files, "pkg/sub/deep.go")
+	if deep == nil || !anatomyHasSymbol(*deep, "Hidden") {
+		t.Fatalf("recursive anatomy missed nested file: %#v", recursive.Files)
+	}
+
+	if anatomyFileByPath(recursive.Files, "pkg/aaa/deeper/nested.go") != nil {
+		t.Fatalf("recursive anatomy exceeded depth: %#v", recursive.Files)
 	}
 
 	output, err := store.EnrichDirectoryListing(

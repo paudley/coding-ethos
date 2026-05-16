@@ -384,7 +384,9 @@ the original directory listing and appends a compact TOON anatomy block with
 normal in-memory transform evidence. Successful Bash `ls` and `tree`
 PostToolUse outputs are conservatively recognized through the shell parser,
 refreshed against the repo-local AST index, and emitted as live proxy context
-with a `proxy.directory_anatomy` event. `enrich-listing` remains the runnable
+with a `proxy.directory_anatomy` event. `ls` listings stay directory-local;
+`tree` listings refresh recursive source files, and `tree -L N` caps the
+anatomy map at the same displayed depth. `enrich-listing` remains the runnable
 CLI bridge for applying the same append-only transform to captured listing
 output; it does not persist a proxy event by itself.
 
