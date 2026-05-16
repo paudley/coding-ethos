@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -68,7 +70,7 @@ func TestHookFilesReturnsStagedPreCommitFiles(t *testing.T) {
 	}
 }
 
-func TestRealGitCommitSucceedsThroughInstalledHooks(t *testing.T) {
+func TestDirectRealGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 	t.Parallel()
 
 	repo := newGitHookE2ERepo(t)
@@ -82,33 +84,64 @@ func TestRealGitCommitSucceedsThroughInstalledHooks(t *testing.T) {
 		"-m",
 		"fix(repo): add readme",
 	)
-	if err != nil {
-		t.Fatalf("git commit failed:\n%s\n%v", output, err)
+	if err == nil {
+		t.Fatalf("direct git commit unexpectedly succeeded:\n%s", output)
 	}
 
-	head := strings.TrimSpace(runTestGitOutputOK(t, repo.root, "rev-parse", "HEAD"))
-	if head == "" {
-		t.Fatal("HEAD did not advance")
-	}
-
-	_, inlineErrA := os.Stat(
-		filepath.Join(repo.root, ".coding-ethos", "lint-runs"),
-	)
-	if inlineErrA != nil {
-		t.Fatalf("missing lint trace directory: %v", inlineErrA)
+	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("direct git output missing hostile-path block:\n%s", output)
 	}
 }
 
-func TestRealGitCommitFailureKeepsOriginalPolicyFinding(t *testing.T) {
+func TestDirectRealGitAmendBlocksThroughInstalledHooks(t *testing.T) {
 	t.Parallel()
 
 	repo := newGitHookE2ERepo(t)
 	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
 	runTestGit(t, repo.root, "add", "README.md")
 
-	output, err := runTestGitOutput(t, repo.root, "commit", "-m", "bad")
+	output, err := runTestGitOutput(
+		t,
+		repo.root,
+		"commit",
+		"--amend",
+		"--no-edit",
+	)
 	if err == nil {
-		t.Fatalf("git commit unexpectedly succeeded:\n%s", output)
+		t.Fatalf("direct git amend unexpectedly succeeded:\n%s", output)
+	}
+
+	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("direct git amend output missing hostile-path block:\n%s", output)
+	}
+}
+
+func TestWrapperAuthorizedCommitMsgKeepsOriginalPolicyFinding(t *testing.T) {
+	verifier := authorizeGitHookForTest(t)
+
+	fixture := setupGitHookValidationFixture(t)
+	fixture.bundlePath = writeCompiledPolicyBundleFile(t, fixture.repo)
+	err := os.WriteFile(fixture.messagePath, []byte("bad\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	var got int
+	output := captureGitStderr(t, func() {
+		got = runWithArgsAndVerifier([]string{
+			"--bundle",
+			fixture.bundlePath,
+			"--runner",
+			fixture.runner,
+			"--cwd",
+			fixture.repo,
+			"commit-msg",
+			fixture.messagePath,
+		}, verifier)
+	})
+
+	if got != blockedExitCode {
+		t.Fatalf("runWithArgs() = %d, want %d\n%s", got, blockedExitCode, output)
 	}
 
 	for _, want := range []string{
@@ -120,9 +153,91 @@ func TestRealGitCommitFailureKeepsOriginalPolicyFinding(t *testing.T) {
 			t.Fatalf("commit output missing %q:\n%s", want, output)
 		}
 	}
+}
 
-	if strings.Contains(output, "git.commit_head_advanced") {
-		t.Fatalf("commit bookkeeping masked original failure:\n%s", output)
+func TestRunWithArgsBlocksHookWithoutWrapperAuthorization(t *testing.T) {
+	fixture := setupGitHookValidationFixture(t)
+
+	output := captureGitStderr(t, func() {
+		got := runWithArgs([]string{
+			"--bundle",
+			fixture.bundlePath,
+			"--runner",
+			fixture.runner,
+			"--cwd",
+			fixture.repo,
+			"commit-msg",
+			fixture.messagePath,
+		})
+		if got != blockedExitCode {
+			t.Fatalf("runWithArgs() = %d, want %d", got, blockedExitCode)
+		}
+	})
+
+	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("direct hook output missing hostile-path block:\n%s", output)
+	}
+}
+
+func TestRunWithArgsRejectsSpoofedWrapperAuthorization(t *testing.T) {
+	t.Setenv(gitwrap.WrapperAuthorizedEnv, "1")
+	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
+	verifier := gitHookAuthorizationVerifier{
+		CurrentPID: func() int { return 67890 },
+		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
+			return pid == 67890 && ancestorPID == 12345, nil
+		},
+		ProcessCommandLine: func(pid int) ([]string, error) {
+			if pid != 12345 {
+				t.Fatalf("processCommandLine pid = %d, want 12345", pid)
+			}
+
+			return []string{"/usr/bin/git", "commit"}, nil
+		},
+	}
+
+	fixture := setupGitHookValidationFixture(t)
+	output := captureGitStderr(t, func() {
+		got := runWithArgsAndVerifier([]string{
+			"--bundle",
+			fixture.bundlePath,
+			"--runner",
+			fixture.runner,
+			"--cwd",
+			fixture.repo,
+			"commit-msg",
+			fixture.messagePath,
+		}, verifier)
+		if got != blockedExitCode {
+			t.Fatalf("runWithArgs() = %d, want %d", got, blockedExitCode)
+		}
+	})
+
+	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("spoofed hook output missing hostile-path block:\n%s", output)
+	}
+}
+
+func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
+	t.Parallel()
+
+	for _, commandLine := range [][]string{
+		{"/repo/bin/coding-ethos-git", "commit"},
+		{"/repo/bin/coding-ethos-run", "policy-git", "commit"},
+	} {
+		if !trustedGitWrapperProcess(commandLine) {
+			t.Fatalf("trustedGitWrapperProcess(%#v) = false", commandLine)
+		}
+	}
+
+	for _, commandLine := range [][]string{
+		nil,
+		{"/usr/bin/git", "commit"},
+		{"/repo/bin/coding-ethos-run", "pre-commit"},
+	} {
+		if trustedGitWrapperProcess(commandLine) {
+			t.Fatalf("trustedGitWrapperProcess(%#v) = true", commandLine)
+		}
 	}
 }
 
@@ -295,14 +410,34 @@ func TestGitHookReadBundleRoundTripsExample(t *testing.T) {
 }
 
 func TestRunWithArgsHandlesValidationAndAllowedHooks(t *testing.T) {
-	t.Parallel()
+	verifier := authorizeGitHookForTest(t)
 
 	fixture := setupGitHookValidationFixture(t)
 
 	for _, test := range gitHookValidationCases(fixture) {
-		if got := runWithArgs(test.args); got != test.want {
+		if got := runWithArgsAndVerifier(test.args, verifier); got != test.want {
 			t.Fatalf("%s: runWithArgs() = %d, want %d", test.name, got, test.want)
 		}
+	}
+}
+
+func authorizeGitHookForTest(t *testing.T) gitHookAuthorizationVerifier {
+	t.Helper()
+
+	t.Setenv(gitwrap.WrapperAuthorizedEnv, "1")
+	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
+	return gitHookAuthorizationVerifier{
+		CurrentPID: func() int { return 67890 },
+		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
+			return pid == 67890 && ancestorPID == 12345, nil
+		},
+		ProcessCommandLine: func(pid int) ([]string, error) {
+			if pid != 12345 {
+				t.Fatalf("processCommandLine pid = %d, want 12345", pid)
+			}
+
+			return []string{"/repo/bin/coding-ethos-run", "policy-git", "commit"}, nil
+		},
 	}
 }
 
@@ -419,6 +554,30 @@ func writeExampleBundleFile(t *testing.T, repo string) string {
 	inlineErr = file.Close()
 	if inlineErr != nil {
 		t.Fatalf("close bundle: %v", inlineErr)
+	}
+
+	return bundlePath
+}
+
+func writeCompiledPolicyBundleFile(t *testing.T, repo string) string {
+	t.Helper()
+
+	bundlePath := filepath.Join(repo, "policy-bundle.json")
+	file, err := os.Create(bundlePath)
+	if err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+
+	bundle := compileRepoPolicyBundle(t)
+
+	err = policy.EncodeBundle(file, bundle)
+	if err != nil {
+		t.Fatalf("encode bundle: %v", err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		t.Fatalf("close bundle: %v", err)
 	}
 
 	return bundlePath
@@ -645,6 +804,48 @@ func writeExecutableTestScript(t *testing.T, path, content string) {
 	}
 }
 
+func captureGitStderr(t *testing.T, run func()) string {
+	t.Helper()
+	testlock.ProcessState(t, "githookcli-stderr")
+
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	run()
+
+	return readGitPipe(t, reader, writer)
+}
+
+func readGitPipe(t *testing.T, reader, writer *os.File) string {
+	t.Helper()
+
+	err := writer.Close()
+	if err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+
+	var buffer bytes.Buffer
+	_, err = io.Copy(&buffer, reader)
+	if err != nil {
+		t.Fatalf("read pipe: %v", err)
+	}
+
+	err = reader.Close()
+	if err != nil {
+		t.Fatalf("close pipe reader: %v", err)
+	}
+
+	return buffer.String()
+}
+
 func runTestGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
@@ -685,6 +886,11 @@ func runTestGitOutput(t *testing.T, repo string, args ...string) (string, error)
 func cleanTestGitEnv() []string {
 	env := make([]string, 0, len(os.Environ()))
 	for _, item := range os.Environ() {
+		name, _, found := strings.Cut(item, "=")
+		if found && (name == gitwrap.WrapperAuthorizedEnv || name == gitwrap.WrapperPIDEnv) {
+			continue
+		}
+
 		switch {
 		case item == "GIT_DIR" || item == "GIT_WORK_TREE":
 			continue

@@ -46,6 +46,8 @@ func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
 	fakeGit := fakeEnvGit(t, logPath)
 
 	t.Setenv("CODING_ETHOS_EXEC_STACK", "coding-ethos-run")
+	t.Setenv(WrapperAuthorizedEnv, "spoofed")
+	t.Setenv(WrapperPIDEnv, "999999")
 
 	err := Execute(fakeGit, Options{Argv: []string{"status"}, AdminApproved: true})
 	if err != nil {
@@ -59,6 +61,15 @@ func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
 
 	if !strings.Contains(log, "CODE_ETHOS_ADMIN_APPROVED=1") {
 		t.Fatalf("admin approval env missing from real git env:\n%s", log)
+	}
+
+	if !strings.Contains(log, "CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=1") {
+		t.Fatalf("wrapper authorization env missing from real git env:\n%s", log)
+	}
+
+	wantPID := "CODE_ETHOS_GIT_WRAPPER_PID=" + strconv.Itoa(os.Getpid())
+	if !strings.Contains(log, wantPID) {
+		t.Fatalf("wrapper pid env = log %q, want %q", log, wantPID)
 	}
 }
 
@@ -107,6 +118,8 @@ set -euo pipefail
 log_path=` + strconv.Quote(logPath) + `
 printf 'CODING_ETHOS_EXEC_STACK=%s\n' "${CODING_ETHOS_EXEC_STACK:-}" >> "$log_path"
 printf 'CODE_ETHOS_ADMIN_APPROVED=%s\n' "${CODE_ETHOS_ADMIN_APPROVED:-}" >> "$log_path"
+printf 'CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=%s\n' "${CODE_ETHOS_GIT_WRAPPER_AUTHORIZED:-}" >> "$log_path"
+printf 'CODE_ETHOS_GIT_WRAPPER_PID=%s\n' "${CODE_ETHOS_GIT_WRAPPER_PID:-}" >> "$log_path"
 `
 
 	err := os.WriteFile(scriptPath, []byte(script), 0o600)

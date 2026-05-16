@@ -419,6 +419,40 @@ type CompactCodeContextQuery struct {
 	Limit    int
 }
 
+type RepoMapQuery struct {
+	Path           string
+	Root           string
+	Language       string
+	Limit          int
+	SymbolsPerFile int
+}
+
+type RepoMap struct {
+	Root  string        `json:"root,omitempty"`
+	Files []RepoMapFile `json:"files,omitempty"`
+}
+
+type RepoMapFile struct {
+	Path        string          `json:"path"`
+	Language    string          `json:"language"`
+	Symbols     []RepoMapSymbol `json:"symbols,omitempty"`
+	SymbolCount int             `json:"symbol_count"`
+	ChunkCount  int             `json:"chunk_count"`
+	LineCount   int             `json:"line_count"`
+	Score       int             `json:"score"`
+}
+
+type RepoMapSymbol struct {
+	Path       string `json:"path,omitempty"`
+	Language   string `json:"language,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Name       string `json:"name,omitempty"`
+	SymbolPath string `json:"symbol_path,omitempty"`
+	Signature  string `json:"signature,omitempty"`
+	StartLine  int    `json:"start_line"`
+	EndLine    int    `json:"end_line,omitempty"`
+}
+
 type DirectoryAnatomyQuery struct {
 	Path           string
 	Root           string

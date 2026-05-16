@@ -138,3 +138,29 @@ func TestProcessAncestryApprovedMatchesCurrentPID(t *testing.T) {
 		t.Fatal("current process should be approved")
 	}
 }
+
+func TestProcessAncestryContainsCurrentPID(t *testing.T) {
+	t.Parallel()
+
+	contains, err := ProcessAncestryContains(os.Getpid(), os.Getpid())
+	if err != nil {
+		t.Fatalf("check ancestry contains current pid: %v", err)
+	}
+
+	if !contains {
+		t.Fatal("current pid should contain itself in ancestry")
+	}
+}
+
+func TestProcessCommandLineReadsCurrentProcess(t *testing.T) {
+	t.Parallel()
+
+	commandLine, err := ProcessCommandLine(os.Getpid())
+	if err != nil {
+		t.Fatalf("read process command line: %v", err)
+	}
+
+	if len(commandLine) == 0 || strings.TrimSpace(commandLine[0]) == "" {
+		t.Fatalf("empty command line: %#v", commandLine)
+	}
+}

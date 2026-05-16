@@ -49,6 +49,8 @@ skill metadata used by those enforcement paths.
 - `code_similarity_check`: compare proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH before an agent writes a
   duplicate implementation.
+- `code_intel_repo_map`: return the compact repository-wide AST map used for
+  startup orientation.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,
@@ -60,6 +62,9 @@ skill metadata used by those enforcement paths.
   chunk records ready for an approved embedding producer.
 - `skill_recommend`: rank generated skills for a task, command, path, or
   diagnostic.
+
+The same repo map is also available as the read-only MCP resource
+`coding-ethos://code-intel/repo-map`.
 
 `skill_recommend` is also the runtime bridge for general operating discipline.
 For broad implementation, review, refactoring, simplification, or debugging

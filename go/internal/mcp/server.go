@@ -28,6 +28,7 @@ const (
 	protocolVersion         = "2025-06-18"
 	maxSARIFHistoryPayloads = 1000
 	skillSummaryLimit       = 100
+	repoMapResourceURI      = "coding-ethos://code-intel/repo-map"
 )
 
 var (
@@ -116,6 +117,10 @@ func (server Server) handle(request requestMessage) (any, *rpcError) {
 		return map[string]any{"tools": toolDefinitions()}, nil
 	case "tools/call":
 		return server.handleToolCall(request.Params)
+	case "resources/list":
+		return map[string]any{"resources": resourceDefinitions()}, nil
+	case "resources/read":
+		return server.handleResourceRead(request.Params)
 	default:
 		return nil, &rpcError{Code: -32601, Message: "method not found"}
 	}
@@ -140,6 +145,26 @@ func (server Server) handleToolCall(params json.RawMessage) (any, *rpcError) {
 	}
 
 	return toolResult(result), nil
+}
+
+func (server Server) handleResourceRead(params json.RawMessage) (any, *rpcError) {
+	var read resourceReadParams
+
+	inlineErr2 := json.Unmarshal(params, &read)
+	if inlineErr2 != nil {
+		return nil, &rpcError{Code: -32602, Message: "invalid resource read params"}
+	}
+
+	if strings.TrimSpace(read.URI) != repoMapResourceURI {
+		return nil, &rpcError{Code: -32602, Message: "unknown resource"}
+	}
+
+	result, err := server.repoMapResource()
+	if err != nil {
+		return nil, &rpcError{Code: -32602, Message: err.Error()}
+	}
+
+	return result, nil
 }
 
 type toolHandler func(json.RawMessage) (any, error)
@@ -178,6 +203,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_hook_usage", Handler: server.codeIntelHookUsage},
 		{Name: "code_intel_index_code", Handler: server.codeIntelIndexCode},
 		{Name: "code_similarity_check", Handler: server.codeSimilarityCheck},
+		{Name: "code_intel_repo_map", Handler: server.codeIntelRepoMap},
 		{
 			Name:    "code_intel_embedding_candidates",
 			Handler: server.codeIntelEmbeddingCandidates,

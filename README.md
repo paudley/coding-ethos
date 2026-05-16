@@ -306,6 +306,8 @@ The first tools are intentionally narrow and auditable:
   embedding coverage.
 - `code_similarity_check`: preflight proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH.
+- `code_intel_repo_map`: return a compact repository-wide AST map with ranked
+  files, symbols, and signatures for startup orientation.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
@@ -389,6 +391,12 @@ with a `proxy.directory_anatomy` event. `ls` listings stay directory-local;
 anatomy map at the same displayed depth. `enrich-listing` remains the runnable
 CLI bridge for applying the same append-only transform to captured listing
 output; it does not persist a proxy event by itself.
+
+At `SessionStart`, the hook runtime refreshes the repo-local AST index and
+injects a compact `coding_ethos_repo_map` when source facts are available. The
+same map is exposed through MCP as the `code_intel_repo_map` tool and the
+`coding-ethos://code-intel/repo-map` resource, so agents can refresh or expand
+startup orientation without broad directory listings or whole-file reads.
 
 The `proxy-file-read` bridge records session-scoped file read cache evidence in
 the same proxy ledger. The first unchanged read records a normal `file_read`

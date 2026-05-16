@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -4330,6 +4331,70 @@ func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
 	}
 }
 
+func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	newSourcePath := filepath.Join(repo, "pkg", "new_file.py")
+	err = os.WriteFile(
+		newSourcePath,
+		[]byte("def newly_added():\n    return 'new'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write new source: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-repo-map",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"coding_ethos_repo_map:",
+		"pkg/app.py",
+		"def run():",
+		`repo_map_mcp: code_intel_repo_map {"limit":16,"symbols_per_file":3}`,
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
+	}
+
+	if strings.Contains(context, "pkg/new_file.py") {
+		t.Fatalf("session context refreshed unindexed file:\n%s", context)
+	}
+}
+
 func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) {
 	t.Parallel()
 
@@ -4719,6 +4784,27 @@ func initHookRepo(t *testing.T) string {
 	runHookGit(t, repo, "commit", "-m", "initial")
 
 	return repo
+}
+
+func indexHookRepo(t *testing.T, repo string, paths []string) {
+	t.Helper()
+
+	ctx := context.Background()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(repo))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer func() {
+		inlineErr := store.Close()
+		if inlineErr != nil {
+			t.Fatalf("close code-intel store: %v", inlineErr)
+		}
+	}()
+
+	_, err = codeintel.NewASTIndexer(store).IndexPaths(ctx, repo, paths)
+	if err != nil {
+		t.Fatalf("index hook repo: %v", err)
+	}
 }
 
 func runHookGit(t *testing.T, repo string, args ...string) {

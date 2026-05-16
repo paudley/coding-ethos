@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -22,6 +25,12 @@ import (
 const (
 	blockedExitCode  = 2
 	adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
+	gitHookRunner    = "coding-ethos-run"
+	gitHookWrapper   = "coding-ethos-git"
+	policyGitCommand = "policy-git"
+	hookCommitMsg    = "commit-msg"
+	hookPreCommit    = "pre-commit"
+	hookPrePush      = "pre-push"
 )
 
 var (
@@ -29,6 +38,9 @@ var (
 	errHookRequired   = apperror.StaticError("git hook name is required")
 	errRunnerRequired = apperror.StaticError("--runner is required")
 	errInvalidBundle  = apperror.StaticError("invalid policy bundle")
+	errDirectGitHook  = apperror.StaticError(
+		"direct git execution reached coding-ethos hooks",
+	)
 )
 
 type gitHookConfig struct {
@@ -38,7 +50,20 @@ type gitHookConfig struct {
 	HookArgs   []string
 }
 
+type gitHookAuthorizationVerifier struct {
+	CurrentPID              func() int
+	ProcessAncestryContains func(int, int) (bool, error)
+	ProcessCommandLine      func(int) ([]string, error)
+}
+
 func runWithArgs(args []string) int {
+	return runWithArgsAndVerifier(args, defaultGitHookAuthorizationVerifier())
+}
+
+func runWithArgsAndVerifier(
+	args []string,
+	verifier gitHookAuthorizationVerifier,
+) int {
 	config, err := parseGitHookConfig(args)
 	if err != nil {
 		printErr(err)
@@ -54,10 +79,16 @@ func runWithArgs(args []string) int {
 	}
 
 	hookName := config.HookArgs[0]
+	if gitHookRequiresWrapper(hookName) && !gitHookWrapperAuthorized(verifier) {
+		printErr(errDirectGitHook)
+
+		return blockedExitCode
+	}
+
 	switch hookName {
-	case "commit-msg":
+	case hookCommitMsg:
 		return runCommitMsgHook(bundle, config.Cwd, config.HookArgs)
-	case "pre-commit", "pre-push":
+	case hookPreCommit, hookPrePush:
 		code, blocked := runStagedHook(bundle, config.Cwd, hookName)
 		if blocked {
 			return code
@@ -65,6 +96,68 @@ func runWithArgs(args []string) int {
 	}
 
 	return runHookGroupRunner(config.Cwd, config.HookArgs)
+}
+
+func defaultGitHookAuthorizationVerifier() gitHookAuthorizationVerifier {
+	return gitHookAuthorizationVerifier{
+		CurrentPID:              os.Getpid,
+		ProcessAncestryContains: gitwrap.ProcessAncestryContains,
+		ProcessCommandLine:      gitwrap.ProcessCommandLine,
+	}
+}
+
+func gitHookRequiresWrapper(hookName string) bool {
+	switch hookName {
+	case hookCommitMsg, hookPreCommit, hookPrePush:
+		return true
+	default:
+		return false
+	}
+}
+
+func gitHookWrapperAuthorized(verifier gitHookAuthorizationVerifier) bool {
+	if os.Getenv(gitwrap.WrapperAuthorizedEnv) != "1" {
+		return false
+	}
+
+	wrapperPID, err := strconv.Atoi(os.Getenv(gitwrap.WrapperPIDEnv))
+	if err != nil || wrapperPID <= 0 {
+		return false
+	}
+
+	contained, err := verifier.ProcessAncestryContains(
+		verifier.CurrentPID(),
+		wrapperPID,
+	)
+	if err != nil || !contained {
+		return false
+	}
+
+	commandLine, err := verifier.ProcessCommandLine(wrapperPID)
+	if err != nil {
+		return false
+	}
+
+	return trustedGitWrapperProcess(commandLine)
+}
+
+func trustedGitWrapperProcess(commandLine []string) bool {
+	if len(commandLine) == 0 {
+		return false
+	}
+
+	switch filepath.Base(commandLine[0]) {
+	case gitHookWrapper:
+		return true
+	case gitHookRunner:
+		return commandLineContains(commandLine, policyGitCommand)
+	default:
+		return false
+	}
+}
+
+func commandLineContains(commandLine []string, value string) bool {
+	return slices.Contains(commandLine, value)
 }
 
 func parseGitHookConfig(args []string) (gitHookConfig, error) {
@@ -199,7 +292,7 @@ func adminApprovedWithVerifier(cwd string, verifier func(string) error) bool {
 }
 
 func hookFiles(cwd, hookName string) ([]string, error) {
-	if hookName != "pre-commit" {
+	if hookName != hookPreCommit {
 		return nil, nil
 	}
 

@@ -284,10 +284,11 @@ func codexAllowedMessage(output *HookSpecificOutput) string {
 		return ""
 	}
 
+	if output.HookEventName == eventSessionStart {
+		return codexSessionStartAllowedMessage(context)
+	}
+
 	switch {
-	case output.HookEventName == eventSessionStart:
-		return "coding-ethos: load repository conventions, managed toolchain " +
-			"rules, and generated skills before editing."
 	case output.HookEventName == eventUserPromptSubmit:
 		return "coding-ethos: use and maintain a todo list for multi-step work."
 	case output.HookEventName == eventStop:
@@ -305,6 +306,15 @@ func codexAllowedMessage(output *HookSpecificOutput) string {
 	default:
 		return ""
 	}
+}
+
+func codexSessionStartAllowedMessage(context string) string {
+	if strings.Contains(context, "coding_ethos_repo_map:") {
+		return compactProviderMessage(context)
+	}
+
+	return "coding-ethos: load repository conventions, managed toolchain " +
+		"rules, and generated skills before editing."
 }
 
 func compactProviderMessage(message string) string {

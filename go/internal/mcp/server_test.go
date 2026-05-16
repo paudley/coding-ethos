@@ -34,8 +34,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 21 {
-		t.Fatalf("tool count = %d, want 21: %#v", len(tools), tools)
+	if len(tools) != 22 {
+		t.Fatalf("tool count = %d, want 22: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -55,6 +55,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_index_status",
 		"code_intel_hook_usage",
 		"code_similarity_check",
+		"code_intel_repo_map",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -475,6 +476,11 @@ func codeIntelToolRequests() []codeIntelToolRequestCase {
 			want: "code_intel_code_context",
 		},
 		{
+			name: "repo map",
+			body: `{"limit":5,"symbols_per_file":2,"format":"toon"}`,
+			want: "coding_ethos_repo_map",
+		},
+		{
 			name: "embedding candidates",
 			body: `{"record_kind":"remediation_outcome",` +
 				`"policy_id":"python.conditional_imports"}`,
@@ -501,6 +507,77 @@ func codeIntelToolRequest(
 			"method":"tools/call",
 			"params":{"name":"code_intel_%s","arguments":%s}
 		}`, 40+index, strings.ReplaceAll(request.name, " ", "_"), request.body))
+}
+
+func TestServerCodeIntelRepoMapResource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	listOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":54,
+		"method":"resources/list"
+	}`), runtime)
+	if !strings.Contains(listOutput, "coding-ethos://code-intel/repo-map") {
+		t.Fatalf("resource list missing repo map:\n%s", listOutput)
+	}
+
+	readOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":55,
+		"method":"resources/read",
+		"params":{"uri":"coding-ethos://code-intel/repo-map"}
+	}`), runtime)
+	if !strings.Contains(readOutput, "coding_ethos_repo_map") ||
+		!strings.Contains(readOutput, "pkg/app.py") {
+		t.Fatalf("resource read missing repo map:\n%s", readOutput)
+	}
+}
+
+func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	newSourcePath := filepath.Join(root, "pkg", "new_file.py")
+	inlineErr0 := os.WriteFile(
+		newSourcePath,
+		[]byte("def newly_added():\n    return 'new'\n"),
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write new source: %v", inlineErr0)
+	}
+
+	readOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":56,
+		"method":"resources/read",
+		"params":{"uri":"coding-ethos://code-intel/repo-map"}
+	}`), runtime)
+	if strings.Contains(readOutput, "pkg/new_file.py") {
+		t.Fatalf("resource read refreshed unindexed file:\n%s", readOutput)
+	}
+
+	assertRepoMapPathAbsent(t, root, "pkg/new_file.py")
+
+	toolOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":57,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{"path":"pkg/new_file.py","format":"toon"}
+		}
+	}`), runtime)
+	if !strings.Contains(toolOutput, "pkg/new_file.py") {
+		t.Fatalf("repo-map tool did not refresh requested path:\n%s", toolOutput)
+	}
 }
 
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
@@ -570,6 +647,35 @@ func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %s in SARIF remediation output:\n%s", expected, output)
 		}
+	}
+}
+
+func assertRepoMapPathAbsent(t *testing.T, root, path string) {
+	t.Helper()
+
+	ctx := context.Background()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer func() {
+		inlineErr := store.Close()
+		if inlineErr != nil {
+			t.Fatalf("close code-intel store: %v", inlineErr)
+		}
+	}()
+
+	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
+		Root:  root,
+		Path:  path,
+		Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("query repo map: %v", err)
+	}
+
+	if len(repoMap.Files) != 0 {
+		t.Fatalf("repo map unexpectedly contains %s: %#v", path, repoMap.Files)
 	}
 }
 

@@ -284,14 +284,133 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	}, nil
 }
 
-func (server Server) codeSimilarityCheck(args json.RawMessage) (any, error) {
-	var input codeSimilarityCheckInput
+func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
+	var input codeIntelRepoMapInput
 
 	inlineErr7 := json.Unmarshal(args, &input)
 	if inlineErr7 != nil {
 		return nil, fmt.Errorf(
-			"parse code similarity check arguments: %w",
+			"parse code intelligence repo-map arguments: %w",
 			inlineErr7,
+		)
+	}
+
+	repoMap, rendered, err := server.loadFreshRepoMap(input)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]any{
+		"kind":     "code_intel_repo_map",
+		"repo_map": repoMap,
+		"toon":     rendered,
+	}
+
+	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
+		result["content"] = rendered
+	}
+
+	return result, nil
+}
+
+func (server Server) repoMapResource() (any, error) {
+	_, rendered, err := server.loadStoredRepoMap(codeIntelRepoMapInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"contents": []map[string]string{{
+			"uri":      repoMapResourceURI,
+			"mimeType": "text/vnd.coding-ethos.toon",
+			"text":     rendered,
+		}},
+	}, nil
+}
+
+func (server Server) loadFreshRepoMap(
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	root := server.codeIntelRoot()
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return codeintel.RepoMap{}, "", fmt.Errorf(
+			"open code intelligence store: %w",
+			err,
+		)
+	}
+	defer closeStore()
+
+	ctx := argsContext()
+
+	_, err = codeintel.NewASTIndexer(store).IndexPaths(
+		ctx,
+		root,
+		repoMapIndexPaths(input),
+	)
+	if err != nil {
+		return codeintel.RepoMap{}, "", fmt.Errorf("refresh repo map index: %w", err)
+	}
+
+	return server.readRepoMap(store, root, input)
+}
+
+func (server Server) loadStoredRepoMap(
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	root := server.codeIntelRoot()
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return codeintel.RepoMap{}, "", fmt.Errorf(
+			"open code intelligence store: %w",
+			err,
+		)
+	}
+	defer closeStore()
+
+	return server.readRepoMap(store, root, input)
+}
+
+func (server Server) readRepoMap(
+	store *codeintel.Store,
+	root string,
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	ctx := argsContext()
+
+	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
+		Path:           input.Path,
+		Root:           root,
+		Language:       input.Language,
+		Limit:          input.Limit,
+		SymbolsPerFile: input.SymbolsPerFile,
+	})
+	if err != nil {
+		return codeintel.RepoMap{}, "", fmt.Errorf("query repo map: %w", err)
+	}
+
+	return repoMap, codeintel.RenderRepoMapTOON(repoMap), nil
+}
+
+func repoMapIndexPaths(input codeIntelRepoMapInput) []string {
+	path := strings.TrimSpace(input.Path)
+	if path == "" {
+		return nil
+	}
+
+	return []string{path}
+}
+
+func (server Server) codeSimilarityCheck(args json.RawMessage) (any, error) {
+	var input codeSimilarityCheckInput
+
+	inlineErr8 := json.Unmarshal(args, &input)
+	if inlineErr8 != nil {
+		return nil, fmt.Errorf(
+			"parse code similarity check arguments: %w",
+			inlineErr8,
 		)
 	}
 
