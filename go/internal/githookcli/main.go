@@ -28,6 +28,9 @@ const (
 	gitHookRunner    = "coding-ethos-run"
 	gitHookWrapper   = "coding-ethos-git"
 	policyGitCommand = "policy-git"
+	hookCommitMsg    = "commit-msg"
+	hookPreCommit    = "pre-commit"
+	hookPrePush      = "pre-push"
 )
 
 var (
@@ -83,9 +86,9 @@ func runWithArgsAndVerifier(
 	}
 
 	switch hookName {
-	case "commit-msg":
+	case hookCommitMsg:
 		return runCommitMsgHook(bundle, config.Cwd, config.HookArgs)
-	case "pre-commit", "pre-push":
+	case hookPreCommit, hookPrePush:
 		code, blocked := runStagedHook(bundle, config.Cwd, hookName)
 		if blocked {
 			return code
@@ -105,7 +108,7 @@ func defaultGitHookAuthorizationVerifier() gitHookAuthorizationVerifier {
 
 func gitHookRequiresWrapper(hookName string) bool {
 	switch hookName {
-	case "commit-msg", "pre-commit", "pre-push":
+	case hookCommitMsg, hookPreCommit, hookPrePush:
 		return true
 	default:
 		return false
@@ -289,7 +292,7 @@ func adminApprovedWithVerifier(cwd string, verifier func(string) error) bool {
 }
 
 func hookFiles(cwd, hookName string) ([]string, error) {
-	if hookName != "pre-commit" {
+	if hookName != hookPreCommit {
 		return nil, nil
 	}
 
