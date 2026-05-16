@@ -1203,7 +1203,7 @@ Acceptance criteria:
   AST-derived code files/chunks.
 - [x] Add stale code-chunk embedding invalidation when reindexing changes chunk
   hashes.
-- [ ] Add incremental reindex invalidation that compares file hashes even when
+- [x] Add incremental reindex invalidation that compares file hashes even when
   mtime and size appear unchanged.
 - [ ] Use Tree-sitter facts to augment CEL source inputs with symbol kind,
   symbol name, symbol path, enclosing function/class/type/config entry, byte
@@ -1330,7 +1330,7 @@ Acceptance criteria:
   content hash, index timestamp, and parser metadata.
 - [x] Add stale-result refusal behavior and current-content validation for
   `CodeContext` lookups.
-- [ ] Add stale-result refusal behavior and current-content validation for
+- [x] Add stale-result refusal behavior and current-content validation for
   compact code context, repo maps, and other AST-derived context lookups.
 - [ ] Add stale-result refusal behavior and current-content validation for
   every AST-derived CEL/SARIF result.

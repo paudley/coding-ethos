@@ -34,6 +34,15 @@ func (store *Store) CompactCodeContext(
 		return CompactCodeContext{}, err
 	}
 
+	err = store.validateASTContextPathsFresh(
+		ctx,
+		query.Root,
+		compactContextPaths(repoMap, symbols, chunks),
+	)
+	if err != nil {
+		return CompactCodeContext{}, err
+	}
+
 	return CompactCodeContext{
 		IndexFresh: len(repoMap) > 0,
 		RepoMap:    repoMap,
@@ -94,6 +103,11 @@ func (store *Store) RepoMap(
 	err = rows.Err()
 	if err != nil {
 		return nil, fmt.Errorf("iterate repo map: %w", err)
+	}
+
+	err = store.validateASTContextPathsFresh(ctx, query.Root, repoMapPaths(results))
+	if err != nil {
+		return nil, err
 	}
 
 	return results, nil
@@ -161,4 +175,31 @@ func (store *Store) SymbolSummaries(
 	}
 
 	return results, nil
+}
+
+func compactContextPaths(
+	repoMap []RepoMapEntry,
+	symbols []SymbolSummary,
+	chunks []CodeChunk,
+) []string {
+	paths := repoMapPaths(repoMap)
+
+	for _, symbol := range symbols {
+		paths = append(paths, symbol.Path)
+	}
+
+	for _, chunk := range chunks {
+		paths = append(paths, chunk.Path)
+	}
+
+	return paths
+}
+
+func repoMapPaths(entries []RepoMapEntry) []string {
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, entry.Path)
+	}
+
+	return paths
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -91,6 +92,18 @@ func (store *Store) validateCodeContextFresh(
 		return err
 	}
 
+	return validateCodeFileContentFresh(
+		root,
+		path,
+		codeFileContentMetadata{hash: storedHash, size: storedSize},
+	)
+}
+
+func validateCodeFileContentFresh(
+	root string,
+	path string,
+	metadata codeFileContentMetadata,
+) error {
 	sourcePath := filepath.Join(root, filepath.FromSlash(path))
 
 	info, err := os.Stat(sourcePath)
@@ -98,7 +111,7 @@ func (store *Store) validateCodeContextFresh(
 		return fmt.Errorf("stat current source for code context %s: %w", path, err)
 	}
 
-	if info.Size() != storedSize || info.Size() > maxIndexedSourceBytes {
+	if info.Size() != metadata.size || info.Size() > maxIndexedSourceBytes {
 		return staleCodeContextError(path)
 	}
 
@@ -108,11 +121,61 @@ func (store *Store) validateCodeContextFresh(
 	}
 
 	currentHash := astfacts.ContentHash(contents)
-	if currentHash != storedHash {
+	if currentHash != metadata.hash {
 		return staleCodeContextError(path)
 	}
 
 	return nil
+}
+
+func (store *Store) validateASTContextPathsFresh(
+	ctx context.Context,
+	root string,
+	paths []string,
+) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+
+	paths = uniqueASTContextPaths(paths)
+
+	metadataByPath, err := store.codeFileContentMetadataByPath(ctx, paths)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range paths {
+		metadata, found := metadataByPath[path]
+		if !found {
+			return fmt.Errorf("query code file metadata %s: %w", path, sql.ErrNoRows)
+		}
+
+		err := validateCodeFileContentFresh(root, path, metadata)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func uniqueASTContextPaths(paths []string) []string {
+	unique := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+
+	for _, path := range paths {
+		if path == "" || seen[path] {
+			continue
+		}
+
+		seen[path] = true
+		unique = append(unique, path)
+	}
+
+	slices.Sort(unique)
+
+	return unique
 }
 
 func staleCodeContextError(path string) error {
@@ -146,6 +209,82 @@ func (store *Store) codeFileContentMetadata(
 	}
 
 	return hash, size, nil
+}
+
+type codeFileContentMetadata struct {
+	hash string
+	size int64
+}
+
+func (store *Store) codeFileContentMetadataByPath(
+	ctx context.Context,
+	paths []string,
+) (map[string]codeFileContentMetadata, error) {
+	results := make(map[string]codeFileContentMetadata, len(paths))
+
+	for offset := 0; offset < len(paths); offset += sqliteBatchSize {
+		end := min(offset+sqliteBatchSize, len(paths))
+
+		err := store.codeFileContentMetadataBatch(ctx, paths[offset:end], results)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
+}
+
+func (store *Store) codeFileContentMetadataBatch(
+	ctx context.Context,
+	paths []string,
+	results map[string]codeFileContentMetadata,
+) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(paths))
+	args := make([]any, len(paths))
+
+	for index, path := range paths {
+		placeholders[index] = "?"
+		args[index] = path
+	}
+
+	// #nosec G202 -- IN-list placeholders are generated for bound parameters.
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT path, content_hash, size_bytes
+		FROM code_files
+		WHERE COALESCE(deleted_at_utc, '') = ''
+			AND path IN (`+strings.Join(placeholders, ",")+`)`,
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("query code file metadata batch: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			path     string
+			metadata codeFileContentMetadata
+		)
+
+		err = rows.Scan(&path, &metadata.hash, &metadata.size)
+		if err != nil {
+			return fmt.Errorf("scan code file metadata batch: %w", err)
+		}
+
+		results[path] = metadata
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return fmt.Errorf("iterate code file metadata batch: %w", err)
+	}
+
+	return nil
 }
 
 func (store *Store) findCodeContextChunk(

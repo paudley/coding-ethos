@@ -414,12 +414,14 @@ type CompactCodeContext struct {
 
 type CompactCodeContextQuery struct {
 	Path     string
+	Root     string
 	Language string
 	Limit    int
 }
 
 type DirectoryAnatomyQuery struct {
 	Path           string
+	Root           string
 	Language       string
 	Limit          int
 	SymbolsPerFile int
