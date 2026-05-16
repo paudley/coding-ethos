@@ -291,6 +291,201 @@ style:
 	}
 }
 
+func TestLoadMergedConfigAppliesPrincipleToolConfigWithProvenance(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - name: gosec
+              rationale: Security analyzers are required quality gates.
+          disable:
+            - name: misspell
+              rationale: Prose spelling policy is owned outside golangci-lint.
+      bandit:
+        enabled:
+          value: true
+          rationale: Python security scanning is part of static analysis.
+        skips:
+          - id: B101
+            rationale: Tests assert with pytest.
+`)
+
+	merged, err := LoadMergedConfig(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("LoadMergedConfig(): %v", err)
+	}
+
+	rendered, err := RenderAll(merged)
+	if err != nil {
+		t.Fatalf("RenderAll(): %v", err)
+	}
+
+	for path, wants := range map[string][]string{
+		".golangci.yml": {
+			"Principle-derived tool config:",
+			"linters.enable gosec from static-analysis-is-the-first-line-of-defense",
+			"Security analyzers are required quality gates.",
+			"- gosec",
+			"- misspell",
+		},
+		".bandit.yml": {
+			"enabled true from static-analysis-is-the-first-line-of-defense",
+			"Python security scanning is part of static analysis.",
+			"- B101",
+		},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(rendered[path], want) {
+				t.Fatalf("%s missing %q:\n%s", path, want, rendered[path])
+			}
+		}
+	}
+}
+
+func TestLoadMergedConfigPrunesProvenanceAfterRepoOverride(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	repoConfig := filepath.Join(repo, "repo_config.yaml")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), `
+principles:
+  - id: security-by-design
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - name: gosec
+              rationale: Security analyzer.
+`)
+	writeFile(t, repoConfig, `
+tooling:
+  golangci_lint:
+    linters:
+      enable:
+        - govet
+`)
+
+	merged, err := LoadMergedConfig(ethos, repo, repoConfig)
+	if err != nil {
+		t.Fatalf("LoadMergedConfig(): %v", err)
+	}
+
+	rendered, err := renderGolangCIConfig(merged)
+	if err != nil {
+		t.Fatalf("renderGolangCIConfig(): %v", err)
+	}
+
+	if strings.Contains(rendered, "Principle-derived tool config") ||
+		strings.Contains(rendered, "gosec") {
+		t.Fatalf("rendered config kept stale provenance:\n%s", rendered)
+	}
+
+	if !strings.Contains(rendered, "- govet") {
+		t.Fatalf("rendered config missing repo override:\n%s", rendered)
+	}
+}
+
+func TestLoadMergedConfigAppliesRepoEthosToolConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - name: gosec
+              rationale: Security analyzer.
+`)
+	writeFile(t, filepath.Join(ethos, "repo_ethos.yml"), `
+principles:
+  overrides:
+    static-analysis-is-the-first-line-of-defense:
+      tool_config:
+        golangci_lint:
+          linters:
+            disable:
+              - name: misspell
+                rationale: Repo-local prose is reviewed outside golangci-lint.
+  additional:
+    - id: ginkgo-policy
+      tool_config:
+        golangci_lint:
+          linters:
+            enable:
+              - name: ginkgolinter
+                rationale: Repo-local Ginkgo tests are policy.
+`)
+
+	merged, err := LoadMergedConfig(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("LoadMergedConfig(): %v", err)
+	}
+
+	rendered, err := renderGolangCIConfig(merged)
+	if err != nil {
+		t.Fatalf("renderGolangCIConfig(): %v", err)
+	}
+
+	for _, want := range []string{
+		"linters.enable gosec from static-analysis-is-the-first-line-of-defense",
+		"(coding_ethos.yml): Security analyzer.",
+		"linters.disable misspell from static-analysis-is-the-first-line-of-defense",
+		"(repo_ethos.yml): Repo-local prose is reviewed outside golangci-lint.",
+		"linters.enable ginkgolinter from ginkgo-policy (repo_ethos.yml)",
+		"- gosec",
+		"- ginkgolinter",
+		"- misspell",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered config missing %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestLoadMergedConfigRejectsUnsupportedPrincipleToolConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "ethos")
+	repo := filepath.Join(root, "repo")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), `
+principles:
+  - id: security-by-design
+    tool_config:
+      golangci_lint:
+        arbitrary:
+          shell: rm -rf /
+`)
+
+	_, err := LoadMergedConfig(ethos, repo, "")
+	if err == nil ||
+		!strings.Contains(
+			err.Error(),
+			"tool_config.golangci_lint.arbitrary is not supported",
+		) {
+		t.Fatalf("LoadMergedConfig() error = %v", err)
+	}
+}
+
 func TestRuffRendererIncludesPolicySpecificSections(t *testing.T) {
 	t.Parallel()
 

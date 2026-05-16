@@ -681,8 +681,8 @@ make sync-gemini-prompts REPO=/path/to/repo PRIMARY=coding_ethos.yml
 
 | Source | Purpose | Derived output |
 | --- | --- | --- |
-| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, ETHOS skills, axioms, and principle-owned CEL policies |
-| `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance |
+| `coding_ethos.yml` | shared ethos contract | root agent docs, deep principle docs, ETHOS skills, axioms, principle-owned CEL policies, and principle-derived tool config intent |
+| `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance and principle-derived tool config refinements |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
 | `pre-commit/prompts/` | Gemini prompt templates | `.code-ethos/gemini/prompt-pack.json` |
@@ -785,6 +785,14 @@ skills. For example, `agent-operating-discipline` incorporates ideas from
 without copying static provider prompts into the repo; edits belong in
 `coding_ethos.yml`, then `make build` regenerates the checked-in surfaces.
 
+Principles may declare typed `tool_config` intent for linter choices that are
+part of the policy contract rather than raw operational defaults. The supported
+schema is deliberately narrow: `golangci_lint.linters.enable`,
+`golangci_lint.linters.disable`, and Bandit `enabled`, `exclude_dirs`, and
+`skips`. Each item can carry a `rationale`; generated tool configs render that
+provenance as comments so reviewers can see which principle owns a rule such as
+enabling `gosec` or disabling `misspell`.
+
 Accepted primary aliases when `--primary` is omitted:
 
 - `coding_ethos.yml`
@@ -797,6 +805,10 @@ Accepted primary aliases when `--primary` is omitted:
 The optional repo overlay adds local commands, paths, notes, per-agent notes,
 principle overrides, and additional repo-specific principles.
 
+Repo overlays may add the same typed `tool_config` entries on
+`principles.overrides.<id>` or `principles.additional[]`. These entries are
+merged after the base ethos and before consumer `repo_config.yaml` overrides.
+
 See [repo_ethos.example.yml](repo_ethos.example.yml).
 
 ### `config.yaml` and `repo_config.yaml`
@@ -807,6 +819,13 @@ defaults, and policy that has not yet been expressed cleanly with an ETHOS
 principle. A consuming repo can refine the compiled enforcement artifact with
 `repo_config.yaml` or `repo_config.yml` at the repo root, or by passing
 `--repo-config`.
+
+Use `tool_config` on a principle when a linter setting expresses policy intent
+with a stable rationale. Keep values in `config.yaml` when they are operational
+defaults, installation details, line-length plumbing, formatter mechanics, or
+transitional settings without a clear principle owner. Use `repo_config.yaml`
+when a consumer repo needs the final local override; those overrides prune stale
+principle provenance from generated config comments.
 
 The merged config drives:
 

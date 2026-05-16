@@ -119,19 +119,28 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 		return nil, fmt.Errorf("load base config: %w", err)
 	}
 
+	base, err = applyPrincipleToolConfig(ethosRoot, base)
+	if err != nil {
+		return nil, fmt.Errorf("apply principle tool config: %w", err)
+	}
+
 	if strings.TrimSpace(repoConfig) != "" {
 		override, err := configdata.LoadYAMLMap(repoConfig)
 		if err != nil {
 			return nil, fmt.Errorf("load repo config %s: %w", repoConfig, err)
 		}
 
-		return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
+		return pruneToolConfigProvenance(
+			configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot),
+		), nil
 	}
 
 	for _, name := range repoConfigCandidates(base) {
 		override, err := configdata.LoadYAMLMap(filepath.Join(repoRoot, name))
 		if err == nil {
-			return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
+			return pruneToolConfigProvenance(
+				configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot),
+			), nil
 		}
 
 		if !errors.Is(err, os.ErrNotExist) {
@@ -139,7 +148,7 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 		}
 	}
 
-	return base, nil
+	return pruneToolConfigProvenance(base), nil
 }
 
 func repoConfigCandidates(config configMap) []string {

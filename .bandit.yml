@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
+# Principle-derived tool config:
+# - enabled true from static-analysis-is-the-first-line-of-defense
+# (coding_ethos.yml): Python security scanning is part of the required
+# static-analysis gate.
+
 exclude_dirs:
   - tests
   - .venv
