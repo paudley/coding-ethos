@@ -612,6 +612,10 @@ func TestCapturedOutputExcerptSuppressesPassingToolSummaries(t *testing.T) {
 func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	t.Parallel()
 
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
 	repo := t.TempDir()
 
 	var output bytes.Buffer
@@ -669,6 +673,10 @@ func TestRunCapturedToolReportsBubblewrapLaunchFailureAsSandboxDenial(
 	t *testing.T,
 ) {
 	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
 
 	repo := t.TempDir()
 	backend := filepath.Join(repo, "bwrap")

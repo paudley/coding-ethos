@@ -77,8 +77,18 @@ func gitSigningConfigDecisions(options Options) []policy.Decision {
 	decisions := []policy.Decision{}
 
 	if gitConfigOverrideDisablesSigning(options.Argv, "commit.gpgsign") ||
-		gitConfigSetsSigningFalse(options.Argv, "commit.gpgsign") ||
-		gitConfigBool(options.Cwd, "commit.gpgsign") != gitTrueValue ||
+		gitConfigSetsSigningFalse(options.Argv, "commit.gpgsign") {
+		decisions = append(decisions, gitSigningDecision(
+			"Git commit signing cannot be disabled.",
+			"Remove the signing-disabling config update and keep commit.gpgsign=true.",
+		))
+	}
+
+	if ParseArgv(options.Argv).Operation == "config" {
+		return decisions
+	}
+
+	if gitConfigBool(options.Cwd, "commit.gpgsign") != gitTrueValue ||
 		strings.TrimSpace(gitConfigValue(options.Cwd, "user.signingkey")) == "" {
 		decisions = append(decisions, gitSigningDecision(
 			"Git commit signing is required for every git action.",
@@ -91,6 +101,10 @@ func gitSigningConfigDecisions(options Options) []policy.Decision {
 }
 
 func gitUnsignedOutgoingCommitDecisions(options Options) []policy.Decision {
+	if options.Cwd == "" || !gitInsideWorkTree(options.Cwd) {
+		return nil
+	}
+
 	statuses := outgoingCommitSignatureStatuses(options.Cwd)
 	for _, status := range statuses {
 		if status != goodGitSignatureStatus {

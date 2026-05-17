@@ -262,6 +262,55 @@ func TestCheckBlocksSigningDisableCommands(t *testing.T) {
 	}
 }
 
+func TestCheckAllowsSigningConfigRemediationCommands(t *testing.T) {
+	t.Parallel()
+
+	repo := initGitwrapRepo(t)
+
+	tests := map[string][]string{
+		"commit signing true": {"config", "commit.gpgsign", "true"},
+		"signing key":         {"config", "user.signingkey", "test-key"},
+	}
+
+	for name, argv := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Check(policy.ExampleBundle(), Options{
+				Argv: argv,
+				Cwd:  repo,
+			})
+			if err != nil {
+				t.Fatalf("check git wrapper: %v", err)
+			}
+
+			if result.Status != checkStatusAllowed {
+				t.Fatalf(
+					"status mismatch: got %q decisions %#v",
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
+	}
+}
+
+func TestCheckDefersPushOutsideWorkTreeToGit(t *testing.T) {
+	t.Parallel()
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"push", "origin", "main"},
+		Cwd:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusAllowed {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestCheckBlocksUnsignedOutgoingPush(t *testing.T) {
 	t.Parallel()
 
