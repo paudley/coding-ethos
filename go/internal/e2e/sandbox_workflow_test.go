@@ -4,8 +4,13 @@
 package e2e_test
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
 func TestSandboxedManagedRuffCaptureRecordsTraceEvidence(t *testing.T) {
@@ -43,7 +48,7 @@ func TestSandboxedManagedRuffCaptureRecordsTraceEvidence(t *testing.T) {
 		`"parse_status": "empty"`,
 		`"exit_code": 0`,
 		`"--output-format=json"`,
-		`"backend_path": "/usr/bin/bwrap"`,
+		`"backend_path": "`,
 	} {
 		if !strings.Contains(trace, want) {
 			t.Fatalf("sandbox trace missing %q:\n%s", want, trace)
@@ -92,12 +97,13 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 	}
 }
 
-func TestRequiredSandboxModeRecordsEnforcementOrStructuredDenial(t *testing.T) {
+func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 	repo := preparedManagedLintRepo(t)
+	emptyPath := t.TempDir()
 
 	result := repo.CodingEthosRunWithEnv(
 		t,
-		sandboxWorkflowEnv(),
+		sandboxWorkflowEnvWith(map[string]string{"PATH": emptyPath}),
 		"policy-lint",
 		"--json",
 		"--managed-capture-tool",
@@ -109,52 +115,119 @@ func TestRequiredSandboxModeRecordsEnforcementOrStructuredDenial(t *testing.T) {
 		"--invocation-cwd",
 		repo.Root,
 		"--sandbox-mode",
-		"required",
+		"auto",
 		"--",
 		"check",
 		"pkg/clean.py",
 	)
+	result.RequireExit(t, 2)
 
-	switch result.Code {
-	case 0:
-		trace := repo.SingleTrace(t)
-		assertSandboxTraceEvidence(t, trace, "required")
-		if strings.Contains(trace, `"denied": true`) {
-			t.Fatalf("successful required sandbox trace recorded denial:\n%s", trace)
-		}
-	case 2:
-		for _, want := range []string{
-			`"policy_id": "runtime.sandbox_denial"`,
-			`"tool": "coding-ethos-sandbox"`,
-			`"code": "SANDBOX_DENIED"`,
-			`"denied": true`,
-			`"mode": "required"`,
-		} {
-			result.RequireContains(t, want)
-		}
+	for _, want := range []string{
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"tool": "coding-ethos-sandbox"`,
+		`"code": "SANDBOX_DENIED"`,
+		`"denied": true`,
+		`"mode": "auto"`,
+		`"reason": "bubblewrap executable not found"`,
+	} {
+		result.RequireContains(t, want)
+	}
 
-		trace := repo.SingleTrace(t)
-		for _, want := range []string{
-			`"policy_id": "runtime.sandbox_denial"`,
-			`"tool": "coding-ethos-sandbox"`,
-			`"denied": true`,
-			`"mode": "required"`,
-		} {
-			if !strings.Contains(trace, want) {
-				t.Fatalf("required sandbox denial trace missing %q:\n%s", want, trace)
-			}
+	trace := repo.SingleTrace(t)
+	for _, want := range []string{
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"tool": "coding-ethos-sandbox"`,
+		`"denied": true`,
+		`"mode": "auto"`,
+		`"reason": "bubblewrap executable not found"`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("missing-bubblewrap trace missing %q:\n%s", want, trace)
 		}
-	default:
-		t.Fatalf(
-			"exit code = %d, want sandbox success or structured denial\n%s",
-			result.Code,
-			result.Combined,
-		)
+	}
+}
+
+func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
+	backend, err := exec.LookPath("bwrap")
+	if err != nil {
+		t.Fatalf("bubblewrap is required for sandbox e2e: %v", err)
+	}
+
+	repo := t.TempDir()
+	mustMkdirE2E(t, filepath.Join(repo, ".coding-ethos", "cache"))
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Mode:        sandbox.ModeRequired,
+		Tool:        "write-scope",
+		Executable:  "/bin/sh",
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"-c", sandboxWriteScopeScript()},
+		BackendPath: backend,
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build write-scope sandbox plan: %v", err)
+	}
+	defer func() { _ = plan.Close() }()
+
+	command := exec.Command(plan.Executable, plan.Args...)
+	command.Dir = repo
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("write-scope sandbox command failed: %v\n%s", err, output)
+	}
+
+	allowed := filepath.Join(repo, ".coding-ethos", "cache", "allowed.txt")
+	content, err := os.ReadFile(allowed)
+	if err != nil {
+		t.Fatalf("declared sandbox write was not persisted: %v", err)
+	}
+	if strings.TrimSpace(string(content)) != "allowed" {
+		t.Fatalf("declared sandbox write content = %q", content)
+	}
+
+	blocked := filepath.Join(repo, "blocked.txt")
+	if _, err := os.Stat(blocked); err == nil {
+		t.Fatalf("undeclared sandbox write escaped to repo: %s", blocked)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat undeclared sandbox write: %v", err)
 	}
 }
 
 func sandboxWorkflowEnv() map[string]string {
-	return map[string]string{"CODE_ETHOS_HOOK_LOGGING_ACTIVE": "1"}
+	return sandboxWorkflowEnvWith(nil)
+}
+
+func sandboxWorkflowEnvWith(overrides map[string]string) map[string]string {
+	env := map[string]string{"CODE_ETHOS_HOOK_LOGGING_ACTIVE": "1"}
+	for key, value := range overrides {
+		env[key] = value
+	}
+
+	return env
+}
+
+func sandboxWriteScopeScript() string {
+	return strings.Join([]string{
+		"set -eu",
+		"echo allowed > .coding-ethos/cache/allowed.txt",
+		"if /bin/sh -c 'echo denied > blocked.txt'; then exit 17; fi",
+		"test ! -e blocked.txt",
+	}, "; ")
+}
+
+func mustMkdirE2E(t *testing.T, path string) {
+	t.Helper()
+
+	err := os.MkdirAll(path, 0o700)
+	if err != nil {
+		t.Fatalf("create directory %s: %v", path, err)
+	}
 }
 
 func assertSandboxTraceEvidence(t *testing.T, trace, mode string) {

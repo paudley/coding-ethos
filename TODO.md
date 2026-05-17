@@ -1066,9 +1066,8 @@ limits at runtime.
     `runs[].properties.sandbox`.
   - [x] Normalize required-mode backend failures as
     `runtime.sandbox_denial` findings.
-- [x] Add a fallback strategy for platforms without Linux namespace/seccomp
-  support: fail closed for required sandbox profiles in CI, and emit a clear
-  degraded-enforcement warning only for explicitly advisory local modes.
+- [x] Require Bubblewrap for sandboxed execution and fail closed with clear
+  denial evidence when Linux namespace/seccomp support is unavailable.
 - [ ] Evaluate future high-isolation backends such as gVisor, eBPF-based
   telemetry/enforcement, and Wasm/WASI execution for untrusted extension code,
   but keep the first implementation focused on rootless local hook execution.

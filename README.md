@@ -218,8 +218,9 @@ read-only repository and `.git`, hidden home directories, disconnected network
 for offline tools, declared writable mounts, hard timeouts, cgroup resource
 requests, and seccomp profile metadata. Linux cgroup limits are prepared before
 process start in a delegated hierarchy and cleaned up after exit. Required
-sandbox mode fails closed with a normalized policy finding; advisory mode
-records degraded evidence without claiming enforcement. See
+sandbox mode fails closed with a normalized policy finding. `auto` remains a
+sandboxed mode and cannot degrade to unsandboxed execution when Bubblewrap is
+missing. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
 
 Code-intelligence storage is the memory layer for this evidence. The

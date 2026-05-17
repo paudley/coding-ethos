@@ -74,7 +74,7 @@ func TestBuildPlanRequiredWithoutBackendDenies(t *testing.T) {
 	}
 }
 
-func TestBuildPlanAutoWithoutBackendFallsBackWithEvidence(t *testing.T) {
+func TestBuildPlanAutoWithoutBackendDenies(t *testing.T) {
 	t.Parallel()
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
@@ -85,23 +85,19 @@ func TestBuildPlanAutoWithoutBackendFallsBackWithEvidence(t *testing.T) {
 		BackendPath:  filepath.Join(t.TempDir(), "missing-bwrap"),
 		Capabilities: sandbox.Capabilities{SandboxProfile: "lint-offline"},
 	})
-	if err != nil {
-		t.Fatalf("sandbox.BuildPlan() error = %v", err)
-	}
-
-	if plan.Executable != toolRuffPath || !slices.Equal(plan.Args, []string{"check"}) {
-		t.Fatalf("fallback command mismatch: %#v", plan)
-	}
-
-	if plan.Evidence.Enabled || plan.Evidence.Denied {
+	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
 		t.Fatalf(
-			"auto fallback should not claim enforcement or denial: %#v",
-			plan.Evidence,
+			"sandbox.BuildPlan() error = %v, want sandbox.ErrBackendUnavailable",
+			err,
 		)
 	}
 
+	if !plan.Evidence.Denied {
+		t.Fatalf("auto sandbox backend failure must deny execution: %#v", plan.Evidence)
+	}
+
 	if plan.Evidence.Reason == "" {
-		t.Fatalf("auto fallback should record backend reason: %#v", plan.Evidence)
+		t.Fatalf("denial reason missing: %#v", plan.Evidence)
 	}
 }
 
