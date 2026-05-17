@@ -51,7 +51,14 @@ func CheckWithRegistry(
 
 	policyIDs := gitPrePolicyIDs(bundle, operation)
 	if len(policyIDs) == 0 {
-		return Result{Argv: argv, Operation: operation, Status: statusAllowed}, nil
+		decisions := gitSigningPreDecisions(options, operation)
+
+		return Result{
+			Argv:      argv,
+			Operation: operation,
+			Status:    resultStatus(decisions),
+			Decisions: decisions,
+		}, nil
 	}
 
 	decisions := make([]policy.Decision, 0, len(policyIDs))
@@ -81,6 +88,8 @@ func CheckWithRegistry(
 
 		decisions = append(decisions, evaluated...)
 	}
+
+	decisions = append(decisions, gitSigningPreDecisions(options, operation)...)
 
 	return Result{
 		Argv:      argv,

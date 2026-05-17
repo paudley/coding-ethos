@@ -689,6 +689,12 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"exclude_paths": []any{},
 	}
 
+	reference["git"] = map[string]any{
+		"signed_operations": map[string]any{
+			"enabled": true,
+		},
+	}
+
 	reference["proxy"] = map[string]any{
 		"output_compression": map[string]any{
 			"head_lines":      0,

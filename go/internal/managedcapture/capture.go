@@ -184,8 +184,9 @@ func runCapturedPlan(
 
 	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
 
-	evidence := lintSandboxEvidence(appliedEvidence)
 	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
+		appliedEvidence.Denied = true
+		evidence := lintSandboxEvidence(appliedEvidence)
 		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
 
 		return captureExecution{
@@ -196,11 +197,28 @@ func runCapturedPlan(
 		}
 	}
 
+	evidence := lintSandboxEvidence(appliedEvidence)
+
 	if cgroup != nil {
 		defer func() { _ = cgroup.Close() }()
 	}
 
 	result := startCapturedProcess(commandContext, request, plan, cgroup)
+
+	if deniedEvidence, denied := capturedSandboxRuntimeDenial(
+		appliedEvidence,
+		result,
+	); denied {
+		evidence = lintSandboxEvidence(deniedEvidence)
+		diagnostic := sandboxDenialDiagnostic(deniedEvidence)
+
+		return captureExecution{
+			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: BlockedExitCode,
+		}
+	}
 
 	if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
 		appliedEvidence.Denied = true
@@ -524,6 +542,58 @@ func capturedExecutionError(stderr string, err error) string {
 	return err.Error()
 }
 
+func capturedSandboxRuntimeDenial(
+	evidence sandbox.Evidence,
+	result processResult,
+) (sandbox.Evidence, bool) {
+	if !evidence.Enabled || evidence.Backend != sandbox.BackendBubblewrap {
+		return evidence, false
+	}
+
+	reason, denied := capturedSandboxRuntimeDenialReason(result)
+	if !denied {
+		return evidence, false
+	}
+
+	evidence.Denied = true
+	evidence.Reason = reason
+
+	return evidence, true
+}
+
+func capturedSandboxRuntimeDenialReason(result processResult) (string, bool) {
+	errText := strings.TrimSpace(capturedExecutionError(result.stderr, result.err))
+	lowerText := strings.ToLower(errText)
+
+	if lowerText == "" {
+		return "", false
+	}
+
+	if result.err != nil &&
+		(strings.Contains(lowerText, "permission denied") ||
+			strings.Contains(lowerText, "operation not permitted")) {
+		return errText, true
+	}
+
+	if !strings.HasPrefix(lowerText, "bwrap:") {
+		return "", false
+	}
+
+	for _, marker := range []string{
+		"permission denied",
+		"operation not permitted",
+		"creating new namespace failed",
+		"setting up uid map",
+		"setting up gid map",
+	} {
+		if strings.Contains(lowerText, marker) {
+			return errText, true
+		}
+	}
+
+	return "", false
+}
+
 func logCapturedToolResult(
 	cwd string,
 	result lint.Result,
@@ -539,7 +609,7 @@ func capturedToolResult(
 	execution captureExecution,
 ) lint.Result {
 	parser := firstCaptureNonEmpty(request.Parser, request.Tool)
-	parsed := diagnostics.Parse(parser, execution.Stdout, execution.Stderr)
+	parsed := capturedExecutionDiagnostics(parser, execution)
 	parsed = append(parsed, formatterChangedDiagnostics(request, execution.Changes)...)
 	parsed = normalizeCapturedDiagnosticPaths(parsed, request.TraceRoot)
 	parsed = diagnostics.Enrich(parsed, request.EvidenceMaps)
@@ -562,6 +632,19 @@ func capturedToolResult(
 	result.SkillHints = lint.SkillHintsForDiagnostics(parsed, request.Skills)
 
 	return result
+}
+
+func capturedExecutionDiagnostics(
+	parser string,
+	execution captureExecution,
+) []diagnostics.Diagnostic {
+	if execution.Sandbox != nil && execution.Sandbox.Denied {
+		return []diagnostics.Diagnostic{
+			sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox)),
+		}
+	}
+
+	return diagnostics.Parse(parser, execution.Stdout, execution.Stderr)
 }
 
 func capturedFindings(
@@ -610,10 +693,6 @@ func capturedOutcomeFindings(
 	outputExcerpt string,
 	outcome capturedOutcomeClass,
 ) []lint.Finding {
-	if execution.Sandbox != nil && execution.Sandbox.Denied {
-		return []lint.Finding{capturedSandboxFinding(request, execution, outcome)}
-	}
-
 	if execution.ExitCode == 0 {
 		if request.Category == toolcatalog.CategoryFormat {
 			return nil
@@ -630,33 +709,6 @@ func capturedOutcomeFindings(
 
 	return []lint.Finding{
 		capturedUnparseableFailureFinding(request, execution, outputExcerpt, outcome),
-	}
-}
-
-func capturedSandboxFinding(
-	request captureRequest,
-	execution captureExecution,
-	outcome capturedOutcomeClass,
-) lint.Finding {
-	diagnostic := sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox))
-
-	return lint.Finding{
-		RawOutcome: map[string]any{
-			"category": outcome.Category,
-			"args":     append([]string(nil), request.Args...),
-			"sandbox":  execution.Sandbox,
-		},
-		Advice:     diagnostic.Advice,
-		CheckID:    diagnostic.PolicyID,
-		Code:       diagnostic.Code,
-		Message:    diagnostic.Message,
-		PolicyID:   diagnostic.PolicyID,
-		SkillID:    diagnostic.SkillID,
-		Severity:   diagnostic.Severity,
-		SourceTool: diagnostic.Tool,
-		Status:     capturedStatusBlocked,
-		EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
-		Blocking:   true,
 	}
 }
 

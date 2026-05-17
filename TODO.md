@@ -199,9 +199,10 @@ running real commands, and inspecting real output and repository state.
 - [x] Add MCP workflow tests that exercise the real stdio framing and request
   handling path for policy explanation, command checks, code-intel queries, and
   managed lint advice.
-- [ ] Add sandbox workflow tests that verify generated tool capabilities,
+- [x] Add sandbox workflow tests that verify generated tool capabilities,
   filesystem write allowances, blocked capability requests, and trace/SARIF
   evidence using the real sandbox planner and available backend behavior.
+  Covered by #129.
 - [x] Evaluate whether Go's standard `testing` package remains sufficient or
   whether this needs a small internal scenario harness for fixture setup,
   command execution, output assertions, and trace inspection.
@@ -1065,9 +1066,10 @@ limits at runtime.
     `runs[].properties.sandbox`.
   - [x] Normalize required-mode backend failures as
     `runtime.sandbox_denial` findings.
-- [x] Add a fallback strategy for platforms without Linux namespace/seccomp
-  support: fail closed for required sandbox profiles in CI, and emit a clear
-  degraded-enforcement warning only for explicitly advisory local modes.
+- [x] Require Bubblewrap for sandboxed execution and fail closed with clear
+  denial evidence when Linux namespace/seccomp support is unavailable.
+- [ ] Remove sandbox `auto` mode so sandbox-declared tools have only explicit
+  `off` or fail-closed `required` execution paths.
 - [ ] Evaluate future high-isolation backends such as gVisor, eBPF-based
   telemetry/enforcement, and Wasm/WASI execution for untrusted extension code,
   but keep the first implementation focused on rootless local hook execution.

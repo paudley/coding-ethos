@@ -4,6 +4,8 @@
 package gitwrap_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
@@ -203,5 +205,181 @@ func TestCheckAllowsProtectedSubmoduleRemoteUpgrade(t *testing.T) {
 
 	if len(result.Decisions) != 0 {
 		t.Fatalf("expected no decisions, got %#v", result.Decisions)
+	}
+}
+
+func TestCheckBlocksDisabledGitSigningConfig(t *testing.T) {
+	t.Parallel()
+
+	repo := initGitwrapRepo(t)
+	runGitwrapGit(t, repo, "config", "commit.gpgsign", "false")
+	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"status", "--short"},
+		Cwd:  repo,
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) == 0 ||
+		result.Decisions[0].PolicyID != "git.signed_commits_required" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions)
+	}
+}
+
+func TestCheckBlocksSigningDisableCommands(t *testing.T) {
+	t.Parallel()
+
+	repo := initSignedGitwrapRepo(t)
+
+	tests := map[string][]string{
+		"commit no gpg sign":  {"commit", "--no-gpg-sign", "-m", "test"},
+		"config commit false": {"config", "commit.gpgsign", "false"},
+		"global commit false": {"-c", "commit.gpgsign=false", "status"},
+	}
+
+	for name, argv := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Check(policy.ExampleBundle(), Options{
+				Argv: argv,
+				Cwd:  repo,
+			})
+			if err != nil {
+				t.Fatalf("check git wrapper: %v", err)
+			}
+
+			if result.Status != checkStatusBlocked {
+				t.Fatalf("status mismatch: got %q", result.Status)
+			}
+		})
+	}
+}
+
+func TestCheckAllowsSigningConfigRemediationCommands(t *testing.T) {
+	t.Parallel()
+
+	repo := initGitwrapRepo(t)
+
+	tests := map[string][]string{
+		"commit signing true": {"config", "commit.gpgsign", "true"},
+		"signing key":         {"config", "user.signingkey", "test-key"},
+	}
+
+	for name, argv := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Check(policy.ExampleBundle(), Options{
+				Argv: argv,
+				Cwd:  repo,
+			})
+			if err != nil {
+				t.Fatalf("check git wrapper: %v", err)
+			}
+
+			if result.Status != checkStatusAllowed {
+				t.Fatalf(
+					"status mismatch: got %q decisions %#v",
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
+	}
+}
+
+func TestCheckDefersPushOutsideWorkTreeToGit(t *testing.T) {
+	t.Parallel()
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"push", "origin", "main"},
+		Cwd:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusAllowed {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
+func TestCheckBlocksUnsignedOutgoingPush(t *testing.T) {
+	t.Parallel()
+
+	repo := initGitwrapRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGitwrapGit(t, "", "init", "--bare", remote)
+	runGitwrapGit(t, repo, "branch", "-M", "main")
+	runGitwrapGit(t, repo, "remote", "add", "origin", remote)
+	runGitwrapGit(t, repo, "push", "-u", "origin", "main")
+
+	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("changed\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGitwrapGit(t, repo, "add", "file.txt")
+	runGitwrapGit(t, repo, "commit", "-m", "unsigned change")
+	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
+	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"push", "origin", "main"},
+		Cwd:  repo,
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+	if len(result.Decisions) == 0 ||
+		result.Decisions[0].PolicyID != "git.signed_commits_required" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions)
+	}
+}
+
+func initSignedGitwrapRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := initGitwrapRepo(t)
+	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
+	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
+
+	return repo
+}
+
+func TestCheckHonorsRepoConfigSigningOptOut(t *testing.T) {
+	t.Parallel()
+
+	repo := initGitwrapRepo(t)
+	err := os.WriteFile(filepath.Join(repo, "repo_config.yaml"), []byte(`
+git:
+  signed_operations:
+    enabled: false
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+	runGitwrapGit(t, repo, "config", "commit.gpgsign", "false")
+
+	result, err := Check(policy.ExampleBundle(), Options{
+		Argv: []string{"status", "--short"},
+		Cwd:  repo,
+	})
+	if err != nil {
+		t.Fatalf("check git wrapper: %v", err)
+	}
+
+	if result.Status != checkStatusAllowed {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
 	}
 }

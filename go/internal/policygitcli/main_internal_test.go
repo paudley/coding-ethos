@@ -116,15 +116,17 @@ func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
-		err := runWithArgs([]string{
-			"--bundle", bundlePath,
-			"--check-only",
-			"status",
-			"--short",
+		runOutsideGitWorkTree(t, func() {
+			err := runWithArgs([]string{
+				"--bundle", bundlePath,
+				"--check-only",
+				"status",
+				"--short",
+			})
+			if err != nil {
+				t.Fatalf("runWithArgs() returned error: %v", err)
+			}
 		})
-		if err != nil {
-			t.Fatalf("runWithArgs() returned error: %v", err)
-		}
 	})
 	if !strings.Contains(output, "git policy check allowed") {
 		t.Fatalf("check-only output = %q", output)
@@ -137,16 +139,18 @@ func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
-		err := runWithArgs([]string{
-			"--bundle", bundlePath,
-			"--check-only",
-			"--json",
-			"status",
-			"--short",
+		runOutsideGitWorkTree(t, func() {
+			err := runWithArgs([]string{
+				"--bundle", bundlePath,
+				"--check-only",
+				"--json",
+				"status",
+				"--short",
+			})
+			if err != nil {
+				t.Fatalf("runWithArgs() returned error: %v", err)
+			}
 		})
-		if err != nil {
-			t.Fatalf("runWithArgs() returned error: %v", err)
-		}
 	})
 	if !strings.Contains(output, `"status": "allowed"`) ||
 		strings.Contains(output, "git policy check allowed") {
@@ -220,10 +224,12 @@ func TestRunUsesProcessArgs(t *testing.T) {
 	}
 
 	output := captureGitStdoutUnlocked(t, func() {
-		err := run()
-		if err != nil {
-			t.Fatalf("run() returned error: %v", err)
-		}
+		runOutsideGitWorkTree(t, func() {
+			err := run()
+			if err != nil {
+				t.Fatalf("run() returned error: %v", err)
+			}
+		})
 	})
 	if !strings.Contains(output, "git policy check allowed") {
 		t.Fatalf("check-only output = %q", output)
@@ -285,6 +291,29 @@ func writeGitTestBundle(t *testing.T) string {
 	}
 
 	return path
+}
+
+func runOutsideGitWorkTree(t *testing.T, run func()) {
+	t.Helper()
+
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+
+	err = os.Chdir(t.TempDir())
+	if err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+
+	defer func() {
+		err = os.Chdir(original)
+		if err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}()
+
+	run()
 }
 
 func captureGitStdout(t *testing.T, run func()) string {

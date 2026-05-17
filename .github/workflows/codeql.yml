@@ -50,6 +50,12 @@ jobs:
         with:
           go-version-file: go/go.mod
 
+      - name: Install Bubblewrap
+        if: ${{ matrix.language == 'go' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e
         with:
@@ -68,7 +74,10 @@ jobs:
             --primary coding_ethos.yml \
             --config config.yaml \
             --out-dir build/policy
-          go test -buildvcs=false -timeout=30s ./go/...
+          mapfile -t go_packages < <(
+            go list -buildvcs=false ./go/... | grep -v '/internal/e2e$'
+          )
+          go test -buildvcs=false -timeout=30s "${go_packages[@]}"
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e

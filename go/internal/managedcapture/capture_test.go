@@ -612,6 +612,10 @@ func TestCapturedOutputExcerptSuppressesPassingToolSummaries(t *testing.T) {
 func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	t.Parallel()
 
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
 	repo := t.TempDir()
 
 	var output bytes.Buffer
@@ -640,6 +644,8 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 		`"profile": "lint-offline"`,
 		`"denied": true`,
 		`"reason": "bubblewrap executable not found"`,
+		`"policies": [`,
+		`"runtime.sandbox_denial"`,
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("SARIF output missing %q:\n%s", want, output.String())
@@ -658,6 +664,67 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 		`"denied": true`,
 	} {
 		if !strings.Contains(content, want) {
+			t.Fatalf("trace missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestRunCapturedToolReportsBubblewrapLaunchFailureAsSandboxDenial(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
+	repo := t.TempDir()
+	backend := filepath.Join(repo, "bwrap")
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatalf("write non-executable backend fixture: %v", err)
+	}
+
+	var output bytes.Buffer
+
+	exitCode := runCapturedToolWithRequest(captureRequest{
+		Tool:               "ruff",
+		ToolPath:           "/bin/sh",
+		Cwd:                repo,
+		TraceRoot:          repo,
+		Args:               []string{"check", "pkg/app.py"},
+		SandboxMode:        sandbox.ModeRequired,
+		SandboxBackendPath: backend,
+		Output:             &output,
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			ReadPaths:      []string{"."},
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	}, hookoutput.FormatSARIF)
+	if exitCode != BlockedExitCode {
+		t.Fatalf("exit code = %d, want %d", exitCode, BlockedExitCode)
+	}
+
+	for _, want := range []string{
+		`"runtime.sandbox_denial"`,
+		`"denied": true`,
+		`"reason": "fork/exec `,
+		`permission denied`,
+	} {
+		if !strings.Contains(strings.ToLower(output.String()), strings.ToLower(want)) {
+			t.Fatalf("SARIF output missing %q:\n%s", want, output.String())
+		}
+	}
+
+	content := singleTraceContent(t, repo)
+	for _, want := range []string{
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"code": "SANDBOX_DENIED"`,
+		`"denied": true`,
+		`"reason": "fork/exec `,
+		`permission denied`,
+	} {
+		if !strings.Contains(strings.ToLower(content), strings.ToLower(want)) {
 			t.Fatalf("trace missing %q:\n%s", want, content)
 		}
 	}

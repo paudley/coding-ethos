@@ -129,10 +129,22 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		"build",
 		"config.yaml",
 		"coding_ethos.yml",
+		".venv",
 		"repo_ethos.yml",
 	} {
+		source := filepath.Join(ethosRoot, entry)
+
+		_, statErr := os.Stat(source)
+		if statErr != nil {
+			if entry == ".venv" && errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+
+			t.Fatalf("instrumented runtime source %s unavailable: %v", entry, statErr)
+		}
+
 		err = os.Symlink(
-			filepath.Join(ethosRoot, entry),
+			source,
 			filepath.Join(runtimeRoot, entry),
 		)
 		if err != nil {
@@ -179,7 +191,7 @@ func absoluteCoverageDir(t *testing.T, coverDir string) string {
 	return absolute
 }
 
-func commandEnvironment(t *testing.T) []string {
+func commandEnvironmentWith(t *testing.T, overrides map[string]string) []string {
 	t.Helper()
 
 	env := os.Environ()
@@ -190,7 +202,25 @@ func commandEnvironment(t *testing.T) []string {
 		}
 	}
 
+	for key, value := range overrides {
+		env = appendWithoutEnvName(env, key)
+		env = append(env, key+"="+value)
+	}
+
 	return env
+}
+
+func appendWithoutEnvName(env []string, name string) []string {
+	prefix := name + "="
+	out := env[:0]
+
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+		}
+	}
+
+	return out
 }
 
 // Run executes a real command in the reference repository.
@@ -225,6 +255,22 @@ func (repo Repo) CodingEthosRun(t *testing.T, args ...string) CommandResult {
 	binary := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-run")
 	command := append([]string{binary}, args...)
 	result := repo.Run(t, command...)
+
+	return result
+}
+
+// CodingEthosRunWithEnv executes the dispatcher with per-command environment
+// overrides.
+func (repo Repo) CodingEthosRunWithEnv(
+	t *testing.T,
+	overrides map[string]string,
+	args ...string,
+) CommandResult {
+	t.Helper()
+
+	binary := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-run")
+	command := append([]string{binary}, args...)
+	result := RunWithEnv(t, repo.Root, overrides, command...)
 
 	return result
 }
@@ -292,11 +338,35 @@ func Run(t *testing.T, cwd string, args ...string) CommandResult {
 	return RunWithInput(t, cwd, "", args...)
 }
 
+// RunWithEnv executes a real command with per-command environment overrides.
+func RunWithEnv(
+	t *testing.T,
+	cwd string,
+	overrides map[string]string,
+	args ...string,
+) CommandResult {
+	t.Helper()
+
+	return runCommand(t, cwd, "", overrides, args...)
+}
+
 // RunWithInput executes a real command with a bounded timeout and stdin.
 func RunWithInput(
 	t *testing.T,
 	cwd string,
 	input string,
+	args ...string,
+) CommandResult {
+	t.Helper()
+
+	return runCommand(t, cwd, input, nil, args...)
+}
+
+func runCommand(
+	t *testing.T,
+	cwd string,
+	input string,
+	overrides map[string]string,
 	args ...string,
 ) CommandResult {
 	t.Helper()
@@ -310,7 +380,7 @@ func RunWithInput(
 
 	cmd := safeexec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = cwd
-	cmd.Env = commandEnvironment(t)
+	cmd.Env = commandEnvironmentWith(t, overrides)
 	cmd.Stdin = strings.NewReader(input)
 	configureCommandProcessGroup(cmd)
 

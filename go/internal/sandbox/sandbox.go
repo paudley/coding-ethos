@@ -186,12 +186,7 @@ func BuildPlan(request Request) (Plan, error) {
 
 		request, normalizeErr = normalizeSandboxRequest(request)
 		if normalizeErr != nil {
-			return fallbackPlanForBackendError(
-				request,
-				mode,
-				request.evidence(mode),
-				normalizeErr,
-			)
+			return deniedSandboxPlan(request.evidence(mode), normalizeErr)
 		}
 	}
 
@@ -201,17 +196,12 @@ func BuildPlan(request Request) (Plan, error) {
 	}
 
 	if !supportsBubblewrap() {
-		return fallbackPlanForBackendError(
-			request,
-			mode,
-			evidence,
-			errBubblewrapPlatform,
-		)
+		return deniedSandboxPlan(evidence, errBubblewrapPlatform)
 	}
 
 	backendPath, err := resolveBackendPath(request.BackendPath)
 	if err != nil {
-		return fallbackPlanForBackendError(request, mode, evidence, err)
+		return deniedSandboxPlan(evidence, err)
 	}
 
 	evidence.Enabled = true
@@ -222,7 +212,7 @@ func BuildPlan(request Request) (Plan, error) {
 		request.Capabilities.SeccompProfilePath,
 	)
 	if seccompErr != nil {
-		return fallbackPlanForSeccompError(request, mode, evidence, seccompErr)
+		return deniedSeccompPlan(evidence, seccompErr)
 	}
 
 	evidence.SeccompEnabled = seccompEnabled
@@ -247,26 +237,17 @@ func unsandboxedPlan(request Request, evidence Evidence) Plan {
 	}
 }
 
-func fallbackPlanForBackendError(
-	request Request,
-	mode string,
-	evidence Evidence,
-	cause error,
-) (Plan, error) {
-	evidence.Denied = mode == ModeRequired
-
+func deniedSandboxPlan(evidence Evidence, cause error) (Plan, error) {
+	evidence.Denied = true
 	evidence.Reason = backendEvidenceReason(cause)
-	if mode == ModeRequired {
-		return Plan{
-				Evidence: evidence,
-			}, fmt.Errorf(
-				"%w: %w",
-				ErrBackendUnavailable,
-				cause,
-			)
-	}
 
-	return unsandboxedPlan(request, evidence), nil
+	return Plan{
+			Evidence: evidence,
+		}, fmt.Errorf(
+			"%w: %w",
+			ErrBackendUnavailable,
+			cause,
+		)
 }
 
 func backendEvidenceReason(cause error) string {
@@ -277,26 +258,17 @@ func backendEvidenceReason(cause error) string {
 	return cause.Error()
 }
 
-func fallbackPlanForSeccompError(
-	request Request,
-	mode string,
-	evidence Evidence,
-	cause error,
-) (Plan, error) {
-	evidence.Denied = mode == ModeRequired
-
+func deniedSeccompPlan(evidence Evidence, cause error) (Plan, error) {
+	evidence.Denied = true
 	evidence.Reason = "seccomp profile could not be opened"
-	if mode == ModeRequired {
-		return Plan{
-				Evidence: evidence,
-			}, fmt.Errorf(
-				"%w: %w",
-				ErrBackendUnavailable,
-				cause,
-			)
-	}
 
-	return unsandboxedPlan(request, evidence), nil
+	return Plan{
+			Evidence: evidence,
+		}, fmt.Errorf(
+			"%w: %w",
+			ErrBackendUnavailable,
+			cause,
+		)
 }
 
 func seccompPlanFiles(profilePath string) ([]*os.File, []string, bool, error) {
@@ -387,6 +359,7 @@ func bubblewrapArgs(request Request) []string {
 		args,
 		sandboxWriteBindArgs(repoRoot, gitDir, request.Capabilities.WritePaths)...,
 	)
+	args = append(args, sandboxExecutableArgs(request.Executable)...)
 
 	return append(args, "--chdir", cwd)
 }
@@ -454,6 +427,22 @@ func sandboxWriteBindArgs(repoRoot, gitDir string, paths []string) []string {
 	}
 
 	return args
+}
+
+func sandboxExecutableArgs(executable string) []string {
+	if strings.TrimSpace(executable) == "" || !pathExists(executable) {
+		return nil
+	}
+
+	args := []string{}
+
+	for _, dir := range destinationParentDirs(executable) {
+		if sandboxDirRequired(dir) {
+			args = append(args, "--dir", dir)
+		}
+	}
+
+	return append(args, "--ro-bind", executable, executable)
 }
 
 func writableSandboxBind(repoRoot, gitDir, requestedPath, bind string) bool {
@@ -605,6 +594,11 @@ func normalizeSandboxRequest(request Request) (Request, error) {
 			"sandbox executable must resolve to an absolute path: %w",
 			err,
 		)
+	}
+
+	resolvedExecutable, resolveErr := filepath.EvalSymlinks(executable)
+	if resolveErr == nil {
+		executable = resolvedExecutable
 	}
 
 	request.Executable = executable

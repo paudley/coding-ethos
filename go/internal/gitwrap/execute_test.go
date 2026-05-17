@@ -73,6 +73,96 @@ func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
 	}
 }
 
+func TestExecuteForcesSignedCommit(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	fakeGit := fakeArgsGit(t, logPath)
+
+	err := Execute(fakeGit, Options{Argv: []string{"commit", "-m", "test"}})
+	if err != nil {
+		t.Fatalf("execute fake git: %v", err)
+	}
+
+	args := readText(t, logPath)
+	if !strings.Contains(args, "commit\n-S\n-m\ntest\n") {
+		t.Fatalf("commit signing args missing:\n%s", args)
+	}
+}
+
+func TestExecuteLeavesPushCertificateOptional(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	fakeGit := fakeArgsGit(t, logPath)
+
+	err := Execute(fakeGit, Options{Argv: []string{"push", "origin", "main"}})
+	if err != nil {
+		t.Fatalf("execute fake git: %v", err)
+	}
+
+	args := readText(t, logPath)
+	if strings.Contains(args, "--signed\n") {
+		t.Fatalf("push certificate arg should not be forced:\n%s", args)
+	}
+}
+
+func TestExecuteCreatesSignedCommitWithDisposableKey(t *testing.T) {
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	gpgPath, err := exec.LookPath("gpg")
+	if err != nil {
+		t.Fatalf("resolve gpg: %v", err)
+	}
+
+	gnupgHome := filepath.Join(t.TempDir(), "gnupg")
+	err = os.Mkdir(gnupgHome, 0o700)
+	if err != nil {
+		t.Fatalf("create gnupg home: %v", err)
+	}
+	t.Setenv("GNUPGHOME", gnupgHome)
+	fingerprint := generateGitwrapTestSigningKey(t, gpgPath, gnupgHome)
+
+	repo := t.TempDir()
+	runGitwrapGit(t, repo, "init")
+	runGitwrapGit(t, repo, "config", "user.email", "test@example.com")
+	runGitwrapGit(t, repo, "config", "user.name", "Test User")
+	runGitwrapGit(t, repo, "config", "user.signingkey", fingerprint)
+	runGitwrapGit(t, repo, "config", "gpg.program", gpgPath)
+	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
+
+	err = os.WriteFile(filepath.Join(repo, "file.txt"), []byte("signed\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	runGitwrapGit(t, repo, "add", "file.txt")
+
+	options := Options{
+		Argv: []string{"commit", "-m", "signed test"},
+		Cwd:  repo,
+	}
+	err = Execute(gitPath, options)
+	if err != nil {
+		t.Fatalf("execute signed commit: %v", err)
+	}
+
+	result, err := VerifyPost(policy.ExampleBundle(), options)
+	if err != nil {
+		t.Fatalf("verify signed commit: %v", err)
+	}
+	if result.Status != "allowed" {
+		t.Fatalf("post status = %q decisions %#v", result.Status, result.Decisions)
+	}
+
+	status := strings.TrimSpace(gitwrapGitOutput(t, repo, "log", "-1", "--pretty=%G?"))
+	if status != "G" {
+		t.Fatalf("signature status = %q, want G", status)
+	}
+}
+
 func initGitwrapRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -109,6 +199,81 @@ func runGitwrapGit(t *testing.T, repo string, args ...string) {
 	}
 }
 
+func gitwrapGitOutput(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
+	cmd.Dir = repo
+	cmd.Env = cleanGitTestEnv()
+
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+
+	return string(output)
+}
+
+func generateGitwrapTestSigningKey(t *testing.T, gpgPath, gnupgHome string) string {
+	t.Helper()
+
+	keyParams := filepath.Join(t.TempDir(), "key.params")
+	err := os.WriteFile(keyParams, []byte(`%no-protection
+Key-Type: eddsa
+Key-Curve: ed25519
+Key-Usage: sign
+Name-Real: Coding Ethos Test
+Name-Email: coding-ethos-test@example.invalid
+Expire-Date: 1d
+%commit
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write key params: %v", err)
+	}
+
+	cmd := exec.CommandContext(
+		context.Background(),
+		gpgPath,
+		"--batch",
+		"--homedir",
+		gnupgHome,
+		"--generate-key",
+		keyParams,
+	)
+	if output, inlineErr := cmd.CombinedOutput(); inlineErr != nil {
+		t.Fatalf("generate gpg key: %v\n%s", inlineErr, output)
+	}
+
+	cmd = exec.CommandContext(
+		context.Background(),
+		gpgPath,
+		"--batch",
+		"--homedir",
+		gnupgHome,
+		"--list-secret-keys",
+		"--with-colons",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("list gpg key: %v", err)
+	}
+
+	for line := range strings.SplitSeq(string(output), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) > 9 && fields[0] == "fpr" && fields[9] != "" {
+			return fields[9]
+		}
+	}
+
+	t.Fatalf("no generated key fingerprint found:\n%s", output)
+	return ""
+}
+
 func fakeEnvGit(t *testing.T, logPath string) string {
 	t.Helper()
 
@@ -120,6 +285,29 @@ printf 'CODING_ETHOS_EXEC_STACK=%s\n' "${CODING_ETHOS_EXEC_STACK:-}" >> "$log_pa
 printf 'CODE_ETHOS_ADMIN_APPROVED=%s\n' "${CODE_ETHOS_ADMIN_APPROVED:-}" >> "$log_path"
 printf 'CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=%s\n' "${CODE_ETHOS_GIT_WRAPPER_AUTHORIZED:-}" >> "$log_path"
 printf 'CODE_ETHOS_GIT_WRAPPER_PID=%s\n' "${CODE_ETHOS_GIT_WRAPPER_PID:-}" >> "$log_path"
+`
+
+	err := os.WriteFile(scriptPath, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+
+	err = os.Chmod(scriptPath, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake git: %v", err)
+	}
+
+	return scriptPath
+}
+
+func fakeArgsGit(t *testing.T, logPath string) string {
+	t.Helper()
+
+	scriptPath := filepath.Join(t.TempDir(), "git")
+	script := `#!/usr/bin/env bash
+set -euo pipefail
+log_path=` + strconv.Quote(logPath) + `
+printf '%s\n' "$@" > "$log_path"
 `
 
 	err := os.WriteFile(scriptPath, []byte(script), 0o600)
