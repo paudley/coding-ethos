@@ -71,7 +71,7 @@ coding-ethos = "coding_ethos.cli:main"
 dev = [
     "coverage>=7.13.0",
     "pytest>=8.0",
-    "types-pyyaml>=6.0.12.20260408",
+    "types-pyyaml>=6.0.12.20260508",
 ]
 
 [tool.hatch.build.targets.wheel]
