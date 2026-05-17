@@ -626,10 +626,6 @@ func capturedOutcomeFindings(
 	outputExcerpt string,
 	outcome capturedOutcomeClass,
 ) []lint.Finding {
-	if execution.Sandbox != nil && execution.Sandbox.Denied {
-		return []lint.Finding{capturedSandboxFinding(request, execution, outcome)}
-	}
-
 	if execution.ExitCode == 0 {
 		if request.Category == toolcatalog.CategoryFormat {
 			return nil
@@ -646,33 +642,6 @@ func capturedOutcomeFindings(
 
 	return []lint.Finding{
 		capturedUnparseableFailureFinding(request, execution, outputExcerpt, outcome),
-	}
-}
-
-func capturedSandboxFinding(
-	request captureRequest,
-	execution captureExecution,
-	outcome capturedOutcomeClass,
-) lint.Finding {
-	diagnostic := sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox))
-
-	return lint.Finding{
-		RawOutcome: map[string]any{
-			"category": outcome.Category,
-			"args":     append([]string(nil), request.Args...),
-			"sandbox":  execution.Sandbox,
-		},
-		Advice:     diagnostic.Advice,
-		CheckID:    diagnostic.PolicyID,
-		Code:       diagnostic.Code,
-		Message:    diagnostic.Message,
-		PolicyID:   diagnostic.PolicyID,
-		SkillID:    diagnostic.SkillID,
-		Severity:   diagnostic.Severity,
-		SourceTool: diagnostic.Tool,
-		Status:     capturedStatusBlocked,
-		EthosIDs:   append([]string(nil), diagnostic.PrincipleIDs...),
-		Blocking:   true,
 	}
 }
 
