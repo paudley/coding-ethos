@@ -196,7 +196,7 @@ running real commands, and inspecting real output and repository state.
 - [x] Add hook workflow tests for PreToolUse and PostToolUse payloads from
   Codex, Claude, and Gemini shapes using real command text, file edits,
   apply-patch payloads, and provider-specific output fields.
-- [ ] Add MCP workflow tests that exercise the real stdio framing and request
+- [x] Add MCP workflow tests that exercise the real stdio framing and request
   handling path for policy explanation, command checks, code-intel queries, and
   managed lint advice.
 - [ ] Add sandbox workflow tests that verify generated tool capabilities,

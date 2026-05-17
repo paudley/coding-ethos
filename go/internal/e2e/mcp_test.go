@@ -234,10 +234,12 @@ func TestMCPWorkflow(t *testing.T) {
 
 	testMCPInitialize(t, client, repo.Root)
 	testMCPToolsList(t, client)
+	testMCPToolCapabilities(t, client)
 	testMCPPolicyCheckCommand(t, client)
 	testMCPPolicyExplain(t, client)
 	testMCPLintAdvice(t, client)
 	testMCPCodeIntel(t, client)
+	testMCPRepoMapResource(t, client)
 	testMCPPolicyCheckEdit(t, client)
 	testMCPErrorResponse(t, client)
 }
@@ -296,13 +298,53 @@ func testMCPToolsList(t *testing.T, client *MCPClient) {
 		"policy_check_edit",
 		"policy_explain",
 		"lint_advice",
+		"tool_capabilities",
 		"code_intel_index_status",
 		"code_intel_index_code",
 		"code_intel_search",
+		"code_intel_repo_map",
 	} {
 		if !hasTool(name) {
 			t.Errorf("missing tool: %s", name)
 		}
+	}
+}
+
+func testMCPToolCapabilities(t *testing.T, client *MCPClient) {
+	t.Helper()
+
+	resp := client.Send("tools/call", map[string]any{
+		"name":      "tool_capabilities",
+		"arguments": map[string]any{},
+	})
+
+	var capabilities struct {
+		Kind    string `json:"kind"`
+		Sandbox struct {
+			DefaultBackend string `json:"default_backend"`
+			RequiredMode   string `json:"required_mode"`
+		} `json:"sandbox"`
+		Tools []mcpCapabilityInfo `json:"tools"`
+	}
+
+	err := json.Unmarshal([]byte(mcpToolCallText(t, resp)), &capabilities)
+	if err != nil {
+		t.Fatalf("unmarshal tool capabilities text: %v", err)
+	}
+
+	if capabilities.Kind != "tool_capabilities" ||
+		capabilities.Sandbox.DefaultBackend != "bubblewrap" ||
+		capabilities.Sandbox.RequiredMode != "fail_closed" {
+		t.Fatalf("tool capability metadata mismatch: %#v", capabilities)
+	}
+
+	ruff, found := mcpCapabilityTool(capabilities.Tools, "ruff")
+	if !found {
+		t.Fatalf("tool capabilities missing ruff: %#v", capabilities.Tools)
+	}
+
+	if len(ruff.Command) == 0 || !stringSliceIncludes(ruff.Tags, "no-network") {
+		t.Fatalf("ruff capability missing command/no-network tag: %#v", ruff)
 	}
 }
 
@@ -476,6 +518,57 @@ func testMCPCodeIntel(t *testing.T, client *MCPClient) {
 	t.Logf("code_intel_search result: %s", callResult.Content[0].Text)
 }
 
+func testMCPRepoMapResource(t *testing.T, client *MCPClient) {
+	t.Helper()
+
+	listResp := client.Send("resources/list", nil)
+
+	var listResult struct {
+		Resources []mcpResourceInfo `json:"resources"`
+	}
+
+	err := json.Unmarshal(listResp.Result, &listResult)
+	if err != nil {
+		t.Fatalf("unmarshal resources/list: %v", err)
+	}
+
+	if !mcpResourcesInclude(
+		listResult.Resources,
+		"coding-ethos://code-intel/repo-map",
+	) {
+		t.Fatalf("resources/list missing repo-map resource: %#v", listResult.Resources)
+	}
+
+	readResp := client.Send("resources/read", map[string]any{
+		"uri": "coding-ethos://code-intel/repo-map",
+	})
+
+	var readResult struct {
+		Contents []struct {
+			URI      string `json:"uri"`
+			MimeType string `json:"mimeType"` //nolint: tagliatelle
+			Text     string `json:"text"`
+		} `json:"contents"`
+	}
+
+	err = json.Unmarshal(readResp.Result, &readResult)
+	if err != nil {
+		t.Fatalf("unmarshal resources/read: %v", err)
+	}
+
+	if len(readResult.Contents) != 1 {
+		t.Fatalf("resources/read contents = %#v, want one entry", readResult.Contents)
+	}
+
+	content := readResult.Contents[0]
+	if content.URI != "coding-ethos://code-intel/repo-map" ||
+		content.MimeType != "text/vnd.coding-ethos.toon" ||
+		!strings.Contains(content.Text, "pkg/clean.py") ||
+		!strings.Contains(content.Text, "greet") {
+		t.Fatalf("repo-map resource content mismatch: %#v", content)
+	}
+}
+
 func testMCPPolicyCheckEdit(t *testing.T, client *MCPClient) {
 	t.Helper()
 
@@ -550,9 +643,71 @@ type mcpSkillHint struct {
 	SkillID string `json:"skill_id"`
 }
 
+type mcpCapabilityInfo struct {
+	Name    string   `json:"name"`
+	Command []string `json:"command"`
+	Tags    []string `json:"tags"`
+}
+
+type mcpResourceInfo struct {
+	URI      string `json:"uri"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType"` //nolint: tagliatelle
+}
+
+func mcpToolCallText(t *testing.T, resp mcpResponse) string {
+	t.Helper()
+
+	var callResult mcpToolCallResult
+
+	err := json.Unmarshal(resp.Result, &callResult)
+	if err != nil {
+		t.Fatalf("unmarshal MCP tool call result: %v", err)
+	}
+
+	if callResult.IsError || len(callResult.Content) == 0 {
+		t.Fatalf("MCP tool call returned no successful text content: %#v", callResult)
+	}
+
+	return callResult.Content[0].Text
+}
+
 func mcpDecisionIncludes(decisions []mcpDecision, policyID string) bool {
 	for _, decision := range decisions {
 		if decision.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func mcpResourcesInclude(resources []mcpResourceInfo, uri string) bool {
+	for _, resource := range resources {
+		if resource.URI == uri {
+			return true
+		}
+	}
+
+	return false
+}
+
+func mcpCapabilityTool(
+	tools []mcpCapabilityInfo,
+	name string,
+) (mcpCapabilityInfo, bool) {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return tool, true
+		}
+	}
+
+	return mcpCapabilityInfo{}, false
+}
+
+func stringSliceIncludes(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
 			return true
 		}
 	}
