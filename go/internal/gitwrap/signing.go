@@ -44,7 +44,6 @@ func gitCommitSignatureDecisions(options Options) []policy.Decision {
 	for _, arg := range argv {
 		if arg == "--no-gpg-sign" || arg == "--gpg-sign=false" {
 			return []policy.Decision{gitSigningDecision(
-				gitSignedCommitsPolicyID,
 				"Git commit signing cannot be disabled.",
 				"Remove --no-gpg-sign and keep commit.gpgsign=true.",
 			)}
@@ -80,7 +79,6 @@ func gitSigningConfigDecisions(options Options) []policy.Decision {
 		gitConfigBool(options.Cwd, "commit.gpgsign") != gitTrueValue ||
 		strings.TrimSpace(gitConfigValue(options.Cwd, "user.signingkey")) == "" {
 		decisions = append(decisions, gitSigningDecision(
-			gitSignedCommitsPolicyID,
 			"Git commit signing is required for every git action.",
 			"Set commit.gpgsign=true and user.signingkey to the approved "+
 				"signing key before running git.",
@@ -95,7 +93,6 @@ func gitUnsignedOutgoingCommitDecisions(options Options) []policy.Decision {
 	for _, status := range statuses {
 		if status != goodGitSignatureStatus {
 			return []policy.Decision{gitSigningDecision(
-				gitSignedCommitsPolicyID,
 				"Push contains unsigned or unverifiable commits.",
 				"Recreate the outgoing commits with valid signatures before pushing.",
 			)}
@@ -109,7 +106,6 @@ func gitHeadSignatureDecisions(options Options) []policy.Decision {
 	status := strings.TrimSpace(gitOutput(options.Cwd, "log", "-1", "--pretty=%G?"))
 	if status != goodGitSignatureStatus {
 		return []policy.Decision{gitSigningDecision(
-			gitSignedCommitsPolicyID,
 			"Latest commit is unsigned or unverifiable.",
 			"Recreate the commit with a valid signature before continuing.",
 		)}
@@ -350,10 +346,10 @@ func gitBoolString(value string) bool {
 	}
 }
 
-func gitSigningDecision(policyID, message, suggestion string) policy.Decision {
+func gitSigningDecision(message, suggestion string) policy.Decision {
 	return policy.Decision{
 		Decision:   "block",
-		PolicyID:   policyID,
+		PolicyID:   gitSignedCommitsPolicyID,
 		Severity:   "block",
 		Message:    message,
 		Suggestion: suggestion,
