@@ -607,7 +607,7 @@ func repoLicenseText(
 	spdxID string,
 	copyrightText string,
 ) (string, error) {
-	if text := stringAt(config, "repo", "license", "text"); text != "" {
+	if text := repoLicenseTextString(config); text != "" {
 		return normalizeLicenseText(fillLicenseTemplate(text, copyrightText)), nil
 	}
 
@@ -663,6 +663,20 @@ func fillLicenseTemplate(text, copyrightText string) string {
 	)
 
 	return replacer.Replace(text)
+}
+
+func repoLicenseTextString(config map[string]any) string {
+	value, exists := valueAt(config, "repo", "license", "text")
+	if !exists {
+		return ""
+	}
+
+	stringValue, ok := value.(string)
+	if !ok || strings.TrimSpace(stringValue) == "" {
+		return ""
+	}
+
+	return stringValue
 }
 
 func normalizeLicenseText(text string) string {

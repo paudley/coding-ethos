@@ -372,7 +372,7 @@ func evaluateLicenseFile(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	expected := stringOption(context.EvaluatorOptions, "expected_license_text", "")
+	expected := licenseTextOption(context.EvaluatorOptions, "expected_license_text")
 	if expected == "" {
 		return nil, nil
 	}
@@ -422,6 +422,20 @@ func normalizeGuardLicenseText(text string) string {
 	}
 
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func licenseTextOption(options map[string]any, key string) string {
+	raw, exists := options[key]
+	if !exists {
+		return ""
+	}
+
+	value, isString := raw.(string)
+	if !isString || strings.TrimSpace(value) == "" {
+		return ""
+	}
+
+	return value
 }
 
 func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {

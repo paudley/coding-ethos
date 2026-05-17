@@ -347,7 +347,7 @@ func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "GNU Affero General Public License\n",
+				"expected_license_text": "                    GNU AFFERO GENERAL PUBLIC LICENSE\n",
 				"license_file":          "LICENSE",
 				"spdx_id":               "AGPL-3.0-only",
 				"required":              []string{"SPDX-License-Identifier: AGPL-3.0-only"},
@@ -387,7 +387,7 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "GNU Affero General Public License\n",
+				"expected_license_text": "                    GNU AFFERO GENERAL PUBLIC LICENSE\n",
 				"license_file":          "LICENSE",
 				"spdx_id":               "AGPL-3.0-only",
 				"required":              []string{"SPDX-License-Identifier: AGPL-3.0-only"},
@@ -408,7 +408,7 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 
 	err := os.WriteFile(
 		filepath.Join(repo, "LICENSE"),
-		[]byte("GNU Affero General Public License\n"),
+		[]byte("                    GNU AFFERO GENERAL PUBLIC LICENSE\n"),
 		0o600,
 	)
 	if err != nil {
@@ -433,7 +433,7 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "GNU Affero General Public License\n",
+				"expected_license_text": "                    GNU AFFERO GENERAL PUBLIC LICENSE\n",
 				"license_file":          "LICENSE",
 				"spdx_id":               "AGPL-3.0-only",
 				"required": []string{

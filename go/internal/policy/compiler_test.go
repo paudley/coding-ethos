@@ -1381,10 +1381,7 @@ repo:
   license:
     spdx_identifier: AGPL-3.0-only
     copyright: 2026 Example Inc.
-    text: |
-      GNU Affero General Public License
-
-      Copyright (c) <year> <copyright holders>
+    text: "                    GNU AFFERO GENERAL PUBLIC LICENSE\n\nCopyright (c) <year> <copyright holders>\n"
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -2472,13 +2469,10 @@ repo:
   license:
     spdx_identifier: AGPL-3.0-only
     copyright: 2026 Example Inc.
-    text: |
-      GNU Affero General Public License
-
-      Copyright (c) <year> <copyright holders>
+    text: "                    GNU AFFERO GENERAL PUBLIC LICENSE\n\nCopyright (c) <year> <copyright holders>\n"
 `
 
-const sampleExpectedLicenseText = `GNU Affero General Public License
+const sampleExpectedLicenseText = `                    GNU AFFERO GENERAL PUBLIC LICENSE
 
 Copyright (c) 2026 Example Inc.
 `
