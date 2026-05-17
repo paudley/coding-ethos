@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-10T02:24:32.07281021Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -1405,11 +1405,11 @@ wheels = [
 
 [[package]]
 name = "types-pycurl"
-version = "7.45.7.20260408"
+version = "7.46.0.20260509"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4b/c1/1edf2335ba16ab0a57f67ea571534ee7767d11a483fc50617cc6d318ca31/types_pycurl-7.45.7.20260408.tar.gz", hash = "sha256:05d910f1cc038e7964d29e09d7a35a7569cead6ba4010ae12aff2103d1e1088f", size = 14605, upload-time = "2026-04-08T04:32:20.838Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/3e/9b7e3779b7baf42d650ccc9943f3fd620207446bbdd5103c6a2be3bf2fbb/types_pycurl-7.46.0.20260509.tar.gz", hash = "sha256:719d328744d0a0f1765c7a2eb3e3b081edc8ddec4ca668b61e82625a4519b359", size = 16277, upload-time = "2026-05-09T04:58:55.002Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b3/db/9706a034f22eccb30ab9c0d78092da8c1917653ed81bccad9ad1914c412d/types_pycurl-7.45.7.20260408-py3-none-any.whl", hash = "sha256:f9e67638e9865a59a275ae832eeaa4d6e131e7c0c948d8a4655fbcc4c89842aa", size = 13180, upload-time = "2026-04-08T04:32:19.365Z" },
+    { url = "https://files.pythonhosted.org/packages/24/b9/9635032e42e92d466edbed314d1ddbaf0e0dedc81bed4083e09f44a71799/types_pycurl-7.46.0.20260509-py3-none-any.whl", hash = "sha256:9399a9e0c2682e8740a8027bbc76e4510380bc71165d27c9f6107e5042926334", size = 14351, upload-time = "2026-05-09T04:58:53.891Z" },
 ]
 
 [[package]]
