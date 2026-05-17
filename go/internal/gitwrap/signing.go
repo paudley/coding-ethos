@@ -15,7 +15,6 @@ import (
 
 const (
 	gitSignedCommitsPolicyID = "git.signed_commits_required"
-	gitSignedPushPolicyID    = "git.signed_push_required"
 	gitCommitOperation       = "commit"
 	gitPushOperation         = "push"
 	goodGitSignatureStatus   = "G"
@@ -34,7 +33,6 @@ func gitSigningPreDecisions(options Options, operation string) []policy.Decision
 	}
 
 	if operation == gitPushOperation {
-		decisions = append(decisions, gitPushSignatureDecisions(options)...)
 		decisions = append(decisions, gitUnsignedOutgoingCommitDecisions(options)...)
 	}
 
@@ -89,32 +87,7 @@ func gitSigningConfigDecisions(options Options) []policy.Decision {
 		))
 	}
 
-	if gitConfigOverrideDisablesSigning(options.Argv, "push.gpgsign") ||
-		gitConfigSetsSigningFalse(options.Argv, "push.gpgsign") ||
-		gitConfigBool(options.Cwd, "push.gpgsign") != gitTrueValue {
-		decisions = append(decisions, gitSigningDecision(
-			gitSignedPushPolicyID,
-			"Git push signing is required for every git action.",
-			"Set push.gpgSign=true before running git; do not use --no-signed.",
-		))
-	}
-
 	return decisions
-}
-
-func gitPushSignatureDecisions(options Options) []policy.Decision {
-	argv := ParseArgv(options.Argv).Argv
-	for _, arg := range argv {
-		if arg == "--no-signed" || arg == "--signed=false" {
-			return []policy.Decision{gitSigningDecision(
-				gitSignedPushPolicyID,
-				"Git push signing cannot be disabled.",
-				"Remove --no-signed and keep push.gpgSign=true.",
-			)}
-		}
-	}
-
-	return nil
 }
 
 func gitUnsignedOutgoingCommitDecisions(options Options) []policy.Decision {
@@ -162,12 +135,6 @@ func forceSignedGitArgs(argv []string, cwd string) []string {
 		}
 
 		return insertGitArg(argv, operationIndex+1, "-S")
-	case gitPushOperation:
-		if gitPushSigningArgPresent(argv[operationIndex+1:]) {
-			return argv
-		}
-
-		return insertGitArg(argv, operationIndex+1, "--signed")
 	default:
 		return argv
 	}
@@ -276,19 +243,6 @@ func gitCommitSigningArgPresent(args []string) bool {
 			arg == "--gpg-sign" ||
 			strings.HasPrefix(arg, "--gpg-sign=") ||
 			arg == "--no-gpg-sign" {
-			return true
-		}
-	}
-
-	return false
-}
-
-func gitPushSigningArgPresent(args []string) bool {
-	for _, arg := range args {
-		if arg == "--signed" ||
-			arg == "--signed=true" ||
-			arg == "--no-signed" ||
-			arg == "--signed=false" {
 			return true
 		}
 	}
@@ -409,7 +363,6 @@ func gitSigningDecision(policyID, message, suggestion string) policy.Decision {
 		},
 		Evidence: map[string]any{
 			"commit_gpgsign": true,
-			"push_gpgsign":   true,
 		},
 	}
 }

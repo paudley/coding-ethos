@@ -213,7 +213,6 @@ func TestCheckBlocksDisabledGitSigningConfig(t *testing.T) {
 
 	repo := initGitwrapRepo(t)
 	runGitwrapGit(t, repo, "config", "commit.gpgsign", "false")
-	runGitwrapGit(t, repo, "config", "push.gpgsign", "true")
 	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
 
 	result, err := Check(policy.ExampleBundle(), Options{
@@ -239,13 +238,9 @@ func TestCheckBlocksSigningDisableCommands(t *testing.T) {
 	repo := initSignedGitwrapRepo(t)
 
 	tests := map[string][]string{
-		"commit no gpg sign":   {"commit", "--no-gpg-sign", "-m", "test"},
-		"config commit false":  {"config", "commit.gpgsign", "false"},
-		"config push false":    {"config", "push.gpgsign", "false"},
-		"global commit false":  {"-c", "commit.gpgsign=false", "status"},
-		"push no signed":       {"push", "--no-signed", "origin", "main"},
-		"push signed false":    {"push", "--signed=false", "origin", "main"},
-		"global push unsigned": {"-c", "push.gpgsign=false", "status"},
+		"commit no gpg sign":  {"commit", "--no-gpg-sign", "-m", "test"},
+		"config commit false": {"config", "commit.gpgsign", "false"},
+		"global commit false": {"-c", "commit.gpgsign=false", "status"},
 	}
 
 	for name, argv := range tests {
@@ -284,7 +279,6 @@ func TestCheckBlocksUnsignedOutgoingPush(t *testing.T) {
 	runGitwrapGit(t, repo, "add", "file.txt")
 	runGitwrapGit(t, repo, "commit", "-m", "unsigned change")
 	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
-	runGitwrapGit(t, repo, "config", "push.gpgsign", "true")
 	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
 
 	result, err := Check(policy.ExampleBundle(), Options{
@@ -309,7 +303,6 @@ func initSignedGitwrapRepo(t *testing.T) string {
 
 	repo := initGitwrapRepo(t)
 	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
-	runGitwrapGit(t, repo, "config", "push.gpgsign", "true")
 	runGitwrapGit(t, repo, "config", "user.signingkey", "test-key")
 
 	return repo
@@ -328,7 +321,6 @@ git:
 		t.Fatalf("write repo config: %v", err)
 	}
 	runGitwrapGit(t, repo, "config", "commit.gpgsign", "false")
-	runGitwrapGit(t, repo, "config", "push.gpgsign", "false")
 
 	result, err := Check(policy.ExampleBundle(), Options{
 		Argv: []string{"status", "--short"},

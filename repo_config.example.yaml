@@ -108,8 +108,8 @@ proxy:
 git:
   # Parent repos that cannot use signed git operations yet can disable the
   # wrapper's signing invariant explicitly. coding-ethos itself keeps this
-  # enabled: commits are forced through `git commit -S`, pushes through
-  # `git push --signed`, and unsigned outgoing commits are blocked.
+  # enabled: commits are forced through `git commit -S`, and pushes containing
+  # unsigned outgoing commits are blocked.
   signed_operations:
     enabled: true
   hook_bypass:

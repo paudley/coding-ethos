@@ -90,7 +90,7 @@ func TestExecuteForcesSignedCommit(t *testing.T) {
 	}
 }
 
-func TestExecuteForcesSignedPush(t *testing.T) {
+func TestExecuteLeavesPushCertificateOptional(t *testing.T) {
 	t.Parallel()
 
 	logPath := filepath.Join(t.TempDir(), "git-args.log")
@@ -102,8 +102,8 @@ func TestExecuteForcesSignedPush(t *testing.T) {
 	}
 
 	args := readText(t, logPath)
-	if !strings.Contains(args, "push\n--signed\norigin\nmain\n") {
-		t.Fatalf("push signing args missing:\n%s", args)
+	if strings.Contains(args, "--signed\n") {
+		t.Fatalf("push certificate arg should not be forced:\n%s", args)
 	}
 }
 
@@ -133,7 +133,6 @@ func TestExecuteCreatesSignedCommitWithDisposableKey(t *testing.T) {
 	runGitwrapGit(t, repo, "config", "user.signingkey", fingerprint)
 	runGitwrapGit(t, repo, "config", "gpg.program", gpgPath)
 	runGitwrapGit(t, repo, "config", "commit.gpgsign", "true")
-	runGitwrapGit(t, repo, "config", "push.gpgsign", "true")
 
 	err = os.WriteFile(filepath.Join(repo, "file.txt"), []byte("signed\n"), 0o600)
 	if err != nil {
