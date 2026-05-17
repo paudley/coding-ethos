@@ -20,6 +20,7 @@ const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
 
 func Execute(realGit string, options Options) error {
 	normalized := normalizeArgv(options.Argv)
+	normalized = forceSignedGitArgs(normalized, options.Cwd)
 
 	cmd := realgit.CommandFor(context.Background(), realGit, false, normalized[1:]...)
 	if options.Cwd != "" {
@@ -87,12 +88,25 @@ func evaluatePostPoliciesWithRegistry(
 		return Result{Argv: argv, Status: statusAllowed}, nil
 	}
 
+	decisions := []policy.Decision{}
+	if scope == "PostToolUse" {
+		decisions = append(decisions, gitSigningPostDecisions(options, operation)...)
+		if len(decisions) > 0 {
+			return Result{
+				Argv:      argv,
+				Operation: operation,
+				Status:    resultStatus(decisions),
+				Decisions: decisions,
+			}, nil
+		}
+	}
+
 	policyIDs := gitPostPolicyIDs(bundle, operation)
 	if len(policyIDs) == 0 {
 		return Result{Argv: argv, Operation: operation, Status: statusAllowed}, nil
 	}
 
-	decisions := make([]policy.Decision, 0, len(policyIDs))
+	decisions = make([]policy.Decision, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
 		if !ok {
