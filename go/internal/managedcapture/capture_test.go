@@ -640,6 +640,8 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 		`"profile": "lint-offline"`,
 		`"denied": true`,
 		`"reason": "bubblewrap executable not found"`,
+		`"policies": [`,
+		`"runtime.sandbox_denial"`,
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("SARIF output missing %q:\n%s", want, output.String())

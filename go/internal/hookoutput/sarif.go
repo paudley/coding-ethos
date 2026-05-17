@@ -1022,14 +1022,16 @@ func sarifCoverage(
 		sarifAddPolicyCoverageDecision(policies, ethosIDs, skills, tools, decision)
 	}
 
-	for _, item := range items {
-		sarifAddCoverageValue(policies, item.PolicyID)
-		sarifAddCoverageValue(skills, item.SkillID)
-		sarifAddCoverageValue(tools, item.Tool)
+	for _, item := range result.Diagnostics {
+		sarifAddPolicyCoverageDiagnostic(policies, ethosIDs, skills, tools, item)
+	}
 
-		for _, principleID := range item.PrincipleIDs {
-			sarifAddCoverageValue(ethosIDs, principleID)
-		}
+	for _, item := range lint.FindingDiagnostics(result.Findings, result.Blocked()) {
+		sarifAddPolicyCoverageDiagnostic(policies, ethosIDs, skills, tools, item)
+	}
+
+	for _, item := range items {
+		sarifAddPolicyCoverageDiagnostic(policies, ethosIDs, skills, tools, item)
 	}
 
 	return sarifPolicyCoverage{
@@ -1061,13 +1063,23 @@ func sarifAddPolicyCoverageDecision(
 	}
 
 	for _, diagnostic := range decision.Diagnostics {
-		sarifAddCoverageValue(policies, diagnostic.PolicyID)
-		sarifAddCoverageValue(skills, diagnostic.SkillID)
-		sarifAddCoverageValue(tools, diagnostic.Tool)
+		sarifAddPolicyCoverageDiagnostic(policies, ethosIDs, skills, tools, diagnostic)
+	}
+}
 
-		for _, principleID := range diagnostic.PrincipleIDs {
-			sarifAddCoverageValue(ethosIDs, principleID)
-		}
+func sarifAddPolicyCoverageDiagnostic(
+	policies map[string]bool,
+	ethosIDs map[string]bool,
+	skills map[string]bool,
+	tools map[string]bool,
+	diagnostic diagnostics.Diagnostic,
+) {
+	sarifAddCoverageValue(policies, diagnostic.PolicyID)
+	sarifAddCoverageValue(skills, diagnostic.SkillID)
+	sarifAddCoverageValue(tools, diagnostic.Tool)
+
+	for _, principleID := range diagnostic.PrincipleIDs {
+		sarifAddCoverageValue(ethosIDs, principleID)
 	}
 }
 
