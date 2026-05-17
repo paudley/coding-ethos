@@ -89,9 +89,10 @@ can request it with `coding-ethos-lint --managed-capture-tool <tool>
 --sandbox-mode required`. The default remains `off` until the mount profile is
 proven across the full managed toolchain, because silently changing every
 developer lint invocation would make failures harder to attribute. In
-`required` mode, a missing Bubblewrap backend is a normalized
-`runtime.sandbox_denial` failure. In `auto` mode, the runner records the
-unavailable backend and falls back to unsandboxed execution.
+any sandboxed mode, a missing Bubblewrap backend is a normalized
+`runtime.sandbox_denial` failure. Bubblewrap is a required dependency for
+sandboxed execution; the runner must not fall back to unsandboxed execution
+when a tool declares a sandbox profile.
 
 The current mount profile is explicit and evidence-backed:
 
@@ -122,8 +123,8 @@ The target default profile for ordinary managed linters is:
 Seccomp support is explicit: a catalog entry can declare a `seccomp_profile`
 and an optional compiled BPF profile path. When a profile path is present,
 Bubblewrap receives it through `--seccomp` using an inherited file descriptor.
-If required sandbox mode cannot open the profile, execution fails closed as
-`runtime.sandbox_denial`; advisory mode records degraded enforcement.
+If sandbox mode cannot open the profile, execution fails closed as
+`runtime.sandbox_denial`.
 
 Resource controls are split by enforcement layer. Go wraps sandboxed managed
 tool execution in a hard timeout. Memory and CPU requests are applied through
@@ -132,8 +133,7 @@ The cgroup is prepared before process start, the Linux runner starts the child
 directly inside it using `clone3` cgroup file-descriptor support, and the
 temporary cgroup directory is removed after the process exits. Required sandbox
 mode fails closed if no delegated writable cgroup hierarchy is available or if
-the limits cannot be applied; advisory mode keeps the degraded reason in
-sandbox evidence.
+the limits cannot be applied.
 
 The first default managed-linter profile is intentionally conservative:
 `no-network`, `no-git`, `lint-offline`, 300 seconds, 2048 MB memory, 100% CPU,
@@ -154,13 +154,12 @@ state. Required-mode denials also produce a blocking `runtime.sandbox_denial`
 finding grounded in `security-by-design` and
 `one-path-for-critical-operations`.
 
-Unsupported platforms are explicit in the sandbox evidence. Required sandbox
-profiles fail closed when Linux namespace support or Bubblewrap is unavailable.
-Advisory `auto` mode records the degraded reason and falls back to the original
-command without claiming sandbox enforcement.
+Unsupported platforms are explicit in the sandbox evidence. Sandbox profiles
+fail closed when Linux namespace support or Bubblewrap is unavailable. `auto`
+mode remains a sandbox mode; it is not permission to run a sandbox-declared
+tool without Bubblewrap enforcement.
 
 Generated GitHub and GitLab SARIF workflows default
 `generated_config.ci.*.sandbox_mode` to `required` and pass it to
-`coding-ethos-run policy-lint`. That lets CI enforce the sandbox while local
-developer workflows can remain explicit and recoverable with `auto` or `off`
-when a workstation lacks Bubblewrap support.
+`coding-ethos-run policy-lint`. Local developer workflows can remain explicit
+with `off`, but any sandboxed mode requires Bubblewrap support.
