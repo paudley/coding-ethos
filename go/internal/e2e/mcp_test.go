@@ -11,6 +11,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -343,7 +344,7 @@ func testMCPToolCapabilities(t *testing.T, client *MCPClient) {
 		t.Fatalf("tool capabilities missing ruff: %#v", capabilities.Tools)
 	}
 
-	if len(ruff.Command) == 0 || !stringSliceIncludes(ruff.Tags, "no-network") {
+	if len(ruff.Command) == 0 || !slices.Contains(ruff.Tags, "no-network") {
 		t.Fatalf("ruff capability missing command/no-network tag: %#v", ruff)
 	}
 }
@@ -673,54 +674,33 @@ func mcpToolCallText(t *testing.T, resp mcpResponse) string {
 }
 
 func mcpDecisionIncludes(decisions []mcpDecision, policyID string) bool {
-	for _, decision := range decisions {
-		if decision.PolicyID == policyID {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(decisions, func(decision mcpDecision) bool {
+		return decision.PolicyID == policyID
+	})
 }
 
 func mcpResourcesInclude(resources []mcpResourceInfo, uri string) bool {
-	for _, resource := range resources {
-		if resource.URI == uri {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(resources, func(resource mcpResourceInfo) bool {
+		return resource.URI == uri
+	})
 }
 
 func mcpCapabilityTool(
 	tools []mcpCapabilityInfo,
 	name string,
 ) (mcpCapabilityInfo, bool) {
-	for _, tool := range tools {
-		if tool.Name == name {
-			return tool, true
-		}
+	index := slices.IndexFunc(tools, func(tool mcpCapabilityInfo) bool {
+		return tool.Name == name
+	})
+	if index < 0 {
+		return mcpCapabilityInfo{}, false
 	}
 
-	return mcpCapabilityInfo{}, false
-}
-
-func stringSliceIncludes(values []string, expected string) bool {
-	for _, value := range values {
-		if value == expected {
-			return true
-		}
-	}
-
-	return false
+	return tools[index], true
 }
 
 func mcpSkillHintsInclude(hints []mcpSkillHint, skillID string) bool {
-	for _, hint := range hints {
-		if hint.SkillID == skillID {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(hints, func(hint mcpSkillHint) bool {
+		return hint.SkillID == skillID
+	})
 }
