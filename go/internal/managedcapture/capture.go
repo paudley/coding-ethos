@@ -205,6 +205,21 @@ func runCapturedPlan(
 
 	result := startCapturedProcess(commandContext, request, plan, cgroup)
 
+	if deniedEvidence, denied := capturedSandboxRuntimeDenial(
+		appliedEvidence,
+		result,
+	); denied {
+		evidence = lintSandboxEvidence(deniedEvidence)
+		diagnostic := sandboxDenialDiagnostic(deniedEvidence)
+
+		return captureExecution{
+			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
+			RunArgs:  runArgs,
+			Sandbox:  evidence,
+			ExitCode: BlockedExitCode,
+		}
+	}
+
 	if errors.Is(commandContext.Err(), context.DeadlineExceeded) {
 		appliedEvidence.Denied = true
 		appliedEvidence.Reason = "sandboxed tool exceeded timeout"
@@ -525,6 +540,58 @@ func capturedExecutionError(stderr string, err error) string {
 	}
 
 	return err.Error()
+}
+
+func capturedSandboxRuntimeDenial(
+	evidence sandbox.Evidence,
+	result processResult,
+) (sandbox.Evidence, bool) {
+	if !evidence.Enabled || evidence.Backend != sandbox.BackendBubblewrap {
+		return evidence, false
+	}
+
+	reason, denied := capturedSandboxRuntimeDenialReason(result)
+	if !denied {
+		return evidence, false
+	}
+
+	evidence.Denied = true
+	evidence.Reason = reason
+
+	return evidence, true
+}
+
+func capturedSandboxRuntimeDenialReason(result processResult) (string, bool) {
+	errText := strings.TrimSpace(capturedExecutionError(result.stderr, result.err))
+	lowerText := strings.ToLower(errText)
+
+	if lowerText == "" {
+		return "", false
+	}
+
+	if result.err != nil &&
+		(strings.Contains(lowerText, "permission denied") ||
+			strings.Contains(lowerText, "operation not permitted")) {
+		return errText, true
+	}
+
+	if !strings.HasPrefix(lowerText, "bwrap:") {
+		return "", false
+	}
+
+	for _, marker := range []string{
+		"permission denied",
+		"operation not permitted",
+		"creating new namespace failed",
+		"setting up uid map",
+		"setting up gid map",
+	} {
+		if strings.Contains(lowerText, marker) {
+			return errText, true
+		}
+	}
+
+	return "", false
 }
 
 func logCapturedToolResult(

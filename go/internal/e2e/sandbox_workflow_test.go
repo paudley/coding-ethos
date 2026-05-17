@@ -225,6 +225,7 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bubblewrap is required for sandbox e2e: %v", err)
 	}
+	requireUsableBubblewrapForSandboxE2E(t, backend)
 
 	repo := t.TempDir()
 	mustMkdirE2E(t, filepath.Join(repo, ".coding-ethos", "cache"))
@@ -271,6 +272,43 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("stat undeclared sandbox write: %v", err)
 	}
+}
+
+func requireUsableBubblewrapForSandboxE2E(t *testing.T, backend string) {
+	t.Helper()
+
+	command := exec.Command(
+		backend,
+		"--ro-bind",
+		"/",
+		"/",
+		"--dev",
+		"/dev",
+		"--proc",
+		"/proc",
+		"/bin/sh",
+		"-c",
+		"true",
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return
+	}
+
+	text := strings.ToLower(strings.TrimSpace(string(output) + "\n" + err.Error()))
+	for _, marker := range []string{
+		"permission denied",
+		"operation not permitted",
+		"creating new namespace failed",
+		"setting up uid map",
+		"setting up gid map",
+	} {
+		if strings.Contains(text, marker) {
+			t.Skipf("bubblewrap is installed but host namespace setup is denied: %s", text)
+		}
+	}
+
+	t.Fatalf("bubblewrap preflight failed: %v\n%s", err, output)
 }
 
 func sandboxWorkflowEnv() map[string]string {
