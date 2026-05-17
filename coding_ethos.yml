@@ -582,6 +582,26 @@ principles:
       claude: Reference this rule explicitly when reviewing or merging repo guidance.
       gemini: Use this rule to keep high-level guidance concise, concrete, and
         enforceable.
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - name: gosec
+              rationale: >-
+                Go security analysis is a blocking static-analysis gate, not an
+                optional review suggestion.
+          disable:
+            - name: misspell
+              rationale: >-
+                Spelling policy belongs to prose review and repo-specific
+                language context; golangci-lint should not police names,
+                trademarks, or multilingual text through a Go lint run.
+      bandit:
+        enabled:
+          value: true
+          rationale: >-
+            Python security scanning is part of the required static-analysis
+            gate.
     sections:
       - id: overview
         kind: overview

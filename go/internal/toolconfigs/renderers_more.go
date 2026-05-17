@@ -24,7 +24,12 @@ func renderBanditConfig(config configMap) (string, error) {
 		},
 	}
 
-	return spdxHeader + renderYAML(payload), nil
+	return spdxHeader + renderToolConfigProvenance(
+		config,
+		"bandit",
+	) + renderYAML(
+		payload,
+	), nil
 }
 
 func renderSQLFluffConfig(config configMap) (string, error) {
@@ -93,5 +98,10 @@ func renderGolangCIConfig(config configMap) (string, error) {
 	linters["settings"] = settings
 	payload["linters"] = linters
 
-	return spdxHeader + renderYAML(payload), nil
+	return spdxHeader + renderToolConfigProvenance(
+		config,
+		"golangci_lint",
+	) + renderYAML(
+		payload,
+	), nil
 }

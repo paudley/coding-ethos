@@ -77,7 +77,7 @@ func renderers() []Renderer {
 		{Path: "ruff.toml", Render: renderRuffTOML, Enabled: alwaysEnabled},
 		{Path: ".pylintrc", Render: renderPylintrc, Enabled: alwaysEnabled},
 		{Path: ".yamllint.yml", Render: renderYamllintConfig, Enabled: alwaysEnabled},
-		{Path: ".bandit.yml", Render: renderBanditConfig, Enabled: alwaysEnabled},
+		{Path: ".bandit.yml", Render: renderBanditConfig, Enabled: banditEnabled},
 		{Path: ".sqlfluff", Render: renderSQLFluffConfig, Enabled: alwaysEnabled},
 		{Path: "tombi.toml", Render: renderTombiConfig, Enabled: alwaysEnabled},
 		{Path: ".golangci.yml", Render: renderGolangCIConfig, Enabled: alwaysEnabled},
@@ -98,6 +98,10 @@ func alwaysEnabled(config configMap) bool {
 	_ = config
 
 	return true
+}
+
+func banditEnabled(config configMap) bool {
+	return configuredBool(config, "tooling.bandit.enabled", true)
 }
 
 func githubCIEnabled(config configMap) bool {

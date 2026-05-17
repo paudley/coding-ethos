@@ -1,6 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
 # SPDX-License-Identifier: MIT
 
+# Principle-derived tool config:
+# - linters.disable misspell from static-analysis-is-the-first-line-of-defense
+# (coding_ethos.yml): Spelling policy belongs to prose review and repo-specific
+# language context; golangci-lint should not police names, trademarks, or
+# multilingual text through a Go lint run.
+# - linters.enable gosec from static-analysis-is-the-first-line-of-defense
+# (coding_ethos.yml): Go security analysis is a blocking static-analysis gate, not an
+# optional review suggestion.
+
 version: '2'
 run:
   tests: true
@@ -52,7 +61,6 @@ linters:
     - gomoddirectives
     - gomodguard
     - goprintffuncname
-    - gosec
     - govet
     - grouper
     - iface
@@ -113,6 +121,7 @@ linters:
     - wrapcheck
     - wsl_v5
     - zerologlint
+    - gosec
   exclusions:
     generated: strict
     warn-unused: true
@@ -168,6 +177,8 @@ linters:
           yaml: snake
     testifylint:
       enable-all: true
+  disable:
+    - misspell
 formatters:
   enable:
     - gci

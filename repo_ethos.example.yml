@@ -55,6 +55,12 @@ principles:
       agent_hints:
         codex: Keep migrations append-only and check compatibility with existing
           deployments.
+      tool_config:
+        golangci_lint:
+          linters:
+            enable:
+              - name: ginkgolinter
+                rationale: This repo's Go test suite standardizes on Ginkgo.
       sections:
         - id: overview
           kind: overview

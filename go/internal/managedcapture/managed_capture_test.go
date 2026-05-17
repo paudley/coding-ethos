@@ -712,6 +712,40 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	}
 }
 
+func TestManagedToolEnabledHonorsPrincipleBanditDisable(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethosRoot := filepath.Join(root, "coding-ethos")
+	consumerRoot := filepath.Join(root, "consumer")
+	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), `
+version: 1
+tooling:
+  bandit: {}
+`)
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(ethosRoot, "coding_ethos.yml"),
+		"principles: []\n",
+	)
+	writeManagedCaptureFile(t, filepath.Join(consumerRoot, "repo_ethos.yml"), `
+principles:
+  additional:
+    - id: repo-security-tools
+      tool_config:
+        bandit:
+          enabled: false
+`)
+
+	enabled, err := managedToolEnabled("bandit", ethosRoot, consumerRoot)
+	if err != nil {
+		t.Fatalf("managedToolEnabled(): %v", err)
+	}
+	if enabled {
+		t.Fatal("managedToolEnabled() = true, want false")
+	}
+}
+
 func writeManagedCaptureFile(t *testing.T, path, content string) {
 	t.Helper()
 

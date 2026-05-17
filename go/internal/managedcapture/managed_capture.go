@@ -13,9 +13,11 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -80,6 +82,15 @@ func Run(options Options) int {
 		return printManagedCaptureError(err, 1)
 	}
 
+	enabled, err := managedToolEnabled(tool.Name, options.EthosRoot, options.ConsumerRoot)
+	if err != nil {
+		return printManagedCaptureError(err, 1)
+	}
+
+	if !enabled {
+		return 0
+	}
+
 	drift := generatedConfigDrift(options.EthosRoot, options.ConsumerRoot)
 	if len(drift) > 0 {
 		return printConfigDrift(drift)
@@ -139,6 +150,30 @@ func managedCaptureRequest(
 		Policies:     options.PolicyContext.Policies,
 		Skills:       options.PolicyContext.Skills,
 	}, 0, nil
+}
+
+func managedToolEnabled(toolName, ethosRoot, consumerRoot string) (bool, error) {
+	config, err := toolconfigs.LoadMergedConfig(ethosRoot, consumerRoot, "")
+	if err != nil {
+		return false, fmt.Errorf("load generated tool config: %w", err)
+	}
+
+	return toolEnabled(config, toolName), nil
+}
+
+func toolEnabled(config map[string]any, toolName string) bool {
+	toolKey := strings.ReplaceAll(toolName, "-", "_")
+
+	value, ok := configdata.GetPath(
+		config,
+		"tooling."+toolKey+".enabled",
+		true,
+	).(bool)
+	if !ok {
+		return true
+	}
+
+	return value
 }
 
 func managedCaptureExecutionContext(

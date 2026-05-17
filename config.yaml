@@ -413,7 +413,9 @@ policy:
         TypeScript compiler diagnostics found a type, syntax, or project
         contract problem that should be fixed before runtime.
       advice:
-        summary: Fix the TypeScript compiler diagnostic through the project type contract.
+        summary: >-
+          Fix the TypeScript compiler diagnostic through the project type
+          contract.
         steps:
           - Keep tsc execution routed through the managed coding-ethos wrapper.
           - Fix type declarations, imports, and tsconfig boundaries structurally.
@@ -436,9 +438,13 @@ policy:
       advice:
         summary: Fix the Kubernetes manifest finding structurally.
         steps:
-          - Keep kube-linter execution routed through the managed coding-ethos wrapper.
+          - >-
+            Keep kube-linter execution routed through the managed coding-ethos
+            wrapper.
           - Prefer least-privilege pod security settings and explicit resource limits.
-          - Do not silence manifest findings without documenting the operational exception.
+          - >-
+            Do not silence manifest findings without documenting the
+            operational exception.
         rerun:
           - make pre-commit
     - source: ruff
@@ -510,11 +516,14 @@ policy:
         the managed npm package, invocation, or tsconfig boundary drifted away
         from the coding-ethos runtime contract.
       advice:
-        summary: Restore managed tsc execution before interpreting TypeScript findings.
+        summary: >-
+          Restore managed tsc execution before interpreting TypeScript findings.
         steps:
           - Run tsc through the coding-ethos capture wrapper.
           - Keep the project boundary explicit with tsconfig.json.
-          - Rebuild the managed toolchain if the TypeScript package or wrapper is missing.
+          - >-
+            Rebuild the managed toolchain if the TypeScript package or wrapper
+            is missing.
         rerun:
           - make build
           - make pre-commit
@@ -536,10 +545,14 @@ policy:
         usually because the managed Go binary, invocation, or Kubernetes
         manifest boundary drifted away from the coding-ethos runtime contract.
       advice:
-        summary: Restore managed kube-linter execution before interpreting manifest findings.
+        summary: >-
+          Restore managed kube-linter execution before interpreting manifest
+          findings.
         steps:
           - Run kube-linter through the coding-ethos capture wrapper.
-          - Pass explicit Kubernetes manifest paths rather than relying on host discovery.
+          - >-
+            Pass explicit Kubernetes manifest paths rather than relying on host
+            discovery.
           - Rebuild the managed toolchain if the kube-linter binary is missing.
         rerun:
           - make build
@@ -1353,7 +1366,6 @@ tooling:
         - gomoddirectives
         - gomodguard
         - goprintffuncname
-        - gosec
         - govet
         - grouper
         - iface

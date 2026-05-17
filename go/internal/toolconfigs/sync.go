@@ -25,6 +25,11 @@ func Sync(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 		return nil, err
 	}
 
+	err = removeDisabledRenderedConfigs(repoRoot, rendered)
+	if err != nil {
+		return nil, err
+	}
+
 	written := make([]string, 0, len(rendered)+1)
 	for relativePath, content := range rendered {
 		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
@@ -85,6 +90,17 @@ func Check(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 		}
 	}
 
+	for _, relativePath := range disabledRendererPaths(rendered) {
+		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
+
+		switch _, statErr := os.Stat(filepath.Clean(absolutePath)); {
+		case statErr == nil:
+			mismatched = append(mismatched, absolutePath)
+		case !errors.Is(statErr, os.ErrNotExist):
+			return nil, fmt.Errorf("stat disabled config %s: %w", absolutePath, statErr)
+		}
+	}
+
 	manifest, err := RenderHashManifest(rendered)
 	if err != nil {
 		return nil, err
@@ -98,6 +114,34 @@ func Check(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 	}
 
 	return mismatched, nil
+}
+
+func removeDisabledRenderedConfigs(
+	repoRoot string,
+	rendered map[string]string,
+) error {
+	for _, relativePath := range disabledRendererPaths(rendered) {
+		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
+		err := os.Remove(filepath.Clean(absolutePath))
+
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove disabled config %s: %w", absolutePath, err)
+		}
+	}
+
+	return nil
+}
+
+func disabledRendererPaths(rendered map[string]string) []string {
+	paths := make([]string, 0)
+
+	for _, renderer := range renderers() {
+		if _, enabled := rendered[renderer.Path]; !enabled {
+			paths = append(paths, renderer.Path)
+		}
+	}
+
+	return paths
 }
 
 func renderForRepo(
@@ -119,19 +163,28 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 		return nil, fmt.Errorf("load base config: %w", err)
 	}
 
+	base, err = applyPrincipleToolConfig(ethosRoot, repoRoot, base)
+	if err != nil {
+		return nil, fmt.Errorf("apply principle tool config: %w", err)
+	}
+
 	if strings.TrimSpace(repoConfig) != "" {
 		override, err := configdata.LoadYAMLMap(repoConfig)
 		if err != nil {
 			return nil, fmt.Errorf("load repo config %s: %w", repoConfig, err)
 		}
 
-		return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
+		return pruneToolConfigProvenance(
+			configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot),
+		), nil
 	}
 
 	for _, name := range repoConfigCandidates(base) {
 		override, err := configdata.LoadYAMLMap(filepath.Join(repoRoot, name))
 		if err == nil {
-			return configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot), nil
+			return pruneToolConfigProvenance(
+				configprofiles.ApplyWithEthosRoot(base, override, repoRoot, ethosRoot),
+			), nil
 		}
 
 		if !errors.Is(err, os.ErrNotExist) {
@@ -139,7 +192,7 @@ func LoadMergedConfig(ethosRoot, repoRoot, repoConfig string) (map[string]any, e
 		}
 	}
 
-	return base, nil
+	return pruneToolConfigProvenance(base), nil
 }
 
 func repoConfigCandidates(config configMap) []string {
