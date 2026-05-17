@@ -184,8 +184,9 @@ func runCapturedPlan(
 
 	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
 
-	evidence := lintSandboxEvidence(appliedEvidence)
 	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
+		appliedEvidence.Denied = true
+		evidence := lintSandboxEvidence(appliedEvidence)
 		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
 
 		return captureExecution{
@@ -195,6 +196,8 @@ func runCapturedPlan(
 			ExitCode: BlockedExitCode,
 		}
 	}
+
+	evidence := lintSandboxEvidence(appliedEvidence)
 
 	if cgroup != nil {
 		defer func() { _ = cgroup.Close() }()
@@ -539,7 +542,7 @@ func capturedToolResult(
 	execution captureExecution,
 ) lint.Result {
 	parser := firstCaptureNonEmpty(request.Parser, request.Tool)
-	parsed := diagnostics.Parse(parser, execution.Stdout, execution.Stderr)
+	parsed := capturedExecutionDiagnostics(parser, execution)
 	parsed = append(parsed, formatterChangedDiagnostics(request, execution.Changes)...)
 	parsed = normalizeCapturedDiagnosticPaths(parsed, request.TraceRoot)
 	parsed = diagnostics.Enrich(parsed, request.EvidenceMaps)
@@ -562,6 +565,19 @@ func capturedToolResult(
 	result.SkillHints = lint.SkillHintsForDiagnostics(parsed, request.Skills)
 
 	return result
+}
+
+func capturedExecutionDiagnostics(
+	parser string,
+	execution captureExecution,
+) []diagnostics.Diagnostic {
+	if execution.Sandbox != nil && execution.Sandbox.Denied {
+		return []diagnostics.Diagnostic{
+			sandboxDenialDiagnostic(sandboxEvidenceFromLint(*execution.Sandbox)),
+		}
+	}
+
+	return diagnostics.Parse(parser, execution.Stdout, execution.Stderr)
 }
 
 func capturedFindings(
