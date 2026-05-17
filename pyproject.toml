@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: AGPL-3.0-only
 
 [build-system]
 requires = ["hatchling"]
@@ -10,7 +10,7 @@ name = "coding-ethos"
 version = "0.2.1"
 description = "Policy-as-code enforcement for AI agents with MCP, CEL, Git hooks, SARIF, and static-analysis guardrails."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-only"
 authors = [
     { name = "Blackcat Informatics® Inc.", email = "paudley@blackcat.ca" },
 ]
@@ -39,7 +39,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development",

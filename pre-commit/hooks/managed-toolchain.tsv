@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: AGPL-3.0-only
 #
 # tool	installer	source	version	asset_substring	binary	checksum	dest
 shfmt	go	mvdan.cc/sh/v3/cmd/shfmt	v3.13.1	-	shfmt	-	go-bin

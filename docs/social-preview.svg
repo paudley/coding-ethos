@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="title desc">
   <title id="title">Coding Ethos social preview</title>
   <desc id="desc">Policy-as-code for AI coding agents, with MCP, CEL, Git hooks, SARIF, and DevSecOps guardrails.</desc>

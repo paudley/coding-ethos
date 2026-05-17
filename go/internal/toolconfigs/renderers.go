@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package toolconfigs
 
@@ -21,7 +21,7 @@ const (
 	spdxCopyright     = "SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. " +
 		"<paudley@blackcat.ca>"
 	spdxHeader = "# " + spdxCopyright + "\n" +
-		"# SPDX-License-Identifier: MIT\n\n"
+		"# SPDX-License-Identifier: AGPL-3.0-only\n\n"
 )
 
 type Renderer struct {

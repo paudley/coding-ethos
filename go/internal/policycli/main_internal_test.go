@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package policycli
 
@@ -126,7 +126,7 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	inlineErr5 := os.WriteFile(
 		repoConfigPath,
 		[]byte(
-			"repo:\n  license:\n    spdx_identifier: MIT\n    copyright: Example Inc.\n",
+			"repo:\n  license:\n    spdx_identifier: AGPL-3.0-only\n    copyright: Example Inc.\n",
 		),
 		0o600,
 	)
@@ -513,7 +513,7 @@ func TestConfigTraceReportsConfigAndRepoSections(t *testing.T) {
 
 	inlineErr13 := os.WriteFile(
 		repoConfigPath,
-		[]byte("repo:\n  license:\n    spdx_identifier: MIT\n"),
+		[]byte("repo:\n  license:\n    spdx_identifier: AGPL-3.0-only\n"),
 		0o600,
 	)
 	if inlineErr13 != nil {

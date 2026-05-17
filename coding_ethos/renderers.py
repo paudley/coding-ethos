@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: AGPL-3.0-only
 
 """Render normalized ethos bundles into root files and supporting documents.
 
@@ -23,7 +23,7 @@ SPDX_COPYRIGHT = (
 )
 MARKDOWN_SPDX_LINES = [
     f"<!-- {SPDX_COPYRIGHT} -->",
-    "<!-- SPDX-License-Identifier: MIT -->",
+    "<!-- SPDX-License-Identifier: AGPL-3.0-only -->",
 ]
 
 

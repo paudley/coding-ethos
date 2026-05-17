@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/paudley/coding-ethos/main/docs/logo-banner.svg" alt="Coding Ethos Logo" width="600">
@@ -22,7 +22,7 @@
 [![Attestations](https://img.shields.io/badge/attestations-GitHub%20%2B%20PyPI-blue)](docs/SUPPLY_CHAIN_ATTESTATIONS.md)
 [![SBOM](https://img.shields.io/badge/SBOM-SPDX%20JSON-blue)](docs/SUPPLY_CHAIN_ATTESTATIONS.md)
 [![Security Policy](https://img.shields.io/badge/security-policy-blue)](SECURITY.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPLv3 or Commercial](https://img.shields.io/badge/License-AGPLv3%20or%20Commercial-blue.svg)](LICENSE)
 
 Policy-as-code enforcement for AI agents: MCP server, CEL policies, Git hooks,
 SARIF, runtime sandboxing, and static-analysis guardrails.
@@ -40,6 +40,19 @@ Git hooks, agent tool-use guards, MCP tools, CEL custom policies, generated
 skills, and runtime axioms on one source contract. Human contributors and AI
 agents see the same standards, run the same checks, and hit the same critical
 safety gates before bad changes land.
+
+## Licensing
+
+`coding-ethos` is dual-licensed to support both open-source and commercial
+ecosystems.
+
+**Open Source License:** The software is available under the AGPLv3. This is
+ideal for open-source projects, academic use, and individuals.
+
+**Commercial License:** If you wish to use `coding-ethos` in a proprietary or
+closed-source product without being bound by the copyleft requirements of the
+AGPLv3, we offer commercial licenses. Please contact oss@blackcat.ca to discuss
+commercial licensing options.
 
 Use `coding-ethos` when you need:
 

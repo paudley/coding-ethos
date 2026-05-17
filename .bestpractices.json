@@ -38,7 +38,7 @@
   "implementation_languages": "Go, Python, Shell, Makefile, Jinja",
   "input_validation_justification": "The project validates hook payloads, shell commands, CEL inputs, YAML policy, SARIF, and source facts through structured parsers and typed loaders. See https://github.com/paudley/coding-ethos/blob/main/docs/SECURITY_ASSURANCE_CASE.md#input-validation-claim",
   "input_validation_status": "Met",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "license_per_file_justification": "Project-controlled source, docs, configs, and workflow files carry SPDX-License-Identifier headers. See repository files and the license policy notes at https://github.com/paudley/coding-ethos/blob/main/README.md#license-policy",
   "license_per_file_status": "Met",
   "name": "coding-ethos",
