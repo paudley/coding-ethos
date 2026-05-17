@@ -165,8 +165,9 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 		Args:        []string{"-c", sandboxWriteScopeScript()},
 		BackendPath: backend,
 		Capabilities: sandbox.Capabilities{
-			SandboxProfile: "lint-offline",
-			WritePaths:     []string{".coding-ethos/cache"},
+			SandboxProfile:  "agent-network",
+			WritePaths:      []string{".coding-ethos/cache"},
+			RequiresNetwork: true,
 		},
 	})
 	if err != nil {
