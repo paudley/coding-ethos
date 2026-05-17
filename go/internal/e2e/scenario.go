@@ -191,12 +191,6 @@ func absoluteCoverageDir(t *testing.T, coverDir string) string {
 	return absolute
 }
 
-func commandEnvironment(t *testing.T) []string {
-	t.Helper()
-
-	return commandEnvironmentWith(t, nil)
-}
-
 func commandEnvironmentWith(t *testing.T, overrides map[string]string) []string {
 	t.Helper()
 
