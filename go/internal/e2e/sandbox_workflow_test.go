@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/e2e"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
@@ -30,19 +31,27 @@ func TestSandboxedManagedRuffCaptureRecordsTraceEvidence(t *testing.T) {
 		"--invocation-cwd",
 		repo.Root,
 		"--sandbox-mode",
-		"auto",
+		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/clean.py",
 	)
-	result.RequireExit(t, 0)
+	if requiredModeSandboxDenied(t, result) {
+		trace := repo.SingleTrace(t)
+		assertRequiredModeSandboxDenialTrace(t, trace)
 
-	if strings.TrimSpace(result.Combined) != "" {
-		t.Fatalf("clean sandboxed lint should stay silent:\n%s", result.Combined)
+		return
 	}
 
+	result.RequireExit(t, 0)
+	if strings.TrimSpace(result.Combined) != "" {
+		t.Fatalf(
+			"clean required-mode sandboxed lint should stay silent:\n%s",
+			result.Combined,
+		)
+	}
 	trace := repo.SingleTrace(t)
-	assertSandboxTraceEvidence(t, trace, "auto")
+	assertSandboxTraceEvidence(t, trace, sandbox.ModeRequired)
 	for _, want := range []string{
 		`"scope": "tool:ruff"`,
 		`"parse_status": "empty"`,
@@ -74,13 +83,18 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 		"--invocation-cwd",
 		repo.Root,
 		"--sandbox-mode",
-		"auto",
+		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/unused_import.py",
 	)
-	result.RequireExit(t, 1)
+	if requiredModeSandboxDenied(t, result) {
+		assertRequiredModeSandboxDenialSARIF(t, result)
 
+		return
+	}
+
+	result.RequireExit(t, 1)
 	for _, want := range []string{
 		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
 		`"ruleId": "ruff:F401"`,
@@ -92,6 +106,58 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 		`"backend": "bubblewrap"`,
 		`"profile": "lint-offline"`,
 		`"network_isolated": true`,
+	} {
+		result.RequireContains(t, want)
+	}
+}
+
+func requiredModeSandboxDenied(t *testing.T, result e2e.CommandResult) bool {
+	t.Helper()
+
+	if result.Code != 2 {
+		return false
+	}
+
+	for _, want := range []string{
+		`"mode": "required"`,
+		`"denied": true`,
+		`Managed tool sandbox execution was denied.`,
+	} {
+		result.RequireContains(t, want)
+	}
+
+	return true
+}
+
+func assertRequiredModeSandboxDenialTrace(t *testing.T, trace string) {
+	t.Helper()
+
+	for _, want := range []string{
+		`"policy_id": "runtime.sandbox_denial"`,
+		`"tool": "coding-ethos-sandbox"`,
+		`"mode": "required"`,
+		`"cgroup_requested": true`,
+		`"denied": true`,
+	} {
+		if !strings.Contains(trace, want) {
+			t.Fatalf("required-mode sandbox denial trace missing %q:\n%s", want, trace)
+		}
+	}
+}
+
+func assertRequiredModeSandboxDenialSARIF(
+	t *testing.T,
+	result e2e.CommandResult,
+) {
+	t.Helper()
+
+	for _, want := range []string{
+		`"$schema": "https://json.schemastore.org/sarif-2.1.0.json"`,
+		`"sandbox": {`,
+		`"mode": "required"`,
+		`"cgroup_requested": true`,
+		`"denied": true`,
+		`"diagnostic_count": 1`,
 	} {
 		result.RequireContains(t, want)
 	}
@@ -115,7 +181,7 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 		"--invocation-cwd",
 		repo.Root,
 		"--sandbox-mode",
-		"auto",
+		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/clean.py",
@@ -127,7 +193,7 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 		`"tool": "coding-ethos-sandbox"`,
 		`"code": "SANDBOX_DENIED"`,
 		`"denied": true`,
-		`"mode": "auto"`,
+		`"mode": "required"`,
 		`"reason": "bubblewrap executable not found"`,
 	} {
 		result.RequireContains(t, want)
@@ -138,7 +204,7 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 		`"policy_id": "runtime.sandbox_denial"`,
 		`"tool": "coding-ethos-sandbox"`,
 		`"denied": true`,
-		`"mode": "auto"`,
+		`"mode": "required"`,
 		`"reason": "bubblewrap executable not found"`,
 	} {
 		if !strings.Contains(trace, want) {
