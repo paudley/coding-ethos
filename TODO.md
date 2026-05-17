@@ -199,9 +199,10 @@ running real commands, and inspecting real output and repository state.
 - [x] Add MCP workflow tests that exercise the real stdio framing and request
   handling path for policy explanation, command checks, code-intel queries, and
   managed lint advice.
-- [ ] Add sandbox workflow tests that verify generated tool capabilities,
+- [x] Add sandbox workflow tests that verify generated tool capabilities,
   filesystem write allowances, blocked capability requests, and trace/SARIF
   evidence using the real sandbox planner and available backend behavior.
+  Covered by #129.
 - [x] Evaluate whether Go's standard `testing` package remains sufficient or
   whether this needs a small internal scenario harness for fixture setup,
   command execution, output assertions, and trace inspection.

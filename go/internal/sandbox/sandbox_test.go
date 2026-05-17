@@ -251,7 +251,13 @@ func TestBuildPlanConstrainsChildrenAndStaticBinaries(t *testing.T) {
 		}
 	}
 
-	if sandboxArgIndex(plan.Args, executable) <= sandboxArgIndex(plan.Args, "--chdir") {
+	if sandboxLastArgIndex(
+		plan.Args,
+		executable,
+	) <= sandboxArgIndex(
+		plan.Args,
+		"--chdir",
+	) {
 		t.Fatalf("tool executable must be launched after sandbox setup: %#v", plan.Args)
 	}
 
@@ -495,6 +501,16 @@ func TestExecuteSupportsDryPlanWithoutCallback(t *testing.T) {
 func sandboxArgIndex(args []string, value string) int {
 	for index, arg := range args {
 		if arg == value {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func sandboxLastArgIndex(args []string, value string) int {
+	for index := len(args) - 1; index >= 0; index-- {
+		if args[index] == value {
 			return index
 		}
 	}
