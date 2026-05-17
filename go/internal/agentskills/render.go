@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package agentskills
 
@@ -139,7 +139,7 @@ func renderSkillMarkdown(loaded bundle, item skill) string {
 		lines,
 		"---",
 		skillSPDXCopyright,
-		"<!-- SPDX-License-Identifier: MIT -->",
+		"<!-- SPDX-License-Identifier: AGPL-3.0-only -->",
 		"",
 		"# "+item.Title,
 		"",

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package e2e_test
 
@@ -537,7 +537,7 @@ func assertRuffSARIFOutput(t *testing.T, result e2e.CommandResult) {
 
 func unusedImportPython() string {
 	return `# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: AGPL-3.0-only
 
 """Temporary e2e fixture containing a real Ruff F401 finding."""
 

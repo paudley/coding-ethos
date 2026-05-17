@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 // Package realgit resolves the host git executable without using coding-ethos
 // shims or runtime binaries.

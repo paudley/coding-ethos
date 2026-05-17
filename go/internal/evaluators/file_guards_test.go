@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package evaluators_test
 
@@ -287,7 +287,7 @@ func TestEvaluateLicenseHeaderAllowsSPDX(t *testing.T) {
 		t,
 		"app.go",
 		"// SPDX-FileCopyrightText: 2026 Example Inc.\n"+
-			"// SPDX-License-Identifier: MIT\n\npackage main\n",
+			"// SPDX-License-Identifier: AGPL-3.0-only\n\npackage main\n",
 	)
 
 	decisions, err := EvaluateLicenseHeader(
@@ -332,7 +332,7 @@ func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
 
 	err := os.WriteFile(
 		path,
-		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
+		[]byte("// SPDX-License-Identifier: AGPL-3.0-only\n\npackage main\n"),
 		0o600,
 	)
 	if err != nil {
@@ -347,10 +347,10 @@ func TestEvaluateLicenseHeaderBlocksMissingConfiguredLicenseFile(t *testing.T) {
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "MIT License\n",
+				"expected_license_text": "GNU Affero General Public License\n",
 				"license_file":          "LICENSE",
-				"spdx_id":               "MIT",
-				"required":              []string{"SPDX-License-Identifier: MIT"},
+				"spdx_id":               "AGPL-3.0-only",
+				"required":              []string{"SPDX-License-Identifier: AGPL-3.0-only"},
 			},
 		},
 	)
@@ -372,7 +372,7 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 
 	err = os.WriteFile(
 		filepath.Join(repo, "app.go"),
-		[]byte("// SPDX-License-Identifier: MIT\n\npackage main\n"),
+		[]byte("// SPDX-License-Identifier: AGPL-3.0-only\n\npackage main\n"),
 		0o600,
 	)
 	if err != nil {
@@ -387,10 +387,10 @@ func TestEvaluateLicenseHeaderBlocksMismatchedConfiguredLicenseFile(t *testing.T
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "MIT License\n",
+				"expected_license_text": "GNU Affero General Public License\n",
 				"license_file":          "LICENSE",
-				"spdx_id":               "MIT",
-				"required":              []string{"SPDX-License-Identifier: MIT"},
+				"spdx_id":               "AGPL-3.0-only",
+				"required":              []string{"SPDX-License-Identifier: AGPL-3.0-only"},
 			},
 		},
 	)
@@ -406,7 +406,11 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 
 	repo := t.TempDir()
 
-	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte("MIT License\n"), 0o600)
+	err := os.WriteFile(
+		filepath.Join(repo, "LICENSE"),
+		[]byte("GNU Affero General Public License\n"),
+		0o600,
+	)
 	if err != nil {
 		t.Fatalf("write license: %v", err)
 	}
@@ -415,7 +419,7 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 		filepath.Join(repo, "app.go"),
 		[]byte(
 			"// SPDX-FileCopyrightText: 2026 Example Inc.\n"+
-				"// SPDX-License-Identifier: MIT\n\npackage main\n",
+				"// SPDX-License-Identifier: AGPL-3.0-only\n\npackage main\n",
 		),
 		0o600,
 	)
@@ -429,12 +433,12 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 			Cwd:   repo,
 			Files: []string{"app.go"},
 			EvaluatorOptions: map[string]any{
-				"expected_license_text": "MIT License\n",
+				"expected_license_text": "GNU Affero General Public License\n",
 				"license_file":          "LICENSE",
-				"spdx_id":               "MIT",
+				"spdx_id":               "AGPL-3.0-only",
 				"required": []string{
 					"SPDX-FileCopyrightText: 2026 Example Inc.",
-					"SPDX-License-Identifier: MIT",
+					"SPDX-License-Identifier: AGPL-3.0-only",
 				},
 			},
 		},

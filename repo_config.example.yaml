@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: AGPL-3.0-only
 
 style:
   line_length: 100
@@ -55,7 +55,7 @@ repo:
     # When enabled, coding-ethos downloads the SPDX text, validates LICENSE
     # without overwriting it, and requires matching source headers. The
     # copyright string is also checked when configured.
-    # spdx_identifier: MIT
+    # spdx_identifier: AGPL-3.0-only
     # copyright: 2026 Example Inc.
     # license_file: LICENSE
 

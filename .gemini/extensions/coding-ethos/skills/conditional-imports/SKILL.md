@@ -10,7 +10,7 @@ metadata:
     - solid-is-law
 ---
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 # Conditional Imports Remediation
 

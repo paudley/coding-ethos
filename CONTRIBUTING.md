@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 # Contributing to coding-ethos
 
@@ -193,4 +193,4 @@ For public questions, open an issue or discussion in the repository. For private
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contributions will be licensed under the project license defined in [LICENSE](LICENSE).

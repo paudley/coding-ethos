@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 # Trust Signals
 
@@ -10,7 +10,7 @@ adopt.
 
 ## Current Signals
 
-- MIT licensed source.
+- AGPLv3-licensed source with commercial licensing available.
 - Public GitHub Actions CI.
 - Generated SARIF/code-scanning workflow.
 - CodeQL analysis for GitHub Actions workflows, Go, and Python.

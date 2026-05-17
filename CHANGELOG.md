@@ -1,5 +1,5 @@
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
-<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 # Changelog
 
@@ -32,7 +32,7 @@ and this project follows
 
 - Initial public release packaging with a real `pyproject.toml` build
   configuration, project metadata, and a `pytest` dev dependency group.
-- MIT `LICENSE` plus SPDX copyright and license headers across first-party source and project files.
+- MIT `LICENSE` at initial release plus SPDX copyright and license headers across first-party source and project files.
 - Community and project policy documents: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `SECURITY.md`.
 - GitHub Actions CI workflow that runs tests on Python 3.11 and 3.13, builds
   the distribution, and uploads build artifacts.

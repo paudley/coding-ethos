@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package policy_test
 
@@ -1379,10 +1379,10 @@ func TestCompileAddsRepoSpecificLicensePolicy(t *testing.T) {
 	writeTestFile(t, repoConfigPath, `
 repo:
   license:
-    spdx_identifier: MIT
+    spdx_identifier: AGPL-3.0-only
     copyright: 2026 Example Inc.
     text: |
-      MIT License
+      GNU Affero General Public License
 
       Copyright (c) <year> <copyright holders>
 `)
@@ -1409,7 +1409,7 @@ repo:
 	options := policyDef.Evaluators[0].Options
 
 	required := optionStrings(t, policyDef.Evaluators[0], "required")
-	if !slices.Contains(required, "SPDX-License-Identifier: MIT") {
+	if !slices.Contains(required, "SPDX-License-Identifier: AGPL-3.0-only") {
 		t.Fatalf("missing SPDX header requirement: %#v", required)
 	}
 
@@ -2470,21 +2470,21 @@ python:
 const sampleLicenseRepoConfigYAML = `
 repo:
   license:
-    spdx_identifier: MIT
+    spdx_identifier: AGPL-3.0-only
     copyright: 2026 Example Inc.
     text: |
-      MIT License
+      GNU Affero General Public License
 
       Copyright (c) <year> <copyright holders>
 `
 
-const sampleExpectedLicenseText = `MIT License
+const sampleExpectedLicenseText = `GNU Affero General Public License
 
 Copyright (c) 2026 Example Inc.
 `
 
 const sampleLicensedGoSource = `// SPDX-FileCopyrightText: 2026 Example Inc.
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 
 package main
 `
