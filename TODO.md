@@ -1068,6 +1068,8 @@ limits at runtime.
     `runtime.sandbox_denial` findings.
 - [x] Require Bubblewrap for sandboxed execution and fail closed with clear
   denial evidence when Linux namespace/seccomp support is unavailable.
+- [ ] Remove sandbox `auto` mode so sandbox-declared tools have only explicit
+  `off` or fail-closed `required` execution paths.
 - [ ] Evaluate future high-isolation backends such as gVisor, eBPF-based
   telemetry/enforcement, and Wasm/WASI execution for untrusted extension code,
   but keep the first implementation focused on rootless local hook execution.
