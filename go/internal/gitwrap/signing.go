@@ -4,6 +4,7 @@
 package gitwrap
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,11 +15,12 @@ import (
 )
 
 const (
-	gitSignedCommitsPolicyID = "git.signed_commits_required"
-	gitCommitOperation       = "commit"
-	gitPushOperation         = "push"
-	goodGitSignatureStatus   = "G"
-	gitTrueValue             = "true"
+	gitSignedCommitsPolicyID  = "git.signed_commits_required"
+	gitCommitOperation        = "commit"
+	gitPushOperation          = "push"
+	goodGitSignatureStatus    = "G"
+	gitUnknownSignatureStatus = "?"
+	gitTrueValue              = "true"
 )
 
 func gitSigningPreDecisions(options Options, operation string) []policy.Decision {
@@ -103,7 +105,15 @@ func gitUnsignedOutgoingCommitDecisions(options Options) []policy.Decision {
 }
 
 func gitHeadSignatureDecisions(options Options) []policy.Decision {
-	status := strings.TrimSpace(gitOutput(options.Cwd, "log", "-1", "--pretty=%G?"))
+	output, err := gitOutput(options.Cwd, "log", "-1", "--pretty=%G?")
+	if err != nil {
+		return []policy.Decision{gitSigningDecision(
+			"Latest commit signature could not be verified.",
+			"Recreate the commit with a valid signature before continuing.",
+		)}
+	}
+
+	status := strings.TrimSpace(output)
 	if status != goodGitSignatureStatus {
 		return []policy.Decision{gitSigningDecision(
 			"Latest commit is unsigned or unverifiable.",
@@ -137,20 +147,37 @@ func forceSignedGitArgs(argv []string, cwd string) []string {
 }
 
 func outgoingCommitSignatureStatuses(cwd string) []string {
-	upstream := strings.TrimSpace(gitOutput(
+	upstreamOutput, upstreamErr := gitOutput(
 		cwd,
 		"rev-parse",
 		"--abbrev-ref",
 		"--symbolic-full-name",
 		"@{upstream}",
-	))
-	if upstream == "" {
+	)
+
+	upstream := strings.TrimSpace(upstreamOutput)
+	if upstream == "" || upstreamErr != nil {
+		output, err := gitOutput(
+			cwd,
+			"log",
+			"--pretty=%G?",
+			"HEAD",
+			"--not",
+			"--remotes",
+		)
+		if err != nil {
+			return []string{gitUnknownSignatureStatus}
+		}
+
 		return nonEmptyLines(
-			gitOutput(cwd, "log", "--pretty=%G?", "HEAD", "--not", "--remotes"),
+			output,
 		)
 	}
 
-	output := gitOutput(cwd, "log", "--pretty=%G?", upstream+"..HEAD")
+	output, err := gitOutput(cwd, "log", "--pretty=%G?", upstream+"..HEAD")
+	if err != nil {
+		return []string{gitUnknownSignatureStatus}
+	}
 
 	return nonEmptyLines(output)
 }
@@ -191,7 +218,12 @@ func loadGitRepoConfig(repoRoot string) configdata.Map {
 }
 
 func gitRepoRoot(cwd string) string {
-	root := strings.TrimSpace(gitOutput(cwd, "rev-parse", "--show-toplevel"))
+	output, err := gitOutput(cwd, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return cwd
+	}
+
+	root := strings.TrimSpace(output)
 	if root != "" {
 		return root
 	}
@@ -200,8 +232,13 @@ func gitRepoRoot(cwd string) string {
 }
 
 func gitInsideWorkTree(cwd string) bool {
+	output, err := gitOutput(cwd, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return false
+	}
+
 	return strings.TrimSpace(
-		gitOutput(cwd, "rev-parse", "--is-inside-work-tree"),
+		output,
 	) == "true"
 }
 
@@ -303,24 +340,34 @@ func gitConfigAssignmentDisablesSigning(assignment, key string) bool {
 }
 
 func gitConfigBool(cwd, key string) string {
-	return strings.ToLower(strings.TrimSpace(
-		gitOutput(cwd, "config", "--type=bool", "--get", key),
-	))
-}
-
-func gitConfigValue(cwd, key string) string {
-	return strings.TrimSpace(gitOutput(cwd, "config", "--get", key))
-}
-
-func gitOutput(cwd string, args ...string) string {
-	command := evaluators.GitCommand(cwd, args...)
-
-	output, err := command.Output()
+	output, err := gitOutput(cwd, "config", "--type=bool", "--get", key)
 	if err != nil {
 		return ""
 	}
 
-	return string(output)
+	return strings.ToLower(strings.TrimSpace(
+		output,
+	))
+}
+
+func gitConfigValue(cwd, key string) string {
+	output, err := gitOutput(cwd, "config", "--get", key)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(output)
+}
+
+func gitOutput(cwd string, args ...string) (string, error) {
+	command := evaluators.GitCommand(cwd, args...)
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, output)
+	}
+
+	return string(output), nil
 }
 
 func nonEmptyLines(output string) []string {

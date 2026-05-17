@@ -91,22 +91,18 @@ func evaluatePostPoliciesWithRegistry(
 	decisions := []policy.Decision{}
 	if scope == "PostToolUse" {
 		decisions = append(decisions, gitSigningPostDecisions(options, operation)...)
-		if len(decisions) > 0 {
-			return Result{
-				Argv:      argv,
-				Operation: operation,
-				Status:    resultStatus(decisions),
-				Decisions: decisions,
-			}, nil
-		}
 	}
 
 	policyIDs := gitPostPolicyIDs(bundle, operation)
 	if len(policyIDs) == 0 {
-		return Result{Argv: argv, Operation: operation, Status: statusAllowed}, nil
+		return Result{
+			Argv:      argv,
+			Operation: operation,
+			Status:    resultStatus(decisions),
+			Decisions: decisions,
+		}, nil
 	}
 
-	decisions = make([]policy.Decision, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
 		if !ok {

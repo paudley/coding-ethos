@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -216,6 +217,10 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 }
 
 func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
 	backend, err := exec.LookPath("bwrap")
 	if err != nil {
 		t.Fatalf("bubblewrap is required for sandbox e2e: %v", err)
