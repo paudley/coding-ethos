@@ -387,6 +387,7 @@ func bubblewrapArgs(request Request) []string {
 		args,
 		sandboxWriteBindArgs(repoRoot, gitDir, request.Capabilities.WritePaths)...,
 	)
+	args = append(args, sandboxExecutableArgs(request.Executable)...)
 
 	return append(args, "--chdir", cwd)
 }
@@ -454,6 +455,22 @@ func sandboxWriteBindArgs(repoRoot, gitDir string, paths []string) []string {
 	}
 
 	return args
+}
+
+func sandboxExecutableArgs(executable string) []string {
+	if strings.TrimSpace(executable) == "" || !pathExists(executable) {
+		return nil
+	}
+
+	args := []string{}
+
+	for _, dir := range destinationParentDirs(executable) {
+		if sandboxDirRequired(dir) {
+			args = append(args, "--dir", dir)
+		}
+	}
+
+	return append(args, "--ro-bind", executable, executable)
 }
 
 func writableSandboxBind(repoRoot, gitDir, requestedPath, bind string) bool {
@@ -605,6 +622,11 @@ func normalizeSandboxRequest(request Request) (Request, error) {
 			"sandbox executable must resolve to an absolute path: %w",
 			err,
 		)
+	}
+
+	resolvedExecutable, resolveErr := filepath.EvalSymlinks(executable)
+	if resolveErr == nil {
+		executable = resolvedExecutable
 	}
 
 	request.Executable = executable
