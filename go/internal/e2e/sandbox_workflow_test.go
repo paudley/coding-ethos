@@ -157,6 +157,8 @@ func assertRequiredModeSandboxDenialSARIF(
 		`"mode": "required"`,
 		`"cgroup_requested": true`,
 		`"denied": true`,
+		`"policies": [`,
+		`"runtime.sandbox_denial"`,
 		`"diagnostic_count": 1`,
 	} {
 		result.RequireContains(t, want)
