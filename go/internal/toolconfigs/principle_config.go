@@ -68,7 +68,7 @@ func loadPrincipleToolConfigSources(
 	ethosRoot string,
 	repoRoot string,
 ) ([]principleToolConfigSource, error) {
-	primary, err := loadPrimaryPrincipleToolConfigSources(
+	primary, primaryPrincipleIDs, err := loadPrimaryPrincipleToolConfigSources(
 		filepath.Join(ethosRoot, "coding_ethos.yml"),
 	)
 	if err != nil {
@@ -81,6 +81,7 @@ func loadPrincipleToolConfigSources(
 
 	repo, err := loadRepoPrincipleToolConfigSources(
 		filepath.Join(repoRoot, "repo_ethos.yml"),
+		primaryPrincipleIDs,
 	)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -95,20 +96,25 @@ func loadPrincipleToolConfigSources(
 
 func loadPrimaryPrincipleToolConfigSources(
 	path string,
-) ([]principleToolConfigSource, error) {
+) ([]principleToolConfigSource, map[string]struct{}, error) {
 	payload, err := configdata.LoadYAMLMap(path)
 	if err != nil {
-		return nil, fmt.Errorf("load primary principle tool config %s: %w", path, err)
+		return nil, nil, fmt.Errorf("load primary principle tool config %s: %w", path, err)
 	}
 
-	return principleToolConfigSourcesFromList(
-		configdata.ListValue(payload["principles"]),
-		filepath.Base(path),
-	)
+	principles := configdata.ListValue(payload["principles"])
+
+	sources, err := principleToolConfigSourcesFromList(principles, filepath.Base(path))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return sources, principleIDsFromList(principles), nil
 }
 
 func loadRepoPrincipleToolConfigSources(
 	path string,
+	primaryPrincipleIDs map[string]struct{},
 ) ([]principleToolConfigSource, error) {
 	payload, err := configdata.LoadYAMLMap(path)
 	if err != nil {
@@ -152,6 +158,15 @@ func loadRepoPrincipleToolConfigSources(
 			continue
 		}
 
+		if _, exists := primaryPrincipleIDs[principleID]; !exists {
+			return nil, apperror.Wrapf(
+				errInvalidPrincipleToolConfig,
+				"%s overrides.%s references unknown principle",
+				filepath.Base(path),
+				principleID,
+			)
+		}
+
 		sources = append(sources, principleToolConfigSource{
 			principleID: principleID,
 			source:      filepath.Base(path),
@@ -170,6 +185,18 @@ func loadRepoPrincipleToolConfigSources(
 	sources = append(sources, additional...)
 
 	return sources, nil
+}
+
+func principleIDsFromList(values []any) map[string]struct{} {
+	principleIDs := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		principleID := configdata.StringAt(configdata.MapValue(value), "id")
+		if principleID != "" {
+			principleIDs[principleID] = struct{}{}
+		}
+	}
+
+	return principleIDs
 }
 
 func principleToolConfigSourcesFromList(
@@ -454,6 +481,11 @@ func toolConfigItems(
 
 func toolConfigItemValue(rawItem any) (toolConfigItem, error) {
 	if itemMap, ok := rawItem.(map[string]any); ok {
+		err := validateToolConfigItemMap(itemMap)
+		if err != nil {
+			return toolConfigItem{}, err
+		}
+
 		name := firstNonEmptyString(itemMap, "name", "id", "rule", "path")
 		if name == "" {
 			return toolConfigItem{}, apperror.Wrapf(
@@ -486,12 +518,54 @@ func toolConfigItemValue(rawItem any) (toolConfigItem, error) {
 	return toolConfigItem{value: value}, nil
 }
 
+func validateToolConfigItemMap(itemMap configMap) error {
+	identityCount := 0
+
+	for key := range itemMap {
+		switch key {
+		case "name", "id", "rule", "path":
+			if configdata.StringAt(itemMap, key) != "" {
+				identityCount++
+			}
+		case "rationale":
+		default:
+			return apperror.Wrapf(
+				errInvalidToolConfigItem,
+				"mapping item key %q is not supported",
+				key,
+			)
+		}
+	}
+
+	if identityCount > 1 {
+		return apperror.Wrapf(
+			errInvalidToolConfigItem,
+			"mapping item must declare only one of name, id, rule, or path",
+		)
+	}
+
+	return nil
+}
+
 func toolConfigEnabled(
 	value any,
 	source principleToolConfigSource,
 	field string,
 ) (toolConfigBool, error) {
 	if itemMap := configdata.MapValue(value); len(itemMap) > 0 {
+		for key := range itemMap {
+			if key != "value" && key != "rationale" {
+				return toolConfigBool{}, apperror.Wrapf(
+					errInvalidPrincipleToolConfig,
+					"%s %s tool_config.%s.%s is not supported",
+					source.source,
+					source.principleID,
+					field,
+					key,
+				)
+			}
+		}
+
 		boolValue, ok := itemMap["value"].(bool)
 		if !ok {
 			return toolConfigBool{}, apperror.Wrapf(
@@ -692,9 +766,9 @@ func stringsToAny(values []string) []any {
 func writeWrappedConfigComment(builder *strings.Builder, text string) {
 	const maxCommentWidth = 84
 
-	remaining := strings.TrimSpace(text)
+	remaining := strings.Join(strings.Fields(text), " ")
 	for remaining != "" {
-		if len(remaining) <= maxCommentWidth {
+		if runeCount(remaining) <= maxCommentWidth {
 			builder.WriteString("# ")
 			builder.WriteString(remaining)
 			builder.WriteString("\n")
@@ -702,10 +776,7 @@ func writeWrappedConfigComment(builder *strings.Builder, text string) {
 			return
 		}
 
-		splitAt := strings.LastIndex(remaining[:maxCommentWidth], " ")
-		if splitAt <= 0 {
-			splitAt = maxCommentWidth
-		}
+		splitAt := configCommentSplitIndex(remaining, maxCommentWidth)
 
 		builder.WriteString("# ")
 		builder.WriteString(strings.TrimSpace(remaining[:splitAt]))
@@ -713,6 +784,38 @@ func writeWrappedConfigComment(builder *strings.Builder, text string) {
 
 		remaining = strings.TrimSpace(remaining[splitAt:])
 	}
+}
+
+func configCommentSplitIndex(text string, maxRunes int) int {
+	lastSpace := -1
+	count := 0
+
+	for index, char := range text {
+		if count == maxRunes {
+			if lastSpace > 0 {
+				return lastSpace
+			}
+
+			return index
+		}
+
+		if char == ' ' {
+			lastSpace = index
+		}
+
+		count++
+	}
+
+	return len(text)
+}
+
+func runeCount(text string) int {
+	count := 0
+	for range text {
+		count++
+	}
+
+	return count
 }
 
 func firstNonEmptyString(values configMap, keys ...string) string {

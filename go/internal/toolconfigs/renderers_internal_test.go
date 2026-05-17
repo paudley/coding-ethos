@@ -4,6 +4,7 @@
 package toolconfigs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,6 +66,59 @@ func TestSyncWritesGeneratedConfigsAndCheckDetectsDrift(t *testing.T) {
 		[]string{filepath.Join(repo, "ruff.toml")},
 	) {
 		t.Fatalf("Check() drift = %#v", mismatched)
+	}
+}
+
+func TestSyncRemovesDisabledGeneratedConfigAndCheckDetectsStaleFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "coding-ethos")
+	repo := filepath.Join(root, "consumer")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), minimalConfig())
+	writeFile(t, filepath.Join(ethos, "coding_ethos.yml"), "principles: []\n")
+
+	_, err := Sync(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("initial Sync(): %v", err)
+	}
+
+	banditPath := filepath.Join(repo, ".bandit.yml")
+	if _, err = os.Stat(banditPath); err != nil {
+		t.Fatalf("initial Sync() did not write .bandit.yml: %v", err)
+	}
+
+	writeFile(t, filepath.Join(repo, "repo_ethos.yml"), `
+principles:
+  additional:
+    - id: repo-security-tools
+      tool_config:
+        bandit:
+          enabled: false
+`)
+
+	mismatched, err := Check(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("Check() with stale disabled config: %v", err)
+	}
+	if !slices.Contains(mismatched, banditPath) {
+		t.Fatalf("Check() mismatch missing stale .bandit.yml: %#v", mismatched)
+	}
+
+	_, err = Sync(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("Sync() disabled Bandit: %v", err)
+	}
+	if _, err = os.Stat(banditPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf(".bandit.yml after disabled Sync() err = %v, want not exist", err)
+	}
+
+	mismatched, err = Check(ethos, repo, "")
+	if err != nil {
+		t.Fatalf("Check() after disabled sync: %v", err)
+	}
+	if len(mismatched) != 0 {
+		t.Fatalf("Check() after disabled sync = %#v, want none", mismatched)
 	}
 }
 
@@ -351,6 +405,37 @@ principles:
 	}
 }
 
+func TestRenderToolConfigProvenanceNormalizesAndRuneWrapsRationale(t *testing.T) {
+	t.Parallel()
+
+	config := configMap{}
+	appendToolConfigProvenance(
+		config,
+		"bandit",
+		"skips",
+		"B101",
+		principleToolConfigSource{
+			principleID: "security-by-design",
+			source:      "coding_ethos.yml",
+		},
+		"Line one\nLine two "+strings.Repeat("é", 90),
+	)
+
+	rendered := renderToolConfigProvenance(config, "bandit")
+	for _, line := range strings.Split(strings.TrimSpace(rendered), "\n") {
+		if !strings.HasPrefix(line, "#") {
+			t.Fatalf("provenance line missing comment prefix %q in:\n%s", line, rendered)
+		}
+	}
+
+	if strings.Contains(rendered, "\nLine two") {
+		t.Fatalf("provenance kept embedded newline:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Line one Line two") {
+		t.Fatalf("provenance did not normalize rationale whitespace:\n%s", rendered)
+	}
+}
+
 func TestLoadMergedConfigPrunesProvenanceAfterRepoOverride(t *testing.T) {
 	t.Parallel()
 
@@ -527,9 +612,12 @@ principles:
 			wantError: "coding_ethos.yml principles[0].tool_config must be a mapping",
 		},
 		{
-			name:       "non mapping repo override tool config",
-			path:       filepath.Join(repo, "repo_ethos.yml"),
-			primaryYML: "principles: []\n",
+			name: "non mapping repo override tool config",
+			path: filepath.Join(repo, "repo_ethos.yml"),
+			primaryYML: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+`,
 			content: `
 principles:
   overrides:
@@ -538,6 +626,25 @@ principles:
         - gosec
 `,
 			wantError: "repo_ethos.yml overrides.static-analysis-is-the-first-line-of-defense.tool_config must be a mapping",
+		},
+		{
+			name: "unknown repo override",
+			path: filepath.Join(repo, "repo_ethos.yml"),
+			primaryYML: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+`,
+			content: `
+principles:
+  overrides:
+    static-analyiss-is-the-first-line-of-defense:
+      tool_config:
+        golangci_lint:
+          linters:
+            enable:
+              - gosec
+`,
+			wantError: "overrides.static-analyiss-is-the-first-line-of-defense references unknown principle",
 		},
 		{
 			name: "empty mapping item",
@@ -552,6 +659,35 @@ principles:
             - {}
 `,
 			wantError: "mapping item must declare name, id, rule, or path",
+		},
+		{
+			name: "unsupported item key",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      golangci_lint:
+        linters:
+          enable:
+            - name: gosec
+              rationalee: typo
+`,
+			wantError: "mapping item key \"rationalee\" is not supported",
+		},
+		{
+			name: "multiple item identities",
+			path: filepath.Join(ethos, "coding_ethos.yml"),
+			content: `
+principles:
+  - id: static-analysis-is-the-first-line-of-defense
+    tool_config:
+      bandit:
+        skips:
+          - id: B101
+            name: assert-used
+`,
+			wantError: "mapping item must declare only one of name, id, rule, or path",
 		},
 		{
 			name: "null item",

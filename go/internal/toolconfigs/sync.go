@@ -25,6 +25,11 @@ func Sync(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 		return nil, err
 	}
 
+	err = removeDisabledRenderedConfigs(repoRoot, rendered)
+	if err != nil {
+		return nil, err
+	}
+
 	written := make([]string, 0, len(rendered)+1)
 	for relativePath, content := range rendered {
 		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
@@ -85,6 +90,17 @@ func Check(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 		}
 	}
 
+	for _, relativePath := range disabledRendererPaths(rendered) {
+		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
+
+		switch _, statErr := os.Stat(filepath.Clean(absolutePath)); {
+		case statErr == nil:
+			mismatched = append(mismatched, absolutePath)
+		case !errors.Is(statErr, os.ErrNotExist):
+			return nil, fmt.Errorf("stat disabled config %s: %w", absolutePath, statErr)
+		}
+	}
+
 	manifest, err := RenderHashManifest(rendered)
 	if err != nil {
 		return nil, err
@@ -98,6 +114,34 @@ func Check(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 	}
 
 	return mismatched, nil
+}
+
+func removeDisabledRenderedConfigs(
+	repoRoot string,
+	rendered map[string]string,
+) error {
+	for _, relativePath := range disabledRendererPaths(rendered) {
+		absolutePath := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
+		err := os.Remove(filepath.Clean(absolutePath))
+
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove disabled config %s: %w", absolutePath, err)
+		}
+	}
+
+	return nil
+}
+
+func disabledRendererPaths(rendered map[string]string) []string {
+	paths := make([]string, 0)
+
+	for _, renderer := range renderers() {
+		if _, enabled := rendered[renderer.Path]; !enabled {
+			paths = append(paths, renderer.Path)
+		}
+	}
+
+	return paths
 }
 
 func renderForRepo(
