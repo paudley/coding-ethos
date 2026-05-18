@@ -5,6 +5,7 @@ package e2e_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,11 +169,22 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 		"--dest-dir",
 		binDir,
 		"--real-git",
-		"/usr/bin/git",
+		realGitPath(t),
 		"--runner",
 		runner,
 	)
 	shim.RequireExit(t, 0)
+}
+
+func realGitPath(t *testing.T) string {
+	t.Helper()
+
+	path, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("resolve real git path: %v", err)
+	}
+
+	return path
 }
 
 func retainedTraceContent(t *testing.T, repo e2e.Repo) string {

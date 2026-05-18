@@ -91,6 +91,7 @@ func RequireRuntime(t *testing.T, ethosRoot string) {
 		filepath.Join(ethosRoot, "bin", "coding-ethos-policy"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-mcp"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-hook-log"),
+		filepath.Join(ethosRoot, "bin", "coding-ethos-toolchain"),
 		filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),
 	}
 	for _, path := range required {
@@ -131,6 +132,7 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		"config.yaml",
 		"coding_ethos.yml",
 		".venv",
+		"go",
 		"repo_ethos.yml",
 	} {
 		source := filepath.Join(ethosRoot, entry)
@@ -144,12 +146,12 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 			t.Fatalf("instrumented runtime source %s unavailable: %v", entry, statErr)
 		}
 
-		err = os.Symlink(
+		err = copyOrSymlinkInstrumentedRuntimeEntry(
 			source,
 			filepath.Join(runtimeRoot, entry),
 		)
 		if err != nil {
-			t.Fatalf("symlink %s into instrumented runtime: %v", entry, err)
+			t.Fatalf("copy %s into instrumented runtime: %v", entry, err)
 		}
 	}
 
@@ -164,11 +166,59 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		"coding-ethos-sandbox",
 		"coding-ethos-policy",
 		"coding-ethos-hook-log",
+		"coding-ethos-toolchain",
 	} {
 		buildInstrumentedCommand(t, ethosRoot, runtimeRoot, command)
 	}
 
 	return runtimeRoot
+}
+
+func copyOrSymlinkInstrumentedRuntimeEntry(source, destination string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("stat runtime entry %s: %w", source, err)
+	}
+
+	if info.Mode().IsRegular() {
+		payload, readErr := os.ReadFile(source)
+		if readErr != nil {
+			return fmt.Errorf("read runtime entry %s: %w", source, readErr)
+		}
+
+		err = writeInstrumentedRuntimeFile(destination, payload, info.Mode().Perm())
+		if err != nil {
+			return fmt.Errorf("write runtime entry %s: %w", destination, err)
+		}
+
+		return nil
+	}
+
+	err = os.Symlink(source, destination)
+	if err != nil {
+		return fmt.Errorf("symlink runtime entry %s: %w", destination, err)
+	}
+
+	return nil
+}
+
+func writeInstrumentedRuntimeFile(
+	destination string,
+	payload []byte,
+	perm fs.FileMode,
+) error {
+	root, err := os.OpenRoot(filepath.Dir(destination))
+	if err != nil {
+		return fmt.Errorf("open runtime root: %w", err)
+	}
+	defer root.Close()
+
+	err = root.WriteFile(filepath.Base(destination), payload, perm)
+	if err != nil {
+		return fmt.Errorf("write runtime file: %w", err)
+	}
+
+	return nil
 }
 
 func absoluteCoverageDir(t *testing.T, coverDir string) string {
