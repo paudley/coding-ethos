@@ -368,7 +368,8 @@ DEFAULT_AGENT_HINTS = {
 MAX_QUICK_REF_ITEMS = 3
 
 
-def _slug_to_phrase(value: str) -> str:
+def slug_to_phrase(value: str) -> str:
+    """Provide focused helper behavior for the module."""
     return re.sub(r"[-_]+", " ", value).strip()
 
 
@@ -391,9 +392,9 @@ def build_quick_ref(
 
 def build_merge_topics(*, title: str, tags: list[str]) -> list[str]:
     """Build a small set of merge-preservation topics for one principle."""
-    items = [_slug_to_phrase(title.lower())]
+    items = [slug_to_phrase(title.lower())]
     for tag in tags:
-        topic = TAG_TO_MERGE_TOPIC.get(tag, _slug_to_phrase(tag))
+        topic = TAG_TO_MERGE_TOPIC.get(tag, slug_to_phrase(tag))
         if topic not in items:
             items.append(topic)
         if len(items) == MAX_QUICK_REF_ITEMS:

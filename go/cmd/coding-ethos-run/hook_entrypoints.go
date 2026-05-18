@@ -6,8 +6,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
@@ -61,6 +64,7 @@ func runGitHook(paths runtimePaths, args []string) error {
 
 	requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
 	installLintToolShims(paths)
+	authorizeInProcessGitHook()
 	runtimeExecTool(paths, "coding-ethos-git-hook", append([]string{
 		"--bundle", bundlePath,
 		"--runner", paths.GitHookRunner,
@@ -68,6 +72,18 @@ func runGitHook(paths runtimePaths, args []string) error {
 	}, args...)...)
 
 	return nil
+}
+
+func authorizeInProcessGitHook() {
+	err := os.Setenv(gitwrap.WrapperAuthorizedEnv, "1")
+	if err != nil {
+		exitErr(err)
+	}
+
+	err = os.Setenv(gitwrap.WrapperPIDEnv, strconv.Itoa(os.Getpid()))
+	if err != nil {
+		exitErr(err)
+	}
 }
 
 func runLFSHook(paths runtimePaths, args []string) error {

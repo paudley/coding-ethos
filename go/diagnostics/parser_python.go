@@ -355,6 +355,23 @@ func decodeRadonComplexity(output string) (map[string][]radonComplexityItem, err
 	return results, err
 }
 
+func recognizesCleanRadonComplexityOutput(output string) bool {
+	results, err := decodeRadonComplexity(output)
+	if err != nil {
+		return false
+	}
+
+	for _, items := range results {
+		for _, item := range items {
+			if item.Complexity > defaultComplexityLimit {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 type radonMaintainabilityItem struct {
 	Rank string  `json:"rank"`
 	MI   float64 `json:"mi"`
@@ -398,6 +415,21 @@ func decodeRadonMaintainability(
 	err := decodeRadonJSON(output, &results, "radon maintainability")
 
 	return results, err
+}
+
+func recognizesCleanRadonMaintainabilityOutput(output string) bool {
+	results, err := decodeRadonMaintainability(output)
+	if err != nil {
+		return false
+	}
+
+	for _, item := range results {
+		if item.MI < defaultMaintainabilityMin {
+			return false
+		}
+	}
+
+	return true
 }
 
 func decodeRadonJSON(output string, target any, label string) error {

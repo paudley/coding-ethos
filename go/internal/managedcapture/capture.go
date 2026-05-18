@@ -44,6 +44,7 @@ const (
 	capturedDecisionBlock         = "block"
 	capturedFindingStatusFail     = "fail"
 	capturedFindingStatusPass     = "pass"
+	capturedOutputKey             = "output"
 	capturedStatusBlocked         = "blocked"
 	capturedStatusResolved        = "resolved"
 )
@@ -702,6 +703,11 @@ func capturedOutcomeFindings(
 			return nil
 		}
 
+		parser := firstCaptureNonEmpty(request.Parser, request.Tool)
+		if diagnostics.RecognizesCleanOutput(parser, execution.Stdout, execution.Stderr) {
+			return nil
+		}
+
 		return []lint.Finding{
 			capturedPassingOutputFinding(request, execution, outputExcerpt),
 		}
@@ -720,11 +726,11 @@ func capturedUnparseableFailureFinding(
 ) lint.Finding {
 	return lint.Finding{
 		RawOutcome: map[string]any{
-			"category":  outcome.Category,
-			"args":      append([]string(nil), request.Args...),
-			"exit_code": execution.ExitCode,
-			"run_args":  append([]string(nil), execution.RunArgs...),
-			"output":    outputExcerpt,
+			"category":        outcome.Category,
+			"args":            append([]string(nil), request.Args...),
+			"exit_code":       execution.ExitCode,
+			"run_args":        append([]string(nil), execution.RunArgs...),
+			capturedOutputKey: outputExcerpt,
 		},
 		CheckID:    "tool." + request.Tool,
 		Message:    outcome.Message,
@@ -744,11 +750,11 @@ func capturedPassingOutputFinding(
 
 	return lint.Finding{
 		RawOutcome: map[string]any{
-			"category":  "tool_output",
-			"args":      append([]string(nil), request.Args...),
-			"exit_code": execution.ExitCode,
-			"run_args":  append([]string(nil), execution.RunArgs...),
-			"output":    outputExcerpt,
+			"category":        "tool_output",
+			"args":            append([]string(nil), request.Args...),
+			"exit_code":       execution.ExitCode,
+			"run_args":        append([]string(nil), execution.RunArgs...),
+			capturedOutputKey: outputExcerpt,
 		},
 		CheckID:    "tool." + request.Tool + ".output",
 		Code:       "TOOL_OUTPUT",
@@ -1093,7 +1099,7 @@ func capturedParseStatus(
 
 	if exitCode == 0 {
 		if strings.TrimSpace(outputExcerpt) != "" {
-			return "output"
+			return capturedOutputKey
 		}
 
 		return "empty"

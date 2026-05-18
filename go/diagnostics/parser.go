@@ -163,6 +163,30 @@ func HasParser(tool string) bool {
 	return ok
 }
 
+func RecognizesCleanOutput(tool, stdout, stderr string) bool {
+	recognizer, ok := cleanOutputRecognizerForTool(tool)
+	if !ok {
+		return false
+	}
+
+	stdout = strings.TrimSpace(stdout)
+
+	stderr = strings.TrimSpace(stderr)
+	if stdout == "" && stderr == "" {
+		return true
+	}
+
+	if stdout != "" && !recognizer(stdout) {
+		return false
+	}
+
+	if stderr != "" && stderr != stdout && !recognizer(stderr) {
+		return false
+	}
+
+	return true
+}
+
 func RegisteredParsers() []string {
 	entries := parserEntries()
 
@@ -183,6 +207,19 @@ func parserForTool(tool string) (Parser, bool) {
 	}
 
 	return nil, false
+}
+
+func cleanOutputRecognizerForTool(tool string) (func(string) bool, bool) {
+	switch normalizedToolName(tool) {
+	case "bandit":
+		return recognizesCleanBanditOutput, true
+	case "radon-complexity":
+		return recognizesCleanRadonComplexityOutput, true
+	case "radon-maintainability":
+		return recognizesCleanRadonMaintainabilityOutput, true
+	default:
+		return nil, false
+	}
 }
 
 type parserEntry struct {

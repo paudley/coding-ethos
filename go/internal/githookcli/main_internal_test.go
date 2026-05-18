@@ -224,6 +224,7 @@ func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
 	for _, commandLine := range [][]string{
 		{"/repo/bin/coding-ethos-git", "commit"},
 		{"/repo/bin/coding-ethos-run", "policy-git", "commit"},
+		{"/repo/bin/coding-ethos-run", "git-hook", "pre-push"},
 	} {
 		if !trustedGitWrapperProcess(commandLine) {
 			t.Fatalf("trustedGitWrapperProcess(%#v) = false", commandLine)

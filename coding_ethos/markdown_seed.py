@@ -102,11 +102,13 @@ def summarize_markdown(markdown: str) -> str:
     return "No summary available."
 
 
-def _clean_heading(value: str) -> str:
+def clean_heading(value: str) -> str:
+    """Provide focused helper behavior for the module."""
     return value.replace("**", "").strip()
 
 
-def _infer_section_kind(title: str, *, is_intro: bool = False) -> str:
+def infer_section_kind(title: str, *, is_intro: bool = False) -> str:
+    """Provide focused helper behavior for the module."""
     if is_intro:
         return "overview"
 
@@ -122,7 +124,8 @@ def _infer_section_kind(title: str, *, is_intro: bool = False) -> str:
     return "guidance"
 
 
-def _split_sections(body: str) -> list[dict[str, str]]:
+def split_sections(body: str) -> list[dict[str, str]]:
+    """Provide focused helper behavior for the module."""
     cleaned_body = trim_terminal_rule(body)
     matches = list(SUBSECTION_RE.finditer(cleaned_body))
     sections: list[dict[str, str]] = []
@@ -151,7 +154,7 @@ def _split_sections(body: str) -> list[dict[str, str]]:
         )
 
     for index, match in enumerate(matches):
-        title = _clean_heading(match.group(1))
+        title = clean_heading(match.group(1))
         section_start = match.end()
         section_end = (
             matches[index + 1].start()
@@ -162,7 +165,7 @@ def _split_sections(body: str) -> list[dict[str, str]]:
         sections.append(
             {
                 "id": slugify(title),
-                "kind": _infer_section_kind(title),
+                "kind": infer_section_kind(title),
                 "title": title,
                 "summary": summarize_markdown(section_body),
                 "body": section_body,
@@ -172,9 +175,10 @@ def _split_sections(body: str) -> list[dict[str, str]]:
     return sections
 
 
-def _extract_related(
+def extract_related(
     principle_id: str, body: str, preset_related: list[str]
 ) -> list[str]:
+    """Provide focused helper behavior for the module."""
     related = {item for item in preset_related if item != principle_id}
     related.update(match for match in RELATED_RE.findall(body) if match != principle_id)
     return sorted(related)
@@ -216,7 +220,7 @@ def parse_ethos_markdown(markdown: str) -> dict[str, Any]:
         )
         body = trim_terminal_rule(markdown[section_start:section_end])
         preset = PRINCIPLE_PRESETS.get(principle_id, {})
-        sections = _split_sections(body)
+        sections = split_sections(body)
         summary = summarize_markdown(body)
         directive = preset.get("directive", summary)
         tags = preset.get("tags", [])
@@ -234,7 +238,7 @@ def parse_ethos_markdown(markdown: str) -> dict[str, Any]:
                 ),
                 "merge_topics": build_merge_topics(title=raw_title, tags=tags),
                 "tags": tags,
-                "related": _extract_related(
+                "related": extract_related(
                     principle_id, body, preset.get("related", [])
                 ),
                 "agent_hints": build_agent_hints(tags=tags),

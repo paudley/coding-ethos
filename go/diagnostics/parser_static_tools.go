@@ -5,6 +5,7 @@ package diagnostics
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -435,18 +436,7 @@ func parseYamllint(output string) []Diagnostic {
 }
 
 func parseBandit(output string) []Diagnostic {
-	var payload struct {
-		Results []struct {
-			Filename        string `json:"filename"`
-			IssueSeverity   string `json:"issue_severity"`
-			IssueConfidence string `json:"issue_confidence"`
-			IssueText       string `json:"issue_text"`
-			TestID          string `json:"test_id"`
-			LineNumber      int    `json:"line_number"`
-		} `json:"results"`
-	}
-
-	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	payload, err := decodeBanditOutput(output)
 	if err != nil {
 		return parseFallback("bandit", output)
 	}
@@ -464,6 +454,36 @@ func parseBandit(output string) []Diagnostic {
 	}
 
 	return diagnostics
+}
+
+type banditOutput struct {
+	Results []banditResult `json:"results"`
+}
+
+type banditResult struct {
+	Filename        string `json:"filename"`
+	IssueSeverity   string `json:"issue_severity"`
+	IssueConfidence string `json:"issue_confidence"`
+	IssueText       string `json:"issue_text"`
+	TestID          string `json:"test_id"`
+	LineNumber      int    `json:"line_number"`
+}
+
+func decodeBanditOutput(output string) (banditOutput, error) {
+	var payload banditOutput
+
+	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload)
+	if err != nil {
+		return banditOutput{}, fmt.Errorf("decode bandit output: %w", err)
+	}
+
+	return payload, nil
+}
+
+func recognizesCleanBanditOutput(output string) bool {
+	payload, err := decodeBanditOutput(output)
+
+	return err == nil && len(payload.Results) == 0
 }
 
 func banditSeverity(value string) string {
