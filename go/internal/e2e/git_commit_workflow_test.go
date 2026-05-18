@@ -317,9 +317,10 @@ func managedGit(t *testing.T, repo e2e.Repo, args ...string) e2e.CommandResult {
 		t,
 		repo.Root,
 		map[string]string{
-			"CODE_ETHOS_CONSUMER_ROOT":  repo.Root,
-			"CODE_ETHOS_PRECOMMIT_ROOT": filepath.Join(repo.EthosRoot, "pre-commit"),
-			"PATH":                      managedPath,
+			"CODE_ETHOS_PRECOMMIT_CONFIG": filepath.Join(repo.Root, "repo_config.yaml"),
+			"CODE_ETHOS_CONSUMER_ROOT":    repo.Root,
+			"CODE_ETHOS_PRECOMMIT_ROOT":   filepath.Join(repo.EthosRoot, "pre-commit"),
+			"PATH":                        managedPath,
 		},
 		append([]string{
 			"git",
