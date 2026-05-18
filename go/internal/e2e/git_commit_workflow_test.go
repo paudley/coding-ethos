@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,14 +20,9 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 	repo := preparedManagedGitCommitRepo(t)
 
 	beforeSuccess := repoHead(t, repo)
-	success := managedGit(
-		t,
-		repo,
-		"commit",
-		"--allow-empty",
-		"-m",
-		"test(repo): add clean commit fixture",
-	)
+	repo.Touch(t, "pkg/commit_success.py", cleanCommitPython())
+	repo.Git(t, "add", "pkg/commit_success.py")
+	success := managedGit(t, repo, "commit", "-m", "test(repo): add clean commit fixture")
 	success.RequireExit(t, 0)
 	afterSuccess := repoHead(t, repo)
 	if beforeSuccess == afterSuccess {
@@ -83,8 +79,19 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	t.Helper()
 
-	repo := preparedManagedLintRepo(t)
+	if testing.Short() {
+		t.Skip("real managed git e2e is skipped in short mode")
+	}
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("real managed git e2e uses POSIX paths")
+	}
+
+	sourceRoot := repoRootFromWorkingDirectory(t)
+	e2e.RequireRuntime(t, sourceRoot)
+	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	repo.EthosRoot = repoLocalCoverageRuntime(t, repo)
+	syncManagedGitGeneratedFixtures(t, repo)
 	repo.Touch(t, "repo_config.yaml", managedGitCommitRepoConfig())
 	installManagedGitPolicyArtifacts(t, repo)
 	installManagedGitEntrypoints(t, repo)
@@ -92,6 +99,45 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	repo.ResetTraces(t)
 
 	return repo
+}
+
+func syncManagedGitGeneratedFixtures(t *testing.T, repo e2e.Repo) {
+	t.Helper()
+
+	sync := repo.CodingEthosRun(
+		t,
+		"policy",
+		"sync-tool-configs",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--repo",
+		repo.Root,
+	)
+	sync.RequireExit(t, 0)
+
+	syncGemini := repo.CodingEthosRun(
+		t,
+		"policy",
+		"sync-gemini-prompts",
+		"--ethos-root",
+		repo.EthosRoot,
+		"--repo",
+		repo.Root,
+		"--primary",
+		filepath.Join(repo.EthosRoot, "coding_ethos.yml"),
+		"--repo-ethos",
+		filepath.Join(repo.EthosRoot, "repo_ethos.yml"),
+	)
+	syncGemini.RequireExit(t, 0)
+
+	status := repo.Git(t, "status", "--porcelain")
+	status.RequireExit(t, 0)
+	if strings.TrimSpace(status.Stdout) == "" {
+		return
+	}
+
+	repo.Git(t, "add", ".").RequireExit(t, 0)
+	repo.Git(t, "commit", "-m", "test(repo): sync generated fixtures").RequireExit(t, 0)
 }
 
 func installManagedGitPolicyArtifacts(t *testing.T, repo e2e.Repo) {
@@ -162,6 +208,25 @@ func managedGitCommitRepoConfig() string {
 	}, "\n")
 }
 
+func cleanCommitPython() string {
+	return strings.Join([]string{
+		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
+		"# SPDX-License-Identifier: AGPL-3.0-only",
+		"",
+		`"""Clean fixture used by the managed git commit e2e workflow.`,
+		"",
+		"The module gives the successful commit path a staged Python file.",
+		"It stays small so hook failures point at runtime issues.",
+		`"""`,
+		"",
+		"",
+		"def committed_answer() -> int:",
+		`    """Return the value committed by the successful workflow."""`,
+		"    return 7",
+		"",
+	}, "\n")
+}
+
 func moduleDocFailurePython() string {
 	return strings.Join([]string{
 		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
@@ -192,7 +257,7 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 
 	runner := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-run")
 	toolchain := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-toolchain")
-	binDir := filepath.Join(repo.EthosRoot, "bin")
+	binDir := managedGitBinDir(t, repo)
 
 	hooks := e2e.Run(
 		t,
@@ -221,6 +286,17 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 	shim.RequireExit(t, 0)
 }
 
+func managedGitBinDir(t *testing.T, repo e2e.Repo) string {
+	t.Helper()
+
+	path := filepath.Join(repo.Root, ".git", "coding-ethos-e2e-bin")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatalf("create managed git shim bin dir: %v", err)
+	}
+
+	return path
+}
+
 func repoLocalCoverageRuntime(t *testing.T, repo e2e.Repo) string {
 	t.Helper()
 
@@ -240,6 +316,14 @@ func repoLocalCoverageRuntime(t *testing.T, repo e2e.Repo) string {
 		t.Fatalf("list instrumented runtime binaries: %v", err)
 	}
 	for _, source := range binaries {
+		info, statErr := os.Stat(source)
+		if statErr != nil {
+			t.Fatalf("stat repo-local runtime binary %s: %v", source, statErr)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
 		copyRuntimeFile(t, source, filepath.Join(binRoot, filepath.Base(source)))
 	}
 
@@ -334,7 +418,9 @@ func assertNoCommitHeadPolicyLeak(t *testing.T, result e2e.CommandResult) {
 func managedGit(t *testing.T, repo e2e.Repo, args ...string) e2e.CommandResult {
 	t.Helper()
 
-	managedPath := filepath.Join(repo.EthosRoot, "bin") +
+	managedPath := managedGitBinDir(t, repo) +
+		string(os.PathListSeparator) +
+		filepath.Join(repo.EthosRoot, "bin") +
 		string(os.PathListSeparator) +
 		os.Getenv("PATH")
 

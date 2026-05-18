@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	commandTimeout = 30 * time.Second
-	e2eDirMode     = 0o700
-	e2eFileMode    = 0o600
+	commandTimeout           = 30 * time.Second
+	e2eDirMode               = 0o700
+	e2eFileMode              = 0o600
+	optionalVenvRuntimeEntry = ".venv"
 )
 
 type instrumentedRuntimeCache struct {
@@ -136,6 +137,87 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	return cachedInstrumentedEthosRoot(t, ethosRoot)
 }
 
+// MutableBinEthosRoot returns an isolated runtime root whose bin directory can
+// receive command shims without mutating the repository checkout.
+func MutableBinEthosRoot(t *testing.T, ethosRoot string) string {
+	t.Helper()
+
+	sourceRoot := InstrumentedEthosRoot(t, ethosRoot)
+	runtimeRoot := filepath.Join(t.TempDir(), "coding-ethos-runtime")
+
+	copyMutableRuntimeBin(t, sourceRoot, runtimeRoot)
+
+	for _, entry := range []string{
+		"build",
+		"config.yaml",
+		"coding_ethos.yml",
+		optionalVenvRuntimeEntry,
+		"go",
+		"pre-commit",
+		"repo_ethos.yml",
+	} {
+		source := filepath.Join(sourceRoot, entry)
+
+		_, statErr := os.Stat(source)
+		if statErr != nil {
+			if entry == optionalVenvRuntimeEntry && errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+
+			t.Fatalf("mutable runtime source %s unavailable: %v", entry, statErr)
+		}
+
+		err := copyOrSymlinkInstrumentedRuntimeEntry(
+			source,
+			filepath.Join(runtimeRoot, entry),
+		)
+		if err != nil {
+			t.Fatalf("copy %s into mutable runtime: %v", entry, err)
+		}
+	}
+
+	return runtimeRoot
+}
+
+func copyMutableRuntimeBin(t *testing.T, sourceRoot, runtimeRoot string) {
+	t.Helper()
+
+	binRoot := filepath.Join(runtimeRoot, "bin")
+
+	err := os.MkdirAll(binRoot, e2eDirMode)
+	if err != nil {
+		t.Fatalf("create mutable runtime bin: %v", err)
+	}
+
+	binaries, err := filepath.Glob(filepath.Join(sourceRoot, "bin", "*"))
+	if err != nil {
+		t.Fatalf("list mutable runtime binaries: %v", err)
+	}
+
+	for _, source := range binaries {
+		info, statErr := os.Stat(source)
+		if statErr != nil {
+			t.Fatalf("stat mutable runtime binary %s: %v", source, statErr)
+		}
+
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		payload, readErr := os.ReadFile(source)
+		if readErr != nil {
+			t.Fatalf("read mutable runtime binary %s: %v", source, readErr)
+		}
+
+		target := filepath.Join(binRoot, filepath.Base(source))
+
+		writeErr := writeInstrumentedRuntimeFile(target, payload, info.Mode().Perm())
+		if writeErr != nil {
+			t.Fatalf("write mutable runtime binary %s: %v", target, writeErr)
+		}
+	}
+}
+
 func cachedInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	t.Helper()
 
@@ -169,7 +251,7 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		"build",
 		"config.yaml",
 		"coding_ethos.yml",
-		".venv",
+		optionalVenvRuntimeEntry,
 		"go",
 		"repo_ethos.yml",
 	} {
@@ -177,7 +259,7 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 
 		_, statErr := os.Stat(source)
 		if statErr != nil {
-			if entry == ".venv" && errors.Is(statErr, os.ErrNotExist) {
+			if entry == optionalVenvRuntimeEntry && errors.Is(statErr, os.ErrNotExist) {
 				continue
 			}
 
@@ -613,7 +695,7 @@ func copyRuntimePreCommit(runtimeRoot, ethosRoot string) error {
 func isGeneratedRuntimeState(rel string) bool {
 	for part := range strings.SplitSeq(filepath.ToSlash(rel), "/") {
 		switch part {
-		case ".venv", ".ruff_cache", "__pycache__":
+		case optionalVenvRuntimeEntry, ".ruff_cache", "__pycache__":
 			return true
 		}
 	}

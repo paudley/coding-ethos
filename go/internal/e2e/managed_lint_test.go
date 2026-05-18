@@ -60,7 +60,7 @@ func preparedManagedLintRepo(t *testing.T) e2e.Repo {
 
 	sourceRoot := repoRootFromWorkingDirectory(t)
 	e2e.RequireRuntime(t, sourceRoot)
-	runtimeRoot := e2e.InstrumentedEthosRoot(t, sourceRoot)
+	runtimeRoot := e2e.MutableBinEthosRoot(t, sourceRoot)
 	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	repo.EthosRoot = runtimeRoot
 
