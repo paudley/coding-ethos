@@ -165,6 +165,10 @@ func runNamedHookGroups(cfg Config, names, files []string) int {
 			return 1
 		}
 
+		if !group.matchesFiles(files) {
+			continue
+		}
+
 		selectedGroups = append(selectedGroups, group)
 	}
 
@@ -230,7 +234,7 @@ func runHookGroupInProcess(
 	for _, command := range group.Commands[:seqEnd] {
 		commandStart := time.Now()
 
-		commandExit := command.Run(cfg, files)
+		commandExit := runFilteredHookCommand(cfg, command, files)
 		if commandExit != 0 {
 			exit = 1
 		}
@@ -265,7 +269,7 @@ func runHookGroupInProcess(
 			defer parallelWait.Done()
 
 			cmdStart := time.Now()
-			cmdExit := cmd.Run(cfg, files)
+			cmdExit := runFilteredHookCommand(cfg, cmd, files)
 
 			parallelResults[pos] = hookCommandResult{
 				Name:       cmd.Name,
@@ -293,6 +297,19 @@ func runHookGroupInProcess(
 		DurationMS: durationMilliseconds(start),
 		Commands:   commandResults,
 	}
+}
+
+func runFilteredHookCommand(cfg Config, command hookCommand, files []string) int {
+	if command.Filter == nil {
+		return command.Run(cfg, files)
+	}
+
+	filtered := command.Filter(files)
+	if len(filtered) == 0 {
+		return 0
+	}
+
+	return command.Run(cfg, filtered)
 }
 
 type hookCommandResult struct {

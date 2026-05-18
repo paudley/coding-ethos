@@ -763,6 +763,21 @@ func TestGoCoveragePolicyAppliesOnlyToGoTestTools(t *testing.T) {
 	}
 }
 
+func TestGoCoveragePolicyConfiguredDetectsPolicyBundleBar(t *testing.T) {
+	tempDir := t.TempDir()
+	ethosRoot := filepath.Join(tempDir, "code-ethos")
+
+	if goCoveragePolicyConfiguredAt(ethosRoot) {
+		t.Fatal("goCoveragePolicyConfigured() accepted missing policy bundle")
+	}
+
+	writeGoCoveragePolicyBundle(t, tempDir)
+
+	if !goCoveragePolicyConfiguredAt(ethosRoot) {
+		t.Fatal("goCoveragePolicyConfigured() rejected coverage policy bundle")
+	}
+}
+
 func TestGoCoverageProfilePathCreatesTemporaryFile(t *testing.T) {
 	t.Parallel()
 

@@ -17,6 +17,11 @@ func runFormatGroupCommand(cfg Config, files []string) int {
 }
 
 func runFormatGroup(cfg Config, files []string, restage bool) int {
+	files = formatGroupFiles(files)
+	if len(files) == 0 {
+		return 0
+	}
+
 	snapshots := map[string]fileSnapshot(nil)
 	if restage {
 		snapshots = fileSnapshots(files)
@@ -57,6 +62,27 @@ func runFormatGroup(cfg Config, files []string, restage bool) int {
 	}
 
 	return exit
+}
+
+func formatGroupFiles(files []string) []string {
+	selected := []string{}
+	seen := map[string]struct{}{}
+
+	add := func(paths []string) {
+		for _, path := range paths {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+
+			seen[path] = struct{}{}
+			selected = append(selected, path)
+		}
+	}
+
+	add(formatPythonFiles(files))
+	add(goFiles(existingFiles(files)))
+
+	return selected
 }
 
 func runPythonFormatters(files []string) int {

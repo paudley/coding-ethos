@@ -215,6 +215,10 @@ func runGoCoverageThreshold(_ Config, paths []string) int {
 		return 0
 	}
 
+	if !goCoveragePolicyConfigured() {
+		return 0
+	}
+
 	worktree, ok := configuredGoWorktree()
 	if !ok {
 		return 1
@@ -264,6 +268,24 @@ func runGoCoverageThreshold(_ Config, paths []string) int {
 	}
 
 	return reportGoCoveragePolicy(coverResult.Combined)
+}
+
+func goCoveragePolicyConfigured() bool {
+	bundleRoot, err := findBundleRoot()
+	if err != nil {
+		return false
+	}
+
+	return goCoveragePolicyConfiguredAt(filepath.Dir(bundleRoot))
+}
+
+func goCoveragePolicyConfiguredAt(ethosRoot string) bool {
+	policyContext, ok := managedPolicyContext(ethosRoot)
+	if !ok {
+		return false
+	}
+
+	return slices.ContainsFunc(policyContext.Policies, goCoveragePolicyApplies)
 }
 
 func goCoveragePackages(worktree string) ([]string, externalToolResult) {

@@ -187,6 +187,49 @@ python:
 	}
 }
 
+func TestCheckDocstringCoverageCommandSkipsPreCommitWithoutPythonChanges(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  docstring_coverage:
+    enabled: true
+    command:
+      - /bin/sh
+      - -lc
+      - "printf 'docstring coverage should not run\n' >&2; exit 2"
+    use_hook_project: false
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	docPath := filepath.Join(tempDir, "README.md")
+	mustWriteTestFile(t, docPath, "# docs\n")
+
+	stdout := captureStdout(t, func() {
+		stderr := captureStderr(t, func() {
+			if got := checkDocstringCoverageCommand(
+				Config{HookStage: hookStagePreCommit},
+				[]string{docPath},
+			); got != 0 {
+				t.Fatalf("checkDocstringCoverageCommand() = %d, want 0", got)
+			}
+		})
+		if strings.Contains(stderr, "docstring coverage should not run") {
+			t.Fatalf(
+				"docstring coverage command ran for non-Python pre-commit changes:\n%s",
+				stderr,
+			)
+		}
+	})
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("unexpected stdout: %q", stdout)
+	}
+}
+
 func TestRunNativeDocstringCoverageReportsMissingSymbols(t *testing.T) {
 	t.Parallel()
 

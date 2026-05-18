@@ -1711,7 +1711,7 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 	return 1
 }
 
-func checkPytestGateCommand(_ Config, args []string) int {
+func checkPytestGateCommand(cfg Config, args []string) int {
 	settings, err := loadPytestGateSettings()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -1720,6 +1720,10 @@ func checkPytestGateCommand(_ Config, args []string) int {
 	}
 
 	if !settings.Enabled {
+		return 0
+	}
+
+	if cfg.HookStage == hookStagePreCommit && len(pythonGateRelevantFiles(args)) == 0 {
 		return 0
 	}
 
@@ -1765,6 +1769,27 @@ func checkPytestGateCommand(_ Config, args []string) int {
 	}
 
 	return 0
+}
+
+func pythonGateRelevantFiles(args []string) []string {
+	files := make([]string, 0)
+
+	for _, path := range existingFiles(args) {
+		if isPythonGateRelevantPath(path) {
+			files = append(files, path)
+		}
+	}
+
+	return files
+}
+
+func isPythonGateRelevantPath(path string) bool {
+	switch filepath.Base(path) {
+	case "pytest.ini", "pyproject.toml", "setup.cfg", "tox.ini", "repo_config.yaml":
+		return true
+	default:
+		return strings.HasSuffix(path, ".py") || strings.HasSuffix(path, ".pyi")
+	}
 }
 
 func collectPytestGateMarkerViolations(

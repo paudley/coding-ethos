@@ -939,10 +939,20 @@ func TestFormatGroupWithNoMatchingFilesIsNoop(t *testing.T) {
 
 	tempDir := t.TempDir()
 	textPath := filepath.Join(tempDir, "README.md")
-	mustWriteTestFile(t, textPath, "docs\n")
+	textBefore := "docs  \n"
+	mustWriteTestFile(t, textPath, textBefore)
 
 	if got := runFormatGroup(Config{}, []string{textPath}, false); got != 0 {
 		t.Fatalf("runFormatGroup(no code files) = %d, want 0", got)
+	}
+
+	textAfter, err := os.ReadFile(textPath)
+	if err != nil {
+		t.Fatalf("read no-code file after format group: %v", err)
+	}
+
+	if string(textAfter) != textBefore {
+		t.Fatalf("runFormatGroup changed non-code file to %q", textAfter)
 	}
 
 	if got := runFormatGroupCommand(Config{}, []string{textPath}); got != 0 {
@@ -1098,6 +1108,111 @@ func TestRunHookGroupInProcessAggregatesCommandResults(t *testing.T) {
 		result.Commands[0].Status != statusPass ||
 		result.Commands[1].Status != statusFail {
 		t.Fatalf("command results = %#v", result.Commands)
+	}
+}
+
+func TestRunHookGroupInProcessFiltersCommandFilesAndSkipsEmpty(t *testing.T) {
+	t.Parallel()
+
+	received := []string(nil)
+	ranSkipped := false
+	group := hookGroup{
+		Name: "sample",
+		Commands: []hookCommand{
+			{
+				Name: "python",
+				Filter: func(files []string) []string {
+					return []string{"pkg/app.py"}
+				},
+				Run: func(_ Config, files []string) int {
+					received = append([]string(nil), files...)
+
+					return 0
+				},
+			},
+			{
+				Name: "empty",
+				Filter: func(_ []string) []string {
+					return nil
+				},
+				Run: func(Config, []string) int {
+					ranSkipped = true
+
+					return 1
+				},
+			},
+		},
+	}
+
+	result := runHookGroupInProcess(
+		Config{},
+		group,
+		[]string{"README.md", "pkg/app.py"},
+	)
+	if result.ExitCode != 0 || result.Status != statusPass {
+		t.Fatalf("group result = %#v", result)
+	}
+
+	if !reflect.DeepEqual(received, []string{"pkg/app.py"}) {
+		t.Fatalf("filtered command files = %#v", received)
+	}
+
+	if ranSkipped {
+		t.Fatal("command with empty filtered file list ran")
+	}
+}
+
+func TestRunNamedHookGroupsSkipsGroupsWithNoMatchingFiles(t *testing.T) {
+	t.Parallel()
+
+	if got := runNamedHookGroups(
+		Config{},
+		[]string{"go", "python-static", "ai"},
+		[]string{"README.md"},
+	); got != 0 {
+		t.Fatalf("runNamedHookGroups(no matching files) = %d, want 0", got)
+	}
+}
+
+func TestGoGroupStopsBeforeExpensiveTailWhenLintFails(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+
+	ranGoTest := false
+	ranCoverage := false
+	commands := canonicalHookCommands()
+	commands["go-format"] = func(Config, []string) int { return 0 }
+	commands["go-vet"] = func(Config, []string) int { return 0 }
+	commands["policy-golangci-lint"] = func(Config, []string) int { return 1 }
+	commands["go-test"] = func(Config, []string) int {
+		ranGoTest = true
+
+		return 0
+	}
+	commands["go-coverage"] = func(Config, []string) int {
+		ranCoverage = true
+
+		return 0
+	}
+
+	group := canonicalHookGroupsFromCommands(commands)["go"]
+	result := runHookGroupInProcess(Config{}, group, []string{"go/main.go"})
+
+	if result.ExitCode != 1 || result.Status != statusFail {
+		t.Fatalf("go group result = %#v", result)
+	}
+
+	if ranGoTest || ranCoverage {
+		t.Fatalf(
+			"go group ran expensive tail after lint failure: test=%t coverage=%t",
+			ranGoTest,
+			ranCoverage,
+		)
+	}
+
+	if len(result.Commands) != goGroupSequentialPrefix {
+		t.Fatalf("commands = %#v, want sequential prefix only", result.Commands)
 	}
 }
 
@@ -1667,6 +1782,7 @@ func TestCandidateFilesForGeminiFiltersByAllSelectedChecks(t *testing.T) {
 	t.Chdir(tempDir)
 	mustWriteTestFile(t, "pkg/app.py", "print('ok')\n")
 	mustWriteTestFile(t, "scripts/tool", "#!/usr/bin/env bash\necho ok\n")
+	mustWriteTestFile(t, "scripts/notes", "deployment notes\n")
 	mustWriteTestFile(t, "vendor/skip.py", "print('skip')\n")
 
 	pack := GeminiPromptPack{
@@ -1688,7 +1804,12 @@ func TestCandidateFilesForGeminiFiltersByAllSelectedChecks(t *testing.T) {
 
 	files, scope, err := candidateFilesForGemini(
 		GeminiCLIOptions{
-			Files: []string{"pkg/app.py", "scripts/tool", "vendor/skip.py"},
+			Files: []string{
+				"pkg/app.py",
+				"scripts/tool",
+				"scripts/notes",
+				"vendor/skip.py",
+			},
 		},
 		pack,
 	)
@@ -1702,6 +1823,32 @@ func TestCandidateFilesForGeminiFiltersByAllSelectedChecks(t *testing.T) {
 
 	if !reflect.DeepEqual(files, []string{"pkg/app.py", "scripts/tool"}) {
 		t.Fatalf("files = %#v", files)
+	}
+}
+
+func TestGeminiSourceFilesExcludeNonCode(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	mustWriteTestFile(t, "README.md", "# notes\n")
+	mustWriteTestFile(t, "config.yaml", "name: value\n")
+	mustWriteTestFile(t, "scripts/notes", "deployment notes\n")
+	mustWriteTestFile(t, "scripts/deploy", "#!/usr/bin/env sh\necho ok\n")
+	mustWriteTestFile(t, "src/app.py", "print('ok')\n")
+	mustWriteTestFile(t, "web/app.ts", "export const ok = true;\n")
+
+	got := geminiSourceFiles([]string{
+		"README.md",
+		"config.yaml",
+		"scripts/notes",
+		"scripts/deploy",
+		"src/app.py",
+		"web/app.ts",
+	})
+	want := []string{"scripts/deploy", "src/app.py", "web/app.ts"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("geminiSourceFiles() = %#v, want %#v", got, want)
 	}
 }
 
@@ -2318,6 +2465,7 @@ func TestMatchesGeminiSelector(t *testing.T) {
 
 	mustWriteTestFile(t, "pkg/module.py", "print('ok')\n")
 	mustWriteTestFile(t, "scripts/tool", "#!/usr/bin/env bash\necho ok\n")
+	mustWriteTestFile(t, "scripts/notes", "deployment notes\n")
 	mustWriteTestFile(t, "vendor/generated.py", "print('skip')\n")
 	mustWriteTestFile(t, "notes.txt", "hello\n")
 
@@ -2334,6 +2482,7 @@ func TestMatchesGeminiSelector(t *testing.T) {
 	}{
 		{path: "pkg/module.py", want: true},
 		{path: "scripts/tool", want: true},
+		{path: "scripts/notes", want: false},
 		{path: "vendor/generated.py", want: false},
 		{path: "notes.txt", want: false},
 	}
