@@ -767,13 +767,31 @@ func TestGoCoveragePolicyConfiguredDetectsPolicyBundleBar(t *testing.T) {
 	tempDir := t.TempDir()
 	ethosRoot := filepath.Join(tempDir, "code-ethos")
 
-	if goCoveragePolicyConfiguredAt(ethosRoot) {
+	configured, err := goCoveragePolicyConfiguredAt(ethosRoot)
+	if err == nil {
 		t.Fatal("goCoveragePolicyConfigured() accepted missing policy bundle")
+	}
+	if configured {
+		t.Fatal("goCoveragePolicyConfigured() reported missing bundle as configured")
+	}
+
+	writeNoGoCoveragePolicyBundle(t, tempDir)
+
+	configured, err = goCoveragePolicyConfiguredAt(ethosRoot)
+	if err != nil {
+		t.Fatalf("goCoveragePolicyConfigured() rejected valid non-coverage bundle: %v", err)
+	}
+	if configured {
+		t.Fatal("goCoveragePolicyConfigured() accepted bundle without coverage policy")
 	}
 
 	writeGoCoveragePolicyBundle(t, tempDir)
 
-	if !goCoveragePolicyConfiguredAt(ethosRoot) {
+	configured, err = goCoveragePolicyConfiguredAt(ethosRoot)
+	if err != nil {
+		t.Fatalf("goCoveragePolicyConfigured() rejected coverage policy bundle: %v", err)
+	}
+	if !configured {
 		t.Fatal("goCoveragePolicyConfigured() rejected coverage policy bundle")
 	}
 }
@@ -866,6 +884,25 @@ func writeGoCoveragePolicyBundle(t *testing.T, root string) {
 	})
 	if err != nil {
 		t.Fatalf("marshal coverage policy bundle: %v", err)
+	}
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),
+		string(payload),
+	)
+}
+
+func writeNoGoCoveragePolicyBundle(t *testing.T, root string) {
+	t.Helper()
+
+	payload, err := json.Marshal(policy.Bundle{
+		Version:  1,
+		Policies: map[string]policy.Policy{},
+		Skills:   map[string]policy.Skill{},
+	})
+	if err != nil {
+		t.Fatalf("marshal non-coverage policy bundle: %v", err)
 	}
 
 	mustWriteTestFile(

@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
-	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -32,8 +31,6 @@ const (
 	gitShimProbeBytes        = 4096
 	goTestToolName           = "go-test"
 )
-
-var errPolicyContextUnavailable = apperror.StaticError("policy context unavailable")
 
 func runHadolint(_ Config, paths []string) int {
 	return runCatalogLintTool("hadolint", paths)
@@ -211,12 +208,9 @@ func runGoTests(_ Config, paths []string) int {
 }
 
 func runGoCoverageThreshold(_ Config, paths []string) int {
-	if len(goFiles(existingFiles(paths))) == 0 {
-		return 0
-	}
-
-	if !goCoveragePolicyConfigured() {
-		return 0
+	shouldRun, exitCode := shouldRunGoCoverage(paths)
+	if !shouldRun {
+		return exitCode
 	}
 
 	worktree, ok := configuredGoWorktree()
@@ -270,22 +264,37 @@ func runGoCoverageThreshold(_ Config, paths []string) int {
 	return reportGoCoveragePolicy(coverResult.Combined)
 }
 
-func goCoveragePolicyConfigured() bool {
+func shouldRunGoCoverage(paths []string) (bool, int) {
+	if len(goFiles(existingFiles(paths))) == 0 {
+		return false, 0
+	}
+
+	configured, err := goCoveragePolicyConfigured()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+
+		return false, 1
+	}
+
+	return configured, 0
+}
+
+func goCoveragePolicyConfigured() (bool, error) {
 	bundleRoot, err := findBundleRoot()
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	return goCoveragePolicyConfiguredAt(filepath.Dir(bundleRoot))
 }
 
-func goCoveragePolicyConfiguredAt(ethosRoot string) bool {
-	policyContext, ok := managedPolicyContext(ethosRoot)
-	if !ok {
-		return false
+func goCoveragePolicyConfiguredAt(ethosRoot string) (bool, error) {
+	policyContext, err := managedPolicyContext(ethosRoot)
+	if err != nil {
+		return false, err
 	}
 
-	return slices.ContainsFunc(policyContext.Policies, goCoveragePolicyApplies)
+	return slices.ContainsFunc(policyContext.Policies, goCoveragePolicyApplies), nil
 }
 
 func goCoveragePackages(worktree string) ([]string, externalToolResult) {
@@ -537,9 +546,9 @@ func evaluateGoCoveragePolicies(
 		return nil, err
 	}
 
-	policyContext, ok := managedPolicyContext(filepath.Dir(bundleRoot))
-	if !ok {
-		return nil, errPolicyContextUnavailable
+	policyContext, err := managedPolicyContext(filepath.Dir(bundleRoot))
+	if err != nil {
+		return nil, err
 	}
 
 	context := evaluators.Context{
@@ -753,8 +762,10 @@ func runManagedPolicyTool(name string, args []string) int {
 
 	ethosRoot := filepath.Dir(bundleRoot)
 
-	policyContext, ok := managedPolicyContext(ethosRoot)
-	if !ok {
+	policyContext, err := managedPolicyContext(ethosRoot)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+
 		return 1
 	}
 
@@ -770,18 +781,16 @@ func runManagedPolicyTool(name string, args []string) int {
 	})
 }
 
-func managedPolicyContext(ethosRoot string) (managedcapture.PolicyContext, bool) {
-	file, ok := openPolicyBundleFile(policyBundlePath(ethosRoot))
-	if !ok {
-		return managedcapture.PolicyContext{}, false
+func managedPolicyContext(ethosRoot string) (managedcapture.PolicyContext, error) {
+	file, err := openPolicyBundleFile(policyBundlePath(ethosRoot))
+	if err != nil {
+		return managedcapture.PolicyContext{}, err
 	}
 	defer file.Close()
 
 	bundle, err := policy.DecodeBundle(file)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: decode policy bundle: %v\n", err)
-
-		return managedcapture.PolicyContext{}, false
+		return managedcapture.PolicyContext{}, fmt.Errorf("decode policy bundle: %w", err)
 	}
 
 	policies := make([]policy.Policy, 0, len(bundle.Policies))
@@ -793,22 +802,20 @@ func managedPolicyContext(ethosRoot string) (managedcapture.PolicyContext, bool)
 		Skills:       bundle.Skills,
 		EvidenceMaps: bundle.EvidenceMaps,
 		Policies:     policies,
-	}, true
+	}, nil
 }
 
 func policyBundlePath(ethosRoot string) string {
 	return filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json")
 }
 
-func openPolicyBundleFile(path string) (*os.File, bool) {
+func openPolicyBundleFile(path string) (*os.File, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: open policy bundle: %v\n", err)
-
-		return nil, false
+		return nil, fmt.Errorf("open policy bundle: %w", err)
 	}
 
-	return file, true
+	return file, nil
 }
 
 func policyToolSandboxMode() string {
