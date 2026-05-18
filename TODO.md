@@ -209,9 +209,9 @@ running real commands, and inspecting real output and repository state.
 
 Acceptance criteria:
 
-- [ ] The suite fails if a real `git commit` path is broken, even when unit
+- [x] The suite fails if a real `git commit` path is broken, even when unit
   tests for individual evaluators pass.
-- [ ] The suite distinguishes product failures from internal telemetry; internal
+- [x] The suite distinguishes product failures from internal telemetry; internal
   bookkeeping checks must not become user-facing policy blocks.
 - [x] The suite runs in CI on pull requests and has clear local invocation
   instructions.
