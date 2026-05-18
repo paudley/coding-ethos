@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
@@ -76,21 +75,6 @@ func run(args []string) error {
 	}
 
 	return execSandboxedCommand(config)
-}
-
-func execSandboxedCommand(options options) error {
-	// #nosec G204 -- this helper's reviewed purpose is to exec the explicit
-	// managed command argv after applying sandbox policy.
-	err := syscall.Exec(
-		options.commandArgv[0],
-		options.commandArgv,
-		sandboxExecEnv(os.Environ()),
-	)
-	if err != nil {
-		return fmt.Errorf("exec sandboxed command: %w", err)
-	}
-
-	return nil
 }
 
 func parseOptions(args []string) (options, error) {

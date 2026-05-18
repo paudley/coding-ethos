@@ -114,12 +114,17 @@ func TestPrepareWritablePathsFiltersGitAndCreatesRelativePaths(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	external := filepath.Join(root, "external")
+	if err := os.Mkdir(external, 0o700); err != nil {
+		t.Fatalf("create absolute write path fixture: %v", err)
+	}
+
 	config := options{
 		paths: &sandboxPaths{repoRoot: root},
 		writePaths: []string{
 			".coding-ethos/cache",
 			".git/config",
-			filepath.Join(root, "external"),
+			external,
 		},
 	}
 
@@ -137,6 +142,41 @@ func TestPrepareWritablePathsFiltersGitAndCreatesRelativePaths(t *testing.T) {
 	}
 	if slices.Contains(paths, filepath.Join(root, ".git", "config")) {
 		t.Fatalf(".git write path leaked through: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, ".coding-ethos")); err != nil {
+		t.Fatalf("create symlink fixture: %v", err)
+	}
+
+	_, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{".coding-ethos/cache"},
+	})
+	if !errors.Is(err, errSymlinkWritePath) {
+		t.Fatalf("prepareWritablePaths() error = %v, want symlink rejection", err)
+	}
+}
+
+func TestPrepareWritablePathsRejectsFilePath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile := filepath.Join(root, ".coding-ethos")
+	if err := os.WriteFile(writeFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create file fixture: %v", err)
+	}
+
+	_, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{".coding-ethos"},
+	})
+	if !errors.Is(err, errWritePathNotDirectory) {
+		t.Fatalf("prepareWritablePaths() error = %v, want file rejection", err)
 	}
 }
 

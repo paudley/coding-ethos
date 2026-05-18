@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -555,7 +556,7 @@ func nativeWrapperPath(request Request) (string, error) {
 	}
 
 	if path == "" {
-		path = filepath.Join(filepath.Dir(request.Executable), nativeSandboxBinary)
+		path = filepath.Join(filepath.Dir(request.Executable), nativeSandboxBinaryName())
 	}
 
 	wrapper, err := absoluteSandboxPath(path)
@@ -573,11 +574,20 @@ func nativeWrapperPath(request Request) (string, error) {
 		return "", fmt.Errorf("%w: %w", errSandboxWrapper, statErr)
 	}
 
-	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+	if info.IsDir() ||
+		(runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
 		return "", fmt.Errorf("%w: %s is not executable", errSandboxWrapper, wrapper)
 	}
 
 	return wrapper, nil
+}
+
+func nativeSandboxBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return nativeSandboxBinary + ".exe"
+	}
+
+	return nativeSandboxBinary
 }
 
 func nativeWrapperArgs(request Request, writePaths []string) []string {

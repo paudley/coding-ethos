@@ -11,12 +11,17 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
 
-var errLandlockParentFDRange = errors.New("landlock parent fd out of range")
+var (
+	errLandlockParentFDRange = errors.New("landlock parent fd out of range")
+	errSymlinkWritePath      = errors.New("sandbox write path contains symlink")
+	errWritePathNotDirectory = errors.New("sandbox write path is not a directory")
+)
 
 const (
 	privateDirMode      = 0o700
@@ -60,17 +65,140 @@ func prepareWritablePaths(options options) ([]string, error) {
 			continue
 		}
 
-		if !filepath.IsAbs(item) {
-			err := os.MkdirAll(path, privateDirMode)
-			if err != nil {
-				return nil, fmt.Errorf("create declared writable path %s: %w", path, err)
-			}
+		err := prepareWritableDirectory(options.paths.repoRoot, path, !filepath.IsAbs(item))
+		if err != nil {
+			return nil, err
 		}
 
 		paths = append(paths, path)
 	}
 
 	return paths, nil
+}
+
+func prepareWritableDirectory(repoRoot, path string, create bool) error {
+	err := rejectSymlinkPath(repoRoot, path)
+	if err != nil {
+		return err
+	}
+
+	if create {
+		err = mkdirAllNoSymlinks(repoRoot, path)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = rejectSymlinkPath(repoRoot, path)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat sandbox writable path %s: %w", path, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+	}
+
+	return nil
+}
+
+func mkdirAllNoSymlinks(repoRoot, path string) error {
+	relative, err := filepath.Rel(repoRoot, path)
+	if err != nil {
+		return fmt.Errorf("resolve sandbox writable path %s: %w", path, err)
+	}
+
+	current := repoRoot
+
+	for part := range strings.SplitSeq(relative, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+
+		current = filepath.Join(current, part)
+
+		err = mkdirOneNoSymlink(current)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func mkdirOneNoSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s", errSymlinkWritePath, path)
+		}
+
+		if !info.IsDir() {
+			return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+		}
+
+		return nil
+	}
+
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect sandbox writable path %s: %w", path, err)
+	}
+
+	err = os.Mkdir(path, privateDirMode)
+	if err != nil && !os.IsExist(err) {
+		return fmt.Errorf("create declared writable path %s: %w", path, err)
+	}
+
+	info, err = os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect created sandbox writable path %s: %w", path, err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: %s", errSymlinkWritePath, path)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+	}
+
+	return nil
+}
+
+func rejectSymlinkPath(repoRoot, path string) error {
+	relative, err := filepath.Rel(repoRoot, path)
+	if err != nil {
+		return fmt.Errorf("resolve sandbox writable path %s: %w", path, err)
+	}
+
+	current := repoRoot
+
+	for part := range strings.SplitSeq(relative, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+
+		current = filepath.Join(current, part)
+
+		info, statErr := os.Lstat(current)
+		if os.IsNotExist(statErr) {
+			return nil
+		}
+
+		if statErr != nil {
+			return fmt.Errorf("inspect sandbox writable path %s: %w", current, statErr)
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: %s", errSymlinkWritePath, current)
+		}
+	}
+
+	return nil
 }
 
 func applyLandlockWritePolicy(writePaths []string) error {
@@ -123,6 +251,15 @@ func createLandlockRuleset() (*os.File, error) {
 }
 
 func addLandlockWriteRule(rulesetFD uintptr, path string) error {
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return fmt.Errorf("stat landlock writable path %s: %w", path, statErr)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open landlock writable path %s: %w", path, err)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -73,6 +74,10 @@ func validateSandboxRuntime(sandboxMode string) error {
 		return errSandboxModeRequired
 	}
 
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
 	wrapperPath, err := defaultNativeSandboxWrapperPath()
 	if err != nil {
 		return sandboxDependencyDiagnostic(err)
@@ -89,6 +94,10 @@ func validateSandboxRuntimeWithWrapperPath(sandboxMode, wrapperPath string) erro
 	case sandbox.ModeOff:
 		return nil
 	case sandbox.ModeAuto, sandbox.ModeRequired:
+		if runtime.GOOS != "linux" {
+			return nil
+		}
+
 		_, err := sandbox.ValidateNativeRuntimeWithHelper(wrapperPath)
 		if err != nil {
 			return sandboxDependencyDiagnostic(err)
