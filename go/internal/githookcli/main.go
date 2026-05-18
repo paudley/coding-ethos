@@ -150,7 +150,8 @@ func trustedGitWrapperProcess(commandLine []string) bool {
 	case gitHookWrapper:
 		return true
 	case gitHookRunner:
-		return commandLineContains(commandLine, policyGitCommand)
+		return commandLineContains(commandLine, policyGitCommand) ||
+			commandLineContains(commandLine, "git-hook")
 	default:
 		return false
 	}

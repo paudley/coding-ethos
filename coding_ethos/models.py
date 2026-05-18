@@ -26,35 +26,43 @@ SECTION_KINDS = (
 )
 
 
-def _empty_str_list() -> list[str]:
+def empty_str_list() -> list[str]:
+    """Provide focused helper behavior for the module."""
     return []
 
 
-def _empty_str_map() -> dict[str, str]:
+def empty_str_map() -> dict[str, str]:
+    """Provide focused helper behavior for the module."""
     return {}
 
 
-def _empty_command_map() -> dict[str, list[str]]:
+def empty_command_map() -> dict[str, list[str]]:
+    """Provide focused helper behavior for the module."""
     return {}
 
 
-def _empty_agent_notes() -> dict[str, list[str]]:
+def empty_agent_notes() -> dict[str, list[str]]:
+    """Provide focused helper behavior for the module."""
     return {}
 
 
-def _empty_sections() -> list["PrincipleSection"]:
+def empty_sections() -> list["PrincipleSection"]:
+    """Provide focused helper behavior for the module."""
     return []
 
 
-def _empty_axioms() -> list["PrincipleAxiom"]:
+def empty_axioms() -> list["PrincipleAxiom"]:
+    """Provide focused helper behavior for the module."""
     return []
 
 
-def _empty_agent_profiles() -> dict[str, "AgentProfile"]:
+def empty_agent_profiles() -> dict[str, "AgentProfile"]:
+    """Provide focused helper behavior for the module."""
     return {}
 
 
-def _empty_skills() -> list["EthosSkill"]:
+def empty_skills() -> list["EthosSkill"]:
+    """Provide focused helper behavior for the module."""
     return []
 
 
@@ -86,14 +94,14 @@ class Principle:
     title: str
     summary: str
     body: str
-    sections: list[PrincipleSection] = field(default_factory=_empty_sections)
-    axioms: list[PrincipleAxiom] = field(default_factory=_empty_axioms)
+    sections: list[PrincipleSection] = field(default_factory=empty_sections)
+    axioms: list[PrincipleAxiom] = field(default_factory=empty_axioms)
     directive: str = ""
-    quick_ref: list[str] = field(default_factory=_empty_str_list)
-    merge_topics: list[str] = field(default_factory=_empty_str_list)
-    tags: list[str] = field(default_factory=_empty_str_list)
-    related: list[str] = field(default_factory=_empty_str_list)
-    agent_hints: dict[str, str] = field(default_factory=_empty_str_map)
+    quick_ref: list[str] = field(default_factory=empty_str_list)
+    merge_topics: list[str] = field(default_factory=empty_str_list)
+    tags: list[str] = field(default_factory=empty_str_list)
+    related: list[str] = field(default_factory=empty_str_list)
+    agent_hints: dict[str, str] = field(default_factory=empty_str_map)
 
 
 @dataclass(slots=True)
@@ -102,8 +110,8 @@ class AgentProfile:
 
     name: str
     root_file: str = ""
-    supporting_files: list[str] = field(default_factory=_empty_str_list)
-    notes: list[str] = field(default_factory=_empty_str_list)
+    supporting_files: list[str] = field(default_factory=empty_str_list)
+    notes: list[str] = field(default_factory=empty_str_list)
 
 
 @dataclass(slots=True)
@@ -112,10 +120,10 @@ class RepoContext:
 
     name: str = ""
     overview: str = ""
-    commands: dict[str, list[str]] = field(default_factory=_empty_command_map)
-    paths: dict[str, str] = field(default_factory=_empty_str_map)
-    notes: list[str] = field(default_factory=_empty_str_list)
-    agent_notes: dict[str, list[str]] = field(default_factory=_empty_agent_notes)
+    commands: dict[str, list[str]] = field(default_factory=empty_command_map)
+    paths: dict[str, str] = field(default_factory=empty_str_map)
+    notes: list[str] = field(default_factory=empty_str_list)
+    agent_notes: dict[str, list[str]] = field(default_factory=empty_agent_notes)
 
 
 @dataclass(slots=True)
@@ -126,10 +134,10 @@ class EthosSkill:
     title: str
     description: str
     principle_ids: list[str]
-    trigger_terms: list[str] = field(default_factory=_empty_str_list)
+    trigger_terms: list[str] = field(default_factory=empty_str_list)
     short_hint: str = ""
     focus: str = ""
-    remediation_steps: list[str] = field(default_factory=_empty_str_list)
+    remediation_steps: list[str] = field(default_factory=empty_str_list)
 
 
 @dataclass(slots=True)
@@ -140,8 +148,8 @@ class EthosBundle:
     overview: str
     principles: list[Principle]
     agent_profiles: dict[str, AgentProfile] = field(
-        default_factory=_empty_agent_profiles
+        default_factory=empty_agent_profiles
     )
-    skills: list[EthosSkill] = field(default_factory=_empty_skills)
+    skills: list[EthosSkill] = field(default_factory=empty_skills)
     repo: RepoContext = field(default_factory=RepoContext)
     source_markdown: str = ""

@@ -591,6 +591,134 @@ func TestRunCapturedToolSuppressesEmptyGolangciLintJSONReport(t *testing.T) {
 	}
 }
 
+func TestRunCapturedToolSuppressesCleanBanditJSONReport(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	result := capturedToolResult(
+		captureRequest{
+			Tool:      "bandit",
+			Parser:    "bandit",
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{".bandit.yml"},
+		},
+		captureExecution{
+			Stdout:   `{"errors":[],"generated_at":"2026-05-17T19:15:39Z","metrics":{"_totals":{"loc":1}},"results":[]}`,
+			ExitCode: 0,
+			RunArgs:  []string{"bandit", "-q", "-f", "json", "-c", ".bandit.yml"},
+		},
+	)
+
+	if len(result.Findings) != 0 {
+		t.Fatalf("clean Bandit report produced findings: %#v", result.Findings)
+	}
+
+	if result.Capture.ParseStatus != "output" {
+		t.Fatalf("parse status = %q, want output", result.Capture.ParseStatus)
+	}
+
+	if !strings.Contains(result.Capture.OutputExcerpt, `"results":[]`) {
+		t.Fatalf("clean Bandit report was not retained as evidence: %#v", result.Capture)
+	}
+}
+
+func TestRunCapturedToolReportsBanditErrorsAsVisibleOutput(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	result := capturedToolResult(
+		captureRequest{
+			Tool:      "bandit",
+			Parser:    "bandit",
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{".bandit.yml"},
+		},
+		captureExecution{
+			Stdout:   `{"errors":["pkg/missing.py: No such file"],"results":[]}`,
+			ExitCode: 0,
+			RunArgs:  []string{"bandit", "-q", "-f", "json", "-c", ".bandit.yml"},
+		},
+	)
+
+	if len(result.Findings) == 0 {
+		t.Fatalf("Bandit report with errors did not produce visible-output finding")
+	}
+
+	if result.Capture.ParseStatus != capturedOutputKey {
+		t.Fatalf("parse status = %q, want %s", result.Capture.ParseStatus, capturedOutputKey)
+	}
+}
+
+func TestRunCapturedToolSuppressesCleanRadonComplexityJSONReport(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	result := capturedToolResult(
+		captureRequest{
+			Tool:      "python-complexity",
+			Parser:    "radon-complexity",
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{"coding_ethos/cli.py"},
+		},
+		captureExecution{
+			Stdout:   `{"coding_ethos/cli.py":[{"type":"function","rank":"A","name":"main","complexity":1,"lineno":10}]}`,
+			ExitCode: 0,
+			RunArgs:  []string{"radon", "cc", "-j", "coding_ethos/cli.py"},
+		},
+	)
+
+	if len(result.Findings) != 0 {
+		t.Fatalf("clean Radon complexity report produced findings: %#v", result.Findings)
+	}
+
+	if result.Capture.ParseStatus != "output" {
+		t.Fatalf("parse status = %q, want output", result.Capture.ParseStatus)
+	}
+
+	if !strings.Contains(result.Capture.OutputExcerpt, `"complexity":1`) {
+		t.Fatalf("clean Radon report was not retained as evidence: %#v", result.Capture)
+	}
+}
+
+func TestRunCapturedToolSuppressesCleanRadonMaintainabilityJSONReport(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	result := capturedToolResult(
+		captureRequest{
+			Tool:      "python-maintainability",
+			Parser:    "radon-maintainability",
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{"coding_ethos/cli.py"},
+		},
+		captureExecution{
+			Stdout:   `{"coding_ethos/cli.py":{"mi":67.25,"rank":"A"}}`,
+			ExitCode: 0,
+			RunArgs:  []string{"radon", "mi", "-j", "coding_ethos/cli.py"},
+		},
+	)
+
+	if len(result.Findings) != 0 {
+		t.Fatalf("clean Radon maintainability report produced findings: %#v", result.Findings)
+	}
+
+	if result.Capture.ParseStatus != "output" {
+		t.Fatalf("parse status = %q, want output", result.Capture.ParseStatus)
+	}
+
+	if !strings.Contains(result.Capture.OutputExcerpt, `"mi":67.25`) {
+		t.Fatalf("clean Radon report was not retained as evidence: %#v", result.Capture)
+	}
+}
+
 func TestCapturedOutputExcerptSuppressesPassingToolSummaries(t *testing.T) {
 	t.Parallel()
 
