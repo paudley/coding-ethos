@@ -14,14 +14,31 @@ import (
 const hookPlanBoolTrue = "true"
 
 type hookCommand struct {
-	Run  CommandFunc
-	Name string
+	Filter hookFileFilter
+	Run    CommandFunc
+	Name   string
 }
 
 type hookGroup struct {
 	Name          string
 	Commands      []hookCommand
 	ParallelAfter int
+}
+
+type hookFileFilter func([]string) []string
+
+func (group hookGroup) matchesFiles(files []string) bool {
+	for _, command := range group.Commands {
+		if command.Filter == nil {
+			return true
+		}
+
+		if len(command.Filter(files)) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runHookGroupCommand(cfg Config, args []string) int {

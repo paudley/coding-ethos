@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"os"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -39,7 +38,7 @@ func kubernetesManifestFiles(paths []string) []string {
 }
 
 func isKubernetesManifestFile(path string) bool {
-	payload, err := os.ReadFile(path)
+	payload, err := readRootedFile(path)
 	if err != nil {
 		return false
 	}

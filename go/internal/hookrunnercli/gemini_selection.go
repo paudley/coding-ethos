@@ -419,9 +419,17 @@ func matchesGeminiSelector(path string, selector GeminiFileSelector) (bool, erro
 	}
 
 	ext := strings.ToLower(filepath.Ext(normalized))
-	if matchesGeminiExtension(ext, selector) ||
-		matchesGeminiScriptWithoutExtension(normalized, ext, selector) {
+	if matchesGeminiExtension(ext, selector) {
 		return true, nil
+	}
+
+	if ext != "" {
+		return false, nil
+	}
+
+	if selector.AllowExtensionlessInScripts &&
+		!matchesGeminiScriptPath(normalized) {
+		return false, nil
 	}
 
 	return matchesGeminiShebang(path, selector)
@@ -456,15 +464,9 @@ func matchesGeminiExtension(ext string, selector GeminiFileSelector) bool {
 	return false
 }
 
-func matchesGeminiScriptWithoutExtension(
-	normalized string,
-	ext string,
-	selector GeminiFileSelector,
-) bool {
-	return selector.AllowExtensionlessInScripts &&
-		ext == "" &&
-		(strings.Contains(normalized, "scripts/") ||
-			strings.Contains(normalized, "scripts\\"))
+func matchesGeminiScriptPath(normalized string) bool {
+	return strings.Contains(normalized, "scripts/") ||
+		strings.Contains(normalized, "scripts\\")
 }
 
 func matchesGeminiShebang(
@@ -502,6 +504,65 @@ func shebangMatchesGeminiSelector(
 	}
 
 	return false
+}
+
+func geminiSourceFiles(paths []string) []string {
+	files := make([]string, 0, len(paths))
+	for _, path := range existingFiles(paths) {
+		if geminiSourceFile(path) {
+			files = append(files, path)
+		}
+	}
+
+	return files
+}
+
+func geminiSourceFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	if geminiSourceExtension(ext) {
+		return true
+	}
+
+	if ext != "" {
+		return false
+	}
+
+	return geminiSourceShebang(path)
+}
+
+func geminiSourceExtension(ext string) bool {
+	switch ext {
+	case ".bash",
+		".cjs",
+		".cts",
+		".go",
+		".js",
+		".jsx",
+		".mjs",
+		".mts",
+		".py",
+		".pyi",
+		".rs",
+		".sh",
+		".ts",
+		".tsx":
+		return true
+	default:
+		return false
+	}
+}
+
+func geminiSourceShebang(path string) bool {
+	matches, err := matchesGeminiShebang(path, GeminiFileSelector{
+		ShebangMarkers: []string{
+			"bash",
+			"node",
+			"python",
+			"sh",
+		},
+	})
+
+	return err == nil && matches
 }
 
 func unionGeminiFileFilter(

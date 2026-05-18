@@ -4,12 +4,69 @@
 package hookrunnercli
 
 // goGroupSequentialPrefix is the number of commands in the "go" hook group
-// that run sequentially before the remainder execute in parallel.
-const goGroupSequentialPrefix = 2
+// that run sequentially before the test and coverage commands execute in
+// parallel.
+const goGroupSequentialPrefix = 3
 
 type hookCommandRegistry struct {
 	Commands map[string]CommandFunc
 	Groups   map[string]hookGroup
+}
+
+func directHookFileFilterByCommand() map[string]hookFileFilter {
+	return map[string]hookFileFilter{
+		"check-docstring-coverage": pythonGateRelevantFiles,
+		"check-pytest-gate":        pythonGateRelevantFiles,
+		"format":                   formatGroupFiles,
+		"gemini-check":             geminiSourceFiles,
+	}
+}
+
+func goCodeHookFileFilterCommandNames() map[string]struct{} {
+	return map[string]struct{}{
+		"go-coverage": {},
+		"go-format":   {},
+		"go-test":     {},
+		"go-vet":      {},
+	}
+}
+
+func hookCommandToolchainFilterToolNames() map[string]string {
+	return map[string]string{
+		"actionlint":           "actionlint",
+		"hadolint":             "hadolint",
+		"policy-bandit":        "bandit",
+		"policy-dotenv-linter": "dotenv-linter",
+		"policy-eslint":        "eslint",
+		"policy-golangci-lint": "golangci-lint",
+		"policy-kube-linter":   "kube-linter",
+		"policy-sqlfluff":      "sqlfluff",
+		"policy-tombi":         "tombi",
+		"policy-tsc":           "tsc",
+		"shellcheck":           "shellcheck",
+		"shfmt":                "shfmt",
+		"yamllint":             "yamllint",
+	}
+}
+
+func pythonCodeHookFileFilterCommandNames() map[string]struct{} {
+	return map[string]struct{}{
+		"check-catch-and-silence":     {},
+		"check-comment-suppressions":  {},
+		"check-conditional-imports":   {},
+		"check-direct-imports":        {},
+		"check-file-docstrings":       {},
+		"check-optional-returns":      {},
+		"check-security-patterns":     {},
+		"check-sql-centralization":    {},
+		"check-structured-logging":    {},
+		"check-type-checkers":         {},
+		"check-type-checking-imports": {},
+		"check-util-centralization":   {},
+		"python-complexity":           {},
+		"python-maintainability":      {},
+		"python-vulture":              {},
+	}
 }
 
 func defaultHookCommandRegistry() hookCommandRegistry {
@@ -141,9 +198,9 @@ func canonicalHookGroupsFromCommands(
 		"go": groupWithParallelAfter(commands, "go", []string{
 			"go-format",
 			"go-vet",
+			"policy-golangci-lint",
 			"go-test",
 			"go-coverage",
-			"policy-golangci-lint",
 		}, goGroupSequentialPrefix),
 		"ai": groupFromCommandNames(commands, "ai", []string{"gemini-check"}),
 	}
@@ -160,12 +217,48 @@ func groupFromCommandNames(
 	}
 	for _, name := range commandNames {
 		group.Commands = append(group.Commands, hookCommand{
-			Name: displayHookCommandName(name),
-			Run:  commands[name],
+			Name:   displayHookCommandName(name),
+			Run:    commands[name],
+			Filter: hookCommandFileFilter(name),
 		})
 	}
 
 	return group
+}
+
+func hookCommandFileFilter(name string) hookFileFilter {
+	if filter, ok := directHookFileFilterByCommand()[name]; ok {
+		return filter
+	}
+
+	if _, ok := pythonCodeHookFileFilterCommandNames()[name]; ok {
+		return pythonCodeFileFilter
+	}
+
+	if _, ok := goCodeHookFileFilterCommandNames()[name]; ok {
+		return goCodeFileFilter
+	}
+
+	tool, ok := hookCommandToolchainFilterToolNames()[name]
+	if !ok {
+		return nil
+	}
+
+	return toolchainFileFilter(tool)
+}
+
+func toolchainFileFilter(name string) hookFileFilter {
+	return func(files []string) []string {
+		return toolchainFiles(name, existingFiles(files))
+	}
+}
+
+func pythonCodeFileFilter(files []string) []string {
+	return formatPythonFiles(files)
+}
+
+func goCodeFileFilter(files []string) []string {
+	return goFiles(existingFiles(files))
 }
 
 func groupWithParallelAfter(

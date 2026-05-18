@@ -284,7 +284,7 @@ func runDocstringCoverage(
 	return 1, stdout.String(), stderr.String(), err
 }
 
-func checkDocstringCoverageCommand(_ Config, _ []string) int {
+func checkDocstringCoverageCommand(cfg Config, args []string) int {
 	settings, err := loadDocstringCoverageSettings()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
@@ -293,6 +293,10 @@ func checkDocstringCoverageCommand(_ Config, _ []string) int {
 	}
 
 	if !settings.Enabled {
+		return 0
+	}
+
+	if cfg.HookStage == hookStagePreCommit && len(pythonGateRelevantFiles(args)) == 0 {
 		return 0
 	}
 

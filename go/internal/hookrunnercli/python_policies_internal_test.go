@@ -206,6 +206,40 @@ python:
 	}
 }
 
+func TestCheckPytestGateCommandSkipsPreCommitWithoutPythonChanges(t *testing.T) {
+	tempDir := t.TempDir()
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		strings.TrimSpace(`
+python:
+  pytest_gate:
+    enabled: true
+    test_command:
+      - /bin/sh
+      - -lc
+      - "printf 'pytest should not run\n' >&2; exit 2"
+`)+"\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	docPath := filepath.Join(tempDir, "README.md")
+	mustWriteTestFile(t, docPath, "# docs\n")
+
+	output := captureStderr(t, func() {
+		if got := checkPytestGateCommand(
+			Config{HookStage: hookStagePreCommit},
+			[]string{docPath},
+		); got != 0 {
+			t.Fatalf("checkPytestGateCommand() = %d, want 0", got)
+		}
+	})
+	if strings.Contains(output, "pytest should not run") {
+		t.Fatalf("pytest command ran for non-Python pre-commit changes:\n%s", output)
+	}
+}
+
 func TestDirectImportsCommandFlagsInternalModuleImports(t *testing.T) {
 	tempDir := t.TempDir()
 	overridePath := filepath.Join(tempDir, "repo_config.yaml")
