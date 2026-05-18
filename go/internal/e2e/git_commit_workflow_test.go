@@ -14,6 +14,8 @@ import (
 )
 
 func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
+	t.Parallel()
+
 	repo := preparedManagedGitCommitRepo(t)
 
 	beforeSuccess := repoHead(t, repo)

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,17 @@ const (
 	e2eDirMode     = 0o700
 	e2eFileMode    = 0o600
 )
+
+type instrumentedRuntimeCache struct {
+	roots map[string]string
+	mutex sync.Mutex
+}
+
+// instrumentedRuntimeRoots caches the expensive coverage runtime for the whole
+// package run; individual t.TempDir lifetimes are too short for parallel reuse.
+var instrumentedRuntimeRoots = instrumentedRuntimeCache{ //nolint:gochecknoglobals
+	roots: map[string]string{},
+}
 
 // Repo is an isolated checkout copied from a checked-in reference repository.
 type Repo struct {
@@ -120,9 +132,34 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		t.Skip("instrumented e2e runtime uses POSIX symlinks")
 	}
 
-	runtimeRoot := filepath.Join(t.TempDir(), "coding-ethos-runtime")
+	return cachedInstrumentedEthosRoot(t, ethosRoot)
+}
 
-	err := os.MkdirAll(filepath.Join(runtimeRoot, "bin"), e2eDirMode)
+func cachedInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
+	t.Helper()
+
+	instrumentedRuntimeRoots.mutex.Lock()
+	defer instrumentedRuntimeRoots.mutex.Unlock()
+
+	if runtimeRoot, found := instrumentedRuntimeRoots.roots[ethosRoot]; found {
+		return runtimeRoot
+	}
+
+	runtimeRoot := buildInstrumentedEthosRoot(t, ethosRoot)
+	instrumentedRuntimeRoots.roots[ethosRoot] = runtimeRoot
+
+	return runtimeRoot
+}
+
+func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
+	t.Helper()
+
+	runtimeRoot, err := os.MkdirTemp("", "coding-ethos-runtime-") //nolint:usetesting
+	if err != nil {
+		t.Fatalf("create instrumented runtime root: %v", err)
+	}
+
+	err = os.MkdirAll(filepath.Join(runtimeRoot, "bin"), e2eDirMode)
 	if err != nil {
 		t.Fatalf("create instrumented runtime bin: %v", err)
 	}
