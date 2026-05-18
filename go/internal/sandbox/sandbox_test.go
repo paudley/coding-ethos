@@ -8,7 +8,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +73,69 @@ func TestBuildPlanRequiredWithoutBackendDenies(t *testing.T) {
 
 	if plan.Evidence.Reason == "" {
 		t.Fatalf("denial reason missing: %#v", plan.Evidence)
+	}
+}
+
+func TestValidateBubblewrapDependencyAcceptsExecutableBackend(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
+	backend := fakeBubblewrap(t)
+
+	evidence, err := sandbox.ValidateBubblewrapDependency(backend)
+	if err != nil {
+		t.Fatalf("ValidateBubblewrapDependency() error = %v", err)
+	}
+
+	if !evidence.Enabled ||
+		evidence.Backend != sandbox.BackendBubblewrap ||
+		evidence.BackendPath != backend {
+		t.Fatalf("validation evidence = %#v", evidence)
+	}
+}
+
+func TestValidateBubblewrapDependencyRejectsMissingBackend(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
+	evidence, err := sandbox.ValidateBubblewrapDependency(
+		filepath.Join(t.TempDir(), "missing-bwrap"),
+	)
+	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
+		t.Fatalf("ValidateBubblewrapDependency() error = %v, want unavailable", err)
+	}
+
+	if !evidence.Denied || evidence.Reason != "bubblewrap executable not found" {
+		t.Fatalf("validation evidence = %#v", evidence)
+	}
+}
+
+func TestValidateBubblewrapDependencyRejectsUnusableBackend(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("bubblewrap sandboxing is Linux-only")
+	}
+
+	backend := filepath.Join(t.TempDir(), "bwrap")
+	if err := os.WriteFile(backend, []byte("#!/bin/sh\n"), privateFileMode); err != nil {
+		t.Fatalf("write backend fixture: %v", err)
+	}
+
+	evidence, err := sandbox.ValidateBubblewrapDependency(backend)
+	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
+		t.Fatalf("ValidateBubblewrapDependency() error = %v, want unavailable", err)
+	}
+
+	if !evidence.Denied ||
+		!strings.Contains(evidence.Reason, "dependency validation failed") {
+		t.Fatalf("validation evidence = %#v", evidence)
 	}
 }
 

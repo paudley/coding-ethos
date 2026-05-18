@@ -27,6 +27,7 @@ const (
 	BackendBubblewrap = "bubblewrap"
 
 	cgroupLineParts     = 3
+	backendProbeSeconds = 5
 	firstExtraFileFD    = 3
 	privateDirMode      = 0o700
 	sandboxRootDir      = "/"
@@ -44,12 +45,49 @@ var (
 	errBubblewrapPlatform = apperror.StaticError(
 		"bubblewrap sandbox requires Linux namespace support",
 	)
+	errBubblewrapProbe = apperror.StaticError(
+		"bubblewrap dependency validation failed",
+	)
 	errEmptySandboxPath  = apperror.StaticError("empty path")
 	errSandboxExecutable = apperror.StaticError("sandbox executable is required")
 )
 
 func supportsBubblewrap() bool {
 	return runtime.GOOS == "linux"
+}
+
+func ValidateBubblewrapDependency(configuredPath string) (Evidence, error) {
+	evidence := Evidence{
+		Mode:    ModeRequired,
+		Backend: BackendBubblewrap,
+	}
+
+	if !supportsBubblewrap() {
+		return deniedDependencyValidation(evidence, errBubblewrapPlatform)
+	}
+
+	backendPath, err := resolveBackendPath(configuredPath)
+	if err != nil {
+		return deniedDependencyValidation(evidence, err)
+	}
+
+	evidence.BackendPath = backendPath
+
+	err = validateBackendExecutable(backendPath)
+	if err != nil {
+		return deniedDependencyValidation(evidence, err)
+	}
+
+	evidence.Enabled = true
+
+	return evidence, nil
+}
+
+func deniedDependencyValidation(evidence Evidence, cause error) (Evidence, error) {
+	evidence.Denied = true
+	evidence.Reason = backendEvidenceReason(cause)
+
+	return evidence, fmt.Errorf("%w: %w", ErrBackendUnavailable, cause)
 }
 
 func cgroupRootPath() string {
@@ -308,6 +346,40 @@ func resolveBackendPath(configuredPath string) (string, error) {
 	}
 
 	return backendPath, nil
+}
+
+func validateBackendExecutable(backendPath string) error {
+	info, err := os.Stat(backendPath)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errBubblewrapProbe, err)
+	}
+
+	if info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("%w: %s is not executable", errBubblewrapProbe, backendPath)
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		backendProbeSeconds*time.Second,
+	)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, backendPath, "--version").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"%w: %s --version failed: %w: %s",
+			errBubblewrapProbe,
+			backendPath,
+			err,
+			strings.TrimSpace(string(output)),
+		)
+	}
+
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w: %s --version timed out", errBubblewrapProbe, backendPath)
+	}
+
+	return nil
 }
 
 func (plan Plan) Close() error {

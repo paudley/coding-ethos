@@ -94,6 +94,15 @@ any sandboxed mode, a missing Bubblewrap backend is a normalized
 sandboxed execution; the runner must not fall back to unsandboxed execution
 when a tool declares a sandbox profile.
 
+The checkout build treats that dependency contract as a gate, not a runtime
+surprise. `make build` invokes `coding-ethos-toolchain
+validate-sandbox-dependencies --sandbox-mode required`, which resolves `bwrap`,
+verifies it is executable, and launches `bwrap --version`. Missing or unusable
+Bubblewrap fails the build with a blocking `runtime.sandbox_dependency`
+diagnostic. The current supported provisioning path is the platform package
+manager, for example `apt install bubblewrap` on Debian/Ubuntu or the
+equivalent package on the host distribution.
+
 The current mount profile is explicit and evidence-backed:
 
 - Bubblewrap receives a read-only `/` bind;

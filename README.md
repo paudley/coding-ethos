@@ -233,7 +233,11 @@ requests, and seccomp profile metadata. Linux cgroup limits are prepared before
 process start in a delegated hierarchy and cleaned up after exit. Required
 sandbox mode fails closed with a normalized policy finding. `auto` remains a
 sandboxed mode and cannot degrade to unsandboxed execution when Bubblewrap is
-missing. See
+missing or unusable. Bubblewrap (`bwrap`) is a required runtime dependency for
+sandboxed managed tool execution; `make build` validates that it is present,
+executable, and launchable before installing the managed runtime. Missing or
+unusable Bubblewrap is reported as a blocking `runtime.sandbox_dependency`
+diagnostic. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
 
 Code-intelligence storage is the memory layer for this evidence. The
@@ -1175,6 +1179,9 @@ Managed capture can request the Bubblewrap sandbox prototype with
 `--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and
 denials are retained in lint traces and SARIF run properties so runtime
 enforcement has the same audit trail as CEL and static-analysis findings.
+The checkout build runs `coding-ethos-toolchain
+validate-sandbox-dependencies --sandbox-mode required`; install the platform
+Bubblewrap package and rerun `make build` when that gate fails.
 
 Agent-facing lint output includes an `agent_remediation` block in JSON and TOON
 formats. SARIF result properties and retained `.coding-ethos/lint-runs/`
