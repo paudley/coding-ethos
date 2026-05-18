@@ -740,23 +740,22 @@ func TestCapturedOutputExcerptSuppressesPassingToolSummaries(t *testing.T) {
 func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
-	}
-
 	repo := t.TempDir()
+	tool := filepath.Join(repo, "bin", "ruff")
+	if err := os.MkdirAll(filepath.Dir(tool), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
 
 	var output bytes.Buffer
 
 	exitCode := runCapturedToolWithRequest(captureRequest{
-		Tool:               "ruff",
-		ToolPath:           filepath.Join(repo, "ruff"),
-		Cwd:                repo,
-		TraceRoot:          repo,
-		Args:               []string{"check", "pkg/app.py"},
-		SandboxMode:        sandbox.ModeRequired,
-		SandboxBackendPath: filepath.Join(repo, "missing-bwrap"),
-		Output:             &output,
+		Tool:        "ruff",
+		ToolPath:    tool,
+		Cwd:         repo,
+		TraceRoot:   repo,
+		Args:        []string{"check", "pkg/app.py"},
+		SandboxMode: sandbox.ModeRequired,
+		Output:      &output,
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"."},
@@ -771,7 +770,8 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 		`"sandbox": {`,
 		`"profile": "lint-offline"`,
 		`"denied": true`,
-		`"reason": "bubblewrap executable not found"`,
+		`"reason": "sandbox wrapper is required: stat `,
+		`no such file or directory`,
 		`"policies": [`,
 		`"runtime.sandbox_denial"`,
 	} {
@@ -797,31 +797,34 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	}
 }
 
-func TestRunCapturedToolReportsBubblewrapLaunchFailureAsSandboxDenial(
+func TestRunCapturedToolReportsNativeLaunchFailureAsSandboxDenial(
 	t *testing.T,
 ) {
 	t.Parallel()
 
-	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
-	}
-
 	repo := t.TempDir()
-	backend := filepath.Join(repo, "bwrap")
-	if err := os.WriteFile(backend, []byte("#!/bin/sh\n"), 0o600); err != nil {
-		t.Fatalf("write non-executable backend fixture: %v", err)
+	tool := filepath.Join(repo, "bin", "ruff")
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	if err := os.MkdirAll(filepath.Dir(tool), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write tool fixture: %v", err)
+	}
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatalf("write non-executable wrapper fixture: %v", err)
 	}
 
 	var output bytes.Buffer
 
 	exitCode := runCapturedToolWithRequest(captureRequest{
 		Tool:               "ruff",
-		ToolPath:           "/bin/sh",
+		ToolPath:           tool,
 		Cwd:                repo,
 		TraceRoot:          repo,
 		Args:               []string{"check", "pkg/app.py"},
 		SandboxMode:        sandbox.ModeRequired,
-		SandboxBackendPath: backend,
+		SandboxBackendPath: wrapper,
 		Output:             &output,
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile: "lint-offline",
@@ -836,8 +839,8 @@ func TestRunCapturedToolReportsBubblewrapLaunchFailureAsSandboxDenial(
 	for _, want := range []string{
 		`"runtime.sandbox_denial"`,
 		`"denied": true`,
-		`"reason": "fork/exec `,
-		`permission denied`,
+		`"reason": "sandbox wrapper is required: `,
+		`is not executable`,
 	} {
 		if !strings.Contains(strings.ToLower(output.String()), strings.ToLower(want)) {
 			t.Fatalf("SARIF output missing %q:\n%s", want, output.String())
@@ -849,8 +852,8 @@ func TestRunCapturedToolReportsBubblewrapLaunchFailureAsSandboxDenial(
 		`"policy_id": "runtime.sandbox_denial"`,
 		`"code": "SANDBOX_DENIED"`,
 		`"denied": true`,
-		`"reason": "fork/exec `,
-		`permission denied`,
+		`"reason": "sandbox wrapper is required: `,
+		`is not executable`,
 	} {
 		if !strings.Contains(strings.ToLower(content), strings.ToLower(want)) {
 			t.Fatalf("trace missing %q:\n%s", want, content)

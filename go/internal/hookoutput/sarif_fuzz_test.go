@@ -16,7 +16,7 @@ func FuzzFormatLintResultSARIF(f *testing.F) {
 	f.Add("policy.example", "pkg/app.py", "message", "detail")
 	f.Add("shell.forbidden_strings", ".claude/settings.json", "blocked", "advice")
 	f.Add("repo.large_file_growth", "lib/example.py", "split file", "line count")
-	f.Add("runtime.sandbox_denial", "", "sandbox denied", "bubblewrap missing")
+	f.Add("runtime.sandbox_denial", "", "sandbox denied", "native sandbox missing")
 	f.Add("sarif.path.edge", "../outside.py", "relative path", "path normalization")
 
 	f.Fuzz(func(t *testing.T, policyID, file, message, detail string) {

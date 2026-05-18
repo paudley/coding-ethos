@@ -225,7 +225,7 @@ func (server Server) toolCapabilities() any {
 		"kind":  "tool_capabilities",
 		"tools": views,
 		"sandbox": map[string]any{
-			"default_backend":     "bubblewrap",
+			"default_backend":     "native",
 			"required_mode":       "fail_closed",
 			"advisory_auto_mode":  "records_degraded_enforcement",
 			"network_tag":         "network",

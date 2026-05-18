@@ -764,7 +764,7 @@ func TestFormatLintResultSARIFIncludesSandboxEvidence(t *testing.T) {
 			Tool: "ruff",
 			Sandbox: &lint.SandboxEvidence{
 				Mode:            "required",
-				Backend:         "bubblewrap",
+				Backend:         "native",
 				Profile:         "lint-offline",
 				Tool:            "ruff",
 				Tags:            []string{"no-network", "no-git"},

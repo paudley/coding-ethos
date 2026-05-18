@@ -79,33 +79,35 @@ owns the contract.
 
 ## Runtime Strategy
 
-The first sandbox backend should be Bubblewrap (`bwrap`) rather than raw
-namespace syscalls. Bubblewrap gives a reviewed rootless wrapper for mount,
-PID, and network namespaces while keeping Go in charge of request construction,
-policy facts, traces, and normalized output.
+The sandbox backend is native Go-owned Linux namespace execution. The managed
+capture parent starts `coding-ethos-sandbox` inside new user, mount, PID, UTS,
+IPC, and network namespaces where the requested tool does not declare network
+access. The helper then applies filesystem policy inside that namespace and
+execs the managed tool. Go owns request construction, policy facts, traces, and
+normalized output; sandboxing does not depend on a host package manager,
+Docker, or a third-party wrapper.
 
 The initial Go prototype lives in `go/internal/sandbox`. Managed lint capture
 can request it with `coding-ethos-lint --managed-capture-tool <tool>
 --sandbox-mode required`. The default remains `off` until the mount profile is
 proven across the full managed toolchain, because silently changing every
 developer lint invocation would make failures harder to attribute. In
-any sandboxed mode, a missing Bubblewrap backend is a normalized
-`runtime.sandbox_denial` failure. Bubblewrap is a required dependency for
-sandboxed execution; the runner must not fall back to unsandboxed execution
-when a tool declares a sandbox profile.
+any sandboxed mode, a missing native helper or failed namespace setup is a
+normalized `runtime.sandbox_denial` failure. The runner must not fall back to
+unsandboxed execution when a tool declares a sandbox profile.
 
 The checkout build treats that dependency contract as a gate, not a runtime
 surprise. `make build` invokes `coding-ethos-toolchain
-validate-sandbox-dependencies --sandbox-mode required`, which resolves `bwrap`,
-verifies it is executable, and launches `bwrap --version`. Missing or unusable
-Bubblewrap fails the build with a blocking `runtime.sandbox_dependency`
-diagnostic. The current supported provisioning path is the platform package
-manager, for example `apt install bubblewrap` on Debian/Ubuntu or the
-equivalent package on the host distribution.
+validate-sandbox-runtime --sandbox-mode required`, which launches a minimal
+native namespace probe. On Linux, missing or unusable namespace support fails
+the build with a blocking `runtime.sandbox_dependency` diagnostic. Non-Linux
+platforms do not advertise Linux namespace enforcement; they record
+best-available execution evidence instead.
 
 The current mount profile is explicit and evidence-backed:
 
-- Bubblewrap receives a read-only `/` bind;
+- `coding-ethos-sandbox` remounts `/` read-only inside the private mount
+  namespace;
 - `/home` and `/root` are mounted as tmpfs to hide ordinary user credential
   stores;
 - destination parent directories are recreated inside the sandbox before the
@@ -129,11 +131,10 @@ The target default profile for ordinary managed linters is:
 - bounded timeout, memory, and CPU;
 - conservative seccomp profile metadata.
 
-Seccomp support is explicit: a catalog entry can declare a `seccomp_profile`
-and an optional compiled BPF profile path. When a profile path is present,
-Bubblewrap receives it through `--seccomp` using an inherited file descriptor.
-If sandbox mode cannot open the profile, execution fails closed as
-`runtime.sandbox_denial`.
+Seccomp support is explicit: a catalog entry can declare a `seccomp_profile`.
+Native BPF profile loading is not implemented yet; when a profile path is
+present, execution fails closed as `runtime.sandbox_denial` rather than
+pretending the profile is enforced.
 
 Resource controls are split by enforcement layer. Go wraps sandboxed managed
 tool execution in a hard timeout. Memory and CPU requests are applied through
@@ -164,11 +165,11 @@ finding grounded in `security-by-design` and
 `one-path-for-critical-operations`.
 
 Unsupported platforms are explicit in the sandbox evidence. Sandbox profiles
-fail closed when Linux namespace support or Bubblewrap is unavailable. `auto`
+fail closed when Linux namespace support is available but unusable. `auto`
 mode remains a sandbox mode; it is not permission to run a sandbox-declared
-tool without Bubblewrap enforcement.
+tool without native enforcement on Linux.
 
 Generated GitHub and GitLab SARIF workflows default
 `generated_config.ci.*.sandbox_mode` to `required` and pass it to
 `coding-ethos-run policy-lint`. Local developer workflows can remain explicit
-with `off`, but any sandboxed mode requires Bubblewrap support.
+with `off`, but any sandboxed mode requires native sandbox support on Linux.

@@ -87,6 +87,7 @@ func RequireRuntime(t *testing.T, ethosRoot string) {
 	required := []string{
 		filepath.Join(ethosRoot, "bin", "coding-ethos-run"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-lint"),
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-policy"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-mcp"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-hook-log"),
@@ -160,6 +161,7 @@ func InstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	for _, command := range []string{
 		"coding-ethos-run",
 		"coding-ethos-lint",
+		"coding-ethos-sandbox",
 		"coding-ethos-policy",
 		"coding-ethos-hook-log",
 	} {

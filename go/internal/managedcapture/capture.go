@@ -156,9 +156,13 @@ func buildCapturedSandboxPlan(
 	runArgs []string,
 ) (sandbox.Plan, error) {
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:         request.SandboxMode,
-		Tool:         request.Tool,
-		Executable:   request.ToolPath,
+		Mode:       request.SandboxMode,
+		Tool:       request.Tool,
+		Executable: request.ToolPath,
+		WrapperPath: firstCaptureNonEmpty(
+			request.SandboxBackendPath,
+			captureSandboxWrapperPath(),
+		),
 		Cwd:          request.Cwd,
 		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
 		Args:         runArgs,
@@ -204,7 +208,13 @@ func runCapturedPlan(
 		defer func() { _ = cgroup.Close() }()
 	}
 
-	result := startCapturedProcess(commandContext, request, plan, cgroup)
+	result := startCapturedProcess(
+		commandContext,
+		request,
+		plan,
+		cgroup,
+		appliedEvidence,
+	)
 
 	if deniedEvidence, denied := capturedSandboxRuntimeDenial(
 		appliedEvidence,
@@ -241,6 +251,7 @@ func startCapturedProcess(
 	request captureRequest,
 	plan sandbox.Plan,
 	cgroup *sandbox.Cgroup,
+	evidence sandbox.Evidence,
 ) processResult {
 	stdoutReader, stdoutWriter, stdoutErr := os.Pipe()
 	if stdoutErr != nil {
@@ -264,7 +275,7 @@ func startCapturedProcess(
 			Dir:   request.Cwd,
 			Env:   capturedProcessEnv(os.Environ()),
 			Files: files,
-			Sys:   capturedProcessSysProcAttr(cgroup),
+			Sys:   capturedProcessSysProcAttr(cgroup, evidence),
 		},
 	)
 
@@ -467,15 +478,11 @@ func waitCapturedProcess(
 	}
 }
 
-func capturedProcessSysProcAttr(cgroup *sandbox.Cgroup) *syscall.SysProcAttr {
-	attributes := cgroup.SysProcAttr()
-	if attributes == nil {
-		attributes = &syscall.SysProcAttr{}
-	}
-
-	attributes.Setpgid = true
-
-	return attributes
+func capturedProcessSysProcAttr(
+	cgroup *sandbox.Cgroup,
+	evidence sandbox.Evidence,
+) *syscall.SysProcAttr {
+	return sandbox.SysProcAttr(cgroup, evidence)
 }
 
 func killCapturedProcessGroup(process *os.Process) error {
@@ -547,7 +554,7 @@ func capturedSandboxRuntimeDenial(
 	evidence sandbox.Evidence,
 	result processResult,
 ) (sandbox.Evidence, bool) {
-	if !evidence.Enabled || evidence.Backend != sandbox.BackendBubblewrap {
+	if !evidence.Enabled {
 		return evidence, false
 	}
 
@@ -572,27 +579,21 @@ func capturedSandboxRuntimeDenialReason(result processResult) (string, bool) {
 
 	if result.err != nil &&
 		(strings.Contains(lowerText, "permission denied") ||
+			strings.Contains(lowerText, "no such file or directory") ||
 			strings.Contains(lowerText, "operation not permitted")) {
 		return errText, true
 	}
 
-	if !strings.HasPrefix(lowerText, "bwrap:") {
-		return "", false
-	}
-
-	for _, marker := range []string{
-		"permission denied",
-		"operation not permitted",
-		"creating new namespace failed",
-		"setting up uid map",
-		"setting up gid map",
-	} {
-		if strings.Contains(lowerText, marker) {
-			return errText, true
-		}
-	}
-
 	return "", false
+}
+
+func captureSandboxWrapperPath() string {
+	executable, err := os.Executable()
+	if err != nil || strings.TrimSpace(executable) == "" {
+		return ""
+	}
+
+	return filepath.Join(filepath.Dir(executable), "coding-ethos-sandbox")
 }
 
 func logCapturedToolResult(

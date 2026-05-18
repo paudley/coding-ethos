@@ -60,7 +60,7 @@
   remediation loops, trend analysis, risk summaries, and editor integration.
 - `docs/SARIF_EDITOR_INTEGRATION.md`: editor and local developer workflows
   built around SARIF output.
-- `docs/RUNTIME_SANDBOXING.md`: Bubblewrap, cgroup, seccomp, capability, and
+- `docs/RUNTIME_SANDBOXING.md`: native namespace, cgroup, seccomp, capability, and
   CEL-backed runtime sandboxing strategy.
 - `docs/RUNTIME_PUBLICATION.md`: PyPI generator package boundaries and the
   release-asset model required before compiled Go runtimes are distributed.

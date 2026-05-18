@@ -30,7 +30,7 @@ The current supported platform includes:
 - generated GitHub Actions and GitLab SARIF CI gates;
 - repo-level CodeQL, OSV-Scanner, Zizmor, Scorecard, actionlint, release
   attestations, SBOMs, and package validation;
-- runtime sandbox support for managed tool execution with Bubblewrap/cgroup
+- runtime sandbox support for managed tool execution with native namespaces/cgroup
   evidence where available;
 - repo-local SQLite code-intelligence storage for hook traces, lint traces,
   SARIF, remediation outcomes, hook analytics, Tree-sitter chunks, AST links,
@@ -125,7 +125,7 @@ managed tools and future constrained advice providers.
 
 Planned work:
 
-- improve Bubblewrap profile coverage for common linters and formatters;
+- improve native sandbox profile coverage for common linters and formatters;
 - document and test repo-specific read/write allow-lists for consumer
   workspaces;
 - add more sandbox evidence to SARIF and code-intel analytics;

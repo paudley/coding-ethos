@@ -27,6 +27,14 @@ func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
 	return nil
 }
 
+func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
+	return cgroup.SysProcAttr()
+}
+
+func nativeNamespaceSupported() bool {
+	return false
+}
+
 func (cgroup *Cgroup) Close() error {
 	return nil
 }

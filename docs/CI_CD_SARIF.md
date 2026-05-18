@@ -49,7 +49,7 @@ Captured managed tools can also emit SARIF:
 bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check path/to/file.py
 ```
 
-Sandboxed managed capture is opt-in while the Bubblewrap profile is hardened:
+Sandboxed managed capture is opt-in while the native profile is hardened:
 
 ```bash
 bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode required --sarif -- check path/to/file.py

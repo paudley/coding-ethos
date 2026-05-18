@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -924,42 +923,26 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 	}
 }
 
-func TestValidateSandboxDependenciesAcceptsUsableBubblewrap(t *testing.T) {
-	t.Parallel()
-
-	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
-	}
-
-	backend := filepath.Join(t.TempDir(), "bwrap")
-	writeExecutableFixture(t, backend, "#!/bin/sh\nprintf 'bubblewrap 0.0.0\\n'\n")
-
-	err := validateSandboxDependencies("required", backend)
+func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
+	err := validateSandboxRuntimeWithWrapperPath("required", "/bin/true")
 	if err != nil {
-		t.Fatalf("validateSandboxDependencies() error = %v", err)
+		t.Fatalf("validateSandboxRuntime() error = %v", err)
 	}
 }
 
-func TestValidateSandboxDependenciesSkipsOffMode(t *testing.T) {
+func TestValidateSandboxRuntimeSkipsOffMode(t *testing.T) {
 	t.Parallel()
 
-	err := validateSandboxDependencies("off", filepath.Join(t.TempDir(), "missing"))
+	err := validateSandboxRuntime("off")
 	if err != nil {
-		t.Fatalf("validateSandboxDependencies(off) error = %v", err)
+		t.Fatalf("validateSandboxRuntime(off) error = %v", err)
 	}
 }
 
-func TestValidateSandboxDependenciesReportsBubblewrapDiagnostic(t *testing.T) {
+func TestSandboxDependencyDiagnosticReportsNativeRuntime(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
-	}
-
-	err := validateSandboxDependencies(
-		"required",
-		filepath.Join(t.TempDir(), "missing-bwrap"),
-	)
+	err := sandboxDependencyDiagnostic(errors.New("operation not permitted"))
 
 	var diagnosticErr sandboxDependencyDiagnosticError
 	if !errors.As(err, &diagnosticErr) {
@@ -973,37 +956,21 @@ func TestValidateSandboxDependenciesReportsBubblewrapDiagnostic(t *testing.T) {
 
 	diagnostic := diagnostics[0]
 	if diagnostic.Tool != "managed-toolchain" ||
-		diagnostic.Code != "bubblewrap-unavailable" ||
+		diagnostic.Code != "native-sandbox-unavailable" ||
 		diagnostic.PolicyID != "runtime.sandbox_dependency" ||
 		diagnostic.SkillID != "managed-toolchain" {
 		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
 	}
 }
 
-func TestRunCLIEmitsSandboxDependencyDiagnostics(t *testing.T) {
+func TestRunCLIEmitsSandboxRuntimeUsage(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
-	}
-
-	stderr := captureToolchainStderr(t, func() {
-		code := runCLI([]string{
-			"validate-sandbox-dependencies",
-			"--sandbox-mode", "required",
-			"--backend-path", filepath.Join(t.TempDir(), "missing-bwrap"),
-		})
-		if code != 1 {
-			t.Fatalf("runCLI exit = %d, want 1", code)
-		}
-	})
+	stderr := captureToolchainStderr(t, func() { usage() })
 
 	for _, want := range []string{
-		"managed-toolchain",
-		"runtime.sandbox_dependency",
-		"bubblewrap-unavailable",
-		"Bubblewrap is required",
-		"make build",
+		"validate-sandbox-runtime",
+		"--sandbox-mode required",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)

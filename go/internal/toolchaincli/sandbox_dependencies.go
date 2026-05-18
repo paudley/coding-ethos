@@ -4,8 +4,12 @@
 package toolchaincli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -14,8 +18,9 @@ import (
 )
 
 var errSandboxModeRequired = apperror.StaticError(
-	"validate-sandbox-dependencies requires --sandbox-mode",
+	"validate-sandbox-runtime requires --sandbox-mode",
 )
+
 var errUnsupportedSandboxMode = apperror.StaticError("unsupported sandbox mode")
 
 type sandboxDependencyDiagnosticError struct {
@@ -35,33 +40,40 @@ func (err sandboxDependencyDiagnosticError) Diagnostics() []diagnostics.Diagnost
 	return []diagnostics.Diagnostic{err.diagnostic}
 }
 
-func validateSandboxDependenciesCommand(args []string) error {
-	flags := flag.NewFlagSet("validate-sandbox-dependencies", flag.ExitOnError)
+func validateSandboxRuntimeCommand(args []string) error {
+	flags := flag.NewFlagSet("validate-sandbox-runtime", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 	sandboxMode := flags.String(
 		"sandbox-mode",
 		"",
 		"Sandbox mode that the managed runtime will advertise",
 	)
-	backendPath := flags.String(
-		"backend-path",
-		"",
-		"Optional Bubblewrap executable path",
-	)
 
 	err := flags.Parse(args)
 	if err != nil {
-		return fmt.Errorf("parse validate-sandbox-dependencies flags: %w", err)
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+
+		return fmt.Errorf("parse validate-sandbox-runtime flags: %w", err)
 	}
 
-	return validateSandboxDependencies(*sandboxMode, *backendPath)
+	return validateSandboxRuntime(*sandboxMode)
 }
 
-func validateSandboxDependencies(sandboxMode, backendPath string) error {
+func validateSandboxRuntime(sandboxMode string) error {
+	return validateSandboxRuntimeWithWrapperPath(
+		sandboxMode,
+		defaultNativeSandboxWrapperPath(),
+	)
+}
+
+func validateSandboxRuntimeWithWrapperPath(sandboxMode, wrapperPath string) error {
 	switch strings.ToLower(strings.TrimSpace(sandboxMode)) {
 	case sandbox.ModeOff:
 		return nil
 	case sandbox.ModeAuto, sandbox.ModeRequired:
-		_, err := sandbox.ValidateBubblewrapDependency(backendPath)
+		_, err := sandbox.ValidateNativeRuntimeWithHelper(wrapperPath)
 		if err != nil {
 			return sandboxDependencyDiagnostic(err)
 		}
@@ -74,22 +86,33 @@ func validateSandboxDependencies(sandboxMode, backendPath string) error {
 	}
 }
 
+func defaultNativeSandboxWrapperPath() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+
+	return filepath.Join(filepath.Dir(executable), "coding-ethos-sandbox")
+}
+
 func sandboxDependencyDiagnostic(cause error) error {
 	return sandboxDependencyDiagnosticError{
 		cause: cause,
 		diagnostic: diagnostics.Diagnostic{
 			Tool:     "managed-toolchain",
 			Severity: "error",
-			Code:     "bubblewrap-unavailable",
+			Code:     "native-sandbox-unavailable",
 			PolicyID: "runtime.sandbox_dependency",
 			SkillID:  "managed-toolchain",
-			Message: "Bubblewrap is required for sandboxed managed tool " +
-				"execution.",
-			Advice: "Install Bubblewrap or configure a valid bwrap backend " +
-				"before running make build.",
+			Message: "Native Linux namespace sandboxing is required for " +
+				"sandboxed managed tool execution on Linux.",
+			Advice: "Run on a Linux host that permits unprivileged namespace " +
+				"creation, or use a non-Linux platform where namespace " +
+				"enforcement is not advertised.",
 			Detail: cause.Error(),
 			Metadata: map[string]any{
-				"repair_command": "install bubblewrap, then rerun make build",
+				"provisioning_dependency": "linux_namespaces",
+				"repair_command":          "make build",
 			},
 		},
 	}

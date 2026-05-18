@@ -147,20 +147,20 @@ type toolchainCommandHandler func([]string) error
 
 func toolchainCommandHandlers() map[string]toolchainCommandHandler {
 	return map[string]toolchainCommandHandler{
-		"agent-hook-fix-items":          agentHookFixItems,
-		"cutover-report":                cutoverReport,
-		"cutover-verify":                cutoverVerify,
-		"github-asset-url":              githubAssetURL,
-		"install-github-binary":         installGitHubBinaryCommand,
-		"install-managed-toolchain":     installManagedToolchainCommand,
-		"install-git-hooks":             installGitHooks,
-		"install-git-shim":              installGitShimCommand,
-		"git-hook-fix-items":            gitHookFixItems,
-		"repo-ignore-fix-items":         repoIgnoreFixItems,
-		"runtime-fix-items":             runtimeFixItems,
-		"sha256":                        printSHA256,
-		"validate-sandbox-dependencies": validateSandboxDependenciesCommand,
-		"verify-git-hooks":              verifyGitHooks,
+		"agent-hook-fix-items":      agentHookFixItems,
+		"cutover-report":            cutoverReport,
+		"cutover-verify":            cutoverVerify,
+		"github-asset-url":          githubAssetURL,
+		"install-github-binary":     installGitHubBinaryCommand,
+		"install-managed-toolchain": installManagedToolchainCommand,
+		"install-git-hooks":         installGitHooks,
+		"install-git-shim":          installGitShimCommand,
+		"git-hook-fix-items":        gitHookFixItems,
+		"repo-ignore-fix-items":     repoIgnoreFixItems,
+		"runtime-fix-items":         runtimeFixItems,
+		"sha256":                    printSHA256,
+		"validate-sandbox-runtime":  validateSandboxRuntimeCommand,
+		"verify-git-hooks":          verifyGitHooks,
 	}
 }
 
@@ -204,8 +204,8 @@ func usageLines() []string {
 		"  coding-ethos-toolchain runtime-fix-items",
 		"    --input runtime-output.txt",
 		"  coding-ethos-toolchain sha256 --file path",
-		"  coding-ethos-toolchain validate-sandbox-dependencies",
-		"    --sandbox-mode required [--backend-path /usr/bin/bwrap]",
+		"  coding-ethos-toolchain validate-sandbox-runtime",
+		"    --sandbox-mode required",
 		"  coding-ethos-toolchain verify-git-hooks",
 		"    --hooks-dir .git/hooks --runner bin/coding-ethos-run",
 	}
