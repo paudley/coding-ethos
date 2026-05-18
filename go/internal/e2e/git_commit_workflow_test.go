@@ -19,9 +19,14 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 	repo := preparedManagedGitCommitRepo(t)
 
 	beforeSuccess := repoHead(t, repo)
-	repo.Touch(t, "pkg/commit_success.py", cleanCommitPython())
-	repo.Git(t, "add", "pkg/commit_success.py")
-	success := managedGit(t, repo, "commit", "-m", "test(repo): add clean commit fixture")
+	success := managedGit(
+		t,
+		repo,
+		"commit",
+		"--allow-empty",
+		"-m",
+		"test(repo): add clean commit fixture",
+	)
 	success.RequireExit(t, 0)
 	afterSuccess := repoHead(t, repo)
 	if beforeSuccess == afterSuccess {
@@ -109,30 +114,35 @@ func managedGitCommitRepoConfig() string {
 		"  enabled_groups:",
 		"    - python-policy",
 		"python:",
+		"  optional_returns:",
+		"    enabled: false",
+		"  comment_suppressions:",
+		"    enabled: false",
+		"  direct_imports:",
+		"    enabled: false",
+		"  util_centralization:",
+		"    enabled: false",
+		"  security_patterns:",
+		"    enabled: false",
+		"  catch_and_silence:",
+		"    enabled: false",
+		"  conditional_imports:",
+		"    enabled: false",
+		"  type_checking_imports:",
+		"    enabled: false",
+		"  structured_logging:",
+		"    enabled: false",
+		"  sql_centralization:",
+		"    enabled: false",
+		"  version_consistency:",
+		"    enabled: false",
 		"  pytest_gate:",
 		"    enabled: false",
+		"  file_docstrings:",
+		"    enabled: true",
 		"lint:",
 		"  source_roots:",
 		"    - pkg",
-		"",
-	}, "\n")
-}
-
-func cleanCommitPython() string {
-	return strings.Join([]string{
-		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
-		"# SPDX-License-Identifier: AGPL-3.0-only",
-		"",
-		`"""Clean fixture used by the managed git commit e2e workflow.`,
-		"",
-		"The module gives the successful commit path a real Python file to stage.",
-		"It stays small so hook failures point at runtime issues.",
-		`"""`,
-		"",
-		"",
-		"def committed_answer() -> int:",
-		`    """Return the value committed by the successful workflow."""`,
-		"    return 7",
 		"",
 	}, "\n")
 }
