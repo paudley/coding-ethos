@@ -86,26 +86,41 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	repo := preparedManagedLintRepo(t)
 	repo.EthosRoot = repoLocalCoverageRuntime(t, repo)
 	repo.Touch(t, "repo_config.yaml", managedGitCommitRepoConfig())
-	install := repo.CodingEthosRun(t, "parent-install", "--repo", repo.Root)
-	install.RequireExit(t, 0)
-
-	status := repo.Git(t, "status", "--short")
-	status.RequireExit(t, 0)
-	if strings.TrimSpace(status.Stdout) != "" {
-		repo.Git(t, "add", ".")
-		baseline := repo.Git(
-			t,
-			"commit",
-			"-m",
-			"test(repo): install coding ethos runtime",
-		)
-		baseline.RequireExit(t, 0)
-	}
+	installManagedGitPolicyArtifacts(t, repo)
 	installManagedGitEntrypoints(t, repo)
 
 	repo.ResetTraces(t)
 
 	return repo
+}
+
+func installManagedGitPolicyArtifacts(t *testing.T, repo e2e.Repo) {
+	t.Helper()
+
+	gitCommonDir := repo.Git(
+		t,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	gitCommonDir.RequireExit(t, 0)
+
+	policyDir := filepath.Join(
+		strings.TrimSpace(gitCommonDir.Stdout),
+		"coding-ethos-hooks",
+		"policy",
+	)
+	if err := os.MkdirAll(policyDir, 0o700); err != nil {
+		t.Fatalf("create managed git policy artifact dir: %v", err)
+	}
+
+	for _, name := range []string{"policy-bundle.json", "policy-metadata.json"} {
+		copyRuntimeFile(
+			t,
+			filepath.Join(repo.EthosRoot, "build", "policy", name),
+			filepath.Join(policyDir, name),
+		)
+	}
 }
 
 func managedGitCommitRepoConfig() string {

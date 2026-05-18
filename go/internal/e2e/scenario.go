@@ -103,6 +103,7 @@ func RequireRuntime(t *testing.T, ethosRoot string) {
 		filepath.Join(ethosRoot, "bin", "coding-ethos-policy"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-mcp"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-hook-log"),
+		filepath.Join(ethosRoot, "bin", "coding-ethos-hook-runner"),
 		filepath.Join(ethosRoot, "bin", "coding-ethos-toolchain"),
 		filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),
 	}
@@ -203,6 +204,7 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		"coding-ethos-sandbox",
 		"coding-ethos-policy",
 		"coding-ethos-hook-log",
+		"coding-ethos-hook-runner",
 		"coding-ethos-toolchain",
 	} {
 		buildInstrumentedCommand(t, ethosRoot, runtimeRoot, command)
