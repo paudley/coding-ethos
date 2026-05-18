@@ -5,12 +5,6 @@
 
 package sandboxexec
 
-import "syscall"
-
 func applyFilesystemPolicy(options options) error {
-	return nil
-}
-
-func sandboxedCommandSysProcAttr() *syscall.SysProcAttr {
 	return nil
 }

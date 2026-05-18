@@ -59,18 +59,15 @@ func TestRunReturnsFailureForInvalidInvocation(t *testing.T) {
 	}
 }
 
-func TestRunSandboxedCommandReportsStartFailure(t *testing.T) {
+func TestExecSandboxedCommandReportsStartFailure(t *testing.T) {
 	t.Parallel()
 
-	code, err := runSandboxedCommand(options{
+	err := execSandboxedCommand(options{
 		paths:       &sandboxPaths{cwd: t.TempDir()},
 		commandArgv: []string{filepath.Join(t.TempDir(), "missing-tool")},
 	})
 	if err == nil {
-		t.Fatal("runSandboxedCommand() error = nil")
-	}
-	if code != sandboxExecFailureExitCode {
-		t.Fatalf("runSandboxedCommand() exit = %d", code)
+		t.Fatal("execSandboxedCommand() error = nil")
 	}
 }
 

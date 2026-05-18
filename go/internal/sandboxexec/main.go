@@ -19,9 +19,7 @@ import (
 var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command")
 
 const (
-	genericFailureExitCode     = 1
 	sandboxExecFailureExitCode = 126
-	signalExitCodeOffset       = 128
 	sandboxExecCommandName     = "coding-ethos-sandbox"
 )
 
@@ -77,50 +75,22 @@ func run(args []string) error {
 		return fmt.Errorf("chdir sandbox working directory: %w", err)
 	}
 
-	code, err := runSandboxedCommand(config)
+	return execSandboxedCommand(config)
+}
+
+func execSandboxedCommand(options options) error {
+	// #nosec G204 -- this helper's reviewed purpose is to exec the explicit
+	// managed command argv after applying sandbox policy.
+	err := syscall.Exec(
+		options.commandArgv[0],
+		options.commandArgv,
+		sandboxExecEnv(os.Environ()),
+	)
 	if err != nil {
 		return fmt.Errorf("exec sandboxed command: %w", err)
 	}
 
-	os.Exit(code)
-
 	return nil
-}
-
-func runSandboxedCommand(options options) (int, error) {
-	process, err := os.StartProcess(
-		options.commandArgv[0],
-		options.commandArgv,
-		&os.ProcAttr{
-			Dir:   options.paths.cwd,
-			Env:   sandboxExecEnv(os.Environ()),
-			Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-			Sys:   sandboxedCommandSysProcAttr(),
-		},
-	)
-	if err != nil {
-		return sandboxExecFailureExitCode, fmt.Errorf("start sandboxed command: %w", err)
-	}
-
-	state, err := process.Wait()
-	if err != nil {
-		return sandboxExecFailureExitCode, fmt.Errorf("wait for sandboxed command: %w", err)
-	}
-
-	status, ok := state.Sys().(syscall.WaitStatus)
-	if !ok {
-		return genericFailureExitCode, nil
-	}
-
-	if status.Exited() {
-		return status.ExitStatus(), nil
-	}
-
-	if status.Signaled() {
-		return signalExitCodeOffset + int(status.Signal()), nil
-	}
-
-	return genericFailureExitCode, nil
 }
 
 func parseOptions(args []string) (options, error) {

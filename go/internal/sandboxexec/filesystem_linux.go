@@ -11,7 +11,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -164,10 +163,4 @@ func landlockParentFD(file *os.File) (int32, error) {
 	}
 
 	return int32(fileDescriptor), nil
-}
-
-func sandboxedCommandSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{
-		Setpgid: true,
-	}
 }
