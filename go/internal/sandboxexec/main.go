@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command"
 const (
 	sandboxExecFailureExitCode = 126
 	sandboxExecCommandName     = "coding-ethos-sandbox"
+	sandboxExecErrorPrefix     = "coding-ethos-sandbox:"
 )
 
 type repeatedPaths []string
@@ -50,7 +52,11 @@ type sandboxPaths struct {
 func Run(args []string) int {
 	err := run(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		if exitErr, ok := err.(interface{ ExitCode() int }); ok {
+			return exitErr.ExitCode()
+		}
+
+		fmt.Fprintln(os.Stderr, sandboxExecErrorPrefix, err)
 
 		return sandboxExecFailureExitCode
 	}
@@ -84,6 +90,7 @@ func parseOptions(args []string) (options, error) {
 	)
 
 	flags := flag.NewFlagSet(sandboxExecCommandName, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 
 	flags.StringVar(&parsed.paths.cwd, "cwd", "", "Sandbox working directory")
 	flags.StringVar(&parsed.paths.repoRoot, "repo-root", "", "Repository root")

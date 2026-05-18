@@ -10,6 +10,18 @@ import (
 	"os"
 )
 
+type sandboxExitError struct {
+	code int
+}
+
+func (err sandboxExitError) Error() string {
+	return fmt.Sprintf("sandboxed command exited with status %d", err.code)
+}
+
+func (err sandboxExitError) ExitCode() int {
+	return err.code
+}
+
 func execSandboxedCommand(options options) error {
 	process, err := os.StartProcess(
 		options.commandArgv[0],
@@ -30,7 +42,7 @@ func execSandboxedCommand(options options) error {
 	}
 
 	if !state.Success() {
-		return fmt.Errorf("sandboxed command exited unsuccessfully")
+		return sandboxExitError{code: state.ExitCode()}
 	}
 
 	return nil

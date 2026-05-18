@@ -861,6 +861,54 @@ func TestRunCapturedToolReportsNativeLaunchFailureAsSandboxDenial(
 	}
 }
 
+func TestCapturedSandboxRuntimeDenialReasonUsesWrapperMarker(t *testing.T) {
+	t.Parallel()
+
+	reason, denied := capturedSandboxRuntimeDenialReason(processResult{
+		exitCode: capturedSandboxWrapperFailure,
+		stderr:   "coding-ethos-sandbox: apply native sandbox filesystem policy: permission denied",
+	})
+	if !denied {
+		t.Fatal("capturedSandboxRuntimeDenialReason() denied = false")
+	}
+	if !strings.Contains(reason, "coding-ethos-sandbox:") {
+		t.Fatalf("reason = %q, want sandbox marker", reason)
+	}
+}
+
+func TestCapturedSandboxRuntimeDenialReasonIgnoresToolExit126(t *testing.T) {
+	t.Parallel()
+
+	_, denied := capturedSandboxRuntimeDenialReason(processResult{
+		exitCode: capturedSandboxWrapperFailure,
+		stderr:   "tool-specific exit 126",
+	})
+	if denied {
+		t.Fatal("capturedSandboxRuntimeDenialReason() denied = true")
+	}
+}
+
+func TestCaptureSandboxWrapperPathUsesPlatformBinaryName(t *testing.T) {
+	t.Parallel()
+
+	path := captureSandboxWrapperPath()
+	if path == "" {
+		t.Fatal("captureSandboxWrapperPath() = empty")
+	}
+
+	if runtime.GOOS == windowsGOOS {
+		if filepath.Base(path) != "coding-ethos-sandbox.exe" {
+			t.Fatalf("wrapper path = %q, want .exe helper", path)
+		}
+
+		return
+	}
+
+	if filepath.Base(path) != "coding-ethos-sandbox" {
+		t.Fatalf("wrapper path = %q, want unix helper", path)
+	}
+}
+
 func TestRunCapturedToolBlocksParsedErrorWhenToolExitsZero(t *testing.T) {
 	t.Parallel()
 

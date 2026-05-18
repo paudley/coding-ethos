@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -40,6 +41,7 @@ type goTestJSONEvent struct {
 const (
 	capturedConfigurationExitCode = 2
 	capturedCommandNotFoundCode   = 127
+	capturedSandboxWrapperFailure = 126
 	copiedProcessStreamCount      = 2
 	capturedDecisionBlock         = "block"
 	capturedFindingStatusFail     = "fail"
@@ -577,6 +579,11 @@ func capturedSandboxRuntimeDenialReason(result processResult) (string, bool) {
 		return "", false
 	}
 
+	if result.exitCode == capturedSandboxWrapperFailure &&
+		strings.Contains(lowerText, "coding-ethos-sandbox:") {
+		return errText, true
+	}
+
 	if result.err != nil &&
 		(strings.Contains(lowerText, "permission denied") ||
 			strings.Contains(lowerText, "no such file or directory") ||
@@ -593,7 +600,12 @@ func captureSandboxWrapperPath() string {
 		return ""
 	}
 
-	return filepath.Join(filepath.Dir(executable), "coding-ethos-sandbox")
+	helperName := "coding-ethos-sandbox"
+	if runtime.GOOS == "windows" {
+		helperName += ".exe"
+	}
+
+	return filepath.Join(filepath.Dir(executable), helperName)
 }
 
 func logCapturedToolResult(
