@@ -81,6 +81,7 @@ GO_TOOL_CMDS := \
 	coding-ethos-hook-log \
 	coding-ethos-mcp \
 	coding-ethos-run \
+	coding-ethos-sandbox \
 	coding-ethos-toolchain \
 	coding-ethos-git-hook \
 	coding-ethos-git
@@ -224,6 +225,7 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
+	sandbox-runtime-validate \
 	managed-toolchain-install \
 	managed-go-tools-install \
 	go-hook-runner-install \
@@ -525,7 +527,13 @@ check-agent-skills: ensure-hook-runtime ## Fail if provider skill surfaces are o
 
 build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
-managed-toolchain-install: ensure-go go-tools-install ## Install third-party hook tools into checkout-local managed toolchain dirs.
+sandbox-runtime-validate: ensure-go go-tools-install ## Validate required sandbox runtime.
+	@$(call print_step,Validating native sandbox runtime)
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" validate-sandbox-runtime \
+		--sandbox-mode "required"
+	@$(call print_info,native sandbox: required on Linux)
+
+managed-toolchain-install: ensure-go go-tools-install sandbox-runtime-validate ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)
 	@$(UV) sync --frozen --all-packages >/dev/null
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-managed-toolchain \

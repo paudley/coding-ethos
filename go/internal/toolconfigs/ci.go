@@ -59,11 +59,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Bubblewrap
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}

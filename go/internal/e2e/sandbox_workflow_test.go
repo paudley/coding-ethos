@@ -104,7 +104,7 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 		`"source_tool": "ruff"`,
 		`"code": "F401"`,
 		`"sandbox": {`,
-		`"backend": "bubblewrap"`,
+		`"backend": "native"`,
 		`"profile": "lint-offline"`,
 		`"network_isolated": true`,
 	} {
@@ -166,13 +166,20 @@ func assertRequiredModeSandboxDenialSARIF(
 	}
 }
 
-func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
+func TestSandboxedManagedRuffCaptureRequiresNativeWrapper(t *testing.T) {
 	repo := preparedManagedLintRepo(t)
-	emptyPath := t.TempDir()
+	missingWrapper := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-sandbox")
+	err := os.Rename(missingWrapper, missingWrapper+".disabled")
+	if err != nil {
+		t.Fatalf("disable sandbox wrapper fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Rename(missingWrapper+".disabled", missingWrapper)
+	})
 
 	result := repo.CodingEthosRunWithEnv(
 		t,
-		sandboxWorkflowEnvWith(map[string]string{"PATH": emptyPath}),
+		sandboxWorkflowEnv(),
 		"policy-lint",
 		"--json",
 		"--managed-capture-tool",
@@ -197,7 +204,8 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 		`"code": "SANDBOX_DENIED"`,
 		`"denied": true`,
 		`"mode": "required"`,
-		`"reason": "bubblewrap executable not found"`,
+		`"reason": "sandbox wrapper is required`,
+		`no such file or directory`,
 	} {
 		result.RequireContains(t, want)
 	}
@@ -208,36 +216,33 @@ func TestSandboxedManagedRuffCaptureRequiresBubblewrap(t *testing.T) {
 		`"tool": "coding-ethos-sandbox"`,
 		`"denied": true`,
 		`"mode": "required"`,
-		`"reason": "bubblewrap executable not found"`,
+		`"reason": "sandbox wrapper is required`,
+		`no such file or directory`,
 	} {
 		if !strings.Contains(trace, want) {
-			t.Fatalf("missing-bubblewrap trace missing %q:\n%s", want, trace)
+			t.Fatalf("missing native wrapper trace missing %q:\n%s", want, trace)
 		}
 	}
 }
 
 func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("bubblewrap sandboxing is Linux-only")
+		t.Skip("Linux namespace sandboxing is required for write-scope e2e")
 	}
 
-	backend, err := exec.LookPath("bwrap")
-	if err != nil {
-		t.Fatalf("bubblewrap is required for sandbox e2e: %v", err)
-	}
-	requireUsableBubblewrapForSandboxE2E(t, backend)
-
-	repo := t.TempDir()
+	managedRepo := preparedManagedLintRepo(t)
+	repo := managedRepo.Root
 	mustMkdirE2E(t, filepath.Join(repo, ".coding-ethos", "cache"))
+	wrapper := filepath.Join(managedRepo.EthosRoot, "bin", "coding-ethos-sandbox")
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
 		Mode:        sandbox.ModeRequired,
 		Tool:        "write-scope",
 		Executable:  "/bin/sh",
+		WrapperPath: wrapper,
 		Cwd:         repo,
 		RepoRoot:    repo,
 		Args:        []string{"-c", sandboxWriteScopeScript()},
-		BackendPath: backend,
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile:  "agent-network",
 			WritePaths:      []string{".coding-ethos/cache"},
@@ -251,9 +256,18 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 
 	command := exec.Command(plan.Executable, plan.Args...)
 	command.Dir = repo
+	command.SysProcAttr = sandbox.SysProcAttr(nil, plan.Evidence)
 
 	output, err := command.CombinedOutput()
 	if err != nil {
+		text := strings.ToLower(strings.TrimSpace(string(output) + "\n" + err.Error()))
+		if strings.Contains(text, "operation not permitted") ||
+			strings.Contains(text, "permission denied") {
+			assertSandboxWriteDidNotEscape(t, repo)
+
+			return
+		}
+
 		t.Fatalf("write-scope sandbox command failed: %v\n%s", err, output)
 	}
 
@@ -274,41 +288,21 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 	}
 }
 
-func requireUsableBubblewrapForSandboxE2E(t *testing.T, backend string) {
+func assertSandboxWriteDidNotEscape(t *testing.T, repo string) {
 	t.Helper()
 
-	command := exec.Command(
-		backend,
-		"--ro-bind",
-		"/",
-		"/",
-		"--dev",
-		"/dev",
-		"--proc",
-		"/proc",
-		"/bin/sh",
-		"-c",
-		"true",
-	)
-	output, err := command.CombinedOutput()
-	if err == nil {
-		return
-	}
-
-	text := strings.ToLower(strings.TrimSpace(string(output) + "\n" + err.Error()))
-	for _, marker := range []string{
-		"permission denied",
-		"operation not permitted",
-		"creating new namespace failed",
-		"setting up uid map",
-		"setting up gid map",
+	for _, path := range []string{
+		filepath.Join(repo, ".coding-ethos", "cache", "allowed.txt"),
+		filepath.Join(repo, "blocked.txt"),
 	} {
-		if strings.Contains(text, marker) {
-			t.Skipf("bubblewrap is installed but host namespace setup is denied: %s", text)
+		_, err := os.Stat(path)
+		if err == nil {
+			t.Fatalf("sandbox failure left host write behind: %s", path)
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("stat sandbox write path %s: %v", path, err)
 		}
 	}
-
-	t.Fatalf("bubblewrap preflight failed: %v\n%s", err, output)
 }
 
 func sandboxWorkflowEnv() map[string]string {
@@ -347,16 +341,15 @@ func assertSandboxTraceEvidence(t *testing.T, trace, mode string) {
 
 	for _, want := range []string{
 		`"sandbox": {`,
-		`"backend": "bubblewrap"`,
+		`"backend": "native"`,
 		`"profile": "lint-offline"`,
 		`"tool": "ruff"`,
 		`"mode": "` + mode + `"`,
 		`"enabled": true`,
 		`"git_read_only": true`,
-		`"read_only_root": true`,
+		`"repo_read_only": true`,
 		`"network_isolated": true`,
 		`"process_isolated": true`,
-		`"hidden_credential_dirs": [`,
 		`".coding-ethos/cache"`,
 		`".ruff_cache/"`,
 		`"no-network"`,

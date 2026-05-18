@@ -92,6 +92,44 @@ func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
 	}
 }
 
+func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
+	attributes := cgroup.SysProcAttr()
+	if attributes == nil {
+		attributes = &syscall.SysProcAttr{}
+	}
+
+	attributes.Setpgid = true
+	if evidence.Enabled {
+		attributes.Cloneflags |= (syscall.CLONE_NEWUSER |
+			syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWIPC |
+			syscall.CLONE_NEWPID)
+
+		if !evidence.RequiresNetwork {
+			attributes.Cloneflags |= syscall.CLONE_NEWNET
+		}
+
+		attributes.UidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getuid(),
+			Size:        1,
+		}}
+		attributes.GidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getgid(),
+			Size:        1,
+		}}
+		attributes.GidMappingsEnableSetgroups = false
+	}
+
+	return attributes
+}
+
+func nativeNamespaceSupported() bool {
+	return true
+}
+
 func (cgroup *Cgroup) Close() error {
 	if cgroup == nil {
 		return nil

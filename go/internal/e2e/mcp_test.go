@@ -334,7 +334,7 @@ func testMCPToolCapabilities(t *testing.T, client *MCPClient) {
 	}
 
 	if capabilities.Kind != "tool_capabilities" ||
-		capabilities.Sandbox.DefaultBackend != "bubblewrap" ||
+		capabilities.Sandbox.DefaultBackend != "native" ||
 		capabilities.Sandbox.RequiredMode != "fail_closed" {
 		t.Fatalf("tool capability metadata mismatch: %#v", capabilities)
 	}

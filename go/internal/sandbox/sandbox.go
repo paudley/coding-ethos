@@ -9,14 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
 const (
@@ -24,33 +23,23 @@ const (
 	ModeAuto     = "auto"
 	ModeRequired = "required"
 
-	BackendBubblewrap = "bubblewrap"
+	BackendNative = "native"
 
 	cgroupLineParts     = 3
-	firstExtraFileFD    = 3
-	privateDirMode      = 0o700
-	sandboxRootDir      = "/"
 	toolFallbackName    = "tool"
-	virtualDeviceDir    = "/dev"
-	virtualHomeDir      = "/home"
-	virtualProcDir      = "/proc"
-	virtualRootHomeDir  = "/root"
-	virtualTemporaryDir = "/tmp"
+	nativeSandboxBinary = "coding-ethos-sandbox"
+	nativeProbeTimeout  = 10
 )
 
 var (
-	ErrBackendUnavailable = apperror.StaticError("sandbox backend unavailable")
-	errBubblewrapNotFound = apperror.StaticError("bubblewrap executable not found")
-	errBubblewrapPlatform = apperror.StaticError(
-		"bubblewrap sandbox requires Linux namespace support",
+	ErrBackendUnavailable       = apperror.StaticError("sandbox backend unavailable")
+	errEmptySandboxPath         = apperror.StaticError("empty path")
+	errSandboxExecutable        = apperror.StaticError("sandbox executable is required")
+	errSandboxWrapper           = apperror.StaticError("sandbox wrapper is required")
+	errNativeSeccompUnsupported = apperror.StaticError(
+		"native sandbox seccomp profiles are not implemented",
 	)
-	errEmptySandboxPath  = apperror.StaticError("empty path")
-	errSandboxExecutable = apperror.StaticError("sandbox executable is required")
 )
-
-func supportsBubblewrap() bool {
-	return runtime.GOOS == "linux"
-}
 
 func cgroupRootPath() string {
 	for _, path := range cgroupRootCandidates() {
@@ -134,6 +123,7 @@ type Request struct {
 	Mode         string
 	RepoRoot     string
 	Tool         string
+	WrapperPath  string
 	Args         []string
 	Capabilities Capabilities
 }
@@ -164,6 +154,7 @@ type Evidence struct {
 	CPUQuotaPercent      int      `json:"cpu_quota_percent,omitempty"`
 	RequiresGit          bool     `json:"requires_git,omitempty"`
 	GitReadOnly          bool     `json:"git_read_only,omitempty"`
+	RepoReadOnly         bool     `json:"repo_read_only,omitempty"`
 	ReadOnlyRoot         bool     `json:"read_only_root,omitempty"`
 	NetworkIsolated      bool     `json:"network_isolated,omitempty"`
 	ProcessIsolated      bool     `json:"process_isolated,omitempty"`
@@ -173,6 +164,7 @@ type Evidence struct {
 	RequiresProcesses    bool     `json:"requires_processes,omitempty"`
 	RequiresEnv          bool     `json:"requires_env,omitempty"`
 	SeccompEnabled       bool     `json:"seccomp_enabled,omitempty"`
+	NamespaceEnforced    bool     `json:"namespace_enforced,omitempty"`
 	Enabled              bool     `json:"enabled"`
 	Denied               bool     `json:"denied,omitempty"`
 	RequiresNetwork      bool     `json:"requires_network,omitempty"`
@@ -195,36 +187,23 @@ func BuildPlan(request Request) (Plan, error) {
 		return unsandboxedPlan(request, evidence), nil
 	}
 
-	if !supportsBubblewrap() {
-		return deniedSandboxPlan(evidence, errBubblewrapPlatform)
-	}
-
-	backendPath, err := resolveBackendPath(request.BackendPath)
-	if err != nil {
-		return deniedSandboxPlan(evidence, err)
-	}
-
 	evidence.Enabled = true
-	evidence.BackendPath = backendPath
-	args := bubblewrapArgs(request)
+	evidence.NamespaceEnforced = nativeNamespaceSupported()
 
-	extraFiles, seccompArgs, seccompEnabled, seccompErr := seccompPlanFiles(
-		request.Capabilities.SeccompProfilePath,
-	)
-	if seccompErr != nil {
-		return deniedSeccompPlan(evidence, seccompErr)
+	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
+		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
 	}
 
-	evidence.SeccompEnabled = seccompEnabled
+	wrapper, wrapperErr := nativeWrapperPath(request)
+	if wrapperErr != nil {
+		return deniedSandboxPlan(evidence, wrapperErr)
+	}
 
-	args = append(args, seccompArgs...)
-	args = append(args, request.Executable)
-	args = append(args, request.Args...)
+	evidence.BackendPath = wrapper
 
 	return Plan{
-		Executable: backendPath,
-		Args:       args,
-		ExtraFiles: extraFiles,
+		Executable: wrapper,
+		Args:       nativeWrapperArgs(request, evidence.WritePaths),
 		Evidence:   evidence,
 	}, nil
 }
@@ -251,16 +230,12 @@ func deniedSandboxPlan(evidence Evidence, cause error) (Plan, error) {
 }
 
 func backendEvidenceReason(cause error) string {
-	if errors.Is(cause, errBubblewrapNotFound) {
-		return errBubblewrapNotFound.Error()
-	}
-
 	return cause.Error()
 }
 
 func deniedSeccompPlan(evidence Evidence, cause error) (Plan, error) {
 	evidence.Denied = true
-	evidence.Reason = "seccomp profile could not be opened"
+	evidence.Reason = cause.Error()
 
 	return Plan{
 			Evidence: evidence,
@@ -269,45 +244,6 @@ func deniedSeccompPlan(evidence Evidence, cause error) (Plan, error) {
 			ErrBackendUnavailable,
 			cause,
 		)
-}
-
-func seccompPlanFiles(profilePath string) ([]*os.File, []string, bool, error) {
-	if strings.TrimSpace(profilePath) == "" {
-		return nil, nil, false, nil
-	}
-
-	profile, err := os.Open(filepath.Clean(profilePath))
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("open seccomp profile: %w", err)
-	}
-
-	return []*os.File{profile},
-		[]string{"--seccomp", strconv.Itoa(firstExtraFileFD)},
-		true,
-		nil
-}
-
-func resolveBackendPath(configuredPath string) (string, error) {
-	backendPath := strings.TrimSpace(configuredPath)
-	if backendPath == "" {
-		resolvedPath, err := exec.LookPath("bwrap")
-		if err != nil {
-			return "", fmt.Errorf("%w: %w", errBubblewrapNotFound, err)
-		}
-
-		return resolvedPath, nil
-	}
-
-	info, err := os.Stat(backendPath)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", errBubblewrapNotFound, err)
-	}
-
-	if info.IsDir() {
-		return "", errBubblewrapNotFound
-	}
-
-	return backendPath, nil
 }
 
 func (plan Plan) Close() error {
@@ -344,123 +280,130 @@ func Execute(
 	return plan.Evidence, run(plan.Executable, plan.Args, plan.Evidence)
 }
 
-func bubblewrapArgs(request Request) []string {
-	repoRoot := filepath.Clean(firstNonEmpty(request.RepoRoot, request.Cwd, "."))
-	cwd := filepath.Clean(firstNonEmpty(request.Cwd, repoRoot))
-	gitDir := filepath.Join(repoRoot, ".git")
-
-	args := baseBubblewrapArgs(request.Capabilities.RequiresNetwork)
-	args = append(args, sandboxParentDirArgs(repoRoot)...)
-	args = append(args, sandboxRepoArgs(repoRoot, gitDir)...)
-	args = append(
-		args,
-		sandboxReadBindArgs(repoRoot, request.Capabilities.ReadPaths)...)
-	args = append(
-		args,
-		sandboxWriteBindArgs(repoRoot, gitDir, request.Capabilities.WritePaths)...,
-	)
-	args = append(args, sandboxExecutableArgs(request.Executable)...)
-
-	return append(args, "--chdir", cwd)
-}
-
-func baseBubblewrapArgs(requiresNetwork bool) []string {
-	args := []string{
-		"--die-with-parent",
-		"--unshare-pid",
-		"--proc", virtualProcDir,
-		"--dev", virtualDeviceDir,
-		"--ro-bind", sandboxRootDir, sandboxRootDir,
-		"--tmpfs", virtualTemporaryDir,
-		"--tmpfs", virtualRootHomeDir,
-		"--tmpfs", virtualHomeDir,
-	}
-	if !requiresNetwork {
-		args = append(args, "--unshare-net")
+// ValidateNativeRuntimeWithHelper proves the wrapper can apply native sandbox
+// policy and execute a trivial command.
+func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
+	repoRoot, err := os.MkdirTemp("", "coding-ethos-sandbox-probe-")
+	if err != nil {
+		return Evidence{}, fmt.Errorf("create native sandbox probe repo: %w", err)
 	}
 
-	return args
-}
+	defer func() { _ = os.RemoveAll(repoRoot) }()
 
-func sandboxParentDirArgs(repoRoot string) []string {
-	args := []string{}
+	plan, err := BuildPlan(Request{
+		Mode:        ModeRequired,
+		Tool:        "sandbox-probe",
+		Executable:  "/bin/sh",
+		WrapperPath: wrapperPath,
+		Cwd:         repoRoot,
+		RepoRoot:    repoRoot,
+		Args:        nativeProbeArgs(),
+		Capabilities: Capabilities{
+			SandboxProfile: "native-probe",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		return plan.Evidence, err
+	}
 
-	for _, dir := range destinationParentDirs(repoRoot) {
-		if sandboxDirRequired(dir) {
-			args = append(args, "--dir", dir)
+	defer func() { _ = plan.Close() }()
+
+	ctx, cancel := CommandContext(context.Background(), nativeProbeTimeout)
+	defer cancel()
+
+	command := safeexec.CommandContext(ctx, plan.Executable, plan.Args...)
+	command.Dir = repoRoot
+	command.SysProcAttr = SysProcAttr(nil, plan.Evidence)
+
+	output, runErr := command.CombinedOutput()
+	if runErr != nil {
+		plan.Evidence.Denied = true
+		plan.Evidence.Reason = strings.TrimSpace(string(output))
+
+		if plan.Evidence.Reason == "" {
+			plan.Evidence.Reason = runErr.Error()
 		}
+
+		return plan.Evidence, fmt.Errorf(
+			"%w: %s: %w",
+			ErrBackendUnavailable,
+			plan.Evidence.Reason,
+			runErr,
+		)
 	}
 
-	return args
+	return validateNativeProbeSideEffects(repoRoot, plan.Evidence)
 }
 
-func sandboxRepoArgs(repoRoot, gitDir string) []string {
-	args := []string{"--ro-bind", repoRoot, repoRoot}
-	if pathExists(gitDir) {
-		args = append(args, "--ro-bind", gitDir, gitDir)
+func nativeProbeArgs() []string {
+	script := "printf ok > .coding-ethos/cache/probe"
+	if nativeNamespaceSupported() {
+		script += " && if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
 	}
 
-	return args
+	return []string{"-c", script}
 }
 
-func sandboxReadBindArgs(repoRoot string, paths []string) []string {
-	args := []string{}
+func validateNativeProbeSideEffects(
+	repoRoot string,
+	evidence Evidence,
+) (Evidence, error) {
+	allowedProbe := filepath.Join(repoRoot, ".coding-ethos", "cache", "probe")
+	allowedContent, readErr := os.ReadFile(allowedProbe)
 
-	for _, path := range paths {
-		bind := normalizedBindPath(repoRoot, path)
-		if bind != "" && bind != repoRoot && pathExists(bind) {
-			args = append(args, "--ro-bind", bind, bind)
-		}
+	if readErr != nil || strings.TrimSpace(string(allowedContent)) != "ok" {
+		evidence.Denied = true
+		evidence.Reason = "native sandbox did not permit declared write path"
+
+		return evidence, fmt.Errorf(
+			"%w: %s",
+			ErrBackendUnavailable,
+			evidence.Reason,
+		)
 	}
 
-	return args
-}
-
-func sandboxWriteBindArgs(repoRoot, gitDir string, paths []string) []string {
-	args := []string{}
-
-	for _, path := range paths {
-		bind := normalizedBindPath(repoRoot, path)
-		if writableSandboxBind(repoRoot, gitDir, path, bind) {
-			args = append(args, "--bind", bind, bind)
-		}
+	if !nativeNamespaceSupported() {
+		return evidence, nil
 	}
 
-	return args
-}
+	blockedProbe := filepath.Join(repoRoot, "blocked")
 
-func sandboxExecutableArgs(executable string) []string {
-	if strings.TrimSpace(executable) == "" || !pathExists(executable) {
-		return nil
+	_, statErr := os.Stat(blockedProbe)
+	if statErr == nil {
+		evidence.Denied = true
+		evidence.Reason = "native sandbox permitted undeclared repository write"
+
+		return evidence, fmt.Errorf(
+			"%w: %s",
+			ErrBackendUnavailable,
+			evidence.Reason,
+		)
 	}
 
-	args := []string{}
+	if !os.IsNotExist(statErr) {
+		evidence.Denied = true
+		evidence.Reason = statErr.Error()
 
-	for _, dir := range destinationParentDirs(executable) {
-		if sandboxDirRequired(dir) {
-			args = append(args, "--dir", dir)
-		}
+		return evidence, fmt.Errorf(
+			"%w: inspect blocked write probe: %w",
+			ErrBackendUnavailable,
+			statErr,
+		)
 	}
 
-	return append(args, "--ro-bind", executable, executable)
-}
-
-func writableSandboxBind(repoRoot, gitDir, requestedPath, bind string) bool {
-	return bind != "" &&
-		!isWithinPath(bind, gitDir) &&
-		ensureBindPath(repoRoot, requestedPath, bind)
+	return evidence, nil
 }
 
 func (request Request) evidence(mode string) Evidence {
 	return Evidence{
-		Mode:                 mode,
-		Backend:              BackendBubblewrap,
-		Profile:              request.Capabilities.SandboxProfile,
-		Tool:                 request.Tool,
-		Command:              append([]string{request.Executable}, request.Args...),
-		Tags:                 append([]string(nil), request.Capabilities.Tags...),
-		HiddenCredentialDirs: []string{"/home", "/root"},
-		ReadPaths:            append([]string(nil), request.Capabilities.ReadPaths...),
+		Mode:      mode,
+		Backend:   BackendNative,
+		Profile:   request.Capabilities.SandboxProfile,
+		Tool:      request.Tool,
+		Command:   append([]string{request.Executable}, request.Args...),
+		Tags:      append([]string(nil), request.Capabilities.Tags...),
+		ReadPaths: append([]string(nil), request.Capabilities.ReadPaths...),
 		WritePaths: sandboxWritePaths(
 			request.RepoRoot,
 			request.Cwd,
@@ -475,9 +418,9 @@ func (request Request) evidence(mode string) Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		GitReadOnly:       true,
-		ReadOnlyRoot:      true,
+		RepoReadOnly:      nativeNamespaceSupported(),
 		NetworkIsolated:   !request.Capabilities.RequiresNetwork,
-		ProcessIsolated:   true,
+		ProcessIsolated:   nativeNamespaceSupported(),
 		TimeoutEnforced:   request.Capabilities.TimeoutSeconds > 0,
 		CgroupRequested: request.Capabilities.MemoryMB > 0 ||
 			request.Capabilities.CPUQuotaPercent > 0,
@@ -606,6 +549,66 @@ func normalizeSandboxRequest(request Request) (Request, error) {
 	return request, nil
 }
 
+func nativeWrapperPath(request Request) (string, error) {
+	path := strings.TrimSpace(request.WrapperPath)
+	if path == "" {
+		path = strings.TrimSpace(request.BackendPath)
+	}
+
+	if path == "" {
+		path = filepath.Join(filepath.Dir(request.Executable), nativeSandboxBinaryName())
+	}
+
+	wrapper, err := absoluteSandboxPath(path)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errSandboxWrapper, err)
+	}
+
+	resolved, resolveErr := filepath.EvalSymlinks(wrapper)
+	if resolveErr == nil {
+		wrapper = resolved
+	}
+
+	info, statErr := os.Stat(wrapper)
+	if statErr != nil {
+		return "", fmt.Errorf("%w: %w", errSandboxWrapper, statErr)
+	}
+
+	if info.IsDir() ||
+		(runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
+		return "", fmt.Errorf("%w: %s is not executable", errSandboxWrapper, wrapper)
+	}
+
+	return wrapper, nil
+}
+
+func nativeSandboxBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return nativeSandboxBinary + ".exe"
+	}
+
+	return nativeSandboxBinary
+}
+
+func nativeWrapperArgs(request Request, writePaths []string) []string {
+	args := make([]string, 0, 4+2*len(writePaths)+2+len(request.Args))
+	args = append(args,
+		"--cwd",
+		request.Cwd,
+		"--repo-root",
+		request.RepoRoot,
+	)
+
+	for _, path := range writePaths {
+		args = append(args, "--write-path", path)
+	}
+
+	args = append(args, "--", request.Executable)
+	args = append(args, request.Args...)
+
+	return args
+}
+
 func absoluteSandboxPath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -622,33 +625,6 @@ func absoluteSandboxPath(path string) (string, error) {
 	}
 
 	return filepath.Clean(absolute), nil
-}
-
-func destinationParentDirs(path string) []string {
-	cleaned := filepath.Clean(path)
-
-	dirs := []string{}
-	for dir := filepath.Dir(cleaned); dir != "." &&
-		dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-		dirs = append(dirs, dir)
-	}
-
-	for left, right := 0, len(dirs)-1; left < right; left, right = left+1, right-1 {
-		dirs[left], dirs[right] = dirs[right], dirs[left]
-	}
-
-	return dirs
-}
-
-func sandboxDirRequired(path string) bool {
-	roots := []string{virtualHomeDir, virtualRootHomeDir, virtualTemporaryDir}
-	for _, root := range roots {
-		if path == root || isWithinPath(path, root) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func isWithinPath(path, parent string) bool {
@@ -668,24 +644,6 @@ func isWithinPath(path, parent string) bool {
 		relative != "" &&
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) &&
 		relative != ".."
-}
-
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-
-	return err == nil
-}
-
-func ensureBindPath(repoRoot, requestedPath, path string) bool {
-	if pathExists(path) {
-		return true
-	}
-
-	if filepath.IsAbs(requestedPath) || !isWithinPath(path, repoRoot) {
-		return false
-	}
-
-	return os.MkdirAll(path, privateDirMode) == nil
 }
 
 func firstNonEmpty(values ...string) string {

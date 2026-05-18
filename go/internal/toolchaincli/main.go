@@ -159,6 +159,7 @@ func toolchainCommandHandlers() map[string]toolchainCommandHandler {
 		"repo-ignore-fix-items":     repoIgnoreFixItems,
 		"runtime-fix-items":         runtimeFixItems,
 		"sha256":                    printSHA256,
+		"validate-sandbox-runtime":  validateSandboxRuntimeCommand,
 		"verify-git-hooks":          verifyGitHooks,
 	}
 }
@@ -203,6 +204,8 @@ func usageLines() []string {
 		"  coding-ethos-toolchain runtime-fix-items",
 		"    --input runtime-output.txt",
 		"  coding-ethos-toolchain sha256 --file path",
+		"  coding-ethos-toolchain validate-sandbox-runtime",
+		"    --sandbox-mode required",
 		"  coding-ethos-toolchain verify-git-hooks",
 		"    --hooks-dir .git/hooks --runner bin/coding-ethos-run",
 	}

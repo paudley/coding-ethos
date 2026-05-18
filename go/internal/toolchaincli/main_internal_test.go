@@ -923,6 +923,93 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 	}
 }
 
+func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
+	wrapper := buildSandboxHelper(t)
+
+	err := validateSandboxRuntimeWithWrapperPath("required", wrapper)
+	if err != nil {
+		t.Fatalf("validateSandboxRuntime() error = %v", err)
+	}
+}
+
+func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
+	t.Parallel()
+
+	err := validateSandboxRuntimeWithWrapperPath("required", "/bin/true")
+	if err == nil {
+		t.Fatal("validateSandboxRuntimeWithWrapperPath() error = nil")
+	}
+}
+
+func TestValidateSandboxRuntimeSkipsOffMode(t *testing.T) {
+	t.Parallel()
+
+	err := validateSandboxRuntime("off")
+	if err != nil {
+		t.Fatalf("validateSandboxRuntime(off) error = %v", err)
+	}
+}
+
+func buildSandboxHelper(t *testing.T) string {
+	t.Helper()
+
+	output := filepath.Join(t.TempDir(), "coding-ethos-sandbox")
+	command := exec.Command(
+		"go",
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = filepath.Clean(filepath.Join("..", ".."))
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+
+	return output
+}
+
+func TestSandboxDependencyDiagnosticReportsNativeRuntime(t *testing.T) {
+	t.Parallel()
+
+	err := sandboxDependencyDiagnostic(errors.New("operation not permitted"))
+
+	var diagnosticErr sandboxDependencyDiagnosticError
+	if !errors.As(err, &diagnosticErr) {
+		t.Fatalf("validation error = %T %v, want diagnostic error", err, err)
+	}
+
+	diagnostics := diagnosticErr.Diagnostics()
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v, want one", diagnostics)
+	}
+
+	diagnostic := diagnostics[0]
+	if diagnostic.Tool != "managed-toolchain" ||
+		diagnostic.Code != "native-sandbox-unavailable" ||
+		diagnostic.PolicyID != "runtime.sandbox_dependency" ||
+		diagnostic.SkillID != "managed-toolchain" {
+		t.Fatalf("unexpected diagnostic: %#v", diagnostic)
+	}
+}
+
+func TestRunCLIEmitsSandboxRuntimeUsage(t *testing.T) {
+	t.Parallel()
+
+	stderr := captureToolchainStderr(t, func() { usage() })
+
+	for _, want := range []string{
+		"validate-sandbox-runtime",
+		"--sandbox-mode required",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
 func TestRepoIgnoreFixItemLines(t *testing.T) {
 	t.Parallel()
 
