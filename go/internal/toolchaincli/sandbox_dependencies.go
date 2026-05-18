@@ -17,11 +17,15 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
-var errSandboxModeRequired = apperror.StaticError(
-	"validate-sandbox-runtime requires --sandbox-mode",
+var (
+	errSandboxModeRequired = apperror.StaticError(
+		"validate-sandbox-runtime requires --sandbox-mode",
+	)
+	errUnsupportedSandboxMode = apperror.StaticError("unsupported sandbox mode")
+	errSandboxWrapperPath     = apperror.StaticError(
+		"determine native sandbox wrapper path",
+	)
 )
-
-var errUnsupportedSandboxMode = apperror.StaticError("unsupported sandbox mode")
 
 type sandboxDependencyDiagnosticError struct {
 	cause      error
@@ -62,9 +66,21 @@ func validateSandboxRuntimeCommand(args []string) error {
 }
 
 func validateSandboxRuntime(sandboxMode string) error {
+	switch strings.ToLower(strings.TrimSpace(sandboxMode)) {
+	case sandbox.ModeOff:
+		return nil
+	case "":
+		return errSandboxModeRequired
+	}
+
+	wrapperPath, err := defaultNativeSandboxWrapperPath()
+	if err != nil {
+		return sandboxDependencyDiagnostic(err)
+	}
+
 	return validateSandboxRuntimeWithWrapperPath(
 		sandboxMode,
-		defaultNativeSandboxWrapperPath(),
+		wrapperPath,
 	)
 }
 
@@ -86,13 +102,13 @@ func validateSandboxRuntimeWithWrapperPath(sandboxMode, wrapperPath string) erro
 	}
 }
 
-func defaultNativeSandboxWrapperPath() string {
+func defaultNativeSandboxWrapperPath() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("%w: %w", errSandboxWrapperPath, err)
 	}
 
-	return filepath.Join(filepath.Dir(executable), "coding-ethos-sandbox")
+	return filepath.Join(filepath.Dir(executable), "coding-ethos-sandbox"), nil
 }
 
 func sandboxDependencyDiagnostic(cause error) error {

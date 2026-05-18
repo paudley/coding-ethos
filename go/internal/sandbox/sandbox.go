@@ -296,10 +296,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		WrapperPath: wrapperPath,
 		Cwd:         repoRoot,
 		RepoRoot:    repoRoot,
-		Args: []string{
-			"-c",
-			"printf ok > .coding-ethos/cache/probe && ! : > blocked",
-		},
+		Args:        nativeProbeArgs(),
 		Capabilities: Capabilities{
 			SandboxProfile: "native-probe",
 			WritePaths:     []string{".coding-ethos/cache"},
@@ -338,6 +335,15 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	return validateNativeProbeSideEffects(repoRoot, plan.Evidence)
 }
 
+func nativeProbeArgs() []string {
+	script := "printf ok > .coding-ethos/cache/probe"
+	if nativeNamespaceSupported() {
+		script += " && if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
+	}
+
+	return []string{"-c", script}
+}
+
 func validateNativeProbeSideEffects(
 	repoRoot string,
 	evidence Evidence,
@@ -354,6 +360,10 @@ func validateNativeProbeSideEffects(
 			ErrBackendUnavailable,
 			evidence.Reason,
 		)
+	}
+
+	if !nativeNamespaceSupported() {
+		return evidence, nil
 	}
 
 	blockedProbe := filepath.Join(repoRoot, "blocked")
@@ -571,20 +581,13 @@ func nativeWrapperPath(request Request) (string, error) {
 }
 
 func nativeWrapperArgs(request Request, writePaths []string) []string {
-	args := []string{
+	args := make([]string, 0, 4+2*len(writePaths)+2+len(request.Args))
+	args = append(args,
 		"--cwd",
 		request.Cwd,
 		"--repo-root",
 		request.RepoRoot,
-	}
-
-	if request.Capabilities.RequiresNetwork {
-		args = append(args, "--network")
-	}
-
-	for _, path := range request.Capabilities.ReadPaths {
-		args = append(args, "--read-path", path)
-	}
+	)
 
 	for _, path := range writePaths {
 		args = append(args, "--write-path", path)

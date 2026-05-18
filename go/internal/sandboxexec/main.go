@@ -96,17 +96,13 @@ func execSandboxedCommand(options options) error {
 func parseOptions(args []string) (options, error) {
 	var (
 		parsed     = options{paths: &sandboxPaths{}}
-		readPaths  repeatedPaths
 		writePaths repeatedPaths
-		network    bool
 	)
 
 	flags := flag.NewFlagSet(sandboxExecCommandName, flag.ContinueOnError)
 
 	flags.StringVar(&parsed.paths.cwd, "cwd", "", "Sandbox working directory")
 	flags.StringVar(&parsed.paths.repoRoot, "repo-root", "", "Repository root")
-	flags.BoolVar(&network, "network", false, "Network namespace is shared")
-	flags.Var(&readPaths, "read-path", "Readable repository path")
 	flags.Var(&writePaths, "write-path", "Writable repository path")
 
 	err := flags.Parse(args)

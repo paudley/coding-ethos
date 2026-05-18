@@ -77,7 +77,6 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 	for _, want := range []string{
 		"--cwd", repo,
 		"--repo-root", repo,
-		"--read-path", "pkg",
 		"--write-path", ".coding-ethos/cache",
 		"--", toolRuffPath,
 		"check", "pkg",
@@ -161,8 +160,8 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
-	if slices.Contains(plan.Args, "--network") != true {
-		t.Fatalf("network-capable tool should pass --network: %#v", plan.Args)
+	if slices.Contains(plan.Args, "--network") {
+		t.Fatalf("network capability is enforced by outer namespace attrs: %#v", plan.Args)
 	}
 	if !plan.Evidence.RequiresNetwork || plan.Evidence.NetworkIsolated {
 		t.Fatalf("network capability not recorded: %#v", plan.Evidence)

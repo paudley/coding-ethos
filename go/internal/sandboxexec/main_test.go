@@ -21,7 +21,6 @@ func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
 	parsed, err := parseOptions([]string{
 		"--cwd", root,
 		"--repo-root", root,
-		"--read-path", "pkg",
 		"--write-path", ".coding-ethos/cache",
 		"--",
 		"/bin/true",

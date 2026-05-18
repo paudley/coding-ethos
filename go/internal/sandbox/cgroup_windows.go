@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-//go:build !linux && !windows
+//go:build windows
 
 package sandbox
 
@@ -28,14 +28,7 @@ func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
 }
 
 func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
-	attributes := cgroup.SysProcAttr()
-	if attributes == nil {
-		attributes = &syscall.SysProcAttr{}
-	}
-
-	attributes.Setpgid = true
-
-	return attributes
+	return cgroup.SysProcAttr()
 }
 
 func nativeNamespaceSupported() bool {
