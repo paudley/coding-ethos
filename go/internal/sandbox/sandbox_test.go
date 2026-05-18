@@ -271,14 +271,14 @@ func TestValidateNativeRuntimeEvidence(t *testing.T) {
 	}
 }
 
-func TestValidateNativeRuntimeWithHelperUsesWrapper(t *testing.T) {
+func TestValidateNativeRuntimeWithHelperRejectsNoopWrapper(t *testing.T) {
 	t.Parallel()
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/bin/true")
-	if err != nil {
-		t.Fatalf("ValidateNativeRuntimeWithHelper() error = %v evidence=%#v", err, evidence)
+	if err == nil {
+		t.Fatalf("ValidateNativeRuntimeWithHelper() error = nil evidence=%#v", evidence)
 	}
-	if evidence.Backend != sandbox.BackendNative || !evidence.Enabled {
+	if !evidence.Denied || evidence.Reason == "" {
 		t.Fatalf("helper validation evidence mismatch: %#v", evidence)
 	}
 }
@@ -289,7 +289,7 @@ func assertNativeEvidence(t *testing.T, evidence sandbox.Evidence) {
 	if !evidence.Enabled || evidence.Backend != sandbox.BackendNative {
 		t.Fatalf("evidence mismatch: %#v", evidence)
 	}
-	if evidence.ReadOnlyRoot != (runtime.GOOS == "linux") ||
+	if evidence.RepoReadOnly != (runtime.GOOS == "linux") ||
 		evidence.GitReadOnly != true {
 		t.Fatalf("filesystem evidence mismatch: %#v", evidence)
 	}

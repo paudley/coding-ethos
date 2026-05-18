@@ -48,7 +48,6 @@ func nativeRuntimeEvidence() Evidence {
 		NamespaceEnforced: true,
 		ProcessIsolated:   true,
 		NetworkIsolated:   true,
-		ReadOnlyRoot:      true,
 		GitReadOnly:       true,
 	}
 }

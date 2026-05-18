@@ -153,6 +153,7 @@ type Evidence struct {
 	CPUQuotaPercent      int      `json:"cpu_quota_percent,omitempty"`
 	RequiresGit          bool     `json:"requires_git,omitempty"`
 	GitReadOnly          bool     `json:"git_read_only,omitempty"`
+	RepoReadOnly         bool     `json:"repo_read_only,omitempty"`
 	ReadOnlyRoot         bool     `json:"read_only_root,omitempty"`
 	NetworkIsolated      bool     `json:"network_isolated,omitempty"`
 	ProcessIsolated      bool     `json:"process_isolated,omitempty"`
@@ -291,10 +292,14 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	plan, err := BuildPlan(Request{
 		Mode:        ModeRequired,
 		Tool:        "sandbox-probe",
-		Executable:  "/bin/true",
+		Executable:  "/bin/sh",
 		WrapperPath: wrapperPath,
 		Cwd:         repoRoot,
 		RepoRoot:    repoRoot,
+		Args: []string{
+			"-c",
+			"printf ok > .coding-ethos/cache/probe && ! : > blocked",
+		},
 		Capabilities: Capabilities{
 			SandboxProfile: "native-probe",
 			WritePaths:     []string{".coding-ethos/cache"},
@@ -322,22 +327,72 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 			plan.Evidence.Reason = runErr.Error()
 		}
 
-		return plan.Evidence, fmt.Errorf("%w: %w", ErrBackendUnavailable, runErr)
+		return plan.Evidence, fmt.Errorf(
+			"%w: %s: %w",
+			ErrBackendUnavailable,
+			plan.Evidence.Reason,
+			runErr,
+		)
 	}
 
-	return plan.Evidence, nil
+	return validateNativeProbeSideEffects(repoRoot, plan.Evidence)
+}
+
+func validateNativeProbeSideEffects(
+	repoRoot string,
+	evidence Evidence,
+) (Evidence, error) {
+	allowedProbe := filepath.Join(repoRoot, ".coding-ethos", "cache", "probe")
+	allowedContent, readErr := os.ReadFile(allowedProbe)
+
+	if readErr != nil || strings.TrimSpace(string(allowedContent)) != "ok" {
+		evidence.Denied = true
+		evidence.Reason = "native sandbox did not permit declared write path"
+
+		return evidence, fmt.Errorf(
+			"%w: %s",
+			ErrBackendUnavailable,
+			evidence.Reason,
+		)
+	}
+
+	blockedProbe := filepath.Join(repoRoot, "blocked")
+
+	_, statErr := os.Stat(blockedProbe)
+	if statErr == nil {
+		evidence.Denied = true
+		evidence.Reason = "native sandbox permitted undeclared repository write"
+
+		return evidence, fmt.Errorf(
+			"%w: %s",
+			ErrBackendUnavailable,
+			evidence.Reason,
+		)
+	}
+
+	if !os.IsNotExist(statErr) {
+		evidence.Denied = true
+		evidence.Reason = statErr.Error()
+
+		return evidence, fmt.Errorf(
+			"%w: inspect blocked write probe: %w",
+			ErrBackendUnavailable,
+			statErr,
+		)
+	}
+
+	return evidence, nil
 }
 
 func (request Request) evidence(mode string) Evidence {
 	return Evidence{
-		Mode:                 mode,
-		Backend:              BackendNative,
-		Profile:              request.Capabilities.SandboxProfile,
-		Tool:                 request.Tool,
-		Command:              append([]string{request.Executable}, request.Args...),
-		Tags:                 append([]string(nil), request.Capabilities.Tags...),
-		HiddenCredentialDirs: []string{"/home", "/root"},
-		ReadPaths:            append([]string(nil), request.Capabilities.ReadPaths...),
+		Mode:      mode,
+		Backend:   BackendNative,
+		Profile:   request.Capabilities.SandboxProfile,
+		Tool:      request.Tool,
+		Command:   append([]string{request.Executable}, request.Args...),
+		Tags:      append([]string(nil), request.Capabilities.Tags...),
+		ReadPaths: append([]string(nil), request.Capabilities.ReadPaths...),
 		WritePaths: sandboxWritePaths(
 			request.RepoRoot,
 			request.Cwd,
@@ -352,7 +407,7 @@ func (request Request) evidence(mode string) Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		GitReadOnly:       true,
-		ReadOnlyRoot:      nativeNamespaceSupported(),
+		RepoReadOnly:      nativeNamespaceSupported(),
 		NetworkIsolated:   !request.Capabilities.RequiresNetwork,
 		ProcessIsolated:   nativeNamespaceSupported(),
 		TimeoutEnforced:   request.Capabilities.TimeoutSeconds > 0,

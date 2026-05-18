@@ -42,7 +42,7 @@ sandbox profile. Ordinary linters receive explicit `no-network` and `no-git`
 capability tags so MCP responses, traces, SARIF, and CEL policies can
 distinguish "capability denied by default" from "capability not documented."
 
-Consumer repositories can add required sandbox read/write mounts in
+Consumer repositories can add required sandbox read/write paths in
 `repo_config.yaml`:
 
 ```yaml
@@ -80,16 +80,16 @@ owns the contract.
 ## Runtime Strategy
 
 The sandbox backend is native Go-owned Linux namespace execution. The managed
-capture parent starts `coding-ethos-sandbox` inside new user, mount, PID, UTS,
-IPC, and network namespaces where the requested tool does not declare network
-access. The helper then applies filesystem policy inside that namespace and
+capture parent starts `coding-ethos-sandbox` inside new user, PID, UTS, IPC,
+and network namespaces where the requested tool does not declare network
+access. The helper then applies Linux Landlock filesystem policy before it
 execs the managed tool. Go owns request construction, policy facts, traces, and
 normalized output; sandboxing does not depend on a host package manager,
 Docker, or a third-party wrapper.
 
 The initial Go prototype lives in `go/internal/sandbox`. Managed lint capture
 can request it with `coding-ethos-lint --managed-capture-tool <tool>
---sandbox-mode required`. The default remains `off` until the mount profile is
+--sandbox-mode required`. The default remains `off` until the native profile is
 proven across the full managed toolchain, because silently changing every
 developer lint invocation would make failures harder to attribute. In
 any sandboxed mode, a missing native helper or failed namespace setup is a
@@ -99,23 +99,20 @@ unsandboxed execution when a tool declares a sandbox profile.
 The checkout build treats that dependency contract as a gate, not a runtime
 surprise. `make build` invokes `coding-ethos-toolchain
 validate-sandbox-runtime --sandbox-mode required`, which launches a minimal
-native namespace probe. On Linux, missing or unusable namespace support fails
-the build with a blocking `runtime.sandbox_dependency` diagnostic. Non-Linux
-platforms do not advertise Linux namespace enforcement; they record
-best-available execution evidence instead.
+native namespace probe that proves declared writes succeed and undeclared
+repository writes are blocked. On Linux, missing or unusable namespace or
+Landlock support fails the build with a blocking `runtime.sandbox_dependency`
+diagnostic. Non-Linux platforms do not advertise Linux namespace enforcement;
+they record best-available execution evidence instead.
 
-The current mount profile is explicit and evidence-backed:
+The current native profile is explicit and evidence-backed:
 
-- `coding-ethos-sandbox` remounts `/` read-only inside the private mount
-  namespace;
-- `/home` and `/root` are mounted as tmpfs to hide ordinary user credential
-  stores;
-- destination parent directories are recreated inside the sandbox before the
-  repo is rebound;
-- the repository is mounted read-only;
-- `.git` is mounted read-only as its own enforcement point;
-- declared write paths are mounted read/write only when they do not target
-  `.git`.
+- `coding-ethos-sandbox` installs a Landlock ruleset that handles filesystem
+  mutation operations;
+- the repository and `.git` are read-only by default because no write rule is
+  granted for them;
+- declared write paths receive write rules only when they stay inside the
+  repository and do not target `.git`;
 - ordinary offline tools receive a private PID namespace and a disconnected
   network namespace; tools that declare `requires_network` keep network access
   only when policy allows that capability.
@@ -123,9 +120,8 @@ The current mount profile is explicit and evidence-backed:
 The target default profile for ordinary managed linters is:
 
 - no network namespace access;
-- read-only root filesystem;
+- read-only repository filesystem;
 - read-only `.git`;
-- hidden credential directories such as `.ssh`, `.aws`, and cloud CLI config;
 - read/write access only to declared repository paths;
 - no host process visibility;
 - bounded timeout, memory, and CPU;

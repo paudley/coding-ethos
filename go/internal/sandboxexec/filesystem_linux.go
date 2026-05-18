@@ -6,70 +6,44 @@
 package sandboxexec
 
 import (
-	"context"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"syscall"
-	"time"
+	"unsafe"
 
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
+	"golang.org/x/sys/unix"
 )
 
+var errLandlockParentFDRange = errors.New("landlock parent fd out of range")
+
 const (
-	privateDirMode        = 0o700
-	remountCommandTimeout = 5 * time.Second
+	privateDirMode      = 0o700
+	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
+		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
+		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
+		unix.LANDLOCK_ACCESS_FS_MAKE_CHAR |
+		unix.LANDLOCK_ACCESS_FS_MAKE_DIR |
+		unix.LANDLOCK_ACCESS_FS_MAKE_REG |
+		unix.LANDLOCK_ACCESS_FS_MAKE_SOCK |
+		unix.LANDLOCK_ACCESS_FS_MAKE_FIFO |
+		unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK |
+		unix.LANDLOCK_ACCESS_FS_MAKE_SYM |
+		unix.LANDLOCK_ACCESS_FS_REFER |
+		unix.LANDLOCK_ACCESS_FS_TRUNCATE
 )
 
 func applyFilesystemPolicy(options options) error {
-	var errs []error
-
-	err := makeMountsPrivate()
-	if err != nil {
-		return err
-	}
-
 	writePaths, err := prepareWritablePaths(options)
 	if err != nil {
 		return err
 	}
 
-	err = bindPath(options.paths.repoRoot)
+	err = applyLandlockWritePolicy(writePaths)
 	if err != nil {
-		return err
-	}
-
-	for _, path := range []string{"/home", "/root"} {
-		err = hideCredentialDir(path)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	for _, path := range writePaths {
-		err = bindWritablePath(path)
-		if err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	err = remountReadOnly(options.paths.repoRoot)
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	err = remountReadOnly("/")
-	if err != nil {
-		errs = append(errs, err)
-	}
-
-	return joinPolicyErrors(errs...)
-}
-
-func makeMountsPrivate() error {
-	err := syscall.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
-	if err != nil {
-		return fmt.Errorf("make mount namespace private: %w", err)
+		return fmt.Errorf("apply landlock write policy: %w", err)
 	}
 
 	return nil
@@ -100,72 +74,96 @@ func prepareWritablePaths(options options) ([]string, error) {
 	return paths, nil
 }
 
-func hideCredentialDir(path string) error {
-	_, err := os.Stat(path)
+func applyLandlockWritePolicy(writePaths []string) error {
+	ruleset, err := createLandlockRuleset()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		return err
+	}
+
+	defer func() { _ = ruleset.Close() }()
+
+	for _, path := range writePaths {
+		err = addLandlockWriteRule(ruleset.Fd(), path)
+		if err != nil {
+			return err
 		}
-
-		return fmt.Errorf("stat credential directory %s: %w", path, err)
 	}
 
-	err = syscall.Mount(
-		"tmpfs",
-		path,
-		"tmpfs",
-		syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC,
-		"size=1m,mode=0700",
+	err = unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+	if err != nil {
+		return fmt.Errorf("enable no_new_privs before landlock: %w", err)
+	}
+
+	_, _, errno := unix.Syscall(
+		unix.SYS_LANDLOCK_RESTRICT_SELF,
+		ruleset.Fd(),
+		0,
+		0,
 	)
-	if err != nil {
-		return fmt.Errorf("hide credential directory %s: %w", path, err)
+	if errno != 0 {
+		return fmt.Errorf("restrict process with landlock: %w", errno)
 	}
 
 	return nil
 }
 
-func remountReadOnly(path string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), remountCommandTimeout)
-	defer cancel()
+func createLandlockRuleset() (*os.File, error) {
+	attributes := unix.LandlockRulesetAttr{Access_fs: landlockWriteAccess}
 
-	command := safeexec.CommandContext(
-		ctx,
-		"/bin/mount",
-		"-o",
-		"remount,bind,ro",
-		path,
-		path,
+	rulesetFD, _, errno := unix.Syscall(
+		unix.SYS_LANDLOCK_CREATE_RULESET,
+		uintptr(unsafe.Pointer(&attributes)),
+		unsafe.Sizeof(attributes),
+		0,
 	)
+	if errno != 0 {
+		return nil, fmt.Errorf("create landlock ruleset: %w", errno)
+	}
 
-	output, err := command.CombinedOutput()
+	return os.NewFile(rulesetFD, "landlock-ruleset"), nil
+}
+
+func addLandlockWriteRule(rulesetFD uintptr, path string) error {
+	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf(
-			"remount %s read-only: %w: %s",
-			path,
-			err,
-			string(output),
-		)
+		return fmt.Errorf("open landlock writable path %s: %w", path, err)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	parentFD, err := landlockParentFD(file)
+	if err != nil {
+		return err
+	}
+
+	rule := unix.LandlockPathBeneathAttr{
+		Allowed_access: landlockWriteAccess,
+		Parent_fd:      parentFD,
+	}
+
+	_, _, errno := unix.Syscall6(
+		unix.SYS_LANDLOCK_ADD_RULE,
+		rulesetFD,
+		uintptr(unix.LANDLOCK_RULE_PATH_BENEATH),
+		uintptr(unsafe.Pointer(&rule)),
+		0,
+		0,
+		0,
+	)
+	if errno != 0 {
+		return fmt.Errorf("add landlock writable path %s: %w", path, errno)
 	}
 
 	return nil
 }
 
-func bindWritablePath(path string) error {
-	err := bindPath(path)
-	if err != nil {
-		return fmt.Errorf("bind mount writable path %s: %w", path, err)
+func landlockParentFD(file *os.File) (int32, error) {
+	fileDescriptor := file.Fd()
+	if fileDescriptor > math.MaxInt32 {
+		return 0, fmt.Errorf("%w: %d", errLandlockParentFDRange, fileDescriptor)
 	}
 
-	return nil
-}
-
-func bindPath(path string) error {
-	err := syscall.Mount(path, path, "", syscall.MS_BIND, "")
-	if err != nil {
-		return fmt.Errorf("bind mount %s: %w", path, err)
-	}
-
-	return nil
+	return int32(fileDescriptor), nil
 }
 
 func sandboxedCommandSysProcAttr() *syscall.SysProcAttr {

@@ -228,8 +228,8 @@ behavior or resource bounds.
 
 Runtime sandboxing is the complementary data plane. The current Go runtime can
 run managed lint capture through a repo-owned native helper with Linux
-namespaces, a read-only root, read-only repository and `.git`, hidden home
-directories, disconnected network for offline tools, declared writable mounts,
+namespaces, Linux Landlock write policy for a read-only repository and `.git`,
+disconnected network for offline tools, declared writable paths,
 hard timeouts, cgroup resource requests, and seccomp profile metadata. Linux
 cgroup limits are prepared before process start in a delegated hierarchy and
 cleaned up after exit. Required sandbox mode fails closed with a normalized
@@ -314,7 +314,7 @@ The first tools are intentionally narrow and auditable:
   severity mappings, and noisy rules for policy authors.
 - `tool_capabilities`: list managed tool capabilities, including network/Git
   tags, sandbox profile, timeout, memory, CPU, seccomp profile metadata, and
-  declared read/write mounts.
+  declared read/write paths.
 - `policy_explain`: return the compiled explanation for a policy ID.
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` item into

@@ -37,7 +37,7 @@ skill metadata used by those enforcement paths.
   weak severity mappings, and noisy rules for policy authors.
 - `tool_capabilities`: list managed tool sandbox capabilities, including
   `no-network`/`network`, `no-git`/`git`, sandbox profile, timeout, memory,
-  CPU, seccomp profile metadata, and read/write mount declarations.
+  CPU, seccomp profile metadata, and read/write path declarations.
 - `policy_explain`: explain a compiled policy and its ETHOS grounding.
 - `skill_lookup`: return the generated skill playbook for a skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` payload into
