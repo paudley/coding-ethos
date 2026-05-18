@@ -77,6 +77,8 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	t.Helper()
 
 	repo := preparedManagedLintRepo(t)
+	repo.EthosRoot = repoLocalCoverageRuntime(t, repo)
+	repo.Touch(t, "repo_config.yaml", managedGitCommitRepoConfig())
 	install := repo.CodingEthosRun(t, "parent-install", "--repo", repo.Root)
 	install.RequireExit(t, 0)
 
@@ -97,6 +99,21 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	repo.ResetTraces(t)
 
 	return repo
+}
+
+func managedGitCommitRepoConfig() string {
+	return strings.Join([]string{
+		"hooks:",
+		"  enabled_groups:",
+		"    - python-policy",
+		"python:",
+		"  pytest_gate:",
+		"    enabled: false",
+		"lint:",
+		"  source_roots:",
+		"    - pkg",
+		"",
+	}, "\n")
 }
 
 func cleanCommitPython() string {
@@ -144,6 +161,7 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 		"hooks",
 	)
 	hooksDir.RequireExit(t, 0)
+	hooksRoot := strings.TrimSpace(hooksDir.Stdout)
 
 	runner := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-run")
 	toolchain := filepath.Join(repo.EthosRoot, "bin", "coding-ethos-toolchain")
@@ -155,7 +173,7 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 		toolchain,
 		"install-git-hooks",
 		"--hooks-dir",
-		strings.TrimSpace(hooksDir.Stdout),
+		hooksRoot,
 		"--runner",
 		runner,
 	)
@@ -174,6 +192,76 @@ func installManagedGitEntrypoints(t *testing.T, repo e2e.Repo) {
 		runner,
 	)
 	shim.RequireExit(t, 0)
+}
+
+func repoLocalCoverageRuntime(t *testing.T, repo e2e.Repo) string {
+	t.Helper()
+
+	if strings.TrimSpace(os.Getenv("GOCOVERDIR")) == "" {
+		return repo.EthosRoot
+	}
+
+	runtimeRoot := filepath.Join(repo.Root, ".git", "coding-ethos-e2e-runtime")
+	binRoot := filepath.Join(runtimeRoot, "bin")
+	err := os.MkdirAll(binRoot, 0o700)
+	if err != nil {
+		t.Fatalf("create repo-local coverage runtime: %v", err)
+	}
+
+	binaries, err := filepath.Glob(filepath.Join(repo.EthosRoot, "bin", "*"))
+	if err != nil {
+		t.Fatalf("list instrumented runtime binaries: %v", err)
+	}
+	for _, source := range binaries {
+		copyRuntimeFile(t, source, filepath.Join(binRoot, filepath.Base(source)))
+	}
+
+	for _, entry := range []string{
+		"build",
+		"config.yaml",
+		"coding_ethos.yml",
+		".venv",
+		"go",
+		"pre-commit",
+		"repo_ethos.yml",
+	} {
+		source := filepath.Join(repo.EthosRoot, entry)
+		info, err := os.Stat(source)
+		if err != nil {
+			if entry == ".venv" && os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("stat runtime entry %s: %v", source, err)
+		}
+
+		target := filepath.Join(runtimeRoot, entry)
+		if info.Mode().IsRegular() {
+			copyRuntimeFile(t, source, target)
+			continue
+		}
+
+		if err := os.Symlink(source, target); err != nil {
+			t.Fatalf("symlink runtime entry %s: %v", entry, err)
+		}
+	}
+
+	return runtimeRoot
+}
+
+func copyRuntimeFile(t *testing.T, source, target string) {
+	t.Helper()
+
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatalf("stat runtime binary %s: %v", source, err)
+	}
+	payload, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read runtime binary %s: %v", source, err)
+	}
+	if err := os.WriteFile(target, payload, info.Mode().Perm()); err != nil {
+		t.Fatalf("write runtime binary %s: %v", target, err)
+	}
 }
 
 func realGitPath(t *testing.T) string {
@@ -226,7 +314,11 @@ func managedGit(t *testing.T, repo e2e.Repo, args ...string) e2e.CommandResult {
 	return e2e.RunWithEnv(
 		t,
 		repo.Root,
-		map[string]string{"PATH": managedPath},
+		map[string]string{
+			"CODE_ETHOS_CONSUMER_ROOT":  repo.Root,
+			"CODE_ETHOS_PRECOMMIT_ROOT": filepath.Join(repo.EthosRoot, "pre-commit"),
+			"PATH":                      managedPath,
+		},
 		append([]string{
 			"git",
 		}, args...)...)
