@@ -58,7 +58,7 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 		)
 	}
 	for _, want := range []string{
-		"tool: module_docstrings",
+		"MODULE DOCSTRING CHECK FAILED",
 		"pkg/module_doc_failure.py",
 		"python.module_docs",
 		"module docstring has",
