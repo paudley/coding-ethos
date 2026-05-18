@@ -168,7 +168,6 @@ func landlockParentFD(file *os.File) (int32, error) {
 
 func sandboxedCommandSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWPID,
-		Setpgid:    true,
+		Setpgid: true,
 	}
 }

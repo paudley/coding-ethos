@@ -103,7 +103,8 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 		attributes.Cloneflags |= (syscall.CLONE_NEWUSER |
 			syscall.CLONE_NEWNS |
 			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC)
+			syscall.CLONE_NEWIPC |
+			syscall.CLONE_NEWPID)
 
 		if !evidence.RequiresNetwork {
 			attributes.Cloneflags |= syscall.CLONE_NEWNET
