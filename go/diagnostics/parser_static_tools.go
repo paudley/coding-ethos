@@ -457,6 +457,7 @@ func parseBandit(output string) []Diagnostic {
 }
 
 type banditOutput struct {
+	Errors  []string       `json:"errors"`
 	Results []banditResult `json:"results"`
 }
 
@@ -483,7 +484,7 @@ func decodeBanditOutput(output string) (banditOutput, error) {
 func recognizesCleanBanditOutput(output string) bool {
 	payload, err := decodeBanditOutput(output)
 
-	return err == nil && len(payload.Results) == 0
+	return err == nil && len(payload.Errors) == 0 && len(payload.Results) == 0
 }
 
 func banditSeverity(value string) string {

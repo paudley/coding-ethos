@@ -51,8 +51,6 @@ def require_principle_order(
         return int(item["order"])
     except (KeyError, TypeError, ValueError):
         error(source, f"principle `{principle_id}` must define an integer `order`.")
-        message = "unreachable"
-        raise AssertionError(message) from None
 
 
 def require_principle_sections(

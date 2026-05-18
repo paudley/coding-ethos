@@ -624,6 +624,35 @@ func TestRunCapturedToolSuppressesCleanBanditJSONReport(t *testing.T) {
 	}
 }
 
+func TestRunCapturedToolReportsBanditErrorsAsVisibleOutput(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+
+	result := capturedToolResult(
+		captureRequest{
+			Tool:      "bandit",
+			Parser:    "bandit",
+			Cwd:       repo,
+			TraceRoot: repo,
+			Args:      []string{".bandit.yml"},
+		},
+		captureExecution{
+			Stdout:   `{"errors":["pkg/missing.py: No such file"],"results":[]}`,
+			ExitCode: 0,
+			RunArgs:  []string{"bandit", "-q", "-f", "json", "-c", ".bandit.yml"},
+		},
+	)
+
+	if len(result.Findings) == 0 {
+		t.Fatalf("Bandit report with errors did not produce visible-output finding")
+	}
+
+	if result.Capture.ParseStatus != capturedOutputKey {
+		t.Fatalf("parse status = %q, want %s", result.Capture.ParseStatus, capturedOutputKey)
+	}
+}
+
 func TestRunCapturedToolSuppressesCleanRadonComplexityJSONReport(t *testing.T) {
 	t.Parallel()
 

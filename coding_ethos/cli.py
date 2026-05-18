@@ -9,7 +9,12 @@ Public imports stay aligned.
 
 import argparse
 
-from coding_ethos.cli_generation import load_bundle, render_contents, write_outputs
+from coding_ethos.cli_generation import (
+    load_bundle,
+    print_written_paths,
+    render_contents,
+    write_outputs,
+)
 from coding_ethos.cli_options import (
     MergeSettings,
     build_parser,
@@ -44,7 +49,7 @@ def generate_outputs(args: argparse.Namespace, merge_settings: MergeSettings) ->
         rendered,
         merge_settings=merge_settings,
     )
-    print("\n".join(str(path) for path in written))
+    print_written_paths(written)
     return 0
 
 

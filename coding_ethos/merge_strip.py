@@ -14,7 +14,8 @@ def strip_managed_blocks(content: str) -> str:
     """Remove managed coding-ethos blocks from a root file."""
     stripped = content
     pattern = re.compile(
-        r"<!-- coding-ethos:begin .*?<!-- coding-ethos:end .*?-->", re.DOTALL
+        r"<!-- coding-ethos:begin .*? -->.*?<!-- coding-ethos:end .*? -->",
+        re.DOTALL,
     )
     while True:
         updated = pattern.sub("", stripped)

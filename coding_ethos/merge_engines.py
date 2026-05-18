@@ -81,6 +81,19 @@ def format_process_output(stdout: str, stderr: str) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _terminate_merge_process(process: subprocess.Popen[str], *, force: bool) -> None:
+    signal_value = (
+        getattr(signal, "SIGKILL", signal.SIGTERM) if force else signal.SIGTERM
+    )
+    if os.name != "nt" and hasattr(os, "killpg"):
+        os.killpg(process.pid, signal_value)
+        return
+    if force:
+        process.kill()
+        return
+    process.terminate()
+
+
 def run_command_with_timeout(
     *,
     command: list[str],
@@ -90,27 +103,29 @@ def run_command_with_timeout(
     engine: str,
 ) -> tuple[int, str, str]:
     """Provide focused helper behavior for the split module."""
-    process = subprocess.Popen(
+    with subprocess.Popen(
         command,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
-    )
-    try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        os.killpg(process.pid, signal.SIGTERM)
+    ) as process:
         try:
-            stdout, stderr = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
-        output = format_process_output(stdout or "", stderr or "")
-        details = f"\n\n{output}" if output else ""
-        raise MergeTimeoutError(engine, target_name, timeout_seconds, details) from exc
-    return process.returncode, stdout, stderr
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_merge_process(process, force=False)
+            try:
+                stdout, stderr = process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                _terminate_merge_process(process, force=True)
+                stdout, stderr = process.communicate()
+            output = format_process_output(stdout or "", stderr or "")
+            details = f"\n\n{output}" if output else ""
+            raise MergeTimeoutError(
+                engine, target_name, timeout_seconds, details
+            ) from exc
+        return process.returncode, stdout, stderr
 
 
 def merge_with_engine(
