@@ -335,6 +335,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	startedAt := debuglog.ProcessEnter(argv, repoRoot)
 	output, runErr := command.CombinedOutput()
 	debuglog.ProcessExit(startedAt, argv, repoRoot, sandboxProbeExitCode(runErr), runErr)
+
 	if runErr != nil {
 		plan.Evidence.Denied = true
 		plan.Evidence.Reason = strings.TrimSpace(string(output))

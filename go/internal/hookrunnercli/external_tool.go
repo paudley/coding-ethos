@@ -58,10 +58,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 		}
 	}
 
-	timeout := request.TimeoutSeconds
-	if timeout <= 0 {
-		timeout = loadHookSettings().ToolTimeoutSeconds
-	}
+	timeout := externalToolTimeout(request)
 
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
@@ -90,6 +87,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 		commandExitCode(err),
 		err,
 	)
+
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 
@@ -128,6 +126,14 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	result.RunnerFailure = err
 
 	return result
+}
+
+func externalToolTimeout(request externalToolRequest) int {
+	if request.TimeoutSeconds > 0 {
+		return request.TimeoutSeconds
+	}
+
+	return loadHookSettings().ToolTimeoutSeconds
 }
 
 func externalToolCombinedOutput(stdout, stderr string) string {

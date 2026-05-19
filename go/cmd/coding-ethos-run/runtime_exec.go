@@ -182,6 +182,7 @@ func (defaultRuntimeExecutor) runTool(paths runtimePaths, tool string, args ...s
 		err,
 		zap.String("runtime_tool", tool),
 	)
+
 	if err != nil {
 		exitErr(err)
 	}
@@ -320,6 +321,7 @@ func (defaultRuntimeExecutor) execExternal(path string, args ...string) {
 		err,
 		zap.Bool("runtime_external", true),
 	)
+
 	if err != nil {
 		exitErr(err)
 	}

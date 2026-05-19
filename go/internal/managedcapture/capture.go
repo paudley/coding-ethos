@@ -332,22 +332,14 @@ func startCapturedProcess(
 	}
 
 	argv := capturedProcessArgv(plan)
-	startedAt := debuglog.ProcessEnter(
+	process, startedAt, startErr := startCapturedOSProcess(
+		request,
+		plan,
+		files,
 		argv,
-		request.Cwd,
-		zap.String("tool", request.Tool),
-		zap.Bool("sandboxed", true),
-		zap.String("sandbox_backend", evidence.Backend),
-	)
-	process, startErr := os.StartProcess(
-		plan.Executable,
-		argv,
-		&os.ProcAttr{
-			Dir:   request.Cwd,
-			Env:   capturedProcessEnv(os.Environ(), cacheEnv),
-			Files: files,
-			Sys:   capturedProcessSysProcAttr(cgroup, evidence),
-		},
+		cacheEnv,
+		cgroup,
+		evidence,
 	)
 
 	_ = stdoutWriter.Close()
@@ -356,15 +348,14 @@ func startCapturedProcess(
 	var buffers captureBuffers
 
 	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
+
 	if startErr != nil {
-		debuglog.ProcessExit(
+		debugCapturedProcessExit(
 			startedAt,
 			argv,
-			request.Cwd,
+			request,
 			capturedExitCode(startErr),
 			startErr,
-			zap.String("tool", request.Tool),
-			zap.Bool("sandboxed", true),
 		)
 
 		return failedProcessStartResult(copyDone, cacheEnv, startErr)
@@ -372,14 +363,12 @@ func startCapturedProcess(
 
 	assignErr := cgroup.AssignProcess(process)
 	if assignErr != nil {
-		debuglog.ProcessExit(
+		debugCapturedProcessExit(
 			startedAt,
 			argv,
-			request.Cwd,
+			request,
 			capturedExitCode(assignErr),
 			assignErr,
-			zap.String("tool", request.Tool),
-			zap.Bool("sandboxed", true),
 		)
 
 		return failedCgroupAssignmentResult(
@@ -400,14 +389,12 @@ func startCapturedProcess(
 
 	exitCode := capturedProcessExitCode(state, waitErr)
 
-	debuglog.ProcessExit(
+	debugCapturedProcessExit(
 		startedAt,
 		argv,
-		request.Cwd,
+		request,
 		exitCode,
 		errors.Join(waitErr, copyErr),
-		zap.String("tool", request.Tool),
-		zap.Bool("sandboxed", true),
 	)
 
 	return processResult{

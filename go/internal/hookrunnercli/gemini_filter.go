@@ -196,6 +196,7 @@ func changedLinesForGeminiFile(path, scope string) map[int]struct{} {
 	startedAt := debuglog.ProcessEnter(argv, "")
 	output, err := cmd.Output()
 	debuglog.ProcessExit(startedAt, argv, "", commandExitCode(err), err)
+
 	if err != nil {
 		return map[int]struct{}{}
 	}
@@ -225,6 +226,7 @@ func isGeminiAddedOrUntracked(ctx context.Context, path string) bool {
 		argv[1:]...,
 	).Output()
 	debuglog.ProcessExit(startedAt, argv, "", commandExitCode(err), err)
+
 	if err != nil {
 		return false
 	}

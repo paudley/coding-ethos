@@ -77,6 +77,7 @@ func EvaluateExternalCommand(
 		externalCommandExitCode(err),
 		err,
 	)
+
 	if err == nil {
 		return nil, nil
 	}

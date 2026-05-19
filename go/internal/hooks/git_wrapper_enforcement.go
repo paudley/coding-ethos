@@ -68,11 +68,7 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if !routeOK ||
-		commandDelegatesGitWorkToAgent(command) ||
-		commandHasDynamicExecutable(command) ||
-		commandReferencesUnmanagedGit(command) ||
-		evasiveGitShell(command) {
+	if gitRouteBlocksCommand(command, routeOK) {
 		return InspectionRoute{
 			Reason: sentence(
 				gitWrapperCircumventionRefusal,
@@ -83,6 +79,14 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func gitRouteBlocksCommand(command string, routeOK bool) bool {
+	return !routeOK ||
+		commandDelegatesGitWorkToAgent(command) ||
+		commandHasDynamicExecutable(command) ||
+		commandReferencesUnmanagedGit(command) ||
+		evasiveGitShell(command)
 }
 
 func commandDelegatesGitWorkToAgent(command string) bool {

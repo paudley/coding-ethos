@@ -926,6 +926,7 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 		commandExitCode(err),
 		err,
 	)
+
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
 

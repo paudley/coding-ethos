@@ -115,13 +115,9 @@ func runWithStatus(options Options) (int, error) {
 
 	debugWriter := io.MultiWriter(options.Stderr, logs.stderr)
 
-	err = debuglog.Configure(
-		options.Debug || debuglog.EnabledFromEnv(),
-		runDir,
-		debugWriter,
-	)
+	debugEnabled, err := configureRunDebugLog(options, runDir, debugWriter)
 	if err != nil {
-		return 1, fmt.Errorf("configure debug logging: %w", err)
+		return 1, err
 	}
 
 	metadataPath := filepath.Join(runDir, "metadata.env")
@@ -132,7 +128,7 @@ func runWithStatus(options Options) (int, error) {
 		RepoRoot:   options.Root,
 		BundleRoot: options.BundleRoot,
 		Command:    options.Command,
-		Debug:      options.Debug || debuglog.EnabledFromEnv(),
+		Debug:      debugEnabled,
 	})
 	if err != nil {
 		return 1, err
@@ -170,6 +166,21 @@ func runWithStatus(options Options) (int, error) {
 	maintenanceErr := refreshCodeIntelAfterRun(options, runDir)
 
 	return completedHookStatus(status, err, maintenanceErr)
+}
+
+func configureRunDebugLog(
+	options Options,
+	runDir string,
+	debugWriter io.Writer,
+) (bool, error) {
+	debugEnabled := options.Debug || debuglog.EnabledFromEnv()
+
+	err := debuglog.Configure(debugEnabled, runDir, debugWriter)
+	if err != nil {
+		return false, fmt.Errorf("configure debug logging: %w", err)
+	}
+
+	return debugEnabled, nil
 }
 
 func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) {

@@ -281,6 +281,7 @@ func runDocstringCoverage(
 		commandExitCode(err),
 		err,
 	)
+
 	if err == nil {
 		return 0, stdout.String(), stderr.String(), nil
 	}
