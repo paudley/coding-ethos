@@ -156,7 +156,7 @@ func TestRunAllowsANSICQuotedMultilineCommitMessage(t *testing.T) {
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			HookEventName: eventPreToolUse,
-			ProviderHint:  "codex",
+			ProviderHint:  "claude",
 			ToolName:      toolBash,
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -337,7 +337,7 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	preResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: eventPreToolUse,
-			ProviderHint:  "codex",
+			ProviderHint:  "claude",
 			ToolName:      toolBash,
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -356,7 +356,7 @@ func TestRunBlocksWhenCommitHeadDidNotAdvance(t *testing.T) {
 	postResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: eventPostToolUse,
-			ProviderHint:  "codex",
+			ProviderHint:  "claude",
 			ToolName:      toolBash,
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -397,7 +397,7 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	preResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: eventPreToolUse,
-			ProviderHint:  "codex",
+			ProviderHint:  "claude",
 			ToolName:      toolBash,
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -416,7 +416,7 @@ func TestRunRecordsCommitHeadWhenPostToolResponseLacksReturnCode(t *testing.T) {
 	postResult, err := Run(bundle, Options{
 		Event: Event{
 			HookEventName: eventPostToolUse,
-			ProviderHint:  "codex",
+			ProviderHint:  "claude",
 			ToolName:      toolBash,
 			Cwd:           repo,
 			ToolInput: map[string]any{
@@ -1163,7 +1163,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunAllowsCodexGitWithoutUnsupportedUpdatedInput(t *testing.T) {
+func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1181,12 +1181,16 @@ func TestRunAllowsCodexGitWithoutUnsupportedUpdatedInput(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != statusBlocked {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
 			result.Decisions,
 		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 
 	if result.HookSpecificOutput != nil &&
@@ -1195,6 +1199,85 @@ func TestRunAllowsCodexGitWithoutUnsupportedUpdatedInput(t *testing.T) {
 			"Codex must not receive unsupported updatedInput: %#v",
 			result.HookSpecificOutput,
 		)
+	}
+}
+
+func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cerun -- git status",
+		"cerun --rewrite -- git status",
+		"cerun -- 'git status'",
+		"bin/coding-ethos-run agent-shell -- git status",
+		"bin/coding-ethos-run agent-shell --rewrite -- git status",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "codex",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed {
+				t.Fatalf(
+					"status for %q = %q decisions %#v",
+					command,
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
+	}
+}
+
+func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"echo cerun -- git status",
+		"true && cerun -- git status",
+		"cerun -- git status; /usr/bin/git push",
+		"coding-ethos-run agent-shell -- git status",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "codex",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusBlocked {
+				t.Fatalf(
+					"status for %q = %q decisions %#v",
+					command,
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
 	}
 }
 
@@ -3533,11 +3616,12 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		t.Fatalf("run nearest hook: %v", err)
 	}
 
-	if result.Status != statusAllowed ||
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "git.wrapper_required") ||
 		(result.HookSpecificOutput != nil &&
 			len(result.HookSpecificOutput.UpdatedInput) > 0) {
 		t.Fatalf(
-			"nested owner hook should allow without unsupported Codex rewrite, got %#v",
+			"nested owner hook should block unsupported Codex rewrite, got %#v",
 			result,
 		)
 	}
@@ -3719,7 +3803,7 @@ func TestRunRewritesGeminiGitCommandThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunRewritesCodexGitCommandFromDecodedEvent(t *testing.T) {
+func TestRunBlocksCodexGitCommandFromDecodedEvent(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
@@ -3740,8 +3824,12 @@ func TestRunRewritesCodexGitCommandFromDecodedEvent(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != statusBlocked {
 		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 
 	if result.HookSpecificOutput != nil &&

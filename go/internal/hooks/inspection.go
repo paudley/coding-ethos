@@ -16,11 +16,12 @@ type InspectionContext struct {
 }
 
 type InspectionRoute struct {
-	UpdatedInput  map[string]any
-	BlockPolicyID string
-	Reason        string
-	Block         bool
-	Rewrite       bool
+	UpdatedInput       map[string]any
+	BlockPolicyID      string
+	Reason             string
+	RemediationCommand string
+	Block              bool
+	Rewrite            bool
 }
 
 func collectInspectionContext(
@@ -91,6 +92,15 @@ func DecideInspection(
 		)
 	}
 
+	if route.Rewrite &&
+		!providerSupportsUpdatedInput(ctx.Provider) &&
+		resultStatus(decisions) != statusBlocked {
+		decisions = append(
+			decisions,
+			unsupportedRewriteDecision(bundle, route),
+		)
+	}
+
 	status := resultStatus(decisions)
 	if status == statusBlocked ||
 		(route.Rewrite && !providerSupportsUpdatedInput(ctx.Provider)) {
@@ -102,6 +112,33 @@ func DecideInspection(
 		Policies: decisions,
 		Status:   status,
 	}
+}
+
+func unsupportedRewriteDecision(
+	bundle policy.Bundle,
+	route InspectionRoute,
+) policy.Decision {
+	policyID := route.BlockPolicyID
+	if policyID == "" {
+		policyID = providerRewritePolicyID
+	}
+
+	decision := routeBlockDecision(
+		bundle,
+		policyID,
+		"Hook rewrite cannot be applied by this agent provider; blocking "+
+			"the original command instead of allowing an unmanaged command to run.",
+	)
+	if route.RemediationCommand != "" {
+		decision.Message = sentence(
+			decision.Message,
+			"Resubmit the command through: "+route.RemediationCommand,
+		)
+		decision.Suggestion = "Resubmit the command through: " +
+			route.RemediationCommand
+	}
+
+	return decision
 }
 
 func providerSupportsUpdatedInput(provider string) bool {

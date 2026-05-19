@@ -72,6 +72,12 @@ digest verification, archive extraction, and installed-manifest writes.
 prepends managed tool directories to `PATH`, and Go hook commands resolve
 managed absolute paths; host-global linter installs are not a runtime contract.
 
+Agent shell remediation uses the short `cerun --rewrite -- <command>` binary.
+`cerun` delegates to `coding-ethos-run agent-shell --rewrite -- <command>` so
+blocked providers can resubmit unmanaged shell commands through the
+coding-ethos runtime boundary and command rewrite rules without copying a long
+command prefix.
+
 ## Run
 
 From the bundle repo root:

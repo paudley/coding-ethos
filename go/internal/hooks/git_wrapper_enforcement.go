@@ -23,11 +23,27 @@ const (
 	tokenCommand       = "command"
 	tokenEnv           = "env"
 	wrappedToolArgs    = 2
+	cerunRunnerName    = "cerun"
 	wrapperRunnerName  = "coding-ethos-run"
 	wrapperRunnerPath  = "bin/coding-ethos-run"
 	agentToolClaude    = "claude"
 	agentToolCodex     = "codex"
 	agentToolGemini    = "gemini"
+)
+
+const (
+	agentShellCommandMinArgs              = 3
+	agentShellCommandNameIndex            = 0
+	agentShellSeparatorIndex              = 1
+	agentShellRewriteFlagIndex            = 1
+	agentShellRewriteSeparatorIndex       = 2
+	agentShellRunnerSubcommandIndex       = 1
+	agentShellRunnerSeparatorIndex        = 2
+	agentShellRunnerRewriteFlagIndex      = 2
+	agentShellRunnerRewriteSeparatorIndex = 3
+	agentShellRunnerCommandMinArgs        = 4
+	agentShellRewriteCommandMinArgs       = 4
+	agentShellRunnerRewriteMinArgs        = 5
 )
 
 const (
@@ -59,12 +75,18 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 				event.ToolInput,
 				rewritten,
 			),
-			Reason:  "Routed raw git through the approved git path.",
-			Rewrite: true,
+			BlockPolicyID:      gitWrapperPolicyID,
+			Reason:             "Routed raw git through the approved git path.",
+			RemediationCommand: cerunRemediation(command),
+			Rewrite:            true,
 		}
 	}
 
 	if routeOK && managedGitCommandChain(command) {
+		return InspectionRoute{}
+	}
+
+	if routeOK && managedAgentShellCommand(command) {
 		return InspectionRoute{}
 	}
 
@@ -146,6 +168,10 @@ func shellCommandHasDynamicExecutable(parsed shellparse.Command) bool {
 	}
 
 	return shellWordHasExpansion(parsed.Argv[0])
+}
+
+func cerunRemediation(command string) string {
+	return "cerun --rewrite -- " + shellQuote(command)
 }
 
 func shellWordHasExpansion(word string) bool {
@@ -250,6 +276,59 @@ func managedGitCommandChain(command string) bool {
 	return false
 }
 
+func managedAgentShellCommand(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) < 3 {
+		return false
+	}
+
+	if slices.ContainsFunc(tokens, isShellControlToken) {
+		return false
+	}
+
+	return agentShellSegment(tokens)
+}
+
+func agentShellSegment(segment []string) bool {
+	segment = trimLeadingEnvAssignments(segment)
+	if len(segment) < agentShellCommandMinArgs {
+		return false
+	}
+
+	switch filepath.Base(segment[agentShellCommandNameIndex]) {
+	case cerunRunnerName:
+		return cerunAgentShellSegment(segment)
+	case wrapperRunnerName:
+		return codingEthosAgentShellSegment(segment)
+	default:
+		return false
+	}
+}
+
+func cerunAgentShellSegment(segment []string) bool {
+	if len(segment) >= agentShellRewriteCommandMinArgs &&
+		segment[agentShellRewriteFlagIndex] == "--rewrite" {
+		return segment[agentShellRewriteSeparatorIndex] == "--"
+	}
+
+	return segment[agentShellSeparatorIndex] == "--"
+}
+
+func codingEthosAgentShellSegment(segment []string) bool {
+	if !isTrustedRunnerCommand(segment[agentShellCommandNameIndex]) ||
+		segment[agentShellRunnerSubcommandIndex] != "agent-shell" {
+		return false
+	}
+
+	if len(segment) >= agentShellRunnerRewriteMinArgs &&
+		segment[agentShellRunnerRewriteFlagIndex] == "--rewrite" {
+		return segment[agentShellRunnerRewriteSeparatorIndex] == "--"
+	}
+
+	return len(segment) >= agentShellRunnerCommandMinArgs &&
+		segment[agentShellRunnerSeparatorIndex] == "--"
+}
+
 func rewriteGitSegment(segment []string) (string, bool) {
 	if len(segment) == 0 {
 		return "", true
@@ -261,6 +340,10 @@ func rewriteGitSegment(segment []string) (string, bool) {
 
 	commandSegment := trimLeadingEnvAssignments(segment)
 	if len(commandSegment) == 0 {
+		return "", true
+	}
+
+	if agentShellSegment(commandSegment) {
 		return "", true
 	}
 

@@ -1081,6 +1081,47 @@ func TestRuntimeFailuresUseStructuredExitCodes(t *testing.T) {
 	}
 }
 
+func TestAgentShellCommandRequiresExplicitSeparator(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{},
+		{"git", "status"},
+		{"--"},
+		{"--", ""},
+	} {
+		if _, err := agentShellCommand(args); err == nil {
+			t.Fatalf("agentShellCommand(%#v) unexpectedly succeeded", args)
+		}
+	}
+}
+
+func TestAgentShellCommandBuildsShellCommand(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{"--", "git", "status", "pkg/a b.py"})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	if request.Command != "git status 'pkg/a b.py'" || request.Rewrite {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestAgentShellCommandParsesRewriteFlag(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{"--rewrite", "--", "git status"})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	if request.Command != "git status" || !request.Rewrite {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
 func TestRuntimeFileBinaryAndRunToolHappyPath(t *testing.T) { //nolint:paralleltest
 	root := t.TempDir()
 
@@ -1448,6 +1489,16 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		want string
 		args []string
 	}{
+		{
+			name: "agent shell",
+			args: []string{"agent-shell", "--", "git", "status"},
+			want: "direct-run:coding-ethos-toolchain install-git-shim " +
+				"--dest-dir " + paths.BinDir +
+				" --real-git " + paths.RealGit + " --runner " + paths.RunBinary + "\n" +
+				"run-lint:--install-shims --tools-bin-dir " + paths.BinDir +
+				" --runner " + paths.RunBinary + " --ethos-root " + paths.EthosRoot + "\n" +
+				"agent-shell:git status",
+		},
 		{
 			name: "policy lint",
 			args: []string{"policy-lint", "--scope", "staged"},
@@ -2075,6 +2126,10 @@ func (stub stubRuntimeOps) execLint(args ...string) {
 
 func (stub stubRuntimeOps) execAgentHook(args ...string) {
 	*stub.calls = append(*stub.calls, "agent-hook:"+strings.Join(args, " "))
+}
+
+func (stub stubRuntimeOps) execAgentShell(_ runtimePaths, command string) {
+	*stub.calls = append(*stub.calls, "agent-shell:"+command)
 }
 
 func (stub stubRuntimeOps) runInternalTool(tool string, args ...string) {

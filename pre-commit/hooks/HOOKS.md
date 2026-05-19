@@ -144,6 +144,13 @@ supported lifecycle and post-tool advice, and Gemini receives native `deny` /
 `systemMessage` responses for tool gates. Codex uses compact `systemMessage`
 only for supported events that do not expose `additionalContext`.
 
+When a provider cannot apply `updatedInput` rewrites, coding-ethos blocks the
+original unmanaged command instead of allowing it to run. The denial names the
+short `cerun --rewrite -- <command>` remediation. `cerun` is the agent-facing
+entrypoint for `coding-ethos-run agent-shell --rewrite -- <command>`; it keeps
+resubmission compact while routing the command through the coding-ethos runtime
+boundary and applying command rewrite rules before execution.
+
 Codex generation follows four invariants:
 
 - generated commands do not inline `PATH=` or other shell environment mutation;

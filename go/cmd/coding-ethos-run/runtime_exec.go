@@ -32,6 +32,7 @@ type runtimeExecutor interface {
 	runLint(args ...string) int
 	execLint(args ...string)
 	execAgentHook(args ...string)
+	execAgentShell(paths runtimePaths, command string)
 	runInternalTool(tool string, args ...string)
 	execInternalTool(tool string, args ...string)
 	runTool(paths runtimePaths, tool string, args ...string)
@@ -52,6 +53,40 @@ func (defaultRuntimeExecutor) execLint(args ...string) {
 
 func (defaultRuntimeExecutor) execAgentHook(args ...string) {
 	requestRuntimeExit(hookcli.Run(args, os.Stdin, os.Stdout, os.Stderr))
+}
+
+func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string) {
+	shellPath := "/usr/bin/env"
+	args := []string{"bash", "-lc", command}
+	process := safeexec.CommandContext(context.Background(), shellPath, args...)
+	process.Dir = paths.InvocationCWD
+	process.Stdin = os.Stdin
+	process.Stdout = os.Stdout
+	process.Stderr = os.Stderr
+
+	argv := append([]string{shellPath}, args...)
+	startedAt := debuglog.ProcessEnter(
+		argv,
+		paths.InvocationCWD,
+		zap.String("runtime_tool", "agent-shell"),
+		zap.String("consumer_root", paths.Root),
+	)
+	err := process.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		argv,
+		paths.InvocationCWD,
+		runtimeCommandExitCode(err),
+		err,
+		zap.String("runtime_tool", "agent-shell"),
+		zap.String("consumer_root", paths.Root),
+	)
+
+	if err != nil {
+		exitErr(err)
+	}
+
+	requestRuntimeExit(0)
 }
 
 func requirePolicyBundle(paths runtimePaths) {

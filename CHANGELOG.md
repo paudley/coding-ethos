@@ -11,6 +11,18 @@ and this project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added the `cerun` agent shell entrypoint and `coding-ethos-run agent-shell`
+  dispatch path so blocked providers can resubmit shell commands through the
+  coding-ethos runtime boundary and command rewrite rules with a short prefix.
+
+### Fixed
+
+- Block hook rewrites for agent providers that cannot apply rewritten tool
+  input, preventing raw Git commands from running after a managed
+  `policy-git` rewrite is dropped.
+
 ## [0.2.1] - 2026-05-03
 
 ### Fixed

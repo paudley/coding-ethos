@@ -1730,16 +1730,6 @@ func ValidateClaudeRewritePayload(stdout string, payload map[string]any) error {
 }
 
 func validateCodexRewriteProbe(result hookProbeResult) error {
-	if result.exitCode != 0 {
-		return apperror.Wrapf(
-			apperror.StaticError(
-				"codex git rewrite probe should allow without updatedInput, got exit %d",
-			),
-			"codex git rewrite probe should allow without updatedInput, got exit %d",
-			result.exitCode,
-		)
-	}
-
 	hookOutput, found := result.payload["hookSpecificOutput"].(map[string]any)
 	if found {
 		if _, hasUpdatedInput := hookOutput["updatedInput"]; hasUpdatedInput {
@@ -1753,7 +1743,7 @@ func validateCodexRewriteProbe(result hookProbeResult) error {
 		}
 	}
 
-	return nil
+	return validateCodexBlockProbe(result)
 }
 
 // ValidateCodexRewritePayload validates Codex doctor rewrite output.

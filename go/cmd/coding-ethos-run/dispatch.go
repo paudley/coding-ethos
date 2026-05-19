@@ -4,10 +4,17 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/hooks"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
+
+const agentShellBlockedExitCode = 2
 
 func run(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
@@ -49,6 +56,7 @@ func runCommandHandler(command string) (runHandler, bool) {
 func runCommandEntries() []runCommandEntry {
 	return []runCommandEntry{
 		{Command: "agent-hook", Handler: runAgentHookHandler},
+		{Command: "agent-shell", Handler: runAgentShellHandler},
 		{Command: "git-hook", Handler: runGitHook},
 		{Command: "lfs-hook", Handler: runLFSHook},
 		{Command: "agent-hooks", Handler: runAgentHooksHandler},
@@ -73,10 +81,123 @@ func runAgentHookHandler(paths runtimePaths, rest []string) error {
 	return nil
 }
 
+func runAgentShellHandler(paths runtimePaths, rest []string) error {
+	request, err := agentShellCommand(rest)
+	if err != nil {
+		return err
+	}
+
+	requirePolicyBundle(paths)
+	installGitWrapperShim(paths)
+	installLintToolShims(paths)
+
+	command := request.Command
+	if request.Rewrite {
+		rewritten, err := rewriteAgentShellCommand(paths, command)
+		if err != nil {
+			return err
+		}
+
+		command = rewritten
+	}
+
+	paths.executor().execAgentShell(paths, command)
+
+	return nil
+}
+
 func runAgentHooksHandler(paths runtimePaths, rest []string) error {
 	runAgentHooksCommand(paths, rest)
 
 	return nil
+}
+
+type agentShellRequest struct {
+	Command string
+	Rewrite bool
+}
+
+func agentShellCommand(args []string) (agentShellRequest, error) {
+	rewrite := false
+	if len(args) > 0 && args[0] == "--rewrite" {
+		rewrite = true
+		args = args[1:]
+	}
+
+	if len(args) < 2 || args[0] != "--" {
+		return agentShellRequest{}, apperror.StaticError(
+			"agent-shell requires [--rewrite] -- <command>",
+		)
+	}
+
+	commandArgs := args[1:]
+	if len(commandArgs) == 1 {
+		command := strings.TrimSpace(commandArgs[0])
+		if command == "" {
+			return agentShellRequest{}, apperror.StaticError(
+				"agent-shell command is empty",
+			)
+		}
+
+		return agentShellRequest{Command: command, Rewrite: rewrite}, nil
+	}
+
+	return agentShellRequest{
+		Command: shellCommand(commandArgs),
+		Rewrite: rewrite,
+	}, nil
+}
+
+func shellCommand(args []string) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		parts = append(parts, shellquote.Arg(arg))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func rewriteAgentShellCommand(paths runtimePaths, command string) (string, error) {
+	bundleFile, err := os.Open(paths.PolicyBundle)
+	if err != nil {
+		return "", fmt.Errorf("open policy bundle: %w", err)
+	}
+	defer bundleFile.Close()
+
+	bundle, err := policy.DecodeBundle(bundleFile)
+	if err != nil {
+		return "", fmt.Errorf("decode policy bundle: %w", err)
+	}
+
+	result, err := hooks.Run(bundle, hooks.Options{Event: hooks.Event{
+		ProviderHint:  "claude",
+		HookEventName: "PreToolUse",
+		ToolName:      "Bash",
+		Cwd:           paths.InvocationCWD,
+		ToolInput: map[string]any{
+			"command": command,
+		},
+	}})
+	if err != nil {
+		return "", fmt.Errorf("rewrite agent shell command: %w", err)
+	}
+
+	if result.Blocked() {
+		fmt.Fprintln(os.Stderr, hooks.ProviderBlockMessage(result))
+		requestRuntimeExit(agentShellBlockedExitCode)
+	}
+
+	if result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		return command, nil
+	}
+
+	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
+	if !ok || strings.TrimSpace(rewritten) == "" {
+		return command, nil
+	}
+
+	return rewritten, nil
 }
 
 func runPolicyLintHandler(paths runtimePaths, rest []string) error {
