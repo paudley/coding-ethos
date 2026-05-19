@@ -99,6 +99,25 @@ func assignCapturedProcessToCgroup(
 	), true
 }
 
+func failedCapturedProcessStart(
+	startedAt time.Time,
+	argv []string,
+	request captureRequest,
+	copyDone <-chan error,
+	cacheEnv sandboxCacheEnvironment,
+	startErr error,
+) processResult {
+	debugCapturedProcessExit(
+		startedAt,
+		argv,
+		request,
+		capturedExitCode(startErr),
+		startErr,
+	)
+
+	return failedProcessStartResult(copyDone, cacheEnv, startErr)
+}
+
 func startCapturedOSProcess(
 	request captureRequest,
 	plan sandbox.Plan,

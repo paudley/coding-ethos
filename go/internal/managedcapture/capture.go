@@ -342,15 +342,14 @@ func startCapturedProcess(
 	)
 
 	if startErr != nil {
-		debugCapturedProcessExit(
+		return failedCapturedProcessStart(
 			startedAt,
 			argv,
 			request,
-			capturedExitCode(startErr),
+			copyDone,
+			cacheEnv,
 			startErr,
 		)
-
-		return failedProcessStartResult(copyDone, cacheEnv, startErr)
 	}
 
 	if result, failed := assignCapturedProcessToCgroup(
