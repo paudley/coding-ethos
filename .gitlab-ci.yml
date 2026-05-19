@@ -21,7 +21,6 @@ coding_ethos_sarif:
     CODING_ETHOS_REPO_ROOT: .
     CODING_ETHOS_GATE_COMMAND: make check
     CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
-    CODING_ETHOS_SANDBOX_MODE: required
     CODING_ETHOS_FILES: ""
   script:
     - make -C "$CODING_ETHOS_PATH" build

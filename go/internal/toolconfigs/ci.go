@@ -29,7 +29,6 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: %s
       CODING_ETHOS_SARIF_PATH: %s
       CODING_ETHOS_SARIF_CATEGORY: %s
-      CODING_ETHOS_SANDBOX_MODE: %s
       CODING_ETHOS_FILES: ""
       CODING_ETHOS_GITHUB_BASE_REF: ${{ github.base_ref }}
       CODING_ETHOS_GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -113,24 +112,12 @@ type githubSARIFWorkflowSettings struct {
 	SARIFPath       string
 	ArtifactName    string
 	SARIFCategory   string
-	SandboxMode     string
 	Triggers        string
 	TimeoutMinutes  int
 }
 
-func sandboxModes() map[string]struct{} {
-	return map[string]struct{}{
-		"auto":     {},
-		"off":      {},
-		"required": {},
-	}
-}
-
 func renderGitHubSARIFWorkflow(config configMap) (string, error) {
-	settings, err := githubSARIFWorkflowSettingsFromConfig(config)
-	if err != nil {
-		return "", err
-	}
+	settings := githubSARIFWorkflowSettingsFromConfig(config)
 
 	return spdxHeader + fmt.Sprintf(
 		githubSARIFWorkflowTemplate,
@@ -141,24 +128,13 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		settings.GateCommand,
 		settings.SARIFPath,
 		settings.SARIFCategory,
-		settings.SandboxMode,
 		settings.ArtifactName,
 	), nil
 }
 
 func githubSARIFWorkflowSettingsFromConfig(
 	config configMap,
-) (githubSARIFWorkflowSettings, error) {
-	sandboxMode, err := configuredChoice(
-		config,
-		"generated_config.ci.github_actions.sandbox_mode",
-		"required",
-		sandboxModes(),
-	)
-	if err != nil {
-		return githubSARIFWorkflowSettings{}, err
-	}
-
+) githubSARIFWorkflowSettings {
 	return githubSARIFWorkflowSettings{
 		CodingEthosPath: configuredString(
 			config,
@@ -190,14 +166,13 @@ func githubSARIFWorkflowSettingsFromConfig(
 			"generated_config.ci.github_actions.sarif_category",
 			"policy",
 		),
-		SandboxMode: sandboxMode,
-		Triggers:    githubWorkflowTriggers(config),
+		Triggers: githubWorkflowTriggers(config),
 		TimeoutMinutes: configuredInt(
 			config,
 			"generated_config.ci.github_actions.timeout_minutes",
 			defaultCITimeoutMinutes,
 		),
-	}, nil
+	}
 }
 
 func githubWorkflowTriggers(config configMap) string {

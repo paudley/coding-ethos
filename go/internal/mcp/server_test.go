@@ -297,10 +297,15 @@ func writeManagedLintRuntimeFixture(t *testing.T, root string) {
 	}
 
 	ruffPath := filepath.Join(root, ".venv", "bin", "ruff")
+	sandboxPath := filepath.Join(root, "bin", "coding-ethos-sandbox")
 
 	err = os.MkdirAll(filepath.Dir(ruffPath), 0o700)
 	if err != nil {
 		t.Fatalf("create ruff fixture dir: %v", err)
+	}
+	err = os.MkdirAll(filepath.Dir(sandboxPath), 0o700)
+	if err != nil {
+		t.Fatalf("create sandbox fixture dir: %v", err)
 	}
 
 	writeExecutable(t, ruffPath, `#!/usr/bin/env sh
@@ -315,6 +320,16 @@ cat <<'JSON'
 ]
 JSON
 exit 1
+`)
+	writeExecutable(t, sandboxPath, `#!/usr/bin/env sh
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--" ]; then
+    shift
+    exec "$@"
+  fi
+  shift
+done
+exit 126
 `)
 }
 

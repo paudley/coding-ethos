@@ -25,7 +25,6 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: make check
       CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
       CODING_ETHOS_SARIF_CATEGORY: .github/workflows/ci.yml:policy
-      CODING_ETHOS_SANDBOX_MODE: required
       CODING_ETHOS_FILES: ""
       CODING_ETHOS_GITHUB_BASE_REF: ${{ github.base_ref }}
       CODING_ETHOS_GITHUB_EVENT_NAME: ${{ github.event_name }}

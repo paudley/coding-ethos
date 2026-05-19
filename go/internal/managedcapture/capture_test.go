@@ -738,7 +738,7 @@ func TestCapturedOutputExcerptSuppressesPassingToolSummaries(t *testing.T) {
 }
 
 func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	tool := filepath.Join(repo, "bin", "ruff")
@@ -749,13 +749,12 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 	var output bytes.Buffer
 
 	exitCode := runCapturedToolWithRequest(captureRequest{
-		Tool:        "ruff",
-		ToolPath:    tool,
-		Cwd:         repo,
-		TraceRoot:   repo,
-		Args:        []string{"check", "pkg/app.py"},
-		SandboxMode: sandbox.ModeRequired,
-		Output:      &output,
+		Tool:      "ruff",
+		ToolPath:  tool,
+		Cwd:       repo,
+		TraceRoot: repo,
+		Args:      []string{"check", "pkg/app.py"},
+		Output:    &output,
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile: "lint-offline",
 			ReadPaths:      []string{"."},
@@ -800,7 +799,7 @@ func TestRunCapturedToolRecordsSandboxDenialInTraceAndSARIF(t *testing.T) {
 func TestRunCapturedToolReportsNativeLaunchFailureAsSandboxDenial(
 	t *testing.T,
 ) {
-	t.Parallel()
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	tool := filepath.Join(repo, "bin", "ruff")
@@ -823,7 +822,6 @@ func TestRunCapturedToolReportsNativeLaunchFailureAsSandboxDenial(
 		Cwd:                repo,
 		TraceRoot:          repo,
 		Args:               []string{"check", "pkg/app.py"},
-		SandboxMode:        sandbox.ModeRequired,
 		SandboxBackendPath: wrapper,
 		Output:             &output,
 		Capabilities: sandbox.Capabilities{
@@ -1404,7 +1402,6 @@ func TestPrepareSandboxCgroupSkipsWhenSandboxDisabled(t *testing.T) {
 	t.Parallel()
 
 	cgroup, evidence, err := prepareSandboxCgroup(sandbox.Evidence{
-		Mode:            sandbox.ModeOff,
 		CgroupRequested: true,
 		MemoryMB:        2048,
 		CPUQuotaPercent: 100,
@@ -2189,10 +2186,18 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		),
 		"CODE_ETHOS_CONSUMER_ROOT=/repo",
 		"CODING_ETHOS_EXEC_STACK=coding-ethos-run",
+		"CODING_ETHOS_SANDBOX_ACTIVE=1",
 		"GIT_DIR=/repo/.git",
 		"GIT_INDEX_FILE=/repo/.git/index",
 		"MANAGED_TOOLCHAIN_MANIFEST=/repo/build/toolchain/manifest.tsv",
 		"OTHER=value",
+		"TMPDIR=/tmp/host",
+		"GOCACHE=/tmp/go-cache",
+		"GOLANGCI_LINT_CACHE=/tmp/golangci-cache",
+	}, sandboxCacheEnvironment{
+		TempDir:         "/repo/sandbox-tmp",
+		GoCache:         "/repo/.coding-ethos/cache/go-build",
+		GolangCILintDir: "/repo/.coding-ethos/cache/golangci-lint",
 	})
 
 	wantPath := "PATH=" + realDir
@@ -2202,6 +2207,21 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 
 	if slices.Contains(env, "PATH="+shimDir) {
 		t.Fatalf("captured env kept git shim dir: %#v", env)
+	}
+
+	if !slices.Contains(env, "TMPDIR=/repo/sandbox-tmp") ||
+		slices.Contains(env, "TMPDIR=/tmp/host") {
+		t.Fatalf("captured env did not replace TMPDIR: %#v", env)
+	}
+
+	for _, want := range []string{
+		"CODING_ETHOS_SANDBOX_ACTIVE=1",
+		"GOCACHE=/repo/.coding-ethos/cache/go-build",
+		"GOLANGCI_LINT_CACHE=/repo/.coding-ethos/cache/golangci-lint",
+	} {
+		if !slices.Contains(env, want) {
+			t.Fatalf("captured env missing cache override %q: %#v", want, env)
+		}
 	}
 
 	for _, blocked := range []string{
@@ -2280,6 +2300,7 @@ func TestCapturedToolArgsForceMachineReadableOutput(t *testing.T) {
 			args: []string{"run", "./..."},
 			want: []string{
 				"run",
+				"--allow-parallel-runners",
 				"--output.json.path=stdout",
 				"--output.text.path=stderr",
 				"./...",

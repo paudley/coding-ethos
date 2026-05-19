@@ -727,10 +727,12 @@ func runGolangciLint(cfg Config, paths []string) int {
 		return 1
 	}
 
-	args := []string{worktree}
+	args := []string{}
 	if cfg.HookStage == hookStagePreCommit {
 		args = append(args, "--new-from-rev=HEAD")
 	}
+
+	args = append(args, worktree)
 
 	return runManagedPolicyTool("golangci-lint", args)
 }
@@ -775,7 +777,6 @@ func runManagedPolicyTool(name string, args []string) int {
 		EthosRoot:     ethosRoot,
 		ConsumerRoot:  consumer,
 		InvocationCwd: repoRoot(),
-		SandboxMode:   policyToolSandboxMode(),
 		OutputFormat:  selectedHookOutputFormat(),
 		Args:          args,
 	})
@@ -816,14 +817,6 @@ func openPolicyBundleFile(path string) (*os.File, error) {
 	}
 
 	return file, nil
-}
-
-func policyToolSandboxMode() string {
-	if strings.TrimSpace(os.Getenv("CODING_ETHOS_POLICY_TOOL_SHIM")) == "" {
-		return ""
-	}
-
-	return strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_MODE"))
 }
 
 func configuredGoWorktreeName() (string, bool) {

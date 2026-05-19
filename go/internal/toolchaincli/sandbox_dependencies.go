@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -19,12 +18,11 @@ import (
 )
 
 var (
-	errSandboxModeRequired = apperror.StaticError(
-		"validate-sandbox-runtime requires --sandbox-mode",
-	)
-	errUnsupportedSandboxMode = apperror.StaticError("unsupported sandbox mode")
-	errSandboxWrapperPath     = apperror.StaticError(
+	errSandboxWrapperPath = apperror.StaticError(
 		"determine native sandbox wrapper path",
+	)
+	errUnexpectedSandboxRuntimeArg = apperror.StaticError(
+		"unexpected validate-sandbox-runtime argument",
 	)
 )
 
@@ -48,11 +46,6 @@ func (err sandboxDependencyDiagnosticError) Diagnostics() []diagnostics.Diagnost
 func validateSandboxRuntimeCommand(args []string) error {
 	flags := flag.NewFlagSet("validate-sandbox-runtime", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	sandboxMode := flags.String(
-		"sandbox-mode",
-		"",
-		"Sandbox mode that the managed runtime will advertise",
-	)
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -63,17 +56,14 @@ func validateSandboxRuntimeCommand(args []string) error {
 		return fmt.Errorf("parse validate-sandbox-runtime flags: %w", err)
 	}
 
-	return validateSandboxRuntime(*sandboxMode)
-}
-
-func validateSandboxRuntime(sandboxMode string) error {
-	switch strings.ToLower(strings.TrimSpace(sandboxMode)) {
-	case sandbox.ModeOff:
-		return nil
-	case "":
-		return errSandboxModeRequired
+	if flags.NArg() > 0 {
+		return fmt.Errorf("%w: %s", errUnexpectedSandboxRuntimeArg, flags.Arg(0))
 	}
 
+	return validateSandboxRuntime()
+}
+
+func validateSandboxRuntime() error {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
@@ -84,31 +74,21 @@ func validateSandboxRuntime(sandboxMode string) error {
 	}
 
 	return validateSandboxRuntimeWithWrapperPath(
-		sandboxMode,
 		wrapperPath,
 	)
 }
 
-func validateSandboxRuntimeWithWrapperPath(sandboxMode, wrapperPath string) error {
-	switch strings.ToLower(strings.TrimSpace(sandboxMode)) {
-	case sandbox.ModeOff:
+func validateSandboxRuntimeWithWrapperPath(wrapperPath string) error {
+	if runtime.GOOS != "linux" {
 		return nil
-	case sandbox.ModeAuto, sandbox.ModeRequired:
-		if runtime.GOOS != "linux" {
-			return nil
-		}
-
-		_, err := sandbox.ValidateNativeRuntimeWithHelper(wrapperPath)
-		if err != nil {
-			return sandboxDependencyDiagnostic(err)
-		}
-
-		return nil
-	case "":
-		return errSandboxModeRequired
-	default:
-		return fmt.Errorf("%w: %q", errUnsupportedSandboxMode, sandboxMode)
 	}
+
+	_, err := sandbox.ValidateNativeRuntimeWithHelper(wrapperPath)
+	if err != nil {
+		return sandboxDependencyDiagnostic(err)
+	}
+
+	return nil
 }
 
 func defaultNativeSandboxWrapperPath() (string, error) {

@@ -220,11 +220,6 @@ func ciSARIFLintArgs(paths runtimePaths, repoRoot, filesPath string) []string {
 		"--files-from", filesPath,
 		"--sarif",
 	}
-	lintArgs = appendCISARIFOption(
-		lintArgs,
-		"CODING_ETHOS_SANDBOX_MODE",
-		"--sandbox-mode",
-	)
 
 	return appendCISARIFOption(
 		lintArgs,

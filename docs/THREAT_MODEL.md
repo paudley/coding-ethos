@@ -36,7 +36,7 @@ or attempt unsafe tool use when prompts, hooks, and policy drift apart.
 | Raw linter to managed lint result | toolcatalog, generated config checks, capture normalization |
 | Repo config to enforcement bundle | config validation and policy compilation |
 | Local findings to CI evidence | SARIF generation and upload workflows |
-| Managed tool execution to host OS | sandbox mode, capabilities, timeout, cgroup, and seccomp metadata |
+| Managed tool execution to host OS | platform sandboxing, capabilities, timeout, cgroup, and seccomp metadata |
 
 ## Primary Risks
 
@@ -74,10 +74,9 @@ context from the same compiled bundle used by enforcement paths.
 
 ### Sandbox Overclaiming
 
-Sandboxing is defense in depth. Required sandbox mode fails closed when the
-backend is unavailable; advisory mode records degraded evidence. Documentation
-and SARIF evidence must distinguish requested controls from controls actually
-enforced.
+Sandboxing is defense in depth. Linux sandbox-profiled managed tools fail
+closed when the native sandbox backend is unavailable. Documentation and SARIF
+evidence must distinguish requested controls from controls actually enforced.
 
 ## Out Of Scope
 

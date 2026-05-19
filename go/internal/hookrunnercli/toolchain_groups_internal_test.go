@@ -921,7 +921,7 @@ func assertManagedGolangciInvocation(t *testing.T, managedLintLog string) {
 	}
 
 	for _, want := range []string{
-		"run --output.json.path=stdout --output.text.path=stderr --config " + filepath.Join(
+		"run --allow-parallel-runners --output.json.path=stdout --output.text.path=stderr --config " + filepath.Join(
 			filepath.Dir(managedLintLog),
 			".golangci.yml",
 		),
@@ -1022,6 +1022,11 @@ func writeManagedToolchainBundle(t *testing.T, root string) string {
 	ethosRoot := filepath.Join(root, "code-ethos")
 	bundleRoot := filepath.Join(ethosRoot, "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
+	mustWriteExecutable(
+		t,
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
+		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
+	)
 	mustWriteTestFile(
 		t,
 		filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),

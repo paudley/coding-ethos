@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -126,7 +127,9 @@ func parseOptions(args []string) (options, error) {
 }
 
 func sandboxExecEnv(environ []string) []string {
-	clean := make([]string, 0, len(environ))
+	const sandboxActiveEnv = "CODING_ETHOS_SANDBOX_ACTIVE=1"
+
+	clean := make([]string, 0, len(environ)+1)
 	for _, item := range environ {
 		name, _, found := strings.Cut(item, "=")
 		if !found || !sandboxExecBlockedEnv(name) {
@@ -134,7 +137,7 @@ func sandboxExecEnv(environ []string) []string {
 		}
 	}
 
-	return clean
+	return append(clean, sandboxActiveEnv)
 }
 
 func sandboxExecBlockedEnv(name string) bool {
@@ -175,6 +178,9 @@ func cleanPolicyPath(repoRoot, path string) (string, bool) {
 
 	if filepath.IsAbs(path) {
 		clean := filepath.Clean(path)
+		if allowedSystemWritePath(clean) {
+			return clean, true
+		}
 
 		return clean, pathWithin(repoRoot, clean)
 	}
@@ -182,6 +188,35 @@ func cleanPolicyPath(repoRoot, path string) (string, bool) {
 	clean := filepath.Clean(filepath.Join(repoRoot, path))
 
 	return clean, pathWithin(repoRoot, clean)
+}
+
+func allowedSystemWritePath(path string) bool {
+	return path == os.DevNull ||
+		allowedManagedTempWritePath(path) ||
+		allowedGPGRuntimeWritePath(path)
+}
+
+func allowedManagedTempWritePath(path string) bool {
+	tempRoot := filepath.Clean(os.TempDir())
+	if !pathWithin(tempRoot, path) {
+		return false
+	}
+
+	return strings.HasPrefix(filepath.Base(path), "coding-ethos-go-test-")
+}
+
+func allowedGPGRuntimeWritePath(path string) bool {
+	defaultRoot := filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+	if pathWithin(filepath.Join(defaultRoot, "gnupg"), path) {
+		return true
+	}
+
+	runtimeRoot := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
+	if runtimeRoot == "" {
+		return false
+	}
+
+	return pathWithin(filepath.Join(runtimeRoot, "gnupg"), path)
 }
 
 func joinPolicyErrors(errs ...error) error {

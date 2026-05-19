@@ -18,6 +18,11 @@ const nativeRuntimeProbeTimeout = 5 * time.Second
 // ValidateNativeRuntime proves that Linux namespace creation is usable.
 func ValidateNativeRuntime() (Evidence, error) {
 	evidence := nativeRuntimeEvidence()
+	if ProcessActive() {
+		evidence.Reason = sandboxActiveReason
+
+		return evidence, nil
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), nativeRuntimeProbeTimeout)
 	defer cancel()

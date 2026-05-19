@@ -92,6 +92,9 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 			t.Fatalf("environment missing %q: %#v", kept, got)
 		}
 	}
+	if !slices.Contains(got, "CODING_ETHOS_SANDBOX_ACTIVE=1") {
+		t.Fatalf("environment missing sandbox marker: %#v", got)
+	}
 }
 
 func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
@@ -107,6 +110,11 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	outside, ok := cleanPolicyPath(root, filepath.Dir(root))
 	if ok || outside == "" {
 		t.Fatalf("cleanPolicyPath outside = %q %t", outside, ok)
+	}
+
+	nullDevice, ok := cleanPolicyPath(root, os.DevNull)
+	if !ok || nullDevice != os.DevNull {
+		t.Fatalf("cleanPolicyPath dev null = %q %t", nullDevice, ok)
 	}
 }
 
@@ -162,7 +170,7 @@ func TestPrepareWritablePathsRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestPrepareWritablePathsRejectsFilePath(t *testing.T) {
+func TestPrepareWritablePathsAllowsFilePath(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -175,8 +183,8 @@ func TestPrepareWritablePathsRejectsFilePath(t *testing.T) {
 		paths:      &sandboxPaths{repoRoot: root},
 		writePaths: []string{".coding-ethos"},
 	})
-	if !errors.Is(err, errWritePathNotDirectory) {
-		t.Fatalf("prepareWritablePaths() error = %v, want file rejection", err)
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
 	}
 }
 

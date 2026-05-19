@@ -31,8 +31,6 @@ func TestSandboxedManagedRuffCaptureRecordsTraceEvidence(t *testing.T) {
 		repo.Root,
 		"--invocation-cwd",
 		repo.Root,
-		"--sandbox-mode",
-		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/clean.py",
@@ -83,8 +81,6 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 		repo.Root,
 		"--invocation-cwd",
 		repo.Root,
-		"--sandbox-mode",
-		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/unused_import.py",
@@ -190,8 +186,6 @@ func TestSandboxedManagedRuffCaptureRequiresNativeWrapper(t *testing.T) {
 		repo.Root,
 		"--invocation-cwd",
 		repo.Root,
-		"--sandbox-mode",
-		sandbox.ModeRequired,
 		"--",
 		"check",
 		"pkg/clean.py",
@@ -236,7 +230,6 @@ func TestSandboxWriteScopeAllowsDeclaredPathAndBlocksRepoWrite(t *testing.T) {
 	wrapper := filepath.Join(managedRepo.EthosRoot, "bin", "coding-ethos-sandbox")
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:        sandbox.ModeRequired,
 		Tool:        "write-scope",
 		Executable:  "/bin/sh",
 		WrapperPath: wrapper,

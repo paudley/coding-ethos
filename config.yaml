@@ -120,14 +120,12 @@ generated_config:
       coding_ethos_path: .
       gate_command: make check
       sarif_category: .github/workflows/ci.yml:policy
-      sandbox_mode: required
       standalone_triggers: false
       timeout_minutes: 30
     gitlab:
       enabled: true
       coding_ethos_path: .
       gate_command: make check
-      sandbox_mode: required
       test_command: uv run pytest
       build_command: uv build
       package_check_command: uvx twine check dist/*

@@ -34,6 +34,7 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv(consumerRootEnv, "/tmp/repo")
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
 	env := externalToolEnv([]string{"KEEP_EXTRA=1"})
 
@@ -50,6 +51,10 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 
 	if !slices.Contains(env, "GIT_OPTIONAL_LOCKS=0") {
 		t.Fatalf("externalToolEnv did not disable optional git locks: %#v", env)
+	}
+
+	if !slices.Contains(env, "CODING_ETHOS_SANDBOX_ACTIVE=1") {
+		t.Fatalf("externalToolEnv dropped sandbox active marker: %#v", env)
 	}
 
 	for _, item := range env {

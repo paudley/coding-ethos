@@ -39,4 +39,4 @@ make cutover-install
 ```
 
 Generated CI config follows the enforcement path: it builds the checkout-local
-runtime, then runs the policy/SARIF gate with the configured sandbox mode.
+runtime, then runs the policy/SARIF gate with platform-derived sandboxing.

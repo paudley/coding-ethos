@@ -139,7 +139,6 @@ generated_config:
       gate_command: make check
       sarif_path: coding-ethos.sarif
       artifact_name: coding-ethos-audit
-      sandbox_mode: required
       standalone_triggers: false
       timeout_minutes: 30
       sarif_category: policy
@@ -149,7 +148,6 @@ generated_config:
       repo_root: .
       gate_command: make check
       sarif_path: coding-ethos.sarif
-      sandbox_mode: required
       test_command: ""
       build_command: ""
       package_check_command: ""

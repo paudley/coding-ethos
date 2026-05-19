@@ -58,7 +58,6 @@ type lintCLIConfig struct {
 	invocationCwd      *string
 	replayTrace        *string
 	runner             *string
-	sandboxMode        *string
 	sarifCategory      *string
 	sarifOutput        *bool
 	scope              *scopeFlag
@@ -127,11 +126,6 @@ func runCLIWithWriter(args []string, stdout io.Writer) int {
 	)
 	config.runner = flags.String("runner", "", "runner path for captured lint shims")
 	config.toolPath = flags.String("tool-path", "", "Real tool path for --capture-tool")
-	config.sandboxMode = flags.String(
-		"sandbox-mode",
-		"off",
-		"Managed tool sandbox mode: off, auto, or required",
-	)
 	config.scope = scopeFlagSet(flags)
 
 	err := flags.Parse(args)
@@ -297,7 +291,6 @@ func runCaptureMode(config lintCLIConfig, args []string) (int, bool) {
 		ConsumerRoot:  *config.consumerRoot,
 		InvocationCwd: *config.invocationCwd,
 		Args:          args,
-		SandboxMode:   *config.sandboxMode,
 		OutputFormat:  config.outputFormat,
 		PolicyContext: capturePolicyContext(*config.bundlePath),
 	}), true

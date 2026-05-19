@@ -1604,6 +1604,8 @@ python:
 }
 
 func TestValidateManifestCommandPassesAndFails(t *testing.T) {
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
+
 	root := t.TempDir()
 	t.Chdir(root)
 	bundleRoot := filepath.Join(root, "pre-commit")
@@ -3185,6 +3187,11 @@ func writeTestBundleRoot(t *testing.T, root string) string {
 	ethosRoot := filepath.Join(root, "code-ethos")
 	bundleRoot := filepath.Join(root, "code-ethos", "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
+	mustWriteExecutable(
+		t,
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
+		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
+	)
 	mustWriteTestFile(
 		t,
 		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),

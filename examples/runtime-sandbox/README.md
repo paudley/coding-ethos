@@ -42,9 +42,9 @@ For an offline linter, sandbox evidence should show:
 Before choosing a managed tool, agents should call MCP `tool_capabilities`.
 That response exposes the same capability facts used by CEL, traces, and SARIF.
 
-If sandbox mode is required and unavailable, the run should fail closed. If
-sandbox mode is advisory, the result must record degraded evidence rather than
-claiming enforcement happened.
+On Linux, sandbox-profiled managed tools should fail closed when the native
+sandbox is unavailable. Results must record evidence for the controls actually
+enforced rather than claiming unavailable enforcement happened.
 
 ## Related Docs
 

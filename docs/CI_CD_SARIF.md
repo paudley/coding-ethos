@@ -52,11 +52,12 @@ bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check pa
 Sandboxed managed capture is opt-in while the native profile is hardened:
 
 ```bash
-bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode required --sarif -- check path/to/file.py
+bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check path/to/file.py
 ```
 
-When sandboxing is requested, SARIF records the selected backend, profile,
-declared capabilities, and backend denials under `runs[].properties.sandbox`.
+On Linux, managed tools that declare sandbox profiles run in the native
+sandbox. SARIF records the selected backend, profile, declared capabilities,
+and backend denials under `runs[].properties.sandbox`.
 Pathless sandbox denials remain run-level evidence for code-scanning
 compatibility and are preserved in `.coding-ethos` lint traces.
 
@@ -115,10 +116,8 @@ generated_config:
   ci:
     github_actions:
       enabled: true
-      sandbox_mode: required
     gitlab:
       enabled: true
-      sandbox_mode: required
 ```
 
 `make sync-tool-configs` writes the enabled CI files and records them in
@@ -126,10 +125,9 @@ generated_config:
 Set either `enabled` value to `false` only for a deliberate repo exception. CI
 files intentionally do not have a separate sync command.
 
-Generated CI defaults `sandbox_mode` to `required`. Local developers can use
-advisory `auto` or disabled `off` mode for unsupported platforms, but CI is the
-place where high-risk managed tool classes should fail closed if the sandbox
-backend is unavailable.
+Generated CI does not expose a sandbox mode switch. Linux runners fail closed
+for sandbox-profiled managed tools when the native sandbox backend is
+unavailable; non-Linux runners do not claim Linux namespace sandboxing.
 
 The reusable workflow at `.github/workflows/coding-ethos-sarif.yml` builds the
 managed runtime, runs the configured project gate, emits SARIF, uploads it to

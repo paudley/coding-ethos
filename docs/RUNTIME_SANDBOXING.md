@@ -87,23 +87,22 @@ execs the managed tool. Go owns request construction, policy facts, traces, and
 normalized output; sandboxing does not depend on a host package manager,
 Docker, or a third-party wrapper.
 
-The initial Go prototype lives in `go/internal/sandbox`. Managed lint capture
-can request it with `coding-ethos-lint --managed-capture-tool <tool>
---sandbox-mode required`. The default remains `off` until the native profile is
-proven across the full managed toolchain, because silently changing every
-developer lint invocation would make failures harder to attribute. In
-any sandboxed mode, a missing native helper or failed namespace setup is a
-normalized `runtime.sandbox_denial` failure. The runner must not fall back to
-unsandboxed execution when a tool declares a sandbox profile.
+The native Go implementation lives in `go/internal/sandbox`. Managed lint
+capture derives sandbox behavior from the platform and the tool catalog: on
+Linux, any managed tool with a sandbox profile is sandboxed and fails closed
+when native sandboxing is unavailable; on non-Linux platforms, Linux namespace
+sandboxing is not advertised or selected. A missing native helper or failed
+namespace setup on Linux is a normalized `runtime.sandbox_denial` failure. The
+runner must not fall back to unsandboxed execution when a Linux tool declares a
+sandbox profile.
 
 The checkout build treats that dependency contract as a gate, not a runtime
 surprise. `make build` invokes `coding-ethos-toolchain
-validate-sandbox-runtime --sandbox-mode required`, which launches a minimal
-native namespace probe that proves declared writes succeed and undeclared
-repository writes are blocked. On Linux, missing or unusable namespace or
-Landlock support fails the build with a blocking `runtime.sandbox_dependency`
-diagnostic. Non-Linux platforms do not advertise Linux namespace enforcement;
-they record best-available execution evidence instead.
+validate-sandbox-runtime`, which launches a minimal native namespace probe that
+proves declared writes succeed and undeclared repository writes are blocked. On
+Linux, missing or unusable namespace or Landlock support fails the build with a
+blocking `runtime.sandbox_dependency` diagnostic. Non-Linux platforms do not
+advertise Linux namespace enforcement.
 
 The current native profile is explicit and evidence-backed:
 
@@ -160,12 +159,7 @@ state. Required-mode denials also produce a blocking `runtime.sandbox_denial`
 finding grounded in `security-by-design` and
 `one-path-for-critical-operations`.
 
-Unsupported platforms are explicit in the sandbox evidence. Sandbox profiles
-fail closed when Linux namespace support is available but unusable. `auto`
-mode remains a sandbox mode; it is not permission to run a sandbox-declared
-tool without native enforcement on Linux.
-
-Generated GitHub and GitLab SARIF workflows default
-`generated_config.ci.*.sandbox_mode` to `required` and pass it to
-`coding-ethos-run policy-lint`. Local developer workflows can remain explicit
-with `off`, but any sandboxed mode requires native sandbox support on Linux.
+Sandbox profiles fail closed when Linux namespace support is available but
+unusable. There is no runtime sandbox mode switch: Linux uses sandboxing for
+sandbox-profiled managed tools, and non-Linux platforms do not select Linux
+namespace sandboxing.

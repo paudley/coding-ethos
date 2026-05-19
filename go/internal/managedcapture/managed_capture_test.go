@@ -117,6 +117,7 @@ func golangciLintManagedArgsCase(
 		args: []string{"go"},
 		want: []string{
 			"run",
+			"--allow-parallel-runners",
 			"--output.json.path=stdout",
 			"--output.text.path=stderr",
 			"--config",
@@ -473,6 +474,15 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	consumerRoot := filepath.Join(consumerParent, "consumer")
 	ethosRoot := t.TempDir()
 	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
+		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
+	)
+	chmodManagedCaptureExecutable(
+		t,
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
+	)
 
 	_, err := toolconfigs.Sync(ethosRoot, consumerRoot, "")
 	if err != nil {
@@ -709,6 +719,81 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 		if !slices.Contains(capabilities.WritePaths, want) {
 			t.Fatalf("sandbox write paths missing %q: %#v", want, capabilities)
 		}
+	}
+}
+
+func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff-format")
+	if !found {
+		t.Fatal("missing ruff-format tool")
+	}
+
+	capabilities := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo",
+		[]string{
+			"format",
+			"--config",
+			"/repo/ruff.toml",
+			"pkg/app.py",
+			"README.md",
+			"pkg/app.py",
+		},
+	)
+
+	if !slices.Contains(capabilities.WritePaths, "pkg/app.py") {
+		t.Fatalf("sandbox write paths missing target file: %#v", capabilities)
+	}
+
+	if slices.Contains(capabilities.WritePaths, "/repo/ruff.toml") ||
+		slices.Contains(capabilities.WritePaths, "README.md") {
+		t.Fatalf("sandbox write paths included non-target files: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("golangci-lint-format")
+	if !found {
+		t.Fatal("missing golangci-lint-format tool")
+	}
+
+	capabilities := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo/go",
+		[]string{"fmt", "./..."},
+	)
+
+	if !slices.Contains(capabilities.WritePaths, "go") {
+		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	capabilities := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo/go",
+		[]string{"test", "./..."},
+	)
+
+	if !slices.Contains(capabilities.WritePaths, "go") {
+		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
 	}
 }
 

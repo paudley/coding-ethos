@@ -1039,10 +1039,10 @@ limits at runtime.
 - [x] Prototype a Linux sandbox runner using Bubblewrap (`bwrap`) before
   writing raw namespace code, with a Go-owned request model and no shell glue.
   - [x] Add `go/internal/sandbox` with Bubblewrap command construction,
-    `off`/`auto`/`required` modes, backend-unavailable denials, and unit tests.
-  - [x] Wire managed lint capture to opt-in sandbox execution through
-    `--sandbox-mode`, preserving current default behavior while the profile is
-    hardened.
+    platform-derived sandbox requirements, backend-unavailable denials, and
+    unit tests.
+  - [x] Wire managed lint capture to sandbox profile execution from the tool
+    catalog without an operator sandbox mode switch.
 - [x] Add mount namespace support for read-only root, read-only `.git`, hidden
   credential directories, and minimal read/write bind mounts for declared repo
   paths.

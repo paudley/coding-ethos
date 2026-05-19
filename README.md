@@ -232,13 +232,14 @@ namespaces, Linux Landlock write policy for a read-only repository and `.git`,
 disconnected network for offline tools, declared writable paths,
 hard timeouts, cgroup resource requests, and seccomp profile metadata. Linux
 cgroup limits are prepared before process start in a delegated hierarchy and
-cleaned up after exit. Required sandbox mode fails closed with a normalized
-policy finding. `auto` remains a sandboxed mode and cannot degrade to
-unsandboxed execution. On Linux, namespace creation is a hard gate; if the host
-kernel or policy blocks the native sandbox, managed sandboxed execution is
-blocked with `runtime.sandbox_dependency` or `runtime.sandbox_denial`
-diagnostics. Non-Linux platforms report that Linux namespace enforcement is not
-available and use the best available process execution evidence. See
+cleaned up after exit when the host delegates cgroup control. There is no
+operator sandbox mode: Linux runs sandbox-profiled managed tools through the
+native sandbox helper, and non-Linux platforms do not select Linux namespace
+sandboxing. On Linux, namespace creation is a hard gate; if the host kernel or
+policy blocks the native sandbox, managed sandboxed execution is blocked with
+`runtime.sandbox_dependency` or `runtime.sandbox_denial` diagnostics.
+Non-Linux platforms report that Linux namespace enforcement is not available
+and use the best available process execution evidence. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
 
 Code-intelligence storage is the memory layer for this evidence. The
@@ -1157,7 +1158,6 @@ Emit SARIF for CI/code-scanning surfaces:
 ```bash
 bin/coding-ethos-run policy-lint --sarif --scope files --files lib/python/app.py
 bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
-bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sandbox-mode required --sarif -- check lib/python/app.py
 bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
@@ -1176,12 +1176,11 @@ result properties when the evidence is aggregate or execution-level. Audit, MCP
 remediation, and code-intelligence ingestion must not lose what the tool
 actually emitted merely because a finding is not tied to one source line.
 
-Managed capture can request the native sandbox runtime with
-`--sandbox-mode required`. Sandbox backend, profile, declared capabilities, and
-denials are retained in lint traces and SARIF run properties so runtime
-enforcement has the same audit trail as CEL and static-analysis findings.
-The checkout build runs `coding-ethos-toolchain
-validate-sandbox-runtime --sandbox-mode required`; on Linux, that gate proves
+Managed capture derives native sandbox use from the platform and tool catalog.
+Sandbox backend, profile, declared capabilities, and denials are retained in
+lint traces and SARIF run properties so runtime enforcement has the same audit
+trail as CEL and static-analysis findings. The checkout build runs
+`coding-ethos-toolchain validate-sandbox-runtime`; on Linux, that gate proves
 that native namespace creation works before managed runtime artifacts are
 advertised.
 

@@ -825,6 +825,7 @@ func toolCaptureArgsForceCatalogOutputCases() []toolCaptureArgsCase {
 			args: []string{"run", "--out-format", "colored-line-number", "./..."},
 			want: []string{
 				"run",
+				"--allow-parallel-runners",
 				"--output.json.path=stdout",
 				"--output.text.path=stderr",
 				"./...",

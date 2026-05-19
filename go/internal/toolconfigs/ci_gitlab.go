@@ -23,7 +23,6 @@ coding_ethos_sarif:
     CODING_ETHOS_REPO_ROOT: %s
     CODING_ETHOS_GATE_COMMAND: %s
     CODING_ETHOS_SARIF_PATH: %s
-    CODING_ETHOS_SANDBOX_MODE: %s
     CODING_ETHOS_FILES: ""
   script:
     - make -C "$CODING_ETHOS_PATH" build
@@ -54,7 +53,6 @@ type gitLabSARIFSettings struct {
 	BuildCommand     string
 	PackageCheck     string
 	SARIFPath        string
-	SandboxMode      string
 	ArtifactExpireIn string
 	DistArtifactPath string
 	TestStage        string
@@ -63,10 +61,7 @@ type gitLabSARIFSettings struct {
 }
 
 func renderGitLabSARIFConfig(config configMap) (string, error) {
-	settings, err := gitLabSARIFSettingsFromConfig(config)
-	if err != nil {
-		return "", err
-	}
+	settings := gitLabSARIFSettingsFromConfig(config)
 
 	return spdxHeader + fmt.Sprintf(
 		gitLabSARIFConfigTemplate,
@@ -77,7 +72,6 @@ func renderGitLabSARIFConfig(config configMap) (string, error) {
 		settings.RepoRoot,
 		settings.GateCommand,
 		settings.SARIFPath,
-		settings.SandboxMode,
 		settings.ArtifactExpireIn,
 		renderGitLabTestJob(
 			settings.TestCommand,
@@ -94,17 +88,7 @@ func renderGitLabSARIFConfig(config configMap) (string, error) {
 	), nil
 }
 
-func gitLabSARIFSettingsFromConfig(config configMap) (gitLabSARIFSettings, error) {
-	sandboxMode, err := configuredChoice(
-		config,
-		"generated_config.ci.gitlab.sandbox_mode",
-		"required",
-		sandboxModes(),
-	)
-	if err != nil {
-		return gitLabSARIFSettings{}, err
-	}
-
+func gitLabSARIFSettingsFromConfig(config configMap) gitLabSARIFSettings {
 	settings := gitLabSARIFSettings{
 		CodingEthosPath: configuredString(
 			config,
@@ -121,7 +105,6 @@ func gitLabSARIFSettingsFromConfig(config configMap) (gitLabSARIFSettings, error
 			"sarif_path",
 			"coding-ethos.sarif",
 		),
-		SandboxMode:    sandboxMode,
 		TimeoutMinutes: gitLabConfiguredInt(config, "timeout_minutes"),
 		ArtifactExpireIn: configuredString(
 			config,
@@ -137,7 +120,7 @@ func gitLabSARIFSettingsFromConfig(config configMap) (gitLabSARIFSettings, error
 	settings.TestStage = gitLabStage(settings.TestCommand, "test")
 	settings.BuildStage = gitLabStage(settings.BuildCommand, "build")
 
-	return settings, nil
+	return settings
 }
 
 func gitLabConfiguredString(config configMap, key, fallback string) string {
