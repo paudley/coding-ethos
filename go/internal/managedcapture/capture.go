@@ -353,24 +353,18 @@ func startCapturedProcess(
 		return failedProcessStartResult(copyDone, cacheEnv, startErr)
 	}
 
-	assignErr := cgroup.AssignProcess(process)
-	if assignErr != nil {
-		debugCapturedProcessExit(
-			startedAt,
-			argv,
-			request,
-			capturedExitCode(assignErr),
-			assignErr,
-		)
-
-		return failedCgroupAssignmentResult(
-			ctx,
-			process,
-			copyDone,
-			cacheEnv,
-			&buffers,
-			assignErr,
-		)
+	if result, failed := assignCapturedProcessToCgroup(
+		ctx,
+		process,
+		cgroup,
+		startedAt,
+		argv,
+		request,
+		cacheEnv,
+		copyDone,
+		&buffers,
+	); failed {
+		return result
 	}
 
 	state, waitErr := waitCapturedProcess(ctx, process)

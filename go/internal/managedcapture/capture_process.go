@@ -4,6 +4,7 @@
 package managedcapture
 
 import (
+	"context"
 	"errors"
 	"os"
 	"time"
@@ -62,6 +63,40 @@ func (processIO capturedProcessIO) closeReaders() {
 func (processIO capturedProcessIO) closeWriters() {
 	_ = processIO.stdoutWriter.Close()
 	_ = processIO.stderrWriter.Close()
+}
+
+func assignCapturedProcessToCgroup(
+	ctx context.Context,
+	process *os.Process,
+	cgroup *sandbox.Cgroup,
+	startedAt time.Time,
+	argv []string,
+	request captureRequest,
+	cacheEnv sandboxCacheEnvironment,
+	copyDone <-chan error,
+	buffers *captureBuffers,
+) (processResult, bool) {
+	assignErr := cgroup.AssignProcess(process)
+	if assignErr == nil {
+		return processResult{}, false
+	}
+
+	debugCapturedProcessExit(
+		startedAt,
+		argv,
+		request,
+		capturedExitCode(assignErr),
+		assignErr,
+	)
+
+	return failedCgroupAssignmentResult(
+		ctx,
+		process,
+		copyDone,
+		cacheEnv,
+		buffers,
+		assignErr,
+	), true
 }
 
 func startCapturedOSProcess(
