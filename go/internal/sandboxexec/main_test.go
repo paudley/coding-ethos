@@ -92,9 +92,6 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 			t.Fatalf("environment missing %q: %#v", kept, got)
 		}
 	}
-	if !slices.Contains(got, "CODING_ETHOS_SANDBOX_ACTIVE=1") {
-		t.Fatalf("environment missing sandbox marker: %#v", got)
-	}
 }
 
 func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {

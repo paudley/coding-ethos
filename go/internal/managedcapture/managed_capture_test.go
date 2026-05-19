@@ -52,6 +52,37 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 	}
 }
 
+func TestFormatSandboxWritePathsIncludeDirectoryTargets(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	err := os.Mkdir(filepath.Join(consumerRoot, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("create package directory: %v", err)
+	}
+
+	tool, found := toolcatalog.HookOwnedTool("ruff-format")
+	if !found {
+		t.Fatal("missing ruff-format tool")
+	}
+
+	got := toolSandboxWritePaths(
+		tool,
+		consumerRoot,
+		consumerRoot,
+		[]string{"format", "--config", "ruff.toml", "pkg", ".", "notes.txt"},
+	)
+
+	for _, want := range []string{"pkg", "."} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("formatter sandbox write paths missing %q: %#v", want, got)
+		}
+	}
+	if slices.Contains(got, "notes.txt") || slices.Contains(got, "ruff.toml") {
+		t.Fatalf("formatter sandbox write paths included non-targets: %#v", got)
+	}
+}
+
 func TestManagedSubcommandConfigPlacement(t *testing.T) {
 	t.Parallel()
 

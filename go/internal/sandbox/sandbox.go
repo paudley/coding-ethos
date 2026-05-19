@@ -27,8 +27,6 @@ const (
 	toolFallbackName     = "tool"
 	nativeSandboxBinary  = "coding-ethos-sandbox"
 	nativeProbeTimeout   = 10
-	sandboxActiveEnvName = "CODING_ETHOS_SANDBOX_ACTIVE"
-	sandboxActiveReason  = "process is already running inside native sandbox"
 	SandboxTempWritePath = "sandbox-tmp"
 	SandboxGoCachePath   = ".coding-ethos/cache/go-build"
 	SandboxGolangCIPath  = ".coding-ethos/cache/golangci-lint"
@@ -189,16 +187,11 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.NamespaceEnforced = nativeNamespaceSupported() &&
 		!request.Capabilities.RequiresProcesses
 
-	if ProcessActive() {
-		evidence.Reason = sandboxActiveReason
-		evidence.Enabled = false
+	if nativeNestedProcessPolicyRestricted() {
+		evidence.Reason = nestedProcessPolicyReason
 		evidence.NamespaceEnforced = false
 		evidence.ProcessIsolated = false
 		evidence.NetworkIsolated = false
-		evidence.TimeoutEnforced = false
-		evidence.CgroupRequested = false
-
-		return unsandboxedPlan(request, evidence), nil
 	}
 
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
@@ -222,12 +215,6 @@ func BuildPlan(request Request) (Plan, error) {
 func sandboxRequired(request Request) bool {
 	return runtime.GOOS == "linux" &&
 		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
-}
-
-// ProcessActive reports whether the current process was launched by the native
-// sandbox wrapper.
-func ProcessActive() bool {
-	return os.Getenv(sandboxActiveEnvName) == "1"
 }
 
 func unsandboxedPlan(request Request, evidence Evidence) Plan {
@@ -305,9 +292,12 @@ func Execute(
 // ValidateNativeRuntimeWithHelper proves the wrapper can apply native sandbox
 // policy and execute a trivial command.
 func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
-	if ProcessActive() {
+	if nativeNestedProcessPolicyRestricted() {
 		evidence := nativeRuntimeEvidence()
-		evidence.Reason = sandboxActiveReason
+		evidence.Reason = nestedProcessPolicyReason
+		evidence.NamespaceEnforced = false
+		evidence.ProcessIsolated = false
+		evidence.NetworkIsolated = false
 
 		return evidence, nil
 	}

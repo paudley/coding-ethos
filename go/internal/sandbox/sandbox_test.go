@@ -88,7 +88,7 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 	assertNativeEvidence(t, plan.Evidence)
 }
 
-func TestBuildPlanInsideActiveSandboxDoesNotApplyNestedProcessPolicy(
+func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
@@ -113,18 +113,11 @@ func TestBuildPlanInsideActiveSandboxDoesNotApplyNestedProcessPolicy(
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
-	if plan.Executable != toolRuffPath {
-		t.Fatalf("active sandbox plan executable = %q", plan.Executable)
+	if plan.Executable != wrapper {
+		t.Fatalf("spoofed active marker bypassed wrapper: %q", plan.Executable)
 	}
-	if plan.Evidence.Enabled ||
-		plan.Evidence.NamespaceEnforced ||
-		plan.Evidence.ProcessIsolated ||
-		plan.Evidence.TimeoutEnforced ||
-		plan.Evidence.CgroupRequested {
-		t.Fatalf("active sandbox plan still applies nested policy: %#v", plan.Evidence)
-	}
-	if plan.Evidence.Reason == "" {
-		t.Fatalf("active sandbox plan omitted evidence reason: %#v", plan.Evidence)
+	if !plan.Evidence.Enabled || !plan.Evidence.TimeoutEnforced {
+		t.Fatalf("spoofed active marker disabled sandbox evidence: %#v", plan.Evidence)
 	}
 }
 
@@ -243,17 +236,25 @@ func TestBuildPlanRequiresProcessesKeepsFilesystemSandboxWithoutNamespaces(
 	}
 }
 
-func TestValidateNativeRuntimeWithHelperInsideActiveSandboxDoesNotNest(
+func TestValidateNativeRuntimeWithHelperIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/missing")
-	if err != nil {
-		t.Fatalf("ValidateNativeRuntimeWithHelper() error = %v", err)
+	if err == nil {
+		if evidence.Reason == "" || !evidence.Enabled {
+			t.Fatalf("helper validation evidence mismatch: %#v", evidence)
+		}
+
+		return
 	}
-	if !evidence.Enabled || evidence.Reason == "" {
-		t.Fatalf("active sandbox evidence mismatch: %#v", evidence)
+
+	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
+		t.Fatalf("ValidateNativeRuntimeWithHelper() error = %v, want unavailable", err)
+	}
+	if !evidence.Denied {
+		t.Fatalf("spoofed active marker skipped helper validation: %#v", evidence)
 	}
 }
 
@@ -351,7 +352,7 @@ func TestValidateNativeRuntimeEvidence(t *testing.T) {
 	if evidence.Backend != sandbox.BackendNative || !evidence.Enabled {
 		t.Fatalf("native runtime evidence mismatch: %#v", evidence)
 	}
-	if runtime.GOOS == "linux" && !evidence.NamespaceEnforced {
+	if runtime.GOOS == "linux" && !evidence.NamespaceEnforced && evidence.Reason == "" {
 		t.Fatalf("Linux runtime must enforce namespaces: %#v", evidence)
 	}
 }
@@ -361,6 +362,10 @@ func TestValidateNativeRuntimeWithHelperRejectsNoopWrapper(t *testing.T) {
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/bin/true")
 	if err == nil {
+		if evidence.Reason != "" && !evidence.NamespaceEnforced {
+			return
+		}
+
 		t.Fatalf("ValidateNativeRuntimeWithHelper() error = nil evidence=%#v", evidence)
 	}
 	if !evidence.Denied || evidence.Reason == "" {
@@ -378,11 +383,11 @@ func assertNativeEvidence(t *testing.T, evidence sandbox.Evidence) {
 		evidence.GitReadOnly != true {
 		t.Fatalf("filesystem evidence mismatch: %#v", evidence)
 	}
-	if evidence.NamespaceEnforced != (runtime.GOOS == "linux") ||
-		evidence.ProcessIsolated != (runtime.GOOS == "linux") {
+	if runtime.GOOS == "linux" && evidence.Reason == "" &&
+		(!evidence.NamespaceEnforced || !evidence.ProcessIsolated) {
 		t.Fatalf("namespace evidence mismatch: %#v", evidence)
 	}
-	if !evidence.NetworkIsolated {
+	if evidence.Reason == "" && !evidence.NetworkIsolated {
 		t.Fatalf("network isolation missing: %#v", evidence)
 	}
 	if slices.Contains(evidence.WritePaths, ".git/config") {

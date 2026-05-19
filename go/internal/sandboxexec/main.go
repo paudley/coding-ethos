@@ -127,9 +127,7 @@ func parseOptions(args []string) (options, error) {
 }
 
 func sandboxExecEnv(environ []string) []string {
-	const sandboxActiveEnv = "CODING_ETHOS_SANDBOX_ACTIVE=1"
-
-	clean := make([]string, 0, len(environ)+1)
+	clean := make([]string, 0, len(environ))
 	for _, item := range environ {
 		name, _, found := strings.Cut(item, "=")
 		if !found || !sandboxExecBlockedEnv(name) {
@@ -137,7 +135,7 @@ func sandboxExecEnv(environ []string) []string {
 		}
 	}
 
-	return append(clean, sandboxActiveEnv)
+	return clean
 }
 
 func sandboxExecBlockedEnv(name string) bool {

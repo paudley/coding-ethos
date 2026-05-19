@@ -11,15 +11,22 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const nativeRuntimeProbeTimeout = 5 * time.Second
 
+const nestedProcessPolicyReason = "process is already constrained by no_new_privs"
+
 // ValidateNativeRuntime proves that Linux namespace creation is usable.
 func ValidateNativeRuntime() (Evidence, error) {
 	evidence := nativeRuntimeEvidence()
-	if ProcessActive() {
-		evidence.Reason = sandboxActiveReason
+	if nativeNestedProcessPolicyRestricted() {
+		evidence.Reason = nestedProcessPolicyReason
+		evidence.NamespaceEnforced = false
+		evidence.ProcessIsolated = false
+		evidence.NetworkIsolated = false
 
 		return evidence, nil
 	}
@@ -55,4 +62,10 @@ func nativeRuntimeEvidence() Evidence {
 		NetworkIsolated:   true,
 		GitReadOnly:       true,
 	}
+}
+
+func nativeNestedProcessPolicyRestricted() bool {
+	value, err := unix.PrctlRetInt(unix.PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0)
+
+	return err == nil && value == 1
 }

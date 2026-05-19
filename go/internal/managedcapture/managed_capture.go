@@ -328,7 +328,12 @@ func toolSandboxWritePaths(
 		return sandboxRelativePath(consumerRoot, captureCwd)
 	}
 
-	return formatArgWritePaths(args, tool.ConfigSpec().Flags, fileMatch.Extensions)
+	return formatArgWritePaths(
+		captureCwd,
+		args,
+		tool.ConfigSpec().Flags,
+		fileMatch.Extensions,
+	)
 }
 
 func sandboxRelativePath(root, path string) []string {
@@ -341,6 +346,7 @@ func sandboxRelativePath(root, path string) []string {
 }
 
 func formatArgWritePaths(
+	cwd string,
 	args []string,
 	configFlags []string,
 	fileExtensions []string,
@@ -365,7 +371,7 @@ func formatArgWritePaths(
 			continue
 		}
 
-		if !pathHasExtension(arg, fileExtensions) ||
+		if !formatterWritableTarget(cwd, arg, fileExtensions) ||
 			slices.Contains(writePaths, arg) {
 			continue
 		}
@@ -374,6 +380,21 @@ func formatArgWritePaths(
 	}
 
 	return writePaths
+}
+
+func formatterWritableTarget(cwd, path string, extensions []string) bool {
+	if pathHasExtension(path, extensions) {
+		return true
+	}
+
+	statPath := path
+	if !filepath.IsAbs(statPath) {
+		statPath = filepath.Join(cwd, path)
+	}
+
+	info, err := os.Stat(statPath)
+
+	return err == nil && info.IsDir()
 }
 
 func configFlagConsumesValue(arg string, configFlags []string) bool {

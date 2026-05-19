@@ -462,10 +462,6 @@ func gpgRuntimeWritePath() string {
 }
 
 func capturedProcessEnvBlocked(name string) bool {
-	if name == "CODING_ETHOS_SANDBOX_ACTIVE" {
-		return false
-	}
-
 	if strings.HasPrefix(name, "CODE_ETHOS_") ||
 		strings.HasPrefix(name, "CODING_ETHOS_") {
 		return true

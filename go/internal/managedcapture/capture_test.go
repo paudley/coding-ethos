@@ -2215,7 +2215,6 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"CODING_ETHOS_SANDBOX_ACTIVE=1",
 		"GOCACHE=/repo/.coding-ethos/cache/go-build",
 		"GOLANGCI_LINT_CACHE=/repo/.coding-ethos/cache/golangci-lint",
 	} {
@@ -2227,6 +2226,7 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 	for _, blocked := range []string{
 		"CODE_ETHOS_CONSUMER_ROOT=/repo",
 		"CODING_ETHOS_EXEC_STACK=coding-ethos-run",
+		"CODING_ETHOS_SANDBOX_ACTIVE=1",
 		"GIT_DIR=/repo/.git",
 		"GIT_INDEX_FILE=/repo/.git/index",
 		"MANAGED_TOOLCHAIN_MANIFEST=/repo/build/toolchain/manifest.tsv",

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -937,6 +938,11 @@ func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
 
 	err := validateSandboxRuntimeWithWrapperPath("/bin/true")
 	if err == nil {
+		evidence, runtimeErr := sandbox.ValidateNativeRuntime()
+		if runtimeErr == nil && evidence.Reason != "" && !evidence.NamespaceEnforced {
+			return
+		}
+
 		t.Fatal("validateSandboxRuntimeWithWrapperPath() error = nil")
 	}
 }

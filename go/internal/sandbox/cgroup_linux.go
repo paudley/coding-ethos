@@ -99,8 +99,9 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	}
 
 	attributes.Setpgid = true
+
 	if evidence.Enabled {
-		if evidence.RequiresProcesses {
+		if evidence.RequiresProcesses || !evidence.NamespaceEnforced {
 			return attributes
 		}
 

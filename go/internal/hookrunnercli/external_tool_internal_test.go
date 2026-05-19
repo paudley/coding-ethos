@@ -53,10 +53,6 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 		t.Fatalf("externalToolEnv did not disable optional git locks: %#v", env)
 	}
 
-	if !slices.Contains(env, "CODING_ETHOS_SANDBOX_ACTIVE=1") {
-		t.Fatalf("externalToolEnv dropped sandbox active marker: %#v", env)
-	}
-
 	for _, item := range env {
 		if !strings.HasPrefix(item, "PATH=") {
 			continue
