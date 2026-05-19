@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
@@ -23,14 +24,18 @@ import (
 )
 
 const (
-	blockedExitCode  = 2
-	adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
-	gitHookRunner    = "coding-ethos-run"
-	gitHookWrapper   = "coding-ethos-git"
-	policyGitCommand = "policy-git"
-	hookCommitMsg    = "commit-msg"
-	hookPreCommit    = "pre-commit"
-	hookPrePush      = "pre-push"
+	blockedExitCode      = 2
+	adminApprovedEnv     = "CODE_ETHOS_ADMIN_APPROVED"
+	gitHookRunner        = "coding-ethos-run"
+	gitHookWrapper       = "coding-ethos-git"
+	policyGitCommand     = "policy-git"
+	hookCommitMsg        = "commit-msg"
+	hookPrepareMsg       = "prepare-commit-msg"
+	hookPreCommit        = "pre-commit"
+	hookPrePush          = "pre-push"
+	hookMessageFileIndex = 1
+	hookSourceIndex      = 2
+	hookCommitIndex      = 3
 )
 
 var (
@@ -88,6 +93,8 @@ func runWithArgsAndVerifier(
 	switch hookName {
 	case hookCommitMsg:
 		return runCommitMsgHook(bundle, config.Cwd, config.HookArgs)
+	case hookPrepareMsg:
+		return runPrepareCommitMsgHook(bundle, config.Cwd, config.HookArgs)
 	case hookPreCommit, hookPrePush:
 		code, blocked := runStagedHook(bundle, config.Cwd, hookName)
 		if blocked {
@@ -108,7 +115,7 @@ func defaultGitHookAuthorizationVerifier() gitHookAuthorizationVerifier {
 
 func gitHookRequiresWrapper(hookName string) bool {
 	switch hookName {
-	case hookCommitMsg, hookPreCommit, hookPrePush:
+	case hookCommitMsg, hookPrepareMsg, hookPreCommit, hookPrePush:
 		return true
 	default:
 		return false
@@ -150,8 +157,7 @@ func trustedGitWrapperProcess(commandLine []string) bool {
 	case gitHookWrapper:
 		return true
 	case gitHookRunner:
-		return commandLineContains(commandLine, policyGitCommand) ||
-			commandLineContains(commandLine, "git-hook")
+		return commandLineContains(commandLine, policyGitCommand)
 	default:
 		return false
 	}
@@ -226,6 +232,94 @@ func runCommitMsgHook(bundle policy.Bundle, cwd string, hookArgs []string) int {
 	}
 
 	return policyResultExitCode(cwd, result)
+}
+
+func runPrepareCommitMsgHook(bundle policy.Bundle, cwd string, hookArgs []string) int {
+	if len(hookArgs) <= hookMessageFileIndex ||
+		strings.TrimSpace(hookArgs[hookMessageFileIndex]) == "" {
+		printErr(apperror.StaticError(
+			"prepare-commit-msg hook requires a message file",
+		))
+
+		return 1
+	}
+
+	source := ""
+	if len(hookArgs) > hookSourceIndex {
+		source = strings.TrimSpace(hookArgs[hookSourceIndex])
+	}
+
+	if source != "commit" {
+		return 0
+	}
+
+	commit := ""
+	if len(hookArgs) > hookCommitIndex {
+		commit = strings.TrimSpace(hookArgs[hookCommitIndex])
+	}
+
+	decision := historyRewriteDecision(bundle, hookPrepareMsg, source, commit)
+	result := lint.Result{
+		Scope:     lint.ScopeCommit,
+		Status:    "blocked",
+		Files:     []string{hookArgs[hookMessageFileIndex]},
+		Decisions: []policy.Decision{decision},
+	}
+
+	if len(decision.Diagnostics) > 0 {
+		result.Diagnostics = append(
+			result.Diagnostics,
+			decision.Diagnostics...,
+		)
+	}
+
+	return policyResultExitCode(cwd, result)
+}
+
+func historyRewriteDecision(
+	bundle policy.Bundle,
+	hookName string,
+	source string,
+	commit string,
+) policy.Decision {
+	const policyID = "git.history_rewrite_prevention"
+
+	decision := policy.Decision{
+		Decision:   "block",
+		PolicyID:   policyID,
+		Severity:   "block",
+		Message:    "Branch history rewriting is forbidden.",
+		Suggestion: "Make a new commit that preserves review history.",
+	}
+	policyDef, policyFound := bundle.Policies[policyID]
+
+	if policyFound {
+		decision = policy.NewDecision("block", policyDef)
+	}
+
+	diagnostic := diagnostics.Diagnostic{
+		Tool:     "git",
+		Severity: "block",
+		PolicyID: policyID,
+		Message:  "History rewrite commit flow reached prepare-commit-msg.",
+		Advice: "Create a new commit instead of amending or reusing a " +
+			"commit message from existing history.",
+		Detail: fmt.Sprintf(
+			"hook=%q source=%q commit=%q",
+			hookName,
+			source,
+			commit,
+		),
+	}
+
+	decision.Diagnostics = append(decision.Diagnostics, diagnostic)
+	decision.Evidence = map[string]any{
+		"commit": commit,
+		"hook":   hookName,
+		"source": source,
+	}
+
+	return decision
 }
 
 func runStagedHook(bundle policy.Bundle, cwd, hookName string) (int, bool) {

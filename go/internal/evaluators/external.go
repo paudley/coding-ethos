@@ -6,7 +6,6 @@ package evaluators
 import (
 	"bytes"
 	stdlibcontext "context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +15,10 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -67,7 +68,16 @@ func EvaluateExternalCommand(
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := debuglog.ProcessEnter(command, context.Cwd)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		command,
+		context.Cwd,
+		externalCommandExitCode(err),
+		err,
+	)
+
 	if err == nil {
 		return nil, nil
 	}
@@ -98,12 +108,7 @@ func EvaluateExternalCommand(
 }
 
 func externalExitCode(err error) int {
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		return exitError.ExitCode()
-	}
-
-	return -1
+	return processstatus.ExitCode(err, -1)
 }
 
 func EvaluateGeneratedConfigFreshness(
@@ -399,4 +404,8 @@ func externalRepoRelativePath(cwd, path string) string {
 	}
 
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func externalCommandExitCode(err error) int {
+	return processstatus.ExitCode(err, 1)
 }

@@ -6,17 +6,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func isGitHookName(name string) bool {
 	switch name {
-	case "pre-commit", "pre-push", "commit-msg":
+	case "pre-commit", "pre-push", "commit-msg", "prepare-commit-msg":
 		return true
 	default:
 		return false
@@ -53,7 +50,7 @@ func runGitHook(paths runtimePaths, args []string) error {
 	}
 
 	switch args[0] {
-	case "pre-commit", "pre-push", "commit-msg", "validate":
+	case "pre-commit", "pre-push", "commit-msg", "prepare-commit-msg", "validate":
 	default:
 		return apperror.Wrapf(
 			apperror.StaticError("unknown git hook %q"),
@@ -64,7 +61,6 @@ func runGitHook(paths runtimePaths, args []string) error {
 
 	requireRuntimeBinary(paths.GitHookRunner, "bundled Go hook runner")
 	installLintToolShims(paths)
-	authorizeInProcessGitHook()
 	runtimeExecTool(paths, "coding-ethos-git-hook", append([]string{
 		"--bundle", bundlePath,
 		"--runner", paths.GitHookRunner,
@@ -72,18 +68,6 @@ func runGitHook(paths runtimePaths, args []string) error {
 	}, args...)...)
 
 	return nil
-}
-
-func authorizeInProcessGitHook() {
-	err := os.Setenv(gitwrap.WrapperAuthorizedEnv, "1")
-	if err != nil {
-		exitErr(err)
-	}
-
-	err = os.Setenv(gitwrap.WrapperPIDEnv, strconv.Itoa(os.Getpid()))
-	if err != nil {
-		exitErr(err)
-	}
 }
 
 func runLFSHook(paths runtimePaths, args []string) error {

@@ -10,8 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/agenthookscli"
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
@@ -19,6 +22,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/mcpcli"
 	"blackcat.ca/coding-ethos/go/internal/policycli"
 	"blackcat.ca/coding-ethos/go/internal/policygitcli"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
@@ -164,7 +168,22 @@ func (defaultRuntimeExecutor) runTool(paths runtimePaths, tool string, args ...s
 
 	command.Stdin = os.Stdin
 
+	argv := append([]string{toolPath}, args...)
+	startedAt := debuglog.ProcessEnter(
+		argv,
+		paths.InvocationCWD,
+		zap.String("runtime_tool", tool),
+	)
 	err := command.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		argv,
+		paths.InvocationCWD,
+		runtimeCommandExitCode(err),
+		err,
+		zap.String("runtime_tool", tool),
+	)
+
 	if err != nil {
 		exitErr(err)
 	}
@@ -292,10 +311,25 @@ func (defaultRuntimeExecutor) execExternal(path string, args ...string) {
 
 	command.Stdin = os.Stdin
 
+	argv := append([]string{path}, args...)
+	startedAt := debuglog.ProcessEnter(argv, "", zap.Bool("runtime_external", true))
 	err := command.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		argv,
+		"",
+		runtimeCommandExitCode(err),
+		err,
+		zap.Bool("runtime_external", true),
+	)
+
 	if err != nil {
 		exitErr(err)
 	}
 
 	requestRuntimeExit(0)
+}
+
+func runtimeCommandExitCode(err error) int {
+	return processstatus.ExitCode(err, 1)
 }

@@ -1255,9 +1255,11 @@ with provider-native Claude, Codex, and Gemini payloads. The probes cover:
   `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
 
 Hook logs under `.coding-ethos/hook-runs/` include stdout, stderr, metadata,
-and a sanitized `event.json` for agent-hook executions. The trace records
-provider, event, tool, cwd, referenced files, command preview and hash, policy
-IDs, status, and output shape without dumping raw provider input.
+and a sanitized `event.json` for agent-hook executions. Add
+`--coding-ethos-debug` to a hook-runner or Bash tool command to capture
+structured debug events in `debug.log` and stderr for that run. The trace
+records provider, event, tool, cwd, referenced files, command preview and hash,
+policy IDs, status, and output shape without dumping raw provider input.
 
 ### Cutover
 

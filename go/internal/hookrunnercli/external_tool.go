@@ -18,6 +18,8 @@ import (
 	execabs "golang.org/x/sys/execabs"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 )
 
 var (
@@ -57,10 +59,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 		}
 	}
 
-	timeout := request.TimeoutSeconds
-	if timeout <= 0 {
-		timeout = loadHookSettings().ToolTimeoutSeconds
-	}
+	timeout := externalToolTimeout(request)
 
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
@@ -80,17 +79,46 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := debuglog.ProcessEnter(request.Command, request.Dir)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		request.Command,
+		request.Dir,
+		commandExitCode(err),
+		err,
+	)
+
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 
+	return completedExternalToolResult(
+		request,
+		start,
+		timeout,
+		ctx.Err(),
+		err,
+		stdoutText,
+		stderrText,
+	)
+}
+
+func completedExternalToolResult(
+	request externalToolRequest,
+	start time.Time,
+	timeout int,
+	ctxErr error,
+	err error,
+	stdoutText string,
+	stderrText string,
+) externalToolResult {
 	result := externalToolResult{
 		Stdout:     stdoutText,
 		Stderr:     stderrText,
 		Combined:   externalToolCombinedOutput(stdoutText, stderrText),
 		ExitCode:   0,
 		DurationMS: float64(time.Since(start).Milliseconds()),
-		TimedOut:   errors.Is(ctx.Err(), context.DeadlineExceeded),
+		TimedOut:   errors.Is(ctxErr, context.DeadlineExceeded),
 	}
 	if result.TimedOut {
 		result.ExitCode = 1
@@ -119,6 +147,14 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	result.RunnerFailure = err
 
 	return result
+}
+
+func externalToolTimeout(request externalToolRequest) int {
+	if request.TimeoutSeconds > 0 {
+		return request.TimeoutSeconds
+	}
+
+	return loadHookSettings().ToolTimeoutSeconds
 }
 
 func externalToolCombinedOutput(stdout, stderr string) string {
@@ -217,4 +253,8 @@ func gitHookLocalEnvNames() []string {
 		"GIT_QUARANTINE_PATH",
 		"GIT_WORK_TREE",
 	}
+}
+
+func commandExitCode(err error) int {
+	return processstatus.ExitCode(err, 1)
 }

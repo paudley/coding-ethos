@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -329,7 +331,11 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	command.Dir = repoRoot
 	command.SysProcAttr = SysProcAttr(nil, plan.Evidence)
 
+	argv := append([]string{plan.Executable}, plan.Args...)
+	startedAt := debuglog.ProcessEnter(argv, repoRoot)
 	output, runErr := command.CombinedOutput()
+	debuglog.ProcessExit(startedAt, argv, repoRoot, sandboxProbeExitCode(runErr), runErr)
+
 	if runErr != nil {
 		plan.Evidence.Denied = true
 		plan.Evidence.Reason = strings.TrimSpace(string(output))
@@ -347,6 +353,10 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	}
 
 	return validateNativeProbeSideEffects(repoRoot, plan.Evidence)
+}
+
+func sandboxProbeExitCode(err error) int {
+	return processstatus.ExitCode(err, 1)
 }
 
 func nativeProbeArgs() []string {

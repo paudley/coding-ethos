@@ -13,19 +13,23 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	"go.uber.org/zap"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -128,6 +132,23 @@ func runCapturedTool(
 }
 
 func executeCapturedTool(request captureRequest) captureExecution {
+	startedAt := time.Now()
+
+	debuglog.Debug(
+		"managed_capture.execute.enter",
+		zap.String("tool", request.Tool),
+		zap.String("tool_path", request.ToolPath),
+		zap.String("cwd", request.Cwd),
+	)
+
+	defer func() {
+		debuglog.Debug(
+			"managed_capture.execute.exit",
+			zap.String("tool", request.Tool),
+			zap.Duration("elapsed", time.Since(startedAt)),
+		)
+	}()
+
 	runArgs := capturedToolArgs(request.Tool, request.Args)
 	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
 	plan, planErr := buildCapturedSandboxPlan(request, runArgs)
@@ -140,7 +161,15 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	}()
 
 	evidence := lintSandboxEvidence(plan.Evidence)
+
 	if planErr != nil {
+		debuglog.Debug(
+			"managed_capture.sandbox_plan.error",
+			zap.String("tool", request.Tool),
+			zap.String("executable", request.ToolPath),
+			zap.Error(planErr),
+		)
+
 		diagnostic := sandboxDenialDiagnostic(plan.Evidence)
 
 		return captureExecution{
@@ -150,6 +179,19 @@ func executeCapturedTool(request captureRequest) captureExecution {
 			ExitCode: BlockedExitCode,
 		}
 	}
+
+	debuglog.Debug(
+		"managed_capture.sandbox_plan.built",
+		zap.String("tool", request.Tool),
+		zap.String("executable", plan.Executable),
+		zap.String("backend", plan.Evidence.Backend),
+		zap.String("backend_path", plan.Evidence.BackendPath),
+		zap.String("cwd", request.Cwd),
+		zap.Int("arg_count", len(runArgs)),
+		zap.Int("read_path_count", len(plan.Evidence.ReadPaths)),
+		zap.Int("write_path_count", len(plan.Evidence.WritePaths)),
+		zap.Int("timeout_seconds", plan.Evidence.TimeoutSeconds),
+	)
 
 	return runCapturedPlan(request, plan, runArgs)
 }
@@ -203,12 +245,29 @@ func runCapturedPlan(
 		defer func() { _ = cgroup.Close() }()
 	}
 
+	startedAt := time.Now()
+
+	debuglog.Debug(
+		"managed_capture.process.enter",
+		zap.String("tool", request.Tool),
+		zap.String("executable", plan.Executable),
+		zap.String("cwd", request.Cwd),
+		zap.Int("timeout_seconds", appliedEvidence.TimeoutSeconds),
+		zap.Bool("cgroup", cgroup != nil),
+	)
 	result := startCapturedProcess(
 		commandContext,
 		request,
 		plan,
 		cgroup,
 		appliedEvidence,
+	)
+	debuglog.Debug(
+		"managed_capture.process.exit",
+		zap.String("tool", request.Tool),
+		zap.Int("exit_code", result.exitCode),
+		zap.Duration("elapsed", time.Since(startedAt)),
+		zap.Error(result.err),
 	)
 
 	if deniedEvidence, denied := capturedSandboxRuntimeDenial(
@@ -248,75 +307,75 @@ func startCapturedProcess(
 	cgroup *sandbox.Cgroup,
 	evidence sandbox.Evidence,
 ) processResult {
-	stdoutReader, stdoutWriter, stdoutErr := os.Pipe()
-	if stdoutErr != nil {
-		return processResult{err: stdoutErr, exitCode: capturedCommandNotFoundCode}
+	processIO, failedResult, ok := openCapturedProcessIO(plan)
+	if !ok {
+		return failedResult
 	}
-	defer stdoutReader.Close()
-
-	stderrReader, stderrWriter, stderrErr := os.Pipe()
-	if stderrErr != nil {
-		_ = stdoutWriter.Close()
-
-		return processResult{err: stderrErr, exitCode: capturedCommandNotFoundCode}
-	}
-	defer stderrReader.Close()
-
-	files := capturedProcessFiles(stdoutWriter, stderrWriter, plan.ExtraFiles)
+	defer processIO.closeReaders()
 
 	cacheEnv, cacheEnvErr := sandboxCacheEnv(request)
 	if cacheEnvErr != nil {
-		_ = stdoutWriter.Close()
-		_ = stderrWriter.Close()
+		processIO.closeWriters()
 
 		return processResult{err: cacheEnvErr, exitCode: capturedCommandNotFoundCode}
 	}
 
-	process, startErr := os.StartProcess(
-		plan.Executable,
-		capturedProcessArgv(plan),
-		&os.ProcAttr{
-			Dir:   request.Cwd,
-			Env:   capturedProcessEnv(os.Environ(), cacheEnv),
-			Files: files,
-			Sys:   capturedProcessSysProcAttr(cgroup, evidence),
-		},
+	argv := capturedProcessArgv(plan)
+	process, startedAt, startErr := startCapturedOSProcess(
+		request,
+		plan,
+		processIO.files,
+		argv,
+		cacheEnv,
+		cgroup,
+		evidence,
 	)
 
-	_ = stdoutWriter.Close()
-	_ = stderrWriter.Close()
+	processIO.closeWriters()
 
 	var buffers captureBuffers
 
-	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
-	if startErr != nil {
-		return failedProcessStartResult(copyDone, cacheEnv, startErr)
-	}
+	copyDone := copyProcessOutput(
+		&buffers,
+		processIO.stdoutReader,
+		processIO.stderrReader,
+	)
 
-	assignErr := cgroup.AssignProcess(process)
-	if assignErr != nil {
-		return failedCgroupAssignmentResult(
-			ctx,
-			process,
+	if startErr != nil {
+		return failedCapturedProcessStart(
+			startedAt,
+			argv,
+			request,
 			copyDone,
 			cacheEnv,
-			&buffers,
-			assignErr,
+			startErr,
 		)
 	}
 
-	state, waitErr := waitCapturedProcess(ctx, process)
-
-	copyErr := <-copyDone
-
-	cleanupSandboxCacheEnv(cacheEnv)
-
-	return processResult{
-		stdout:   buffers.stdout.String(),
-		stderr:   buffers.stderr.String(),
-		err:      errors.Join(waitErr, copyErr),
-		exitCode: capturedProcessExitCode(state, waitErr),
+	if result, failed := assignCapturedProcessToCgroup(
+		ctx,
+		process,
+		cgroup,
+		startedAt,
+		argv,
+		request,
+		cacheEnv,
+		copyDone,
+		&buffers,
+	); failed {
+		return result
 	}
+
+	return waitForCapturedProcessResult(
+		ctx,
+		process,
+		startedAt,
+		argv,
+		request,
+		copyDone,
+		cacheEnv,
+		&buffers,
+	)
 }
 
 func failedProcessStartResult(
@@ -1836,16 +1895,7 @@ func capturedOutcome(
 }
 
 func capturedExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return capturedCommandNotFoundCode
+	return processstatus.ExitCode(err, capturedCommandNotFoundCode)
 }
 
 func capturedStatus(exitCode int) string {

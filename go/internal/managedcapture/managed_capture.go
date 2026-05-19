@@ -11,9 +11,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
+
+	"go.uber.org/zap"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -67,16 +71,38 @@ type managedToolCommand struct {
 }
 
 func Run(options Options) int {
+	startedAt := time.Now()
+
+	debuglog.Debug(
+		"managed_capture.run.enter",
+		zap.String("tool", options.Tool),
+		zap.String("ethos_root", options.EthosRoot),
+		zap.String("consumer_root", options.ConsumerRoot),
+		zap.String("invocation_cwd", options.InvocationCwd),
+		zap.Strings("args", options.Args),
+	)
+
+	finish := func(exitCode int) int {
+		debuglog.Debug(
+			"managed_capture.run.exit",
+			zap.String("tool", options.Tool),
+			zap.Int("exit_code", exitCode),
+			zap.Duration("elapsed", time.Since(startedAt)),
+		)
+
+		return exitCode
+	}
+
 	if managedCaptureRootsMissing(options) {
-		return printManagedCaptureError(errManagedCaptureRootRequired, 1)
+		return finish(printManagedCaptureError(errManagedCaptureRootRequired, 1))
 	}
 
 	tool, found := toolcatalog.HookOwnedTool(options.Tool)
 	if !found {
-		return printManagedCaptureError(
+		return finish(printManagedCaptureError(
 			fmt.Errorf("%w: %s", errUnknownCapturedTool, options.Tool),
 			1,
-		)
+		))
 	}
 
 	config, err := lintcapture.LoadRuntimeConfig(
@@ -84,32 +110,32 @@ func Run(options Options) int {
 		options.ConsumerRoot,
 	)
 	if err != nil {
-		return printManagedCaptureError(err, 1)
+		return finish(printManagedCaptureError(err, 1))
 	}
 
 	enabled, err := managedToolEnabled(tool.Name, options.EthosRoot, options.ConsumerRoot)
 	if err != nil {
-		return printManagedCaptureError(err, 1)
+		return finish(printManagedCaptureError(err, 1))
 	}
 
 	if !enabled {
-		return 0
+		return finish(0)
 	}
 
 	drift := generatedConfigDrift(options.EthosRoot, options.ConsumerRoot)
 	if len(drift) > 0 {
-		return printConfigDrift(drift)
+		return finish(printConfigDrift(drift))
 	}
 
 	request, exitCode, err := managedCaptureRequest(tool, config, options)
 	if err != nil {
-		return printManagedCaptureError(err, exitCode)
+		return finish(printManagedCaptureError(err, exitCode))
 	}
 
-	return runCapturedToolWithRequest(
+	return finish(runCapturedToolWithRequest(
 		request,
 		firstCaptureNonEmpty(options.OutputFormat, hookoutput.SelectedFormat()),
-	)
+	))
 }
 
 func managedCaptureRequest(
@@ -144,6 +170,17 @@ func managedCaptureRequest(
 	if capabilitiesErr != nil {
 		return captureRequest{}, BlockedExitCode, capabilitiesErr
 	}
+
+	debuglog.Debug(
+		"managed_capture.request.built",
+		zap.String("tool", options.Tool),
+		zap.String("tool_path", command.Path),
+		zap.Strings("tool_prefix", command.Prefix),
+		zap.String("cwd", captureCwd),
+		zap.Int("arg_count", len(args)),
+		zap.Strings("file_extensions", tool.FileMatchSpec().Extensions),
+		zap.Bool("sandbox_profiled", capabilities.SandboxProfile != ""),
+	)
 
 	return captureRequest{
 		Tool:       options.Tool,

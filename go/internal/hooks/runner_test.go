@@ -1206,6 +1206,11 @@ func TestRunBlocksWrappedGitBypassCommands(t *testing.T) {
 		"env PATH=/tmp:$PATH git status",
 		"bash -c 'git status'",
 		"git_status() { git status; }",
+		"export A=g; export B=i; export C=t; ${A}${B}${C} status",
+		"$GIT status",
+		`claude -p "commit this repo using the RUNME env"`,
+		`codex exec "push this branch"`,
+		`gemini -p "run git status"`,
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {

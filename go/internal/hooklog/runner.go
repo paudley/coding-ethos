@@ -5,19 +5,21 @@ package hooklog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
@@ -53,6 +55,7 @@ type Options struct {
 	Root       string
 	BundleRoot string
 	Command    []string
+	Debug      bool
 }
 
 type loggedActionStreams struct {
@@ -60,6 +63,15 @@ type loggedActionStreams struct {
 	stdoutWriter *os.File
 	stderrReader *os.File
 	stderrWriter *os.File
+}
+
+type hookLogEnvSnapshot struct {
+	LoggingActive string
+	RunDir        string
+	Debug         string
+	HadLogging    bool
+	HadRunDir     bool
+	HadDebug      bool
 }
 
 func Run(options Options) error {
@@ -98,6 +110,14 @@ func runWithStatus(options Options) (int, error) {
 		return 1, err
 	}
 	defer logs.close()
+	defer debuglog.Reset()
+
+	debugWriter := io.MultiWriter(options.Stderr, logs.stderr)
+
+	debugEnabled, err := configureRunDebugLog(options, runDir, debugWriter)
+	if err != nil {
+		return 1, err
+	}
 
 	metadataPath := filepath.Join(runDir, "metadata.env")
 
@@ -107,22 +127,64 @@ func runWithStatus(options Options) (int, error) {
 		RepoRoot:   options.Root,
 		BundleRoot: options.BundleRoot,
 		Command:    options.Command,
+		Debug:      debugEnabled,
 	})
 	if err != nil {
 		return 1, err
 	}
 
+	debuglog.Debug(
+		"hook.run.enter",
+		zap.String("run_id", runID),
+		zap.String("repo_root", options.Root),
+		zap.String("bundle_root", options.BundleRoot),
+		zap.Strings("command", options.Command),
+	)
+
 	status, err := runLoggedPayload(options, logs, runDir)
 
-	metadataErr := appendFinishedMetadata(metadataPath, options.Now().UTC(), status)
+	finishedAt := options.Now().UTC()
+	debuglog.Debug(
+		"hook.run.exit",
+		zap.String("run_id", runID),
+		zap.Int("exit_code", status),
+		zap.Duration("elapsed", finishedAt.Sub(startedAt)),
+		zap.Error(err),
+	)
+
+	syncErr := debuglog.Sync()
+	if syncErr != nil {
+		_, _ = fmt.Fprintf(options.Stderr, "WARN: sync debug log: %v\n", syncErr)
+	}
+
+	metadataErr := appendFinishedMetadata(metadataPath, finishedAt, status)
 	if metadataErr != nil {
 		return 1, metadataErr
 	}
 
 	maintenanceErr := refreshCodeIntelAfterRun(options, runDir)
 
+	return completedHookStatus(status, err, maintenanceErr)
+}
+
+func configureRunDebugLog(
+	options Options,
+	runDir string,
+	debugWriter io.Writer,
+) (bool, error) {
+	debugEnabled := options.Debug || debuglog.EnabledFromEnv()
+
+	err := debuglog.Configure(debugEnabled, runDir, debugWriter)
 	if err != nil {
-		return status, commandError{err: err, code: status}
+		return false, fmt.Errorf("configure debug logging: %w", err)
+	}
+
+	return debugEnabled, nil
+}
+
+func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) {
+	if runErr != nil {
+		return status, commandError{err: runErr, code: status}
 	}
 
 	if maintenanceErr != nil {
@@ -215,11 +277,38 @@ func runLoggedPayload(
 		"CODE_ETHOS_HOOK_LOGGING_ACTIVE=1",
 		"CODE_ETHOS_HOOK_RUN_DIR="+runDir,
 	)
+	if options.Debug {
+		cmd.Env = append(cmd.Env, debuglog.EnvName+"=1")
+	}
+
 	cmd.Stdin = options.Stdin
 	cmd.Stdout = io.MultiWriter(options.Stdout, logs.stdout)
 	cmd.Stderr = io.MultiWriter(options.Stderr, logs.stderr)
 
+	logMakeProcess("make.process.enter", options.Command, runDir, options.Root, -1, 0)
+
+	startedAt := debuglog.ProcessEnter(
+		options.Command,
+		options.Root,
+		zap.String("run_dir", runDir),
+	)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		options.Command,
+		options.Root,
+		exitCode(err),
+		err,
+		zap.String("run_dir", runDir),
+	)
+	logMakeProcess(
+		"make.process.exit",
+		options.Command,
+		runDir,
+		options.Root,
+		exitCode(err),
+		0,
+	)
 
 	return exitCode(err), err
 }
@@ -230,10 +319,7 @@ func runLoggedAction(options Options, logs hookRunLogs, runDir string) (int, err
 
 	originalStdout := os.Stdout
 	originalStderr := os.Stderr
-	originalLoggingActive, hadLoggingActive := os.LookupEnv(
-		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
-	)
-	originalRunDir, hadRunDir := os.LookupEnv("CODE_ETHOS_HOOK_RUN_DIR")
+	originalEnv := captureHookLogEnv()
 
 	streams, waitGroup, err := installLoggedActionStreams(
 		options,
@@ -285,10 +371,11 @@ func runLoggedAction(options Options, logs hookRunLogs, runDir string) (int, err
 
 	status := runActionAndRestoreHookLogEnv(
 		options.Action,
-		originalLoggingActive,
-		hadLoggingActive,
-		originalRunDir,
-		hadRunDir,
+		options.Command,
+		runDir,
+		options.Root,
+		originalEnv,
+		options.Debug,
 	)
 
 	restored = true
@@ -302,6 +389,23 @@ func runLoggedAction(options Options, logs hookRunLogs, runDir string) (int, err
 		status,
 		nil,
 	)
+}
+
+func captureHookLogEnv() hookLogEnvSnapshot {
+	originalLoggingActive, hadLoggingActive := os.LookupEnv(
+		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
+	)
+	originalRunDir, hadRunDir := os.LookupEnv("CODE_ETHOS_HOOK_RUN_DIR")
+	originalDebug, hadDebug := os.LookupEnv(debuglog.EnvName)
+
+	return hookLogEnvSnapshot{
+		LoggingActive: originalLoggingActive,
+		RunDir:        originalRunDir,
+		Debug:         originalDebug,
+		HadLogging:    hadLoggingActive,
+		HadRunDir:     hadRunDir,
+		HadDebug:      hadDebug,
+	}
 }
 
 func installLoggedActionStreams(
@@ -371,29 +475,49 @@ func openLoggedActionStreams() (loggedActionStreams, error) {
 
 func runActionAndRestoreHookLogEnv(
 	action func() int,
-	originalLoggingActive string,
-	hadLoggingActive bool,
-	originalRunDir string,
-	hadRunDir bool,
+	command []string,
+	runDir string,
+	root string,
+	originalEnv hookLogEnvSnapshot,
+	debug bool,
 ) int {
-	defer restoreHookLogEnv(
-		originalLoggingActive,
-		hadLoggingActive,
-		originalRunDir,
-		hadRunDir,
-	)
+	defer restoreHookLogEnv(originalEnv)
 
-	return action()
+	if debug {
+		_ = os.Setenv(debuglog.EnvName, "1")
+	}
+
+	logMakeProcess("make.process.enter", command, runDir, root, -1, os.Getpid())
+
+	startedAt := debuglog.ProcessEnter(
+		command,
+		root,
+		zap.String("run_dir", runDir),
+		zap.Bool("in_process", true),
+	)
+	status := action()
+	debuglog.ProcessExit(
+		startedAt,
+		command,
+		root,
+		status,
+		nil,
+		zap.String("run_dir", runDir),
+		zap.Bool("in_process", true),
+	)
+	logMakeProcess("make.process.exit", command, runDir, root, status, os.Getpid())
+
+	return status
 }
 
-func restoreHookLogEnv(
-	originalLoggingActive string,
-	hadLoggingActive bool,
-	originalRunDir string,
-	hadRunDir bool,
-) {
-	restoreEnv("CODE_ETHOS_HOOK_LOGGING_ACTIVE", originalLoggingActive, hadLoggingActive)
-	restoreEnv("CODE_ETHOS_HOOK_RUN_DIR", originalRunDir, hadRunDir)
+func restoreHookLogEnv(original hookLogEnvSnapshot) {
+	restoreEnv(
+		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
+		original.LoggingActive,
+		original.HadLogging,
+	)
+	restoreEnv("CODE_ETHOS_HOOK_RUN_DIR", original.RunDir, original.HadRunDir)
+	restoreEnv(debuglog.EnvName, original.Debug, original.HadDebug)
 }
 
 func restoreEnv(name, value string, hadValue bool) {
@@ -606,6 +730,7 @@ type hookRunMetadata struct {
 	RepoRoot   string
 	BundleRoot string
 	Command    []string
+	Debug      bool
 }
 
 func writeStartedMetadata(path string, metadata hookRunMetadata) (err error) {
@@ -662,7 +787,49 @@ func writeStartedMetadata(path string, metadata hookRunMetadata) (err error) {
 		return fmt.Errorf("write metadata: %w", inlineErrE)
 	}
 
+	_, inlineErrF := fmt.Fprintf(
+		file,
+		"debug=%s\n",
+		shellQuote(strconv.FormatBool(metadata.Debug)),
+	)
+	if inlineErrF != nil {
+		return fmt.Errorf("write metadata: %w", inlineErrF)
+	}
+
 	return nil
+}
+
+func logMakeProcess(
+	event string,
+	command []string,
+	runDir string,
+	cwd string,
+	exitCode int,
+	pid int,
+) {
+	if !commandIncludesMake(command) {
+		return
+	}
+
+	fields := []zap.Field{
+		zap.String("run_dir", runDir),
+		zap.String("cwd", cwd),
+		zap.Strings("argv", command),
+		zap.Int("exit_code", exitCode),
+		zap.Int("pid", pid),
+		zap.Int("ppid", os.Getppid()),
+	}
+	debuglog.Debug(event, fields...)
+}
+
+func commandIncludesMake(command []string) bool {
+	for _, part := range command {
+		if filepath.Base(part) == "make" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func appendFinishedMetadata(path string, finishedAt time.Time, status int) (err error) {
@@ -726,14 +893,5 @@ func (err commandError) ExitCode() int {
 }
 
 func exitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }

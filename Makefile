@@ -62,14 +62,19 @@ else \
 fi
 endef
 
+define install_git_hooks
+$(call print_info,hooks: $(1)); "$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks --hooks-dir "$(1)" --runner "$(GO_HOOK)"
+endef
+
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
 PARENT_REPO_CONFIG := $(shell if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then printf '%s' "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"; elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then printf '%s' "$(HOOK_CONSUMER_ROOT)/repo_config.yml"; fi)
+LOCAL_HOOKS_DIR := $(shell "$(GIT)" -C "$(LOCAL_REPO_ROOT)" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || printf '%s/.git/hooks' "$(LOCAL_REPO_ROOT)")
 GIT_COMMON_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || printf '%s/.git' "$(HOOK_CONSUMER_ROOT)")
 HOOKS_DIR := $(shell "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" rev-parse --path-format=absolute --git-path hooks 2>/dev/null || printf '%s/.git/hooks' "$(HOOK_CONSUMER_ROOT)")
 PARENT_HOOK_RUNTIME_DIR := $(GIT_COMMON_DIR)/coding-ethos-hooks
 PARENT_HOOK_BIN_DIR := $(PARENT_HOOK_RUNTIME_DIR)/bin
 PARENT_POLICY_DIR := $(PARENT_HOOK_RUNTIME_DIR)/policy
-GIT_HOOKS := pre-commit pre-push commit-msg
+GIT_HOOKS := pre-commit pre-push commit-msg prepare-commit-msg
 GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
 GO_TOOL_CMDS := \
@@ -552,10 +557,10 @@ go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the c
 
 _sync-git-hooks: ensure-go go-tools-install
 	@$(call print_step,Syncing Git hook entrypoints)
-	@$(call print_info,hooks: $(HOOKS_DIR))
-	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks \
-		--hooks-dir "$(HOOKS_DIR)" \
-		--runner "$(GO_HOOK)"
+	@$(call install_git_hooks,$(LOCAL_HOOKS_DIR))
+	@if [ "$(HOOKS_DIR)" != "$(LOCAL_HOOKS_DIR)" ]; then \
+		$(call install_git_hooks,$(HOOKS_DIR)); \
+	fi
 
 _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
@@ -588,7 +593,10 @@ policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## C
 
 install-hooks: build ## Install Git hook entrypoints.
 	@$(call print_step,Git hook entrypoints refreshed by build)
-	@$(call print_info,hooks: $(HOOKS_DIR))
+	@$(call print_info,hooks: $(LOCAL_HOOKS_DIR))
+	@if [ "$(HOOKS_DIR)" != "$(LOCAL_HOOKS_DIR)" ]; then \
+		$(call print_info,hooks: $(HOOKS_DIR)); \
+	fi
 	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 
 cutover-install: build ## Install Git and agent hooks, then verify cutover readiness.

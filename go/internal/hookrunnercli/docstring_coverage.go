@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -271,7 +272,16 @@ func runDocstringCoverage(
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := debuglog.ProcessEnter(command, settings.ConsumerRoot)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		command,
+		settings.ConsumerRoot,
+		commandExitCode(err),
+		err,
+	)
+
 	if err == nil {
 		return 0, stdout.String(), stderr.String(), nil
 	}

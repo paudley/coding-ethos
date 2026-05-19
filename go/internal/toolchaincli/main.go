@@ -69,7 +69,7 @@ var (
 )
 
 func gitHookNames() []string {
-	return []string{"pre-commit", "pre-push", "commit-msg"}
+	return []string{"pre-commit", "pre-push", "commit-msg", "prepare-commit-msg"}
 }
 
 func lfsHookNames() []string {
