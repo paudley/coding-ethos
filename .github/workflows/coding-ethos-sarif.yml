@@ -68,10 +68,34 @@ jobs:
           fi
 
           sudo chown -R "$(id -u):$(id -g)" "$cgroup_path"
+          controllers="$(cat "$cgroup_path/cgroup.controllers")"
+          for controller in cpu memory; do
+            case " $controllers " in
+              *" $controller "*) ;;
+              *)
+                echo "::error::required cgroup controller unavailable:" \
+                  "$controller"
+                exit 1
+                ;;
+            esac
+          done
+          subtree="$(cat "$cgroup_path/cgroup.subtree_control")"
+          for controller in cpu memory; do
+            case " $subtree " in
+              *" $controller "*) ;;
+              *)
+                printf '+%s\n' "$controller" \
+                  > "$cgroup_path/cgroup.subtree_control"
+                ;;
+            esac
+          done
+
           verify_cgroup="$cgroup_path/coding-ethos-ci-verify-$$"
           mkdir "$verify_cgroup"
           cleanup() { rmdir "$verify_cgroup" 2>/dev/null || true; }
           trap cleanup EXIT
+          printf '100000 100000\n' > "$verify_cgroup/cpu.max"
+          printf '2147483648\n' > "$verify_cgroup/memory.max"
 
           sleep 60 &
           verify_pid="$!"

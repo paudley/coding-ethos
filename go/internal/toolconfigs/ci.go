@@ -22,10 +22,34 @@ const githubCgroupDelegationStep = "" +
 	"          fi\n" +
 	"\n" +
 	"          sudo chown -R \"$(id -u):$(id -g)\" \"$cgroup_path\"\n" +
+	"          controllers=\"$(cat \"$cgroup_path/cgroup.controllers\")\"\n" +
+	"          for controller in cpu memory; do\n" +
+	"            case \" $controllers \" in\n" +
+	"              *\" $controller \"*) ;;\n" +
+	"              *)\n" +
+	"                echo \"::error::required cgroup controller unavailable:\" \\\n" +
+	"                  \"$controller\"\n" +
+	"                exit 1\n" +
+	"                ;;\n" +
+	"            esac\n" +
+	"          done\n" +
+	"          subtree=\"$(cat \"$cgroup_path/cgroup.subtree_control\")\"\n" +
+	"          for controller in cpu memory; do\n" +
+	"            case \" $subtree \" in\n" +
+	"              *\" $controller \"*) ;;\n" +
+	"              *)\n" +
+	"                printf '+%s\\n' \"$controller\" \\\n" +
+	"                  > \"$cgroup_path/cgroup.subtree_control\"\n" +
+	"                ;;\n" +
+	"            esac\n" +
+	"          done\n" +
+	"\n" +
 	"          verify_cgroup=\"$cgroup_path/coding-ethos-ci-verify-$$\"\n" +
 	"          mkdir \"$verify_cgroup\"\n" +
 	"          cleanup() { rmdir \"$verify_cgroup\" 2>/dev/null || true; }\n" +
 	"          trap cleanup EXIT\n" +
+	"          printf '100000 100000\\n' > \"$verify_cgroup/cpu.max\"\n" +
+	"          printf '2147483648\\n' > \"$verify_cgroup/memory.max\"\n" +
 	"\n" +
 	"          sleep 60 &\n" +
 	"          verify_pid=\"$!\"\n" +
