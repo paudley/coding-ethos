@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hooklog"
@@ -65,7 +66,7 @@ func mainExitCode() int {
 
 		paths.export()
 
-		args := runnerArgs(os.Args)
+		args, debug := debugRunnerArgs(runnerArgs(os.Args))
 		if len(args) > 0 &&
 			args[0] != "cutover" &&
 			args[0] != "lfs-hook" &&
@@ -78,6 +79,7 @@ func mainExitCode() int {
 				Root:       paths.Root,
 				BundleRoot: paths.BundleRoot,
 				Command:    append([]string{paths.RunBinary}, args...),
+				Debug:      debug || debuglog.EnabledFromEnv(),
 			}, func() int {
 				return runRuntime(paths, args)
 			})
@@ -90,6 +92,23 @@ func mainExitCode() int {
 
 		return runRuntime(paths, args)
 	})
+}
+
+func debugRunnerArgs(args []string) ([]string, bool) {
+	stripped := make([]string, 0, len(args))
+	debug := false
+
+	for _, arg := range args {
+		if arg == debuglog.Flag {
+			debug = true
+
+			continue
+		}
+
+		stripped = append(stripped, arg)
+	}
+
+	return stripped, debug
 }
 
 func runRuntime(paths runtimePaths, args []string) int {

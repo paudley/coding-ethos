@@ -20,9 +20,13 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	"go.uber.org/zap"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -128,6 +132,23 @@ func runCapturedTool(
 }
 
 func executeCapturedTool(request captureRequest) captureExecution {
+	startedAt := time.Now()
+
+	debuglog.Debug(
+		"managed_capture.execute.enter",
+		zap.String("tool", request.Tool),
+		zap.String("tool_path", request.ToolPath),
+		zap.String("cwd", request.Cwd),
+	)
+
+	defer func() {
+		debuglog.Debug(
+			"managed_capture.execute.exit",
+			zap.String("tool", request.Tool),
+			zap.Duration("elapsed", time.Since(startedAt)),
+		)
+	}()
+
 	runArgs := capturedToolArgs(request.Tool, request.Args)
 	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
 	plan, planErr := buildCapturedSandboxPlan(request, runArgs)
@@ -140,7 +161,15 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	}()
 
 	evidence := lintSandboxEvidence(plan.Evidence)
+
 	if planErr != nil {
+		debuglog.Debug(
+			"managed_capture.sandbox_plan.error",
+			zap.String("tool", request.Tool),
+			zap.String("executable", request.ToolPath),
+			zap.Error(planErr),
+		)
+
 		diagnostic := sandboxDenialDiagnostic(plan.Evidence)
 
 		return captureExecution{
@@ -150,6 +179,19 @@ func executeCapturedTool(request captureRequest) captureExecution {
 			ExitCode: BlockedExitCode,
 		}
 	}
+
+	debuglog.Debug(
+		"managed_capture.sandbox_plan.built",
+		zap.String("tool", request.Tool),
+		zap.String("executable", plan.Executable),
+		zap.String("backend", plan.Evidence.Backend),
+		zap.String("backend_path", plan.Evidence.BackendPath),
+		zap.String("cwd", request.Cwd),
+		zap.Int("arg_count", len(runArgs)),
+		zap.Int("read_path_count", len(plan.Evidence.ReadPaths)),
+		zap.Int("write_path_count", len(plan.Evidence.WritePaths)),
+		zap.Int("timeout_seconds", plan.Evidence.TimeoutSeconds),
+	)
 
 	return runCapturedPlan(request, plan, runArgs)
 }
@@ -203,12 +245,29 @@ func runCapturedPlan(
 		defer func() { _ = cgroup.Close() }()
 	}
 
+	startedAt := time.Now()
+
+	debuglog.Debug(
+		"managed_capture.process.enter",
+		zap.String("tool", request.Tool),
+		zap.String("executable", plan.Executable),
+		zap.String("cwd", request.Cwd),
+		zap.Int("timeout_seconds", appliedEvidence.TimeoutSeconds),
+		zap.Bool("cgroup", cgroup != nil),
+	)
 	result := startCapturedProcess(
 		commandContext,
 		request,
 		plan,
 		cgroup,
 		appliedEvidence,
+	)
+	debuglog.Debug(
+		"managed_capture.process.exit",
+		zap.String("tool", request.Tool),
+		zap.Int("exit_code", result.exitCode),
+		zap.Duration("elapsed", time.Since(startedAt)),
+		zap.Error(result.err),
 	)
 
 	if deniedEvidence, denied := capturedSandboxRuntimeDenial(

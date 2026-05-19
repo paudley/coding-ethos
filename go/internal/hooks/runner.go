@@ -12,9 +12,12 @@ import (
 	"slices"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -54,14 +57,36 @@ func RunWithRegistry(
 	options Options,
 	registry evaluators.Registry,
 ) (Result, error) {
+	activateDebugForEvent(options.Event)
+	logMakeEventBoundary(options.Event)
+	event, debugRequested := eventWithoutDebugFlag(options.Event)
+	options.Event = event
+	debuglog.Debug(
+		"hook.inspection.enter",
+		zap.String("event", options.Event.HookEventName),
+		zap.String("tool", options.Event.ToolName),
+		zap.String("provider", options.Event.Provider()),
+		zap.String("cwd", options.Event.Cwd),
+	)
+
 	ctx := collectInspectionContext(options.Event, options.AdminApproved)
 	if ctx.SkipNestedHook || ctx.ReadOnlyInspection {
+		debuglog.Debug(
+			"hook.inspection.skip",
+			zap.Bool("nested", ctx.SkipNestedHook),
+			zap.Bool("read_only", ctx.ReadOnlyInspection),
+		)
+
 		return ctx.allowedResult(), nil
 	}
 
 	decision, err := evaluateInspection(bundle, ctx, registry)
 	if err != nil {
 		return Result{}, err
+	}
+
+	if debugRequested && options.Event.HookEventName == eventPreToolUse {
+		decision.Route = routeWithDebugEnv(options.Event, decision.Route)
 	}
 
 	return buildResult(bundle, ctx.Event, decision), nil
@@ -92,9 +117,18 @@ func routeToolUse(ctx InspectionContext) InspectionRoute {
 	} {
 		route := routeFor(ctx.Event)
 		if route.Block || route.Rewrite {
+			debuglog.Debug(
+				"hook.route.selected",
+				zap.Bool("block", route.Block),
+				zap.Bool("rewrite", route.Rewrite),
+				zap.String("reason", route.Reason),
+			)
+
 			return route
 		}
 	}
+
+	debuglog.Debug("hook.route.none")
 
 	return InspectionRoute{}
 }

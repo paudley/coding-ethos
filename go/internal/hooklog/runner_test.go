@@ -73,6 +73,69 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestRunSuppressesDebugLogByDefault(t *testing.T) {
+	root := t.TempDir()
+	writeHookLogIgnore(t, root)
+
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook log: %v", err)
+	}
+
+	runDir := onlyHookRunDir(t, root)
+	_, err = os.Stat(filepath.Join(runDir, "debug.log"))
+	if !os.IsNotExist(err) {
+		t.Fatalf("debug.log should be absent by default: %v", err)
+	}
+	assertFileContains(t, filepath.Join(runDir, "metadata.env"), "debug='false'")
+}
+
+func TestRunWritesDebugLogAndStderrWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	writeHookLogIgnore(t, root)
+
+	var stderr bytes.Buffer
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &stderr,
+		GitPath:    fakeGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    fakeMake(t),
+		Debug:      true,
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook log: %v", err)
+	}
+
+	runDir := onlyHookRunDir(t, root)
+	debugPath := filepath.Join(runDir, "debug.log")
+	assertFileContains(t, debugPath, `"event":"hook.run.enter"`)
+	assertFileContains(t, debugPath, `"event":"hook.run.exit"`)
+	assertFileContains(t, debugPath, `"event":"make.process.enter"`)
+	assertFileContains(t, debugPath, `"event":"make.process.exit"`)
+	assertFileContains(t, filepath.Join(runDir, "metadata.env"), "debug='true'")
+
+	if !strings.Contains(stderr.String(), `"event":"hook.run.enter"`) {
+		t.Fatalf("stderr did not receive debug logs: %q", stderr.String())
+	}
+}
+
 func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 	t.Parallel()
 
@@ -456,6 +519,42 @@ func commandThatPrints(t *testing.T) []string {
 	t.Helper()
 
 	return []string{os.Args[0], "-test.run=^$", "--", "print"}
+}
+
+func fakeMake(t *testing.T) []string {
+	t.Helper()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "make")
+
+	script := "#!/usr/bin/env bash\nexit 0\n"
+
+	err := os.WriteFile(path, []byte(script), 0o600)
+	if err != nil {
+		t.Fatalf("write fake make: %v", err)
+	}
+
+	err = os.Chmod(path, 0o700)
+	if err != nil {
+		t.Fatalf("chmod fake make: %v", err)
+	}
+
+	return []string{path, "check"}
+}
+
+func onlyHookRunDir(t *testing.T, root string) string {
+	t.Helper()
+
+	runDirs, err := os.ReadDir(filepath.Join(root, ".coding-ethos", "hook-runs"))
+	if err != nil {
+		t.Fatalf("read hook runs: %v", err)
+	}
+
+	if len(runDirs) != 1 {
+		t.Fatalf("hook run dirs = %d, want 1", len(runDirs))
+	}
+
+	return filepath.Join(root, ".coding-ethos", "hook-runs", runDirs[0].Name())
 }
 
 func assertFileContains(t *testing.T, path, substring string) {

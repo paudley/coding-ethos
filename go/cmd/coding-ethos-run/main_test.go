@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -53,6 +54,22 @@ func TestRunnerArgsPreserveExplicitCommand(t *testing.T) {
 	want := []string{"policy-lint", "--json"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("runnerArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestDebugRunnerArgsStripInternalFlag(t *testing.T) {
+	t.Parallel()
+
+	args, debug := debugRunnerArgs([]string{
+		"git-hook",
+		debuglog.Flag,
+		"pre-commit",
+		debuglog.Flag,
+	})
+
+	want := []string{"git-hook", "pre-commit"}
+	if !debug || !slices.Equal(args, want) {
+		t.Fatalf("debugRunnerArgs() = %#v, %v; want %#v, true", args, debug, want)
 	}
 }
 
