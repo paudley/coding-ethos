@@ -191,7 +191,10 @@ func runCapturedPlan(
 
 	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
 	if cgroupErr != nil {
-		appliedEvidence.Reason = cgroupErr.Error()
+		appliedEvidence.Reason = appendEvidenceReason(
+			appliedEvidence.Reason,
+			cgroupErr.Error(),
+		)
 	}
 
 	evidence := lintSandboxEvidence(appliedEvidence)
@@ -456,12 +459,7 @@ func sandboxCacheEnv(request captureRequest) (sandboxCacheEnvironment, error) {
 	cleanupTemp := false
 
 	if request.Tool == goTestTool {
-		resolvedTempDir, err := resolvedGoTestSandboxTempDir(root)
-		if err != nil {
-			return sandboxCacheEnvironment{}, err
-		}
-
-		tempDir = resolvedTempDir
+		tempDir = resolvedGoTestSandboxTempDir(root)
 		runtimeDir = filepath.Join(tempDir, "runtime")
 		cleanupTemp = true
 	}
@@ -519,13 +517,13 @@ func cleanupSandboxCacheEnv(environment sandboxCacheEnvironment) {
 	}
 }
 
-func resolvedGoTestSandboxTempDir(root string) (string, error) {
+func resolvedGoTestSandboxTempDir(root string) string {
 	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
-		return "", fmt.Errorf("resolve sandbox host temp root: %w", err)
+		tempRoot = filepath.Clean(os.TempDir())
 	}
 
-	return filepath.Join(tempRoot, goTestSandboxTempName(root)), nil
+	return filepath.Join(tempRoot, goTestSandboxTempName(root))
 }
 
 func goTestSandboxTempDir(root string) string {
@@ -740,6 +738,21 @@ func prepareSandboxCgroup(
 	}
 
 	return cgroup, appliedEvidence, nil
+}
+
+func appendEvidenceReason(existing, next string) string {
+	existing = strings.TrimSpace(existing)
+	next = strings.TrimSpace(next)
+
+	if existing == "" {
+		return next
+	}
+
+	if next == "" || strings.Contains(existing, next) {
+		return existing
+	}
+
+	return existing + "; " + next
 }
 
 func capturedExecutionError(stderr string, err error) string {

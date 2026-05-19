@@ -25,6 +25,7 @@ var (
 
 const (
 	privateDirMode      = 0o700
+	writableFileMode    = 0o600
 	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
@@ -67,7 +68,12 @@ func prepareWritablePaths(options options) ([]string, error) {
 			continue
 		}
 
-		err := prepareWritablePath(options.paths.repoRoot, path, !filepath.IsAbs(item))
+		err := prepareWritablePath(
+			options.paths.repoRoot,
+			item,
+			path,
+			!filepath.IsAbs(item),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -78,13 +84,13 @@ func prepareWritablePaths(options options) ([]string, error) {
 	return paths, nil
 }
 
-func prepareWritablePath(repoRoot, path string, create bool) error {
+func prepareWritablePath(repoRoot, originalPath, path string, create bool) error {
 	err := rejectSymlinkPath(repoRoot, path)
 	if err != nil {
 		return err
 	}
 
-	info, err := writablePathInfo(repoRoot, path, create)
+	info, err := writablePathInfo(repoRoot, originalPath, path, create)
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,12 @@ func prepareWritablePath(repoRoot, path string, create bool) error {
 	return nil
 }
 
-func writablePathInfo(repoRoot, path string, create bool) (os.FileInfo, error) {
+func writablePathInfo(
+	repoRoot,
+	originalPath,
+	path string,
+	create bool,
+) (os.FileInfo, error) {
 	info, statErr := os.Stat(path)
 	if statErr != nil && (!create || !errors.Is(statErr, os.ErrNotExist)) {
 		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
@@ -111,12 +122,54 @@ func writablePathInfo(repoRoot, path string, create bool) (os.FileInfo, error) {
 		return info, nil
 	}
 
+	if missingWritePathLooksLikeFile(originalPath, path) {
+		return writableFilePathInfo(repoRoot, path)
+	}
+
 	err := mkdirAllNoSymlinks(repoRoot, path)
 	if err != nil {
 		return nil, err
 	}
 
 	info, statErr = os.Stat(path)
+	if statErr != nil {
+		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
+	}
+
+	return info, nil
+}
+
+func missingWritePathLooksLikeFile(originalPath, path string) bool {
+	if strings.HasSuffix(originalPath, string(os.PathSeparator)) ||
+		strings.HasSuffix(originalPath, "/") {
+		return false
+	}
+
+	base := filepath.Base(path)
+	extension := filepath.Ext(base)
+
+	return extension != "" && extension != base
+}
+
+func writableFilePathInfo(repoRoot, path string) (os.FileInfo, error) {
+	parent := filepath.Dir(path)
+
+	err := mkdirAllNoSymlinks(repoRoot, parent)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, writableFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox writable file %s: %w", path, err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("close sandbox writable file %s: %w", path, err)
+	}
+
+	info, statErr := os.Stat(path)
 	if statErr != nil {
 		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
 	}

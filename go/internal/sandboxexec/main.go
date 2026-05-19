@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/execguard"
 )
 
 var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command")
@@ -145,7 +146,8 @@ func sandboxExecBlockedEnv(name string) bool {
 		name == "GIT_CONFIG_PARAMETERS" ||
 		name == "GIT_DIR" ||
 		name == "GIT_INDEX_FILE" ||
-		name == "GIT_WORK_TREE"
+		name == "GIT_WORK_TREE" ||
+		name == execguard.EnvStack
 }
 
 func firstNonEmpty(values ...string) string {
@@ -195,12 +197,23 @@ func allowedSystemWritePath(path string) bool {
 }
 
 func allowedManagedTempWritePath(path string) bool {
-	tempRoot := filepath.Clean(os.TempDir())
+	tempRoot := resolvedTempRoot()
 	if !pathWithin(tempRoot, path) {
 		return false
 	}
 
 	return strings.HasPrefix(filepath.Base(path), "coding-ethos-go-test-")
+}
+
+func resolvedTempRoot() string {
+	tempRoot := filepath.Clean(os.TempDir())
+
+	resolved, err := filepath.EvalSymlinks(tempRoot)
+	if err == nil {
+		return filepath.Clean(resolved)
+	}
+
+	return tempRoot
 }
 
 func allowedGPGRuntimeWritePath(path string) bool {

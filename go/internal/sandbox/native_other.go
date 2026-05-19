@@ -5,11 +5,6 @@
 
 package sandbox
 
-const (
-	nativeNamespaceUnsupportedReason = "Linux namespaces are unavailable on this platform"
-	nestedProcessPolicyReason        = "Linux process sandboxing is unavailable on this platform"
-)
-
 // ValidateNativeRuntime records best-available non-Linux behavior.
 func ValidateNativeRuntime() (Evidence, error) {
 	return Evidence{
@@ -17,8 +12,4 @@ func ValidateNativeRuntime() (Evidence, error) {
 		Enabled: false,
 		Reason:  "Linux namespaces are unavailable on this platform",
 	}, nil
-}
-
-func nativeNestedProcessPolicyRestricted() bool {
-	return false
 }

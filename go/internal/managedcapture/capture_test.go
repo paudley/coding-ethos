@@ -1419,6 +1419,20 @@ func TestPrepareSandboxCgroupSkipsWhenSandboxDisabled(t *testing.T) {
 	}
 }
 
+func TestAppendEvidenceReasonPreservesExistingReason(t *testing.T) {
+	t.Parallel()
+
+	got := appendEvidenceReason(
+		"delegated cgroup directory could not be opened",
+		"prepare sandbox cgroup limits: delegated cgroup directory could not be opened",
+	)
+	want := "delegated cgroup directory could not be opened; " +
+		"prepare sandbox cgroup limits: delegated cgroup directory could not be opened"
+	if got != want {
+		t.Fatalf("appendEvidenceReason() = %q", got)
+	}
+}
+
 func TestRunCapturedToolReportsStartFailureDetail(t *testing.T) {
 	repo := t.TempDir()
 	missingTool := filepath.Join(repo, "missing-tool")

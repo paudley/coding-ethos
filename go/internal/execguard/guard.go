@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	envStack        = "CODING_ETHOS_EXEC_STACK"
+	EnvStack        = "CODING_ETHOS_EXEC_STACK"
 	maxStackEntries = 32
 	exitRecursive   = 96
 )
@@ -49,15 +49,15 @@ func Enter(name string) {
 
 	stack = append(stack, normalized)
 
-	err := os.Setenv(envStack, strings.Join(stack, "\n"))
+	err := os.Setenv(EnvStack, strings.Join(stack, "\n"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: set %s: %v\n", envStack, err)
+		fmt.Fprintf(os.Stderr, "FATAL: set %s: %v\n", EnvStack, err)
 		os.Exit(exitRecursive)
 	}
 }
 
 func currentStack() []string {
-	raw := strings.TrimSpace(os.Getenv(envStack))
+	raw := strings.TrimSpace(os.Getenv(EnvStack))
 	if raw == "" {
 		return nil
 	}

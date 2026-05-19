@@ -57,9 +57,22 @@ func TestFormatSandboxWritePathsIncludeDirectoryTargets(t *testing.T) {
 	t.Parallel()
 
 	consumerRoot := t.TempDir()
-	err := os.Mkdir(filepath.Join(consumerRoot, "pkg"), 0o700)
-	if err != nil {
+	if err := os.Mkdir(filepath.Join(consumerRoot, "pkg"), 0o700); err != nil {
 		t.Fatalf("create package directory: %v", err)
+	}
+	for path, content := range map[string]string{
+		"pkg/app.py":    "print('pkg')\n",
+		"pkg/readme.md": "# docs\n",
+		"root.py":       "print('root')\n",
+		"notes.txt":     "notes\n",
+	} {
+		if err := os.WriteFile(
+			filepath.Join(consumerRoot, path),
+			[]byte(content),
+			0o600,
+		); err != nil {
+			t.Fatalf("create formatter target fixture %s: %v", path, err)
+		}
 	}
 
 	tool, found := toolcatalog.HookOwnedTool("ruff-format")
@@ -67,20 +80,49 @@ func TestFormatSandboxWritePathsIncludeDirectoryTargets(t *testing.T) {
 		t.Fatal("missing ruff-format tool")
 	}
 
-	got := toolSandboxWritePaths(
+	got, err := toolSandboxWritePaths(
 		tool,
 		consumerRoot,
 		consumerRoot,
 		[]string{"format", "--config", "ruff.toml", "pkg", ".", "notes.txt"},
 	)
+	if err != nil {
+		t.Fatalf("toolSandboxWritePaths() error = %v", err)
+	}
 
-	for _, want := range []string{"pkg", "."} {
+	for _, want := range []string{"pkg/app.py", "root.py"} {
 		if !slices.Contains(got, want) {
 			t.Fatalf("formatter sandbox write paths missing %q: %#v", want, got)
 		}
 	}
-	if slices.Contains(got, "notes.txt") || slices.Contains(got, "ruff.toml") {
-		t.Fatalf("formatter sandbox write paths included non-targets: %#v", got)
+	for _, unwanted := range []string{"pkg", ".", "notes.txt", "ruff.toml", "pkg/readme.md"} {
+		if slices.Contains(got, unwanted) {
+			t.Fatalf("formatter sandbox write paths included %q: %#v", unwanted, got)
+		}
+	}
+}
+
+func TestSandboxRelativePathAllowsDotPrefixedNamesInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "..cache")
+
+	got := sandboxRelativePath(root, path)
+	if !slices.Equal(got, []string{"..cache"}) {
+		t.Fatalf("sandboxRelativePath() = %#v, want ..cache", got)
+	}
+}
+
+func TestSandboxRelativePathRejectsParentEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "..", "outside")
+
+	got := sandboxRelativePath(root, path)
+	if len(got) != 0 {
+		t.Fatalf("sandboxRelativePath() = %#v, want parent escape rejected", got)
 	}
 }
 
@@ -754,7 +796,7 @@ func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
 		t.Fatal("missing ruff-format tool")
 	}
 
-	capabilities := sandboxCapabilitiesForRequest(
+	capabilities, err := sandboxCapabilitiesForRequest(
 		tool,
 		lintcapture.RuntimeConfig{},
 		"/repo",
@@ -768,6 +810,9 @@ func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
 			"pkg/app.py",
 		},
 	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
 
 	if !slices.Contains(capabilities.WritePaths, "pkg/app.py") {
 		t.Fatalf("sandbox write paths missing target file: %#v", capabilities)
@@ -787,13 +832,16 @@ func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
 		t.Fatal("missing golangci-lint-format tool")
 	}
 
-	capabilities := sandboxCapabilitiesForRequest(
+	capabilities, err := sandboxCapabilitiesForRequest(
 		tool,
 		lintcapture.RuntimeConfig{},
 		"/repo",
 		"/repo/go",
 		[]string{"fmt", "./..."},
 	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
 
 	if !slices.Contains(capabilities.WritePaths, "go") {
 		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
@@ -808,13 +856,16 @@ func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 		t.Fatal("missing go-test tool")
 	}
 
-	capabilities := sandboxCapabilitiesForRequest(
+	capabilities, err := sandboxCapabilitiesForRequest(
 		tool,
 		lintcapture.RuntimeConfig{},
 		"/repo",
 		"/repo/go",
 		[]string{"test", "./..."},
 	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
 
 	if !slices.Contains(capabilities.WritePaths, "go") {
 		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)

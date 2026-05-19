@@ -99,60 +99,6 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 		if !evidence.RequiresNetwork {
 			attributes.Cloneflags |= syscall.CLONE_NEWNET
 		}
-
-		attributes.UidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getuid(),
-			Size:        1,
-		}}
-		attributes.GidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getgid(),
-			Size:        1,
-		}}
-		attributes.GidMappingsEnableSetgroups = false
-	}
-
-	return attributes
-}
-
-func nativeNamespaceSupported() bool {
-	process, err := os.StartProcess(
-		"/bin/true",
-		[]string{"/bin/true"},
-		&os.ProcAttr{
-			Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-			Sys:   nativeNamespaceSysProcAttr(),
-		},
-	)
-	if err != nil {
-		return false
-	}
-
-	state, err := process.Wait()
-
-	return err == nil && state.Success()
-}
-
-func nativeNamespaceSysProcAttr() *syscall.SysProcAttr {
-	attributes := &syscall.SysProcAttr{
-		Setpgid: true,
-		Cloneflags: syscall.CLONE_NEWUSER |
-			syscall.CLONE_NEWNS |
-			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC |
-			syscall.CLONE_NEWNET,
-		UidMappings: []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getuid(),
-			Size:        1,
-		}},
-		GidMappings: []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getgid(),
-			Size:        1,
-		}},
-		GidMappingsEnableSetgroups: false,
 	}
 
 	return attributes

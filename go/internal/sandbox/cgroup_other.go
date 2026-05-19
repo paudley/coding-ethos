@@ -43,10 +43,6 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	return attributes
 }
 
-func nativeNamespaceSupported() bool {
-	return false
-}
-
 func (cgroup *Cgroup) Close() error {
 	return nil
 }

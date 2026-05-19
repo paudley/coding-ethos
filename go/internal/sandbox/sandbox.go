@@ -184,19 +184,7 @@ func BuildPlan(request Request) (Plan, error) {
 
 	evidence := request.evidence()
 	evidence.Enabled = true
-	evidence.NamespaceEnforced = nativeNamespaceSupported() &&
-		!request.Capabilities.RequiresProcesses
-
-	if !evidence.NamespaceEnforced && !request.Capabilities.RequiresProcesses {
-		evidence.Reason = nativeNamespaceUnsupportedReason
-	}
-
-	if nativeNestedProcessPolicyRestricted() {
-		evidence.Reason = nestedProcessPolicyReason
-		evidence.NamespaceEnforced = false
-		evidence.ProcessIsolated = false
-		evidence.NetworkIsolated = false
-	}
+	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
@@ -296,14 +284,17 @@ func Execute(
 // ValidateNativeRuntimeWithHelper proves the wrapper can apply native sandbox
 // policy and execute a trivial command.
 func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
-	if nativeNestedProcessPolicyRestricted() {
+	wrapper, wrapperErr := nativeWrapperPath(Request{WrapperPath: wrapperPath})
+	if wrapperErr != nil {
 		evidence := nativeRuntimeEvidence()
-		evidence.Reason = nestedProcessPolicyReason
-		evidence.NamespaceEnforced = false
-		evidence.ProcessIsolated = false
-		evidence.NetworkIsolated = false
+		evidence.Denied = true
+		evidence.Reason = backendEvidenceReason(wrapperErr)
 
-		return evidence, nil
+		return evidence, fmt.Errorf(
+			"%w: %w",
+			ErrBackendUnavailable,
+			wrapperErr,
+		)
 	}
 
 	repoRoot, err := os.MkdirTemp("", "coding-ethos-sandbox-probe-")
@@ -316,7 +307,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	plan, err := BuildPlan(Request{
 		Tool:        "sandbox-probe",
 		Executable:  "/bin/sh",
-		WrapperPath: wrapperPath,
+		WrapperPath: wrapper,
 		Cwd:         repoRoot,
 		RepoRoot:    repoRoot,
 		Args:        nativeProbeArgs(),
@@ -359,10 +350,8 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 }
 
 func nativeProbeArgs() []string {
-	script := "printf ok > .coding-ethos/cache/probe"
-	if nativeNamespaceSupported() {
-		script += " && if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
-	}
+	script := "printf ok > .coding-ethos/cache/probe && " +
+		"if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
 
 	return []string{"-c", script}
 }
@@ -383,10 +372,6 @@ func validateNativeProbeSideEffects(
 			ErrBackendUnavailable,
 			evidence.Reason,
 		)
-	}
-
-	if !nativeNamespaceSupported() {
-		return evidence, nil
 	}
 
 	blockedProbe := filepath.Join(repoRoot, "blocked")
@@ -447,11 +432,9 @@ func (request Request) evidence() Evidence {
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		GitReadOnly:       true,
 		RepoReadOnly:      true,
-		NetworkIsolated: nativeNamespaceSupported() &&
-			!request.Capabilities.RequiresProcesses &&
+		NetworkIsolated: !request.Capabilities.RequiresProcesses &&
 			!request.Capabilities.RequiresNetwork,
-		ProcessIsolated: nativeNamespaceSupported() &&
-			!request.Capabilities.RequiresProcesses,
+		ProcessIsolated: !request.Capabilities.RequiresProcesses,
 		TimeoutEnforced: request.Capabilities.TimeoutSeconds > 0,
 		CgroupRequested: request.Capabilities.MemoryMB > 0 ||
 			request.Capabilities.CPUQuotaPercent > 0,

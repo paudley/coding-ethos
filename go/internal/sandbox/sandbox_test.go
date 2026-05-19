@@ -45,6 +45,8 @@ func TestBuildPlanWithoutProfileReturnsOriginalCommand(t *testing.T) {
 }
 
 func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
@@ -91,6 +93,8 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
 	repo := t.TempDir()
@@ -122,6 +126,8 @@ func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 }
 
 func TestBuildPlanFailsClosedWithoutWrapper(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
@@ -139,6 +145,8 @@ func TestBuildPlanFailsClosedWithoutWrapper(t *testing.T) {
 }
 
 func TestBuildPlanRejectsNativeSeccompProfile(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
@@ -167,6 +175,8 @@ func TestBuildPlanRejectsNativeSeccompProfile(t *testing.T) {
 }
 
 func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
@@ -198,6 +208,8 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 func TestBuildPlanRequiresProcessesKeepsFilesystemSandboxWithoutNamespaces(
 	t *testing.T,
 ) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
@@ -242,6 +254,8 @@ func TestBuildPlanRequiresProcessesKeepsFilesystemSandboxWithoutNamespaces(
 func TestValidateNativeRuntimeWithHelperIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/missing")
@@ -262,6 +276,8 @@ func TestValidateNativeRuntimeWithHelperIgnoresSpoofedActiveSandboxMarker(
 }
 
 func TestExecuteReturnsPlanEvidenceAndRunsCommandCallback(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
@@ -349,26 +365,32 @@ func TestValidateNativeRuntimeEvidence(t *testing.T) {
 	t.Parallel()
 
 	evidence, err := sandbox.ValidateNativeRuntime()
-	if runtime.GOOS == "linux" && err != nil {
+	if runtime.GOOS != "linux" {
+		if evidence.Enabled {
+			t.Fatalf("non-Linux native runtime must not be enabled: %#v", evidence)
+		}
+
+		return
+	}
+	if err != nil {
 		t.Fatalf("ValidateNativeRuntime() error = %v evidence=%#v", err, evidence)
 	}
 	if evidence.Backend != sandbox.BackendNative || !evidence.Enabled {
 		t.Fatalf("native runtime evidence mismatch: %#v", evidence)
 	}
-	if runtime.GOOS == "linux" && !evidence.NamespaceEnforced && evidence.Reason == "" {
+	if !evidence.NamespaceEnforced || !evidence.ProcessIsolated ||
+		!evidence.NetworkIsolated {
 		t.Fatalf("Linux runtime must enforce namespaces: %#v", evidence)
 	}
 }
 
 func TestValidateNativeRuntimeWithHelperRejectsNoopWrapper(t *testing.T) {
+	requireLinuxSandbox(t)
+
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/bin/true")
 	if err == nil {
-		if evidence.Reason != "" && !evidence.NamespaceEnforced {
-			return
-		}
-
 		t.Fatalf("ValidateNativeRuntimeWithHelper() error = nil evidence=%#v", evidence)
 	}
 	if !evidence.Denied || evidence.Reason == "" {
@@ -395,6 +417,14 @@ func assertNativeEvidence(t *testing.T, evidence sandbox.Evidence) {
 	}
 	if slices.Contains(evidence.WritePaths, ".git/config") {
 		t.Fatalf(".git write evidence must be filtered: %#v", evidence)
+	}
+}
+
+func requireLinuxSandbox(t *testing.T) {
+	t.Helper()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("native sandbox planning is Linux-only")
 	}
 }
 
