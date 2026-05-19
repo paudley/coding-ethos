@@ -68,8 +68,8 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
 
-	if plan.Executable != wrapper {
-		t.Fatalf("executable = %q", plan.Executable)
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("plan did not route through wrapper %q: %#v", wrapper, plan)
 	}
 	for _, want := range []string{
 		"--cwd", repo,
@@ -113,8 +113,8 @@ func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
-	if plan.Executable != wrapper {
-		t.Fatalf("spoofed active marker bypassed wrapper: %q", plan.Executable)
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("spoofed active marker bypassed wrapper %q: %#v", wrapper, plan)
 	}
 	if !plan.Evidence.Enabled || !plan.Evidence.TimeoutEnforced {
 		t.Fatalf("spoofed active marker disabled sandbox evidence: %#v", plan.Evidence)
@@ -220,7 +220,10 @@ func TestBuildPlanRequiresProcessesKeepsFilesystemSandboxWithoutNamespaces(
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
 
-	if plan.Executable != wrapper || !plan.Evidence.Enabled {
+	if plan.Evidence.BackendPath != wrapper ||
+		plan.Executable != wrapper ||
+		!plan.Evidence.Enabled ||
+		slices.Contains(plan.Args, wrapper) {
 		t.Fatalf("process-preserving tool lost sandbox wrapper: %#v", plan)
 	}
 	if plan.Evidence.NamespaceEnforced ||

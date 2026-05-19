@@ -216,13 +216,18 @@ func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
 	mustWriteTestFile(t, "go/main.go", "package main\n")
 
 	fakeBin := filepath.Join(tempDir, "bin")
-	managedLintLog := filepath.Join(tempDir, "managed-lint.log")
+	managedLintConfig := filepath.Join(tempDir, ".golangci.yml")
 	mustWriteExecutable(
 		t,
 		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
 		`#!/usr/bin/env sh
-printf '%s\n' "$*" >> `+shellQuoteForTest(managedLintLog)+`
-exit 0
+case " $* " in
+  *" run --allow-parallel-runners --output.json.path=stdout --output.text.path=stderr --config `+managedLintConfig+` ./... "*)
+    exit 0
+    ;;
+esac
+printf 'unexpected golangci-lint invocation: %s\n' "$*" >&2
+exit 2
 `,
 	)
 	mustWriteExecutable(
@@ -257,8 +262,6 @@ exit 2
 	if got := runGolangciLint(Config{}, []string{"go/main.go"}); got != 0 {
 		t.Fatalf("runGolangciLint() = %d, want 0", got)
 	}
-
-	assertManagedGolangciInvocation(t, managedLintLog)
 
 	stdout := captureStdout(t, func() {
 		if got := runGoFormatCheck(Config{}, []string{"go/main.go"}); got != 1 {
@@ -912,31 +915,6 @@ func writeNoGoCoveragePolicyBundle(t *testing.T, root string) {
 	)
 }
 
-func assertManagedGolangciInvocation(t *testing.T, managedLintLog string) {
-	t.Helper()
-
-	managedLintArgs, err := os.ReadFile(managedLintLog)
-	if err != nil {
-		t.Fatalf("read managed lint log: %v", err)
-	}
-
-	for _, want := range []string{
-		"run --allow-parallel-runners --output.json.path=stdout --output.text.path=stderr --config " + filepath.Join(
-			filepath.Dir(managedLintLog),
-			".golangci.yml",
-		),
-		"./...",
-	} {
-		if !strings.Contains(string(managedLintArgs), want) {
-			t.Fatalf(
-				"managed golangci invocation missing %q:\n%s",
-				want,
-				string(managedLintArgs),
-			)
-		}
-	}
-}
-
 func TestPathWithoutHookGitShimsRemovesRuntimeAndLocalShims(t *testing.T) {
 	t.Parallel()
 
@@ -1022,11 +1000,7 @@ func writeManagedToolchainBundle(t *testing.T, root string) string {
 	ethosRoot := filepath.Join(root, "code-ethos")
 	bundleRoot := filepath.Join(ethosRoot, "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
-	mustWriteExecutable(
-		t,
-		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
-		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
-	)
+	buildTestSandboxHelper(t, filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"))
 	mustWriteTestFile(
 		t,
 		filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json"),

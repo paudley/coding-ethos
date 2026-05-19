@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -321,16 +323,7 @@ cat <<'JSON'
 JSON
 exit 1
 `)
-	writeExecutable(t, sandboxPath, `#!/usr/bin/env sh
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--" ]; then
-    shift
-    exec "$@"
-  fi
-  shift
-done
-exit 126
-`)
+	buildSandboxHelper(t, sandboxPath)
 }
 
 func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
@@ -1683,4 +1676,33 @@ func writeExecutable(t *testing.T, path, content string) {
 	if err != nil {
 		t.Fatalf("chmod executable: %v", err)
 	}
+}
+
+func buildSandboxHelper(t *testing.T, output string) {
+	t.Helper()
+
+	command := exec.Command(
+		filepath.Join(runtime.GOROOT(), "bin", "go"),
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = mcpGoModuleRoot(t)
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+}
+
+func mcpGoModuleRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

@@ -870,26 +870,13 @@ func gitWorkTreeAvailable(ctx context.Context, root string) bool {
 		"-C",
 		root,
 		"rev-parse",
-		"--show-toplevel",
+		"--is-inside-work-tree",
 	)
 	command.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	output, err := command.Output()
-	if err != nil {
-		return false
-	}
 
-	topLevel, err := filepath.Abs(strings.TrimSpace(string(output)))
-	if err != nil {
-		return false
-	}
-
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return false
-	}
-
-	return filepath.Clean(topLevel) == filepath.Clean(absoluteRoot)
+	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
 func (matcher gitIgnoreMatcher) ignoredFile(ctx context.Context, path string) bool {

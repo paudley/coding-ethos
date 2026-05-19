@@ -187,6 +187,10 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.NamespaceEnforced = nativeNamespaceSupported() &&
 		!request.Capabilities.RequiresProcesses
 
+	if !evidence.NamespaceEnforced && !request.Capabilities.RequiresProcesses {
+		evidence.Reason = nativeNamespaceUnsupportedReason
+	}
+
 	if nativeNestedProcessPolicyRestricted() {
 		evidence.Reason = nestedProcessPolicyReason
 		evidence.NamespaceEnforced = false
@@ -442,7 +446,7 @@ func (request Request) evidence() Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		GitReadOnly:       true,
-		RepoReadOnly:      nativeNamespaceSupported(),
+		RepoReadOnly:      true,
 		NetworkIsolated: nativeNamespaceSupported() &&
 			!request.Capabilities.RequiresProcesses &&
 			!request.Capabilities.RequiresNetwork,

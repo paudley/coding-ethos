@@ -5,6 +5,7 @@ package managedcapture //nolint:testpackage
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -505,15 +506,7 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	consumerRoot := filepath.Join(consumerParent, "consumer")
 	ethosRoot := t.TempDir()
 	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
-	writeManagedCaptureFile(
-		t,
-		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
-		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
-	)
-	chmodManagedCaptureExecutable(
-		t,
-		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
-	)
+	buildManagedCaptureSandboxHelper(t, ethosRoot)
 
 	_, err := toolconfigs.Sync(ethosRoot, consumerRoot, "")
 	if err != nil {
@@ -883,4 +876,39 @@ func chmodManagedCaptureExecutable(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("chmod executable fixture: %v", err)
 	}
+}
+
+func buildManagedCaptureSandboxHelper(t *testing.T, ethosRoot string) {
+	t.Helper()
+
+	output := filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox")
+	err := os.MkdirAll(filepath.Dir(output), 0o755)
+	if err != nil {
+		t.Fatalf("create sandbox helper dir: %v", err)
+	}
+
+	command := exec.Command(
+		filepath.Join(runtime.GOROOT(), "bin", "go"),
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = managedCaptureGoModuleRoot(t)
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+}
+
+func managedCaptureGoModuleRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

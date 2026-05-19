@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -3071,6 +3072,40 @@ func mustWriteExecutable(t *testing.T, path, contents string) {
 	}
 }
 
+func buildTestSandboxHelper(t *testing.T, output string) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(output), 0o755)
+	if err != nil {
+		t.Fatalf("os.MkdirAll(%q) failed: %v", filepath.Dir(output), err)
+	}
+
+	command := exec.Command(
+		filepath.Join(runtime.GOROOT(), "bin", "go"),
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = testGoModuleRoot(t)
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+}
+
+func testGoModuleRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
 func shellQuoteForTest(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
@@ -3187,11 +3222,7 @@ func writeTestBundleRoot(t *testing.T, root string) string {
 	ethosRoot := filepath.Join(root, "code-ethos")
 	bundleRoot := filepath.Join(root, "code-ethos", "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
-	mustWriteExecutable(
-		t,
-		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
-		"#!/usr/bin/env sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift\nexec \"$@\"\n",
-	)
+	buildTestSandboxHelper(t, filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"))
 	mustWriteTestFile(
 		t,
 		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),

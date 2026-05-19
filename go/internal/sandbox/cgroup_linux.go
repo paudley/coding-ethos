@@ -69,27 +69,13 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 }
 
 func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {
-	if cgroup == nil || cgroup.dir == nil {
-		return
-	}
-
 	if command.SysProcAttr == nil {
 		command.SysProcAttr = &syscall.SysProcAttr{}
 	}
-
-	command.SysProcAttr.UseCgroupFD = true
-	command.SysProcAttr.CgroupFD = cgroupFileDescriptor(cgroup.dir)
 }
 
 func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
-	if cgroup == nil || cgroup.dir == nil {
-		return nil
-	}
-
-	return &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    cgroupFileDescriptor(cgroup.dir),
-	}
+	return nil
 }
 
 func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
@@ -131,7 +117,62 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 }
 
 func nativeNamespaceSupported() bool {
-	return true
+	process, err := os.StartProcess(
+		"/bin/true",
+		[]string{"/bin/true"},
+		&os.ProcAttr{
+			Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+			Sys:   nativeNamespaceSysProcAttr(),
+		},
+	)
+	if err != nil {
+		return false
+	}
+
+	state, err := process.Wait()
+
+	return err == nil && state.Success()
+}
+
+func nativeNamespaceSysProcAttr() *syscall.SysProcAttr {
+	attributes := &syscall.SysProcAttr{
+		Setpgid: true,
+		Cloneflags: syscall.CLONE_NEWUSER |
+			syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWIPC |
+			syscall.CLONE_NEWNET,
+		UidMappings: []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getuid(),
+			Size:        1,
+		}},
+		GidMappings: []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getgid(),
+			Size:        1,
+		}},
+		GidMappingsEnableSetgroups: false,
+	}
+
+	return attributes
+}
+
+func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
+	if cgroup == nil || cgroup.path == "" || process == nil {
+		return nil
+	}
+
+	err := os.WriteFile(
+		filepath.Join(cgroup.path, "cgroup.procs"),
+		[]byte(strconv.Itoa(process.Pid)),
+		cgroupFileMode,
+	)
+	if err != nil {
+		return fmt.Errorf("assign process to delegated cgroup: %w", err)
+	}
+
+	return nil
 }
 
 func (cgroup *Cgroup) Close() error {
@@ -181,13 +222,4 @@ func applyCgroupLimitFiles(path string, evidence Evidence) error {
 	}
 
 	return nil
-}
-
-func cgroupFileDescriptor(file *os.File) int {
-	descriptor, err := strconv.Atoi(strconv.FormatUint(uint64(file.Fd()), 10))
-	if err != nil {
-		return -1
-	}
-
-	return descriptor
 }

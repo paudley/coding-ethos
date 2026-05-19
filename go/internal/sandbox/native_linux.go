@@ -17,7 +17,11 @@ import (
 
 const nativeRuntimeProbeTimeout = 5 * time.Second
 
-const nestedProcessPolicyReason = "process is already constrained by no_new_privs"
+const (
+	nativeNamespaceUnsupportedReason = "Linux user namespaces are unavailable; " +
+		"filesystem sandbox remains required"
+	nestedProcessPolicyReason = "process is already constrained by no_new_privs"
+)
 
 // ValidateNativeRuntime proves that Linux namespace creation is usable.
 func ValidateNativeRuntime() (Evidence, error) {
@@ -53,13 +57,21 @@ func ValidateNativeRuntime() (Evidence, error) {
 }
 
 func nativeRuntimeEvidence() Evidence {
+	namespaceSupported := nativeNamespaceSupported()
+	reason := ""
+
+	if !namespaceSupported {
+		reason = nativeNamespaceUnsupportedReason
+	}
+
 	return Evidence{
 		Mode:              ModeRequired,
 		Backend:           BackendNative,
 		Enabled:           true,
-		NamespaceEnforced: true,
-		ProcessIsolated:   true,
-		NetworkIsolated:   true,
+		Reason:            reason,
+		NamespaceEnforced: namespaceSupported,
+		ProcessIsolated:   namespaceSupported,
+		NetworkIsolated:   namespaceSupported,
 		GitReadOnly:       true,
 	}
 }

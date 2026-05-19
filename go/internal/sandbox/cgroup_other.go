@@ -6,6 +6,7 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -24,6 +25,10 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {}
 
 func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
+	return nil
+}
+
+func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
 	return nil
 }
 

@@ -313,7 +313,10 @@ func toolSandboxWritePaths(
 		)
 
 		if runtimePath := gpgRuntimeWritePath(); runtimePath != "" {
-			paths = append(paths, runtimePath)
+			_, err := os.Stat(runtimePath)
+			if err == nil {
+				paths = append(paths, runtimePath)
+			}
 		}
 
 		return paths
