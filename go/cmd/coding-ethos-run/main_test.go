@@ -114,10 +114,7 @@ func TestWriteCIFileListWritesNewlineSeparatedPaths(t *testing.T) {
 	}
 }
 
-func TestPolicyToolLintArgsPropagateSandboxMode(t *testing.T) {
-	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
-	t.Setenv("CODING_ETHOS_POLICY_TOOL_SHIM", "1")
-
+func TestPolicyToolLintArgsDoNotExposeSandboxMode(t *testing.T) {
 	args := policyToolLintArgs(runtimePaths{
 		PolicyBundle:  "/repo/build/policy/policy-bundle.json",
 		EthosRoot:     "/repo/coding-ethos",
@@ -136,8 +133,6 @@ func TestPolicyToolLintArgsPropagateSandboxMode(t *testing.T) {
 		"/repo",
 		"--invocation-cwd",
 		"/repo/pkg",
-		"--sandbox-mode",
-		"required",
 		"--",
 		"check",
 		"pkg",
@@ -147,32 +142,8 @@ func TestPolicyToolLintArgsPropagateSandboxMode(t *testing.T) {
 		}
 	}
 
-	if slices.Index(args, "--sandbox-mode") > slices.Index(args, "--") {
-		t.Fatalf("sandbox flag must precede tool args separator: %#v", args)
-	}
-}
-
-func TestPolicyToolLintArgsOmitBlankSandboxMode(t *testing.T) {
-	t.Setenv("CODING_ETHOS_SANDBOX_MODE", " ")
-	t.Setenv("CODING_ETHOS_POLICY_TOOL_SHIM", "1")
-
-	args := policyToolLintArgs(runtimePaths{}, "ruff", []string{"check"})
-
 	if slices.Contains(args, "--sandbox-mode") {
-		t.Fatalf("blank sandbox mode should not be forwarded: %#v", args)
-	}
-}
-
-func TestPolicyToolLintArgsIgnoreAmbientSandboxModeOutsideShim(t *testing.T) {
-	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
-
-	args := policyToolLintArgs(runtimePaths{}, "ruff", []string{"check"})
-
-	if slices.Contains(args, "--sandbox-mode") {
-		t.Fatalf(
-			"ambient sandbox mode should not affect direct policy-tool calls: %#v",
-			args,
-		)
+		t.Fatalf("sandbox mode should not be selected by runner args: %#v", args)
 	}
 }
 
@@ -1366,7 +1337,6 @@ func TestRunCISARIFWritesSARIFThroughDirectLintCLI(t *testing.T) {
 	t.Setenv("CODING_ETHOS_FILES", "a.py,b.go,missing.py")
 	t.Setenv("CODING_ETHOS_REPO_ROOT", repo)
 	t.Setenv("CODING_ETHOS_SARIF_PATH", sarifPath)
-	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
 	t.Setenv("CODING_ETHOS_SARIF_CATEGORY", "policy")
 
 	err = runCISARIF(runtimePaths{
@@ -1390,7 +1360,6 @@ func TestRunCISARIFWritesSARIFThroughDirectLintCLI(t *testing.T) {
 }
 
 func TestCISARIFLintArgsPassManagedFlags(t *testing.T) {
-	t.Setenv("CODING_ETHOS_SANDBOX_MODE", "required")
 	t.Setenv("CODING_ETHOS_SARIF_CATEGORY", "policy")
 
 	repo := t.TempDir()
@@ -1418,8 +1387,6 @@ func ciSARIFExpectedLintArgs(repo string) []string {
 		"--scope",
 		"files",
 		"--files-from",
-		"--sandbox-mode",
-		"required",
 		"--sarif-category",
 		"policy",
 		"--sarif",

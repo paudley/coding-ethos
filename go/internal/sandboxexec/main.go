@@ -11,9 +11,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/execguard"
 )
 
 var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command")
@@ -144,7 +146,8 @@ func sandboxExecBlockedEnv(name string) bool {
 		name == "GIT_CONFIG_PARAMETERS" ||
 		name == "GIT_DIR" ||
 		name == "GIT_INDEX_FILE" ||
-		name == "GIT_WORK_TREE"
+		name == "GIT_WORK_TREE" ||
+		name == execguard.EnvStack
 }
 
 func firstNonEmpty(values ...string) string {
@@ -175,6 +178,9 @@ func cleanPolicyPath(repoRoot, path string) (string, bool) {
 
 	if filepath.IsAbs(path) {
 		clean := filepath.Clean(path)
+		if allowedSystemWritePath(clean) {
+			return clean, true
+		}
 
 		return clean, pathWithin(repoRoot, clean)
 	}
@@ -182,6 +188,46 @@ func cleanPolicyPath(repoRoot, path string) (string, bool) {
 	clean := filepath.Clean(filepath.Join(repoRoot, path))
 
 	return clean, pathWithin(repoRoot, clean)
+}
+
+func allowedSystemWritePath(path string) bool {
+	return path == os.DevNull ||
+		allowedManagedTempWritePath(path) ||
+		allowedGPGRuntimeWritePath(path)
+}
+
+func allowedManagedTempWritePath(path string) bool {
+	tempRoot := resolvedTempRoot()
+	if !pathWithin(tempRoot, path) {
+		return false
+	}
+
+	return strings.HasPrefix(filepath.Base(path), "coding-ethos-go-test-")
+}
+
+func resolvedTempRoot() string {
+	tempRoot := filepath.Clean(os.TempDir())
+
+	resolved, err := filepath.EvalSymlinks(tempRoot)
+	if err == nil {
+		return filepath.Clean(resolved)
+	}
+
+	return tempRoot
+}
+
+func allowedGPGRuntimeWritePath(path string) bool {
+	defaultRoot := filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+	if pathWithin(filepath.Join(defaultRoot, "gnupg"), path) {
+		return true
+	}
+
+	runtimeRoot := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
+	if runtimeRoot == "" {
+		return false
+	}
+
+	return pathWithin(filepath.Join(runtimeRoot, "gnupg"), path)
 }
 
 func joinPolicyErrors(errs ...error) error {

@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -297,10 +299,15 @@ func writeManagedLintRuntimeFixture(t *testing.T, root string) {
 	}
 
 	ruffPath := filepath.Join(root, ".venv", "bin", "ruff")
+	sandboxPath := filepath.Join(root, "bin", "coding-ethos-sandbox")
 
 	err = os.MkdirAll(filepath.Dir(ruffPath), 0o700)
 	if err != nil {
 		t.Fatalf("create ruff fixture dir: %v", err)
+	}
+	err = os.MkdirAll(filepath.Dir(sandboxPath), 0o700)
+	if err != nil {
+		t.Fatalf("create sandbox fixture dir: %v", err)
 	}
 
 	writeExecutable(t, ruffPath, `#!/usr/bin/env sh
@@ -316,6 +323,7 @@ cat <<'JSON'
 JSON
 exit 1
 `)
+	buildSandboxHelper(t, sandboxPath)
 }
 
 func TestServerLintAdviceMapsDiagnosticToSkill(t *testing.T) {
@@ -1668,4 +1676,33 @@ func writeExecutable(t *testing.T, path, content string) {
 	if err != nil {
 		t.Fatalf("chmod executable: %v", err)
 	}
+}
+
+func buildSandboxHelper(t *testing.T, output string) {
+	t.Helper()
+
+	command := exec.Command(
+		filepath.Join(runtime.GOROOT(), "bin", "go"),
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = mcpGoModuleRoot(t)
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+}
+
+func mcpGoModuleRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

@@ -34,6 +34,7 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv(consumerRootEnv, "/tmp/repo")
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
 	env := externalToolEnv([]string{"KEEP_EXTRA=1"})
 

@@ -21,15 +21,13 @@ const (
 	toolRuffPath   = "/tools/ruff"
 )
 
-func TestBuildPlanOffReturnsOriginalCommand(t *testing.T) {
+func TestBuildPlanWithoutProfileReturnsOriginalCommand(t *testing.T) {
 	t.Parallel()
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:         sandbox.ModeOff,
-		Tool:         "ruff",
-		Executable:   toolRuffPath,
-		Args:         []string{"check", "pkg"},
-		Capabilities: sandbox.Capabilities{SandboxProfile: "lint-offline"},
+		Tool:       "ruff",
+		Executable: toolRuffPath,
+		Args:       []string{"check", "pkg"},
 	})
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
@@ -47,14 +45,15 @@ func TestBuildPlanOffReturnsOriginalCommand(t *testing.T) {
 }
 
 func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
-	t.Parallel()
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
 	writeExecutable(t, wrapper)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:        sandbox.ModeRequired,
 		Tool:        "ruff",
 		Executable:  toolRuffPath,
 		WrapperPath: wrapper,
@@ -71,8 +70,8 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
 
-	if plan.Executable != wrapper {
-		t.Fatalf("executable = %q", plan.Executable)
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("plan did not route through wrapper %q: %#v", wrapper, plan)
 	}
 	for _, want := range []string{
 		"--cwd", repo,
@@ -91,11 +90,47 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 	assertNativeEvidence(t, plan.Evidence)
 }
 
-func TestBuildPlanAutoStillFailsClosedWithoutWrapper(t *testing.T) {
-	t.Parallel()
+func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
+	t *testing.T,
+) {
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:         sandbox.ModeAuto,
+		Tool:        "ruff",
+		Executable:  toolRuffPath,
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"check", "pkg"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			TimeoutSeconds: 300,
+			MemoryMB:       2048,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("spoofed active marker bypassed wrapper %q: %#v", wrapper, plan)
+	}
+	if !plan.Evidence.Enabled || !plan.Evidence.TimeoutEnforced {
+		t.Fatalf("spoofed active marker disabled sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanFailsClosedWithoutWrapper(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
 		Tool:         "ruff",
 		Executable:   "ruff",
 		Args:         []string{"check"},
@@ -105,19 +140,20 @@ func TestBuildPlanAutoStillFailsClosedWithoutWrapper(t *testing.T) {
 		t.Fatalf("sandbox.BuildPlan() error = %v, want unavailable", err)
 	}
 	if !plan.Evidence.Denied {
-		t.Fatalf("auto sandbox failure must deny execution: %#v", plan.Evidence)
+		t.Fatalf("sandbox failure must deny execution: %#v", plan.Evidence)
 	}
 }
 
 func TestBuildPlanRejectsNativeSeccompProfile(t *testing.T) {
-	t.Parallel()
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	wrapper := filepath.Join(repo, "coding-ethos-sandbox")
 	writeExecutable(t, wrapper)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:        sandbox.ModeRequired,
 		Tool:        "ruff",
 		Executable:  toolRuffPath,
 		WrapperPath: wrapper,
@@ -139,14 +175,15 @@ func TestBuildPlanRejectsNativeSeccompProfile(t *testing.T) {
 }
 
 func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
-	t.Parallel()
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	wrapper := filepath.Join(repo, "coding-ethos-sandbox")
 	writeExecutable(t, wrapper)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:        sandbox.ModeRequired,
 		Tool:        "gemini-check",
 		Executable:  "/tools/gemini",
 		WrapperPath: wrapper,
@@ -168,8 +205,80 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRequiresProcessesKeepsFilesystemSandboxWithoutNamespaces(
+	t *testing.T,
+) {
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "go-test",
+		Executable:  "/tools/go",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:    "lint-offline",
+			RequiresProcesses: true,
+			WritePaths:        []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+
+	if plan.Evidence.BackendPath != wrapper ||
+		plan.Executable != wrapper ||
+		!plan.Evidence.Enabled ||
+		slices.Contains(plan.Args, wrapper) {
+		t.Fatalf("process-preserving tool lost sandbox wrapper: %#v", plan)
+	}
+	if plan.Evidence.NamespaceEnforced ||
+		plan.Evidence.ProcessIsolated ||
+		plan.Evidence.NetworkIsolated {
+		t.Fatalf(
+			"process-preserving tool must not claim namespace isolation: %#v",
+			plan.Evidence,
+		)
+	}
+	if !plan.Evidence.RepoReadOnly || !plan.Evidence.GitReadOnly {
+		t.Fatalf("filesystem sandbox evidence missing: %#v", plan.Evidence)
+	}
+}
+
+func TestValidateNativeRuntimeWithHelperIgnoresSpoofedActiveSandboxMarker(
+	t *testing.T,
+) {
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+
+	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/missing")
+	if err == nil {
+		if evidence.Reason == "" || !evidence.Enabled {
+			t.Fatalf("helper validation evidence mismatch: %#v", evidence)
+		}
+
+		return
+	}
+
+	if !errors.Is(err, sandbox.ErrBackendUnavailable) {
+		t.Fatalf("ValidateNativeRuntimeWithHelper() error = %v, want unavailable", err)
+	}
+	if !evidence.Denied {
+		t.Fatalf("spoofed active marker skipped helper validation: %#v", evidence)
+	}
+}
+
 func TestExecuteReturnsPlanEvidenceAndRunsCommandCallback(t *testing.T) {
-	t.Parallel()
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	repo := t.TempDir()
 	wrapper := filepath.Join(repo, "coding-ethos-sandbox")
@@ -182,7 +291,6 @@ func TestExecuteReturnsPlanEvidenceAndRunsCommandCallback(t *testing.T) {
 	evidence, err := sandbox.Execute(
 		context.Background(),
 		sandbox.Request{
-			Mode:        sandbox.ModeRequired,
 			Tool:        "ruff",
 			Executable:  toolRuffPath,
 			WrapperPath: wrapper,
@@ -226,7 +334,6 @@ func TestExecuteSupportsDryPlanWithoutCallback(t *testing.T) {
 	t.Parallel()
 
 	evidence, err := sandbox.Execute(context.Background(), sandbox.Request{
-		Mode:       sandbox.ModeOff,
 		Tool:       "ruff",
 		Executable: toolRuffPath,
 		Args:       []string{"check"},
@@ -234,8 +341,7 @@ func TestExecuteSupportsDryPlanWithoutCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandbox.Execute() dry-plan error = %v", err)
 	}
-	if evidence.Enabled || evidence.Tool != "ruff" ||
-		!slices.Equal(evidence.Command, []string{toolRuffPath, "check"}) {
+	if evidence.Enabled || evidence.Tool != "" || len(evidence.Command) != 0 {
 		t.Fatalf("dry-plan evidence mismatch: %#v", evidence)
 	}
 }
@@ -259,19 +365,29 @@ func TestValidateNativeRuntimeEvidence(t *testing.T) {
 	t.Parallel()
 
 	evidence, err := sandbox.ValidateNativeRuntime()
-	if runtime.GOOS == "linux" && err != nil {
+	if runtime.GOOS != "linux" {
+		if evidence.Enabled {
+			t.Fatalf("non-Linux native runtime must not be enabled: %#v", evidence)
+		}
+
+		return
+	}
+	if err != nil {
 		t.Fatalf("ValidateNativeRuntime() error = %v evidence=%#v", err, evidence)
 	}
 	if evidence.Backend != sandbox.BackendNative || !evidence.Enabled {
 		t.Fatalf("native runtime evidence mismatch: %#v", evidence)
 	}
-	if runtime.GOOS == "linux" && !evidence.NamespaceEnforced {
+	if !evidence.NamespaceEnforced || !evidence.ProcessIsolated ||
+		!evidence.NetworkIsolated {
 		t.Fatalf("Linux runtime must enforce namespaces: %#v", evidence)
 	}
 }
 
 func TestValidateNativeRuntimeWithHelperRejectsNoopWrapper(t *testing.T) {
-	t.Parallel()
+	requireLinuxSandbox(t)
+
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
 	evidence, err := sandbox.ValidateNativeRuntimeWithHelper("/bin/true")
 	if err == nil {
@@ -292,15 +408,23 @@ func assertNativeEvidence(t *testing.T, evidence sandbox.Evidence) {
 		evidence.GitReadOnly != true {
 		t.Fatalf("filesystem evidence mismatch: %#v", evidence)
 	}
-	if evidence.NamespaceEnforced != (runtime.GOOS == "linux") ||
-		evidence.ProcessIsolated != (runtime.GOOS == "linux") {
+	if runtime.GOOS == "linux" && evidence.Reason == "" &&
+		(!evidence.NamespaceEnforced || !evidence.ProcessIsolated) {
 		t.Fatalf("namespace evidence mismatch: %#v", evidence)
 	}
-	if !evidence.NetworkIsolated {
+	if evidence.Reason == "" && !evidence.NetworkIsolated {
 		t.Fatalf("network isolation missing: %#v", evidence)
 	}
 	if slices.Contains(evidence.WritePaths, ".git/config") {
 		t.Fatalf(".git write evidence must be filtered: %#v", evidence)
+	}
+}
+
+func requireLinuxSandbox(t *testing.T) {
+	t.Helper()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("native sandbox planning is Linux-only")
 	}
 }
 

@@ -4,7 +4,6 @@
 package main
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -44,29 +43,20 @@ func policyToolLintArgs(
 	toolName string,
 	toolArgs []string,
 ) []string {
-	lintArgs := []string{
+	const managedLintBaseArgCount = 11
+
+	lintArgs := make([]string, 0, managedLintBaseArgCount+len(toolArgs))
+	lintArgs = append(lintArgs,
 		"--bundle", paths.PolicyBundle,
 		"--managed-capture-tool", toolName,
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,
-	}
-	if sandboxMode := policyToolSandboxModeFromEnv(); sandboxMode != "" {
-		lintArgs = append(lintArgs, "--sandbox-mode", sandboxMode)
-	}
-
+	)
 	lintArgs = append(lintArgs, "--")
 	lintArgs = append(lintArgs, toolArgs...)
 
 	return lintArgs
-}
-
-func policyToolSandboxModeFromEnv() string {
-	if strings.TrimSpace(os.Getenv("CODING_ETHOS_POLICY_TOOL_SHIM")) == "" {
-		return ""
-	}
-
-	return strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_MODE"))
 }
 
 func withDefaultHookCommand(paths runtimePaths, args []string) []string {

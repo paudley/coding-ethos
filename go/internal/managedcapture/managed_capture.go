@@ -29,6 +29,9 @@ const (
 	golangciLintTool        = "golangci-lint"
 	golangciLintFmtCommand  = "fmt"
 	golangciLintRunCommand  = "run"
+	goTestTool              = "go-test"
+	goVetTool               = "go-vet"
+	maxFormatterWritePaths  = 4096
 	ruffCheckCommand        = "check"
 	ruffFormatCommand       = "format"
 	severityRecord          = "record"
@@ -42,6 +45,9 @@ var (
 	errManagedRunnerUnconfigured = apperror.StaticError(
 		"managed runner is not configured for lint capture",
 	)
+	errFormatterTargetLimit = apperror.StaticError(
+		"formatter directory target exceeds language file limit",
+	)
 )
 
 type Options struct {
@@ -50,7 +56,6 @@ type Options struct {
 	EthosRoot     string
 	ConsumerRoot  string
 	InvocationCwd string
-	SandboxMode   string
 	OutputFormat  string
 	Output        io.Writer
 	Args          []string
@@ -129,23 +134,38 @@ func managedCaptureRequest(
 			fmt.Errorf("%w: %s", errManagedRunnerUnconfigured, options.Tool)
 	}
 
+	capabilities, capabilitiesErr := sandboxCapabilitiesForRequest(
+		tool,
+		config,
+		options.ConsumerRoot,
+		captureCwd,
+		args,
+	)
+	if capabilitiesErr != nil {
+		return captureRequest{}, BlockedExitCode, capabilitiesErr
+	}
+
 	return captureRequest{
-		Tool:           options.Tool,
-		Parser:         firstCaptureNonEmpty(tool.Parser, options.Tool),
-		Category:       tool.Category,
-		ToolPath:       command.Path,
-		ToolPrefix:     command.Prefix,
-		Cwd:            captureCwd,
-		TraceRoot:      options.ConsumerRoot,
-		Args:           args,
-		SandboxMode:    options.SandboxMode,
+		Tool:       options.Tool,
+		Parser:     firstCaptureNonEmpty(tool.Parser, options.Tool),
+		Category:   tool.Category,
+		ToolPath:   command.Path,
+		ToolPrefix: command.Prefix,
+		Cwd:        captureCwd,
+		TraceRoot:  options.ConsumerRoot,
+		Args:       args,
+		SandboxBackendPath: filepath.Join(
+			options.EthosRoot,
+			"bin",
+			"coding-ethos-sandbox",
+		),
 		DiagnosticKind: tool.DiagnosticKind,
 		FileExtensions: append(
 			[]string(nil),
 			tool.FileMatchSpec().Extensions...,
 		),
 		Output:       options.Output,
-		Capabilities: sandboxCapabilities(tool, config),
+		Capabilities: capabilities,
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
 		Policies:     options.PolicyContext.Policies,
 		Skills:       options.PolicyContext.Skills,
@@ -271,6 +291,208 @@ func sandboxCapabilities(
 		SeccompProfile:     spec.SeccompProfile,
 		SeccompProfilePath: spec.SeccompProfilePath,
 	}
+}
+
+func sandboxCapabilitiesForRequest(
+	tool toolcatalog.Tool,
+	config lintcapture.RuntimeConfig,
+	consumerRoot string,
+	captureCwd string,
+	args []string,
+) (sandbox.Capabilities, error) {
+	capabilities := sandboxCapabilities(tool, config)
+
+	writePaths, err := toolSandboxWritePaths(tool, consumerRoot, captureCwd, args)
+	if err != nil {
+		return sandbox.Capabilities{}, err
+	}
+
+	capabilities.WritePaths = append(
+		capabilities.WritePaths,
+		writePaths...,
+	)
+
+	return capabilities, nil
+}
+
+func toolSandboxWritePaths(
+	tool toolcatalog.Tool,
+	consumerRoot string,
+	captureCwd string,
+	args []string,
+) ([]string, error) {
+	if tool.Name == goTestTool {
+		paths := append(
+			sandboxRelativePath(consumerRoot, captureCwd),
+			goTestSandboxTempDir(consumerRoot),
+		)
+
+		if runtimePath := gpgRuntimeWritePath(); runtimePath != "" {
+			_, err := os.Stat(runtimePath)
+			if err == nil {
+				paths = append(paths, runtimePath)
+			}
+		}
+
+		return paths, nil
+	}
+
+	if tool.Category != toolcatalog.CategoryFormat {
+		return nil, nil
+	}
+
+	fileMatch := tool.FileMatchSpec()
+	if !fileMatch.PassFilesAsArgs {
+		return sandboxRelativePath(consumerRoot, captureCwd), nil
+	}
+
+	return formatArgWritePaths(
+		captureCwd,
+		args,
+		tool.ConfigSpec().Flags,
+		fileMatch.Extensions,
+	)
+}
+
+func sandboxRelativePath(root, path string) []string {
+	relative, err := filepath.Rel(root, path)
+	if err != nil ||
+		relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return nil
+	}
+
+	return []string{filepath.ToSlash(relative)}
+}
+
+func formatArgWritePaths(
+	cwd string,
+	args []string,
+	configFlags []string,
+	fileExtensions []string,
+) ([]string, error) {
+	writePaths := []string{}
+	skipNext := false
+
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+
+			continue
+		}
+
+		if configFlagConsumesValue(arg, configFlags) {
+			skipNext = true
+
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") || formatterCommandArg(arg) {
+			continue
+		}
+
+		targets, err := formatterWritableTargets(cwd, arg, fileExtensions)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(targets) == 0 {
+			continue
+		}
+
+		for _, target := range targets {
+			if slices.Contains(writePaths, target) {
+				continue
+			}
+
+			writePaths = append(writePaths, target)
+		}
+	}
+
+	return writePaths, nil
+}
+
+func formatterWritableTargets(cwd, path string, extensions []string) ([]string, error) {
+	if pathHasExtension(path, extensions) {
+		return []string{path}, nil
+	}
+
+	statPath := path
+	if !filepath.IsAbs(statPath) {
+		statPath = filepath.Join(cwd, path)
+	}
+
+	info, statErr := os.Stat(statPath)
+	if os.IsNotExist(statErr) {
+		return nil, nil
+	}
+
+	if statErr != nil {
+		return nil, fmt.Errorf("stat formatter target %s: %w", statPath, statErr)
+	}
+
+	if !info.IsDir() {
+		return nil, nil
+	}
+
+	return formatterDirectoryWriteTargets(cwd, statPath, extensions)
+}
+
+func formatterDirectoryWriteTargets(
+	cwd string,
+	dir string,
+	extensions []string,
+) ([]string, error) {
+	targets := []string{}
+	visitor := func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() || !pathHasExtension(path, extensions) {
+			return nil
+		}
+
+		targets = append(targets, formatterDirectoryWriteTarget(cwd, path))
+		if len(targets) > maxFormatterWritePaths {
+			return fmt.Errorf(
+				"%w: %s exceeds %d language files",
+				errFormatterTargetLimit,
+				dir,
+				maxFormatterWritePaths,
+			)
+		}
+
+		return nil
+	}
+
+	walkErr := filepath.WalkDir(dir, visitor)
+	if walkErr != nil {
+		return nil, fmt.Errorf("walk formatter directory target %s: %w", dir, walkErr)
+	}
+
+	return targets, nil
+}
+
+func formatterDirectoryWriteTarget(cwd, path string) string {
+	relative, err := filepath.Rel(cwd, path)
+	if err != nil {
+		return path
+	}
+
+	return filepath.ToSlash(relative)
+}
+
+func configFlagConsumesValue(arg string, configFlags []string) bool {
+	return slices.Contains(configFlags, arg)
+}
+
+func pathHasExtension(path string, extensions []string) bool {
+	if len(extensions) == 0 {
+		return true
+	}
+
+	return slices.Contains(extensions, filepath.Ext(path))
 }
 
 func runCapturedToolWithRequest(request captureRequest, outputFormat string) int {
@@ -570,9 +792,9 @@ func enforceManagedToolArgs(
 		)
 	case golangciLintTool, golangciLintAutofixTool, golangciLintFormatTool:
 		return enforceGolangciLintArgs(tool, args, consumerRoot)
-	case "go-vet":
+	case goVetTool:
 		return enforceFirstCommandArgs(args, "vet", nil)
-	case "go-test":
+	case goTestTool:
 		return enforceFirstCommandArgs(
 			args,
 			"test",
@@ -646,7 +868,7 @@ func isGolangciLintTool(name string) bool {
 }
 
 func isGoTool(name string) bool {
-	return name == "go-vet" || name == "go-test"
+	return name == goVetTool || name == goTestTool
 }
 
 func captureArgsInformational(args []string) bool {

@@ -136,7 +136,7 @@ Out of scope:
 
 - `LD_PRELOAD` as a security boundary;
 - best-effort sandbox claims without trace evidence;
-- silently degrading required CI sandbox mode to advisory behavior.
+- silently degrading Linux sandbox-profiled CI tools to unsandboxed execution.
 
 ### 5. Supply-Chain, Governance, And Trust Signals
 

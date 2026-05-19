@@ -5,6 +5,7 @@ package managedcapture //nolint:testpackage
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -49,6 +50,79 @@ func TestManagedRuffFormatDoesNotForceJsonOutput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("managed ruff format args = %#v, want %#v", got, want)
+	}
+}
+
+func TestFormatSandboxWritePathsIncludeDirectoryTargets(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(consumerRoot, "pkg"), 0o700); err != nil {
+		t.Fatalf("create package directory: %v", err)
+	}
+	for path, content := range map[string]string{
+		"pkg/app.py":    "print('pkg')\n",
+		"pkg/readme.md": "# docs\n",
+		"root.py":       "print('root')\n",
+		"notes.txt":     "notes\n",
+	} {
+		if err := os.WriteFile(
+			filepath.Join(consumerRoot, path),
+			[]byte(content),
+			0o600,
+		); err != nil {
+			t.Fatalf("create formatter target fixture %s: %v", path, err)
+		}
+	}
+
+	tool, found := toolcatalog.HookOwnedTool("ruff-format")
+	if !found {
+		t.Fatal("missing ruff-format tool")
+	}
+
+	got, err := toolSandboxWritePaths(
+		tool,
+		consumerRoot,
+		consumerRoot,
+		[]string{"format", "--config", "ruff.toml", "pkg", ".", "notes.txt"},
+	)
+	if err != nil {
+		t.Fatalf("toolSandboxWritePaths() error = %v", err)
+	}
+
+	for _, want := range []string{"pkg/app.py", "root.py"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("formatter sandbox write paths missing %q: %#v", want, got)
+		}
+	}
+	for _, unwanted := range []string{"pkg", ".", "notes.txt", "ruff.toml", "pkg/readme.md"} {
+		if slices.Contains(got, unwanted) {
+			t.Fatalf("formatter sandbox write paths included %q: %#v", unwanted, got)
+		}
+	}
+}
+
+func TestSandboxRelativePathAllowsDotPrefixedNamesInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "..cache")
+
+	got := sandboxRelativePath(root, path)
+	if !slices.Equal(got, []string{"..cache"}) {
+		t.Fatalf("sandboxRelativePath() = %#v, want ..cache", got)
+	}
+}
+
+func TestSandboxRelativePathRejectsParentEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "..", "outside")
+
+	got := sandboxRelativePath(root, path)
+	if len(got) != 0 {
+		t.Fatalf("sandboxRelativePath() = %#v, want parent escape rejected", got)
 	}
 }
 
@@ -117,6 +191,7 @@ func golangciLintManagedArgsCase(
 		args: []string{"go"},
 		want: []string{
 			"run",
+			"--allow-parallel-runners",
 			"--output.json.path=stdout",
 			"--output.text.path=stderr",
 			"--config",
@@ -473,6 +548,7 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	consumerRoot := filepath.Join(consumerParent, "consumer")
 	ethosRoot := t.TempDir()
 	writeManagedCaptureFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
+	buildManagedCaptureSandboxHelper(t, ethosRoot)
 
 	_, err := toolconfigs.Sync(ethosRoot, consumerRoot, "")
 	if err != nil {
@@ -712,6 +788,90 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	}
 }
 
+func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff-format")
+	if !found {
+		t.Fatal("missing ruff-format tool")
+	}
+
+	capabilities, err := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo",
+		[]string{
+			"format",
+			"--config",
+			"/repo/ruff.toml",
+			"pkg/app.py",
+			"README.md",
+			"pkg/app.py",
+		},
+	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
+
+	if !slices.Contains(capabilities.WritePaths, "pkg/app.py") {
+		t.Fatalf("sandbox write paths missing target file: %#v", capabilities)
+	}
+
+	if slices.Contains(capabilities.WritePaths, "/repo/ruff.toml") ||
+		slices.Contains(capabilities.WritePaths, "README.md") {
+		t.Fatalf("sandbox write paths included non-target files: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("golangci-lint-format")
+	if !found {
+		t.Fatal("missing golangci-lint-format tool")
+	}
+
+	capabilities, err := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo/go",
+		[]string{"fmt", "./..."},
+	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
+
+	if !slices.Contains(capabilities.WritePaths, "go") {
+		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	capabilities, err := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo/go",
+		[]string{"test", "./..."},
+	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
+
+	if !slices.Contains(capabilities.WritePaths, "go") {
+		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
+	}
+}
+
 func TestManagedToolEnabledHonorsPrincipleBanditDisable(t *testing.T) {
 	t.Parallel()
 
@@ -767,4 +927,39 @@ func chmodManagedCaptureExecutable(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("chmod executable fixture: %v", err)
 	}
+}
+
+func buildManagedCaptureSandboxHelper(t *testing.T, ethosRoot string) {
+	t.Helper()
+
+	output := filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox")
+	err := os.MkdirAll(filepath.Dir(output), 0o755)
+	if err != nil {
+		t.Fatalf("create sandbox helper dir: %v", err)
+	}
+
+	command := exec.Command(
+		filepath.Join(runtime.GOROOT(), "bin", "go"),
+		"build",
+		"-buildvcs=false",
+		"-o",
+		output,
+		"./cmd/coding-ethos-sandbox",
+	)
+	command.Dir = managedCaptureGoModuleRoot(t)
+
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build sandbox helper: %v\n%s", err, output)
+	}
+}
+
+func managedCaptureGoModuleRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

@@ -8,9 +8,8 @@ package sandbox
 // ValidateNativeRuntime records best-available non-Linux behavior.
 func ValidateNativeRuntime() (Evidence, error) {
 	return Evidence{
-		Mode:    ModeRequired,
 		Backend: BackendNative,
-		Enabled: true,
+		Enabled: false,
 		Reason:  "Linux namespaces are unavailable on this platform",
 	}, nil
 }

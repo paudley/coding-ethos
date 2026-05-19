@@ -20,11 +20,12 @@ import (
 var (
 	errLandlockParentFDRange = errors.New("landlock parent fd out of range")
 	errSymlinkWritePath      = errors.New("sandbox write path contains symlink")
-	errWritePathNotDirectory = errors.New("sandbox write path is not a directory")
+	errWritePathNotAllowed   = errors.New("sandbox write path is not a file or directory")
 )
 
 const (
 	privateDirMode      = 0o700
+	writableFileMode    = 0o600
 	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
@@ -36,6 +37,8 @@ const (
 		unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK |
 		unix.LANDLOCK_ACCESS_FS_MAKE_SYM |
 		unix.LANDLOCK_ACCESS_FS_REFER |
+		unix.LANDLOCK_ACCESS_FS_TRUNCATE
+	landlockFileWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_TRUNCATE
 )
 
@@ -65,7 +68,12 @@ func prepareWritablePaths(options options) ([]string, error) {
 			continue
 		}
 
-		err := prepareWritableDirectory(options.paths.repoRoot, path, !filepath.IsAbs(item))
+		err := prepareWritablePath(
+			options.paths.repoRoot,
+			item,
+			path,
+			!filepath.IsAbs(item),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -76,17 +84,15 @@ func prepareWritablePaths(options options) ([]string, error) {
 	return paths, nil
 }
 
-func prepareWritableDirectory(repoRoot, path string, create bool) error {
+func prepareWritablePath(repoRoot, originalPath, path string, create bool) error {
 	err := rejectSymlinkPath(repoRoot, path)
 	if err != nil {
 		return err
 	}
 
-	if create {
-		err = mkdirAllNoSymlinks(repoRoot, path)
-		if err != nil {
-			return err
-		}
+	info, err := writablePathInfo(repoRoot, originalPath, path, create)
+	if err != nil {
+		return err
 	}
 
 	err = rejectSymlinkPath(repoRoot, path)
@@ -94,16 +100,85 @@ func prepareWritableDirectory(repoRoot, path string, create bool) error {
 		return err
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat sandbox writable path %s: %w", path, err)
-	}
-
-	if !info.IsDir() {
-		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+	if !info.IsDir() && !info.Mode().IsRegular() && path != os.DevNull {
+		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
 	return nil
+}
+
+func writablePathInfo(
+	repoRoot,
+	originalPath,
+	path string,
+	create bool,
+) (os.FileInfo, error) {
+	info, statErr := os.Stat(path)
+	if errors.Is(statErr, unix.ENOTDIR) {
+		return nil, fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
+	}
+
+	if statErr != nil && (!create || !errors.Is(statErr, os.ErrNotExist)) {
+		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
+	}
+
+	if statErr == nil {
+		return info, nil
+	}
+
+	if missingWritePathLooksLikeFile(originalPath, path) {
+		return writableFilePathInfo(repoRoot, path)
+	}
+
+	err := mkdirAllNoSymlinks(repoRoot, path)
+	if err != nil {
+		return nil, err
+	}
+
+	info, statErr = os.Stat(path)
+	if statErr != nil {
+		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
+	}
+
+	return info, nil
+}
+
+func missingWritePathLooksLikeFile(originalPath, path string) bool {
+	if strings.HasSuffix(originalPath, string(os.PathSeparator)) ||
+		strings.HasSuffix(originalPath, "/") {
+		return false
+	}
+
+	base := filepath.Base(path)
+	extension := filepath.Ext(base)
+
+	return extension != "" && extension != base
+}
+
+func writableFilePathInfo(repoRoot, path string) (os.FileInfo, error) {
+	parent := filepath.Dir(path)
+
+	err := mkdirAllNoSymlinks(repoRoot, parent)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, writableFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox writable file %s: %w", path, err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("close sandbox writable file %s: %w", path, err)
+	}
+
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
+	}
+
+	return info, nil
 }
 
 func mkdirAllNoSymlinks(repoRoot, path string) error {
@@ -138,7 +213,7 @@ func mkdirOneNoSymlink(path string) error {
 		}
 
 		if !info.IsDir() {
-			return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+			return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 		}
 
 		return nil
@@ -163,7 +238,7 @@ func mkdirOneNoSymlink(path string) error {
 	}
 
 	if !info.IsDir() {
-		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
 	return nil
@@ -187,6 +262,10 @@ func rejectSymlinkPath(repoRoot, path string) error {
 		info, statErr := os.Lstat(current)
 		if os.IsNotExist(statErr) {
 			return nil
+		}
+
+		if errors.Is(statErr, unix.ENOTDIR) {
+			return fmt.Errorf("%w: %s", errWritePathNotAllowed, current)
 		}
 
 		if statErr != nil {
@@ -256,8 +335,8 @@ func addLandlockWriteRule(rulesetFD uintptr, path string) error {
 		return fmt.Errorf("stat landlock writable path %s: %w", path, statErr)
 	}
 
-	if !info.IsDir() {
-		return fmt.Errorf("%w: %s", errWritePathNotDirectory, path)
+	if !info.IsDir() && !info.Mode().IsRegular() && path != os.DevNull {
+		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
 	file, err := os.Open(path)
@@ -273,7 +352,7 @@ func addLandlockWriteRule(rulesetFD uintptr, path string) error {
 	}
 
 	rule := unix.LandlockPathBeneathAttr{
-		Allowed_access: landlockWriteAccess,
+		Allowed_access: landlockAllowedWriteAccess(info),
 		Parent_fd:      parentFD,
 	}
 
@@ -291,6 +370,14 @@ func addLandlockWriteRule(rulesetFD uintptr, path string) error {
 	}
 
 	return nil
+}
+
+func landlockAllowedWriteAccess(info os.FileInfo) uint64 {
+	if info.IsDir() {
+		return landlockWriteAccess
+	}
+
+	return landlockFileWriteAccess
 }
 
 func landlockParentFD(file *os.File) (int32, error) {

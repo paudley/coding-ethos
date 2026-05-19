@@ -3320,6 +3320,21 @@ func TestDecodeEventReadsCodexPayload(t *testing.T) {
 	}
 }
 
+func TestDecodeEventDropsWhitespaceOnlyFilePaths(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"tool_name": "Write",
+		"tool_input": {"path": " "}
+	}`))
+	if err != nil {
+		t.Fatalf("DecodeEvent() error = %v", err)
+	}
+	if files := event.Files(); len(files) != 0 {
+		t.Fatalf("Files() = %#v, want no paths", files)
+	}
+}
+
 func TestDecodeEventNormalizesCodexNativeShellTool(t *testing.T) {
 	t.Parallel()
 

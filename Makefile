@@ -529,9 +529,8 @@ build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-ag
 
 sandbox-runtime-validate: ensure-go go-tools-install ## Validate required sandbox runtime.
 	@$(call print_step,Validating native sandbox runtime)
-	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" validate-sandbox-runtime \
-		--sandbox-mode "required"
-	@$(call print_info,native sandbox: required on Linux)
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" validate-sandbox-runtime
+	@$(call print_info,native sandbox: required on Linux, unavailable elsewhere)
 
 managed-toolchain-install: ensure-go go-tools-install sandbox-runtime-validate ## Install third-party hook tools into checkout-local managed toolchain dirs.
 	@$(call print_step,Installing managed hook toolchain)

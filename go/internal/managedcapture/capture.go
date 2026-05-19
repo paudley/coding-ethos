@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -46,6 +47,7 @@ const (
 	capturedDecisionBlock         = "block"
 	capturedFindingStatusFail     = "fail"
 	capturedFindingStatusPass     = "pass"
+	capturedPrivateDirMode        = 0o700
 	capturedOutputKey             = "output"
 	capturedStatusBlocked         = "blocked"
 	capturedStatusResolved        = "resolved"
@@ -59,7 +61,6 @@ type captureRequest struct {
 	ToolPath           string
 	Cwd                string
 	TraceRoot          string
-	SandboxMode        string
 	SandboxBackendPath string
 	DiagnosticKind     string
 	Output             io.Writer
@@ -158,7 +159,6 @@ func buildCapturedSandboxPlan(
 	runArgs []string,
 ) (sandbox.Plan, error) {
 	plan, err := sandbox.BuildPlan(sandbox.Request{
-		Mode:       request.SandboxMode,
 		Tool:       request.Tool,
 		Executable: request.ToolPath,
 		WrapperPath: firstCaptureNonEmpty(
@@ -190,18 +190,11 @@ func runCapturedPlan(
 	defer cancel()
 
 	cgroup, appliedEvidence, cgroupErr := prepareSandboxCgroup(plan.Evidence)
-
-	if cgroupErr != nil && appliedEvidence.Mode == sandbox.ModeRequired {
-		appliedEvidence.Denied = true
-		evidence := lintSandboxEvidence(appliedEvidence)
-		diagnostic := sandboxDenialDiagnostic(appliedEvidence)
-
-		return captureExecution{
-			Stderr:   diagnostic.Message + " " + diagnostic.Detail,
-			RunArgs:  runArgs,
-			Sandbox:  evidence,
-			ExitCode: BlockedExitCode,
-		}
+	if cgroupErr != nil {
+		appliedEvidence.Reason = appendEvidenceReason(
+			appliedEvidence.Reason,
+			cgroupErr.Error(),
+		)
 	}
 
 	evidence := lintSandboxEvidence(appliedEvidence)
@@ -270,12 +263,21 @@ func startCapturedProcess(
 	defer stderrReader.Close()
 
 	files := capturedProcessFiles(stdoutWriter, stderrWriter, plan.ExtraFiles)
+
+	cacheEnv, cacheEnvErr := sandboxCacheEnv(request)
+	if cacheEnvErr != nil {
+		_ = stdoutWriter.Close()
+		_ = stderrWriter.Close()
+
+		return processResult{err: cacheEnvErr, exitCode: capturedCommandNotFoundCode}
+	}
+
 	process, startErr := os.StartProcess(
 		plan.Executable,
 		capturedProcessArgv(plan),
 		&os.ProcAttr{
 			Dir:   request.Cwd,
-			Env:   capturedProcessEnv(os.Environ()),
+			Env:   capturedProcessEnv(os.Environ(), cacheEnv),
 			Files: files,
 			Sys:   capturedProcessSysProcAttr(cgroup, evidence),
 		},
@@ -288,23 +290,74 @@ func startCapturedProcess(
 
 	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
 	if startErr != nil {
-		copyErr := <-copyDone
+		return failedProcessStartResult(copyDone, cacheEnv, startErr)
+	}
 
-		return processResult{
-			err:      errors.Join(startErr, copyErr),
-			exitCode: capturedExitCode(startErr),
-		}
+	assignErr := cgroup.AssignProcess(process)
+	if assignErr != nil {
+		return failedCgroupAssignmentResult(
+			ctx,
+			process,
+			copyDone,
+			cacheEnv,
+			&buffers,
+			assignErr,
+		)
 	}
 
 	state, waitErr := waitCapturedProcess(ctx, process)
 
 	copyErr := <-copyDone
 
+	cleanupSandboxCacheEnv(cacheEnv)
+
 	return processResult{
 		stdout:   buffers.stdout.String(),
 		stderr:   buffers.stderr.String(),
 		err:      errors.Join(waitErr, copyErr),
 		exitCode: capturedProcessExitCode(state, waitErr),
+	}
+}
+
+func failedProcessStartResult(
+	copyDone <-chan error,
+	cacheEnv sandboxCacheEnvironment,
+	startErr error,
+) processResult {
+	copyErr := <-copyDone
+
+	cleanupSandboxCacheEnv(cacheEnv)
+
+	return processResult{
+		err:      errors.Join(startErr, copyErr),
+		exitCode: capturedExitCode(startErr),
+	}
+}
+
+func failedCgroupAssignmentResult(
+	ctx context.Context,
+	process *os.Process,
+	copyDone <-chan error,
+	cacheEnv sandboxCacheEnvironment,
+	buffers *captureBuffers,
+	assignErr error,
+) processResult {
+	killErr := killCapturedProcessGroup(process)
+	state, waitErr := waitCapturedProcess(ctx, process)
+	copyErr := <-copyDone
+
+	cleanupSandboxCacheEnv(cacheEnv)
+
+	return processResult{
+		stdout: buffers.stdout.String(),
+		stderr: buffers.stderr.String(),
+		err: errors.Join(
+			assignErr,
+			killErr,
+			waitErr,
+			copyErr,
+		),
+		exitCode: capturedProcessExitCode(state, assignErr),
 	}
 }
 
@@ -326,7 +379,7 @@ func capturedProcessArgv(plan sandbox.Plan) []string {
 	return append([]string{plan.Executable}, plan.Args...)
 }
 
-func capturedProcessEnv(environ []string) []string {
+func capturedProcessEnv(environ []string, cacheEnv sandboxCacheEnvironment) []string {
 	out := make([]string, 0, len(environ))
 	for _, item := range environ {
 		name, value, found := strings.Cut(item, "=")
@@ -340,6 +393,10 @@ func capturedProcessEnv(environ []string) []string {
 			continue
 		}
 
+		if cacheEnv.overrides(name) {
+			continue
+		}
+
 		if name == "PATH" {
 			out = append(out, name+"="+capturedProcessPath(value))
 
@@ -349,7 +406,150 @@ func capturedProcessEnv(environ []string) []string {
 		out = append(out, item)
 	}
 
+	out = append(out, cacheEnv.items()...)
+
 	return out
+}
+
+type sandboxCacheEnvironment struct {
+	TempDir         string
+	RuntimeDir      string
+	GoCache         string
+	GolangCILintDir string
+	CleanupTemp     bool
+}
+
+func (environment sandboxCacheEnvironment) overrides(name string) bool {
+	return (environment.TempDir != "" && name == "TMPDIR") ||
+		(environment.RuntimeDir != "" && name == "XDG_RUNTIME_DIR") ||
+		(environment.GoCache != "" && name == "GOCACHE") ||
+		(environment.GolangCILintDir != "" && name == "GOLANGCI_LINT_CACHE")
+}
+
+func (environment sandboxCacheEnvironment) items() []string {
+	items := []string{}
+
+	if environment.TempDir != "" {
+		items = append(items, "TMPDIR="+environment.TempDir)
+	}
+
+	if environment.RuntimeDir != "" {
+		items = append(items, "XDG_RUNTIME_DIR="+environment.RuntimeDir)
+	}
+
+	if environment.GoCache != "" {
+		items = append(items, "GOCACHE="+environment.GoCache)
+	}
+
+	if environment.GolangCILintDir != "" {
+		items = append(items, "GOLANGCI_LINT_CACHE="+environment.GolangCILintDir)
+	}
+
+	return items
+}
+
+func sandboxCacheEnv(request captureRequest) (sandboxCacheEnvironment, error) {
+	root := firstCaptureNonEmpty(request.TraceRoot, request.Cwd)
+	if strings.TrimSpace(root) == "" {
+		return sandboxCacheEnvironment{}, nil
+	}
+
+	tempDir := filepath.Join(root, sandbox.SandboxTempWritePath)
+	runtimeDir := ""
+	cleanupTemp := false
+
+	if request.Tool == goTestTool {
+		tempDir = resolvedGoTestSandboxTempDir(root)
+		runtimeDir = filepath.Join(tempDir, "runtime")
+		cleanupTemp = true
+	}
+
+	err := os.MkdirAll(tempDir, capturedPrivateDirMode)
+	if err != nil {
+		return sandboxCacheEnvironment{}, fmt.Errorf(
+			"create sandbox temp dir: %w",
+			err,
+		)
+	}
+
+	if runtimeDir != "" {
+		err = os.MkdirAll(runtimeDir, capturedPrivateDirMode)
+		if err != nil {
+			return sandboxCacheEnvironment{}, fmt.Errorf(
+				"create sandbox runtime dir: %w",
+				err,
+			)
+		}
+	}
+
+	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
+
+	err = os.MkdirAll(goCache, capturedPrivateDirMode)
+	if err != nil {
+		return sandboxCacheEnvironment{}, fmt.Errorf(
+			"create sandbox Go cache dir: %w",
+			err,
+		)
+	}
+
+	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
+
+	err = os.MkdirAll(golangCILintDir, capturedPrivateDirMode)
+	if err != nil {
+		return sandboxCacheEnvironment{}, fmt.Errorf(
+			"create sandbox golangci-lint cache dir: %w",
+			err,
+		)
+	}
+
+	return sandboxCacheEnvironment{
+		TempDir:         tempDir,
+		RuntimeDir:      runtimeDir,
+		CleanupTemp:     cleanupTemp,
+		GoCache:         goCache,
+		GolangCILintDir: golangCILintDir,
+	}, nil
+}
+
+func cleanupSandboxCacheEnv(environment sandboxCacheEnvironment) {
+	if environment.CleanupTemp {
+		_ = os.RemoveAll(environment.TempDir)
+	}
+}
+
+func resolvedGoTestSandboxTempDir(root string) string {
+	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		tempRoot = filepath.Clean(os.TempDir())
+	}
+
+	return filepath.Join(tempRoot, goTestSandboxTempName(root))
+}
+
+func goTestSandboxTempDir(root string) string {
+	tempRoot := os.TempDir()
+
+	resolvedTempRoot, err := filepath.EvalSymlinks(tempRoot)
+	if err == nil {
+		tempRoot = resolvedTempRoot
+	}
+
+	return filepath.Join(tempRoot, goTestSandboxTempName(root))
+}
+
+func goTestSandboxTempName(root string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(root)))
+
+	return fmt.Sprintf("coding-ethos-go-test-%x-%d", sum[:8], os.Getpid())
+}
+
+func gpgRuntimeWritePath() string {
+	runtimeRoot := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR"))
+	if runtimeRoot == "" {
+		runtimeRoot = filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+	}
+
+	return filepath.Join(runtimeRoot, "gnupg")
 }
 
 func capturedProcessEnvBlocked(name string) bool {
@@ -538,6 +738,21 @@ func prepareSandboxCgroup(
 	}
 
 	return cgroup, appliedEvidence, nil
+}
+
+func appendEvidenceReason(existing, next string) string {
+	existing = strings.TrimSpace(existing)
+	next = strings.TrimSpace(next)
+
+	if existing == "" {
+		return next
+	}
+
+	if next == "" || strings.Contains(existing, next) {
+		return existing
+	}
+
+	return existing + "; " + next
 }
 
 func capturedExecutionError(stderr string, err error) string {
@@ -1068,10 +1283,6 @@ func sandboxDenialDiagnostic(evidence sandbox.Evidence) diagnostics.Diagnostic {
 func lintSandboxEvidence(evidence sandbox.Evidence) *lint.SandboxEvidence {
 	if evidence.Mode == "" && evidence.Profile == "" && !evidence.Enabled &&
 		!evidence.Denied {
-		return nil
-	}
-
-	if evidence.Mode == sandbox.ModeOff && !evidence.Enabled && !evidence.Denied {
 		return nil
 	}
 

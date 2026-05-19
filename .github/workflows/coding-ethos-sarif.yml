@@ -25,7 +25,6 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: make check
       CODING_ETHOS_SARIF_PATH: coding-ethos.sarif
       CODING_ETHOS_SARIF_CATEGORY: .github/workflows/ci.yml:policy
-      CODING_ETHOS_SANDBOX_MODE: required
       CODING_ETHOS_FILES: ""
       CODING_ETHOS_GITHUB_BASE_REF: ${{ github.base_ref }}
       CODING_ETHOS_GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -54,6 +53,37 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
+
+      - name: Delegate Linux cgroup v2 controllers
+        run: |
+          set -euo pipefail
+          cgroup_relative="$(
+            awk -F: '$1 == "0" { print $3; exit }' /proc/self/cgroup
+          )"
+          cgroup_path="/sys/fs/cgroup${cgroup_relative}"
+          if [ "$cgroup_relative" = "/" ] || \
+            [ ! -f "$cgroup_path/cgroup.procs" ]; then
+            echo "::error::cgroup target unavailable: $cgroup_path"
+            exit 1
+          fi
+
+          sudo chown -R "$(id -u):$(id -g)" "$cgroup_path"
+          verify_cgroup="$cgroup_path/coding-ethos-ci-verify-$$"
+          mkdir "$verify_cgroup"
+          cleanup() { rmdir "$verify_cgroup" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          sleep 60 &
+          verify_pid="$!"
+          if ! printf '%s\n' "$verify_pid" \
+            > "$verify_cgroup/cgroup.procs"; then
+            kill "$verify_pid" 2>/dev/null || true
+            wait "$verify_pid" 2>/dev/null || true
+            echo "::error::unable to assign a process to delegated cgroup"
+            exit 1
+          fi
+          kill "$verify_pid" 2>/dev/null || true
+          wait "$verify_pid" 2>/dev/null || true
 
       - name: Build coding-ethos runtime
         env:

@@ -19,16 +19,17 @@ import (
 )
 
 const (
-	ModeOff      = "off"
-	ModeAuto     = "auto"
 	ModeRequired = "required"
 
 	BackendNative = "native"
 
-	cgroupLineParts     = 3
-	toolFallbackName    = "tool"
-	nativeSandboxBinary = "coding-ethos-sandbox"
-	nativeProbeTimeout  = 10
+	cgroupLineParts      = 3
+	toolFallbackName     = "tool"
+	nativeSandboxBinary  = "coding-ethos-sandbox"
+	nativeProbeTimeout   = 10
+	SandboxTempWritePath = "sandbox-tmp"
+	SandboxGoCachePath   = ".coding-ethos/cache/go-build"
+	SandboxGolangCIPath  = ".coding-ethos/cache/golangci-lint"
 )
 
 var (
@@ -120,7 +121,6 @@ type Request struct {
 	BackendPath  string
 	Cwd          string
 	Executable   string
-	Mode         string
 	RepoRoot     string
 	Tool         string
 	WrapperPath  string
@@ -171,24 +171,20 @@ type Evidence struct {
 }
 
 func BuildPlan(request Request) (Plan, error) {
-	mode := normalizedMode(request.Mode)
-
-	if mode != ModeOff && strings.TrimSpace(request.Capabilities.SandboxProfile) != "" {
-		var normalizeErr error
-
-		request, normalizeErr = normalizeSandboxRequest(request)
-		if normalizeErr != nil {
-			return deniedSandboxPlan(request.evidence(mode), normalizeErr)
-		}
+	if !sandboxRequired(request) {
+		return unsandboxedPlan(request, Evidence{}), nil
 	}
 
-	evidence := request.evidence(mode)
-	if mode == ModeOff || strings.TrimSpace(request.Capabilities.SandboxProfile) == "" {
-		return unsandboxedPlan(request, evidence), nil
+	var normalizeErr error
+
+	request, normalizeErr = normalizeSandboxRequest(request)
+	if normalizeErr != nil {
+		return deniedSandboxPlan(request.evidence(), normalizeErr)
 	}
 
+	evidence := request.evidence()
 	evidence.Enabled = true
-	evidence.NamespaceEnforced = nativeNamespaceSupported()
+	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
@@ -206,6 +202,11 @@ func BuildPlan(request Request) (Plan, error) {
 		Args:       nativeWrapperArgs(request, evidence.WritePaths),
 		Evidence:   evidence,
 	}, nil
+}
+
+func sandboxRequired(request Request) bool {
+	return runtime.GOOS == "linux" &&
+		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
 }
 
 func unsandboxedPlan(request Request, evidence Evidence) Plan {
@@ -283,6 +284,19 @@ func Execute(
 // ValidateNativeRuntimeWithHelper proves the wrapper can apply native sandbox
 // policy and execute a trivial command.
 func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
+	wrapper, wrapperErr := nativeWrapperPath(Request{WrapperPath: wrapperPath})
+	if wrapperErr != nil {
+		evidence := nativeRuntimeEvidence()
+		evidence.Denied = true
+		evidence.Reason = backendEvidenceReason(wrapperErr)
+
+		return evidence, fmt.Errorf(
+			"%w: %w",
+			ErrBackendUnavailable,
+			wrapperErr,
+		)
+	}
+
 	repoRoot, err := os.MkdirTemp("", "coding-ethos-sandbox-probe-")
 	if err != nil {
 		return Evidence{}, fmt.Errorf("create native sandbox probe repo: %w", err)
@@ -291,10 +305,9 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 	defer func() { _ = os.RemoveAll(repoRoot) }()
 
 	plan, err := BuildPlan(Request{
-		Mode:        ModeRequired,
 		Tool:        "sandbox-probe",
 		Executable:  "/bin/sh",
-		WrapperPath: wrapperPath,
+		WrapperPath: wrapper,
 		Cwd:         repoRoot,
 		RepoRoot:    repoRoot,
 		Args:        nativeProbeArgs(),
@@ -337,10 +350,8 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 }
 
 func nativeProbeArgs() []string {
-	script := "printf ok > .coding-ethos/cache/probe"
-	if nativeNamespaceSupported() {
-		script += " && if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
-	}
+	script := "printf ok > .coding-ethos/cache/probe && " +
+		"if /bin/sh -c ': > blocked'; then exit 99; else exit 0; fi"
 
 	return []string{"-c", script}
 }
@@ -361,10 +372,6 @@ func validateNativeProbeSideEffects(
 			ErrBackendUnavailable,
 			evidence.Reason,
 		)
-	}
-
-	if !nativeNamespaceSupported() {
-		return evidence, nil
 	}
 
 	blockedProbe := filepath.Join(repoRoot, "blocked")
@@ -395,20 +402,26 @@ func validateNativeProbeSideEffects(
 	return evidence, nil
 }
 
-func (request Request) evidence(mode string) Evidence {
+func (request Request) evidence() Evidence {
+	writePaths := sandboxWritePaths(
+		request.RepoRoot,
+		request.Cwd,
+		request.Capabilities.WritePaths,
+	)
+	writePaths = append(writePaths, SandboxTempWritePath)
+	writePaths = append(writePaths, SandboxGoCachePath)
+	writePaths = append(writePaths, SandboxGolangCIPath)
+	writePaths = append(writePaths, nativeSystemWritePaths()...)
+
 	return Evidence{
-		Mode:      mode,
-		Backend:   BackendNative,
-		Profile:   request.Capabilities.SandboxProfile,
-		Tool:      request.Tool,
-		Command:   append([]string{request.Executable}, request.Args...),
-		Tags:      append([]string(nil), request.Capabilities.Tags...),
-		ReadPaths: append([]string(nil), request.Capabilities.ReadPaths...),
-		WritePaths: sandboxWritePaths(
-			request.RepoRoot,
-			request.Cwd,
-			request.Capabilities.WritePaths,
-		),
+		Mode:              ModeRequired,
+		Backend:           BackendNative,
+		Profile:           request.Capabilities.SandboxProfile,
+		Tool:              request.Tool,
+		Command:           append([]string{request.Executable}, request.Args...),
+		Tags:              append([]string(nil), request.Capabilities.Tags...),
+		ReadPaths:         append([]string(nil), request.Capabilities.ReadPaths...),
+		WritePaths:        writePaths,
 		TimeoutSeconds:    request.Capabilities.TimeoutSeconds,
 		MemoryMB:          request.Capabilities.MemoryMB,
 		CPUQuotaPercent:   request.Capabilities.CPUQuotaPercent,
@@ -418,13 +431,18 @@ func (request Request) evidence(mode string) Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		GitReadOnly:       true,
-		RepoReadOnly:      nativeNamespaceSupported(),
-		NetworkIsolated:   !request.Capabilities.RequiresNetwork,
-		ProcessIsolated:   nativeNamespaceSupported(),
-		TimeoutEnforced:   request.Capabilities.TimeoutSeconds > 0,
+		RepoReadOnly:      true,
+		NetworkIsolated: !request.Capabilities.RequiresProcesses &&
+			!request.Capabilities.RequiresNetwork,
+		ProcessIsolated: !request.Capabilities.RequiresProcesses,
+		TimeoutEnforced: request.Capabilities.TimeoutSeconds > 0,
 		CgroupRequested: request.Capabilities.MemoryMB > 0 ||
 			request.Capabilities.CPUQuotaPercent > 0,
 	}
+}
+
+func nativeSystemWritePaths() []string {
+	return []string{os.DevNull}
 }
 
 func CommandContext(
@@ -476,19 +494,6 @@ func sandboxWritePaths(repoRoot, cwd string, paths []string) []string {
 	}
 
 	return writable
-}
-
-func normalizedMode(mode string) string {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "", ModeOff:
-		return ModeOff
-	case ModeAuto:
-		return ModeAuto
-	case ModeRequired:
-		return ModeRequired
-	default:
-		return ModeRequired
-	}
 }
 
 func normalizedBindPath(repoRoot, path string) string {

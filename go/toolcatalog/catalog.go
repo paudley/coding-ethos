@@ -1203,15 +1203,18 @@ func goVetTool() Tool {
 
 func goTestTool() Tool {
 	return Tool{
-		Name:             "go-test",
-		Parser:           "go-test",
-		Category:         "test",
-		OutputFormat:     "json",
-		Advice:           "Fix Go test failures as executable behavioral contract failures.",
-		Runtime:          RuntimeGo,
-		Command:          []string{"go", "test", "./..."},
-		FileExtensions:   []string{".go"},
-		Languages:        []string{"go"},
+		Name:           "go-test",
+		Parser:         "go-test",
+		Category:       "test",
+		OutputFormat:   "json",
+		Advice:         "Fix Go test failures as executable behavioral contract failures.",
+		Runtime:        RuntimeGo,
+		Command:        []string{"go", "test", "./..."},
+		FileExtensions: []string{".go"},
+		Languages:      []string{"go"},
+		Capabilities: CapabilitySpec{
+			RequiresProcesses: true,
+		},
 		PassFilesAsArgs:  false,
 		EnabledByDefault: true,
 	}
@@ -1335,6 +1338,7 @@ func golangciLintTool() Tool {
 		Runtime: RuntimeGo,
 		Command: []string{"golangci-lint", "run"},
 		CaptureOutputArgs: []string{
+			"--allow-parallel-runners",
 			"--output.json.path=stdout",
 			"--output.text.path=stderr",
 		},

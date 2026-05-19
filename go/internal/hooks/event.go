@@ -98,16 +98,27 @@ func (event Event) Files() []string {
 	files := []string{}
 
 	for _, key := range []string{"file_path", "path", "notebook_path"} {
-		if file, ok := event.ToolInput[key].(string); ok && file != "" {
-			files = append(files, file)
+		if file, ok := event.ToolInput[key].(string); ok {
+			files = appendNonEmptyFile(files, file)
 		}
 	}
 
 	for _, key := range []string{"files", "paths"} {
-		files = append(files, stringList(event.ToolInput[key])...)
+		for _, file := range stringList(event.ToolInput[key]) {
+			files = appendNonEmptyFile(files, file)
+		}
 	}
 
 	return dedupeStrings(files)
+}
+
+func appendNonEmptyFile(files []string, candidate string) []string {
+	path := strings.TrimSpace(candidate)
+	if path == "" {
+		return files
+	}
+
+	return append(files, path)
 }
 
 func (event Event) Content() string {

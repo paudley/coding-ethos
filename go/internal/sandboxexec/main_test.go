@@ -75,6 +75,7 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 
 	got := sandboxExecEnv([]string{
 		"PATH=/bin",
+		"CODING_ETHOS_EXEC_STACK=coding-ethos-sandbox",
 		"GIT_DIR=/tmp/git",
 		"GIT_CONFIG_KEY_0=core.sshCommand",
 		"GIT_CONFIG_VALUE_0=ssh -i key",
@@ -82,7 +83,12 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 	})
 	joined := strings.Join(got, "\n")
 
-	for _, blocked := range []string{"GIT_DIR=", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"} {
+	for _, blocked := range []string{
+		"CODING_ETHOS_EXEC_STACK=",
+		"GIT_DIR=",
+		"GIT_CONFIG_KEY_0",
+		"GIT_CONFIG_VALUE_0",
+	} {
 		if strings.Contains(joined, blocked) {
 			t.Fatalf("environment retained blocked %q: %#v", blocked, got)
 		}
@@ -107,6 +113,11 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	outside, ok := cleanPolicyPath(root, filepath.Dir(root))
 	if ok || outside == "" {
 		t.Fatalf("cleanPolicyPath outside = %q %t", outside, ok)
+	}
+
+	nullDevice, ok := cleanPolicyPath(root, os.DevNull)
+	if !ok || nullDevice != os.DevNull {
+		t.Fatalf("cleanPolicyPath dev null = %q %t", nullDevice, ok)
 	}
 }
 
@@ -162,7 +173,7 @@ func TestPrepareWritablePathsRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
-func TestPrepareWritablePathsRejectsFilePath(t *testing.T) {
+func TestPrepareWritablePathsAllowsFilePath(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -175,8 +186,104 @@ func TestPrepareWritablePathsRejectsFilePath(t *testing.T) {
 		paths:      &sandboxPaths{repoRoot: root},
 		writePaths: []string{".coding-ethos"},
 	})
-	if !errors.Is(err, errWritePathNotDirectory) {
-		t.Fatalf("prepareWritablePaths() error = %v, want file rejection", err)
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+}
+
+func TestPrepareWritablePathsCreatesMissingFilePathAsFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile := filepath.Join(root, "pkg", "new.py")
+
+	paths, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{"pkg/new.py"},
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, writeFile) {
+		t.Fatalf("prepared write paths missing %s: %#v", writeFile, paths)
+	}
+
+	info, statErr := os.Stat(writeFile)
+	if statErr != nil {
+		t.Fatalf("created writable file missing: %v", statErr)
+	}
+	if info.IsDir() || !info.Mode().IsRegular() {
+		t.Fatalf("writable path was not created as regular file: %s", info.Mode())
+	}
+}
+
+func TestPrepareWritablePathsRejectsFileAsDirectoryComponent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	component := filepath.Join(root, "pkg")
+	if err := os.WriteFile(component, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create file component fixture: %v", err)
+	}
+
+	_, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{"pkg/new.py"},
+	})
+	if !errors.Is(err, errWritePathNotAllowed) {
+		t.Fatalf("prepareWritablePaths() error = %v, want path rejection", err)
+	}
+}
+
+func TestPrepareWritablePathsCreatesDotCachePathAsDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cacheDir := filepath.Join(root, ".ruff_cache")
+
+	paths, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{".ruff_cache/"},
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, cacheDir) {
+		t.Fatalf("prepared write paths missing %s: %#v", cacheDir, paths)
+	}
+
+	info, statErr := os.Stat(cacheDir)
+	if statErr != nil {
+		t.Fatalf("created writable cache path missing: %v", statErr)
+	}
+	if !info.IsDir() {
+		t.Fatalf("dot cache path was not created as directory: %s", info.Mode())
+	}
+}
+
+func TestPrepareWritablePathsCreatesDottedDirectoryPathAsDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cacheDir := filepath.Join(root, "pkg.v1")
+
+	paths, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{"pkg.v1/"},
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, cacheDir) {
+		t.Fatalf("prepared write paths missing %s: %#v", cacheDir, paths)
+	}
+
+	info, statErr := os.Stat(cacheDir)
+	if statErr != nil {
+		t.Fatalf("created writable dotted directory missing: %v", statErr)
+	}
+	if !info.IsDir() {
+		t.Fatalf("dotted directory path was not created as directory: %s", info.Mode())
 	}
 }
 

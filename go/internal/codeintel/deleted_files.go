@@ -372,6 +372,10 @@ func pathInDeletionScopes(path string, scopes []string) bool {
 }
 
 func pathHasSkippedDir(path string) bool {
+	if filepath.IsAbs(path) {
+		return false
+	}
+
 	return slices.ContainsFunc(
 		strings.Split(filepath.ToSlash(path), "/"),
 		func(segment string) bool {

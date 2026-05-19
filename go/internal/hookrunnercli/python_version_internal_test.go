@@ -64,6 +64,8 @@ python_version = 3.12
 }
 
 func TestCheckPythonVersionConsistencyCommand(t *testing.T) {
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
+
 	tempDir := t.TempDir()
 	mustWriteTestFile(
 		t,

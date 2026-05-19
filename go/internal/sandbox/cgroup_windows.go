@@ -6,6 +6,7 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -27,12 +28,12 @@ func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
 	return nil
 }
 
-func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
-	return cgroup.SysProcAttr()
+func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
+	return nil
 }
 
-func nativeNamespaceSupported() bool {
-	return false
+func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
+	return cgroup.SysProcAttr()
 }
 
 func (cgroup *Cgroup) Close() error {

@@ -6,6 +6,7 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 )
@@ -27,6 +28,10 @@ func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
 	return nil
 }
 
+func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
+	return nil
+}
+
 func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	attributes := cgroup.SysProcAttr()
 	if attributes == nil {
@@ -36,10 +41,6 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	attributes.Setpgid = true
 
 	return attributes
-}
-
-func nativeNamespaceSupported() bool {
-	return false
 }
 
 func (cgroup *Cgroup) Close() error {

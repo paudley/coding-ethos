@@ -7,6 +7,38 @@ import "fmt"
 
 const defaultCITimeoutMinutes = 30
 
+const githubCgroupDelegationStep = "" +
+	"      - name: Delegate Linux cgroup v2 controllers\n" +
+	"        run: |\n" +
+	"          set -euo pipefail\n" +
+	"          cgroup_relative=\"$(\n" +
+	"            awk -F: '$1 == \"0\" { print $3; exit }' /proc/self/cgroup\n" +
+	"          )\"\n" +
+	"          cgroup_path=\"/sys/fs/cgroup${cgroup_relative}\"\n" +
+	"          if [ \"$cgroup_relative\" = \"/\" ] || \\\n" +
+	"            [ ! -f \"$cgroup_path/cgroup.procs\" ]; then\n" +
+	"            echo \"::error::cgroup target unavailable: $cgroup_path\"\n" +
+	"            exit 1\n" +
+	"          fi\n" +
+	"\n" +
+	"          sudo chown -R \"$(id -u):$(id -g)\" \"$cgroup_path\"\n" +
+	"          verify_cgroup=\"$cgroup_path/coding-ethos-ci-verify-$$\"\n" +
+	"          mkdir \"$verify_cgroup\"\n" +
+	"          cleanup() { rmdir \"$verify_cgroup\" 2>/dev/null || true; }\n" +
+	"          trap cleanup EXIT\n" +
+	"\n" +
+	"          sleep 60 &\n" +
+	"          verify_pid=\"$!\"\n" +
+	"          if ! printf '%s\\n' \"$verify_pid\" \\\n" +
+	"            > \"$verify_cgroup/cgroup.procs\"; then\n" +
+	"            kill \"$verify_pid\" 2>/dev/null || true\n" +
+	"            wait \"$verify_pid\" 2>/dev/null || true\n" +
+	"            echo \"::error::unable to assign a process to delegated cgroup\"\n" +
+	"            exit 1\n" +
+	"          fi\n" +
+	"          kill \"$verify_pid\" 2>/dev/null || true\n" +
+	"          wait \"$verify_pid\" 2>/dev/null || true\n"
+
 const githubSARIFWorkflowTemplate = `name: Coding Ethos SARIF Gate
 
 %s
@@ -29,7 +61,6 @@ jobs:
       CODING_ETHOS_GATE_COMMAND: %s
       CODING_ETHOS_SARIF_PATH: %s
       CODING_ETHOS_SARIF_CATEGORY: %s
-      CODING_ETHOS_SANDBOX_MODE: %s
       CODING_ETHOS_FILES: ""
       CODING_ETHOS_GITHUB_BASE_REF: ${{ github.base_ref }}
       CODING_ETHOS_GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -59,6 +90,7 @@ jobs:
         with:
           enable-cache: true
 
+%s
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -113,24 +145,12 @@ type githubSARIFWorkflowSettings struct {
 	SARIFPath       string
 	ArtifactName    string
 	SARIFCategory   string
-	SandboxMode     string
 	Triggers        string
 	TimeoutMinutes  int
 }
 
-func sandboxModes() map[string]struct{} {
-	return map[string]struct{}{
-		"auto":     {},
-		"off":      {},
-		"required": {},
-	}
-}
-
 func renderGitHubSARIFWorkflow(config configMap) (string, error) {
-	settings, err := githubSARIFWorkflowSettingsFromConfig(config)
-	if err != nil {
-		return "", err
-	}
+	settings := githubSARIFWorkflowSettingsFromConfig(config)
 
 	return spdxHeader + fmt.Sprintf(
 		githubSARIFWorkflowTemplate,
@@ -141,24 +161,14 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		settings.GateCommand,
 		settings.SARIFPath,
 		settings.SARIFCategory,
-		settings.SandboxMode,
+		githubCgroupDelegationStep,
 		settings.ArtifactName,
 	), nil
 }
 
 func githubSARIFWorkflowSettingsFromConfig(
 	config configMap,
-) (githubSARIFWorkflowSettings, error) {
-	sandboxMode, err := configuredChoice(
-		config,
-		"generated_config.ci.github_actions.sandbox_mode",
-		"required",
-		sandboxModes(),
-	)
-	if err != nil {
-		return githubSARIFWorkflowSettings{}, err
-	}
-
+) githubSARIFWorkflowSettings {
 	return githubSARIFWorkflowSettings{
 		CodingEthosPath: configuredString(
 			config,
@@ -190,14 +200,13 @@ func githubSARIFWorkflowSettingsFromConfig(
 			"generated_config.ci.github_actions.sarif_category",
 			"policy",
 		),
-		SandboxMode: sandboxMode,
-		Triggers:    githubWorkflowTriggers(config),
+		Triggers: githubWorkflowTriggers(config),
 		TimeoutMinutes: configuredInt(
 			config,
 			"generated_config.ci.github_actions.timeout_minutes",
 			defaultCITimeoutMinutes,
 		),
-	}, nil
+	}
 }
 
 func githubWorkflowTriggers(config configMap) string {

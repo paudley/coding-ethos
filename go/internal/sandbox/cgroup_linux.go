@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -20,8 +22,8 @@ const (
 )
 
 type Cgroup struct {
-	dir  *os.File
 	path string
+	fd   int
 }
 
 func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
@@ -43,7 +45,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, fmt.Errorf("create delegated cgroup directory: %w", err)
 	}
 
-	cgroup := &Cgroup{path: path}
+	cgroup := &Cgroup{fd: -1, path: path}
 
 	err = applyCgroupLimitFiles(path, evidence)
 	if err != nil {
@@ -53,7 +55,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, err
 	}
 
-	dir, err := os.Open(path)
+	descriptor, err := unix.Open(path, unix.O_DIRECTORY|unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		_ = cgroup.Close()
 		evidence.Reason = "delegated cgroup directory could not be opened"
@@ -61,7 +63,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, fmt.Errorf("open delegated cgroup directory: %w", err)
 	}
 
-	cgroup.dir = dir
+	cgroup.fd = descriptor
 	evidence.CgroupEnabled = true
 	evidence.CgroupPath = path
 
@@ -69,26 +71,19 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 }
 
 func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {
-	if cgroup == nil || cgroup.dir == nil {
-		return
-	}
-
 	if command.SysProcAttr == nil {
 		command.SysProcAttr = &syscall.SysProcAttr{}
 	}
-
-	command.SysProcAttr.UseCgroupFD = true
-	command.SysProcAttr.CgroupFD = cgroupFileDescriptor(cgroup.dir)
 }
 
 func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
-	if cgroup == nil || cgroup.dir == nil {
+	if cgroup == nil || cgroup.fd < 0 {
 		return nil
 	}
 
 	return &syscall.SysProcAttr{
 		UseCgroupFD: true,
-		CgroupFD:    cgroupFileDescriptor(cgroup.dir),
+		CgroupFD:    cgroup.fd,
 	}
 }
 
@@ -99,35 +94,44 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	}
 
 	attributes.Setpgid = true
+
 	if evidence.Enabled {
+		if evidence.RequiresProcesses || !evidence.NamespaceEnforced {
+			return attributes
+		}
+
 		attributes.Cloneflags |= (syscall.CLONE_NEWUSER |
 			syscall.CLONE_NEWNS |
 			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC |
-			syscall.CLONE_NEWPID)
+			syscall.CLONE_NEWIPC)
 
 		if !evidence.RequiresNetwork {
 			attributes.Cloneflags |= syscall.CLONE_NEWNET
 		}
-
-		attributes.UidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getuid(),
-			Size:        1,
-		}}
-		attributes.GidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
-			HostID:      os.Getgid(),
-			Size:        1,
-		}}
-		attributes.GidMappingsEnableSetgroups = false
 	}
 
 	return attributes
 }
 
-func nativeNamespaceSupported() bool {
-	return true
+func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
+	if cgroup == nil || cgroup.path == "" || process == nil {
+		return nil
+	}
+
+	if cgroup.fd >= 0 {
+		return nil
+	}
+
+	err := os.WriteFile(
+		filepath.Join(cgroup.path, "cgroup.procs"),
+		[]byte(strconv.Itoa(process.Pid)),
+		cgroupFileMode,
+	)
+	if err != nil {
+		return fmt.Errorf("assign process to delegated cgroup: %w", err)
+	}
+
+	return nil
 }
 
 func (cgroup *Cgroup) Close() error {
@@ -136,9 +140,9 @@ func (cgroup *Cgroup) Close() error {
 	}
 
 	var err error
-	if cgroup.dir != nil {
-		err = cgroup.dir.Close()
-		cgroup.dir = nil
+	if cgroup.fd >= 0 {
+		err = unix.Close(cgroup.fd)
+		cgroup.fd = -1
 	}
 
 	removeErr := os.RemoveAll(cgroup.path)
@@ -177,13 +181,4 @@ func applyCgroupLimitFiles(path string, evidence Evidence) error {
 	}
 
 	return nil
-}
-
-func cgroupFileDescriptor(file *os.File) int {
-	descriptor, err := strconv.Atoi(strconv.FormatUint(uint64(file.Fd()), 10))
-	if err != nil {
-		return -1
-	}
-
-	return descriptor
 }

@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -926,27 +927,23 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
 	wrapper := buildSandboxHelper(t)
 
-	err := validateSandboxRuntimeWithWrapperPath("required", wrapper)
+	err := validateSandboxRuntimeWithWrapperPath(wrapper)
 	if err != nil {
 		t.Fatalf("validateSandboxRuntime() error = %v", err)
 	}
 }
 
 func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "0")
 
-	err := validateSandboxRuntimeWithWrapperPath("required", "/bin/true")
+	err := validateSandboxRuntimeWithWrapperPath("/bin/true")
 	if err == nil {
+		evidence, runtimeErr := sandbox.ValidateNativeRuntime()
+		if runtimeErr == nil && evidence.Reason != "" && !evidence.NamespaceEnforced {
+			return
+		}
+
 		t.Fatal("validateSandboxRuntimeWithWrapperPath() error = nil")
-	}
-}
-
-func TestValidateSandboxRuntimeSkipsOffMode(t *testing.T) {
-	t.Parallel()
-
-	err := validateSandboxRuntime("off")
-	if err != nil {
-		t.Fatalf("validateSandboxRuntime(off) error = %v", err)
 	}
 }
 
@@ -1002,7 +999,7 @@ func TestRunCLIEmitsSandboxRuntimeUsage(t *testing.T) {
 
 	for _, want := range []string{
 		"validate-sandbox-runtime",
-		"--sandbox-mode required",
+		"validates Linux sandbox support",
 	} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)

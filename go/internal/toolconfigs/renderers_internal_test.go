@@ -145,41 +145,6 @@ func TestRenderAllIncludesEnabledCI(t *testing.T) {
 	}
 }
 
-func TestRenderAllRejectsInvalidSandboxMode(t *testing.T) {
-	t.Parallel()
-
-	config, err := loadYAMLMapFromString(minimalConfigWithCI())
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-
-	generatedConfig, generatedOK := config["generated_config"].(map[string]any)
-	if !generatedOK {
-		t.Fatalf("generated_config missing from %#v", config)
-	}
-
-	ciConfig, ciOK := generatedConfig["ci"].(map[string]any)
-	if !ciOK {
-		t.Fatalf("generated_config.ci missing from %#v", generatedConfig)
-	}
-
-	githubActions, githubOK := ciConfig["github_actions"].(map[string]any)
-	if !githubOK {
-		t.Fatalf("github_actions missing from %#v", ciConfig)
-	}
-
-	githubActions["sandbox_mode"] = "sometimes"
-
-	_, err = RenderAll(config)
-	if err == nil ||
-		!strings.Contains(
-			err.Error(),
-			"invalid configured choice: generated_config.ci.github_actions.sandbox_mode",
-		) {
-		t.Fatalf("RenderAll() error = %v", err)
-	}
-}
-
 func TestAccessAndFormatHelpers(t *testing.T) {
 	t.Parallel()
 

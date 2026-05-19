@@ -205,7 +205,7 @@ func usageLines() []string {
 		"    --input runtime-output.txt",
 		"  coding-ethos-toolchain sha256 --file path",
 		"  coding-ethos-toolchain validate-sandbox-runtime",
-		"    --sandbox-mode required",
+		"    # validates Linux sandbox support; no-op on other platforms",
 		"  coding-ethos-toolchain verify-git-hooks",
 		"    --hooks-dir .git/hooks --runner bin/coding-ethos-run",
 	}
