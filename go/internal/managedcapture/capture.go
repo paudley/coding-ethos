@@ -366,28 +366,16 @@ func startCapturedProcess(
 		return result
 	}
 
-	state, waitErr := waitCapturedProcess(ctx, process)
-
-	copyErr := <-copyDone
-
-	cleanupSandboxCacheEnv(cacheEnv)
-
-	exitCode := capturedProcessExitCode(state, waitErr)
-
-	debugCapturedProcessExit(
+	return waitForCapturedProcessResult(
+		ctx,
+		process,
 		startedAt,
 		argv,
 		request,
-		exitCode,
-		errors.Join(waitErr, copyErr),
+		copyDone,
+		cacheEnv,
+		&buffers,
 	)
-
-	return processResult{
-		stdout:   buffers.stdout.String(),
-		stderr:   buffers.stderr.String(),
-		err:      errors.Join(waitErr, copyErr),
-		exitCode: exitCode,
-	}
 }
 
 func failedProcessStartResult(

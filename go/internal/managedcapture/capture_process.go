@@ -118,6 +118,35 @@ func failedCapturedProcessStart(
 	return failedProcessStartResult(copyDone, cacheEnv, startErr)
 }
 
+func waitForCapturedProcessResult(
+	ctx context.Context,
+	process *os.Process,
+	startedAt time.Time,
+	argv []string,
+	request captureRequest,
+	copyDone <-chan error,
+	cacheEnv sandboxCacheEnvironment,
+	buffers *captureBuffers,
+) processResult {
+	state, waitErr := waitCapturedProcess(ctx, process)
+
+	copyErr := <-copyDone
+
+	cleanupSandboxCacheEnv(cacheEnv)
+
+	exitCode := capturedProcessExitCode(state, waitErr)
+	err := errors.Join(waitErr, copyErr)
+
+	debugCapturedProcessExit(startedAt, argv, request, exitCode, err)
+
+	return processResult{
+		stdout:   buffers.stdout.String(),
+		stderr:   buffers.stderr.String(),
+		err:      err,
+		exitCode: exitCode,
+	}
+}
+
 func startCapturedOSProcess(
 	request captureRequest,
 	plan sandbox.Plan,
