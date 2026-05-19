@@ -277,7 +277,20 @@ func runLoggedPayload(
 
 	logMakeProcess("make.process.enter", options.Command, runDir, options.Root, -1, 0)
 
+	startedAt := debuglog.ProcessEnter(
+		options.Command,
+		options.Root,
+		zap.String("run_dir", runDir),
+	)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		options.Command,
+		options.Root,
+		exitCode(err),
+		err,
+		zap.String("run_dir", runDir),
+	)
 	logMakeProcess(
 		"make.process.exit",
 		options.Command,
@@ -466,7 +479,22 @@ func runActionAndRestoreHookLogEnv(
 
 	logMakeProcess("make.process.enter", command, runDir, root, -1, os.Getpid())
 
+	startedAt := debuglog.ProcessEnter(
+		command,
+		root,
+		zap.String("run_dir", runDir),
+		zap.Bool("in_process", true),
+	)
 	status := action()
+	debuglog.ProcessExit(
+		startedAt,
+		command,
+		root,
+		status,
+		nil,
+		zap.String("run_dir", runDir),
+		zap.Bool("in_process", true),
+	)
 	logMakeProcess("make.process.exit", command, runDir, root, status, os.Getpid())
 
 	return status

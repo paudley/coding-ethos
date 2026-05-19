@@ -155,6 +155,42 @@ func TestWrapperAuthorizedCommitMsgKeepsOriginalPolicyFinding(t *testing.T) {
 	}
 }
 
+func TestWrapperAuthorizedPrepareCommitMsgBlocksHistoryRewrite(t *testing.T) {
+	verifier := authorizeGitHookForTest(t)
+	fixture := setupGitHookValidationFixture(t)
+
+	var got int
+	output := captureGitStderr(t, func() {
+		got = runWithArgsAndVerifier([]string{
+			"--bundle",
+			fixture.bundlePath,
+			"--runner",
+			fixture.runner,
+			"--cwd",
+			fixture.repo,
+			"prepare-commit-msg",
+			fixture.messagePath,
+			"commit",
+			"abc123",
+		}, verifier)
+	})
+
+	if got != blockedExitCode {
+		t.Fatalf("runWithArgs() = %d, want %d\n%s", got, blockedExitCode, output)
+	}
+
+	for _, want := range []string{
+		"git.history_rewrite_prevention",
+		"History rewrite commit flow reached prepare-commit-msg.",
+		"source=\"commit\"",
+		"commit=\"abc123\"",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("prepare-commit-msg output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestRunWithArgsBlocksHookWithoutWrapperAuthorization(t *testing.T) {
 	fixture := setupGitHookValidationFixture(t)
 
@@ -224,7 +260,6 @@ func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
 	for _, commandLine := range [][]string{
 		{"/repo/bin/coding-ethos-git", "commit"},
 		{"/repo/bin/coding-ethos-run", "policy-git", "commit"},
-		{"/repo/bin/coding-ethos-run", "git-hook", "pre-push"},
 	} {
 		if !trustedGitWrapperProcess(commandLine) {
 			t.Fatalf("trustedGitWrapperProcess(%#v) = false", commandLine)
@@ -235,6 +270,7 @@ func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
 		nil,
 		{"/usr/bin/git", "commit"},
 		{"/repo/bin/coding-ethos-run", "pre-commit"},
+		{"/repo/bin/coding-ethos-run", "git-hook", "pre-push"},
 	} {
 		if trustedGitWrapperProcess(commandLine) {
 			t.Fatalf("trustedGitWrapperProcess(%#v) = true", commandLine)
@@ -534,6 +570,21 @@ func gitHookValidationCases(
 			},
 			want: 0,
 		},
+		{
+			name: "prepare commit message allowed for normal source",
+			args: []string{
+				"--bundle",
+				fixture.bundlePath,
+				"--runner",
+				fixture.runner,
+				"--cwd",
+				fixture.repo,
+				"prepare-commit-msg",
+				fixture.messagePath,
+				"message",
+			},
+			want: 0,
+		},
 	}
 }
 
@@ -647,6 +698,7 @@ func newGitHookE2ERepo(t *testing.T) gitHookE2ERepo {
 
 	writeGitHookHelper(t, repo, "pre-commit", bundlePath)
 	writeGitHookHelper(t, repo, "commit-msg", bundlePath)
+	writeGitHookHelper(t, repo, "prepare-commit-msg", bundlePath)
 
 	return gitHookE2ERepo{root: repo}
 }

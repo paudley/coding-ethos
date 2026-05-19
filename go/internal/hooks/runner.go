@@ -67,6 +67,20 @@ func RunWithRegistry(
 		zap.String("tool", options.Event.ToolName),
 		zap.String("provider", options.Event.Provider()),
 		zap.String("cwd", options.Event.Cwd),
+		zap.Strings("tool_input_keys", sortedMapKeys(options.Event.ToolInput)),
+		zap.Strings("tool_response_keys", sortedMapKeys(options.Event.ToolResponse)),
+		zap.Int("file_count", len(options.Event.Files())),
+		zap.String("command_shape", commandShapeHash(options.Event.Command())),
+		zap.Int("command_bytes", len(options.Event.Command())),
+		zap.Int("command_token_estimate", debuglog.EstimateTokens(options.Event.Command())),
+		zap.Int("tool_input_token_estimate", estimatedMapTokens(options.Event.ToolInput)),
+		zap.Int(
+			"tool_response_token_estimate",
+			estimatedMapTokens(options.Event.ToolResponse),
+		),
+		zap.String("session_id", options.Event.SessionID),
+		zap.String("matcher", options.Event.Matcher),
+		zap.String("transcript_path", options.Event.TranscriptPath),
 	)
 
 	ctx := collectInspectionContext(options.Event, options.AdminApproved)
@@ -131,6 +145,30 @@ func routeToolUse(ctx InspectionContext) InspectionRoute {
 	debuglog.Debug("hook.route.none")
 
 	return InspectionRoute{}
+}
+
+func sortedMapKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+
+	slices.Sort(keys)
+
+	return keys
+}
+
+func estimatedMapTokens(values map[string]any) int {
+	if len(values) == 0 {
+		return 0
+	}
+
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return 0
+	}
+
+	return debuglog.EstimateTokens(string(payload))
 }
 
 func evaluateDispatchedPolicies(

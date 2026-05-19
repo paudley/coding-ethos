@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 )
 
@@ -84,7 +85,11 @@ func runtimeIgnoreHookFindings(findings []string) []hookFinding {
 
 func runtimePathIgnored(path string) bool {
 	cmd := evaluators.GitCommand(repoRoot(), "check-ignore", "--quiet", path)
+	argv := []string{"git", "check-ignore", "--quiet", path}
+
+	startedAt := debuglog.ProcessEnter(argv, repoRoot())
 	err := cmd.Run()
+	debuglog.ProcessExit(startedAt, argv, repoRoot(), commandExitCode(err), err)
 
 	return err == nil || gitignoreContainsPath(repoRoot(), path)
 }

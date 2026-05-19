@@ -16,6 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
@@ -67,7 +68,15 @@ func EvaluateExternalCommand(
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := debuglog.ProcessEnter(command, context.Cwd)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		command,
+		context.Cwd,
+		externalCommandExitCode(err),
+		err,
+	)
 	if err == nil {
 		return nil, nil
 	}
@@ -399,4 +408,17 @@ func externalRepoRelativePath(cwd, path string) string {
 	}
 
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func externalCommandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+
+	return 1
 }

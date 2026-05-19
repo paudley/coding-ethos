@@ -331,9 +331,17 @@ func startCapturedProcess(
 		return processResult{err: cacheEnvErr, exitCode: capturedCommandNotFoundCode}
 	}
 
+	argv := capturedProcessArgv(plan)
+	startedAt := debuglog.ProcessEnter(
+		argv,
+		request.Cwd,
+		zap.String("tool", request.Tool),
+		zap.Bool("sandboxed", true),
+		zap.String("sandbox_backend", evidence.Backend),
+	)
 	process, startErr := os.StartProcess(
 		plan.Executable,
-		capturedProcessArgv(plan),
+		argv,
 		&os.ProcAttr{
 			Dir:   request.Cwd,
 			Env:   capturedProcessEnv(os.Environ(), cacheEnv),
@@ -349,11 +357,31 @@ func startCapturedProcess(
 
 	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
 	if startErr != nil {
+		debuglog.ProcessExit(
+			startedAt,
+			argv,
+			request.Cwd,
+			capturedExitCode(startErr),
+			startErr,
+			zap.String("tool", request.Tool),
+			zap.Bool("sandboxed", true),
+		)
+
 		return failedProcessStartResult(copyDone, cacheEnv, startErr)
 	}
 
 	assignErr := cgroup.AssignProcess(process)
 	if assignErr != nil {
+		debuglog.ProcessExit(
+			startedAt,
+			argv,
+			request.Cwd,
+			capturedExitCode(assignErr),
+			assignErr,
+			zap.String("tool", request.Tool),
+			zap.Bool("sandboxed", true),
+		)
+
 		return failedCgroupAssignmentResult(
 			ctx,
 			process,
@@ -370,11 +398,23 @@ func startCapturedProcess(
 
 	cleanupSandboxCacheEnv(cacheEnv)
 
+	exitCode := capturedProcessExitCode(state, waitErr)
+
+	debuglog.ProcessExit(
+		startedAt,
+		argv,
+		request.Cwd,
+		exitCode,
+		errors.Join(waitErr, copyErr),
+		zap.String("tool", request.Tool),
+		zap.Bool("sandboxed", true),
+	)
+
 	return processResult{
 		stdout:   buffers.stdout.String(),
 		stderr:   buffers.stderr.String(),
 		err:      errors.Join(waitErr, copyErr),
-		exitCode: capturedProcessExitCode(state, waitErr),
+		exitCode: exitCode,
 	}
 }
 

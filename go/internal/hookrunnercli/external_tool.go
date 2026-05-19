@@ -18,6 +18,7 @@ import (
 	execabs "golang.org/x/sys/execabs"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 )
 
 var (
@@ -80,7 +81,15 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	startedAt := debuglog.ProcessEnter(request.Command, request.Dir)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		request.Command,
+		request.Dir,
+		commandExitCode(err),
+		err,
+	)
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 
@@ -217,4 +226,17 @@ func gitHookLocalEnvNames() []string {
 		"GIT_QUARANTINE_PATH",
 		"GIT_WORK_TREE",
 	}
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+
+	return 1
 }

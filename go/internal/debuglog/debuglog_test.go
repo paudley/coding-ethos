@@ -91,6 +91,58 @@ func TestEnabledFromEnvRequiresExplicitValue(t *testing.T) {
 	}
 }
 
+func TestProcessEnterExitLogTimingAndTokenEstimate(t *testing.T) {
+	t.Cleanup(Reset)
+
+	runDir := t.TempDir()
+	var stderr bytes.Buffer
+
+	err := Configure(true, runDir, &stderr)
+	if err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	argv := []string{"make", "check"}
+	startedAt := ProcessEnter(argv, "/repo")
+	ProcessExit(startedAt, argv, "/repo", 7, os.ErrNotExist)
+
+	err = Sync()
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	payload := stderr.String()
+	for _, want := range []string{
+		`"event":"process.exec.enter"`,
+		`"event":"process.exec.exit"`,
+		`"argv":["make","check"]`,
+		`"cwd":"/repo"`,
+		`"exit_code":7`,
+		`"argv_token_estimate":3`,
+	} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("process debug payload missing %q:\n%s", want, payload)
+		}
+	}
+}
+
+func TestEstimateTokensRoundsUpByFourRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]int{
+		"":      0,
+		"abc":   1,
+		"abcd":  1,
+		"abcde": 2,
+	}
+
+	for input, want := range tests {
+		if got := EstimateTokens(input); got != want {
+			t.Fatalf("EstimateTokens(%q) = %d, want %d", input, got, want)
+		}
+	}
+}
+
 func readDebugLog(t *testing.T, runDir string) string {
 	t.Helper()
 

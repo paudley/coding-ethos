@@ -25,6 +25,9 @@ const (
 	wrappedToolArgs    = 2
 	wrapperRunnerName  = "coding-ethos-run"
 	wrapperRunnerPath  = "bin/coding-ethos-run"
+	agentToolClaude    = "claude"
+	agentToolCodex     = "codex"
+	agentToolGemini    = "gemini"
 )
 
 const (
@@ -65,7 +68,11 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if !routeOK || commandReferencesUnmanagedGit(command) || evasiveGitShell(command) {
+	if !routeOK ||
+		commandDelegatesGitWorkToAgent(command) ||
+		commandHasDynamicExecutable(command) ||
+		commandReferencesUnmanagedGit(command) ||
+		evasiveGitShell(command) {
 		return InspectionRoute{
 			Reason: sentence(
 				gitWrapperCircumventionRefusal,
@@ -76,6 +83,69 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func commandDelegatesGitWorkToAgent(command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+
+	return slices.ContainsFunc(commands, shellCommandDelegatesGitWorkToAgent)
+}
+
+func shellCommandDelegatesGitWorkToAgent(parsed shellparse.Command) bool {
+	if !shellCommandIsAgentCLI(parsed) {
+		return false
+	}
+
+	return textRequestsGitWork(strings.Join(parsed.Argv[1:], " "))
+}
+
+func shellCommandIsAgentCLI(parsed shellparse.Command) bool {
+	switch shellCommandName(parsed) {
+	case agentToolClaude, agentToolCodex, agentToolGemini:
+		return true
+	default:
+		return false
+	}
+}
+
+func textRequestsGitWork(text string) bool {
+	normalized := strings.ToLower(text)
+
+	if strings.Contains(normalized, "commit") ||
+		strings.Contains(normalized, "push") ||
+		strings.Contains(normalized, "amend") ||
+		strings.Contains(normalized, "merge") ||
+		strings.Contains(normalized, "rebase") ||
+		strings.Contains(normalized, "checkout") ||
+		strings.Contains(normalized, "reset") {
+		return true
+	}
+
+	return strings.Contains(normalized, "git")
+}
+
+func commandHasDynamicExecutable(command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return true
+	}
+
+	return slices.ContainsFunc(commands, shellCommandHasDynamicExecutable)
+}
+
+func shellCommandHasDynamicExecutable(parsed shellparse.Command) bool {
+	if !parsed.HasDynamicExpansion || len(parsed.Argv) == 0 {
+		return false
+	}
+
+	return shellWordHasExpansion(parsed.Argv[0])
+}
+
+func shellWordHasExpansion(word string) bool {
+	return strings.Contains(word, "$")
 }
 
 func updatedBashInput(original map[string]any, command string) map[string]any {

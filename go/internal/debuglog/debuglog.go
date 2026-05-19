@@ -10,22 +10,26 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
 const (
-	Flag       = "--coding-ethos-debug"
-	EnvName    = "CODE_ETHOS_HOOK_DEBUG"
-	RunDirEnv  = "CODE_ETHOS_HOOK_RUN_DIR"
-	debugLog   = "debug.log"
-	debugValue = "1"
-	fileMode   = 0o600
-	timeKey    = "ts"
-	messageKey = "event"
-	levelKey   = "level"
-	callerKey  = "caller"
+	Flag                  = "--coding-ethos-debug"
+	EnvName               = "CODE_ETHOS_HOOK_DEBUG"
+	RunDirEnv             = "CODE_ETHOS_HOOK_RUN_DIR"
+	debugLog              = "debug.log"
+	debugValue            = "1"
+	fileMode              = 0o600
+	timeKey               = "ts"
+	messageKey            = "event"
+	levelKey              = "level"
+	callerKey             = "caller"
+	tokenBytes            = 4
+	baseProcessFieldCount = 5
 )
 
 //nolint:gochecknoglobals // hook debug logging is process-scoped state.
@@ -114,6 +118,41 @@ func Debug(event string, fields ...zap.Field) {
 	current.Debug(event, fields...)
 }
 
+func ProcessEnter(argv []string, cwd string, fields ...zap.Field) time.Time {
+	startedAt := time.Now()
+
+	Debug("process.exec.enter", processFields(argv, cwd, startedAt, fields...)...)
+
+	return startedAt
+}
+
+func ProcessExit(
+	startedAt time.Time,
+	argv []string,
+	cwd string,
+	exitCode int,
+	err error,
+	fields ...zap.Field,
+) {
+	processFields := append(
+		processFields(argv, cwd, startedAt, fields...),
+		zap.Int("exit_code", exitCode),
+		zap.Duration("elapsed", time.Since(startedAt)),
+		zap.Error(err),
+	)
+
+	Debug("process.exec.exit", processFields...)
+}
+
+func EstimateTokens(text string) int {
+	runes := utf8.RuneCountInString(text)
+	if runes == 0 {
+		return 0
+	}
+
+	return (runes + tokenBytes - 1) / tokenBytes
+}
+
 func Sync() error {
 	loggerMu.Lock()
 	current := logger
@@ -132,4 +171,47 @@ func resetLocked() {
 		_ = closer.Close()
 		closer = nil
 	}
+}
+
+func processFields(
+	argv []string,
+	cwd string,
+	startedAt time.Time,
+	fields ...zap.Field,
+) []zap.Field {
+	processFields := make([]zap.Field, 0, baseProcessFieldCount+len(fields))
+	processFields = append(
+		processFields,
+		zap.Time("started_at", startedAt.UTC()),
+		zap.String("cwd", cwd),
+		zap.Strings("argv", argv),
+		zap.Int("argc", len(argv)),
+		zap.Int("argv_token_estimate", EstimateTokens(stringsJoin(argv, " "))),
+	)
+
+	return append(processFields, fields...)
+}
+
+func stringsJoin(values []string, separator string) string {
+	if len(values) == 0 {
+		return ""
+	}
+
+	size := 0
+	for _, value := range values {
+		size += len(value)
+	}
+
+	size += len(separator) * (len(values) - 1)
+	buffer := make([]byte, 0, size)
+
+	for index, value := range values {
+		if index > 0 {
+			buffer = append(buffer, separator...)
+		}
+
+		buffer = append(buffer, value...)
+	}
+
+	return string(buffer)
 }

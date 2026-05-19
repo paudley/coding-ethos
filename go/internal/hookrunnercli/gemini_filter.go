@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -155,12 +156,14 @@ func parseGeminiChangedLines(diffOutput string) map[int]struct{} {
 }
 
 func changedLinesForGeminiFile(path, scope string) map[int]struct{} {
-	var cmd *exec.Cmd
+	var (
+		cmd  *exec.Cmd
+		argv []string
+	)
 
 	switch scope {
 	case "branch":
-		cmd = safeexec.CommandContext(
-			context.Background(),
+		argv = []string{
 			"git",
 			"diff",
 			"--no-ext-diff",
@@ -168,20 +171,31 @@ func changedLinesForGeminiFile(path, scope string) map[int]struct{} {
 			"origin/main...HEAD",
 			"--",
 			path,
-		)
-	default:
+		}
 		cmd = safeexec.CommandContext(
 			context.Background(),
+			argv[0],
+			argv[1:]...,
+		)
+	default:
+		argv = []string{
 			"git",
 			"diff",
 			"--no-ext-diff",
 			"-U0",
 			"--staged",
 			path,
+		}
+		cmd = safeexec.CommandContext(
+			context.Background(),
+			argv[0],
+			argv[1:]...,
 		)
 	}
 
+	startedAt := debuglog.ProcessEnter(argv, "")
 	output, err := cmd.Output()
+	debuglog.ProcessExit(startedAt, argv, "", commandExitCode(err), err)
 	if err != nil {
 		return map[int]struct{}{}
 	}
@@ -203,13 +217,14 @@ func collectGeminiChangedLines(
 }
 
 func isGeminiAddedOrUntracked(ctx context.Context, path string) bool {
+	argv := []string{"git", "status", "--porcelain", path}
+	startedAt := debuglog.ProcessEnter(argv, "")
 	output, err := safeexec.CommandContext(
 		ctx,
-		"git",
-		"status",
-		"--porcelain",
-		path,
+		argv[0],
+		argv[1:]...,
 	).Output()
+	debuglog.ProcessExit(startedAt, argv, "", commandExitCode(err), err)
 	if err != nil {
 		return false
 	}

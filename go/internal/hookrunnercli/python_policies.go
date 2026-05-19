@@ -19,6 +19,7 @@ import (
 	tspython "github.com/tree-sitter/tree-sitter-python/bindings/go"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -915,7 +916,16 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	startedAt := debuglog.ProcessEnter(settings.TestCommand, settings.ConsumerRoot)
 	err := cmd.Run()
+	debuglog.ProcessExit(
+		startedAt,
+		settings.TestCommand,
+		settings.ConsumerRoot,
+		commandExitCode(err),
+		err,
+	)
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
 

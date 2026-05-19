@@ -17,6 +17,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -1674,6 +1675,49 @@ func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
 	} {
 		if !strings.Contains(strings.Join(calls, "\n"), want) {
 			t.Fatalf("cutover calls missing %q: %#v", want, calls)
+		}
+	}
+}
+
+//nolint:paralleltest // Serializes process-global wrapper authorization env.
+func TestRunGitHookDoesNotSelfAuthorizeNativeGitHooks(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		gitwrap.WrapperAuthorizedEnv,
+		gitwrap.WrapperPIDEnv,
+	)
+	t.Cleanup(restoreEnv)
+
+	t.Setenv(gitwrap.WrapperAuthorizedEnv, "")
+	t.Setenv(gitwrap.WrapperPIDEnv, "")
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := runGitHook(paths, []string{"pre-commit"})
+	if err != nil {
+		t.Fatalf("runGitHook pre-commit: %v", err)
+	}
+
+	if got := os.Getenv(gitwrap.WrapperAuthorizedEnv); got != "" {
+		t.Fatalf("%s = %q, want unset", gitwrap.WrapperAuthorizedEnv, got)
+	}
+
+	if got := os.Getenv(gitwrap.WrapperPIDEnv); got != "" {
+		t.Fatalf("%s = %q, want unset", gitwrap.WrapperPIDEnv, got)
+	}
+
+	for _, want := range []string{
+		"run-lint:--install-shims --tools-bin-dir " + paths.BinDir +
+			" --runner " + paths.RunBinary + " --ethos-root " + paths.EthosRoot,
+		"direct-exec:coding-ethos-git-hook --bundle " + hookPolicyBundlePath(paths) +
+			" --runner " + paths.GitHookRunner + " --cwd " + paths.Root + " pre-commit",
+	} {
+		if !slices.Contains(calls, want) {
+			t.Fatalf("git hook calls missing %q: %#v", want, calls)
 		}
 	}
 }
