@@ -217,6 +217,24 @@ func TestPrepareWritablePathsCreatesMissingFilePathAsFile(t *testing.T) {
 	}
 }
 
+func TestPrepareWritablePathsRejectsFileAsDirectoryComponent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	component := filepath.Join(root, "pkg")
+	if err := os.WriteFile(component, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("create file component fixture: %v", err)
+	}
+
+	_, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{"pkg/new.py"},
+	})
+	if !errors.Is(err, errWritePathNotAllowed) {
+		t.Fatalf("prepareWritablePaths() error = %v, want path rejection", err)
+	}
+}
+
 func TestPrepareWritablePathsCreatesDotCachePathAsDirectory(t *testing.T) {
 	t.Parallel()
 

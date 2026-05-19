@@ -114,6 +114,10 @@ func writablePathInfo(
 	create bool,
 ) (os.FileInfo, error) {
 	info, statErr := os.Stat(path)
+	if errors.Is(statErr, unix.ENOTDIR) {
+		return nil, fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
+	}
+
 	if statErr != nil && (!create || !errors.Is(statErr, os.ErrNotExist)) {
 		return nil, fmt.Errorf("stat sandbox writable path %s: %w", path, statErr)
 	}
@@ -233,7 +237,7 @@ func mkdirOneNoSymlink(path string) error {
 		return fmt.Errorf("%w: %s", errSymlinkWritePath, path)
 	}
 
-	if !info.IsDir() && !info.Mode().IsRegular() && path != os.DevNull {
+	if !info.IsDir() {
 		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
@@ -258,6 +262,10 @@ func rejectSymlinkPath(repoRoot, path string) error {
 		info, statErr := os.Lstat(current)
 		if os.IsNotExist(statErr) {
 			return nil
+		}
+
+		if errors.Is(statErr, unix.ENOTDIR) {
+			return fmt.Errorf("%w: %s", errWritePathNotAllowed, current)
 		}
 
 		if statErr != nil {

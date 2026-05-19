@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -20,8 +22,8 @@ const (
 )
 
 type Cgroup struct {
-	dir  *os.File
 	path string
+	fd   int
 }
 
 func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
@@ -43,7 +45,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, fmt.Errorf("create delegated cgroup directory: %w", err)
 	}
 
-	cgroup := &Cgroup{path: path}
+	cgroup := &Cgroup{fd: -1, path: path}
 
 	err = applyCgroupLimitFiles(path, evidence)
 	if err != nil {
@@ -53,7 +55,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, err
 	}
 
-	dir, err := os.Open(path)
+	descriptor, err := unix.Open(path, unix.O_DIRECTORY|unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		_ = cgroup.Close()
 		evidence.Reason = "delegated cgroup directory could not be opened"
@@ -61,7 +63,7 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 		return nil, evidence, fmt.Errorf("open delegated cgroup directory: %w", err)
 	}
 
-	cgroup.dir = dir
+	cgroup.fd = descriptor
 	evidence.CgroupEnabled = true
 	evidence.CgroupPath = path
 
@@ -75,7 +77,14 @@ func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {
 }
 
 func (cgroup *Cgroup) SysProcAttr() *syscall.SysProcAttr {
-	return nil
+	if cgroup == nil || cgroup.fd < 0 {
+		return nil
+	}
+
+	return &syscall.SysProcAttr{
+		UseCgroupFD: true,
+		CgroupFD:    cgroup.fd,
+	}
 }
 
 func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
@@ -109,6 +118,10 @@ func (cgroup *Cgroup) AssignProcess(process *os.Process) error {
 		return nil
 	}
 
+	if cgroup.fd >= 0 {
+		return nil
+	}
+
 	err := os.WriteFile(
 		filepath.Join(cgroup.path, "cgroup.procs"),
 		[]byte(strconv.Itoa(process.Pid)),
@@ -127,9 +140,9 @@ func (cgroup *Cgroup) Close() error {
 	}
 
 	var err error
-	if cgroup.dir != nil {
-		err = cgroup.dir.Close()
-		cgroup.dir = nil
+	if cgroup.fd >= 0 {
+		err = unix.Close(cgroup.fd)
+		cgroup.fd = -1
 	}
 
 	removeErr := os.RemoveAll(cgroup.path)
