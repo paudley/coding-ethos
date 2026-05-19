@@ -13,7 +13,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -30,6 +29,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -1895,16 +1895,7 @@ func capturedOutcome(
 }
 
 func capturedExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return capturedCommandNotFoundCode
+	return processstatus.ExitCode(err, capturedCommandNotFoundCode)
 }
 
 func capturedStatus(exitCode int) string {

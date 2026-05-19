@@ -22,6 +22,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/mcpcli"
 	"blackcat.ca/coding-ethos/go/internal/policycli"
 	"blackcat.ca/coding-ethos/go/internal/policygitcli"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
@@ -330,9 +331,5 @@ func (defaultRuntimeExecutor) execExternal(path string, args ...string) {
 }
 
 func runtimeCommandExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }

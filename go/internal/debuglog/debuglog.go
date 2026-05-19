@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -186,32 +187,8 @@ func processFields(
 		zap.String("cwd", cwd),
 		zap.Strings("argv", argv),
 		zap.Int("argc", len(argv)),
-		zap.Int("argv_token_estimate", EstimateTokens(stringsJoin(argv, " "))),
+		zap.Int("argv_token_estimate", EstimateTokens(strings.Join(argv, " "))),
 	)
 
 	return append(processFields, fields...)
-}
-
-func stringsJoin(values []string, separator string) string {
-	if len(values) == 0 {
-		return ""
-	}
-
-	size := 0
-	for _, value := range values {
-		size += len(value)
-	}
-
-	size += len(separator) * (len(values) - 1)
-	buffer := make([]byte, 0, size)
-
-	for index, value := range values {
-		if index > 0 {
-			buffer = append(buffer, separator...)
-		}
-
-		buffer = append(buffer, value...)
-	}
-
-	return string(buffer)
 }

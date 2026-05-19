@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -356,16 +356,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 }
 
 func sandboxProbeExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }
 
 func nativeProbeArgs() []string {

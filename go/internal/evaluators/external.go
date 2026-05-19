@@ -6,7 +6,6 @@ package evaluators
 import (
 	"bytes"
 	stdlibcontext "context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -108,12 +108,7 @@ func EvaluateExternalCommand(
 }
 
 func externalExitCode(err error) int {
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		return exitError.ExitCode()
-	}
-
-	return -1
+	return processstatus.ExitCode(err, -1)
 }
 
 func EvaluateGeneratedConfigFreshness(
@@ -412,14 +407,5 @@ func externalRepoRelativePath(cwd, path string) string {
 }
 
 func externalCommandExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }

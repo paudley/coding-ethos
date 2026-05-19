@@ -92,3 +92,33 @@ func TestRouteWithDebugEnvCreatesRewriteWhenNoRouteMatched(t *testing.T) {
 		t.Fatalf("updated command = %#v", route.UpdatedInput["command"])
 	}
 }
+
+func TestCommandRequestsDebugRequiresExactToken(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"ruff check pkg --coding-ethos-debugger",
+		"echo CODE_ETHOS_HOOK_DEBUG=1",
+	} {
+		if commandRequestsDebug(command) {
+			t.Fatalf("command should not request debug: %q", command)
+		}
+	}
+
+	for _, command := range []string{
+		"ruff check pkg --coding-ethos-debug",
+		"CODE_ETHOS_HOOK_DEBUG=1 ruff check pkg",
+	} {
+		if !commandRequestsDebug(command) {
+			t.Fatalf("command should request debug: %q", command)
+		}
+	}
+}
+
+func TestShellCommandIncludesMakeThroughEnvWrapper(t *testing.T) {
+	t.Parallel()
+
+	if !shellCommandIncludesMake("env FOO=1 make check") {
+		t.Fatal("env-wrapped make command was not detected")
+	}
+}

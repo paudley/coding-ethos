@@ -5,11 +5,9 @@ package hooklog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
@@ -894,14 +893,5 @@ func (err commandError) ExitCode() int {
 }
 
 func exitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }

@@ -41,8 +41,19 @@ func activateDebugForEvent(event Event) {
 }
 
 func commandRequestsDebug(command string) bool {
-	return strings.Contains(command, debuglog.Flag) ||
-		strings.Contains(command, debugEnvAssignment)
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(commands, shellCommandRequestsDebug)
+}
+
+func shellCommandRequestsDebug(command shellparse.Command) bool {
+	return slices.Contains(command.Argv, debuglog.Flag) ||
+		slices.Contains(command.Assignments, debugEnvAssignment) ||
+		(filepath.Base(command.Name) == "export" &&
+			slices.Contains(command.Argv, debugEnvAssignment))
 }
 
 func eventWithoutDebugFlag(event Event) (Event, bool) {
@@ -51,7 +62,7 @@ func eventWithoutDebugFlag(event Event) (Event, bool) {
 	}
 
 	command := strings.TrimSpace(event.Command())
-	if command == "" || !strings.Contains(command, debuglog.Flag) {
+	if command == "" || !commandRequestsDebug(command) {
 		return event, false
 	}
 
@@ -139,8 +150,13 @@ func shellCommandIncludesMake(command string) bool {
 	}
 
 	return slices.ContainsFunc(commands, func(parsed shellparse.Command) bool {
-		return filepath.Base(parsed.Name) == "make"
+		return shellCommandTokenIncludesMake(parsed.Name) ||
+			slices.ContainsFunc(parsed.Argv, shellCommandTokenIncludesMake)
 	})
+}
+
+func shellCommandTokenIncludesMake(token string) bool {
+	return filepath.Base(token) == "make"
 }
 
 func eventExitCode(event Event) int {
@@ -163,7 +179,7 @@ func eventExitCode(event Event) int {
 func stripDebugFlagFromShellCommand(command string) (string, bool) {
 	tokens, err := shellparse.ControlFields(command)
 	if err != nil {
-		return strings.ReplaceAll(command, debuglog.Flag, ""), true
+		return command, false
 	}
 
 	stripped := make([]string, 0, len(tokens))
@@ -192,7 +208,7 @@ func rewriteCommandWithDebugEnv(command string) string {
 		return "export " + debugEnvAssignment
 	}
 
-	if strings.Contains(command, debugEnvAssignment) {
+	if commandRequestsDebug(command) {
 		return command
 	}
 

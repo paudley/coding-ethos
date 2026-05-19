@@ -174,6 +174,9 @@ func managedGitCommitRepoConfig() string {
 		"hooks:",
 		"  enabled_groups:",
 		"    - python-policy",
+		"git:",
+		"  signed_operations:",
+		"    enabled: false",
 		"python:",
 		"  optional_returns:",
 		"    enabled: false",
@@ -418,11 +421,7 @@ func assertNoCommitHeadPolicyLeak(t *testing.T, result e2e.CommandResult) {
 func managedGit(t *testing.T, repo e2e.Repo, args ...string) e2e.CommandResult {
 	t.Helper()
 
-	managedPath := managedGitBinDir(t, repo) +
-		string(os.PathListSeparator) +
-		filepath.Join(repo.EthosRoot, "bin") +
-		string(os.PathListSeparator) +
-		os.Getenv("PATH")
+	shim := filepath.Join(managedGitBinDir(t, repo), "git")
 
 	return e2e.RunWithEnv(
 		t,
@@ -431,10 +430,12 @@ func managedGit(t *testing.T, repo e2e.Repo, args ...string) e2e.CommandResult {
 			"CODE_ETHOS_PRECOMMIT_CONFIG": filepath.Join(repo.Root, "repo_config.yaml"),
 			"CODE_ETHOS_CONSUMER_ROOT":    repo.Root,
 			"CODE_ETHOS_PRECOMMIT_ROOT":   filepath.Join(repo.EthosRoot, "pre-commit"),
-			"PATH":                        managedPath,
+			"PATH": filepath.Join(repo.EthosRoot, "bin") +
+				string(os.PathListSeparator) +
+				os.Getenv("PATH"),
 		},
 		append([]string{
-			"git",
+			shim,
 		}, args...)...)
 }
 

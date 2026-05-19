@@ -19,6 +19,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/processstatus"
 )
 
 var (
@@ -255,14 +256,5 @@ func gitHookLocalEnvNames() []string {
 }
 
 func commandExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-
-	return 1
+	return processstatus.ExitCode(err, 1)
 }
