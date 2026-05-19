@@ -307,26 +307,15 @@ func startCapturedProcess(
 	cgroup *sandbox.Cgroup,
 	evidence sandbox.Evidence,
 ) processResult {
-	stdoutReader, stdoutWriter, stdoutErr := os.Pipe()
-	if stdoutErr != nil {
-		return processResult{err: stdoutErr, exitCode: capturedCommandNotFoundCode}
+	processIO, failedResult, ok := openCapturedProcessIO(plan)
+	if !ok {
+		return failedResult
 	}
-	defer stdoutReader.Close()
-
-	stderrReader, stderrWriter, stderrErr := os.Pipe()
-	if stderrErr != nil {
-		_ = stdoutWriter.Close()
-
-		return processResult{err: stderrErr, exitCode: capturedCommandNotFoundCode}
-	}
-	defer stderrReader.Close()
-
-	files := capturedProcessFiles(stdoutWriter, stderrWriter, plan.ExtraFiles)
+	defer processIO.closeReaders()
 
 	cacheEnv, cacheEnvErr := sandboxCacheEnv(request)
 	if cacheEnvErr != nil {
-		_ = stdoutWriter.Close()
-		_ = stderrWriter.Close()
+		processIO.closeWriters()
 
 		return processResult{err: cacheEnvErr, exitCode: capturedCommandNotFoundCode}
 	}
@@ -335,19 +324,22 @@ func startCapturedProcess(
 	process, startedAt, startErr := startCapturedOSProcess(
 		request,
 		plan,
-		files,
+		processIO.files,
 		argv,
 		cacheEnv,
 		cgroup,
 		evidence,
 	)
 
-	_ = stdoutWriter.Close()
-	_ = stderrWriter.Close()
+	processIO.closeWriters()
 
 	var buffers captureBuffers
 
-	copyDone := copyProcessOutput(&buffers, stdoutReader, stderrReader)
+	copyDone := copyProcessOutput(
+		&buffers,
+		processIO.stdoutReader,
+		processIO.stderrReader,
+	)
 
 	if startErr != nil {
 		debugCapturedProcessExit(

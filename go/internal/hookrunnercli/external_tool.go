@@ -91,13 +91,33 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 
+	return completedExternalToolResult(
+		request,
+		start,
+		timeout,
+		ctx.Err(),
+		err,
+		stdoutText,
+		stderrText,
+	)
+}
+
+func completedExternalToolResult(
+	request externalToolRequest,
+	start time.Time,
+	timeout int,
+	ctxErr error,
+	err error,
+	stdoutText string,
+	stderrText string,
+) externalToolResult {
 	result := externalToolResult{
 		Stdout:     stdoutText,
 		Stderr:     stderrText,
 		Combined:   externalToolCombinedOutput(stdoutText, stderrText),
 		ExitCode:   0,
 		DurationMS: float64(time.Since(start).Milliseconds()),
-		TimedOut:   errors.Is(ctx.Err(), context.DeadlineExceeded),
+		TimedOut:   errors.Is(ctxErr, context.DeadlineExceeded),
 	}
 	if result.TimedOut {
 		result.ExitCode = 1

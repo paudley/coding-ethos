@@ -4,6 +4,7 @@
 package managedcapture
 
 import (
+	"errors"
 	"os"
 	"time"
 
@@ -12,6 +13,56 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
+
+type capturedProcessIO struct {
+	stdoutReader *os.File
+	stdoutWriter *os.File
+	stderrReader *os.File
+	stderrWriter *os.File
+	files        []*os.File
+}
+
+func openCapturedProcessIO(plan sandbox.Plan) (capturedProcessIO, processResult, bool) {
+	stdoutReader, stdoutWriter, stdoutErr := os.Pipe()
+	if stdoutErr != nil {
+		return capturedProcessIO{}, processResult{
+			err:      stdoutErr,
+			exitCode: capturedCommandNotFoundCode,
+		}, false
+	}
+
+	stderrReader, stderrWriter, stderrErr := os.Pipe()
+	if stderrErr != nil {
+		closeErr := errors.Join(stdoutReader.Close(), stdoutWriter.Close())
+
+		return capturedProcessIO{}, processResult{
+			err:      errors.Join(stderrErr, closeErr),
+			exitCode: capturedCommandNotFoundCode,
+		}, false
+	}
+
+	return capturedProcessIO{
+		stdoutReader: stdoutReader,
+		stdoutWriter: stdoutWriter,
+		stderrReader: stderrReader,
+		stderrWriter: stderrWriter,
+		files: capturedProcessFiles(
+			stdoutWriter,
+			stderrWriter,
+			plan.ExtraFiles,
+		),
+	}, processResult{}, true
+}
+
+func (processIO capturedProcessIO) closeReaders() {
+	_ = processIO.stdoutReader.Close()
+	_ = processIO.stderrReader.Close()
+}
+
+func (processIO capturedProcessIO) closeWriters() {
+	_ = processIO.stdoutWriter.Close()
+	_ = processIO.stderrWriter.Close()
+}
 
 func startCapturedOSProcess(
 	request captureRequest,
