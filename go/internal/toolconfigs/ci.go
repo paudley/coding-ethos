@@ -7,6 +7,24 @@ import "fmt"
 
 const defaultCITimeoutMinutes = 30
 
+const githubSandboxAppArmorStep = "" +
+	"      - name: Install coding-ethos sandbox AppArmor profile\n" +
+	"        run: |\n" +
+	"          set -euo pipefail\n" +
+	"          profile=/etc/apparmor.d/coding-ethos-sandbox\n" +
+	"          sandbox_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox\"\n" +
+	"          sudo tee \"$profile\" >/dev/null <<EOF\n" +
+	"          abi <abi/4.0>,\n" +
+	"          include <tunables/global>\n" +
+	"\n" +
+	"          profile coding-ethos-sandbox \"$sandbox_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            mount,\n" +
+	"          }\n" +
+	"          EOF\n" +
+	"          sudo apparmor_parser -r \"$profile\"\n" +
+	"\n"
+
 const githubCgroupDelegationStep = "" +
 	"      - name: Delegate Linux cgroup v2 controllers\n" +
 	"        run: |\n" +
@@ -90,7 +108,7 @@ jobs:
         with:
           enable-cache: true
 
-%s
+%s%s
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -161,6 +179,7 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		settings.GateCommand,
 		settings.SARIFPath,
 		settings.SARIFCategory,
+		githubSandboxAppArmorStep,
 		githubCgroupDelegationStep,
 		settings.ArtifactName,
 	), nil

@@ -48,6 +48,22 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install coding-ethos sandbox AppArmor profile
+        run: |
+          set -euo pipefail
+          profile=/etc/apparmor.d/coding-ethos-sandbox
+          sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
+          sudo tee "$profile" >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile coding-ethos-sandbox "$sandbox_path" flags=(unconfined) {
+            userns,
+            mount,
+          }
+          EOF
+          sudo apparmor_parser -r "$profile"
+
       - name: Delegate Linux cgroup v2 controllers
         run: |
           set -euo pipefail
@@ -122,6 +138,22 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install coding-ethos sandbox AppArmor profile
+        run: |
+          set -euo pipefail
+          profile=/etc/apparmor.d/coding-ethos-sandbox
+          sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
+          sudo tee "$profile" >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile coding-ethos-sandbox "$sandbox_path" flags=(unconfined) {
+            userns,
+            mount,
+          }
+          EOF
+          sudo apparmor_parser -r "$profile"
+
       - name: Delegate Linux cgroup v2 controllers
         run: |
           set -euo pipefail
@@ -191,6 +223,22 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
+
+      - name: Install coding-ethos sandbox AppArmor profile
+        run: |
+          set -euo pipefail
+          profile=/etc/apparmor.d/coding-ethos-sandbox
+          sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
+          sudo tee "$profile" >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile coding-ethos-sandbox "$sandbox_path" flags=(unconfined) {
+            userns,
+            mount,
+          }
+          EOF
+          sudo apparmor_parser -r "$profile"
 
       - name: Delegate Linux cgroup v2 controllers
         run: |
@@ -316,6 +364,22 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
+
+      - name: Install coding-ethos sandbox AppArmor profile
+        run: |
+          set -euo pipefail
+          profile=/etc/apparmor.d/coding-ethos-sandbox
+          sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
+          sudo tee "$profile" >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile coding-ethos-sandbox "$sandbox_path" flags=(unconfined) {
+            userns,
+            mount,
+          }
+          EOF
+          sudo apparmor_parser -r "$profile"
 
       - name: Delegate Linux cgroup v2 controllers
         run: |
