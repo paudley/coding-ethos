@@ -944,7 +944,7 @@ func runManagedSandboxRuntimeValidation(t *testing.T) bool {
 	t.Helper()
 
 	if os.Getenv("GITHUB_ACTIONS") != "true" ||
-		os.Getenv("CODING_ETHOS_GATE_COMMAND") != "" {
+		os.Getenv("GITHUB_JOB") != "go-coverage" {
 		return false
 	}
 
