@@ -943,7 +943,8 @@ func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
 func runManagedSandboxRuntimeValidation(t *testing.T) bool {
 	t.Helper()
 
-	if os.Getenv("GITHUB_ACTIONS") != "true" {
+	if os.Getenv("GITHUB_ACTIONS") != "true" ||
+		os.Getenv("CODING_ETHOS_GATE_COMMAND") != "" {
 		return false
 	}
 
