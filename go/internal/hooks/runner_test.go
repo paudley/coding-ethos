@@ -1023,14 +1023,14 @@ func TestRunDoesNotRewritePythonThroughNestedUVProject(t *testing.T) {
 	}
 }
 
-func TestRunAllowsCodexPythonRuntimeWithoutUnsupportedRewrite(t *testing.T) {
+func TestRunAllowsCodexPythonRuntimeWithoutUVProjectRewrite(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 
-	inlineErr10 := os.WriteFile(filepath.Join(root, "uv.lock"), nil, 0o600)
+	inlineErr10 := os.Mkdir(filepath.Join(root, ".git"), 0o700)
 	if inlineErr10 != nil {
-		t.Fatalf("write uv.lock: %v", inlineErr10)
+		t.Fatalf("create .git sentinel: %v", inlineErr10)
 	}
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1055,6 +1055,45 @@ func TestRunAllowsCodexPythonRuntimeWithoutUnsupportedRewrite(t *testing.T) {
 	if result.HookSpecificOutput != nil &&
 		len(result.HookSpecificOutput.UpdatedInput) > 0 {
 		t.Fatalf("Codex must not receive unsupported updatedInput: %#v", result)
+	}
+}
+
+func TestRunBlocksCodexPythonRuntimeRewrite(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	inlineErr10 := os.Mkdir(filepath.Join(root, ".git"), 0o700)
+	if inlineErr10 != nil {
+		t.Fatalf("create .git sentinel: %v", inlineErr10)
+	}
+
+	inlineErr10 = os.WriteFile(filepath.Join(root, "uv.lock"), nil, 0o600)
+	if inlineErr10 != nil {
+		t.Fatalf("write uv.lock: %v", inlineErr10)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: preToolUse,
+			ToolName:      toolBash,
+			Cwd:           root,
+			Source:        "codex",
+			ToolInput: map[string]any{
+				"command": "python script.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("Codex block must not emit unsupported updatedInput: %#v", result)
 	}
 }
 

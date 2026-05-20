@@ -952,6 +952,20 @@ func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
 func buildSandboxHelper(t *testing.T) string {
 	t.Helper()
 
+	managedHelper := filepath.Clean(
+		filepath.Join("..", "..", "..", "bin", "coding-ethos-sandbox"),
+	)
+	managedInfo, managedErr := os.Stat(managedHelper)
+	if managedErr == nil && !managedInfo.IsDir() && managedInfo.Mode()&0o111 != 0 {
+		// CI AppArmor grants namespace setup to exact managed binary paths.
+		managedAbs, absErr := filepath.Abs(managedHelper)
+		if absErr != nil {
+			t.Fatalf("resolve managed sandbox helper: %v", absErr)
+		}
+
+		return managedAbs
+	}
+
 	output := filepath.Join(t.TempDir(), "coding-ethos-sandbox")
 	command := exec.Command(
 		"go",
