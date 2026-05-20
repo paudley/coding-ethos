@@ -48,6 +48,18 @@ func TestGitWrapperRoutingBlocksEvasiveShell(t *testing.T) {
 	}
 }
 
+func TestGitWrapperRoutingAllowsDataInspectionCommandSubstitution(t *testing.T) {
+	t.Parallel()
+
+	command := `for id in $(comm -12 <(comm -23 /tmp/registry_ids.txt /tmp/phase1_ids.txt) /tmp/nquads_ids.txt); do f="/opt/foundation/ontologies/nquads/${id}.nq"; if [ -f "$f" ]; then sz=$(du -h "$f" | cut -f1); lines=$(wc -l < "$f"); type=$(grep -A2 "id: $id" /opt/foundation/ontologies/SOURCE_REGISTRY.yaml | grep 'type:' | awk '{print $2}'); printf "%-45s %8s %10s lines [%s]\n" "$id" "$sz" "$lines" "$type"; fi; done | sort -k4`
+
+	result := runGeminiBashHook(t, command)
+
+	if result.Status != hookStatusAllowed {
+		t.Fatalf("data inspection command result = %#v", result)
+	}
+}
+
 func TestLintToolRoutingRewritesOrdinaryLintTool(t *testing.T) {
 	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", "/repo/bin/coding-ethos-run")
 
