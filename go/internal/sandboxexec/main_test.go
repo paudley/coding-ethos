@@ -386,6 +386,25 @@ func TestValidatedGitWrapperDelegatesExecutableValidation(t *testing.T) {
 	}
 }
 
+func TestMountInfoHasSharedPropagation(t *testing.T) {
+	t.Parallel()
+
+	shared := "36 25 0:32 / / rw,relatime shared:1 - ext4 /dev/root rw\n"
+	if !mountInfoHasSharedPropagation(shared) {
+		t.Fatal("mountInfoHasSharedPropagation() did not detect shared propagation")
+	}
+
+	private := "36 25 0:32 / / rw,relatime master:1 - ext4 /dev/root rw\n" +
+		"37 36 0:33 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n"
+	if mountInfoHasSharedPropagation(private) {
+		t.Fatal("mountInfoHasSharedPropagation() reported non-shared mounts as shared")
+	}
+
+	if mountInfoHasSharedPropagation("malformed\n") {
+		t.Fatal("mountInfoHasSharedPropagation() reported malformed mount info as shared")
+	}
+}
+
 func TestLandlockAllowedWriteAccessSeparatesDirectoriesAndFiles(t *testing.T) {
 	t.Parallel()
 

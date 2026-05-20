@@ -30,6 +30,7 @@ var (
 const (
 	privateDirMode      = 0o700
 	writableFileMode    = 0o600
+	mountInfoFieldCount = 6
 	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
@@ -80,9 +81,9 @@ func applyGitBindMounts(options options) error {
 		return err
 	}
 
-	err = unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, "")
+	err = isolateMountPropagation()
 	if err != nil {
-		return fmt.Errorf("make sandbox mount namespace private: %w", err)
+		return err
 	}
 
 	if strings.TrimSpace(options.realGitPath) != "" ||
@@ -106,6 +107,59 @@ func applyGitBindMounts(options options) error {
 	}
 
 	return nil
+}
+
+func isolateMountPropagation() error {
+	err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, "")
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, unix.EPERM) {
+		return fmt.Errorf("make sandbox mount namespace private: %w", err)
+	}
+
+	mountInfo, readErr := os.ReadFile("/proc/self/mountinfo")
+	if readErr != nil {
+		return fmt.Errorf(
+			"make sandbox mount namespace private: %w; inspect mount propagation: %w",
+			err,
+			readErr,
+		)
+	}
+
+	// Some rootless CI namespaces deny the propagation-change syscall while
+	// already exposing only non-shared mounts. Preserve the invariant instead
+	// of requiring one specific kernel operation to prove it.
+	if mountInfoHasSharedPropagation(string(mountInfo)) {
+		return fmt.Errorf(
+			"make sandbox mount namespace private: %w; shared mount propagation remains",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func mountInfoHasSharedPropagation(content string) bool {
+	for line := range strings.Lines(content) {
+		fields := strings.Fields(line)
+		if len(fields) <= mountInfoFieldCount {
+			continue
+		}
+
+		for _, field := range fields[mountInfoFieldCount:] {
+			if field == "-" {
+				break
+			}
+
+			if strings.HasPrefix(field, "shared:") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func bindRealGit(sourcePath, targetPath string) error {
