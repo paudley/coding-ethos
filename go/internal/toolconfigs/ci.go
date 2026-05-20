@@ -17,11 +17,8 @@ const githubSandboxAppArmorStep = "" +
 	"          abi <abi/4.0>,\n" +
 	"          include <tunables/global>\n" +
 	"\n" +
-	"          profile coding-ethos-sandbox \"$sandbox_path\" flags=(unconfined) {\n" +
+	"          \"$sandbox_path\" flags=(unconfined) {\n" +
 	"            userns,\n" +
-	"            capability sys_admin,\n" +
-	"            mount,\n" +
-	"            remount,\n" +
 	"          }\n" +
 	"          EOF\n" +
 	"          sudo apparmor_parser -r \"$profile\"\n" +

@@ -63,11 +63,8 @@ jobs:
           abi <abi/4.0>,
           include <tunables/global>
 
-          profile coding-ethos-sandbox "$sandbox_path" flags=(unconfined) {
+          "$sandbox_path" flags=(unconfined) {
             userns,
-            capability sys_admin,
-            mount,
-            remount,
           }
           EOF
           sudo apparmor_parser -r "$profile"
