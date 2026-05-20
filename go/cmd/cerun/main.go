@@ -35,6 +35,10 @@ func runCerun(args []string) int {
 		return cerunMissingRuntimeExitCode
 	}
 
+	return runCerunWithRunner(args, runner)
+}
+
+func runCerunWithRunner(args []string, runner string) int {
 	command := safeexec.CommandContext(
 		context.Background(),
 		runner,
@@ -44,7 +48,7 @@ func runCerun(args []string) int {
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 
-	err = command.Run()
+	err := command.Run()
 	if err != nil {
 		var execErr *exec.Error
 		if errors.As(err, &execErr) {

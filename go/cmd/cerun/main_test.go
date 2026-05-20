@@ -100,37 +100,27 @@ func TestSiblingRunnerResolvesNextToExecutable(t *testing.T) {
 }
 
 func TestRunCerunMissingSiblingRunnerReturnsMissingRuntime(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolve test executable: %v", err)
-	}
+	runner := filepath.Join(t.TempDir(), "missing", "coding-ethos-run")
 
-	runner := filepath.Join(filepath.Dir(executable), "coding-ethos-run")
-	_ = os.Remove(runner)
-
-	if got := runCerun([]string{"git", "status"}); got != cerunMissingRuntimeExitCode {
+	if got := runCerunWithRunner(
+		[]string{"git", "status"},
+		runner,
+	); got != cerunMissingRuntimeExitCode {
 		t.Fatalf("runCerun() = %d, want %d", got, cerunMissingRuntimeExitCode)
 	}
 }
 
 func TestRunCerunDispatchesToSiblingRunner(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolve test executable: %v", err)
-	}
-
-	runner := filepath.Join(filepath.Dir(executable), "coding-ethos-run")
 	outputPath := filepath.Join(t.TempDir(), "runner-argv")
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
 	script := "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > " +
 		shellQuoteForTest(outputPath) + "\n"
 
-	err = os.WriteFile(runner, []byte(script), 0o700)
-	if err != nil {
-		t.Skipf("test executable directory is not writable: %v", err)
+	if err := os.WriteFile(runner, []byte(script), 0o700); err != nil {
+		t.Fatalf("write temp runner: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Remove(runner) })
 
-	if got := runCerun([]string{"git", "status"}); got != 0 {
+	if got := runCerunWithRunner([]string{"git", "status"}, runner); got != 0 {
 		t.Fatalf("runCerun() = %d, want 0", got)
 	}
 
