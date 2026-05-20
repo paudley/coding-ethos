@@ -8,8 +8,8 @@ import "blackcat.ca/coding-ethos/go/internal/policy"
 const providerRewritePolicyID = "hook.provider_required"
 
 type InspectionContext struct {
-	Event              Event
 	Provider           string
+	Event              Event
 	AdminApproved      bool
 	ReadOnlyInspection bool
 	SkipNestedHook     bool
