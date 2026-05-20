@@ -24,6 +24,9 @@ const githubSandboxAppArmorStep = "" +
 	"\n" +
 	"          \"$sandbox_path\" flags=(unconfined) {\n" +
 	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
 	"          }\n" +
 	"          EOF\n" +
 	"          sudo apparmor_parser -r \"$profile\"\n" +
