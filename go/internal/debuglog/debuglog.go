@@ -12,10 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 )
 
 const (
@@ -29,7 +30,6 @@ const (
 	messageKey            = "event"
 	levelKey              = "level"
 	callerKey             = "caller"
-	tokenBytes            = 4
 	baseProcessFieldCount = 5
 )
 
@@ -146,12 +146,7 @@ func ProcessExit(
 }
 
 func EstimateTokens(text string) int {
-	runes := utf8.RuneCountInString(text)
-	if runes == 0 {
-		return 0
-	}
-
-	return (runes + tokenBytes - 1) / tokenBytes
+	return agentproxy.ApproximateTokenizer{}.Count(text)
 }
 
 func Sync() error {

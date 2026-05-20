@@ -420,6 +420,7 @@ func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
 	}
 
 	for _, expected := range []string{
+		"[WARNING: Payload exceeded 32 tokens. Output truncated by proxy.",
 		"$ pytest tests",
 		"token budget hard stop",
 		"full output: " + output.Record.EvidencePath,
@@ -442,6 +443,44 @@ func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
 		output.Record.EvidencePath,
 		strings.Join(lines, "\n"),
 	)
+}
+
+func TestToolOutputTokenBudgetCountsDenseOneLinePayload(t *testing.T) {
+	t.Parallel()
+
+	payload := `{"events":[` + strings.Repeat(
+		`{"id":"abcdef0123456789","value":"payload"},`,
+		80,
+	) + `]}`
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.ToolOutputTokenBudgetTransform{
+			MaxTokens:  64,
+			HeadTokens: 12,
+			TailTokens: 12,
+		},
+	).Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: payload},
+	)
+	if err != nil {
+		t.Fatalf("apply dense token budget: %v", err)
+	}
+
+	if output.Record.Decision != "truncate" ||
+		output.Record.InputTokens <= 64 ||
+		output.Record.OutputTokens >= output.Record.InputTokens ||
+		output.Record.EvidencePath == "" ||
+		!strings.Contains(output.Text, "[WARNING: Payload exceeded 64 tokens.") {
+		t.Fatalf("dense token-budget output = %#v text=%q", output.Record, output.Text)
+	}
+
+	if strings.Contains(output.Text, payload) || len(output.Text) >= len(payload) {
+		t.Fatalf("dense payload was not bounded:\n%s", output.Text)
+	}
+
+	assertEvidenceFileContains(t, output.Record.EvidencePath, payload)
 }
 
 func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {

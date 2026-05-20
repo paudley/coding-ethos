@@ -10,11 +10,15 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"unicode/utf8"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-const errNilContentTransform = apperror.StaticError("nil content transform")
+const (
+	errNilContentTransform      = apperror.StaticError("nil content transform")
+	approximateTokenRuneDivisor = 4
+)
 
 type Tokenizer interface {
 	Count(text string) int
@@ -24,6 +28,17 @@ type WhitespaceTokenizer struct{}
 
 func (WhitespaceTokenizer) Count(text string) int {
 	return len(strings.Fields(text))
+}
+
+type ApproximateTokenizer struct{}
+
+func (ApproximateTokenizer) Count(text string) int {
+	runes := utf8.RuneCountInString(text)
+	if runes == 0 {
+		return 0
+	}
+
+	return (runes + approximateTokenRuneDivisor - 1) / approximateTokenRuneDivisor
 }
 
 type TransformInput struct {
@@ -51,7 +66,7 @@ type Pipeline struct {
 
 func NewPipeline(tokenizer Tokenizer, transforms ...ContentTransform) Pipeline {
 	if tokenizer == nil {
-		tokenizer = WhitespaceTokenizer{}
+		tokenizer = ApproximateTokenizer{}
 	}
 
 	return Pipeline{tokenizer: tokenizer, transforms: transforms}
