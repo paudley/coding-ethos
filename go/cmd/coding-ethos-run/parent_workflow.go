@@ -29,6 +29,7 @@ import (
 )
 
 const (
+	parentCheckoutCodingEthos = "coding-ethos"
 	parentDefaultLintScope    = "full"
 	parentExecutableDirMode   = 0o755
 	parentPolicyBundleDirMode = 0o755
@@ -867,7 +868,7 @@ func parentInstallCommand(options parentWorkflowOptions) string {
 
 func parentCheckoutLocation(paths runtimePaths, options parentWorkflowOptions) string {
 	if sameCleanPath(options.Repo, paths.EthosRoot) {
-		return "coding-ethos"
+		return parentCheckoutCodingEthos
 	}
 
 	return "parent"

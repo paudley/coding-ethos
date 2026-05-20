@@ -67,7 +67,7 @@ func readOnlyInspectionName(name string) bool {
 		"grep",
 		"head",
 		"jq",
-		"git",
+		tokenGit,
 		"ls",
 		"nl",
 		"pwd",
@@ -104,7 +104,7 @@ func readOnlyInspectionRedirects(redirects []string) bool {
 }
 
 func readOnlyInspectionArgs(command shellparse.Command) bool {
-	if command.Name == "git" {
+	if command.Name == tokenGit {
 		return readOnlyGitInspectionArgs(command.Argv[1:])
 	}
 

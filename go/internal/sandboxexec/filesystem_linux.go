@@ -74,6 +74,11 @@ func applyGitBindMounts(options options) error {
 		return nil
 	}
 
+	realGitPath, realGitBind, err := validatedRealGitBindPair(options)
+	if err != nil {
+		return err
+	}
+
 	wrapper, err := validatedGitWrapper(options.gitWrapper)
 	if err != nil {
 		return err
@@ -82,13 +87,6 @@ func applyGitBindMounts(options options) error {
 	targets, err := validatedGitTargets(options.gitTargets)
 	if err != nil {
 		return err
-	}
-
-	realGitPath := strings.TrimSpace(options.realGitPath)
-	realGitBind := strings.TrimSpace(options.realGitBind)
-
-	if (realGitPath == "") != (realGitBind == "") {
-		return errRealGitBindPair
 	}
 
 	err = isolateMountPropagation()
@@ -116,6 +114,17 @@ func applyGitBindMounts(options options) error {
 	}
 
 	return nil
+}
+
+func validatedRealGitBindPair(options options) (string, string, error) {
+	realGitPath := strings.TrimSpace(options.realGitPath)
+	realGitBind := strings.TrimSpace(options.realGitBind)
+
+	if (realGitPath == "") != (realGitBind == "") {
+		return "", "", errRealGitBindPair
+	}
+
+	return realGitPath, realGitBind, nil
 }
 
 func isolateMountPropagation() error {

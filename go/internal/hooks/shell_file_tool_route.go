@@ -64,6 +64,7 @@ func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 
 func commandHasFileOperand(args []string) bool {
 	operandsOnly := false
+
 	for _, arg := range args {
 		if arg == "--" {
 			operandsOnly = true
@@ -71,7 +72,7 @@ func commandHasFileOperand(args []string) bool {
 			continue
 		}
 
-		if !operandsOnly && shellOptionOrEmpty(arg) || arg == "-" {
+		if (!operandsOnly && shellOptionOrEmpty(arg)) || arg == "-" {
 			continue
 		}
 
@@ -104,15 +105,12 @@ func sedReadsFileOperand(args []string) bool {
 		}
 
 		if !operandsOnly && shellOptionOrEmpty(arg) {
-			if sedFileOption(arg) && index+1 < len(args) {
-				index++
+			next, seen, readsFile := consumeSedOptionValue(args, index)
+			index = next
+			scriptSeen = scriptSeen || seen
 
-				return args[index] != "-"
-			}
-
-			if sedExpressionOption(arg) && index+1 < len(args) {
-				index++
-				scriptSeen = true
+			if readsFile {
+				return true
 			}
 
 			continue
@@ -128,6 +126,19 @@ func sedReadsFileOperand(args []string) bool {
 	}
 
 	return false
+}
+
+func consumeSedOptionValue(args []string, index int) (int, bool, bool) {
+	arg := args[index]
+	if sedFileOption(arg) && index+1 < len(args) {
+		return index + 1, false, args[index+1] != "-"
+	}
+
+	if sedExpressionOption(arg) && index+1 < len(args) {
+		return index + 1, true, false
+	}
+
+	return index, false, false
 }
 
 func sedExpressionOption(arg string) bool {
