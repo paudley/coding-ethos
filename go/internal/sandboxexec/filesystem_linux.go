@@ -115,7 +115,7 @@ func isolateMountPropagation() error {
 		return nil
 	}
 
-	if !errors.Is(err, unix.EPERM) {
+	if !isMountPropagationPermissionError(err) {
 		return fmt.Errorf("make sandbox mount namespace private: %w", err)
 	}
 
@@ -139,6 +139,10 @@ func isolateMountPropagation() error {
 	}
 
 	return nil
+}
+
+func isMountPropagationPermissionError(err error) bool {
+	return errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES)
 }
 
 func mountInfoHasSharedPropagation(content string) bool {

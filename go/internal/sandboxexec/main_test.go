@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
@@ -402,6 +404,20 @@ func TestMountInfoHasSharedPropagation(t *testing.T) {
 
 	if mountInfoHasSharedPropagation("malformed\n") {
 		t.Fatal("mountInfoHasSharedPropagation() reported malformed mount info as shared")
+	}
+}
+
+func TestIsMountPropagationPermissionError(t *testing.T) {
+	t.Parallel()
+
+	for _, err := range []error{unix.EPERM, unix.EACCES} {
+		if !isMountPropagationPermissionError(err) {
+			t.Fatalf("isMountPropagationPermissionError(%v) = false", err)
+		}
+	}
+
+	if isMountPropagationPermissionError(os.ErrNotExist) {
+		t.Fatal("isMountPropagationPermissionError() accepted unrelated error")
 	}
 }
 
