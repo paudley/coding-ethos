@@ -112,6 +112,26 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 	}
 }
 
+func TestApplyGitBindMountsRequiresRealGitPair(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	wrapper := filepath.Join(root, "wrapper-git")
+	target := filepath.Join(root, "target-git")
+	writeTestFile(t, wrapper, 0o700)
+	writeTestFile(t, target, 0o700)
+
+	err := applyGitBindMounts(options{
+		gitWrapper:  wrapper,
+		gitTargets:  []string{target},
+		realGitPath: "/usr/bin/git",
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "--real-git-path and --real-git-bind") {
+		t.Fatalf("applyGitBindMounts() error = %v, want paired real git flags", err)
+	}
+}
+
 func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	t.Parallel()
 

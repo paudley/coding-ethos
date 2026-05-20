@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
@@ -36,6 +38,7 @@ import (
 const (
 	agentShellBlockedExitCode = 2
 	agentShellCheckExitCode   = 0
+	mountInfoMinimumFields    = 6
 )
 
 func run(paths runtimePaths, args []string) error {
@@ -123,9 +126,6 @@ func runAgentShellHandler(paths runtimePaths, rest []string) error {
 		emitAgentShellBlock(result)
 	}
 
-	installGitWrapperShim(paths)
-	installLintToolShims(paths)
-
 	command := request.Command
 	if request.Rewrite {
 		rewritten, err := rewriteAgentShellCommand(paths, request)
@@ -154,10 +154,13 @@ func runAgentShellHandler(paths runtimePaths, rest []string) error {
 		return emitAgentShellCheck(result, request)
 	}
 
-	recordAgentShellExecution(paths, request, "allowed", 0, hooks.Result{
+	installGitWrapperShim(paths)
+	installLintToolShims(paths)
+
+	recordAgentShellExecution(paths, request, "started", -1, hooks.Result{
 		Event:    "PreToolUse",
-		Provider: "gemini",
-		Status:   "allowed",
+		Provider: agentShellProvider(),
+		Status:   "started",
 		Tool:     "Bash",
 	})
 
@@ -212,13 +215,12 @@ func agentShellCommand(args []string) (agentShellRequest, error) {
 
 func parseAgentShellFlags(args []string) (agentShellRequest, []string, error) {
 	request := agentShellRequest{Intent: agentShellStrategicIntent()}
-	if len(args) > 0 && args[0] == "--rewrite" {
-		request.Rewrite = true
-		args = args[1:]
-	}
 
 	for len(args) > 0 {
 		switch {
+		case args[0] == "--rewrite":
+			request.Rewrite = true
+			args = args[1:]
 		case args[0] == "--check":
 			request.Check = true
 			args = args[1:]
@@ -246,6 +248,15 @@ func parseAgentShellFlags(args []string) (agentShellRequest, []string, error) {
 	}
 
 	return request, args, nil
+}
+
+func agentShellProvider() string {
+	provider := hooks.Event{}.Provider()
+	if provider != "" {
+		return provider
+	}
+
+	return "coding-ethos"
 }
 
 func shellCommand(args []string) string {
@@ -299,7 +310,7 @@ func inspectAgentShellCommand(
 	}
 
 	result, err := hooks.Run(bundle, hooks.Options{Event: hooks.Event{
-		ProviderHint:  "claude",
+		ProviderHint:  "coding-ethos",
 		HookEventName: "PreToolUse",
 		ToolName:      "Bash",
 		Cwd:           paths.InvocationCWD,
@@ -416,7 +427,7 @@ func emitAgentShellCheck(result hooks.Result, request agentShellRequest) error {
 func agentShellBlockedResult(decision policy.Decision) hooks.Result {
 	return hooks.Result{
 		Event:     "PreToolUse",
-		Provider:  "gemini",
+		Provider:  agentShellProvider(),
 		Status:    "blocked",
 		Tool:      "Bash",
 		Decisions: []policy.Decision{decision},
@@ -582,7 +593,6 @@ func recordAgentShellExecution(
 		Decision: decision,
 		Metadata: map[string]string{
 			"status":           status,
-			"exit_code":        strconv.Itoa(exitCode),
 			"rewrite":          strconv.FormatBool(request.Rewrite),
 			"check":            strconv.FormatBool(request.Check),
 			"strategic_intent": request.Intent,
@@ -590,6 +600,9 @@ func recordAgentShellExecution(
 			"sandbox_enforced": strconv.FormatBool(agentShellSandboxEnforced(runtime.GOOS)),
 			"goos":             runtime.GOOS,
 		},
+	}
+	if exitCode >= 0 {
+		event.Metadata["exit_code"] = strconv.Itoa(exitCode)
 	}
 
 	if request.Intent != "" {
@@ -671,7 +684,7 @@ func runCodeIntelHandler(paths runtimePaths, rest []string) error {
 func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 	requirePolicyBundle(paths)
 
-	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "" {
+	if !agentShellNativeGitBindActive(paths) {
 		installGitWrapperShim(paths)
 	}
 
@@ -681,6 +694,96 @@ func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
 
 	return nil
+}
+
+func agentShellNativeGitBindActive(paths runtimePaths) bool {
+	if runtime.GOOS != linuxGOOS {
+		return false
+	}
+
+	realGitBind := strings.TrimSpace(os.Getenv(realgit.Env))
+	if realGitBind == "" {
+		return false
+	}
+
+	resolvedBind, err := filepath.EvalSymlinks(realGitBind)
+	if err != nil {
+		debuglog.Debug(
+			"agent-shell.git-bind.inactive",
+			zap.String("reason", "resolve_bind"),
+			zap.String("path", realGitBind),
+			zap.Error(err),
+		)
+
+		return false
+	}
+
+	cacheRoot := filepath.Join(paths.Root, ".coding-ethos", "cache", "agent-shell")
+	if !pathInside(cacheRoot, resolvedBind) {
+		debuglog.Debug(
+			"agent-shell.git-bind.inactive",
+			zap.String("reason", "outside_agent_shell_cache"),
+			zap.String("path", resolvedBind),
+			zap.String("cache_root", cacheRoot),
+		)
+
+		return false
+	}
+
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		debuglog.Debug(
+			"agent-shell.git-bind.inactive",
+			zap.String("reason", "read_mountinfo"),
+			zap.Error(err),
+		)
+
+		return false
+	}
+
+	if !readOnlyMountInfoForPath(string(mountInfo), resolvedBind) {
+		debuglog.Debug(
+			"agent-shell.git-bind.inactive",
+			zap.String("reason", "no_readonly_mount"),
+			zap.String("path", resolvedBind),
+		)
+
+		return false
+	}
+
+	return true
+}
+
+func pathInside(root, candidate string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	if err != nil {
+		return false
+	}
+
+	return relative == "." ||
+		(relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)))
+}
+
+func readOnlyMountInfoForPath(content, path string) bool {
+	cleanPath := filepath.Clean(path)
+
+	for line := range strings.Lines(content) {
+		fields := strings.Fields(line)
+		if len(fields) < mountInfoMinimumFields {
+			continue
+		}
+
+		mountPoint := strings.ReplaceAll(fields[4], `\040`, " ")
+		if filepath.Clean(mountPoint) != cleanPath {
+			continue
+		}
+
+		options := strings.Split(fields[5], ",")
+
+		return slices.Contains(options, "ro")
+	}
+
+	return false
 }
 
 func runMCPHandler(paths runtimePaths, rest []string) error {

@@ -85,6 +85,7 @@ printf '%s|GIT_DIR=%s|GIT_INDEX_FILE=%s|GIT_CONFIG_COUNT=%s\n' \
 if [[ "${1:-}" == "status" ]]; then
   printf '%s' "$status_output"
 fi
+exit 0
 `
 
 	err := os.WriteFile(scriptPath, []byte(script), 0o600)

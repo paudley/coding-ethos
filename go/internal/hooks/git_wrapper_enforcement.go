@@ -32,18 +32,9 @@ const (
 )
 
 const (
-	agentShellCommandMinArgs              = 3
-	agentShellCommandNameIndex            = 0
-	agentShellSeparatorIndex              = 1
-	agentShellRewriteFlagIndex            = 1
-	agentShellRewriteSeparatorIndex       = 2
-	agentShellRunnerSubcommandIndex       = 1
-	agentShellRunnerSeparatorIndex        = 2
-	agentShellRunnerRewriteFlagIndex      = 2
-	agentShellRunnerRewriteSeparatorIndex = 3
-	agentShellRunnerCommandMinArgs        = 4
-	agentShellRewriteCommandMinArgs       = 4
-	agentShellRunnerRewriteMinArgs        = 5
+	agentShellCommandMinArgs        = 3
+	agentShellCommandNameIndex      = 0
+	agentShellRunnerSubcommandIndex = 1
 )
 
 const (
@@ -333,12 +324,19 @@ func agentShellSegment(segment []string) bool {
 }
 
 func cerunAgentShellSegment(segment []string) bool {
-	if len(segment) >= agentShellRewriteCommandMinArgs &&
-		segment[agentShellRewriteFlagIndex] == "--rewrite" {
-		return segment[agentShellRewriteSeparatorIndex] == "--"
+	args := segment[1:]
+	if len(args) == 0 {
+		return false
 	}
 
-	return segment[agentShellSeparatorIndex] == "--"
+	switch args[0] {
+	case "git", "python", "lint":
+		return len(args) > 1
+	case "--", "--rewrite", "--check":
+		return agentShellArgsHaveCommand(args)
+	default:
+		return strings.HasPrefix(args[0], "--intent") && agentShellArgsHaveCommand(args)
+	}
 }
 
 func codingEthosAgentShellSegment(segment []string) bool {
@@ -347,13 +345,32 @@ func codingEthosAgentShellSegment(segment []string) bool {
 		return false
 	}
 
-	if len(segment) >= agentShellRunnerRewriteMinArgs &&
-		segment[agentShellRunnerRewriteFlagIndex] == "--rewrite" {
-		return segment[agentShellRunnerRewriteSeparatorIndex] == "--"
+	return agentShellArgsHaveCommand(segment[2:])
+}
+
+func agentShellArgsHaveCommand(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "--":
+			return index+1 < len(args)
+		case arg == "--rewrite" || arg == "--check":
+			continue
+		case arg == "--intent":
+			index++
+			if index >= len(args) || strings.TrimSpace(args[index]) == "" {
+				return false
+			}
+		case strings.HasPrefix(arg, "--intent="):
+			if strings.TrimSpace(strings.TrimPrefix(arg, "--intent=")) == "" {
+				return false
+			}
+		default:
+			return false
+		}
 	}
 
-	return len(segment) >= agentShellRunnerCommandMinArgs &&
-		segment[agentShellRunnerSeparatorIndex] == "--"
+	return false
 }
 
 func rewriteGitSegment(segment []string) (string, bool) {

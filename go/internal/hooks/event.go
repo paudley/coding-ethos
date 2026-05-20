@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	providerClaude = "claude"
-	providerCodex  = "codex"
-	providerGemini = "gemini"
+	providerClaude      = "claude"
+	providerCodex       = "codex"
+	providerCodingEthos = "coding-ethos"
+	providerGemini      = "gemini"
 )
 
 const (
@@ -40,6 +41,8 @@ type Event struct {
 func (event Event) Provider() string {
 	providerHint := strings.ToLower(strings.TrimSpace(event.ProviderHint))
 	switch {
+	case strings.Contains(providerHint, providerCodingEthos):
+		return providerCodingEthos
 	case strings.Contains(providerHint, providerGemini):
 		return providerGemini
 	case strings.Contains(providerHint, providerCodex):
@@ -50,6 +53,8 @@ func (event Event) Provider() string {
 
 	source := strings.ToLower(strings.TrimSpace(event.Source))
 	switch {
+	case strings.Contains(source, providerCodingEthos):
+		return providerCodingEthos
 	case strings.Contains(source, providerGemini):
 		return providerGemini
 	case strings.Contains(source, providerCodex):

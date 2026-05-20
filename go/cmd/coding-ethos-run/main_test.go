@@ -23,6 +23,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -1124,6 +1125,28 @@ func TestAgentShellCommandParsesRewriteFlag(t *testing.T) {
 	}
 }
 
+func TestAgentShellCommandParsesFlagsInAnyOrder(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{
+		"--check",
+		"--intent=inspect repo status",
+		"--rewrite",
+		"--",
+		"git",
+		"status",
+	})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	if !request.Check || !request.Rewrite ||
+		request.Intent != "inspect repo status" ||
+		request.Command != "git status" {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
 func TestAgentShellRewriteRoutesGitToPolicyGitWithoutNestedRunner(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	writePolicyBundleForTest(t, paths.PolicyBundle)
@@ -1382,7 +1405,8 @@ func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-agent-shell-check")
 
 	paths := runtimeTestPaths(t)
-	paths.Executor = stubRuntimeOps{calls: &[]string{}}
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
 	writePolicyBundleForTest(t, paths.PolicyBundle)
 
 	output := captureRuntimeStdout(t, func() {
@@ -1416,6 +1440,60 @@ func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
 	}
 	if stats.ProxyEvents != 1 || stats.ProxySessions != 1 {
 		t.Fatalf("stats = %#v", stats)
+	}
+
+	if len(calls) > 0 {
+		t.Fatalf("agent-shell --check performed runtime side effects: %#v", calls)
+	}
+}
+
+func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv(realgit.Env, filepath.Join(
+		paths.Root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"spoof",
+		"real-git",
+	))
+
+	err := run(paths, []string{"policy-git", "status"})
+	if err != nil {
+		t.Fatalf("run policy-git: %v", err)
+	}
+
+	got := strings.Join(calls, "\n")
+	if !strings.Contains(got, "direct-run:coding-ethos-toolchain install-git-shim") {
+		t.Fatalf("spoofed sandbox env skipped shim install: %#v", calls)
+	}
+	if !strings.Contains(
+		got,
+		"exec:coding-ethos-git --bundle "+paths.PolicyBundle+" status",
+	) {
+		t.Fatalf("policy-git did not execute managed git: %#v", calls)
+	}
+}
+
+func TestAgentShellNativeGitBindRequiresReadOnlyMountInfo(t *testing.T) {
+	t.Parallel()
+
+	path := "/repo/.coding-ethos/cache/agent-shell/run-1/real-git"
+
+	if !readOnlyMountInfoForPath(
+		"42 1 0:1 / "+path+" ro,relatime - ext4 /dev/sda rw\n",
+		path,
+	) {
+		t.Fatal("read-only bind mount was not recognized")
+	}
+	if readOnlyMountInfoForPath(
+		"42 1 0:1 / "+path+" rw,relatime - ext4 /dev/sda rw\n",
+		path,
+	) {
+		t.Fatal("read-write mount was accepted as sandbox bind")
 	}
 }
 

@@ -42,6 +42,10 @@ func shellFileToolRouteFor(event Event) InspectionRoute {
 
 func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 	name := filepath.Base(command.Name)
+	if redirectsReadFile(command.Redirects) {
+		return true
+	}
+
 	switch name {
 	case "cat":
 		return commandHasFileOperand(command.Argv[1:])
@@ -59,8 +63,15 @@ func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 }
 
 func commandHasFileOperand(args []string) bool {
+	operandsOnly := false
 	for _, arg := range args {
-		if shellOptionOrEmpty(arg) || arg == "-" {
+		if arg == "--" {
+			operandsOnly = true
+
+			continue
+		}
+
+		if !operandsOnly && shellOptionOrEmpty(arg) || arg == "-" {
 			continue
 		}
 
@@ -71,17 +82,45 @@ func commandHasFileOperand(args []string) bool {
 }
 
 func sedReadsFileOperand(args []string) bool {
+	scriptSeen := false
+	operandsOnly := false
+
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
-		if shellOptionOrEmpty(arg) {
-			if sedOptionTakesValue(arg) && index+1 < len(args) {
+		if arg == "--" {
+			operandsOnly = true
+
+			continue
+		}
+
+		if !operandsOnly && sedFileOption(arg) {
+			return true
+		}
+
+		if !operandsOnly && sedExpressionOptionFused(arg) {
+			scriptSeen = true
+
+			continue
+		}
+
+		if !operandsOnly && shellOptionOrEmpty(arg) {
+			if sedFileOption(arg) && index+1 < len(args) {
 				index++
+
+				return args[index] != "-"
+			}
+
+			if sedExpressionOption(arg) && index+1 < len(args) {
+				index++
+				scriptSeen = true
 			}
 
 			continue
 		}
 
-		if index == 0 {
+		if !scriptSeen {
+			scriptSeen = true
+
 			continue
 		}
 
@@ -91,20 +130,48 @@ func sedReadsFileOperand(args []string) bool {
 	return false
 }
 
-func sedOptionTakesValue(arg string) bool {
+func sedExpressionOption(arg string) bool {
 	return arg == "-e" || arg == "--expression" ||
-		arg == "-f" || arg == "--file"
+		sedExpressionOptionFused(arg)
+}
+
+func sedExpressionOptionFused(arg string) bool {
+	return (strings.HasPrefix(arg, "-e") && arg != "-e") ||
+		strings.HasPrefix(arg, "--expression=")
+}
+
+func sedFileOption(arg string) bool {
+	return arg == "-f" || arg == "--file" ||
+		strings.HasPrefix(arg, "-f") ||
+		strings.HasPrefix(arg, "--file=")
 }
 
 func awkReadsFileOperand(args []string) bool {
 	programSeen := false
+	operandsOnly := false
 
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
-		if shellOptionOrEmpty(arg) {
-			if awkOptionTakesValue(arg) && index+1 < len(args) {
-				index++
+		if arg == "--" {
+			operandsOnly = true
+
+			continue
+		}
+
+		if !operandsOnly && awkFileOption(arg) {
+			return true
+		}
+
+		if !operandsOnly && awkOptionTakesValue(arg) && awkOptionValueFused(arg) {
+			if awkProgramOption(arg) {
+				programSeen = true
 			}
+
+			continue
+		}
+
+		if !operandsOnly && shellOptionOrEmpty(arg) {
+			index, programSeen = consumeAwkOptionValue(args, index, programSeen)
 
 			continue
 		}
@@ -121,9 +188,46 @@ func awkReadsFileOperand(args []string) bool {
 	return false
 }
 
+func consumeAwkOptionValue(args []string, index int, programSeen bool) (int, bool) {
+	arg := args[index]
+	if !awkOptionTakesValue(arg) || index+1 >= len(args) {
+		return index, programSeen
+	}
+
+	if awkProgramOption(arg) {
+		programSeen = true
+	}
+
+	return index + 1, programSeen
+}
+
+func awkFileOption(arg string) bool {
+	return arg == "-f" || arg == "--file" ||
+		strings.HasPrefix(arg, "-f") ||
+		strings.HasPrefix(arg, "--file=")
+}
+
+func awkProgramOption(arg string) bool {
+	return arg == "-e" || arg == "--source" ||
+		strings.HasPrefix(arg, "-e") ||
+		strings.HasPrefix(arg, "--source=")
+}
+
 func awkOptionTakesValue(arg string) bool {
-	return arg == "-f" || arg == "-F" || arg == "-v" ||
-		arg == "--file" || arg == "--assign"
+	return arg == "-F" || arg == "-v" ||
+		arg == "--assign" ||
+		strings.HasPrefix(arg, "-F") ||
+		strings.HasPrefix(arg, "-v") ||
+		strings.HasPrefix(arg, "--assign=") ||
+		awkProgramOption(arg)
+}
+
+func awkOptionValueFused(arg string) bool {
+	return (strings.HasPrefix(arg, "-F") && arg != "-F") ||
+		(strings.HasPrefix(arg, "-v") && arg != "-v") ||
+		strings.HasPrefix(arg, "--assign=") ||
+		(strings.HasPrefix(arg, "-e") && arg != "-e") ||
+		strings.HasPrefix(arg, "--source=")
 }
 
 func shellOptionOrEmpty(arg string) bool {
@@ -141,6 +245,24 @@ func redirectsWriteFile(redirects []string) bool {
 		}
 
 		if strings.Contains(redirect, ">") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func redirectsReadFile(redirects []string) bool {
+	for _, redirect := range redirects {
+		if strings.Contains(redirect, "<<") {
+			continue
+		}
+
+		if strings.Contains(redirect, "<&") || strings.Contains(redirect, ">&") {
+			continue
+		}
+
+		if strings.Contains(redirect, "<") {
 			return true
 		}
 	}

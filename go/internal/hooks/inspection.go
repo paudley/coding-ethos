@@ -143,7 +143,7 @@ func unsupportedRewriteDecision(
 
 func providerSupportsUpdatedInput(provider string) bool {
 	switch provider {
-	case providerClaude, providerGemini:
+	case providerClaude, providerCodingEthos, providerGemini:
 		return true
 	default:
 		return false

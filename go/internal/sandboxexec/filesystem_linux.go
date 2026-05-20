@@ -19,12 +19,15 @@ import (
 
 var (
 	errLandlockParentFDRange = errors.New("landlock parent fd out of range")
-	errSymlinkWritePath      = errors.New("sandbox write path contains symlink")
-	errWritePathNotAllowed   = errors.New("sandbox write path is not a file or directory")
-	errGitTargetAbsolute     = errors.New("git target must be absolute")
-	errGitTargetRequired     = errors.New("at least one git target is required")
-	errExecutableAbsolute    = errors.New("executable path must be absolute")
-	errExecutableInvalid     = errors.New("executable path is not executable")
+	errRealGitBindPair       = errors.New(
+		"real git bind requires both --real-git-path and --real-git-bind",
+	)
+	errSymlinkWritePath    = errors.New("sandbox write path contains symlink")
+	errWritePathNotAllowed = errors.New("sandbox write path is not a file or directory")
+	errGitTargetAbsolute   = errors.New("git target must be absolute")
+	errGitTargetRequired   = errors.New("at least one git target is required")
+	errExecutableAbsolute  = errors.New("executable path must be absolute")
+	errExecutableInvalid   = errors.New("executable path is not executable")
 )
 
 const (
@@ -81,13 +84,19 @@ func applyGitBindMounts(options options) error {
 		return err
 	}
 
+	realGitPath := strings.TrimSpace(options.realGitPath)
+	realGitBind := strings.TrimSpace(options.realGitBind)
+
+	if (realGitPath == "") != (realGitBind == "") {
+		return errRealGitBindPair
+	}
+
 	err = isolateMountPropagation()
 	if err != nil {
 		return err
 	}
 
-	if strings.TrimSpace(options.realGitPath) != "" ||
-		strings.TrimSpace(options.realGitBind) != "" {
+	if realGitPath != "" && realGitBind != "" {
 		err = bindRealGit(options.realGitPath, options.realGitBind)
 		if err != nil {
 			return err

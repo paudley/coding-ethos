@@ -65,6 +65,9 @@ jobs:
           sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
           toolchain_path="${GITHUB_WORKSPACE}/bin/coding-ethos-toolchain"
           sudo tee "$profile" >/dev/null <<EOF
+          # GitHub Ubuntu runners apply AppArmor user-namespace mediation.
+          # This profile grants the sandbox helper userns/mount setup while
+          # leaving filesystem enforcement to coding-ethos Landlock policy.
           abi <abi/4.0>,
           include <tunables/global>
 

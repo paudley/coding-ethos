@@ -21,6 +21,9 @@ const githubSandboxAppArmorStep = "" +
 	"          sandbox_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox\"\n" +
 	"          toolchain_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-toolchain\"\n" +
 	"          sudo tee \"$profile\" >/dev/null <<EOF\n" +
+	"          # GitHub Ubuntu runners apply AppArmor user-namespace mediation.\n" +
+	"          # This profile grants the sandbox helper userns/mount setup while\n" +
+	"          # leaving filesystem enforcement to coding-ethos Landlock policy.\n" +
 	"          abi <abi/4.0>,\n" +
 	"          include <tunables/global>\n" +
 	"\n" +

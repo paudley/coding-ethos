@@ -1246,9 +1246,17 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 	for _, command := range []string{
 		"cerun -- git status",
 		"cerun --rewrite -- git status",
+		"cerun --check -- git status",
+		"cerun --check --rewrite -- git status",
+		"cerun --intent 'inspect repository' -- git status",
+		"cerun git status",
+		"cerun python -m pytest",
 		"cerun -- 'git status'",
 		"bin/coding-ethos-run agent-shell -- git status",
 		"bin/coding-ethos-run agent-shell --rewrite -- git status",
+		"bin/coding-ethos-run agent-shell --check -- git status",
+		"bin/coding-ethos-run agent-shell --check --rewrite -- git status",
+		"bin/coding-ethos-run agent-shell --intent 'inspect repository' -- git status",
 	} {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
@@ -1285,8 +1293,20 @@ func TestRunBlocksShellFileToolEmulation(t *testing.T) {
 
 	for _, command := range []string{
 		"cat README.md",
+		"cat -- -secrets.txt",
+		"cat < README.md",
 		"sed -n '1,20p' README.md",
+		"sed -f scripts/read.sed",
+		"sed -fscripts/read.sed",
+		"sed --file scripts/read.sed",
+		"sed --file=scripts/read.sed",
+		"sed -n '1,20p' < README.md",
 		"awk '{print}' README.md",
+		"awk -f scripts/read.awk",
+		"awk -fscripts/read.awk",
+		"awk --file scripts/read.awk",
+		"awk --file=scripts/read.awk",
+		"awk '{print}' < README.md",
 		"echo updated > README.md",
 		"printf '%s' updated > README.md",
 		"tee README.md",
@@ -1330,7 +1350,15 @@ func TestRunAllowsPlainShellOutputWithoutFileEmulation(t *testing.T) {
 
 	for _, command := range []string{
 		"echo ready",
+		"sed -n -e '1,20p'",
+		"sed -n -e1,20p",
+		"sed -n --expression=1,20p",
+		"sed -n '1,20p' -",
 		"printf 'a,b\\n' | awk -F , '{print $1}'",
+		"printf 'a,b\\n' | awk -F, '{print $1}'",
+		"printf 'a,b\\n' | awk -v col=1 '{print $col}'",
+		"printf 'a,b\\n' | awk -vcol=1 '{print $col}'",
+		"printf 'a,b\\n' | awk --assign=col=1 '{print $col}'",
 	} {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
