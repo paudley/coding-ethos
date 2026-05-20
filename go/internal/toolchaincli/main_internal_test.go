@@ -926,6 +926,10 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 }
 
 func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
+	if runManagedSandboxRuntimeValidation(t) {
+		return
+	}
+
 	requireNativeSandboxRuntime(t)
 
 	wrapper := buildSandboxHelper(t)
@@ -934,6 +938,36 @@ func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validateSandboxRuntime() error = %v", err)
 	}
+}
+
+func runManagedSandboxRuntimeValidation(t *testing.T) bool {
+	t.Helper()
+
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		return false
+	}
+
+	managedToolchain := filepath.Join(
+		toolchainTestRepoRoot(t),
+		"bin",
+		"coding-ethos-toolchain",
+	)
+	managedInfo, managedErr := os.Stat(managedToolchain)
+	if managedErr != nil || managedInfo.IsDir() || managedInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	command := exec.Command(managedToolchain, "validate-sandbox-runtime")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf(
+			"managed validate-sandbox-runtime: %v\n%s",
+			err,
+			output,
+		)
+	}
+
+	return true
 }
 
 func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
