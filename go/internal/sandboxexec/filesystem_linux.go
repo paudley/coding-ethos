@@ -101,8 +101,17 @@ func applyGitBindMounts(options options) error {
 		}
 	}
 
+	err = bindGitWrapperTargets(wrapper, targets)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func bindGitWrapperTargets(wrapper string, targets []string) error {
 	for _, target := range targets {
-		err = unix.Mount(wrapper, target, "", unix.MS_BIND, "")
+		err := unix.Mount(wrapper, target, "", unix.MS_BIND, "")
 		if err != nil {
 			return fmt.Errorf("bind managed git wrapper over %s: %w", target, err)
 		}
