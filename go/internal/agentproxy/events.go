@@ -119,6 +119,7 @@ type DLPFact struct {
 }
 
 type TransformRecord struct {
+	Metadata      map[string]string `json:"metadata,omitempty"`
 	Name          string            `json:"name"`
 	InputHash     string            `json:"input_hash,omitempty"`
 	OutputHash    string            `json:"output_hash,omitempty"`
@@ -126,7 +127,6 @@ type TransformRecord struct {
 	PolicyID      string            `json:"policy_id,omitempty"`
 	Decision      string            `json:"decision,omitempty"`
 	EvidencePath  string            `json:"evidence_path,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
 	InputTokens   int               `json:"input_tokens,omitempty"`
 	OutputTokens  int               `json:"output_tokens,omitempty"`
 	BytesRemoved  int               `json:"bytes_removed,omitempty"`

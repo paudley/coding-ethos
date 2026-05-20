@@ -134,10 +134,10 @@ func TestResolveHookTokenBudgetUsesExplicitAndTieredSources(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		event      Event
-		options    hookOutputCompressionOptions
+		name       string
 		wantSource string
+		options    hookOutputCompressionOptions
 		wantMax    int
 	}{
 		{

@@ -49,10 +49,10 @@ const (
 )
 
 type proxiedToolOutput struct {
+	Metadata map[string]string
 	Text     string
 	Records  []agentproxy.TransformRecord
 	Events   []agentproxy.ProviderEvent
-	Metadata map[string]string
 }
 
 func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
@@ -689,11 +689,11 @@ func stableHookID(prefix string, values ...string) string {
 }
 
 type hookOutputCompressionOptions struct {
+	MaxTokensSource string
 	MaxLines        int
 	HeadLines       int
 	TailLines       int
 	MaxTokens       int
-	MaxTokensSource string
 	HeadTokens      int
 	TailTokens      int
 	MaxDiagnostics  int
@@ -743,10 +743,12 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 	options.MaxLines = positiveConfigInt(settings, "max_lines", options.MaxLines)
 	options.HeadLines = positiveConfigInt(settings, "head_lines", options.HeadLines)
 	options.TailLines = positiveConfigInt(settings, "tail_lines", options.TailLines)
+
 	if maxTokens := positiveConfigInt(settings, "max_tokens", 0); maxTokens > 0 {
 		options.MaxTokens = maxTokens
 		options.MaxTokensSource = tokenBudgetSourceRepoConfig
 	}
+
 	options.HeadTokens = positiveConfigInt(settings, "head_tokens", options.HeadTokens)
 	options.TailTokens = positiveConfigInt(settings, "tail_tokens", options.TailTokens)
 	options.MaxDiagnostics = positiveConfigInt(
@@ -793,10 +795,12 @@ func (
 		options.MaxTokens = maxTokens
 		options.MaxTokensSource = tokenBudgetSourceEnv
 	}
+
 	options.HeadTokens = hookOutputIntEnv(
 		"CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS",
 		options.HeadTokens,
 	)
+
 	options.TailTokens = hookOutputIntEnv(
 		"CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS",
 		options.TailTokens,
