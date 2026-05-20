@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -30,6 +31,7 @@ const (
 	modeRecord       = "record"
 	statusAllowed    = "allowed"
 	statusBlocked    = "blocked"
+	slowHookBudgetMS = int64(2500)
 	hookDividerWidth = 50
 )
 
@@ -57,6 +59,8 @@ func RunWithRegistry(
 	options Options,
 	registry evaluators.Registry,
 ) (Result, error) {
+	startedAt := time.Now()
+
 	activateDebugForEvent(options.Event)
 	logMakeEventBoundary(options.Event)
 	event, debugRequested := eventWithoutDebugFlag(options.Event)
@@ -91,7 +95,11 @@ func RunWithRegistry(
 			zap.Bool("read_only", ctx.ReadOnlyInspection),
 		)
 
-		return ctx.allowedResult(), nil
+		result := ctx.allowedResult()
+		result.RuntimeMS = time.Since(startedAt).Milliseconds()
+		logHookRuntime(result.RuntimeMS)
+
+		return result, nil
 	}
 
 	decision, err := evaluateInspection(bundle, ctx, registry)
@@ -103,7 +111,25 @@ func RunWithRegistry(
 		decision.Route = routeWithDebugEnv(options.Event, decision.Route)
 	}
 
-	return buildResult(bundle, ctx.Event, decision), nil
+	result := buildResult(bundle, ctx.Event, decision)
+	result.RuntimeMS = time.Since(startedAt).Milliseconds()
+	logHookRuntime(result.RuntimeMS)
+
+	return result, nil
+}
+
+func logHookRuntime(runtimeMS int64) {
+	if runtimeMS > slowHookBudgetMS {
+		debuglog.Debug(
+			"hook.inspection.slow",
+			zap.Int64("runtime_ms", runtimeMS),
+			zap.Int64("budget_ms", slowHookBudgetMS),
+		)
+
+		return
+	}
+
+	debuglog.Debug("hook.inspection.exit", zap.Int64("runtime_ms", runtimeMS))
 }
 
 func evaluateInspection(
@@ -125,6 +151,7 @@ func routeToolUse(ctx InspectionContext) InspectionRoute {
 	for _, routeFor := range []func(Event) InspectionRoute{
 		parallelToolBatchRouteFor,
 		malformedShellRouteFor,
+		shellFileToolRouteFor,
 		gitWrapperRouteFor,
 		lintToolRouteFor,
 		pythonRuntimeRouteFor,
@@ -675,30 +702,7 @@ func evaluateHookPolicy(
 		return nil, nil
 	}
 
-	context := evaluators.Context{
-		Scope:              event.HookEventName,
-		EventName:          event.HookEventName,
-		EventMatcher:       event.Matcher,
-		EventSource:        event.Source,
-		Provider:           event.Provider(),
-		SessionID:          event.SessionID,
-		Tool:               event.ToolName,
-		ToolInputKeys:      event.ToolInputKeys(),
-		ToolResponseKeys:   event.ToolResponseKeys(),
-		TranscriptPath:     event.TranscriptPath,
-		ReturnCode:         event.ReturnCode(),
-		HasReturnCode:      event.HasReturnCode(),
-		HasToolInput:       event.ToolInput != nil,
-		HasToolResponse:    event.ToolResponse != nil,
-		Argv:               commandArgv(event.Command()),
-		Command:            event.Command(),
-		Content:            event.Content(),
-		OldContent:         event.OldContent(),
-		Cwd:                event.Cwd,
-		Files:              event.Files(),
-		AdminApproved:      ctx.AdminApproved,
-		ReadOnlyInspection: ctx.ReadOnlyInspection,
-	}
+	context := evaluatorContext(ctx)
 
 	for _, evaluatorSpec := range policyDef.Evaluators {
 		evaluator, ok := registry.Lookup(evaluatorSpec.Name)
@@ -740,6 +744,37 @@ func evaluateHookPolicy(
 	}
 
 	return nil, nil
+}
+
+func evaluatorContext(ctx InspectionContext) evaluators.Context {
+	event := ctx.Event
+
+	return evaluators.Context{
+		Scope:              event.HookEventName,
+		EventName:          event.HookEventName,
+		EventMatcher:       event.Matcher,
+		EventSource:        event.Source,
+		Provider:           event.Provider(),
+		SessionID:          event.SessionID,
+		StrategicIntent:    event.StrategicIntent(),
+		ActiveTodo:         event.ActiveTodo(),
+		Tool:               event.ToolName,
+		ToolInputKeys:      event.ToolInputKeys(),
+		ToolResponseKeys:   event.ToolResponseKeys(),
+		TranscriptPath:     event.TranscriptPath,
+		ReturnCode:         event.ReturnCode(),
+		HasReturnCode:      event.HasReturnCode(),
+		HasToolInput:       event.ToolInput != nil,
+		HasToolResponse:    event.ToolResponse != nil,
+		Argv:               commandArgv(event.Command()),
+		Command:            event.Command(),
+		Content:            event.Content(),
+		OldContent:         event.OldContent(),
+		Cwd:                event.Cwd,
+		Files:              event.Files(),
+		AdminApproved:      ctx.AdminApproved,
+		ReadOnlyInspection: ctx.ReadOnlyInspection,
+	}
 }
 
 func applyDispatchMode(decisions []policy.Decision, mode string) []policy.Decision {

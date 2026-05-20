@@ -29,6 +29,9 @@ const (
 	toolFallbackName     = "tool"
 	nativeSandboxBinary  = "coding-ethos-sandbox"
 	nativeProbeTimeout   = 10
+	nativeProbeDirMode   = 0o700
+	nativeProbeFileMode  = 0o700
+	nativeProbeWriteMode = 0o600
 	SandboxTempWritePath = "sandbox-tmp"
 	SandboxGoCachePath   = ".coding-ethos/cache/go-build"
 	SandboxGolangCIPath  = ".coding-ethos/cache/golangci-lint"
@@ -107,6 +110,11 @@ type Capabilities struct {
 	SandboxProfile     string   `json:"sandbox_profile,omitempty"`
 	SeccompProfilePath string   `json:"seccomp_profile_path,omitempty"`
 	SeccompProfile     string   `json:"seccomp_profile,omitempty"`
+	StrategicIntent    string   `json:"strategic_intent,omitempty"`
+	GitWrapperPath     string   `json:"git_wrapper_path,omitempty"`
+	RealGitPath        string   `json:"real_git_path,omitempty"`
+	RealGitBindPath    string   `json:"real_git_bind_path,omitempty"`
+	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	Tags               []string `json:"tags,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
@@ -144,6 +152,7 @@ type Evidence struct {
 	Profile              string   `json:"profile,omitempty"`
 	Tool                 string   `json:"tool,omitempty"`
 	SeccompProfile       string   `json:"seccomp_profile,omitempty"`
+	StrategicIntent      string   `json:"strategic_intent,omitempty"`
 	Mode                 string   `json:"mode,omitempty"`
 	Reason               string   `json:"reason,omitempty"`
 	ReadPaths            []string `json:"read_paths,omitempty"`
@@ -322,6 +331,24 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		return plan.Evidence, err
 	}
 
+	evidence, err := runNativeRuntimeProbe(repoRoot, plan)
+	if err != nil {
+		return evidence, err
+	}
+
+	evidence, err = validateNativeProbeSideEffects(repoRoot, evidence)
+	if err != nil {
+		return evidence, err
+	}
+
+	return validateNativeGitBindProbe(repoRoot, wrapper, evidence)
+}
+
+func sandboxProbeExitCode(err error) int {
+	return processstatus.ExitCode(err, 1)
+}
+
+func runNativeRuntimeProbe(repoRoot string, plan Plan) (Evidence, error) {
 	defer func() { _ = plan.Close() }()
 
 	ctx, cancel := CommandContext(context.Background(), nativeProbeTimeout)
@@ -352,11 +379,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		)
 	}
 
-	return validateNativeProbeSideEffects(repoRoot, plan.Evidence)
-}
-
-func sandboxProbeExitCode(err error) int {
-	return processstatus.ExitCode(err, 1)
+	return plan.Evidence, nil
 }
 
 func nativeProbeArgs() []string {
@@ -412,6 +435,197 @@ func validateNativeProbeSideEffects(
 	return evidence, nil
 }
 
+func validateNativeGitBindProbe(
+	repoRoot string,
+	wrapper string,
+	evidence Evidence,
+) (Evidence, error) {
+	probe, err := nativeGitBindProbe(repoRoot)
+	if err != nil {
+		evidence.Denied = true
+		evidence.Reason = err.Error()
+
+		return evidence, fmt.Errorf("prepare native git bind probe: %w", err)
+	}
+
+	plan, err := BuildPlan(Request{
+		Tool:        "sandbox-git-bind-probe",
+		Executable:  probe.targetGit,
+		WrapperPath: wrapper,
+		Cwd:         repoRoot,
+		RepoRoot:    repoRoot,
+		Args:        []string{"status"},
+		Capabilities: Capabilities{
+			SandboxProfile:  "native-git-bind-probe",
+			GitWrapperPath:  probe.policyGit,
+			RealGitPath:     probe.realGit,
+			RealGitBindPath: probe.realGitBind,
+			GitTargetPaths:  []string{probe.targetGit},
+			WritePaths:      []string{".coding-ethos/cache"},
+			RequiresGit:     true,
+		},
+	})
+	if err != nil {
+		return plan.Evidence, err
+	}
+
+	probeEvidence, err := runNativeRuntimeProbe(repoRoot, plan)
+	if err != nil {
+		return probeEvidence, err
+	}
+
+	return validateNativeGitBindSideEffects(repoRoot, probeEvidence)
+}
+
+type nativeGitBindProbeFiles struct {
+	policyGit   string
+	realGit     string
+	realGitBind string
+	targetGit   string
+}
+
+func nativeGitBindProbe(repoRoot string) (nativeGitBindProbeFiles, error) {
+	cacheRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+
+	err := os.MkdirAll(cacheRoot, nativeProbeDirMode)
+	if err != nil {
+		return nativeGitBindProbeFiles{}, fmt.Errorf("create probe cache: %w", err)
+	}
+
+	files := nativeGitBindProbeFiles{
+		policyGit:   filepath.Join(cacheRoot, "policy-git-probe"),
+		realGit:     filepath.Join(cacheRoot, "real-git-probe"),
+		realGitBind: filepath.Join(cacheRoot, "real-git-bind-probe"),
+		targetGit:   filepath.Join(cacheRoot, "target-git-probe"),
+	}
+
+	policyScript := `#!/bin/sh
+set -eu
+readonly_bind=0
+while IFS= read -r line; do
+	set -- $line
+	if [ "${5:-}" = "$0" ]; then
+		case ",${6:-}," in
+			*,ro,*) readonly_bind=1 ;;
+		esac
+	fi
+done < /proc/self/mountinfo
+if [ "$readonly_bind" != 1 ]; then
+	printf not-read-only > .coding-ethos/cache/git-bind-not-read-only
+	exit 96
+fi
+printf wrapper > .coding-ethos/cache/git-wrapper
+exit 0
+`
+	targetScript := "#!/bin/sh\nprintf target > .coding-ethos/cache/git-target\nexit 97\n"
+	realGitScript := "#!/bin/sh\nexit 0\n"
+
+	for path, content := range map[string]string{
+		files.policyGit: policyScript,
+		files.realGit:   realGitScript,
+		files.targetGit: targetScript,
+	} {
+		err = writeNativeProbeExecutable(path, []byte(content))
+		if err != nil {
+			return nativeGitBindProbeFiles{}, fmt.Errorf("write %s: %w", path, err)
+		}
+	}
+
+	realGitBind, err := os.OpenFile(
+		files.realGitBind,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		nativeProbeFileMode,
+	)
+	if err != nil {
+		return nativeGitBindProbeFiles{}, fmt.Errorf("create real git bind target: %w", err)
+	}
+
+	closeErr := realGitBind.Close()
+	if closeErr != nil {
+		return nativeGitBindProbeFiles{}, fmt.Errorf(
+			"close real git bind target: %w",
+			closeErr,
+		)
+	}
+
+	return files, nil
+}
+
+func writeNativeProbeExecutable(path string, content []byte) error {
+	file, err := os.OpenFile(
+		path,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		nativeProbeWriteMode,
+	)
+	if err != nil {
+		return fmt.Errorf("create native probe executable %s: %w", path, err)
+	}
+
+	_, writeErr := file.Write(content)
+	closeErr := file.Close()
+
+	if writeErr != nil {
+		return fmt.Errorf("write native probe executable %s: %w", path, writeErr)
+	}
+
+	if closeErr != nil {
+		return fmt.Errorf("close native probe executable %s: %w", path, closeErr)
+	}
+
+	err = os.Chmod(path, nativeProbeFileMode)
+	if err != nil {
+		return fmt.Errorf("mark native probe executable %s executable: %w", path, err)
+	}
+
+	return nil
+}
+
+func validateNativeGitBindSideEffects(
+	repoRoot string,
+	evidence Evidence,
+) (Evidence, error) {
+	cacheRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+	wrapperProbe := filepath.Join(cacheRoot, "git-wrapper")
+
+	wrapperContent, readErr := os.ReadFile(wrapperProbe)
+	if readErr != nil || strings.TrimSpace(string(wrapperContent)) != "wrapper" {
+		evidence.Denied = true
+		evidence.Reason = "native sandbox did not route git target through wrapper bind"
+
+		return evidence, fmt.Errorf("%w: %s", ErrBackendUnavailable, evidence.Reason)
+	}
+
+	for marker, reason := range map[string]string{
+		filepath.Join(cacheRoot, "git-target"): "native sandbox executed unwrapped " +
+			"git target",
+		filepath.Join(
+			cacheRoot,
+			"git-bind-not-read-only",
+		): "native sandbox did not remount git wrapper bind read-only",
+	} {
+		_, statErr := os.Stat(marker)
+		if statErr == nil {
+			evidence.Denied = true
+			evidence.Reason = reason
+
+			return evidence, fmt.Errorf("%w: %s", ErrBackendUnavailable, reason)
+		}
+
+		if !os.IsNotExist(statErr) {
+			evidence.Denied = true
+			evidence.Reason = statErr.Error()
+
+			return evidence, fmt.Errorf(
+				"%w: inspect native git bind probe: %w",
+				ErrBackendUnavailable,
+				statErr,
+			)
+		}
+	}
+
+	return evidence, nil
+}
+
 func (request Request) evidence() Evidence {
 	writePaths := sandboxWritePaths(
 		request.RepoRoot,
@@ -440,6 +654,7 @@ func (request Request) evidence() Evidence {
 		RequiresEnv:       request.Capabilities.RequiresEnv,
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
+		StrategicIntent:   request.Capabilities.StrategicIntent,
 		GitReadOnly:       true,
 		RepoReadOnly:      true,
 		NetworkIsolated: !request.Capabilities.RequiresProcesses &&
@@ -606,7 +821,12 @@ func nativeSandboxBinaryName() string {
 }
 
 func nativeWrapperArgs(request Request, writePaths []string) []string {
-	args := make([]string, 0, 4+2*len(writePaths)+2+len(request.Args))
+	gitTargets := normalizedGitTargetPaths(request.Capabilities.GitTargetPaths)
+	args := make(
+		[]string,
+		0,
+		4+2*len(writePaths)+2+2*len(gitTargets)+2+len(request.Args),
+	)
 	args = append(args,
 		"--cwd",
 		request.Cwd,
@@ -618,10 +838,53 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 		args = append(args, "--write-path", path)
 	}
 
+	if request.Capabilities.RequiresGit {
+		args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)
+
+		args = append(
+			args,
+			"--real-git-path",
+			request.Capabilities.RealGitPath,
+			"--real-git-bind",
+			request.Capabilities.RealGitBindPath,
+		)
+		for _, path := range gitTargets {
+			args = append(args, "--git-target", path)
+		}
+	}
+
 	args = append(args, "--", request.Executable)
 	args = append(args, request.Args...)
 
 	return args
+}
+
+func normalizedGitTargetPaths(paths []string) []string {
+	targets := []string{}
+	seen := map[string]struct{}{}
+
+	for _, path := range paths {
+		normalized := strings.TrimSpace(path)
+		if normalized == "" {
+			continue
+		}
+
+		cleaned := filepath.Clean(normalized)
+
+		resolved, err := filepath.EvalSymlinks(cleaned)
+		if err == nil {
+			cleaned = filepath.Clean(resolved)
+		}
+
+		if _, found := seen[cleaned]; found {
+			continue
+		}
+
+		seen[cleaned] = struct{}{}
+		targets = append(targets, cleaned)
+	}
+
+	return targets
 }
 
 func absoluteSandboxPath(path string) (string, error) {

@@ -4,8 +4,10 @@
 package realgit_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -65,6 +67,65 @@ func TestResolveRejectsShimEnvironmentCandidate(t *testing.T) {
 
 	if got != git {
 		t.Fatalf("Resolve chose %q, want non-shim git %q", got, git)
+	}
+}
+
+func TestCleanGitLocalEnvRemovesHookScopedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	got := realgit.CleanGitLocalEnv([]string{
+		"PATH=/usr/bin",
+		"GIT_DIR=/tmp/repo/.git",
+		"GIT_CONFIG_KEY_0=core.sshCommand",
+		"GIT_CONFIG_VALUE_0=ssh -i key",
+		"GIT_WORK_TREE=/tmp/repo",
+		"KEEP=value",
+	})
+
+	for _, blocked := range []string{
+		"GIT_DIR=/tmp/repo/.git",
+		"GIT_CONFIG_KEY_0=core.sshCommand",
+		"GIT_CONFIG_VALUE_0=ssh -i key",
+		"GIT_WORK_TREE=/tmp/repo",
+	} {
+		if slices.Contains(got, blocked) {
+			t.Fatalf("CleanGitLocalEnv retained %q: %#v", blocked, got)
+		}
+	}
+
+	for _, kept := range []string{"PATH=/usr/bin", "KEEP=value", "GIT_OPTIONAL_LOCKS=0"} {
+		if !slices.Contains(got, kept) {
+			t.Fatalf("CleanGitLocalEnv missing %q: %#v", kept, got)
+		}
+	}
+}
+
+func TestLooksLikeCodingEthosShimRejectsRuntimeDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	selfDir := filepath.Join(root, "runtime")
+	toolDir := filepath.Join(root, "tools")
+	self := createNamedExecutable(t, selfDir, "coding-ethos-run", "#!/bin/sh\nexit 0\n")
+	shim := createNamedExecutable(t, toolDir, "git", "#!/bin/sh\nexit 0\n")
+	createNamedExecutable(t, toolDir, "coding-ethos-run", "#!/bin/sh\nexit 0\n")
+
+	if !realgit.LooksLikeCodingEthosShim(filepath.Join(selfDir, "git"), self) {
+		t.Fatal("git beside current runtime should be treated as a shim")
+	}
+	if !realgit.LooksLikeCodingEthosShim(shim, self) {
+		t.Fatal("git beside coding-ethos-run should be treated as a shim")
+	}
+	if realgit.LooksLikeCodingEthosShim("/usr/bin/git", self) {
+		t.Fatal("system git path should not be treated as a coding-ethos shim")
+	}
+}
+
+func TestExecutableUsesShimNameWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	if got := realgit.Executable(context.Background(), true); got != "git" {
+		t.Fatalf("Executable(wantsShim=true) = %q, want git", got)
 	}
 }
 

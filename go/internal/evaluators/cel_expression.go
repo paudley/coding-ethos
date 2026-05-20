@@ -545,6 +545,8 @@ func celActivation(context Context, source string) map[string]any {
 		ChangedFiles:       context.ChangedFiles,
 		StagedFiles:        context.StagedFiles,
 		Provider:           context.Provider,
+		StrategicIntent:    context.StrategicIntent,
+		ActiveTodo:         context.ActiveTodo,
 		Mode:               stringOption(context.EvaluatorOptions, "mode", ""),
 		Scope:              context.Scope,
 		SessionID:          context.SessionID,

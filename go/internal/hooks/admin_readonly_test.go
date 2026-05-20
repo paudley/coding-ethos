@@ -106,6 +106,30 @@ func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
 	}
 }
 
+func TestRunBlocksAdminFileToolEmulation(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
+		Event: Event{
+			Cwd:           "/workspace/coding-ethos",
+			HookEventName: "PreToolUse",
+			ProviderHint:  "claude",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"command": `cat README.md`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != hookStatusBlocked {
+		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	}
+}
+
 func TestRunBlocksMultiActionParallelBatch(t *testing.T) {
 	t.Parallel()
 

@@ -21,16 +21,24 @@ const cerunMissingRuntimeExitCode = 127
 func main() {
 	execguard.Enter("cerun")
 
+	exitCode := runCerun(os.Args[1:])
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+func runCerun(args []string) int {
 	runner, err := siblingRunner()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cerun: %s\n", err)
-		os.Exit(cerunMissingRuntimeExitCode)
+
+		return cerunMissingRuntimeExitCode
 	}
 
 	command := safeexec.CommandContext(
 		context.Background(),
 		runner,
-		append([]string{"agent-shell"}, os.Args[1:]...)...,
+		cerunRuntimeArgs(args)...,
 	)
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
@@ -38,8 +46,31 @@ func main() {
 
 	err = command.Run()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cerun: exec %s: %s\n", runner, err)
-		os.Exit(cerunExitCode(err))
+		var execErr *exec.Error
+		if errors.As(err, &execErr) {
+			fmt.Fprintf(os.Stderr, "cerun: exec %s: %s\n", runner, err)
+		}
+
+		return cerunExitCode(err)
+	}
+
+	return 0
+}
+
+func cerunRuntimeArgs(args []string) []string {
+	if len(args) == 0 {
+		return []string{"agent-shell"}
+	}
+
+	switch filepath.Base(args[0]) {
+	case "git", "python":
+		commandArgs := append([]string{filepath.Base(args[0])}, args[1:]...)
+
+		return append([]string{"agent-shell", "--rewrite", "--"}, commandArgs...)
+	case "lint":
+		return append([]string{"policy-lint"}, args[1:]...)
+	default:
+		return append([]string{"agent-shell"}, args...)
 	}
 }
 
@@ -49,7 +80,7 @@ func cerunExitCode(err error) int {
 	}
 
 	var execErr *exec.Error
-	if errors.As(err, &execErr) {
+	if errors.As(err, &execErr) || errors.Is(err, os.ErrNotExist) {
 		return cerunMissingRuntimeExitCode
 	}
 

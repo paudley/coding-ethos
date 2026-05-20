@@ -55,7 +55,7 @@ func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testin
 			for _, expected := range []string{
 				`"hookSpecificOutput"`,
 				`"updatedInput"`,
-				`policy-git`,
+				`agent-shell --rewrite --`,
 			} {
 				if !strings.Contains(output, expected) {
 					t.Fatalf("missing %q in provider output: %s", expected, output)

@@ -97,7 +97,7 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 	}
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "policy-git") ||
+	if !ok || !strings.Contains(rewritten, "agent-shell --rewrite --") ||
 		!strings.Contains(rewritten, "commit") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1156,9 +1156,8 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "policy-git 'status'") ||
-		!strings.Contains(rewritten, "&&") ||
-		!strings.Contains(rewritten, "policy-git 'log' '--oneline' '-1'") {
+		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "git status && git log --oneline -1") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
@@ -1242,6 +1241,83 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 	}
 }
 
+func TestRunBlocksShellFileToolEmulation(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cat README.md",
+		"sed -n '1,20p' README.md",
+		"awk '{print}' README.md",
+		"echo updated > README.md",
+		"printf '%s' updated > README.md",
+		"tee README.md",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "claude",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusBlocked {
+				t.Fatalf(
+					"status for %q = %q decisions %#v",
+					command,
+					result.Status,
+					result.Decisions,
+				)
+			}
+
+			if !hasDecision(result.Decisions, "shell.file_tool_emulation") {
+				t.Fatalf("missing file-tool decision: %#v", result.Decisions)
+			}
+		})
+	}
+}
+
+func TestRunAllowsPlainShellOutputWithoutFileEmulation(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"echo ready",
+		"printf 'a,b\\n' | awk -F , '{print $1}'",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "claude",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed {
+				t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
+			}
+		})
+	}
+}
+
 func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
 	t.Parallel()
 
@@ -1250,6 +1326,7 @@ func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
 		"true && cerun -- git status",
 		"cerun -- git status; /usr/bin/git push",
 		"coding-ethos-run agent-shell -- git status",
+		"PATH=/tmp/malicious cerun -- git status",
 	} {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
@@ -1278,6 +1355,33 @@ func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestRunRejectsEnvResolvedRunnerHijack(t *testing.T) {
+	repo := initHookRepo(t)
+	runner := filepath.Join(repo, "coding-ethos-run")
+	t.Setenv("INVOCATION_CWD", repo)
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", repo)
+	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", runner)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           repo,
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "coding-ethos-run agent-shell -- git status",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
 	}
 }
 
@@ -1352,9 +1456,9 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "policy-git 'add'") ||
-		!strings.Contains(rewritten, "policy-git 'status' '-s'") ||
-		!strings.Contains(rewritten, "| 'grep' 'tamperproofing'") {
+		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "git add ") ||
+		!strings.Contains(rewritten, "git status -s | grep tamperproofing") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
 }
@@ -1386,14 +1490,15 @@ func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
-			"'lbox-platform/lib/python/tests/parsing/enrichment_fixtures.py'",
+			"lbox-platform/lib/python/tests/parsing/enrichment_fixtures.py",
 		) ||
 		!strings.Contains(
 			rewritten,
-			"'lbox-platform/lib/python/tests/parsing/test_analyzer_cisr.py'",
+			"lbox-platform/lib/python/tests/parsing/test_analyzer_cisr.py",
 		) {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1437,14 +1542,15 @@ func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "policy-git 'add'") ||
+		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
-			"'lbox-platform/lib/python/lbox/kg/interlink/__init__.py'",
+			"lbox-platform/lib/python/lbox/kg/interlink/__init__.py",
 		) ||
 		!strings.Contains(
 			rewritten,
-			"'lbox-platform/scripts/_phase3_strategy_factory.py'",
+			"lbox-platform/scripts/_phase3_strategy_factory.py",
 		) {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1505,8 +1611,9 @@ func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "'pwd' &&") ||
-		!strings.Contains(rewritten, "policy-git 'status' '--short' 2>&1") ||
+		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "pwd &&") ||
+		!strings.Contains(rewritten, "git status --short 2>&1") ||
 		strings.Contains(rewritten, "'2>' & '1'") ||
 		strings.Contains(rewritten, " & '1'") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)

@@ -45,11 +45,11 @@ func TestClaudeDoctorRewriteRequiresRedirection(t *testing.T) {
 	t.Parallel()
 
 	stdout := `{"hookSpecificOutput":{"updatedInput":{"command":` +
-		`"/repo/bin/coding-ethos-run policy-git 'status' '--short'"}}}`
+		`"/repo/bin/coding-ethos-run agent-shell --rewrite -- 'git status --short'"}}}`
 	payload := map[string]any{
 		"hookSpecificOutput": map[string]any{
 			"updatedInput": map[string]any{
-				"command": "/repo/bin/coding-ethos-run policy-git 'status' '--short'",
+				"command": "/repo/bin/coding-ethos-run agent-shell --rewrite -- 'git status --short'",
 			},
 		},
 	}

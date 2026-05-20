@@ -123,9 +123,9 @@ func expectedExplainPolicyOutput() []string {
 
 func expectedEventInputSchema() string {
 	return "`event: {name, provider, tool, scope, mode, source, matcher, " +
-		"session_id, transcript_path, tool_input_keys, tool_response_keys, " +
-		"return_code, has_tool_input, has_tool_response, is_claude, " +
-		"is_codex, is_gemini}`"
+		"session_id, active_todo, strategic_intent, transcript_path, " +
+		"tool_input_keys, tool_response_keys, return_code, has_tool_input, " +
+		"has_tool_response, is_claude, is_codex, is_gemini}`"
 }
 
 func expectedDiffInputSchema() string {

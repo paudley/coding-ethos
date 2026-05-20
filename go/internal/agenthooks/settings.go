@@ -6,21 +6,25 @@ package agenthooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/hookcli"
+	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
@@ -28,16 +32,18 @@ import (
 const (
 	codexConfigGrowth = 2
 	mcpServerName     = "coding-ethos"
+	probeTimeout      = 30 * time.Second
 	settingsDirMode   = 0o755
 	settingsFileMode  = 0o600
 
-	eventPreToolUse       = "PreToolUse"
-	eventPostToolUse      = "PostToolUse"
-	eventSessionStart     = "SessionStart"
-	eventUserPromptSubmit = "UserPromptSubmit"
-	eventStop             = "Stop"
-	eventBeforeTool       = "BeforeTool"
-	eventAfterTool        = "AfterTool"
+	eventPreToolUse        = "PreToolUse"
+	eventPostToolUse       = "PostToolUse"
+	eventPermissionRequest = "PermissionRequest"
+	eventSessionStart      = "SessionStart"
+	eventUserPromptSubmit  = "UserPromptSubmit"
+	eventStop              = "Stop"
+	eventBeforeTool        = "BeforeTool"
+	eventAfterTool         = "AfterTool"
 
 	verifyStatusFail    = "fail"
 	verifyStatusInvalid = "invalid"
@@ -58,6 +64,9 @@ var (
 	)
 	errUnsupportedHookCommand = apperror.StaticError(
 		"unsupported hook command for direct probe",
+	)
+	errCodexTrustMismatch = apperror.StaticError(
+		"Codex user config does not trust generated project hooks",
 	)
 )
 
@@ -557,7 +566,7 @@ func renderManagedCodexMCPBlock(server mcpServer) string {
 func codexHookEventOrder() []string {
 	return []string{
 		eventPreToolUse,
-		"PermissionRequest",
+		eventPermissionRequest,
 		eventPostToolUse,
 		eventSessionStart,
 		eventUserPromptSubmit,
@@ -1625,12 +1634,31 @@ func runHookProbe(
 		return hookProbeResult{}, err
 	}
 
-	exitCode := hookcli.Run(
-		args,
-		strings.NewReader(probe.payload),
-		&stdout,
-		&stderr,
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+
+	command := safeexec.CommandContext(ctx, args[0], args[1:]...)
+	command.Dir = root
+	command.Env = withoutHookProbeProcessState(os.Environ())
+	command.Stdin = strings.NewReader(probe.payload)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+
+	runErr := command.Run()
+	exitCode := 0
+
+	if runErr != nil {
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return hookProbeResult{}, fmt.Errorf("run hook probe: %w", runErr)
+		}
+	}
+
+	if ctx.Err() != nil {
+		return hookProbeResult{}, fmt.Errorf("run hook probe: %w", ctx.Err())
+	}
 
 	result := hookProbeResult{
 		exitCode: exitCode,
@@ -1648,6 +1676,22 @@ func runHookProbe(
 	}
 
 	return result, nil
+}
+
+func withoutHookProbeProcessState(environ []string) []string {
+	const hookLoggingActiveEnv = "CODE_ETHOS_HOOK_LOGGING_ACTIVE"
+
+	filtered := make([]string, 0, len(environ))
+	for _, entry := range environ {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == execguard.EnvStack || key == hookLoggingActiveEnv {
+			continue
+		}
+
+		filtered = append(filtered, entry)
+	}
+
+	return filtered
 }
 
 func hookProbeArgs(root, hookCommand string) ([]string, error) {
@@ -1671,10 +1715,9 @@ func hookProbeArgs(root, hookCommand string) ([]string, error) {
 		runnerPath = filepath.Join(root, runnerPath)
 	}
 
-	ethosRoot := filepath.Dir(filepath.Dir(filepath.Clean(runnerPath)))
-	bundlePath := filepath.Join(ethosRoot, "build", "policy", "policy-bundle.json")
+	argv[0] = runnerPath
 
-	return []string{"--bundle", bundlePath, "--json"}, nil
+	return argv, nil
 }
 
 func decodeHookProbePayload(output string) (map[string]any, error) {
@@ -1793,7 +1836,8 @@ func validateRewriteProbe(result hookProbeResult, provider string) error {
 		)
 	}
 
-	if !strings.Contains(command, "policy-git 'status' '--short'") {
+	if !strings.Contains(command, "agent-shell --rewrite --") ||
+		!strings.Contains(command, "git status --short") {
 		return apperror.Wrapf(
 			apperror.StaticError("%s rewrite lost git wrapper or redirection: %s"),
 			"%s rewrite lost git wrapper or redirection: %s",

@@ -69,9 +69,9 @@ func TestWriteJSONReportFormatsPayload(t *testing.T) {
 }
 
 func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
+
 	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
 
 	err := printSettings([]string{"--hook-command", hookCommand})
@@ -97,9 +97,9 @@ func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
 }
 
 func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
+
 	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
 
 	if code := runCLI(

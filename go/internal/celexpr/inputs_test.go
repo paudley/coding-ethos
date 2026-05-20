@@ -68,6 +68,8 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 		"shell_commands: list(",
 		"proposed_file_changes: list(",
 		"proxy: {",
+		"strategic_intent",
+		"active_todo",
 		"python_ast: list(",
 		"tool_capabilities: list(",
 	} {
@@ -87,6 +89,28 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 		if !strings.Contains(helperSchema, want) {
 			t.Fatalf("helper schema missing %q:\n%s", want, helperSchema)
 		}
+	}
+}
+
+func TestActivationCarriesStrategicIntentFact(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		EventName:       "PreToolUse",
+		Provider:        "gemini",
+		StrategicIntent: "edit only pkg/auth.go",
+		ActiveTodo:      "implement runner policy",
+	})
+
+	event, ok := activation["event"].(EventInput)
+	if !ok {
+		t.Fatalf("event activation = %#v", activation["event"])
+	}
+	if event.StrategicIntent != "edit only pkg/auth.go" {
+		t.Fatalf("strategic intent = %q", event.StrategicIntent)
+	}
+	if event.ActiveTodo != "implement runner policy" {
+		t.Fatalf("active todo = %q", event.ActiveTodo)
 	}
 }
 

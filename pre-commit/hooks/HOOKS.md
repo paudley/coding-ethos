@@ -151,6 +151,26 @@ entrypoint for `coding-ethos-run agent-shell --rewrite -- <command>`; it keeps
 resubmission compact while routing the command through the coding-ethos runtime
 boundary and applying command rewrite rules before execution.
 
+`cerun` is a single-boundary command runner. `cerun -- <command>` executes the
+target under the managed agent-shell runtime, `cerun --check -- <command>` runs
+the same policy inspection without executing it, `cerun git <args>` and
+`cerun python <args>` apply the managed rewrite path before execution, and
+`cerun lint <args>` dispatches to policy-lint. Nested `cerun` or
+`coding-ethos-run agent-shell` invocations are blocked because the outer runner
+is the enforcement boundary.
+
+Claude Bash commands must not emulate provider file tools. `cat <file>`,
+`sed ... <file>`, `awk ... <file>`, `tee <file>`, and `echo`/`printf` write
+redirection are blocked in Bash hooks, including admin-approved read-only
+inspection contexts. Agents should use provider Read, Edit, Write, or
+equivalent structured file tools so hooks receive explicit file targets.
+
+Claude `/permissions` entries may allow the literal runner forms, for example
+`Bash(cerun -- *)` and `Bash(cerun --check -- *)`. Provider permissions are not
+the security boundary: direct Git, absolute Git paths, inline environment
+preludes, shell file-tool emulation, and nested runner invocations are still
+evaluated by coding-ethos and fail closed.
+
 Codex generation follows four invariants:
 
 - generated commands do not inline `PATH=` or other shell environment mutation;
@@ -171,6 +191,12 @@ Hook logs under `.coding-ethos/hook-runs/` include `stdout.log`, `stderr.log`,
 trace records provider, event, tool, cwd, referenced files, command preview and
 hash, decision policy IDs, status, and output shape without dumping raw provider
 input.
+Hook results also carry runtime duration. With `--coding-ethos-debug`, slow hook
+inspection emits a structured debug event with the runtime and budget. When a
+provider sends TodoWrite state, the active todo is exposed to CEL as
+`event.active_todo` so policy and trace consumers can connect command activity
+to the current task without reading provider memory files.
+
 Agent-facing post-tool context
 normalizes absolute repo, home, and temporary paths, collapses multiline
 commands, and renders hook output as TOON line tables instead of giant escaped

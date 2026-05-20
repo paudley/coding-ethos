@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -80,6 +81,30 @@ func TestInternalCLIPackagesDoNotExposeMainFunctions(t *testing.T) {
 				mainPath,
 			)
 		}
+	}
+}
+
+func TestEnterRecordsNormalizedStack(t *testing.T) {
+	t.Setenv(EnvStack, " existing \n\n")
+
+	Enter(" coding-ethos-test ")
+
+	got := currentStack()
+	want := []string{"existing", "coding-ethos-test"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("currentStack() = %#v, want %#v", got, want)
+	}
+}
+
+func TestEnterUsesFallbackNameForBlankEntrypoint(t *testing.T) {
+	t.Setenv(EnvStack, "")
+
+	Enter(" ")
+
+	got := currentStack()
+	want := []string{"coding-ethos"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("currentStack() = %#v, want %#v", got, want)
 	}
 }
 

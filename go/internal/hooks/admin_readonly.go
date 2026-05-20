@@ -61,7 +61,6 @@ func isReadOnlyInspectionStep(command shellparse.Command) bool {
 
 func readOnlyInspectionName(name string) bool {
 	return slices.Contains([]string{
-		"cat",
 		"cut",
 		"file",
 		"find",
@@ -73,7 +72,6 @@ func readOnlyInspectionName(name string) bool {
 		"nl",
 		"pwd",
 		"rg",
-		"sed",
 		"sort",
 		"stat",
 		"tail",

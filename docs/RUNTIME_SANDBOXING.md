@@ -96,6 +96,20 @@ namespace setup on Linux is a normalized `runtime.sandbox_denial` failure. The
 runner must not fall back to unsandboxed execution when a Linux tool declares a
 sandbox profile.
 
+`coding-ethos-run agent-shell` uses the same native boundary on Linux. The
+runner installs managed Git bind mounts before execution, so `/usr/bin/git`,
+directory-relative Git paths such as `cd /usr/bin; ./git`, and PATH-resolved
+Git all resolve to the policy Git wrapper inside the sandbox. The boundary is
+not optional and is not selected by a user flag: Linux uses native sandboxing;
+non-Linux platforms do not claim Linux namespace enforcement.
+
+The agent-shell command also performs policy inspection before execution.
+Unsupported shapes are rejected before the sandboxed process starts, including
+recursive runner invocations and command argv that appears to expose secrets or
+local-machine paths. Bash file-tool emulation is blocked at hook inspection
+time so file reads and writes stay on provider file-tool events with structured
+file targets.
+
 The checkout build treats that dependency contract as a gate, not a runtime
 surprise. `make build` invokes `coding-ethos-toolchain
 validate-sandbox-runtime`, which launches a minimal native namespace probe that

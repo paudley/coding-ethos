@@ -86,6 +86,11 @@ func syncSettings(args []string) error {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
 
+	err = agenthooks.SyncCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	if err != nil {
+		return fmt.Errorf("sync Codex hook trust: %w", err)
+	}
+
 	return nil
 }
 
@@ -102,6 +107,11 @@ func doctorSettings(args []string) error {
 	err = agenthooks.DoctorSettings(*root, defaultHookCommand(*hookCommand))
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
+	}
+
+	err = agenthooks.VerifyCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	if err != nil {
+		return fmt.Errorf("doctor Codex hook trust: %w", err)
 	}
 
 	err = writeDoctorReport(os.Stdout)
@@ -131,6 +141,32 @@ func verifySettings(args []string) error {
 
 		return fmt.Errorf("verify agent hook settings: %w", err)
 	}
+
+	err = agenthooks.VerifyCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	if err != nil {
+		report.Status = "invalid"
+		report.Checks = append(report.Checks, agenthooks.VerifyCheck{
+			Provider: "codex",
+			Event:    "hook-trust",
+			Tool:     "config.toml",
+			Status:   "fail",
+			Detail:   err.Error(),
+		})
+
+		encodeErr := writeJSONReport(os.Stdout, report)
+		if encodeErr != nil {
+			return encodeErr
+		}
+
+		return fmt.Errorf("verify Codex hook trust: %w", err)
+	}
+
+	report.Checks = append(report.Checks, agenthooks.VerifyCheck{
+		Provider: "codex",
+		Event:    "hook-trust",
+		Tool:     "config.toml",
+		Status:   "pass",
+	})
 
 	err = writeJSONReport(os.Stdout, report)
 	if err != nil {

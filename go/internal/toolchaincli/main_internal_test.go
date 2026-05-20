@@ -925,6 +925,8 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 }
 
 func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
+	requireNativeSandboxRuntime(t)
+
 	wrapper := buildSandboxHelper(t)
 
 	err := validateSandboxRuntimeWithWrapperPath(wrapper)
@@ -966,6 +968,19 @@ func buildSandboxHelper(t *testing.T) string {
 	}
 
 	return output
+}
+
+func requireNativeSandboxRuntime(t *testing.T) {
+	t.Helper()
+
+	evidence, err := sandbox.ValidateNativeRuntime()
+	if err != nil {
+		t.Skipf(
+			"native sandbox runtime is unavailable in this test process: %v evidence=%#v",
+			err,
+			evidence,
+		)
+	}
 }
 
 func TestSandboxDependencyDiagnosticReportsNativeRuntime(t *testing.T) {

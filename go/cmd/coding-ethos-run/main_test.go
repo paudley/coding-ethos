@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
@@ -517,7 +519,7 @@ repo:
 		ToolName:      "Bash",
 		Cwd:           parentRepo,
 		ToolInput: map[string]any{
-			"command": "sed -n '1,220p' shared/podcasts.go",
+			"command": "printf '%s\n' ready",
 		},
 	})
 	assertParentHookAllowsProtectedBranchDisabledEvent(t, bundle, parentRepo, hooks.Event{
@@ -1119,6 +1121,301 @@ func TestAgentShellCommandParsesRewriteFlag(t *testing.T) {
 
 	if request.Command != "git status" || !request.Rewrite {
 		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestAgentShellRewriteRoutesGitToPolicyGitWithoutNestedRunner(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	writePolicyBundleForTest(t, paths.PolicyBundle)
+	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", paths.RunBinary)
+
+	request, err := agentShellCommand([]string{"--rewrite", "--", "git", "status"})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	rewritten, err := rewriteAgentShellCommand(paths, request)
+	if err != nil {
+		t.Fatalf("rewrite agent shell command: %v", err)
+	}
+
+	if strings.Contains(rewritten, "agent-shell") {
+		t.Fatalf("rewritten command recurses through agent-shell: %q", rewritten)
+	}
+	if !strings.Contains(rewritten, "policy-git") ||
+		!strings.Contains(rewritten, "status") {
+		t.Fatalf("rewritten command does not route through policy-git: %q", rewritten)
+	}
+}
+
+func TestAgentShellEdgeDecisionBlocksRecursiveRunner(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cerun -- git status",
+		"bin/coding-ethos-run agent-shell -- git status",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			decision, blocked := agentShellEdgeDecision(command)
+			if !blocked {
+				t.Fatalf("recursive runner command %q was allowed", command)
+			}
+			if decision.PolicyID != "runner.recursive_invocation" {
+				t.Fatalf("policy = %q", decision.PolicyID)
+			}
+		})
+	}
+}
+
+func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("agent-shell native sandbox is Linux-only")
+	}
+
+	paths := runtimeTestPaths(t)
+	writeExecutableFixture(
+		t,
+		filepath.Join(paths.BinDir, "coding-ethos-sandbox"),
+		"#!/usr/bin/env sh\nexit 0\n",
+	)
+
+	plan, cleanup, err := agentShellSandboxPlan(
+		paths,
+		"/usr/bin/env",
+		[]string{"bash", "-lc", "git status"},
+	)
+	defer cleanup()
+	if err != nil {
+		t.Fatalf("agentShellSandboxPlan() error = %v", err)
+	}
+
+	if plan.Executable != filepath.Join(paths.BinDir, "coding-ethos-sandbox") {
+		t.Fatalf("plan executable = %q", plan.Executable)
+	}
+	for _, want := range []string{
+		"--git-wrapper",
+		"--real-git-path",
+		paths.RealGit,
+		"--git-target",
+		paths.RealGit,
+		"--",
+		"/usr/bin/env",
+		"bash",
+		"-lc",
+		"git status",
+	} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("plan args missing %q: %#v", want, plan.Args)
+		}
+	}
+}
+
+func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("agent-shell native sandbox is Linux-only")
+	}
+
+	paths := runtimeTestPaths(t)
+
+	_, cleanup, err := agentShellSandboxPlan(
+		paths,
+		"/usr/bin/env",
+		[]string{"bash", "-lc", "git status"},
+	)
+	defer cleanup()
+	if err == nil {
+		t.Fatal("agentShellSandboxPlan() succeeded without coding-ethos-sandbox")
+	}
+	if !strings.Contains(err.Error(), "coding-ethos-sandbox") {
+		t.Fatalf("error does not identify missing helper: %v", err)
+	}
+}
+
+func TestAgentShellSandboxProfileIsExplicitByPlatform(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		goos     string
+		profile  string
+		enforced bool
+	}{
+		{goos: "linux", profile: "agent-shell", enforced: true},
+		{goos: "darwin", profile: "none", enforced: false},
+		{goos: "windows", profile: "none", enforced: false},
+	}
+
+	for _, test := range cases {
+		t.Run(test.goos, func(t *testing.T) {
+			t.Parallel()
+
+			if agentShellSandboxProfile(test.goos) != test.profile {
+				t.Fatalf("profile(%q) = %q", test.goos, agentShellSandboxProfile(test.goos))
+			}
+			if agentShellSandboxEnforced(test.goos) != test.enforced {
+				t.Fatalf("enforced(%q) = %t", test.goos, agentShellSandboxEnforced(test.goos))
+			}
+		})
+	}
+}
+
+func TestWriteExecutableFileCreatesRunnablePrivateFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "tool")
+	err := writeExecutableFile(path, []byte("#!/usr/bin/env sh\nexit 0\n"))
+	if err != nil {
+		t.Fatalf("writeExecutableFile() error = %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat executable file: %v", err)
+	}
+	if info.Mode().Perm() != agentShellAssetMode {
+		t.Fatalf("mode = %#o, want %#o", info.Mode().Perm(), agentShellAssetMode)
+	}
+
+	if err := validateExecutablePath(path); err != nil {
+		t.Fatalf("validateExecutablePath() error = %v", err)
+	}
+}
+
+func TestUniqueCleanPathsDeduplicatesResolvedPaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "git")
+	writeExecutableFixture(t, target, "#!/usr/bin/env sh\nexit 0\n")
+
+	link := filepath.Join(root, "link-git")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	got := uniqueCleanPaths([]string{"", target, link, filepath.Join(root, ".", "git")})
+	if !slices.Equal(got, []string{target}) {
+		t.Fatalf("uniqueCleanPaths() = %#v, want %#v", got, []string{target})
+	}
+}
+
+func TestAgentShellCommandParsesCheckAndIntent(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{
+		"--rewrite",
+		"--check",
+		"--intent",
+		"fix formatter failures",
+		"--",
+		"git",
+		"status",
+	})
+	if err != nil {
+		t.Fatalf("agentShellCommand() error = %v", err)
+	}
+
+	if !request.Rewrite || !request.Check ||
+		request.Intent != "fix formatter failures" ||
+		request.Command != "git status" {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestAgentShellEdgeScannerBlocksSecretsAndLocalPII(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		input  string
+		policy string
+	}{
+		{
+			name:   "secret",
+			input:  "curl -H 'Authorization: token abcdefghijklmnopqrstuvwxyz1234'",
+			policy: "runner.argv_secret",
+		},
+		{
+			name:   "local path",
+			input:  "cat /" + strings.Join([]string{"home", "example", ".ssh", "config"}, "/"),
+			policy: "runner.argv_local_pii",
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decision, blocked := agentShellEdgeDecision(test.input)
+			if !blocked || decision.PolicyID != test.policy {
+				t.Fatalf("edge decision = %#v, %v", decision, blocked)
+			}
+		})
+	}
+}
+
+func TestAgentShellBlockResultFormatsSARIFRemediation(t *testing.T) {
+	t.Parallel()
+
+	decision, blocked := agentShellEdgeDecision(
+		"curl -H 'Authorization: token abcdefghijklmnopqrstuvwxyz1234'",
+	)
+	if !blocked {
+		t.Fatal("expected edge scanner block")
+	}
+
+	output, err := hookoutput.FormatLintResult(
+		agentShellBlockLintResult(agentShellBlockedResult(decision)),
+		hookoutput.FormatSARIF,
+	)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+	if !strings.Contains(output, `"agent_remediation"`) ||
+		!strings.Contains(output, `"runner.argv_secret"`) {
+		t.Fatalf("SARIF output missing remediation:\n%s", output)
+	}
+}
+
+func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-agent-shell-check")
+
+	paths := runtimeTestPaths(t)
+	paths.Executor = stubRuntimeOps{calls: &[]string{}}
+	writePolicyBundleForTest(t, paths.PolicyBundle)
+
+	output := captureRuntimeStdout(t, func() {
+		err := run(paths, []string{
+			"agent-shell",
+			"--check",
+			"--intent",
+			"inspect repo status",
+			"--",
+			"true",
+		})
+		if err != nil {
+			t.Fatalf("run agent-shell --check: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, `"status": "allowed"`) ||
+		!strings.Contains(output, `"strategic_intent": "inspect repo status"`) {
+		t.Fatalf("check output = %s", output)
+	}
+
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(paths.Root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("code-intel stats: %v", err)
+	}
+	if stats.ProxyEvents != 1 || stats.ProxySessions != 1 {
+		t.Fatalf("stats = %#v", stats)
 	}
 }
 
@@ -1996,6 +2293,21 @@ func readPolicyBundleForTest(t *testing.T, bundlePath string) policy.Bundle {
 	}
 
 	return bundle
+}
+
+func writePolicyBundleForTest(t *testing.T, bundlePath string) {
+	t.Helper()
+
+	file, err := os.OpenFile(bundlePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatalf("create policy bundle %s: %v", bundlePath, err)
+	}
+	defer file.Close()
+
+	err = policy.EncodeBundle(file, policy.ExampleBundle())
+	if err != nil {
+		t.Fatalf("encode policy bundle %s: %v", bundlePath, err)
+	}
 }
 
 func assertParentHookAllowsProtectedBranchDisabledEvent(

@@ -40,6 +40,10 @@ func (paths *repeatedPaths) Set(value string) error {
 
 type options struct {
 	paths       *sandboxPaths
+	gitTargets  []string
+	realGitPath string
+	realGitBind string
+	gitWrapper  string
 	writePaths  []string
 	commandArgv []string
 }
@@ -88,6 +92,7 @@ func run(args []string) error {
 func parseOptions(args []string) (options, error) {
 	var (
 		parsed     = options{paths: &sandboxPaths{}}
+		gitTargets repeatedPaths
 		writePaths repeatedPaths
 	)
 
@@ -96,6 +101,10 @@ func parseOptions(args []string) (options, error) {
 
 	flags.StringVar(&parsed.paths.cwd, "cwd", "", "Sandbox working directory")
 	flags.StringVar(&parsed.paths.repoRoot, "repo-root", "", "Repository root")
+	flags.StringVar(&parsed.gitWrapper, "git-wrapper", "", "Managed git wrapper")
+	flags.StringVar(&parsed.realGitPath, "real-git-path", "", "Real git source path")
+	flags.StringVar(&parsed.realGitBind, "real-git-bind", "", "Real git bind target")
+	flags.Var(&gitTargets, "git-target", "Git path to bind")
 	flags.Var(&writePaths, "write-path", "Writable repository path")
 
 	err := flags.Parse(args)
@@ -123,6 +132,7 @@ func parseOptions(args []string) (options, error) {
 	parsed.paths.repoRoot = filepath.Clean(repoRoot)
 
 	parsed.writePaths = append([]string(nil), writePaths...)
+	parsed.gitTargets = append([]string(nil), gitTargets...)
 
 	return parsed, nil
 }

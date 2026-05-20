@@ -22,6 +22,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -242,6 +243,7 @@ func TestServerLintCheckRunsCompiledPolicies(t *testing.T) {
 
 func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 	t.Parallel()
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
 
 	tempDir := t.TempDir()
 	writeManagedLintRuntimeFixture(t, tempDir)
@@ -280,6 +282,10 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 		`"check_id":"tool.ruff"`,
 	} {
 		if !strings.Contains(output, want) {
+			if !nativeSandboxAvailable && strings.Contains(output, "runtime.sandbox_denial") {
+				return
+			}
+
 			t.Fatalf("missing managed lint output %q:\n%s", want, output)
 		}
 	}
@@ -1694,6 +1700,12 @@ func buildSandboxHelper(t *testing.T, output string) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build sandbox helper: %v\n%s", err, output)
 	}
+}
+
+func nativeSandboxRuntimeAvailable() bool {
+	_, err := sandbox.ValidateNativeRuntime()
+
+	return err == nil
 }
 
 func mcpGoModuleRoot(t *testing.T) string {

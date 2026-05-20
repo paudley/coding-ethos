@@ -90,6 +90,65 @@ func (event Event) Command() string {
 	return command
 }
 
+func (event Event) StrategicIntent() string {
+	if event.ToolInput == nil {
+		return ""
+	}
+
+	for _, key := range []string{"strategic_intent", "update_topic", "intent"} {
+		value, ok := event.ToolInput[key].(string)
+		if ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+
+	return ""
+}
+
+func (event Event) ActiveTodo() string {
+	if event.ToolInput == nil {
+		return ""
+	}
+
+	todos, ok := event.ToolInput["todos"].([]any)
+	if !ok {
+		return ""
+	}
+
+	firstTodo := ""
+
+	for _, item := range todos {
+		todo, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		content := strings.TrimSpace(stringMapValue(todo, "content"))
+		if content == "" {
+			continue
+		}
+
+		if firstTodo == "" {
+			firstTodo = content
+		}
+
+		if strings.EqualFold(stringMapValue(todo, "status"), "in_progress") {
+			return content
+		}
+	}
+
+	return firstTodo
+}
+
+func stringMapValue(values map[string]any, key string) string {
+	value, ok := values[key].(string)
+	if !ok {
+		return ""
+	}
+
+	return value
+}
+
 func (event Event) Files() []string {
 	if event.ToolInput == nil {
 		return nil
