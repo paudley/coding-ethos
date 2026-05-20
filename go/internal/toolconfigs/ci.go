@@ -64,6 +64,27 @@ const githubCgroupDelegationStep = "" +
 	"          kill \"$verify_pid\" 2>/dev/null || true\n" +
 	"          wait \"$verify_pid\" 2>/dev/null || true\n"
 
+const githubSandboxDiagnosticStep = "" +
+	"      - name: Validate sandbox runtime preflight\n" +
+	"        run: |\n" +
+	"          set +e\n" +
+	"          bin/coding-ethos-toolchain validate-sandbox-runtime\n" +
+	"          status=$?\n" +
+	"          if [ \"$status\" -ne 0 ]; then\n" +
+	"            echo \"::group::AppArmor status\"\n" +
+	"            sudo aa-status || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            echo \"::group::Loaded sandbox profiles\"\n" +
+	"            sudo grep -E 'coding-ethos-sandbox|unprivileged' \\\n" +
+	"              /sys/kernel/security/apparmor/profiles || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            echo \"::group::Recent AppArmor denials\"\n" +
+	"            sudo dmesg | tail -n 200 | grep -i apparmor || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            exit \"$status\"\n" +
+	"          fi\n" +
+	"\n"
+
 const githubSARIFWorkflowTemplate = `name: Coding Ethos SARIF Gate
 
 %s
@@ -115,7 +136,7 @@ jobs:
         with:
           enable-cache: true
 
-%s%s%s
+%s%s%s%s
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -189,6 +210,7 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		githubGoToolsInstallStep,
 		githubSandboxAppArmorStep,
 		githubCgroupDelegationStep,
+		githubSandboxDiagnosticStep,
 		settings.ArtifactName,
 	), nil
 }

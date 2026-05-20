@@ -98,6 +98,25 @@ jobs:
           kill "$verify_pid" 2>/dev/null || true
           wait "$verify_pid" 2>/dev/null || true
 
+      - name: Validate sandbox runtime preflight
+        run: |
+          set +e
+          bin/coding-ethos-toolchain validate-sandbox-runtime
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::AppArmor status"
+            sudo aa-status || true
+            echo "::endgroup::"
+            echo "::group::Loaded sandbox profiles"
+            sudo grep -E 'coding-ethos-sandbox|unprivileged' \
+              /sys/kernel/security/apparmor/profiles || true
+            echo "::endgroup::"
+            echo "::group::Recent AppArmor denials"
+            sudo dmesg | tail -n 200 | grep -i apparmor || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
       - name: Build managed toolchain
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -193,6 +212,25 @@ jobs:
           kill "$verify_pid" 2>/dev/null || true
           wait "$verify_pid" 2>/dev/null || true
 
+      - name: Validate sandbox runtime preflight
+        run: |
+          set +e
+          bin/coding-ethos-toolchain validate-sandbox-runtime
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::AppArmor status"
+            sudo aa-status || true
+            echo "::endgroup::"
+            echo "::group::Loaded sandbox profiles"
+            sudo grep -E 'coding-ethos-sandbox|unprivileged' \
+              /sys/kernel/security/apparmor/profiles || true
+            echo "::endgroup::"
+            echo "::group::Recent AppArmor denials"
+            sudo dmesg | tail -n 200 | grep -i apparmor || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
       - name: Build managed toolchain
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -283,6 +321,25 @@ jobs:
           fi
           kill "$verify_pid" 2>/dev/null || true
           wait "$verify_pid" 2>/dev/null || true
+
+      - name: Validate sandbox runtime preflight
+        run: |
+          set +e
+          bin/coding-ethos-toolchain validate-sandbox-runtime
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::AppArmor status"
+            sudo aa-status || true
+            echo "::endgroup::"
+            echo "::group::Loaded sandbox profiles"
+            sudo grep -E 'coding-ethos-sandbox|unprivileged' \
+              /sys/kernel/security/apparmor/profiles || true
+            echo "::endgroup::"
+            echo "::group::Recent AppArmor denials"
+            sudo dmesg | tail -n 200 | grep -i apparmor || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
 
       - name: Sync dependencies
         run: uv sync --frozen --group dev --all-packages
@@ -429,6 +486,25 @@ jobs:
           fi
           kill "$verify_pid" 2>/dev/null || true
           wait "$verify_pid" 2>/dev/null || true
+
+      - name: Validate sandbox runtime preflight
+        run: |
+          set +e
+          bin/coding-ethos-toolchain validate-sandbox-runtime
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::AppArmor status"
+            sudo aa-status || true
+            echo "::endgroup::"
+            echo "::group::Loaded sandbox profiles"
+            sudo grep -E 'coding-ethos-sandbox|unprivileged' \
+              /sys/kernel/security/apparmor/profiles || true
+            echo "::endgroup::"
+            echo "::group::Recent AppArmor denials"
+            sudo dmesg | tail -n 200 | grep -i apparmor || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
 
       - name: Build coding-ethos runtime
         env:
