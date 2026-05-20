@@ -2105,6 +2105,24 @@ func TestRunGitHookAndCutoverUseRuntimeOps(t *testing.T) {
 	}
 }
 
+func TestRunGitHookIgnoresObsoletePrepareCommitMsgHook(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := runGitHook(paths, []string{"prepare-commit-msg", "COMMIT_EDITMSG"})
+	if err != nil {
+		t.Fatalf("runGitHook prepare-commit-msg: %v", err)
+	}
+
+	if len(calls) != 0 {
+		t.Fatalf("prepare-commit-msg made runtime calls: %#v", calls)
+	}
+}
+
 //nolint:paralleltest // Serializes process-global wrapper authorization env.
 func TestRunGitHookDoesNotSelfAuthorizeNativeGitHooks(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")

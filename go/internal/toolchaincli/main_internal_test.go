@@ -360,6 +360,56 @@ func TestInstallAndVerifyGitHookShims(t *testing.T) {
 	}
 }
 
+func TestInstallGitHooksRemovesManagedPrepareCommitMsgShim(t *testing.T) {
+	t.Parallel()
+
+	hooksDir := t.TempDir()
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
+
+	err := installHookEntrypoint(hooksDir, runner, "prepare-commit-msg")
+	if err != nil {
+		t.Fatalf("install obsolete prepare-commit-msg hook: %v", err)
+	}
+
+	err = installGitHooks([]string{"--hooks-dir", hooksDir, "--runner", runner})
+	if err != nil {
+		t.Fatalf("install git hooks: %v", err)
+	}
+
+	if _, err := os.Stat(
+		filepath.Join(hooksDir, "prepare-commit-msg"),
+	); !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		t.Fatalf("prepare-commit-msg hook was not removed: %v", err)
+	}
+}
+
+func TestInstallGitHooksKeepsUnmanagedPrepareCommitMsgHook(t *testing.T) {
+	t.Parallel()
+
+	hooksDir := t.TempDir()
+	runner := filepath.Join(t.TempDir(), "coding-ethos-run")
+	writeExecutableFixture(t, runner, "runner\n")
+	writeExecutableFixture(t, filepath.Join(hooksDir, "prepare-commit-msg"), "custom\n")
+
+	err := installGitHooks([]string{"--hooks-dir", hooksDir, "--runner", runner})
+	if err != nil {
+		t.Fatalf("install git hooks: %v", err)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(hooksDir, "prepare-commit-msg"))
+	if err != nil {
+		t.Fatalf("read prepare-commit-msg hook: %v", err)
+	}
+
+	if string(payload) != "custom\n" {
+		t.Fatalf("custom prepare-commit-msg hook was changed:\n%s", payload)
+	}
+}
+
 func TestGitHookFixItemsReportsMissingAndStaleHooks(t *testing.T) {
 	t.Parallel()
 

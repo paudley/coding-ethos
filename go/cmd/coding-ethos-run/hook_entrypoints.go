@@ -13,7 +13,7 @@ import (
 
 func isGitHookName(name string) bool {
 	switch name {
-	case "pre-commit", "pre-push", "commit-msg", "prepare-commit-msg":
+	case "pre-commit", "pre-push", "commit-msg":
 		return true
 	default:
 		return false
@@ -49,8 +49,12 @@ func runGitHook(paths runtimePaths, args []string) error {
 		)
 	}
 
+	if args[0] == "prepare-commit-msg" {
+		return nil
+	}
+
 	switch args[0] {
-	case "pre-commit", "pre-push", "commit-msg", "prepare-commit-msg", "validate":
+	case "pre-commit", "pre-push", "commit-msg", "validate":
 	default:
 		return apperror.Wrapf(
 			apperror.StaticError("unknown git hook %q"),
