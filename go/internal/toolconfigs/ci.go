@@ -7,6 +7,11 @@ import "fmt"
 
 const defaultCITimeoutMinutes = 30
 
+const githubGoToolsInstallStep = "" +
+	"      - name: Build shared Go tools\n" +
+	"        run: make go-tools-install\n" +
+	"\n"
+
 const githubSandboxAppArmorStep = "" +
 	"      - name: Install coding-ethos sandbox AppArmor profile\n" +
 	"        run: |\n" +
@@ -107,7 +112,7 @@ jobs:
         with:
           enable-cache: true
 
-%s%s
+%s%s%s
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -178,6 +183,7 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		settings.GateCommand,
 		settings.SARIFPath,
 		settings.SARIFCategory,
+		githubGoToolsInstallStep,
 		githubSandboxAppArmorStep,
 		githubCgroupDelegationStep,
 		settings.ArtifactName,

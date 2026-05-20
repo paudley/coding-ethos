@@ -54,6 +54,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Build shared Go tools
+        run: make go-tools-install
+
       - name: Install coding-ethos sandbox AppArmor profile
         run: |
           set -euo pipefail

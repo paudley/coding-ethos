@@ -48,6 +48,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Build shared Go tools
+        run: make go-tools-install
+
       - name: Install coding-ethos sandbox AppArmor profile
         run: |
           set -euo pipefail
@@ -137,6 +140,9 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Build shared Go tools
+        run: make go-tools-install
+
       - name: Install coding-ethos sandbox AppArmor profile
         run: |
           set -euo pipefail
@@ -221,6 +227,9 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
+
+      - name: Build shared Go tools
+        run: make go-tools-install
 
       - name: Install coding-ethos sandbox AppArmor profile
         run: |
@@ -361,6 +370,9 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
         with:
           enable-cache: true
+
+      - name: Build shared Go tools
+        run: make go-tools-install
 
       - name: Install coding-ethos sandbox AppArmor profile
         run: |
