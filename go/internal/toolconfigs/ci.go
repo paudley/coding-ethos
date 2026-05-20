@@ -17,12 +17,28 @@ const githubSandboxAppArmorStep = "" +
 	"        run: |\n" +
 	"          set -euo pipefail\n" +
 	"          profile=/etc/apparmor.d/coding-ethos-sandbox\n" +
+	"          run_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-run\"\n" +
 	"          sandbox_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox\"\n" +
+	"          toolchain_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-toolchain\"\n" +
 	"          sudo tee \"$profile\" >/dev/null <<EOF\n" +
 	"          abi <abi/4.0>,\n" +
 	"          include <tunables/global>\n" +
 	"\n" +
+	"          \"$run_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
+	"\n" +
 	"          \"$sandbox_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
+	"\n" +
+	"          \"$toolchain_path\" flags=(unconfined) {\n" +
 	"            userns,\n" +
 	"            capability sys_admin,\n" +
 	"            mount,\n" +
@@ -75,7 +91,7 @@ const githubSandboxDiagnosticStep = "" +
 	"            sudo aa-status || true\n" +
 	"            echo \"::endgroup::\"\n" +
 	"            echo \"::group::Loaded sandbox profiles\"\n" +
-	"            sudo grep -E 'coding-ethos-sandbox|unprivileged' \\\n" +
+	"            sudo grep -E 'coding-ethos-(run|sandbox|toolchain)|unprivileged' \\\n" +
 	"              /sys/kernel/security/apparmor/profiles || true\n" +
 	"            echo \"::endgroup::\"\n" +
 	"            echo \"::group::Recent AppArmor denials\"\n" +
